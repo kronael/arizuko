@@ -33,7 +33,7 @@ invites, `5/5` Phase B). Onboarding a user = admitting them to the world.
 
 ## Tier 2 — Agent (the main group)
 
-An agent is a main group: a folder with one persona/`SOUL.md`, its skills,
+An agent is a main group: a folder with one persona/`PERSONA.md` (`5/21`), its skills,
 memory (diary/facts/users), and route bindings. Creating an agent = seeding a
 group (`onbod/SetupGroup`). Agents are **peers within a world**, not nested.
 

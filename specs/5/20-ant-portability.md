@@ -25,14 +25,23 @@ They meet only at one point: a backup naturally contains the manifest +
 lockfile, so a restored agent is reproducible — `product sync`
 reinstalls byte-identical products from the lock.
 
-> **Reconciled with `5/28` (2026-07-28).** Mechanism 2's _single-unit_
-> lifecycle — how one product/package installs, updates, and removes — is now
-> canonical in [`5/28`](28-packages.md) as the **distributor-managed** model
-> (assets declared by identity; upgrade overwrites; the only "local" story is
-> the upstream channel; no three-way merge). This spec keeps **state transport**
-> (mechanism 1) and **composition** (how a group blends an ordered LIST of
-> products — the mixin precedence). Read the install/update/remove mechanics
-> from `5/28`; read the multi-product blend rules here.
+> **Reconciled with `5/28` (2026-07-29).** Mechanism 2's _single-unit_
+> lifecycle — how one product/package installs, upgrades, and removes — is now
+> canonical in [`5/28`](28-packages.md). Three reconciliations:
+>
+> - **`products.lock` IS `5/28`'s installed-package record** (source + revision +
+>   installed manifest + per-asset hash). One mechanism, not two. This spec's lock
+>   is that record scoped to a group's product mix.
+> - **The 3-way merge stays.** `5/28` does NOT retire `.merge-base` / `/migrate`;
+>   upgrade refuses a _dirty_ asset (hash ≠ recorded) and emits a diff rather than
+>   overwriting. Skills keep the shipped 3-way merge.
+> - **Ordering:** on restore/clone, apply agent state first (this spec), THEN
+>   `product sync` / package sync reasserts package-declared rows.
+>
+> This spec keeps **state transport** (mechanism 1) and **composition** — how a
+> group blends an ordered LIST of products (the per-kind precedence, which IS the
+> collision rule `5/28` defers here). Read one package's install/upgrade/remove
+> from `5/28`; read multi-product blend + state transport here.
 
 ## Mechanism 1 — state transport (export/apply)
 

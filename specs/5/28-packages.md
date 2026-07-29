@@ -4,223 +4,151 @@ status: draft
 
 # specs/5/28 — arizuko packages
 
-Source-first package model: GitHub repos seeded into agent containers
-at spawn. Packages ship skills (auto-injected into every group), agent
-group seeds, and sidecar MCP servers. No registry, no OCI images — just
-`go install`-style GitHub URLs with a declarative `package.yaml`.
+Source-first package manager: a package is a **git source** (GitHub URL,
+resolved to an immutable revision) that ships a **manifest** plus any subset of
+**asset kinds**. Install / upgrade / remove one mixed-asset package on an
+existing instance. No registry, no OCI.
 
 ## Today's state
 
-Skills live in `ant/skills/` and are copied into every container at spawn
-via `container/runner.go:seedSkills()`. External MCP servers are registered
-per-folder in `MCP.json` (spec `5/13`). There is no standard way to package
-and distribute skills, group templates, or integrated sidecars as a unit.
+Skills live in `ant/skills/` and are copied into every container at spawn via
+`container/runner.go:seedSkills()`; local skill edits are preserved by the
+shipped `/migrate` 3-way merge (`.merge-base`, `ant/skills/self/migration.md`).
+Compose adapter fragments ship as `services/<name>.yml` (`5/27`, shipped). There
+is no standard way to distribute skills + fragments + routes + grants as one unit.
 
 ## The packaging cluster — who owns what
 
-Packaging was split across five specs saying overlapping things. Canonical
-division (this reconciles them):
+| Concern                                                                           | Spec                     |
+| --------------------------------------------------------------------------------- | ------------------------ |
+| **Package manager** — install / upgrade / remove one unit's lifecycle             | **this spec (5/28)**     |
+| Producer side — what a product/package _contains_ (`PRODUCT.md`, persona, skills) | `5/21`                   |
+| Composition — one group blends an ordered LIST of products (per-kind precedence)  | `5/20`                   |
+| State transport — moving a live agent's rows/files (`export`/`apply`)             | `5/20` (mech. 1) + `5/8` |
+| Compose fragment — one asset _kind_ (a file)                                      | `5/27`                   |
+| Prototype — a product instantiated at spawn (`5/29` Tier-3)                       | `5/29`                   |
+| OCI distribution envelope — rejected alternative                                  | `5/30` (superseded)      |
 
-| Concern                                                                                               | Spec                     |
-| ----------------------------------------------------------------------------------------------------- | ------------------------ |
-| **Package manager** — install / update / remove of a software unit; the distributor-managed lifecycle | **this spec (5/28)**     |
-| Producer side — what a product/package _contains_ (`PRODUCT.md`, persona, skills)                     | `5/21`                   |
-| Composition — a group blends an ordered LIST of products (mixin precedence)                           | `5/20`                   |
-| State transport — moving a live agent's rows/data (`export`/`apply`, `pg_dump`-style)                 | `5/20` (mech. 1) + `5/8` |
-| Compose fragment — one asset _kind_ a package ships                                                   | `5/27`                   |
-| Prototype — a product instantiated at spawn (`5/29` Tier-3)                                           | `5/29`                   |
-| OCI distribution envelope — rejected alternative                                                      | `5/30` (superseded)      |
+**5/28 is one package's lifecycle; 5/20 is state + how several products compose.**
+They meet only at restore (below).
 
-The one-line rule: **5/28 is the lifecycle mechanism; 5/21 is the payload;
-5/20 is state + how many products compose; 5/27/5/29 are asset kinds.** State
-transport (5/20 mech. 1) and package distribution (here) stay separate concerns
-— they meet only when a backup carries the manifest so a restore reinstalls the
-same packages.
+## Package = source + manifest + asset kinds
 
-## Target shape
+One manifest, and it is the **shipped `PRODUCT.md`** (`5/21`) — NOT a second
+`package.yaml`. A package declares any SUBSET of asset kinds (no
+`skill|agent|sidecar` type enum — presence of an asset is the behaviour):
 
-### Package manifest (package.yaml at repo root)
+| Asset kind       | What it is                                            | Owner handler                         |
+| ---------------- | ----------------------------------------------------- | ------------------------------------- |
+| skills           | `SKILL.md` dirs → `ant/skills/<name>/`                | `seedSkills` + `/migrate` 3-way merge |
+| compose fragment | `services/<name>.yml` (+ `<name>-routes.json`)        | `5/27` (a file)                       |
+| proxyd route     | a `proxyd_routes` row, keyed by path                  | `/v1/proxyd_routes`                   |
+| grant            | an `acl` row, keyed by key                            | `/v1/acl`                             |
+| group seed       | a folder template, **seeded once** → then local state | `SetupGroup`                          |
 
-```yaml
-name: sloth
-version: 1.0.0
-type: skill # skill | agent | sidecar
-requires:
-  - BINANCE_API_KEY # optional: warn if unset
-  - BINANCE_SECRET
-skills: skills/ # dir to copy to ant/skills/<name>/
-group: sloth # for type: agent — folder name to seed
-compose: compose.yml # for type: sidecar — compose fragment path
-mcp: MCP.json # for type: sidecar — MCP registration snippet
-apply: arizuko.yaml # optional: apply manifest
-```
+`requires:` (env vars) is a preflight **warning**, never a gate.
 
-### Three package types
+## The installed-package record (the one new mechanism)
 
-**1. Skill** — SKILL.md files only. No daemon. Install copies `skills/`
-→ `ant/skills/<name>/`; rebuilt into the next agent spawn.
+`5/20`'s `products.lock` generalises to a single per-instance **installed
+record**, one entry per installed package:
 
-**2. Agent** — Full group folder seed. Contains `SOUL.md`, `skills/`,
-optional `arizuko.yaml` apply manifest. Install seeds `groups/<folder>/`
-(skip if exists), registers routes via apply manifest.
+- **source** + resolved **immutable revision**;
+- the **manifest as installed** — the exact identities this install owns (route
+  paths, acl keys, skill dirs, files, fragment names);
+- a per-asset **content hash** (what was written).
 
-**3. Sidecar** — MCP server as Docker sidecar. Contains `compose.yml`
-(the container), `MCP.json` snippet (registration), `skills/` (agent-side
-SKILL.md). Install deploys compose fragment, registers MCP endpoint in
-target group folders.
+This is NOT per-row provenance (that was demolished — see below). It is the lock
+that makes upgrade, remove, and dirty-detection specifiable at all. **Without it,
+none of the three can be honest** — both codex passes (2026-07-28/29) converged
+on this.
 
-### Install flow
+## Lifecycle
 
-```
-arizuko packages install github.com/kronael/sloth[@v1.0.0]
-  1. clone/download → ~/.arizuko/packages/sloth/
-  2. read package.yaml
-  3. warn if requires: env vars missing
-  4. copy skills/ → ant/skills/<name>/
-  5. if type=agent: seed groups/<folder>/ (skip if exists)
-  6. if apply: arizuko apply <instance> arizuko.yaml
-  7. if type=sidecar: copy compose.yml → services/<name>.yml
-                      register MCP.json with target group folders
-  8. print: "needs restart if compose changed"
-```
+Install is a **deterministic phased plan through the owner REST handlers** —
+never raw DB writes (that bypasses gate/validation/audit, `5/17`). Each asset
+kind uses its OWN create/update/delete; there is no uniform overwrite verb
+(proxyd `POST` rejects an existing path → update is `PATCH`; `acl` add is
+`INSERT OR IGNORE`).
 
-## Install lifecycle — distributor-managed
+1. **preflight** — resolve source → revision + hash; warn on missing `requires:`;
+   refuse a cross-package identity collision or an absent declared dependency.
+2. **files** — skills, compose fragment, seeded files (atomic writes). A **group
+   seed is written once**; thereafter it is local agent state, never re-touched.
+3. **restart/health** — bring up a new sidecar; wait healthy BEFORE its route.
+4. **resources** — create rows via the real handler: `proxyd_routes` by path,
+   `acl` by key.
 
-> **A declarative reconciler was drafted here and demolished** (codex, 2026-07-28;
-> full critique `.ship/critique-cto-20260728.md`). It proposed one engine running
-> `apply`/`export`/`remove` in three directions over resreg rows, with
-> `provenance = ownership`. Nine fatal flaws — kept as the record of why this
-> shape is wrong:
->
-> - **Provenance was a missing schema.** A `proxyd_routes` row carries nothing
->   saying a package installed it; "the package's to delete" had no basis.
-> - **Manifest-as-authoritative contradicts `5/8`** (SQLite is truth; YAML is
->   dump/restore). "delete extra" then either erases operator edits or can't.
-> - **state→typed-verbs is not reversible** — a row can't reveal whether it came
->   from a verb, REST, a migration, or an agent; export can't reconstruct it.
-> - **Export ≠ "reproduce a world"** — secrets, tokens, sessions, history are
->   excluded (`5/20`); generic registry export leaks bearer tokens (invites).
-> - **The agent-session hatch annihilates determinism** — no plan, no
->   idempotence, no rollback; sandboxing stops host escape, not authorized
->   exfiltration or repeated side effects.
-> - **"negated manifest" is gibberish** (inverse of `env.set`? of minted tokens?
->   of `seed_group` with accumulated history?).
-> - Verb names didn't match resreg (`route`≠`proxyd_routes`, `grant`≠`acl`); the
->   shipped YAML engine does raw `DELETE+INSERT`, bypassing the canonical handler
->   / gate / audit.
+Partial failure **resumes from the installed record** (roll-forward) — fs /
+compose / restart side effects can't be transactionally rolled back (`5/8`).
 
-The survivable model: install is a **deterministic phased plan through the owner
-REST APIs**, with the package (the distributor) authoritative. No universal
-reconciler, no per-row provenance schema — a package owns exactly the identities
-its manifest declares.
+- **upgrade** — new revision authoritative; diff the new manifest against the
+  recorded one: create/patch declared identities, delete the identities the new
+  release drops.
+- **remove** — delete exactly the recorded identities via their owner handlers
+  (`DELETE /v1/proxyd_routes/<path>`, drop skills/files, bring the sidecar down in
+  health→route reverse order). Refuse if another installed package declares a
+  dependency. **Group seed / persona / facts are NOT removed** — they became local
+  state at seed time (a seeded agent folder is not a disposable package asset).
 
-### Phased install
+## Local edits are protected, not overwritten
 
-Ordered phases, each idempotent, with health gates — not an unordered verb list:
+> **Correction (codex, 2026-07-29).** An earlier draft had upgrade blind-overwrite
+> local edits, "safe because they were filed upstream." Data-loss regression: the
+> upstream channel does not exist (`issues` only appends to a local `~/issues.md`;
+> there is no `gh-issue` ant-skill or issues MCP), and local skill edits are
+> preserved today by the `/migrate` 3-way merge (tested, `container_test.go:702`).
 
-1. **preflight** — resolve source to an immutable revision + content hash; check
-   `requires:` env; detect name/route/port collisions; refuse if a dependency is
-   absent.
-2. **files** — skills, group seed, compose fragment, `.env` keys (atomic writes).
-3. **restart/health** — bring up any new sidecar; wait healthy before routing to it.
-4. **resources** — create routes/grants/etc. by calling the **owner REST API**
-   (`POST /v1/routes`, `/v1/acl`, …) so each goes through its real handler, gate,
-   validation, and audit (`5/17`). NOT raw DB writes.
+Rule: **upgrade refuses a dirty asset.** An asset is _dirty_ when its current
+content hash ≠ the recorded install hash. On upgrade:
 
-Partial failure resumes from a durable operation journal (roll-forward), not a
-fake global rollback — filesystem/compose/restart side effects can't be
-transactionally undone (`5/8`).
+- clean asset → replace with the new revision;
+- **dirty asset → stop, emit the diff** against the recorded revision; the
+  operator resolves (keep-mine / take-theirs / file-the-diff to the source).
 
-### Distributor-managed — the package is authoritative
+**Skills keep the shipped 3-way merge** — it already does this safely; packages
+do NOT retire it. When a real upstream channel + automatic dirty-capture exist,
+"file the diff" becomes one command; until then it is manual. Local is the R&D
+edge, upstream the durable form (`6/`'s loop) — but nothing is overwritten unseen.
 
-A package **declares its assets by identity**: skills, routes (by path), grants
-(by key), a group folder, seeded files. Install and upgrade **write those,
-overwriting whatever is there** — the distributor's version wins. No `owner`
-column, no precedence rules, no three-way merge, no fork/detach verbs. The
-manifest names what the package owns; there is nothing else to track.
+## Resolves `5/27` C2
 
-- **A package owns exactly the identities its manifest declares.** Anything at an
-  identity **no** package declares is operator-local and never touched — your own
-  route at a different path is safe by construction.
-- **remove** deletes the manifest's identities — `DELETE /v1/routes/<path>`, drop
-  the skills/files — through the owner REST handler (`5/17`). Refuse if another
-  package declares a dependency on this one.
-- **upgrade** writes the new manifest over the old and deletes assets the old
-  declared that the new drops. Overwrite, never merge.
+`packages remove slakd` reads the installed record, finds it owns the
+`proxyd_routes` row for `/slack/`, and `DELETE /v1/proxyd_routes/<path>` through
+proxyd's handler — the live table updates (not a JSON blob proxyd ignores when
+its table is non-empty). The record names what to remove; no ownership guessing.
 
-### The upstream channel — the only "local" story
+## Composition + restore ordering (both → `5/20`)
 
-An agent or operator may change a package asset in place; it works until the next
-upgrade **overwrites** it. Local edits are **provisional by design**. The durable
-path is a clear channel telling the distributor which change to incorporate: the
-agent submits the diff + rationale via the existing `issues` / `gh-issue` MCP,
-and the distributor folds it into the next release — where it ships back as a
-package asset.
+- **Two packages in one group:** deterministic per-kind precedence is `5/20`'s
+  blend rule (persona: first-wins; skills: last-wins wholesale; CLAUDE.md:
+  appended; rows: union, cross-package collision refused). That IS the collision
+  rule — 5/28 owns one package; 5/20 owns how several compose.
+- **Restore vs install:** both write rows. Rule — **restore agent state first,
+  then package sync reasserts package-declared identities**, so a cloned agent's
+  recorded packages re-install their rows over the restored baseline.
 
-```
-local edit → next upgrade overwrites it → but the agent filed it upstream
-     ↑                                                        ↓
-     └──────  next release ships it as a package asset  ←─────┘
-```
+## Reconciler alternative — demolished
 
-Local is the R&D edge; upstream is the durable form — `6/`'s agentic-
-reimplementation loop. "Keep it local forever" = fork the package (run your own
-distributor). Nothing an agent cares about is silently lost: an overwrite worth
-keeping was already proposed upstream.
+> A declarative reconciler (apply/export/remove as one engine over resreg rows,
+> `provenance = ownership`) was drafted here and demolished by codex
+> (2026-07-28, `.ship/critique-cto-20260728.md`, 17 findings / 9 fatal). Chief
+> kill: **provenance was a missing schema** — a `proxyd_routes` row carries
+> nothing saying a package installed it. The installed-package record above is
+> that schema, made minimal and explicit. Also fatal there: manifest-as-truth
+> contradicts `5/8`; export≠reproduce-a-world (secrets/sessions excluded);
+> "negated manifest" is meaningless. Kept as the record of why this shape is wrong.
 
-### Skills use the same model
+## Deferred (to stay minimal)
 
-Skills are distributor-managed too — a skill upgrade **overwrites** the local
-copy, **retiring the `/migrate` 3-way merge** (`~/.claude/.merge-base/`
-inline-merge). A local skill tweak worth keeping goes upstream as an issue, not
-into an inline merge. Skills stop being a special case.
-
-### Resolves `5/27` C2
-
-`packages remove slakd` reads slakd's manifest, sees it declares `/slack/`, and
-`DELETE /v1/routes` for that path through proxyd's REST handler — so the live
-`proxyd_routes` table updates (not a regenerated JSON blob proxyd ignores). The
-manifest names what to remove; no ownership guessing.
-
-### Conditionals and logic
-
-- **`requires:` / collision checks** are preflight predicates (typed, not a
-  grammar). A route whose `requires` env is unset is simply not installed.
-- **Real branching logic** is an explicit, **opt-in** agent setup action — NOT
-  part of the declarative install, and carrying **no** idempotence/rollback/
-  ownership guarantees. It runs a `5/29` setup prototype (sandboxed by crackbox,
-  grant-gated, audited), invoked knowingly by the operator. Keeping it outside
-  the install contract is the point.
-
-### Now in scope (were "document in README")
-
-Cross-package dependencies need real handling: versioned dependency declarations,
-collision detection, reverse-dependency refusal on remove, and reference
-semantics for a shared instance-global sidecar (one install, refcounted).
-
-## Discovery and interconnection
-
-**Discovery**: GitHub topic `arizuko-package`. No registry needed.
-
-**Shared libraries**: existing `share/` mount (`/var/lib/share`
-→ `groups/<world>/share/`) is the mechanism. Packages can seed files there.
-
-**Interconnection**: via skills (agent invokes by SKILL.md name) and via
-MCP (sidecar provides tool endpoints). No new protocol — MCP is the interface.
-
-### Out of scope v1
-
-Multi-env support (skill with `requires: {dev: [VAR], prod: [OTHER_VAR]}`).
-Package registry or central catalog (GitHub topic search is discovery).
-(Package dependencies moved IN scope — see "Install lifecycle" above; codex
-2026-07-28 ruled README-only dependencies unserious.)
-
-## What deletes
-
-Nothing. This adds a distribution mechanism; today's in-repo skills keep working.
+Registry / marketplace / OCI / signing; semver dependency solving; fleet-wide
+upgrade; shared-sidecar refcounting (declared deps + reverse-remove refusal
+suffice); arbitrary agent-setup actions during install; `arizuko-package`
+GitHub-topic discovery; the sidecar per-group `MCP.json` (dropped, `5/13`).
 
 ## Code pointers
 
-- `cmd/arizuko/packages.go` — install/list/remove CLI
-- `container/runner.go:seedSkills()` — already copies skills at spawn
-- `ipc/connector.go` — existing MCP subprocess model (spec 5/13)
+- `cmd/arizuko/packages.go` — install/list/remove CLI (today: fragment copy only)
+- `container/runner.go:seedSkills()` — skill seeding at spawn
+- `resreg/resources/proxyd_routes.go`, `routd/acl_resource.go` — the owner handlers
+- `ant/skills/self/migration.md` — the 3-way merge packages reuse for skills
