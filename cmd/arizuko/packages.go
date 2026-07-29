@@ -18,6 +18,25 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
+// pkgGrant is a package's grant asset (lowercase JSON), mapped to core.ACLRow.
+type pkgGrant struct {
+	Principal string `json:"principal"`
+	Action    string `json:"action"`
+	Scope     string `json:"scope"`
+	Effect    string `json:"effect,omitempty"`
+	Params    string `json:"params,omitempty"`
+	Predicate string `json:"predicate,omitempty"`
+}
+
+func (g pkgGrant) row() core.ACLRow {
+	e := g.Effect
+	if e == "" {
+		e = "allow" // match store.PutACLRow's default so RemoveACLRow matches
+	}
+	return core.ACLRow{Principal: g.Principal, Action: g.Action, Scope: g.Scope,
+		Effect: e, Params: g.Params, Predicate: g.Predicate}
+}
+
 // pkgNameRE matches a package name — the same identifier shape the compose
 // generator validates for discovered fragment filenames. It forbids `.`/`/`
 // leads and every path separator, so a name can never traverse outside
@@ -142,12 +161,49 @@ func mustOpenRoutd(dataDir string) *routd.DB {
 	return rdb
 }
 
-// hasProxydRoutes reports whether routd.db carries the proxyd_routes table
-// (present once the daemon has migrated the full schema).
-func hasProxydRoutes(rdb *routd.DB) bool {
+// hasTable reports whether routd.db carries a table (present once the daemon has
+// migrated the full schema — proxyd_routes / acl live in the store schema).
+func hasTable(rdb *routd.DB, name string) bool {
 	var n int
 	return rdb.SQL().QueryRow(
-		"SELECT 1 FROM sqlite_master WHERE type='table' AND name='proxyd_routes'").Scan(&n) == nil
+		"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", name).Scan(&n) == nil
+}
+
+// applyPackageGrants hot-applies every grant in the package's `*-grants.json`
+// files into routd.db's acl table (spec 5/28 acl asset kind). Grants are not
+// compose-fragment assets (not copied to services/), so this scans the source
+// dir directly. Returns each applied grant as JSON for the record, so remove
+// can reverse it exactly.
+func applyPackageGrants(rdb *routd.DB, dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		die("Failed: read source %s: %v", dir, err)
+	}
+	st := store.New(rdb.SQL())
+	var recorded []string
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || !strings.HasSuffix(n, "-grants.json") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, n))
+		if err != nil {
+			die("Failed: read %s: %v", n, err)
+		}
+		var grants []pkgGrant
+		if err := json.Unmarshal(b, &grants); err != nil {
+			die("Failed: parse %s: %v", n, err)
+		}
+		for _, g := range grants {
+			row := g.row()
+			if err := st.PutACLRow(row); err != nil {
+				die("Failed: apply grant %s/%s: %v", row.Principal, row.Action, err)
+			}
+			j, _ := json.Marshal(row)
+			recorded = append(recorded, string(j))
+		}
+	}
+	return recorded
 }
 
 // applyPackageRoutes hot-applies every route in the package's `*-routes.json`
@@ -302,9 +358,14 @@ func cmdPackages(args []string) {
 		rdb := mustOpenRoutd(dataDir)
 		defer rdb.Close()
 		manifest := map[string][]string{"compose_fragment": files}
-		if hasProxydRoutes(rdb) {
+		if hasTable(rdb, "proxyd_routes") {
 			if paths := applyPackageRoutes(rdb, dir, files); len(paths) > 0 {
 				manifest["proxyd_route"] = paths
+			}
+		}
+		if hasTable(rdb, "acl") {
+			if grants := applyPackageGrants(rdb, dir); len(grants) > 0 {
+				manifest["grant"] = grants
 			}
 		}
 		if err := rdb.PutInstalledPackage(routd.InstalledPackage{
@@ -387,11 +448,22 @@ func cmdPackages(args []string) {
 			// is ever routed at a sidecar mid-teardown, THEN drop the fragment
 			// files. Bring-up health-gating is compose's (healthcheck +
 			// depends_on) — the CLI can't reach docker-internal backends.
-			if paths := rec.Manifest["proxyd_route"]; len(paths) > 0 && hasProxydRoutes(rdb) {
-				st := store.New(rdb.SQL())
+			st := store.New(rdb.SQL())
+			if paths := rec.Manifest["proxyd_route"]; len(paths) > 0 && hasTable(rdb, "proxyd_routes") {
 				for _, p := range paths {
 					if _, err := st.DeleteProxydRoute(p); err != nil {
 						die("Failed: remove route %s: %v", p, err)
+					}
+				}
+			}
+			if grants := rec.Manifest["grant"]; len(grants) > 0 && hasTable(rdb, "acl") {
+				for _, gj := range grants {
+					var row core.ACLRow
+					if err := json.Unmarshal([]byte(gj), &row); err != nil {
+						die("Failed: decode recorded grant: %v", err)
+					}
+					if err := st.RemoveACLRow(row); err != nil {
+						die("Failed: remove grant %s/%s: %v", row.Principal, row.Action, err)
 					}
 				}
 			}

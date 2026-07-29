@@ -258,9 +258,9 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasTable := hasProxydRoutes(rdb0)
+	has := hasTable(rdb0, "proxyd_routes")
 	rdb0.Close()
-	if !hasTable {
+	if !has {
 		t.Skip("routd.Open db has no proxyd_routes; P2 mechanism covered by store.TestPutDeleteProxydRoute")
 	}
 
@@ -305,4 +305,71 @@ func routePresent(t *testing.T, rdb *routd.DB, path string) bool {
 		}
 	}
 	return false
+}
+
+// TestPackagesInstallGrants: the acl asset kind (spec 5/28) — install applies a
+// package's *-grants.json into acl and records them; remove reverses exactly.
+func TestPackagesInstallGrants(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	dataDir := filepath.Join(base, "arizuko_gr")
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rdb0, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	has := hasTable(rdb0, "acl")
+	rdb0.Close()
+	if !has {
+		t.Skip("routd.Open db has no acl table")
+	}
+	src := filepath.Join(base, "grantpkg")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "grantpkg.yml"),
+		[]byte("services:\n  grantpkg:\n    image: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "grantpkg-grants.json"),
+		[]byte(`[{"principal":"@ops","action":"reply","scope":"eng/*"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmdPackages([]string{"gr", "install", src})
+
+	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := store.New(rdb.SQL()).ListACL("@ops")
+	found := false
+	for _, r := range rows {
+		if r.Action == "reply" && r.Scope == "eng/*" {
+			found = true
+		}
+	}
+	rec, _, _ := rdb.InstalledPackage("grantpkg")
+	rdb.Close()
+	if !found {
+		t.Fatal("grant not applied to acl")
+	}
+	if len(rec.Manifest["grant"]) != 1 {
+		t.Fatalf("grant not recorded: %+v", rec)
+	}
+
+	cmdPackages([]string{"gr", "remove", "grantpkg"})
+
+	rdb2, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rdb2.Close()
+	for _, r := range store.New(rdb2.SQL()).ListACL("@ops") {
+		if r.Action == "reply" && r.Scope == "eng/*" {
+			t.Fatal("grant not removed from acl")
+		}
+	}
 }
