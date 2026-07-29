@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/routd"
+	"github.com/kronael/arizuko/store"
 )
 
 // C1: package names that could traverse outside services/ must be rejected.
@@ -226,4 +227,82 @@ func TestPackagesInstallGit(t *testing.T) {
 	if !ok || rec.Revision == "local" || len(rec.Revision) < 7 || rec.Source != "file://"+repo {
 		t.Fatalf("git revision/source not recorded: %+v", rec)
 	}
+}
+
+// TestPackagesInstallRoutesHotApply is P2 (spec 5/28, fixes 5/27 C2): install
+// writes a package's route straight into the live proxyd_routes table and
+// records the path; remove deletes it. Skips if a fresh routd.Open db lacks the
+// (daemon-migrated) proxyd_routes table — the mechanism is covered by
+// store.TestPutDeleteProxydRoute.
+func TestPackagesInstallRoutesHotApply(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	dataDir := filepath.Join(base, "arizuko_r")
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(base, "routepkg")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "routepkg.yml"),
+		[]byte("services:\n  routepkg:\n    image: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "routepkg-routes.json"),
+		[]byte(`[{"path":"/rp/","backend":"http://routepkg:8080","auth":"public"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rdb0, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasTable := hasProxydRoutes(rdb0)
+	rdb0.Close()
+	if !hasTable {
+		t.Skip("routd.Open db has no proxyd_routes; P2 mechanism covered by store.TestPutDeleteProxydRoute")
+	}
+
+	cmdPackages([]string{"r", "install", src})
+
+	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !routePresent(t, rdb, "/rp/") {
+		rdb.Close()
+		t.Fatal("route not hot-applied to proxyd_routes")
+	}
+	rec, _, _ := rdb.InstalledPackage("routepkg")
+	if len(rec.Manifest["proxyd_route"]) != 1 || rec.Manifest["proxyd_route"][0] != "/rp/" {
+		rdb.Close()
+		t.Fatalf("route path not recorded: %+v", rec)
+	}
+	rdb.Close()
+
+	cmdPackages([]string{"r", "remove", "routepkg"})
+
+	rdb2, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rdb2.Close()
+	if routePresent(t, rdb2, "/rp/") {
+		t.Fatal("route not removed from proxyd_routes")
+	}
+}
+
+func routePresent(t *testing.T, rdb *routd.DB, path string) bool {
+	t.Helper()
+	all, err := store.New(rdb.SQL()).AllProxydRoutes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range all {
+		if r.Path == path {
+			return true
+		}
+	}
+	return false
 }

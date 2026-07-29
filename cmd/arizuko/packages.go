@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
+	"github.com/kronael/arizuko/store"
 )
 
 // pkgNameRE matches a package name — the same identifier shape the compose
@@ -140,6 +142,43 @@ func mustOpenRoutd(dataDir string) *routd.DB {
 	return rdb
 }
 
+// hasProxydRoutes reports whether routd.db carries the proxyd_routes table
+// (present once the daemon has migrated the full schema).
+func hasProxydRoutes(rdb *routd.DB) bool {
+	var n int
+	return rdb.SQL().QueryRow(
+		"SELECT 1 FROM sqlite_master WHERE type='table' AND name='proxyd_routes'").Scan(&n) == nil
+}
+
+// applyPackageRoutes hot-applies every route in the package's `*-routes.json`
+// assets into routd.db's proxyd_routes table. proxyd reads that table live per
+// request, so the route takes effect WITHOUT a restart — the 5/27 C2 fix
+// (spec 5/28 P2). Returns the applied route paths for the record.
+func applyPackageRoutes(rdb *routd.DB, dir string, files []string) []string {
+	st := store.New(rdb.SQL())
+	var paths []string
+	for _, n := range files {
+		if !strings.HasSuffix(n, "-routes.json") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, n))
+		if err != nil {
+			die("Failed: read %s: %v", n, err)
+		}
+		var routes []store.ProxydRoute
+		if err := json.Unmarshal(b, &routes); err != nil {
+			die("Failed: parse %s: %v", n, err)
+		}
+		for _, r := range routes {
+			if err := st.PutProxydRoute(r); err != nil {
+				die("Failed: apply route %s: %v", r.Path, err)
+			}
+			paths = append(paths, r.Path)
+		}
+	}
+	return paths
+}
+
 // dirtyAssets returns the record's file assets whose current on-disk content no
 // longer matches the install hash — the locally edited ones an upgrade must
 // refuse to overwrite (spec 5/28: no blind overwrite). A missing file is not
@@ -262,17 +301,24 @@ func cmdPackages(args []string) {
 		}
 		rdb := mustOpenRoutd(dataDir)
 		defer rdb.Close()
+		manifest := map[string][]string{"compose_fragment": files}
+		if hasProxydRoutes(rdb) {
+			if paths := applyPackageRoutes(rdb, dir, files); len(paths) > 0 {
+				manifest["proxyd_route"] = paths
+			}
+		}
 		if err := rdb.PutInstalledPackage(routd.InstalledPackage{
 			Name:        name,
 			Source:      origin,
 			Revision:    revision,
-			Manifest:    map[string][]string{"compose_fragment": files},
+			Manifest:    manifest,
 			AssetHashes: hashes,
 			InstalledAt: time.Now().UTC().Format(time.RFC3339),
 		}); err != nil {
 			die("Failed: record install of %s: %v", name, err)
 		}
-		fmt.Printf("installed %s@%s (%d file(s)) — run `arizuko generate %s` to apply\n", name, revision, len(files), args[0])
+		fmt.Printf("installed %s@%s (%d file(s), %d route(s)) — run `arizuko generate %s` to apply\n",
+			name, revision, len(files), len(manifest["proxyd_route"]), args[0])
 	case "upgrade":
 		// P3 (spec 5/28): re-install a package's assets from its recorded source,
 		// but REFUSE to overwrite a locally edited (dirty) asset — emit which and
@@ -341,6 +387,16 @@ func cmdPackages(args []string) {
 				if fn, isFile := strings.CutPrefix(k, "file:"); isFile {
 					if err := os.Remove(filepath.Join(svcDir, fn)); err != nil && !os.IsNotExist(err) {
 						die("Failed: remove %s: %v", fn, err)
+					}
+				}
+			}
+			// Delete the live proxyd_routes rows this package hot-applied (P2),
+			// so removal leaves no dangling route (5/27 C2's other half).
+			if paths := rec.Manifest["proxyd_route"]; len(paths) > 0 && hasProxydRoutes(rdb) {
+				st := store.New(rdb.SQL())
+				for _, p := range paths {
+					if _, err := st.DeleteProxydRoute(p); err != nil {
+						die("Failed: remove route %s: %v", p, err)
 					}
 				}
 			}
