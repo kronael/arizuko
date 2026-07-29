@@ -73,9 +73,12 @@ tasks.toml     Seed scheduled tasks
 `PERSONA.md` is the agent's identity. `CLAUDE.md` is the per-group runbook that
 the agent reads every session. Both are optional but most products ship both.
 
-Skills are not stored in the product folder. `skills` in `PRODUCT.md` is a
-whitelist that controls which global skills (`ant/skills/`) get seeded into
-the new group. The full skill set lives in the image; products select a subset.
+Two kinds of skill (reconciled with `5/20`/`5/28`, 2026-07-29): the `skills`
+LIST in `PRODUCT.md` is a whitelist SELECTING stock skills (`ant/skills/`, in the
+image) to seed — today informational, slated to become real gating. A product MAY
+ALSO bundle its OWN `skills/` directory — the managed payload that `5/28`
+install/upgrade governs (dirty-detection + the 3-way merge). Stock selection ≠
+bundled payload; a product can use either or both.
 
 ## How to install a product
 
