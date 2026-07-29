@@ -373,3 +373,46 @@ func TestPackagesInstallGrants(t *testing.T) {
 		}
 	}
 }
+
+// TestPackagesInstallSkills: the skills asset kind (spec 5/28) — install copies
+// a package's skills/<name>/ into <datadir>/skills/<name>/ (seedSkills layers it
+// into every group), records the names; remove deletes them.
+func TestPackagesInstallSkills(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	dataDir := filepath.Join(base, "arizuko_sk")
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(base, "skillpkg")
+	if err := os.MkdirAll(filepath.Join(src, "skills", "mytool"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "skillpkg.yml"),
+		[]byte("services:\n  skillpkg:\n    image: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "skills", "mytool", "SKILL.md"), []byte("# mytool"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmdPackages([]string{"sk", "install", src})
+
+	if _, err := os.Stat(filepath.Join(dataDir, "skills", "mytool", "SKILL.md")); err != nil {
+		t.Fatalf("skill not installed: %v", err)
+	}
+	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, _, _ := rdb.InstalledPackage("skillpkg")
+	rdb.Close()
+	if len(rec.Manifest["skill"]) != 1 || rec.Manifest["skill"][0] != "mytool" {
+		t.Fatalf("skill not recorded: %+v", rec)
+	}
+
+	cmdPackages([]string{"sk", "remove", "skillpkg"})
+	if _, err := os.Stat(filepath.Join(dataDir, "skills", "mytool")); !os.IsNotExist(err) {
+		t.Fatal("skill dir not removed")
+	}
+}

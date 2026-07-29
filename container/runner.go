@@ -1058,6 +1058,19 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 		cpDirOverwrite(s, baseDir)
 	}
 
+	// Layer per-instance package skills (spec 5/28 skills asset kind): a package
+	// installs its skills into <datadir>/skills/<name>/ (sibling of GroupsDir);
+	// they seed into every group like stock skills. Additive + inert when no
+	// skills-package is installed (ReadDir errors → skip).
+	pkgSkills := filepath.Join(filepath.Dir(cfg.GroupsDir), "skills")
+	if pkgs, err := os.ReadDir(pkgSkills); err == nil {
+		for _, e := range pkgs {
+			if e.IsDir() && skillNameRe.MatchString(e.Name()) {
+				cpDirFresh(filepath.Join(pkgSkills, e.Name()), filepath.Join(dst, e.Name()))
+			}
+		}
+	}
+
 	mdSrc := filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "CLAUDE.md")
 	mdDst := filepath.Join(claudeDir, "CLAUDE.md")
 	mdBase := filepath.Join(claudeDir, ".merge-base", "CLAUDE.md")

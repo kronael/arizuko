@@ -235,6 +235,52 @@ func applyPackageRoutes(rdb *routd.DB, dir string, files []string) []string {
 	return paths
 }
 
+// copyTree recursively copies a directory (skills can carry subdirs + scripts).
+func copyTree(src, dst string) error {
+	return filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, b, 0o644)
+	})
+}
+
+// applyPackageSkills installs a package's `skills/<name>/` dirs into the
+// per-instance `<datadir>/skills/<name>/` (spec 5/28 skills asset kind), which
+// seedSkills layers into every group. Returns the installed skill names for the
+// record. Instance-wide by design (like stock skills); per-agent targeting is a
+// future refinement.
+func applyPackageSkills(dataDir, dir string) []string {
+	src := filepath.Join(dir, "skills")
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return nil // no skills/ in this package
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() || !pkgNameRE.MatchString(e.Name()) {
+			continue
+		}
+		if err := copyTree(filepath.Join(src, e.Name()), filepath.Join(dataDir, "skills", e.Name())); err != nil {
+			die("Failed: install skill %s: %v", e.Name(), err)
+		}
+		names = append(names, e.Name())
+	}
+	return names
+}
+
 // dirtyAssets returns the record's file assets whose current on-disk content no
 // longer matches the install hash — the locally edited ones an upgrade must
 // refuse to overwrite (spec 5/28: no blind overwrite). A missing file is not
@@ -368,6 +414,9 @@ func cmdPackages(args []string) {
 				manifest["grant"] = grants
 			}
 		}
+		if skills := applyPackageSkills(dataDir, dir); len(skills) > 0 {
+			manifest["skill"] = skills
+		}
 		if err := rdb.PutInstalledPackage(routd.InstalledPackage{
 			Name:        name,
 			Source:      origin,
@@ -466,6 +515,9 @@ func cmdPackages(args []string) {
 						die("Failed: remove grant %s/%s: %v", row.Principal, row.Action, err)
 					}
 				}
+			}
+			for _, sk := range rec.Manifest["skill"] {
+				_ = os.RemoveAll(filepath.Join(dataDir, "skills", sk))
 			}
 			for k := range rec.AssetHashes {
 				if fn, isFile := strings.CutPrefix(k, "file:"); isFile {

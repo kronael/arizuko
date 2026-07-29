@@ -946,3 +946,27 @@ func TestPersonaAndSystemMdMissing(t *testing.T) {
 		t.Errorf("expected empty systemMd, got %q", sys)
 	}
 }
+
+// TestSeedSkillsPackageLayer: a package skill staged at <datadir>/skills/<name>/
+// is layered into every group's .claude/skills (spec 5/28 skills asset kind).
+func TestSeedSkillsPackageLayer(t *testing.T) {
+	dataDir := t.TempDir()
+	appDir := t.TempDir()
+	claudeDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(appDir, "ant", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dataDir, "skills", "pkgskill"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "skills", "pkgskill", "SKILL.md"), []byte("# pkgskill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &core.Config{HostAppDir: appDir, GroupsDir: filepath.Join(dataDir, "groups")}
+
+	seedSkills(cfg, claudeDir, "g")
+
+	if _, err := os.Stat(filepath.Join(claudeDir, "skills", "pkgskill", "SKILL.md")); err != nil {
+		t.Fatalf("package skill not layered into group: %v", err)
+	}
+}
