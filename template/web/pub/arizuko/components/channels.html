@@ -133,7 +133,7 @@
 
 <ol>
   <li>Write the daemon. Implement <code>Channel</code>; implement <code>Socializer</code> for the verbs the platform exposes. Serve the standard HTTP endpoints on <code>LISTEN_ADDR=:8080</code>.</li>
-  <li>Drop a <code>template/services/&lt;daemon&gt;.toml</code> with the compose env block and a <code>[[proxyd_route]]</code> entry. The next <code>arizuko run</code> picks it up.</li>
+  <li>Drop a <code>template/services/&lt;daemon&gt;.yml</code> &mdash; a partial compose file docker <code>include</code>s verbatim &mdash; with the service's env block. If the adapter takes inbound web traffic, add a sibling <code>&lt;daemon&gt;-routes.json</code> (an array of proxyd routes). The next <code>arizuko run</code> picks up both.</li>
 </ol>
 
 <p>Spec: <code>specs/5/7-proxyd-standalone.md</code>. Extension points: <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md">EXTENDING.md</a>.</p>
@@ -155,7 +155,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/channels.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-13">2026-07-13</time>
       </div>
     </main>
 

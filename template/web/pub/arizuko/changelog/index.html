@@ -22,6 +22,14 @@
 
     <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+    <h2>arizuko v0.62.0 <span class="date">&mdash; 28 July 2026</span></h2>
+    <p>Channel adapters are plain docker compose files now, and a package manager installs a whole integration &mdash; fragment, routes, grants, skills &mdash; from a git source.</p>
+    <ul>
+      <li><strong>Native compose packaging</strong> &mdash; each adapter ships as <code>template/services/&lt;name&gt;.yml</code>, a partial compose file docker <code>include</code>s verbatim. Per-adapter proxyd routes move to a sibling <code>&lt;name&gt;-routes.json</code>. The custom TOML mini-format and the <code>PROFILE</code> var are gone; optional daemons run via <code>COMPOSE_PROFILES</code>, which <code>arizuko generate</code> derives from the feature flags. Existing data dirs auto-convert their <code>services/*.toml</code> on the next generate. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/27-compose-native-packaging.md">5/27</a>.</li>
+      <li><strong>Package manager</strong> &mdash; <code>arizuko packages install | upgrade | remove | list</code> installs a git-or-local package that bundles compose fragments, proxyd routes (hot-applied to the live <code>proxyd_routes</code> table, no restart), grants, and skills. Each install writes an installed-package record (source + revision + owned assets + per-asset hash); <code>upgrade</code> refuses a locally edited asset instead of overwriting it; <code>remove</code> withdraws routes before dropping fragments. Installed packages show at <code>/dash/packages/</code>. See the <a href="../reference/packages.html">packages reference</a>. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/28-packages.md">5/28</a>.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0620--2026-07-28">CHANGELOG &sect; v0.62.0</a></p>
+
     <h2>arizuko v0.60.1 <span class="date">&mdash; 15 July 2026</span></h2>
     <p>Agents lead with a reaction when a clear one fits, and never leave you hanging when you expect a reply.</p>
     <ul>

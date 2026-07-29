@@ -18,6 +18,7 @@
         <li><a class="nav-section" href="./">Reference</a>
           <ul class="nav-children">
             <li><a href="cli.html">CLI commands</a></li>
+            <li><a href="packages.html">Packages</a></li>
             <li><a href="env.html">Environment variables</a></li>
             <li><a href="mcp.html">MCP tools</a></li>
             <li><a href="schema.html">SQLite schema</a></li>
@@ -48,6 +49,7 @@
       <ul>
         <li><a href="#lifecycle">Instance lifecycle</a> &mdash; <code>create</code>, <code>generate</code>, <code>run</code>, <code>status</code>, <code>pair</code></li>
         <li><a href="#manifest">Config manifests</a> &mdash; <code>export</code>, <code>apply</code>, <code>plan</code>, <code>get</code></li>
+        <li><a href="#packages">Packages</a> &mdash; <code>packages install|upgrade|remove|list</code></li>
         <li><a href="#chat">Operator chat &amp; messaging</a> &mdash; <code>chat</code>, <code>send</code>, <code>token</code></li>
         <li><a href="#group">Groups &amp; grants</a> &mdash; <code>group list|add|rm|grant|ungrant|grants</code></li>
         <li><a href="#identity">Identities</a> &mdash; <code>identity list|link|unlink</code></li>
@@ -135,6 +137,36 @@ arizuko plan krons krons.yaml</code></pre>
     <pre><code>arizuko get krons routes
 arizuko get krons web_routes</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L196"><code>cmd/arizuko/apply.go:196</code></a></p>
+
+    <h2 id="packages" class="group-h2">Packages</h2>
+    <p>A package is a git source (or local directory) that ships any subset of asset kinds &mdash; a compose fragment (<code>&lt;name&gt;.yml</code>), a proxyd route (<code>&lt;name&gt;-routes.json</code>), grants (<code>&lt;name&gt;-grants.json</code>), skills (<code>skills/&lt;name&gt;/</code>) &mdash; as one versioned unit. Install writes an installed-package record to <code>routd.db</code> (source, resolved revision, owned identities, per-asset content hash) so <code>upgrade</code> and <code>remove</code> know exactly what the package owns. Full model on the <a href="packages.html">packages reference</a>. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/28-packages.md"><code>specs/5/28</code></a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L81"><code>main.go:81</code></a>.</p>
+
+    <h3 id="packages-install"><span class="sig">arizuko packages &lt;instance&gt; install &lt;source&gt;</span></h3>
+    <p>Install a package from a source. A source is a git URL (<code>git+https://…</code>, <code>git@…</code>, <code>github.com/org/pkg</code>) shallow-cloned to a temp dir with its HEAD commit recorded as the revision, or a local directory used as-is (revision <code>local</code>). The package name is the source's last path segment (minus a trailing <code>.git</code>). Every <code>*.yml</code> asset copies into <code>&lt;data-dir&gt;/services/</code>; routes in <code>*-routes.json</code> apply live to the <code>proxyd_routes</code> table (no restart); grants in <code>*-grants.json</code> apply to the <code>acl</code> table; skills copy into <code>&lt;data-dir&gt;/skills/&lt;name&gt;/</code>. All-or-nothing: a source that carries no <code>*.yml</code> is refused.</p>
+    <p><strong>State touched:</strong> writes <code>services/*.yml</code>, opens <code>routd.db</code> and writes <code>proxyd_routes</code> / <code>acl</code> rows plus the installed-package record; may write <code>skills/</code>.</p>
+    <pre><code>arizuko packages krons install github.com/kronael/arizuko-pkg-sentry
+arizuko packages krons install ./my-local-package</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go#L376"><code>cmd/arizuko/packages.go:376</code></a></p>
+
+    <h3 id="packages-upgrade"><span class="sig">arizuko packages &lt;instance&gt; upgrade &lt;name&gt;</span></h3>
+    <p>Re-install a recorded package's assets from its source. Before writing, it compares each asset's current on-disk content hash against the record; a locally edited (dirty) asset stops the upgrade with a list of what diverged &mdash; it never clobbers an operator's change. Assets the old record owned that the new source dropped are removed. On success the record's revision and hashes update.</p>
+    <p><strong>State touched:</strong> rewrites the package's <code>services/*.yml</code>, updates the installed-package record. Refuses (no write) when a dirty asset is found.</p>
+    <pre><code>arizuko packages krons upgrade arizuko-pkg-sentry</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go#L432"><code>cmd/arizuko/packages.go:432</code></a></p>
+
+    <h3 id="packages-remove"><span class="sig">arizuko packages &lt;instance&gt; remove &lt;name&gt;</span></h3>
+    <p>Delete exactly the identities the installed-package record owns. Routes are withdrawn from <code>proxyd_routes</code> first (so no request is routed at a sidecar mid-teardown), then recorded grants come out of <code>acl</code>, then skills and fragment files are deleted, then the record is dropped. Falls back to deleting a bare <code>&lt;name&gt;.yml</code> for a catalog <code>add</code> that left no record.</p>
+    <p><strong>State touched:</strong> deletes <code>proxyd_routes</code> / <code>acl</code> rows, <code>services/*.yml</code>, <code>skills/</code>, and the installed-package record.</p>
+    <pre><code>arizuko packages krons remove arizuko-pkg-sentry</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go#L486"><code>cmd/arizuko/packages.go:486</code></a></p>
+
+    <h3 id="packages-list"><span class="sig">arizuko packages &lt;instance&gt; list</span></h3>
+    <p>List the bundled catalog fragments and their state: <code>available</code> (in the catalog, not enabled), <code>enabled</code> (present in <code>services/</code>), or <code>enabled (local)</code> (a fragment in <code>services/</code> with no catalog twin).</p>
+    <p><strong>State touched:</strong> read-only.</p>
+    <pre><code>arizuko packages krons list</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go#L331"><code>cmd/arizuko/packages.go:331</code></a></p>
+
+    <p>After any of these, run <a href="#generate"><code>arizuko generate &lt;instance&gt;</code></a> to fold the fragment set into the compose file.</p>
 
     <h2 id="chat" class="group-h2">Operator chat &amp; messaging</h2>
 
@@ -459,7 +491,7 @@ arizuko secret krons set main OPENAI_API_KEY --value sk-xxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-13">2026-07-13</time>
       </div>
     </main>
 

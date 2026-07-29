@@ -80,7 +80,7 @@
       handler</code></pre>
     </div>
 
-    <p>The route table comes from two places: a static core list in <code>compose/compose.go</code> (dashd, webd, davd, onbod) and per-service <code>[[proxyd_route]]</code> blocks in <code>template/services/*.toml</code>. Compose generation collects the survivors after env-gating and writes <code>PROXYD_ROUTES_JSON</code>. Adding a channel adapter means shipping a TOML; no edit to <code>main.go</code>.</p>
+    <p>The route table comes from two places: a static core list in <code>compose/compose.go</code> (dashd, webd, davd, onbod) and per-service <code>template/services/&lt;name&gt;-routes.json</code> files (a JSON array of routes sitting beside the <code>&lt;name&gt;.yml</code> compose fragment). Compose generation collects the survivors after env-gating and writes <code>PROXYD_ROUTES_JSON</code>. Adding a channel adapter means shipping a fragment plus its routes file; no edit to <code>main.go</code>.</p>
 
     <p>Two paths skip the plain prefix match and get their own handling in <code>dispatchRoute</code>. <code>/chat/*</code> and <code>/hook/*</code> route on the token segment: webd hashes the token against <code>route_tokens</code>, and anonymous callers run through a per-token in-memory rate bucket keyed by JID prefix. <code>/dav/*</code> requires auth, scopes the path to a group the caller belongs to, and blocks writes to <code>.env</code>, <code>*.pem</code>, <code>.git</code>, and anything under <code>&lt;group&gt;/logs/</code>.</p>
 
@@ -137,7 +137,7 @@ export PROXYD_ROUTES_JSON='[{"path":"/api/","backend":"http://api:8080","auth":"
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/proxyd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-13">2026-07-13</time>
       </div>
     </main>
 

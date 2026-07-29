@@ -102,7 +102,7 @@ DISCORD_CLIENT_SECRET=…</code></pre>
       </ul>
       <p>
         The <code>/slack/</code> path is wired into proxyd by
-        <code>template/services/slakd.toml</code> &mdash; nothing to edit in
+        <code>template/services/slakd-routes.json</code> &mdash; nothing to edit in
         compose generation. Slack's request signature is verified by
         <code>slakd</code> using the signing secret.
       </p>
@@ -273,40 +273,48 @@ arizuko invite acme list</code></pre>
 
       <h3>option A &mdash; one arizuko instance, multiple slakd</h3>
       <p>
-        Drop a second service TOML beside the default
-        <code>slakd.toml</code>. The compose generator picks up every
-        <code>services/*.toml</code> file
+        Drop a second compose fragment beside the default
+        <code>slakd.yml</code>. The compose generator includes every
+        <code>services/*.yml</code> file
         (<code>compose/compose.go</code> reads <code>services/</code>
         in lexical order) and names each container
         <code>arizuko_&lt;file&gt;_&lt;flavor&gt;</code>, so
-        <code>slakd-acme.toml</code> and <code>slakd-beta.toml</code>
+        <code>slakd-acme.yml</code> and <code>slakd-beta.yml</code>
         run side by side. This is the shipped pattern in
         <a href="https://github.com/kronael/arizuko/blob/main/specs/5/R-multi-account.md">specs/5/R-multi-account.md</a>.
-        Files named <code>&lt;adapter&gt;-&lt;label&gt;.toml</code>
+        Files named <code>&lt;adapter&gt;-&lt;label&gt;.yml</code>
         share the base adapter's <code>env_file</code> (see
-        <code>envFileFor</code>) &mdash; per-workspace tokens go in
-        the TOML's <code>[environment]</code> block, not in
-        <code>.env</code>.
+        <code>envFileName</code>) &mdash; per-workspace tokens go in
+        the fragment's <code>environment:</code> block, not in
+        <code>.env</code>. The route lives in a sibling
+        <code>slakd-beta-routes.json</code>.
       </p>
-      <pre><code># /srv/data/arizuko_acme/services/slakd-beta.toml
-image = "arizuko:latest"
-entrypoint = ["slakd"]
-volumes = ["${HOST_DATA_DIR}:${CONTAINER_DATA}"]
-
-[environment]
-ROUTER_URL = "http://routd:8080"
-SLACK_BOT_TOKEN = "xoxb-beta-workspace-token"
-SLACK_SIGNING_SECRET = "beta-signing-secret"
-ASSISTANT_NAME = "${ASSISTANT_NAME}"
-LISTEN_ADDR = ":8080"
-LISTEN_URL = "http://slakd-beta:8080"
-
-[[proxyd_route]]
-path = "/slack-beta/"
-backend = "http://slakd-beta:8080"
-auth = "public"
-gated_by = "SLACK_BOT_TOKEN"
-preserve_headers = ["X-Slack-Signature", "X-Slack-Request-Timestamp"]</code></pre>
+      <pre><code># /srv/data/arizuko_acme/services/slakd-beta.yml
+services:
+  slakd-beta:
+    container_name: ${APP}_slakd-beta_${FLAVOR}
+    image: arizuko:latest
+    entrypoint: ['slakd']
+    volumes:
+      - '${DATA_DIR}:/srv/app/home'
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+      SLACK_BOT_TOKEN: 'xoxb-beta-workspace-token'
+      SLACK_SIGNING_SECRET: 'beta-signing-secret'
+      LISTEN_ADDR: ':8080'
+      LISTEN_URL: 'http://slakd-beta:8080'
+    depends_on: [routd]
+    restart: on-failure</code></pre>
+      <pre><code>// /srv/data/arizuko_acme/services/slakd-beta-routes.json
+[
+  {
+    "path": "/slack-beta/",
+    "backend": "http://slakd-beta:8080",
+    "auth": "public",
+    "gated_by": "SLACK_BOT_TOKEN",
+    "preserve_headers": ["X-Slack-Signature", "X-Slack-Request-Timestamp"]
+  }
+]</code></pre>
       <p>
         Set the second Slack App's Event Subscription URL to
         <code>https://&lt;WEB_HOST&gt;/slack-beta/events</code> &mdash;

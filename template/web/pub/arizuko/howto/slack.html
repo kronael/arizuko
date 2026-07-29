@@ -252,9 +252,8 @@ target: engineering</code></pre>
       <dl>
         <dt>Slack&rsquo;s Request URL stays red</dt>
         <dd>
-          Either proxyd isn&rsquo;t routing <code>/slack/*</code> (the
-          <code>[[proxyd_route]]</code> block in
-          <code>template/services/slakd.toml</code> is dropped when
+          Either proxyd isn&rsquo;t routing <code>/slack/*</code> (the route in
+          <code>template/services/slakd-routes.json</code> is dropped when
           <code>SLACK_BOT_TOKEN</code> is unset &mdash; check it&rsquo;s in
           <code>.env</code> and regenerate compose), or slakd&rsquo;s
           signing-secret mismatch makes it reject the challenge. Check slakd
@@ -368,7 +367,7 @@ target: engineering</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/slack.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 
