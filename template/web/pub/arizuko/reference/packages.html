@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>packages — arizuko</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Reference">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="./">Reference</a>
+          <ul class="nav-children">
+            <li><a href="cli.html">CLI commands</a></li>
+            <li><a href="packages.html" aria-current="page">Packages</a></li>
+            <li><a href="env.html">Environment variables</a></li>
+            <li><a href="mcp.html">MCP tools</a></li>
+            <li><a href="grants.html">Grants</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+      </ul>
+    </nav>
+    <main class="guide-main">
+      <h1>Packages</h1>
+      <p>A <strong>package</strong> is a git source (or local directory) that ships
+      any subset of asset kinds as one versioned unit. Spec
+      <code>specs/5/28</code>.</p>
+
+      <h2>Commands</h2>
+      <pre><code>arizuko packages &lt;instance&gt; install github.com/org/pkg   # or a local dir
+arizuko packages &lt;instance&gt; upgrade pkg                   # refuses locally-edited assets
+arizuko packages &lt;instance&gt; remove  pkg                   # deletes exactly what it owns
+arizuko packages &lt;instance&gt; list</code></pre>
+
+      <h2>Asset kinds</h2>
+      <table class="tbl">
+        <thead><tr><th>Kind</th><th>File</th><th>Applied to</th></tr></thead>
+        <tbody>
+          <tr><td>compose fragment</td><td><code>&lt;name&gt;.yml</code></td><td><code>services/</code>, up on <code>generate</code></td></tr>
+          <tr><td>proxyd route</td><td><code>&lt;name&gt;-routes.json</code></td><td>live <code>proxyd_routes</code> table — <strong>no restart</strong></td></tr>
+          <tr><td>grant</td><td><code>&lt;name&gt;-grants.json</code></td><td>the <code>acl</code> table</td></tr>
+          <tr><td>skills</td><td><code>skills/&lt;name&gt;/</code></td><td>layered into every group like stock skills</td></tr>
+        </tbody>
+      </table>
+
+      <h2>How it stays safe</h2>
+      <ul>
+        <li>Each install writes an <strong>installed-package record</strong> (source +
+        resolved revision + owned identities + a per-asset content hash).</li>
+        <li><code>upgrade</code> compares the current content hash against the record;
+        a <strong>locally edited (dirty) asset is refused</strong>, not overwritten.</li>
+        <li><code>remove</code> deletes exactly the identities the record owns —
+        routes are withdrawn before the fragment is dropped.</li>
+      </ul>
+
+      <p>Installed packages are listed in the operator dashboard at
+      <code>/dash/packages/</code>. A package that seeds a whole group is a
+      <a href="../products/">product</a>, applied at <code>arizuko create --product</code>.</p>
+    </main>
+  </div>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
