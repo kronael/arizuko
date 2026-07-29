@@ -24,8 +24,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `5/27` C2), and records an **installed-package record** (source + revision +
   owned identities + per-asset hash). `upgrade` **refuses a locally edited (dirty)
   asset** instead of overwriting it; `remove` withdraws routes before dropping
-  fragments and deletes exactly what the record owns. Skills/group-seed asset
-  kinds + operator docs/dashboard remain.
+  fragments and deletes exactly what the record owns. A fourth asset kind —
+  **skills** (`skills/<name>/` → `<datadir>/skills/`, layered by `seedSkills`) —
+  and the `dashd` surface (`/dash/packages/`) ship too. (A group seed is
+  create-time `arizuko create --product`, not a package asset.)
 
 ### Changed
 

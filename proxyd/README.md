@@ -39,7 +39,7 @@ Bespoke handling for `/chat/`, `/hook/` (route-token resolver + anon DoS
 shield) and `/dav/` (group-scoped routing + davAllow write-block) lives
 in `dispatchRoute`'s switch in `main.go`.
 
-Routes not in the TOML table (hand-wired in `main.go`): `/auth/*`
+Routes not in the declared table (hand-wired in `main.go`): `/auth/*`
 (login flow), `/health`, `/pub/*` (vited fallback + external redirect),
 the derived-host `302 → /pub/<world>/` redirect.
 
@@ -62,7 +62,9 @@ PATCH  /v1/routes/{path}       # body: any subset of the create fields
 DELETE /v1/routes/{path}       # idempotent (204 either way)
 ```
 
-**Precedence**: routes persist to `proxyd_routes` in messages.db. On first
+**Precedence**: routes persist to `proxyd_routes` in routd.db (proxyd
+opens routd.db read/write for `proxyd_routes`/`acl`/`route_tokens`; it
+does not own or migrate it). On first
 boot, if the table is empty AND `PROXYD_ROUTES_JSON` is set, proxyd
 seeds the table from the env var. Thereafter the table is authoritative
 and the env var is ignored. Runtime mutations are visible immediately
@@ -101,7 +103,7 @@ Endpoints:
 - `/dav/*` — WebDAV (auth-gated, group-scoped, write-blocked)
 - `/chat/<token>/`, `/hook/<token>` — route-token surfaces
 - `/v1/routes` — operator REST + MCP resource (runtime route mutation)
-- TOML-declared routes (e.g. `/dash/`, `/api/`)
+- JSON-declared routes (e.g. `/dash/`, `/api/`; from `<name>-routes.json` + the core slice)
 
 ## Dependencies
 

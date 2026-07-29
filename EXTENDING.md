@@ -179,6 +179,8 @@ asset kinds:
   **no restart**.
 - **grant** — `<name>-grants.json` (array of `{principal, action, scope}`) →
   applied to `acl`.
+- **skills** — `skills/<name>/` → copied to `<datadir>/skills/`, layered into
+  every group by `seedSkills` at spawn.
 
 ```bash
 arizuko packages krons install github.com/org/pkg   # or a local dir
@@ -189,8 +191,9 @@ arizuko packages krons remove  pkg                   # withdraws routes, then dr
 Each install records an **installed-package record** in `routd.db` (source +
 resolved revision + owned identities + per-asset content hash). That record
 drives `upgrade` (dirty-detection — never overwrites a locally edited asset),
-`remove` (deletes exactly the identities it owns), and reproducibility. Skills
-and group-seed asset kinds are not yet wired.
+`remove` (deletes exactly the identities it owns), and reproducibility. A
+group seed is not a package asset — that is create-time
+`arizuko create --product` / a `5/21` product, not an instance-wide install.
 
 ## Adding a channel adapter
 

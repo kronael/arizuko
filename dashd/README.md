@@ -24,7 +24,7 @@ those tables directly via the `store` package; it never migrates.
 
 - **Public** (3): `GET /health`, `GET /openapi.json`, `GET /dash/assets/htmx.min.js` — no auth required.
 - **Portal** (1): `GET /dash/` — tile grid with status/tasks dots.
-- **Read pages** (6): `GET /dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups/`, `/dash/memory/`, `/dash/profile/`. Scope-filtered to caller's visible folders.
+- **Read pages** (7): `GET /dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups/`, `/dash/memory/`, `/dash/profile/`, `/dash/packages/` (installed-package rows from `installed_packages`, spec 5/28). Scope-filtered to caller's visible folders.
 - **HTMX partials** (2): `GET /dash/tasks/x/list`, `GET /dash/activity/x/recent` — 10s-polled `<tbody>` fragments.
 - **Memory edits** (2): `PUT|DELETE /dash/memory/` — admin-gated writes to allow-listed group files (`MEMORY.md`, `.claude/CLAUDE.md`, flat `*.md` under `diary/`, `facts/`, `users/`, `episodes/`). Symlink-escape hardened.
 - **Per-user secrets** (4): `GET|POST /dash/me/secrets`, `PATCH|DELETE /dash/me/secrets/{key}` — capability credentials (e.g. `GITHUB_TOKEN`); identity-bound to `X-User-Sub`; writes require same-origin and are sealed at rest under `SECRETS_KEY`. `GET` serves an HTML management page (Accept `text/html`) and JSON otherwise. (`me_secrets.go`)
@@ -97,6 +97,7 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
 - `tasks_admin.go` — task detail + run logs + create + pause/resume.
 - `route_tokens.go` — chat/webhook route-token list + issue + revoke.
 - `channels.go` — WhatsApp re-pair form + live status (operator-only).
+- `packages_page.go` — installed-packages read view (`/dash/packages/`).
 - `invites.go` — invite list + create + revoke (operator-only).
 - `profile.go` — linked subs view + provider link buttons.
 - `html_helpers.go` — page shell, nav, htmx boost, banner helpers.

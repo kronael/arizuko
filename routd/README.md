@@ -41,6 +41,8 @@ Spec: `specs/5/E`.
 - Slack pane: `pane_sessions`
 - Cost: `cost_log`, `auth_users` (cost-cap column only; authd owns identity)
 - Network: `network_rules`
+- Packages: `installed_packages` (installed-package record; the CLI
+  writes it directly, split write-discipline — spec 5/28)
 
 Migrations: `routd/migrations/`. routd opens NO sibling DB — cross-daemon
 data arrives over HTTP (authd identity, runed session_log).
@@ -180,6 +182,7 @@ optional observability webhook — not the source of truth.
 - `proactive.go`, `steer.go` — proactive interjection + slash-command dispatch
 - `routes_http.go`, `tokens_http.go`, `web_routes_http.go`, `tasks_http.go`, `reads_http.go` — REST CRUD
 - `{routes,web_routes,network_rules,scheduled_tasks,acl}_resource.go` — spec 5/16 shared handlers (one resource each; agent MCP + operator REST ride the same handler + injected Gate)
+- `packages_store.go` — `installed_packages` CRUD (the record the CLI's `packages install|upgrade|remove` reads/writes, spec 5/28)
 - `db.go` — `routd.db` writes (PutMessage, turn claims, routing)
 - `reads.go` — `routd.db` reads (messages, chats, sessions)
 - `session.go`, `identity.go`, `onbod.go` — federation to runed/authd/onbod

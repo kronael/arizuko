@@ -115,7 +115,7 @@ arizuko run foo                            # generate compose + docker compose u
 
 Full walkthrough — prerequisites, blocker fixes, per-adapter tokens, troubleshooting: [INSTALL.md](INSTALL.md).
 
-A first deployment runs the core plane — `authd` (token authority), `routd` (conversation/router), `runed` (agent execution) — plus one adapter (`teled`, `slakd`, `discd`, `webd`, or `emaid`). Add `dashd` for operator UI, `timed` for scheduled tasks, `onbod` for invite flows, `crackbox` for default-deny egress. Each adapter ships as a package — `template/services/<name>.yml`, added with `arizuko packages <instance> add <name>`; no Go edits required. See [EXTENDING.md](EXTENDING.md) for wiring new channels.
+A first deployment runs the core plane — `authd` (token authority), `routd` (conversation/router), `runed` (agent execution) — plus one adapter (`teled`, `slakd`, `discd`, `webd`, or `emaid`). Add `dashd` for operator UI, `timed` for scheduled tasks, `onbod` for invite flows, `crackbox` for default-deny egress. Each adapter ships as a package — `template/services/<name>.yml`, added with `arizuko packages <instance> add <name>`; no Go edits required. `arizuko packages <instance> install <git-or-dir>` installs a third-party package (compose fragment, proxyd route, grant, or skills) onto a running instance, with `upgrade`/`remove` tracked by an `installed_packages` record. See [EXTENDING.md](EXTENDING.md) for wiring new channels and packages.
 
 A tar of `/srv/data/arizuko_<name>/` is a complete instance backup — the per-daemon SQLite databases (`routd.db`, `runed.db`, `auth.db`, … WAL), group folders, per-user memory, secrets, agent files.
 
@@ -134,7 +134,7 @@ adapter (teled/discd/slakd/…) --HTTP--> routd (conversation plane)
 timed   — scheduler, federates due tasks over routd
 onbod   — onboarding, OAuth, admission queue (onbod.db)
 webd    — web chat channel adapter + SSE hub
-proxyd  — auth-gated reverse proxy (TOML route table)
+proxyd  — auth-gated reverse proxy (JSON route table)
 davd    — WebDAV workspace (per-group, dufs)
 dashd   — operator dashboards + admin CRUD
 ```
