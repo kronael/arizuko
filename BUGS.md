@@ -1959,7 +1959,12 @@ than dashd's (no skill/settings seed) — the exact two-paths drift the platform
 forbids. Options:
 - **(a) Read-only `/v1/groups`** — mount only the LIST/GET face via resreg (no
   create/delete over REST); operator create stays dashd's `SetupGroup`. Satisfies
-  "both faces" for the read surface without a second create door. **Recommended.**
+  "both faces" for the read surface without a second create door. **Recommended,
+  but NOT free:** the `refresh_groups` list handler returns EVERY group folder
+  unscoped (`groups_resource.go:71`) — a tier-2 operator must see only its own
+  subtree, so this needs result-filtering by the caller's JWT folder first, else
+  it's the `rest_listall` cross-tenant leak (see memory `rest_listall_leak`). So
+  even (a) is a real change + a leak-risk review, not a one-line mount.
 - **(b) Full `/v1/groups` create** — route it through `container.SetupGroup` (not
   `s.registerGroup`), so the one seed path is shared. Larger; routd would need the
   container/setup dependency it currently lacks.
