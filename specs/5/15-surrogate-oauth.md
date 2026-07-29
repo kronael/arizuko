@@ -27,6 +27,30 @@ Shipped (this pilot):
   `expires_at`+`refresh_val` and returns a "reconnect" error the agent sees.
   `SURROGATE_GITHUB_CLIENT_ID`/`_SECRET` in `core.Config`.
 
+## Operator-configurable providers (shipped)
+
+Adding a provider is pure configuration — no Go, no rebuild. `NewEngine(dataDir)`
+loads the embedded defaults (`providers/*.toml`) then overlays operator files
+from `<datadir>/surrogate/*.toml` (a same-named operator file replaces the
+embedded default; operator owns the datadir). Each provider's confidential-client
+creds come from the env — `SURROGATE_<NAME>_CLIENT_ID` / `_CLIENT_SECRET`, NAME
+upper-cased with `-`→`_` — bound for **every** registered provider, not just
+github. A provider with no creds still loads but is inert (hidden from the
+connections page until connected); one with `auth_url`/`token_url`/`secret_key`
+missing is a hard boot error naming the file (fail loud — a half-defined provider
+is a broken dance).
+
+Both call sites (`routd/cmd/routd/main.go`, `dashd/main.go`) pass only `dataDir`;
+the hardcoded `{"github"}` creds map is gone. Two built-ins ship: `github` and
+`google` (the latter exercises `access_type=offline` refresh). Scopes are
+space-joined per RFC 6749 §3.3 — the same for every standard auth-code provider.
+
+Operator flow end to end: drop `<datadir>/surrogate/slack.toml`, register the
+redirect URI `<WEB_HOST>/dash/me/connections/slack/callback` at the provider,
+set `SURROGATE_SLACK_CLIENT_ID/_SECRET`, restart → "Connect Slack" appears in
+`/dash/me/connections`. `EXTENDING.md` §"Add an OAuth provider" is the operator
+recipe.
+
 Deferred (follow-ups, not this pilot):
 
 - Generalizing identity's per-provider `exchangeGitHub`/`exchangeGoogle` into
@@ -34,7 +58,7 @@ Deferred (follow-ups, not this pilot):
   the shipped login path. Surrogate carries its own engine for now.
 - Spawn-time env-profile refresh (Anthropic/ChatGPT via `FolderSecretsForUser`)
   — the refresh check fires only at the per-call broker path today.
-- `cmd/arizuko/surrogate.go` operator inspector; providers beyond github.
+- `cmd/arizuko/surrogate.go` operator inspector.
 
 > The user clicks "Connect GitHub" in their dashboard; arizuko runs the
 > OAuth dance and writes the access + refresh token into the `secrets`

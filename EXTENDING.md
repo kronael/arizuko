@@ -344,6 +344,43 @@ Operator sets the credential via `arizuko secret <inst> set <folder> KEY
 --value V` (folder) or the user via `/dash/me/secrets` (user). Spec
 `specs/5/13-ext-mcp.md`.
 
+## Add an OAuth provider
+
+Where an API needs an OAuth "Connect" dance (the user authorizes arizuko to
+act as them) rather than a static key, add a **surrogate OAuth provider** (spec
+`specs/5/15`). Pure config — no Go, no rebuild:
+
+1. **Drop a descriptor** at `<datadir>/surrogate/<name>.toml` (or edit an
+   embedded default by shadowing its name):
+
+   ```toml
+   auth_url       = "https://slack.com/oauth/v2/authorize"
+   token_url      = "https://slack.com/api/oauth.v2.access"
+   revoke_url     = "https://slack.com/api/auth.revoke"
+   scopes         = ["chat:write", "channels:read"]
+   secret_key     = "SLACK_TOKEN"        # secrets-table key the token lands in
+   allowed_domain = "slack.com"
+   access_type    = ""                   # "offline" for providers that gate refresh_tokens (google)
+   ```
+
+   `auth_url`, `token_url`, `secret_key` are required — a missing one is a hard
+   boot error naming the file.
+
+2. **Register the redirect URI** at the provider's app console:
+   `<WEB_HOST>/dash/me/connections/<name>/callback`.
+
+3. **Set the operator client creds** in the instance `.env`:
+   `SURROGATE_<NAME>_CLIENT_ID` / `SURROGATE_<NAME>_CLIENT_SECRET` (NAME
+   upper-cased, `-`→`_`).
+
+4. **Restart** the instance. `Connect <name>` appears in `/dash/me/connections`;
+   the obtained access+refresh token is written to the `secrets` table under
+   `secret_key` and the broker refreshes it near expiry.
+
+The token then reads like any other secret — reference `secret_key` from an
+`[[ext]]` REST provider or an `[[mcp_connector]]` (above) to give agents tools
+backed by the user's OAuth grant. `github` and `google` ship as built-ins.
+
 ## Adding a slink-driven page
 
 Third-party pages talk to a slink via the embedded JS SDK at
