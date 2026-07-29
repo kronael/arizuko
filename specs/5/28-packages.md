@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 ---
 
 # specs/5/28 — arizuko packages
@@ -17,9 +17,11 @@ status: partial
 > - **P4** remove withdraws routes before fragments (no teardown window). (`4b15913e`)
 > - **grant** asset (`4f2e77b2`) · **skills** asset + seedSkills layer (`55eef35b`)
 >
-> Remaining for `status: shipped`: repo/web docs (partly done — EXTENDING +
-> CHANGELOG), a `dashd` surface for installed packages, and the migration /
-> release tag. Plan: `.ship/plan-packages.md`.
+> Full DoD shipped: repo docs (EXTENDING + CHANGELOG), web docs
+> (`reference/packages.html`), the `dashd` surface (`/dash/packages/`), and the
+> migration broadcast (`182`). The mechanical release last-mile — rebuild the ant
+> image, rsync web docs live (`/pub` 200), `git tag` — is a deploy step. Plan:
+> `.ship/plan-packages.md`.
 
 Source-first package manager: a package is a **git source** (GitHub URL,
 resolved to an immutable revision) that ships a **manifest** plus any subset of
