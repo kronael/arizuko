@@ -1,13 +1,17 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/routd"
 )
 
 // pkgNameRE matches a package name — the same identifier shape the compose
@@ -50,6 +54,25 @@ func dirExists(path string) bool {
 	return err == nil && st.IsDir()
 }
 
+// sha256hex returns the hex sha256 of b — the per-asset content hash the
+// installed-package record stores so a later upgrade can detect a locally
+// edited (dirty) asset (spec 5/28, P3).
+func sha256hex(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
+// mustOpenRoutd opens the instance's routd.db (migrating it if needed) for the
+// installed-package record. The CLI writes the owner DB directly per the split
+// write-discipline (CLAUDE.md).
+func mustOpenRoutd(dataDir string) *routd.DB {
+	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		die("Failed: open routd.db: %v", err)
+	}
+	return rdb
+}
+
 // listFragments returns the `<name>.yml` service fragments in dir.
 func listFragments(dir string) []string {
 	entries, _ := os.ReadDir(dir)
@@ -67,7 +90,7 @@ func listFragments(dir string) []string {
 // bundled catalog into <dataDir>/services/. `arizuko generate` includes every
 // fragment it finds there.
 func cmdPackages(args []string) {
-	usage := "arizuko packages <instance> list | add <name> | remove <name>"
+	usage := "arizuko packages <instance> list | add <name> | install <source-dir> | remove <name>"
 	need(args, 2, usage)
 	dataDir := mustInstanceDir(args[0])
 	tmplDir := packageTemplates(dataDir)
@@ -119,10 +142,84 @@ func cmdPackages(args []string) {
 		}
 		warnUnsatisfiedDeps(name, fragment, svcDir)
 		fmt.Printf("added %s — run `arizuko generate %s` to apply\n", name, args[0])
+	case "install":
+		// P1 (spec 5/28): install a package from a source directory, recording
+		// exactly what was installed (the installed-package record). This slice
+		// handles the compose-fragment asset kind (`*.yml` + `<name>-routes.json`)
+		// and writes the record; git source resolution, skills, and row assets
+		// (proxyd_routes / acl via REST) are P1b/P2.
+		need(args, 3, usage)
+		src := strings.TrimRight(args[2], "/")
+		name := filepath.Base(src)
+		mustPkgName(name)
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			die("Failed: read source %s: %v", src, err)
+		}
+		var fragments []string
+		hashes := map[string]string{}
+		for _, e := range entries {
+			n := e.Name()
+			if e.IsDir() || !(strings.HasSuffix(n, ".yml") || strings.HasSuffix(n, "-routes.json")) {
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(src, n))
+			if err != nil {
+				die("Failed: read %s: %v", n, err)
+			}
+			hashes["file:"+n] = sha256hex(b)
+			// Stage all reads before any write (whole-or-nothing); collect here,
+			// write below only once every asset read cleanly.
+			fragments = append(fragments, n)
+		}
+		if len(fragments) == 0 {
+			die("Failed: no compose fragment (*.yml) in source %s", src)
+		}
+		if err := os.MkdirAll(svcDir, 0o755); err != nil {
+			die("Failed: mkdir services: %v", err)
+		}
+		for _, n := range fragments {
+			b, _ := os.ReadFile(filepath.Join(src, n))
+			if err := writeFileAtomic(filepath.Join(svcDir, n), b); err != nil {
+				die("Failed: install %s: %v", n, err)
+			}
+		}
+		rdb := mustOpenRoutd(dataDir)
+		defer rdb.Close()
+		if err := rdb.PutInstalledPackage(routd.InstalledPackage{
+			Name:        name,
+			Source:      src,
+			Revision:    "local",
+			Manifest:    map[string][]string{"compose_fragment": fragments},
+			AssetHashes: hashes,
+			InstalledAt: time.Now().UTC().Format(time.RFC3339),
+		}); err != nil {
+			die("Failed: record install of %s: %v", name, err)
+		}
+		fmt.Printf("installed %s (%d file(s)) — run `arizuko generate %s` to apply\n", name, len(fragments), args[0])
 	case "remove":
 		need(args, 3, usage)
 		name := args[2]
 		mustPkgName(name)
+		rdb := mustOpenRoutd(dataDir)
+		defer rdb.Close()
+		// Prefer the installed record (spec 5/28): delete exactly what the record
+		// says this package owns, then drop the record. Fall back to the legacy
+		// `<name>.yml` deletion for a catalog `add` that left no record.
+		if rec, ok, _ := rdb.InstalledPackage(name); ok {
+			for k := range rec.AssetHashes {
+				if fn, isFile := strings.CutPrefix(k, "file:"); isFile {
+					if err := os.Remove(filepath.Join(svcDir, fn)); err != nil && !os.IsNotExist(err) {
+						die("Failed: remove %s: %v", fn, err)
+					}
+				}
+			}
+			if _, err := rdb.DeleteInstalledPackage(name); err != nil {
+				die("Failed: drop record for %s: %v", name, err)
+			}
+			fmt.Printf("removed %s — run `arizuko generate %s` to apply\n", name, args[0])
+			return
+		}
 		if err := os.Remove(filepath.Join(svcDir, name+".yml")); err != nil {
 			die("Failed: remove %s: %v", name, err)
 		}

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/kronael/arizuko/routd"
 )
 
 // C1: package names that could traverse outside services/ must be rejected.
@@ -57,5 +59,60 @@ func TestDependsOnParse(t *testing.T) {
 	}
 	if !baseDaemons["routd"] {
 		t.Fatal("routd must be a base daemon")
+	}
+}
+
+// TestPackagesInstallRemove is the P1 install→record→remove flow (spec 5/28):
+// install a source dir's fragment assets, write the installed-package record,
+// then remove exactly what the record says was installed.
+func TestPackagesInstallRemove(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	dataDir := filepath.Join(base, "arizuko_t")
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(base, "teledpkg")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "teledpkg.yml"),
+		[]byte("services:\n  teledpkg:\n    image: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "teledpkg-routes.json"), []byte("[]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmdPackages([]string{"t", "install", src})
+
+	if _, err := os.Stat(filepath.Join(dataDir, "services", "teledpkg.yml")); err != nil {
+		t.Fatalf("fragment not installed: %v", err)
+	}
+	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, ok, err := rdb.InstalledPackage("teledpkg")
+	if err != nil || !ok {
+		t.Fatalf("record missing: ok=%v err=%v", ok, err)
+	}
+	if len(rec.Manifest["compose_fragment"]) != 2 || rec.AssetHashes["file:teledpkg.yml"] == "" {
+		t.Fatalf("record contents: %+v", rec)
+	}
+	rdb.Close()
+
+	cmdPackages([]string{"t", "remove", "teledpkg"})
+
+	if _, err := os.Stat(filepath.Join(dataDir, "services", "teledpkg.yml")); !os.IsNotExist(err) {
+		t.Fatalf("fragment not removed: %v", err)
+	}
+	rdb2, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rdb2.Close()
+	if _, ok, _ := rdb2.InstalledPackage("teledpkg"); ok {
+		t.Fatal("record not removed")
 	}
 }
