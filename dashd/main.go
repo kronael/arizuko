@@ -417,6 +417,7 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	g := d.guard
 	mux.HandleFunc("GET /dash/", g(d.handlePortal))
 	mux.HandleFunc("GET /dash/services/", g(d.handleServices))
+	mux.HandleFunc("GET /dash/packages/", g(d.handlePackages))
 	mux.HandleFunc("GET /dash/audit/", g(d.handleAudit))
 	mux.HandleFunc("GET /dash/usage/", g(d.handleUsage))
 	mux.HandleFunc("GET /dash/routd/", g(d.handleRoutd))
@@ -532,6 +533,7 @@ var navLinks = []struct {
 	{"/dash/groups/", "groups", false},
 	{"/dash/routes/", "routes", false},
 	{"/dash/services/", "services", true},
+	{"/dash/packages/", "packages", true},
 	{"/dash/invites/", "invites", true},
 	{"/dash/audit/", "audit", true},
 	{"/dash/usage/", "usage", true},
@@ -618,6 +620,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><htm
 <a class="tile" href="/dash/tasks/"><h2>tasks<span class="dot {{.TasksDot}}"></span></h2><p>scheduled jobs</p></a>
 <a class="tile" href="/dash/activity/"><h2>activity</h2><p>message flow</p></a>
 <a class="tile" href="/dash/chat/"><h2>chat</h2><p>web chat sessions</p></a>
+<a class="tile" href="/dash/packages/"><h2>packages</h2><p>installed packages</p></a>
 <a class="tile" href="/dash/groups/"><h2>groups</h2><p>group hierarchy</p></a>
 <a class="tile" href="/dash/routes/"><h2>routes</h2><p>message routing table</p></a>
 <a class="tile" href="/dash/memory/"><h2>memory</h2><p>knowledge browser</p></a>
