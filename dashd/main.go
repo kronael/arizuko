@@ -280,12 +280,13 @@ func main() {
 	// come from .env (SURROGATE_<PROVIDER>_CLIENT_ID/_SECRET). stateSecret HMAC-
 	// signs the CSRF state cookie (AUTH_SECRET); connBaseURL is the configured
 	// callback base (AUTH_BASE_URL, then WEB_HOST).
-	surrogateEng, serr := surrogate.NewEngine(map[string]surrogate.ClientCreds{
-		"github": {ID: os.Getenv("SURROGATE_GITHUB_CLIENT_ID"), Secret: os.Getenv("SURROGATE_GITHUB_CLIENT_SECRET")},
-	})
+	surrogateEng, serr := surrogate.NewEngine(dataDir)
 	if serr != nil {
 		slog.Error("build surrogate engine", "err", serr)
 		os.Exit(1)
+	}
+	for _, name := range surrogateEng.Names() {
+		slog.Info("surrogate provider", "name", name, "connectable", surrogateEng.HasCreds(name))
 	}
 	connBaseURL := strings.TrimRight(os.Getenv("AUTH_BASE_URL"), "/")
 	if connBaseURL == "" {

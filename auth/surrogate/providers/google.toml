@@ -1,0 +1,14 @@
+# Surrogate OAuth provider (spec 5/15). arizuko authenticates AS the user to
+# Google APIs and writes the access+refresh token into the `secrets` table the
+# broker reads. Client id/secret are operator-owned in .env as
+# SURROGATE_GOOGLE_CLIENT_ID / SURROGATE_GOOGLE_CLIENT_SECRET; register the
+# redirect URI <WEB_HOST>/dash/me/connections/google/callback in the Google
+# Cloud console. This second built-in exercises the refresh path: access_type
+# = "offline" is what makes Google return a refresh_token.
+auth_url       = "https://accounts.google.com/o/oauth2/v2/auth"
+token_url      = "https://oauth2.googleapis.com/token"
+revoke_url     = "https://oauth2.googleapis.com/revoke"
+scopes         = ["https://www.googleapis.com/auth/drive.readonly"]
+secret_key     = "GOOGLE_TOKEN"
+allowed_domain = "googleapis.com"
+access_type    = "offline"

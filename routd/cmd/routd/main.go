@@ -74,9 +74,7 @@ func main() {
 	// refresh only fires for user rows carrying provider metadata (written by the
 	// dashd Connect dance, itself gated on creds), so an unconfigured instance is
 	// inert.
-	if eng, err := surrogate.NewEngine(map[string]surrogate.ClientCreds{
-		"github": {ID: os.Getenv("SURROGATE_GITHUB_CLIENT_ID"), Secret: os.Getenv("SURROGATE_GITHUB_CLIENT_SECRET")},
-	}); err != nil {
+	if eng, err := surrogate.NewEngine(dataDir); err != nil {
 		slog.Error("build surrogate engine", "err", err)
 		os.Exit(1)
 	} else {

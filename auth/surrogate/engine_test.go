@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -154,7 +156,7 @@ func TestRefresh_BodylessErrorIsNotReconnect(t *testing.T) {
 }
 
 func TestRegistry_EmbeddedGitHub(t *testing.T) {
-	e, err := NewEngine(nil)
+	e, err := NewEngine("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,5 +169,70 @@ func TestRegistry_EmbeddedGitHub(t *testing.T) {
 	}
 	if names := e.Names(); len(names) == 0 || names[0] != "github" {
 		t.Errorf("Names() = %v", names)
+	}
+}
+
+// A datadir provider adds a new one AND overrides an embedded default by name;
+// env creds bind per provider.
+func TestRegistry_DatadirOverrideAndCreds(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "surrogate"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// New operator provider.
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, "surrogate", name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("acme.toml", `auth_url="https://acme.test/auth"
+token_url="https://acme.test/token"
+secret_key="ACME_TOKEN"
+scopes=["read"]`)
+	// Override embedded github's secret_key.
+	write("github.toml", `auth_url="https://github.test/auth"
+token_url="https://github.test/token"
+secret_key="GH_OVERRIDDEN"`)
+
+	t.Setenv("SURROGATE_ACME_CLIENT_ID", "acme-id")
+	t.Setenv("SURROGATE_ACME_CLIENT_SECRET", "acme-secret")
+
+	e, err := NewEngine(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acme, ok := e.Provider("acme")
+	if !ok || acme.SecretKey != "ACME_TOKEN" {
+		t.Fatalf("acme not loaded from datadir: %+v ok=%v", acme, ok)
+	}
+	gh, _ := e.Provider("github")
+	if gh.SecretKey != "GH_OVERRIDDEN" {
+		t.Errorf("datadir github.toml did not override embedded: %+v", gh)
+	}
+	if !e.HasCreds("acme") {
+		t.Error("acme creds not bound from env")
+	}
+	if e.HasCreds("github") {
+		t.Error("github should have no creds (no env set)")
+	}
+}
+
+// A malformed / incomplete provider file fails loud, naming the file.
+func TestRegistry_IncompleteProviderErrors(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "surrogate"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Missing token_url + secret_key.
+	if err := os.WriteFile(filepath.Join(dir, "surrogate", "bad.toml"),
+		[]byte(`auth_url="https://bad.test/auth"`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewEngine(dir)
+	if err == nil {
+		t.Fatal("want error on incomplete provider")
+	}
+	if !strings.Contains(err.Error(), "bad.toml") {
+		t.Errorf("error must name the file, got: %v", err)
 	}
 }

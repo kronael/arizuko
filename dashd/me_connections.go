@@ -59,6 +59,12 @@ func (d *dash) listConnections(sub string) ([]connectionItem, error) {
 	}
 	var out []connectionItem
 	for _, name := range d.surrogate.Names() {
+		// A provider without operator client creds cannot run the dance — hide
+		// it unless the user already holds a connection to it (so a revoked-creds
+		// provider still shows its live token).
+		if _, connected := byProvider[name]; !d.surrogate.HasCreds(name) && !connected {
+			continue
+		}
 		it := connectionItem{Provider: name}
 		if c, ok := byProvider[name]; ok {
 			it.Connected = true

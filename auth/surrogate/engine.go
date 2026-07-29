@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -47,15 +48,34 @@ type Engine struct {
 	creds     map[string]ClientCreds
 }
 
-// NewEngine loads the embedded provider registry and binds the operator creds
-// (keyed by provider name). Providers without creds still load — the dance just
-// errors when driven (no creds to present).
-func NewEngine(creds map[string]ClientCreds) (*Engine, error) {
-	reg, err := loadRegistry()
+// NewEngine loads the provider registry (embedded defaults + operator
+// <dataDir>/surrogate/*.toml) and binds each provider's operator creds from the
+// environment: SURROGATE_<NAME>_CLIENT_ID / _CLIENT_SECRET, NAME upper-cased with
+// '-' → '_'. A provider without creds still loads — the dance just errors when
+// driven (no confidential client to present), so an unconfigured provider is
+// inert, not fatal. dataDir "" loads embedded providers only.
+func NewEngine(dataDir string) (*Engine, error) {
+	reg, err := loadRegistry(dataDir)
 	if err != nil {
 		return nil, err
 	}
+	creds := make(map[string]ClientCreds, len(reg))
+	for name := range reg {
+		env := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+		id := os.Getenv("SURROGATE_" + env + "_CLIENT_ID")
+		secret := os.Getenv("SURROGATE_" + env + "_CLIENT_SECRET")
+		if id != "" || secret != "" {
+			creds[name] = ClientCreds{ID: id, Secret: secret}
+		}
+	}
 	return &Engine{providers: reg, creds: creds}, nil
+}
+
+// HasCreds reports whether a registered provider carries operator client creds —
+// callers log which providers are actually connectable.
+func (e *Engine) HasCreds(name string) bool {
+	c, ok := e.creds[name]
+	return ok && c.ID != "" && c.Secret != ""
 }
 
 // NewEngineWith builds an engine from an explicit registry — tests point a
