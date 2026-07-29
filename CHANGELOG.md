@@ -16,6 +16,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **Operator-configurable OAuth providers — surrogate (spec `5/15`).** Adding a
+  "Connect &lt;service&gt;" flow is now pure config: drop
+  `<datadir>/surrogate/<name>.toml` (`auth_url`/`token_url`/`secret_key` required —
+  a missing one is a hard boot error naming the file; a same-named file overrides
+  an embedded default) and set `SURROGATE_<NAME>_CLIENT_ID/_SECRET` in `.env`.
+  `NewEngine(dataDir)` binds creds for **every** registered provider, not just the
+  hardcoded github — the connections page hides a provider until it has creds.
+  `github` and `google` ship built-in. Recipe: `EXTENDING.md` + web how-to
+  `howto/oauth-provider.html`.
+
 - **`arizuko packages install | upgrade | remove` — a package manager (spec `5/28`).**
   A package is a git source (or local dir) shipping compose fragments, proxyd
   routes (`*-routes.json`), and grants (`*-grants.json`). `install` resolves an
