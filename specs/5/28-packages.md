@@ -4,19 +4,23 @@ status: partial
 
 # specs/5/28 — arizuko packages
 
-> **Implementation status (2026-07-29).** Core lifecycle SHIPPED for the
-> compose-fragment asset kind, record-backed + dirty-safe:
+> **Implementation status (2026-07-29).** The package manager works end-to-end
+> for the compose-fragment + routes asset kinds — install/upgrade/remove, git or
+> local source, record-backed + dirty-safe. Routes apply through the shipped
+> `arizuko generate` + restart path (`5/27`).
 >
-> - **P0** installed-package record store — `routd/packages_store.go`, migration
->   `0020`, `installed_packages` table + CRUD. (`7f41a63d`)
-> - **P1** `arizuko packages install <source>` + record-driven `remove` —
->   `cmd/arizuko/packages.go`. (`c53ab0d2`)
-> - **P3** `arizuko packages upgrade` with **dirty-detection** — refuses to
->   overwrite a locally edited asset (hash ≠ recorded). (`c0557df8`)
+> - **P0** installed-package record — `routd/packages_store.go`, migration `0020`,
+>   `installed_packages` table + CRUD. (`7f41a63d`)
+> - **P1** `packages install <source>` + record-driven `remove`. (`c53ab0d2`)
+> - **P3** `packages upgrade` with **dirty-detection** — refuses to overwrite a
+>   locally edited asset (hash ≠ recorded). (`c0557df8`)
+> - **P1b** git source resolution — `install`/`upgrade` accept a git URL, clone
+>   it, record the resolved revision. (`83b7d009`)
 >
-> Remaining: **P1b** git source resolution (install takes a local dir today),
-> **P2** row assets (`proxyd_routes`/`acl` via owner REST — the live C2 fix),
-> **P4** sidecar health-gating. Plan: `.ship/plan-packages.md`.
+> Remaining are **live-daemon refinements** (need a running proxyd / docker, not
+> in-process testable): **P2** hot-apply row assets to a _running_ proxyd/authd
+> via REST without a restart (the C2 no-restart case; a restart applies them
+> today), **P4** sidecar health-gating. Plan: `.ship/plan-packages.md`.
 
 Source-first package manager: a package is a **git source** (GitHub URL,
 resolved to an immutable revision) that ships a **manifest** plus any subset of
