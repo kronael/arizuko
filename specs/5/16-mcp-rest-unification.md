@@ -122,7 +122,11 @@ The goal is **agent-first platform management** — every cold-tier management
 resource (`routes`, `acl`, `groups`, `secrets`, `scheduled_tasks`,
 `network_rules`, `web_routes`, `route_tokens`, `onboarding_gates`,
 `proxyd_routes`) reachable via **MCP** (agent, tier-gated) AND **REST**
-(human, OAuth-gated), one in-process handler. That's `5/17`'s principle;
+(human, OAuth-gated), one in-process handler. Both-faces is the **default,
+not a universal** — security-driven exceptions stand and are intended:
+`secrets` is REST-only (write-only, no agent face — the encrypted value must
+never ride the agent surface); `network_rules` is agent-MCP-only (no REST
+twin). That's `5/17`'s principle;
 this spec finishes the coverage and collapses the bespoke surfaces onto it.
 
 **Written once, not twice** — one `resreg.Resource` is authored; the agent's

@@ -5,10 +5,12 @@ depends: [17-openapi-mcp, specs/4/9-acl-unified, specs/5/5-tenant-self-service]
 
 # specs/5/13 — external capability injection
 
-> arizuko is the broker between agents and the web. Credentials never enter
-> the container. Every external call is governed by grants and written to the
-> audit log. The agent invokes a tool by name; arizuko resolves the
-> credential, calls the external service, and returns the result.
+> arizuko is the broker between agents and the web. Capability credentials
+> stay with the broker — the target is they never enter the container (§Trust
+> model records the spawn-env interim, BUGS X1). Every external call is governed
+> by grants and written to the audit log. The agent invokes a tool by name;
+> arizuko resolves the credential, calls the external service, and returns the
+> result.
 
 This is a core arizuko primitive — the same mechanism that lets a group
 agent manage DNS records, open a GitHub PR, send a transactional email, or
@@ -228,11 +230,11 @@ The M2 gap is the missing WRITER at the broker path, not the table.
 
 ## Trust model
 
-| scope            | where                                          | reaches agent?                                                                                                                             |
-| ---------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Operator anchors | container env (`ANTHROPIC_API_KEY`, bot creds) | yes — Claude Code CLI needs them (set in `.env`, injected at spawn via `container/runner.go:readSecrets()`; separate from `secrets` table) |
-| Folder secrets   | `secrets` table, broker only                   | no                                                                                                                                         |
-| Per-user secrets | `secrets` table, broker only                   | no                                                                                                                                         |
+| scope                       | where                                          | reaches agent?                                                                                                                                                                                |
+| --------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Operator anchors            | container env (`ANTHROPIC_API_KEY`, bot creds) | yes — Claude Code CLI needs them (set in `.env`, injected at spawn via `container/runner.go:readSecrets()`; separate from `secrets` table)                                                    |
+| Folder secrets (capability) | `secrets` table                                | **target: no** (broker-only). **Interim today: yes** — spawn-injected via container env (`5/14` §Injection "interim", BUGS X1). Realizing the target = inject only `EnvProfileKeys` at spawn. |
+| Per-user secrets            | `secrets` table, broker only                   | no                                                                                                                                                                                            |
 
 Three escape paths closed by the broker:
 

@@ -208,7 +208,7 @@ folders fall out for free once selection is per-spawn: runed sets
 
 ## Folder shape compatibility
 
-The agent folder (PERSONA.md, CLAUDE.md, skills/, MCP.json, secrets/,
+The agent folder (PERSONA.md, CLAUDE.md, skills/, secrets/,
 workspace/) is claude-shaped: skills are markdown that Claude Code
 auto-loads from `.claude/skills/`. Codex does not auto-load
 arizuko-shaped skills. v1: the codex backend concatenates relevant
