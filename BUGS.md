@@ -183,6 +183,27 @@ Fix (redesign — needs sign-off; routd turn-lifecycle + chanlib backstop):
    notice (dispatch.go:339 `runFailureNotice` covers the non-steered parent, but
    confirm it fires for the steered-follow-up case).
 
+## X1 — capability secrets leak into the agent container env (2026-07-29, proposed)
+
+`5/13` guarantees table secrets are **broker-only** — "credentials never enter the
+container" (`specs/5/13-ext-mcp.md:8,231`). The spawn path breaks it:
+`routd/dispatch.go:507` resolves `l.db.FolderSecretsForUser(folder, caller)` — the
+FULL folder secret set — and runed injects it as container env
+(`container/runner.go:263`). So a connector's API token / a pasted PAT (exactly
+the credentials `5/13` says the broker holds and the agent never sees) lands in
+the agent's environment. `store.EnvProfileKeys` (`store/secrets.go:99`) already
+names the ONLY keys that legitimately belong in spawn env (the AI-model creds the
+agent's own harness needs); nothing enforces that subset at spawn.
+
+- **Severity:** high (credential exposure to agent-run code)
+- **Source:** routd/dispatch.go:507; container/runner.go:263; store/secrets.go:99
+- **Status:** proposed — needs the credential-tier decision + sign-off
+- **Fix (redesign, sign-off):** at spawn, inject only `EnvProfileKeys`; every other
+  secret stays broker-only, resolved at the ext-call boundary (`5/13` broker path),
+  never in env. Reconcile `5/13`/`5/14` to state the split explicitly (env-profile
+  tier vs capability/broker tier). Verify no connector relies on its key being in
+  env before flipping. Found by codex tearing the ext-auth plan (2026-07-29).
+
 ## M1 — `mcpc` socat-connect form 502s since mcpc 0.3.0 (2026-07-16, open)
 
 The documented ad-hoc MCP-call form for agents — `mcpc connect "socat
