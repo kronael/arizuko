@@ -166,6 +166,32 @@ via `store.MatchWebRoute`. These rows only take effect if proxyd is
 configured with a store (`s.st != nil`); they have no effect on channel
 routing.
 
+## Installing packages
+
+`arizuko packages <instance> install | upgrade | remove` manages packages
+(spec `5/28`). A package is a git source or local dir shipping any subset of
+asset kinds:
+
+- **compose fragment** — `<name>.yml` (+ `<name>-routes.json`) → copied to
+  `services/`, brought up on `arizuko generate`.
+- **proxyd route** — `<name>-routes.json` → hot-applied to the live
+  `proxyd_routes` table; proxyd reads it per request, so it takes effect with
+  **no restart**.
+- **grant** — `<name>-grants.json` (array of `{principal, action, scope}`) →
+  applied to `acl`.
+
+```bash
+arizuko packages krons install github.com/org/pkg   # or a local dir
+arizuko packages krons upgrade pkg                   # refuses locally-edited (dirty) assets
+arizuko packages krons remove  pkg                   # withdraws routes, then drops fragments
+```
+
+Each install records an **installed-package record** in `routd.db` (source +
+resolved revision + owned identities + per-asset content hash). That record
+drives `upgrade` (dirty-detection — never overwrites a locally edited asset),
+`remove` (deletes exactly the identities it owns), and reproducibility. Skills
+and group-seed asset kinds are not yet wired.
+
 ## Adding a channel adapter
 
 A channel adapter is a standalone HTTP daemon that bridges a chat

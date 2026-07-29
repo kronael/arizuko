@@ -14,6 +14,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **`arizuko packages install | upgrade | remove` — a package manager (spec `5/28`).**
+  A package is a git source (or local dir) shipping compose fragments, proxyd
+  routes (`*-routes.json`), and grants (`*-grants.json`). `install` resolves an
+  immutable revision, writes the files, hot-applies routes/grants to the live
+  `routd.db` (proxyd reads `proxyd_routes` per request → **no restart**, fixing
+  `5/27` C2), and records an **installed-package record** (source + revision +
+  owned identities + per-asset hash). `upgrade` **refuses a locally edited (dirty)
+  asset** instead of overwriting it; `remove` withdraws routes before dropping
+  fragments and deletes exactly what the record owns. Skills/group-seed asset
+  kinds + operator docs/dashboard remain.
+
 ### Changed
 
 - **`.yml` is the only package format — the legacy `.toml` converter is gone.**
@@ -28,7 +41,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `writeManagedEnv` fails loud on a malformed managed marker instead of erasing
   the `.env` tail; route sidecars decode strictly (unknown field errors) and
   gained `redirect_to`. See `BUGS.md`. (C2, the package-route ↔ proxyd-DB
-  lifecycle, remains a proposal pending design sign-off.)
+  lifecycle, is resolved by the package manager's hot-apply above.)
 
 ## [v0.62.0] — 2026-07-28
 
