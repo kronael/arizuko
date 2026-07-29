@@ -20,16 +20,16 @@ type RouteTokensRow struct {
 }
 
 // RouteTokensEndpoints is the single owner of the route_tokens endpoint set that
-// drives the agent's token tools (routd route_tokens_resource.go references it).
+// drives BOTH the agent's token tools (routd route_tokens_resource.go) AND the
+// operator REST face (routd tokens_http.go mountRouteTokens, spec 5/16 fold).
 // issue_chat/issue_hook are custom POST verbs at /chat + /hook and revoke is a
 // jid-addressed DELETE, so the real faces diverge from the PK-CRUD convention.
-// route_tokens is agent-MCP-first here; the operator REST twin (/v1/route_tokens/*)
-// stays hand-rolled in routd/tokens_http.go (its chat/hook/resolve shapes predate
-// the fold and are out of this step's scope), so no daemon advertises route_tokens
-// in /openapi.json yet — these paths only drive deriveMCPTools + the facade browser.
+// The REST-only resolve (URL token → jid, webd) has no MCP twin and stays
+// hand-rolled. Both faces now share routeTokensHandler, so /openapi.json
+// advertises these paths.
 var RouteTokensEndpoints = []resreg.Endpoint{
-	{Verb: "POST", Path: "/v1/route_tokens/chat", Action: resreg.Action("issue_chat")},
-	{Verb: "POST", Path: "/v1/route_tokens/hook", Action: resreg.Action("issue_hook")},
+	{Verb: "POST", Path: "/v1/route_tokens/chat", Action: resreg.Action("issue_chat"), Status: 201},
+	{Verb: "POST", Path: "/v1/route_tokens/hook", Action: resreg.Action("issue_hook"), Status: 201},
 	{Verb: "GET", Path: "/v1/route_tokens", Action: resreg.ActionList},
 	{Verb: "DELETE", Path: "/v1/route_tokens/{jid}", Action: resreg.Action("revoke")},
 }

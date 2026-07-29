@@ -1939,3 +1939,35 @@ for hub.css.
   deleting); (b) release script bumps both (band-aid, applied 2026-07-14 in
   CLAUDE.md wording).
 - **Status:** open — versions synced at v0.58.0; collapse decision pending
+
+## `groups` REST twin (`/v1/groups`) — fold vs write-discipline decision (2026-07-29, open)
+
+5/16's last resreg rollout item. The agent's `register_group`/`refresh_groups`
+already ride `s.groupsResource()`; the spec wants the human REST twin at
+`/v1/groups` too. Unlike the other folds (`web_routes`/`routes`/`tasks`/
+`route_tokens` — mechanical), this one is NOT mechanical:
+
+- `groups` is a side-effecting **FORWARDER** (Store nil): `register_group` runs
+  `s.registerGroup` (git-init a group dir + insert a room route + a DB row), which
+  cannot ride a resreg SQL tx (`groups_resource.go` header).
+- Operator group-creation ALREADY exists as dashd's FS-managed `/dash/groups/*`
+  (`container.SetupGroup`) — the FS-mounted write-discipline path that also seeds
+  skills/settings/tasks (the `group_creation` law: never bare-create a group row).
+
+So a routd `/v1/groups` create would be a SECOND group-create door that does LESS
+than dashd's (no skill/settings seed) — the exact two-paths drift the platform
+forbids. Options:
+- **(a) Read-only `/v1/groups`** — mount only the LIST/GET face via resreg (no
+  create/delete over REST); operator create stays dashd's `SetupGroup`. Satisfies
+  "both faces" for the read surface without a second create door. **Recommended.**
+- **(b) Full `/v1/groups` create** — route it through `container.SetupGroup` (not
+  `s.registerGroup`), so the one seed path is shared. Larger; routd would need the
+  container/setup dependency it currently lacks.
+- **(c) Leave groups agent-MCP-only** for create; document that operator
+  group-create is dashd-only by design (write-discipline), and drop the `/v1/groups`
+  REST item from 5/16.
+
+- **Severity:** low (no runtime bug; a rollout-completeness + orthogonality call)
+- **Scope:** routd groups_resource + dashd group forms + 5/16 status
+- **Status:** open — needs sign-off before shipping; do NOT add a second bare
+  create door (a) or (c) preferred.

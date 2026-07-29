@@ -17,12 +17,22 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > tier-0 delete + a `tasks` get twin (`ad44b081`). `network_rules` is agent-only
 > (no REST twin) — nothing to fold. OpenAPI emits each advertised resource's real
 > mounted `Endpoints` (`7c14efd6`); the dashd tool-browser renders the facade
-> tools (`df9ebad3` + `d5023c60`). Remaining: `route_tokens`' REST face is still
-> hand-rolled (`server.go handleToken*`) and `groups` has no `/v1/groups` REST
-> twin yet; then the one-owner + federation phase retires `messages.db`.
-> **2026-07-27:** `mcp_connectors` added to adoption list — migrate
-> `connectors.toml` static loader to a resreg resource (routd.db), adding
-> REST `/v1/mcp-connectors` + agent MCP face. Per-group `MCP.json` dropped;
+> tools (`df9ebad3` + `d5023c60`). **2026-07-29:** `route_tokens`' REST face is
+> now folded onto the shared handler (`tokens_http.go mountRouteTokens` +
+> `routeTokensRESTGate`) — the bespoke `handleToken*` bodies and the
+> `RouteTokenResponse`/204 wire shapes are retired; the REST face returns the
+> unified handler shape (`{token,jid,url}` / `{tokens:[…]}` / `{deleted}`) and the
+> REST-only `resolve` (no MCP twin) stays hand-rolled. Remaining: `groups` has no
+> `/v1/groups` REST twin — a genuine write-discipline decision, NOT a mechanical
+> fold: the `groups` resource is a side-effecting FORWARDER (dir-init + route +
+> DB row via `s.registerGroup`) and operator group-creation already lives in
+> dashd's FS-managed `/dash/groups/*` (`container.SetupGroup`). Whether routd
+> should own a second group-create door via REST needs sign-off (recorded in
+> `BUGS.md`). Then the one-owner + federation phase retires `messages.db`.
+> **2026-07-27:** `mcp_connectors` was floated for the adoption list but CUT
+> (2026-07-29): connectors + REST ext-providers ALREADY load from
+> `<datadir>/connectors.toml` — a resreg resource would add a second
+> source-of-truth (the reconciler-drift trap). Per-group `MCP.json` dropped;
 > connectors are global operator-defined resources, access via grants only.
 
 # specs/5/16 — MCP+REST unification (finish the adoption)

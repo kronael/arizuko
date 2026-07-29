@@ -25,13 +25,14 @@ package routd
 //     READ (unlike scheduled_tasks' GetTask.Owner) because the owner is bound to the
 //     caller, never supplied — the WHERE clause IS the containment.
 //
-// Only the AGENT face rides this resource (agent socket, route_tokensPostBuild). The
-// operator REST twin (/v1/route_tokens/{chat,hook,resolve}, list, {jid}) stays
-// hand-rolled in tokens_http.go — its chat/hook/resolve request shapes predate the
-// fold and folding them is a separate 5/16 REST-face step. The injected Gate adds the
-// uniform tool grant (grants.CheckAction + db.Authorize) the old registerRaw path
-// omitted (it gated on VISIBILITY only); for a normally-granted folder the decision
-// is identical, and an ungranted one is now denied at call time, not just hidden.
+// BOTH faces ride this resource: the AGENT face (agent socket, route_tokensPostBuild,
+// injected tool-grant Gate) and the operator REST face (tokens_http.go mountRouteTokens,
+// injected routeTokensRESTGate — scope + JWT-folder containment). One shared handler,
+// two injected gates (CLAUDE.md "auth is a uniform middleware"). The REST wire shape is
+// now the handler's ({token,jid,url} / {tokens:[…]} / {deleted}), unified with the MCP
+// tools — the old bespoke RouteTokenResponse/204 shapes are retired. Only the REST-only
+// resolve (URL token → jid, webd; no MCP twin) stays hand-rolled. The Gate adds the
+// uniform tool grant the old registerRaw path omitted (it gated on VISIBILITY only).
 
 import (
 	"context"

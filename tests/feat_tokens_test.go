@@ -4,6 +4,7 @@
 package tests
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -142,6 +143,44 @@ func TestFeature_RouteTokens(t *testing.T) {
 		rows, err := f.routdDB.ListRouteTokens("demo")
 		if err != nil || len(rows) != 1 || rows[0].Context != "stripe events; summarize daily" {
 			t.Fatalf("row = %+v err=%v", rows, err)
+		}
+	})
+
+	// Spec 5/16 REST-face fold: list + revoke ride the SAME shared handler as
+	// the agent's list_tokens/revoke_token, mounted via resreg.RegisterREST.
+	// Issue → GET list ({tokens:[...]}) → DELETE revoke → row gone.
+	t.Run("http-list-and-revoke-folded", func(t *testing.T) {
+		f := bootFederation(t)
+		if err := f.routdDB.PutGroup(core.Group{Folder: "demo"}); err != nil {
+			t.Fatal(err)
+		}
+		tok := f.authd.mintService(t, "service:dashd", "routes:write routes:read")
+		body := routdv1.RouteTokenRequest{OwnerFolder: "demo", TargetFolder: "demo"}
+		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/route_tokens/chat", tok, "", body); rec.StatusCode != 201 {
+			t.Fatalf("issue = %d, want 201", rec.StatusCode)
+		}
+		lrec := postBearer(t, f.routdTS.URL, "GET", "/v1/route_tokens?owner_folder=demo", tok, "", nil)
+		if lrec.StatusCode != 200 {
+			t.Fatalf("list = %d, want 200", lrec.StatusCode)
+		}
+		var list struct {
+			Tokens []struct {
+				JID string `json:"jid"`
+			} `json:"tokens"`
+		}
+		if err := json.NewDecoder(lrec.Body).Decode(&list); err != nil {
+			t.Fatal(err)
+		}
+		if len(list.Tokens) != 1 || list.Tokens[0].JID != "web:demo" {
+			t.Fatalf("list tokens = %+v, want [web:demo]", list.Tokens)
+		}
+		drec := postBearer(t, f.routdTS.URL, "DELETE", "/v1/route_tokens/web:demo?owner_folder=demo", tok, "", nil)
+		if drec.StatusCode != 200 {
+			t.Fatalf("revoke = %d, want 200", drec.StatusCode)
+		}
+		rows, err := f.routdDB.ListRouteTokens("demo")
+		if err != nil || len(rows) != 0 {
+			t.Fatalf("after revoke rows = %+v err=%v, want 0", rows, err)
 		}
 	})
 

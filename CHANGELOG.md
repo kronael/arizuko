@@ -41,6 +41,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- **`route_tokens` REST face folded onto its resreg resource (spec `5/16`).** The
+  operator `/v1/route_tokens/{chat,hook}` + list + revoke endpoints now ride the
+  SAME shared handler as the agent's `issue_chat_link`/`issue_webhook`/
+  `list_tokens`/`revoke_token` MCP tools (one renderer, two injected gates — tier
+  Gate for the agent socket, scope+containment `routeTokensRESTGate` for REST). The
+  bespoke `handleToken*` bodies are deleted; the REST wire shape is unified with the
+  MCP tools (`{token,jid,url}` / `{tokens:[…]}` / `{deleted}`), retiring the old
+  `RouteTokenResponse`/204 shapes. The REST-only `resolve` (URL token → jid, webd;
+  no MCP twin) stays hand-rolled. Request shapes are unchanged. `/v1/groups` REST
+  twin remains a write-discipline decision (see `BUGS.md`).
+
 - **`.yml` is the only package format — the legacy `.toml` converter is gone.**
   Once every live data dir was migrated (krons/marinade/sloth, `.toml.bak` kept),
   `compose/legacy.go` was deleted. `arizuko generate` reads `services/*.yml` only.
