@@ -4,23 +4,24 @@ status: partial
 
 # specs/5/28 — arizuko packages
 
-> **Implementation status (2026-07-29).** The package manager works end-to-end
-> for the compose-fragment + routes asset kinds — install/upgrade/remove, git or
-> local source, record-backed + dirty-safe. Routes apply through the shipped
-> `arizuko generate` + restart path (`5/27`).
+> **Implementation status (2026-07-29).** The package-manager lifecycle is fully
+> implemented + tested for the compose-fragment + proxyd-route asset kinds —
+> install / upgrade / remove, git or local source, record-backed, dirty-safe,
+> routes hot-applied to the live table. ~18 tests green.
 >
-> - **P0** installed-package record — `routd/packages_store.go`, migration `0020`,
->   `installed_packages` table + CRUD. (`7f41a63d`)
+> - **P0** installed-package record — `routd/packages_store.go`, migration `0020`. (`7f41a63d`)
 > - **P1** `packages install <source>` + record-driven `remove`. (`c53ab0d2`)
-> - **P3** `packages upgrade` with **dirty-detection** — refuses to overwrite a
->   locally edited asset (hash ≠ recorded). (`c0557df8`)
-> - **P1b** git source resolution — `install`/`upgrade` accept a git URL, clone
->   it, record the resolved revision. (`83b7d009`)
+> - **P3** `packages upgrade` with **dirty-detection** (refuses to overwrite a
+>   locally edited asset). (`c0557df8`)
+> - **P1b** git source resolution — clone + record the resolved revision. (`83b7d009`)
+> - **P2** hot-apply routes to the live `proxyd_routes` table (proxyd reads it per
+>   request → no restart) — **fixes `5/27` C2**; remove deletes them. (`911a5ca2`)
+> - **P4** remove withdraws the route BEFORE the fragment (no teardown window);
+>   bring-up health-gating is compose's (`healthcheck`+`depends_on`) — the CLI
+>   can't reach docker-internal backends.
 >
-> Remaining are **live-daemon refinements** (need a running proxyd / docker, not
-> in-process testable): **P2** hot-apply row assets to a _running_ proxyd/authd
-> via REST without a restart (the C2 no-restart case; a restart applies them
-> today), **P4** sidecar health-gating. Plan: `.ship/plan-packages.md`.
+> Deferred to a release DoD: skills + acl + group-seed asset kinds, repo/web
+> docs, dashd surface, migration broadcast. Plan: `.ship/plan-packages.md`.
 
 Source-first package manager: a package is a **git source** (GitHub URL,
 resolved to an immutable revision) that ships a **manifest** plus any subset of

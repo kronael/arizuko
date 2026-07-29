@@ -383,20 +383,22 @@ func cmdPackages(args []string) {
 		// says this package owns, then drop the record. Fall back to the legacy
 		// `<name>.yml` deletion for a catalog `add` that left no record.
 		if rec, ok, _ := rdb.InstalledPackage(name); ok {
-			for k := range rec.AssetHashes {
-				if fn, isFile := strings.CutPrefix(k, "file:"); isFile {
-					if err := os.Remove(filepath.Join(svcDir, fn)); err != nil && !os.IsNotExist(err) {
-						die("Failed: remove %s: %v", fn, err)
-					}
-				}
-			}
-			// Delete the live proxyd_routes rows this package hot-applied (P2),
-			// so removal leaves no dangling route (5/27 C2's other half).
+			// P4 reverse order: withdraw the live route(s) FIRST, so no request
+			// is ever routed at a sidecar mid-teardown, THEN drop the fragment
+			// files. Bring-up health-gating is compose's (healthcheck +
+			// depends_on) — the CLI can't reach docker-internal backends.
 			if paths := rec.Manifest["proxyd_route"]; len(paths) > 0 && hasProxydRoutes(rdb) {
 				st := store.New(rdb.SQL())
 				for _, p := range paths {
 					if _, err := st.DeleteProxydRoute(p); err != nil {
 						die("Failed: remove route %s: %v", p, err)
+					}
+				}
+			}
+			for k := range rec.AssetHashes {
+				if fn, isFile := strings.CutPrefix(k, "file:"); isFile {
+					if err := os.Remove(filepath.Join(svcDir, fn)); err != nil && !os.IsNotExist(err) {
+						die("Failed: remove %s: %v", fn, err)
 					}
 				}
 			}
