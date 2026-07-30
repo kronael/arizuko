@@ -320,7 +320,26 @@ its role via an `acl_membership` edge; `deriveFolderGrants` reads `folder:<path>
 per-folder grant rows. Then `list_acl(folder)` shows only folder-own overrides (role rows
 live on the role principal), and there's no per-turn write. The binding-by-tier is the last
 tier-read on this surface; removing it (role assigned at invite/create, not derived) is the
-final step. THEN drop the `DeriveRules` base. Verify via `make test-e2e`. Structural (item 4) + non-authz (item 5) remain separate later commits.
+final step. THEN drop the `DeriveRules` base.
+
+### Grant-surface flip — DONE (`600fc408`), decision-equivalent
+
+`SeedTierRoles` seeds `role:tier0..3` at DB open; `grants.PlatformRulesForFolder`
+exposes the world-derived platform slice; `deriveFolderGrants` = `PlatformRulesForFolder`
+
+- `folderGrantsFromACLOnly` (role bundle via membership + overlay + delegated grants,
+  deny-wins) — no `DeriveRules` base on this path. **Grants flow through the acl/role graph,
+  decoupled from depth**; the differential proves acl-sourced == `DeriveRules` decisions and
+  the depth-decoupling test proves a role overrides depth. `list_acl(folder)` stays clean.
+  Binding-by-tier is the last depth read here (role assigned at create/invite once tiers
+  fully retire).
+
+Verification: full routd + auth + grants suites + lint green. `make test-e2e` currently
+has NO matching tests (`[no tests to run]`) — a real agent-spawn e2e asserting the flipped
+folder gets its tools is still owed. **Still tier-coupled (separate commits):** the per-call
+`auth.Authorize` mcp:\* fallback (`authorize.go:113` still calls `DeriveRules`);
+`AuthorizeStructural` (item 4); egress/web `tierOf` (item 5); `ARIZUKO_TIER` skill
+migration. `DeriveRules` stays until those land.
 
 ## Open questions
 
