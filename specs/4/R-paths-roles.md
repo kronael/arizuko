@@ -249,6 +249,49 @@ Order:
 The equivalence test in step 2 is what lets this be incremental instead of a
 leap: the old and new authz answers must match before the old is removed.
 
+## Safety audit — NO-GO as first scoped (2026-07-30)
+
+An adversarial pre-flight audit ruled the cutover **not safe to execute** as first
+drafted and corrected the plan. Must-fix-first, in order (only then does step 2 ship):
+
+1. **F1 — DONE (commit 98b81c5e).** `role:operator` had no base row in a fresh
+   `routd.db` and `grant_option=0` on migrate-split → the delegation root was empty.
+   Migration `0022` seeds it WITH GRANT OPTION, ordering-safe vs `migrate_split`.
+2. **The equivalence baseline is INADEQUATE.** `grants/equivalence_baseline_test.go`
+   calls `DeriveRules`+`CheckAction` directly, bypassing `Authorize`/
+   `AuthorizeStructural`. It pins 7 tools with a nil `RouteSource`. Before step 2 it
+   MUST also cover: `AuthorizeStructural`'s ~20 gated tools at multiple containment
+   depths; a populated `RouteSource` (`platformRules`); a per-folder acl-overlay row
+   on tier defaults; the `mcp:*` fallback guard (`auth/authorize.go:101-114`). And it
+   only pins the OLD side — it must become an old-vs-new DIFFERENTIAL once seeding
+   lands (and survive `DeriveRules`' deletion).
+3. **`deriveFolderGrants` (`routd/mcp.go:531`) is a MISSED reader — rewrite it in the
+   SAME commit as the Authorize flip.** It feeds both the socket rules (`toolGrant`)
+   AND runed's `in.Grants` (which after step 4 also drives egress/web), and reads acl
+   via `ListACL("folder:"+folder)` — **exact-principal match only, no `Ancestors`
+   role-expansion, no wildcard rows, no deny-wins lattice** — materially weaker than
+   `AuthorizeWith`. Left as-is, a role-INHERITED grant passes the live gate but FAILS
+   `deriveFolderGrants`' exact-match rules → the tool is silently unreachable
+   (`toolGrant`, `agent_gate.go:61`, requires BOTH). Collapse `dashd/tools_admin.go`'s
+   duplicate `DeriveRules` call into the same renderer.
+4. **Root-is-a-tier-scalar (~10 sites) needs an `is_root`/role predicate**, not
+   deletion: `ipc/inspect.go:13,27,62`, `ipc/ipc.go:1998/2065/2118/2157/2245/2202`,
+   `agent_gate.go:50`, `acl_resource.go:203`, `route_tokens_resource.go:199,202`.
+   Drop them blindly and the operator bypass either vanishes (containment hits root)
+   or over-applies (deep folder treated as root).
+5. **Non-authz tier readers need explicit replacements, not deletion**: the ~8 resource
+   files' inline `auth.Resolve`+`AuthorizeStructural` (each a distinct scope-glob
+   rewrite; confirm `ipc/ipc.go`'s are still live vs superseded by resreg);
+   `prompt.go:154` (tier rendered into the agent prompt); `dashd/tools_admin.go:40`
+   (display); `runner.go:184/614/622/810` (egress + web-vhost → grants); and
+   `ARIZUKO_TIER` which `ant/skills/self/identity.md` + `ant/CLAUDE.md` read → needs a
+   migration-broadcast, not a silent drop. Decide (don't skip) whether `ownsFolder`
+   folds into acl scope-glob as the spec claims.
+
+Verdict: incremental via strangler-fig IS the right shape, but steps 2–5 are each
+larger than first written. Execute 1 (done), then 2+3 together behind the expanded
+differential, then 4, then 5 — never the flip before the differential is green.
+
 ## Open questions
 
 1. **Non-authz tier uses — RESOLVED (see §blast).** `tierOf` drives egress
