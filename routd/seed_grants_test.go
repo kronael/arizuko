@@ -88,6 +88,33 @@ func TestIntegration_RoleDecouplesDepth(t *testing.T) {
 	}
 }
 
+// TestIntegration_OperatorDenyBeatsRoleAllow (adversary BUG 3): an operator DENY on
+// folder:<path> for a verb the folder's role ALLOWS must win, regardless of the
+// order store.ACLRowsFor returns rows (folder: sorts before role: in the index).
+// The render partitions denies last so deny-precedence is order-independent.
+func TestIntegration_OperatorDenyBeatsRoleAllow(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	st := store.New(db.SQL())
+	if err := SeedTierRoles(st); err != nil {
+		t.Fatal(err)
+	}
+	const f = "w" // bind to role:tier1 which allows register_group
+	if err := st.AddMembership("folder:"+f, tierRoleName(1), "test"); err != nil {
+		t.Fatal(err)
+	}
+	// Operator deny on the folder principal for a role-granted verb.
+	addACL(t, db, "folder:"+f, "mcp:register_group", f, "deny")
+
+	rules := folderGrantsFromACLOnly(st, f)
+	if grants.CheckAction(rules, "register_group", nil) {
+		t.Fatalf("operator deny must beat role allow (deny-precedence), rules=%v", rules)
+	}
+}
+
 // worldOf mirrors auth.WorldOf for the test without importing it twice.
 func worldOf(folder string) string {
 	if folder == "" {

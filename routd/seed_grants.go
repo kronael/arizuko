@@ -96,7 +96,13 @@ func parseRule(rule string) (verb, params string, deny bool) {
 // test compares CheckAction over this against CheckAction over DeriveRules.
 func folderGrantsFromACLOnly(st *store.Store, folder string) []string {
 	principals := append([]string{"folder:" + folder}, st.Ancestors("folder:"+folder)...)
-	var rules []string
+	// Deny-precedence is order-dependent: grants.CheckAction is last-match-wins, and
+	// store.ACLRowsFor has no ORDER BY (the index returns folder: before role:,
+	// lexicographically). So emitting rows in query order let a folder: DENY sort
+	// BEFORE a role: ALLOW and get masked (adversary BUG 3). Partition allows-then-
+	// denies so every deny sorts LAST — deny now wins regardless of row/principal
+	// order, matching the deny-wins the acl evaluator (auth.AuthorizeWith) uses.
+	var allows, denies []string
 	for _, r := range st.ACLRowsFor(principals) {
 		if !strings.HasPrefix(r.Action, "mcp:") {
 			continue
@@ -106,9 +112,10 @@ func folderGrantsFromACLOnly(st *store.Store, folder string) []string {
 			rule += "(" + r.Params + ")"
 		}
 		if r.Effect == "deny" {
-			rule = "!" + rule
+			denies = append(denies, "!"+rule)
+			continue
 		}
-		rules = append(rules, rule)
+		allows = append(allows, rule)
 	}
-	return rules
+	return append(allows, denies...)
 }
