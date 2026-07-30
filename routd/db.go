@@ -189,6 +189,12 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
+	// Seed the role:tier<N> grant bundles (4/R grant-surface flip) — idempotent, so
+	// every routd.db carries them for deriveFolderGrants' role expansion.
+	if err := SeedTierRoles(store.New(sqldb)); err != nil {
+		sqldb.Close()
+		return nil, err
+	}
 	return &DB{db: sqldb}, nil
 }
 

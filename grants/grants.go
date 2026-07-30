@@ -202,6 +202,28 @@ func DeriveRules(s RouteSource, folder string, tier int, worldFolder string) []s
 	}
 }
 
+// PlatformRulesForFolder returns ONLY the platform-scoped verb rules
+// (`<verb>(jid=<platform>:*)`) a folder gets from the platforms its world routes —
+// the world-derived (NOT tier-derived) slice of DeriveRules. The 4/R grant-surface
+// flip sources the tier FIXED bundle from a role (role:tier<N>, via membership) and
+// composes it with this. Mirrors DeriveRules' platform part exactly: tier 1 keys on
+// the world's jids, tier 2 on the folder's, tier 0/3 have none.
+func PlatformRulesForFolder(s RouteSource, folder string, tier int, worldFolder string) []string {
+	jids := func(scope string) []string {
+		if s == nil {
+			return nil
+		}
+		return s.RouteSourceJIDsInWorld(scope)
+	}
+	switch tier {
+	case 1:
+		return platformRules(jids(worldFolder))
+	case 2:
+		return platformRules(jids(folder))
+	}
+	return nil
+}
+
 func platformRules(jids []string) []string {
 	seen := map[string]bool{}
 	for _, jid := range jids {

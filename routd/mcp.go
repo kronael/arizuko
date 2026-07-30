@@ -543,25 +543,19 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 // principals with folders bound by membership — NOT per-folder row dumps, which
 // pollute the acl table + list_acl (26 rows/folder). See seed_grants.go + 4/R.
 func deriveFolderGrants(d *DB, folder string) []string {
-	tier := auth.Resolve(folder).Tier
-	rules := grants.DeriveRules(d, folder, tier, auth.WorldOf(folder))
 	st := store.New(d.SQL())
-	principal := "folder:" + folder
-	principals := append([]string{principal}, st.Ancestors(principal)...)
-	for _, r := range st.ACLRowsFor(principals) {
-		if !strings.HasPrefix(r.Action, "mcp:") {
-			continue
-		}
-		rule := strings.TrimPrefix(r.Action, "mcp:")
-		if r.Params != "" {
-			rule += "(" + r.Params + ")"
-		}
-		if r.Effect == "deny" {
-			rule = "!" + rule
-		}
-		rules = append(rules, rule)
-	}
-	return rules
+	tier := auth.Resolve(folder).Tier
+	// Bind the folder to its tier role (idempotent) so the FIXED grant bundle comes
+	// from role:tier<N> via membership expansion — grants sourced from a role, not
+	// per-folder DeriveRules. list_acl(folder) stays clean (role rows live on the
+	// role principal). Binding-by-tier is the last depth read on this surface; the
+	// role is assigned by tier today, by create/invite once tiers fully retire.
+	_ = st.PutMembership("folder:"+folder, tierRoleName(tier), "system:tier-bind")
+	// Platform verbs stay world-derived (per routed platform), composed here with
+	// the role bundle + operator overlay + any delegated grants (folderGrantsFromACLOnly
+	// expands folder:<path> + its roles, deny-wins at the evaluator).
+	rules := grants.PlatformRulesForFolder(d, folder, tier, auth.WorldOf(folder))
+	return append(rules, folderGrantsFromACLOnly(st, folder)...)
 }
 
 // ServeTurnMCP binds the per-turn agent MCP socket in-process: it derives the
