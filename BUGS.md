@@ -142,6 +142,22 @@ proxyd's route shape by omitting `redirect_to`.
   `strip_prefx` now errors), and `ProxydRoute` gained `redirect_to` to match
   proxyd's route shape.
 
+## C9 — queue replay opens circuit breakers before runed is ready (2026-07-30, proposed)
+
+On every full-stack restart, routd begins replaying pending group work before
+runed listens on `:8080`. The three immediate `connection refused` attempts
+consume each group's breaker budget, so healthy queued work remains blocked
+after runed becomes ready. Live krons reproduced this fleet-wide at
+07:49:05–07:49:08; restarting only routd after runed was healthy cleared it.
+
+- **Severity:** high
+- **Scope:** routd queue replay readiness / runed client retry
+- **Affected:** every instance with pending work during restart
+- **Source:** krons journal 2026-07-30 07:49:05–07:49:08
+- **Status:** proposed (dispatch-readiness redesign, needs sign-off)
+- **Fix:** gate queue replay on runed readiness, or keep transient connection
+  failures outside the breaker budget until the execution plane is ready
+
 ## T1 — stalled typing indicator on timed-out/errored turns (2026-07-26, open)
 
 Symptom (krons, telegram:user/1112184352, 2026-07-26): the agent shows "typing…"
