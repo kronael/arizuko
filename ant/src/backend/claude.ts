@@ -393,6 +393,14 @@ class ClaudeSession implements Session {
   }
 }
 
+export function claudeResultStatus(
+  subtype: string | undefined,
+  result: string | undefined,
+): 'success' | 'error' {
+  if (subtype !== 'success') return 'error';
+  return result?.trim() === 'Not logged in · Please run /login' ? 'error' : 'success';
+}
+
 // normalize maps one SDK message onto a Backend Event. Messages that carry no
 // normalized category (partial deltas, internal status) are dropped — the
 // runtime never needed them. raw always preserves the full SDK message.
@@ -415,7 +423,7 @@ function normalize(message: unknown): Event | null {
   if (m.type === 'result') {
     const textResult = 'result' in raw ? (raw as { result?: string }).result ?? undefined : undefined;
     const models = extractModelUsage((raw as { modelUsage?: unknown }).modelUsage);
-    const status: 'success' | 'error' = m.subtype === 'success' ? 'success' : 'error';
+    const status = claudeResultStatus(m.subtype, textResult);
     return { type: 'result', raw, text: textResult, final: true, status, models };
   }
   return null;

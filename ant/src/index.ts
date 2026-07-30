@@ -379,7 +379,7 @@ async function runQuery(
           log('Session error, will retry without session');
           sessionError = true;
         } else {
-          await deliverTurn(turnID, { status: 'success', result: textResult || null, newSessionId, models, timedOut: event.timedOut });
+          await deliverTurn(turnID, { status: event.status ?? 'success', result: textResult || null, newSessionId, models, timedOut: event.timedOut });
         }
       }
     }

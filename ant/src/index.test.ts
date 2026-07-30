@@ -7,6 +7,7 @@
 import { test, expect } from 'bun:test';
 import path from 'path';
 import { resolveResumeSession, isSessionError, transcriptPath } from './index.js';
+import { claudeResultStatus } from './backend/claude.js';
 
 const UUID = 'b6c2b287-0000-4000-8000-000000000000';
 const never = () => false;
@@ -58,4 +59,13 @@ test('isSessionError: error_during_execution is a retry signal (never delivered 
 test('isSessionError: a real result subtype is delivered', () => {
   expect(isSessionError('success')).toBe(false);
   expect(isSessionError(undefined)).toBe(false);
+});
+
+test('claudeResultStatus rejects the SDK login sentinel', () => {
+  expect(claudeResultStatus('success', 'Not logged in · Please run /login')).toBe('error');
+});
+
+test('claudeResultStatus preserves normal result status', () => {
+  expect(claudeResultStatus('success', 'completed')).toBe('success');
+  expect(claudeResultStatus('error_max_turns', 'stopped')).toBe('error');
 });
