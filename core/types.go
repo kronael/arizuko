@@ -293,6 +293,10 @@ type ACLRow struct {
 	Predicate string
 	GrantedBy string
 	GrantedAt string
+	// GrantOption is Postgres WITH GRANT OPTION (spec 4/R): when true the holder
+	// may re-delegate this row (or a subset) onward. The delegation axis,
+	// orthogonal to the action lattice's read/write coverage.
+	GrantOption bool
 }
 
 func JidPlatform(jid string) string {

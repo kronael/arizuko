@@ -32,10 +32,10 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx,
 		`INSERT OR IGNORE INTO acl
-		  (principal, action, scope, effect, params, predicate, granted_by, granted_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		row.Principal, row.Action, row.Scope, row.Effect,
-		row.Params, row.Predicate, grantedBy, row.GrantedAt,
+		row.Params, row.Predicate, grantedBy, row.GrantedAt, boolToInt(row.GrantOption),
 	); err != nil {
 		return err
 	}
@@ -122,11 +122,18 @@ func (s *Store) PutACLRow(row core.ACLRow) error {
 	}
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO acl
-		  (principal, action, scope, effect, params, predicate, granted_by, granted_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		row.Principal, row.Action, row.Scope, row.Effect,
-		row.Params, row.Predicate, grantedBy, row.GrantedAt)
+		row.Params, row.Predicate, grantedBy, row.GrantedAt, boolToInt(row.GrantOption))
 	return err
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // RemoveACLRowBare deletes an acl row WITHOUT emitting an audit_log row — the
@@ -149,17 +156,19 @@ func (s *Store) RemoveACLRowBare(row core.ACLRow) error {
 func scanACLRow(rows *sql.Rows) (core.ACLRow, error) {
 	var r core.ACLRow
 	var grantedBy sql.NullString
+	var grantOption int
 	err := rows.Scan(
 		&r.Principal, &r.Action, &r.Scope, &r.Effect,
-		&r.Params, &r.Predicate, &grantedBy, &r.GrantedAt,
+		&r.Params, &r.Predicate, &grantedBy, &r.GrantedAt, &grantOption,
 	)
 	if grantedBy.Valid {
 		r.GrantedBy = grantedBy.String
 	}
+	r.GrantOption = grantOption != 0
 	return r, err
 }
 
-const aclCols = `principal, action, scope, effect, params, predicate, granted_by, granted_at`
+const aclCols = `principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option`
 
 // ACLRowsFor returns rows whose principal EXACTLY matches any element of
 // principals. Wildcard-bearing stored principals are fetched separately

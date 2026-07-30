@@ -36,6 +36,29 @@ func TestACL_CRUD(t *testing.T) {
 	}
 }
 
+// spec 4/R: grant_option round-trips; default is false (WITHOUT grant option).
+func TestACL_GrantOption(t *testing.T) {
+	s := openMem(t)
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "role:owner", Action: "admin", Scope: "acme/**", GrantOption: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "role:member", Action: "mcp:send", Scope: "acme/eng",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	owner := s.ACLRowsFor([]string{"role:owner"})
+	if len(owner) != 1 || !owner[0].GrantOption {
+		t.Fatalf("owner grant_option not persisted: %+v", owner)
+	}
+	member := s.ACLRowsFor([]string{"role:member"})
+	if len(member) != 1 || member[0].GrantOption {
+		t.Fatalf("member default grant_option must be false: %+v", member)
+	}
+}
+
 func TestACL_DefaultEffectAllow(t *testing.T) {
 	s := openMem(t)
 	row := core.ACLRow{
