@@ -2,6 +2,44 @@ package grants
 
 import "testing"
 
+// fakeRouteSource feeds platformRules a fixed jid set so the baseline exercises
+// the platform-scoped verb path (audit item 2b) the nil-source case skips.
+type fakeRouteSource struct{ jids []string }
+
+func (f fakeRouteSource) RouteSourceJIDsInWorld(string) []string { return f.jids }
+
+// TestPlatformVerbBaseline_ForCutover freezes the platform-scoped verb decisions
+// (like/dislike/post/… gated by jid=platform:*) that DeriveRules produces when a
+// world has routed platforms. The cutover's role grants must reproduce these:
+// a verb is allowed only for a platform the folder actually routes, and only with
+// a matching jid param.
+func TestPlatformVerbBaseline_ForCutover(t *testing.T) {
+	src := fakeRouteSource{jids: []string{"telegram:user/1"}}
+	rules := DeriveRules(src, "acme", 1, "acme") // tier 1 gets platformRules(world jids)
+
+	cases := []struct {
+		tool  string
+		jid   string
+		allow bool
+	}{
+		{"like", "telegram:chat/9", true},  // routed platform + matching jid
+		{"like", "discord:chat/9", false},  // platform not routed
+		{"like", "", false},                // platform verb needs a jid
+		{"post", "telegram:chan/1", true},  // another platform verb
+		{"reply", "telegram:chat/9", true}, // reply is both basic + platform
+	}
+	for _, c := range cases {
+		params := map[string]string{}
+		if c.jid != "" {
+			params["jid"] = c.jid
+		}
+		if got := CheckAction(rules, c.tool, params); got != c.allow {
+			t.Errorf("tier1 %s jid=%q → allow=%v want %v (platform baseline drift)",
+				c.tool, c.jid, got, c.allow)
+		}
+	}
+}
+
 // Equivalence baseline for the 4/R tier→role cutover (spec 4/R "strangler-fig
 // cutover order", step 2). This freezes the CURRENT tier→tool authz decision
 // produced by DeriveRules + CheckAction. When phase 2 seeds default roles and
