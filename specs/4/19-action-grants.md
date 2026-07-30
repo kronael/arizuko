@@ -1,17 +1,19 @@
 ---
-status: shipped
+status: superseded-in-part
+superseded-in-part: [4/9-acl-unified, 4/R-paths-roles]
 ---
 
 # Action Grants
 
-> **Storage subsumed by `specs/4/9-acl-unified.md`.** The `grant_rules`
-> table and the `**` operator marker on `user_groups` collapse into the
-> unified `acl` table; rule overrides become `acl` rows with
-> `action='mcp:<tool>'`. The rule grammar (`[!]action[(param=glob)]`)
-> and tier-derivation logic in `grants.DeriveRules` stay code-side —
-> defaults for `mcp:*` are not materialised as rows. Read this spec
-> for the rule grammar and tier matrix; read 6/9 for storage and
-> evaluation.
+> **Storage subsumed by `specs/4/9-acl-unified.md`;** **tier-derivation retired by
+> [`4/R-paths-roles`](R-paths-roles.md).** The `grant_rules` table and the `**`
+> marker on `user_groups` collapsed into `acl`; rule overrides became `acl` rows
+> with `action='mcp:<tool>'`. `4/R` then removes the remaining `grants.DeriveRules`
+> tier→grants derivation entirely: `mcp:*` defaults stop being tier-derived and
+> become explicit role grants (seeded on `role:owner`/`role:member`), delegated via
+> the `grant_option` level. The rule grammar (`[!]action[(param=glob)]`) survives as
+> the per-row policy shape. Read this spec for the grammar; `4/9` for storage/
+> evaluation; `4/R` for the path/role/delegation model.
 
 Grant rules control which MCP actions a container can call.
 Rules derived from routing + tier at spawn, injected into

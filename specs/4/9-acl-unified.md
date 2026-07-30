@@ -35,9 +35,20 @@ One row asks one question:
 - **predicate** — optional claim condition (`discord:guild=G123`,
   `github:org=acme`). Empty = no claim required.
 - **effect** — `allow` or `deny`. Deny wins.
+- **grant_option** _(added by [`4/R`](R-paths-roles.md))_ — `0|1`. `1` =
+  `WITH GRANT OPTION`: the holder may re-delegate this row (or a subset). The
+  delegation axis, orthogonal to the action lattice's read/write coverage.
 
-Tier defaults stay in code (`grants.DeriveRules`). Only operator
-overrides become rows.
+> **[`4/R-paths-roles`](R-paths-roles.md) removes the tier axis.** The
+> `grants.DeriveRules` tier→default derivation and the `mcp:*` tier-fallback in
+> `Authorize` (step 4 below) are deleted; `mcp:*` becomes an explicit role grant
+> like `interact`/`admin`. Default roles (`role:owner`/`member`/`reader`) seeded at
+> path-create carry the bundles tiers used to derive. Read `4/R` for the path
+> (location) / role / grant-option model; this spec stays the `acl` row + evaluator
+> canonical.
+
+~~Tier defaults stay in code (`grants.DeriveRules`).~~ Only operator overrides — and
+now default-role seeds — become rows. (Tier derivation removed by `4/R`.)
 
 ## Schema
 
@@ -185,9 +196,10 @@ Evaluation:
    glob-matches requested scope, predicate evaluates against claims,
    params glob-match call params.
 4. **Deny wins**: any matching `deny` row → reject. Otherwise any
-   matching `allow` → permit. No match for `mcp:*` → fall back to
-   tier defaults from `grants.DeriveRules`. No match for
-   `interact`/`admin` → deny.
+   matching `allow` → permit. No match → deny. (Pre-`4/R`, an unmatched
+   `mcp:*` fell back to tier defaults from `grants.DeriveRules`; `4/R`
+   deletes that fallback — `mcp:*` is now an explicit role grant, so a
+   missing grant denies loud instead of silently tier-defaulting.)
 
 `interact` and `admin` have **no tier default**: they are always
 explicit grants (either an `acl` row or a route binding). Tier
@@ -327,10 +339,12 @@ would push toward.
 2. **Membership freshness.** Discord/GitHub claims have TTL. Re-verify
    on each Authorize, or trust JWT until expiry? Lean: trust JWT;
    1h renewal is fast enough.
-3. **`folder:` principal trust.** Can the operator grant
-   `folder:atlas/eng admin atlas/**` (delegating admin to an agent)?
-   Today the agent's capability is the unix socket. Lean: yes —
-   `folder:` is a first-class principal.
+3. **`folder:` principal trust.** ~~Can the operator grant
+   `folder:atlas/eng admin atlas/**`?~~ **DECIDED by [`4/R`](R-paths-roles.md):
+   yes — the agent BECOMES a first-class `acl` principal (`folder:<path>` with
+   rows seeded at path-create + delegated at spawn), replacing the injected
+   `DeriveRules` grant slice. This is the path↔role bridge that lets tiers be
+   removed.**
 4. **Anonymous-to-OAuth upgrade.** When `telegram:user/123` later
    OAuths, rewrite rows to canonical sub or evaluate both forms?
    Lean: insert an `acl_membership(telegram:user/123, google:...)`

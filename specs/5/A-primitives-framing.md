@@ -34,11 +34,16 @@ them.
 1. **Six pipeline primitives + Identity as a coordinate system.** The
    visible pipeline is six stages — Event, Routing, Agent,
    Authorization, Turn, State. **Identity** is the coordinate system
-   the six are addressed in (subs, JIDs, folders, tiers, scopes), not a
+   the six are addressed in (subs, JIDs, **paths**, roles, scopes), not a
    seventh stage: every stage references it, none sequences it. Identity
    is genuinely first-class in code (`store/identities.go:13`,
    `auth/identity.go:10`, `types/identity.go`) — it reads as a
-   coordinate system, not a step.
+   coordinate system, not a step. **[`4/R`](../4/R-paths-roles.md) sharpens
+   this: the coordinate is the `path` (location — where you are); the
+   capability is the `role` (what you may do); they compose and never leak
+   into each other. The old `tier` (capability derived from path depth) is
+   removed — it was the coordinate/capability conflation this framing warns
+   against.**
 2. **"One job each, fixed pipeline, layered overrides — no special
    cases."** Do NOT claim the primitives are independent (⊥). Reality is
    layered coupling: routing reads the event's shape and is overridden
