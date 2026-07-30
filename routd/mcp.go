@@ -18,6 +18,7 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // turnMCP is the per-turn binding the in-process fns close over: which folder/
@@ -489,7 +490,29 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			if callerSub == "" || strings.HasPrefix(callerSub, "timed-") || strings.HasPrefix(callerSub, "system") {
 				callerSub = "service:routd"
 			}
-			return s.db.ConnectorSecrets(folder, callerSub, required)
+			res, err := s.db.ConnectorSecrets(folder, callerSub, required)
+			// secret_use_log writer (spec 5/13 §Audit, M2): one row per resolved key —
+			// records THAT a broker secret was read, never the value. Closes the gap
+			// where store.LogSecretUse had no production caller. Log-failure is
+			// non-fatal: an audit miss must not fail the tool call.
+			status := "ok"
+			if err != nil {
+				status = "err"
+			}
+			st := store.New(s.db.SQL())
+			for _, k := range required {
+				scope := "missing"
+				if _, ok := res[k]; ok {
+					scope = "folder"
+				}
+				if lerr := st.LogSecretUse(store.SecretUseRow{
+					SpawnID: t.turnID, CallerSub: callerSub, Folder: folder,
+					Key: k, Scope: scope, Status: status,
+				}); lerr != nil {
+					slog.Warn("secret_use_log write failed", "key", k, "err", lerr)
+				}
+			}
+			return res, err
 		},
 		// Authorize is the per-call row-ACL check ServeMCP runs when callerSub is
 		// set. nil-safe. Elevated (/root) turns allow-all — see turnAuthorize.
