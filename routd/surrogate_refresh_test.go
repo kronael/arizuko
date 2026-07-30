@@ -106,7 +106,9 @@ func TestBroker_RefreshNearExpiry(t *testing.T) {
 func TestBroker_RefreshRejectedSignalsReconnect(t *testing.T) {
 	db, _ := brokerDB(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"error":"bad_refresh_token"}`))
+		// invalid_grant is the RFC 6749 §5.2 dead-refresh-token signal (F9): only it
+		// reconnects; other OAuth errors are transient and keep the credential.
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 	})
 	seedOAuthRow(t, db, "old-access", "revoked", time.Now().Add(30*time.Second))
 

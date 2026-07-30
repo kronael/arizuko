@@ -68,6 +68,11 @@ func aclRowCount(t *testing.T, db *DB, scope string) int {
 	t.Helper()
 	n := 0
 	for _, r := range db.ListACL("") {
+		// Exclude the seeded role:operator (*, **) base row (migration 0022, F1):
+		// these helpers assert what a REST/MCP write produced, not the seed.
+		if r.Principal == "role:operator" {
+			continue
+		}
 		if r.Scope == scope {
 			n++
 		}
