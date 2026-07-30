@@ -112,13 +112,33 @@ func TestRefresh_RotatesAndKeeps(t *testing.T) {
 func TestRefresh_RevokedIsReconnect(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"error":"bad_refresh_token","error_description":"expired"}`))
+		// RFC 6749 §5.2: invalid_grant is the ONE code meaning the refresh token
+		// itself is dead → reconnect.
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"expired"}`))
 	}))
 	defer srv.Close()
 
 	_, err := testEngine(srv.URL).Refresh(context.Background(), "github", "revoked")
 	if !errors.Is(err, ErrReconnect) {
 		t.Fatalf("err = %v, want ErrReconnect", err)
+	}
+}
+
+// F9: a non-invalid_grant OAuth error (invalid_client from a rotated/typo'd client
+// secret) must NOT null the credential — it's a config fault, not a dead token.
+func TestRefresh_InvalidClientIsTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_client","error_description":"bad secret"}`))
+	}))
+	defer srv.Close()
+
+	_, err := testEngine(srv.URL).Refresh(context.Background(), "github", "still-valid")
+	if err == nil {
+		t.Fatal("want error on invalid_client")
+	}
+	if errors.Is(err, ErrReconnect) {
+		t.Error("invalid_client must be transient, not ErrReconnect (would null every user's live token on one operator misconfig)")
 	}
 }
 

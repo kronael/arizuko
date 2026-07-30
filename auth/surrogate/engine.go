@@ -201,9 +201,17 @@ func (e *Engine) Refresh(ctx context.Context, provider, refresh string) (Tokens,
 	var tr tokenResp
 	_ = json.Unmarshal(body, &tr)
 	if tr.Error != "" {
-		// Definitive OAuth error (invalid_grant, …) — the refresh token is dead;
-		// signal reconnect so the caller nulls the credential.
-		return Tokens{}, fmt.Errorf("%w: %s", ErrReconnect, firstNonEmpty(tr.ErrorDesc, tr.Error))
+		// Only invalid_grant means the REFRESH TOKEN itself is dead (RFC 6749 §5.2)
+		// → reconnect. Every other OAuth error is a CLIENT/config or transient fault
+		// (invalid_client from a rotated/typo'd SURROGATE_<P>_CLIENT_SECRET,
+		// rate_limit_exceeded, temporarily_unavailable, …) and must NOT null every
+		// user's still-valid refresh token — otherwise one operator misconfig forces
+		// the whole tenant to re-run the dance. Keep the credential; treat as
+		// transient so a retry (or a fixed secret) recovers it.
+		if tr.Error == "invalid_grant" {
+			return Tokens{}, fmt.Errorf("%w: %s", ErrReconnect, firstNonEmpty(tr.ErrorDesc, tr.Error))
+		}
+		return Tokens{}, fmt.Errorf("surrogate refresh: %s (keeping credential)", firstNonEmpty(tr.ErrorDesc, tr.Error))
 	}
 	if tr.AccessToken == "" {
 		// 4xx with no parseable OAuth error body (transient 429 / gateway hiccup /
