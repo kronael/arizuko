@@ -305,15 +305,22 @@ differential, then 4, then 5 — never the flip before the differential is green
   safe.** Also fixed the dual-path read (`674db521`): `deriveFolderGrants` now expands
   role membership, matching the live gate.
 
-**Remaining for the grant-surface flip** (the live mutation, verify via e2e): wire
-`SeedFolderGrants` at folder-create + a **one-time startup backfill** seeding every
-existing routd.db folder (else flipping `deriveFolderGrants` to acl-only strips grants
-from live folders → outage), THEN remove its `DeriveRules` base. Independent of that:
-the structural (item 4: `AuthorizeStructural`→acl scope-glob + `is_root` predicates)
-and non-authz (item 5: egress/web off `tierOf`, `ARIZUKO_TIER` skill migration)
-surfaces are their own commits — tiers persist for those until each lands. So this is
-a grant-bundle flip first (de-risked, green differential), then structural, then
-non-authz — not one atomic drop.
+**Flip attempted (2251c4c5) — REVERTED, finding captured.** Wiring `deriveFolderGrants`
+to seed the tier bundle per-folder then read acl-only is decision-correct (differential
+green) but **the persistence model is wrong**: it dumps ~26 tier-default rows onto every
+`folder:<path>` principal, which `list_acl` surfaces (a folder's grant list balloons from
+its overrides to the full default set) and it writes on every turn. `deriveFolderGrants`
+is back to `DeriveRules`-base + the audit-#4 role-expanded overlay (the two gates agree);
+`SeedFolderGrants` + the differential stay as proven building blocks.
+
+**The correct grant-surface flip = ROLE-based seeding.** Seed the tier bundles ONCE onto a
+few `role:<tier>` (or `owner`/`member`/`reader`) principals; bind each `folder:<path>` to
+its role via an `acl_membership` edge; `deriveFolderGrants` reads `folder:<path>` +
+`Ancestors` (already does — audit #4) and gets the bundle via role expansion, with NO
+per-folder grant rows. Then `list_acl(folder)` shows only folder-own overrides (role rows
+live on the role principal), and there's no per-turn write. The binding-by-tier is the last
+tier-read on this surface; removing it (role assigned at invite/create, not derived) is the
+final step. THEN drop the `DeriveRules` base. Verify via `make test-e2e`. Structural (item 4) + non-authz (item 5) remain separate later commits.
 
 ## Open questions
 
