@@ -75,12 +75,20 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 	switch x.Action {
 	case resreg.ActionList:
 		groups := s.db.AllGroups()
-		type groupInfo struct {
+		out := make([]struct {
 			Folder string `json:"folder"`
-		}
-		out := make([]groupInfo, 0, len(groups))
+		}, 0, len(groups))
 		for _, g := range groups {
-			out = append(out, groupInfo{Folder: g.Folder})
+			// The operator REST face (/v1/groups) scopes to the caller's subtree —
+			// an unscoped list-all would leak every tenant's folders to any operator
+			// (the rest_listall class). The agent MCP face (refresh_groups) stays
+			// unscoped: an agent needs the whole tree to discover delegation targets.
+			if x.Surface == audit.SurfaceREST && !ownsFolder(x.Caller.Folder, g.Folder) {
+				continue
+			}
+			out = append(out, struct {
+				Folder string `json:"folder"`
+			}{Folder: g.Folder})
 		}
 		return out, nil
 

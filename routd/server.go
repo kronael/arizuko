@@ -235,6 +235,7 @@ func (s *Server) Handler() http.Handler {
 	s.mountRoutes(mux)
 	s.mountWebRoutes(mux)
 	s.mountRouteTokens(mux)
+	s.mountGroups(mux)
 	// REST read/manage surface — the twin of routd's in-process MCP StoreFns
 	// (the agent reaches the same data over the socket, humans/tools over HTTP)
 	mux.HandleFunc("GET /v1/messages/inspect", s.handleInspectMessages)
