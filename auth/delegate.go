@@ -11,6 +11,7 @@ package auth
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
@@ -26,13 +27,44 @@ import (
 // after this returns nil.
 func Delegate(s *store.Store, granter string, want []core.ACLRow) error {
 	held := grantableRows(s, granter)
+	denies := denyRows(s, granter)
 	for _, r := range want {
+		// Delegation grants capability; it never writes a deny (that is a
+		// restriction, not a subset of what the granter holds) and never targets a
+		// wildcard principal (which would hand the grant to every matching sub —
+		// an escalation the subset-check must refuse).
+		if r.Effect == "deny" {
+			return fmt.Errorf("cannot delegate a deny row (%s %s on %s)", r.Principal, r.Action, r.Scope)
+		}
+		if strings.Contains(r.Principal, "*") {
+			return fmt.Errorf("cannot delegate to a wildcard principal %q", r.Principal)
+		}
 		if !coveredByGrantable(held, r) {
 			return fmt.Errorf("cannot delegate %s %s on %s: not held WITH GRANT OPTION",
 				r.Principal, r.Action, r.Scope)
 		}
+		// The granter cannot delegate past its OWN deny: a deny it holds on
+		// (action,scope) blocks it there, so it may not re-grant it away.
+		if coveredByGrantable(denies, r) {
+			return fmt.Errorf("cannot delegate %s on %s: granter holds a deny covering it",
+				r.Action, r.Scope)
+		}
 	}
 	return nil
+}
+
+// denyRows is granter's DENY rows over its expanded principal set — the rows a
+// delegation may not grant past (deny-precedence, mirrored into the subset check).
+func denyRows(s *store.Store, granter string) []core.ACLRow {
+	principals := append([]string{granter}, s.Ancestors(granter)...)
+	all := s.ACLRowsFor(principals)
+	out := all[:0]
+	for _, r := range all {
+		if r.Effect == "deny" {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // grantableRows is granter's allow-rows with grant_option=1, over its expanded
@@ -74,13 +106,25 @@ func coveredByGrantable(held []core.ACLRow, want core.ACLRow) bool {
 }
 
 // scopeCovers reports whether held (a folder glob) covers want (a folder path or
-// glob) — held.Scope ⊇ want.Scope. Exact match, the `**`/`*` universal, or want
-// matching held's glob pattern. A broader want than held is rejected because it
-// won't match held's pattern (e.g. held `acme/eng` does not match want
-// `acme/**`).
+// glob) — held.Scope ⊇ want.Scope. Conservative: a `want` that introduces a
+// wildcard `held` does not already span is REFUSED (else held `acme/*` would
+// wrongly cover want `acme/**`, since path.Match("*","**") is true — the granter
+// must not hand out authority over `acme/eng/sre` it does not itself hold).
+//
+//   - `**` covers everything.
+//   - `<base>/**` covers base and any path under base (incl. deeper globs).
+//   - any other held covers only a WILDCARD-FREE want that matches its pattern.
 func scopeCovers(held, want string) bool {
-	if held == want || held == "**" || held == "*" {
+	if held == want || held == "**" {
 		return true
+	}
+	if base, ok := strings.CutSuffix(held, "/**"); ok {
+		return want == base || strings.HasPrefix(want, base+"/")
+	}
+	// held carries no recursive tail: it can only cover a concrete want. A want
+	// with its own wildcard might span beyond held, so refuse it outright.
+	if strings.ContainsAny(want, "*") {
+		return false
 	}
 	return matchPattern(held, want)
 }

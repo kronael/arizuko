@@ -56,6 +56,43 @@ func TestDelegate(t *testing.T) {
 		}
 	})
 
+	t.Run("cannot broaden the scope glob (F3)", func(t *testing.T) {
+		s := openMem(t)
+		addRowFull(t, s, row("folder:acme", "admin", "acme/*", true)) // single-segment glob
+		// acme/* must NOT cover acme/** (that spans acme/eng/sre the granter lacks).
+		if err := Delegate(s, "folder:acme", []core.ACLRow{
+			row("folder:x", "admin", "acme/**", false),
+		}); err == nil {
+			t.Fatal("acme/* must not delegate acme/**")
+		}
+		// But acme/** DOES cover a deeper concrete path and deeper glob.
+		addRowFull(t, s, row("folder:acme", "admin", "acme/**", true))
+		if err := Delegate(s, "folder:acme", []core.ACLRow{
+			row("folder:x", "admin", "acme/eng/sre", false),
+			row("folder:y", "admin", "acme/eng/**", false),
+		}); err != nil {
+			t.Fatalf("acme/** should cover deeper paths: %v", err)
+		}
+	})
+
+	t.Run("cannot delegate past own deny, nor to wildcard principal (F4)", func(t *testing.T) {
+		s := openMem(t)
+		addRowFull(t, s, row("folder:acme", "admin", "acme/**", true))
+		addRowFull(t, s, core.ACLRow{Principal: "folder:acme", Action: "admin", Scope: "acme/secret", Effect: "deny"})
+		// Held admin+GO on acme/** but a deny on acme/secret → can't delegate there.
+		if err := Delegate(s, "folder:acme", []core.ACLRow{
+			row("folder:x", "admin", "acme/secret", false),
+		}); err == nil {
+			t.Fatal("must not delegate past own deny")
+		}
+		// Wildcard principal is an escalation → refused.
+		if err := Delegate(s, "folder:acme", []core.ACLRow{
+			row("*", "admin", "acme/eng", false),
+		}); err == nil {
+			t.Fatal("must not delegate to a wildcard principal")
+		}
+	})
+
 	t.Run("cannot broaden the action", func(t *testing.T) {
 		s := openMem(t)
 		addRowFull(t, s, row("folder:acme", "mcp:send", "acme/**", true)) // only mcp:send
