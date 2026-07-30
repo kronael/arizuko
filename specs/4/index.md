@@ -31,3 +31,4 @@ status: shipped
 - [U-user-dashboard.md](U-user-dashboard.md) — per-user `/me/*` portal (chats, folders, settings)
 - [V-dashd-acl-ui.md](V-dashd-acl-ui.md) — dashd operator ACL editor on unified `acl` table
 - [9-acl-unified.md](9-acl-unified.md) — one ACL primitive, three principals, `Authorize` call
+- [R-paths-roles.md](R-paths-roles.md) — **draft** — remove tiers; path (location) + role (Postgres bundle) + grant-option (WITH GRANT OPTION); delegation = subset-of-held
