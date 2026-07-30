@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/store"
 )
@@ -13,47 +14,38 @@ type fakeSrc struct{ jids []string }
 
 func (f fakeSrc) RouteSourceJIDsInWorld(string) []string { return f.jids }
 
-// TestSeedFolderGrants_Differential (4/R cutover, the safety net): for every tier
-// and a representative tool matrix, the decision from acl-sourced grants (after
-// SeedFolderGrants) MUST equal the decision from DeriveRules. This is the old-vs-new
-// equivalence the audit required before the flip: if these ever diverge, seeding
-// dropped/mangled a rule and the tier deletion would change what an agent may do.
+// TestIntegration_GrantSourceDifferential (4/R cutover safety net, BUG-1 fixed):
+// drives the ACTUAL production deriveFolderGrants (role-sourced) and asserts its
+// decision equals the old grants.DeriveRules for every tier × tool. Both read the
+// SAME routd DB as the platform source (no routes → platform empty on both sides),
+// so this pins the tier→role equivalence through the real function — if it ever
+// diverges, the flip changed what an agent may do. (Platform-verb flow-through is
+// pinned by TestIntegration_PlatformVerbGrants + the routed case below.)
 func TestIntegration_GrantSourceDifferential(t *testing.T) {
 	tools := []struct {
 		tool   string
 		params map[string]string
 	}{
-		{"reply", nil},
-		{"send", nil},
-		{"send_file", nil},
-		{"register_group", nil},
-		{"schedule_task", nil},
-		{"refresh_groups", nil},
-		{"list_tokens", nil},
-		{"like", map[string]string{"jid": "telegram:c/1"}},
-		{"like", map[string]string{"jid": "discord:c/1"}},
-		{"post", map[string]string{"jid": "telegram:c/1"}},
+		{"reply", nil}, {"send", nil}, {"send_file", nil}, {"register_group", nil},
+		{"schedule_task", nil}, {"refresh_groups", nil}, {"list_tokens", nil},
+		{"escalate_group", nil}, {"add_route", nil}, {"set_group_open", nil},
 	}
-	src := fakeSrc{jids: []string{"telegram:user/1"}}
-
-	for tier := 0; tier <= 3; tier++ {
-		folder := map[int]string{0: "", 1: "acme", 2: "acme/eng", 3: "acme/eng/sre"}[tier]
+	// Folders chosen for distinct real tiers (auth.Resolve = min(count("/"),3),
+	// named top floored to 1): "" =0, "w" =1, "w/o/t" =2, "w/o/t/u" =3.
+	for _, folder := range []string{"", "w", "w/o/t", "w/o/t/u"} {
 		db, err := OpenMem()
 		if err != nil {
 			t.Fatal(err)
 		}
-		st := store.New(db.SQL())
-		if err := SeedFolderGrants(st, folder, tier, src); err != nil {
-			t.Fatal(err)
-		}
-		oldRules := grants.DeriveRules(src, folder, tier, worldOf(folder))
-		newRules := folderGrantsFromACLOnly(st, folder)
+		tier := auth.Resolve(folder).Tier // the SAME tier deriveFolderGrants uses
+		newRules := deriveFolderGrants(db, folder)
+		oldRules := grants.DeriveRules(db, folder, tier, worldOf(folder))
 		for _, c := range tools {
 			old := grants.CheckAction(oldRules, c.tool, c.params)
 			neu := grants.CheckAction(newRules, c.tool, c.params)
 			if old != neu {
-				t.Errorf("tier %d %s%v: acl-sourced=%v DeriveRules=%v (seeding not faithful)",
-					tier, c.tool, c.params, neu, old)
+				t.Errorf("folder %q (tier %d) %s: deriveFolderGrants=%v DeriveRules=%v (flip changed behavior)",
+					folder, tier, c.tool, neu, old)
 			}
 		}
 		db.Close()

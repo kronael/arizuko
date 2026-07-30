@@ -521,60 +521,41 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 }
 
 // deriveFolderGrants is the single grant-rule renderer for a folder: tier
-// defaults (grants.DeriveRules) keyed on the folder's tier + world, then the
-// per-folder operator ACL overlay. Used by both ServeTurnMCP (the in-process MCP
-// tool firewall) and dispatchRun (the rules shipped to runed for
-// buildMounts/egress) so the two can't drift. Operator overrides live as acl rows
-// with principal=folder:<folder> and action=mcp:<tool>; they append onto the
-// tier-derived rules so the grants check sees both layers (deny precedence kept
-// by the evaluator's last-match-wins). Empty table → tier defaults only.
-// deriveFolderGrants renders a folder agent's mcp: rule bundle: the tier-derived
-// defaults (grants.DeriveRules) overlaid with acl rows for the folder:<path>
-// principal AND its transitive roles.
+// deriveFolderGrants renders a folder agent's mcp: rule bundle from the acl/role
+// graph (4/R grant-surface flip, corrected). Grants come from the folder's assigned
+// role + operator overlay + delegated rows — NOT from tier-derived DeriveRules —
+// plus the world-derived platform verbs. Used by both ServeTurnMCP (the in-process
+// tool firewall) and dispatchRun (rules shipped to runed for mounts/egress) so the
+// two can't drift.
 //
-// The role expansion (vs the old exact-match ListACL) closes the 4/R audit-#4
-// dual-path gap: a grant held via role membership was invisible here but visible
-// at the live per-call gate, and toolGrant requires BOTH. Reading the same expanded
-// principal set makes them agree.
-//
-// The full 4/R grant-surface flip (drop DeriveRules, source grants purely from acl)
-// is proven safe by the differential (SeedFolderGrants + folderGrantsFromACLOnly),
-// but must land via ROLE-based seeding — tier bundles on a few role:<tier>
-// principals with folders bound by membership — NOT per-folder row dumps, which
-// pollute the acl table + list_acl (26 rows/folder). See seed_grants.go + 4/R.
-// deriveFolderGrants renders a folder agent's mcp: rule bundle: the tier-derived
-// defaults (grants.DeriveRules) then acl overlay rows for the folder:<path>
-// principal AND its transitive roles. Overlay is APPENDED after the base so a deny
-// (`!verb`) sorts LAST — grants.CheckAction is last-match-wins, so append order IS
-// the deny-precedence here (adversary BUG 3: do not re-order this without an
-// ORDER BY / deny-wins render, or an operator deny gets masked by an earlier allow).
-//
-// The role-based grant-surface flip (4/R) was reverted: it (a) blind-rebound the
-// folder to its depth role every call so restriction-by-role was impossible, and
-// (b) put the deny AFTER a role allow — masking it. SeedTierRoles / SeedFolderGrants
-// / PlatformRulesForFolder / folderGrantsFromACLOnly remain as UNWIRED building
-// blocks; the correct flip must render denies last + not blind-rebind (see 4/R +
-// BUGS.md).
+// Corrected against the reverted flip's three bugs:
+//   - BUG 2 (assign-once): a folder with no role:tier membership is assigned its
+//     depth role ONCE (first sight); thereafter the edge exists, so an operator who
+//     rebinds it to a different role sticks — restriction is possible, unlike the
+//     blind-rebind-every-call version.
+//   - BUG 3 (denies last): folderGrantsFromACLOnly partitions denies last, so an
+//     operator deny wins over a role allow regardless of row order.
+//   - BUG 1 (real path): the differential test drives THIS function (not a parallel
+//     SeedFolderGrants).
 func deriveFolderGrants(d *DB, folder string) []string {
-	tier := auth.Resolve(folder).Tier
-	rules := grants.DeriveRules(d, folder, tier, auth.WorldOf(folder))
 	st := store.New(d.SQL())
 	principal := "folder:" + folder
-	principals := append([]string{principal}, st.Ancestors(principal)...)
-	for _, r := range st.ACLRowsFor(principals) {
-		if !strings.HasPrefix(r.Action, "mcp:") {
-			continue
-		}
-		rule := strings.TrimPrefix(r.Action, "mcp:")
-		if r.Params != "" {
-			rule += "(" + r.Params + ")"
-		}
-		if r.Effect == "deny" {
-			rule = "!" + rule
-		}
-		rules = append(rules, rule)
+	if !hasTierRole(st, principal) {
+		_ = st.PutMembership(principal, tierRoleName(auth.Resolve(folder).Tier), "system:tier-assign")
 	}
-	return rules
+	rules := grants.PlatformRulesForFolder(d, folder, auth.Resolve(folder).Tier, auth.WorldOf(folder))
+	return append(rules, folderGrantsFromACLOnly(st, folder)...)
+}
+
+// hasTierRole reports whether the principal already holds a role:tier* membership —
+// the assign-once guard so an operator's rebind (to a different role) is not clobbered.
+func hasTierRole(st *store.Store, principal string) bool {
+	for _, a := range st.Ancestors(principal) {
+		if strings.HasPrefix(a, "role:tier") {
+			return true
+		}
+	}
+	return false
 }
 
 // ServeTurnMCP binds the per-turn agent MCP socket in-process: it derives the

@@ -153,6 +153,14 @@ func (s *Store) RemoveACLRowBare(row core.ACLRow) error {
 	return err
 }
 
+// DeleteACLPrincipal removes every acl row for a principal — used to prune-and-
+// reseed a managed role bundle (routd SeedTierRoles) so a tightened bundle revokes
+// instead of leaving stale rows. Audit-free (seed maintenance, not an operator write).
+func (s *Store) DeleteACLPrincipal(principal string) error {
+	_, err := s.db.Exec(`DELETE FROM acl WHERE principal = ?`, principal)
+	return err
+}
+
 func scanACLRow(rows *sql.Rows) (core.ACLRow, error) {
 	var r core.ACLRow
 	var grantedBy sql.NullString

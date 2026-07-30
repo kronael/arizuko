@@ -189,6 +189,11 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
+	// Seed role:tier<N> grant bundles (4/R flip) — idempotent, prune-and-reseed.
+	if err := SeedTierRoles(store.New(sqldb)); err != nil {
+		sqldb.Close()
+		return nil, err
+	}
 	return &DB{db: sqldb}, nil
 }
 

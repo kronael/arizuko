@@ -33,6 +33,12 @@ func tierRoleName(tier int) string {
 // principal). A folder gains the bundle by an acl_membership edge to its role.
 func SeedTierRoles(st *store.Store) error {
 	for tier := 0; tier <= 3; tier++ {
+		// Prune first so a TIGHTENED bundle actually revokes (adversary BUG 4:
+		// INSERT OR IGNORE alone never deletes a verb pulled from a tier). Membership
+		// edges (folder→role) are untouched; only the role's grant rows are rebuilt.
+		if err := st.DeleteACLPrincipal(tierRoleName(tier)); err != nil {
+			return err
+		}
 		for _, rule := range grants.DeriveRules(nil, "", tier, "") {
 			verb, params, deny := parseRule(rule)
 			effect := "allow"
