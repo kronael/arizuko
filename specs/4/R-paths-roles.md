@@ -450,11 +450,21 @@ The 5 bugs and their fixes:
 - grants + lint green.
 
 **Implementation status of the staged rollout (§Resolved model 11):**
-(a) IsRoot decoupling — DONE (`14eb9504`). (c) grant-surface flip — DONE (this).
-Remaining: (b) `AuthorizeStructural`→acl scope-glob; (d) egress/web off `tierOf`→grants;
-(e) delete `Resolve`/`DeriveRules`/tier + `ARIZUKO_TIER` migration; BUG5 dashd parity.
-`DeriveRules` stays until (b)/(d)/(e) land (still used by `SeedTierRoles` for the bundles,
-`auth.Authorize`'s mcp:\* fallback, and dashd display).
+(a) IsRoot decoupling — DONE (`14eb9504`). (c) grant-surface flip — DONE (`be724eed`).
+**Delegation mechanism — DONE** (`b7ec8232`+`14cd52a5`): role bundle allow-grants carry
+`grant_option`; `auth.Delegate` wired into `add_acl` so a non-root writer may only grant a
+row it holds WITH the option (root bypasses via `IsRoot`), and the scope-check bounds
+delegation to the granter's scope. A group can't hand out authority it wasn't delegated.
+
+Remaining is the **model-shift** (deployment-affecting): create-time delegation — the
+operator/parent delegates SUBTREE-SCOPED grants to a new group at create (groups hold
+authority as scoped rows, not the shared `**` bundle), the prerequisite for (b) deleting
+`AuthorizeStructural` (containment = grant scope); then (d) egress/web off `tierOf`→grants;
+(e) delete `Resolve`/`DeriveRules`/tier + `ARIZUKO_TIER` migration; BUG5 dashd parity; a
+**backfill migration** delegating tier-equivalent scoped grants to every existing folder;
+then the docs/examples/products rewrite. This changes what every agent may do in every
+deployment — it lands as one REVIEWED migration, not a session tail. `DeriveRules` stays
+until (b)/(d)/(e).
 
 ## Open questions
 
