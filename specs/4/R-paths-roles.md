@@ -106,6 +106,57 @@ These close the open design questions; the rest of the spec is read through them
    minimal-default / everything-explicit model — a group has exactly the power its
    lineage handed it, nothing implied by where it sits.
 
+8. **Containment = grant SCOPE, not `AuthorizeStructural`.** The ~20 tools the
+   structural cascade gated (`register_group`, `routes`, `network_*`, `schedule_*`,
+   `add_acl`, outbound send, …) become plain `mcp:<tool>` grants whose **scope glob
+   IS the containment**: holding `mcp:register_group` scoped `acme/**` lets you
+   register under `acme`, nothing else. `AuthorizeStructural` (and the depth caps
+   inside it) is deleted; the acl scope-match already in `AuthorizeWith` does the
+   whole job. A grant delegated for a subtree carries that subtree as its scope, so
+   the delegation chain sets containment by data.
+
+9. **The group→path RENAME is a SEPARATE later pass — not part of this cutover.**
+   4/R lands the authz model (root-grant, tier-dissolve, lineage delegation) FIRST;
+   the mechanical `group`/`folder`→`path` rename (300+ files, DB, MCP tool names,
+   env, in-container skills) is its own spec + pass AFTER the authz change is live
+   and stable. Coupling a huge rename to a risky auth cutover is how both break.
+   `4/R` may say "path" conceptually; the code keeps `folder`/`group` until the
+   rename pass.
+
+10. **`ARIZUKO_TIER` and every tier DISPLAY are dropped, not replaced with a
+    number.** No tier scalar survives. The agent prompt drops the tier line (or
+    shows a short grant summary); `dashd` shows the group's granted capabilities,
+    not "tier N"; `ARIZUKO_TIER` env is removed and the 4 in-container skills that
+    read it are updated via the migration-broadcast. Identity the agent sees =
+    world + path + its grants, never a rank.
+
+11. **Staged rollout (each behind the equivalence tests, never big-bang):**
+    (a) root-as-grant + an `is_root` predicate replacing the `id.Tier==0` checks;
+    (b) `AuthorizeStructural`→acl scope-glob (decision 8); (c) the corrected
+    grant-surface flip (role-sourced grants, denies-last, assign-once, test the REAL
+    `deriveFolderGrants` — per `BUGS.md`); (d) egress/web off `tierOf` → grants;
+    (e) delete `Resolve`/`DeriveRules`/tier + the `ARIZUKO_TIER` skill migration.
+    Only after (a)-(e) are green does the tier axis actually leave the tree.
+
+12. **Inspect is the READ face of the configurable grants.** Grants are already a
+    configurable resreg resource (`acl` — add/remove/list, both MCP + REST). "Inspect
+    grants" is just its **list face scoped to the caller's own effective grants** —
+    not a bespoke tool, an extension of grants-being-configurable. So an agent that
+    can configure grants (delegate down its subtree) uses the SAME resource to read
+    them; a group with only the read grant sees its own. Passively too: the
+    advertised tools in `tools/list` reflect the grants (a tool without its grant
+    isn't offered) and the prompt summarizes them — all three read one `acl`, so
+    they agree by construction.
+
+13. **Egress: sensible errors + advertised proxy.** A blocked (non-allowlisted)
+    egress attempt MUST return a clear error naming the **egress proxy** as the
+    blocker — not a bare `403` on every path that reads like the TARGET's own auth
+    gate (the exact misdiagnosis `ant/CLAUDE.md` §"Network egress" warns about). And
+    the environment **advertises that the agent is behind an egress proxy** (in the
+    prompt / a known env marker) so a denial is understood as the allowlist, not the
+    site. Egress reach itself is a grant (decision 6/11d): a host on the group's
+    egress grant passes; anything else is refused with the clear proxy error.
+
 ## Delegation replaces tiers
 
 There are no tiers. The capability boundary is emergent and Postgres-clean:
@@ -405,15 +456,16 @@ overlay (deny appended last = correct). Full routd suite green. The equivalence 
 
 ## Open questions
 
-> **Most of these are now closed by §"Resolved model" (2026-07-30).** Root is a
-> grant not a location (Q on root-bypass); tier fully dissolved (Q1); grants by
-> lineage-delegation with a single unprivileged default (Q on default roles — the
-> `role:owner/member/reader` framing below is SUPERSEDED by one `role:unpriv` +
-> delegation); mounts + skill-mod are grants with global-skills operator-only.
-> Genuinely still open: the exact `AuthorizeStructural`→acl-scope-glob per-tool
-> mapping; the rename depth (Q5); `ARIZUKO_TIER`/prompt/dashd display replacements
->
-> - skill migration; and the staged rollout sequence.
+> **DESIGN CLOSED — all resolved in §"Resolved model" (2026-07-30, decisions 1-13).**
+> Root is a grant not a location; tier fully dissolved; grants by lineage-delegation
+> with ONE unprivileged default (the `role:owner/member/reader` framing below is
+> SUPERSEDED); mounts + skill-mod are grants, global skills operator-only;
+> containment = grant scope (no `AuthorizeStructural`); the group→path rename is a
+> SEPARATE later pass; `ARIZUKO_TIER`/tier displays dropped, not renumbered; grants
+> inspected via the acl resource's read face (+ advertised tools + prompt); egress
+> errors name the proxy + the proxy is advertised. The numbered questions below are
+> kept for provenance; the resolved model overrides them. **What remains before
+> `shipped` is IMPLEMENTATION (the staged rollout a-e), not design.**
 
 1. **Non-authz tier uses — RESOLVED (see §blast + §Resolved model).** `tierOf`
    drives egress (→ a `mount`/egress grant) and web-vhost mounts (→ a web grant);
