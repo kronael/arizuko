@@ -213,24 +213,23 @@ for each row r in rows:
 `role:operator` (holding `(*, **, allow, grant_option=1)`) delegates anything —
 the sole seeded root of every chain.
 
-## Default roles (solo stays zero-config — 5/A)
+## Default roles (per decision 7 — one unprivileged default)
 
-Removing tiers must not make a solo user configure roles. Seeded at
-`arizuko create` / path-create:
+Only TWO seeded roles exist; there are no per-tier bundles:
 
-- `role:operator` — `(*, **, allow, grant_option=1)`. First OAuth sub bound at
-  create. (Already seeded.)
-- `role:owner` — the grant bundle old **tier 1** gave (platform actions +
-  `register_path`/`delegate_path` + own-subtree `admin`), **with** grant_option
-  on its own subtree. Minted for a path's creator at create.
-- `role:member`, `role:reader`, `role:guest` — bundles for old tier 2 / 3+ /
-  guest, **without** grant_option. Assigned by invite/onboard.
+- `role:operator` — `(*, **, allow, grant_option=1)`, the ROOT grant (decision 1).
+  Held by the operator, invoked via `/root`; it is the source of every delegation
+  chain and the only thing that can seed a world's first real grants. NOT a folder
+  position — no root group.
+- `role:unpriv` — the floor (reply/send in own thread; essentially no management
+  verbs), `grant_option=0`. **Every group is born a member of this**, regardless of
+  where it sits. This is the whole zero-config default.
 
-Path-create mints `acl_membership(creator_sub → role:owner)` scoped to the new
-path — a **one-shot seed at create**, NOT a live parent-walk. That is the line
-between convenience and the coupling we deleted (§Open-Q on re-coupling): a child
-does not _inherit live_ from its parent path; it is _granted once_ at birth and
-diverges freely thereafter.
+Everything above the floor is EXPLICIT delegation from the creating group or a
+lineage ancestor (decisions 3 + §Delegation), bounded by `grant_option` subset — a
+group has exactly the grants its lineage handed it. Solo stays zero-config because
+the operator's `create` (root grant) seeds the world's grants once; nothing is
+implied by depth.
 
 ## What changes in code (the coupling trio dies)
 
