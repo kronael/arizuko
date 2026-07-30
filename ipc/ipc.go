@@ -1995,7 +1995,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if jid == "" {
 				return toolErr("chat_jid required")
 			}
-			if identity.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
+			if !identity.IsRoot && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
 				return toolErr("access_denied: jid not routed to your group")
 			}
 			limitVal := req.GetInt("limit", 100)
@@ -2062,7 +2062,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			// folder. Tier-0 (operator) bypasses. JIDRoutedToFolder is the same
 			// gate inspect_messages uses (spec 5/C).
 			filtered := hits[:0]
-			if identity.Tier > 0 && db.JIDRoutedToFolder != nil {
+			if !identity.IsRoot && db.JIDRoutedToFolder != nil {
 				for _, h := range hits {
 					if db.JIDRoutedToFolder(h.ChatJID, folder) {
 						filtered = append(filtered, h)
@@ -2115,7 +2115,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if topic == "" {
 				return toolErr("topic required")
 			}
-			if identity.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
+			if !identity.IsRoot && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
 				return toolErr("access_denied: jid not routed to your group")
 			}
 			limitVal := req.GetInt("limit", 50)
@@ -2154,7 +2154,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if jid == "" {
 				return toolErr("chat_jid required")
 			}
-			if identity.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
+			if !identity.IsRoot && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
 				return toolErr("access_denied: jid not routed to your group")
 			}
 			limitVal := req.GetInt("limit", 100)
@@ -2242,7 +2242,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				target = folder
 			}
 			// tier-1+ may only inspect own folder or descendants; tier-0 any.
-			if identity.Tier > 0 && target != folder &&
+			if !identity.IsRoot && target != folder &&
 				!strings.HasPrefix(target, folder+"/") {
 				return toolErr("get_web_presence: can only query own folder or descendants")
 			}

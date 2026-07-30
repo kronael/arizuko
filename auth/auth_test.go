@@ -143,7 +143,7 @@ func TestAuthorizeOutboundSubtree(t *testing.T) {
 	// and it has all privileges — it sends across any world (migrate-announce +
 	// operator ops). Tier ≥ 1 (every real folder, including top-level worlds) stay
 	// confined to their subtree.
-	root := Identity{Folder: "rhias", Tier: 0, World: "rhias"} // elevated /root
+	root := Identity{Folder: "rhias", Tier: 0, World: "rhias", IsRoot: true} // elevated /root
 	if err := AuthorizeStructural(root, "send", AuthzTarget{TargetFolder: "rhias"}); err != nil {
 		t.Errorf("root send to own folder should allow: %v", err)
 	}

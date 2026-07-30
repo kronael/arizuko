@@ -51,7 +51,7 @@ func TestAuthorizeStructural_ListACL_TierGated(t *testing.T) {
 // grant any scope including "**" (operator role); a top-level world is tier 1,
 // confined to its own world and cannot grant "**"; tier 2+ is denied.
 func TestAuthorizeStructural_ACLWrite(t *testing.T) {
-	tier0 := Identity{Folder: "w", Tier: 0, World: "w"} // elevated /root, not a folder shape
+	tier0 := Identity{Folder: "w", Tier: 0, World: "w", IsRoot: true} // elevated /root, not a folder shape
 	tier1 := Resolve("w/a")                             // 1 slash → tier 1 (world "w")
 	tier2 := Resolve("w/a/b")                           // 2 slashes → tier 2
 	for _, tool := range []string{"add_acl", "remove_acl"} {

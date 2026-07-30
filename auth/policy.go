@@ -47,7 +47,7 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 		if id.Tier >= 2 {
 			return fmt.Errorf("unauthorized: tier %d cannot register groups", id.Tier)
 		}
-		if id.Tier == 0 && !strings.Contains(target.TargetFolder, "/") {
+		if id.IsRoot && !strings.Contains(target.TargetFolder, "/") {
 			return fmt.Errorf("unauthorized: worlds are CLI-only")
 		}
 		if id.Tier == 1 && !IsDirectChild(id.Folder, target.TargetFolder) {
@@ -186,7 +186,7 @@ func authorizeOutbound(id Identity, tool string, target AuthzTarget) error {
 	// migrate-announce fan-out and operator cross-group ops aren't blocked by
 	// world-containment. Operator trust is the instance owner's (user direction
 	// 2026-06-13); multi-tenant worlds live one level down (tier ≥ 1).
-	if id.Tier == 0 {
+	if id.IsRoot {
 		return nil
 	}
 	if target.TargetFolder == id.Folder ||

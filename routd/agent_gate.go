@@ -48,6 +48,7 @@ func turnIdentity(folder string, elevated bool) auth.Identity {
 	id := auth.Resolve(folder)
 	if elevated {
 		id.Tier = 0
+		id.IsRoot = true // /root elevation is root (spec 4/R decision 1)
 	}
 	return id
 }

@@ -11,6 +11,12 @@ type Identity struct {
 	Folder string
 	Tier   int
 	World  string
+	// IsRoot is the explicit root predicate (spec 4/R decision 1: root is a grant/
+	// elevation, not a folder position). Today it is set == (Tier==0) so the ~10
+	// root-bypass sites read `id.IsRoot` instead of `id.Tier==0` — behavior is
+	// identical now, but when tier is removed only the SETTING of IsRoot changes
+	// (to "holds the root grant"), not the call sites.
+	IsRoot bool
 }
 
 // Resolve returns the NON-elevated identity of a folder. Tier 0 is reserved for
@@ -29,6 +35,7 @@ func Resolve(folder string) Identity {
 		Folder: folder,
 		Tier:   tier,
 		World:  WorldOf(folder),
+		IsRoot: tier == 0, // "" sentinel resolves root; a named world floors to 1
 	}
 }
 

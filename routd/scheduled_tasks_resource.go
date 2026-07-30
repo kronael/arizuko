@@ -122,7 +122,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		//     sibling's (the 5/16 list-all leak guard). The REST caller is
 		//     detected by the jwt_folder claim it always sets; the agent sets
 		//     none, so it keeps the tier-based widening.
-		all := id.Tier == 0
+		all := id.IsRoot
 		if _, rest := x.Caller.Claims["jwt_folder"]; rest {
 			all = x.Caller.Folder == ""
 		}

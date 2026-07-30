@@ -10,7 +10,7 @@ import (
 )
 
 func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folder string) {
-	isRoot := id.Tier == 0
+	isRoot := id.IsRoot
 
 	if db.ListRoutes != nil && db.DefaultFolderForJID != nil {
 		srv.AddTool(mcp.NewTool("inspect_routing",
@@ -24,7 +24,7 @@ func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folde
 			}
 			out := map[string]any{}
 			if jid := req.GetString("jid", ""); jid != "" {
-				if id.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
+				if !id.IsRoot && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
 					return toolErr("access_denied: jid not routed to your group")
 				}
 				out["jid"] = jid
@@ -59,7 +59,7 @@ func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folde
 			tasks := db.ListTasks(folder, isRoot)
 			out := map[string]any{"tasks": tasks}
 			if tid := req.GetString("task_id", ""); tid != "" && db.TaskRunLogs != nil {
-				if id.Tier > 0 && db.GetTask != nil {
+				if !id.IsRoot && db.GetTask != nil {
 					t, ok := db.GetTask(tid)
 					if !ok {
 						return toolErr("task not found")
