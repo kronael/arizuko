@@ -528,16 +528,23 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 // with principal=folder:<folder> and action=mcp:<tool>; they append onto the
 // tier-derived rules so the grants check sees both layers (deny precedence kept
 // by the evaluator's last-match-wins). Empty table → tier defaults only.
+// deriveFolderGrants renders a folder agent's mcp: rule bundle: the tier-derived
+// defaults (grants.DeriveRules) overlaid with acl rows for the folder:<path>
+// principal AND its transitive roles.
+//
+// The role expansion (vs the old exact-match ListACL) closes the 4/R audit-#4
+// dual-path gap: a grant held via role membership was invisible here but visible
+// at the live per-call gate, and toolGrant requires BOTH. Reading the same expanded
+// principal set makes them agree.
+//
+// The full 4/R grant-surface flip (drop DeriveRules, source grants purely from acl)
+// is proven safe by the differential (SeedFolderGrants + folderGrantsFromACLOnly),
+// but must land via ROLE-based seeding — tier bundles on a few role:<tier>
+// principals with folders bound by membership — NOT per-folder row dumps, which
+// pollute the acl table + list_acl (26 rows/folder). See seed_grants.go + 4/R.
 func deriveFolderGrants(d *DB, folder string) []string {
 	tier := auth.Resolve(folder).Tier
 	rules := grants.DeriveRules(d, folder, tier, auth.WorldOf(folder))
-	// Overlay acl mcp: grants for the agent principal AND its transitive roles
-	// (4/R audit finding #4). The old read was exact-match ListACL("folder:"+folder),
-	// so a grant held via role membership (acl_membership) was invisible HERE while
-	// visible at the live per-call gate (auth.Authorize expands Ancestors) — and
-	// toolGrant requires BOTH, so a role-inherited tool was silently unreachable.
-	// Reading the same expanded principal set closes that dual-path gap. Neutral
-	// today (no folder:<path> holds a role yet); correct once default roles seed.
 	st := store.New(d.SQL())
 	principal := "folder:" + folder
 	principals := append([]string{principal}, st.Ancestors(principal)...)
