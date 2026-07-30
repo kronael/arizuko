@@ -53,6 +53,59 @@ Permission = expand principal's roles transitively → union of grants → match
 `(action, scope, params, predicate)` → deny-wins. **Nothing is derived from path
 depth.**
 
+## Resolved model (operator decisions, 2026-07-30)
+
+These close the open design questions; the rest of the spec is read through them.
+
+1. **No root group. No tier-0-by-location. Root is a GRANT.** The operator holds a
+   root grant and invokes it by the `/root` command; power comes from holding the
+   grant, never from sitting at an empty/top folder. Remove the "tier 0 = root by
+   location" model and the ~10 `id.Tier == 0` location checks — each becomes "does
+   the caller HOLD the root grant (and, for a turn, invoke `/root`)". There is no
+   root folder to occupy.
+
+2. **Tier is completely dissolved — it survives ONLY as the path hierarchy.** The
+   path (`world/org/team`) is a pure coordinate: routing target, JID prefix,
+   container home, web vhost. It carries **zero** authorization. Depth means
+   nothing to authz.
+
+3. **Grants flow by lineage/delegation, not location.** A new group is granted its
+   capabilities by its **creating group, or a higher group in its lineage** — via
+   the subset-of-held `grant_option` rules (a granter may only pass what it holds
+   WITH the option). Each new group starts with the grants its creator delegates;
+   no default falls out of where it sits. Escalation = asking a lineage ancestor
+   (or the operator's root grant) for more.
+
+4. **Lineage is canonical; the filesystem path is a projection.** A group is best
+   understood by _what created it_ (its creation lineage), not by its folder
+   location — the path is a convenient rendering of that lineage, not the source of
+   truth. Consequence: groups **know about each other** and can **send files and
+   messages to one another** (cross-group `send`/`send_file`), gated by grants, not
+   by tree position.
+
+5. **Only worlds + delegated subgroups.** Top-level = a **world** (where users
+   onboard). Everything under it is a subgroup that exists via the delegation +
+   escalation rules above, bound to its lineage. No third structural tier, no root
+   group.
+
+6. **Mounts and skill-modification are grants.** Filesystem access is a grant with
+   a read-only vs read-write level (mount RO / mount RW). Skill modification is a
+   grant too — **EXCEPTION: global skills are operator-only.** A group can no longer
+   modify a global skill directly (a change from today); it may only **request** the
+   operator modify it (via the issue/skill-request path). Per-group/custom skills a
+   group with the grant may modify; global skills are the operator's alone.
+
+7. **One default role, mostly unprivileged.** The old `role:tier0..3` (four depth
+   bundles) collapse to a SINGLE seeded default — `role:unpriv` — with little more
+   than the floor (reply/send in its own thread; essentially no management verbs).
+   Every group is born with it. Everything beyond the floor is **explicit
+   delegation** from the creating group or a lineage ancestor (decision 3). No
+   `open`/`closed` split, no per-depth bundle. (`role:operator`/root stays as the
+   escalation grant per decision 1: the operator, holding root, seeds a world's
+   first real grants at create; those cascade down by delegation.) This is the
+   minimal-default / everything-explicit model — a group has exactly the power its
+   lineage handed it, nothing implied by where it sits.
+
 ## Delegation replaces tiers
 
 There are no tiers. The capability boundary is emergent and Postgres-clean:
@@ -352,9 +405,19 @@ overlay (deny appended last = correct). Full routd suite green. The equivalence 
 
 ## Open questions
 
-1. **Non-authz tier uses — RESOLVED (see §blast).** `tierOf` drives egress
-   (tier≤1→`*`) and web-vhost mounts (tier≤2), plus `MaxChildren`/`WorldOf`. All
-   re-expressed as explicit grants / plain caps before `Resolve` dies. Remaining:
+> **Most of these are now closed by §"Resolved model" (2026-07-30).** Root is a
+> grant not a location (Q on root-bypass); tier fully dissolved (Q1); grants by
+> lineage-delegation with a single unprivileged default (Q on default roles — the
+> `role:owner/member/reader` framing below is SUPERSEDED by one `role:unpriv` +
+> delegation); mounts + skill-mod are grants with global-skills operator-only.
+> Genuinely still open: the exact `AuthorizeStructural`→acl-scope-glob per-tool
+> mapping; the rename depth (Q5); `ARIZUKO_TIER`/prompt/dashd display replacements
+>
+> - skill migration; and the staged rollout sequence.
+
+1. **Non-authz tier uses — RESOLVED (see §blast + §Resolved model).** `tierOf`
+   drives egress (→ a `mount`/egress grant) and web-vhost mounts (→ a web grant);
+   `MaxChildren` stays a plain cap; root-by-location → the root grant. Remaining:
    grep for any OTHER `ARIZUKO_TIER` / `tierOf` / `Resolve` reader the map missed.
 2. **Grant-option vs action lattice.** Column (chosen) vs a lattice rung
    (`admin`⇒may-grant)? Column keeps delegability orthogonal to coverage; a rung
