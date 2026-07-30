@@ -48,6 +48,7 @@ import (
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/resreg"
@@ -114,11 +115,20 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		if target == "" {
 			target = folder
 		}
-		// Mint tier cap: the arg-carried target must be within the caller's reach
-		// (tier ≤2 → self+descendants, tier ≥3 → none). Exactly the deleted ipc
-		// authorizeMint closure. The token's owner_folder stays the socket folder.
-		if err := authorizeRouteTokenMint(auth.Resolve(folder), folder, target); err != nil {
-			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+		// Containment (both faces): target must be the owner folder or a descendant.
+		// The AGENT (MCP) face additionally applies the depth tier cap (tier ≥3 may
+		// not mint) — that models the agent socket's own authority. The OPERATOR
+		// (REST) face must NOT: `folder` there is the client-supplied owner_folder
+		// already bound to the caller's JWT subtree by routeTokensRESTGate, so
+		// deriving a tier from its DEPTH would 403 any owner at depth ≥3 for everyone
+		// (adversary F8). Operator authority is the bearer scope + containment, not
+		// the target's depth.
+		if x.Surface == audit.SurfaceMCP {
+			if err := authorizeRouteTokenMint(auth.Resolve(folder), folder, target); err != nil {
+				return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+			}
+		} else if target != folder && !strings.HasPrefix(target, folder+"/") {
+			return nil, resreg.Errorf(http.StatusForbidden, "target_folder must equal or descend from owner_folder")
 		}
 		suffix := strings.TrimSpace(argString(x.Args, "jid_suffix"))
 		kind, source := "chat", ""

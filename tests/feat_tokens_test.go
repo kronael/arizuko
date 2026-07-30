@@ -146,6 +146,20 @@ func TestFeature_RouteTokens(t *testing.T) {
 		}
 	})
 
+	// Adversary F8: the fold must NOT apply the agent depth tier-cap to operator
+	// REST — a deep owner_folder (would resolve to tier 3) must still mint.
+	t.Run("http-deep-owner-mints", func(t *testing.T) {
+		f := bootFederation(t)
+		if err := f.routdDB.PutGroup(core.Group{Folder: "acme/eng/sre/oncall"}); err != nil {
+			t.Fatal(err)
+		}
+		tok := f.authd.mintService(t, "service:dashd", "routes:write")
+		body := routdv1.RouteTokenRequest{OwnerFolder: "acme/eng/sre/oncall", TargetFolder: "acme/eng/sre/oncall"}
+		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/route_tokens/chat", tok, "", body); rec.StatusCode != 201 {
+			t.Fatalf("deep-owner REST mint = %d, want 201 (F8)", rec.StatusCode)
+		}
+	})
+
 	// Spec 5/16 REST-face fold: list + revoke ride the SAME shared handler as
 	// the agent's list_tokens/revoke_token, mounted via resreg.RegisterREST.
 	// Issue → GET list ({tokens:[...]}) → DELETE revoke → row gone.
