@@ -1940,7 +1940,7 @@ for hub.css.
   CLAUDE.md wording).
 - **Status:** open — versions synced at v0.58.0; collapse decision pending
 
-## `groups` REST twin (`/v1/groups`) — fold vs write-discipline decision (2026-07-29, open)
+## `groups` REST twin (`/v1/groups`) — RESOLVED (2026-07-30, shipped option a)
 
 5/16's last resreg rollout item. The agent's `register_group`/`refresh_groups`
 already ride `s.groupsResource()`; the spec wants the human REST twin at
@@ -1974,5 +1974,7 @@ forbids. Options:
 
 - **Severity:** low (no runtime bug; a rollout-completeness + orthogonality call)
 - **Scope:** routd groups_resource + dashd group forms + 5/16 status
-- **Status:** open — needs sign-off before shipping; do NOT add a second bare
-  create door (a) or (c) preferred.
+- **Status:** RESOLVED 2026-07-30 (commit 210b8012) — shipped **option (a)**:
+  read-only `GET /v1/groups` scoped to the caller subtree (leak closed via the
+  surface==REST ownsFolder filter); CREATE stays dashd's `SetupGroup`. No second
+  bare create door.

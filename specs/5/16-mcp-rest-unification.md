@@ -22,13 +22,15 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > `routeTokensRESTGate`) — the bespoke `handleToken*` bodies and the
 > `RouteTokenResponse`/204 wire shapes are retired; the REST face returns the
 > unified handler shape (`{token,jid,url}` / `{tokens:[…]}` / `{deleted}`) and the
-> REST-only `resolve` (no MCP twin) stays hand-rolled. Remaining: `groups` has no
-> `/v1/groups` REST twin — a genuine write-discipline decision, NOT a mechanical
-> fold: the `groups` resource is a side-effecting FORWARDER (dir-init + route +
-> DB row via `s.registerGroup`) and operator group-creation already lives in
-> dashd's FS-managed `/dash/groups/*` (`container.SetupGroup`). Whether routd
-> should own a second group-create door via REST needs sign-off (recorded in
-> `BUGS.md`). Then the one-owner + federation phase retires `messages.db`.
+> REST-only `resolve` (no MCP twin) stays hand-rolled. **2026-07-30:** `groups` REST twin
+> SHIPPED as read-only (`routd/groups_http.go` `mountGroups`): `GET /v1/groups`
+> rides the shared handler, scoped to the caller's JWT subtree (closes the
+> rest_listall leak); the agent MCP face stays unscoped. Only LIST is mounted —
+> operator group CREATE stays dashd's FS-managed `SetupGroup` by write-discipline,
+> so routd opens no second bare create door (the decision recorded in `BUGS.md`,
+> resolved as option a). **Every agent-facing cold-tier resource now wears both
+> faces** (or the intended read-only/create-elsewhere split). Then the one-owner +
+> federation phase retires `messages.db`.
 > **2026-07-27:** `mcp_connectors` was floated for the adoption list but CUT
 > (2026-07-29): connectors + REST ext-providers ALREADY load from
 > `<datadir>/connectors.toml` — a resreg resource would add a second
