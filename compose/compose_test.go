@@ -284,6 +284,35 @@ func TestSplitScopesSecretsKey(t *testing.T) {
 	}
 }
 
+func TestModelCredentialsScopedToRuned(t *testing.T) {
+	const credentials = "ANTHROPIC_API_KEY=anthropic\n" +
+		"CLAUDE_CODE_OAUTH_TOKEN=claude\n" +
+		"OPENAI_API_KEY=openai\n" +
+		"CODEX_API_KEY=codex\n"
+	dir := seed(t, credentials)
+	gen(t, dir)
+
+	runed := read(t, dir, "env/runed.env")
+	for _, credential := range strings.Fields(credentials) {
+		if !strings.Contains(runed, credential) {
+			key, _, _ := strings.Cut(credential, "=")
+			t.Errorf("env/runed.env must carry %s", key)
+		}
+	}
+	for daemon := range daemonKeys {
+		if daemon == "runed" {
+			continue
+		}
+		got := read(t, dir, "env/"+daemon+".env")
+		for _, credential := range strings.Fields(credentials) {
+			key, _, _ := strings.Cut(credential, "=")
+			if strings.Contains(got, key+"=") {
+				t.Errorf("env/%s.env must not carry %s", daemon, key)
+			}
+		}
+	}
+}
+
 // Surrogate OAuth creds (spec 5/15) reach BOTH consumers: dashd runs the
 // Connect-GitHub dance, routd's broker refreshes near-expiry tokens.
 func TestSurrogateKeysScopedToDashdAndRoutd(t *testing.T) {

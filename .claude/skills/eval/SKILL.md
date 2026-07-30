@@ -229,6 +229,25 @@ sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
 
 ---
 
+### 9a. Agent runtime authentication
+
+```bash
+# Check presence only; never print credential values.
+sudo docker exec arizuko_runed_${INSTANCE} sh -c \
+  'env | grep -qE "^(ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN|OPENAI_API_KEY|CODEX_API_KEY)="'
+
+LOGIN_ERRORS=$(sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
+  | grep -cF "Not logged in · Please run /login" || true)
+echo "agent login errors: $LOGIN_ERRORS"
+```
+
+**Pass**: `runed` has at least one model credential and `LOGIN_ERRORS=0`.
+**Fail**: no credential means generated `env/runed.env` dropped the operator
+model credential; any login error means agent calls are failing before user
+work begins.
+
+---
+
 ### 10. Schema migration version
 
 ```bash
@@ -485,6 +504,7 @@ Checked: <what was checked>
 | task scheduler | pass/fail | ... |
 | mcp sockets | pass/fail | ... |
 | auth/proxyd | pass/fail | ... |
+| agent runtime auth | pass/fail | ... |
 | schema version | pass/fail | ... |
 | diary (episodic) | pass/fail | ... |
 | facts (knowledge) | pass/fail | ... |
@@ -524,3 +544,4 @@ be judged by whether it drives the class to zero.
 | routd "connecting channels: count=0" | Adapters not yet registered | Wait 10s; if still 0, restart adapters |
 | Agent ignores skills, responds generically | Resolve not firing: CLAUDE.md not seeded, or nudge missing from runner | Re-seed group via `SetupGroup`; verify `runner.go` has `[resolve]` annotation |
 | Skill exists but never matched by dispatch | Broken `description:` in SKILL.md frontmatter — awk can't parse it | Fix the YAML frontmatter: `description: >` followed by indented text on next line |
+| Every agent says `Not logged in · Please run /login` | Generated `env/runed.env` omitted the operator model credential | Regenerate compose and recreate `runed`; verify check 9a before retrying turns |

@@ -14,6 +14,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 // containerDataMount is the container-side path where the data dir is mounted.
@@ -249,6 +250,11 @@ func writeEnvFiles(dataDir string, env map[string]string, perDaemon map[string]m
 	for daemon, keys := range daemonKeys {
 		all := append([]string{}, commonKeys...)
 		all = append(all, keys...)
+		if daemon == "runed" {
+			for key := range store.EnvProfileKeys {
+				all = append(all, key)
+			}
+		}
 		sort.Strings(all)
 		var b strings.Builder
 		fmt.Fprintf(&b, "# Generated per-daemon env for %s. Do not edit by hand.\n", daemon)
