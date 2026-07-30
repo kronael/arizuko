@@ -35,6 +35,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -193,6 +194,25 @@ func (s *Server) aclPostBuild(folder, callerSub string, rules []string, authoriz
 		}
 		if err := auth.AuthorizeStructural(callerID, name, auth.AuthzTarget{TargetFolder: target}); err != nil {
 			return resreg.Errorf(http.StatusForbidden, "%v", err)
+		}
+		// 4/R lineage delegation: a NON-root writer may only grant a row it HOLDS
+		// with the grant option (auth.Delegate — subset-of-held). Root delegates
+		// anything (callerID.IsRoot). This is what makes a group unable to hand out
+		// authority it wasn't itself delegated.
+		if x.Action == resreg.Action("add") && !callerID.IsRoot {
+			act := argString(x.Args, "action")
+			if act == "" {
+				act = "admin" // grantACLTx default
+			}
+			want := core.ACLRow{
+				Principal: argString(x.Args, "principal"),
+				Action:    act,
+				Scope:     target,
+				Effect:    "allow",
+			}
+			if err := auth.Delegate(store.New(s.db.SQL()), "folder:"+folder, []core.ACLRow{want}); err != nil {
+				return resreg.Errorf(http.StatusForbidden, "%v", err)
+			}
 		}
 		return nil
 	}

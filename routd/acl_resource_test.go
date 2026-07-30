@@ -107,6 +107,13 @@ func TestACLMCP_AddListRemove(t *testing.T) {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
 	grantMCPTools(t, db, "root", "add_acl", "remove_acl", "list_acl")
+	// 4/R: folder:root was DELEGATED "read" over its subtree WITH the grant option,
+	// so it may re-delegate a subset (auth.Delegate). Without this the add is refused.
+	if _, err := db.SQL().Exec(
+		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
+		 VALUES ('folder:root', 'read', 'root/**', 'allow', '', '', 'test', ?, 1)`, nowTS()); err != nil {
+		t.Fatal(err)
+	}
 	sock := serveACLMCP(t, db, "root", "folder:root", deriveFolderGrants(db, "root"))
 
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
@@ -180,6 +187,15 @@ func TestACLMCP_ContainmentDenied(t *testing.T) {
 	if _, err := db.SQL().Exec(
 		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at)
 		 VALUES ('folder:world/a', 'mcp:add_acl', 'world/a', 'allow', '', '', 'test', ?)`, nowTS()); err != nil {
+		t.Fatal(err)
+	}
+	// 4/R: folder:world/a was delegated "read" over its OWN world WITH the grant
+	// option — so it may re-delegate read within world/**, and the auth.Delegate
+	// scope-check itself refuses a cross-world scope (other/x), reinforcing the
+	// structural cross-world denial below.
+	if _, err := db.SQL().Exec(
+		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
+		 VALUES ('folder:world/a', 'read', 'world/**', 'allow', '', '', 'test', ?, 1)`, nowTS()); err != nil {
 		t.Fatal(err)
 	}
 	sock := serveACLMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a"))
