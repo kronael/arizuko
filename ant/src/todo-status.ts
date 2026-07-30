@@ -8,7 +8,7 @@
 // Hooks must never throw — all errors are swallowed.
 
 import { HookCallback, PostToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
-import { submitStatus } from './mcp.js';
+import { submitStatus, type SubmitStatusPayload } from './mcp.js';
 
 export interface Todo {
   content: string;
@@ -51,7 +51,7 @@ export function extractTodos(toolInput: unknown): Todo[] | null {
 // real submit_status RPC.
 export function createTodoStatusHook(
   turnID: string,
-  send: (p: { turn_id: string; text: string }) => Promise<void> = submitStatus,
+  send: (p: SubmitStatusPayload) => Promise<void> = submitStatus,
 ): HookCallback {
   return async (input, _toolUseId, _context) => {
     try {

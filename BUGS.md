@@ -1994,3 +1994,65 @@ forbids. Options:
   read-only `GET /v1/groups` scoped to the caller subtree (leak closed via the
   surface==REST ownsFolder filter); CREATE stays dashd's `SetupGroup`. No second
   bare create door.
+
+## C11 — Compose generation succeeds after daemon env writes fail (2026-07-30, open)
+
+`Generate` logs `writeEnvFiles` failure and continues, producing compose that
+references stale, partial, or missing daemon env files. For `runed`, this can
+silently reuse obsolete credentials or recreate the `/login` outage class.
+
+- **Severity:** high
+- **Scope:** compose generation / daemon environment integrity
+- **Affected:** every generated deployment, especially `runed`
+- **Source:** compose/compose.go:241-274,668-672
+- **Status:** open — returning the write error is a localized fail-loud fix; no
+  redesign sign-off required
+- **Fix:**
+
+## P3 — Proxyd dispatch combines routes from two database snapshots (2026-07-30, proposed)
+
+Route matching reads one snapshot, then proxy selection rereads the table and
+rebuilds proxies. A concurrent route mutation can pair old authentication policy
+with a new backend, return a false 404, and doubles database/proxy construction
+work on every routed request.
+
+- **Severity:** high
+- **Scope:** proxyd request dispatch
+- **Affected:** requests concurrent with `proxyd_routes` mutation
+- **Source:** proxyd/main.go:124-136,625-626,654-660; proxyd/resource.go:60-91
+- **Status:** proposed — passing one route/proxy snapshot through dispatch changes
+  request control flow and needs sign-off
+- **Fix:**
+
+## K1 — Security-sensitive identifier generators discard entropy failures (2026-07-30, proposed)
+
+JWT JTIs, OAuth-state nonces, signing-key IDs, run IDs, and session UUIDs are
+returned after unchecked `crypto/rand.Read`. Entropy failure therefore emits
+predictable or duplicate identifiers instead of aborting issuance or execution.
+PKCE and refresh-token generators already return these errors correctly.
+
+- **Severity:** medium
+- **Scope:** authentication and execution identifier generation
+- **Affected:** JWT lineage, OAuth state uniqueness, key rotation, run/session identity
+- **Source:** auth/es256.go:140-145; auth/oauth.go:160-164;
+  authd/server.go:95-101; runed/manager.go:364-376
+- **Status:** proposed — correcting helper signatures and propagating errors
+  crosses authd/runed contracts and needs sign-off
+- **Fix:**
+
+## A4 — ACL read errors are indistinguishable from valid empty policy (2026-07-30, proposed)
+
+Query failures intentionally return no rows and therefore deny authorization,
+but the API cannot distinguish that failure from an empty policy. User-scope and
+list endpoints consequently return successful empty results. Worse, individual
+scan failures are skipped, producing a partial policy that can omit a deny row
+while retaining allows.
+
+- **Severity:** high
+- **Scope:** ACL storage and authorization evaluation
+- **Affected:** agent authorization, login scope snapshots, ACL management surfaces
+- **Source:** store/acl.go:176-310; auth/authorize.go:59-99; routd/server.go:506-514
+- **Status:** proposed — authorization must remain fail-closed, but
+  error-returning store contracts and 5xx management responses require
+  cross-component sign-off
+- **Fix:**

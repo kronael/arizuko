@@ -67,7 +67,7 @@ func consumePKCE(w http.ResponseWriter, r *http.Request, secure bool) string {
 	return c.Value
 }
 
-func exchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
+func ExchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
 	cb := authBaseURL(cfg) + "/auth/google/callback"
 	form := url.Values{
 		"code":          {code},
@@ -96,7 +96,7 @@ func exchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string
 	return tok.AccessToken, nil
 }
 
-func fetchGoogleUser(ctx context.Context, token string) (sub, name, email string, verified bool, err error) {
+func FetchGoogleUser(ctx context.Context, token string) (sub, name, email string, verified bool, err error) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", googleUserinfoURL, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := httpClient.Do(req)
@@ -263,7 +263,7 @@ func authBaseURL(cfg *core.Config) string {
 	return strings.TrimRight(cfg.AuthBaseURL, "/")
 }
 
-func exchangeGitHub(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
+func ExchangeGitHub(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
 	data := url.Values{
 		"client_id":     {cfg.GitHubClientID},
 		"client_secret": {cfg.GitHubSecret},
@@ -293,7 +293,7 @@ func exchangeGitHub(ctx context.Context, cfg *core.Config, code, verifier string
 	return result.AccessToken, nil
 }
 
-func fetchGitHubUser(ctx context.Context, token string) (string, string, error) {
+func FetchGitHubUser(ctx context.Context, token string) (string, string, error) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/user", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := httpClient.Do(req)
@@ -321,7 +321,7 @@ func fetchGitHubUser(ctx context.Context, token string) (string, string, error) 
 	return u.Login, name, nil
 }
 
-func exchangeDiscord(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
+func ExchangeDiscord(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
 	cb := authBaseURL(cfg) + "/auth/discord/callback"
 	data := url.Values{
 		"client_id":     {cfg.DiscordClientID},
@@ -349,7 +349,7 @@ func exchangeDiscord(ctx context.Context, cfg *core.Config, code, verifier strin
 	return result.AccessToken, nil
 }
 
-func fetchDiscordUser(ctx context.Context, token string) (string, string, error) {
+func FetchDiscordUser(ctx context.Context, token string) (string, string, error) {
 	req, _ := http.NewRequestWithContext(ctx, "GET",
 		"https://discord.com/api/users/@me", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -377,35 +377,6 @@ func fetchDiscordUser(ctx context.Context, token string) (string, string, error)
 		name = u.Username
 	}
 	return u.ID, name, nil
-}
-
-// Exported provider primitives. authd's /auth/* handlers (specs/5/1) own the
-// OAuth flow and call these wrappers to reuse the exchange + userinfo code
-// without forking it. They are pure (store-free, secret-free); the issuance
-// (ES256 + authd refresh store) lives in authd.
-
-func ExchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
-	return exchangeGoogle(ctx, cfg, code, verifier)
-}
-
-func FetchGoogleUser(ctx context.Context, token string) (sub, name, email string, verified bool, err error) {
-	return fetchGoogleUser(ctx, token)
-}
-
-func ExchangeGitHub(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
-	return exchangeGitHub(ctx, cfg, code, verifier)
-}
-
-func FetchGitHubUser(ctx context.Context, token string) (sub, name string, err error) {
-	return fetchGitHubUser(ctx, token)
-}
-
-func ExchangeDiscord(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
-	return exchangeDiscord(ctx, cfg, code, verifier)
-}
-
-func FetchDiscordUser(ctx context.Context, token string) (sub, name string, err error) {
-	return fetchDiscordUser(ctx, token)
 }
 
 func VerifyTelegramWidget(form url.Values, botToken string) bool {

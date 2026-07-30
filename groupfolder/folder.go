@@ -133,7 +133,7 @@ func ParseVhostAliases(s string) map[string]string {
 }
 
 // ValidVhostName accepts a hostname: letters, digits, dot, dash, colon,
-// length-bounded. Mirrors ipc.validHostname (kept here; ipc's is unexported).
+// length-bounded. It is the canonical hostname validator.
 func ValidVhostName(h string) bool {
 	if h == "" || len(h) > 253 {
 		return false

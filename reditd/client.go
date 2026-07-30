@@ -465,12 +465,7 @@ func (rc *redditClient) Send(req chanlib.SendRequest) (string, error) {
 		data = url.Values{"thing_id": {req.ReplyTo}, "text": {req.Content}}
 	} else {
 		path = "/api/submit"
-		data = url.Values{
-			"kind":  {"self"},
-			"sr":    {"u_" + rc.cfg.Username},
-			"title": {"arizuko"},
-			"text":  {req.Content},
-		}
+		data = selfPostData(rc.cfg.Username, req.Content)
 	}
 	resp, err := rc.do("POST", path, nil, data)
 	if err != nil {
@@ -500,13 +495,7 @@ func (rc *redditClient) Post(req chanlib.PostRequest) (string, error) {
 	if len(req.MediaPaths) > 0 {
 		return "", fmt.Errorf("reddit post: media upload not implemented")
 	}
-	data := url.Values{
-		"kind":  {"self"},
-		"sr":    {"u_" + rc.cfg.Username},
-		"title": {"arizuko"},
-		"text":  {req.Content},
-	}
-	resp, err := rc.do("POST", "/api/submit", nil, data)
+	resp, err := rc.do("POST", "/api/submit", nil, selfPostData(rc.cfg.Username, req.Content))
 	if err != nil {
 		return "", fmt.Errorf("reddit post: %w", err)
 	}
@@ -514,6 +503,15 @@ func (rc *redditClient) Post(req chanlib.PostRequest) (string, error) {
 		return "", err
 	}
 	return "", nil
+}
+
+func selfPostData(username, content string) url.Values {
+	return url.Values{
+		"kind":  {"self"},
+		"sr":    {"u_" + username},
+		"title": {"arizuko"},
+		"text":  {content},
+	}
 }
 
 func (rc *redditClient) Like(req chanlib.LikeRequest) error {

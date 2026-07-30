@@ -34,44 +34,17 @@ func openStoreWithKey(dataDir string) (*store.Store, error) {
 // cmdSecret manages folder-scoped secrets (operator-only). User secrets
 // live behind `arizuko user-secret`. Spec 7/Y.
 func cmdSecret(args []string) {
-	need(args, 2, "arizuko secret <instance> <set|list|delete> ...")
-	instance, action := args[0], args[1]
-
-	dataDir := mustInstanceDir(instance)
-	s, err := openStoreWithKey(dataDir)
-	if err != nil {
-		die("Failed: open db: %v", err)
-	}
-	defer s.Close()
-
-	switch action {
-	case "set":
-		scopeID, key, value, err := parseSecretSet("secret set", args[2:])
-		if err != nil {
-			die("usage: arizuko secret <instance> set <folder> KEY --value|-v V: %v", err)
-		}
-		if err := runSecretSet(s, store.ScopeFolder, scopeID, key, value, os.Stdout); err != nil {
-			die("Failed: %v", err)
-		}
-	case "list":
-		need(args, 3, "arizuko secret <instance> list <folder>")
-		if err := runSecretList(s, store.ScopeFolder, args[2], os.Stdout); err != nil {
-			die("Failed: %v", err)
-		}
-	case "delete":
-		need(args, 4, "arizuko secret <instance> delete <folder> KEY")
-		if err := runSecretDelete(s, store.ScopeFolder, args[2], args[3], os.Stdout); err != nil {
-			die("Failed: %v", err)
-		}
-	default:
-		die("unknown secret action: %s", action)
-	}
+	cmdScopedSecret(args, "secret", "folder", store.ScopeFolder)
 }
 
 // cmdUserSecret manages user-scoped secrets (operator-only fallback for
 // users who haven't logged in via /dash/me/secrets yet).
 func cmdUserSecret(args []string) {
-	need(args, 2, "arizuko user-secret <instance> <set|list|delete> ...")
+	cmdScopedSecret(args, "user-secret", "user_sub", store.ScopeUser)
+}
+
+func cmdScopedSecret(args []string, command, scopeName string, scope store.SecretScope) {
+	need(args, 2, fmt.Sprintf("arizuko %s <instance> <set|list|delete> ...", command))
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
@@ -83,25 +56,25 @@ func cmdUserSecret(args []string) {
 
 	switch action {
 	case "set":
-		scopeID, key, value, err := parseSecretSet("user-secret set", args[2:])
+		scopeID, key, value, err := parseSecretSet(command+" set", args[2:])
 		if err != nil {
-			die("usage: arizuko user-secret <instance> set <user_sub> KEY --value|-v V: %v", err)
+			die("usage: arizuko %s <instance> set <%s> KEY --value|-v V: %v", command, scopeName, err)
 		}
-		if err := runSecretSet(s, store.ScopeUser, scopeID, key, value, os.Stdout); err != nil {
+		if err := runSecretSet(s, scope, scopeID, key, value, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "list":
-		need(args, 3, "arizuko user-secret <instance> list <user_sub>")
-		if err := runSecretList(s, store.ScopeUser, args[2], os.Stdout); err != nil {
+		need(args, 3, fmt.Sprintf("arizuko %s <instance> list <%s>", command, scopeName))
+		if err := runSecretList(s, scope, args[2], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "delete":
-		need(args, 4, "arizuko user-secret <instance> delete <user_sub> KEY")
-		if err := runSecretDelete(s, store.ScopeUser, args[2], args[3], os.Stdout); err != nil {
+		need(args, 4, fmt.Sprintf("arizuko %s <instance> delete <%s> KEY", command, scopeName))
+		if err := runSecretDelete(s, scope, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	default:
-		die("unknown user-secret action: %s", action)
+		die("unknown %s action: %s", command, action)
 	}
 }
 

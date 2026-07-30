@@ -38,6 +38,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
@@ -194,22 +195,8 @@ func removeNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target string)
 	return err
 }
 
-// validHostname accepts a bare host: letters, digits, '.', '-', ':' (host:port),
-// length-bounded. Moved here from ipc when the network tools migrated to resreg
-// (network_allow was its only caller). groupfolder keeps its own mirror.
+// validHostname keeps the network-rule call sites on their existing name while
+// groupfolder owns hostname validation.
 func validHostname(h string) bool {
-	if h == "" || len(h) > 253 {
-		return false
-	}
-	for _, r := range h {
-		switch {
-		case r >= 'a' && r <= 'z':
-		case r >= 'A' && r <= 'Z':
-		case r >= '0' && r <= '9':
-		case r == '.' || r == '-' || r == ':':
-		default:
-			return false
-		}
-	}
-	return true
+	return groupfolder.ValidVhostName(h)
 }

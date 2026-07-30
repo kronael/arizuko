@@ -28,7 +28,6 @@ const QUERY_TIMEOUT_MS = Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || 15 * 60
 // to a 1M-context model → "Usage credits required for 1M context" on every turn.
 // A group may still override via cfg.model.
 const DEFAULT_MODEL = 'claude-opus-5';
-const IPC_INPUT_DIR = '/run/ipc/input';
 
 interface SDKUserMessage {
   type: 'user';
@@ -463,5 +462,3 @@ export function renderMcpServers(
 ): Record<string, import('../mcp-servers.js').McpServerConfig> {
   return injectMcpEnv(servers, secrets);
 }
-
-export { IPC_INPUT_DIR };

@@ -33,11 +33,8 @@ func (a *admin) authed(w http.ResponseWriter, r *http.Request, anyScope ...strin
 		writeErr(w, http.StatusUnauthorized, "unauthorized", err.Error())
 		return false
 	}
-	for _, want := range anyScope {
-		res, verb, ok := strings.Cut(want, ":")
-		if ok && auth.HasScope(sub.Scope, res, verb) {
-			return true
-		}
+	if hasAnyScope(sub.Scope, anyScope...) {
+		return true
 	}
 	writeErr(w, http.StatusForbidden, "forbidden", "missing scope "+strings.Join(anyScope, " or "))
 	return false

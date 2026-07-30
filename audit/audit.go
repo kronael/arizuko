@@ -186,9 +186,19 @@ func (w *writer) write(v any) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	line := w.writeLine(v)
+	if line == nil {
+		return
+	}
+	if w.webhookURL != "" {
+		w.batch = append(w.batch, line)
+	}
+}
+
+func (w *writer) writeLine(v any) []byte {
 	line, err := json.Marshal(v)
 	if err != nil {
-		return
+		return nil
 	}
 	line = append(line, '\n')
 
@@ -196,16 +206,13 @@ func (w *writer) write(v any) {
 	if w.f == nil {
 		if err := w.open(); err != nil {
 			slog.Warn("audit open", "path", w.path, "err", err)
-			return
+			return nil
 		}
 	}
 	if _, err := w.f.Write(line); err != nil {
 		slog.Warn("audit write", "path", w.path, "err", err)
 	}
-
-	if w.webhookURL != "" {
-		w.batch = append(w.batch, line)
-	}
+	return line
 }
 
 // flushWebhookLocked sends buffered lines when ≥200 or >5s since last flush.
@@ -228,23 +235,10 @@ func (w *writer) writeImmediate(v any) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	line, err := json.Marshal(v)
-	if err != nil {
+	line := w.writeLine(v)
+	if line == nil {
 		return
 	}
-	line = append(line, '\n')
-
-	w.rotateIfNeeded()
-	if w.f == nil {
-		if err := w.open(); err != nil {
-			slog.Warn("audit open", "path", w.path, "err", err)
-			return
-		}
-	}
-	if _, err := w.f.Write(line); err != nil {
-		slog.Warn("audit write", "path", w.path, "err", err)
-	}
-
 	if w.webhookURL != "" {
 		go postWebhook(w.webhookURL, w.webhookSecret, line)
 	}

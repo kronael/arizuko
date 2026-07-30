@@ -18,9 +18,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -44,16 +42,7 @@ func SetupTraces(daemon, instance string) func() {
 		slog.Error("obs: otlp trace exporter init failed; traces disabled", "err", err)
 		return func() {}
 	}
-	res, err := resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName(daemon),
-			semconv.ServiceNamespace("arizuko"),
-			semconv.ServiceInstanceID(instance),
-			semconv.DeploymentEnvironment(instance),
-		),
-	)
+	res, err := serviceResource(daemon, instance)
 	if err != nil {
 		slog.Warn("obs: trace resource merge incomplete", "err", err)
 	}

@@ -49,9 +49,6 @@ func HasScopeCoveredBy(parent []string, want string) bool {
 // used to enforce downscope subset. A "tasks:*" parent covers "tasks:read".
 func scopeCoveredBy(parent []string, want string) bool {
 	for _, p := range parent {
-		if p == want {
-			return true
-		}
 		if scopeMatches(p, want) {
 			return true
 		}

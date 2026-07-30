@@ -48,16 +48,7 @@ func Setup(daemon, instance string) func() {
 		return func() {}
 	}
 
-	res, err := resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName(daemon),
-			semconv.ServiceNamespace("arizuko"),
-			semconv.ServiceInstanceID(instance),
-			semconv.DeploymentEnvironment(instance),
-		),
-	)
+	res, err := serviceResource(daemon, instance)
 	if err != nil {
 		slog.Warn("obs: resource merge incomplete", "err", err)
 	}
@@ -77,6 +68,19 @@ func Setup(daemon, instance string) func() {
 			slog.Warn("obs: otlp flush on shutdown failed", "err", err)
 		}
 	}
+}
+
+func serviceResource(daemon, instance string) (*resource.Resource, error) {
+	return resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName(daemon),
+			semconv.ServiceNamespace("arizuko"),
+			semconv.ServiceInstanceID(instance),
+			semconv.DeploymentEnvironment(instance),
+		),
+	)
 }
 
 // levelFromEnv reads LOG_LEVEL (debug|info|warn|error, case-insensitive),

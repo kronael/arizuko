@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"database/sql"
+	"time"
+)
 
 type ErroredChat struct {
 	ChatJID  string    `json:"chat_jid"`
@@ -61,6 +64,10 @@ func (s *Store) TaskRunLogs(taskID string, limit int) []TaskRunLog {
 		return nil
 	}
 	defer rows.Close()
+	return collectTaskRunLogs(rows)
+}
+
+func collectTaskRunLogs(rows *sql.Rows) []TaskRunLog {
 	var out []TaskRunLog
 	for rows.Next() {
 		var l TaskRunLog
@@ -89,16 +96,5 @@ func (s *Store) AllRunLogs(limit int) []TaskRunLog {
 		return nil
 	}
 	defer rows.Close()
-	var out []TaskRunLog
-	for rows.Next() {
-		var l TaskRunLog
-		var runAt string
-		if err := rows.Scan(&l.ID, &l.TaskID, &runAt, &l.DurationMS,
-			&l.Status, &l.Result, &l.Error); err != nil {
-			continue
-		}
-		l.RunAt, _ = time.Parse(time.RFC3339, runAt)
-		out = append(out, l)
-	}
-	return out
+	return collectTaskRunLogs(rows)
 }
