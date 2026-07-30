@@ -536,7 +536,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 //   - BUG 3 (denies last): folderGrantsFromACLOnly partitions denies last, so an
 //     operator deny wins over a role allow regardless of row order.
 //   - BUG 1 (real path): the differential test drives THIS function (not a parallel
-//     SeedFolderGrants).
+//     the differential test).
 func deriveFolderGrants(d *DB, folder string) []string {
 	st := store.New(d.SQL())
 	principal := "folder:" + folder

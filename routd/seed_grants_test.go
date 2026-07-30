@@ -9,11 +9,6 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// fakeSrc feeds platformRules a fixed jid set.
-type fakeSrc struct{ jids []string }
-
-func (f fakeSrc) RouteSourceJIDsInWorld(string) []string { return f.jids }
-
 // TestIntegration_GrantSourceDifferential (4/R cutover safety net, BUG-1 fixed):
 // drives the ACTUAL production deriveFolderGrants (role-sourced) and asserts its
 // decision equals the old grants.DeriveRules for every tier × tool. Both read the
