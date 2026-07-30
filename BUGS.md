@@ -2092,3 +2092,34 @@ mint, 48c7e5ce), F9 (surrogate over-aggressive credential null, 25e0d91c), F16
   secret. F12: `Provider.AllowedDomain` parsed, never enforced (false egress
   guarantee). F13: unvalidated `secret_key` collisions overwrite/clobber rows. F14:
   a provider removed from the registry leaves a live, unlistable, unrevocable token.
+
+## 4/R grant-surface flip — attempted, reverted (2026-07-30, adversary-caught)
+
+The role-based grant flip (`600fc408`) shipped broken; reverted (`0f8d956f`). An
+adversarial review (fable sub; codex dead this session) found + reproduced:
+
+- **BUG1 (critical):** the "differential" test drove `SeedFolderGrants` — dead code
+  the shipped `deriveFolderGrants` never called. "Proven safe by the differential"
+  was FALSE. Lesson: an equivalence test must diff the ACTUAL production function.
+- **BUG2 (critical):** `deriveFolderGrants` blind-rebound `folder:<path>` → its
+  DEPTH role on every call → restriction-by-role impossible (only widening). The
+  "decoupled from location" claim was false. Fix: assign the role once at
+  create/invite, never re-derive per read.
+- **BUG3 (high, live):** `grants.CheckAction` is last-match-wins; `store.ACLRowsFor`
+  has no `ORDER BY`; the `acl_by_principal_action` index returns `folder:` before
+  `role:`, so an operator DENY sorted before a role ALLOW and was masked. Confirmed
+  repro. Live unmitigated consumer: `container/runner.go:553` `share_mount` RO gate
+  (fed from `deriveFolderGrants`, no `db.Authorize` pairing). Fix in the correct
+  flip: render denies LAST, or add `ORDER BY effect` / deny-wins to the render.
+- **BUG4 (medium):** `SeedTierRoles` is INSERT-OR-IGNORE-only — a tightened tier
+  bundle never revokes; stale role rows survive a redeploy. Now moot (unwired).
+- **BUG5 (medium, pre-existing):** `dashd/tools_admin.go:36` renders the tool list
+  from `grants.DeriveRules` directly — a second sink that drifts from the socket's
+  `deriveFolderGrants` (overlay/roles). Violates one-renderer-many-sinks. Predates
+  the flip; fold both onto one renderer when the flip lands.
+
+Status: BUG1-3 un-shipped by the revert; deriveFolderGrants back to DeriveRules-base
++ expanded overlay (deny appended last = correct precedence). BUG4 moot until the
+flip; BUG5 pre-existing. The correct flip must satisfy all five + the tests the
+review named (differential over the REAL path; operator-deny-vs-role-verb; restrict-
+via-role; multi-platform dedup; dashd/socket parity; reseed-staleness).

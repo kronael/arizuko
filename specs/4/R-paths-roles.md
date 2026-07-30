@@ -322,24 +322,33 @@ live on the role principal), and there's no per-turn write. The binding-by-tier 
 tier-read on this surface; removing it (role assigned at invite/create, not derived) is the
 final step. THEN drop the `DeriveRules` base.
 
-### Grant-surface flip — DONE (`600fc408`), decision-equivalent
+### Grant-surface flip — ATTEMPTED (`600fc408`) then REVERTED (`0f8d956f`)
 
-`SeedTierRoles` seeds `role:tier0..3` at DB open; `grants.PlatformRulesForFolder`
-exposes the world-derived platform slice; `deriveFolderGrants` = `PlatformRulesForFolder`
+The role-based flip shipped, then an adversarial review found it broken (three confirmed
+bugs) and it was reverted. What the flip got wrong — the requirements the CORRECT flip must
+meet:
 
-- `folderGrantsFromACLOnly` (role bundle via membership + overlay + delegated grants,
-  deny-wins) — no `DeriveRules` base on this path. **Grants flow through the acl/role graph,
-  decoupled from depth**; the differential proves acl-sourced == `DeriveRules` decisions and
-  the depth-decoupling test proves a role overrides depth. `list_acl(folder)` stays clean.
-  Binding-by-tier is the last depth read here (role assigned at create/invite once tiers
-  fully retire).
+1. **Test the REAL path.** The differential drove `SeedFolderGrants`, which the shipped
+   `deriveFolderGrants` never calls (it used `SeedTierRoles`+`PutMembership`+
+   `PlatformRulesForFolder`+`folderGrantsFromACLOnly`). "Proven safe" validated dead code.
+   The correct flip's equivalence test must diff the ACTUAL `deriveFolderGrants` old-vs-new.
+2. **Deny precedence.** `grants.CheckAction` is last-match-wins and `store.ACLRowsFor` has NO
+   `ORDER BY`; the index returns `folder:` before `role:`, so an operator deny sorted BEFORE
+   a role allow and was masked (confirmed repro; live consumer: the `share_mount` RO gate,
+   no `db.Authorize` pairing). The correct flip must render denies LAST (or add ORDER BY /
+   deny-wins in the render).
+3. **No blind rebind.** `deriveFolderGrants` re-bound the folder to its DEPTH role every
+   call, so a folder could only be widened, never restricted below depth — "decoupled from
+   location" was false. The role must be assigned once (create/invite), not re-derived per
+   read.
+4. `SeedTierRoles` is INSERT-OR-IGNORE-only → a tightened bundle never revokes (stale role
+   rows survive). 5. `dashd/tools_admin.go` renders from `DeriveRules` directly — a second
+   sink that drifts from the socket (pre-existing; the flip widened the gap).
 
-Verification: full routd + auth + grants suites + lint green. `make test-e2e` currently
-has NO matching tests (`[no tests to run]`) — a real agent-spawn e2e asserting the flipped
-folder gets its tools is still owed. **Still tier-coupled (separate commits):** the per-call
-`auth.Authorize` mcp:\* fallback (`authorize.go:113` still calls `DeriveRules`);
-`AuthorizeStructural` (item 4); egress/web `tierOf` (item 5); `ARIZUKO_TIER` skill
-migration. `DeriveRules` stays until those land.
+`SeedTierRoles`/`SeedFolderGrants`/`PlatformRulesForFolder`/`folderGrantsFromACLOnly` remain
+as UNWIRED building blocks. `deriveFolderGrants` is back to `DeriveRules`-base + expanded
+overlay (deny appended last = correct). Full routd suite green. The equivalence oracles
+(`TestIntegration_*`) still stand. Recorded in `BUGS.md`.
 
 ## Open questions
 
