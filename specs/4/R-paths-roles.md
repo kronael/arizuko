@@ -292,6 +292,29 @@ Verdict: incremental via strangler-fig IS the right shape, but steps 2–5 are e
 larger than first written. Execute 1 (done), then 2+3 together behind the expanded
 differential, then 4, then 5 — never the flip before the differential is green.
 
+## Progress (2026-07-30, evening)
+
+- **Item 1 — DONE** (`98b81c5e`): operator delegation-root seeded WITH GRANT OPTION.
+- **Item 2 — DONE**: equivalence oracles green — tier→tool (`grants/equivalence_baseline_test.go`),
+  `AuthorizeStructural` containment (`auth/structural_baseline_test.go`), platform
+  verbs. The old-side surface is fully pinned.
+- **Item 3 differential — GREEN** (`8d1c8914`): `SeedFolderGrants` translates the
+  tier bundle into acl rows; `folderGrantsFromACLOnly` renders grants from acl alone;
+  the differential proves acl-sourced == `DeriveRules` decisions EXACTLY across 4
+  tiers × 10 tools incl platform verbs. **The grant-surface flip is now provably
+  safe.** Also fixed the dual-path read (`674db521`): `deriveFolderGrants` now expands
+  role membership, matching the live gate.
+
+**Remaining for the grant-surface flip** (the live mutation, verify via e2e): wire
+`SeedFolderGrants` at folder-create + a **one-time startup backfill** seeding every
+existing routd.db folder (else flipping `deriveFolderGrants` to acl-only strips grants
+from live folders → outage), THEN remove its `DeriveRules` base. Independent of that:
+the structural (item 4: `AuthorizeStructural`→acl scope-glob + `is_root` predicates)
+and non-authz (item 5: egress/web off `tierOf`, `ARIZUKO_TIER` skill migration)
+surfaces are their own commits — tiers persist for those until each lands. So this is
+a grant-bundle flip first (de-risked, green differential), then structural, then
+non-authz — not one atomic drop.
+
 ## Open questions
 
 1. **Non-authz tier uses — RESOLVED (see §blast).** `tierOf` drives egress
