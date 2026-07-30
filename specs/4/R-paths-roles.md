@@ -215,6 +215,40 @@ Concept-only where wire/DB identity is at stake; full where the compiler guards.
 
 Each phase ships green + verified before the next.
 
+## Phase-2 cutover — strangler-fig order (turn-key)
+
+Not a big-bang. Add the new path ALONGSIDE the live one, prove equivalence, then
+remove the old. Every step compiles + full-suite green.
+
+**Entanglement found (2026-07-30):** `Authorize` already expands the agent's
+`folder:<path>` principal and reads its `acl` rows (`auth/authorize.go`
+`expandPrincipals` + `ACLRowsFor`). So seeding `folder:<path>` `acl` rows is NOT
+inert — it changes live authz. Therefore seeding and the Authorize-source flip
+must land in ONE step, gated behind equivalence tests, not two.
+
+Order:
+
+1. **DONE (2a/2b):** `grant_option` column + `auth.Delegate` + operator-as-root.
+2. **Seed + flip, together, behind tests.** A `SeedFolderGrants(folder)` writes the
+   current `deriveFolderGrants(folder)` bundle as `folder:<path>` `acl` rows
+   (grant_option on own subtree) at path-create/spawn; SAME step makes
+   `turnAuthorize` prefer those rows. Test: for a matrix of (folder, tool), the
+   new acl-sourced decision == the old `DeriveRules` decision, EXACTLY. Only merge
+   when the equivalence test is green — it is the safety net.
+3. **Wire `Delegate` at spawn + `add_acl`.** A parent seeds a child ⊆ its own
+   grant-optioned rows; non-operator `add_acl` calls `Delegate` first. (Now safe:
+   step 2 gave principals real grant-optioned rows to delegate from.)
+4. **Egress + web off `tierOf`.** Seed `egress`/`web:publish` grants on the owner
+   bundle; `runner.go:184/614/622/810` read the grant, not `tierOf`. Test: a
+   former-tier-1 bot still gets `*` egress via its grant; a former-tier-3 gets
+   none.
+5. **Delete the trio.** Remove `Resolve`/`DeriveRules`/`AuthorizeStructural` +
+   `ARIZUKO_TIER` + the `tierOf` copy. All callers now read `acl`. Full suite +
+   e2e green.
+
+The equivalence test in step 2 is what lets this be incremental instead of a
+leap: the old and new authz answers must match before the old is removed.
+
 ## Open questions
 
 1. **Non-authz tier uses — RESOLVED (see §blast).** `tierOf` drives egress
