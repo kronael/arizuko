@@ -531,7 +531,17 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 func deriveFolderGrants(d *DB, folder string) []string {
 	tier := auth.Resolve(folder).Tier
 	rules := grants.DeriveRules(d, folder, tier, auth.WorldOf(folder))
-	for _, r := range d.ListACL("folder:" + folder) {
+	// Overlay acl mcp: grants for the agent principal AND its transitive roles
+	// (4/R audit finding #4). The old read was exact-match ListACL("folder:"+folder),
+	// so a grant held via role membership (acl_membership) was invisible HERE while
+	// visible at the live per-call gate (auth.Authorize expands Ancestors) — and
+	// toolGrant requires BOTH, so a role-inherited tool was silently unreachable.
+	// Reading the same expanded principal set closes that dual-path gap. Neutral
+	// today (no folder:<path> holds a role yet); correct once default roles seed.
+	st := store.New(d.SQL())
+	principal := "folder:" + folder
+	principals := append([]string{principal}, st.Ancestors(principal)...)
+	for _, r := range st.ACLRowsFor(principals) {
 		if !strings.HasPrefix(r.Action, "mcp:") {
 			continue
 		}

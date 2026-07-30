@@ -7,6 +7,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/store"
 )
 
 // addACL seeds an operator acl row into routd's OWN routd.db — routd owns the
@@ -21,6 +22,36 @@ func addACL(t *testing.T, d *DB, principal, action, scope, effect string) {
 		 VALUES(?,?,?,?,?)`,
 		principal, action, scope, effect, "2026-01-01T00:00:00Z"); err != nil {
 		t.Fatalf("seed acl %s %s %s: %v", principal, action, scope, err)
+	}
+}
+
+// TestDeriveFolderGrants_RoleInherited (4/R audit #4): a grant held via ROLE
+// membership (acl_membership), not a direct folder:<path> row, must appear in
+// deriveFolderGrants — else it passes the live gate (auth.Authorize expands
+// Ancestors) but fails toolGrant's rules gate, making the tool silently
+// unreachable. This proves the two reads now agree.
+func TestDeriveFolderGrants_RoleInherited(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	const folder = "w/a/b/c"
+	// A role grants mcp:post; the folder agent is a member of that role.
+	addACL(t, db, "role:poster", "mcp:post", folder, "allow")
+	st := store.New(db.SQL())
+	if err := st.AddMembership("folder:"+folder, "role:poster", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	rules := deriveFolderGrants(db, folder)
+	if !slices.Contains(rules, "post") {
+		t.Fatalf("role-inherited mcp:post missing from deriveFolderGrants: %v", rules)
+	}
+	// And the live gate agrees (it always expanded Ancestors) — dual-path closed.
+	if !db.Authorize("folder:"+folder, folder, "mcp:post", nil) {
+		t.Error("live gate should also allow the role-inherited grant")
 	}
 }
 
