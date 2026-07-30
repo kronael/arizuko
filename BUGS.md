@@ -2123,3 +2123,20 @@ Status: BUG1-3 un-shipped by the revert; deriveFolderGrants back to DeriveRules-
 flip; BUG5 pre-existing. The correct flip must satisfy all five + the tests the
 review named (differential over the REAL path; operator-deny-vs-role-verb; restrict-
 via-role; multi-platform dedup; dashd/socket parity; reseed-staleness).
+
+## 4/R grant-flip bugs — RESOLVED (2026-07-30, re-shipped correctly)
+
+The adversary-caught flip bugs (BUG1-5, logged above) are addressed in the
+re-shipped corrected flip (`be724eed`):
+- BUG1 (differential tested dead code) → RESOLVED: `TestIntegration_GrantSourceDifferential`
+  drives the REAL `deriveFolderGrants` and proves it == old `DeriveRules`.
+- BUG2 (blind rebind → no restriction) → RESOLVED: `hasTierRole` assign-once guard;
+  `TestIntegration_RoleDecouplesDepth` proves a rebind sticks.
+- BUG3 (operator deny masked) → RESOLVED: `folderGrantsFromACLOnly` renders denies
+  LAST; `TestIntegration_OperatorDenyBeatsRoleAllow` confirms deny-precedence.
+- BUG4 (stale role rows) → RESOLVED: `SeedTierRoles` prunes (DeleteACLPrincipal)
+  then reseeds.
+- BUG5 (dashd renders from DeriveRules) → NOT A LIVE BUG YET: the role bundles ==
+  the tier bundles today (differential), so dashd's render matches the socket's.
+  It only drifts once grants come from delegation (tier-removal steps b/d/e); fold
+  dashd onto the shared render THEN.

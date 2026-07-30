@@ -425,33 +425,36 @@ live on the role principal), and there's no per-turn write. The binding-by-tier 
 tier-read on this surface; removing it (role assigned at invite/create, not derived) is the
 final step. THEN drop the `DeriveRules` base.
 
-### Grant-surface flip — ATTEMPTED (`600fc408`) then REVERTED (`0f8d956f`)
+### Grant-surface flip — SHIPPED, corrected (`be724eed`)
 
-The role-based flip shipped, then an adversarial review found it broken (three confirmed
-bugs) and it was reverted. What the flip got wrong — the requirements the CORRECT flip must
-meet:
+Attempted (`600fc408`), reverted after adversarial review found 3 bugs (`0f8d956f`), then
+re-shipped correctly with ALL FIVE addressed. `deriveFolderGrants` now sources grants from
+the acl/role graph — `role:tier<N>` bundles seeded at DB open (`SeedTierRoles`), the folder
+assigned its role ONCE, grants rendered from `folderGrantsFromACLOnly` (denies last) +
+`PlatformRulesForFolder`. No `DeriveRules` base on this path.
 
-1. **Test the REAL path.** The differential drove `SeedFolderGrants`, which the shipped
-   `deriveFolderGrants` never calls (it used `SeedTierRoles`+`PutMembership`+
-   `PlatformRulesForFolder`+`folderGrantsFromACLOnly`). "Proven safe" validated dead code.
-   The correct flip's equivalence test must diff the ACTUAL `deriveFolderGrants` old-vs-new.
-2. **Deny precedence.** `grants.CheckAction` is last-match-wins and `store.ACLRowsFor` has NO
-   `ORDER BY`; the index returns `folder:` before `role:`, so an operator deny sorted BEFORE
-   a role allow and was masked (confirmed repro; live consumer: the `share_mount` RO gate,
-   no `db.Authorize` pairing). The correct flip must render denies LAST (or add ORDER BY /
-   deny-wins in the render).
-3. **No blind rebind.** `deriveFolderGrants` re-bound the folder to its DEPTH role every
-   call, so a folder could only be widened, never restricted below depth — "decoupled from
-   location" was false. The role must be assigned once (create/invite), not re-derived per
-   read.
-4. `SeedTierRoles` is INSERT-OR-IGNORE-only → a tightened bundle never revokes (stale role
-   rows survive). 5. `dashd/tools_admin.go` renders from `DeriveRules` directly — a second
-   sink that drifts from the socket (pre-existing; the flip widened the gap).
+The 5 bugs and their fixes:
 
-`SeedTierRoles`/`SeedFolderGrants`/`PlatformRulesForFolder`/`folderGrantsFromACLOnly` remain
-as UNWIRED building blocks. `deriveFolderGrants` is back to `DeriveRules`-base + expanded
-overlay (deny appended last = correct). Full routd suite green. The equivalence oracles
-(`TestIntegration_*`) still stand. Recorded in `BUGS.md`.
+1. **Real-path test** — the differential (`TestIntegration_GrantSourceDifferential`) drives
+   the ACTUAL `deriveFolderGrants` and proves it equals old `DeriveRules` across tiers×tools.
+2. **Deny precedence** — `folderGrantsFromACLOnly` partitions denies LAST, so an operator
+   deny beats a role allow regardless of `ACLRowsFor` order (`share_mount` RO gate safe).
+3. **Assign-once** — `hasTierRole` guards the bind, so an operator rebind sticks and a folder
+   can be restricted below depth (`TestIntegration_RoleDecouplesDepth`).
+4. **Prune** — `SeedTierRoles` deletes then reseeds each role, so a tightened bundle revokes.
+5. **dashd parity** — `dashd/tools_admin.go` still renders from `DeriveRules` (BUG5, pending —
+   a separate cross-daemon commit; today identical since roles == the tier bundles).
+
+`list_acl(folder)` stays clean (role rows on the role principal). Full routd + auth + store
+
+- grants + lint green.
+
+**Implementation status of the staged rollout (§Resolved model 11):**
+(a) IsRoot decoupling — DONE (`14eb9504`). (c) grant-surface flip — DONE (this).
+Remaining: (b) `AuthorizeStructural`→acl scope-glob; (d) egress/web off `tierOf`→grants;
+(e) delete `Resolve`/`DeriveRules`/tier + `ARIZUKO_TIER` migration; BUG5 dashd parity.
+`DeriveRules` stays until (b)/(d)/(e) land (still used by `SeedTierRoles` for the bundles,
+`auth.Authorize`'s mcp:\* fallback, and dashd display).
 
 ## Open questions
 
