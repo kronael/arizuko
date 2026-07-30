@@ -50,6 +50,10 @@ func SeedTierRoles(st *store.Store) error {
 				Scope:     "**",
 				Params:    params,
 				Effect:    effect,
+				// A group may re-delegate a grant it holds to a child (4/R lineage
+				// delegation) — allow rows carry the grant option; denies (restrictions)
+				// do not. The subset-check (auth.Delegate) bounds what can be passed.
+				GrantOption: !deny,
 			}); err != nil {
 				return err
 			}
