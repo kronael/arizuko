@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends: [17-openapi-mcp, specs/4/9-acl-unified, specs/5/5-tenant-self-service]
 ---
 
@@ -72,9 +72,12 @@ registerWithSecrets("github_pr",
     })
 ```
 
-`registerWithSecrets` is not yet implemented — the plumbing for passing
-`secrets map[string]string` to plain (non-connector) Go handlers is the
-missing piece alongside per-user resolution.
+`registerWithSecrets` is **NOT built — no consumer exists.** Every in-container
+tool registers via `registerRaw` (`ipc/ipc.go:841`); the operator-configurable
+credential surface is fully covered by shape 2 (connectors) + shape 3 (ext REST
+descriptors). A plain Go built-in tool that needs folder secrets would be the
+first consumer — none does today, so building the plumbing now is a speculative
+primitive (YAGNI). Add it WITH its first consumer, not before.
 
 ---
 
@@ -221,10 +224,11 @@ Every tool call through this layer writes to `audit_log`:
 `scope_kind ∈ {user, folder, missing}`. `status ∈ {ok, err, timeout}`.
 Secret values never written. One row per `(call × resolved key)`.
 
-The `secret_use_log` table EXISTS (`routd/migrations/0008-secrets.sql`;
-store `0048`) and `audit/audit.go` reads it — but `store.LogSecretUse`
-has **zero production callers**, so no per-secret row is ever written.
-The M2 gap is the missing WRITER at the broker path, not the table.
+**SHIPPED (2026-07-30, commit c02b97c5):** the writer now fires at the broker
+resolve seam (`routd/mcp.go` `ResolveConnectorSecrets`) — one `secret_use_log`
+row per resolved key (folder/missing scope, ok/err status, value never written),
+which `audit/audit.go` polls into `audit_log`. The M2 gap (table + reader existed,
+no writer) is closed.
 
 ---
 
@@ -278,12 +282,13 @@ write paths) lives in [`5/14`](14-credentials.md).
 | `connectors.toml` loader       | `routd/connectors.go`                                          | ✓     |
 | `[[ext]]` loader               | `routd/ext.go:LoadExtProviders`                                | ✓     |
 
-## What's not yet shipped
+| `secret_use_log` writer | `routd/mcp.go` `ResolveConnectorSecrets` (M2, 2026-07-30) | ✓ |
 
-| piece                                 | gap                                                                                    |
-| ------------------------------------- | -------------------------------------------------------------------------------------- |
-| `registerWithSecrets` for Go handlers | plain (non-connector) built-in tools can't receive `secrets map[string]string`         |
-| `secret_use_log` per-key audit rows   | table + reader exist; `store.LogSecretUse` never called — no writer at the broker path |
+## Deliberately not built
+
+| piece                                 | why                                                                                                                                            |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `registerWithSecrets` for Go handlers | no consumer — every tool uses `registerRaw`; shapes 2+3 cover the operator surface. Add it WITH its first consumer, not speculatively (YAGNI). |
 
 ---
 
