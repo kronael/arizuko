@@ -222,30 +222,16 @@ type WebRoute struct {
 	CreatedAt  string `json:"created_at"`
 }
 
-// RouteTokenRequest is POST /v1/route_tokens/{chat,hook}.
+// RouteTokenRequest is POST /v1/route_tokens/{chat,hook}. The response and list
+// shapes are no longer typed here: after the 5/16 resreg fold both faces share
+// routeTokensHandler, which emits the unified {token,jid,url} / {tokens:[…]}
+// shapes (route_tokens_resource.go). This struct survives as the request contract.
 type RouteTokenRequest struct {
 	OwnerFolder  string `json:"owner_folder"`
 	TargetFolder string `json:"target_folder"`
 	SourceLabel  string `json:"source_label"` // hook only
 	JIDSuffix    string `json:"jid_suffix"`
 	Context      string `json:"context"` // optional per-link processing instructions (spec 5/W)
-}
-
-// RouteTokenResponse is the 201 of route-token issue (raw token once).
-type RouteTokenResponse struct {
-	Token       string `json:"token"`
-	URL         string `json:"url"`
-	JID         string `json:"jid"`
-	OwnerFolder string `json:"owner_folder"`
-	CreatedAt   string `json:"created_at"`
-}
-
-// RouteTokenRow is one GET /v1/route_tokens entry (never the raw token).
-type RouteTokenRow struct {
-	JID         string `json:"jid"`
-	OwnerFolder string `json:"owner_folder"`
-	CreatedAt   string `json:"created_at"`
-	Context     string `json:"context,omitempty"`
 }
 
 // ResolveRequest is POST /v1/route_tokens/resolve (webd → routd).

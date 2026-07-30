@@ -301,7 +301,11 @@ func TestRouteTokenRoundTrip(t *testing.T) {
 	if rec.Code != 201 {
 		t.Fatalf("issue status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	var issued apiv1.RouteTokenResponse
+	// Unified fold shape (5/16): {token,jid,url}, not the retired RouteTokenResponse.
+	var issued struct {
+		Token string `json:"token"`
+		JID   string `json:"jid"`
+	}
 	json.Unmarshal(rec.Body.Bytes(), &issued)
 	if issued.Token == "" || issued.JID != "web:acme" {
 		t.Fatalf("issued=%+v", issued)
