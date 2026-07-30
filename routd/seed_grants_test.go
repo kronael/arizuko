@@ -18,7 +18,7 @@ func (f fakeSrc) RouteSourceJIDsInWorld(string) []string { return f.jids }
 // SeedFolderGrants) MUST equal the decision from DeriveRules. This is the old-vs-new
 // equivalence the audit required before the flip: if these ever diverge, seeding
 // dropped/mangled a rule and the tier deletion would change what an agent may do.
-func TestSeedFolderGrants_Differential(t *testing.T) {
+func TestIntegration_GrantSourceDifferential(t *testing.T) {
 	tools := []struct {
 		tool   string
 		params map[string]string
@@ -64,7 +64,7 @@ func TestSeedFolderGrants_Differential(t *testing.T) {
 // depth, which by DeriveRules gets only reply/send_file/like/edit) bound to
 // role:tier1 gains a tier-1 grant (register_group) via role expansion — capability
 // no longer leaks from location. This is the mechanism the grant-surface flip rides.
-func TestTierRole_DecouplesGrantsFromDepth(t *testing.T) {
+func TestIntegration_RoleDecouplesDepth(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)

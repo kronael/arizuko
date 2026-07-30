@@ -13,7 +13,7 @@ func (f fakeRouteSource) RouteSourceJIDsInWorld(string) []string { return f.jids
 // world has routed platforms. The cutover's role grants must reproduce these:
 // a verb is allowed only for a platform the folder actually routes, and only with
 // a matching jid param.
-func TestPlatformVerbBaseline_ForCutover(t *testing.T) {
+func TestIntegration_PlatformVerbGrants(t *testing.T) {
 	src := fakeRouteSource{jids: []string{"telegram:user/1"}}
 	rules := DeriveRules(src, "acme", 1, "acme") // tier 1 gets platformRules(world jids)
 
@@ -52,7 +52,7 @@ func TestPlatformVerbBaseline_ForCutover(t *testing.T) {
 // Source (nil): no RouteSource, so platform-scoped verbs (like/edit via a jid
 // param) are out of scope here — this pins the depth/tier gating that the
 // default-role bundles must carry, not the per-platform send fan-out.
-func TestTierToolBaseline_ForCutover(t *testing.T) {
+func TestIntegration_TierToolGrants(t *testing.T) {
 	// want[tool] = allowed at [tier0, tier1, tier2, tier3].
 	want := map[string][4]bool{
 		"reply":          {true, true, true, true},

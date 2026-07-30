@@ -30,7 +30,7 @@ func addACL(t *testing.T, d *DB, principal, action, scope, effect string) {
 // deriveFolderGrants — else it passes the live gate (auth.Authorize expands
 // Ancestors) but fails toolGrant's rules gate, making the tool silently
 // unreachable. This proves the two reads now agree.
-func TestDeriveFolderGrants_RoleInherited(t *testing.T) {
+func TestIntegration_RoleInheritedGrant(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)

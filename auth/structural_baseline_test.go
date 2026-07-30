@@ -10,7 +10,7 @@ import "testing"
 // containment via seeded folder:<path> acl rows, these (tier, tool, target)
 // decisions MUST still hold. A diff here = the tier deletion changed who may act
 // on what — intended or a bug, never silent.
-func TestAuthorizeStructuralBaseline_ForCutover(t *testing.T) {
+func TestIntegration_StructuralContainment(t *testing.T) {
 	id := func(folder string, tier int) Identity { return Identity{Folder: folder, Tier: tier} }
 	tf := func(f string) AuthzTarget { return AuthzTarget{TargetFolder: f} }
 
