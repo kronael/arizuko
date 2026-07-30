@@ -2056,3 +2056,39 @@ while retaining allows.
   error-returning store contracts and 5xx management responses require
   cross-component sign-off
 - **Fix:**
+
+## Adversarial review of the 5/16+surrogate features — deferred findings (2026-07-30)
+
+Bug-hunt on the newly-shipped features. Fixed inline: F3 (Delegate glob-widening,
+cc11eace), F4 (Delegate deny/wildcard, cc11eace), F8 (tier-cap on operator REST
+mint, 48c7e5ce), F9 (surrogate over-aggressive credential null, 25e0d91c), F16
+(OpenAPI omitted route_tokens, 1f66d77f). Remaining, deferred:
+
+- **F1 (fix before wiring Delegate — phase 3).** `role:operator` grant_option=1 is
+  set by an UPDATE in routd/0021 + store/0075, but on a split-migrated instance
+  `cmd/arizuko/migrate_split.go` copies `acl` (omitting grant_option) at :344
+  AFTER routd.Open runs 0021 at :300 → the root ends up grant_option=0, so
+  `auth.Delegate`'s root can delegate nothing once wired. Fresh-install seeding of
+  role:operator into routd.db also needs grant_option=1. Latent today (Delegate
+  unwired). Fix: seed grant_option on the operator row idempotently at the point
+  Delegate is wired, after any copy.
+- **F6 (verify before relying on /v1/groups for humans).** `groupsRESTAuthz` wants
+  a `routes:read`/`acl:read` resource:verb scope, but human JWTs carry folder-glob
+  scopes (`handleUserScopes`) that `auth/scope.go` rejects → the read twin may be
+  reachable only by service/CLI tokens (folder="" → unfiltered list-all), and the
+  subtree filter (`ownsFolder`) inverts for folder=""/"**". Entangled with the
+  tier/scope claim model that `4/R` rewrites — resolve there.
+- **F7 (pre-existing).** `DELETE /v1/route_tokens/{jid}` matches one path segment;
+  hook JIDs (`hook:acme/github`) and nested `web:` JIDs contain `/` → 404. Fix:
+  `{jid...}` catch-all (verify resreg path-param binding) or a query param.
+- **F5 (by-design, pre-existing).** Both new REST faces (+the pre-existing acl one)
+  are open when `verify==nil` (unset AUTHD_URL = local-dev open). Inert in prod
+  (AUTHD_URL always set). Changing the open-when-unverified model needs its own
+  sign-off.
+- **Surrogate robustness (F10–F14, medium).** F10: misconfig (unknown provider / no
+  creds) laundered as transient + near-expiry token dropped not stale-used. F11: one
+  malformed operator TOML `os.Exit(1)`s routd (routing outage from an optional
+  feature) + a shadowing datadir filename silently inherits the built-in's client
+  secret. F12: `Provider.AllowedDomain` parsed, never enforced (false egress
+  guarantee). F13: unvalidated `secret_key` collisions overwrite/clobber rows. F14:
+  a provider removed from the registry leaves a live, unlistable, unrevocable token.
