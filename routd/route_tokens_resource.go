@@ -71,9 +71,10 @@ const (
 // lookup and the handler's slog tool-name source.
 var routeTokensMCPNames = resources.RouteTokensMCPNames
 
-// routeTokensResource is the single renderer for the agent's four token tools.
-// Endpoints exist only to drive deriveMCPTools (Action ∩ MCPDoc) — the REST face
-// (/v1/route_tokens/*) is NOT mounted from this resource (see file header). Store is
+// routeTokensResource is the single renderer for BOTH faces: the agent's four
+// token tools AND the operator REST face (/v1/route_tokens/*), mounted from this
+// same resource by tokens_http.go mountRouteTokens (5/16 fold). Endpoints drive
+// deriveMCPTools (Action ∩ MCPDoc) and the REST routes + /openapi.json. Store is
 // a store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
 func (s *Server) routeTokensResource() resreg.Resource {
 	return resreg.Resource{
