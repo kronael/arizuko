@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/kronael/arizuko/grants"
@@ -56,6 +57,34 @@ func TestSeedFolderGrants_Differential(t *testing.T) {
 			}
 		}
 		db.Close()
+	}
+}
+
+// TestTierRole_DecouplesGrantsFromDepth is the 4/R proof: a DEEP folder (tier-3
+// depth, which by DeriveRules gets only reply/send_file/like/edit) bound to
+// role:tier1 gains a tier-1 grant (register_group) via role expansion — capability
+// no longer leaks from location. This is the mechanism the grant-surface flip rides.
+func TestTierRole_DecouplesGrantsFromDepth(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	st := store.New(db.SQL())
+	if err := SeedTierRoles(st); err != nil {
+		t.Fatal(err)
+	}
+
+	const deep = "w/a/b/c" // tier 3: register_group NOT in the depth-derived bundle
+	if slices.Contains(deriveFolderGrants(db, deep), "register_group") {
+		t.Fatal("precondition: a tier-3 folder should not have register_group by depth")
+	}
+	// Bind the deep folder to role:tier1 — now it holds tier-1's bundle.
+	if err := st.AddMembership("folder:"+deep, tierRoleName(1), "test"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(deriveFolderGrants(db, deep), "register_group") {
+		t.Fatal("role:tier1 binding must grant register_group to the deep folder (depth-decoupled)")
 	}
 }
 

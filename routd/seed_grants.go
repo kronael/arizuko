@@ -16,6 +16,43 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
+// tierRoleName is the seeded role carrying old tier N's non-platform grant bundle.
+// The role-based grant-surface flip (4/R) binds folder:<path> → this role by
+// membership; deriveFolderGrants then sources the bundle via role expansion
+// (grants decoupled from depth) instead of per-folder DeriveRules. Platform verbs
+// stay computed per-folder from the world's routed jids (world-derived, not tier).
+func tierRoleName(tier int) string {
+	return "role:tier" + string(rune('0'+tier))
+}
+
+// SeedTierRoles writes the four tier bundles (non-platform: basicSend + tierN-fixed
+// + share_mount, or "*" for tier 0) as acl rows on role:tier0..3, scope **. Uses a
+// nil RouteSource so platform rules are excluded (they are per-world, added by
+// deriveFolderGrants). Idempotent (PutACLRow = INSERT OR IGNORE); seeded once, not
+// per folder — so list_acl on a folder stays clean (role rows live on the role
+// principal). A folder gains the bundle by an acl_membership edge to its role.
+func SeedTierRoles(st *store.Store) error {
+	for tier := 0; tier <= 3; tier++ {
+		for _, rule := range grants.DeriveRules(nil, "", tier, "") {
+			verb, params, deny := parseRule(rule)
+			effect := "allow"
+			if deny {
+				effect = "deny"
+			}
+			if err := st.PutACLRow(core.ACLRow{
+				Principal: tierRoleName(tier),
+				Action:    "mcp:" + verb,
+				Scope:     "**",
+				Params:    params,
+				Effect:    effect,
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // SeedFolderGrants writes DeriveRules(folder, tier) as acl rows for
 // folder:<folder>. Each rule string ("reply", "send(jid=telegram:*)", "!set_grants",
 // "share_mount(readonly=false)") becomes one acl row action=mcp:<verb>, params=<the
