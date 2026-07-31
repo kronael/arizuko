@@ -148,6 +148,20 @@ var StructuralTools = []string{
 	"invite_create", "invite_revoke", "add_acl", "remove_acl",
 }
 
+// OutboundVerbs are the tools whose containment is authorizeOutbound's
+// self-or-descendant on the TARGET CHAT folder — uniform across all of them and
+// INDEPENDENT of magnitude (which platform / whether the folder can send at all is
+// a separate jid-param grant). The backfill writes their F/** containment
+// unconditionally, because the platform-only verbs (post/like/…) are jid-param
+// scoped in the bundle and so are invisible to the nil-param intersection gate.
+var OutboundVerbs = map[string]bool{
+	"send": true, "send_file": true, "send_voice": true, "reply": true,
+	"post": true, "like": true, "dislike": true, "delete": true, "edit": true,
+	"forward": true, "quote": true, "repost": true,
+	"pin_message": true, "unpin_message": true, "unpin_all": true,
+	"pane_set_prompts": true, "pane_set_title": true,
+}
+
 // ancestorScopes returns exact-match scopes for each strict ancestor of folder
 // ("a/b/c" → ["a", "a/b"]) — the parent-chain half of observe_group's tier-2 rule.
 func ancestorScopes(folder string) []string {

@@ -138,7 +138,12 @@ func BackfillFolderGrants(st *store.Store, folders []string) error {
 		// Gate each tool on the tier bundle; scope it by AuthorizeStructural's shape.
 		bundle := grants.DeriveRules(nil, folder, tier, auth.WorldOf(folder))
 		for _, tool := range auth.StructuralTools {
-			if !grants.CheckAction(bundle, tool, nil) {
+			// Outbound verbs: containment is uniform (self-or-descendant on the target
+			// chat) and orthogonal to magnitude — write unconditionally so the platform-
+			// only verbs (post/like/…), invisible to the nil-param bundle gate, still get
+			// their F/** containment. Non-outbound tools gate on the bundle (the
+			// intersection — see below).
+			if !auth.OutboundVerbs[tool] && !grants.CheckAction(bundle, tool, nil) {
 				continue
 			}
 			for _, scope := range auth.BackfillScopes(tool, tier, folder) {
@@ -206,6 +211,14 @@ func folderGrantsFromACLOnly(st *store.Store, folder string) []string {
 	var allows, denies []string
 	for _, r := range st.ACLRowsFor(principals) {
 		if !strings.HasPrefix(r.Action, "mcp:") {
+			continue
+		}
+		// Backfill rows are the CONTAINMENT gate (consumed by AuthorizeContainment,
+		// scope-matched against the target), NOT the magnitude firewall this bundle
+		// feeds. Rendering them here scope/param-blind would leak, e.g., an unqualified
+		// "post" that widens the jid-scoped role grant to any platform. Exclude them —
+		// magnitude stays role/operator-sourced; containment is the folder-scoped rows.
+		if r.GrantedBy == backfillGrantedBy {
 			continue
 		}
 		rule := strings.TrimPrefix(r.Action, "mcp:")
