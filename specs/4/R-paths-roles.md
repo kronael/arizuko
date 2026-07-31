@@ -489,6 +489,59 @@ The model-shift + backfill change what every agent may do in every deployment (k
 sloth/marinade) — they land as one REVIEWED migration with e2e, not a session tail.
 `DeriveRules` stays until (b)/(e).
 
+## Phase (b) cutover design — containment by scope (2026-07-31, awaiting sign-off)
+
+The design risk — "can a scope glob express every containment shape `AuthorizeStructural`
+encodes?" — is **retired**. `auth/acl.go matchPattern` splits on `/` and `**` matches
+zero-or-more segments (`F/**` matches `F` itself), so each shape maps to a glob relative to
+the caller's folder `F`:
+
+| structural shape (today) | scope glob      | tools                                                                                                           |
+| ------------------------ | --------------- | --------------------------------------------------------------------------------------------------------------- |
+| self-or-descendant       | `F/**`          | reset*session, fork_topic, network*\*, routes, set_group_open, set_observe_window, inspect_tasks, outbound send |
+| own-folder only          | `F`             | schedule_task (was tier-2 `TaskOwner==Folder`)                                                                  |
+| direct-child only        | `F/*`           | register_group                                                                                                  |
+| strict-descendant        | `F/*/**`        | delegate_group                                                                                                  |
+| own-world                | `WorldOf(F)/**` | get/set_grants, list_acl, invite_create/revoke, add/remove_acl, schedule_task (tier-1)                          |
+
+`AuthorizeStructural` does TWO orthogonal jobs; the cutover splits them:
+
+1. **Magnitude gate** ("tier ≥ 2 cannot register_group") → **the tool grant is simply absent
+   from that folder's bundle.** Already true: `register_group` lives in the tier-0/1 bundle,
+   not tier-2/3. No new code — the grant surface already carries "may I use this tool at all".
+2. **Containment gate** (the folder-prefix checks) → **the grant's scope glob**, matched by
+   the `matchPattern(r.Scope, scope)` already in `AuthorizeWith` step 4. This is the part the
+   backfill must seed.
+
+**The backfill migration (routd `0023`, the reviewed fleet change).** For every existing row
+in `groups`, compute `T = Resolve(folder).Tier` and, for each tool `T` holds, write a
+`folder:<path> → mcp:<tool>` acl row scoped to that tool's containment glob (table above),
+`grant_option=1` for allows. Also seeds the reverted step (d): `egress` scoped `F/**` for
+`tierOf(F) ≤ 1`, `web:publish` scoped `F/**` for `tierOf(F) ≤ 2` — reproducing the `tierOf`
+predicate EXACTLY (the C1 lesson: never route it through the tier scalar). Idempotent
+(skip-if-present), and a `down` that deletes exactly the rows it wrote. After backfill every
+folder's authority is data; `AuthorizeStructural` becomes dead and is deleted, its ~7 call
+sites relying on `AuthorizeWith`'s scope-match.
+
+**Create-time delegation.** New groups can't wait for a migration: at `register_group` /
+`SetupGroup`, the creator delegates the child's grants via `auth.Delegate` (subset of held,
+scoped to the child subtree) — the same rows the backfill writes for existing folders, but
+minted live from the parent's held authority. This is the steady-state path; the backfill is
+the one-time catch-up for pre-existing folders.
+
+**The equivalence test (the safety net that was missing — CTO 2026-07-31).** Enumerate REAL
+folder paths at each depth × every tool × representative targets (self, child, descendant,
+sibling, parent, cross-world) and assert `AuthorizeWith(post-backfill scopes)` == the current
+`AuthorizeStructural` decision for all. Keyed on folder PATHS, never the tier scalar (the hole
+that let step (d) ship broken). Green here is the gate to deleting `AuthorizeStructural`.
+
+**Rollout + revert valve.** (1) land `containmentScope(tool, folder)` helper + its unit test
+(inert). (2) land the backfill migration behind a flag, additive — enforcement unchanged,
+both paths live. (3) equivalence test green. (4) flip call sites to scope-match, delete
+`AuthorizeStructural`. (5) delete `DeriveRules`/`Resolve`/`ARIZUKO_TIER` (phase e). Revert
+valve through (4): `AuthorizeStructural` still present, re-callable. Deploy to krons only,
+watch, then fleet.
+
 ## Open questions
 
 > **DESIGN CLOSED — all resolved in §"Resolved model" (2026-07-30, decisions 1-13).**
