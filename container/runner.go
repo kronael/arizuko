@@ -179,10 +179,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			"arizuko-%s-%s-%d", cfg.Name, safe, time.Now().UnixMilli())
 	}
 
-	// The `egress` grant (4/R step d: was tierOf<=1) appends "*" so the group
-	// passes crackbox unconstrained while still logging/injecting secrets. Grant
-	// comes from the group's acl bundle via in.Grants — a capability, not a depth.
-	if grants.CheckAction(in.Grants, "egress", nil) && in.Egress.AllowlistFn != nil {
+	// Tier 0/1 are operator-run bots; append "*" so they pass crackbox
+	// unconstrained while still benefiting from logging/secret injection.
+	if tierOf(in.Folder, elevated) <= 1 && in.Egress.AllowlistFn != nil {
 		base := in.Egress.AllowlistFn
 		in.Egress.AllowlistFn = func(id string) ([]string, error) {
 			list, err := base(id)
@@ -612,7 +611,7 @@ func buildMounts(
 	// writable web surfaces (~/public_html and ~/private_html). Tier 3+
 	// get no web surface.
 	pubHost := filepath.Join(cfg.WebDir, "pub")
-	if fi, err := os.Stat(pubHost); err == nil && fi.IsDir() && grants.CheckAction(in.Grants, "web:publish", nil) {
+	if fi, err := os.Stat(pubHost); err == nil && fi.IsDir() && tierOf(in.Folder, elevated) <= 2 {
 		m = append(m, volumeMount{
 			Host:      hp(cfg, pubHost),
 			Container: "/var/lib/www",
@@ -620,7 +619,7 @@ func buildMounts(
 		})
 	}
 
-	if grants.CheckAction(in.Grants, "web:publish", nil) {
+	if tierOf(in.Folder, elevated) <= 2 {
 		// ~/public_html: served at /pub/<folder>/ (no auth).
 		pubGroupHost := filepath.Join(cfg.WebDir, "pub", in.Folder)
 		os.MkdirAll(pubGroupHost, 0o755)
