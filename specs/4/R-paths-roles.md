@@ -538,9 +538,11 @@ that let step (d) ship broken). Green here is the gate to deleting `AuthorizeStr
 **Rollout + revert valve.** (1) land `BackfillScopes` helper + equivalence oracle
 (inert) — DONE (`6d562598`). (2) land `BackfillFolderGrants`, additive, wired at
 `routd.Open` — DONE (`18ce8d93` + finding-fixes). (3) oracle green on REAL tier/depth
-pairs — DONE. (4) flip call sites to scope-match, delete `AuthorizeStructural`. (5) delete
-`DeriveRules`/`Resolve`/`ARIZUKO_TIER` (phase e). Revert valve through (4):
-`AuthorizeStructural` still present, re-callable. Deploy to krons only, watch, then fleet.
+pairs — DONE. (4) flip call sites to scope-match — **DONE (`ea50df11`)**: all 7 sites
+(5 resreg direct + 3 hand-authored ipc via the `StoreFns.Containment` seam) call
+`auth.AuthorizeContainment`; egress-cap fork resolved to (B). `AuthorizeStructural` retained
+as the revert valve (+ the oracle). (5) delete `DeriveRules`/`Resolve`/`ARIZUKO_TIER`
+(phase e) — REMAINING. Deploy to krons only, watch, then fleet — NOT yet deployed.
 
 **Flip blockers — step (4) is NOT "just delete `AuthorizeStructural`" (adversary review
 2026-07-31).** Two findings reshape it into the full grant-model migration; do NOT flip
@@ -593,7 +595,8 @@ id.Folder,tool,tgt,id.IsRoot)`, extend the oracle to assert the wired path == th
   keep `AuthorizeStructural` one release as the revert valve, delete it after krons soak.
 
 This keeps phase (b) reversible and role-bundle-agnostic; phase (e) (delete role bundles +
-`DeriveRules`/`Resolve`/tier) is the separate follow-on. NOT yet wired — awaiting sign-off.
+`DeriveRules`/`Resolve`/tier) is the separate follow-on. **Phase (b) wired `ea50df11`; phase
+(e) — the tier-scalar teardown — remains.**
 
 **Mechanism BUILT + PROVEN (inert), 2026-07-31.** `auth.AuthorizeContainment` shipped
 (`fd68ac8a`) reading `folder:` rows only; `TestAuthorizeContainment_MatchesStructural` seeds
