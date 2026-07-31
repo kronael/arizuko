@@ -1,0 +1,150 @@
+package auth
+
+// backfill.go is phase (b) of 4/R (specs/4/R §"Phase (b) cutover design"): it
+// renders, for a folder at a given tier, the SCOPE GLOBS that reproduce
+// AuthorizeStructural's per-tool containment as acl-row scopes. The backfill
+// migration writes these onto folder:<path> principals so containment becomes
+// DATA (a scope matched by AuthorizeWith) instead of the tree-shape code in
+// policy.go. INERT until the migration + call-site flip land — its only current
+// consumer is the equivalence oracle (backfill_test.go) that proves it matches
+// AuthorizeStructural for every tool × tier × target before any fleet change.
+//
+// Returns the scope globs a folder of `tier` gets for `tool`; nil = the tier may
+// NOT use the tool (the magnitude gate — in the new model the grant is simply
+// absent from the bundle). Tier 0 is the operator/root identity ("" folder), which
+// is IsRoot-handled at runtime and never backfilled — callers pass real folders
+// (tier ≥ 1); the tier-0 arms exist only so the oracle can prove full equivalence.
+func BackfillScopes(tool string, tier int, folder string) []string {
+	selfOrDesc := folder + "/**"      // F and every descendant
+	directChild := folder + "/*"      // exactly one level below F
+	strictDesc := folder + "/*/**"    // at least one level below F (not F)
+	ownWorld := WorldOf(folder) + "/**"
+	const any = "**"
+
+	switch tool {
+	// Read/own-subtree tools — every tier, containment self-or-descendant.
+	case "list_tasks":
+		return []string{any}
+	case "inspect_tasks":
+		return []string{selfOrDesc}
+	case "reset_session", "fork_topic":
+		return []string{selfOrDesc}
+	case "send", "send_file", "send_voice", "reply", "post", "like", "dislike",
+		"delete", "edit", "forward", "quote", "repost",
+		"pin_message", "unpin_message", "unpin_all",
+		"pane_set_prompts", "pane_set_title":
+		// authorizeOutbound: self-or-descendant on the target chat's folder (root
+		// bypasses via IsRoot at runtime — not a backfilled scope).
+		return []string{selfOrDesc}
+
+	case "inject_message":
+		if tier > 1 {
+			return nil
+		}
+		return []string{any}
+
+	case "register_group":
+		if tier >= 2 {
+			return nil
+		}
+		if tier == 1 {
+			return []string{directChild}
+		}
+		return []string{any} // tier 0 (operator) — worlds are CLI-only, IsRoot-gated
+
+	case "escalate_group":
+		if tier < 2 {
+			return nil
+		}
+		return []string{any}
+
+	case "delegate_group":
+		if tier == 3 {
+			return nil
+		}
+		return []string{strictDesc}
+
+	case "list_routes", "set_routes", "add_route", "delete_route":
+		if tier >= 2 {
+			return nil
+		}
+		if tier == 1 {
+			return []string{selfOrDesc}
+		}
+		return []string{any}
+
+	case "network_allow", "network_deny", "network_list":
+		if tier >= 2 {
+			return nil
+		}
+		if tier == 1 {
+			return []string{selfOrDesc}
+		}
+		return []string{any}
+
+	case "schedule_task", "pause_task", "resume_task", "cancel_task":
+		switch tier {
+		case 3:
+			return nil
+		case 2:
+			return []string{folder} // own folder only
+		case 1:
+			return []string{ownWorld}
+		default:
+			return []string{any}
+		}
+
+	case "set_group_open", "set_observe_window":
+		if tier > 1 {
+			return nil
+		}
+		if tier == 1 {
+			return []string{selfOrDesc}
+		}
+		return []string{any}
+
+	case "observe_group", "unobserve_group":
+		if tier >= 3 {
+			return nil
+		}
+		if tier == 2 {
+			// subtree OR parent-chain: F/** plus each strict ancestor (exact scope).
+			return append([]string{selfOrDesc}, ancestorScopes(folder)...)
+		}
+		return []string{any}
+
+	case "get_grants", "set_grants", "list_acl",
+		"invite_create", "invite_revoke", "add_acl", "remove_acl":
+		if tier >= 2 {
+			return nil
+		}
+		if tier == 1 {
+			return []string{ownWorld}
+		}
+		return []string{any}
+	}
+	return nil
+}
+
+// ancestorScopes returns exact-match scopes for each strict ancestor of folder
+// ("a/b/c" → ["a", "a/b"]) — the parent-chain half of observe_group's tier-2 rule.
+func ancestorScopes(folder string) []string {
+	var out []string
+	for i := 0; i < len(folder); i++ {
+		if folder[i] == '/' {
+			out = append(out, folder[:i])
+		}
+	}
+	return out
+}
+
+// ScopesMatch reports whether any scope in scopes covers target (matchPattern).
+// The runtime containment check once backfill lands; also the oracle's assertion.
+func ScopesMatch(scopes []string, target string) bool {
+	for _, s := range scopes {
+		if matchPattern(s, target) {
+			return true
+		}
+	}
+	return false
+}
