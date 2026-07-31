@@ -229,13 +229,19 @@ func (d *DB) PutGroup(g core.Group) error {
 	if g.Model != "" {
 		model = g.Model
 	}
-	_, err := d.db.Exec(`INSERT INTO groups(folder, added_at, product, config, container_config)
+	if _, err := d.db.Exec(`INSERT INTO groups(folder, added_at, product, config, container_config)
 		VALUES(?,?,?, json_set('{}', '$.model', ?), ?)
 		ON CONFLICT(folder) DO UPDATE SET product=excluded.product,
 			config=json_set(COALESCE(groups.config, '{}'), '$.model', ?),
 			container_config=excluded.container_config, updated_at=?`,
-		g.Folder, nowTS(), g.Product, model, string(cfgJSON), model, nowTS())
-	return err
+		g.Folder, nowTS(), g.Product, model, string(cfgJSON), model, nowTS()); err != nil {
+		return err
+	}
+	// Create-time delegation (4/R phase b): seed the new folder's scoped containment
+	// grants immediately, so AuthorizeContainment works for a folder created after
+	// boot (the Open-time backfill only catches pre-existing folders). Idempotent
+	// (alreadyBackfilled skips a re-Put); one mechanism, no drift with the backfill.
+	return BackfillFolderGrants(store.New(d.db), []string{g.Folder})
 }
 
 // GroupExists reports whether folder is a registered group.
