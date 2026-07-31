@@ -186,6 +186,10 @@ func DeriveRules(s RouteSource, folder string, tier int, worldFolder string) []s
 	case 1:
 		r := append(append([]string{}, basicSendActions...), platformRules(jids(worldFolder))...)
 		r = append(r, tier1FixedActions...)
+		// egress + web-publish are now GRANTS (4/R step d), not a tierOf gate in
+		// container/runner.go. tier 0/1 get unconstrained egress; tier 0/1/2 get the
+		// web mounts — seeded here so container spawn reads a grant, not a depth.
+		r = append(r, "egress", "web:publish")
 		return append(r, "share_mount(readonly=false)")
 	case 2:
 		r := append(append([]string{}, basicSendActions...), platformRules(jids(folder))...)
@@ -196,6 +200,7 @@ func DeriveRules(s RouteSource, folder string, tier int, worldFolder string) []s
 		// Route-token self-service only (see tier1FixedActions): the handlers
 		// scope both to owner_folder = the caller's folder. Minting is tier 0.
 		r = append(r, "list_tokens", "revoke_token")
+		r = append(r, "web:publish") // web mounts (tier 0/1/2); no unconstrained egress
 		return append(r, "share_mount(readonly=true)")
 	default:
 		return []string{"reply", "send_file", "like", "edit"}
