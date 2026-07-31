@@ -32,34 +32,77 @@ func tierRoleName(tier int) string {
 // principal). A folder gains the bundle by an acl_membership edge to its role.
 func SeedTierRoles(st *store.Store) error {
 	for tier := 0; tier <= 3; tier++ {
-		// Prune first so a TIGHTENED bundle actually revokes (adversary BUG 4:
-		// INSERT OR IGNORE alone never deletes a verb pulled from a tier). Membership
-		// edges (folder→role) are untouched; only the role's grant rows are rebuilt.
-		if err := st.DeleteACLPrincipal(tierRoleName(tier)); err != nil {
-			return err
+		principal := tierRoleName(tier)
+		want := tierRoleRows(principal, tier)
+		// Skip-if-unchanged: SeedTierRoles runs at EVERY routd.Open (daemon restart,
+		// and every `arizuko packages` against a running instance). Reseeding
+		// unconditionally would (a) churn — delete+reinsert ~40 rows each open — and
+		// (b) leave the principal momentarily empty, so a concurrent turn resolving
+		// its grants sees none. Only a genuine bundle change (a deploy) rewrites rows,
+		// and that rewrite is atomic (ReplaceACLPrincipalRows), never a bare window.
+		if aclRowsEqual(st.ListACL(principal), want) {
+			continue
 		}
-		for _, rule := range grants.DeriveRules(nil, "", tier, "") {
-			verb, params, deny := parseRule(rule)
-			effect := "allow"
-			if deny {
-				effect = "deny"
-			}
-			if err := st.PutACLRow(core.ACLRow{
-				Principal: tierRoleName(tier),
-				Action:    "mcp:" + verb,
-				Scope:     "**",
-				Params:    params,
-				Effect:    effect,
-				// A group may re-delegate a grant it holds to a child (4/R lineage
-				// delegation) — allow rows carry the grant option; denies (restrictions)
-				// do not. The subset-check (auth.Delegate) bounds what can be passed.
-				GrantOption: !deny,
-			}); err != nil {
-				return err
-			}
+		if err := st.ReplaceACLPrincipalRows(principal, want); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// tierRoleRows renders tier N's non-platform bundle as acl rows on the role
+// principal (scope **). Prune-and-reseed semantics live in ReplaceACLPrincipalRows;
+// this is the pure desired set (also used for change detection).
+func tierRoleRows(principal string, tier int) []core.ACLRow {
+	var rows []core.ACLRow
+	for _, rule := range grants.DeriveRules(nil, "", tier, "") {
+		verb, params, deny := parseRule(rule)
+		effect := "allow"
+		if deny {
+			effect = "deny"
+		}
+		rows = append(rows, core.ACLRow{
+			Principal: principal,
+			Action:    "mcp:" + verb,
+			Scope:     "**",
+			Params:    params,
+			Effect:    effect,
+			// A group may re-delegate a grant it holds to a child (4/R lineage
+			// delegation) — allow rows carry the grant option; denies (restrictions)
+			// do not. The subset-check (auth.Delegate) bounds what can be passed.
+			GrantOption: !deny,
+		})
+	}
+	return rows
+}
+
+// aclRowsEqual compares two acl row sets on the semantic fields only (principal,
+// action, scope, params, predicate, effect, grant_option) — NOT granted_at/by,
+// which differ every seed. Order-independent. Used to skip a no-op reseed.
+func aclRowsEqual(a, b []core.ACLRow) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	key := func(r core.ACLRow) string {
+		g := "0"
+		if r.GrantOption {
+			g = "1"
+		}
+		return strings.Join([]string{r.Principal, r.Action, r.Scope, r.Params, r.Predicate, r.Effect, g}, "\x00")
+	}
+	seen := make(map[string]int, len(a))
+	for _, r := range a {
+		seen[key(r)]++
+	}
+	for _, r := range b {
+		seen[key(r)]--
+	}
+	for _, n := range seen {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // parseRule splits a DeriveRules rule into (verb, params, deny). Formats:

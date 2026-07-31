@@ -541,7 +541,15 @@ func deriveFolderGrants(d *DB, folder string) []string {
 	st := store.New(d.SQL())
 	principal := "folder:" + folder
 	if !hasTierRole(st, principal) {
-		_ = st.PutMembership(principal, tierRoleName(auth.Resolve(folder).Tier), "system:tier-assign")
+		// Assign-once: bind the folder to its default role. busy_timeout(5000) on
+		// routd.db means the driver already blocks-and-retries transient SQLITE_BUSY,
+		// so a surviving error is real — a swallowed one ships an agent with ONLY
+		// platform verbs (no reply/send, no mounts), silently broken. Fail loud: the
+		// operator sees it in journalctl; the next turn retries the idempotent assign.
+		if err := st.PutMembership(principal, tierRoleName(auth.Resolve(folder).Tier), "system:tier-assign"); err != nil {
+			slog.Error("deriveFolderGrants: role assign failed, folder ships degraded grants",
+				"folder", folder, "err", err)
+		}
 	}
 	rules := grants.PlatformRulesForFolder(d, folder, auth.Resolve(folder).Tier, auth.WorldOf(folder))
 	return append(rules, folderGrantsFromACLOnly(st, folder)...)

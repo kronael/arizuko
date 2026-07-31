@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/store"
 )
@@ -99,6 +100,50 @@ func TestIntegration_OperatorDenyBeatsRoleAllow(t *testing.T) {
 	rules := folderGrantsFromACLOnly(st, f)
 	if grants.CheckAction(rules, "register_group", nil) {
 		t.Fatalf("operator deny must beat role allow (deny-precedence), rules=%v", rules)
+	}
+}
+
+// TestSeedTierRoles_EnforcesAndSkips pins the H2 fix: a reseed enforces the
+// canonical bundle on role:tier<N> (a stray row is removed) AND an unchanged
+// reseed is a no-op (skip-if-unchanged) so a routine routd.Open / `arizuko
+// packages` neither churns nor leaves the principal momentarily empty.
+func TestSeedTierRoles_EnforcesAndSkips(t *testing.T) {
+	db, err := OpenMem() // OpenMem seeds once
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	st := store.New(db.SQL())
+
+	role := tierRoleName(1)
+	base := len(st.ListACL(role))
+	if base == 0 {
+		t.Fatal("precondition: role:tier1 should be seeded with a bundle")
+	}
+	// aclRowsEqual: the freshly-seeded set equals the desired set (skip path holds).
+	if !aclRowsEqual(st.ListACL(role), tierRoleRows(role, 1)) {
+		t.Fatal("seeded rows must equal desired bundle (skip-if-unchanged would never fire)")
+	}
+	// Inject a stray grant onto the system principal — the set now differs.
+	if err := st.PutACLRow(core.ACLRow{
+		Principal: role, Action: "mcp:__bogus__", Scope: "**", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.ListACL(role)) != base+1 {
+		t.Fatalf("stray row not inserted: got %d want %d", len(st.ListACL(role)), base+1)
+	}
+	// Reseed: the atomic replace restores exactly the canonical bundle.
+	if err := SeedTierRoles(st); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(st.ListACL(role)); got != base {
+		t.Fatalf("reseed did not enforce canonical bundle: got %d want %d", got, base)
+	}
+	for _, r := range st.ListACL(role) {
+		if r.Action == "mcp:__bogus__" {
+			t.Fatal("stray row survived reseed — enforcement broken")
+		}
 	}
 }
 
