@@ -147,13 +147,10 @@ func BackfillFolderGrants(st *store.Store, folders []string) error {
 				continue
 			}
 			for _, scope := range auth.BackfillScopes(tool, tier, folder) {
-				if scope == "**" {
-					// Unconstrained (tier-0/operator or a no-containment tool); the
-					// role bundle already carries it at ** — a folder-scoped ** row
-					// would just duplicate. Containment rows (F/**, F/*, …) are the
-					// point; skip the vacuous ones.
-					continue
-				}
+				// Write ** rows too (no-containment tools like escalate_group /
+				// inject_message): AuthorizeContainment must find a covering row to
+				// ALLOW them for any target — a missing row means deny. Backfill rows
+				// are firewall-excluded (marker), so a folder-scoped ** doesn't leak.
 				if err := st.PutACLRow(core.ACLRow{
 					Principal:   principal,
 					Action:      "mcp:" + tool,

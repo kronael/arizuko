@@ -267,6 +267,76 @@ func TestBackfillFolderGrants_LegacyScopedRowStillBackfills(t *testing.T) {
 	}
 }
 
+// TestAuthorizeContainment_MatchesStructural is the phase-(b) FLIP oracle: after
+// the real BackfillFolderGrants seeds a folder, auth.AuthorizeContainment (which
+// reads folder: scoped rows only, never role ** rows) must return the SAME
+// containment decision as AuthorizeStructural — for every tool the folder's
+// magnitude actually grants (bundle-held or an outbound verb). Tools the bundle
+// denies are gated out separately post-flip (the firewall/db.Authorize), so their
+// structural-vs-bundle magnitude discrepancy is not asserted here. Green = the
+// wired flip (magnitude gate + AuthorizeContainment) reproduces today's decision.
+func TestAuthorizeContainment_MatchesStructural(t *testing.T) {
+	tools := []struct {
+		name  string
+		field int // 0=TargetFolder 1=TaskOwner 2=RouteTarget
+	}{
+		{"inspect_tasks", 1}, {"schedule_task", 1}, {"cancel_task", 1},
+		{"reply", 0}, {"send", 0}, {"post", 0}, {"forward", 0},
+		{"register_group", 0}, {"delegate_group", 0}, {"escalate_group", 0},
+		{"add_route", 2}, {"set_routes", 2},
+		{"set_group_open", 0}, {"observe_group", 0},
+		{"invite_create", 0}, {"add_acl", 0}, {"list_acl", 0},
+	}
+	for _, folder := range []string{"w", "w/o", "w/o/t", "w/o/t/u"} {
+		db, err := OpenMem()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
+			t.Fatal(err)
+		}
+		st := store.New(db.SQL())
+		if err := BackfillFolderGrants(st, []string{folder}); err != nil {
+			t.Fatal(err)
+		}
+		tier := auth.Resolve(folder).Tier
+		bundle := grants.DeriveRules(nil, folder, tier, auth.WorldOf(folder))
+		id := auth.Resolve(folder)
+
+		targets := []string{folder, folder + "/c", folder + "/c/d", auth.WorldOf(folder), "other", "other/y"}
+		for i := 0; i < len(folder); i++ {
+			if folder[i] == '/' {
+				targets = append(targets, folder[:i])
+			}
+		}
+		for _, tl := range tools {
+			// Only assert where the folder's magnitude grants the tool (bundle-held
+			// or an outbound verb) — else the combined post-flip gate denies anyway.
+			if !auth.OutboundVerbs[tl.name] && !grants.CheckAction(bundle, tl.name, nil) {
+				continue
+			}
+			for _, tgt := range targets {
+				var at auth.AuthzTarget
+				switch tl.field {
+				case 1:
+					at.TaskOwner = tgt
+				case 2:
+					at.RouteTarget = tgt
+				default:
+					at.TargetFolder = tgt
+				}
+				structural := auth.AuthorizeStructural(id, tl.name, at) == nil
+				contain := auth.AuthorizeContainment(st, folder, tl.name, tgt, id.IsRoot) == nil
+				if structural != contain {
+					t.Errorf("folder=%q tool=%q target=%q: structural=%v containment=%v",
+						folder, tl.name, tgt, structural, contain)
+				}
+			}
+		}
+		db.Close()
+	}
+}
+
 // worldOf mirrors auth.WorldOf for the test without importing it twice.
 func worldOf(folder string) string {
 	if folder == "" {

@@ -1,5 +1,35 @@
 package auth
 
+import (
+	"fmt"
+
+	"github.com/kronael/arizuko/store"
+)
+
+// AuthorizeContainment is phase (b)'s data-driven replacement for
+// AuthorizeStructural's CONTAINMENT half: it allows `tool` against `target` iff the
+// caller's own folder principal holds a backfilled/delegated `mcp:<tool>` allow row
+// whose scope covers `target`. It reads `folder:<callerFolder>` rows ONLY — never
+// role rows — so the `**`-scoped tier bundles (which would defeat containment) are
+// irrelevant here. Magnitude (may the folder use the tool at all) is a SEPARATE
+// gate (the string firewall / db.Authorize on the tool), already applied before
+// this. Root bypasses. Empty target denies (mirrors authorizeOutbound's no-route).
+func AuthorizeContainment(st *store.Store, callerFolder, tool, target string, isRoot bool) error {
+	if isRoot {
+		return nil
+	}
+	if target == "" {
+		return fmt.Errorf("forbidden: %s has no resolved target", tool)
+	}
+	for _, r := range st.ListACL("folder:" + callerFolder) {
+		if r.Action == "mcp:"+tool && r.Effect == "allow" && matchPattern(r.Scope, target) {
+			return nil
+		}
+	}
+	return fmt.Errorf("forbidden: %s on %s is outside %s's granted scope",
+		tool, target, callerFolder)
+}
+
 // backfill.go is phase (b) of 4/R (specs/4/R §"Phase (b) cutover design"): it
 // renders, for a folder at a given tier, the SCOPE GLOBS that reproduce
 // AuthorizeStructural's per-tool containment as acl-row scopes. The backfill
