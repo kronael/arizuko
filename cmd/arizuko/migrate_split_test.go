@@ -148,9 +148,11 @@ func TestMigrateSplit(t *testing.T) {
 		// auth_users: routd.db owns it → copied (split onbod reads it cross-DB).
 		"auth_users": 1,
 		// acl: 1 seeded folder:main row + role:operator (migration 0022) + the
-		// role:tier0..3 default bundles SeedTierRoles reseeds at every routd.Open
-		// (1+25+7+4=37) = 39. Count tracks the DeriveRules bundle sizes.
-		"acl": 39, "acl_membership": 1,
+		// role:tier0..3 default bundles SeedTierRoles reseeds (1+25+7+4=37) = 39,
+		// PLUS the 4/R backfill's folder-scoped containment rows for folder:main
+		// (tier-1, 18 structural-tool scopes) = 57. Count tracks the DeriveRules
+		// bundle sizes + BackfillScopes' per-tool containment for a tier-1 folder.
+		"acl": 57, "acl_membership": 1,
 		// secrets: routd OWNS them now → copied (1 row each).
 		"secrets": 1, "secret_use_log": 1,
 		// scheduled_tasks + task_run_logs: routd OWNS them now → copied (1 row each).
@@ -230,8 +232,10 @@ func TestMigrateSplit(t *testing.T) {
 
 	// acl: copied to routd.db (routd OWNS it now) with columns intact.
 	var aclPrin, aclAction, aclScope, aclEffect string
+	// Scope to the migrated legacy row specifically — the 4/R backfill adds other
+	// folder:main rows (scoped containment) that would otherwise shadow it.
 	if err := r.QueryRow(
-		`SELECT principal, action, scope, effect FROM acl WHERE principal='folder:main'`).
+		`SELECT principal, action, scope, effect FROM acl WHERE principal='folder:main' AND action='mcp:send'`).
 		Scan(&aclPrin, &aclAction, &aclScope, &aclEffect); err != nil {
 		t.Fatalf("read routd.acl: %v", err)
 	}

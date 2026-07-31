@@ -12,8 +12,11 @@ package auth
 // Returns the scope globs a folder of `tier` gets for `tool`; nil = the tier may
 // NOT use the tool (the magnitude gate — in the new model the grant is simply
 // absent from the bundle). Tier 0 is the operator/root identity ("" folder), which
-// is IsRoot-handled at runtime and never backfilled — callers pass real folders
-// (tier ≥ 1); the tier-0 arms exist only so the oracle can prove full equivalence.
+// is IsRoot-handled at runtime and NEVER backfilled (auth.Resolve floors any
+// non-empty folder to tier ≥ 1). The tier-0 arms return "**" for convenience but
+// are NOT authoritative — e.g. AuthorizeStructural's "worlds are CLI-only" check on
+// tier-0 register_group is an IsRoot concern this function cannot express (it takes
+// no IsRoot). The equivalence oracle covers real folders (tier ≥ 1) only.
 func BackfillScopes(tool string, tier int, folder string) []string {
 	selfOrDesc := folder + "/**"      // F and every descendant
 	directChild := folder + "/*"      // exactly one level below F

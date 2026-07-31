@@ -535,12 +535,65 @@ sibling, parent, cross-world) and assert `AuthorizeWith(post-backfill scopes)` =
 `AuthorizeStructural` decision for all. Keyed on folder PATHS, never the tier scalar (the hole
 that let step (d) ship broken). Green here is the gate to deleting `AuthorizeStructural`.
 
-**Rollout + revert valve.** (1) land `containmentScope(tool, folder)` helper + its unit test
-(inert). (2) land the backfill migration behind a flag, additive — enforcement unchanged,
-both paths live. (3) equivalence test green. (4) flip call sites to scope-match, delete
-`AuthorizeStructural`. (5) delete `DeriveRules`/`Resolve`/`ARIZUKO_TIER` (phase e). Revert
-valve through (4): `AuthorizeStructural` still present, re-callable. Deploy to krons only,
-watch, then fleet.
+**Rollout + revert valve.** (1) land `BackfillScopes` helper + equivalence oracle
+(inert) — DONE (`6d562598`). (2) land `BackfillFolderGrants`, additive, wired at
+`routd.Open` — DONE (`18ce8d93` + finding-fixes). (3) oracle green on REAL tier/depth
+pairs — DONE. (4) flip call sites to scope-match, delete `AuthorizeStructural`. (5) delete
+`DeriveRules`/`Resolve`/`ARIZUKO_TIER` (phase e). Revert valve through (4):
+`AuthorizeStructural` still present, re-callable. Deploy to krons only, watch, then fleet.
+
+**Flip blockers — step (4) is NOT "just delete `AuthorizeStructural`" (adversary review
+2026-07-31).** Two findings reshape it into the full grant-model migration; do NOT flip
+until both are designed and tested:
+
+1. **`role:tier<N>` rows are scope `**`(M6) → they DEFEAT the backfilled containment.**
+Once a call site does`db.Authorize(scope=TARGET)`, the folder's `role:tier<N>`membership contributes`{mcp:<tool>, scope:"**"}`rows that`matchPattern("**", any)`allows unconditionally — so the narrower`folder:<path>`scoped row is irrelevant. Worst
+case: a tier-3 agent`reply`-ing into an unrelated tenant's chat is ALLOWED. The flip
+therefore MUST replace `role:tier<N>`membership with per-folder scoped grants and remove
+(or radically narrow) the`\*\*`role rows — this is decision 7's`role:unpriv`-plus-explicit
+   -delegation end state, not a tweak. The role bundles were always transitional scaffold.
+
+2. **The backfill covers only folder-scoped containment, not the platform verbs.** `post`,
+   `like`, `dislike`, `delete`, `edit`, `forward`, `quote`, `repost` are `(jid=<platform>:*)`
+   param-scoped in the bundle, so the intersection gate `CheckAction(bundle, tool, nil)`
+   skips them (nil params never match a jid rule). Their folder-containment (authorizeOutbound
+   self-or-descendant) is currently held ONLY by `AuthorizeStructural`. When the `**` role
+   rows go (blocker 1), the full backfill must express BOTH axes for these verbs: the jid
+   param (which platform) AND the folder scope (which subtree) — else they either escape
+   containment or lose availability cross-folder.
+
+Consequence: step (4) is the coherent "role bundles → per-folder fully-scoped grants" cutover
+(all tools, both axes), landed as one reviewed migration with the equivalence oracle extended
+to cover `db.Authorize`-post-flip (not just `BackfillScopes`). Steps (1)-(3) are the safe,
+additive, shipped foundation; (4)-(5) await this design + sign-off.
+
+**Verified flip approach (avoids the blockers — 2026-07-31).** Blocker 1 only bites if
+containment routes through `db.Authorize(scope=target)`, which consults the `**` role rows.
+The fix is a DEDICATED containment check that reads `folder:<path>` scoped rows ONLY — never
+role rows — so the `**` bundle scope is irrelevant to containment. Phase (b) then stays a
+pure containment move; the role-bundle teardown is deferred to phase (e), matching the spec's
+own b-then-e staging (do NOT conflate them).
+
+- **Magnitude is already enforced separately** — confirmed at `routd/groups_resource.go:166`
+  (`toolGrant(rules, authorize, …)` runs BEFORE `AuthorizeStructural`), and the resreg Gate
+  runs `db.Authorize(mcp:<tool>)` at every resource site. So `AuthorizeStructural`'s magnitude
+  `if id.Tier >= N` arms are REDUNDANT with the bundle gate — a containment-only replacement
+  loses nothing. (The `ipc/ipc.go`+`ipc/inspect.go` sites must be re-verified the same way
+  before flipping — check a bundle/`CheckAction` gate precedes each `authzStructural`.)
+- **New check:** `AuthorizeContainment(st, callerFolder, tool, target, isRoot) error` — root →
+  nil; else allow iff a `folder:<callerFolder>` acl row `mcp:<tool>` has a scope covering
+  `target` (`ScopesMatch`). Reads folder rows via a principal-scoped query; role rows excluded.
+- **Backfill extension:** outbound verbs (`post`/`like`/`forward`/… `send`/`reply`) have
+  containment self-or-descendant (`F/**`) INDEPENDENT of magnitude, but the bundle-intersection
+  gate skips them (jid-param rules don't match `CheckAction(…, nil)`). The backfill must write
+  their `F/**` containment scope UNCONDITIONALLY (the jid/magnitude gate stays orthogonal at
+  runtime) — else the flip denies legitimate cross-subtree sends.
+- **Then:** flip the 7 call sites `AuthorizeStructural(id,tool,tgt)` → `AuthorizeContainment(st,
+id.Folder,tool,tgt,id.IsRoot)`, extend the oracle to assert the wired path == the old decision,
+  keep `AuthorizeStructural` one release as the revert valve, delete it after krons soak.
+
+This keeps phase (b) reversible and role-bundle-agnostic; phase (e) (delete role bundles +
+`DeriveRules`/`Resolve`/tier) is the separate follow-on. NOT yet wired — awaiting sign-off.
 
 ## Open questions
 

@@ -197,8 +197,8 @@ func TestBackfillFolderGrants_AdditiveAndIdempotent(t *testing.T) {
 	}
 
 	// Scoped containment rows landed: tier-1 "w" gets register_group scoped w/*.
-	if !hasScopedMCPRow(st, "folder:w") {
-		t.Fatal("backfill wrote no scoped mcp row for folder:w")
+	if !alreadyBackfilled(st, "folder:w") {
+		t.Fatal("backfill wrote no marker row for folder:w")
 	}
 	foundDirectChild := false
 	for _, r := range st.ListACL("folder:w") {
@@ -217,6 +217,53 @@ func TestBackfillFolderGrants_AdditiveAndIdempotent(t *testing.T) {
 	}
 	if got := len(st.ListACL("folder:w")); got != n {
 		t.Errorf("backfill not idempotent: folder:w rows %d→%d", n, got)
+	}
+}
+
+// TestBackfillFolderGrants_LegacyScopedRowStillBackfills pins adversary finding 2:
+// a folder carrying a legacy pre-4/R operator-scoped mcp row (not a backfill row)
+// must STILL be backfilled — the skip-guard keys on the backfill marker, not on
+// "any scoped row". Idempotency then keys on the marker too.
+func TestBackfillFolderGrants_LegacyScopedRowStillBackfills(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	st := store.New(db.SQL())
+
+	const f = "w"
+	if err := db.PutGroup(core.Group{Folder: f}); err != nil {
+		t.Fatal(err)
+	}
+	// Legacy operator row: scoped, mcp:, but NOT the backfill marker.
+	if err := st.PutACLRow(core.ACLRow{
+		Principal: "folder:" + f, Action: "mcp:send", Scope: f, Effect: "allow",
+		GrantedBy: "operator",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := BackfillFolderGrants(st, []string{f}); err != nil {
+		t.Fatal(err)
+	}
+	// The backfill ran despite the legacy row: marker rows are present.
+	marked := 0
+	for _, r := range st.ListACL("folder:" + f) {
+		if r.GrantedBy == backfillGrantedBy {
+			marked++
+		}
+	}
+	if marked == 0 {
+		t.Fatal("legacy scoped row wrongly blocked the backfill (finding 2 regression)")
+	}
+	// Second run is a no-op (idempotent on the marker).
+	n := len(st.ListACL("folder:" + f))
+	if err := BackfillFolderGrants(st, []string{f}); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(st.ListACL("folder:" + f)); got != n {
+		t.Errorf("second backfill not idempotent: %d→%d", n, got)
 	}
 }
 

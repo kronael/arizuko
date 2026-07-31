@@ -122,10 +122,12 @@ func aclRowsEqual(a, b []core.ACLRow) bool {
 // delegation: a folder that already has scoped mcp rows (backfilled earlier, or
 // delegated at create) is left untouched — no duplication, no clobbering an
 // operator's later edits.
+const backfillGrantedBy = "system:backfill-4r"
+
 func BackfillFolderGrants(st *store.Store, folders []string) error {
 	for _, folder := range folders {
 		principal := "folder:" + folder
-		if hasScopedMCPRow(st, principal) {
+		if alreadyBackfilled(st, principal) {
 			continue
 		}
 		tier := auth.Resolve(folder).Tier
@@ -152,7 +154,7 @@ func BackfillFolderGrants(st *store.Store, folders []string) error {
 					Action:      "mcp:" + tool,
 					Scope:       scope,
 					Effect:      "allow",
-					GrantedBy:   "system:backfill-4r",
+					GrantedBy:   backfillGrantedBy,
 					GrantOption: true,
 				}); err != nil {
 					return err
@@ -163,11 +165,14 @@ func BackfillFolderGrants(st *store.Store, folders []string) error {
 	return nil
 }
 
-// hasScopedMCPRow reports whether the principal already holds a non-wildcard
-// (scope != "**") mcp: acl row — the marker that it was backfilled or delegated.
-func hasScopedMCPRow(st *store.Store, principal string) bool {
+// alreadyBackfilled reports whether the principal already carries this migration's
+// rows. Keyed on the backfill GrantedBy marker — NOT "any scoped mcp row" (adversary
+// finding 2): a folder with a legacy pre-4/R operator-scoped row (e.g. folder:main
+// mcp:send scope=main) must still be backfilled, so the guard can't treat that as
+// done. Idempotency only; a re-run skips a folder this migration already wrote.
+func alreadyBackfilled(st *store.Store, principal string) bool {
 	for _, r := range st.ListACL(principal) {
-		if strings.HasPrefix(r.Action, "mcp:") && r.Scope != "**" {
+		if strings.HasPrefix(r.Action, "mcp:") && r.GrantedBy == backfillGrantedBy {
 			return true
 		}
 	}

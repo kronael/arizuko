@@ -39,33 +39,29 @@ func TestBackfillScopes_EquivalentToStructural(t *testing.T) {
 		{"invite_create", fTarget}, {"invite_revoke", fTarget},
 		{"add_acl", fTarget}, {"remove_acl", fTarget},
 	}
-	// (tier, caller folder) — the real backfill domain.
-	callers := []struct {
-		tier   int
-		folder string
-	}{
-		{1, "w"},
-		{2, "w/o"},
-		{3, "w/o/t"},
-	}
-	// Non-empty targets: self, direct child, deep descendant, sibling, ancestor,
-	// same-world other-branch, cross-world.
+	// Caller folders at depths 1-4 — tier is the REAL auth.Resolve pairing the
+	// backfill actually uses (adversary finding 4: never assert synthetic
+	// tier/depth pairs like {2,"w/o"} that auth.Resolve can't produce).
+	callerFolders := []string{"w", "w/o", "w/o/t", "w/o/t/u", "w/o/t/u/v"}
+	// Non-empty targets spanning self, child, descendant, sibling, ancestor,
+	// same-world other-branch, cross-world — generated relative to the caller.
 	targetsFor := func(f string) []string {
-		switch f {
-		case "w":
-			return []string{"w", "w/o", "w/o/t", "w/x", "other", "other/y"}
-		case "w/o":
-			return []string{"w", "w/o", "w/o/t", "w/o/t/u", "w/x", "other"}
-		default: // w/o/t
-			return []string{"w", "w/o", "w/o/t", "w/o/t/u", "w/x", "other"}
+		out := []string{f, f + "/c", f + "/c/d", WorldOf(f), "other", "other/y", "z/q"}
+		// each strict ancestor (parent chain)
+		for i := 0; i < len(f); i++ {
+			if f[i] == '/' {
+				out = append(out, f[:i], f[:i]+"/sib")
+			}
 		}
+		return out
 	}
 
 	for _, tl := range tools {
-		for _, c := range callers {
-			id := Identity{Folder: c.folder, Tier: c.tier, IsRoot: c.tier == 0}
-			scopes := BackfillScopes(tl.name, c.tier, c.folder)
-			for _, tgt := range targetsFor(c.folder) {
+		for _, folder := range callerFolders {
+			tier := Resolve(folder).Tier
+			id := Identity{Folder: folder, Tier: tier, IsRoot: tier == 0}
+			scopes := BackfillScopes(tl.name, tier, folder)
+			for _, tgt := range targetsFor(folder) {
 				var at AuthzTarget
 				switch tl.field {
 				case fTask:
@@ -79,7 +75,7 @@ func TestBackfillScopes_EquivalentToStructural(t *testing.T) {
 				got := scopes != nil && ScopesMatch(scopes, tgt)
 				if want != got {
 					t.Errorf("%s tier=%d folder=%q target=%q: structural=%v scope=%v (scopes=%v)",
-						tl.name, c.tier, c.folder, tgt, want, got, scopes)
+						tl.name, tier, folder, tgt, want, got, scopes)
 				}
 			}
 		}
