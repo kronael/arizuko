@@ -116,8 +116,8 @@ func (s *Server) aclRESTGate(x resreg.Execution, _ string, _ map[string]string) 
 	if !hasAnyScope(strings.Fields(x.Caller.Claims["scopes"]), []string{"acl:write"}) {
 		return resreg.Errorf(http.StatusForbidden, "missing scope acl:write")
 	}
-	if err := auth.AuthorizeStructural(auth.Resolve(x.Caller.Folder), aclMCPNames[x.Action],
-		auth.AuthzTarget{TargetFolder: argString(x.Args, "scope")}); err != nil {
+	if err := auth.AuthorizeContainment(store.New(s.db.SQL()), x.Caller.Folder,
+		aclMCPNames[x.Action], argString(x.Args, "scope"), auth.Resolve(x.Caller.Folder).IsRoot); err != nil {
 		return resreg.Errorf(http.StatusForbidden, "%v", err)
 	}
 	return nil
@@ -192,7 +192,7 @@ func (s *Server) aclPostBuild(folder, callerSub string, rules []string, authoriz
 		case resreg.ActionList:
 			target = argString(x.Args, "folder")
 		}
-		if err := auth.AuthorizeStructural(callerID, name, auth.AuthzTarget{TargetFolder: target}); err != nil {
+		if err := auth.AuthorizeContainment(store.New(s.db.SQL()), callerID.Folder, name, target, callerID.IsRoot); err != nil {
 			return resreg.Errorf(http.StatusForbidden, "%v", err)
 		}
 		// 4/R lineage delegation: a NON-root writer may only grant a row it HOLDS

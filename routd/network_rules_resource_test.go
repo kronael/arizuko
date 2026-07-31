@@ -244,15 +244,21 @@ func TestNetworkRulesMCP_Tier1SubtreeContainment(t *testing.T) {
 // grants the tool (which passes both grants.CheckAction and db.Authorize). This
 // fails on a Gate that only runs CheckAction + db.Authorize (the pilot shape) and
 // drops auth.AuthorizeStructural.
-func TestNetworkRulesMCP_TierGateDeniesTier2(t *testing.T) {
+// TestNetworkRulesMCP_ScopedGrantAllowsInScope pins the 4/R (B) model (spec 4/R
+// decision 8, "containment = grant scope"): egress management is a DELEGABLE
+// scoped grant, not a hard tier cap. A folder the OPERATOR explicitly grants
+// network_allow (scoped to its own subtree) MAY manage egress there — and is
+// CONTAINED to that scope (a sibling target is denied). Depth is irrelevant; only
+// the grant + its scope decide. (Pre-4/R this was a hard tier-2 cap that ignored
+// the operator grant — TestNetworkRulesMCP_TierGateDeniesTier2, now superseded.)
+func TestNetworkRulesMCP_ScopedGrantAllowsInScope(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	_ = db.PutGroup(core.Group{Folder: "world/a/b"}) // tier 2
-	// Operator grants the tool: overlays into the derived rules AND makes
-	// db.Authorize allow — so only the structural tier cap can still deny.
+	_ = db.PutGroup(core.Group{Folder: "world/a/b"}) // depth 2 — no longer a cap
+	// Operator delegates egress management scoped to the folder's own subtree.
 	if err := db.AddACLRow(core.ACLRow{
 		Principal: "folder:world/a/b", Action: "mcp:network_allow",
 		Scope: "world/a/b", Effect: "allow",
@@ -262,26 +268,25 @@ func TestNetworkRulesMCP_TierGateDeniesTier2(t *testing.T) {
 	rules := deriveFolderGrants(db, "world/a/b")
 	sock := serveNetworkMCP(t, db, "world/a/b", "folder:world/a/b", rules)
 
-	// Visible (the operator grant matches) but call-denied by the tier cap.
 	if !listToolNames(t, sock)["network_allow"] {
 		t.Fatal("network_allow should be visible (operator granted it)")
 	}
-	// Own folder: denied (tier 2+ can't manage egress).
-	if _, e := callToolText(t, sock, "network_allow", map[string]any{"host": "example.com"}); e == "" {
-		t.Fatal("tier-2 network_allow (own folder) must be denied by the structural tier cap")
+	// Own folder (in scope): ALLOWED — the delegated scoped grant covers it.
+	if _, e := callToolText(t, sock, "network_allow", map[string]any{"host": "example.com"}); e != "" {
+		t.Fatalf("in-scope network_allow must be allowed under the grant model: %s", e)
 	}
-	// A sibling target arg is denied too — tier 2 can't manage egress anywhere.
+	if got, _ := db.ListNetworkRules("world/a/b"); len(got) != 1 {
+		t.Fatalf("in-scope allow should have written one rule, got %+v", got)
+	}
+	// Sibling subtree (out of scope): DENIED — containment is the grant's scope.
 	_ = db.PutGroup(core.Group{Folder: "world/a/c"})
 	if _, e := callToolText(t, sock, "network_allow", map[string]any{
 		"folder": "world/a/c", "host": "example.com",
 	}); e == "" {
-		t.Fatal("tier-2 network_allow (sibling target) must be denied")
-	}
-	if got, _ := db.ListNetworkRules("world/a/b"); len(got) != 0 {
-		t.Fatalf("denied tier-2 allow still wrote a rule: %+v", got)
+		t.Fatal("out-of-scope network_allow (sibling) must be denied by grant scope")
 	}
 	if got, _ := db.ListNetworkRules("world/a/c"); len(got) != 0 {
-		t.Fatalf("denied tier-2 sibling allow still wrote a rule: %+v", got)
+		t.Fatalf("out-of-scope sibling allow still wrote a rule: %+v", got)
 	}
 }
 

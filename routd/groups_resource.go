@@ -32,6 +32,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -41,6 +42,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/store"
 )
 
 // groupsActionRegister is register_group's resource-specific verb (not CRUD create):
@@ -176,7 +178,14 @@ func (s *Server) groupsPostBuild(folder, callerSub string, rules []string, autho
 		if gfld == "" {
 			return "", nil, nil
 		}
-		if err := auth.AuthorizeStructural(callerID, name, auth.AuthzTarget{TargetFolder: gfld}); err != nil {
+		// Worlds are CLI-only — register_group's one NON-containment residue (root
+		// bypasses AuthorizeContainment, so this rule stays inline).
+		if callerID.IsRoot && !strings.Contains(gfld, "/") {
+			return "", nil, resreg.Errorf(http.StatusForbidden, "worlds are CLI-only")
+		}
+		// 4/R phase b (B): containment is data — does the caller's folder hold
+		// register_group scoped to cover gfld? Magnitude already ran (toolGrant).
+		if err := auth.AuthorizeContainment(store.New(s.db.SQL()), callerID.Folder, name, gfld, callerID.IsRoot); err != nil {
 			return "", nil, resreg.Errorf(http.StatusForbidden, "%v", err)
 		}
 		return "", nil, nil

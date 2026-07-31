@@ -239,6 +239,12 @@ type StoreFns struct {
 	// (ARIZUKO_LOCAL_SUB). Nil means no row-based check (full operator access).
 	Authorize func(sub, folder, action string, params map[string]string) bool
 
+	// Containment is the 4/R phase-b data-driven containment gate (auth.
+	// AuthorizeContainment): may callerFolder act with `tool` on `target`, per its
+	// backfilled/delegated folder-scoped grants. Injected by routd with the real
+	// store. Nil → fall back to the tier-structural check (auth.AuthorizeStructural).
+	Containment func(callerFolder, tool, target string, isRoot bool) error
+
 	// LogIPCAudit persists one ipc_audit row. Nil = no-op.
 	LogIPCAudit func(folder, sub, tool, params, outcome string) error
 }
@@ -739,6 +745,24 @@ func WebPresenceFor(folder, webHost, hostingDomain string, aliases map[string]st
 	}
 }
 
+// containOrStructural is the 4/R phase-b seam for the hand-authored ipc gates:
+// the data-driven containment check (db.Containment, reading folder-scoped grants)
+// when routd injected it, else the legacy tier-structural check. One seam so the
+// three ipc gates flip together and stay consistent with the resreg resources.
+func containOrStructural(db StoreFns, id auth.Identity, action string, target auth.AuthzTarget) error {
+	if db.Containment == nil {
+		return auth.AuthorizeStructural(id, action, target)
+	}
+	tgt := target.TargetFolder
+	if tgt == "" {
+		tgt = target.TaskOwner
+	}
+	if tgt == "" {
+		tgt = target.RouteTarget
+	}
+	return db.Containment(id.Folder, action, tgt, id.IsRoot)
+}
+
 // authorizeJID prevents a sub-folder agent from dispatching to a JID owned
 // by a sibling. db.DefaultFolderForJID may be nil in tests.
 func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
@@ -756,7 +780,7 @@ func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
 			target = folder
 		}
 	}
-	if err := auth.AuthorizeStructural(id, action, auth.AuthzTarget{TargetFolder: target}); err == nil {
+	if err := containOrStructural(db, id, action, auth.AuthzTarget{TargetFolder: target}); err == nil {
 		return nil
 	}
 	// The default resolution forces verb="message", so a sub-folder that handles
@@ -911,7 +935,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 	}
 
 	authzStructural := func(action string, target auth.AuthzTarget) error {
-		err := auth.AuthorizeStructural(identity, action, target)
+		err := containOrStructural(db, identity, action, target)
 		if err != nil {
 			emitAuthzDenied(action, callerSub)
 		}

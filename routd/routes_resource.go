@@ -270,8 +270,8 @@ func (s *Server) routesPostBuild(folder, callerSub string, rules []string, autho
 	// under /root (else the socket folder's tier). Exactly the deleted ipc bodies'
 	// authzStructural.
 	contain := func(_ resreg.Caller, a resreg.Action, target string) error {
-		if err := auth.AuthorizeStructural(callerID, routesMCPNames[a],
-			auth.AuthzTarget{RouteTarget: target}); err != nil {
+		if err := auth.AuthorizeContainment(store.New(s.db.SQL()), callerID.Folder,
+			routesMCPNames[a], target, callerID.IsRoot); err != nil {
 			return resreg.Errorf(http.StatusForbidden, "%v", err)
 		}
 		return nil

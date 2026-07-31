@@ -170,7 +170,7 @@ func (s *Server) networkRulesPostBuild(folder, callerSub string, rules []string,
 		// operator-gated /root elevation lifts it. Exactly the deleted ipc body's
 		// authzStructural(name, TargetFolder: argFolder).
 		target := networkTargetFolder(x.Args, folder)
-		if err := auth.AuthorizeStructural(callerID, name, auth.AuthzTarget{TargetFolder: target}); err != nil {
+		if err := auth.AuthorizeContainment(store.New(s.db.SQL()), callerID.Folder, name, target, callerID.IsRoot); err != nil {
 			return resreg.Errorf(http.StatusForbidden, "%s: %v", name, err)
 		}
 		return nil

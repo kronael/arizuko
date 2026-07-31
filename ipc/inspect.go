@@ -64,7 +64,7 @@ func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folde
 					if !ok {
 						return toolErr("task not found")
 					}
-					if err := auth.AuthorizeStructural(id, "inspect_tasks", auth.AuthzTarget{TaskOwner: t.Owner}); err != nil {
+					if err := containOrStructural(db, id, "inspect_tasks", auth.AuthzTarget{TaskOwner: t.Owner}); err != nil {
 						return toolErr(err.Error())
 					}
 				}

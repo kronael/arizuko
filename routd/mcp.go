@@ -517,6 +517,12 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// Authorize is the per-call row-ACL check ServeMCP runs when callerSub is
 		// set. nil-safe. Elevated (/root) turns allow-all — see turnAuthorize.
 		Authorize: s.turnAuthorize(t.elevated),
+		// Containment is the 4/R phase-b data-driven containment gate the hand-authored
+		// ipc tools call in place of auth.AuthorizeStructural (the resreg resources call
+		// auth.AuthorizeContainment directly). Reads folder-scoped grants, tier fallback.
+		Containment: func(callerFolder, tool, target string, isRoot bool) error {
+			return auth.AuthorizeContainment(store.New(s.db.SQL()), callerFolder, tool, target, isRoot)
+		},
 	}
 }
 

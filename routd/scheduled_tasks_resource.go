@@ -268,8 +268,8 @@ func (s *Server) scheduledTasksPostBuild(folder, callerSub string, rules []strin
 	// the socket folder's tier). Exactly the deleted ipc bodies' + inspect_tasks'
 	// authzStructural.
 	contain := func(_ resreg.Caller, a resreg.Action, target string) error {
-		if err := auth.AuthorizeStructural(callerID, tasksMCPNames[a],
-			auth.AuthzTarget{TaskOwner: target}); err != nil {
+		if err := auth.AuthorizeContainment(store.New(s.db.SQL()), callerID.Folder,
+			tasksMCPNames[a], target, callerID.IsRoot); err != nil {
 			return resreg.Errorf(http.StatusForbidden, "%v", err)
 		}
 		return nil
