@@ -456,15 +456,32 @@ The 5 bugs and their fixes:
 row it holds WITH the option (root bypasses via `IsRoot`), and the scope-check bounds
 delegation to the granter's scope. A group can't hand out authority it wasn't delegated.
 
-Remaining is the **model-shift** (deployment-affecting): create-time delegation — the
-operator/parent delegates SUBTREE-SCOPED grants to a new group at create (groups hold
-authority as scoped rows, not the shared `**` bundle), the prerequisite for (b) deleting
-`AuthorizeStructural` (containment = grant scope); then (d) egress/web off `tierOf`→grants;
-(e) delete `Resolve`/`DeriveRules`/tier + `ARIZUKO_TIER` migration; BUG5 dashd parity; a
-**backfill migration** delegating tier-equivalent scoped grants to every existing folder;
-then the docs/examples/products rewrite. This changes what every agent may do in every
-deployment — it lands as one REVIEWED migration, not a session tail. `DeriveRules` stays
-until (b)/(d)/(e).
+(d) egress + web-mount off `tierOf` — DONE (`edd42181`): `container/runner.go` gates
+unconstrained egress on an `egress` grant and the web mounts on `web:publish` (from the
+group's acl bundle), not depth. Only `tierOf:811` (WEB_PREFIX = which-vhost coordinate)
+remains — the path coordinate the design keeps.
+
+Remaining (audited 2026-07-31, exact live non-test call sites):
+
+- **(b) `AuthorizeStructural` → grant scope** — ~9 call sites + ~15 raw `id.Tier`
+  containment comparisons inside `auth/policy.go`. The tool-gating half already moved to
+  grants; the subtree-containment half becomes `ownsFolder(callerFolder, target)` (depth-
+  free) with the per-tool nuances (register=direct-child, delegate=strict-descendant,
+  tasks=own-world) encoded as scope rules. Root bypasses via `IsRoot`.
+- **(e) delete the tier scalar** — `auth.Resolve` (10 sites), `DeriveRules` (3: the bundle
+  source survives, the `auth/authorize.go:113` mcp:\* fallback + `dashd/tools_admin.go`
+  display go), `ARIZUKO_TIER` (emit at `runner.go:828` + 2 skills read it → migration-
+  broadcast). Blocked on (b).
+- **model-shift** — create-time delegation (operator/parent delegates SUBTREE-SCOPED grants
+  to a new group at create; absent) + a **backfill migration** (delegate tier-equivalent
+  scoped grants to every existing folder; absent). Prerequisite for (b) to be a true
+  containment-by-scope rather than an `ownsFolder` shim.
+- BUG5 dashd parity; then the docs/examples/products rewrite (root UPPERCASE + web still
+  describe tiers).
+
+The model-shift + backfill change what every agent may do in every deployment (krons/
+sloth/marinade) — they land as one REVIEWED migration with e2e, not a session tail.
+`DeriveRules` stays until (b)/(e).
 
 ## Open questions
 
