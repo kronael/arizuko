@@ -24,7 +24,8 @@ func testDBWithInvites(t *testing.T) *sql.DB {
 		)`,
 		`CREATE TABLE IF NOT EXISTS acl (
 			principal TEXT, action TEXT, scope TEXT, effect TEXT,
-			params TEXT, predicate TEXT, granted_at TEXT, granted_by TEXT
+			params TEXT, predicate TEXT, granted_at TEXT, granted_by TEXT,
+			grant_option INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS acl_membership (
 			child TEXT, parent TEXT, added_at TEXT, added_by TEXT

@@ -147,8 +147,10 @@ func TestMigrateSplit(t *testing.T) {
 		"system_messages": 1, "cost_log": 2,
 		// auth_users: routd.db owns it → copied (split onbod reads it cross-DB).
 		"auth_users": 1,
-		// acl: our 1 seeded row + the role:operator row migration 0053 seeds = 2.
-		"acl": 2, "acl_membership": 1,
+		// acl: 1 seeded folder:main row + role:operator (migration 0022) + the
+		// role:tier0..3 default bundles SeedTierRoles reseeds at every routd.Open
+		// (1+25+7+4=37) = 39. Count tracks the DeriveRules bundle sizes.
+		"acl": 39, "acl_membership": 1,
 		// secrets: routd OWNS them now → copied (1 row each).
 		"secrets": 1, "secret_use_log": 1,
 		// scheduled_tasks + task_run_logs: routd OWNS them now → copied (1 row each).

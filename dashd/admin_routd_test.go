@@ -20,6 +20,7 @@ CREATE TABLE acl (
   principal TEXT NOT NULL, action TEXT NOT NULL, scope TEXT NOT NULL,
   effect TEXT NOT NULL DEFAULT 'allow', params TEXT NOT NULL DEFAULT '',
   predicate TEXT NOT NULL DEFAULT '', granted_by TEXT, granted_at TEXT NOT NULL,
+  grant_option INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (principal, action, scope, params, predicate, effect));
 CREATE TABLE acl_membership (
   child TEXT NOT NULL, parent TEXT NOT NULL, added_by TEXT, added_at TEXT NOT NULL,
