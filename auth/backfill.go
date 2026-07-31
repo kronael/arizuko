@@ -21,10 +21,19 @@ func AuthorizeContainment(st *store.Store, callerFolder, tool, target string, is
 	if target == "" {
 		return fmt.Errorf("forbidden: %s has no resolved target", tool)
 	}
+	// 1. Data path: the folder's own scoped grants (backfilled at boot/create, or
+	//    delegated). Precedence lets a broader delegated grant widen containment.
 	for _, r := range st.ListACL("folder:" + callerFolder) {
 		if r.Action == "mcp:"+tool && r.Effect == "allow" && matchPattern(r.Scope, target) {
 			return nil
 		}
+	}
+	// 2. Transitional fallback (phase b): the tier-computed containment scope. Keeps
+	//    the flip equivalence-preserving even for a folder not yet backfilled — the
+	//    exact analogue of AuthorizeWith's DeriveRules fallback the grant-flip kept.
+	//    Removed in phase (e) when the tier scalar goes and data becomes the sole source.
+	if ScopesMatch(BackfillScopes(tool, Resolve(callerFolder).Tier, callerFolder), target) {
+		return nil
 	}
 	return fmt.Errorf("forbidden: %s on %s is outside %s's granted scope",
 		tool, target, callerFolder)
