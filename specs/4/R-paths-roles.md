@@ -638,7 +638,22 @@ lives ONLY in `AuthorizeStructural`, is NOT redundant with `db.Authorize`, and i
 A containment-only `AuthorizeContainment` LOSES it → an operator-granted deep folder gains egress
 management the structural cap forbids. That is a real security loosening.
 
-Resolution is a POLICY FORK the operator must decide, not a mechanical fix:
+**RESOLVED: the fork is decided by decision 8 — it's (B).** Decision 8 already says
+"`AuthorizeStructural` (and the depth caps inside it) is deleted; containment = grant
+scope." The hard tier caps ARE the "depth caps inside it" the spec deletes. So egress/acl/
+invite become plain scoped grants: default-deny (not in the unprivileged bundle; only the
+operator holds `*` and can delegate them), and an operator's explicit scoped grant to a
+folder DOES take effect (the folder manages egress within that scope). This is not a scary
+loosening — non-operators still cannot self-grant (delegation requires holding the grant WITH
+option, which they don't), so egress stays operator-gated; the change is only that an operator's
+EXPLICIT delegation now works, which is the whole point of the grant model.
+`TestNetworkRulesMCP_TierGateDeniesTier2` encodes the OLD tier behavior and must be updated
+(operator-granted folder → allowed IN SCOPE, denied out of scope).
+
+BUT the wiring still lands as a REVIEWED migration with e2e (this §, line ~488) — NOT a
+session tail — because it changes fleet auth. The mechanism is built + proven; wiring (B) +
+the test updates + phase (e) are the reviewed-migration payload. Fork options kept for the
+record:
 
 - **(A) Keep the caps** — reframe each hard cap as a grant only `role:operator`/root holds (e.g.
   `mcp:network_allow` is simply never in any non-operator bundle and never delegable), so the
