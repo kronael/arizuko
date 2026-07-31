@@ -625,6 +625,34 @@ polish):**
 Then: swap the 7 sites, extend each resource's containment test through the wired path, keep
 `AuthorizeStructural` one release as revert valve, krons-soak, delete. Phase (e) follows.
 
+**HARD BLOCKER found by attempting the wiring (2026-07-31) — a POLICY decision, not a bug.**
+Wiring `groups`/`routes`/`tasks` flipped clean (magnitude is redundantly gated by
+`toolGrant`/`db.Authorize` there), but `network_*` FAILED `TestNetworkRulesMCP_TierGateDeniesTier2`
+and the swap was reverted. The test grants `network_allow` via an operator ACL row yet expects
+DENIAL: egress management carries a **hard tier cap** (`tier ≥ 2` can NEVER manage egress) that
+`AuthorizeStructural` enforces ALONE and that **operator grants cannot widen** — documented in
+`network_rules_resource.go`'s own header. This breaks the flip's core premise ("magnitude is
+separately gated, so a containment-only replacement loses nothing"): for egress (and likely
+`add_acl`/`invite_*`/`get_grants` — every "tier ≥ 2 can't manage X" arm), the magnitude cap
+lives ONLY in `AuthorizeStructural`, is NOT redundant with `db.Authorize`, and is a HARD ceiling.
+A containment-only `AuthorizeContainment` LOSES it → an operator-granted deep folder gains egress
+management the structural cap forbids. That is a real security loosening.
+
+Resolution is a POLICY FORK the operator must decide, not a mechanical fix:
+
+- **(A) Keep the caps** — reframe each hard cap as a grant only `role:operator`/root holds (e.g.
+  `mcp:network_allow` is simply never in any non-operator bundle and never delegable), so the
+  cap becomes data (absence of the grant) rather than a tier arm. Equivalence-preserving.
+- **(B) Drop the caps** — 4/R decision 8 taken literally: if the operator grants a folder
+  `network_allow` scoped to its subtree, it MAY manage egress there. Simpler, truer to "grants
+  not tiers", but a deliberate loosening of egress/acl/invite control that must be signed off.
+
+Until (A)/(B) is chosen, `AuthorizeStructural` stays wired for the hard-cap tools. The clean-flip
+tools (`groups`/`routes`/`tasks`/outbound) could flip independently, but a split leaves two
+containment mechanisms live — better to flip all 7 together once the policy is set. The
+mechanism, backfill, create-time delegation, and fallback are all shipped + proven and wait on
+this one decision.
+
 ## Open questions
 
 > **DESIGN CLOSED — all resolved in §"Resolved model" (2026-07-30, decisions 1-13).**
