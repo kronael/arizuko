@@ -16,6 +16,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **Grant delegation with `WITH GRANT OPTION` (spec `4/R`, phase 1).** ACL rows
+  gain a `grant_option` axis (Postgres semantics): a holder may re-delegate a
+  grant onward only if it holds that grant WITH the option, and only a **subset**
+  of what it holds (`auth.Delegate`, enforced on every non-root `add_acl`). The
+  operator is the single delegation root (`role:operator`, `(*, **)` WITH GRANT
+  OPTION), invoked via `/root`; authority strictly narrows down each delegation
+  chain — no depth number gates it. Internally root becomes a **grant, not a
+  folder location** (`id.IsRoot` replaces the `id.Tier == 0` location checks).
+  Tiers still back the default capability bundles for now; their full removal
+  (path = pure coordinate) is the staged remainder of `4/R`.
+
 - **Operator-configurable OAuth providers — surrogate (spec `5/15`).** Adding a
   "Connect &lt;service&gt;" flow is now pure config: drop
   `<datadir>/surrogate/<name>.toml` (`auth_url`/`token_url`/`secret_key` required —
