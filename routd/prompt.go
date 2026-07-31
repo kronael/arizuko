@@ -5,11 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/router"
 	"gopkg.in/yaml.v3"
@@ -138,7 +136,6 @@ type autocallCtx struct {
 	Instance  string
 	Folder    string
 	SessionID string
-	Tier      int
 	Now       time.Time
 }
 
@@ -151,7 +148,6 @@ var autocalls = []autocall{
 	{"now", func(c autocallCtx) string { return c.Now.UTC().Format(time.RFC3339) }},
 	{"instance", func(c autocallCtx) string { return c.Instance }},
 	{"folder", func(c autocallCtx) string { return c.Folder }},
-	{"tier", func(c autocallCtx) string { return strconv.Itoa(c.Tier) }},
 	{"session", func(c autocallCtx) string {
 		id := c.SessionID
 		if len(id) > 8 {
@@ -161,14 +157,13 @@ var autocalls = []autocall{
 	}},
 }
 
-// autocallsBlock renders the <autocalls> block (instance/folder/tier/session/
+// autocallsBlock renders the <autocalls> block (instance/folder/session/
 // now) for (folder, topic).
 func (l *Loop) autocallsBlock(folder, topic string) string {
 	return renderAutocalls(autocallCtx{
 		Instance:  l.instanceName,
 		Folder:    folder,
 		SessionID: l.db.SessionID(folder, topic),
-		Tier:      auth.Resolve(folder).Tier,
 		Now:       time.Now(),
 	})
 }

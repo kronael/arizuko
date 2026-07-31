@@ -39,23 +39,23 @@ func TestRenderAutocalls(t *testing.T) {
 	}{
 		{
 			name: "all fields",
-			ctx:  autocallCtx{Instance: "krons", Folder: "mayai", SessionID: "abcdef1234567", Tier: 2, Now: now},
+			ctx:  autocallCtx{Instance: "krons", Folder: "mayai", SessionID: "abcdef1234567", Now: now},
 			want: []string{
 				"<autocalls>", "now: 2026-04-22T14:30:00Z", "instance: krons",
-				"folder: mayai", "tier: 2", "session: abcdef12", "</autocalls>",
+				"folder: mayai", "session: abcdef12", "</autocalls>",
 			},
 		},
 		{
 			name:    "empty session skipped",
-			ctx:     autocallCtx{Instance: "krons", Folder: "root", Tier: 0, Now: now},
-			want:    []string{"now: 2026-04-22T14:30:00Z", "instance: krons", "folder: root", "tier: 0"},
-			notWant: []string{"session:"},
+			ctx:     autocallCtx{Instance: "krons", Folder: "root", Now: now},
+			want:    []string{"now: 2026-04-22T14:30:00Z", "instance: krons", "folder: root"},
+			notWant: []string{"session:", "tier:"},
 		},
 		{
 			name:    "empty instance and folder skipped",
-			ctx:     autocallCtx{Tier: 3, Now: now},
-			want:    []string{"now:", "tier: 3"},
-			notWant: []string{"instance:", "folder:", "session:"},
+			ctx:     autocallCtx{Now: now},
+			want:    []string{"now:"},
+			notWant: []string{"instance:", "folder:", "session:", "tier:"},
 		},
 	}
 	for _, tc := range tests {

@@ -36,8 +36,8 @@ func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
 	rules := grants.DeriveRules(s, folder, id.Tier, auth.WorldOf(folder))
 	tools := ipc.ListTools(folder, rules)
 
-	fmt.Fprintf(w, `<p class="dim">%d tools available to <code>%s</code> (tier %d). Read-only — modify via grants or tier.</p>`,
-		len(tools), esc(folder), id.Tier)
+	fmt.Fprintf(w, `<p class="dim">%d tools available to <code>%s</code>. Read-only — modify via grants.</p>`,
+		len(tools), esc(folder))
 
 	for _, t := range tools {
 		schemaJSON, _ := json.MarshalIndent(t.InputSchema, "", "  ")
