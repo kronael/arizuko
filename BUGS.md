@@ -2140,3 +2140,23 @@ re-shipped corrected flip (`be724eed`):
   the tier bundles today (differential), so dashd's render matches the socket's.
   It only drifts once grants come from delegation (tier-removal steps b/d/e); fold
   dashd onto the shared render THEN.
+
+## CEO audit — release-readiness doc gaps (2026-07-31)
+
+Release-ready per the CEO audit after these (docs/positioning, not code):
+
+- **Connector/ext-mcp capability is buried (biggest pitch-vs-capability gap).** The
+  ext-mcp connector injection (5/13) — arizuko's actual differentiator — has no
+  landing-page or concepts-page presence, only `reference/mcp.html:830-871` + one
+  line in `security/index.html:44`. Fix: write `concepts/ext-mcp.html` (connectors)
+  + link from landing; add `howto/add-connector.html` mirroring
+  `howto/oauth-provider.html`. Half-day.
+- **Tier-language doc-debt (NOT stale yet — tracked for the 4/R rename pass).** ~27
+  web pages + root docs say "tier"; today they're still factually accurate (roles ==
+  the tier bundles), so NOT release-blocking. But when 4/R phase (b)
+  (AuthorizeStructural→scope) + the tier-scalar deletion land, every "tier"-language
+  file must update in one coordinated pass. Files to sweep: `security/index.html`,
+  `concepts/*`, `reference/mcp.html`+`grants.html`, root `SECURITY.md`/`ARCHITECTURE.md`/
+  `ROUTING.md`, ant self-skills reading `ARIZUKO_TIER`. Owner: the 4/R rename pass.
+- **README/landing polish:** SDK-comparison pitch (`README.md:88-102`) should move onto
+  `index.html` (done: README "What's planned" 5/17-shipped staleness fixed 2026-07-31).

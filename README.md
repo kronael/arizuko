@@ -184,8 +184,8 @@ Full threat model in [SECURITY.md](SECURITY.md).
 
 ## What's planned
 
-- Uniform MCP+REST across the cold tier — one handler per resource, both faces (REST authored, MCP derived) ([spec](specs/5/17-openapi-mcp.md))
 - End-user agent provisioning — POST a definition, get a tenant + chat token ([spec](specs/5/5-tenant-self-service.md))
+- Removing tiers — capability from delegated roles/grants, not folder depth ([spec](specs/4/R-paths-roles.md), in progress)
 
 ## Build & test
 
