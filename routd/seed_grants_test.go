@@ -147,6 +147,79 @@ func TestSeedTierRoles_EnforcesAndSkips(t *testing.T) {
 	}
 }
 
+// TestBackfillFolderGrants_AdditiveAndIdempotent pins 4/R phase-(b) step 2: the
+// backfill writes folder-scoped containment rows WITHOUT changing what
+// deriveFolderGrants decides today (additive — the flip that reads the scopes is
+// step 4), and is idempotent / skip-if-present.
+func TestBackfillFolderGrants_AdditiveAndIdempotent(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	st := store.New(db.SQL())
+
+	folders := []string{"w", "w/o", "w/o/t"}
+	for _, f := range folders {
+		if err := db.PutGroup(core.Group{Folder: f}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	checkTools := []string{"register_group", "schedule_task", "reply", "add_route",
+		"invite_create", "escalate_group", "delegate_group", "network_allow"}
+	decide := func(f string) map[string]bool {
+		rules := deriveFolderGrants(db, f)
+		m := map[string]bool{}
+		for _, tool := range checkTools {
+			m[tool] = grants.CheckAction(rules, tool, nil)
+		}
+		return m
+	}
+
+	before := map[string]map[string]bool{}
+	for _, f := range folders {
+		before[f] = decide(f)
+	}
+
+	if err := BackfillFolderGrants(st, folders); err != nil {
+		t.Fatal(err)
+	}
+
+	// Additive: no deriveFolderGrants decision changed.
+	for _, f := range folders {
+		after := decide(f)
+		for _, tool := range checkTools {
+			if before[f][tool] != after[tool] {
+				t.Errorf("backfill changed decision: folder %q tool %q %v→%v (must be additive)",
+					f, tool, before[f][tool], after[tool])
+			}
+		}
+	}
+
+	// Scoped containment rows landed: tier-1 "w" gets register_group scoped w/*.
+	if !hasScopedMCPRow(st, "folder:w") {
+		t.Fatal("backfill wrote no scoped mcp row for folder:w")
+	}
+	foundDirectChild := false
+	for _, r := range st.ListACL("folder:w") {
+		if r.Action == "mcp:register_group" && r.Scope == "w/*" {
+			foundDirectChild = true
+		}
+	}
+	if !foundDirectChild {
+		t.Error("expected folder:w mcp:register_group scoped w/* (direct-child containment)")
+	}
+
+	// Idempotent + skip-if-present: a second run writes nothing.
+	n := len(st.ListACL("folder:w"))
+	if err := BackfillFolderGrants(st, folders); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(st.ListACL("folder:w")); got != n {
+		t.Errorf("backfill not idempotent: folder:w rows %d→%d", n, got)
+	}
+}
+
 // worldOf mirrors auth.WorldOf for the test without importing it twice.
 func worldOf(folder string) string {
 	if folder == "" {

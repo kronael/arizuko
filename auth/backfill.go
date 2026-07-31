@@ -126,6 +126,25 @@ func BackfillScopes(tool string, tier int, folder string) []string {
 	return nil
 }
 
+// StructuralTools is every tool AuthorizeStructural gates — the domain the
+// backfill migration writes folder-scoped grants for. Kept in sync with the
+// switch in policy.go (the equivalence oracle covers a representative subset;
+// this is the full set the backfill iterates).
+var StructuralTools = []string{
+	"list_tasks", "inspect_tasks",
+	"send", "send_file", "send_voice", "reply", "post", "like", "dislike",
+	"delete", "edit", "forward", "quote", "repost",
+	"pin_message", "unpin_message", "unpin_all", "pane_set_prompts", "pane_set_title",
+	"reset_session", "fork_topic", "inject_message",
+	"register_group", "escalate_group", "delegate_group",
+	"list_routes", "set_routes", "add_route", "delete_route",
+	"network_allow", "network_deny", "network_list",
+	"schedule_task", "pause_task", "resume_task", "cancel_task",
+	"set_group_open", "set_observe_window", "observe_group", "unobserve_group",
+	"get_grants", "set_grants", "list_acl",
+	"invite_create", "invite_revoke", "add_acl", "remove_acl",
+}
+
 // ancestorScopes returns exact-match scopes for each strict ancestor of folder
 // ("a/b/c" → ["a", "a/b"]) — the parent-chain half of observe_group's tier-2 rule.
 func ancestorScopes(folder string) []string {

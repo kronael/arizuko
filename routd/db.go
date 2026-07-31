@@ -194,7 +194,18 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
-	return &DB{db: sqldb}, nil
+	d := &DB{db: sqldb}
+	// 4/R phase-(b) step 2: backfill folder-scoped containment grants for existing
+	// folders (additive, per-folder skip-if-present — see BackfillFolderGrants).
+	folders := make([]string, 0)
+	for f := range d.AllGroups() {
+		folders = append(folders, f)
+	}
+	if err := BackfillFolderGrants(store.New(sqldb), folders); err != nil {
+		sqldb.Close()
+		return nil, err
+	}
+	return d, nil
 }
 
 func (d *DB) Close() error {

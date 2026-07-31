@@ -10,6 +10,7 @@ package routd
 import (
 	"strings"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/store"
@@ -103,6 +104,74 @@ func aclRowsEqual(a, b []core.ACLRow) bool {
 		}
 	}
 	return true
+}
+
+// BackfillFolderGrants is 4/R phase-(b) step 2 (specs/4/R §"Phase (b) cutover
+// design"): for every existing folder it writes folder:<path> acl rows scoped to
+// reproduce AuthorizeStructural's per-tool containment (auth.BackfillScopes), so
+// containment becomes DATA before the enforcement flip deletes AuthorizeStructural.
+//
+// ADDITIVE / no enforcement change today: the string bundle (folderGrantsFromACLOnly)
+// ignores scope so these add no new tools (BackfillScopes writes only tools the
+// tier holds); db.Authorize is called with the caller's OWN-folder scope, which a
+// folder-scoped row matches exactly as the DeriveRules fallback did; and
+// AuthorizeStructural still runs as the containment gate. The scopes only start
+// doing work at step 4 (flip), which reads them with scope=TARGET.
+//
+// Per-folder skip-if-present is BOTH idempotency AND the boundary with create-time
+// delegation: a folder that already has scoped mcp rows (backfilled earlier, or
+// delegated at create) is left untouched — no duplication, no clobbering an
+// operator's later edits.
+func BackfillFolderGrants(st *store.Store, folders []string) error {
+	for _, folder := range folders {
+		principal := "folder:" + folder
+		if hasScopedMCPRow(st, principal) {
+			continue
+		}
+		tier := auth.Resolve(folder).Tier
+		// Effective permission = DeriveRules bundle ∩ AuthorizeStructural containment.
+		// AuthorizeStructural allows some tools (network_allow, schedule_task) at
+		// tiers whose DeriveRules bundle does NOT grant them — those are denied today
+		// by the bundle gate, so the backfill must NOT grant them (that would loosen).
+		// Gate each tool on the tier bundle; scope it by AuthorizeStructural's shape.
+		bundle := grants.DeriveRules(nil, folder, tier, auth.WorldOf(folder))
+		for _, tool := range auth.StructuralTools {
+			if !grants.CheckAction(bundle, tool, nil) {
+				continue
+			}
+			for _, scope := range auth.BackfillScopes(tool, tier, folder) {
+				if scope == "**" {
+					// Unconstrained (tier-0/operator or a no-containment tool); the
+					// role bundle already carries it at ** — a folder-scoped ** row
+					// would just duplicate. Containment rows (F/**, F/*, …) are the
+					// point; skip the vacuous ones.
+					continue
+				}
+				if err := st.PutACLRow(core.ACLRow{
+					Principal:   principal,
+					Action:      "mcp:" + tool,
+					Scope:       scope,
+					Effect:      "allow",
+					GrantedBy:   "system:backfill-4r",
+					GrantOption: true,
+				}); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// hasScopedMCPRow reports whether the principal already holds a non-wildcard
+// (scope != "**") mcp: acl row — the marker that it was backfilled or delegated.
+func hasScopedMCPRow(st *store.Store, principal string) bool {
+	for _, r := range st.ListACL(principal) {
+		if strings.HasPrefix(r.Action, "mcp:") && r.Scope != "**" {
+			return true
+		}
+	}
+	return false
 }
 
 // parseRule splits a DeriveRules rule into (verb, params, deny). Formats:
