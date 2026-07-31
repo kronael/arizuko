@@ -456,10 +456,16 @@ The 5 bugs and their fixes:
 row it holds WITH the option (root bypasses via `IsRoot`), and the scope-check bounds
 delegation to the granter's scope. A group can't hand out authority it wasn't delegated.
 
-(d) egress + web-mount off `tierOf` — DONE (`edd42181`): `container/runner.go` gates
-unconstrained egress on an `egress` grant and the web mounts on `web:publish` (from the
-group's acl bundle), not depth. Only `tierOf:811` (WEB_PREFIX = which-vhost coordinate)
-remains — the path coordinate the design keeps.
+(d) egress + web-mount off `tierOf` — **REVERTED** (`edd42181` → `3a8b8291`, CTO audit
+2026-07-31). The flip was NOT equivalence-preserving: `container.tierOf` (`count("/")+1`)
+and `auth.Resolve().Tier` (`min(count,3)`, floored to 1) diverge below the top level, so
+folding the gate into the tier-1 grant bundle gave every 2-segment sub-group unconstrained
+egress and broke `/root` web mounts (`CheckAction(["*"], "web:publish")` is false —
+`matchGlob` stops `*` at `:`). The tier scalar CANNOT express the old `tierOf ≤ 1` egress
+predicate. Egress/web are back on `tierOf` (the accurate, equivalence-preserving state).
+The real (d) rides the **model-shift + backfill** below: write explicit per-folder
+`egress`/`web:publish` grants that reproduce the `tierOf` predicate EXACTLY, with an
+equivalence test enumerating real folder paths (not the tier scalar), THEN delete `tierOf`.
 
 Remaining (audited 2026-07-31, exact live non-test call sites):
 
