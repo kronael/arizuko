@@ -14,6 +14,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.63.0] — 2026-07-31
+
+> arizuko v0.63.0 — packages, connectors, and delegated grants
+>
+> Install capabilities as packages, wire OAuth connectors from config, and
+> re-delegate grants with a `WITH GRANT OPTION` level.
+>
+> • `arizuko packages install|upgrade|remove` — capabilities from a git source, hot-applied, no restart
+> • Surrogate OAuth connectors — add a "Connect &lt;service&gt;" flow with a TOML drop-in + env creds
+> • Grant delegation — pass onward only a subset of what you hold, WITH GRANT OPTION (4/R phase 1)
+> • `route_tokens` REST folded onto its resreg resource — one handler, both faces
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Added
 
 - **Grant delegation with `WITH GRANT OPTION` (spec `4/R`, phase 1).** ACL rows
