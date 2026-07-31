@@ -520,7 +520,6 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 	}
 }
 
-// deriveFolderGrants is the single grant-rule renderer for a folder: tier
 // deriveFolderGrants renders a folder agent's mcp: rule bundle from the acl/role
 // graph (4/R grant-surface flip, corrected). Grants come from the folder's assigned
 // role + operator overlay + delegated rows — NOT from tier-derived DeriveRules —
@@ -535,8 +534,8 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 //     blind-rebind-every-call version.
 //   - BUG 3 (denies last): folderGrantsFromACLOnly partitions denies last, so an
 //     operator deny wins over a role allow regardless of row order.
-//   - BUG 1 (real path): the differential test drives THIS function (not a parallel
-//     the differential test).
+//   - BUG 1 (real path): the differential test drives THIS function, not a parallel
+//     re-implementation, so the equivalence it proves is the one that ships.
 func deriveFolderGrants(d *DB, folder string) []string {
 	st := store.New(d.SQL())
 	principal := "folder:" + folder

@@ -2160,3 +2160,33 @@ Release-ready per the CEO audit after these (docs/positioning, not code):
   `ROUTING.md`, ant self-skills reading `ARIZUKO_TIER`. Owner: the 4/R rename pass.
 - **README/landing polish:** SDK-comparison pitch (`README.md:88-102`) should move onto
   `index.html` (done: README "What's planned" 5/17-shipped staleness fixed 2026-07-31).
+
+## CTO audit — 4/R partial cutover (2026-07-31)
+
+CRITICAL C1+C2 FIXED by reverting step (d) `edd42181` (commit `3a8b8291`): `egress`/`web:publish`
+off `tierOf` onto grants was NOT equivalence-preserving — `container.tierOf` (count+1) and
+`auth.Resolve().Tier` (min(count,3), floored to 1) diverge below top level, so 18 live sub-groups
+would gain unconstrained egress and `/root` turns silently lost web mounts (`CheckAction(["*"],
+"web:publish")` is false — `matchGlob` stops `*` at `:`). Real fix (deferred, needs sign-off):
+a reviewed backfill migration writing explicit per-folder `egress`/`web:publish` grants that
+reproduce the `tierOf` predicate EXACTLY, then delete `tierOf` — the capability was never
+derivable from the tier scalar. H1 (test fixtures) + H2/H3 (atomic seed + loud assign) FIXED.
+
+Open (MEDIUM, deferred — none release-blocking; fail-closed or latent):
+
+- **M3 — folderGrantsFromACLOnly drops ACL row Scope.** `routd/seed_grants.go` renders a
+  scoped operator DENY (`mcp:send` on `acme/eng/secret`) as a GLOBAL `!send` for the folder.
+  Fail-closed (over-denies), but wrong. The flip made the overlay the whole bundle so it bites
+  more. Fix: thread scope into the rule render / evaluate scope in CheckAction.
+- **M4 — `/root` gets a READ-ONLY share mount (inverted).** `container/runner.go:554`
+  `CheckAction(["*"], "share_mount", {readonly:"true"})` matches (rule `*` has no params) so
+  elevated gets RO while tier-1 gets RW. Pre-existing `*`-glob-vs-params gap (same as C2).
+- **M5 — no un-assign path.** `store.RemoveMembershipBare` has no caller; `remove_acl` scope `**`
+  only deletes `role:operator` edges. The operator-rebind rationale isn't reachable via any tool.
+- **M6 — role rows are scope `**`.** Bypasses authorize.go's "tier defaults apply only at own
+  folder" guard. Harmless today (every db.Authorize passes scope==socket folder) but the `**`
+  scope, not the guard, bounds delegation once `AuthorizeStructural` is deleted in step (b).
+- **M1/BUG5 — dashd tools display off DeriveRules.** `dashd/tools_admin.go:36`. The revert
+  neutralized the "made-it-live" divergence (egress/web back on tierOf); still a second sink to
+  fold when step (e) lands. **M2 self-resolved by the revert** — `SECURITY.md:210` "tier ≤ 1
+  egress" is accurate again.
