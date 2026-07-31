@@ -595,6 +595,36 @@ id.Folder,tool,tgt,id.IsRoot)`, extend the oracle to assert the wired path == th
 This keeps phase (b) reversible and role-bundle-agnostic; phase (e) (delete role bundles +
 `DeriveRules`/`Resolve`/tier) is the separate follow-on. NOT yet wired — awaiting sign-off.
 
+**Mechanism BUILT + PROVEN (inert), 2026-07-31.** `auth.AuthorizeContainment` shipped
+(`fd68ac8a`) reading `folder:` rows only; `TestAuthorizeContainment_MatchesStructural` seeds
+via the REAL `BackfillFolderGrants` and proves it equals `AuthorizeStructural` for every
+magnitude-granted tool × folder(depth 1-4) × target. The backfill writes `**` no-containment
+rows + unconditional outbound `F/**`, and `folderGrantsFromACLOnly` excludes backfill-marked
+rows so the magnitude firewall is unpolluted (`410e8dc9`). What's proven is the READ path; the
+inert mechanism is turnkey.
+
+**Wiring prerequisites (before flipping the 7 call sites — each a real dependency, not
+polish):**
+
+1. **Create-time delegation** — `AuthorizeContainment` needs the caller folder's scoped rows
+   to exist. The backfill covers PRE-EXISTING folders at `Open`; a NEWLY registered folder has
+   none until the next `Open`, so `register_group`/`SetupGroup` MUST delegate the child's
+   scoped grants at create (via `auth.Delegate`, subset-of-held). Without it, wiring denies all
+   sub-operations of any folder created after boot. This is the steady-state half of the model
+   the backfill only catches up.
+2. **ipc call-site magnitude verification** — the resreg sites (groups/routes/network/acl/
+   tasks) run `toolGrant`/`db.Authorize` magnitude BEFORE `AuthorizeStructural` (verified), so a
+   containment-only swap is safe. The `ipc/ipc.go`+`ipc/inspect.go` sites must be confirmed the
+   same before their swap — else the swap drops magnitude.
+3. **Residues** — `register_group`'s "worlds are CLI-only" (root, single-segment target) is a
+   non-containment rule `AuthorizeContainment` (root-bypass) doesn't express; preserve it inline
+   at the register site.
+4. **Test seeding** — resreg containment tests must run `BackfillFolderGrants` (or delegate) for
+   the folder before asserting, since the gate now reads data.
+
+Then: swap the 7 sites, extend each resource's containment test through the wired path, keep
+`AuthorizeStructural` one release as revert valve, krons-soak, delete. Phase (e) follows.
+
 ## Open questions
 
 > **DESIGN CLOSED — all resolved in §"Resolved model" (2026-07-30, decisions 1-13).**
