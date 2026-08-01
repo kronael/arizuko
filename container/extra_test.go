@@ -12,7 +12,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// worldOf / tierOf
+// worldOf
 // ---------------------------------------------------------------------------
 
 func TestWorldOf(t *testing.T) {
@@ -30,25 +30,6 @@ func TestWorldOf(t *testing.T) {
 	for _, c := range cases {
 		if got := worldOf(c.folder, c.elevated); got != c.want {
 			t.Errorf("worldOf(%q, %v) = %q, want %q", c.folder, c.elevated, got, c.want)
-		}
-	}
-}
-
-func TestTierOf(t *testing.T) {
-	cases := []struct {
-		folder   string
-		elevated bool
-		want     int
-	}{
-		{"", false, 0},
-		{"atlas", false, 1}, // a bare top-level world is tier 1, not root
-		{"atlas/support", false, 2},
-		{"atlas/eng/sre", false, 3},
-		{"any", true, 0}, // only an elevated /root spawn is tier 0
-	}
-	for _, c := range cases {
-		if got := tierOf(c.folder, c.elevated); got != c.want {
-			t.Errorf("tierOf(%q, %v) = %d, want %d", c.folder, c.elevated, got, c.want)
 		}
 	}
 }

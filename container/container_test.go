@@ -175,7 +175,6 @@ func TestSeedSettings(t *testing.T) {
 	}
 	in := Input{
 		Folder:  "testgroup",
-		Depth:   2,
 		Channel: "telegram",
 	}
 
@@ -201,8 +200,8 @@ func TestSeedSettings(t *testing.T) {
 	if env["ARIZUKO_IS_ROOT"] != "1" {
 		t.Errorf("is_root = %v", env["ARIZUKO_IS_ROOT"])
 	}
-	if env["ARIZUKO_DELEGATE_DEPTH"] != "2" {
-		t.Errorf("depth = %v", env["ARIZUKO_DELEGATE_DEPTH"])
+	if _, ok := env["ARIZUKO_DELEGATE_DEPTH"]; ok {
+		t.Error("ARIZUKO_DELEGATE_DEPTH must be dropped (4/R — no delegate depth)")
 	}
 	if env["WEB_HOST"] != "https://example.com" {
 		t.Errorf("web_host = %v", env["WEB_HOST"])
@@ -244,7 +243,7 @@ func TestSeedSettings(t *testing.T) {
 func TestSeedSettingsNonRoot(t *testing.T) {
 	d := t.TempDir()
 	cfg := &core.Config{Name: "Bot"}
-	in := Input{Folder: "atlas/support"}
+	in := Input{Folder: "atlas/support", WebPublish: true} // holds web:publish → vhost prefix
 
 	seedSettings(d, cfg, in, false)
 
@@ -280,7 +279,7 @@ func TestSeedSettingsNonRoot(t *testing.T) {
 func TestSeedSettingsTier1World(t *testing.T) {
 	d := t.TempDir()
 	cfg := &core.Config{Name: "Bot"}
-	in := Input{Folder: "atlas"}
+	in := Input{Folder: "atlas", WebPublish: true} // holds web:publish → vhost prefix
 
 	seedSettings(d, cfg, in, false)
 
@@ -481,7 +480,6 @@ func TestInputJSON(t *testing.T) {
 		ChatJID:   "chat@jid",
 		Folder:    "mygroup",
 		MsgCount:  5,
-		Depth:     1,
 		Channel:   "telegram",
 		MessageID: "msg-42",
 	}

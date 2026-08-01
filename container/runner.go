@@ -22,7 +22,6 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/diary"
-	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/mountsec"
@@ -65,19 +64,6 @@ func worldOf(folder string, elevated bool) string {
 	return folder
 }
 
-// tierOf resolves the spawn's tier. Elevated (operator /root) is the ONLY
-// path to tier 0; a normal spawn is tier ≥1 by depth (top-level world = 1).
-// Agrees with auth.Resolve at the top level: both give a bare folder tier 1.
-func tierOf(folder string, elevated bool) int {
-	if elevated {
-		return 0
-	}
-	if folder == "" {
-		return 0
-	}
-	return strings.Count(folder, "/") + 1
-}
-
 type Input struct {
 	Prompt    string            `json:"prompt"`
 	SessionID string            `json:"sessionId,omitempty"`
@@ -87,10 +73,8 @@ type Input struct {
 	AsstName  string            `json:"assistantName,omitempty"`
 	Secrets   map[string]string `json:"secrets,omitempty"`
 	MsgCount  int               `json:"messageCount,omitempty"`
-	Depth     int               `json:"delegateDepth,omitempty"`
 	Channel   string            `json:"channelName,omitempty"`
 	MessageID string            `json:"messageId,omitempty"`
-	Grants    []string          `json:"grants,omitempty"`
 	Sender    string            `json:"sender,omitempty"`
 	Persona   string            `json:"persona,omitempty"`
 	SystemMd  string            `json:"systemMd,omitempty"`
@@ -102,8 +86,17 @@ type Input struct {
 	// spawn is never root: folder shape no longer grants it. routd sets this true
 	// only when the turn resolved to an operator elevation (steer.go cmdRoot).
 	// Drives root=Elevated: tier 0, the /var/lib/groups mount, ARIZUKO_IS_ROOT=1.
-	Elevated bool   `json:"-"`
-	Model    string `json:"-"` // per-group model override; empty = instance default
+	Elevated bool `json:"-"`
+	// ShareReadOnly/EgressOpen/WebPublish are the 4/R container-capability grant
+	// decisions routd resolved from the folder's acl rows (mounts/egress/web are
+	// grants, not tier). ShareReadOnly downgrades /var/lib/share to RO; EgressOpen
+	// appends "*" to the crackbox allowlist (unconstrained network); WebPublish mounts
+	// the web surfaces (/var/lib/www RO + public_html/private_html RW). All default
+	// false. (EgressOpen is distinct from the Egress EgressConfig field below.)
+	ShareReadOnly bool   `json:"-"`
+	EgressOpen    bool   `json:"-"`
+	WebPublish    bool   `json:"-"`
+	Model         string `json:"-"` // per-group model override; empty = instance default
 	// QueryTimeoutMs is the agent's in-container query timeout, derived from
 	// runed's RunTTL and set just below it so the agent aborts + delivers a
 	// graceful summary BEFORE runed's hard container kill. 0 = unset (agent
@@ -179,9 +172,10 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			"arizuko-%s-%s-%d", cfg.Name, safe, time.Now().UnixMilli())
 	}
 
-	// Tier 0/1 are operator-run bots; append "*" so they pass crackbox
-	// unconstrained while still benefiting from logging/secret injection.
-	if tierOf(in.Folder, elevated) <= 1 && in.Egress.AllowlistFn != nil {
+	// 4/R: the `egress` grant (resolved by routd, /root or an operator delegation)
+	// appends "*" so the spawn passes crackbox unconstrained while still benefiting
+	// from logging/secret injection. No grant → the inherited allowlist only.
+	if in.EgressOpen && in.Egress.AllowlistFn != nil {
 		base := in.Egress.AllowlistFn
 		in.Egress.AllowlistFn = func(id string) ([]string, error) {
 			list, err := base(id)
@@ -247,7 +241,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		if uid := os.Getuid(); uid > 0 && uid != 1000 {
 			expectedUID = uid
 		}
-		if stop, err := ipc.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder, in.Grants, expectedUID, os.Getenv("ARIZUKO_LOCAL_SUB")); err != nil {
+		if stop, err := ipc.ServeMCP(sockPath, in.GatedFns, in.StoreFns, in.Folder, in.Elevated, expectedUID, os.Getenv("ARIZUKO_LOCAL_SUB")); err != nil {
 			slog.Warn("failed to start MCP server",
 				"group", in.Folder, "container", containerName, "err", err)
 		} else {
@@ -550,7 +544,7 @@ func buildMounts(
 	m = append(m, volumeMount{
 		Host:      hp(cfg, share),
 		Container: "/var/lib/share",
-		RO:        grants.CheckAction(in.Grants, "share_mount", map[string]string{"readonly": "true"}),
+		RO:        in.ShareReadOnly, // 4/R: a `share_mount(readonly=true)` grant downgrades to RO
 	})
 
 	claudeDir := filepath.Join(groupDir, ".claude")
@@ -606,12 +600,12 @@ func buildMounts(
 		}
 	}
 
-	// specs/5/V-web-vhosts.md: tier 0-2 get RO access to the whole public
-	// web tree at /var/lib/www, plus per-group bind-mount slots for the
-	// writable web surfaces (~/public_html and ~/private_html). Tier 3+
-	// get no web surface.
+	// specs/5/V-web-vhosts.md: a folder with the `web:publish` grant (resolved by
+	// routd, 4/R) gets RO access to the whole public web tree at /var/lib/www, plus
+	// per-group bind-mount slots for the writable web surfaces (~/public_html and
+	// ~/private_html). No grant → no web surface.
 	pubHost := filepath.Join(cfg.WebDir, "pub")
-	if fi, err := os.Stat(pubHost); err == nil && fi.IsDir() && tierOf(in.Folder, elevated) <= 2 {
+	if fi, err := os.Stat(pubHost); err == nil && fi.IsDir() && in.WebPublish {
 		m = append(m, volumeMount{
 			Host:      hp(cfg, pubHost),
 			Container: "/var/lib/www",
@@ -619,7 +613,7 @@ func buildMounts(
 		})
 	}
 
-	if tierOf(in.Folder, elevated) <= 2 {
+	if in.WebPublish {
 		// ~/public_html: served at /pub/<folder>/ (no auth).
 		pubGroupHost := filepath.Join(cfg.WebDir, "pub", in.Folder)
 		os.MkdirAll(pubGroupHost, 0o755)
@@ -804,22 +798,19 @@ func seedSettings(
 	env["WEB_HOST"] = cfg.WebHost
 	env["ARIZUKO_ASSISTANT_NAME"] = cfg.Name
 	env["ARIZUKO_IS_ROOT"] = ""
-	// WEB_PREFIX tells the agent its publishing surface: "pub" for an elevated
-	// /root turn (served at /pub/<folder>/), the world subdomain for tier 1-2,
-	// "" for tier 3+ (no web mount). Spec: specs/5/V-web-vhosts.md.
-	tier := tierOf(in.Folder, elevated)
+	// WEB_PREFIX tells the agent its publishing surface: "pub" for an elevated /root
+	// turn (served at /pub/<folder>/), the world subdomain when the folder holds
+	// web:publish (its world's vhost — a top-level world IS its own world), "" with no
+	// web grant (no mount, no surface). Spec: specs/5/V-web-vhosts.md.
 	switch {
 	case elevated:
 		env["ARIZUKO_IS_ROOT"] = "1"
 		env["WEB_PREFIX"] = "pub"
-	case tier == 1:
-		env["WEB_PREFIX"] = in.Folder // vhost subdomain prefix
-	case tier == 2:
-		env["WEB_PREFIX"] = worldOf(in.Folder, elevated) // same vhost as parent world
+	case in.WebPublish:
+		env["WEB_PREFIX"] = worldOf(in.Folder, elevated)
 	default:
-		env["WEB_PREFIX"] = "" // tier 3+: no mount, no surface
+		env["WEB_PREFIX"] = ""
 	}
-	env["ARIZUKO_DELEGATE_DEPTH"] = strconv.Itoa(in.Depth)
 	env["ARIZUKO_GROUP_FOLDER"] = in.Folder
 	env["ARIZUKO_GROUP_NAME"] = groupfolder.NameOf(in.Folder)
 	env["ARIZUKO_GROUP_PARENT"] = groupfolder.ParentOf(in.Folder)

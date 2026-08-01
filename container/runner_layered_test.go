@@ -48,7 +48,7 @@ func TestBuildMounts_FHSPaths(t *testing.T) {
 	os.MkdirAll(filepath.Join(cfg.WebDir, "pub"), 0o755)
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
 
-	in := Input{Folder: "atlas/support"}
+	in := Input{Folder: "atlas/support", WebPublish: true}
 	groupDir := filepath.Join(cfg.GroupsDir, in.Folder)
 	os.MkdirAll(groupDir, 0o755)
 	mounts := buildMounts(cfg, in, groupDir, false, folders)
@@ -128,7 +128,7 @@ func TestBuildMounts_WWWBeforeHomeSlot(t *testing.T) {
 	os.MkdirAll(filepath.Join(cfg.WebDir, "pub"), 0o755)
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
 
-	in := Input{Folder: "atlas"}
+	in := Input{Folder: "atlas", WebPublish: true}
 	groupDir := filepath.Join(cfg.GroupsDir, in.Folder)
 	os.MkdirAll(groupDir, 0o755)
 	mounts := buildMounts(cfg, in, groupDir, false, folders)
@@ -161,7 +161,7 @@ func TestBuildMounts_HomeSlotsCreatesPerGroupDirs(t *testing.T) {
 	os.MkdirAll(cfg.IpcDir, 0o755)
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
 
-	in := Input{Folder: "newgroup"}
+	in := Input{Folder: "newgroup", WebPublish: true}
 	groupDir := filepath.Join(cfg.GroupsDir, in.Folder)
 	os.MkdirAll(groupDir, 0o755)
 	buildMounts(cfg, in, groupDir, false, folders)

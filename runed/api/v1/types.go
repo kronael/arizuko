@@ -34,13 +34,16 @@ type RunRequest struct {
 	// it to container.Input.Elevated → root=Elevated (tier 0, /var/lib/groups
 	// mount). A normal spawn is never root; folder shape does not grant it.
 	Elevated bool `json:"elevated,omitempty"`
-	// Grants is the per-folder grant ruleset routd derived (tier defaults + ACL);
-	// runed sets it on container.Input so buildMounts (share_mount) + the tier-0/1
-	// egress "*" logic see it. EgressAllowlist is the resolved crackbox allowlist
-	// (network_rules ancestry); runed wires it into the EgressConfig.AllowlistFn so
-	// the spawn is attached to the egress-isolated network. Both empty = no
-	// constraint (runed has neither store; routd is the authz plane — spec 5/E).
-	Grants          []string `json:"grants,omitempty"`
+	// ShareReadOnly/Egress/WebPublish are the container-capability DECISIONS routd
+	// resolved from the folder's acl grants (4/R: mounts/egress/web are grants, not
+	// tier). runed forwards them to container.Input so buildMounts downgrades the
+	// share to RO, appends "*" to the egress allowlist, and mounts the web surfaces —
+	// each only when its grant holds. EgressAllowlist is the resolved crackbox
+	// allowlist (network_rules ancestry); runed wires it into EgressConfig.AllowlistFn.
+	// routd is the authz plane; runed has no store (spec 5/E).
+	ShareReadOnly   bool     `json:"share_read_only,omitempty"`
+	Egress          bool     `json:"egress,omitempty"`
+	WebPublish      bool     `json:"web_publish,omitempty"`
 	EgressAllowlist []string `json:"egress_allowlist,omitempty"`
 	// Secrets is the folder-ancestry secret set with the trigger user's
 	// user-scoped overrides overlaid (BYOA), resolved + DECRYPTED by routd (it

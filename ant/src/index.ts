@@ -282,7 +282,10 @@ function buildSessionConfig(
   resumeAt?: string,
 ): SessionConfig {
   const extraDirs: string[] = [];
-  const isRoot = !containerInput.groupFolder.includes('/');
+  // 4/R: root is an operator /root elevation, NOT a folder shape — a top-level world
+  // has no slash but is NOT root. Read the elevation marker the gateway sets, never
+  // derive it from the path (a named world would wrongly skip /var/lib/share).
+  const isRoot = process.env.ARIZUKO_IS_ROOT === '1';
   if (!isRoot && fs.existsSync('/var/lib/share')) extraDirs.push('/var/lib/share');
   try {
     for (const e of fs.readdirSync('/mnt')) {

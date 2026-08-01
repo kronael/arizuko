@@ -214,8 +214,9 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		TurnID: req.TurnID, Token: jws, Isolated: req.Isolated,
 		Elevated: req.Elevated,
 		Model:    req.Model, ContainerConfig: req.ContainerConfig,
-		Grants: req.Grants, EgressAllowlist: req.EgressAllowlist,
-		Secrets:       req.Secrets,
+		ShareReadOnly: req.ShareReadOnly, Egress: req.Egress, WebPublish: req.WebPublish,
+		EgressAllowlist: req.EgressAllowlist,
+		Secrets:         req.Secrets,
 		RunTTL:        m.runTTL,
 		RegisterSteer: func(steer func(batch string) bool) { m.SetSteer(folder, runID, steer) },
 	})

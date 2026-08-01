@@ -48,7 +48,9 @@ func TestHTTPRunThreadsFullRunSpec(t *testing.T) {
 		CapabilityScopes: []types.Scope{"messages:send:own_group", "admin:everything"},
 		Model:            "claude-opus-4-8",
 		ContainerConfig:  map[string]any{"MaxChildren": 4},
-		Grants:           []string{"!share_mount(acme)"},
+		ShareReadOnly:    true,
+		Egress:           true,
+		WebPublish:       true,
 		EgressAllowlist:  []string{"api.acme.com", "github.com"},
 	})
 	if got.Code != 200 {
@@ -67,8 +69,8 @@ func TestHTTPRunThreadsFullRunSpec(t *testing.T) {
 	if v := spec.ContainerConfig["MaxChildren"]; v != float64(4) {
 		t.Fatalf("container_config not threaded: %+v", spec.ContainerConfig)
 	}
-	if len(spec.Grants) != 1 || spec.Grants[0] != "!share_mount(acme)" {
-		t.Fatalf("grants not threaded: %+v", spec.Grants)
+	if !spec.ShareReadOnly || !spec.Egress || !spec.WebPublish {
+		t.Fatalf("capability grants not threaded: %+v", spec)
 	}
 	if len(spec.EgressAllowlist) != 2 || spec.EgressAllowlist[0] != "api.acme.com" {
 		t.Fatalf("egress_allowlist not threaded: %+v", spec.EgressAllowlist)
