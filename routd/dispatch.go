@@ -508,13 +508,17 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	// a web-chat user's own ANTHROPIC_API_KEY shadows the folder default. routd
 	// decrypts here (it holds SECRETS_KEY); runed injects as container env.
 	secrets := l.db.FolderSecretsForUser(folder, string(caller))
-	// An elevated (operator /root) turn regains the tier-0 `*` grant that
-	// grants.DeriveRules gives tier 0; a normal top-level tenant now resolves to
-	// tier 1 and does NOT. Wire elevation to the grant gate, not just the mount.
-	grants := deriveFolderGrants(l.db, folder)
-	if elevated {
-		grants = []string{"*"}
-	}
+	// 4/R: mounts/egress/web are GRANTS, not tier. routd (the authz plane) resolves
+	// the three container-capability booleans from the folder's acl rows and ships
+	// them typed so runed/container consume a decision, not a rule bundle. An elevated
+	// /root turn holds `*` → all capabilities; a normal folder gets exactly what its
+	// grants say (role:member — the messaging floor — grants none, so a plain folder
+	// runs with a writable share, constrained egress, and no web surface until an
+	// operator delegates egress/web:publish).
+	sub := "folder:" + folder
+	shareRO := !elevated && l.db.Authorize(sub, folder, "mcp:share_mount", map[string]string{"readonly": "true"})
+	egress := elevated || l.db.Authorize(sub, folder, "egress", nil)
+	webPublish := elevated || l.db.Authorize(sub, folder, "web:publish", nil)
 	return l.runner.Run(ctx, runedv1.RunRequest{
 		Folder:  types.Folder(folder),
 		Topic:   topic,
@@ -536,7 +540,9 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		ContainerConfig:  containerCfg,
 		Isolated:         strings.HasPrefix(trigger, "timed-isolated:"),
 		Elevated:         elevated,
-		Grants:           grants,
+		ShareReadOnly:    shareRO,
+		Egress:           egress,
+		WebPublish:       webPublish,
 		EgressAllowlist:  allowlist,
 		Secrets:          secrets,
 	})

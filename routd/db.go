@@ -189,23 +189,10 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
-	// Seed role:tier<N> grant bundles (4/R flip) — idempotent, prune-and-reseed.
-	if err := SeedTierRoles(store.New(sqldb)); err != nil {
-		sqldb.Close()
-		return nil, err
-	}
-	d := &DB{db: sqldb}
-	// 4/R phase-(b) step 2: backfill folder-scoped containment grants for existing
-	// folders (additive, per-folder skip-if-present — see BackfillFolderGrants).
-	folders := make([]string, 0)
-	for f := range d.AllGroups() {
-		folders = append(folders, f)
-	}
-	if err := BackfillFolderGrants(store.New(sqldb), folders); err != nil {
-		sqldb.Close()
-		return nil, err
-	}
-	return d, nil
+	// role:member (the 4/R messaging floor) is seeded by migration 0023; every
+	// folder is bound to it at group creation (PutGroup). No open-time grant seeding
+	// or backfill — auth.Authorize reads the acl rows directly.
+	return &DB{db: sqldb}, nil
 }
 
 func (d *DB) Close() error {
@@ -237,11 +224,10 @@ func (d *DB) PutGroup(g core.Group) error {
 		g.Folder, nowTS(), g.Product, model, string(cfgJSON), model, nowTS()); err != nil {
 		return err
 	}
-	// Create-time delegation (4/R phase b): seed the new folder's scoped containment
-	// grants immediately, so AuthorizeContainment works for a folder created after
-	// boot (the Open-time backfill only catches pre-existing folders). Idempotent
-	// (alreadyBackfilled skips a re-Put); one mechanism, no drift with the backfill.
-	return BackfillFolderGrants(store.New(d.db), []string{g.Folder})
+	// Create-time default role (4/R): bind the new folder to role:member so it holds
+	// the messaging floor immediately. Everything above the floor is explicit
+	// delegation from a lineage ancestor (auth.Delegate at register_group / add_acl).
+	return assignDefaultRole(store.New(d.db), g.Folder)
 }
 
 // GroupExists reports whether folder is a registered group.

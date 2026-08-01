@@ -51,7 +51,6 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/audit"
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -264,23 +263,20 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 // db.Authorize); the containment + self-default caps live in the handler (see
 // header). Only rules the socket already carries can widen visibility, so a denied
 // tier still sees nothing new.
-func (s *Server) routesPostBuild(folder, callerSub string, rules []string, authorize authorizeFn, callerID auth.Identity) func(*mcpserver.MCPServer) {
-	// Agent face: the route tier cap on the arg/id-resolved target — tier 2+ denied,
-	// tier 1 confined to strict descendants, tier 0 unrestricted. callerID is tier 0
-	// under /root (else the socket folder's tier). Exactly the deleted ipc bodies'
-	// authzStructural.
+func (s *Server) routesPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
+	// Agent face: one evaluator on the arg/id-resolved target — the caller must hold
+	// the tool (mcp:<name>) scoped to cover the target. Magnitude + containment in one
+	// call; /root elevates via authorize's allow-all.
 	contain := func(_ resreg.Caller, a resreg.Action, target string) error {
-		if err := auth.AuthorizeContainment(store.New(s.db.SQL()), callerID.Folder,
-			routesMCPNames[a], target, callerID.IsRoot); err != nil {
-			return resreg.Errorf(http.StatusForbidden, "%v", err)
+		name := routesMCPNames[a]
+		if !authorize(callerSub, target, "mcp:"+name, nil) {
+			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
 		}
 		return nil
 	}
 	res := s.routesResource(contain)
-	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
-		return toolGrant(rules, authorize, callerSub, folder, routesMCPNames[x.Action])
-	}
-	return mountAgentResource(res, callerSub, folder, rules)
+	res.Gate = agentAllowGate
+	return mountAgentResource(res, callerSub, folder, visible)
 }
 
 // argInt64 reads a numeric arg from a resreg.Args map. MCP number args decode to

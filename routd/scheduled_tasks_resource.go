@@ -84,7 +84,7 @@ var tasksMCPNames = resources.ScheduledTasksMCPNames
 // store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
 // contain is the per-face target-containment seam (tier model for the agent,
 // ownsFolder for REST) closed into the handler — see containFn.
-func (s *Server) scheduledTasksResource(contain containFn) resreg.Resource {
+func (s *Server) scheduledTasksResource(contain containFn, elevated bool) resreg.Resource {
 	r := resreg.Resource{
 		Name:      "scheduled_tasks",
 		Endpoints: resources.ScheduledTasksEndpoints, // single source: doc + MCP read one list
@@ -97,7 +97,7 @@ func (s *Server) scheduledTasksResource(contain containFn) resreg.Resource {
 		Store: store.New(s.db.SQL()),
 	}
 	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
-		return s.scheduledTasksHandler(ctx, x, contain)
+		return s.scheduledTasksHandler(ctx, x, contain, elevated)
 	}
 	return r
 }
@@ -108,8 +108,7 @@ func (s *Server) scheduledTasksResource(contain containFn) resreg.Resource {
 // contextMode normalization. Per-task/target containment is the injected contain
 // seam (tier model for the agent, ownsFolder for REST). id is resolved only for the
 // list-all tier-0 widening (agent face).
-func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, contain containFn) (any, error) {
-	id := auth.Resolve(x.Caller.Folder)
+func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, contain containFn, elevated bool) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
 		// The list-all key differs by surface, both through this one handler:
@@ -122,7 +121,11 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		//     sibling's (the 5/16 list-all leak guard). The REST caller is
 		//     detected by the jwt_folder claim it always sets; the agent sets
 		//     none, so it keeps the tier-based widening.
-		all := id.IsRoot
+		// Agent list-all widening rides the turn's EXPLICIT elevation (passed in) — not
+		// a re-resolve of the caller folder, which under /root from a named deep folder
+		// wrongly read non-root and lost the widening. The "" sentinel (operator/service)
+		// still widens. REST detection stays on the jwt_folder claim.
+		all := elevated || x.Caller.Folder == ""
 		if _, rest := x.Caller.Claims["jwt_folder"]; rest {
 			all = x.Caller.Folder == ""
 		}
@@ -262,23 +265,20 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 // + db.Authorize); the per-task/target structural cap lives in the handler (see
 // header). Only rules the socket already carries can widen visibility, so a
 // denied tier still sees nothing new.
-func (s *Server) scheduledTasksPostBuild(folder, callerSub string, rules []string, authorize authorizeFn, callerID auth.Identity) func(*mcpserver.MCPServer) {
-	// Agent face: the task tier cap on the resolved owner (tier 0 any, tier 1 own
-	// world, tier 2 own folder, tier 3 none). callerID is tier 0 under /root (else
-	// the socket folder's tier). Exactly the deleted ipc bodies' + inspect_tasks'
-	// authzStructural.
+func (s *Server) scheduledTasksPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, callerID auth.Identity) func(*mcpserver.MCPServer) {
+	// Agent face: one evaluator on the resolved task owner — the caller must hold the
+	// tool scoped to cover it. Magnitude + containment in one; /root elevates via
+	// authorize's allow-all.
 	contain := func(_ resreg.Caller, a resreg.Action, target string) error {
-		if err := auth.AuthorizeContainment(store.New(s.db.SQL()), callerID.Folder,
-			tasksMCPNames[a], target, callerID.IsRoot); err != nil {
-			return resreg.Errorf(http.StatusForbidden, "%v", err)
+		name := tasksMCPNames[a]
+		if !authorize(callerSub, target, "mcp:"+name, nil) {
+			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
 		}
 		return nil
 	}
-	res := s.scheduledTasksResource(contain)
-	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
-		return toolGrant(rules, authorize, callerSub, folder, tasksMCPNames[x.Action])
-	}
-	return mountAgentResource(res, callerSub, folder, rules)
+	res := s.scheduledTasksResource(contain, callerID.IsRoot)
+	res.Gate = agentAllowGate
+	return mountAgentResource(res, callerSub, folder, visible)
 }
 
 // parseTaskSchedule reads the `cron` arg into (next_run, stored-cron) exactly as

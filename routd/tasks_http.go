@@ -21,7 +21,9 @@ func (s *Server) mountTasks(mux *http.ServeMux) {
 		}
 		return resreg.Errorf(http.StatusForbidden, "task owner outside caller subtree: %s", target)
 	}
-	res := s.scheduledTasksResource(contain)
+	// REST has no /root elevation; list-all rides the jwt_folder=="" claim (the
+	// handler's own branch), so pass elevated=false.
+	res := s.scheduledTasksResource(contain, false)
 	res.Endpoints = []resreg.Endpoint{
 		{Verb: "GET", Path: "/v1/tasks", Action: resreg.ActionList},
 		{Verb: "GET", Path: "/v1/tasks/{taskId}", Action: resreg.ActionGet},

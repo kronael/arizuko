@@ -153,12 +153,18 @@ func (s *Server) webRoutesHandler(ctx context.Context, x resreg.Execution) (any,
 // on the agent socket, with the tier-aware Gate + MatchingRules visibility for
 // this folder's grant rules injected. Only rules the socket already carries can
 // widen visibility, so a denied tier still sees nothing new.
-func (s *Server) webRoutesPostBuild(folder, callerSub string, rules []string, authorize authorizeFn) func(*mcpserver.MCPServer) {
+func (s *Server) webRoutesPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
 	res := s.webRoutesResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
-		return toolGrant(rules, authorize, callerSub, folder, webRoutesMCPNames[x.Action])
+		name := webRoutesMCPNames[x.Action]
+		// web_route tools act on the caller's OWN folder (the handler scopes every row
+		// by folder). One evaluator: the caller must hold the tool for its folder.
+		if !authorize(callerSub, folder, "mcp:"+name, nil) {
+			return resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
+		}
+		return nil
 	}
-	return mountAgentResource(res, callerSub, folder, rules)
+	return mountAgentResource(res, callerSub, folder, visible)
 }
 
 // argString reads a string arg from a resreg.Args map (MCP args decode to

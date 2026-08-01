@@ -11,10 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
@@ -514,78 +512,25 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			}
 			return res, err
 		},
-		// Authorize is the per-call row-ACL check ServeMCP runs when callerSub is
-		// set. nil-safe. Elevated (/root) turns allow-all — see turnAuthorize.
+		// Authorize is the per-call row-ACL check (magnitude + containment in one) that
+		// ServeMCP runs when callerSub is set. nil-safe. Elevated (/root) turns allow-all
+		// — see turnAuthorize. The hand-authored ipc gates pass the ACTUAL target as the
+		// folder/scope so a delegated row scoped to a subtree bounds containment.
 		Authorize: s.turnAuthorize(t.elevated),
-		// Containment is the 4/R phase-b data-driven containment gate the hand-authored
-		// ipc tools call in place of auth.AuthorizeStructural (the resreg resources call
-		// auth.AuthorizeContainment directly). Reads folder-scoped grants, tier fallback.
-		Containment: func(callerFolder, tool, target string, isRoot bool) error {
-			return auth.AuthorizeContainment(store.New(s.db.SQL()), callerFolder, tool, target, isRoot)
-		},
+		// Visible is the tools/list view: a tool shows iff the caller holds it (any
+		// scope). Elevated turns see everything (turnVisible).
+		Visible: s.turnVisible("folder:"+t.folder, t.elevated),
 	}
 }
 
-// deriveFolderGrants renders a folder agent's mcp: rule bundle from the acl/role
-// graph (4/R grant-surface flip, corrected). Grants come from the folder's assigned
-// role + operator overlay + delegated rows — NOT from tier-derived DeriveRules —
-// plus the world-derived platform verbs. Used by both ServeTurnMCP (the in-process
-// tool firewall) and dispatchRun (rules shipped to runed for mounts/egress) so the
-// two can't drift.
-//
-// Corrected against the reverted flip's three bugs:
-//   - BUG 2 (assign-once): a folder with no role:tier membership is assigned its
-//     depth role ONCE (first sight); thereafter the edge exists, so an operator who
-//     rebinds it to a different role sticks — restriction is possible, unlike the
-//     blind-rebind-every-call version.
-//   - BUG 3 (denies last): folderGrantsFromACLOnly partitions denies last, so an
-//     operator deny wins over a role allow regardless of row order.
-//   - BUG 1 (real path): the differential test drives THIS function, not a parallel
-//     re-implementation, so the equivalence it proves is the one that ships.
-func deriveFolderGrants(d *DB, folder string) []string {
-	st := store.New(d.SQL())
-	// Assign-once bind to the default role (shared assignDefaultRole — same path
-	// create/backfill uses; folders are normally assigned eagerly at PutGroup, this
-	// is the belt-and-suspenders lazy assign). busy_timeout(5000) already retries
-	// transient BUSY, so a surviving error is real → ships an agent with ONLY platform
-	// verbs, silently broken. Fail loud: operator sees it; next turn retries (idempotent).
-	if err := assignDefaultRole(st, folder); err != nil {
-		slog.Error("deriveFolderGrants: role assign failed, folder ships degraded grants",
-			"folder", folder, "err", err)
-	}
-	rules := grants.PlatformRulesForFolder(d, folder, auth.Resolve(folder).Tier, auth.WorldOf(folder))
-	return append(rules, folderGrantsFromACLOnly(st, folder)...)
-}
-
-// hasTierRole reports whether the principal already holds a role:tier* membership —
-// the assign-once guard so an operator's rebind (to a different role) is not clobbered.
-func hasTierRole(st *store.Store, principal string) bool {
-	for _, a := range st.Ancestors(principal) {
-		if strings.HasPrefix(a, "role:tier") {
-			return true
-		}
-	}
-	return false
-}
-
-// ServeTurnMCP binds the per-turn agent MCP socket in-process: it derives the
-// folder's tier-default grant rules, then stands up ipc.ServeMCP wired to
-// routd's own DB + Deliverer. expectedUID gates peers (1000 = ant `node` user,
-// or the dev host uid). Returns the stop func (removes the socket). Called
-// per-turn from runTurn before dispatch.
+// ServeTurnMCP binds the per-turn agent MCP socket in-process: it stands up
+// ipc.ServeMCP wired to routd's own DB + Deliverer. expectedUID gates peers (1000 =
+// ant `node` user, or the dev host uid). Returns the stop func (removes the socket).
+// Called per-turn from runTurn before dispatch. 4/R: no grant bundle is computed —
+// authz is auth.Authorize on the acl rows (magnitude + containment in one), visibility
+// is auth.EffectiveActions over the same rows; both elevate under /root.
 func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
-	rules := deriveFolderGrants(s.db, t.folder)
-	if t.elevated {
-		// Operator /root: regain the tier-0 `*` grant set (grants.DeriveRules
-		// case 0). Same override as the shipped Grants in dispatchRun — one
-		// elevation, both sinks. The row-ACL half elevates too (turnAuthorize):
-		// leaving it on the folder's static tier 403'd every root-only tool.
-		rules = []string{"*"}
-	}
 	authorize := s.turnAuthorize(t.elevated)
-	// The structural gates (auth.AuthorizeStructural) run on a SEPARATE tier axis
-	// from authorize's row-ACL check; elevate it the same way so /root lifts both
-	// halves. tier 0 under /root, else the folder's static tier.
 	callerID := turnIdentity(t.folder, t.elevated)
 	// routd binds the socket BEFORE runed spawns the container, so the per-folder
 	// ipc dir may not exist yet. ServeMCP only os.Removes the stale sock + Listens
@@ -599,21 +544,21 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	if uid := os.Getuid(); uid > 0 && uid != 1000 {
 		expectedUID = uid
 	}
-	// Per-call row-ACL: pass the canonical in-container agent principal so ipc's
-	// authorizeCall runs auth.AuthorizeWith against the overlaid acl rows instead
-	// of short-circuiting. The folder agent is principal=folder:<path> (matches the
-	// ListACL key in deriveFolderGrants). With no acl rows, Authorize returns false
-	// only on an explicit deny; tier-default fallback covers the no-row case.
+	// Per-call row-ACL: the canonical in-container agent principal is folder:<path>,
+	// so ipc's authorizeCall runs auth.Authorize against the folder's role:member floor
+	// + delegated rows. A no-match denies (loud).
 	callerSub := "folder:" + t.folder
+	visible := s.turnVisible(callerSub, t.elevated)
 	// spec 5/16: mount the agent's management tools via resreg (shared handler +
-	// tx/audit) with the agent's tier-aware Gate + visibility. One postBuild seam
-	// per migrated resource; ServeMCP applies them all.
-	webRoutes := s.webRoutesPostBuild(t.folder, callerSub, rules, authorize)
-	networkRules := s.networkRulesPostBuild(t.folder, callerSub, rules, authorize, callerID)
-	scheduledTasks := s.scheduledTasksPostBuild(t.folder, callerSub, rules, authorize, callerID)
-	routes := s.routesPostBuild(t.folder, callerSub, rules, authorize, callerID)
-	acl := s.aclPostBuild(t.folder, callerSub, rules, authorize, callerID)
-	routeTokens := s.routeTokensPostBuild(t.folder, callerSub, rules, authorize)
-	groups := s.groupsPostBuild(t.folder, callerSub, rules, authorize, callerID)
-	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, groups)
+	// tx/audit) with the agent's injected Gate (auth.Authorize on the target) +
+	// EffectiveActions visibility. One postBuild seam per migrated resource; ServeMCP
+	// applies them all.
+	webRoutes := s.webRoutesPostBuild(t.folder, callerSub, authorize, visible)
+	networkRules := s.networkRulesPostBuild(t.folder, callerSub, authorize, visible)
+	scheduledTasks := s.scheduledTasksPostBuild(t.folder, callerSub, authorize, visible, callerID)
+	routes := s.routesPostBuild(t.folder, callerSub, authorize, visible)
+	acl := s.aclPostBuild(t.folder, callerSub, authorize, visible, callerID)
+	routeTokens := s.routeTokensPostBuild(t.folder, callerSub, authorize, visible)
+	groups := s.groupsPostBuild(t.folder, callerSub, authorize, visible, callerID)
+	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, groups)
 }

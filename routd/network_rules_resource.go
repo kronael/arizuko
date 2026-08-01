@@ -37,7 +37,6 @@ import (
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -149,33 +148,23 @@ func networkTargetFolder(args resreg.Args, socketFolder string) string {
 // the agent socket, with the tier-aware Gate + MatchingRules visibility for this
 // folder's grant rules injected. Only rules the socket already carries can widen
 // visibility, so a denied tier still sees nothing new.
-func (s *Server) networkRulesPostBuild(folder, callerSub string, rules []string, authorize authorizeFn, callerID auth.Identity) func(*mcpserver.MCPServer) {
+func (s *Server) networkRulesPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
 	res := s.networkRulesResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := networkMCPNames[x.Action]
-		// Tool grant: rules + the elevation-aware row-ACL check (shared toolGrant,
-		// as every other agent resource). A /root turn's rules are `*` AND authorize
-		// is allow-all — leaving the raw s.db.Authorize here re-derived the folder's
-		// static tier, so egress tools 403'd even under /root (the turnAuthorize bug,
-		// which never reached this postBuild — it was the one that took no authorize).
-		if err := toolGrant(rules, authorize, callerSub, folder, name); err != nil {
-			return err
-		}
-		// Structural tier gate (web_routes had none): tier 2+ can't manage egress,
-		// tier 1 is confined to its own subtree, tier 0 is unrestricted. Containment
-		// is checked on the TARGET (arg) folder — resolving the caller's tier from
-		// callerID (tier 0 under /root, else the SOCKET folder's tier) — so a tier-0/1
-		// caller may open egress for any folder in its subtree while a non-elevated
-		// tier-2 stays denied. A hard cap operator ACL grants can't widen; only the
-		// operator-gated /root elevation lifts it. Exactly the deleted ipc body's
-		// authzStructural(name, TargetFolder: argFolder).
+		// One evaluator on the TARGET folder (resolved from args). Egress management is
+		// default-deny: role:member does not grant it, so only an operator-delegated
+		// `mcp:<name>` scoped to cover the target — or /root (authorize allow-all) —
+		// authorizes it. 4/R decision 8: the grant scope IS the containment; the old
+		// hard tier cap is gone (an operator's explicit scoped delegation now takes
+		// effect, a non-operator still cannot self-grant).
 		target := networkTargetFolder(x.Args, folder)
-		if err := auth.AuthorizeContainment(store.New(s.db.SQL()), callerID.Folder, name, target, callerID.IsRoot); err != nil {
-			return resreg.Errorf(http.StatusForbidden, "%s: %v", name, err)
+		if !authorize(callerSub, target, "mcp:"+name, nil) {
+			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
 		}
 		return nil
 	}
-	return mountAgentResource(res, callerSub, folder, rules)
+	return mountAgentResource(res, callerSub, folder, visible)
 }
 
 // addNetworkRuleTx appends one egress allowlist row on tx (mirrors

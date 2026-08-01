@@ -49,7 +49,6 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/audit"
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -116,19 +115,11 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		if target == "" {
 			target = folder
 		}
-		// Containment (both faces): target must be the owner folder or a descendant.
-		// The AGENT (MCP) face additionally applies the depth tier cap (tier ≥3 may
-		// not mint) — that models the agent socket's own authority. The OPERATOR
-		// (REST) face must NOT: `folder` there is the client-supplied owner_folder
-		// already bound to the caller's JWT subtree by routeTokensRESTGate, so
-		// deriving a tier from its DEPTH would 403 any owner at depth ≥3 for everyone
-		// (adversary F8). Operator authority is the bearer scope + containment, not
-		// the target's depth.
-		if x.Surface == audit.SurfaceMCP {
-			if err := authorizeRouteTokenMint(auth.Resolve(folder), folder, target); err != nil {
-				return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
-			}
-		} else if target != folder && !strings.HasPrefix(target, folder+"/") {
+		// Containment. AGENT (MCP): rides the injected Gate — one evaluator, the grant
+		// scope covers target (minting is default-deny, so /root or an operator-delegated
+		// grant only). OPERATOR (REST): target must equal/descend from the owner folder,
+		// already bound to the caller's JWT subtree by routeTokensRESTGate.
+		if x.Surface == audit.SurfaceREST && target != folder && !strings.HasPrefix(target, folder+"/") {
 			return nil, resreg.Errorf(http.StatusForbidden, "target_folder must equal or descend from owner_folder")
 		}
 		suffix := strings.TrimSpace(argString(x.Args, "jid_suffix"))
@@ -181,28 +172,27 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 // grant rules injected. The Gate does the TOOL grant (CheckAction + db.Authorize);
 // the mint tier cap + owner-scoped revoke live in the handler (see header). Only rules
 // the socket already carries can widen visibility, so a denied tier still sees nothing.
-func (s *Server) routeTokensPostBuild(folder, callerSub string, rules []string, authorize authorizeFn) func(*mcpserver.MCPServer) {
+func (s *Server) routeTokensPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
 	res := s.routeTokensResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
-		return toolGrant(rules, authorize, callerSub, folder, routeTokensMCPNames[x.Action])
+		name := routeTokensMCPNames[x.Action]
+		// Target: the folder a minted token points at, else the owner folder itself
+		// (list/revoke are owner-scoped). One evaluator — the caller must hold the tool
+		// scoped to cover it. Minting a public unauthenticated endpoint is default-deny
+		// (not in role:member): only /root or an operator-delegated grant authorizes it.
+		target := folder
+		switch x.Action {
+		case routeTokensActionIssueChat, routeTokensActionIssueHook:
+			if t := strings.TrimSpace(argString(x.Args, "target_folder")); t != "" {
+				target = t
+			}
+		}
+		if !authorize(callerSub, target, "mcp:"+name, nil) {
+			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
+		}
+		return nil
 	}
-	return mountAgentResource(res, callerSub, folder, rules)
-}
-
-// authorizeRouteTokenMint is the mint tier cap the deleted ipc authorizeMint closure
-// enforced: tier ≥3 may not mint at all; tier ≤2 may point a token only at its own
-// folder or a descendant. An empty target defaults to the caller's own folder.
-func authorizeRouteTokenMint(id auth.Identity, folder, target string) error {
-	if target == "" {
-		target = folder
-	}
-	if id.Tier >= 3 {
-		return fmt.Errorf("unauthorized: tier %d cannot issue route tokens", id.Tier)
-	}
-	if id.Tier <= 2 && target != folder && !strings.HasPrefix(target, folder+"/") {
-		return fmt.Errorf("unauthorized: can only mint for self+descendants")
-	}
-	return nil
+	return mountAgentResource(res, callerSub, folder, visible)
 }
 
 // routeTokenJID builds the (jid, url-prefix) for a mint exactly as the deleted

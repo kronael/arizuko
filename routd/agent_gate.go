@@ -2,33 +2,31 @@ package routd
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/auth"
-	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 )
 
 // agent_gate.go holds the closures every cold-tier resource's agent-socket
-// postBuild shares. The tool-grant decision is the agent MCP face's single
-// security-sensitive line; keeping ONE source stops the per-resource copies from
-// drifting (a past drift opened a cross-tenant hole — see web_routes delete).
+// postBuild shares. 4/R: authorization is ONE evaluator (auth.Authorize on the
+// ACTUAL target scope); visibility is one view (auth.EffectiveActions over the acl
+// rows). Keeping ONE source per concern stops the per-resource copies from drifting
+// (a past drift opened a cross-tenant hole — see web_routes delete).
 
-// authorizeFn is db.Authorize's shape — the per-call row-ACL check the agent
-// socket runs. ServeTurnMCP injects it per turn via turnAuthorize.
+// authorizeFn is db.Authorize's shape — the per-call row-ACL check the agent socket
+// runs. `folder` is the SCOPE matched against the caller's grant globs (the caller's
+// own folder for magnitude, the target folder for containment). ServeTurnMCP injects
+// it per turn via turnAuthorize.
 type authorizeFn func(sub, folder, action string, params map[string]string) bool
 
-// turnAuthorize renders the per-call row-ACL check for one turn's agent socket
-// (toolGrant's second half + ipc's authorizeCall via StoreFns.Authorize). A
-// normal turn binds db.Authorize (operator acl rows + the folder's static-tier
-// default fallback). An elevated (operator /root) turn allows every call:
-// ServeTurnMCP already swaps the socket's grant rules to the tier-0 `*` set,
-// but db.Authorize's fallback re-derives the folder's STATIC tier, so every
-// root-only tool 403'd even under /root and the agent fell back to mcpc
-// (issue_chat_link — marinade atlas, 2026-07-16). One elevation, both gates.
+// turnAuthorize renders the per-call row-ACL check for one turn's agent socket. A
+// normal turn binds db.Authorize (role:member floor + operator/delegated grants). An
+// elevated (operator /root) turn allows every call — the operator holds role:operator
+// (`*`, WITH GRANT OPTION), so /root is unrestricted.
 func (s *Server) turnAuthorize(elevated bool) authorizeFn {
 	if !elevated {
 		return s.db.Authorize
@@ -36,38 +34,35 @@ func (s *Server) turnAuthorize(elevated bool) authorizeFn {
 	return func(string, string, string, map[string]string) bool { return true }
 }
 
-// turnIdentity is the turn's EFFECTIVE structural identity for the agent-socket
-// gates' auth.AuthorizeStructural check: the socket folder's tier normally, tier 0
-// under an operator /root elevation (cmdRoot gates /root on IsOperator, so this is
-// reachable only by a verified operator). Without it a /root turn from a tier-2
-// folder still resolved to tier 2 in the STRUCTURAL gate — so network_allow/add_acl/
-// register_group 403'd "tier N cannot ..." even under /root, the mirror of the
-// row-ACL bug turnAuthorize fixed (auth.Resolve's own docstring names tier 0 the
-// /root elevation). One elevation, both gates.
+// turnIdentity is the turn's effective identity for the agent-socket gates: the
+// socket folder normally, root under an operator /root elevation (cmdRoot gates
+// /root on IsOperator, so this is reachable only by a verified operator).
 func turnIdentity(folder string, elevated bool) auth.Identity {
 	id := auth.Resolve(folder)
 	if elevated {
-		id.Tier = 0
 		id.IsRoot = true // /root elevation is root (spec 4/R decision 1)
 	}
 	return id
 }
 
-// toolGrant is the agent socket's tool-grant check: the tool must be permitted by
-// the socket's grant rules AND by the injected authorize (tier defaults + operator
-// ACL overlay for a normal turn; allow-all for an elevated one), both keyed on the
-// socket folder. Returns nil when permitted, else a 403. Resources with extra
-// per-target containment (acl, groups) call this, then add their
-// AuthorizeStructural.
-func toolGrant(rules []string, authorize authorizeFn, callerSub, folder, name string) error {
-	if !grantslib.CheckAction(rules, name, nil) {
-		return resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
+// turnVisible builds the tools/list visibility predicate for one turn: an elevated
+// /root turn sees everything; else a tool shows iff the caller holds its `mcp:<tool>`
+// grant at any scope (auth.EffectiveActions). Reads are advertised unconditionally by
+// their own registration, never through this predicate.
+func (s *Server) turnVisible(callerSub string, elevated bool) func(name string) bool {
+	if elevated {
+		return func(string) bool { return true }
 	}
-	if callerSub != "" && !authorize(callerSub, folder, "mcp:"+name, nil) {
-		return resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
-	}
-	return nil
+	held := auth.EffectiveActions(store.New(s.db.SQL()), auth.Caller{Principal: callerSub})
+	return func(name string) bool { return held("mcp:" + name) }
 }
+
+// agentAllowGate is the no-op resreg Gate the non-forwarder agent resources set so
+// resreg's operator defaultGate (a `<resource>:<action>` scope check the agent
+// principal never holds) does NOT run on the agent socket. The real authorization —
+// one evaluator, auth.Authorize on the ACTUAL target — rides each handler's `contain`
+// seam, which resolves the target from the args/id before any write.
+func agentAllowGate(resreg.Execution, string, map[string]string) error { return nil }
 
 // agentCallerFor is the Caller resolver every agent-socket resource uses: the
 // socket's own principal + folder — these tools never take a caller arg.
@@ -77,18 +72,10 @@ func agentCallerFor(callerSub, folder string) func(context.Context, mcp.CallTool
 	}
 }
 
-// agentVisible is the tools/list visibility predicate: a tool shows only when a
-// socket grant rule matches its name. acl overrides this with its own predicate.
-func agentVisible(rules []string) func(string) bool {
-	return func(name string) bool { return len(grantslib.MatchingRules(rules, name)) > 0 }
-}
-
-// mountAgentResource is the ServeMCP seam six of the seven postBuilds return
-// verbatim: mount res's tools on the agent socket with the socket's own Caller
-// + MatchingRules visibility. acl is the one exception (list_acl's extra
-// tier<=1 gate), which still builds its Visible predicate inline.
-func mountAgentResource(res resreg.Resource, callerSub, folder string, rules []string) func(*mcpserver.MCPServer) {
+// mountAgentResource is the ServeMCP seam every agent postBuild returns: mount res's
+// tools on the agent socket with the socket's own Caller + the turn's visibility view.
+func mountAgentResource(res resreg.Resource, callerSub, folder string, visible func(string) bool) func(*mcpserver.MCPServer) {
 	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))
+		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), visible)
 	}
 }

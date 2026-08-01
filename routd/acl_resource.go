@@ -36,7 +36,6 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
-	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
@@ -116,9 +115,11 @@ func (s *Server) aclRESTGate(x resreg.Execution, _ string, _ map[string]string) 
 	if !hasAnyScope(strings.Fields(x.Caller.Claims["scopes"]), []string{"acl:write"}) {
 		return resreg.Errorf(http.StatusForbidden, "missing scope acl:write")
 	}
-	if err := auth.AuthorizeContainment(store.New(s.db.SQL()), x.Caller.Folder,
-		aclMCPNames[x.Action], argString(x.Args, "scope"), auth.Resolve(x.Caller.Folder).IsRoot); err != nil {
-		return resreg.Errorf(http.StatusForbidden, "%v", err)
+	// Bind the granted/revoked scope to the caller's authority: an operator may only
+	// grant within its own subtree; scope "**" needs the root (empty-folder) token.
+	// Mirrors the routes/tasks REST containment (ownsFolder), self-or-descendant.
+	if !ownsFolder(x.Caller.Folder, argString(x.Args, "scope")) {
+		return resreg.Errorf(http.StatusForbidden, "scope outside caller subtree")
 	}
 	return nil
 }
@@ -174,17 +175,12 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 // aclPostBuild mounts the acl tools on the agent socket with the tier-aware Gate
 // (CheckAction + db.Authorize(mcp:) + AuthorizeStructural scope-containment) and
 // the Visible predicate (MatchingRules + list_acl tier<=1).
-func (s *Server) aclPostBuild(folder, callerSub string, rules []string, authorize authorizeFn, callerID auth.Identity) func(*mcpserver.MCPServer) {
+func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, callerID auth.Identity) func(*mcpserver.MCPServer) {
 	res := s.aclResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := aclMCPNames[x.Action]
-		if err := toolGrant(rules, authorize, callerSub, folder, name); err != nil {
-			return err
-		}
-		// Scope-containment: the caller must have authority over the target it
-		// grants/revokes (add/remove) or lists. "**" requires tier-0 by design.
-		// callerID is tier 0 under /root (else the socket folder's tier) so an
-		// operator's /root add_acl from a tier-2 folder isn't capped by the folder.
+		// The target the caller grants/revokes (add/remove) or lists. "**" is covered
+		// only by an operator/root grant.
 		var target string
 		switch x.Action {
 		case resreg.Action("add"), resreg.Action("remove"):
@@ -192,13 +188,13 @@ func (s *Server) aclPostBuild(folder, callerSub string, rules []string, authoriz
 		case resreg.ActionList:
 			target = argString(x.Args, "folder")
 		}
-		if err := auth.AuthorizeContainment(store.New(s.db.SQL()), callerID.Folder, name, target, callerID.IsRoot); err != nil {
-			return resreg.Errorf(http.StatusForbidden, "%v", err)
+		// One evaluator: the caller must hold the acl tool scoped to cover the target.
+		if !authorize(callerSub, target, "mcp:"+name, nil) {
+			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
 		}
-		// 4/R lineage delegation: a NON-root writer may only grant a row it HOLDS
-		// with the grant option (auth.Delegate — subset-of-held). Root delegates
-		// anything (callerID.IsRoot). This is what makes a group unable to hand out
-		// authority it wasn't itself delegated.
+		// 4/R lineage delegation: a NON-root writer may only grant a row it HOLDS with
+		// the grant option (auth.Delegate — subset-of-held). Root delegates anything.
+		// This is what makes a group unable to hand out authority it wasn't delegated.
 		if x.Action == resreg.Action("add") && !callerID.IsRoot {
 			act := argString(x.Args, "action")
 			if act == "" {
@@ -210,24 +206,13 @@ func (s *Server) aclPostBuild(folder, callerSub string, rules []string, authoriz
 				Scope:     target,
 				Effect:    "allow",
 			}
-			if err := auth.Delegate(store.New(s.db.SQL()), "folder:"+folder, []core.ACLRow{want}); err != nil {
+			if err := auth.Delegate(store.New(s.db.SQL()), callerSub, []core.ACLRow{want}); err != nil {
 				return resreg.Errorf(http.StatusForbidden, "%v", err)
 			}
 		}
 		return nil
 	}
-	// list_acl is tier 0-1 only (mirrors the old `if identity.Tier <= 1`
-	// registration); other tools follow the socket's grant rules. Uses callerID so
-	// /root (tier 0) sees list_acl even from a deep folder.
-	visible := func(name string) bool {
-		if name == "list_acl" && callerID.Tier > 1 {
-			return false
-		}
-		return len(grantslib.MatchingRules(rules, name)) > 0
-	}
-	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), visible)
-	}
+	return mountAgentResource(res, callerSub, folder, visible)
 }
 
 // grantACLTx grants via tx so the mutation + invoke's audit row commit as one

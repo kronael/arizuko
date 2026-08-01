@@ -42,7 +42,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	"github.com/kronael/arizuko/store"
 )
 
 // groupsActionRegister is register_group's resource-specific verb (not CRUD create):
@@ -159,17 +158,12 @@ func (s *Server) emitGroupRegisterAudit(c resreg.Caller, childFolder, jid string
 // for BOTH tools — refresh_groups' former tier≤2 hard gate is now grant-derived (it is
 // added to the tier-1/2 rule sets in grants.DeriveRules) so the dashd tool browser,
 // which only has `rules` (no folder/tier), mirrors the socket exactly.
-func (s *Server) groupsPostBuild(folder, callerSub string, rules []string, authorize authorizeFn, callerID auth.Identity) func(*mcpserver.MCPServer) {
+func (s *Server) groupsPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, callerID auth.Identity) func(*mcpserver.MCPServer) {
 	authz := func(_ resreg.Caller, a resreg.Action, args resreg.Args) (string, map[string]string, error) {
 		if a != groupsActionRegister {
-			return "", nil, nil // refresh_groups: no runtime authz (visibility-gated only)
+			return "", nil, nil // refresh_groups: read, no runtime authz (visibility-gated only)
 		}
-		name := "register_group"
-		if err := toolGrant(rules, authorize, callerSub, folder, name); err != nil {
-			return "", nil, err
-		}
-		// The prototype path derives the child folder (no arg target); the manual path
-		// binds the `folder` arg to the caller's subtree (tier model). An empty folder
+		// The prototype path derives the child folder (no arg target); an empty folder
 		// falls through to the handler's "folder required".
 		if argBool(args, "fromPrototype") {
 			return "", nil, nil
@@ -178,20 +172,20 @@ func (s *Server) groupsPostBuild(folder, callerSub string, rules []string, autho
 		if gfld == "" {
 			return "", nil, nil
 		}
-		// Worlds are CLI-only — register_group's one NON-containment residue (root
-		// bypasses AuthorizeContainment, so this rule stays inline).
+		// Worlds are CLI-only — register_group's one NON-scope residue (a root caller
+		// may not mint a top-level world from the agent socket).
 		if callerID.IsRoot && !strings.Contains(gfld, "/") {
 			return "", nil, resreg.Errorf(http.StatusForbidden, "worlds are CLI-only")
 		}
-		// 4/R phase b (B): containment is data — does the caller's folder hold
-		// register_group scoped to cover gfld? Magnitude already ran (toolGrant).
-		if err := auth.AuthorizeContainment(store.New(s.db.SQL()), callerID.Folder, name, gfld, callerID.IsRoot); err != nil {
-			return "", nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+		// 4/R: one evaluator — does the caller hold register_group scoped to cover the
+		// child folder? A delegated row scoped `acme/**` authorizes registering under acme.
+		if !authorize(callerSub, gfld, "mcp:register_group", nil) {
+			return "", nil, resreg.Errorf(http.StatusForbidden, "register_group on %s: not permitted", gfld)
 		}
 		return "", nil, nil
 	}
 	res := s.groupsResource(authz)
-	return mountAgentResource(res, callerSub, folder, rules)
+	return mountAgentResource(res, callerSub, folder, visible)
 }
 
 // argBool reads a bool arg from a resreg.Args map (MCP bool args decode to a Go bool
