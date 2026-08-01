@@ -4,11 +4,11 @@ package routd
 // issue_chat_link/issue_webhook/list_tokens/revoke_token now ride resreg's MCP
 // mechanism through the ServeMCP postBuild seam instead of hand-rolled ipc bodies.
 // Each test drives the REAL unix socket end-to-end so the seam + injected Gate +
-// Visible predicate + the handler's mint tier cap + owner-scoped revoke are all
-// exercised. Tier note: minting (issue_chat_link/issue_webhook) is tier 0 only
-// (DeriveRules tier-0 = ["*"] — the operator /root elevation); self-service
-// list_tokens/revoke_token ride the tier-1/2 defaults. The happy paths grant the
-// mint tools via the acl overlay and pass the folder's REAL derived rules.
+// Visible predicate + the Gate's target containment + owner-scoped revoke are all
+// exercised. 4/R: NONE of the four tools is in the role:member floor — minting a
+// public unauthenticated endpoint AND the self-service list/revoke pair are all
+// explicit delegation (or /root). Every test that expects a tool to work delegates
+// it with grantMCPTools (scope <folder>/**).
 
 import (
 	"encoding/json"
@@ -20,17 +20,18 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
-// serveRouteTokensMCP stands up the agent socket for folder with the given grant
-// rules + the route_tokens resreg seam, and returns the socket path. webHost seeds
-// the URL prefix the issue tools echo (empty = no URL).
-func serveRouteTokensMCP(t *testing.T, db *DB, folder, callerSub string, rules []string, webHost string) string {
+// serveRouteTokensMCP stands up the agent socket for folder + the route_tokens
+// resreg seam, and returns the socket path. webHost seeds the URL prefix the issue
+// tools echo (empty = no URL). Authz reads the folder's acl rows.
+func serveRouteTokensMCP(t *testing.T, db *DB, folder, callerSub, webHost string) string {
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, webHost)
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.routeTokensPostBuild(folder, callerSub, rules, srv.db.Authorize)
+	pb := srv.routeTokensPostBuild(folder, callerSub, srv.db.Authorize,
+		agentVisibleFor(srv, callerSub, false))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
-		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -60,7 +61,7 @@ func issueToken(t *testing.T, sock, tool string, args map[string]any) (token, ji
 	return out.Token, out.JID, out.URL
 }
 
-// TestRouteTokensMCP_IssueListRevoke: happy path for a tier-0 folder — issue a
+// TestRouteTokensMCP_IssueListRevoke: happy path for a delegated folder — issue a
 // chat link + a webhook (both minted for the caller's own folder), the raw token
 // resolves to the right JID/owner, list returns both, revoke removes the caller's
 // own token and the raw token stops resolving.
@@ -72,8 +73,7 @@ func TestRouteTokensMCP_IssueListRevoke(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", "issue_chat_link", "issue_webhook", "list_tokens", "revoke_token")
-	rules := deriveFolderGrants(db, "hq")
-	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", rules, "https://x.test")
+	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", "https://x.test")
 
 	// issue_chat_link: default target = own folder → jid web:hq, url under /chat/.
 	chatTok, chatJID, chatURL := issueToken(t, sock, "issue_chat_link", nil)
@@ -147,7 +147,7 @@ func TestRouteTokensMCP_IssueWithContext(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", "issue_chat_link", "issue_webhook", "list_tokens")
-	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"), "")
+	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", "")
 
 	chatTok, _, _ := issueToken(t, sock, "issue_chat_link",
 		map[string]any{"context": "bug reports from the acme site; triage, don't chat"})
@@ -205,7 +205,7 @@ func TestRouteTokensMCP_RevokeCrossFolderDenied(t *testing.T) {
 
 	// "other" (granted revoke_token) tries to revoke acme's token.
 	grantMCPTools(t, db, "other", "revoke_token")
-	sock := serveRouteTokensMCP(t, db, "other", "folder:other", deriveFolderGrants(db, "other"), "")
+	sock := serveRouteTokensMCP(t, db, "other", "folder:other", "")
 	rtext, e := callToolText(t, sock, "revoke_token", map[string]any{"jid": "web:acme"})
 	if e != "" {
 		t.Fatalf("revoke_token errored: %s", e)
@@ -218,10 +218,11 @@ func TestRouteTokensMCP_RevokeCrossFolderDenied(t *testing.T) {
 	}
 }
 
-// TestRouteTokensMCP_MintTierCap: the handler's mint tier cap (authorizeRouteTokenMint)
-// binds a caller to self+descendants. A tier-0 folder "acme" may NOT point a token
-// at a sibling top-level folder "other", but MAY point at a descendant "acme/sub".
-func TestRouteTokensMCP_MintTierCap(t *testing.T) {
+// TestRouteTokensMCP_MintTargetContainment: the Gate binds the minted token's
+// target_folder to the caller's grant scope. "acme", delegated the mint tools over
+// acme/**, may NOT point a token at a sibling top-level folder "other", but MAY
+// point at a descendant "acme/sub".
+func TestRouteTokensMCP_MintTargetContainment(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -229,9 +230,9 @@ func TestRouteTokensMCP_MintTierCap(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "acme"})
 	grantMCPTools(t, db, "acme", "issue_chat_link", "issue_webhook", "list_tokens", "revoke_token")
-	sock := serveRouteTokensMCP(t, db, "acme", "folder:acme", deriveFolderGrants(db, "acme"), "")
+	sock := serveRouteTokensMCP(t, db, "acme", "folder:acme", "")
 
-	// sibling top-level target: denied by the tier cap.
+	// sibling top-level target: outside the acme/** grant scope → denied.
 	if _, e := callToolText(t, sock, "issue_chat_link", map[string]any{"target_folder": "other"}); e == "" {
 		t.Fatal("minting for a sibling top-level folder should be denied")
 	}
@@ -245,10 +246,11 @@ func TestRouteTokensMCP_MintTierCap(t *testing.T) {
 	}
 }
 
-// TestRouteTokensMCP_Visibility: the Visible predicate (MatchingRules) preserves
-// tools/list gating — a folder granted all four tools sees all four; an ungranted
-// tier-1 folder sees only the self-service pair its tier defaults carry (mint is
-// tier-0-only), exactly as ipc's registerRaw hid ungranted tools before.
+// TestRouteTokensMCP_Visibility: the Visible predicate (auth.EffectiveActions)
+// preserves tools/list gating — a folder granted all four tools sees all four; an
+// ungranted folder sees NONE. 4/R demoted the former tier-1 self-service default:
+// list_tokens/revoke_token are not in the role:member floor either, so a folder that
+// was never delegated them sees no token tool at all.
 func TestRouteTokensMCP_Visibility(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -259,31 +261,26 @@ func TestRouteTokensMCP_Visibility(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "world/a"})
 	grantMCPTools(t, db, "hq", "issue_chat_link", "issue_webhook", "list_tokens", "revoke_token")
 
-	granted := listToolNames(t, serveRouteTokensMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"), ""))
+	granted := listToolNames(t, serveRouteTokensMCP(t, db, "hq", "folder:hq", ""))
 	for _, name := range []string{"issue_chat_link", "issue_webhook", "list_tokens", "revoke_token"} {
 		if !granted[name] {
 			t.Fatalf("%s not visible to a folder granted it", name)
 		}
 	}
-	ungranted := listToolNames(t, serveRouteTokensMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a"), ""))
-	for _, name := range []string{"issue_chat_link", "issue_webhook"} {
+	ungranted := listToolNames(t, serveRouteTokensMCP(t, db, "world/a", "folder:world/a", ""))
+	for _, name := range []string{"issue_chat_link", "issue_webhook", "list_tokens", "revoke_token"} {
 		if ungranted[name] {
-			t.Fatalf("%s visible to an ungranted folder (minting is root-only)", name)
-		}
-	}
-	for _, name := range []string{"list_tokens", "revoke_token"} {
-		if !ungranted[name] {
-			t.Fatalf("%s hidden from a tier-1 folder (self-service default)", name)
+			t.Fatalf("%s visible to a folder never delegated it", name)
 		}
 	}
 }
 
 // TestServeTurnMCP_ElevatedMintsChatLink drives the REAL per-turn socket the way
-// dispatch wires an operator /root turn (turnMCP.elevated): a tier-1 folder with
-// NO route-token grants mints a chat link in ONE native MCP call. Guards the
-// 2026-07-16 marinade regression: elevation swapped the socket's rules to `*` but
-// left toolGrant's row-ACL half on the folder's static tier, so issue_chat_link
-// 403'd even under /root and the agent fell back to the broken mcpc path.
+// dispatch wires an operator /root turn (turnMCP.elevated): a folder with NO
+// route-token grants mints a chat link in ONE native MCP call. Guards the
+// 2026-07-16 marinade regression: elevation widened tools/list but left the row-ACL
+// half unelevated, so issue_chat_link 403'd even under /root and the agent fell back
+// to the broken mcpc path.
 func TestServeTurnMCP_ElevatedMintsChatLink(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -310,8 +307,10 @@ func TestServeTurnMCP_ElevatedMintsChatLink(t *testing.T) {
 }
 
 // TestServeTurnMCP_UnelevatedHidesMint is the control for the elevated test: the
-// same ungranted folder WITHOUT /root sees no mint tools at all (tier-0-only),
-// while the tier-1 self-service pair stays visible.
+// same ungranted folder WITHOUT /root sees NO route-token tool. 4/R: the role:member
+// floor is the 12 messaging verbs, so neither the mint pair nor the former
+// tier-1 self-service pair is advertised without an explicit delegation. `reply`
+// (a floor verb) is asserted visible so this is a real gate, not a dead socket.
 func TestServeTurnMCP_UnelevatedHidesMint(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -328,17 +327,19 @@ func TestServeTurnMCP_UnelevatedHidesMint(t *testing.T) {
 	t.Cleanup(stop)
 
 	names := listToolNames(t, groupfolder.IpcSocket(ipcDir))
-	if names["issue_chat_link"] || names["issue_webhook"] {
-		t.Fatalf("mint tools visible without elevation: %v", names)
+	for _, name := range []string{"issue_chat_link", "issue_webhook", "list_tokens", "revoke_token"} {
+		if names[name] {
+			t.Fatalf("%s visible without elevation or a delegated grant: %v", name, names)
+		}
 	}
-	if !names["list_tokens"] || !names["revoke_token"] {
-		t.Fatalf("self-service token tools missing at tier 1: %v", names)
+	if !names["reply"] {
+		t.Fatalf("role:member floor verb `reply` missing — the socket advertises nothing: %v", names)
 	}
 }
 
-// TestRouteTokensMCP_GateDenies: a tool that is VISIBLE (a wildcard rule matches)
-// but DENIED by a later deny rule is rejected at call time by the injected Gate
-// (grants.CheckAction) — the uniform tool grant the old registerRaw path lacked.
+// TestRouteTokensMCP_GateDenies: a tool that is VISIBLE (an allow row grants it) but
+// overridden by a DENY row is rejected at call time by the injected Gate
+// (auth.Authorize is deny-wins), before the mint runs.
 func TestRouteTokensMCP_GateDenies(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -346,14 +347,20 @@ func TestRouteTokensMCP_GateDenies(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
-	// callerSub="" isolates the CheckAction layer of the gate (skips db.Authorize).
-	sock := serveRouteTokensMCP(t, db, "hq", "", []string{"*", "!issue_chat_link"}, "")
+	grantMCPTools(t, db, "hq", "issue_chat_link")
+	// A deny row on the same (tool, scope) wins over the allow — visible, uncallable.
+	if err := db.AddACLRow(core.ACLRow{
+		Principal: "folder:hq", Action: "mcp:issue_chat_link", Scope: "hq/**", Effect: "deny",
+	}); err != nil {
+		t.Fatalf("AddACLRow: %v", err)
+	}
+	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", "")
 
 	if !listToolNames(t, sock)["issue_chat_link"] {
-		t.Fatal("issue_chat_link should be visible (a wildcard rule matches it)")
+		t.Fatal("issue_chat_link should be visible (an allow row grants it)")
 	}
 	if _, e := callToolText(t, sock, "issue_chat_link", nil); e == "" {
-		t.Fatal("issue_chat_link should be denied by the tool gate")
+		t.Fatal("issue_chat_link should be denied by the deny row")
 	}
 	if rows, _ := db.ListRouteTokens("hq"); len(rows) != 0 {
 		t.Fatalf("denied issue still wrote a token: %+v", rows)
@@ -372,7 +379,7 @@ func TestRouteTokensMCP_AuditRowLands(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", "issue_chat_link", "issue_webhook", "list_tokens", "revoke_token")
-	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"), "")
+	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", "")
 
 	if _, e := callToolText(t, sock, "issue_chat_link", nil); e != "" {
 		t.Fatalf("issue_chat_link errored: %s", e)

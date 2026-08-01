@@ -277,10 +277,12 @@ func TestListTasks_OwnDB(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	seedTask(t, db, "task-1", "demo", "slack:T/C/U", "daily standup")
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	grantMCPTools(t, db, "demo", "list_tasks")
 
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
 	ipcDir := filepath.Join(t.TempDir(), "ipc", "demo")
-	// folder "demo" is tier 0 (root) → sees every task (owner filter empty).
+	// folder "demo" holds list_tasks (delegated) → lists its own tasks (owner=demo).
 	stop, err := srv.ServeTurnMCP(turnMCP{folder: "demo", turnID: "t1"}, ipcDir)
 	if err != nil {
 		t.Fatalf("ServeTurnMCP: %v", err)
@@ -419,6 +421,8 @@ func TestListTasks_NilSibling(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	grantMCPTools(t, db, "demo", "list_tasks")
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
 	ipcDir := filepath.Join(t.TempDir(), "ipc", "demo")
 	stop, err := srv.ServeTurnMCP(turnMCP{folder: "demo", turnID: "t1"}, ipcDir)
@@ -449,6 +453,8 @@ func TestTaskWriteTools_WriteOwnDB(t *testing.T) {
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	const jid = "slack:team/channel/c1"
 	seedTask(t, db, "task-1", "demo", jid, "existing") // pause/cancel target
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	grantMCPTools(t, db, "demo", "schedule_task", "pause_task", "cancel_task", "list_tasks")
 
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
 	ipcDir := filepath.Join(t.TempDir(), "ipc", "demo")

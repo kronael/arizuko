@@ -18,38 +18,45 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 )
 
-// grantMCPTools grants folder's agent-socket principal (folder:<folder>) the
-// named mcp tools explicitly. Top-level worlds are tier 1 now (not the tier-0
-// that got `*` by default), so a test that exercises a management tool's
-// mechanics grants it here rather than leaning on a tier-0 default. Shared across
+// grantMCPTools delegates folder's agent-socket principal (folder:<folder>) the
+// named mcp tools, scoped to its own subtree (folder/**, which covers the folder
+// itself and every descendant). 4/R: management is explicit delegation, not a tier
+// default — a test that exercises a management tool grants it here. Shared across
 // the resource-parity tests.
 func grantMCPTools(t *testing.T, db *DB, folder string, tools ...string) {
 	t.Helper()
 	for _, tl := range tools {
 		if err := db.AddACLRow(core.ACLRow{
-			Principal: "folder:" + folder, Action: "mcp:" + tl, Scope: folder, Effect: "allow",
+			Principal: "folder:" + folder, Action: "mcp:" + tl, Scope: folder + "/**", Effect: "allow",
 		}); err != nil {
 			t.Fatalf("grant %s to %s: %v", tl, folder, err)
 		}
 	}
 }
 
-// serveNetworkMCP stands up the agent socket for folder with the given grant
-// rules + the network_rules resreg seam, and returns the socket path.
-func serveNetworkMCP(t *testing.T, db *DB, folder, callerSub string, rules []string) string {
+// agentVisibleFor is the tools/list visibility predicate a resource-parity test's
+// agent socket uses: auth.EffectiveActions over the folder's acl rows (elevate for
+// /root). Mirrors ServeTurnMCP's turnVisible.
+func agentVisibleFor(srv *Server, callerSub string, elevated bool) func(string) bool {
+	return srv.turnVisible(callerSub, elevated)
+}
+
+// serveNetworkMCP stands up the agent socket for folder + the network_rules resreg
+// seam and returns the socket path. Authz reads the folder's acl rows (grant via
+// grantMCPTools); no rules bundle.
+func serveNetworkMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.networkRulesPostBuild(folder, callerSub, rules, srv.db.Authorize, auth.Resolve(folder))
+	pb := srv.networkRulesPostBuild(folder, callerSub, srv.db.Authorize, agentVisibleFor(srv, callerSub, false))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
-		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -72,8 +79,7 @@ func TestNetworkRulesMCP_AllowListDeny(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", "network_allow", "network_deny", "network_list")
-	rules := deriveFolderGrants(db, "hq")
-	sock := serveNetworkMCP(t, db, "hq", "folder:hq", rules)
+	sock := serveNetworkMCP(t, db, "hq", "folder:hq")
 
 	if _, e := callToolText(t, sock, "network_allow", map[string]any{"host": "example.com"}); e != "" {
 		t.Fatalf("network_allow errored: %s", e)
@@ -120,7 +126,7 @@ func TestNetworkRulesMCP_BadHostRejected(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", "network_allow", "network_deny", "network_list")
-	sock := serveNetworkMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
+	sock := serveNetworkMCP(t, db, "hq", "folder:hq")
 
 	if _, e := callToolText(t, sock, "network_allow", map[string]any{"host": "https://evil.com/x"}); e == "" {
 		t.Fatal("network_allow with a non-bare host should be rejected")
@@ -154,7 +160,7 @@ func TestNetworkRulesMCP_DescendantTargeting(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "world"})   // tier 1 (granted the tool)
 	_ = db.PutGroup(core.Group{Folder: "world/a"}) // descendant target
 	grantMCPTools(t, db, "world", "network_allow", "network_deny", "network_list")
-	sock := serveNetworkMCP(t, db, "world", "folder:world", deriveFolderGrants(db, "world"))
+	sock := serveNetworkMCP(t, db, "world", "folder:world")
 
 	// Target a descendant explicitly — the rule lands there, not on the socket.
 	if _, e := callToolText(t, sock, "network_allow", map[string]any{
@@ -200,15 +206,16 @@ func TestNetworkRulesMCP_Tier1SubtreeContainment(t *testing.T) {
 	for _, f := range []string{"world", "world/a", "world/a/x", "world/b"} {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
-	// grant tier-1 world/a the tool (tiers 1+ lack it by default).
+	// Operator delegates world/a egress management over its own subtree (world/a/**):
+	// covers the folder itself and every descendant, denies siblings/parent — 4/R
+	// containment is the grant scope.
 	if err := db.AddACLRow(core.ACLRow{
 		Principal: "folder:world/a", Action: "mcp:network_allow",
-		Scope: "world/a", Effect: "allow",
+		Scope: "world/a/**", Effect: "allow",
 	}); err != nil {
 		t.Fatalf("AddACLRow: %v", err)
 	}
-	rules := deriveFolderGrants(db, "world/a")
-	sock := serveNetworkMCP(t, db, "world/a", "folder:world/a", rules)
+	sock := serveNetworkMCP(t, db, "world/a", "folder:world/a")
 
 	// descendant: allowed.
 	if _, e := callToolText(t, sock, "network_allow", map[string]any{
@@ -265,8 +272,7 @@ func TestNetworkRulesMCP_ScopedGrantAllowsInScope(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddACLRow: %v", err)
 	}
-	rules := deriveFolderGrants(db, "world/a/b")
-	sock := serveNetworkMCP(t, db, "world/a/b", "folder:world/a/b", rules)
+	sock := serveNetworkMCP(t, db, "world/a/b", "folder:world/a/b")
 
 	if !listToolNames(t, sock)["network_allow"] {
 		t.Fatal("network_allow should be visible (operator granted it)")
@@ -299,11 +305,10 @@ func serveNetworkMCPElevated(t *testing.T, db *DB, folder string) string {
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	rules := []string{"*"}
 	callerSub := "folder:" + folder
-	pb := srv.networkRulesPostBuild(folder, callerSub, rules, srv.turnAuthorize(true), turnIdentity(folder, true))
+	pb := srv.networkRulesPostBuild(folder, callerSub, srv.turnAuthorize(true), agentVisibleFor(srv, callerSub, true))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
-		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, true, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -362,21 +367,21 @@ func TestNetworkRulesMCP_Visibility(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "world/a"})
 	grantMCPTools(t, db, "hq", "network_allow", "network_deny", "network_list")
 
-	granted := listToolNames(t, serveNetworkMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq")))
+	granted := listToolNames(t, serveNetworkMCP(t, db, "hq", "folder:hq"))
 	for _, name := range []string{"network_allow", "network_deny", "network_list"} {
 		if !granted[name] {
 			t.Fatalf("%s not visible to a folder granted it", name)
 		}
 	}
-	ungranted := listToolNames(t, serveNetworkMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a")))
+	ungranted := listToolNames(t, serveNetworkMCP(t, db, "world/a", "folder:world/a"))
 	if ungranted["network_allow"] {
 		t.Fatal("network_allow visible to a folder not granted it")
 	}
 }
 
-// TestNetworkRulesMCP_GateDenies: a tool that is VISIBLE (a wildcard rule matches)
-// but DENIED by a later deny rule is rejected at call time by the injected Gate's
-// grants.CheckAction layer, before the mutation runs.
+// TestNetworkRulesMCP_GateDenies: a tool that is VISIBLE (an allow row grants it)
+// but overridden by a DENY row is rejected at call time by the injected Gate
+// (auth.Authorize is deny-wins), before the mutation runs.
 func TestNetworkRulesMCP_GateDenies(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -384,14 +389,20 @@ func TestNetworkRulesMCP_GateDenies(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
-	// callerSub="" isolates the CheckAction layer (skips db.Authorize).
-	sock := serveNetworkMCP(t, db, "hq", "", []string{"*", "!network_allow"})
+	grantMCPTools(t, db, "hq", "network_allow")
+	// A deny row on the same (tool, scope) wins over the allow — visible, uncallable.
+	if err := db.AddACLRow(core.ACLRow{
+		Principal: "folder:hq", Action: "mcp:network_allow", Scope: "hq/**", Effect: "deny",
+	}); err != nil {
+		t.Fatalf("AddACLRow: %v", err)
+	}
+	sock := serveNetworkMCP(t, db, "hq", "folder:hq")
 
 	if !listToolNames(t, sock)["network_allow"] {
-		t.Fatal("network_allow should be visible (a wildcard rule matches it)")
+		t.Fatal("network_allow should be visible (an allow row grants it)")
 	}
 	if _, e := callToolText(t, sock, "network_allow", map[string]any{"host": "example.com"}); e == "" {
-		t.Fatal("network_allow should be denied by the tier gate")
+		t.Fatal("network_allow should be denied by the deny row")
 	}
 	if got, _ := db.ListNetworkRules("hq"); len(got) != 0 {
 		t.Fatalf("denied allow still wrote a rule: %+v", got)
@@ -409,7 +420,7 @@ func TestNetworkRulesMCP_AuditRowLands(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", "network_allow", "network_deny", "network_list")
-	sock := serveNetworkMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
+	sock := serveNetworkMCP(t, db, "hq", "folder:hq")
 
 	if _, e := callToolText(t, sock, "network_allow", map[string]any{"host": "example.com"}); e != "" {
 		t.Fatalf("network_allow errored: %s", e)

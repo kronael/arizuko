@@ -4,7 +4,7 @@ package routd
 // /v1/acl (remove) now ride the SAME shared aclHandler the agent's
 // add_acl/remove_acl MCP tools use, via resreg.RegisterREST + the injected
 // aclRESTCaller/aclRESTGate. The *Endpoint tests below are the operator/root
-// parity cases (empty JWT folder = tier-0, unrestricted); the *Containment tests
+// parity cases (empty JWT folder = root, owns everything); the *Containment tests
 // are the security tightening — a folder-scoped caller is now bound to its own
 // authority, closing the pre-fold hole where the REST face gated on the acl:write
 // bearer scope ALONE and never bound the body scope. list_acl has no REST twin.
@@ -117,24 +117,38 @@ func TestACLEndpointMissingFields(t *testing.T) {
 }
 
 // TestACLRESTContainmentDenied is the security fix (spec 5/16). The folded REST
-// Gate re-runs the MCP scope-containment, so a folder-scoped caller may grant only
-// WITHIN its own authority. A tier-1 caller ("world/a") grants its own world
-// (allowed, row written) but is DENIED a cross-world scope AND "**" — closing the
-// pre-fold hole where the REST face gated on acl:write ALONE. FAILS (the cross-
-// world POST returns 200 + writes a row) if aclRESTGate's AuthorizeStructural is
-// dropped — the REST twin of TestACLMCP_ContainmentDenied.
+// Gate binds the body `scope` to the caller's subtree (ownsFolder), so a
+// folder-scoped caller may grant only WITHIN its own authority. A caller at
+// "world/a" grants inside its subtree (allowed, row written) but is DENIED an
+// out-of-subtree scope AND "**" — closing the pre-fold hole where the REST face
+// gated on acl:write ALONE. FAILS (the out-of-subtree POST returns 200 + writes a
+// row) if aclRESTGate's ownsFolder is dropped — the REST twin of
+// TestACLMCP_ContainmentDenied.
+//
+// 4/R changed the ALLOWED arm: containment is the caller's SUBTREE, not its world.
+// Pre-4/R a tier-1 caller at world/a could grant on its sibling world/b; now it
+// cannot, so the allowed arm targets world/a/team.
 func TestACLRESTContainmentDenied(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:wa", scope: []string{"acl:write"}, folder: "world/a"})
 
-	// Own world: allowed, row written.
+	// Own subtree: allowed, row written.
 	if rec := doJSON(t, h, "POST", "/v1/acl", "", aclReq{
-		Principal: "google:x", Scope: "world/b", Action: "read"}); rec.Code != 200 {
-		t.Fatalf("own-world POST = %d want 200 body=%s", rec.Code, rec.Body.String())
+		Principal: "google:x", Scope: "world/a/team", Action: "read"}); rec.Code != 200 {
+		t.Fatalf("own-subtree POST = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
-	if aclRowCount(t, db, "world/b") != 1 {
-		t.Fatalf("own-world POST did not write a row (world/b rows=%d)", aclRowCount(t, db, "world/b"))
+	if aclRowCount(t, db, "world/a/team") != 1 {
+		t.Fatalf("own-subtree POST did not write a row (world/a/team rows=%d)",
+			aclRowCount(t, db, "world/a/team"))
 	}
-	// Cross-world: DENIED (403), nothing written — proves the hole is closed.
+	// Sibling world: DENIED (403), nothing written — proves the hole is closed.
+	if rec := doJSON(t, h, "POST", "/v1/acl", "", aclReq{
+		Principal: "google:x", Scope: "world/b", Action: "read"}); rec.Code != 403 {
+		t.Fatalf("sibling-world POST = %d want 403 body=%s", rec.Code, rec.Body.String())
+	}
+	if aclRowCount(t, db, "world/b") != 0 {
+		t.Fatal("denied sibling-world POST still wrote a row")
+	}
+	// Cross-world: DENIED (403), nothing written.
 	if rec := doJSON(t, h, "POST", "/v1/acl", "", aclReq{
 		Principal: "google:x", Scope: "other/x", Action: "read"}); rec.Code != 403 {
 		t.Fatalf("cross-world POST = %d want 403 body=%s", rec.Code, rec.Body.String())
@@ -142,7 +156,7 @@ func TestACLRESTContainmentDenied(t *testing.T) {
 	if aclRowCount(t, db, "other/x") != 0 {
 		t.Fatal("denied cross-world POST still wrote a row")
 	}
-	// "**" operator role: DENIED (a tier-1 folder does not own **).
+	// "**" operator role: DENIED (a folder-scoped caller does not own **).
 	if rec := doJSON(t, h, "POST", "/v1/acl", "", aclReq{
 		Principal: "google:x", Scope: "**"}); rec.Code != 403 {
 		t.Fatalf("** POST by non-root = %d want 403 body=%s", rec.Code, rec.Body.String())
@@ -152,10 +166,10 @@ func TestACLRESTContainmentDenied(t *testing.T) {
 	}
 }
 
-// TestACLRESTOperatorRootOnly: scope "**" is granted by root (tier-0, empty JWT
-// folder) — a role:operator membership edge, not an acl row — and revoked the same
-// way. Mirrors the MCP "**" overload over REST; the non-root denial is covered by
-// TestACLRESTContainmentDenied.
+// TestACLRESTOperatorRootOnly: scope "**" is granted by root (the empty JWT folder,
+// which owns everything) — a role:operator membership edge, not an acl row — and
+// revoked the same way. Mirrors the MCP "**" overload over REST; the non-root denial
+// is covered by TestACLRESTContainmentDenied.
 func TestACLRESTOperatorRootOnly(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:dashd", scope: []string{"acl:write"}, folder: ""})
 
@@ -178,8 +192,8 @@ func TestACLRESTOperatorRootOnly(t *testing.T) {
 	}
 }
 
-// TestACLRESTDeleteContainmentDenied: DELETE mirrors POST — a tier-1 caller is
-// denied a cross-world revoke, so the pre-seeded cross-world row survives.
+// TestACLRESTDeleteContainmentDenied: DELETE mirrors POST — a folder-scoped caller
+// is denied an out-of-subtree revoke, so the pre-seeded cross-world row survives.
 func TestACLRESTDeleteContainmentDenied(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:wa", scope: []string{"acl:write"}, folder: "world/a"})
 	if err := db.AddACLRow(core.ACLRow{

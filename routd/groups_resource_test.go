@@ -3,10 +3,14 @@ package routd
 // Parity tests for the spec 5/16 groups fold: the agent's register_group +
 // refresh_groups now ride resreg's MCP mechanism through the ServeMCP postBuild seam
 // instead of two hand-rolled ipc bodies. register_group is a FORWARDER (its group
-// row + route + git-init FS side-effects can't ride a resreg tx), so its auth (tool
-// grant + tier containment) rides Authz and its audit rides s.audit. Each test drives
-// the REAL unix socket end-to-end so the seam + Authz containment + the handler's
-// spawn cap + the visibility predicate are all exercised.
+// row + route + git-init FS side-effects can't ride a resreg tx), so its auth (one
+// auth.Authorize on the CHILD folder) rides Authz and its audit rides s.audit. Each
+// test drives the REAL unix socket end-to-end so the seam + Authz containment + the
+// handler's spawn cap + the visibility predicate are all exercised.
+//
+// 4/R: neither group tool is in the role:member floor — every test that expects one to
+// work delegates it explicitly with grantMCPTools (scope <folder>/**, which covers the
+// folder itself and every descendant it may register under).
 
 import (
 	"encoding/json"
@@ -22,18 +26,19 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
-// serveGroupsMCP stands up the agent socket for folder with the given grant rules +
-// the groups resreg seam, sets groupsDir so register_group can git-init the group
-// dir, and returns the socket path.
-func serveGroupsMCP(t *testing.T, db *DB, folder, callerSub string, rules []string, groupsDir string) string {
+// serveGroupsMCP stands up the agent socket for folder + the groups resreg seam,
+// sets groupsDir so register_group can git-init the group dir, and returns the
+// socket path. Authz reads the folder's acl rows (grant via grantMCPTools).
+func serveGroupsMCP(t *testing.T, db *DB, folder, callerSub, groupsDir string) string {
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	srv.SetDirs(groupsDir, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.groupsPostBuild(folder, callerSub, rules, srv.db.Authorize, auth.Resolve(folder))
+	pb := srv.groupsPostBuild(folder, callerSub, srv.db.Authorize,
+		agentVisibleFor(srv, callerSub, false), auth.Resolve(folder))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
-		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -46,20 +51,20 @@ func serveGroupsMCP(t *testing.T, db *DB, folder, callerSub string, rules []stri
 }
 
 // serveGroupsMCPElevated stands up the agent socket as an operator /root turn
-// would: the tier-0 `*` grant set, an allow-all row-ACL (turnAuthorize(true))
-// and a tier-0 EFFECTIVE identity (turnIdentity(folder, true)) — the exact
-// wiring ServeTurnMCP hands the postBuild for an elevated turn.
+// would: an allow-all row-ACL (turnAuthorize(true)), an all-visible view and a ROOT
+// effective identity (turnIdentity(folder, true)) — the exact wiring ServeTurnMCP
+// hands the postBuild for an elevated turn.
 func serveGroupsMCPElevated(t *testing.T, db *DB, folder, groupsDir string) string {
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	srv.SetDirs(groupsDir, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	rules := []string{"*"}
 	callerSub := "folder:" + folder
-	pb := srv.groupsPostBuild(folder, callerSub, rules, srv.turnAuthorize(true), turnIdentity(folder, true))
+	pb := srv.groupsPostBuild(folder, callerSub, srv.turnAuthorize(true),
+		agentVisibleFor(srv, callerSub, true), turnIdentity(folder, true))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
-		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, true, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -71,9 +76,10 @@ func serveGroupsMCPElevated(t *testing.T, db *DB, folder, groupsDir string) stri
 	return sock
 }
 
-// TestGroupsMCP_RegisterCreatesChild: a tier-1 folder registers a direct child →
-// the group row lands, a room-matched default route lands, and the group dir is
-// git-inited (the s.registerGroup side-effects, preserved through the forwarder).
+// TestGroupsMCP_RegisterCreatesChild: a folder delegated register_group over its own
+// subtree registers a direct child → the group row lands, a room-matched default
+// route lands, and the group dir is git-inited (the s.registerGroup side-effects,
+// preserved through the forwarder).
 func TestGroupsMCP_RegisterCreatesChild(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -84,8 +90,8 @@ func TestGroupsMCP_RegisterCreatesChild(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(groupsDir, "world/team/child"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	sock := serveGroupsMCP(t, db, "world/team", "folder:world/team",
-		deriveFolderGrants(db, "world/team"), groupsDir)
+	grantMCPTools(t, db, "world/team", "register_group")
+	sock := serveGroupsMCP(t, db, "world/team", "folder:world/team", groupsDir)
 
 	text, e := callToolText(t, sock, "register_group",
 		map[string]any{"jid": "telegram:900", "folder": "world/team/child"})
@@ -113,20 +119,20 @@ func TestGroupsMCP_RegisterCreatesChild(t *testing.T) {
 	}
 }
 
-// TestGroupsMCP_RegisterOutsideSubtreeDenied is the crux: a tier-1 folder may only
-// register a DIRECT child of itself. "world/team" registering "world/other/child"
-// (a sibling subtree) is denied by the Authz tier containment
-// (auth.AuthorizeStructural), and no group row is written. Dropping the
-// authzStructural call from groupsPostBuild's Authz flips this to a success — so this
-// test fails-on-broken, guarding the containment.
+// TestGroupsMCP_RegisterOutsideSubtreeDenied is the crux: a folder delegated
+// register_group over world/team/** may only register inside that subtree.
+// "world/team" registering "world/other/child" (a sibling subtree) is denied by the
+// Authz containment (auth.Authorize on the CHILD folder), and no group row is
+// written. Dropping the authorize call from groupsPostBuild's Authz flips this to a
+// success — so this test fails-on-broken, guarding the containment.
 func TestGroupsMCP_RegisterOutsideSubtreeDenied(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	sock := serveGroupsMCP(t, db, "world/team", "folder:world/team",
-		deriveFolderGrants(db, "world/team"), t.TempDir())
+	grantMCPTools(t, db, "world/team", "register_group")
+	sock := serveGroupsMCP(t, db, "world/team", "folder:world/team", t.TempDir())
 
 	if _, e := callToolText(t, sock, "register_group",
 		map[string]any{"jid": "telegram:901", "folder": "world/other/child"}); e == "" {
@@ -143,23 +149,21 @@ func TestGroupsMCP_RegisterOutsideSubtreeDenied(t *testing.T) {
 	}
 }
 
-// TestGroupsMCP_RootElevationRegistersAtTier2 is the elevated counterpart to
-// TestGroupsMCP_RegisterOutsideSubtreeDenied: a tier-2 folder cannot register_group
-// AT ALL over the plain agent socket (policy.go: id.Tier >= 2 denied), but an
-// operator /root turn from that SAME folder can — the Authz containment sees
-// tier 0 under elevation (turnIdentity), not the folder's static tier.
+// TestGroupsMCP_RootElevationRegistersUngranted is the elevated counterpart to
+// TestGroupsMCP_RegisterOutsideSubtreeDenied: a folder holding NO register_group
+// grant cannot register anything over the plain agent socket, but an operator /root
+// turn from that SAME folder can — elevation swaps in the allow-all authorize.
 // Regression guard for the class of bug d452d6ef fixed.
-func TestGroupsMCP_RootElevationRegistersAtTier2(t *testing.T) {
+func TestGroupsMCP_RootElevationRegistersUngranted(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	// Tier is derived from the folder path alone (auth.Resolve), so world/a/b
-	// need not be a registered group; leaving it unregistered also keeps the
-	// handler's spawn cap out of play (it only fires when the caller's OWN
-	// folder is a registered parent — see TestGroupsMCP_SpawnCapFires), so this
-	// test isolates the elevation containment cleanly.
+	// world/a/b is deliberately NOT a registered group and holds no grants: that
+	// keeps the handler's spawn cap out of play (it only fires when the caller's OWN
+	// folder is a registered parent — see TestGroupsMCP_SpawnCapFires), so this test
+	// isolates the elevation containment cleanly.
 	groupsDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(groupsDir, "world/a/b/child"), 0o755); err != nil {
 		t.Fatal(err)
@@ -168,7 +172,7 @@ func TestGroupsMCP_RootElevationRegistersAtTier2(t *testing.T) {
 
 	if _, e := callToolText(t, sock, "register_group",
 		map[string]any{"jid": "telegram:905", "folder": "world/a/b/child"}); e != "" {
-		t.Fatalf("/root register_group at tier 2 should be allowed: %s", e)
+		t.Fatalf("/root register_group without a grant should be allowed: %s", e)
 	}
 	if !db.GroupExists("world/a/b/child") {
 		t.Fatal("/root register_group did not write the group row")
@@ -187,8 +191,8 @@ func TestGroupsMCP_SpawnCapFires(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "world/team", Config: core.GroupConfig{MaxChildren: 1}})
 	_ = db.PutGroup(core.Group{Folder: "world/team/existing"})
-	sock := serveGroupsMCP(t, db, "world/team", "folder:world/team",
-		deriveFolderGrants(db, "world/team"), t.TempDir())
+	grantMCPTools(t, db, "world/team", "register_group")
+	sock := serveGroupsMCP(t, db, "world/team", "folder:world/team", t.TempDir())
 
 	if _, e := callToolText(t, sock, "register_group",
 		map[string]any{"jid": "telegram:903", "folder": "world/team/second"}); e == "" {
@@ -211,7 +215,8 @@ func TestGroupsMCP_RefreshGroupsLists(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "world"})
 	_ = db.PutGroup(core.Group{Folder: "world/a"})
 	_ = db.PutGroup(core.Group{Folder: "solo/inbox"})
-	sock := serveGroupsMCP(t, db, "world", "folder:world", deriveFolderGrants(db, "world"), t.TempDir())
+	grantMCPTools(t, db, "world", "refresh_groups")
+	sock := serveGroupsMCP(t, db, "world", "folder:world", t.TempDir())
 
 	text, e := callToolText(t, sock, "refresh_groups", nil)
 	if e != "" {
@@ -234,42 +239,43 @@ func TestGroupsMCP_RefreshGroupsLists(t *testing.T) {
 	}
 }
 
-// TestGroupsMCP_Visibility: the visibility predicate (MatchingRules over the derived
-// rules) reproduces the pre-fold gating EXACTLY. register_group is tier 0/1 only
-// (tier1FixedActions); refresh_groups is tier 0/1/2 (its former tier≤2 hard gate,
-// now grant-derived); tier 3 sees neither.
+// TestGroupsMCP_Visibility: the visibility predicate (auth.EffectiveActions over the
+// caller's acl rows) gates tools/list. Neither group tool is in the role:member
+// floor, so a folder sees each one only when it was delegated it — and a folder with
+// no delegation (any depth) sees neither.
 func TestGroupsMCP_Visibility(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "hq"})
+	_ = db.PutGroup(core.Group{Folder: "world/a"})
+	_ = db.PutGroup(core.Group{Folder: "world/a/b"})
+	grantMCPTools(t, db, "hq", "register_group", "refresh_groups")
+	grantMCPTools(t, db, "world/a", "refresh_groups")
 
-	// tier 0 (top-level "hq"): both tools visible.
-	tier0 := listToolNames(t, serveGroupsMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"), t.TempDir()))
-	if !tier0["register_group"] || !tier0["refresh_groups"] {
-		t.Fatalf("tier-0 should see both group tools; got register=%v refresh=%v", tier0["register_group"], tier0["refresh_groups"])
+	// Both delegated → both visible.
+	both := listToolNames(t, serveGroupsMCP(t, db, "hq", "folder:hq", t.TempDir()))
+	if !both["register_group"] || !both["refresh_groups"] {
+		t.Fatalf("a folder granted both should see both; got register=%v refresh=%v",
+			both["register_group"], both["refresh_groups"])
 	}
 
-	// tier 1 ("world/a"): both visible (register_group + refresh_groups in tier-1 rules).
-	tier1 := listToolNames(t, serveGroupsMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a"), t.TempDir()))
-	if !tier1["register_group"] || !tier1["refresh_groups"] {
-		t.Fatalf("tier-1 should see both group tools; got register=%v refresh=%v", tier1["register_group"], tier1["refresh_groups"])
+	// Only refresh_groups delegated → register_group stays hidden.
+	partial := listToolNames(t, serveGroupsMCP(t, db, "world/a", "folder:world/a", t.TempDir()))
+	if partial["register_group"] {
+		t.Fatal("register_group visible to a folder granted only refresh_groups")
+	}
+	if !partial["refresh_groups"] {
+		t.Fatal("refresh_groups not visible to a folder granted it")
 	}
 
-	// tier 2 ("world/a/b"): refresh_groups visible, register_group NOT.
-	tier2 := listToolNames(t, serveGroupsMCP(t, db, "world/a/b", "folder:world/a/b", deriveFolderGrants(db, "world/a/b"), t.TempDir()))
-	if tier2["register_group"] {
-		t.Fatal("tier-2 must NOT see register_group")
-	}
-	if !tier2["refresh_groups"] {
-		t.Fatal("tier-2 should see refresh_groups (its former tier≤2 gate)")
-	}
-
-	// tier 3 ("world/a/b/c"): neither.
-	tier3 := listToolNames(t, serveGroupsMCP(t, db, "world/a/b/c", "folder:world/a/b/c", deriveFolderGrants(db, "world/a/b/c"), t.TempDir()))
-	if tier3["register_group"] || tier3["refresh_groups"] {
-		t.Fatalf("tier-3 must see no group tools; got register=%v refresh=%v", tier3["register_group"], tier3["refresh_groups"])
+	// No delegation → neither (the role:member floor carries no group tool).
+	none := listToolNames(t, serveGroupsMCP(t, db, "world/a/b", "folder:world/a/b", t.TempDir()))
+	if none["register_group"] || none["refresh_groups"] {
+		t.Fatalf("an ungranted folder must see no group tools; got register=%v refresh=%v",
+			none["register_group"], none["refresh_groups"])
 	}
 }
 
@@ -284,15 +290,17 @@ func TestGroupsMCP_AuditRowLands(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	auditDir := t.TempDir()
+	grantMCPTools(t, db, "world/team", "register_group")
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	srv.SetDirs(t.TempDir(), "")
 	srv.SetAudit(audit.New(audit.Config{Enabled: true, DataDir: auditDir, Instance: "test"}))
 
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.groupsPostBuild("world/team", "folder:world/team", deriveFolderGrants(db, "world/team"), srv.db.Authorize, auth.Resolve("world/team"))
+	pb := srv.groupsPostBuild("world/team", "folder:world/team", srv.db.Authorize,
+		agentVisibleFor(srv, "folder:world/team", false), auth.Resolve("world/team"))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: "world/team"}),
-		srv.buildStoreFns(turnMCP{folder: "world/team"}), "world/team", nil, 0, "folder:world/team", pb)
+		srv.buildStoreFns(turnMCP{folder: "world/team"}), "world/team", false, 0, "folder:world/team", pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

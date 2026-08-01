@@ -216,9 +216,8 @@ func TestConnectorCall_ReceivesResolvedSecret(t *testing.T) {
 	if err := s.PutSecretRow(store.ScopeFolder, "main", "GITHUB_TOKEN", "ghp_livetoken"); err != nil {
 		t.Fatalf("PutSecretRow: %v", err)
 	}
-	// Connector tool visibility is db.Authorize-gated on the folder principal. A
-	// tier-1 world doesn't carry a connector tool by default (only the tier-0 `*`
-	// set did, and no folder resolves to tier 0 now), so grant it explicitly.
+	// Connector tool visibility is db.Authorize-gated on the folder principal, and
+	// the role:member floor carries only the messaging verbs — so grant it explicitly.
 	grantMCPTools(t, db, "main", "fake_echo_env")
 
 	srv := NewServer(db, nil, nil, nil, 0, "")
@@ -226,9 +225,8 @@ func TestConnectorCall_ReceivesResolvedSecret(t *testing.T) {
 
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	rules := deriveFolderGrants(db, "main")
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: "main"}),
-		srv.buildStoreFns(turnMCP{folder: "main"}), "main", rules, 0, "")
+		srv.buildStoreFns(turnMCP{folder: "main"}), "main", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

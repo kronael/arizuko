@@ -27,7 +27,7 @@ func TestResourceEndpoints_SingleSource(t *testing.T) {
 	if !reflect.DeepEqual(srv.webRoutesResource().Endpoints, resources.WebRoutesEndpoints) {
 		t.Error("web_routes: mounted Endpoints != resources.WebRoutesEndpoints")
 	}
-	if !reflect.DeepEqual(srv.scheduledTasksResource(nil).Endpoints, resources.ScheduledTasksEndpoints) {
+	if !reflect.DeepEqual(srv.scheduledTasksResource(nil, false).Endpoints, resources.ScheduledTasksEndpoints) {
 		t.Error("scheduled_tasks: mounted Endpoints != resources.ScheduledTasksEndpoints")
 	}
 	if !reflect.DeepEqual(srv.aclResource().Endpoints, resources.ACLEndpoints) {

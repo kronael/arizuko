@@ -24,6 +24,10 @@ func TestServeTurnMCP_ReplyOverSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	// PutGroup binds demo to role:member (4/R messaging floor) so reply is visible.
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	// The reply tool's authorizeJID requires the chat to resolve to the folder,
 	// so seed a route (mirrors the other routd tests) and use a slack jid.
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})

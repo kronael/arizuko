@@ -4,13 +4,12 @@ package routd
 // set_web_route/del_web_route/list_web_routes now ride resreg's two-face
 // mechanism through the ServeMCP postBuild seam instead of hand-rolled ipc
 // bodies. Each test drives the REAL unix socket end-to-end (not the handler
-// directly) so the seam + injected tier Gate + Visible predicate are exercised.
+// directly) so the seam + injected Gate + Visible predicate are exercised.
 //
-// Tier note: these three tools are granted only at tier 0 (DeriveRules tier-0 =
-// ["*"]); tiers 1+ don't get them by default. So the happy-path tests use a
-// tier-0 (top-level) folder and pass its REAL derived rules, keeping the gate's
-// two layers (grants.CheckAction over the rules + db.Authorize re-deriving the
-// same tier defaults) consistent — exactly as production ServeTurnMCP wires it.
+// 4/R: none of the three tools is in the role:member floor, so every test that
+// drives one delegates it with grantMCPTools (scope <folder>/**). The Gate binds the
+// caller's OWN folder (the handler scopes every row by folder), so containment is
+// the grant covering that folder.
 
 import (
 	"bufio"
@@ -24,16 +23,17 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
-// serveWebRoutesMCP stands up the agent socket for folder with the given grant
-// rules + the web_routes resreg seam, and returns the socket path.
-func serveWebRoutesMCP(t *testing.T, db *DB, folder, callerSub string, rules []string) string {
+// serveWebRoutesMCP stands up the agent socket for folder + the web_routes resreg
+// seam, and returns the socket path. Authz reads the folder's acl rows.
+func serveWebRoutesMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.webRoutesPostBuild(folder, callerSub, rules, srv.db.Authorize)
+	pb := srv.webRoutesPostBuild(folder, callerSub, srv.db.Authorize,
+		agentVisibleFor(srv, callerSub, false))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
-		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -78,9 +78,8 @@ func listToolNames(t *testing.T, sock string) map[string]bool {
 	return names
 }
 
-// TestWebRoutesMCP_CreateListDelete: happy path for a tier-0 folder — set
-// upserts into its own slot, list returns the row, delete removes it (the
-// tier-0 widening reaches the row).
+// TestWebRoutesMCP_CreateListDelete: happy path for a delegated folder — set
+// upserts into its own slot, list returns the row, delete removes it.
 func TestWebRoutesMCP_CreateListDelete(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -89,8 +88,7 @@ func TestWebRoutesMCP_CreateListDelete(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", "set_web_route", "del_web_route", "list_web_routes")
-	rules := deriveFolderGrants(db, "hq")
-	sock := serveWebRoutesMCP(t, db, "hq", "folder:hq", rules)
+	sock := serveWebRoutesMCP(t, db, "hq", "folder:hq")
 
 	if _, e := callToolText(t, sock, "set_web_route", map[string]any{
 		"path": "/pub/hq/app", "access": "public",
@@ -132,8 +130,7 @@ func TestWebRoutesMCP_SelfSlotAndPathClaim(t *testing.T) {
 	// other already owns a top-level prefix.
 	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/shared", Access: "public", Folder: "other"})
 	grantMCPTools(t, db, "hq", "set_web_route", "del_web_route", "list_web_routes")
-	rules := deriveFolderGrants(db, "hq")
-	sock := serveWebRoutesMCP(t, db, "hq", "folder:hq", rules)
+	sock := serveWebRoutesMCP(t, db, "hq", "folder:hq")
 
 	// redirect into another folder's slot: rejected.
 	if _, e := callToolText(t, sock, "set_web_route", map[string]any{
@@ -158,10 +155,9 @@ func TestWebRoutesMCP_SelfSlotAndPathClaim(t *testing.T) {
 	}
 }
 
-// TestWebRoutesMCP_DeleteFolderBound: a NON-tier-0 caller (granted del_web_route
-// via an ACL overlay) may delete only its OWN routes — a cross-folder delete
-// returns not-found. This is the folder-authz the tier gate + handler preserve;
-// the route folder is the socket folder, never a client arg.
+// TestWebRoutesMCP_DeleteFolderBound: a caller delegated del_web_route may delete
+// only its OWN routes — a cross-folder delete returns not-found. The route folder is
+// the socket folder, never a client arg.
 func TestWebRoutesMCP_DeleteFolderBound(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -170,7 +166,7 @@ func TestWebRoutesMCP_DeleteFolderBound(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "world/eng"})
 	_ = db.PutGroup(core.Group{Folder: "world/ops"})
-	// grant tier-1 world/eng the delete tool (tiers 1+ lack it by default).
+	// Delegate world/eng the delete tool, scoped exactly to itself.
 	if err := db.AddACLRow(core.ACLRow{
 		Principal: "folder:world/eng", Action: "mcp:del_web_route",
 		Scope: "world/eng", Effect: "allow",
@@ -179,8 +175,7 @@ func TestWebRoutesMCP_DeleteFolderBound(t *testing.T) {
 	}
 	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/world/eng/x", Access: "public", Folder: "world/eng"})
 	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/world/ops/y", Access: "public", Folder: "world/ops"})
-	rules := deriveFolderGrants(db, "world/eng")
-	sock := serveWebRoutesMCP(t, db, "world/eng", "folder:world/eng", rules)
+	sock := serveWebRoutesMCP(t, db, "world/eng", "folder:world/eng")
 
 	// cross-folder delete: bound to world/eng → miss.
 	if _, e := callToolText(t, sock, "del_web_route", map[string]any{"path": "/pub/world/ops/y"}); e == "" {
@@ -198,14 +193,13 @@ func TestWebRoutesMCP_DeleteFolderBound(t *testing.T) {
 	}
 }
 
-// TestWebRoutesMCP_DeleteTier0TenantNoCrossTenant is the fail-on-broken guard for
-// the 5/16 list-all leak class. A top-level tenant folder is tier-0
-// (min(count("/"),3)==0) and holds ["*"] grants by default, so del_web_route is
-// GRANTED — yet it must NOT delete a sibling tenant's route. Containment keys on
-// the EMPTY folder claim, never tier-0. Before the fix, tier-0 widened the delete
-// scope to "" and removed any folder's route (then set_web_route could re-claim
-// it — cross-tenant DoS + hijack).
-func TestWebRoutesMCP_DeleteTier0TenantNoCrossTenant(t *testing.T) {
+// TestWebRoutesMCP_DeleteTenantNoCrossTenant is the fail-on-broken guard for the
+// 5/16 list-all leak class. A top-level tenant folder delegated del_web_route must
+// still NOT delete a sibling tenant's route: the delete widening keys on the EMPTY
+// folder claim, never on the caller being top-level. Before the fix a top-level
+// caller widened the delete scope to "" and removed any folder's route (then
+// set_web_route could re-claim it — cross-tenant DoS + hijack).
+func TestWebRoutesMCP_DeleteTenantNoCrossTenant(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -214,24 +208,22 @@ func TestWebRoutesMCP_DeleteTier0TenantNoCrossTenant(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "acme"})
 	_ = db.PutGroup(core.Group{Folder: "globex"})
 	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/globex/landing", Access: "public", Folder: "globex"})
-	// acme is a tier-1 tenant granted del_web_route — so the delete is permitted by
-	// the grant gate and only folder-containment can still block the cross-tenant hit.
+	// acme is a tenant granted del_web_route — so the delete is permitted by the grant
+	// gate and only folder-containment can still block the cross-tenant hit.
 	grantMCPTools(t, db, "acme", "del_web_route")
-	rules := deriveFolderGrants(db, "acme")
-	sock := serveWebRoutesMCP(t, db, "acme", "folder:acme", rules)
+	sock := serveWebRoutesMCP(t, db, "acme", "folder:acme")
 
 	if _, e := callToolText(t, sock, "del_web_route", map[string]any{"path": "/pub/globex/landing"}); e == "" {
-		t.Fatal("tier-0 tenant cross-tenant delete should fail (not owned by acme)")
+		t.Fatal("cross-tenant delete should fail (not owned by acme)")
 	}
 	if owner, ok := db.WebRouteOwner("/pub/globex/landing"); !ok || owner != "globex" {
-		t.Fatalf("globex route deleted by tier-0 tenant acme: owner=%q ok=%v", owner, ok)
+		t.Fatalf("globex route deleted by tenant acme: owner=%q ok=%v", owner, ok)
 	}
 }
 
-// TestWebRoutesMCP_Visibility: the Visible predicate (MatchingRules) preserves
-// tools/list gating — a tier-0 folder (rules ["*"]) sees set_web_route; a tier-1
-// folder (whose derived rules don't grant it) does not, exactly as ipc's
-// registerRaw hid it before.
+// TestWebRoutesMCP_Visibility: the Visible predicate (auth.EffectiveActions)
+// preserves tools/list gating — a delegated folder sees the three tools; an
+// ungranted folder sees none (no web_route tool is in the role:member floor).
 func TestWebRoutesMCP_Visibility(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -242,21 +234,23 @@ func TestWebRoutesMCP_Visibility(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "world/a"})
 	grantMCPTools(t, db, "hq", "set_web_route", "del_web_route", "list_web_routes")
 
-	granted := listToolNames(t, serveWebRoutesMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq")))
+	granted := listToolNames(t, serveWebRoutesMCP(t, db, "hq", "folder:hq"))
 	for _, name := range []string{"set_web_route", "del_web_route", "list_web_routes"} {
 		if !granted[name] {
 			t.Fatalf("%s not visible to a folder granted it", name)
 		}
 	}
-	ungranted := listToolNames(t, serveWebRoutesMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a")))
-	if ungranted["set_web_route"] {
-		t.Fatal("set_web_route visible to a folder not granted it")
+	ungranted := listToolNames(t, serveWebRoutesMCP(t, db, "world/a", "folder:world/a"))
+	for _, name := range []string{"set_web_route", "del_web_route", "list_web_routes"} {
+		if ungranted[name] {
+			t.Fatalf("%s visible to a folder not granted it", name)
+		}
 	}
 }
 
-// TestWebRoutesMCP_GateDenies: a tool that is VISIBLE (a rule matches it) but
-// DENIED by a later deny rule is rejected at call time — the injected tier gate
-// (grants.CheckAction), not resreg's operator default, made the decision.
+// TestWebRoutesMCP_GateDenies: a tool that is VISIBLE (an allow row grants it) but
+// overridden by a DENY row is rejected at call time by the injected Gate
+// (auth.Authorize is deny-wins), not by resreg's operator default.
 func TestWebRoutesMCP_GateDenies(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -264,17 +258,22 @@ func TestWebRoutesMCP_GateDenies(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
-	// callerSub="" isolates the CheckAction layer of the gate (skips db.Authorize).
-	sock := serveWebRoutesMCP(t, db, "hq", "", []string{"*", "!set_web_route"})
+	grantMCPTools(t, db, "hq", "set_web_route")
+	// A deny row on the same (tool, scope) wins over the allow — visible, uncallable.
+	if err := db.AddACLRow(core.ACLRow{
+		Principal: "folder:hq", Action: "mcp:set_web_route", Scope: "hq/**", Effect: "deny",
+	}); err != nil {
+		t.Fatalf("AddACLRow: %v", err)
+	}
+	sock := serveWebRoutesMCP(t, db, "hq", "folder:hq")
 
-	// Visible (the "*" rule matches) but call-denied by "!set_web_route".
 	if !listToolNames(t, sock)["set_web_route"] {
-		t.Fatal("set_web_route should be visible (a wildcard rule matches it)")
+		t.Fatal("set_web_route should be visible (an allow row grants it)")
 	}
 	if _, e := callToolText(t, sock, "set_web_route", map[string]any{
 		"path": "/pub/hq/x", "access": "public",
 	}); e == "" {
-		t.Fatal("set_web_route should be denied by the tier gate")
+		t.Fatal("set_web_route should be denied by the deny row")
 	}
 	if rows, _ := db.WebRoutes("hq"); len(rows) != 0 {
 		t.Fatalf("denied set still wrote a row: %+v", rows)
@@ -293,7 +292,7 @@ func TestWebRoutesMCP_AuditRowLands(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", "set_web_route", "del_web_route", "list_web_routes")
-	sock := serveWebRoutesMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
+	sock := serveWebRoutesMCP(t, db, "hq", "folder:hq")
 
 	if _, e := callToolText(t, sock, "set_web_route", map[string]any{
 		"path": "/pub/hq/app", "access": "public",

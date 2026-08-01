@@ -4,48 +4,49 @@ package routd
 // add_route/set_routes/list_routes/delete_route now ride resreg's MCP mechanism
 // through the ServeMCP postBuild seam instead of four hand-rolled ipc bodies. Each
 // test drives the REAL unix socket end-to-end (not the handler directly) so the
-// seam + injected Gate (grants.CheckAction + db.Authorize) + the handler's two
-// security invariants + the Visible predicate are all exercised.
+// seam + the injected contain seam (auth.Authorize on the arg/id-resolved target) +
+// the handler's two security invariants + the Visible predicate are all exercised.
 //
 // Routing is security-critical (a route's TARGET folder decides which group a
 // chat's turns fire in), so two invariants MUST hold and two tests fail if they're
 // dropped:
 //
-//   - TARGET CONTAINMENT. TestRoutesMCP_SetRoutesCrossFolderDenied (tier-0, the
+//   - TARGET CONTAINMENT. TestRoutesMCP_SetRoutesCrossFolderDenied (the
 //     routeTargetWithin per-route check) and TestRoutesMCP_AddCrossFolderDenied /
-//     TestRoutesMCP_DeleteCrossFolderDenied (tier-1, auth.AuthorizeStructural on
-//     the arg target / the id-resolved target) fail if the containment is removed —
-//     a folder would write/delete a route pointing at another folder.
+//     TestRoutesMCP_DeleteCrossFolderDenied (auth.Authorize on the arg target / the
+//     id-resolved target) fail if the containment is removed — a folder would
+//     write/delete a route pointing at another folder.
 //   - SELF-DEFAULT GUARD. TestRoutesMCP_SetRoutesSelfDefaultGuard and
 //     TestRoutesMCP_DeleteSelfDefaultRefused fail if the guard is removed — a folder
 //     would orphan its own seq-0 default route.
 //
-// Tier note: the route tools are in grants.tier1FixedActions — granted by default
-// at tier 0 AND 1. set_routes' tier cap binds the OWN folder, so in practice only
-// tier 0 can set_routes (a tier-1 caller fails HasPrefix(folder, folder+"/")); the
-// cross-folder containment for add/delete is exercised at tier 1 where the cap
-// actually confines the target.
+// 4/R: no route tool is in the role:member floor, so every test delegates the ones
+// it drives with grantMCPTools (scope <folder>/**, which covers the folder and its
+// descendants — the cross-folder arms target a sibling/parent OUTSIDE that scope).
 
 import (
 	"testing"
 	"time"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 )
 
-// serveRoutesMCP stands up the agent socket for folder with the given grant rules
-// + the routes resreg seam, and returns the socket path.
-func serveRoutesMCP(t *testing.T, db *DB, folder, callerSub string, rules []string) string {
+// routeToolNames is the four routing tools — the set every routes test delegates.
+var routeToolNames = []string{"add_route", "set_routes", "list_routes", "delete_route"}
+
+// serveRoutesMCP stands up the agent socket for folder + the routes resreg seam,
+// and returns the socket path. Authz reads the folder's acl rows.
+func serveRoutesMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.routesPostBuild(folder, callerSub, rules, srv.db.Authorize, auth.Resolve(folder))
+	pb := srv.routesPostBuild(folder, callerSub, srv.db.Authorize,
+		agentVisibleFor(srv, callerSub, false))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
-		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -58,19 +59,19 @@ func serveRoutesMCP(t *testing.T, db *DB, folder, callerSub string, rules []stri
 }
 
 // serveRoutesMCPElevated stands up the agent socket as an operator /root turn
-// would: the tier-0 `*` grant set, an allow-all row-ACL (turnAuthorize(true))
-// and a tier-0 EFFECTIVE identity (turnIdentity(folder, true)) — the exact
-// wiring ServeTurnMCP hands the postBuild for an elevated turn.
+// would: an allow-all row-ACL (turnAuthorize(true)), an all-visible view and a ROOT
+// effective identity — the exact wiring ServeTurnMCP hands the postBuild for an
+// elevated turn.
 func serveRoutesMCPElevated(t *testing.T, db *DB, folder string) string {
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	rules := []string{"*"}
 	callerSub := "folder:" + folder
-	pb := srv.routesPostBuild(folder, callerSub, rules, srv.turnAuthorize(true), turnIdentity(folder, true))
+	pb := srv.routesPostBuild(folder, callerSub, srv.turnAuthorize(true),
+		agentVisibleFor(srv, callerSub, true))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
-		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, true, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -99,7 +100,7 @@ func findRouteID(t *testing.T, db *DB, target string) int64 {
 	return 0
 }
 
-// TestRoutesMCP_AddListDeleteOwn: happy path for a tier-0 folder — add appends a
+// TestRoutesMCP_AddListDeleteOwn: happy path for a delegated folder — add appends a
 // rule, list returns it, delete removes it by id.
 func TestRoutesMCP_AddListDeleteOwn(t *testing.T) {
 	db, err := OpenMem()
@@ -108,7 +109,8 @@ func TestRoutesMCP_AddListDeleteOwn(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
-	sock := serveRoutesMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
+	grantMCPTools(t, db, "hq", routeToolNames...)
+	sock := serveRoutesMCP(t, db, "hq", "folder:hq")
 
 	res, e := callToolOverSock(t, sock, "add_route", map[string]any{
 		"route": `{"seq":1,"match":"platform=slack","target":"hq"}`,
@@ -154,7 +156,8 @@ func TestRoutesMCP_SetRoutesBulkReplace(t *testing.T) {
 		{Seq: 0, Match: "room=old", Target: "hq"},
 		{Seq: 1, Match: "platform=slack", Target: "hq"},
 	})
-	sock := serveRoutesMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
+	grantMCPTools(t, db, "hq", routeToolNames...)
+	sock := serveRoutesMCP(t, db, "hq", "folder:hq")
 
 	res, e := callToolOverSock(t, sock, "set_routes", map[string]any{
 		"routes": `[{"seq":0,"match":"room=new","target":"hq"},{"seq":2,"match":"platform=telegram","target":"hq"}]`,
@@ -176,7 +179,7 @@ func TestRoutesMCP_SetRoutesBulkReplace(t *testing.T) {
 	}
 }
 
-// TestRoutesMCP_SetRoutesCrossFolderDenied: THE tier-0 containment guard. A route
+// TestRoutesMCP_SetRoutesCrossFolderDenied: THE per-route containment guard. A route
 // in a set_routes batch that targets ANOTHER folder is rejected by
 // routeTargetWithin, and NOTHING is written (the pre-seeded table is intact). Fails
 // if the per-route containment loop is removed — a cross-folder route would land.
@@ -188,7 +191,8 @@ func TestRoutesMCP_SetRoutesCrossFolderDenied(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	doSetRoutes(t, db, []core.Route{{Seq: 0, Match: "room=hq", Target: "hq"}})
-	sock := serveRoutesMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
+	grantMCPTools(t, db, "hq", routeToolNames...)
+	sock := serveRoutesMCP(t, db, "hq", "folder:hq")
 
 	if _, e := callToolOverSock(t, sock, "set_routes", map[string]any{
 		"routes": `[{"seq":0,"match":"room=hq","target":"hq"},{"seq":1,"match":"platform=slack","target":"other"}]`,
@@ -206,10 +210,10 @@ func TestRoutesMCP_SetRoutesCrossFolderDenied(t *testing.T) {
 	}
 }
 
-// TestRoutesMCP_AddCrossFolderDenied: THE tier-1 containment guard on add. A tier-1
-// caller (granted the tool by default) may route to a strict descendant, but NOT to
-// a sibling or its parent — auth.AuthorizeStructural on the arg-carried target.
-// Nothing writes on denial. Fails if the handler's AuthorizeStructural is dropped.
+// TestRoutesMCP_AddCrossFolderDenied: THE containment guard on add. A caller
+// delegated the route tools over world/a/** may route to a descendant, but NOT to a
+// sibling or its parent — auth.Authorize on the arg-carried target. Nothing writes
+// on denial. Fails if the handler's contain seam is dropped.
 func TestRoutesMCP_AddCrossFolderDenied(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -219,7 +223,8 @@ func TestRoutesMCP_AddCrossFolderDenied(t *testing.T) {
 	for _, f := range []string{"world", "world/a", "world/a/x", "world/b"} {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
-	sock := serveRoutesMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a"))
+	grantMCPTools(t, db, "world/a", routeToolNames...)
+	sock := serveRoutesMCP(t, db, "world/a", "folder:world/a")
 
 	// descendant target: allowed.
 	if _, e := callToolOverSock(t, sock, "add_route", map[string]any{
@@ -250,11 +255,10 @@ func TestRoutesMCP_AddCrossFolderDenied(t *testing.T) {
 }
 
 // TestRoutesMCP_RootElevationAddsCrossFolder is the elevated counterpart to
-// TestRoutesMCP_AddCrossFolderDenied: a tier-1 folder cannot add_route to a
-// sibling over the plain agent socket, but an operator /root turn from that
-// SAME folder can — the structural gate sees tier 0 under elevation
-// (turnIdentity), not the folder's static tier. Regression guard for the class
-// of bug d452d6ef fixed.
+// TestRoutesMCP_AddCrossFolderDenied: a subtree-scoped folder cannot add_route to a
+// sibling over the plain agent socket, but an operator /root turn from that SAME
+// folder can — elevation swaps in the allow-all authorize. Regression guard for the
+// class of bug d452d6ef fixed.
 func TestRoutesMCP_RootElevationAddsCrossFolder(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -274,12 +278,12 @@ func TestRoutesMCP_RootElevationAddsCrossFolder(t *testing.T) {
 	_ = findRouteID(t, db, "world/b") // must be written
 }
 
-// TestRoutesMCP_DeleteCrossFolderDenied: THE tier-1 containment guard on delete —
-// the id-resolution case. delete_route resolves the route's TARGET from the id
-// (s.db.GetRoute) before the tier cap rules on it, so a tier-1 caller may delete a
-// route pointing at a descendant but NOT one pointing at a sibling. Fails if the
-// handler's AuthorizeStructural on the resolved target is dropped (the sibling's
-// route would be deleted).
+// TestRoutesMCP_DeleteCrossFolderDenied: THE containment guard on delete — the
+// id-resolution case. delete_route resolves the route's TARGET from the id
+// (s.db.GetRoute) before contain rules on it, so a world/a/**-scoped caller may
+// delete a route pointing at a descendant but NOT one pointing at a sibling. Fails
+// if the handler's contain on the resolved target is dropped (the sibling's route
+// would be deleted).
 func TestRoutesMCP_DeleteCrossFolderDenied(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -295,7 +299,8 @@ func TestRoutesMCP_DeleteCrossFolderDenied(t *testing.T) {
 	})
 	ridDesc := findRouteID(t, db, "world/a/x")
 	ridSib := findRouteID(t, db, "world/b")
-	sock := serveRoutesMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a"))
+	grantMCPTools(t, db, "world/a", routeToolNames...)
+	sock := serveRoutesMCP(t, db, "world/a", "folder:world/a")
 
 	// sibling's route: id resolves to target world/b → denied, still present.
 	if _, e := callToolOverSock(t, sock, "delete_route", map[string]any{"id": float64(ridSib)}); e == "" {
@@ -325,7 +330,8 @@ func TestRoutesMCP_SetRoutesSelfDefaultGuard(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	doSetRoutes(t, db, []core.Route{{Seq: 0, Match: "room=hq", Target: "hq"}})
-	sock := serveRoutesMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
+	grantMCPTools(t, db, "hq", routeToolNames...)
+	sock := serveRoutesMCP(t, db, "hq", "folder:hq")
 
 	// Replacement WITHOUT a seq-0 self-default → refused; the default stays.
 	if _, e := callToolOverSock(t, sock, "set_routes", map[string]any{
@@ -360,7 +366,8 @@ func TestRoutesMCP_DeleteSelfDefaultRefused(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	doSetRoutes(t, db, []core.Route{{Seq: 0, Match: "room=hq", Target: "hq"}})
 	rid := findRouteID(t, db, "hq")
-	sock := serveRoutesMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
+	grantMCPTools(t, db, "hq", routeToolNames...)
+	sock := serveRoutesMCP(t, db, "hq", "folder:hq")
 
 	if _, e := callToolOverSock(t, sock, "delete_route", map[string]any{"id": float64(rid)}); e == "" {
 		t.Fatal("delete of the own seq-0 default route must be refused")
@@ -370,9 +377,9 @@ func TestRoutesMCP_DeleteSelfDefaultRefused(t *testing.T) {
 	}
 }
 
-// TestRoutesMCP_GateDenies: a tool that is VISIBLE (a wildcard rule matches) but
-// DENIED by a later deny rule is rejected at call time by the injected Gate's
-// grants.CheckAction layer, before the mutation runs.
+// TestRoutesMCP_GateDenies: a tool that is VISIBLE (an allow row grants it) but
+// overridden by a DENY row is rejected at call time by the contain seam
+// (auth.Authorize is deny-wins), before the mutation runs.
 func TestRoutesMCP_GateDenies(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -380,25 +387,31 @@ func TestRoutesMCP_GateDenies(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
-	// callerSub="" isolates the CheckAction layer (skips db.Authorize).
-	sock := serveRoutesMCP(t, db, "hq", "", []string{"*", "!add_route"})
+	grantMCPTools(t, db, "hq", "add_route")
+	// A deny row on the same (tool, scope) wins over the allow — visible, uncallable.
+	if err := db.AddACLRow(core.ACLRow{
+		Principal: "folder:hq", Action: "mcp:add_route", Scope: "hq/**", Effect: "deny",
+	}); err != nil {
+		t.Fatalf("AddACLRow: %v", err)
+	}
+	sock := serveRoutesMCP(t, db, "hq", "folder:hq")
 
 	if !listToolNames(t, sock)["add_route"] {
-		t.Fatal("add_route should be visible (a wildcard rule matches it)")
+		t.Fatal("add_route should be visible (an allow row grants it)")
 	}
 	if _, e := callToolOverSock(t, sock, "add_route", map[string]any{
 		"route": `{"seq":1,"match":"platform=slack","target":"hq"}`,
 	}); e == "" {
-		t.Fatal("add_route should be denied by the gate")
+		t.Fatal("add_route should be denied by the deny row")
 	}
 	if rows, _ := db.Routes(); len(rows) != 0 {
 		t.Fatalf("denied add_route still wrote a route: %+v", rows)
 	}
 }
 
-// TestRoutesMCP_Visibility: the Visible predicate (MatchingRules) preserves
-// tools/list gating — a tier-0 folder sees the four tools; a tier-2 folder (whose
-// derived rules omit them) does not.
+// TestRoutesMCP_Visibility: the Visible predicate (auth.EffectiveActions) preserves
+// tools/list gating — a delegated folder sees the four tools; an ungranted folder
+// sees none (no route tool is in the role:member floor).
 func TestRoutesMCP_Visibility(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -407,16 +420,19 @@ func TestRoutesMCP_Visibility(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	_ = db.PutGroup(core.Group{Folder: "world/a/b"})
+	grantMCPTools(t, db, "hq", routeToolNames...)
 
-	tier0 := listToolNames(t, serveRoutesMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq")))
-	for _, name := range []string{"add_route", "set_routes", "list_routes", "delete_route"} {
-		if !tier0[name] {
-			t.Fatalf("%s not visible to a tier-0 folder", name)
+	granted := listToolNames(t, serveRoutesMCP(t, db, "hq", "folder:hq"))
+	for _, name := range routeToolNames {
+		if !granted[name] {
+			t.Fatalf("%s not visible to a folder granted it", name)
 		}
 	}
-	tier2 := listToolNames(t, serveRoutesMCP(t, db, "world/a/b", "folder:world/a/b", deriveFolderGrants(db, "world/a/b")))
-	if tier2["add_route"] {
-		t.Fatal("add_route visible to a tier-2 folder that isn't granted it")
+	ungranted := listToolNames(t, serveRoutesMCP(t, db, "world/a/b", "folder:world/a/b"))
+	for _, name := range routeToolNames {
+		if ungranted[name] {
+			t.Fatalf("%s visible to a folder that isn't granted it", name)
+		}
 	}
 }
 
@@ -430,7 +446,8 @@ func TestRoutesMCP_AuditRowLands(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
-	sock := serveRoutesMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
+	grantMCPTools(t, db, "hq", routeToolNames...)
+	sock := serveRoutesMCP(t, db, "hq", "folder:hq")
 
 	if _, e := callToolOverSock(t, sock, "add_route", map[string]any{
 		"route": `{"seq":1,"match":"platform=slack","target":"hq"}`,

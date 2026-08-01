@@ -4,16 +4,14 @@ package routd
 // schedule_task/pause_task/resume_task/cancel_task/list_tasks now ride resreg's
 // MCP mechanism through the ServeMCP postBuild seam instead of five hand-rolled
 // ipc bodies. Each test drives the REAL unix socket end-to-end (not the handler
-// directly) so the seam + injected Gate (grants.CheckAction + db.Authorize) +
-// the handler's per-task auth.AuthorizeStructural cap + Visible predicate are all
-// exercised.
+// directly) so the seam + the injected contain seam (auth.Authorize on the resolved
+// task owner) + Visible predicate are all exercised.
 //
-// Tier note: unlike the web_routes/network_rules pilots (tier-0 only), the task
-// tools are in grants.tier1FixedActions — granted by default at tier 0 AND 1.
-// The PER-TASK-ID structural cap (auth.AuthorizeStructural) is what still denies
-// a caller acting on another folder's task; TestScheduledTasksMCP_CrossFolderTaskDenied
-// is the one that fails if that cap is dropped (the routes/acl-class containment
-// regression).
+// 4/R: no task tool is in the role:member floor, so every test delegates the ones it
+// drives with grantMCPTools (scope <folder>/**). The PER-TASK-ID containment is what
+// still denies a caller acting on another folder's task;
+// TestScheduledTasksMCP_CrossFolderTaskDenied is the one that fails if the contain
+// seam is dropped (the routes/acl-class containment regression).
 
 import (
 	"strings"
@@ -26,16 +24,20 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
-// serveTasksMCP stands up the agent socket for folder with the given grant rules
-// + the scheduled_tasks resreg seam, and returns the socket path.
-func serveTasksMCP(t *testing.T, db *DB, folder, callerSub string, rules []string) string {
+// taskToolNames is the five task tools — the set every task test delegates.
+var taskToolNames = []string{"schedule_task", "pause_task", "resume_task", "cancel_task", "list_tasks"}
+
+// serveTasksMCP stands up the agent socket for folder + the scheduled_tasks resreg
+// seam, and returns the socket path. Authz reads the folder's acl rows.
+func serveTasksMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.scheduledTasksPostBuild(folder, callerSub, rules, srv.db.Authorize, auth.Resolve(folder))
+	pb := srv.scheduledTasksPostBuild(folder, callerSub, srv.db.Authorize,
+		agentVisibleFor(srv, callerSub, false), auth.Resolve(folder))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
-		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -47,20 +49,20 @@ func serveTasksMCP(t *testing.T, db *DB, folder, callerSub string, rules []strin
 	return sock
 }
 
-// serveTasksMCPElevated stands up the agent socket as an operator /root turn
-// would: the tier-0 `*` grant set, an allow-all row-ACL (turnAuthorize(true))
-// and a tier-0 EFFECTIVE identity (turnIdentity(folder, true)) — the exact
-// wiring ServeTurnMCP hands the postBuild for an elevated turn.
+// serveTasksMCPElevated stands up the agent socket as an operator /root turn would:
+// an allow-all row-ACL (turnAuthorize(true)), an all-visible view and a ROOT
+// effective identity (turnIdentity(folder, true)) — the exact wiring ServeTurnMCP
+// hands the postBuild for an elevated turn.
 func serveTasksMCPElevated(t *testing.T, db *DB, folder string) string {
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	rules := []string{"*"}
 	callerSub := "folder:" + folder
-	pb := srv.scheduledTasksPostBuild(folder, callerSub, rules, srv.turnAuthorize(true), turnIdentity(folder, true))
+	pb := srv.scheduledTasksPostBuild(folder, callerSub, srv.turnAuthorize(true),
+		agentVisibleFor(srv, callerSub, true), turnIdentity(folder, true))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
-		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, true, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -85,7 +87,8 @@ func TestScheduledTasksMCP_ScheduleParsesCron(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "hq"}})
 	const jid = "slack:team/channel/c1"
-	sock := serveTasksMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
+	grantMCPTools(t, db, "hq", taskToolNames...)
+	sock := serveTasksMCP(t, db, "hq", "folder:hq")
 
 	// 5-field cron: stored verbatim, next_run computed.
 	res, e := callToolOverSock(t, sock, "schedule_task", map[string]any{
@@ -147,7 +150,8 @@ func TestScheduledTasksMCP_ScheduleDedup(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "hq"}})
 	const jid = "slack:team/channel/c1"
-	sock := serveTasksMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
+	grantMCPTools(t, db, "hq", taskToolNames...)
+	sock := serveTasksMCP(t, db, "hq", "folder:hq")
 
 	args := map[string]any{"targetJid": jid, "prompt": "daily", "cron": "0 9 * * *"}
 	first, e := callToolOverSock(t, sock, "schedule_task", args)
@@ -166,8 +170,8 @@ func TestScheduledTasksMCP_ScheduleDedup(t *testing.T) {
 	}
 }
 
-// TestScheduledTasksMCP_ListOwnFolderOnly: a non-root (tier-1) folder's list_tasks
-// returns only its own tasks, never another folder's — the ownership filter.
+// TestScheduledTasksMCP_ListOwnFolderOnly: a non-root folder's list_tasks returns
+// only its own tasks, never another folder's — the ownership filter.
 func TestScheduledTasksMCP_ListOwnFolderOnly(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -179,7 +183,8 @@ func TestScheduledTasksMCP_ListOwnFolderOnly(t *testing.T) {
 	}
 	seedTask(t, db, "task-a", "world/a", "slack:a", "mine")
 	seedTask(t, db, "task-b", "world/b", "slack:b", "theirs")
-	sock := serveTasksMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a"))
+	grantMCPTools(t, db, "world/a", taskToolNames...)
+	sock := serveTasksMCP(t, db, "world/a", "folder:world/a")
 
 	arr, e := callToolArray(t, sock, "list_tasks", nil)
 	if e != "" {
@@ -194,7 +199,7 @@ func TestScheduledTasksMCP_ListOwnFolderOnly(t *testing.T) {
 }
 
 // TestScheduledTasksMCP_PauseResumeCancelOwn: pause/resume/cancel on the caller's
-// OWN task work end-to-end (tier-1 gets the tools by default).
+// OWN task work end-to-end for a folder delegated the task tools.
 func TestScheduledTasksMCP_PauseResumeCancelOwn(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -204,7 +209,8 @@ func TestScheduledTasksMCP_PauseResumeCancelOwn(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "world"})
 	_ = db.PutGroup(core.Group{Folder: "world/a"})
 	seedTask(t, db, "task-a", "world/a", "slack:a", "mine")
-	sock := serveTasksMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a"))
+	grantMCPTools(t, db, "world/a", taskToolNames...)
+	sock := serveTasksMCP(t, db, "world/a", "folder:world/a")
 
 	if _, e := callToolOverSock(t, sock, "pause_task", map[string]any{"taskId": "task-a"}); e != "" {
 		t.Fatalf("pause_task errored: %s", e)
@@ -227,21 +233,20 @@ func TestScheduledTasksMCP_PauseResumeCancelOwn(t *testing.T) {
 }
 
 // TestScheduledTasksMCP_CrossFolderTaskDenied: THE per-task containment guard. A
-// tier-2 folder GRANTED cancel_task by an operator ACL (so it passes the Gate's
-// CheckAction + db.Authorize) may cancel its OWN task but MUST NOT cancel a
-// sibling folder's task — auth.AuthorizeStructural resolves the task's owner from
-// GetTask(id) and denies the cross-folder verb. Fails on a migration that drops
-// the structural cap (the sibling task would be deleted).
+// folder GRANTED cancel_task scoped to itself may cancel its OWN task but MUST NOT
+// cancel a sibling folder's task — contain resolves the task's owner from
+// GetTask(id) and auth.Authorize denies the out-of-scope target. Fails on a
+// migration that drops the contain seam (the sibling task would be deleted).
 func TestScheduledTasksMCP_CrossFolderTaskDenied(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	_ = db.PutGroup(core.Group{Folder: "world/a/b"}) // tier 2, caller
-	_ = db.PutGroup(core.Group{Folder: "world/a/c"}) // tier 2, sibling
-	// Operator grants the tool: overlays into the derived rules AND makes
-	// db.Authorize allow — so only the structural per-task cap can still deny.
+	_ = db.PutGroup(core.Group{Folder: "world/a/b"}) // caller
+	_ = db.PutGroup(core.Group{Folder: "world/a/c"}) // sibling
+	// The operator delegates cancel_task scoped EXACTLY to the caller's own folder —
+	// so the tool is held and visible, and only the per-task target can still deny.
 	if err := db.AddACLRow(core.ACLRow{
 		Principal: "folder:world/a/b", Action: "mcp:cancel_task",
 		Scope: "world/a/b", Effect: "allow",
@@ -250,15 +255,14 @@ func TestScheduledTasksMCP_CrossFolderTaskDenied(t *testing.T) {
 	}
 	seedTask(t, db, "own", "world/a/b", "slack:own", "mine")
 	seedTask(t, db, "sibling", "world/a/c", "slack:sib", "theirs")
-	rules := deriveFolderGrants(db, "world/a/b")
-	sock := serveTasksMCP(t, db, "world/a/b", "folder:world/a/b", rules)
+	sock := serveTasksMCP(t, db, "world/a/b", "folder:world/a/b")
 
 	// Visible (operator granted it), but a sibling's task is denied by the cap.
 	if !listToolNames(t, sock)["cancel_task"] {
 		t.Fatal("cancel_task should be visible (operator granted it)")
 	}
 	if _, e := callToolOverSock(t, sock, "cancel_task", map[string]any{"taskId": "sibling"}); e == "" {
-		t.Fatal("tier-2 cancel of a SIBLING folder's task must be denied")
+		t.Fatal("cancel of a SIBLING folder's task must be denied")
 	}
 	if _, ok := db.GetTask("sibling"); !ok {
 		t.Fatal("denied cross-folder cancel still deleted the sibling task")
@@ -273,10 +277,9 @@ func TestScheduledTasksMCP_CrossFolderTaskDenied(t *testing.T) {
 }
 
 // TestScheduledTasksMCP_RootElevationCancelsCrossFolder is the elevated
-// counterpart to TestScheduledTasksMCP_CrossFolderTaskDenied: a tier-2 folder
-// cannot cancel a sibling's task over the plain agent socket, but an operator
-// /root turn from that SAME folder can — the per-task structural cap sees
-// tier 0 under elevation (turnIdentity), not the folder's static tier.
+// counterpart to TestScheduledTasksMCP_CrossFolderTaskDenied: a scoped folder
+// cannot cancel a sibling's task over the plain agent socket, but an operator /root
+// turn from that SAME folder can — elevation swaps in the allow-all authorize.
 // Regression guard for the class of bug d452d6ef fixed.
 func TestScheduledTasksMCP_RootElevationCancelsCrossFolder(t *testing.T) {
 	db, err := OpenMem()
@@ -284,8 +287,8 @@ func TestScheduledTasksMCP_RootElevationCancelsCrossFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	_ = db.PutGroup(core.Group{Folder: "world/a/b"}) // tier 2, caller
-	_ = db.PutGroup(core.Group{Folder: "world/a/c"}) // tier 2, sibling
+	_ = db.PutGroup(core.Group{Folder: "world/a/b"}) // caller
+	_ = db.PutGroup(core.Group{Folder: "world/a/c"}) // sibling
 	seedTask(t, db, "sibling", "world/a/c", "slack:sib", "theirs")
 	sock := serveTasksMCPElevated(t, db, "world/a/b")
 
@@ -297,9 +300,9 @@ func TestScheduledTasksMCP_RootElevationCancelsCrossFolder(t *testing.T) {
 	}
 }
 
-// TestScheduledTasksMCP_Visibility: the Visible predicate (MatchingRules) keeps
-// tools/list gating — tier 0/1 see the tools (grants.tier1FixedActions); a tier-2
-// folder (whose derived rules omit them) does not.
+// TestScheduledTasksMCP_Visibility: the Visible predicate (auth.EffectiveActions)
+// keeps tools/list gating — a delegated folder sees the five tools; an ungranted
+// folder sees none (no task tool is in the role:member floor).
 func TestScheduledTasksMCP_Visibility(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -308,22 +311,27 @@ func TestScheduledTasksMCP_Visibility(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	_ = db.PutGroup(core.Group{Folder: "world/a/b"})
+	grantMCPTools(t, db, "hq", taskToolNames...)
 
-	tier0 := listToolNames(t, serveTasksMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq")))
-	for _, name := range []string{"schedule_task", "pause_task", "resume_task", "cancel_task", "list_tasks"} {
-		if !tier0[name] {
-			t.Fatalf("%s not visible to a tier-0 folder", name)
+	granted := listToolNames(t, serveTasksMCP(t, db, "hq", "folder:hq"))
+	for _, name := range taskToolNames {
+		if !granted[name] {
+			t.Fatalf("%s not visible to a folder granted it", name)
 		}
 	}
-	tier2 := listToolNames(t, serveTasksMCP(t, db, "world/a/b", "folder:world/a/b", deriveFolderGrants(db, "world/a/b")))
-	if tier2["schedule_task"] {
-		t.Fatal("schedule_task visible to a tier-2 folder that isn't granted it")
+	ungranted := listToolNames(t, serveTasksMCP(t, db, "world/a/b", "folder:world/a/b"))
+	for _, name := range taskToolNames {
+		if ungranted[name] {
+			t.Fatalf("%s visible to a folder that isn't granted it", name)
+		}
 	}
 }
 
-// TestScheduledTasksMCP_GateDenies: a tool that is VISIBLE (a wildcard rule
-// matches) but DENIED by a later deny rule is rejected at call time by the
-// injected Gate's grants.CheckAction layer, before the handler runs.
+// TestScheduledTasksMCP_GateDenies: a tool that is VISIBLE (an allow row grants it)
+// but overridden by a DENY row is rejected at call time by the contain seam
+// (auth.Authorize is deny-wins), before the write runs. The route is seeded so the
+// target folder RESOLVES — otherwise the handler's "target group not registered"
+// 400 would mask the authz decision.
 func TestScheduledTasksMCP_GateDenies(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -331,16 +339,23 @@ func TestScheduledTasksMCP_GateDenies(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
-	// callerSub="" isolates the CheckAction layer (skips db.Authorize).
-	sock := serveTasksMCP(t, db, "hq", "", []string{"*", "!schedule_task"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "hq"}})
+	grantMCPTools(t, db, "hq", "schedule_task")
+	// A deny row on the same (tool, scope) wins over the allow — visible, uncallable.
+	if err := db.AddACLRow(core.ACLRow{
+		Principal: "folder:hq", Action: "mcp:schedule_task", Scope: "hq/**", Effect: "deny",
+	}); err != nil {
+		t.Fatalf("AddACLRow: %v", err)
+	}
+	sock := serveTasksMCP(t, db, "hq", "folder:hq")
 
 	if !listToolNames(t, sock)["schedule_task"] {
-		t.Fatal("schedule_task should be visible (a wildcard rule matches it)")
+		t.Fatal("schedule_task should be visible (an allow row grants it)")
 	}
 	if _, e := callToolOverSock(t, sock, "schedule_task", map[string]any{
-		"targetJid": "slack:x", "prompt": "p", "cron": "60000",
+		"targetJid": "slack:team/channel/c1", "prompt": "p", "cron": "60000",
 	}); e == "" {
-		t.Fatal("schedule_task should be denied by the gate")
+		t.Fatal("schedule_task should be denied by the deny row")
 	}
 	if got := len(db.Tasks("hq", true)); got != 0 {
 		t.Fatalf("denied schedule still wrote a task: %d", got)
@@ -358,7 +373,8 @@ func TestScheduledTasksMCP_AuditRowLands(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "hq"}})
-	sock := serveTasksMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
+	grantMCPTools(t, db, "hq", taskToolNames...)
+	sock := serveTasksMCP(t, db, "hq", "folder:hq")
 
 	if _, e := callToolOverSock(t, sock, "schedule_task", map[string]any{
 		"targetJid": "slack:team/channel/c1", "prompt": "ping", "cron": "60000",
