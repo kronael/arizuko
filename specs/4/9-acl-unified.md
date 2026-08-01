@@ -253,16 +253,30 @@ may render its own effective grants. Not a general agent tool —
 spec 5/A's "agent finds out at failure site" carries over.
 
 `acl_use_log(ts, principal, action, scope, allowed)` table keyed on
-ts. Sampled at 100% for denied, 1% for allowed.
+ts. Sampled at 100% for denied, 1% for allowed. **Not built** — no
+such table exists in any schema; per-call auditing is `5/I`'s
+`audit_log` instead.
 
 ## Caching
 
-`Authorize` is hot. Per-container row-set cache, life = container
-lifetime. A monotonic `acl_version` watermark bumps on every write
-to `acl`/`acl_membership`; container `SELECT acl_version` once per
-tool call (single integer read) and refetches its row set on
-mismatch. Revoke takes effect on next call, not next spawn —
-satisfies spec 5/A's "next message" contract.
+**Not built, and not needed so far.** `Authorize` holds no cache: it
+reads `acl`/`acl_membership` on every call. The `acl_version`
+watermark this section originally specified — a monotonic counter
+containers poll to invalidate a row-set cache — exists nowhere in Go
+or SQL.
+
+The live read is what satisfies spec `5/A`'s "next message" contract,
+and it does so more strongly than the cache design would: revocation
+takes effect on the **next tool call within a live turn**, not merely
+the next message. `routd/revocation_live_test.go` pins that — a deny
+row added mid-turn denies the following call on the same open socket,
+and the test was falsified against the missing row before landing.
+
+This is also why a brokered turn token must never carry an affirmative
+scope (`specs/5/P`): baked authority would outlive a revoked grant
+until token expiry, reintroducing exactly the staleness the absent
+cache would have. If a cache is ever added, next-call revocation is
+the contract it must preserve.
 
 ## Cross-spec impact
 
