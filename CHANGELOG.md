@@ -14,6 +14,24 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- **4/R tiers removed — one ACL evaluator, `role:member` floor + delegation
+  (BREAKING).** Depth-derived tiers are gone: authorization is a single
+  `auth.Authorize(principal, action, target, params)` over ACL rows — a delegated
+  row's scope IS the containment. The old parallel `[]string` grant firewall
+  (`grants.DeriveRules`/`CheckAction`) and the persisted per-tool containment
+  backfill were **redundant second evaluators** and are deleted (~2.7k LOC). Every
+  group is born a **`role:member`** (messaging verbs: reply/send/…); reads and
+  memory (`set_work`) are always-on; everything else — register*group, routes,
+  `network*_`, schedule\__, invite, mint, acl, egress, `web:publish`,
+  `share_mount(readonly)` — is **explicit delegation** from a lineage ancestor or
+  the operator's `/root` grant. **Migration `0023` demotes existing sub-folders to
+  the floor** (they no longer get management by depth); the operator re-delegates
+  what each needs. Container capabilities (share RO / open egress / web publish)
+  travel to runed as typed booleans, not a grant language. `ARIZUKO_TIER` dropped
+  (decision 10). Spec: `specs/4/R`.
+
 ## [v0.63.0] — 2026-07-31
 
 > arizuko v0.63.0 — packages, connectors, and delegated grants
