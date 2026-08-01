@@ -1,12 +1,14 @@
 ---
 status: shipped
+supersedes: [4/24-recall.md, 4/15-code-research.md]
 ---
 
 # Knowledge System
 
 The pattern underlying diary, facts, episodes, and user context.
 Each is an instance of: markdown files in a directory, with
-summaries selected and injected into agent context.
+summaries selected and injected into agent context — or searched on
+demand when the corpus is too large to inject.
 
 ## Memory Layers
 
@@ -18,7 +20,7 @@ summaries selected and injected into agent context.
 | Diary    | 1/L-memory-diary.md    | shipped | Files     |
 | User ctx | 3/7-user-context.md    | shipped | Files     |
 | Facts    | 3/1-atlas.md           | shipped | Files     |
-| Episodes | 4/24-recall.md         | shipped | Files     |
+| Episodes | this spec              | shipped | Files     |
 
 All memory layers shipped.
 
@@ -54,7 +56,9 @@ Given a directory of markdown files:
   Agent scans `summary:` frontmatter via grep, deliberates on relevance
   in `<think>`, reads matching files. The LLM's language understanding
   is the semantic matching — no embeddings needed.
-  Researcher subagent writes; verifier reviews before merge.
+  Researcher subagent writes; verifier reviews before merge
+  (`ant/skills/find/SKILL.md` is canonical for the frontmatter schema
+  and the two-phase research→verify protocol).
 
 Push and pull are different. Push layers need gateway code (read files,
 format XML, inject). Pull layers are agent-driven — the agent searches
@@ -77,7 +81,19 @@ Push layers format selected summaries as XML, inserted into prompt:
 ```
 
 Episodes use a sibling `<episodes count="N">` block with the same
-`<entry>` shape (see `container/episodes.go`).
+`<entry>` shape plus a `type` attribute (`container/episodes.go`):
+
+```xml
+<episodes count="3">
+  <entry key="20260314" type="day">summary</entry>
+  <entry key="2026-W11" type="week">summary</entry>
+  <entry key="2026-02" type="month">summary</entry>
+</episodes>
+```
+
+Diary week/month summaries are **not** injected — the 14-day daily
+injection already covers that window. They exist only so
+`/recall-memories` can search longer timeframes.
 
 ## Nudges
 
@@ -101,114 +117,169 @@ to the prompt's `Annotations` slice before joining.
 Each layer has its own formatter — no shared abstraction. Three
 similar small formatters beats premature unification.
 
-## Pull layer: `/recall`
+## Retrieval — `/recall-memories`
 
-Agent-driven semantic search across knowledge stores. Read-only.
-All stores use `summary:` frontmatter, so recall treats them
-uniformly. A store is just a directory name.
-
-### Stores
+Generic search across knowledge stores. Read-only; never writes. All
+stores use `summary:` frontmatter, so recall treats them uniformly. A
+store is just a directory name:
 
 ```
 facts/     diary/     users/     episodes/
 ```
 
-Each store = directory of `*.md` files with `summary:` in YAML
-frontmatter. Adding a store = one string. No code changes.
+Adding a store = one string. No code changes.
+
+```
+question -> /recall-memories -> matches? -> agent reads files -> answer
+                             -> no match -> /find (research)   -> answer
+```
 
 ### Separation from `/find`
 
-- **`/recall`** — retrieval only. Scan, match, return. No writing.
-- **`/find`** — research only. Create/refresh via subagents.
+- **`/recall-memories`** — retrieval only. Scan, match, return. Cheap.
+- **`/find`** — research only. Create/refresh via subagents. Expensive.
 
 ### v1: LLM semantic grep (shipped)
 
-Agent spawns an Explore subagent that greps `summary:` across
-all store dirs and judges relevance. The LLM is the search engine.
-
-```
-question -> /recall -> Explore subagent greps summary: fields
-         -> judges relevance per file
-         -> returns: path, store, why it matches
-         -> agent reads matched files
-         -> answers or escalates to /find if gaps remain
-```
-
-Explore protocol:
+Agent spawns an Explore subagent that greps `summary:` across all store
+dirs and judges relevance. The LLM _is_ the search engine.
 
 1. Grep `summary:` in `*.md` across all store dirs
-2. Read each summary, judge relevance to query
-3. Return matches with file path + reasoning
+2. Read each summary, judge relevance to the query
+3. Return matches with file path, store name, and reasoning
 
-After results, agent deliberates in `<think>` (mandatory):
-what does it say, does it answer, what gaps remain.
+After results, the agent deliberates in `<think>` (mandatory): what
+does it say, does it answer, what gaps remain.
 
-Scales to ~300 files. Beyond that, switch to v2.
+Skill: `ant/skills/recall-memories/SKILL.md` — always-present base
+skill. Scales to ~300 files per group; beyond that, switch to v2.
 
-See `specs/4/24-recall.md` for full recall spec.
+### v2: CLI retrieval + Explore judge — designed, not built
 
-### v2: CLI retrieval + Explore judge
+Nothing below exists yet; it is the agreed shape for when a group's
+corpus outgrows the grep. The judge stays the same Explore subagent —
+only the candidate set changes:
 
-Same Explore agent for judgment. Pre-filter via CLI tool
-with FTS5 + vector search (hybrid BM25 + cosine).
+1. **Expand** — agent generates ~10 search terms from the query
+2. **Retrieve** — a `recall "term"` CLI per term (fast, mechanical)
+3. **Judge** — Explore subagent over the pre-filtered results
 
-Three steps:
+The CLI would index per store under `.local/recall/` (a derived cache,
+safe to delete) with lazy mtime-based reindexing, and rank by SQLite
+FTS5 BM25 for keywords fused with vector cosine for semantics.
 
-1. **Expand** — agent generates ~10 search terms from query
-2. **Retrieve** — `recall "term"` CLI for each (fast, mechanical)
-3. **Judge** — Explore subagent with pre-filtered results
+The trigger is corpus size (~300 files), not dissatisfaction with
+quality — v1's weakness is that grep reads every summary, which costs
+tokens linearly, and that is a scale problem rather than an accuracy
+one.
 
-CLI tool: `container/agent-runner/recall` (Go binary).
-Reads `.recallrc` from cwd. Uses SQLite FTS5 + sqlite-vec.
+### recall-messages
 
-```
-recall                   # sync index, show 5 newest
-recall "telegram auth"   # search, show top 5
-recall -10 "query"       # search, show top 10
-```
+`recall-messages` is a separate skill for searching chat history (the
+`messages` table) — a direct DB query, not a file scan. Distinct from
+knowledge-store recall; shipped alongside `recall-memories`.
 
-DB per store in `.local/recall/` (derived cache, deletable).
-Lazy indexing: scan dirs, compare mtime, embed new/changed.
-Embeddings via Ollama `nomic-embed-text` (768-dim, ~100ms/file).
+### Knowledge-first: the relevance bar
 
-Search: FTS5 BM25 (keywords) + vector cosine (semantic).
-RRF fusion: vector 0.7, BM25 0.3.
+Retrieval is only as good as the bar for "this fact answers the
+question". The bar is deliberately brutal, and it is what lets the
+system work without embeddings:
 
-### Skill
+> A fact is relevant ONLY if it answers the question 100% correctly
+> with trivial application. No interpretation, no inference, no
+> "probably matches". Any doubt means the fact is NOT relevant.
 
-```
-ant/skills/recall-memories/SKILL.md
-```
+The resulting decision tree, run in `<think>` before every answer:
 
-Always-present base skill. Teaches the agent the semantic
-search protocol. `/recall-memories` scans facts/, diary/, users/,
-episodes/. Read-only — never writes.
+- fact fully answers **and** is fresh → answer from it
+- fact fully answers but is stale → `/find` to refresh, then answer
+- no fact fully answers → `/find` to research, then answer
+
+Paired with an evidence standard: cite `file:line` when referencing
+code, quote when it clarifies, say so when evidence is missing, and
+never fabricate a path, name, or line number. A loose bar plus a
+generous model produces confident wrong answers from adjacent facts —
+which is worse than a cache miss, because the miss is recoverable.
+
+This is the contract a knowledge-backed agent's `SYSTEM.md` encodes;
+product templates that ship one live under `ant/examples/<name>/`
+([`../5/21-products.md`](../5/21-products.md)), not in this spec.
+The codebase-Q&A instance of it is
+[`../17/product-support.md`](../17/product-support.md).
 
 ### Decided (previously open)
 
-- `/recall` scans `users/` — yes, included in stores list
-- `/recall` does NOT scan `MEMORY.md` — different format,
-  agent reads it directly
-- Episode format: same `<entry>` structure as diary, with
-  `summary:` frontmatter
-- Performance at 500+: switch to v2 CLI retrieval. No
-  embeddings in v1, add when corpus demands it.
+- Recall scans `users/` — yes, it is in the stores list.
+- Recall does **not** scan `MEMORY.md` — different format; the agent
+  reads it directly.
+- Episode format: same `<entry>` structure as diary, with `summary:`
+  frontmatter.
+- No embeddings in v1. The strict relevance rule compensates; add
+  embeddings when the corpus demands it.
+- `/find` has no hard timeout of its own — it is bounded by the
+  container session timeout. Dedup across re-research is the agent's
+  job (check existing facts first), not a platform guarantee.
 
-## What's left to build
+## Progressive compression (episodes and diary)
 
-1. **v2 CLI tool** — when corpus exceeds ~300 files (FTS5 + sqlite-vec)
+Session transcripts and diary entries compress into progressive
+summaries. Both use the same file format and are indexed by
+`/recall-memories`.
 
-## Relationship to existing specs
+```
+Episodes (from session transcripts):
+  .claude/projects/<uuid>.jl  ─┐
+  .claude/projects/<uuid>.jl  ─┤→ episodes/20260310.md  (day)
+  .claude/projects/<uuid>.jl  ─┘      ↓
+  episodes/20260310.md  ─┐
+  episodes/20260311.md  ─┤→ episodes/2026-W11.md  (week)
+  episodes/20260312.md  ─┘      ↓
+  episodes/2026-W10.md  ─┐
+  episodes/2026-W11.md  ─┤→ episodes/2026-03.md  (month)
 
-Layers built on this pattern:
+Diary (from work log entries):
+  diary/20260310.md  ─┐
+  diary/20260311.md  ─┤→ diary/week/2026-W11.md  (week)
+  diary/20260312.md  ─┘      ↓
+  diary/week/2026-W10.md  ─┐
+  diary/week/2026-W11.md  ─┤→ diary/month/2026-03.md  (month)
+```
 
-- diary layer (shipped)
-- user context layer (shipped)
-- facts layer (shipped)
-- episodes layer (shipped)
+File format:
 
-Different systems (not this pattern):
+```markdown
+---
+summary: >
+  - Shipped discord support
+  - Resolved telegram auth token rotation
+period: '2026-W11'
+type: week
+store: episodes
+sources:
+  - episodes/20260310.md
+aggregated_at: '2026-03-17T02:00:00Z'
+---
 
-- Session state (container runner)
-- Message DB rows (store package)
-- MEMORY.md (Claude Code native)
+## Key decisions
+
+...
+```
+
+Compression runs as the `/compact-memories` skill via `timed` (cron),
+`context_mode: isolated`:
+
+```
+/compact-memories episodes day    → 0 2 * * *     daily
+/compact-memories episodes week   → 0 3 * * 1     Monday
+/compact-memories episodes month  → 0 4 1 * *     1st of month
+/compact-memories diary week      → 0 3 * * 1     Monday
+/compact-memories diary month     → 0 4 1 * *     1st of month
+```
+
+## Not in scope
+
+- Write operations in recall (read-only by design)
+- Cross-group search
+- Session state (container runner), message DB rows (store package),
+  and `MEMORY.md` (Claude Code native) — different systems, not this
+  pattern

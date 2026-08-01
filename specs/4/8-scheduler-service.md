@@ -1,5 +1,6 @@
 ---
 status: shipped
+supersedes: [4/task-logs.md]
 ---
 
 # timed
@@ -21,8 +22,9 @@ CREATE TABLE scheduled_tasks (
 );
 ```
 
-Schema owned by `store` (migration service `store`); `timed` is a
-read/write client that never runs migrations.
+Schema lives in `store/migrations/` and is owned by `routd`
+(`scheduled_tasks` + `task_run_logs` moved to `routd.db` at the split);
+`timed` is a read/write client that never runs migrations.
 
 - `owner` — group folder that created the task. Used by
   ipc/auth for authorization.
@@ -39,12 +41,33 @@ read/write client that never runs migrations.
   when isolated; default sender `"timed"` resumes group session.
 - Interval mode: if `cron` field is a plain integer, treated as milliseconds
   interval; `next_run = now + ms` after each fire.
-- `task_run_logs` table: tracks execution history
-  `(task_id, run_at, duration_ms, status, result, error)`.
 
 No `schedule_type`, no `last_run`, no `last_result`. Cron
 covers intervals. One-shot is just NULL cron + set next_run.
-Messages table is the primary audit trail; `task_run_logs` supplements it.
+
+## `task_run_logs` — execution history
+
+```sql
+CREATE TABLE task_run_logs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id     TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+  run_at      TEXT NOT NULL,   -- RFC3339, when the task fired
+  duration_ms INTEGER,         -- fire → log write
+  status      TEXT NOT NULL,   -- 'success' | 'error'
+  result      TEXT,            -- reserved; timed never writes it
+  error       TEXT             -- err.Error() on 'error' rows, NULL on success
+);
+```
+
+`logRun(db, taskID, status, errText, durationMs)` writes one row per
+fire. `success` means the message row was INSERTed — **not** that the
+agent ran. The `messages` table stays the primary audit trail of what
+the agent processed; `task_run_logs` only adds enqueue outcome and
+timing, which `messages` cannot express (a failed INSERT leaves no
+message row at all).
+
+`result` is reserved for a future payload (container exit status, agent
+output snippet) and is never populated today.
 
 ## Loop
 
@@ -59,60 +82,27 @@ every 60s:
     else: next_run = NULL
 ```
 
-## MCP Actions
+## Task management is not timed's job
 
-Handled by ipc directly. The agent calls the MCP tool,
-ipc stamps identity, calls auth.Authorize, then
-executes the tool inline (reads/writes scheduled_tasks
-table). timed only does the cron poll loop.
+`timed` only runs the poll loop. Creating, listing, pausing and
+cancelling tasks are CRUD on `scheduled_tasks`, and that rides the
+`scheduled_tasks` resreg resource like every other cold-tier
+management entity — one handler, an MCP face for agents and a REST
+face for operators ([`../5/16-mcp-rest-unification.md`](../5/16-mcp-rest-unification.md),
+mechanism in [`../5/17-openapi-mcp.md`](../5/17-openapi-mcp.md)).
 
-### schedule_task
-
-```
-input: targetJid, prompt, cron (optional)
-auth:  task.owner checked by auth (tier-based)
-→ INSERT INTO scheduled_tasks
-```
-
-`next_run` is computed from `cron` expression, not a user param.
-One-shot tasks: omit `cron`, set `next_run` directly in DB.
-
-### list_tasks
-
-```
-input: (none, or optional owner filter)
-auth:  caller identity checked by auth (tier-based)
-→ SELECT FROM scheduled_tasks WHERE owner matches caller
-```
-
-### pause_task / resume_task
-
-```
-input: taskId
-auth:  task.owner must match caller (checked by auth)
-→ UPDATE status = 'paused' | 'active'
-```
-
-### cancel_task
-
-```
-input: taskId
-→ DELETE FROM scheduled_tasks WHERE id = ?
-```
-
-## Layout
-
-```
-timed/
-  main.go
-```
-
-Schema lives in `store/migrations/` (gated owns migrations; timed is
-a read/write client). `scheduled_tasks` was introduced in migration
-0001; `task_run_logs` and `context_mode` in 0011.
+The only rule that is the scheduler's own: `next_run` is **computed**
+from the `cron` expression, never accepted as a caller parameter. A
+one-shot task is the degenerate case — no `cron`, `next_run` set
+directly, NULL afterwards.
 
 ## Implementation
 
-`timed/main.go` — ~150 LOC. Zero dependencies on
-gateway, store, core, or any arizuko package. Just
-`database/sql`, `robfig/cron`, `modernc.org/sqlite`.
+`timed/main.go` is the poll loop; `timed/split.go` carries the
+non-mounted write path. `timed` has no filesystem mount on the owner's
+DB, so it writes through routd's HTTP API with a service token rather
+than opening `routd.db` directly — the split write-discipline every
+non-mounted daemon follows.
+
+`scheduled_tasks` arrived in migration 0001; `task_run_logs` and
+`context_mode` in `store/migrations/0011-task-run-logs.sql`.

@@ -1,5 +1,6 @@
 ---
 status: shipped
+supersedes: [4/Y-minimal-setup.md]
 ---
 
 # compose: native Docker Compose profiles and includes
@@ -67,6 +68,27 @@ Docker Compose built-in machinery: `profiles:` for optional daemons,
 - `template/services/*.toml` TOML files; replaced by `.yml`.
 - Custom env-var gating for routes; Docker profile selection is the single
   gate.
+
+## Opt-in by omission
+
+Profiles are the mechanism; the stance behind them predates them and
+survives unchanged: **a feature is off because its daemon is not
+running or its env var is not set — not because a flag says `false`.**
+Onboarding is off until `ONBOARDING_ENABLED=true`, WebDAV until
+`WEBDAV_ENABLED`, media transcription until `MEDIA_ENABLED`, the web
+bundle until `WEB_PORT`. `activeProfiles(env)` reads exactly those
+vars and derives `COMPOSE_PROFILES`; there is no second switch.
+
+The floor of the deployment is the core plane plus one channel adapter
+(ARCHITECTURE.md "Core vs integrations"). Everything above that floor
+is a profile, and adding one is adding an env var — never editing
+`compose.go`.
+
+This is why per-feature boolean flags stay out of the compose layer:
+they would be a second gate that drifts from the first. The retired
+`PROFILE=minimal|web|full` enum was exactly that drift — three
+hardcoded Go paths encoding combinations the env vars already
+described.
 
 ## Code pointers
 

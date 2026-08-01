@@ -47,7 +47,7 @@ combination is the platform thesis arizuko ships toward.
 | [1/](1/)   | core gateway — routing, channels, auth, scheduler                                                                     | shipped   |
 | [2/](2/)   | social channels — events, actions, twitter                                                                            | shipped   |
 | [3/](3/)   | permissions, cleanup, gaps                                                                                            | shipped   |
-| [4/](4/)   | dashboards, memory, web layer — core architecture                                                                     | shipped   |
+| [4/](4/)   | channels, dashboards, memory, authorization — core architecture                                                       | shipped   |
 | [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                         | active    |
 | [6/](6/)   | adoption & interop + components — wrap-the-harness, the ship-in-parts catalogue (`6/16`), crackbox + mcp-firewall     | drafting  |
 | [7/](7/)   | operator cockpit — per-daemon dashboards + global hub                                                                 | active    |

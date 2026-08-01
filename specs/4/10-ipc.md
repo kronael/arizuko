@@ -9,41 +9,28 @@ status: shipped
 > `gated.sock` daemon — see [`specs/5/E-routd.md`](../5/E-routd.md). The
 > tool surface and socket-path identity model below are unchanged.
 
-`ipc/` package: ipc.go, all 20 tools, runtime auth via auth.
+`ipc/` package: one per-group MCP server on a unix socket. It accepts
+connections from agent containers, stamps each request with the
+caller's identity, and executes the tool inline — handlers call
+routd/store/timed functions directly. There is no forwarding to
+another daemon.
 
-MCP daemon. Per-group MCP server on unix socket. Resolves caller
-identity from socket path, authorizes via auth, executes all 20
-tools inline via handler functions.
+## Identity is a parameter, not a derivation
 
-## Role
+`ipc.ServeMCP` takes the caller's `folder` as an argument
+(`ipc/ipc.go`). One socket serves exactly one group, and the spawning
+daemon — which already knows which folder it spawned — says which.
 
-ipc is the single MCP entry point for all agent containers.
-It does three things:
+An earlier design parsed the folder back out of the socket path
+(`/ipc/<folder>/gated.sock`). That is the reverse-engineering pattern
+root `CLAUDE.md` bans outright: a path is a deployment detail, and
+reading identity out of one gets you the wrong answer the first time
+the layout moves.
 
-1. **Accept** MCP connections from agent containers
-2. **Stamp** each request with caller identity (folder, tier)
-3. **Execute** the tool inline (handlers call gateway/store/timed functions directly)
-
-No forwarding to other daemons. All tool logic runs inside
-ipc's handlers, which receive gateway callbacks at setup time.
-
-## Identity resolution
-
-Each agent container connects from a known group folder.
-ipc resolves identity from the socket path:
-
-```
-/ipc/<folder>/gated.sock → folder = <folder>
-```
-
-Tier is computed from folder depth (slash count):
-
-| Depth | Tier | Name   | Example folder     |
-| ----- | ---- | ------ | ------------------ |
-| 0     | 0    | root   | `andy`             |
-| 1     | 1    | world  | `andy/research`    |
-| 2     | 2    | agent  | `andy/research/qa` |
-| 3+    | 3    | worker | `andy/r/qa/sub`    |
+Capability attached to that identity is the ACL's business, not this
+layer's — [`9-acl-unified.md`](9-acl-unified.md) for the row model and
+[`R-paths-roles.md`](R-paths-roles.md) for the path/role/grant-option
+axes that replaced folder-depth tiers.
 
 ## MCP server
 
@@ -59,87 +46,50 @@ socat bridge:
 }
 ```
 
-ipc exposes all 20 tools in a single tool list. Authorization
-is checked per-call via auth.Authorize before execution.
+Authorization is checked per call before execution.
 
 ## Tools
 
-All tools are handled inline by ipc. Gateway and store
-functions are injected as callbacks at server creation time.
+The tool inventory is **not** listed here — it drifts. Cold-tier
+management tools are derived from `resreg` resources
+([`../5/17-openapi-mcp.md`](../5/17-openapi-mcp.md), rollout in
+[`../5/16-mcp-rest-unification.md`](../5/16-mcp-rest-unification.md));
+the current MCP face is enumerated in
+[`../5/E-routd.md`](../5/E-routd.md). Only hot-tier agent actions
+(`reply`/`send`/`inspect_*`) stay hand-authored in `ipc/`.
 
-| Tool             | Domain        | Gating                    |
-| ---------------- | ------------- | ------------------------- |
-| `send`           | messaging     | grants                    |
-| `reply`          | messaging     | grants                    |
-| `send_file`      | messaging     | grants                    |
-| `inject_message` | messaging     | grants                    |
-| `register_group` | groups        | grants + auth.Authorize   |
-| `delegate_group` | groups        | grants + auth.Authorize   |
-| `escalate_group` | groups        | grants                    |
-| `refresh_groups` | groups        | tier ≤ 2                  |
-| `reset_session`  | sessions      | grants + auth.Authorize   |
-| `list_routes`    | routing       | grants + auth.Authorize   |
-| `set_routes`     | routing       | grants + auth.Authorize   |
-| `add_route`      | routing       | grants + auth.Authorize   |
-| `delete_route`   | routing       | grants + auth.Authorize   |
-| `schedule_task`  | scheduling    | grants + auth.Authorize   |
-| `list_tasks`     | scheduling    | grants                    |
-| `pause_task`     | scheduling    | grants + auth.Authorize   |
-| `resume_task`    | scheduling    | grants + auth.Authorize   |
-| `cancel_task`    | scheduling    | grants + auth.Authorize   |
-| `get_grants`     | authorization | tier ≤ 1 + auth.Authorize |
-| `set_grants`     | authorization | tier ≤ 1 + auth.Authorize |
-
-`register_group`: `name` is optional (defaults to jid). When `fromPrototype=true`,
-copies the caller's `prototype/` directory into the new child folder before
-registering. Merges the former `spawn_group` tool.
+Two handler contracts below are recorded here because each fixed a
+production failure and neither is recoverable from the code alone.
 
 ### SpawnGroup contract
 
-The gated callback is `SpawnGroup(parentFolder, childJID string)`.
-The caller passes **its own folder** as `parentFolder` rather than a
-JID to look up — earlier versions took `(parentJID, childJID)` and
-resolved `parentJID → folder` via the routes table, which silently
-failed when the child agent's own JID had no default route (the
-common case, because the child only learns about itself through
-its socket path).
+The callback is `SpawnGroup(parentFolder, childJID string)`. The
+caller passes **its own folder** as `parentFolder` rather than a JID
+to look up. Earlier versions took `(parentJID, childJID)` and resolved
+`parentJID → folder` through the routes table, which silently failed
+whenever the calling agent's own JID had no default route — the common
+case, since a child learns about itself from its spawn context, not
+from a route. Same lesson as the identity rule above: pass what you
+know, do not look it up.
 
 ### Route mutation safety
 
-`delete_route` and `set_routes` MUST refuse to remove a caller's own
-tier-0 default route. The guard protects against self-harm: an agent
-chasing adapter-routing 502s once deleted its own default route on
-REDACTED, leaving its JID unrouted and triggering onboarding again.
+`delete_route` and `set_routes` MUST refuse to remove the caller's own
+`Seq == 0` route — the folder's primary inbound route. The guard is
+against self-harm, not against malice: an agent chasing adapter-routing
+502s once deleted its own default route, leaving its JID unrouted and
+falling back into onboarding. It could not be reached to be told.
 
-```go
-if route.Seq == 0 && route.Target == folder {
-    return toolErr("cannot delete own default route")
-}
-```
-
-`Seq == 0` is the convention for a folder's primary inbound route in the
-collapsed routes table; matching is done via the route's `match` expression
-rather than a `type` column.
-
-Root-tier callers retain the ability to delete routes they don't own.
-
-## Request flow
-
-```
-agent calls send("hello")
-  → ipc receives on /ipc/andy-research/gated.sock
-  → resolves: folder=andy/research, tier=1
-  → calls auth.Authorize: can tier=1 from andy/research do send?
-  → auth: allow (tier 1 ≤ min tier 3)
-  → ipc executes send via gateway callback
-  → result returned to agent
-```
+`Seq == 0` is the convention for that primary route in the collapsed
+routes table; matching is by the route's `match` expression, not by a
+`type` column. Callers may still delete routes they own but did not
+originate. Live in `routd/routes_resource.go`; folded into the shared
+resreg handler per [`../5/16-mcp-rest-unification.md`](../5/16-mcp-rest-unification.md).
 
 ## No tables owned
 
-ipc is stateless. It doesn't own any database tables.
-It reads group information from the filesystem (socket paths)
-and computes tier from folder depth. No migrations.
+ipc is stateless — no tables, no migrations. Every read goes through
+an injected callback.
 
 ## Layout
 

@@ -59,48 +59,21 @@ original `WAMessage`, not just an ID — needs message cache.
 
 ## Router XML
 
-The reply pointer renders as a sibling header **above** its
-`<message>`, with a consistent `id` attribute matching the message
-naming convention. Self-closing when the parent text is omitted
-(parent is in agent session); body-bearing when the gateway includes
-an excerpt for out-of-session parents.
+The rendered shape — a `<reply-to>` sibling header immediately above
+its `<message>`, self-closing when the parent is in session,
+body-bearing when it is not — is specified in
+[`../1/N-memory-messages.md`](../1/N-memory-messages.md). Emitted by
+`router.FormatMessages` whenever `ReplyToID != ""`.
 
-```xml
-<messages>
-  <reply-to id="789" sender="Alice"/>
-  <message id="m1" sender="Bob" ...>response</message>
-</messages>
-```
+The decision worth recording here is _why_ it is a sibling header and
+not an attribute: structural prominence is the intent signal. The
+legacy shape (`reply_to=` attribute on `<message>` plus an inline
+`<reply_to>` element) buried the reply target inside the message it
+pointed at, and the agent read straight past it. Retired at v0.33.3.
 
-Or with excerpt body:
-
-```xml
-<messages>
-  <reply-to id="789" sender="Alice">quoted text</reply-to>
-  <message id="m1" sender="Bob" ...>response</message>
-</messages>
-```
-
-Emitted by `router.FormatMessages` whenever `ReplyToID != ""`. Body
-is included when `ReplyToText != ""`. Sender defaults to `"unknown"`
-when absent. The pointer precedes its `<message>` so the agent reads
-"reply target" → "user reply" in order; structural prominence is the
-intent signal that previous in-attribute `reply_to=` couldn't carry.
-
-The legacy shape (`reply_to=` attribute on `<message>` plus inline
-`<reply_to>` element) was retired at v0.33.3.
-
-## DB schema
-
-```sql
--- messages table (initial schema)
-forwarded_from TEXT,
-reply_to_text TEXT,
-reply_to_sender TEXT,
-
--- migration 0003
-ALTER TABLE messages ADD COLUMN reply_to_id TEXT;
-```
+The `messages` columns backing this (`forwarded_from`,
+`reply_to_text`, `reply_to_sender`, and `reply_to_id` from migration 0003) are part of the canonical routd schema in
+[`../5/E-routd.md`](../5/E-routd.md).
 
 ## Not shipped — channel forward metadata
 

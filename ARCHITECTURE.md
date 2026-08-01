@@ -765,7 +765,7 @@ by `/diary` skill, PreCompact hook, every 100 turns. Spec:
 
 Episodes (compressed transcripts) follow the same `summary:` format, indexed
 by `/recall`. Compression: daily → weekly → monthly. Spec:
-`specs/4/24-recall.md`.
+`specs/4/17-knowledge-system.md`.
 
 ## Observability
 

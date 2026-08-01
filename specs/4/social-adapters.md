@@ -1,165 +1,82 @@
 ---
 status: shipped
+supersedes: [4/chanlib-refactor.md]
 ---
 
-# social adapters
+# Channel adapters
 
-Channel adapters for social platforms. Each is a standalone daemon
-(Go for most, TypeScript for `whapd` and `twitd`) that registers with
-the router via HTTP, then forwards inbound events as messages and
-receives outbound replies.
+Each adapter is a standalone daemon that registers with `routd` over
+HTTP, forwards inbound platform events as messages, and receives
+outbound replies. The wire contract is
+[`1-channel-protocol.md`](1-channel-protocol.md); this file is the
+roster plus the per-adapter decisions that live nowhere else.
 
-Go adapters use `chanlib` for router registration, opaque session
-token issuance, message delivery, deregistration on shutdown, and
-HTTP auth middleware. The two TypeScript adapters reimplement the
-same protocol against `chanlib`'s wire format.
+| Daemon | Platform  | JID prefix  | Language |
+| ------ | --------- | ----------- | -------- |
+| teled  | Telegram  | `telegram:` | Go       |
+| discd  | Discord   | `discord:`  | Go       |
+| slakd  | Slack     | `slack:`    | Go       |
+| emaid  | Email     | `email:`    | Go       |
+| mastd  | Mastodon  | `mastodon:` | Go       |
+| bskyd  | Bluesky   | `bluesky:`  | Go       |
+| reditd | Reddit    | `reddit:`   | Go       |
+| linkd  | LinkedIn  | `linkedin:` | Go       |
+| whapd  | WhatsApp  | `whatsapp:` | TS       |
+| twitd  | Twitter/X | `x:`        | TS       |
 
-## Adapter protocol
+Per-adapter env vars and verb-support tables live in each daemon's
+`README.md` — duplicating them here only lets them drift. JID grammar
+per platform: [`../5/S-jid-format.md`](../5/S-jid-format.md).
+Chat-vs-social adapter boundary:
+[`../7/41-social-adapter-model.md`](../7/41-social-adapter-model.md).
 
-Every adapter:
+Container port is `:8080` for every adapter (compose pins
+`LISTEN_ADDR=:8080`); source defaults differ.
 
-1. On startup: `POST /v1/channels/register` with `name`, `url`, `jid_prefixes`, `capabilities`
-2. Receives `token` from router; uses it as Bearer for all subsequent calls
-3. On inbound event: `POST /v1/messages` with `InboundMsg`
-4. Serves `POST /send` for outbound delivery from router
-5. On shutdown: `POST /v1/channels/deregister`
+## One shared library, thin adapters
 
-See `specs/4/1-channel-protocol.md` for full HTTP protocol spec.
+`chanlib` owns everything an adapter does that is not
+platform-specific: router registration, the outbound handler tree,
+auth middleware, health, retry, graceful shutdown. A per-adapter
+`main.go` is env load plus a `Start` hook — nothing else.
 
-## Adapters
+This is the settled answer to boilerplate duplication: five Go
+adapters had each grown their own copy of the outbound endpoints and
+startup sequence before the primitives were pulled into `chanlib`.
+New adapters implement `BotHandler` and embed `NoSocial` /
+`NoFileSender` / `NoVoiceSender` / `NoPinSupport` for what the
+platform cannot do; they never re-implement transport. Current API:
+[`chanlib/README.md`](../../chanlib/README.md). Operator-facing
+adapter contract (health, staleness, dashboards):
+[`../7/11-adapter-contract.md`](../7/11-adapter-contract.md).
 
-Container port is `:8080` for every adapter (compose template pins
-`LISTEN_ADDR=:8080`). Source defaults differ — see each daemon's
-`README.md`.
-
-| Daemon | Platform  | JID prefix  | Status  |
-| ------ | --------- | ----------- | ------- |
-| teled  | Telegram  | `telegram:` | shipped |
-| discd  | Discord   | `discord:`  | shipped |
-| emaid  | Email     | `email:`    | shipped |
-| mastd  | Mastodon  | `mastodon:` | shipped |
-| bskyd  | Bluesky   | `bluesky:`  | shipped |
-| reditd | Reddit    | `reddit:`   | shipped |
-| linkd  | LinkedIn  | `linkedin:` | shipped |
-| whapd  | WhatsApp  | `whatsapp:` | shipped |
-| twitd  | Twitter/X | `x:`        | shipped |
-
-## Capabilities
-
-Basic message capabilities only — see each adapter's `README.md`
-"Verb support" table for the full social-action surface (post, like,
-edit, delete, reply, etc.).
-
-| Adapter | send_text | send_file | typing |
-| ------- | --------- | --------- | ------ |
-| teled   | yes       | yes       | yes    |
-| discd   | yes       | yes       | yes    |
-| emaid   | yes       | —         | —      |
-| mastd   | yes       | —         | —      |
-| bskyd   | yes       | —         | —      |
-| reditd  | yes       | —         | —      |
-| linkd   | yes       | —         | —      |
-| whapd   | yes       | yes       | yes    |
-| twitd   | yes       | yes       | —      |
-
-## Environment variables
-
-### Common (all adapters)
-
-| Var              | Default                                 | Required |
-| ---------------- | --------------------------------------- | -------- |
-| `CHANNEL_NAME`   | platform name (e.g. `"telegram"`)       | no       |
-| `ROUTER_URL`     | —                                       | yes      |
-| `CHANNEL_SECRET` | —                                       | no       |
-| `LISTEN_ADDR`    | adapter-specific (compose pins `:8080`) | no       |
-| `LISTEN_URL`     | `http://<name>:<port>`                  | no       |
-
-### teled
-
-| Var                  | Required |
-| -------------------- | -------- |
-| `TELEGRAM_BOT_TOKEN` | yes      |
-| `ASSISTANT_NAME`     | no       |
-
-### discd
-
-| Var                 | Required |
-| ------------------- | -------- |
-| `DISCORD_BOT_TOKEN` | yes      |
-| `ASSISTANT_NAME`    | no       |
-
-### mastd
-
-| Var                     | Required |
-| ----------------------- | -------- |
-| `MASTODON_INSTANCE_URL` | yes      |
-| `MASTODON_ACCESS_TOKEN` | yes      |
-
-### bskyd
-
-| Var                  | Default               | Required |
-| -------------------- | --------------------- | -------- |
-| `BLUESKY_IDENTIFIER` | —                     | yes      |
-| `BLUESKY_PASSWORD`   | —                     | yes      |
-| `BLUESKY_SERVICE`    | `https://bsky.social` | no       |
-| `DATA_DIR`           | `/srv/data/bskyd`     | no       |
-
-### reditd
-
-| Var                    | Required             |
-| ---------------------- | -------------------- |
-| `REDDIT_CLIENT_ID`     | yes                  |
-| `REDDIT_CLIENT_SECRET` | yes                  |
-| `REDDIT_USERNAME`      | yes                  |
-| `REDDIT_PASSWORD`      | yes                  |
-| `REDDIT_SUBREDDITS`    | no (comma-separated) |
-| `REDDIT_USER_AGENT`    | no (`arizuko/1.0`)   |
+The two TypeScript adapters reimplement the same wire format against
+the same protocol, because Baileys and the Twitter client are
+JS-only.
 
 ## emaid
 
-IMAP IDLE push (with poll fallback) + SMTP STARTTLS replies. JID format:
-`email:<address>`. Persistent TLS connection; server pushes EXISTS on new
-messages. Reconnects with exponential backoff on error.
-Config: `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_IMAP_PORT` (default 993),
-`EMAIL_SMTP_PORT` (default 587), `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`,
-`EMAIL_STRICT_AUTH` (`true` rejects unsigned senders).
+IMAP IDLE push (with poll fallback) + SMTP STARTTLS replies. JID
+format `email:<address>`. The IDLE connection is a persistent TLS
+socket the server pushes EXISTS on; reconnect uses exponential
+backoff. Polling is the fallback, not the design — mail latency is
+the whole point of the adapter.
 
 ## whapd
 
-WhatsApp adapter written in TypeScript using Baileys. JID format:
-`whatsapp:<jid>` where `<jid>` is whatever Baileys returns —
-typically `<lid>@lid` for DMs (Baileys' opaque LID identifier) and
-`<group-id>@g.us` for groups. LIDs are opaque and stable per
-account; arizuko does not translate them to phone numbers.
-Credentials stored via Baileys `useMultiFileAuthState` under
-`$WHATSAPP_AUTH_DIR` (default `$DATA_DIR/store/whatsapp-auth`).
-Pairing uses QR code on first run.
+JID format `whatsapp:<jid>`, where `<jid>` is whatever Baileys
+returns — typically `<lid>@lid` for DMs (Baileys' opaque LID
+identifier) and `<group-id>@g.us` for groups. **LIDs stay opaque:**
+they are stable per account and arizuko does not translate them to
+phone numbers.
 
-**Registration resilience.** Router registration is retried with
-exponential backoff — whapd never calls `process.exit()` on
-register failure. The prior behavior caused a restart loop that
+**Registration resilience.** Router registration retries with
+exponential backoff; whapd never calls `process.exit()` on register
+failure. The prior fail-fast behavior caused a restart loop that
 truncated `creds.json` mid-write during the next container kill,
-because Baileys' `writeFile` is non-atomic.
+because Baileys' `writeFile` is not atomic.
 
 **Credential recovery.** On startup whapd calls `recoverCredsIfEmpty`
-to restore from `creds.json.bak` if the live file is 0 bytes, and
-`backupCreds` after each rewrite. Stale backups (>3 days) require a
-manual QR re-pair.
-
-Config: `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR`, `LISTEN_URL`,
-`WHATSAPP_AUTH_DIR`, `DATA_DIR`, `ASSISTANT_NAME`.
-
-## Layout
-
-```
-teled/   — Telegram adapter (Go)
-discd/   — Discord adapter (Go)
-mastd/   — Mastodon adapter (Go)
-bskyd/   — Bluesky adapter (Go)
-reditd/  — Reddit adapter (Go)
-emaid/   — Email adapter (Go, IMAP + SMTP)
-linkd/   — LinkedIn adapter (Go)
-whapd/   — WhatsApp adapter (TypeScript, Baileys)
-twitd/   — Twitter/X adapter (TypeScript, agent-twitter-client)
-chanlib/ — shared primitives for Go adapters; see chanlib/README.md
-```
+to restore from `creds.json.bak` when the live file is 0 bytes, and
+`backupCreds` after each rewrite. Backups older than 3 days are not
+trusted — those require a manual QR re-pair.

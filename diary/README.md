@@ -27,4 +27,4 @@ None (stdlib only).
 
 - `ARCHITECTURE.md` (Diary)
 - `specs/1/L-memory-diary.md`
-- `specs/4/24-recall.md`
+- `specs/4/17-knowledge-system.md`
