@@ -29,7 +29,7 @@ func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 		RevokeInvite: func(token string) error { revoked = token; return nil },
 	}
 	// folder "root" → tier 0 (operator).
-	stop, err := ServeMCP(sock, gated, StoreFns{}, "root", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, gated, StoreFns{}, "root", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -71,9 +71,10 @@ func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 	}
 }
 
-// A tier-2 caller is denied invite_create + invite_revoke by authzStructural
-// before the writer runs; invite_list (read-only, self-filtered) stays allowed.
-func TestServeMCP_InviteWrite_Tier2Denied(t *testing.T) {
+// A folder that holds NO invite_create/invite_revoke grant is denied by the injected
+// Authorize (4/R: invite management is a delegated grant, not a floor tool); invite_list
+// (read-only, self-filtered) is granted here and stays allowed.
+func TestServeMCP_InviteWrite_Denied(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 
@@ -86,8 +87,12 @@ func TestServeMCP_InviteWrite_Tier2Denied(t *testing.T) {
 		ListInvites:  func(_ string) ([]InviteInfo, error) { return nil, nil },
 		RevokeInvite: func(_ string) error { revokeCalls++; return nil },
 	}
-	// folder "world/a/b" → tier 2 (depth ≥ 2): invite management denied.
-	stop, err := ServeMCP(sock, gated, StoreFns{}, "world/a/b", []string{"*"}, 0, "")
+	// The folder holds invite_list but NOT invite_create/invite_revoke → the latter two
+	// are denied at call time by db.Authorize; the read stays allowed.
+	db := StoreFns{Authorize: func(_, _, action string, _ map[string]string) bool {
+		return action == "mcp:invite_list"
+	}}
+	stop, err := ServeMCP(sock, gated, db, "world/a/b", false, 0, "folder:world/a/b")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

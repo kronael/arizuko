@@ -32,7 +32,7 @@ func TestServeMCP_FindMessages_HappyPath(t *testing.T) {
 		},
 		JIDRoutedToFolder: func(jid, folder string) bool { return true },
 	}
-	stop, err := ServeMCP(sock, GatedFns{}, db, "world", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, GatedFns{}, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestServeMCP_FindMessages_QueryRequired(t *testing.T) {
 			return nil, nil
 		},
 	}
-	stop, err := ServeMCP(sock, GatedFns{}, db, "world", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, GatedFns{}, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestServeMCP_FindMessages_ACLDropsForeignRows(t *testing.T) {
 			return jid == "tg:own" && folder == "world/a/b"
 		},
 	}
-	stop, err := ServeMCP(sock, GatedFns{}, db, "world/a/b", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, GatedFns{}, db, "world/a/b", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestServeMCP_FindMessages_OperatorBypassesACL(t *testing.T) {
 	}
 	// Any NAMED folder is tier ≥1 now; the tier-0 operator identity is the empty
 	// folder "" (operator/service sentinel), which bypasses the route filter.
-	stop, err := ServeMCP(sock, GatedFns{}, db, "", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, GatedFns{}, db, "", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestServeMCP_FindMessages_ToolRegistered_NoStoreFn(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 	db := StoreFns{} // no FindMessages
-	stop, err := ServeMCP(sock, GatedFns{}, db, "world", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, GatedFns{}, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestServeMCP_FindMessages_ToolRegistered_WithStoreFn(t *testing.T) {
 			return nil, nil
 		},
 	}
-	stop, err := ServeMCP(sock, GatedFns{}, db, "world", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, GatedFns{}, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

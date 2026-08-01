@@ -17,12 +17,12 @@ func TestAuthorizeJID_MentionOnlySubfolder(t *testing.T) {
 		JIDRoutableToFolder: func(_, folder string) bool { return folder == "atlas/support" },
 	}
 
-	support := auth.Identity{Folder: "atlas/support", Tier: 1}
+	support := auth.Identity{Folder: "atlas/support"}
 	if err := authorizeJID(support, "reply", jid, db); err != nil {
 		t.Fatalf("authorizeJID(atlas/support, reply) = %v, want nil", err)
 	}
 
-	content := auth.Identity{Folder: "atlas/content", Tier: 1}
+	content := auth.Identity{Folder: "atlas/content"}
 	if err := authorizeJID(content, "reply", jid, db); err == nil {
 		t.Fatal("authorizeJID(atlas/content, reply) = nil, want forbidden")
 	}
@@ -34,16 +34,16 @@ func TestAuthorizeJID_MentionOnlySubfolder(t *testing.T) {
 func TestAuthorizeJID_BareWebChat(t *testing.T) {
 	db := StoreFns{DefaultFolderForJID: func(string) string { return "" }} // no route
 
-	own := auth.Identity{Folder: "krons", Tier: 1}
+	own := auth.Identity{Folder: "krons"}
 	if err := authorizeJID(own, "reply", "web:krons", db); err != nil {
 		t.Fatalf("authorizeJID(krons, reply, web:krons) = %v, want nil", err)
 	}
 	// subtree owner replies to a descendant's web surface
-	parent := auth.Identity{Folder: "atlas", Tier: 1}
+	parent := auth.Identity{Folder: "atlas"}
 	if err := authorizeJID(parent, "reply", "web:atlas/strengths", db); err != nil {
 		t.Fatalf("authorizeJID(atlas, reply, web:atlas/strengths) = %v, want nil", err)
 	}
-	sibling := auth.Identity{Folder: "mayai", Tier: 1}
+	sibling := auth.Identity{Folder: "mayai"}
 	if err := authorizeJID(sibling, "reply", "web:krons", db); err == nil {
 		t.Fatal("authorizeJID(mayai, reply, web:krons) = nil, want forbidden")
 	}

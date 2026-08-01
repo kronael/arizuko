@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"context"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -64,8 +65,12 @@ func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folde
 					if !ok {
 						return toolErr("task not found")
 					}
-					if err := containOrStructural(db, id, "inspect_tasks", auth.AuthzTarget{TaskOwner: t.Owner}); err != nil {
-						return toolErr(err.Error())
+					// inspect_tasks is a read (always-on); the per-task detail keeps a
+					// self-or-descendant containment on the task owner so a folder can't
+					// read a sibling's run logs (4/R: reads unconditional, containment
+					// inline — the messaging-verb pattern, not an acl grant).
+					if t.Owner != folder && !strings.HasPrefix(t.Owner, folder+"/") {
+						return toolErr("unauthorized: can only inspect own or descendant tasks")
 					}
 				}
 				out["runs"] = db.TaskRunLogs(tid, limitVal)

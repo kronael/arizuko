@@ -20,7 +20,6 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
-	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/mountsec"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
@@ -234,16 +233,17 @@ type StoreFns struct {
 	// revoked; the handler returns it to the agent as the tool result.
 	ResolveConnectorSecrets func(folder string, required []string) (map[string]string, error)
 
-	// Authorize checks whether sub may call action (e.g. "mcp:send") with
-	// params in the context of folder. Used by ServeMCP when callerSub != ""
-	// (ARIZUKO_LOCAL_SUB). Nil means no row-based check (full operator access).
+	// Authorize is the SOLE per-call authz check (4/R): sub may call action (e.g.
+	// "mcp:send") with params against `folder` as the SCOPE — the caller's own folder
+	// for magnitude, or the ACTUAL target folder for a management tool's containment (a
+	// delegated row scoped to a subtree covers it). Used by ServeMCP when callerSub !=
+	// "" (ARIZUKO_LOCAL_SUB). Nil means no row-based check (full operator access).
 	Authorize func(sub, folder, action string, params map[string]string) bool
 
-	// Containment is the 4/R phase-b data-driven containment gate (auth.
-	// AuthorizeContainment): may callerFolder act with `tool` on `target`, per its
-	// backfilled/delegated folder-scoped grants. Injected by routd with the real
-	// store. Nil → fall back to the tier-structural check (auth.AuthorizeStructural).
-	Containment func(callerFolder, tool, target string, isRoot bool) error
+	// Visible is the tools/list visibility view (auth.EffectiveActions): does the
+	// caller hold `name` at any scope? Injected by routd per turn. Nil → every
+	// registerRaw/granted tool is advertised (the call-time Authorize still gates).
+	Visible func(name string) bool
 
 	// LogIPCAudit persists one ipc_audit row. Nil = no-op.
 	LogIPCAudit func(folder, sub, tool, params, outcome string) error
@@ -314,7 +314,7 @@ const maxMCPConns = 8
 // ipc must not import store/resreg, so routd (which imports both) passes
 // a closure that calls resreg.MCPTools to mount cold-tier management
 // tools (spec 5/16 web_routes pilot). Empty in every non-routd caller.
-func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (func(), error) {
+func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoot bool, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (func(), error) {
 	os.Remove(sockPath)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -327,7 +327,7 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules
 	slog.Info("mcp server listening",
 		"folder", folder, "sock", sockPath, "peer_uid", expectedUID)
 
-	srv := buildMCPServer(gated, db, folder, rules, callerSub)
+	srv := buildMCPServer(gated, db, folder, isRoot, callerSub)
 	for _, pb := range postBuild {
 		if pb != nil {
 			pb(srv)
@@ -745,26 +745,10 @@ func WebPresenceFor(folder, webHost, hostingDomain string, aliases map[string]st
 	}
 }
 
-// containOrStructural is the 4/R phase-b seam for the hand-authored ipc gates:
-// the data-driven containment check (db.Containment, reading folder-scoped grants)
-// when routd injected it, else the legacy tier-structural check. One seam so the
-// three ipc gates flip together and stay consistent with the resreg resources.
-func containOrStructural(db StoreFns, id auth.Identity, action string, target auth.AuthzTarget) error {
-	if db.Containment == nil {
-		return auth.AuthorizeStructural(id, action, target)
-	}
-	tgt := target.TargetFolder
-	if tgt == "" {
-		tgt = target.TaskOwner
-	}
-	if tgt == "" {
-		tgt = target.RouteTarget
-	}
-	return db.Containment(id.Folder, action, tgt, id.IsRoot)
-}
-
-// authorizeJID prevents a sub-folder agent from dispatching to a JID owned
-// by a sibling. db.DefaultFolderForJID may be nil in tests.
+// authorizeJID is the MESSAGING containment (4/R: kept as route-ownership, separate
+// from the acl magnitude gate). It prevents a sub-folder agent from dispatching to a
+// JID owned by a sibling: the jid's routing target must be the caller's folder or a
+// descendant (root bypasses). db.DefaultFolderForJID may be nil in tests.
 func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
 	target := ""
 	if db.DefaultFolderForJID != nil {
@@ -780,14 +764,15 @@ func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
 			target = folder
 		}
 	}
-	if err := containOrStructural(db, id, action, auth.AuthzTarget{TargetFolder: target}); err == nil {
+	// Self-or-descendant containment on the target chat's folder (root bypasses).
+	if id.IsRoot || (target != "" && (target == id.Folder || strings.HasPrefix(target, id.Folder+"/"))) {
 		return nil
 	}
 	// The default resolution forces verb="message", so a sub-folder that handles
 	// this chat only under a verb-scoped route (e.g. mention-only) resolves to an
 	// ancestor and is wrongly denied. Authorize when id.Folder (or a descendant)
-	// is a route target for jid ignoring verb — matching authorizeOutbound's
-	// subtree-containment rule. Bug: mention-only sub-folder can't reply.
+	// is a route target for jid ignoring verb — matching the subtree-containment
+	// rule. Bug: mention-only sub-folder can't reply.
 	if db.JIDRoutableToFolder != nil && db.JIDRoutableToFolder(jid, id.Folder) {
 		return nil
 	}
@@ -851,8 +836,9 @@ func parseBefore(req mcp.CallToolRequest) (time.Time, error) {
 	return t, nil
 }
 
-func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, callerSub string) *server.MCPServer {
+func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, callerSub string) *server.MCPServer {
 	identity := auth.Resolve(folder)
+	identity.IsRoot = identity.IsRoot || isRoot
 	srv := server.NewMCPServer("arizuko", "1.0")
 
 	authorizeCall := func(name string, params map[string]string) bool {
@@ -862,13 +848,17 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		return db.Authorize(callerSub, folder, "mcp:"+name, params)
 	}
 
+	// visible is the tools/list gate: a management/messaging tool shows iff the caller
+	// holds it (auth.EffectiveActions via db.Visible). Nil Visible (container/tests) or
+	// a root turn advertises everything; the call-time authorizeCall still gates.
+	visible := func(name string) bool {
+		return isRoot || db.Visible == nil || db.Visible(name)
+	}
+
 	registerRaw := func(name, desc string, opts []mcp.ToolOption, h server.ToolHandlerFunc) {
-		matching := grantslib.MatchingRules(rules, name)
-		if len(matching) == 0 {
+		if !visible(name) {
 			return
 		}
-		data, _ := json.Marshal(matching)
-		desc = desc + "\ngrants: " + string(data)
 		all := append([]mcp.ToolOption{mcp.WithDescription(desc)}, opts...)
 		srv.AddTool(mcp.NewTool(name, all...), h)
 	}
@@ -892,10 +882,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 
 	granted := func(name, desc string, opts []mcp.ToolOption, h server.ToolHandlerFunc) {
 		registerRaw(name, desc, opts, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, name, nil) {
-				emitAuthzDenied(name, callerSub)
-				return toolErr(name + ": not permitted")
-			}
+			// Magnitude: the caller must hold mcp:<name> (role:member floor or a
+			// delegated grant). The per-target containment (self-or-descendant) is the
+			// handler's authzStructural, which re-runs auth.Authorize on the arg target.
 			if !authorizeCall(name, nil) {
 				emitAuthzDenied(name, callerSub)
 				return toolErr(name + ": not permitted")
@@ -934,12 +923,20 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		})
 	}
 
-	authzStructural := func(action string, target auth.AuthzTarget) error {
-		err := containOrStructural(db, identity, action, target)
-		if err != nil {
-			emitAuthzDenied(action, callerSub)
+	// authzStructural is the per-target containment for the hand-authored management
+	// tools (4/R: one evaluator). It re-runs auth.Authorize with the ACTUAL target as
+	// the scope, so a delegated row scoped to a subtree covers exactly that subtree.
+	// An empty target = the caller's own folder (magnitude-only tools). Root/elevated
+	// pass via db.Authorize's allow-all; a nil Authorize (container/tests) is open.
+	authzStructural := func(action, target string) error {
+		if target == "" {
+			target = folder
 		}
-		return err
+		if callerSub == "" || db.Authorize == nil || db.Authorize(callerSub, target, "mcp:"+action, nil) {
+			return nil
+		}
+		emitAuthzDenied(action, callerSub)
+		return fmt.Errorf("forbidden: %s on %s is outside %s's granted scope", action, target, folder)
 	}
 
 	if db.LogExternalCost != nil {
@@ -1044,9 +1041,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "send", map[string]string{"jid": jid}) {
-				return toolErr("send: not permitted")
-			}
 			if !authorizeCall("send", map[string]string{"jid": jid}) {
 				return toolErr("send: not permitted")
 			}
@@ -1073,9 +1067,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "reply", map[string]string{"jid": jid}) {
-				return toolErr("reply: not permitted")
-			}
 			if !authorizeCall("reply", map[string]string{"jid": jid}) {
 				return toolErr("reply: not permitted")
 			}
@@ -1111,9 +1102,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "send_file", map[string]string{"jid": jid}) {
-				return toolErr("send_file: not permitted")
-			}
 			if !authorizeCall("send_file", map[string]string{"jid": jid}) {
 				return toolErr("send_file: not permitted")
 			}
@@ -1154,9 +1142,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "send_voice", map[string]string{"jid": jid}) {
-				return toolErr("send_voice: not permitted")
-			}
 			if !authorizeCall("send_voice", map[string]string{"jid": jid}) {
 				return toolErr("send_voice: not permitted")
 			}
@@ -1197,9 +1182,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !grantslib.CheckAction(rules, "post", map[string]string{"jid": jid}) {
-				return toolErr("post: not permitted")
-			}
 			if !authorizeCall("post", map[string]string{"jid": jid}) {
 				return toolErr("post: not permitted")
 			}
@@ -1271,9 +1253,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 					vals[a] = req.GetString(a, "")
 				}
 				jid := vals[jidArg]
-				if !grantslib.CheckAction(rules, s.name, map[string]string{"jid": jid}) {
-					return toolErr(s.name + ": not permitted")
-				}
 				if !authorizeCall(s.name, map[string]string{"jid": jid}) {
 					return toolErr(s.name + ": not permitted")
 				}
@@ -1431,9 +1410,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			},
 			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				jid := req.GetString("chatJid", "")
-				if !grantslib.CheckAction(rules, "pane_set_prompts", map[string]string{"jid": jid}) {
-					return toolErr("pane_set_prompts: not permitted")
-				}
 				if !authorizeCall("pane_set_prompts", map[string]string{"jid": jid}) {
 					return toolErr("pane_set_prompts: not permitted")
 				}
@@ -1461,9 +1437,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			},
 			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				jid := req.GetString("chatJid", "")
-				if !grantslib.CheckAction(rules, "pane_set_title", map[string]string{"jid": jid}) {
-					return toolErr("pane_set_title: not permitted")
-				}
 				if !authorizeCall("pane_set_title", map[string]string{"jid": jid}) {
 					return toolErr("pane_set_title: not permitted")
 				}
@@ -1500,7 +1473,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if child == "" {
 				return toolErr("child required")
 			}
-			if err := authzStructural("fork_topic", auth.AuthzTarget{TargetFolder: identity.Folder}); err != nil {
+			if err := authzStructural("fork_topic", identity.Folder); err != nil {
 				return toolErr(err.Error())
 			}
 			force := req.GetBool("force", false)
@@ -1611,7 +1584,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if gated.ClearSession == nil {
 				return toolErr("reset_session not configured")
 			}
-			if err := authzStructural("reset_session", auth.AuthzTarget{TargetFolder: gf}); err != nil {
+			if err := authzStructural("reset_session", gf); err != nil {
 				return toolErr(err.Error())
 			}
 			slog.Info("reset_session", "folder", folder, "targetFolder", gf)
@@ -1646,7 +1619,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if f, _ := args["folder"].(string); f != "" {
 				target = f
 			}
-			if err := authzStructural("set_observe_window", auth.AuthzTarget{TargetFolder: target}); err != nil {
+			if err := authzStructural("set_observe_window", target); err != nil {
 				return toolErr(err.Error())
 			}
 			// Absent args preserve the stored value; explicit -1 clears.
@@ -1693,7 +1666,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if f, _ := args["folder"].(string); f != "" {
 				target = f
 			}
-			if err := authzStructural("set_group_open", auth.AuthzTarget{TargetFolder: target}); err != nil {
+			if err := authzStructural("set_group_open", target); err != nil {
 				return toolErr(err.Error())
 			}
 			if err := gated.SetGroupOpen(target, open); err != nil {
@@ -1722,7 +1695,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if src == "" {
 				return toolErr("source required")
 			}
-			if err := authzStructural("observe_group", auth.AuthzTarget{TargetFolder: src}); err != nil {
+			if err := authzStructural("observe_group", src); err != nil {
 				return toolErr(err.Error())
 			}
 			if err := gated.AddGroupWatcher(folder, src); err != nil {
@@ -1748,7 +1721,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if src == "" {
 				return toolErr("source required")
 			}
-			if err := authzStructural("unobserve_group", auth.AuthzTarget{TargetFolder: src}); err != nil {
+			if err := authzStructural("unobserve_group", src); err != nil {
 				return toolErr(err.Error())
 			}
 			if err := gated.RemoveGroupWatcher(folder, src); err != nil {
@@ -1775,7 +1748,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if jid == "" {
 				return toolErr("chatJid required")
 			}
-			if err := authzStructural("inject_message", auth.AuthzTarget{TargetFolder: jid}); err != nil {
+			// inject_message carries no per-jid containment (the old gate was tier-only);
+			// magnitude on the caller's own folder is the whole check — a grant-holder
+			// may inject anywhere, as before.
+			if err := authzStructural("inject_message", identity.Folder); err != nil {
 				return toolErr(err.Error())
 			}
 			sender := req.GetString("sender", "")
@@ -1810,7 +1786,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if db.PutMessage == nil || gated.EnqueueMessageCheck == nil {
 				return toolErr("escalate_group not configured")
 			}
-			if err := authzStructural("escalate_group", auth.AuthzTarget{TargetFolder: folder}); err != nil {
+			if err := authzStructural("escalate_group", folder); err != nil {
 				return toolErr(err.Error())
 			}
 			prompt := req.GetString("prompt", "")
@@ -1858,7 +1834,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			target := req.GetString("group", "")
-			if err := authzStructural("delegate_group", auth.AuthzTarget{TargetFolder: target}); err != nil {
+			if err := authzStructural("delegate_group", target); err != nil {
 				return toolErr(err.Error())
 			}
 			if db.PutMessage == nil || gated.EnqueueMessageCheck == nil {
@@ -1910,7 +1886,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if targetGlob == "" {
 				return toolErr("target_glob required")
 			}
-			if err := authzStructural("invite_create", auth.AuthzTarget{TargetFolder: targetGlob}); err != nil {
+			if err := authzStructural("invite_create", targetGlob); err != nil {
 				return toolErr(err.Error())
 			}
 			maxUses := req.GetInt("max_uses", 1)
@@ -1993,7 +1969,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if token == "" {
 				return toolErr("token required")
 			}
-			if err := authzStructural("invite_revoke", auth.AuthzTarget{TargetFolder: folder}); err != nil {
+			if err := authzStructural("invite_revoke", folder); err != nil {
 				return toolErr(err.Error())
 			}
 			// Ownership (this token belongs to this folder) is enforced in the
@@ -2223,32 +2199,31 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		return toolJSON(map[string]any{"content": string(data), "exists": true})
 	})
 
-	if identity.Tier <= 2 {
-		srv.AddTool(mcp.NewTool("set_work",
-			mcp.WithDescription("Overwrite this group's work.md with a fresh snapshot of current work, blockers, and next steps. Use at turn end to checkpoint state for the next session. This replaces the file — read with get_work first if merging."),
-			mcp.WithString("content", mcp.Required()),
-		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.GroupsDir == "" {
-				return toolErr("set_work not configured")
-			}
-			content := req.GetString("content", "")
-			groupDir := filepath.Join(gated.GroupsDir, folder)
-			if err := os.MkdirAll(groupDir, 0o755); err != nil {
-				return toolErr(err.Error())
-			}
-			p := filepath.Join(groupDir, "work.md")
-			tmp := p + ".tmp"
-			if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
-				return toolErr(err.Error())
-			}
-			if err := os.Rename(tmp, p); err != nil {
-				os.Remove(tmp)
-				return toolErr(err.Error())
-			}
-			slog.Info("set_work", "folder", folder, "bytes", len(content))
-			return toolOK()
-		})
-	}
+	// set_work (memory checkpoint) is always-on (4/R: reads + memory need no grant).
+	srv.AddTool(mcp.NewTool("set_work",
+		mcp.WithDescription("Overwrite this group's work.md with a fresh snapshot of current work, blockers, and next steps. Use at turn end to checkpoint state for the next session. This replaces the file — read with get_work first if merging."),
+		mcp.WithString("content", mcp.Required()),
+	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if gated.GroupsDir == "" {
+			return toolErr("set_work not configured")
+		}
+		content := req.GetString("content", "")
+		groupDir := filepath.Join(gated.GroupsDir, folder)
+		if err := os.MkdirAll(groupDir, 0o755); err != nil {
+			return toolErr(err.Error())
+		}
+		p := filepath.Join(groupDir, "work.md")
+		tmp := p + ".tmp"
+		if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+			return toolErr(err.Error())
+		}
+		if err := os.Rename(tmp, p); err != nil {
+			os.Remove(tmp)
+			return toolErr(err.Error())
+		}
+		slog.Info("set_work", "folder", folder, "bytes", len(content))
+		return toolOK()
+	})
 
 	// web_routes management tools (set_web_route/del_web_route/list_web_routes)
 	// are no longer hand-rolled here. They ride resreg's two-face mechanism
@@ -2278,20 +2253,21 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 	return srv
 }
 
-// ListTools builds the MCP tool registry for folder with the given grant rules
-// and returns the tool schemas. Safe to call without a running container —
-// GatedFns and StoreFns are zero-valued (handlers are never invoked).
-// Used by dashd and /v1/tools to render the tool browser without duplication.
+// ListTools builds the MCP tool registry for folder and returns the tool schemas.
+// visible is the tool-visibility view (auth.EffectiveActions — a tool shows iff the
+// folder holds it; reads are unconditional). Safe to call without a running container
+// — GatedFns and StoreFns are zero-valued (handlers are never invoked). Used by dashd
+// and /v1/tools to render the tool browser without duplication.
 //
-// The result is hot-tier tools (buildMCPServer) PLUS the grant-visible cold-tier
-// facade tools (routes/web_routes/scheduled_tasks/acl/network_rules/route_tokens/groups management),
-// which the live agent socket mounts via routd's resreg postBuild seam, not here.
-// addFacadeTools derives them from the SAME resreg specs routd uses, so the
-// browser shows exactly the agent's surface. The mcp-go server keys tools by name,
-// so the two sets are deduped; sort keeps output stable.
-func ListTools(folder string, rules []string) []mcp.Tool {
-	srv := buildMCPServer(GatedFns{}, StoreFns{}, folder, rules, "")
-	addFacadeTools(srv, rules)
+// The result is hot-tier tools (buildMCPServer) PLUS the visible cold-tier facade
+// tools (routes/web_routes/scheduled_tasks/acl/network_rules/route_tokens/groups
+// management), which the live agent socket mounts via routd's resreg postBuild seam,
+// not here. addFacadeTools derives them from the SAME resreg specs routd uses, so the
+// browser shows exactly the agent's surface. The mcp-go server keys tools by name, so
+// the two sets are deduped; sort keeps output stable.
+func ListTools(folder string, visible func(name string) bool) []mcp.Tool {
+	srv := buildMCPServer(GatedFns{}, StoreFns{Visible: visible}, folder, false, "")
+	addFacadeTools(srv, visible)
 	m := srv.ListTools()
 	out := make([]mcp.Tool, 0, len(m))
 	for _, st := range m {
@@ -2306,10 +2282,9 @@ func ListTools(folder string, rules []string) []mcp.Tool {
 // the daemon binary) and derives every resource carrying MCP metadata — MCPNames
 // set is the agent-facade discriminator, so the pure-REST resource (secrets)
 // and dotted-name ones (proxyd_routes) are skipped. visible mirrors the agent
-// socket's filter EXACTLY: a tool whose name no grant rule matches is not shown.
+// socket's filter EXACTLY: a tool the folder doesn't hold is not shown.
 // The stub caller is never invoked — ListTools reads schemas, never calls handlers.
-func addFacadeTools(srv *server.MCPServer, rules []string) {
-	visible := func(name string) bool { return len(grantslib.MatchingRules(rules, name)) > 0 }
+func addFacadeTools(srv *server.MCPServer, visible func(name string) bool) {
 	stub := func(context.Context, mcp.CallToolRequest) (resreg.Caller, error) {
 		return resreg.Caller{}, nil
 	}

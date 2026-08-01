@@ -26,7 +26,7 @@ func TestServeMCP_PinMessage(t *testing.T) {
 	db := StoreFns{
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestServeMCP_UnpinMessage(t *testing.T) {
 	db := StoreFns{
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestServeMCP_UnpinAll(t *testing.T) {
 	db := StoreFns{
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestServeMCP_PinUnpin_NilFuncs(t *testing.T) {
 	db := StoreFns{
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestServeMCP_PinMessage_Unsupported(t *testing.T) {
 	db := StoreFns{
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestServeMCP_PinMessage_CrossFolderDenied(t *testing.T) {
 		DefaultFolderForJID: func(jid string) string { return "other" },
 	}
 	// Tier-2 folder at world/a/b
-	stop, err := ServeMCP(sock, gated, db, "world/a/b", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, gated, db, "world/a/b", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

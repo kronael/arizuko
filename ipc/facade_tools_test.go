@@ -25,11 +25,21 @@ func findTool(tools []mcp.Tool, name string) *mcp.Tool {
 	return nil
 }
 
+// holds returns a ListTools visibility predicate that reports true for exactly the
+// given tool names (4/R: visibility is auth.EffectiveActions — a name→bool view).
+func holds(names ...string) func(string) bool {
+	set := map[string]bool{}
+	for _, n := range names {
+		set[n] = true
+	}
+	return func(name string) bool { return set[name] }
+}
+
 // TestListTools_FacadeToolVisibleWithGrant: a folder whose grants cover
 // set_web_route sees the facade tool, with the description + input schema
 // single-sourced from resreg/resources (so the browser matches the agent socket).
 func TestListTools_FacadeToolVisibleWithGrant(t *testing.T) {
-	tools := ListTools("atlas", []string{"set_web_route"})
+	tools := ListTools("atlas", holds("set_web_route"))
 	got := findTool(tools, "set_web_route")
 	if got == nil {
 		t.Fatal("set_web_route not in ListTools despite matching grant")
@@ -67,7 +77,7 @@ func TestListTools_FacadeToolVisibleWithGrant(t *testing.T) {
 // TestListTools_FacadeToolHiddenWithoutGrant: the visibility filter is honored —
 // a folder without a set_web_route grant does not see the facade tool.
 func TestListTools_FacadeToolHiddenWithoutGrant(t *testing.T) {
-	tools := ListTools("atlas", []string{"send"})
+	tools := ListTools("atlas", holds("send"))
 	if got := findTool(tools, "set_web_route"); got != nil {
 		t.Fatal("set_web_route visible without a matching grant — visibility filter not honored")
 	}
@@ -79,7 +89,7 @@ func TestListTools_FacadeToolHiddenWithoutGrant(t *testing.T) {
 // — the last 5/16 fold, which needed MCPNames on the groups registration to appear).
 func TestListTools_AllFacadeFamiliesVisible(t *testing.T) {
 	want := []string{"add_route", "set_web_route", "schedule_task", "add_acl", "network_allow", "register_group"}
-	tools := ListTools("atlas", []string{"*"})
+	tools := ListTools("atlas", func(string) bool { return true })
 	for _, name := range want {
 		if findTool(tools, name) == nil {
 			t.Errorf("facade tool %q missing from ListTools with wildcard grant", name)

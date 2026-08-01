@@ -139,7 +139,7 @@ func TestHandleSubmitTurn_MissingTurnID(t *testing.T) {
 	gated := GatedFns{
 		SubmitTurn: func(folder string, t TurnResult) error { return nil },
 	}
-	stop, err := ServeMCP(sock, gated, StoreFns{}, "world", nil, 0, "")
+	stop, err := ServeMCP(sock, gated, StoreFns{}, "world", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestHandleSubmitTurn_NilSubmitTurn(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 	// SubmitTurn is nil — should return a config error.
-	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "world", nil, 0, "")
+	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "world", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestHandleSubmitTurn_NilSubmitTurn(t *testing.T) {
 func TestHandleSubmitTurn_ParseError(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
-	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "world", nil, 0, "")
+	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "world", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestServeMCP_InspectMessages_AccessDenied(t *testing.T) {
 		// tier-2 caller; the jid is NOT routed to their folder.
 		JIDRoutedToFolder: func(jid, folder string) bool { return false },
 	}
-	stop, err := ServeMCP(sock, GatedFns{}, db, "world/a/b", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, GatedFns{}, db, "world/a/b", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestServeMCP_FetchHistory_AccessDenied(t *testing.T) {
 	db := StoreFns{
 		JIDRoutedToFolder: func(jid, folder string) bool { return false },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world/a/b", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, gated, db, "world/a/b", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestServeMCP_FetchHistory_HappyPath(t *testing.T) {
 	db := StoreFns{
 		// tier-0 (root folder) bypasses JIDRoutedToFolder entirely.
 	}
-	stop, err := ServeMCP(sock, gated, db, "root", []string{"*"}, 0, "")
+	stop, err := ServeMCP(sock, gated, db, "root", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
