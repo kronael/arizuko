@@ -95,16 +95,56 @@ These close the open design questions; the rest of the spec is read through them
    operator modify it (via the issue/skill-request path). Per-group/custom skills a
    group with the grant may modify; global skills are the operator's alone.
 
-7. **One default role, mostly unprivileged.** The old `role:tier0..3` (four depth
-   bundles) collapse to a SINGLE seeded default — `role:unpriv` — with little more
-   than the floor (reply/send in its own thread; essentially no management verbs).
-   Every group is born with it. Everything beyond the floor is **explicit
-   delegation** from the creating group or a lineage ancestor (decision 3). No
-   `open`/`closed` split, no per-depth bundle. (`role:operator`/root stays as the
-   escalation grant per decision 1: the operator, holding root, seeds a world's
-   first real grants at create; those cascade down by delegation.) This is the
-   minimal-default / everything-explicit model — a group has exactly the power its
-   lineage handed it, nothing implied by where it sits.
+7. **One default role — `role:member` (a FUNCTIONAL floor, not "unpriv").** The old
+   `role:tier0..3` (four depth bundles) collapse to a SINGLE seeded default,
+   `role:member` (operator direction 2026-08-01: name it a real role, give it a
+   working floor). Its grants = the **messaging verbs only**: `reply, send,
+send_file, send_voice, post, forward, quote, repost, like, dislike, edit, delete`.
+   **Read tools and memory (`set_work`) are always-on** — every group can read its
+   data and checkpoint memory without a grant. Everything ELSE (register*group,
+   routes, network*_, schedule\__, observe*\*, invite*\*, mint tokens, add_acl,
+   grants) is **explicit delegation** from the creating group or a lineage ancestor.
+   `role:operator`/root stays the escalation grant (decision 1). No per-depth bundle,
+   no `open`/`closed` split. Every group is born a member; power above the floor is
+   exactly what its lineage delegated.
+
+## Simplified unified evaluator (2026-08-01, codex-analyzed — SUPERSEDES the persisted-row model)
+
+The phase-(b) containment build (persisted per-tool `folder:` scope rows via
+`BackfillFolderGrants`/`AuthorizeContainment`/`BackfillScopes`, plus the `[]string`
+grant firewall `grants.DeriveRules`/`CheckAction`/`folderGrantsFromACLOnly`) is
+**over-engineered and gets deleted**. A codex dead-code pass showed the `[]string`
+plane is a REDUNDANT SECOND evaluator duplicating `auth.Authorize` (ACL: principals,
+roles, scope, params, predicates, wildcard-principals, deny-wins) — every tool is
+evaluated twice, and the renderer even drops wildcard rows + scope + predicates and
+fakes deny-wins by output ordering. The resolved model is ONE evaluator:
+
+- **`auth.Authorize(principal, action, ACTUAL-target-scope, params)` is the sole
+  runtime gate.** Management containment = the ACL scope-match on the REAL target
+  (a delegated row scoped `acme/**` authorizes exactly that subtree). No persisted
+  containment rows: a delegation IS the acl row; its scope IS the containment.
+- **Messaging** = `role:member` magnitude + `authorizeJID` route-ownership (unchanged).
+- **Reads + memory** = always-on (no grant).
+- **Tool visibility** = a small `EffectiveActions(principal)` view over ACL rows;
+  reads unconditional; elevated (`/root`) exposes everything.
+- **Delete:** `grants/grants.go` (whole), `auth/backfill.go` (whole —
+  `AuthorizeContainment`/`BackfillScopes`/`StructuralTools`/`OutboundVerbs`/…),
+  `auth/policy.go` (whole — `AuthorizeStructural`/`AuthzTarget`/tier), the
+  `RunRequest.Grants` `[]string` transport to runed (send typed `ShareReadOnly`/
+  `Egress`/`WebPublish` booleans instead), `SeedTierRoles`/`tierRoleName`/
+  `hasTierRole`/`deriveFolderGrants`/`folderGrantsFromACLOnly`/`parseRule`,
+  `RouteSourceJIDsInWorld` + its duplicated parsers, `Identity.Tier`/`.World`,
+  `ReplaceACLPrincipalRows`/`DeleteACLPrincipal`/`aclRowsEqual`/`tierRoleRows`,
+  `ARIZUKO_DELEGATE_DEPTH`/`Input.Depth`. ~2.0–2.4k net LOC.
+- **Bugs the persisted model carried (fixed by deletion):** `auth.Delegate` accepted
+  `system:backfill-4r` rows → a containment-only row could become re-delegable
+  magnitude; `AuthorizeContainment` ignored deny rows (no deny-wins); `folderGrants
+FromACLOnly` dropped wildcard/scope/predicate. Also fix `ant/src/index.ts` root-by-
+  no-slash (use `ARIZUKO_IS_ROOT`) and `scheduled_tasks` root-re-resolve-from-folder.
+- **Migration:** seed `role:member` + reassign every `folder:*` from `role:tier0..3`
+  to `role:member`; DELETE `role:tier0..3` rows AND all `granted_by='system:backfill-4r'`
+  rows (don't leave inert rows). `role:operator` already migration-seeded. `IsDirectChild`
+  stays (used by `CheckSpawnAllowed`, not tier).
 
 8. **Containment = grant SCOPE, not `AuthorizeStructural`.** The ~20 tools the
    structural cascade gated (`register_group`, `routes`, `network_*`, `schedule_*`,
