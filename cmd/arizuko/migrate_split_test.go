@@ -56,11 +56,11 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 		VALUES('folder:main','mcp:send','main','allow','2026-01-01T00:00:00Z')`)
 	exec(`INSERT INTO acl_membership(child, parent, added_at)
 		VALUES('tg:1','role:operator','2026-01-01T00:00:00Z')`)
-	// identities/identity_claims/identity_codes: authd OWNS these now → copied to auth.db.
+	// identities/identity_claims: authd OWNS these now → copied to auth.db.
+	// identity_codes is not copied — authd 0005 drops it (never-built link-code flow).
 	exec(`INSERT INTO identities(id, name, created_at) VALUES('idn-alice','alice','2026-01-01T00:00:00Z')`)
 	exec(`INSERT INTO identity_claims(sub, identity_id, claimed_at) VALUES('tg:42','idn-alice','2026-01-01T00:00:00Z')`)
 	exec(`INSERT INTO identity_claims(sub, identity_id, claimed_at) VALUES('discord:7','idn-alice','2026-01-01T00:00:00Z')`)
-	exec(`INSERT INTO identity_codes(code, identity_id, expires_at) VALUES('link-x','idn-alice','2099-01-01T00:00:00Z')`)
 
 	// transform: system_messages (group_id→folder, origin→source, event→kind, created_at→created; attrs dropped)
 	exec(`INSERT INTO system_messages(group_id, origin, event, attrs, body, created_at)
@@ -260,9 +260,6 @@ func TestMigrateSplit(t *testing.T) {
 	}
 	if got := count(t, adb, "identity_claims"); got != 2 {
 		t.Errorf("auth.identity_claims: got %d rows, want 2", got)
-	}
-	if got := count(t, adb, "identity_codes"); got != 1 {
-		t.Errorf("auth.identity_codes: got %d rows, want 1", got)
 	}
 	var idName string
 	if err := adb.QueryRow(`SELECT name FROM identities WHERE id='idn-alice'`).Scan(&idName); err != nil {

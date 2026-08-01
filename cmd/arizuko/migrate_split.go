@@ -21,7 +21,7 @@ import (
 // (routd 0009), pane_sessions to routd's own DB (routd 0010), and identity to
 // authd's auth.db (authd 0004), so acl/acl_membership + secrets/secret_use_log +
 // scheduled_tasks/task_run_logs + pane_sessions +
-// identities/identity_claims/identity_codes are COPIED, not left. So this
+// identities/identity_claims are COPIED, not left. So this
 // migrator COPIES the conversation/routing/run/acl/secrets/tasks/pane state into
 // the new DBs and identity into auth.db; the orphan tables stay where they are.
 // It is idempotent (INSERT OR IGNORE on primary keys) and safe to run on a copy.
@@ -172,8 +172,9 @@ var runedSpecs = []copySpec{
 }
 
 // authdSpecs map messages.db → auth.db. authd now OWNS identity (authd migration
-// 0004 mirrors store 0035): identities/identity_claims/identity_codes are
-// straight copies — identical schema both sides.
+// 0004 mirrors store 0035): identities/identity_claims are straight copies —
+// identical schema both sides. identity_codes is NOT copied: authd 0005 drops
+// it (a never-built link-code flow, empty on every instance).
 var authdSpecs = []copySpec{
 	{dst: "identities", src: "identities",
 		cols: "id, name, created_at",
@@ -181,9 +182,6 @@ var authdSpecs = []copySpec{
 	{dst: "identity_claims", src: "identity_claims",
 		cols: "sub, identity_id, claimed_at",
 		sel:  "sub, identity_id, claimed_at"},
-	{dst: "identity_codes", src: "identity_codes",
-		cols: "code, identity_id, expires_at",
-		sel:  "code, identity_id, expires_at"},
 }
 
 // authdIdentitySchema mirrors authd/migrations/0004-identities.sql so the
@@ -201,12 +199,7 @@ CREATE TABLE IF NOT EXISTS identity_claims (
   identity_id TEXT NOT NULL,
   claimed_at  TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_identity_claims_id ON identity_claims(identity_id);
-CREATE TABLE IF NOT EXISTS identity_codes (
-  code        TEXT PRIMARY KEY,
-  identity_id TEXT NOT NULL,
-  expires_at  TEXT NOT NULL
-);`
+CREATE INDEX IF NOT EXISTS idx_identity_claims_id ON identity_claims(identity_id);`
 
 // onbodSpecs map messages.db → onbod.db. onbod now OWNS the onboarding admission
 // state machine + invite links + per-gate limits (onbod migration 0001 mirrors
