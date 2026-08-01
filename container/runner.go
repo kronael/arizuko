@@ -824,7 +824,9 @@ func seedSettings(
 	env["ARIZUKO_GROUP_NAME"] = groupfolder.NameOf(in.Folder)
 	env["ARIZUKO_GROUP_PARENT"] = groupfolder.ParentOf(in.Folder)
 	env["ARIZUKO_WORLD"] = worldOf(in.Folder, elevated)
-	env["ARIZUKO_TIER"] = strconv.Itoa(tier)
+	// ARIZUKO_TIER (the depth rank the agent used to see) is dropped — 4/R decision 10:
+	// identity is world + path + granted capabilities, never a rank. tierOf survives
+	// ONLY above for WEB_PREFIX (the vhost coordinate, not authz).
 	if in.Model != "" {
 		env["ARIZUKO_MODEL"] = in.Model
 	} else {

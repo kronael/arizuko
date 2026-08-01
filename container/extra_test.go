@@ -213,8 +213,8 @@ func TestSeedSettingsTier3NoWebPrefix(t *testing.T) {
 	if env["WEB_PREFIX"] != "" {
 		t.Errorf("WEB_PREFIX (tier 3) = %v, want \"\"", env["WEB_PREFIX"])
 	}
-	if env["ARIZUKO_TIER"] != "3" {
-		t.Errorf("ARIZUKO_TIER = %v, want 3", env["ARIZUKO_TIER"])
+	if _, ok := env["ARIZUKO_TIER"]; ok {
+		t.Error("ARIZUKO_TIER must be dropped (4/R decision 10 — no tier rank)")
 	}
 }
 

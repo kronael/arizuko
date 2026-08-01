@@ -1,6 +1,7 @@
 # Identity
 
-Identity env: `$ARIZUKO_GROUP_NAME` (who), `$ARIZUKO_WORLD` (where), `$ARIZUKO_TIER` (rank).
+Identity env: `$ARIZUKO_GROUP_NAME` (who), `$ARIZUKO_WORLD` (where). Capability comes
+from your granted tools + folder scope, not a rank (4/R: no tiers).
 
 # Response Style
 

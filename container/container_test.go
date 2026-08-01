@@ -220,8 +220,8 @@ func TestSeedSettings(t *testing.T) {
 	if env["ARIZUKO_WORLD"] != "" {
 		t.Errorf("world (root) = %v, want empty", env["ARIZUKO_WORLD"])
 	}
-	if env["ARIZUKO_TIER"] != "0" {
-		t.Errorf("tier (root) = %v, want 0", env["ARIZUKO_TIER"])
+	if _, ok := env["ARIZUKO_TIER"]; ok {
+		t.Error("ARIZUKO_TIER must be dropped (4/R decision 10 — no tier rank)")
 	}
 	// Root publishes under DATA_DIR/web/pub/ → URL /pub/<path>.
 	if env["WEB_PREFIX"] != "pub" {
@@ -267,8 +267,8 @@ func TestSeedSettingsNonRoot(t *testing.T) {
 	if env["ARIZUKO_GROUP_NAME"] != "support" {
 		t.Errorf("name (derived from folder basename) = %v, want support", env["ARIZUKO_GROUP_NAME"])
 	}
-	if env["ARIZUKO_TIER"] != "2" {
-		t.Errorf("tier = %v, want 2", env["ARIZUKO_TIER"])
+	if _, ok := env["ARIZUKO_TIER"]; ok {
+		t.Error("ARIZUKO_TIER must be dropped (4/R decision 10 — no tier rank)")
 	}
 	// Tier 2 shares the parent world's web vhost.
 	// WEB_PREFIX = world name so the agent knows the subdomain.
@@ -292,8 +292,8 @@ func TestSeedSettingsTier1World(t *testing.T) {
 	if env["ARIZUKO_WORLD"] != "atlas" {
 		t.Errorf("world = %v, want atlas", env["ARIZUKO_WORLD"])
 	}
-	if env["ARIZUKO_TIER"] != "1" {
-		t.Errorf("tier = %v, want 1", env["ARIZUKO_TIER"])
+	if _, ok := env["ARIZUKO_TIER"]; ok {
+		t.Error("ARIZUKO_TIER must be dropped (4/R decision 10 — no tier rank)")
 	}
 	if env["ARIZUKO_GROUP_PARENT"] != "" {
 		t.Errorf("parent (tier-1) = %v, want empty", env["ARIZUKO_GROUP_PARENT"])
