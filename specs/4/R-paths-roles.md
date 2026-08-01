@@ -541,8 +541,25 @@ that let step (d) ship broken). Green here is the gate to deleting `AuthorizeStr
 pairs — DONE. (4) flip call sites to scope-match — **DONE (`ea50df11`)**: all 7 sites
 (5 resreg direct + 3 hand-authored ipc via the `StoreFns.Containment` seam) call
 `auth.AuthorizeContainment`; egress-cap fork resolved to (B). `AuthorizeStructural` retained
-as the revert valve (+ the oracle). (5) delete `DeriveRules`/`Resolve`/`ARIZUKO_TIER`
-(phase e) — REMAINING. Deploy to krons only, watch, then fleet — NOT yet deployed.
+as the revert valve (+ the oracle). (5) phase e — the tier-scalar teardown — **IN
+PROGRESS**:
+
+- **`ARIZUKO_TIER` dropped** (`9d96dcb1`, decision 10): the agent sees no rank; env
+  emission + skill refs gone. `tierOf` survives only for `WEB_PREFIX` (vhost coordinate).
+- **Magnitude moved off the tier scalar** (`2250c85c`+`616b1c7a`): eager role membership
+  (`assignDefaultRole`, seeded as DATA at PutGroup/backfill) + **deletion of the
+  `DeriveRules(tier)` fallback** in `AuthorizeWith` — a folder's magnitude is now its role
+  bundle + operator grants, never a recomputed depth int. Fixed a latent flip leak (backfill
+  containment rows were counting as magnitude → `AuthorizeWith` now excludes
+  `auth.BackfillGrantedBy` rows; containment vs magnitude fully separated).
+- **REMAINING tail** (each still functional, not blocking): `PlatformRulesForFolder(tier)`
+  (platform-verb scope by tier), the two surviving hard caps (`route_tokens` mint,
+  `set_work`), `dashd/tools_admin` display off `DeriveRules(tier)`, then deleting the
+  `Resolve.Tier` field + `DeriveRules` function + the dead `AuthorizeStructural` (revert
+  valve; drops ~180 lines of policy.go tier code once the flip soaks), and changing the
+  default-role assignment from depth to `role:unpriv` (decision 7).
+
+Deploy to krons only, watch, then fleet — NOT yet deployed.
 
 **Flip blockers — step (4) is NOT "just delete `AuthorizeStructural`" (adversary review
 2026-07-31).** Two findings reshape it into the full grant-model migration; do NOT flip
