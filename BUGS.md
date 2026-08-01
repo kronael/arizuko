@@ -2191,7 +2191,7 @@ Open (MEDIUM, deferred — none release-blocking; fail-closed or latent):
   fold when step (e) lands. **M2 self-resolved by the revert** — `SECURITY.md:210` "tier ≤ 1
   egress" is accurate again.
 
-## T2 — chat-token MCP `get_round` reads any turn in the instance (2026-08-01, open)
+## T2 — chat-token MCP `get_round` reads any turn in the instance (2026-08-01, FIXED)
 
 The `/chat/<token>/mcp` tool surface and its HTTP twin disagree on containment.
 `authorizeTurn` (the HTTP path) resolves the token, then binds the turn to it via
@@ -2276,7 +2276,7 @@ So the secrets the agent gets are resolved for the user while the authorization
 decision is made for the folder. Fix is one exported renderer used by all three
 sites; the gate's switch to a user principal is the sign-off item in B1.
 
-## B3 — `grantACLTx` turns any `**`-scoped grant into full operator membership (2026-08-01, open)
+## B3 — `grantACLTx` turns any `**`-scoped grant into full operator membership (2026-08-01, FIXED)
 
 `routd/acl_resource.go` `grantACLTx` checks `scope == "**"` BEFORE looking at
 `action` and routes it to `addMembershipTx(principal, "role:operator")`. The
@@ -2342,3 +2342,56 @@ instances.
 - **Scope:** onbod world creation / ACL scope shape
 - **Source:** `onbod/main.go` createWorldTx + `onbod/main.go:508`; `auth/acl.go` matchSegments
 - **Status:** proposed — needs the reader migration designed before the grant changes
+
+## P1 — pairing is unreachable outside a route miss (2026-08-01, proposed)
+
+`onbod.linkJID` writes the correct `acl_membership(jid → sub)` edge, but the
+only path to it is a route MISS, and its success path creates a world. A user
+in an already-routed chat can therefore never pair, which is the capability
+`specs/5/31` exists to deliver. Pairing and admission are two mechanisms
+sharing one entry point.
+
+**Blocker, not effort:** the extraction cannot be done atomically as drawn.
+Pairing tokens live in `onbod.db`; the membership edge lives in routd's DB;
+`linkJID` holds two independent `*sql.DB` handles and issues separate
+statements. There is no `ATTACH` or cross-database transaction, so "consume
+the token and write the edge in one tx" needs an ownership decision — either
+one daemon owns both writes, or the flow tolerates a partial state with a
+documented repair.
+
+- **Severity:** medium (capability blocked; no data at risk)
+- **Source:** `onbod/main.go` linkJID; `specs/5/31-identity-pairing.md`
+- **Status:** proposed — needs the cross-DB ownership decision first
+
+## P2 — `linked_to_sub` is a split-brain identity column (2026-08-01, proposed)
+
+`store.LinkSubToCanonical` writes `auth_users.linked_to_sub` and is tested,
+but has zero non-test callers; the live account-link path writes
+`oauth_identities` in auth.db instead. Meanwhile `proxyd/main.go:885` and
+`dashd/profile.go` still READ `linked_to_sub`, so those two surfaces resolve
+canonical identity from a column nothing maintains.
+
+Not a deletion: repointing the readers at `oauth_identities` crosses a DB
+owner boundary and needs a data migration. It also depends on the unsettled
+principal-grammar question (which namespaces exist, who may mint into each).
+
+- **Severity:** medium (identity resolution silently stale on two surfaces)
+- **Source:** `store/auth.go:73`; `proxyd/main.go:885`; `dashd/profile.go`
+- **Status:** proposed — blocked on the principal-grammar decision
+
+## P3b — rejected minimization phases, recorded so they are not retried (2026-08-01, closed)
+
+Two phases from the 2026-08-01 minimization plan were rejected on review and
+should NOT be reattempted as written:
+
+- **Fold `onboarding.token` into `invites`** — forbidden by `specs/5/31`: an
+  invite carries a SCOPE and is issued by a granter; a pairing nonce carries a
+  JID and proves chat control. Merging them yields a table whose redemption
+  semantics depend on which columns are NULL, with a bug class where a pairing
+  token grants. If they ever share storage it must be via an explicit `kind`
+  column, never NULL-inference.
+- **Drop `onboarding.status` as derivable from its timestamps** — it is not
+  derivable, and the fail-loud work (`c6bfe2b0`) added a refusal outcome that
+  makes it less so.
+
+- **Status:** closed — recorded to prevent a repeat, no action wanted
