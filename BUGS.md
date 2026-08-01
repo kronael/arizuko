@@ -2191,7 +2191,7 @@ Open (MEDIUM, deferred — none release-blocking; fail-closed or latent):
   fold when step (e) lands. **M2 self-resolved by the revert** — `SECURITY.md:210` "tier ≤ 1
   egress" is accurate again.
 
-## T1 — chat-token MCP `get_round` reads any turn in the instance (2026-08-01, open)
+## T2 — chat-token MCP `get_round` reads any turn in the instance (2026-08-01, open)
 
 The `/chat/<token>/mcp` tool surface and its HTTP twin disagree on containment.
 `authorizeTurn` (the HTTP path) resolves the token, then binds the turn to it via
@@ -2216,3 +2216,73 @@ MUST bind it to the caller's folder." Same class as the 5/44 REST list-all leak.
 - **Fix (not applied):** bind at the store boundary, not the caller — give
   `TurnFrames` a `jid`/folder argument so both faces inherit containment from one
   query, rather than adding a second check inside the MCP handler.
+## B1 — PROPOSAL: connect the agent capability token to the gate, or delete it (2026-08-01, proposed — needs sign-off)
+
+The per-spawn brokered token is minted, persisted and GC'd but never reaches
+anything. `jti` has zero references in `ipc/` and `routd/mcp.go`; the tool-call
+gate identifies the caller from the socket path
+(`routd/mcp.go:559`, `callerSub := "folder:" + t.folder`).
+
+Two findings make "deliver the JWS to the agent and authorize from it" the wrong
+way to close the gap:
+
+1. **The token cannot name the human.** `runed/broker.go:64` hardcodes
+   `typ:"downscoped"`, which forces authd's non-impersonation branch
+   (`authd/http.go:~225`), and `Downscope` sets `Sub: parent.Sub`
+   (`authd/server.go:233`) — the runed service principal. The `"sub"` field
+   runed sends is silently ignored; `authd/tokens_test.go:82` already asserts
+   this ("forced to caller"). So every agent token in every folder for every
+   user carries `sub=service:runed`. Authorizing from the token's sub would
+   collapse all tenants onto one service identity. Spec `5/P` § brokering says
+   runed's scope MUST include `tokens:mint` for issuer-mint, but the broker's
+   hardcoded `typ` makes that path unreachable — spec and code disagree.
+2. **Delivering a bearer to the agent is a net loss.** `container.Input` has no
+   token field and `runed/docker.go` never reads `RunSpec.Token` — spec `5/P`
+   dropped delivery on 2026-07-11 on purpose. Re-adding it hands a
+   prompt-injectable agent (Bash + persistent `$HOME` + egress) a credential it
+   can write to disk and replay after the turn: verification enforces no `aud`
+   (`auth/jwks.go`), routd's REST surface authorizes from the token's baked
+   scope rather than live ACL (`routd/server.go` `authz`), and `mcp_tokens` is
+   GC state that no verifier consults, so there is no revocation. Today the
+   agent's authority is the mounted socket and dies with the turn.
+
+**Proposal (tokenless).** routd already holds the identity: `turnMCP.trigger`.
+Render the turn principal once and use it at the gate, gated by a live `assume`
+check — `Authorize(trigger, "assume", folder)` — with the folder's grant rules
+still bounding the tool. Failure denies; never fall back to `folder:<path>`.
+Turn-less callers (timed/system) keep a folder/service principal and perform no
+assumption, which is the rule `dispatch.go:494` already encodes.
+
+Not shipped: this changes the authorization hot path's identity for every
+deployment (users with existing deny rows would newly constrain their group's
+agent), so it needs sign-off. Landed now as characterization only: the `assume`
+lattice position is pinned by `auth/assume_lattice_test.go` (`*` covers
+`assume`, `admin` does NOT — impersonation is not resource power) and the
+live-revocation property by
+`routd/revocation_live_test.go`. Decide: connect it tokenlessly, or delete
+`Broker`/`mcp_tokens` as dead weight.
+
+## B2 — Turn principal is rendered three different ways in routd (2026-08-01, open)
+
+One "who is this turn acting as" rule, three renderings — the
+one-renderer-many-sinks violation the root `CLAUDE.md` forbids:
+
+- `routd/dispatch.go:494` — spawn/broker identity: trigger, else `service:routd`.
+- `routd/mcp.go:487` — connector-secret identity: same rule, retyped.
+- `routd/mcp.go:559` — the tool-call gate: `folder:<folder>`, ignoring the
+  trigger entirely.
+
+So the secrets the agent gets are resolved for the user while the authorization
+decision is made for the folder. Fix is one exported renderer used by all three
+sites; the gate's switch to a user principal is the sign-off item in B1.
+
+## B3 — `grantACLTx` turns any `**`-scoped grant into full operator membership (2026-08-01, open)
+
+`routd/acl_resource.go` `grantACLTx` checks `scope == "**"` BEFORE looking at
+`action` and routes it to `addMembershipTx(principal, "role:operator")`. The
+action is discarded, so granting a deliberately narrow action at tree scope
+(`interact` on `**`, or a future `assume` on `**`) silently confers the full
+operator role — `IsOperator` reads exactly that membership edge, and operator is
+the gate for `/root` elevation. Fix: keep the membership shortcut only for the
+grant shape it was written for (`admin`/`*`), and store any other action as a
+normal wildcard-scope acl row.
