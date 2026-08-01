@@ -6,6 +6,12 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
+// BackfillGrantedBy marks acl rows the 4/R backfill/create-time-delegation writes as
+// CONTAINMENT (consumed by AuthorizeContainment). AuthorizeWith excludes them from
+// MAGNITUDE, and the string firewall excludes them too — they never widen "has the
+// tool", only bound "may act on this target".
+const BackfillGrantedBy = "system:backfill-4r"
+
 // AuthorizeContainment is phase (b)'s data-driven replacement for
 // AuthorizeStructural's CONTAINMENT half: it allows `tool` against `target` iff the
 // caller's own folder principal holds a backfilled/delegated `mcp:<tool>` allow row

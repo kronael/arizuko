@@ -3,7 +3,6 @@ package auth
 import (
 	"strings"
 
-	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -73,6 +72,13 @@ func AuthorizeWith(
 	// 4. Evaluate.
 	allowed, denied := false, false
 	for _, r := range rows {
+		// Backfill rows are the CONTAINMENT gate (consumed by AuthorizeContainment via
+		// ListACL), NOT magnitude — counting them here would grant a folder a tool its
+		// role bundle denies (e.g. the unconditional outbound-verb F/** rows would give
+		// a tier-3 folder `send`). Magnitude = role bundle + operator grants only.
+		if r.GrantedBy == BackfillGrantedBy {
+			continue
+		}
 		if !actionCovers(r.Action, action) {
 			continue
 		}
@@ -94,24 +100,11 @@ func AuthorizeWith(
 	if denied {
 		return false
 	}
-	if allowed {
-		return true
-	}
-
-	// 5. Tier-default fallback for mcp:* only.
-	if !strings.HasPrefix(action, "mcp:") {
-		return false
-	}
-	if opts.Folder == "" || opts.WorldFolder == "" {
-		return false
-	}
-	if !matchPattern(opts.Folder, scope) {
-		// Tier defaults apply only at the agent's own folder.
-		return false
-	}
-	tool := strings.TrimPrefix(action, "mcp:")
-	rules := grants.DeriveRules(s, opts.Folder, opts.Tier, opts.WorldFolder)
-	return grants.CheckAction(rules, tool, params)
+	// No tier-default fallback: a folder's magnitude now comes from its role
+	// membership (assignDefaultRole seeds it as DATA — 4/R phase e), so the role's
+	// acl rows match above. The DeriveRules(tier) fallback that used to catch the
+	// no-row case is deleted; a folder with no matching allow row is denied, loud.
+	return allowed
 }
 
 // expandPrincipals: caller.Principal + caller.Extra plus the transitive

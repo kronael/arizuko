@@ -96,13 +96,18 @@ func TestDBAuthorize_RowOverrides(t *testing.T) {
 
 	const folder = "w/a/b/c" // tier 3: reply allowed by default, send denied
 	const sub = "folder:" + folder
+	// Register the folder so it gets its default-role membership as DATA (PutGroup →
+	// assignDefaultRole) — production's magnitude source now that the tier fallback is gone.
+	if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
+		t.Fatal(err)
+	}
 
-	// No rows yet: tier-default fallback. reply allowed, send denied.
+	// tier-3 role bundle: reply allowed, send denied.
 	if !db.Authorize(sub, folder, "mcp:reply", nil) {
-		t.Error("tier-3 default should allow mcp:reply")
+		t.Error("tier-3 role should allow mcp:reply")
 	}
 	if db.Authorize(sub, folder, "mcp:send", nil) {
-		t.Error("tier-3 default should deny mcp:send")
+		t.Error("tier-3 role should deny mcp:send")
 	}
 
 	// Operator allow row grants a tool the tier default denies.
@@ -121,21 +126,36 @@ func TestDBAuthorize_RowOverrides(t *testing.T) {
 // TestDBAuthorize_EmptyACLTierDefault: with an empty acl table (no operator
 // rows), Authorize reduces to the tier-default fallback for mcp:* on the own
 // folder — the in-process MCP path keeps working unchanged.
-func TestDBAuthorize_EmptyACLTierDefault(t *testing.T) {
+// TestDBAuthorize_MagnitudeFromMembership pins 4/R phase e: magnitude comes from a
+// folder's role membership (DATA seeded at register), NOT a recomputed tier int with
+// a DeriveRules fallback. A registered folder gets its role bundle; an UNregistered
+// folder (no membership) is denied — there is no tier default to fall back to.
+func TestDBAuthorize_MagnitudeFromMembership(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 
+	// Unregistered folder → no membership → deny (no fallback).
+	if db.Authorize("folder:w/a/b/c", "w/a/b/c", "mcp:reply", nil) {
+		t.Error("unregistered folder (no membership) must be denied — no tier fallback")
+	}
+	// Register a tier-1 world and a tier-3 leaf; each gets its role bundle.
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil { // tier 1
+		t.Fatal(err)
+	}
+	if err := db.PutGroup(core.Group{Folder: "w/a/b/c"}); err != nil { // tier 3
+		t.Fatal(err)
+	}
 	if !db.Authorize("folder:demo", "demo", "mcp:send", nil) {
-		t.Error("tier-0 default (no acl table) should allow mcp:send")
+		t.Error("tier-1 role should allow mcp:send")
 	}
 	if !db.Authorize("folder:w/a/b/c", "w/a/b/c", "mcp:reply", nil) {
-		t.Error("tier-3 default (no acl table) should allow mcp:reply")
+		t.Error("tier-3 role should allow mcp:reply")
 	}
 	if db.Authorize("folder:w/a/b/c", "w/a/b/c", "mcp:send", nil) {
-		t.Error("tier-3 default (no acl table) should deny mcp:send")
+		t.Error("tier-3 role should deny mcp:send")
 	}
 }
 
@@ -151,10 +171,13 @@ func TestACLReadsOwnDB(t *testing.T) {
 
 	const folder = "w/a/b/c" // tier 3: reply allowed by default
 	const sub = "folder:" + folder
+	if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
+		t.Fatal(err)
+	}
 
-	// No operator row → tier-3 default allows reply.
+	// No operator row → tier-3 role bundle allows reply.
 	if !db.Authorize(sub, folder, "mcp:reply", nil) {
-		t.Error("tier-3 default should allow reply with no acl row")
+		t.Error("tier-3 role should allow reply with no operator row")
 	}
 	if slices.Contains(deriveFolderGrants(db, folder), "!reply") {
 		t.Error("deriveFolderGrants must not deny with no acl row")

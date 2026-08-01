@@ -205,25 +205,25 @@ func TestAuthorize_ParamGlob(t *testing.T) {
 	}
 }
 
-func TestAuthorize_TierDefaultFallback(t *testing.T) {
+// TestAuthorizeWith_NoTierFallback pins 4/R phase e: the DeriveRules(tier) fallback
+// is deleted — magnitude comes from role membership (DATA), never a recomputed tier
+// int. A folder with no matching allow row (no membership) is DENIED, even for mcp:*.
+func TestAuthorizeWith_NoTierFallback(t *testing.T) {
 	s := openMem(t)
-	// No acl rows. mcp:send on own folder. Tier 0 = "*".
 	caller := Caller{Principal: "folder:atlas/eng"}
-	opts := AuthorizeOpts{Folder: "atlas/eng", WorldFolder: "atlas", Tier: 0}
-	if !AuthorizeWith(s, caller, "mcp:send", "atlas/eng", nil, opts) {
-		t.Fatal("tier 0 default should allow mcp:send")
-	}
-	// Tier 3 default = reply/send_file/like/edit; no send.
-	opts.Tier = 3
+	opts := AuthorizeOpts{Folder: "atlas/eng", WorldFolder: "atlas"}
+	// No rows, no membership → deny (there is no tier default to fall back to).
 	if AuthorizeWith(s, caller, "mcp:send", "atlas/eng", nil, opts) {
-		t.Fatal("tier 3 default should NOT allow mcp:send")
+		t.Fatal("no fallback: mcp:send with no matching row must be denied")
 	}
-	if !AuthorizeWith(s, caller, "mcp:reply", "atlas/eng", nil, opts) {
-		t.Fatal("tier 3 default should allow mcp:reply")
+	// An explicit allow row grants it — the data path.
+	if err := s.PutACLRow(core.ACLRow{
+		Principal: "folder:atlas/eng", Action: "mcp:send", Scope: "atlas/eng", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
 	}
-	// Non-mcp action never falls back.
-	if AuthorizeWith(s, caller, "interact", "atlas/eng", nil, opts) {
-		t.Fatal("interact must not fall back to tier defaults")
+	if !AuthorizeWith(s, caller, "mcp:send", "atlas/eng", nil, opts) {
+		t.Fatal("explicit allow row must grant mcp:send")
 	}
 }
 

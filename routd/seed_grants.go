@@ -122,7 +122,7 @@ func aclRowsEqual(a, b []core.ACLRow) bool {
 // delegation: a folder that already has scoped mcp rows (backfilled earlier, or
 // delegated at create) is left untouched — no duplication, no clobbering an
 // operator's later edits.
-const backfillGrantedBy = "system:backfill-4r"
+const backfillGrantedBy = auth.BackfillGrantedBy
 
 // assignDefaultRole binds a folder to its default magnitude role, ONCE (assign-once
 // guard, so an operator's rebind to a different role is not clobbered). Eager
