@@ -216,14 +216,22 @@ func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, v
 }
 
 // grantACLTx grants via tx so the mutation + invoke's audit row commit as one
-// unit. scope "**" → operator-role membership (with the same recursive cycle
-// check store.AddMembership runs); else one acl row. action/effect default to
-// admin/allow (the grant shape).
+// unit. The operator-role shortcut fires only for the exact shape role:operator
+// models — (*, **, allow); every other action at scope "**" is an ordinary
+// wildcard-scope acl row. Matching on scope alone discarded the requested
+// action, so `add_acl(action="read", scope="**")` minted full operator
+// membership, and a caller holding only (admin, **, grant_option=1) could pass
+// auth.Delegate and then write a strictly stronger right than it held.
+// action/effect default to admin/allow (the grant shape).
 func grantACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effect, grantedBy string) error {
 	if grantedBy == "" {
 		grantedBy = "routd"
 	}
-	if scope == "**" {
+	// Tested on the RAW action, before the admin default: an omitted action at
+	// scope "**" is the operator-grant shape (/root grant, the REST twin), and
+	// "*" says the same thing explicitly. An action the caller actually named is
+	// honoured as an ordinary row instead of being discarded.
+	if scope == "**" && (action == "" || action == "*") && (effect == "" || effect == "allow") {
 		return addMembershipTx(ctx, tx, principal, "role:operator", grantedBy)
 	}
 	if action == "" {
@@ -241,7 +249,9 @@ func grantACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effec
 
 // revokeACLTx is the remove_acl/DELETE twin of grantACLTx: revoke via tx.
 func revokeACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effect string) error {
-	if scope == "**" {
+	// Mirror of the grant guard, same raw-action test: keying on scope alone let
+	// a narrow-row revoke strip an operator membership granted separately.
+	if scope == "**" && (action == "" || action == "*") && (effect == "" || effect == "allow") {
 		_, err := tx.ExecContext(ctx,
 			`DELETE FROM acl_membership WHERE child=? AND parent=?`, principal, "role:operator")
 		return err
