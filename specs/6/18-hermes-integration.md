@@ -125,12 +125,23 @@ Rules an integrator must not break:
 
 ## Known gaps this integration inherits
 
-- **No platform principal.** `chanlib.InboundMsg` carries `Sender` as a
-  display string; no `auth.Caller` is ever built from it. A Hermes user
-  arriving over Telegram cannot hold a grant. Fixing this is the edge-
-  attestation work — arizuko must bind `service:teled → telegram:*` and
-  its allowed JID prefixes **at routd**, never trusting edge-supplied
-  groups.
+- **`Sender` is authorization-bearing and unvalidated.** A channel sender
+  DOES reach `auth.Authorize` — `steer.go` passes `msg.Sender` to
+  `db.IsOperator` → `Authorize(Caller{Principal: sub}, "admin", "**")`
+  (`routd/sibling_db.go:203`), and a platform JID claims a canonical sub
+  through an `acl_membership` edge (tested: `auth/authorize_test.go:88`).
+  But `handleMessages` (`routd/server.go`, 98 lines) never mentions
+  `Sender`: it validates the ChatJID prefix against the channel registry
+  and nothing else. Any integration holding `messages:write` can assert
+  an arbitrary sender. An edge must be bound to its own principal
+  namespace **at routd**, never trusting edge-supplied identity.
+- **The turn is socket-credentialed, not token-credentialed.** runed
+  creates the SO_PEERCRED-gated socket and routd holds the other end, so
+  identity is established by construction at spawn. Hermes inherits this:
+  it authenticates by being the spawned process, and presents no
+  credential. `Broker`/`mcp_tokens` look like an AssumeRole path but no
+  token reaches the container and authd discards the requested sub — do
+  not build against them.
 - **Containment is per-handler, not per-store.** `BUGS.md` T1: the
   chat-token MCP `get_round` reads any turn in the instance because
   `store.TurnFrames` has no JID predicate while its HTTP twin checks one.
