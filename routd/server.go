@@ -418,6 +418,29 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Sender ownership. Deliberately NOT nested in the branch above: web:/hook:/
+	// bare-folder ChatJIDs skip that block, so an adapter could post
+	// chat_jid="web:main" with another platform's sender and meet no check at
+	// all. Sender is authorization-bearing — steer.go feeds it to IsOperator →
+	// Authorize(admin, **) — so an adapter asserting `google:alice` or another
+	// platform's user is an escalation, not a cosmetic error.
+	//
+	// The test is the platform scheme, not the full prefix: registered
+	// JIDPrefixes are CHAT prefixes ("telegram:mybot/") while senders are
+	// "telegram:user/<id>", so Owns() would reject legitimate traffic. Only
+	// callers that are registered adapters are constrained; webd, timed and
+	// onbod have no registry entry and are unaffected.
+	// Only QUALIFIED senders are constrained. A bare, scheme-less sender ("u")
+	// cannot collide with an OAuth sub, which is always "<provider>:<id>", so it
+	// is not the vector; rejecting it would only break adapters that never
+	// qualified their senders.
+	if s.reg != nil && sub != "" && strings.Contains(m.Sender, ":") {
+		if entry := s.reg.ByPrincipal(sub); entry != nil && !entry.OwnsScheme(m.Sender) {
+			writeErr(w, 400, "sender_scheme_mismatch",
+				"adapter may not assert sender "+m.Sender)
+			return
+		}
+	}
 	// Idempotency for the append-only log keys on the message id (the PK).
 	// X-Idempotency-Key is honored ONLY when id is absent: routd mints
 	// id=<adapter>-<key> so the two keys collapse. A stable id AND a key together

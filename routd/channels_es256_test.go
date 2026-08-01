@@ -224,3 +224,54 @@ func doJSONWithBearer(t *testing.T, h http.Handler, method, path, bearer, idemKe
 	h.ServeHTTP(rec, req)
 	return rec
 }
+
+// TestIngressSenderSchemeES256: Sender is authorization-bearing — steer.go feeds
+// it to IsOperator → Authorize(admin, **) — so a registered adapter may only
+// assert senders in a platform scheme it registered. The check is deliberately
+// outside the ChatJID-ownership branch: web:/hook:/bare-folder ChatJIDs skip
+// that branch entirely, so nesting it there would leave the hole open.
+func TestIngressSenderSchemeES256(t *testing.T) {
+	tok, ks := mintFor(t, "service:teled", "service")
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatalf("open mem db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	srv := NewServer(db, nil, nil, es256Verifier{ks}, 0, "")
+	srv.SetChannelRegistry(chanreg.New(), nil, nil)
+	h := srv.Handler()
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", tok, map[string]any{
+		"name": "teled", "url": "http://teled:8080",
+		"jid_prefixes": []string{"telegram:"},
+		"capabilities": map[string]bool{"send_text": true},
+	}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("register: %d %s", rec.Code, rec.Body.String())
+	}
+
+	cases := []struct {
+		name   string
+		jid    string
+		sender string
+		want   int
+	}{
+		{"own scheme", "telegram:42", "telegram:user/7", http.StatusOK},
+		{"bare sender still allowed", "telegram:42", "u", http.StatusOK},
+		{"foreign platform sender", "telegram:42", "discord:user/9", http.StatusBadRequest},
+		{"oauth-shaped sub", "telegram:42", "google:alice", http.StatusBadRequest},
+		// The escalation route the ChatJID branch does not cover: a web: chat_jid
+		// skips prefix ownership entirely, so the sender check must stand alone.
+		{"foreign sender via web jid", "web:demo", "google:alice", http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := doJSONWithBearer(t, h, "POST", "/v1/messages", tok, "",
+				apiv1.Message{ChatJID: c.jid, Sender: c.sender, Content: "hi", Verb: "message"})
+			if rec.Code != c.want {
+				t.Fatalf("sender %q: code=%d want %d (%s)", c.sender, rec.Code, c.want, rec.Body.String())
+			}
+		})
+	}
+}

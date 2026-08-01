@@ -47,6 +47,25 @@ func (e *Entry) Owns(jid string) bool {
 	return false
 }
 
+// OwnsScheme reports whether principal sits in a platform scheme this adapter
+// registered — the part before the first ":". Coarser than Owns on purpose:
+// registered prefixes are CHAT prefixes ("telegram:mybot/") while a sender is
+// "telegram:user/<id>", so the two share only the scheme. Enough to stop one
+// adapter asserting another platform's identities, or an OAuth-shaped sub no
+// adapter owns. A scheme-less principal is owned by nobody.
+func (e *Entry) OwnsScheme(principal string) bool {
+	scheme, _, ok := strings.Cut(principal, ":")
+	if !ok || scheme == "" {
+		return false
+	}
+	for _, p := range e.JIDPrefixes {
+		if s, _, ok := strings.Cut(p, ":"); ok && s == scheme {
+			return true
+		}
+	}
+	return false
+}
+
 type Registry struct {
 	mu          sync.RWMutex
 	entries     map[string]*Entry // keyed by name
