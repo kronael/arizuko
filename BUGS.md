@@ -2286,3 +2286,27 @@ operator role — `IsOperator` reads exactly that membership edge, and operator 
 the gate for `/root` elevation. Fix: keep the membership shortcut only for the
 grant shape it was written for (`admin`/`*`), and store any other action as a
 normal wildcard-scope acl row.
+
+## O1 — onboarding rows stranded in an undocumented `pending` status (2026-08-01, open)
+
+Live data carries `onboarding.status = 'pending'` (sloth 1 row, marinade 1
+row) but no code in `onbod/` writes or reads that value — the current status
+set is `awaiting_message` / `token_used` / `queued` / `approved`. Every query
+that advances a row selects one of those: `promptUnprompted` takes
+`status='awaiting_message' AND prompted_at IS NULL`, `admitFromQueue` takes
+`status='queued'`. A `pending` row is therefore invisible to the whole
+pipeline — it is never prompted, never queued, never admitted, and never
+reported. The user who triggered it sees nothing and can never onboard from
+that JID, because the row's `jid` PRIMARY KEY blocks a fresh insert.
+
+Same class as the gates-configured-but-none-match dead end: a row reaches a
+state the pipeline has no transition out of, and nothing is loud about it.
+
+- **Severity:** medium (2 known users stranded; silent)
+- **Scope:** onbod onboarding state machine
+- **Affected:** sloth, marinade
+- **Source:** `onbod/main.go` (no writer/reader for `pending`); found while
+  verifying that the `resetRow` recovery predicate was unreachable
+- **Status:** open — data-level fix is the operator's; the code-level fix is
+  that the state machine should reject or migrate an unknown status loudly
+  rather than ignoring the row
