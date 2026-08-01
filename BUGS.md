@@ -2310,3 +2310,35 @@ state the pipeline has no transition out of, and nothing is loud about it.
 - **Status:** open — data-level fix is the operator's; the code-level fix is
   that the state machine should reject or migrate an unknown status loudly
   rather than ignoring the row
+
+## W1 — world creator's grant cannot reach their own subgroups (2026-08-01, proposed)
+
+`createWorldTx` grants the creator `acl(sub, 'admin', <folder>)` — a BARE
+folder scope (`onbod/main.go`). `auth/acl.go matchSegments` requires an exact
+segment count, so that row authorizes `acme` and nothing beneath it: the
+creator cannot route a JID into, or administer, their own subgroup. The
+operator's stated model ("route the JID into that world or one of its
+subgroups") is unreachable today by any shipped path.
+
+The one-line fix — scope `<folder>/**` — was attempted and **reverted**,
+because the grant has an exact-match reader: `onbod/main.go:508` lists a
+user's worlds with `JOIN acl a ON a.scope = g.folder`. Widening the scope
+string silently empties that join, so the creator sees no worlds at all.
+Three tests pin the current shape (`TestOnboardingFlow`,
+`TestCreateWorldValidUsername`, `TestSplitCreateWorldWritesCrossToRoutd`).
+
+Fixing this therefore means changing every reader from string equality to
+pattern matching (`auth.matchPattern`), which SQL joins cannot express — the
+join has to become a fetch-then-filter in Go, or the grant has to be stored
+twice (bare + subtree), which is a second parallel path and forbidden.
+
+Note also that `grant_option=1` — needed so an owner can invite admins —
+cannot be written yet: migration 0022 adds the column but krons' live `acl`
+table does not have it (`PRAGMA table_info(acl)`), so writing it would fail
+world creation with "no such column". That half waits on 4/R reaching the
+instances.
+
+- **Severity:** medium (blocks the world-owner capability, no data at risk)
+- **Scope:** onbod world creation / ACL scope shape
+- **Source:** `onbod/main.go` createWorldTx + `onbod/main.go:508`; `auth/acl.go` matchSegments
+- **Status:** proposed — needs the reader migration designed before the grant changes
