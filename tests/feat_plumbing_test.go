@@ -144,11 +144,11 @@ func TestStore_TurnFrames(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	frames, err := s.TurnFrames("turn-1", "", 200)
+	frames, err := s.TurnFrames("tg:1", "turn-1", "", 200)
 	if err != nil || len(frames) != 3 {
 		t.Fatalf("TurnFrames = %d err=%v, want 3", len(frames), err)
 	}
-	page, err := s.TurnFrames("turn-1", frames[0].ID, 200)
+	page, err := s.TurnFrames("tg:1", "turn-1", frames[0].ID, 200)
 	if err != nil || len(page) != 2 {
 		t.Fatalf("TurnFrames after-cursor = %d err=%v, want 2", len(page), err)
 	}
