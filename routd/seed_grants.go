@@ -124,9 +124,26 @@ func aclRowsEqual(a, b []core.ACLRow) bool {
 // operator's later edits.
 const backfillGrantedBy = "system:backfill-4r"
 
+// assignDefaultRole binds a folder to its default magnitude role, ONCE (assign-once
+// guard, so an operator's rebind to a different role is not clobbered). Eager
+// assignment (at create/backfill) guarantees every folder holds role membership as
+// DATA, so AuthorizeWith matches the role's rows and the tier-int DeriveRules fallback
+// is dead. The depth→role default is the last vestige of the tier scalar (phase e will
+// change it to role:unpriv + delegation per decision 7); the READ path is now data.
+func assignDefaultRole(st *store.Store, folder string) error {
+	principal := "folder:" + folder
+	if hasTierRole(st, principal) {
+		return nil
+	}
+	return st.PutMembership(principal, tierRoleName(auth.Resolve(folder).Tier), "system:tier-assign")
+}
+
 func BackfillFolderGrants(st *store.Store, folders []string) error {
 	for _, folder := range folders {
 		principal := "folder:" + folder
+		if err := assignDefaultRole(st, folder); err != nil {
+			return err
+		}
 		if alreadyBackfilled(st, principal) {
 			continue
 		}

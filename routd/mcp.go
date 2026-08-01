@@ -544,17 +544,14 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 //     re-implementation, so the equivalence it proves is the one that ships.
 func deriveFolderGrants(d *DB, folder string) []string {
 	st := store.New(d.SQL())
-	principal := "folder:" + folder
-	if !hasTierRole(st, principal) {
-		// Assign-once: bind the folder to its default role. busy_timeout(5000) on
-		// routd.db means the driver already blocks-and-retries transient SQLITE_BUSY,
-		// so a surviving error is real — a swallowed one ships an agent with ONLY
-		// platform verbs (no reply/send, no mounts), silently broken. Fail loud: the
-		// operator sees it in journalctl; the next turn retries the idempotent assign.
-		if err := st.PutMembership(principal, tierRoleName(auth.Resolve(folder).Tier), "system:tier-assign"); err != nil {
-			slog.Error("deriveFolderGrants: role assign failed, folder ships degraded grants",
-				"folder", folder, "err", err)
-		}
+	// Assign-once bind to the default role (shared assignDefaultRole — same path
+	// create/backfill uses; folders are normally assigned eagerly at PutGroup, this
+	// is the belt-and-suspenders lazy assign). busy_timeout(5000) already retries
+	// transient BUSY, so a surviving error is real → ships an agent with ONLY platform
+	// verbs, silently broken. Fail loud: operator sees it; next turn retries (idempotent).
+	if err := assignDefaultRole(st, folder); err != nil {
+		slog.Error("deriveFolderGrants: role assign failed, folder ships degraded grants",
+			"folder", folder, "err", err)
 	}
 	rules := grants.PlatformRulesForFolder(d, folder, auth.Resolve(folder).Tier, auth.WorldOf(folder))
 	return append(rules, folderGrantsFromACLOnly(st, folder)...)
