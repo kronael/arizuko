@@ -186,7 +186,7 @@ func TestBreakerPersistsToDB(t *testing.T) {
 	// Simulate restart: create a new manager with the same DB.
 	mgr2 := NewManager(db, FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
-	}}, NewStaticBroker("jws", "jti"), ManagerConfig{
+	}}, ManagerConfig{
 		Scopes: []types.Scope{"messages:send:own_group"}, Instance: "test", MaxConcurrent: 5,
 	})
 
@@ -211,7 +211,7 @@ func TestActiveSpawnsPersistAcrossRestart(t *testing.T) {
 	_ = db.CreateSpawn(Spawn{RunID: "r3", Folder: "c", ContainerName: "c3", State: "exited"})
 
 	// New manager reads state from DB.
-	mgr2 := NewManager(db, FakeRuntime{}, NewStaticBroker("jws", "jti"), ManagerConfig{
+	mgr2 := NewManager(db, FakeRuntime{}, ManagerConfig{
 		Scopes: []types.Scope{"messages:send:own_group"}, Instance: "test", MaxConcurrent: 3,
 	})
 

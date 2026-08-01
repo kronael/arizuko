@@ -19,8 +19,7 @@ func newTestRuned(t *testing.T, rt Runtime) (*DB, *Server) {
 		t.Fatalf("open mem db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	broker := NewStaticBroker("fake.jws", "jti-fixed")
-	mgr := NewManager(db, rt, broker, ManagerConfig{
+	mgr := NewManager(db, rt, ManagerConfig{
 		Scopes:   []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 		Instance: "test",
 	})
@@ -66,11 +65,8 @@ func TestContractRun(t *testing.T) {
 		t.Fatal("run_id empty")
 	}
 
-	// the Runtime saw the brokered token + the fields decoded from RunRequest
-	// (Model + ContainerConfig are forwarded, not dropped).
-	if sawSpec.Token != "fake.jws" {
-		t.Fatalf("agent token=%q want brokered fake.jws", sawSpec.Token)
-	}
+	// the Runtime saw the fields decoded from RunRequest (Model +
+	// ContainerConfig are forwarded, not dropped).
 	if sawSpec.MessageBatch != "rendered prompt" || sawSpec.ChatJID != "slack:T/C/U" {
 		t.Fatalf("spec not decoded from RunRequest: %+v", sawSpec)
 	}
@@ -81,13 +77,10 @@ func TestContractRun(t *testing.T) {
 		t.Fatalf("spec.ContainerConfig=%+v want MaxChildren=2 (dropped)", sawSpec.ContainerConfig)
 	}
 
-	// the spawn + brokered token were persisted; one session_log row.
+	// the spawn was persisted; one session_log row.
 	sp, err := db.GetSpawn(out.RunID)
 	if err != nil {
 		t.Fatalf("spawn not persisted: %v", err)
-	}
-	if sp.MCPTokenJTI != "jti-fixed" {
-		t.Fatalf("brokered token jti=%q want jti-fixed", sp.MCPTokenJTI)
 	}
 	if sp.State != "exited" || sp.Outcome != runedv1.OutcomeOK {
 		t.Fatalf("spawn state=%q outcome=%q", sp.State, sp.Outcome)

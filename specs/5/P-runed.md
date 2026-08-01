@@ -14,7 +14,7 @@ depends:
 
 > **Shipped (2026-06-14; queue-drop 2026-07-13).** runed is the sole
 > container-spawner, owns per-folder serialization / circuit-breaker /
-> runTTL / steer, brokers capability tokens, and records runs in
+> runTTL / steer and records runs in
 > `runed.db`. The DB-stateless admission is complete: `manager.go` reads the
 > `spawns` table for exclusivity + the concurrency cap
 > (`GetActiveSpawn`/`ActiveCount`) and the `circuit_breaker` table (`0002`)
@@ -45,18 +45,18 @@ with [`E-routd.md`](E-routd.md) § The routd↔runed interface — including the
 
 ## Boundaries — owns / brokers / never
 
-| Concern                                     | runed                                                                      |
-| ------------------------------------------- | -------------------------------------------------------------------------- |
-| Per-folder serialization                    | **owns** (read from `spawns`, § Run state)                                 |
-| Per-spawn container lifecycle               | **owns** (`container/`)                                                    |
-| Per-turn agent MCP unix socket + tool host  | **never** — `routd` (`ServeTurnMCP`, in-process); runed mounts the ipc dir |
-| Per-spawn runtime state + run history       | **owns** (`runed.db`: `spawns`, `session_log`)                             |
-| Session-id LINEAGE (`sessions`, topic fork) | **never** — `routd` (runed produces the id, routd persists it)             |
-| Capability tokens for spawned agents        | **brokers** (downscope via `authd`)                                        |
-| Routing decisions / rules / events          | **never** — `routd`                                                        |
-| Conversation messages (append/history)      | **never** — `routd`, via `/v1/turns/*`                                     |
-| Group / route IDENTITY (`groups`, `routes`) | **never** — `routd`                                                        |
-| Token **signing**                           | **never** — `authd` (sole signer)                                          |
+| Concern                                     | runed                                                                               |
+| ------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Per-folder serialization                    | **owns** (read from `spawns`, § Run state)                                          |
+| Per-spawn container lifecycle               | **owns** (`container/`)                                                             |
+| Per-turn agent MCP unix socket + tool host  | **never** — `routd` (`ServeTurnMCP`, in-process); runed mounts the ipc dir          |
+| Per-spawn runtime state + run history       | **owns** (`runed.db`: `spawns`, `session_log`)                                      |
+| Session-id LINEAGE (`sessions`, topic fork) | **never** — `routd` (runed produces the id, routd persists it)                      |
+| Capability tokens for spawned agents        | **never** — removed 2026-08-01; the agent is credentialed by the SO_PEERCRED socket |
+| Routing decisions / rules / events          | **never** — `routd`                                                                 |
+| Conversation messages (append/history)      | **never** — `routd`, via `/v1/turns/*`                                              |
+| Group / route IDENTITY (`groups`, `routes`) | **never** — `routd`                                                                 |
+| Token **signing**                           | **never** — `authd` (sole signer)                                                   |
 
 `runed` holds no copy of group↔folder identity — it receives `folder` on
 each `POST /v1/runs` and resolves the on-disk workspace path mechanically
@@ -456,3 +456,35 @@ depends only on `types/`; the runtime glue still reads `core`.
   `auth.ServiceToken`, `auth.VerifyHTTP`.
 - [`E-routd.md`](E-routd.md) — the PINNED `POST /v1/runs` + `/v1/turns/*`
   wire contract (routd side).
+
+## Capability brokering — REMOVED (2026-08-01)
+
+runed no longer brokers a per-spawn capability token, and `mcp_tokens` is
+dropped (`runed/migrations/0003`). The mechanism was built, wired to authd,
+and never consumed:
+
+- No token reached the agent. `container.Input` had no token field and
+  `runed/docker.go` dropped `RunSpec.Token`; this spec's own delivery claim
+  was amended away on 2026-07-11 and the code was never followed up.
+- The token could not have named a principal anyway. `runed/broker.go`
+  hardcoded `typ:"downscoped"`, and authd's `Downscope` sets
+  `Sub: parent.Sub` (asserted at `authd/tokens_test.go`), so every token
+  would have read `sub=service:runed` — one identity for every tenant.
+- Nothing verified a `jti`: zero references in `ipc/` or `routd/mcp.go`.
+
+**What credentials a turn instead**: the per-folder unix socket runed creates
+at spawn, gated by `SO_PEERCRED`. That is an unforgeable capability reference
+— it cannot be copied out of the container, and it dies with the turn. A
+bearer string handed to an agent that runs attacker-influenced text with a
+shell, a persistent `$HOME` and egress can be written to disk and replayed
+after the turn ends; the socket cannot.
+
+Consequences of the removal: a spawn no longer makes a synchronous authd call,
+so authd being unreachable no longer aborts a spawn. Revocation is unaffected
+and remains stronger than a token TTL would allow — `auth.Authorize` reads the
+ACL live, so a revoked grant stops the next tool call inside a live turn
+(`routd/revocation_live_test.go`).
+
+If a turn credential is ever wanted again, `4/9 § Caching` states the contract
+it must preserve: the token names the principal and never carries the
+permissions.

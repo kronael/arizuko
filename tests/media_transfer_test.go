@@ -80,8 +80,7 @@ func bootMediaFed(t *testing.T, enabled bool, whisperURL string, maxBytes int64)
 		f.mu.Unlock()
 		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + spec.TurnID}
 	}}
-	broker := runed.NewStaticBroker("fed.jws", "jti-fed")
-	mgr := runed.NewManager(rudb, rt, broker, runed.ManagerConfig{
+	mgr := runed.NewManager(rudb, rt, runed.ManagerConfig{
 		Scopes:   []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 		Instance: "mediatest",
 	})

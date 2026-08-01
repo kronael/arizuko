@@ -79,42 +79,8 @@ func TestHTTPRunThreadsFullRunSpec(t *testing.T) {
 	if spec.RunTTL != defaultRunTTL {
 		t.Fatalf("RunTTL=%s want default %s", spec.RunTTL, defaultRunTTL)
 	}
-	// the brokered token reached the runtime (downscoped, never minted by runed).
-	if spec.Token != "jws" {
-		t.Fatalf("brokered token=%q want jws", spec.Token)
-	}
 }
 
-// TestHTTPRunBrokersDownscopedScope: the scope handed to the broker for an HTTP
-// run is the INTERSECTION of the manager ceiling and the request's
-// CapabilityScopes — end to end. (manager_test proves it at the Manager seam;
-// this proves the handler doesn't bypass the downscope.)
-func TestHTTPRunBrokersDownscopedScope(t *testing.T) {
-	cb := &capBroker{}
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	mgr := NewManager(db, &specRecorder{res: RunResult{Outcome: runedv1.OutcomeOK}}, cb, ManagerConfig{
-		Scopes: []types.Scope{"messages:send:own_group"}, Instance: "test", MaxConcurrent: 5,
-	})
-	srv := NewServer(mgr, db, fakeVerifier{scope: []string{"runs:run"}})
-
-	got := doRun(t, srv.Handler(), runedv1.RunRequest{
-		Folder: "demo", MessageBatch: "m",
-		CapabilityScopes: []types.Scope{"messages:send:own_group", "admin:everything"},
-	})
-	if got.Code != 200 {
-		t.Fatalf("run = %d want 200", got.Code)
-	}
-	if len(cb.want) != 1 || cb.want[0] != "messages:send:own_group" {
-		t.Fatalf("brokered scope over HTTP = %v want [messages:send:own_group] (escalation must be clamped)", cb.want)
-	}
-}
-
-// TestHTTPRunMissingFolder: POST /v1/runs with no folder is 400 missing_field;
-// the runtime is never reached.
 func TestHTTPRunMissingFolder(t *testing.T) {
 	rec := &specRecorder{res: RunResult{Outcome: runedv1.OutcomeOK}}
 	_, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run"}})
@@ -238,7 +204,7 @@ func TestHTTPUnauthorizedWhenVerifyFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	mgr := NewManager(db, &specRecorder{}, NewStaticBroker("jws", "jti"), ManagerConfig{Instance: "test", MaxConcurrent: 5})
+	mgr := NewManager(db, &specRecorder{}, ManagerConfig{Instance: "test", MaxConcurrent: 5})
 	srv := NewServer(mgr, db, errVerifier{})
 	h := srv.Handler()
 

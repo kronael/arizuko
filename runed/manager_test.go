@@ -18,7 +18,7 @@ func newMgr(t *testing.T, rt Runtime, max int) (*DB, *Manager) {
 		t.Fatalf("open mem db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	mgr := NewManager(db, rt, NewStaticBroker("jws", "jti"), ManagerConfig{
+	mgr := NewManager(db, rt, ManagerConfig{
 		Scopes:        []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 		Instance:      "test",
 		MaxConcurrent: max,
@@ -239,7 +239,7 @@ func TestRunTTLThreadedToRuntime(t *testing.T) {
 		t.Fatalf("open mem db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	mgr := NewManager(db, rt, NewStaticBroker("jws", "jti"), ManagerConfig{
+	mgr := NewManager(db, rt, ManagerConfig{
 		Instance: "test", MaxConcurrent: 5, RunTTL: 20 * time.Millisecond,
 	})
 
@@ -279,39 +279,6 @@ func TestBreakerResetsOnSilent(t *testing.T) {
 	}
 }
 
-// TestBrokerFailureRunIDIsGettable: on broker error the returned RunID must
-// resolve via GET /v1/runs/{id} — the spawns row is created BEFORE brokering
-// (gap 3 — RecordSession/CreateSpawn used to run AFTER the broker call, so a
-// broker-failure RunID 404'd).
-func TestBrokerFailureRunIDIsGettable(t *testing.T) {
-	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
-		t.Fatal("runtime.Run must not be reached when brokering fails")
-		return RunResult{}
-	}}
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatalf("open mem db: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	mgr := NewManager(db, rt, errBroker{}, ManagerConfig{Instance: "test", MaxConcurrent: 5})
-
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
-	if out.Outcome != runedv1.OutcomeError || out.RunID == "" {
-		t.Fatalf("broker-failure outcome=%+v want error with non-empty run_id", out)
-	}
-	sp, err := db.GetSpawn(out.RunID)
-	if err != nil {
-		t.Fatalf("GET %s after broker failure: %v (spawn row missing → 404)", out.RunID, err)
-	}
-	if sp.State != "error" || sp.Outcome != runedv1.OutcomeError {
-		t.Fatalf("broker-failure spawn state=%q outcome=%q want error,error", sp.State, sp.Outcome)
-	}
-}
-
-// TestKillDoesNotRelabelCompletedRun: a run that has already completed
-// normally (state='exited') keeps its terminal state when Kill arrives — Kill
-// must not overwrite it to 'killed'. Covers both the in-memory live-guard
-// (state read at GetSpawn) and the KillSpawn SQL guard (the TOCTOU backstop).
 func TestKillDoesNotRelabelCompletedRun(t *testing.T) {
 	db, mgr := newMgr(t, FakeRuntime{}, 5)
 	_ = db.CreateSpawn(Spawn{RunID: "r", Folder: "demo", ContainerName: "c", State: "queued"})
@@ -325,60 +292,6 @@ func TestKillDoesNotRelabelCompletedRun(t *testing.T) {
 	if sp, _ := db.GetSpawn("r"); sp.State != "exited" || sp.Outcome != "ok" {
 		t.Fatalf("Kill relabeled a completed run: state=%q outcome=%q want exited/ok", sp.State, sp.Outcome)
 	}
-}
-
-// capBroker records the want (brokered scope) it was handed by the Manager.
-type capBroker struct {
-	want []types.Scope
-}
-
-func (b *capBroker) Broker(_ context.Context, _ types.UserSub, _ string, want []types.Scope,
-	_ time.Duration) (string, string, string, error) {
-	b.want = want
-	return "jws", "jti", "2099-01-01T00:00:00Z", nil
-}
-
-// TestSpawnAppliesScopeCeiling: a RunRequest whose CapabilityScopes is a
-// SUPERSET of the manager's service ceiling must broker only the INTERSECTION —
-// the spawn path can never escalate a token past runed's ceiling (spec 5/P §
-// brokering). The standalone TestIntersectFailClosed proves intersect(); this
-// proves Manager.Run actually wires its ceiling into the broker call.
-func TestSpawnAppliesScopeCeiling(t *testing.T) {
-	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
-	}}
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatalf("open mem db: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	cb := &capBroker{}
-	mgr := NewManager(db, rt, cb, ManagerConfig{
-		Scopes:        []types.Scope{"messages:send:own_group", "chats:read:own_group"},
-		Instance:      "test",
-		MaxConcurrent: 5,
-	})
-
-	// The caller requests MORE than the ceiling grants: one in-ceiling scope plus
-	// an escalation attempt.
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{
-		Folder:           "demo",
-		MessageBatch:     "m",
-		CapabilityScopes: []types.Scope{"messages:send:own_group", "admin:everything"},
-	})
-	if out.Outcome != runedv1.OutcomeOK {
-		t.Fatalf("run outcome=%q want ok", out.Outcome)
-	}
-	if len(cb.want) != 1 || cb.want[0] != "messages:send:own_group" {
-		t.Fatalf("brokered want=%v, want [messages:send:own_group] (escalation must be intersected out)", cb.want)
-	}
-}
-
-// errBroker always fails brokering.
-type errBroker struct{}
-
-func (errBroker) Broker(context.Context, types.UserSub, string, []types.Scope, time.Duration) (string, string, string, error) {
-	return "", "", "", context.DeadlineExceeded
 }
 
 // TestIsolatedRunNoSessionLineage: isolated (timed-isolated:*) runs are

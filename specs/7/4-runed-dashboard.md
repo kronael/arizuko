@@ -71,14 +71,14 @@ view. Newest first.
 **run detail** — the `RunStatus` shape
 ([`runed/api/v1/types.go:69`](../../runed/api/v1/types.go)) plus the
 linked `session_log` row (result, error, message_count, session_id —
-[`runed/db.go:131`](../../runed/db.go)) and the spawn's token jti.
+[`runed/db.go:131`](../../runed/db.go)).
 Kill button here and on the active-runs rows.
 
-**tokens** — `mcp_tokens` rows ([`runed/db.go:274`](../../runed/db.go)):
-jti, run_id, folder, scope (the downscoped set, ceiling ∩ requested —
-[`runed/manager.go:187`](../../runed/manager.go)), issued_at,
-expires_at, parent (`service:runed`), expired flagged. Never a raw JWS
-— runed persists only the ref ([`runed/db.go:274`](../../runed/db.go)).
+**tokens** — REMOVED. `mcp_tokens` and the per-spawn brokered token were
+deleted on 2026-08-01 (`specs/5/P` § "Capability brokering — REMOVED"):
+nothing consumed the token, and authd forced every one of them to
+`sub=service:runed`. There is no token pane. A turn's authority is the
+SO_PEERCRED-gated socket, which is visible as the run itself.
 
 ## 4. Control
 

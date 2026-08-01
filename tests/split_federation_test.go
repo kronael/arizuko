@@ -238,8 +238,7 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 		f.mu.Unlock()
 		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + spec.TurnID}
 	}}
-	broker := runed.NewStaticBroker("fed.jws", "jti-fed")
-	mgr := runed.NewManager(rudb, rt, broker, runed.ManagerConfig{
+	mgr := runed.NewManager(rudb, rt, runed.ManagerConfig{
 		Scopes:   []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 		Instance: "fedtest",
 	})

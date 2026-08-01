@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -43,7 +42,6 @@ const (
 type Manager struct {
 	db       *DB
 	runtime  Runtime
-	broker   Broker
 	scopes   []types.Scope // runed's service scope ceiling for brokered tokens
 	runTTL   time.Duration
 	instance string
@@ -64,7 +62,7 @@ type ManagerConfig struct {
 }
 
 // NewManager builds the run Manager.
-func NewManager(db *DB, runtime Runtime, broker Broker, cfg ManagerConfig) *Manager {
+func NewManager(db *DB, runtime Runtime, cfg ManagerConfig) *Manager {
 	if cfg.RunTTL == 0 {
 		cfg.RunTTL = defaultRunTTL
 	}
@@ -74,7 +72,6 @@ func NewManager(db *DB, runtime Runtime, broker Broker, cfg ManagerConfig) *Mana
 	return &Manager{
 		db:       db,
 		runtime:  runtime,
-		broker:   broker,
 		scopes:   cfg.Scopes,
 		runTTL:   cfg.RunTTL,
 		instance: cfg.Instance,
@@ -175,25 +172,6 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		_ = m.db.SetSpawnSessionLogID(runID, logID)
 	}
 
-	// broker the downscoped capability token (spec 5/P § brokering).
-	want := intersect(m.scopes, req.CapabilityScopes)
-	jws, jti, expiresAt, berr := m.broker.Broker(ctx, req.CallerSub, folder, want, m.runTTL)
-	if berr != nil {
-		if err := m.db.EndSpawn(runID, "error", runedv1.OutcomeError, -1); err != nil {
-			slog.Error("runed: EndSpawn failed on broker error — spawn may become zombie", "run_id", runID, "err", err)
-		}
-		if !req.Isolated {
-			if err := m.db.EndSession(logID, "", runedv1.OutcomeError, "broker: "+berr.Error(), 0); err != nil {
-				slog.Error("runed: EndSession failed on broker error", "log_id", logID, "err", err)
-			}
-		}
-		m.endRun(folder, runID, true)
-		return runedv1.RunOutcome{RunID: runID, Outcome: runedv1.OutcomeError, Error: "broker: " + berr.Error()}
-	}
-
-	scopeJSON, _ := json.Marshal(want)
-	_ = m.db.RecordToken(jti, runID, "service:runed", folder, string(scopeJSON), expiresAt)
-	_ = m.db.SetSpawnToken(runID, jti)
 	_ = m.db.StartSpawn(runID, sessionID)
 
 	// Enforce runTTL as a kill-deadline: m.runTTL is the intended run ceiling
@@ -210,14 +188,14 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		Topic: req.Topic, ChatJID: req.ChatJID, Channel: req.Channel,
 		SessionID: sessionID, MessageBatch: req.MessageBatch,
 		TriggerSender: req.TriggerSender, CallerSub: req.CallerSub,
-		TurnID: req.TurnID, Token: jws, Isolated: req.Isolated,
+		TurnID: req.TurnID, Isolated: req.Isolated,
 		Elevated: req.Elevated,
 		Model:    req.Model, ContainerConfig: req.ContainerConfig,
 		ShareReadOnly: req.ShareReadOnly, Egress: req.Egress, WebPublish: req.WebPublish,
 		EgressAllowlist: req.EgressAllowlist,
 		Secrets:         req.Secrets,
-		RunTTL:        m.runTTL,
-		RegisterSteer: func(steer func(batch string) bool) { m.SetSteer(folder, runID, steer) },
+		RunTTL:          m.runTTL,
+		RegisterSteer:   func(steer func(batch string) bool) { m.SetSteer(folder, runID, steer) },
 	})
 
 	state := "exited"

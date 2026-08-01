@@ -40,7 +40,7 @@ func serverWith(t *testing.T, rt Runtime, v Verifier) (*DB, *Server) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	mgr := NewManager(db, rt, NewStaticBroker("jws", "jti"), ManagerConfig{
+	mgr := NewManager(db, rt, ManagerConfig{
 		Scopes: []types.Scope{"messages:send:own_group"}, Instance: "test", MaxConcurrent: 5,
 	})
 	return db, NewServer(mgr, db, v)
@@ -108,7 +108,9 @@ func TestStopFolderKillsActiveRun(t *testing.T) {
 
 	// stand up a live run so the folder has an active spawn to stop.
 	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() { done <- doRun(t, h, runedv1.RunRequest{Folder: "demo", ChatJID: "j", TurnID: "t1", MessageBatch: "m"}) }()
+	go func() {
+		done <- doRun(t, h, runedv1.RunRequest{Folder: "demo", ChatJID: "j", TurnID: "t1", MessageBatch: "m"})
+	}()
 	<-started
 	runID := srv.mgr.ActiveRunID("demo")
 	if runID == "" {

@@ -56,7 +56,7 @@ func TestProdSteerPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	mgr := NewManager(db, rt, NewStaticBroker("jws", "jti"), ManagerConfig{Instance: "test", MaxConcurrent: 5})
+	mgr := NewManager(db, rt, ManagerConfig{Instance: "test", MaxConcurrent: 5})
 
 	done := make(chan runedv1.RunOutcome, 1)
 	go func() {

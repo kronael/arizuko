@@ -65,38 +65,10 @@ func main() {
 		verify = keysetVerifier{ks: ks}
 	}
 
-	// Broker: downscope a capability token per spawn from authd. runed mints
-	// nothing; the downscope PARENT is runed's own service:runed token. The
-	// HMAC→ES256 cutover exchanges AUTHD_SERVICE_KEY for an authd-minted,
-	// auto-refreshing service:runed token (auth.ServiceToken); authd's
-	// issuer-pin would 401 the static RUNED_SERVICE_TOKEN. Fall back to the
-	// static env when AUTHD_SERVICE_KEY is unset; no AUTHD_URL → no brokering
-	// (local-dev).
-	var broker runed.Broker
-	if authdURL != "" {
-		svcKey := os.Getenv("AUTHD_SERVICE_KEY")
-		if ts, terr := auth.ServiceToken(authdURL, "runed", svcKey); terr == nil {
-			broker = runed.NewHTTPBrokerWithSource(authdURL, ts.Token)
-			slog.Info("runed service-token bootstrap via authd", "authd", authdURL)
-		} else {
-			// With a key set, a failed exchange means every per-spawn downscope
-			// will 401 (the static fallback is not compose-provisioned in split) —
-			// fail loud instead of silently brokering with an unusable token.
-			if svcKey != "" {
-				slog.Error("runed service-token exchange FAILED though AUTHD_SERVICE_KEY is set; "+
-					"per-spawn token downscope will 401 — check authd reachability + key",
-					"authd", authdURL, "err", terr)
-			}
-			broker = runed.NewHTTPBroker(authdURL, os.Getenv("RUNED_SERVICE_TOKEN"))
-		}
-	} else {
-		broker = runed.NewStaticBroker("", "dev")
-	}
-
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
 	runtime := runed.NewDockerRuntime(cfg, folders)
 
-	mgr := runed.NewManager(db, runtime, broker, runed.ManagerConfig{
+	mgr := runed.NewManager(db, runtime, runed.ManagerConfig{
 		Scopes:        []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 		RunTTL:        runTTL,
 		Instance:      cfg.Name,

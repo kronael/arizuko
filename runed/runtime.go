@@ -23,7 +23,6 @@ type RunSpec struct {
 	TriggerSender   string
 	CallerSub       types.UserSub
 	TurnID          string
-	Token           string // brokered capability token (the JWS, in memory only)
 	Isolated        bool
 	Elevated        bool              // operator /root elevation → container.Input.Elevated (tier 0 + all-groups mount)
 	Model           string            // per-group model override; empty = instance default
@@ -73,33 +72,3 @@ type Runtime interface {
 	// with no container (FakeRuntime/LocalRuntime return nil).
 	Kill(containerName string) error
 }
-
-// Broker brokers a downscoped capability token per spawn (spec 5/P §
-// brokering). runed mints nothing — production calls authd's downscope
-// endpoint; the test stub returns a fixed token. The returned jti is what
-// runed persists into mcp_tokens; the raw JWS is set on RunSpec.Token but
-// never delivered anywhere — routd hosts the agent's MCP socket in-process,
-// so no brokered token needs to reach the container (spec 5/P § Token
-// delivery, amended 2026-07-11).
-type Broker interface {
-	// Broker downscopes the runed service token to sub+folder with
-	// scope ⊆ runed.scope ∩ want, ttl ≤ run deadline. Returns the JWS,
-	// its jti, and expiry.
-	Broker(ctx context.Context, sub types.UserSub, folder string, want []types.Scope, ttl time.Duration) (jws, jti, expiresAt string, err error)
-}
-
-// staticBroker returns one fixed token for every spawn — the test/standalone
-// stub (a "fake AUTHD_URL returning a fixed downscoped token", spec 5/P §
-// acceptance). Never used in production.
-type staticBroker struct {
-	jws, jti string
-}
-
-func (b staticBroker) Broker(_ context.Context, _ types.UserSub, _ string, _ []types.Scope, _ time.Duration) (string, string, string, error) {
-	exp := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-	return b.jws, b.jti, exp, nil
-}
-
-// NewStaticBroker builds a Broker that always returns (jws, jti). For CI /
-// standalone acceptance only.
-func NewStaticBroker(jws, jti string) Broker { return staticBroker{jws: jws, jti: jti} }

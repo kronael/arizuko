@@ -27,7 +27,7 @@ const serviceName = "runed"
 var ErrNotFound = errors.New("not found")
 
 // DB owns runed.db: execution runtime state with no home in routd (spawns,
-// session_log, spawn_logs, mcp_tokens). Times are RFC3339 TEXT.
+// session_log, spawn_logs). Times are RFC3339 TEXT.
 type DB struct {
 	db *sql.DB
 }
@@ -170,7 +170,6 @@ type Spawn struct {
 	Topic         string
 	ContainerName string
 	SessionLogID  int64
-	MCPTokenJTI   string
 	SessionID     string
 	State         string
 	Outcome       string
@@ -184,19 +183,11 @@ type Spawn struct {
 // CreateSpawn inserts a spawns row in state=queued.
 func (d *DB) CreateSpawn(s Spawn) error {
 	_, err := d.db.Exec(`INSERT INTO spawns
-		(run_id, folder, topic, container_name, session_log_id, mcp_token_jti,
+		(run_id, folder, topic, container_name, session_log_id,
 		 session_id, state, created_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`,
+		VALUES(?,?,?,?,?,?,?,?)`,
 		s.RunID, s.Folder, s.Topic, s.ContainerName, nz64(s.SessionLogID),
-		nullStr(s.MCPTokenJTI), nullStr(s.SessionID), s.State, nowTS())
-	return err
-}
-
-// SetSpawnToken records the brokered token's jti on a spawn once brokering
-// succeeds (the spawns row is created BEFORE the broker call so a returned
-// run_id is GET-able even on the broker-failure path).
-func (d *DB) SetSpawnToken(runID, jti string) error {
-	_, err := d.db.Exec("UPDATE spawns SET mcp_token_jti=? WHERE run_id=?", jti, runID)
+		nullStr(s.SessionID), s.State, nowTS())
 	return err
 }
 
@@ -239,14 +230,14 @@ func (d *DB) MarkSteered(runID string) error {
 func (d *DB) GetSpawn(runID string) (Spawn, error) {
 	var s Spawn
 	var logID sql.NullInt64
-	var jti, sess, outcome, started, ended sql.NullString
+	var sess, outcome, started, ended sql.NullString
 	var exit sql.NullInt64
 	var steered int
 	err := d.db.QueryRow(`SELECT run_id, folder, topic, container_name, session_log_id,
-		mcp_token_jti, session_id, state, outcome, exit_code, steered, created_at, started_at, ended_at
+		session_id, state, outcome, exit_code, steered, created_at, started_at, ended_at
 		FROM spawns WHERE run_id=?`, runID).Scan(
 		&s.RunID, &s.Folder, &s.Topic, &s.ContainerName, &logID,
-		&jti, &sess, &s.State, &outcome, &exit, &steered, &s.CreatedAt, &started, &ended)
+		&sess, &s.State, &outcome, &exit, &steered, &s.CreatedAt, &started, &ended)
 	if err == sql.ErrNoRows {
 		return Spawn{}, ErrNotFound
 	}
@@ -254,7 +245,6 @@ func (d *DB) GetSpawn(runID string) (Spawn, error) {
 		return Spawn{}, err
 	}
 	s.SessionLogID = logID.Int64
-	s.MCPTokenJTI = jti.String
 	s.SessionID = sess.String
 	s.Outcome = outcome.String
 	s.ExitCode = int(exit.Int64)
@@ -262,14 +252,6 @@ func (d *DB) GetSpawn(runID string) (Spawn, error) {
 	s.StartedAt = started.String
 	s.EndedAt = ended.String
 	return s, nil
-}
-
-// RecordToken persists the REF of the downscoped token runed brokered for a
-// spawn (never the raw JWS). UNIQUE(run_id) enforces one token per spawn.
-func (d *DB) RecordToken(jti, runID, parentJTI, folder, scopeJSON, expiresAt string) error {
-	_, err := d.db.Exec(`INSERT INTO mcp_tokens(jti, run_id, parent_jti, folder, scope, issued_at, expires_at)
-		VALUES(?,?,?,?,?,?,?)`, jti, runID, parentJTI, folder, scopeJSON, nowTS(), expiresAt)
-	return err
 }
 
 // ExpireOrphans marks any spawn left in running/queued state as exited.
@@ -284,14 +266,10 @@ func (d *DB) ExpireOrphans() (int64, error) {
 	return res.RowsAffected()
 }
 
-// SweepExpired drops spawns older than retention (cascading spawn_logs +
-// mcp_tokens) and any mcp_tokens past expires_at (hourly GC).
+// SweepExpired drops spawns older than retention, cascading spawn_logs.
 func (d *DB) SweepExpired(retention time.Duration) error {
 	cutoff := time.Now().Add(-retention).UTC().Format(time.RFC3339)
-	if _, err := d.db.Exec("DELETE FROM spawns WHERE created_at < ?", cutoff); err != nil {
-		return err
-	}
-	_, err := d.db.Exec("DELETE FROM mcp_tokens WHERE expires_at < ?", nowTS())
+	_, err := d.db.Exec("DELETE FROM spawns WHERE created_at < ?", cutoff)
 	return err
 }
 
