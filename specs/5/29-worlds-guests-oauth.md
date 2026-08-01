@@ -62,10 +62,16 @@ the world's onboarding prototype.
 ## Guests & delegated OAuth (folds in the original scope)
 
 - **Guest** — a world user invited by another; not an operator. Admitted at
-  Tier 1, granted into specific agents at Tier 2.
-- **Account linking** — a guest links a platform account via that platform's
-  OAuth (surrogate-OAuth, `5/15`). Credentials are per-guest, world/agent-scoped
-  secrets; never shared across guests.
+  Tier 1, granted into specific agents at Tier 2. A guest arriving on a
+  channel is anonymous and holds no grants until **paired**
+  ([`5/31`](31-identity-pairing.md)): pairing is what makes a channel
+  identity a guest rather than a stranger.
+- **Account linking** — outbound only, and distinct from pairing: a guest
+  links a platform account via that platform's OAuth (surrogate-OAuth,
+  `5/15`) so the agent can act _as_ them at a third party. Credentials are
+  per-guest, world/agent-scoped secrets; never shared across guests.
+  Pairing proves who the guest is _to_ arizuko; surrogate lets arizuko act
+  _for_ them elsewhere.
 - **Delegated use** — within a session the agent may act **as** a guest with
   their linked creds, gated by explicit rules: which actions, which agents,
   consent + revocation, audited. Reuse the grant DSL for the rule layer; a

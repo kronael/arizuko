@@ -345,11 +345,12 @@ would push toward.
    rows seeded at path-create + delegated at spawn), replacing the injected
    `DeriveRules` grant slice. This is the path↔role bridge that lets tiers be
    removed.**
-4. **Anonymous-to-OAuth upgrade.** When `telegram:user/123` later
-   OAuths, rewrite rows to canonical sub or evaluate both forms?
-   Lean: insert an `acl_membership(telegram:user/123, google:...)`
-   edge at link time; rows untouched. Membership expansion handles
-   the rest.
+4. **Anonymous-to-OAuth upgrade.** ~~When `telegram:user/123` later
+   OAuths, rewrite rows to canonical sub or evaluate both forms?~~
+   **DECIDED by [`5/31`](../5/31-identity-pairing.md):** insert an
+   `acl_membership(telegram:user/123, google:...)` edge at pair time; rows
+   untouched, membership expansion handles the rest. `5/31` owns the
+   mechanism — how the edge is minted, consented to, and revoked.
 5. **`acl` write scope.** Who may write `acl`? Lean: only `*`
    principal (operator) and folder-admin (`admin` at scope ⊇
    row.scope).

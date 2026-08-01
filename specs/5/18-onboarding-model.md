@@ -163,11 +163,11 @@ onboarding branch runs (`routd/loop.go:505`–`533`):
    public bots where strangers self-serve as new tenants. A genuine
    miss federates `POST /v1/onboarding` to onbod (owner of
    `onboarding`/`invites`/`onboarding_gates` in `onbod.db`); onbod
-   greets the chat with an auth link (`promptUnprompted`), OAuth binds
-   `user_sub`, gates queue or auto-approve (`matchGate`,
-   `admitFromQueue` daily caps), and world creation runs `SetupGroup`
-   then writes group + admin `acl` + `seq 0` routes in one tx
-   (`createWorldTx`).
+   greets the chat with a **pairing** link ([`5/31`](31-identity-pairing.md)),
+   redemption binds the channel identity to a verified sub, gates queue or
+   auto-approve (`matchGate`, `admitFromQueue` daily caps), and world
+   creation runs `SetupGroup` then writes group + admin `acl` + `seq 0`
+   routes in one tx (`createWorldTx`).
    Detail: `5/5`, `onbod/README.md`. Note this path CREATES a world per
    admitted stranger, where `5/29` Tier 1 admits users INTO an existing
    world (`world_invite`/`world_members`); the two shapes are unreconciled
@@ -224,5 +224,8 @@ stay canonical for their mechanisms. Nothing is superseded:
 - `5/5` — invites, gates, tenant self-service phases.
 - `5/29` — the World → Agent → Session collapse; admission here is its
   Tier 1.
+- `5/31` — identity pairing. Onboarding is `pairing + admission`: it no
+  longer owns the channel-identity→account bridge, it redeems one. That
+  extraction is what makes pairing reachable outside a route miss.
 - `ROUTING.md` — route-table syntax + the mention-only examples this
   generalizes to staging and sender gating.
