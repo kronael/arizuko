@@ -2190,3 +2190,29 @@ Open (MEDIUM, deferred — none release-blocking; fail-closed or latent):
   neutralized the "made-it-live" divergence (egress/web back on tierOf); still a second sink to
   fold when step (e) lands. **M2 self-resolved by the revert** — `SECURITY.md:210` "tier ≤ 1
   egress" is accurate again.
+
+## T1 — chat-token MCP `get_round` reads any turn in the instance (2026-08-01, open)
+
+The `/chat/<token>/mcp` tool surface and its HTTP twin disagree on containment.
+`authorizeTurn` (the HTTP path) resolves the token, then binds the turn to it via
+`MessageTimestampByID(turnID, row.JID)` — a foreign `turn_id` 404s. The MCP
+`get_round` tool takes `turn_id` straight to `collectRoundFrames` →
+`store.TurnFrames`, whose query is `WHERE turn_id = ? AND is_bot_message = 1`
+with no JID or folder predicate. Any holder of any valid route token who learns
+a `turn_id` reads that turn's assistant frames verbatim, across folders and
+tenants. `GetTurnResult(folder, turnID)` beside it IS folder-scoped, so status
+is contained while the content is not — which is why this reads as safe.
+
+Violates CLAUDE.md: "A handler that resolves a `jid`/`folder`/`run_id` param
+MUST bind it to the caller's folder." Same class as the 5/44 REST list-all leak.
+
+- **Severity:** high
+- **Scope:** route-token containment / cross-tenant read
+- **Affected:** `POST /chat/<token>/mcp`, tool `get_round` (and `get_round_status`
+  — same shape, verify before fixing)
+- **Source:** webd/chat_mcp.go:87,148; store/turns.go:58; contrast webd/turn.go:43
+- **Status:** open — found by codex during the three-planes architecture review,
+  verified against the code
+- **Fix (not applied):** bind at the store boundary, not the caller — give
+  `TurnFrames` a `jid`/folder argument so both faces inherit containment from one
+  query, rather than adding a second check inside the MCP handler.
