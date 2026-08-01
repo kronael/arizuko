@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed"
+	"github.com/kronael/arizuko/store"
 )
 
 // cmdMigrateSplit populates routd.db + runed.db + auth.db from an existing
@@ -344,6 +345,17 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	rN, err := copyInto(rdb.SQL(), msgPath, routdSpecs, dryRun)
 	if err != nil {
 		return fmt.Errorf("routd.db: %w", err)
+	}
+	// 4/R: bind every migrated folder to role:member (the messaging floor). copyInto
+	// copies group rows raw (no PutGroup → no assignDefaultRole), so a migrated agent
+	// would have no grants and couldn't even send. Idempotent (INSERT OR IGNORE).
+	if !dryRun {
+		st := store.New(rdb.SQL())
+		for f := range rdb.AllGroups() {
+			if err := st.PutMembership("folder:"+f, "role:member", "system:4r-migrate"); err != nil {
+				return fmt.Errorf("assign role:member to %s: %w", f, err)
+			}
+		}
 	}
 	uN, err := copyInto(udb.SQL(), msgPath, runedSpecs, dryRun)
 	if err != nil {

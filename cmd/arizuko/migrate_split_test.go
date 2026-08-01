@@ -147,14 +147,12 @@ func TestMigrateSplit(t *testing.T) {
 		"system_messages": 1, "cost_log": 2,
 		// auth_users: routd.db owns it → copied (split onbod reads it cross-DB).
 		"auth_users": 1,
-		// acl: 1 seeded folder:main row + role:operator (migration 0022) + the
-		// role:tier0..3 default bundles SeedTierRoles reseeds (1+25+7+4=37) = 39,
-		// PLUS the 4/R backfill's folder:main containment rows (tier-1: bundle-held
-		// tools' scopes + ** no-containment rows + unconditional outbound-verb F/**)
-		// = 73. Count tracks the DeriveRules bundle + BackfillScopes for a tier-1 folder.
-		// acl_membership: the test's 1 seeded edge + the eager folder:main→role:tier1
-		// default-role assignment (assignDefaultRole at PutGroup, 4/R phase e) = 2.
-		"acl": 73, "acl_membership": 2,
+		// acl (4/R unified evaluator): 1 seeded folder:main row + role:operator
+		// (migration 0022) + role:member's 12 messaging-verb rows (migration 0023) = 14.
+		// No per-tier bundles, no backfill containment rows — auth.Authorize reads the
+		// grant scope on the actual target. acl_membership: the test's 1 seeded edge +
+		// the migrate-time folder:main→role:member floor assignment = 2.
+		"acl": 14, "acl_membership": 2,
 		// secrets: routd OWNS them now → copied (1 row each).
 		"secrets": 1, "secret_use_log": 1,
 		// scheduled_tasks + task_run_logs: routd OWNS them now → copied (1 row each).

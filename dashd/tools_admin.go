@@ -4,10 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/kronael/arizuko/auth"
-	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/store"
 )
@@ -31,27 +29,24 @@ func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
 		struct{ Href, Label string }{"", "Tools"},
 	)
 
-	id := auth.Resolve(folder)
+	// Tool visibility is auth.EffectiveActions over the folder's acl rows (4/R: the
+	// same view the agent socket uses — a tool shows iff the folder holds it, reads
+	// unconditional). No tier/DeriveRules.
 	s := store.New(d.adminDB())
-	rules := grants.DeriveRules(s, folder, id.Tier, auth.WorldOf(folder))
-	tools := ipc.ListTools(folder, rules)
+	held := auth.EffectiveActions(s, auth.Caller{Principal: "folder:" + folder})
+	tools := ipc.ListTools(folder, func(name string) bool { return held("mcp:" + name) })
 
 	fmt.Fprintf(w, `<p class="dim">%d tools available to <code>%s</code>. Read-only — modify via grants.</p>`,
 		len(tools), esc(folder))
 
 	for _, t := range tools {
 		schemaJSON, _ := json.MarshalIndent(t.InputSchema, "", "  ")
-		// Strip the grants: suffix from description for display.
-		desc := t.Description
-		if idx := strings.Index(desc, "\ngrants:"); idx != -1 {
-			desc = desc[:idx]
-		}
 		fmt.Fprintf(w, `<details class="tool-card">`+
 			`<summary>%s</summary>`+
 			`<p>%s</p>`+
 			`<pre>%s</pre>`+
 			`</details>`,
-			esc(t.Name), esc(desc), esc(string(schemaJSON)))
+			esc(t.Name), esc(t.Description), esc(string(schemaJSON)))
 	}
 
 	pageClose(w, r)

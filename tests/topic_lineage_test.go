@@ -21,6 +21,7 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/store"
@@ -70,10 +71,22 @@ func newMCPHarness(t *testing.T, folder string) *mcpHarness {
 	db := ipc.StoreFns{
 		PutMessage:          s.PutMessage,
 		DefaultFolderForJID: s.DefaultFolderForJID,
+		// 4/R: authz is auth.Authorize on the ACTUAL target scope. The harness folder is
+		// delegated admin over its OWN subtree (granted below), so it manages itself and
+		// descendants but nothing outside — the containment is the grant scope, not tier.
+		Authorize: func(sub, scope, action string, params map[string]string) bool {
+			return auth.Authorize(s, auth.Caller{Principal: sub}, action, scope, params)
+		},
+	}
+	// Grant the folder admin (covers every mcp: tool) over its own subtree.
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "folder:" + folder, Action: "admin", Scope: folder + "/**", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
 	}
 
 	sock := filepath.Join(tmp, "mcp.sock")
-	stop, err := ipc.ServeMCP(sock, gated, db, folder, []string{"*"}, -1, "")
+	stop, err := ipc.ServeMCP(sock, gated, db, folder, false, -1, "folder:"+folder)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -196,25 +209,29 @@ func TestSetObserveWindow_MCP_PersistsAndPreservesOmitted(t *testing.T) {
 	}
 }
 
-// TestSetGroupOpen_MCP_FlipsAndGatesByTier: tier ≤ 1 writes the
-// column; tier ≥ 2 is denied with "unauthorized".
-func TestSetGroupOpen_MCP_FlipsAndGatesByTier(t *testing.T) {
-	h := newMCPHarness(t, "world/sub") // tier 1
+// TestSetGroupOpen_MCP_FlipsAndContains (4/R): a folder delegated management of its
+// subtree writes its own column; acting on a folder OUTSIDE that grant scope is
+// denied. Containment is the grant scope, not path depth (no tier).
+func TestSetGroupOpen_MCP_FlipsAndContains(t *testing.T) {
+	h := newMCPHarness(t, "world/sub")
 	res := h.call(t, "set_group_open", map[string]any{"open": false})
 	if res.IsError {
-		t.Fatalf("tier 1: %+v", res.Content)
+		t.Fatalf("own folder: %+v", res.Content)
 	}
 	if h.S.IsGroupOpen("world/sub") {
 		t.Errorf("open still true after set_group_open(false)")
 	}
 
-	h2 := newMCPHarness(t, "world/sub/deep") // tier 2
-	res = h2.call(t, "set_group_open", map[string]any{"open": false})
-	if !res.IsError {
-		t.Fatal("expected denial at tier 2")
+	// A folder outside the grant scope (an unrelated world) is denied.
+	if err := h.S.PutGroup(core.Group{Folder: "world/other", AddedAt: time.Now()}); err != nil {
+		t.Fatal(err)
 	}
-	if !contentContains(res, "unauthorized") {
-		t.Errorf("error msg missing 'unauthorized': %v", res.Content)
+	res = h.call(t, "set_group_open", map[string]any{"open": false, "folder": "world/other"})
+	if !res.IsError {
+		t.Fatal("expected denial editing a folder outside the grant scope")
+	}
+	if !contentContains(res, "outside") {
+		t.Errorf("error msg missing 'outside': %v", res.Content)
 	}
 }
 
@@ -261,7 +278,7 @@ func TestSetGroupOpen_MCP_CrossFolder_OutsideSubtreeDenied(t *testing.T) {
 	if !res.IsError {
 		t.Fatal("expected denial editing peer sibling")
 	}
-	if !contentContains(res, "unauthorized") {
+	if !contentContains(res, "outside") {
 		t.Errorf("error msg missing 'unauthorized': %v", res.Content)
 	}
 	if !h.S.IsGroupOpen("world/b") {
