@@ -2375,9 +2375,30 @@ Not a deletion: repointing the readers at `oauth_identities` crosses a DB
 owner boundary and needs a data migration. It also depends on the unsettled
 principal-grammar question (which namespaces exist, who may mint into each).
 
-- **Severity:** medium (identity resolution silently stale on two surfaces)
-- **Source:** `store/auth.go:73`; `proxyd/main.go:885`; `dashd/profile.go`
-- **Status:** proposed — blocked on the principal-grammar decision
+**Verified 2026-08-01**: `linked_to_sub` is populated on ZERO rows across
+krons/sloth/marinade (5 auth_users total), and `LinkSubToCanonical` has no
+non-test caller. So both readers always get the empty answer:
+`proxyd/main.go:885` canonicalises to the input sub unchanged, and
+`dashd/profile.go:81` renders an always-empty linked-accounts list. The live
+link path writes `oauth_identities` in auth.db (`authd/store.go:122`; 1 row on
+marinade).
+
+**Why this is not a deletion.** Both readers are correctly INTENDED — proxyd's
+comment says "the user may have linked since", and the profile page is meant to
+show linked accounts. The capability is broken, not obsolete. Deleting the
+column and its readers would remove account-linking display and canonical
+resolution rather than repair them.
+
+The fix is to repoint both readers at `oauth_identities`, which authd owns —
+so it needs a decision: do proxyd and dashd cross-read auth.db (as dashd
+already cross-reads routd.db), or does authd expose the link set over its API?
+That is an ownership call, not a code cleanup, which is why this stays queued
+rather than being force-shipped.
+
+- **Severity:** medium (account linking silently non-functional on two surfaces)
+- **Source:** `store/auth.go:60,73`; `proxyd/main.go:885`; `dashd/profile.go:81`;
+  live path `authd/store.go:122`
+- **Status:** proposed — needs the cross-owner read decision
 
 ## P3b — rejected minimization phases, recorded so they are not retried (2026-08-01, closed)
 
