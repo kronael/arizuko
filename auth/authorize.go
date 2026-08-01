@@ -17,39 +17,16 @@ type Caller struct {
 	Extra []string
 }
 
-// AuthorizeOpts adjusts tier-default fallback for mcp:* requests.
-// Both Folder + WorldFolder must be set to enable fallback; otherwise
-// fallback is skipped (no match -> deny).
-type AuthorizeOpts struct {
-	Folder      string
-	WorldFolder string
-	Tier        int
-}
-
-// Authorize returns true iff caller is permitted to perform action on
-// scope. Spec 6/9 §Authorize: row-based grants with deny-wins and
-// tier-default fallback for mcp:* actions. The orthogonal structural
-// concern (tree-shape invariants, tier bounds, task-owner) lives in
-// AuthorizeStructural (policy.go). Many tool callsites need both.
-//
-// Deny wins. No match: for mcp:<tool> actions, fall back to tier
-// defaults via grants.DeriveRules; for interact/admin/*, deny.
+// Authorize returns true iff caller is permitted to perform action on scope:
+// row-based grants over the caller's expanded principal set, deny-wins. There is
+// NO tier-default fallback (4/R phase e deleted it) — magnitude is the caller's role
+// membership + operator grants; a no-match is a deny. Containment is the orthogonal
+// gate in AuthorizeContainment (backfill.go); many tool callsites need both.
 func Authorize(
 	s *store.Store,
 	caller Caller,
 	action, scope string,
 	params map[string]string,
-) bool {
-	return AuthorizeWith(s, caller, action, scope, params, AuthorizeOpts{})
-}
-
-// AuthorizeWith is Authorize with explicit tier-default fallback config.
-func AuthorizeWith(
-	s *store.Store,
-	caller Caller,
-	action, scope string,
-	params map[string]string,
-	opts AuthorizeOpts,
 ) bool {
 	if s == nil || caller.Principal == "" || action == "" {
 		return false

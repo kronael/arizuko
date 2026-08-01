@@ -177,14 +177,12 @@ func (d *DB) AddMembership(child, parent, addedBy string) error {
 }
 
 // Authorize is the per-call row-ACL check for an in-container agent tool call.
-// sub is the canonical agent principal (folder:<folder>). With no operator rows
-// present, auth.AuthorizeWith reduces to the tier-default fallback for mcp:*
-// actions on the agent's own folder.
+// sub is the canonical agent principal (folder:<folder>). Magnitude comes from the
+// folder's role membership + operator grants (4/R phase e removed the tier fallback);
+// a no-match denies.
 func (d *DB) Authorize(sub, folder, action string, params map[string]string) bool {
-	id := auth.Resolve(folder)
 	caller := auth.Caller{Principal: sub}
-	opts := auth.AuthorizeOpts{Folder: folder, WorldFolder: id.World, Tier: id.Tier}
-	return auth.AuthorizeWith(d.aclEval(), caller, action, folder, params, opts)
+	return auth.Authorize(d.aclEval(), caller, action, folder, params)
 }
 
 // IsOperator reports whether sub carries the operator `**` grant. Operators are

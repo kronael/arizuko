@@ -211,9 +211,8 @@ func TestAuthorize_ParamGlob(t *testing.T) {
 func TestAuthorizeWith_NoTierFallback(t *testing.T) {
 	s := openMem(t)
 	caller := Caller{Principal: "folder:atlas/eng"}
-	opts := AuthorizeOpts{Folder: "atlas/eng", WorldFolder: "atlas"}
 	// No rows, no membership → deny (there is no tier default to fall back to).
-	if AuthorizeWith(s, caller, "mcp:send", "atlas/eng", nil, opts) {
+	if Authorize(s, caller, "mcp:send", "atlas/eng", nil) {
 		t.Fatal("no fallback: mcp:send with no matching row must be denied")
 	}
 	// An explicit allow row grants it — the data path.
@@ -222,7 +221,7 @@ func TestAuthorizeWith_NoTierFallback(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !AuthorizeWith(s, caller, "mcp:send", "atlas/eng", nil, opts) {
+	if !Authorize(s, caller, "mcp:send", "atlas/eng", nil) {
 		t.Fatal("explicit allow row must grant mcp:send")
 	}
 }
@@ -230,8 +229,7 @@ func TestAuthorizeWith_NoTierFallback(t *testing.T) {
 func TestAuthorize_InteractNoTierFallback(t *testing.T) {
 	s := openMem(t)
 	caller := Caller{Principal: "folder:atlas/eng"}
-	opts := AuthorizeOpts{Folder: "atlas/eng", WorldFolder: "atlas", Tier: 0}
-	if AuthorizeWith(s, caller, "admin", "atlas/eng", nil, opts) {
-		t.Fatal("admin must require an explicit row even with tier 0")
+	if Authorize(s, caller, "admin", "atlas/eng", nil) {
+		t.Fatal("admin must require an explicit row (no tier default)")
 	}
 }
