@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -2114,5 +2115,43 @@ func readAll(r interface{ Read(p []byte) (int, error) }) ([]byte, error) {
 			}
 			return out, err
 		}
+	}
+}
+
+// Gates configured and none matching is a dead end, not a success: the row
+// stays at token_used and no later pass revisits it. It used to warn and
+// return, so the caller redirected the user to an empty dashboard with no
+// indication anything had gone wrong.
+func TestLinkJID_NoGateMatchIsRefused(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:9', 'token_used', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=acme', 10)`)
+
+	err := linkJID(db, db, "telegram:9", "google:nobody")
+	if err == nil {
+		t.Fatal("no matching gate must return an error the caller can surface")
+	}
+	if !errors.Is(err, errLinkRefused) {
+		t.Errorf("want errLinkRefused (403), got %v", err)
+	}
+
+	var status string
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:9'`).Scan(&status)
+	if status == "queued" || status == "approved" {
+		t.Errorf("row advanced to %q despite no gate match", status)
+	}
+}
+
+// A second account may not take over a JID already linked elsewhere, and the
+// refusal reaches the caller rather than only the log.
+func TestLinkJID_AlreadyClaimedIsRefused(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:10', 'token_used', '2026-01-01')`)
+	if err := linkJID(db, db, "telegram:10", "github:alice"); err != nil {
+		t.Fatalf("first link: %v", err)
+	}
+	err := linkJID(db, db, "telegram:10", "github:mallory")
+	if !errors.Is(err, errLinkRefused) {
+		t.Errorf("takeover want errLinkRefused, got %v", err)
 	}
 }

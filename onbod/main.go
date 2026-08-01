@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"html/template"
@@ -442,7 +443,10 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB
 		// a row links the JID. The loser's RETURNING yields no row → no
 		// double-linkJID.
 		if claimed, ok := claimByToken(obdb, token, userSub); ok {
-			linkJID(db, obdb, claimed, userSub)
+			if err := linkJID(db, obdb, claimed, userSub); err != nil {
+				writeLinkErr(w, err)
+				return
+			}
 		}
 		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 		return
@@ -494,7 +498,10 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, c
 			MaxAge: -1, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
 		})
 		if claimed {
-			linkJID(db, obdb, c.Value, userSub)
+			if err := linkJID(db, obdb, c.Value, userSub); err != nil {
+				writeLinkErr(w, err)
+				return
+			}
 			var folder string
 			if err := db.QueryRow(
 				`SELECT g.folder FROM groups g
@@ -754,27 +761,36 @@ func gateFromKey(key string, limit int) gate {
 // linkJID binds a platform JID to userSub (acl_membership — CROSS) then advances
 // the JID's onboarding row (queued or approved per the gates — OWNED). db is the
 // acl-membership DB; obdb owns onboarding + onboarding_gates.
-func linkJID(db, obdb *sql.DB, jid, userSub string) {
+// errLinkRefused marks a user-facing refusal (already claimed, no gate match)
+// as distinct from an infrastructure failure: the caller answers 403 rather
+// than 500, but either way the user is told.
+var errLinkRefused = errors.New("link refused")
+
+func linkJID(db, obdb *sql.DB, jid, userSub string) error {
 	var existingSub string
 	if err := db.QueryRow(
 		`SELECT parent FROM acl_membership WHERE child = ?`, jid,
 	).Scan(&existingSub); err == nil && existingSub != userSub {
 		slog.Warn("jid already claimed", "jid", jid, "existing", existingSub, "attempted", userSub)
-		return
+		return fmt.Errorf("%w: %s is already linked to another account", errLinkRefused, jid)
 	}
 	now := time.Now().Format(time.RFC3339)
-	db.Exec(
+	if _, err := db.Exec(
 		`INSERT OR IGNORE INTO acl_membership (child, parent, added_at, added_by)
 		 VALUES (?, ?, ?, 'linkJID')`,
-		jid, userSub, now)
+		jid, userSub, now); err != nil {
+		return fmt.Errorf("write pairing edge for %s: %w", jid, err)
+	}
 
 	gates := loadGates(obdb)
 	if len(gates) > 0 {
 		if g := matchGate(gates, userSub); g != nil {
 			k := gateKey(*g)
-			obdb.Exec(
+			if _, err := obdb.Exec(
 				`UPDATE onboarding SET status = 'queued', user_sub = ?, gate = ?, queued_at = ? WHERE jid = ?`,
-				userSub, k, now, jid)
+				userSub, k, now, jid); err != nil {
+				return fmt.Errorf("queue %s: %w", jid, err)
+			}
 			audit.Emit(context.Background(), audit.Event{
 				Category: audit.CategoryMutation,
 				Action:   "onboarding.queue",
@@ -789,14 +805,19 @@ func linkJID(db, obdb *sql.DB, jid, userSub string) {
 				},
 			})
 			slog.Info("queued jid", "jid", jid, "user", userSub, "gate", k)
-			return
+			return nil
 		}
+		// Gates configured and none matched: a dead end, not a success. The row
+		// stays at token_used and no later pass revisits it, so the caller must
+		// tell the user rather than redirect them to an empty dashboard.
 		slog.Warn("no matching gate", "jid", jid, "user", userSub)
-		return
+		return fmt.Errorf("%w: no onboarding gate matches this account", errLinkRefused)
 	}
 
-	obdb.Exec(`UPDATE onboarding SET status = 'approved', user_sub = ?, admitted_at = ? WHERE jid = ?`,
-		userSub, time.Now().UTC().Format(time.RFC3339), jid)
+	if _, err := obdb.Exec(`UPDATE onboarding SET status = 'approved', user_sub = ?, admitted_at = ? WHERE jid = ?`,
+		userSub, time.Now().UTC().Format(time.RFC3339), jid); err != nil {
+		return fmt.Errorf("approve %s: %w", jid, err)
+	}
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "onboarding.approve",
@@ -811,6 +832,21 @@ func linkJID(db, obdb *sql.DB, jid, userSub string) {
 		},
 	})
 	slog.Info("approved jid", "jid", jid, "user", userSub, "gate", "none")
+	return nil
+}
+
+// writeLinkErr surfaces a linkJID failure to the person who clicked the link.
+// Silently redirecting to an empty dashboard is what made the no-gate dead end
+// invisible: the row stalls, nothing revisits it, and the user is never told.
+func writeLinkErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, errLinkRefused) {
+		slog.Warn("onboarding link refused", "err", err)
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	slog.Error("onboarding link failed", "err", err)
+	http.Error(w, "could not complete account link; try again or contact the operator",
+		http.StatusInternalServerError)
 }
 
 func renderQueuePosition(w http.ResponseWriter, db *sql.DB, gateStr, queuedAt string) {
