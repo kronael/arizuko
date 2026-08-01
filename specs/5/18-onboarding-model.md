@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 depends:
   [
     B-route-mode-ingestion,
@@ -8,68 +8,107 @@ depends:
     E-routd,
     S-jid-format,
     5-tenant-self-service,
+    29-worlds-guests-oauth,
+    4/9-acl-unified,
+    4/R-paths-roles,
   ]
 supersedes: []
 ---
 
-# Onboarding model: bots, operators, staging groups
+# Onboarding: routing an unrouted JID into a world
 
 ## Problem
 
-How a new chat enters the system is scattered across five places: the
-route table (`ROUTING.md`), `#observe` mode (`5/B`), onbod's admission
-queue (`5/5`, `onbod/`), the ACL (`4/9`), and `arizuko group add`.
-There is no canonical statement of the default posture, so the actual
-default is **silence**: a new Telegram group the bot joins hits a route
-miss and vanishes — stored in `routd.db`, visible to nobody. Witnessed
-on krons 2026-07-09: `telegram:group/5567410596` posted for 40 minutes,
-every message stored, zero trace surfaced; the operator had to grep the
-DB for the JID (`BUGS.md` top entry).
+A chat enters the system by acquiring a **route row**. Until it has one,
+the default posture is **silence**: a new Telegram group the bot joins
+hits a route miss and vanishes — stored in `routd.db`, visible to
+nobody. Witnessed on krons 2026-07-09: `telegram:group/5567410596`
+posted for 40 minutes, every message stored, zero trace surfaced; the
+operator had to grep the DB for the JID.
 
-This spec is a consolidation: the target model composes primitives that
-already exist. One code gap (below) and doc reconciliation are the only
-work.
+Onboarding is the act that ends that silence. This spec owns **where** a
+chat lands and **who may put it there**.
 
-## Actors
+## Two axes, both fail-closed
 
-Every term is an existing primitive; none introduces new authz. In the
-collapsed hierarchy of [`5/29`](29-worlds-guests-oauth.md) this spec is
-**Tier 1**: onboarding admits a user to a **world** (the top-level group), and
-promotion below gives a chat its own **agent** (a main group). `5/29` further
-models auto-onboarding as a **Tier-3 session** scripted by an onboarding
-prototype — a `5/29` delta, not current behavior: today the admission exchange
-is a canned onbod message (`promptUnprompted`), not an agent run.
+An inbound message resolves against two independent unknowns. Each is
+resolved by exactly one explicit act, and neither implies the other:
 
-- **Bot** — a channel adapter identity: one adapter daemon + its
-  platform credential (e.g. teled + a Telegram bot token, declared in
-  `template/services/<daemon>.toml`). The bot defines **presence**:
-  which chats the platform lets it see. It captures events and grants
-  nothing. Its identity is configured (`AUTHD_SERVICE_NAME`,
-  `CHANNEL_NAME`), never derived.
-- **Operator** — emergent from a broad `acl` grant
-  (`(role:operator, *, **, allow)` at bootstrap — `4/9`). Not a role
-  column, no sentinel. Operators own the route table, promote staged
-  chats, and issue invites.
-- **Users authorized in a group** — folder-scoped authority, on two
-  orthogonal axes (the `5/B` split: **mode controls firing; ACL
-  controls visibility**):
-  - _Channel side (firing)_: route rows with `sender=` / `verb=`
-    predicates decide whose message fires a turn. Routing never
-    consults the ACL.
-  - _Authenticated side (access)_: `acl` rows (`interact` floor,
-    `admin` above it — `4/9`) gate web/REST/dashboard access to the
-    folder; a room JID may carry the audience baseline
-    (`acl(room_jid, interact, folder)`).
-- **Catch-all (staging) group** — a normal group designated as the
-  default target for unsetup chats via a high-`seq` catch-all
-  `#observe` route. Nothing distinguishes it in schema; it is a
-  route-table convention.
+| axis                 | unknown           | resolving act                                                 | result                   | owner  |
+| -------------------- | ----------------- | ------------------------------------------------------------- | ------------------------ | ------ |
+| **identity** (who)   | sender is a guest | pairs via an OAuth URL in the chat                            | an `acl_membership` edge | `5/29` |
+| **location** (where) | JID has no route  | a user with routing authority over the target world routes it | a `routes` row → folder  | here   |
 
-## The model: a new group is a new channel
+An anonymous sender in an unrouted JID yields **nothing** — no turn, no
+reply, no grant. That property is structural: routing never consults the
+ACL (`5/B`), and the ACL never creates routes.
 
-Telegram (and any group-capable platform) mimics Slack: the bot being
-added to a group IS the channel appearing. No per-group wiring is
-required to start capturing.
+**This spec owns the location axis only.** It CONSUMES an authenticated
+session; it never mints one. Where the flow says "authenticates", that is
+`5/29`'s pairing act — see the seam at step 5.
+
+## The target flow
+
+Eight steps. Each transition has exactly one trigger.
+
+1. **Listen.** A channel adapter is configured; the bot's presence in a
+   chat is platform-side, granted by whoever added it. Presence grants
+   nothing (`§Actors`).
+2. **Miss.** A message at a JID with no route resolves to `routeMiss`
+   (`routd/loop.go:529`). An `#observe` catch-all consumes the miss
+   (`§Staging`); otherwise it is genuine.
+3. **Record.** routd federates `POST /v1/onboarding {jid}` to onbod,
+   which owns the table. Idempotent on `jid` (PK) — re-posts are no-ops.
+4. **Greet.** onbod replies **in-channel** with a welcome and a link
+   (`<AUTH_BASE_URL>/onboard?token=…`, single-use, 24h). The token proves
+   the bearer can read that chat. It carries no authority and names no
+   folder.
+5. **Authenticate.** The link lands on proxyd's OAuth.
+   **← seam: identity axis.** The flow resumes with a
+   transit-proven `X-User-Sub`; binding that sub to the JID
+   (`acl_membership`) is `5/29`'s act, not this spec's.
+6. **Choose.** onbod shows the caller the JID they just proved and the
+   worlds they hold **routing authority** over. Empty set → a terminal
+   page: no world, no route (an invite or a world of their own is the
+   only way forward — `§Invites`). **Never auto-pick.**
+7. **Route.** The caller picks world W or a subgroup of W. onbod writes
+   `routes(seq 0, 'room=<room>', <target>)` through the one handler that
+   binds `target` to the caller's authority and `match` to a JID they
+   have paired.
+8. **Confirm.** The next message at the JID routes to the target. History
+   does not move.
+
+### The authority rule
+
+> A caller may write a route whose `target` is T **iff** they hold
+> routing authority over T.
+
+Approval is **world-scoped, not global**: the question is never "is this
+an operator", it is "does this user hold authority over _this_ target".
+A user with no worlds approves nothing.
+
+How that authority is represented — the grant shape, delegation,
+`WITH GRANT OPTION` — is [`4/R`](../4/R-paths-roles.md)'s output. This
+spec consumes the predicate and does not define it. Two shipped facts
+that constrain it:
+
+- The check already exists in the right shape:
+  `auth.MatchGroups(userFolders(sub), target)` (`onbod/main.go:1355`).
+- Nothing shipped can _hold_ subtree authority self-service. Every
+  self-service grant writes a bare folder scope — `createWorldTx`
+  (`onbod/main.go:737`) and invite join-mode (`onbod/main.go:1013`) both
+  write `acl(sub, admin, <folder>)`, and `matchSegments` requires an
+  exact segment count (`auth/acl.go:50`). So a world creator holds
+  `acme`, not `acme/**`, and **cannot route a JID into their own
+  subgroup** — step 7's "or a subgroup of W" is unreachable today.
+  Only a hand-run `arizuko grant <sub> 'acme/**'` produces it.
+  The other broad grant, `role:operator`, is unscoped and global
+  (`cmd/arizuko/main.go:535`, `routd/acl_resource.go:227`).
+
+## Staging: the other posture
+
+Where the operator controls bot presence, a catch-all captures instead of
+greeting. This is route-table data, not code:
 
 ```
 seq   match                     target
@@ -77,140 +116,237 @@ seq   match                     target
 9999  platform=telegram         staging#observe   ← catch-all staging
 ```
 
-- **Capture**: the catch-all routes every un-promoted chat into the
-  staging folder in observe mode — stored with `is_observed=1`, no
-  turn, no reply (`5/B`). The bot stays silent in chats nobody set up.
-- **Discovery**: the operator sees staged traffic where anything routed
-  is seen — the staging folder's history (dashd, `inspect_messages`,
-  the next trigger turn's `<observed>` window). The JID is in the row;
-  no DB grep.
-- **Precedence** is plain `seq` ordering, first match wins: promotion
-  inserts a `seq 0` `room=` row that outranks the `seq 9999` catch-all.
-  No flag, no special case.
-- **Declaration** is route-table data, not code:
-  `arizuko route <inst> add 'platform=telegram' 'staging#observe' --seq 9999`
-  (equivalently `/v1/routes` REST, `routes` MCP, dashd — `5/16`). The
-  staging folder is created like any group (dashd group-create,
-  `/v1/groups`, `register_group`). One staging folder per platform or
-  one shared — operator's choice via the `match` expression.
-- **Not seeded**: `arizuko create` does not install a catch-all. A
-  catch-all structurally disables chat-initiated onboarding for its
-  platform (below) — that trade-off belongs to the operator, not a
-  template default.
+- **Capture**: every un-promoted chat lands in the staging folder in
+  observe mode — `is_observed=1`, no turn, no reply (`5/B`). The bot
+  stays silent in chats nobody set up.
+- **Discovery**: the operator reads staged traffic where anything routed
+  is read (dashd, `inspect_messages`, the next turn's `<observed>`
+  window). The JID is in the row; no DB grep.
+- **Precedence** is plain `seq` ordering, first match wins. Promotion
+  inserts a `seq 0` `room=` row that outranks the catch-all. No flag.
+- **Promotion** is the existing group-add — `arizuko group add`
+  (`cmd/arizuko/main.go:410`), the `groups`+`routes` resreg resources, or
+  an agent's `register_group`. History does not move.
+
+The two postures are **mutually exclusive per platform by construction**:
+the observe branch consumes the miss before the greeting branch runs
+(`routd/loop.go:531`). A platform with a catch-all never greets. That is
+why `arizuko create` does not seed one — the trade-off is the operator's.
 
 `web:` JIDs are out of scope: they address folders directly and never
-consult the route table (`ROUTING.md` "Web JID model"); web admission
-is route tokens (`5/W`).
+consult the route table (`ROUTING.md` "Web JID model"); web admission is
+route tokens (`5/W`).
 
-## Promotion: staged chat → own folder
+### Routing is not firing
 
-Promotion is the existing group-add, no new verb:
+Routing a JID does not decide who inside it drives the agent — that is
+sender-predicate stacking on the same table (`sender=` beside `room=`,
+with a lower-precedence `#observe` row catching everyone else). An
+unauthorized sender matches only the observe row: context, no turn, no
+reply, no fallback. Engagement (`5/G`) then overrides per `(jid, topic)`,
+so sender rows gate who _opens_ a conversation, not who speaks inside
+one. Firing never consults the ACL; do not add a second check in the
+loop.
 
-- `arizuko group <inst> add <jid> <folder>` — `SetupGroup` + group row
-  - a `seq 0` `room=<room>` trigger route (`cmd/arizuko/main.go:361`).
-    Discord guilds get the mention-only pair instead (mention trigger at
-    `seq -1` + `#observe` at `seq 0`).
-- Dashboard / REST: the same two resources (`groups`, `routes`) via
-  resreg (`5/16`).
-- Agent-driven: autoviv — a tier-1 agent with operator grant calls
-  `register_group` (`template/web/pub/arizuko/concepts/autoviv.html`).
+## As-built — what ships today
 
-History does not move. Messages already stored under the staging folder
-stay there (observed, operator-readable); messages after promotion
-route to the new folder. No re-parenting, no magic.
+Steps 1–5 ship. Steps 6–8 do not.
 
-## Private groups: who may drive the agent
+- **Steps 1–4 as specified.** onbod's poll tick (10s, `promptUnprompted`,
+  `onbod/main.go:349`) claims each unprompted row with an atomic
+  `UPDATE … WHERE prompted_at IS NULL`, mints the token, and sends the
+  link via routd's `/v1/outbound` under a `service:onbod` bearer.
+- **Step 5 as specified.** `handleTokenLanding` sets an `onboard_jid`
+  cookie and bounces to `/auth/login`; `stripUnsignedGuard` keeps
+  `X-User-Sub` only when `auth.ProxydTransit` holds. `claimOnboarding` +
+  `linkJID` write the `acl_membership` edge and stamp the row.
+- **Step 6 — no picker.** `handleDashboard` auto-picks with
+  `SELECT g.folder FROM groups g JOIN acl a ON a.scope = g.folder WHERE
+a.principal = ? AND a.effect='allow' LIMIT 1` (`onbod/main.go:523`) —
+  no `ORDER BY`, no membership walk, no action filter, no user
+  confirmation. Whatever row SQLite returns first is where the JID goes.
+- **Step 7 — the route write is a side effect, not an act.** It happens
+  inside that claim, inside `createWorldTx` (`onbod/main.go:744`), and
+  inside invite redemption (`onbod/main.go:1057`) — the last two loop
+  over _every_ JID the sub has paired and route them all at the target.
+  Nothing records who routed what.
+- **Step 8 — dead end.** A caller with no world reaches "You need an
+  invite link to join" (`onbod/main.go:554`). The username picker renders
+  only behind a `pending_target` cookie, which **only invite redemption
+  sets** (`onbod/main.go:1038`). Chat-initiated onboarding cannot produce
+  a world on its own: the gate queue admits you, then tells you to go
+  find an invite.
 
-In a private group, only authorized users fire turns; everyone else is
-observed. This is sender-predicate stacking — the same shape as
-mention-only channels, keyed on `sender=` instead of `verb=`:
+The correctly-shaped handler already exists and is tested —
+`handleAddRoute` (`onbod/main.go:1339`) checks
+`MatchGroups(folders, target)` **and** `userOwnsMatch(sub, match)`,
+exactly step 7's binding. **No HTML form anywhere renders it**:
+`renderDashboard` emits a read-only routing table (`onbod/main.go:1114`).
+Steps 6–7 are built server-side and unreachable from a browser.
 
-```
-seq   match                                        target
-0     room=group/42 sender=telegram:user/7         corp/board
-10    room=group/42                                corp/board#observe
-```
+### Invites (the out-of-band entry)
 
-Strict, not magical: an unauthorized sender matches only the observe
-row — stored as context, no turn, no reply, no "helpful" fallback.
-Combine predicates for mention-gated authorized users
-(`sender=… verb=mention`).
+Operator or agent mints (`arizuko invite`, routd `/invite`,
+`invite_create`, dashd) → recipient opens `/invite/{token}` → OAuth →
+`ConsumeInviteNoGrant`. Trailing-slash target → `pending_target` cookie →
+username picker → `SetupGroup` then `createWorldTx`. No trailing slash →
+`PutACLRow(sub, admin, target)`; a failure there rolls the consume back
+(`RestoreInvite`) so an invite is never burned without its grant. Detail:
+`5/5` Phase B.
 
-Two scope notes, both existing semantics:
+### Failure branches
 
-- **Engagement continues, predicates initiate.** An engagement window
-  (`5/G`) is keyed on `(jid, topic)`, not sender, and overrides the
-  route table. Once an authorized user engages the agent, any
-  participant in that topic drives the conversation until TTL or
-  `disengage()`. Sender rows gate who _opens_ a conversation, not who
-  speaks inside one.
-- **ACL is the other axis.** `4/9`'s `interact` gates the folder's
-  authenticated surfaces and has no tier default (no grant → deny).
-  Channel-side firing never consults it; do not add a second
-  hand-rolled check in the loop — the route table is the firing gate.
+| condition                         | today                                                                                  |
+| --------------------------------- | -------------------------------------------------------------------------------------- |
+| `InsertOnboarding` fails          | `slog.Error` + `onboardingFailedNotice` into the chat (loud, correct)                  |
+| route-table read fails            | logged, treated as a miss, cursor advances — message dropped                           |
+| JID already paired to another sub | `slog.Warn` only; caller sees no explanation                                           |
+| gates configured, none match      | `slog.Warn` only; row stuck at `token_used` forever (below)                            |
+| token expired or reused           | "invalid, already used, or has expired" — no way to request another from the chat      |
+| queue full                        | **does not exist** — `limit_per_day` throttles rate; the queue is unbounded            |
+| operator deny                     | deletes the row; the JID re-onboards on its next message. Deny is a reset, not a block |
 
-## Two admission paths, reconciled
+## What the shipped schema cannot express
 
-A route miss has exactly two outcomes, mutually exclusive per platform
-**by construction** — the observe branch consumes the miss before the
-onboarding branch runs (`routd/loop.go:505`–`533`):
+`onboarding(jid PK, status, prompted_at, created, token, token_expires,
+user_sub, gate, queued_at, admitted_at)` is **a single global admission
+queue keyed on JID, throttled per identity provider.** It cannot
+represent "routed into world W by user U":
 
-1. **Staging catch-all (default posture)** — for deployments where the
-   operator controls bot presence (invites the bot to groups). Silent
-   capture, operator promotes. A platform with a catch-all can never
-   reach the onboarding branch: no miss exists.
-2. **Chat-initiated onboarding (opt-in, `ONBOARDING_ENABLED`)** — for
-   public bots where strangers self-serve as new tenants. A genuine
-   miss federates `POST /v1/onboarding` to onbod (owner of
-   `onboarding`/`invites`/`onboarding_gates` in `onbod.db`); onbod
-   greets the chat with a **pairing** link ([`5/31`](31-identity-pairing.md)),
-   redemption binds the channel identity to a verified sub, gates queue or
-   auto-approve (`matchGate`, `admitFromQueue` daily caps), and world
-   creation runs `SetupGroup` then writes group + admin `acl` + `seq 0`
-   routes in one tx (`createWorldTx`).
-   Detail: `5/5`, `onbod/README.md`. Note this path CREATES a world per
-   admitted stranger, where `5/29` Tier 1 admits users INTO an existing
-   world (`world_invite`/`world_members`); the two shapes are unreconciled
-   (`5/29` open questions).
+- **No target.** There is no folder or world column anywhere in the
+  table. `gate` is `github:org=x` / `google:domain=y` / `*` — `matchGate`
+  switches on the `user_sub` prefix alone (`onbod/main.go:298`). It is an
+  identity-provider bucket, on the _identity_ axis; it names no location.
+- **No approver.** `user_sub` is whoever proved control of the chat, not
+  whoever exercised routing authority. Those coincide only in the
+  self-serve case.
+- **`approved` is instance-global.** `admitFromQueue` counts
+  `status='approved' AND admitted_at` within today, per `gate`, across
+  the whole instance (`onbod/main.go:887`). Two worlds cannot hold
+  independent admission policy; `limit_per_day` is one number per
+  provider for everyone.
+- **The routing act is not in the table.** It is a side effect of the
+  claim / world-create / invite redeem, leaving an unattributed `routes`
+  row and no record of who caused it.
 
-The paths compose per-platform: `ONBOARDING_PLATFORMS` allowlists which
-prefixes may onboard, and the route table decides where misses can
-still occur — e.g. `platform=telegram room=group/*` → staging catch-all
-while Telegram DMs miss through to onboarding. Invites (`5/5`) are the
-third, out-of-band entry: operator-issued, no route miss involved.
+`approved` therefore grants nothing. Nothing reads it as a precondition;
+the only gate is the negative `status='queued'` short-circuit on
+`/onboard` (`onbod/main.go:541`), and even that runs **after** the
+auto-route write above — a queued caller's JID is already routed.
 
-## What exists vs the one gap
+**Consequence for the target flow:** the row must shrink to its pairing
+half and stop pretending to be an approval record. The approval that
+matters is the authority check at step 7, evaluated against the target —
+not a status column.
 
-Everything above composes shipped primitives: route table + `seq`
-precedence + `match` predicates (`ROUTING.md`, `5/E`), `#observe`
-(`5/B`), mention promotion (`5/L`), engagement (`5/G`), unified ACL
-(`4/9`), onbod queue + gates + invites (`5/5`, `onbod/`),
-`arizuko group add` / `arizuko route add` (`cmd/arizuko/`), groups +
-routes as resreg resources (`5/16`), autoviv. The staging posture is
-route-table data plus documentation — no schema, no daemon, no new
-mode.
+## States to delete
 
-The tables this spec manipulates — `groups`, `routes`, `onboarding_gates`,
-`invites` — ARE the cold-tier resources
-[`5/16`](16-mcp-rest-unification.md) models (one owner DB + PK + scope,
-idempotently replaceable) and [`5/8`](8-yaml-manifests.md) transports as
-YAML; identical resource names across all three specs. This spec drives
-them as onboarding flow, not a separate table set.
+Every remaining state must be reachable and load-bearing. These are not:
 
-**The one code gap** (`BUGS.md` 2026-07-09): the onboarding branch at
-`routd/loop.go:520` is never entered on a live telegram-group route
-miss even with `ONBOARDING_ENABLED=true` wired to routd and
-`l.onbod != nil` verified. End-state contract the fix must satisfy:
+- **`resetRow` + `promptCoolDown` are dead code.** The predicate is
+  `status='token_used' AND user_sub IS NULL` (`onbod/main.go:401`), but
+  both writers of `token_used` set `user_sub` in the _same statement_
+  (`claimByToken` :484, `claimOnboarding` :501). The conjunction is
+  unreachable. The 30-minute re-prompt documented in CHANGELOG has not
+  fired since the claim was made atomic.
+- **`token_used` is not a state.** It means `user_sub IS NOT NULL`, which
+  the column already says. Its one distinct role — the terminal
+  no-gate-matched dead-end — should be an explicit, user-visible failure,
+  not a status that silently strands a row (`linkJID` returns without
+  writing, and dead `resetRow` never rescues it).
+- **`status` is fully derivable** from `prompted_at` / `user_sub` /
+  `queued_at` / `admitted_at` — one stamp per transition, which is the
+  "exactly one trigger" property stated as schema:
 
-- A genuine miss (no route, no observe, no engagement, no direct
-  address) on an eligible platform inserts **exactly one** onboarding
-  row per JID (`jid` is the PK; re-posts are idempotent) and advances
-  the cursor.
-- A catch-all observe route consumes the miss — staging platforms never
-  onboard (this ordering is the reconciliation above; the fix must not
-  reorder it).
-- Discord guild channels onboard only on `verb=mention`;
-  `ONBOARDING_PLATFORMS` allowlist holds.
+  | condition                              | meaning                 |
+  | -------------------------------------- | ----------------------- |
+  | `prompted_at IS NULL`                  | to prompt               |
+  | `prompted_at` set, `user_sub IS NULL`  | greeted, awaiting click |
+  | `user_sub` set, `queued_at IS NULL`    | paired, not queued      |
+  | `queued_at` set, `admitted_at IS NULL` | queued                  |
+  | `admitted_at` set                      | admitted                |
+
+- **`gate` belongs to the identity axis.** It throttles per identity
+  provider and is orthogonal to where a JID lands. It stays only as long
+  as rate-limiting strangers is wanted; it must not be mistaken for
+  world-scoped policy. Flagged to `5/29`.
+
+## The three token mechanisms
+
+Three mint-and-redeem shapes exist. They are not one mechanism:
+
+| token                     | carries           | lifetime        | at rest   | verdict                                            |
+| ------------------------- | ----------------- | --------------- | --------- | -------------------------------------------------- |
+| `onboarding.token`        | a **JID proof**   | single-use, 24h | plaintext | belongs to the identity axis — fold into pairing   |
+| `invites.token`           | a **grant**       | `max_uses`, TTL | plaintext | survives; it is authorization delivery             |
+| `route_tokens.token_hash` | a **destination** | permanent       | `sha256`  | survives; distinct — no identity, no authz (`5/W`) |
+
+Route tokens are unambiguously separate: they name where inbound data
+lands and confer nothing.
+
+`onboarding.token` does **not** earn separate existence on this axis. It
+is a pairing nonce — the carrier that proves "the bearer reads this chat"
+so an OAuth session can be bound to a JID. That is the identity axis's
+job. Strip it and the remaining onboarding row is `(jid, prompted_at,
+user_sub)` plus the throttle columns, and this spec's flow is unchanged.
+
+**Coordination note, not a unilateral deletion.** `5/29` is separately
+evaluating invites and route tokens for pairing. If `onboarding.token` is
+folded into the pairing carrier there, this spec follows; if pairing
+instead reuses `invites`, note that an invite carries a _scope_ and an
+onboarding token carries a _JID_ — they must not be merged by making
+`target_glob` nullable. The overlap is real; whoever ships first names
+the survivor.
+
+## Operator surface
+
+The operator does not approve locations today — there is no location to
+approve. What exists is the _identity_-side admission queue, and it is
+inconsistent across the three entry points:
+
+| surface              | onboarding queue                                      | gates                     | invites                   |
+| -------------------- | ----------------------------------------------------- | ------------------------- | ------------------------- |
+| chat                 | —                                                     | `/gate` (operator-only)   | `/invite` (operator-only) |
+| CLI                  | —                                                     | `arizuko gate`            | `arizuko invite`          |
+| dashd                | — (tile is `Built=false`, `dashd/services.go:35`)     | —                         | `/dash/invites/`          |
+| onbod `/dash/onbod/` | approve / deny / reprompt, gated on `**`              | —                         | —                         |
+| REST/MCP             | `/v1/onboarding` (bearer `invites:write`) — no resreg | `onboarding_gates` resreg | `invites` resreg          |
+
+Three findings:
+
+1. **The queue page is unreachable.** `/dash/onbod/` renders every row
+   with approve/deny/reprompt (`onbod/dash.go:53`), but dashd's services
+   hub marks onbod `Built=false`, so no navigation reaches it. An
+   operator must know the URL.
+2. **`onboarding` is not a resreg resource.** onbod's `openapi.json`
+   declares only `onboarding_gates` and `invites` (`onbod/main.go:149`);
+   the five `/v1/onboarding*` endpoints are hand-mounted with no MCP
+   twin. Root `CLAUDE.md` makes that a review-blocker: every cold-tier
+   management entity registers a `Resource`. Agents can mint invites but
+   cannot see or act on the admission queue.
+3. **The approval privilege is global.** Both onbod's dash gate
+   (`requireOperator`, `onbod/dash.go:20`) and routd's `/invite` + `/gate`
+   (`db.IsOperator`) demand the unscoped operator role. Under the target
+   flow the privilege is world-scoped authority over the target — a
+   different check, and one that must not be satisfied by the global role
+   alone once `4/R` lands.
+
+## Open, blocking
+
+Ordered by who must move first.
+
+1. **`4/R`** — the representation of world-scoped routing authority, and
+   whether a self-service grant can ever be a subtree (`acme/**`). Step
+   7 cannot be built until the predicate exists.
+2. **`5/29`** — whether `onboarding.token` folds into the pairing
+   carrier; whether `gate` survives as a stranger throttle; whether a
+   stranger who chose no world may create one (today: only via an
+   invite), which is `5/29`'s "admit INTO a world" vs this path's
+   "create a world per stranger".
+3. **Here, once both land** — replace the auto-pick at
+   `onbod/main.go:523` with the picker, render a form for the existing
+   `handleAddRoute`, register `onboarding` as a resreg resource, drop the
+   derivable `status` column and the dead `resetRow`.
 
 ## Consolidates
 
@@ -219,13 +355,14 @@ stay canonical for their mechanisms. Nothing is superseded:
 
 - `5/B` — `#observe` semantics (firing/visibility split quoted here).
 - `5/L`, `5/G` — mention promotion, engagement continuation.
-- `5/E` — route-miss → onboarding hook in the loop.
-- `4/9` — `interact`/`admin`/`**` vocabulary; operator emergence.
+- `5/E` — route-miss hook in the loop.
+- `4/9`, `4/R` — grant vocabulary; the authority predicate step 7 needs.
 - `5/5` — invites, gates, tenant self-service phases.
-- `5/29` — the World → Agent → Session collapse; admission here is its
-  Tier 1.
+- `5/29` — World → Agent → Session; the identity axis and the world
+  roster this flow routes into.
 - `5/31` — identity pairing. Onboarding is `pairing + admission`: it no
   longer owns the channel-identity→account bridge, it redeems one. That
   extraction is what makes pairing reachable outside a route miss.
-- `ROUTING.md` — route-table syntax + the mention-only examples this
-  generalizes to staging and sender gating.
+- `7/7` — the operator queue page.
+- `ROUTING.md` — route-table syntax the staging and sender examples
+  generalize.
