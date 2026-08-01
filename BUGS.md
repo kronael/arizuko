@@ -2327,10 +2327,25 @@ string silently empties that join, so the creator sees no worlds at all.
 Three tests pin the current shape (`TestOnboardingFlow`,
 `TestCreateWorldValidUsername`, `TestSplitCreateWorldWritesCrossToRoutd`).
 
-Fixing this therefore means changing every reader from string equality to
-pattern matching (`auth.matchPattern`), which SQL joins cannot express — the
-join has to become a fetch-then-filter in Go, or the grant has to be stored
-twice (bare + subtree), which is a second parallel path and forbidden.
+Fixing this means changing every reader from string equality to pattern
+matching, which SQL joins cannot express. Storing the grant twice (bare +
+subtree) is ruled out by CLAUDE.md — a second parallel path — so the reader
+must fetch and filter in Go.
+
+**Second attempt, 2026-08-01, also reverted.** Rewrote the reader as
+`firstAdminFolder`: drain `SELECT folder FROM groups`, close the cursor, then
+ask `auth.Authorize` per folder — reusing the single evaluator rather than
+writing a second matcher, which is the right shape. It hangs. With valid
+fixtures the `Authorize` call blocks on onbod's test harness, whose `testDB`
+is `sql.Open("sqlite", ":memory:")`: each pooled connection there gets its own
+empty database, so a second query on the same handle stalls rather than
+reading the rows just inserted. Draining the cursor first did not fix it.
+
+Before a third attempt, settle: does `firstAdminFolder` take an explicit
+`*store.Store` built by the caller (so onbod's real file-backed handle is used
+and the harness can inject one), and does `onbod`'s `testDB` need
+`SetMaxOpenConns(1)` or a file-backed temp DB? The evaluator-based reader is
+the correct design; the blocker is connection lifetime, not matching.
 
 Note also that `grant_option=1` — needed so an owner can invite admins —
 cannot be written yet: migration 0022 adds the column but krons' live `acl`
