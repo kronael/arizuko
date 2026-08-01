@@ -152,7 +152,9 @@ func TestMigrateSplit(t *testing.T) {
 		// PLUS the 4/R backfill's folder:main containment rows (tier-1: bundle-held
 		// tools' scopes + ** no-containment rows + unconditional outbound-verb F/**)
 		// = 73. Count tracks the DeriveRules bundle + BackfillScopes for a tier-1 folder.
-		"acl": 73, "acl_membership": 1,
+		// acl_membership: the test's 1 seeded edge + the eager folder:main→role:tier1
+		// default-role assignment (assignDefaultRole at PutGroup, 4/R phase e) = 2.
+		"acl": 73, "acl_membership": 2,
 		// secrets: routd OWNS them now → copied (1 row each).
 		"secrets": 1, "secret_use_log": 1,
 		// scheduled_tasks + task_run_logs: routd OWNS them now → copied (1 row each).
