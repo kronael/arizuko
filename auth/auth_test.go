@@ -8,12 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/kronael/arizuko/grants"
 )
 
 func sha256sum(b []byte) [32]byte { return sha256.Sum256(b) }
@@ -128,240 +125,28 @@ func TestTelegramWidgetVerify(t *testing.T) {
 	}
 }
 
-// --- Policy tests ---
-
-func TestAuthorizeBasicTools(t *testing.T) {
-	// list_tasks is unconditionally allowed.
-	id := Resolve("world/parent/child")
-	if err := AuthorizeStructural(id, "list_tasks", AuthzTarget{}); err != nil {
-		t.Errorf("list_tasks should be allowed for all tiers: %v", err)
-	}
-}
-
-func TestAuthorizeOutboundSubtree(t *testing.T) {
-	// Tier 0 is now ONLY an operator /root elevation (no folder resolves to it),
-	// and it has all privileges — it sends across any world (migrate-announce +
-	// operator ops). Tier ≥ 1 (every real folder, including top-level worlds) stay
-	// confined to their subtree.
-	root := Identity{Folder: "rhias", Tier: 0, World: "rhias", IsRoot: true} // elevated /root
-	if err := AuthorizeStructural(root, "send", AuthzTarget{TargetFolder: "rhias"}); err != nil {
-		t.Errorf("root send to own folder should allow: %v", err)
-	}
-	if err := AuthorizeStructural(root, "send", AuthzTarget{TargetFolder: "happy/content"}); err != nil {
-		t.Errorf("root send cross-world should now allow: %v", err)
-	}
-	// Unrouted JID: denied for every caller, root included (no destination).
-	if err := AuthorizeStructural(root, "send", AuthzTarget{TargetFolder: ""}); err == nil {
-		t.Error("send to unrouted JID must deny even for root")
-	}
-	// Tier ≥ 1 is still confined to its own subtree.
-	sub := Resolve("rhias/content") // tier 1
-	if err := AuthorizeStructural(sub, "send", AuthzTarget{TargetFolder: "rhias/content"}); err != nil {
-		t.Errorf("sub send within own folder should allow: %v", err)
-	}
-	if err := AuthorizeStructural(sub, "send", AuthzTarget{TargetFolder: "happy"}); err == nil {
-		t.Error("sub send cross-world must deny")
-	}
-	// Other outbound verbs follow the same rule.
-	for _, tool := range []string{"send_file", "reply", "post", "like", "dislike",
-		"delete", "edit", "forward", "quote", "repost",
-		"pin_message", "unpin_message", "unpin_all",
-		"pane_set_prompts", "pane_set_title"} {
-		if err := AuthorizeStructural(sub, tool, AuthzTarget{TargetFolder: "happy"}); err == nil {
-			t.Errorf("%s cross-world from tier-1 must deny", tool)
-		}
-		if err := AuthorizeStructural(root, tool, AuthzTarget{TargetFolder: "happy"}); err != nil {
-			t.Errorf("%s from root should allow cross-world: %v", tool, err)
-		}
-	}
-}
-
-func TestAuthorizeInspectTasks(t *testing.T) {
-	id := Resolve("w/a")
-	if err := AuthorizeStructural(id, "inspect_tasks", AuthzTarget{TaskOwner: "w/a"}); err != nil {
-		t.Fatalf("inspect own task should allow: %v", err)
-	}
-	if err := AuthorizeStructural(id, "inspect_tasks", AuthzTarget{TaskOwner: "w/a/b"}); err != nil {
-		t.Fatalf("inspect descendant task should allow: %v", err)
-	}
-	if err := AuthorizeStructural(id, "inspect_tasks", AuthzTarget{TaskOwner: "w/x"}); err == nil {
-		t.Fatal("inspect non-descendant task should deny")
-	}
-}
-
-func TestAuthorizeResetSession(t *testing.T) {
-	id := Resolve("w/a")
-	if err := AuthorizeStructural(id, "reset_session", AuthzTarget{TargetFolder: "w/a"}); err != nil {
-		t.Fatalf("self reset should work: %v", err)
-	}
-	if err := AuthorizeStructural(id, "reset_session", AuthzTarget{TargetFolder: "w/a/b"}); err != nil {
-		t.Fatalf("child reset should work: %v", err)
-	}
-	if err := AuthorizeStructural(id, "reset_session", AuthzTarget{TargetFolder: "w/x"}); err == nil {
-		t.Fatal("non-descendant reset should fail")
-	}
-}
-
-func TestAuthorizeInjectMessage(t *testing.T) {
-	if err := AuthorizeStructural(Resolve("w"), "inject_message", AuthzTarget{}); err != nil {
-		t.Fatal("tier 0 should inject")
-	}
-	if err := AuthorizeStructural(Resolve("w/a"), "inject_message", AuthzTarget{}); err != nil {
-		t.Fatal("tier 1 should inject")
-	}
-	if err := AuthorizeStructural(Resolve("w/a/b"), "inject_message", AuthzTarget{}); err == nil {
-		t.Fatal("tier 2 should not inject")
-	}
-}
-
-func TestAuthorizeRegisterGroup(t *testing.T) {
-	if err := AuthorizeStructural(Resolve("w"), "register_group", AuthzTarget{TargetFolder: "w"}); err == nil {
-		t.Fatal("tier 0 should not register worlds")
-	}
-	if err := AuthorizeStructural(Resolve("w"), "register_group", AuthzTarget{TargetFolder: "w/child"}); err != nil {
-		t.Fatalf("tier 0 should register children: %v", err)
-	}
-	if err := AuthorizeStructural(Resolve("w/a"), "register_group", AuthzTarget{TargetFolder: "w/a/child"}); err != nil {
-		t.Fatalf("tier 1 should register direct children: %v", err)
-	}
-	if err := AuthorizeStructural(Resolve("w/a"), "register_group", AuthzTarget{TargetFolder: "w/b/child"}); err == nil {
-		t.Fatal("tier 1 should not register outside own subtree")
-	}
-	if err := AuthorizeStructural(Resolve("w/a/b"), "register_group", AuthzTarget{}); err == nil {
-		t.Fatal("tier 2 should not register groups")
-	}
-}
-
-func TestAuthorizeEscalateGroup(t *testing.T) {
-	if err := AuthorizeStructural(Resolve("w/a/b"), "escalate_group", AuthzTarget{}); err != nil {
-		t.Fatal("tier 2 should escalate")
-	}
-	if err := AuthorizeStructural(Resolve("w/a"), "escalate_group", AuthzTarget{}); err == nil {
-		t.Fatal("tier 1 should not escalate")
-	}
-}
-
-func TestAuthorizeDelegateGroup(t *testing.T) {
-	id := Resolve("w/a")
-	if err := AuthorizeStructural(id, "delegate_group", AuthzTarget{TargetFolder: "w/a/child"}); err != nil {
-		t.Fatalf("should delegate to child: %v", err)
-	}
-	if err := AuthorizeStructural(id, "delegate_group", AuthzTarget{TargetFolder: "w/b"}); err == nil {
-		t.Fatal("should not delegate to non-child")
-	}
-	if err := AuthorizeStructural(Resolve("w/a/b/c"), "delegate_group", AuthzTarget{}); err == nil {
-		t.Fatal("tier 3 should not delegate")
-	}
-}
-
-func TestAuthorizeRouteTools(t *testing.T) {
-	for _, tool := range []string{"list_routes", "set_routes", "add_route", "delete_route"} {
-		if err := AuthorizeStructural(Resolve("w"), tool, AuthzTarget{}); err != nil {
-			t.Errorf("%s should work at tier 0: %v", tool, err)
-		}
-		if err := AuthorizeStructural(Resolve("w/a/b"), tool, AuthzTarget{}); err == nil {
-			t.Errorf("%s should fail at tier 2", tool)
-		}
-	}
-}
-
-func TestAuthorizeNetworkTools(t *testing.T) {
-	for _, tool := range []string{"network_allow", "network_deny", "network_list"} {
-		// Root (tier 0) may manage egress for any folder.
-		if err := AuthorizeStructural(Resolve("w"), tool, AuthzTarget{TargetFolder: "w/a/b"}); err != nil {
-			t.Errorf("%s: root should manage any folder: %v", tool, err)
-		}
-		// Tier 1 may manage its own folder and descendants.
-		if err := AuthorizeStructural(Resolve("w/a"), tool, AuthzTarget{TargetFolder: "w/a"}); err != nil {
-			t.Errorf("%s: tier 1 own folder should work: %v", tool, err)
-		}
-		if err := AuthorizeStructural(Resolve("w/a"), tool, AuthzTarget{TargetFolder: "w/a/b"}); err != nil {
-			t.Errorf("%s: tier 1 descendant should work: %v", tool, err)
-		}
-		// Tier 1 may NOT manage a sibling/escaping folder.
-		if err := AuthorizeStructural(Resolve("w/a"), tool, AuthzTarget{TargetFolder: "w/b"}); err == nil {
-			t.Errorf("%s: tier 1 sibling folder should be denied", tool)
-		}
-		// Tier 2+ may not manage egress at all.
-		if err := AuthorizeStructural(Resolve("w/a/b"), tool, AuthzTarget{TargetFolder: "w/a/b"}); err == nil {
-			t.Errorf("%s: tier 2 should be denied", tool)
-		}
-	}
-}
-
-func TestAuthorizeScheduleTask(t *testing.T) {
-	if err := AuthorizeStructural(Resolve("w"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err != nil {
-		t.Fatal("tier 0 should schedule any task")
-	}
-	if err := AuthorizeStructural(Resolve("w/a"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err != nil {
-		t.Fatal("tier 1 same world should schedule")
-	}
-	if err := AuthorizeStructural(Resolve("w/a"), "schedule_task", AuthzTarget{TaskOwner: "x/b"}); err == nil {
-		t.Fatal("tier 1 different world should fail")
-	}
-	if err := AuthorizeStructural(Resolve("w/a/b"), "schedule_task", AuthzTarget{TaskOwner: "w/a/b"}); err != nil {
-		t.Fatal("tier 2 own task should schedule")
-	}
-	if err := AuthorizeStructural(Resolve("w/a/b"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err == nil {
-		t.Fatal("tier 2 other's task should fail")
-	}
-	if err := AuthorizeStructural(Resolve("w/a/b/c"), "schedule_task", AuthzTarget{}); err == nil {
-		t.Fatal("tier 3 should not schedule")
-	}
-}
-
-func TestAuthorizeTaskOps(t *testing.T) {
-	for _, tool := range []string{"pause_task", "resume_task", "cancel_task"} {
-		if err := AuthorizeStructural(Resolve("w"), tool, AuthzTarget{TaskOwner: "w/a"}); err != nil {
-			t.Errorf("%s tier 0 should work: %v", tool, err)
-		}
-		if err := AuthorizeStructural(Resolve("w/a/b/c"), tool, AuthzTarget{}); err == nil {
-			t.Errorf("%s tier 3 should fail", tool)
-		}
-	}
-}
-
-// TestElevationRegainsStarGrant pins the root-elimination invariant end to end
-// on the LIVE gate (grants.DeriveRules, keyed on auth.Resolve tier): a bare
-// top-level world resolves to tier 1 and LOSES the tier-0 `*` grant, while an
-// elevated identity (tier 0, only reachable via operator /root) regains it.
-func TestElevationRegainsStarGrant(t *testing.T) {
-	world := Resolve("main")
-	if world.Tier != 1 {
-		t.Fatalf("top-level world tier = %d, want 1 (no default root)", world.Tier)
-	}
-	rules := grants.DeriveRules(nil, "main", world.Tier, world.World)
-	if slices.Contains(rules, "*") {
-		t.Errorf("tier-1 world must NOT carry the `*` grant, got %v", rules)
-	}
-	// Elevated /root resolves to tier 0 and regains the unrestricted `*`.
-	elevated := grants.DeriveRules(nil, "main", 0, "main")
-	if len(elevated) != 1 || elevated[0] != "*" {
-		t.Errorf("elevated (tier 0) grant set = %v, want [\"*\"]", elevated)
-	}
-}
+// --- Identity (4/R: no tier, no world rank on the id) ---
 
 func TestIdentityResolve(t *testing.T) {
+	// Only the empty "" folder resolves to root (the operator/service sentinel);
+	// every named folder is a plain, non-root identity — authority is its acl rows,
+	// not its depth.
 	tests := []struct {
 		folder string
-		tier   int
-		world  string
+		isRoot bool
 	}{
-		// A bare top-level world is tier 1, NOT 0 — tier 0 is reserved for
-		// operator /root elevation, so a world no longer picks up the `*` grant.
-		{"main", 1, "main"},
-		{"world/parent", 1, "world"},
-		{"world/parent/child", 2, "world"},
-		{"world/a/b/c", 3, "world"},
-		{"world/a/b/c/d", 3, "world"},
+		{"", true},
+		{"main", false},
+		{"world/parent", false},
+		{"world/a/b/c", false},
 	}
 	for _, tc := range tests {
 		id := Resolve(tc.folder)
-		if id.Tier != tc.tier {
-			t.Errorf("%s: tier got %d, want %d", tc.folder, id.Tier, tc.tier)
+		if id.Folder != tc.folder {
+			t.Errorf("%s: folder got %q", tc.folder, id.Folder)
 		}
-		if id.World != tc.world {
-			t.Errorf("%s: world got %q, want %q", tc.folder, id.World, tc.world)
+		if id.IsRoot != tc.isRoot {
+			t.Errorf("%s: isRoot got %v, want %v", tc.folder, id.IsRoot, tc.isRoot)
 		}
 	}
 }

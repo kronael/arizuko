@@ -22,10 +22,6 @@ type UserSub string
 // hierarchy semantics live in core/groupfolder.
 type Folder string
 
-// Tier is a coarse access level (0 = root … 5+ = thread). Legacy, being
-// superseded by capability Scopes — see specs/5/U § "Capability vs tier".
-type Tier int
-
 // Scope is a single ACL scope expression ("messages:*:own_group"). A
 // capability set is a []Scope.
 type Scope string

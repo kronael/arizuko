@@ -18,10 +18,10 @@ type Caller struct {
 }
 
 // Authorize returns true iff caller is permitted to perform action on scope:
-// row-based grants over the caller's expanded principal set, deny-wins. There is
-// NO tier-default fallback (4/R phase e deleted it) — magnitude is the caller's role
-// membership + operator grants; a no-match is a deny. Containment is the orthogonal
-// gate in AuthorizeContainment (backfill.go); many tool callsites need both.
+// row-based grants over the caller's expanded principal set, deny-wins. It is the
+// SOLE runtime authorization evaluator (4/R): magnitude AND containment in one call
+// — a delegated row scoped `acme/**` authorizes `mcp:<tool>` on any target under
+// acme. Management callsites pass the ACTUAL target as scope; a no-match is a deny.
 func Authorize(
 	s *store.Store,
 	caller Caller,
@@ -49,13 +49,6 @@ func Authorize(
 	// 4. Evaluate.
 	allowed, denied := false, false
 	for _, r := range rows {
-		// Backfill rows are the CONTAINMENT gate (consumed by AuthorizeContainment via
-		// ListACL), NOT magnitude — counting them here would grant a folder a tool its
-		// role bundle denies (e.g. the unconditional outbound-verb F/** rows would give
-		// a tier-3 folder `send`). Magnitude = role bundle + operator grants only.
-		if r.GrantedBy == BackfillGrantedBy {
-			continue
-		}
 		if !actionCovers(r.Action, action) {
 			continue
 		}
@@ -77,11 +70,49 @@ func Authorize(
 	if denied {
 		return false
 	}
-	// No tier-default fallback: a folder's magnitude now comes from its role
-	// membership (assignDefaultRole seeds it as DATA — 4/R phase e), so the role's
-	// acl rows match above. The DeriveRules(tier) fallback that used to catch the
-	// no-row case is deleted; a folder with no matching allow row is denied, loud.
+	// A folder's magnitude is its role membership (role:member floor + delegated
+	// grants) + operator grants. No fallback: a folder with no matching allow row is
+	// denied, loud.
 	return allowed
+}
+
+// EffectiveActions returns a predicate reporting whether caller holds an allow row
+// for an mcp action at ANY scope — the tool-VISIBILITY view (tools/list), orthogonal
+// to the per-target authz Authorize does. A lattice grant (`*`, `mcp:*`, `admin`)
+// makes every mcp tool visible; an explicit `mcp:<tool>` allow makes that one
+// visible. Deny rows are scope-specific and don't hide a tool from the list (the
+// per-call Authorize still enforces them). Reads are advertised unconditionally by
+// their callers, never through this view.
+func EffectiveActions(s *store.Store, caller Caller) func(action string) bool {
+	if s == nil || caller.Principal == "" {
+		return func(string) bool { return false }
+	}
+	expanded := expandPrincipals(s, caller)
+	rows := s.ACLRowsFor(expanded)
+	for _, r := range s.ACLWildcardRows() {
+		if anyPrincipalMatches(r.Principal, expanded) {
+			rows = append(rows, r)
+		}
+	}
+	lattice := false
+	held := map[string]bool{}
+	for _, r := range rows {
+		if r.Effect == "deny" {
+			continue
+		}
+		switch r.Action {
+		case "*", "mcp:*", "admin":
+			lattice = true
+		default:
+			held[r.Action] = true
+		}
+	}
+	return func(action string) bool {
+		if lattice {
+			return strings.HasPrefix(action, "mcp:")
+		}
+		return held[action]
+	}
 }
 
 // expandPrincipals: caller.Principal + caller.Extra plus the transitive

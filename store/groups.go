@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -174,55 +173,6 @@ func (s *Store) PendingChatJIDs(botName string) []string {
 		}
 	}
 	return jids
-}
-
-// routeSourceJIDs reconstructs "platform:room" JIDs from a route's match.
-// Glob values are skipped. Missing platform → room literal alone.
-func routeSourceJIDs(match string) []string {
-	var platform string
-	var rooms []string
-	for _, tok := range strings.Fields(match) {
-		k, v, ok := strings.Cut(tok, "=")
-		if !ok || v == "" || strings.ContainsAny(v, "*?[") {
-			continue
-		}
-		switch k {
-		case "platform":
-			platform = v
-		case "room":
-			rooms = append(rooms, v)
-		case "chat_jid":
-			rooms = append(rooms, v)
-			return rooms
-		}
-	}
-	if platform == "" {
-		return rooms
-	}
-	out := make([]string, len(rooms))
-	for i, r := range rooms {
-		out[i] = platform + ":" + r
-	}
-	return out
-}
-
-func (s *Store) RouteSourceJIDsInWorld(worldFolder string) []string {
-	seen := make(map[string]struct{})
-	var out []string
-	for _, r := range s.AllRoutes() {
-		f := core.ParseRouteTarget(r.Target).Folder
-		if f != worldFolder && !strings.HasPrefix(f, worldFolder+"/") {
-			continue
-		}
-		for _, jid := range routeSourceJIDs(r.Match) {
-			if _, dup := seen[jid]; dup {
-				continue
-			}
-			seen[jid] = struct{}{}
-			out = append(out, jid)
-		}
-	}
-	return out
 }
 
 func (s *Store) DefaultFolderForJID(jid string) string {

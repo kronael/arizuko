@@ -7,36 +7,24 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
+// Identity is a folder's non-elevated authz coordinate. 4/R decision 2: the path
+// carries ZERO authorization (no tier, no world rank) — only its own name and the
+// root predicate. Authority is the caller's acl rows (auth.Authorize); containment
+// is a scope-glob on the target.
 type Identity struct {
 	Folder string
-	Tier   int
-	World  string
-	// IsRoot is the explicit root predicate (spec 4/R decision 1: root is a grant/
-	// elevation, not a folder position). Today it is set == (Tier==0) so the ~10
-	// root-bypass sites read `id.IsRoot` instead of `id.Tier==0` — behavior is
-	// identical now, but when tier is removed only the SETTING of IsRoot changes
-	// (to "holds the root grant"), not the call sites.
+	// IsRoot is the explicit root predicate (4/R decision 1: root is a grant/
+	// elevation, not a folder position). The empty "" folder is the operator/service
+	// sentinel; a per-turn /root elevation sets it explicitly on the resolved id.
 	IsRoot bool
 }
 
-// Resolve returns the NON-elevated identity of a folder. Tier 0 is reserved for
-// root: an operator /root elevation (an explicit Identity{Tier: 0}) OR the empty
-// folder "" — the operator/service sentinel the REST + service faces carry (no
-// folder = act on anything). A bare, NAMED top-level world ("main") resolves to
-// tier 1, not 0, so a tenant folder no longer picks up the tier-0 `*` grant by
-// depth (grants.DeriveRules). The floor is what demotes a named world; "" stays
-// the operator identity.
+// Resolve returns the non-elevated identity of a folder. The empty "" folder is the
+// operator/service sentinel (REST + service faces carry it: no folder = act on
+// anything → root). Every NAMED folder resolves to a plain, non-root identity;
+// authority comes from its acl rows, never its depth (4/R: tiers dissolved).
 func Resolve(folder string) Identity {
-	tier := min(strings.Count(folder, "/"), 3)
-	if folder != "" && tier < 1 {
-		tier = 1
-	}
-	return Identity{
-		Folder: folder,
-		Tier:   tier,
-		World:  WorldOf(folder),
-		IsRoot: tier == 0, // "" sentinel resolves root; a named world floors to 1
-	}
+	return Identity{Folder: folder, IsRoot: folder == ""}
 }
 
 func WorldOf(folder string) string {

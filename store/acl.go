@@ -153,54 +153,6 @@ func (s *Store) RemoveACLRowBare(row core.ACLRow) error {
 	return err
 }
 
-// DeleteACLPrincipal removes every acl row for a principal — used to prune-and-
-// reseed a managed role bundle (routd SeedTierRoles) so a tightened bundle revokes
-// instead of leaving stale rows. Audit-free (seed maintenance, not an operator write).
-func (s *Store) DeleteACLPrincipal(principal string) error {
-	_, err := s.db.Exec(`DELETE FROM acl WHERE principal = ?`, principal)
-	return err
-}
-
-// ReplaceACLPrincipalRows atomically deletes every acl row for principal and
-// inserts rows in ONE transaction — so a concurrent reader (another routd, a
-// `arizuko packages` run opening the same DB) never sees the principal empty
-// mid-reseed. Audit-free (managed-bundle maintenance, like DeleteACLPrincipal).
-// The caller MUST skip this when rows are unchanged (see SeedTierRoles): the
-// principal is system-owned, so a reseed drops any row an operator wrongly wrote
-// onto it — acceptable only because we never reseed on a no-op restart.
-func (s *Store) ReplaceACLPrincipalRows(principal string, rows []core.ACLRow) error {
-	ctx := context.Background()
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM acl WHERE principal = ?`, principal); err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if row.Effect == "" {
-			row.Effect = "allow"
-		}
-		if row.GrantedAt == "" {
-			row.GrantedAt = time.Now().Format(time.RFC3339)
-		}
-		var grantedBy any
-		if row.GrantedBy != "" {
-			grantedBy = row.GrantedBy
-		}
-		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO acl
-			  (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			row.Principal, row.Action, row.Scope, row.Effect,
-			row.Params, row.Predicate, grantedBy, row.GrantedAt, boolToInt(row.GrantOption)); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
 func scanACLRow(rows *sql.Rows) (core.ACLRow, error) {
 	var r core.ACLRow
 	var grantedBy sql.NullString
