@@ -6,24 +6,27 @@ package routd
 // owns the auth POLICY (spec 5/16). Three semantics the shared handler preserves:
 //
 //   - scope-containment (the stricter MCP gate): a caller may only grant/revoke
-//     within its own authority — the Gate runs auth.AuthorizeStructural on the
-//     `scope` arg (add/remove) or `folder` arg (list). scope "**" (operator
-//     role) is thus tier-0-only by containment, exactly as before.
-//   - the scope=="**" overload: grant/revoke write an acl_membership operator
-//     edge, not an acl row. Done tx-aware here (calling s.db.AddMembership would
-//     open its own BeginTx and DEADLOCK inside invoke's tx) while PRESERVING the
-//     recursive cycle check store.AddMembership does.
-//   - list_acl is tier 0-1 only (Visible predicate) and returns only rows whose
-//     scope == the queried folder.
+//     within its own authority — the Gate runs the 4/R single evaluator on the
+//     `scope` arg (add/remove) or `folder` arg (list), then auth.Delegate
+//     (subset-of-held) for a non-root add. scope "**" (operator role) is thus
+//     reachable only from an operator/root grant.
+//   - the operator-role overload: scope "**" with the action OMITTED (or "*")
+//     writes an acl_membership operator edge, not an acl row. Any action the
+//     caller names at "**" is an ordinary row — matching on scope alone
+//     discarded it and over-granted. Done tx-aware here (calling
+//     s.db.AddMembership would open its own BeginTx and DEADLOCK inside
+//     invoke's tx) while PRESERVING its recursive cycle check.
+//   - list_acl is advertised only to a caller holding mcp:list_acl (the Visible
+//     predicate) and returns only rows whose scope == the queried folder.
 //
 // The REST face (/v1/acl POST=add + body-DELETE=remove) rides the SAME shared
 // handler via mountACL (below): resreg.RegisterREST on an add/remove-only copy of
 // aclResource() with a REST Caller + Gate injected. list_acl has NO REST twin —
-// it stays agent-only. The REST Gate re-runs the MCP scope-containment
-// (AuthorizeStructural on the body scope, tier from the JWT folder), so the
-// operator/human face can no longer grant/revoke outside its authority ("**"
-// needs tier-0/root) — closing the pre-fold hole where handleACLAdd/Remove gated
-// on the acl:write bearer scope ALONE and never bound the body scope.
+// it stays agent-only. The REST Gate binds the body `scope` to the caller's JWT
+// folder (ownsFolder), so the operator/human face can no longer grant/revoke
+// outside its authority ("**" needs the empty-folder root token) — closing the
+// pre-fold hole where handleACLAdd/Remove gated on the acl:write bearer scope
+// ALONE and never bound the body scope.
 
 import (
 	"context"
@@ -83,7 +86,7 @@ func (s *Server) mountACL(mux *http.ServeMux) {
 
 // aclRESTCaller builds the REST Caller for the shared acl handler: identity via
 // the Verifier, Caller.Folder = the caller's JWT folder (the handler stamps grant
-// provenance from it; aclRESTGate resolves its tier from it). Held scopes ride in
+// provenance from it; aclRESTGate binds the body scope to it). Held scopes ride in
 // Claims for the Gate. A nil Verifier is open (local-dev), mirroring s.authz.
 func (s *Server) aclRESTCaller(r *http.Request) (resreg.Caller, error) {
 	var sub, folder string
@@ -102,12 +105,12 @@ func (s *Server) aclRESTCaller(r *http.Request) (resreg.Caller, error) {
 	}, nil
 }
 
-// aclRESTGate is the operator/human REST twin of aclPostBuild's tier Gate: the
-// acl:write bearer scope, then the SAME MCP scope-containment — AuthorizeStructural
-// on the body `scope`, tier resolved from the caller's JWT folder. This binds the
-// granted/revoked scope to the caller's authority (scope "**" → tier-0/root only),
-// closing the pre-fold REST hole where handleACLAdd/Remove gated on acl:write ALONE
-// and never bound the body scope. A nil Verifier is open (mirrors s.authz).
+// aclRESTGate is the operator/human REST twin of aclPostBuild's Gate: the acl:write
+// bearer scope, then scope-containment — ownsFolder on the body `scope` against the
+// caller's JWT folder. This binds the granted/revoked scope to the caller's authority
+// (scope "**" needs the empty-folder root token), closing the pre-fold REST hole where
+// handleACLAdd/Remove gated on acl:write ALONE and never bound the body scope. A nil
+// Verifier is open (mirrors s.authz).
 func (s *Server) aclRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
 	if s.verify == nil {
 		return nil
@@ -172,9 +175,9 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 	return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
 }
 
-// aclPostBuild mounts the acl tools on the agent socket with the tier-aware Gate
-// (CheckAction + db.Authorize(mcp:) + AuthorizeStructural scope-containment) and
-// the Visible predicate (MatchingRules + list_acl tier<=1).
+// aclPostBuild mounts the acl tools on the agent socket with the Gate
+// (db.Authorize(mcp:) on the target scope + auth.Delegate subset-of-held on add)
+// and the turn's visibility view.
 func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, callerID auth.Identity) func(*mcpserver.MCPServer) {
 	res := s.aclResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {

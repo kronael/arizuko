@@ -425,7 +425,7 @@ func (l *Loop) recoverPending() {
 // checkMigrationVersion enqueues a /migrate system message for EVERY group whose
 // on-disk skill version is behind the upstream MIGRATION_VERSION. Bumping
 // MIGRATION_VERSION is the single trigger for both skill updates AND release
-// broadcasts. /migrate is now a per-group self-migrate (it 3-way merges the
+// broadcasts. /migrate is a per-group self-migrate (it 3-way merges the
 // group's own ~/.claude from the read-only skills mount), so there is no root
 // fan-out — each behind group migrates itself. Dropping the old top-level-only
 // skip is what made this fire for every behind group (they had frozen at
@@ -617,7 +617,7 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 	if err != nil {
 		// A transient Routes() read failure otherwise looks identical to a
 		// clean route-miss: the poll caller advances the cursor and drops the
-		// message (loop.go:540). We keep the fail-forward — retrying here risks a
+		// message. We keep the fail-forward — retrying here risks a
 		// poison-message loop — but make the drop LOUD instead of silent.
 		slog.Error("resolve: route table read failed; message dropped as route-miss",
 			"jid", chatJID, "err", err)
@@ -637,7 +637,7 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 				return resolution{Folder: folder, ok: true}
 			}
 			if rt.Mode == "observe" {
-				return resolution{Observe: rt.Folder} // silent ingest; no turn
+				return resolution{Observe: rt.Folder}
 			}
 			return resolution{Folder: rt.Folder, Topic: rt.Topic, ok: true}
 		}

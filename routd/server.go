@@ -62,8 +62,8 @@ type Deliverer interface {
 	RoundDone(folder, turnID, status, errMsg string) error
 	// FetchHistory proxies to the owning adapter's GET /v1/history (the
 	// fetch_history MCP tool's platform-truth source). Returns the raw JSON
-	// HistoryResponse bytes. (chanreg.ErrNoChannel, nil) when no adapter owns
-	// the jid or it lacks the cap → the caller falls back to the local DB.
+	// HistoryResponse bytes; any error (no adapter owns the jid, it lacks the
+	// cap, transport) makes the caller fall back to the local DB.
 	FetchHistory(jid string, before time.Time, limit int) ([]byte, error)
 }
 
@@ -278,7 +278,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/turns/{turn_id}/pin", s.handlePin)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/unpin", s.handleUnpin)
 	// social/feed turn-face — the REST twins of the post/forward/quote/repost/
-	// send_voice MCP tools; pure relays to the same Deliverer methods (5/5).
+	// send_voice MCP tools; pure relays to the same Deliverer methods (spec 2/j).
 	mux.HandleFunc("POST /v1/turns/{turn_id}/post", s.handlePost)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/forward", s.handleForward)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/quote", s.handleQuote)
@@ -375,8 +375,6 @@ func (s *Server) ownsJID(tokenFolder, jid string) bool {
 func denyCrossFolder(w http.ResponseWriter, jid string) {
 	writeErr(w, 403, "forbidden", "chat "+jid+" is outside your folder")
 }
-
-// --- ingress ---
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	sub, _, ok := s.authz(w, r, "messages:write")
@@ -693,8 +691,6 @@ func isChannelJID(jid string) bool {
 	}
 	return strings.Contains(jid, ":")
 }
-
-// --- helpers ---
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")

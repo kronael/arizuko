@@ -230,10 +230,11 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 // handleRecentSessions is the routd→runed federation read (spec 5/P): the n
 // newest session_log rows for a folder, full-fielded (group_folder + error),
-// backing routd's new_session continuity hint + inspect_session tool. routd
-// used to open runed.db directly; it calls this instead. Gated on sessions:read
-// like GET /v1/sessions. Folder is bound by the token's arz/folder claim when
-// present; routd's service token (folder="") honors the ?folder= query param.
+// backing routd's new_session continuity hint + inspect_session tool — split
+// ownership means routd never opens runed.db directly. Gated on
+// sessions:read like GET /v1/sessions. Folder is bound by the token's
+// arz/folder claim when present; routd's service token (folder="") honors
+// the ?folder= query param.
 func (s *Server) handleRecentSessions(w http.ResponseWriter, r *http.Request) {
 	folder, ok := s.authz(w, r, "sessions:read")
 	if !ok {

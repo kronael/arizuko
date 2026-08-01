@@ -12,13 +12,11 @@ import (
 
 // FakeRuntime backs the contract test + standalone acceptance: it invokes a
 // caller-supplied function with the RunSpec and returns its outcome. No
-// docker, no socket (spec 5/P § acceptance: FakeRuntime backs unit tests of
-// the envelope without spawning anything).
+// docker, no socket (spec 5/P § acceptance).
 type FakeRuntime struct {
 	Fn func(ctx context.Context, spec RunSpec) RunResult
 }
 
-// Run invokes the injected function.
 func (f FakeRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 	if f.Fn == nil {
 		return RunResult{Outcome: runedv1.OutcomeSilent}

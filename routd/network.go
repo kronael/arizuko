@@ -5,7 +5,7 @@ import (
 )
 
 // NetworkRule is one explicit egress allowlist row. JSON tags match the shape
-// network_list's `own` array returns to the agent (was ipc.NetworkRule).
+// network_list's `own` array returns to the agent.
 type NetworkRule struct {
 	Folder    string `json:"folder"`
 	Target    string `json:"target"`

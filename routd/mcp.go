@@ -28,7 +28,7 @@ type turnMCP struct {
 	chatJID  string
 	turnID   string
 	trigger  string
-	elevated bool // operator /root turn: the socket grants `*` (tier-0 grant set)
+	elevated bool // operator /root turn: the socket authorizes every call
 }
 
 // buildGatedFns wires the write-side agent tools (reply/send/social/group
@@ -188,11 +188,11 @@ func toInviteInfo(inv Invite) ipc.InviteInfo {
 	}
 }
 
-// registerGroup is the manual register_group path (ipc.GatedFns.RegisterGroup).
-// registerGroup persists the group, adds a room-matched
-// default route (rolling the group row back if the route insert fails so a
-// route-less, unreachable, un-respawnable orphan is never left behind), then
-// git-init the group dir. The jid supplies the route's room literal.
+// registerGroup is the manual register_group path (the groups resource handler
+// calls it): it persists the group, adds a room-matched default route (rolling
+// the group row back if the route insert fails so a route-less, unreachable,
+// un-respawnable orphan is never left behind), then git-inits the group dir.
+// The jid supplies the route's room literal.
 func (s *Server) registerGroup(jid string, g core.Group) error {
 	if err := s.db.PutGroup(g); err != nil {
 		return err
@@ -287,8 +287,9 @@ func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string)
 	return pid, err
 }
 
-// Route-token issuance/list/revocation migrated to routd/route_tokens_resource.go
-// (spec 5/16, agent-MCP fold). The REST twin stays hand-rolled in tokens_http.go.
+// Route-token issuance/list/revocation live in routd/route_tokens_resource.go
+// (spec 5/16, agent-MCP fold); the REST twin rides the same resource, mounted in
+// tokens_http.go, where only the REST-only resolve stays hand-rolled.
 
 // mcpSubmitTurn maps the ipc.TurnResult agent payload onto routd's apiv1
 // shape and records it through the shared recordTurnResult writer (the same
@@ -405,8 +406,8 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		return s.db.SetEngagement(jid, topic, folder, time.Until(until))
 	}
 	return ipc.StoreFns{
-		// Task reads for inspect_tasks (the write tools schedule/pause/resume/
-		// cancel/list moved to the scheduled_tasks resreg seam — spec 5/16).
+		// Task reads for inspect_tasks; the write tools (schedule/pause/resume/
+		// cancel/list) live on the scheduled_tasks resreg seam — spec 5/16.
 		ListTasks: s.db.Tasks,
 		GetTask:   s.db.GetTask,
 		TaskRunLogs: func(taskID string, limit int) []ipc.TaskRunLog {
@@ -419,7 +420,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// Identity reads: authd's GET /v1/identities/{sub}, snapshotted over HTTP.
 		// nil resolver → unclaimed shape.
 		GetIdentityForSub: s.resolveIdentity,
-		// list_routes/add_route/set_routes/delete_route moved to the routes resreg
+		// list_routes/add_route/set_routes/delete_route live on the routes resreg
 		// seam (spec 5/16); ListRoutes stays — inspect_routing still reads it.
 		ListRoutes: func(_ string, _ bool) []core.Route {
 			r, _ := s.db.Routes()

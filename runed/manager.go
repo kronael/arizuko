@@ -172,7 +172,6 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	var logID int64
 	if !req.Isolated {
 		logID, _ = m.db.RecordSession(folder, sessionID)
-		// Update the spawn row with the session_log_id.
 		_ = m.db.SetSpawnSessionLogID(runID, logID)
 	}
 
@@ -262,7 +261,6 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 // the threshold on this run). The slot frees implicitly (no running row);
 // there is no admission queue to drain — routd re-feeds next poll.
 func (m *Manager) endRun(folder, runID string, failed bool) bool {
-	// Update circuit breaker in DB.
 	var tripped bool
 	if failed {
 		newCount, _ := m.db.IncrFailures(folder)

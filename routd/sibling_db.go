@@ -59,9 +59,9 @@ func (d *DB) SetPaneContextByTriple(teamID, userID, threadTS, contextJID string)
 	return d.paneStore().SetPaneContext(teamID, userID, threadTS, contextJID)
 }
 
-// aclEval wraps routd.db as a *store.Store for the ACL evaluator
-// (auth.AuthorizeWith) + readers (ListACL, UserScopes). An empty acl table yields
-// tier-default behaviour.
+// aclEval wraps routd.db as a *store.Store for the ACL evaluator (auth.Authorize)
+// + readers (ListACL, UserScopes). An empty acl table denies everything — there is
+// no fallback grant set.
 func (d *DB) aclEval() *store.Store { return store.New(d.db) }
 
 // secretStore wraps routd.db as a *store.Store with the SECRETS_KEY keyring set,
@@ -178,8 +178,7 @@ func (d *DB) AddMembership(child, parent, addedBy string) error {
 
 // Authorize is the per-call row-ACL check for an in-container agent tool call.
 // sub is the canonical agent principal (folder:<folder>). Magnitude comes from the
-// folder's role membership + operator grants (4/R phase e removed the tier fallback);
-// a no-match denies.
+// folder's role membership + operator grants; a no-match denies.
 func (d *DB) Authorize(sub, folder, action string, params map[string]string) bool {
 	caller := auth.Caller{Principal: sub}
 	return auth.Authorize(d.aclEval(), caller, action, folder, params)
@@ -190,7 +189,7 @@ func (d *DB) Authorize(sub, folder, action string, params map[string]string) boo
 // role:operator acl_membership edge (grantACLTx), so operator status IS
 // transitive membership in role:operator. A direct `admin`/`*` grant on the whole
 // tree (`**`) also counts. This is the gate for /root elevation (steer.go
-// cmdRoot): only a `**` holder may raise a turn to tier 0. Empty sub → false.
+// cmdRoot): only a `**` holder may raise a turn to root. Empty sub → false.
 func (d *DB) IsOperator(sub string) bool {
 	if sub == "" {
 		return false

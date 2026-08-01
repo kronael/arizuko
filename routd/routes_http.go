@@ -59,11 +59,10 @@ func toWireRoute(r core.Route) apiv1.Route {
 // read (handleRouteGet — no agent twin, its own folder scoping).
 func (s *Server) mountRoutes(mux *http.ServeMux) {
 	// Operator/human REST face: per-target containment is ownsFolder on the caller's
-	// JWT folder (own-or-descendant) — NOT the agent tier model. This is what confines
-	// a top-level tenant (tier 0, for which the tier cap is a no-op) to its own subtree
-	// and lets an operator manage its whole subtree (which the strict-descendant tier
-	// cap wrongly denied). The route's own-folder / self-default invariants stay in the
-	// handler.
+	// JWT folder (own-or-descendant) — its own rule, not the agent face's grant-scope
+	// check. This is what confines a top-level tenant to its own subtree and lets an
+	// operator manage its whole subtree. The route's own-folder / self-default
+	// invariants stay in the handler.
 	contain := func(c resreg.Caller, _ resreg.Action, target string) error {
 		if routeTargetOwned(c.Folder, target) {
 			return nil
@@ -77,8 +76,8 @@ func (s *Server) mountRoutes(mux *http.ServeMux) {
 }
 
 // routesRESTCaller builds the REST Caller for the shared routes handler. That
-// handler reads x.Caller.Folder as the caller's OWN folder (tier source + set/list
-// scoping); for the operator that IS the JWT folder. Held scopes ride in Claims for
+// handler reads x.Caller.Folder as the caller's OWN folder (set/list scoping); for
+// the operator that IS the JWT folder. Held scopes ride in Claims for
 // routesRESTGate. A nil Verifier is open (local-dev/tests): empty principal + empty
 // folder (root — unrestricted, list spans all), mirroring s.authz.
 func (s *Server) routesRESTCaller(r *http.Request) (resreg.Caller, error) {

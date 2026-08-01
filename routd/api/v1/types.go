@@ -1,11 +1,10 @@
 // Package v1 is routd's published contract: the wire types + a thin HTTP
 // client for the /v1/turns/{turn_id}/* callback surface and the ingress
-// /v1/messages endpoint. Imports only types/ (spec 5/U § Per-service
-// api/v1) so runed can call back without dragging in core.
+// /v1/messages endpoint. Imports only types/ (spec 5/E § api/v1 surface)
+// so runed can call back without dragging in core.
 //
-// The /v1/turns/{turn_id}/* bodies are PINNED, identical to the peer
-// rendering in specs/5/P-runed.md § The agent's callback into routd and
-// specs/5/E-routd.md § Turn / conversation commands.
+// The /v1/turns/{turn_id}/* bodies are PINNED, identical to the rendering
+// in specs/5/E-routd.md § Turn / conversation commands.
 package v1
 
 // Message is the inbound body of POST /v1/messages (adapter → routd).
@@ -223,9 +222,9 @@ type WebRoute struct {
 }
 
 // RouteTokenRequest is POST /v1/route_tokens/{chat,hook}. The response and list
-// shapes are no longer typed here: after the 5/16 resreg fold both faces share
-// routeTokensHandler, which emits the unified {token,jid,url} / {tokens:[…]}
-// shapes (route_tokens_resource.go). This struct survives as the request contract.
+// shapes are NOT typed here: both faces share routeTokensHandler, which emits the
+// unified {token,jid,url} / {tokens:[…]} shapes (route_tokens_resource.go, spec
+// 5/16). This struct is the request contract.
 type RouteTokenRequest struct {
 	OwnerFolder  string `json:"owner_folder"`
 	TargetFolder string `json:"target_folder"`

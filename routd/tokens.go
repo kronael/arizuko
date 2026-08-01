@@ -78,8 +78,6 @@ func (d *DB) RevokeRouteTokens(jid, ownerFolder string) (int64, error) {
 	return res.RowsAffected()
 }
 
-// --- web_routes ---
-
 // WebRouteRow is a URL-tree access entry.
 type WebRouteRow struct {
 	PathPrefix string
@@ -132,8 +130,6 @@ func (d *DB) DeleteWebRoute(pathPrefix, folder string) (bool, error) {
 	n, _ := res.RowsAffected()
 	return n > 0, nil
 }
-
-// --- idempotency ledger ---
 
 // IdemRecord is a stored idempotent response.
 type IdemRecord struct {

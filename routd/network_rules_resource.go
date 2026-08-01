@@ -5,27 +5,21 @@ package routd
 // ride ONE resreg.Resource instead of three hand-rolled ipc/ipc.go tool bodies.
 //
 // resreg owns the plumbing (handler dispatch + one tx wrapping the mutation AND
-// its audit_log row); routd owns the auth POLICY. Two differences from the
-// web_routes pilot, both preserved faithfully:
+// its audit_log row); routd owns the auth POLICY. One difference from the
+// web_routes pilot:
 //
-//   - Network tools carry a STRUCTURAL TIER GATE that web_routes lacked
-//     (auth.AuthorizeStructural: tier 2+ can't manage egress, tier 1 confined to
-//     its subtree; policy.go). It is a hard cap that operator ACL grants can't
-//     widen, orthogonal to the row-grant db.Authorize — so the injected Gate runs
-//     it too, not just CheckAction + db.Authorize. Dropping it would let an
-//     operator-granted tier-2 folder gain egress management the structural gate
-//     forbids.
 //   - Custom actions: allow/deny/list are resource-specific verbs (not the CRUD
 //     ActionCreate/Delete), mapped to the flat live tool names via MCPNames.
 //
 // allow/deny take an optional `folder` TARGET arg (defaults to the caller's own
-// folder): a tier-0/1 caller may open/close egress for its own folder OR any
-// folder in its subtree — the documented egress-escalation path (ant/CLAUDE.md
-// network_allow(folder, host)). Containment is enforced by AuthorizeStructural on
-// the ARG folder, resolving the caller's tier from the SOCKET folder, so cross-
-// subtree writes are impossible; tier 2+ can't manage egress at all. list reads
-// the socket folder's own resolved+own view (no target arg). There is no REST
-// face today (agent-only, like the pilot's agent surface).
+// folder), so a caller may open/close egress for its own folder OR any folder its
+// grant scope covers — the documented egress-escalation path (ant/CLAUDE.md
+// network_allow(folder, host)). Containment is the injected Gate's single
+// evaluator run on the ARG folder (4/R: the grant scope IS the containment), so a
+// write outside the caller's granted scope is impossible; egress management is
+// default-deny, absent from role:member. list reads the socket folder's own
+// resolved+own view (no target arg). There is no REST face today (agent-only,
+// like the pilot's agent surface).
 
 import (
 	"context"
@@ -80,9 +74,9 @@ func (s *Server) networkRulesResource() resreg.Resource {
 // bespoke semantics the deleted ipc bodies enforced: hostname validation and the
 // `*.`-glob→apex normalization on write, and the resolved+own split on list.
 // allow/deny apply to the TARGET folder (the `folder` arg, defaulting to the
-// caller's own folder) — the egress-escalation path a tier-0/1 caller uses to
-// open egress for a descendant; the Gate has already bounded that target to the
-// caller's subtree. list reads the caller's own (socket) folder view.
+// caller's own folder) — the egress-escalation path used to open egress for a
+// descendant; the Gate has already bounded that target to the caller's granted
+// scope. list reads the caller's own (socket) folder view.
 func (s *Server) networkRulesHandler(ctx context.Context, x resreg.Execution) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
@@ -145,9 +139,9 @@ func networkTargetFolder(args resreg.Args, socketFolder string) string {
 }
 
 // networkRulesPostBuild returns the ServeMCP seam that mounts the egress tools on
-// the agent socket, with the tier-aware Gate + MatchingRules visibility for this
-// folder's grant rules injected. Only rules the socket already carries can widen
-// visibility, so a denied tier still sees nothing new.
+// the agent socket, with the db.Authorize Gate + the turn's visibility view
+// injected. Only grants the caller already holds can widen visibility, so a
+// denied caller sees nothing new.
 func (s *Server) networkRulesPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
 	res := s.networkRulesResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {

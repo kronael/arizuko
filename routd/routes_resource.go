@@ -9,12 +9,11 @@ package routd
 //
 //   1. TARGET CONTAINMENT. A route's target folder must be within the caller's
 //      reach. add/set carry the target(s) in the JSON args; delete resolves the
-//      target from the route id. All three run auth.AuthorizeStructural (the route
-//      tier cap: tier 2+ can't manage routes, tier 1 confined to strict
-//      descendants, tier 0 unrestricted). set ALSO runs the per-route
-//      routeTargetWithin containment (own folder or a descendant) — the tier cap
-//      binds set only to the OWN folder, so it's this per-route check that stops a
-//      tier-0 bulk write from targeting another folder.
+//      target from the route id. All three run the injected contain seam (agent:
+//      auth.Authorize on the resolved target; REST: ownsFolder on the JWT folder).
+//      set ALSO runs the per-route routeTargetWithin containment (own folder or a
+//      descendant) — contain binds set only to the OWN folder, so it's this
+//      per-route check that stops a bulk write from targeting another folder.
 //   2. SELF-DEFAULT GUARD. A folder must not delete — or replace-away via set —
 //      its own seq-0 default route (isSelfDefault). Without it a group routes its
 //      own inbound traffic into the void and can't be respawned.
@@ -25,10 +24,10 @@ package routd
 // target needs a JSON unmarshal, set's needs a read of the live table, and delete's
 // needs a GetRoute read — all of which the handler already performs. Resolving them
 // again in the Gate would duplicate the work AND reorder validation ahead of the
-// tier decision, diverging from the ipc bodies. The Gate does only the TOOL grant
-// (grants.CheckAction + db.Authorize); the handler's caps run before any store
-// write and roll the tx back on denial, so an operator ACL grant can open the TOOL
-// but never widen the tier/containment/self-default cap.
+// containment decision. The agent Gate is therefore a no-op (agentAllowGate) and the
+// REST Gate carries only the routes:read/write scope check; the handler's caps run
+// before any store write and roll the tx back on denial, so opening the TOOL never
+// widens the containment/self-default cap.
 //
 // Both faces ride this one resource: the agent's MCP tools via routesPostBuild,
 // and the operator REST face (/v1/routes) via routes_http.go's mountRoutes, which
@@ -79,8 +78,8 @@ var routesMCPNames = resources.RoutesMCPNames
 // scheduled_tasks handlers call to authorize one (action, target) against the
 // caller. resreg carries no auth policy of its own (CLAUDE.md "auth is a uniform
 // middleware, INJECTED per surface"); each face closes over its own rule — the
-// agent MCP face over the tier model (auth.AuthorizeStructural), the operator REST
-// face over folder containment (ownsFolder) — and passes it into the resource
+// agent MCP face over auth.Authorize on the target, the operator REST face over
+// folder containment (ownsFolder) — and passes it into the resource
 // constructor. A nil return means allowed; a non-nil error is a resreg.Errorf the
 // handler returns verbatim.
 type containFn func(c resreg.Caller, a resreg.Action, target string) error
@@ -92,8 +91,8 @@ type containFn func(c resreg.Caller, a resreg.Action, target string) error
 // RowType (args come from MCPArgs as raw JSON strings + the numeric id, preserving
 // the exact wire arg names the agent already sends). Store is a store.Store over
 // routd.db so resreg.invoke opens the mutation+audit tx there. contain is the
-// per-face target-containment seam (tier model for the agent, ownsFolder for REST)
-// closed into the handler — see containFn.
+// per-face target-containment seam (auth.Authorize on the target for the agent,
+// ownsFolder for REST) closed into the handler — see containFn.
 func (s *Server) routesResource(contain containFn) resreg.Resource {
 	r := resreg.Resource{
 		Name:      "routes",
@@ -114,8 +113,8 @@ func (s *Server) routesResource(contain containFn) resreg.Resource {
 
 // routesHandler runs add/set/delete/list against routd.db, folding in the two
 // security invariants the deleted ipc bodies enforced (see file header). The socket
-// folder (x.Caller.Folder) is the caller's own folder. Per-target containment (the
-// route tier cap for the agent, ownsFolder for REST) is the injected contain seam;
+// folder (x.Caller.Folder) is the caller's own folder. Per-target containment
+// (auth.Authorize for the agent, ownsFolder for REST) is the injected contain seam;
 // the self-default + per-route routeTargetWithin invariants are face-agnostic and
 // stay in the handler.
 func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain containFn) (any, error) {
@@ -131,8 +130,8 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 		}
 		// Operator (REST): the same rows scoped to the caller's subtree. An EMPTY
 		// folder claim (root / service token) sees everything; a folder-scoped token —
-		// even a top-level tenant, which is tier 0 — sees only its own. The leak guard
-		// keys on the empty folder claim, never the tier. shadowed_by is computed over
+		// even a top-level tenant — sees only its own. The leak guard keys on the
+		// empty folder claim, never on folder depth. shadowed_by is computed over
 		// the full table first, so cross-folder shadows still surface.
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "store_error")
@@ -155,8 +154,8 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 			return nil, resreg.Errorf(http.StatusBadRequest, "route.target required")
 		}
 		// Invariant 1 (target containment): the arg-carried target must be within
-		// the caller's reach — the per-face contain seam (agent tier cap /
-		// REST ownsFolder).
+		// the caller's reach — the per-face contain seam (agent auth.Authorize on
+		// the target / REST ownsFolder).
 		if err := contain(x.Caller, routesActionAdd, route.Target); err != nil {
 			return nil, err
 		}
@@ -169,8 +168,8 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 
 	case routesActionSet:
 		// Invariant 1 (own-folder cap): set_routes rewrites the caller's own subtree,
-		// so contain binds the caller's OWN folder (agent tier cap → in practice tier
-		// 0 only; REST ownsFolder → own folder always passes). The per-route
+		// so contain binds the caller's OWN folder (agent: must hold mcp:set_routes
+		// over it; REST ownsFolder → own folder always passes). The per-route
 		// routeTargetWithin loop below is what actually confines each target.
 		if err := contain(x.Caller, routesActionSet, folder); err != nil {
 			return nil, err
@@ -180,8 +179,8 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 			return nil, resreg.Errorf(http.StatusBadRequest, "invalid routes json: %v", err)
 		}
 		// Invariant 1 (per-route containment): every target must be the own folder
-		// or a descendant — the tier cap above binds only the own folder, so this is
-		// what stops a bulk write from targeting another folder. Skipped for the empty
+		// or a descendant — the contain check above binds only the own folder, so this
+		// is what stops a bulk write from targeting another folder. Skipped for the empty
 		// folder (root / operator via REST): it replaces the whole table unrestricted,
 		// matching the retired handleRoutesReplace. The agent socket folder is never
 		// empty, so this only ever loosens the REST root path.
@@ -258,11 +257,10 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 }
 
 // routesPostBuild returns the ServeMCP seam that mounts the routing tools on the
-// agent socket, with the tier-aware Gate + MatchingRules visibility for this
-// folder's grant rules injected. The Gate does the TOOL grant (CheckAction +
-// db.Authorize); the containment + self-default caps live in the handler (see
-// header). Only rules the socket already carries can widen visibility, so a denied
-// tier still sees nothing new.
+// agent socket, with the per-target contain seam + the turn's visibility view
+// injected. The Gate is a no-op here; the containment + self-default caps live in
+// the handler (see header). Only grants the caller already holds can widen
+// visibility, so a denied caller sees nothing new.
 func (s *Server) routesPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
 	// Agent face: one evaluator on the arg/id-resolved target — the caller must hold
 	// the tool (mcp:<name>) scoped to cover the target. Magnitude + containment in one

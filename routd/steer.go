@@ -36,8 +36,6 @@ func (l *Loop) ack(chatJID, text string) {
 	}
 }
 
-// --- sticky navigation (@group / #topic) ---
-
 func isStickyCommand(content string) bool {
 	t := strings.TrimSpace(content)
 	if len(t) == 0 || (t[0] != '@' && t[0] != '#') {
@@ -85,12 +83,10 @@ func (l *Loop) handleStickyCommand(chatJID string, msg core.Message) bool {
 	return false
 }
 
-// --- slash commands ---
-//
-// Output text is fixed — operators rely on the exact responses. /invite and
-// /gate need onbod-owned tables (invites + onboarding_gates); routd federates
-// them to onbod over HTTP (the OnbodClient). nil client (ONBOD_URL unset) → they
-// report the federation gap.
+// Slash-command output text is fixed — operators rely on the exact responses.
+// /invite and /gate need onbod-owned tables (invites + onboarding_gates); routd
+// federates them to onbod over HTTP (the OnbodClient). nil client (ONBOD_URL
+// unset) → they report the federation gap.
 
 func cmdText(raw string) string {
 	t := strings.TrimSpace(raw)
@@ -195,7 +191,7 @@ func (l *Loop) cmdStop(chatJID, folder string) {
 
 // cmdStatus reports instance-wide counts. It is operator-only — instance-wide
 // visibility is a `**` (operator) privilege, not a folder position (a top-level
-// world is a tenant now, tier 1). Channels come from the channel registry (held
+// world is a tenant like any other). Channels come from the channel registry (held
 // by the Server); errored chats + active tasks from routd.db.
 func (l *Loop) cmdStatus(chatJID, folder, sender string) {
 	if !l.db.IsOperator(sender) {
@@ -215,12 +211,12 @@ func (l *Loop) cmdStatus(chatJID, folder, sender string) {
 		nChannels, nGroups, active, errored, tasks))
 }
 
-// cmdRoot raises the caller's message to a root-privileged (tier 0) turn — the
-// ONLY path to root. It is gated on the caller carrying the operator `**` grant
-// (auth/grants), NOT on folder shape: a bare top-level world is a tenant now, so
-// Tier/GroupExists is the wrong gate. A non-operator gets a clear denial (no
-// silent downgrade). On success the arg is re-injected in-place and its message
-// id is registered in pendingElevation, so runTurn spawns it with Elevated=true.
+// cmdRoot raises the caller's message to a root-privileged turn — the ONLY path
+// to root. It is gated on the caller carrying the operator `**` grant, NOT on
+// folder shape: a bare top-level world is a tenant, so a folder-shape test is
+// the wrong gate. A non-operator gets a clear denial (no silent downgrade). On
+// success the arg is re-injected in-place and its message id is registered in
+// pendingElevation, so runTurn spawns it with Elevated=true.
 func (l *Loop) cmdRoot(chatJID, folder, arg, sender string) {
 	if !l.db.IsOperator(sender) {
 		l.ack(chatJID, "Permission denied: /root requires an operator grant (**).")
@@ -398,8 +394,6 @@ func (l *Loop) cmdNew(chatJID, folder, arg string) {
 	l.Enqueue(chatJID)
 	l.ack(chatJID, label+" Processing your message...")
 }
-
-// --- @child delegation / external-route prefix layer ---
 
 // Navigation prefixes must sit at the very start of the message (optional
 // leading whitespace). Mid-content @mentions / #tags are references, not nav.

@@ -77,8 +77,10 @@ type Runtime interface {
 // Broker brokers a downscoped capability token per spawn (spec 5/P §
 // brokering). runed mints nothing — production calls authd's downscope
 // endpoint; the test stub returns a fixed token. The returned jti is what
-// runed persists into mcp_tokens; the raw JWS lives only in the agent's
-// process memory (delivered over the SO_PEERCRED-gated MCP socket).
+// runed persists into mcp_tokens; the raw JWS is set on RunSpec.Token but
+// never delivered anywhere — routd hosts the agent's MCP socket in-process,
+// so no brokered token needs to reach the container (spec 5/P § Token
+// delivery, amended 2026-07-11).
 type Broker interface {
 	// Broker downscopes the runed service token to sub+folder with
 	// scope ⊆ runed.scope ∩ want, ttl ≤ run deadline. Returns the JWS,

@@ -261,7 +261,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	// ANTHROPIC_API_KEY (BYOA) shadows the operator anchor for that spawn. Anchors
 	// stay as the floor so a folder without a BYOA key still reaches the LLM.
 	// (Connector secrets are still broker-resolved at tool-call time inside
-	// ipc.injectSecretsAdapter — spec 7/Y; this env path is for the agent's own
+	// ipc.CallConnectorTool — spec 5/13; this env path is for the agent's own
 	// LLM calls + skills that read process.env.)
 	in.Secrets = mergeSecrets(readSecrets(), in.Secrets)
 	in.AsstName = cfg.Name
@@ -1128,7 +1128,7 @@ func MigrationVersion(path string) int {
 // at $HOME=/home/node — Claude Code slugifies that path identically
 // across folders. Pure file op: rename-after-write for atomicity.
 // Returns nil with WARN log when src is missing (caller gets a fresh
-// session, no parent context). Used by spec 6/F fork path.
+// session, no parent context). Used by spec 5/F fork path.
 func CopySession(groupDir, srcUUID, dstUUID string) error {
 	projDir := filepath.Join(groupDir, ".claude", "projects", "-home-node")
 	src := filepath.Join(projDir, srcUUID+".jsonl")

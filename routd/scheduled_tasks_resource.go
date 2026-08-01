@@ -13,20 +13,17 @@ package routd
 //     the mutation+audit tx; list reuses resreg.ActionList (read-only, no tx).
 //     MCPNames maps every action back to the flat live tool name so no
 //     in-container tool is renamed.
-//   - PER-TASK-ID structural authz. Unlike web_routes (folder owns its own row)
-//     and network_rules (target folder is a plain arg), pause/resume/cancel take
-//     a task ID and MUST resolve the task's OWNER folder before the tier gate can
-//     rule on it. The injected Gate does the tool-level grant (CheckAction +
-//     db.Authorize); the HANDLER does the target-level auth.AuthorizeStructural
-//     on the RESOLVED owner (GetTask(id).Owner for pause/resume/cancel,
-//     DefaultFolderForJID(jid) for schedule) — mirroring the deleted ipc bodies
-//     and inspect_tasks (inspect.go). It lives in the handler, not the Gate,
-//     because that owner resolution is a DB read the handler already performs;
-//     splitting it into the Gate would duplicate the read AND reorder the
-//     "target group not registered" / "task not found" validation ahead of the
-//     tier decision, diverging from the ipc bodies. The cap still runs before any
-//     store write and rolls the tx back on denial, so an operator ACL grant can
-//     open the TOOL but never widen the tier/containment cap.
+//   - PER-TASK-ID containment. Unlike web_routes (folder owns its own row) and
+//     network_rules (target folder is a plain arg), pause/resume/cancel take a
+//     task ID and MUST resolve the task's OWNER folder before the caller can be
+//     ruled on. The HANDLER runs the injected contain seam on the RESOLVED owner
+//     (GetTask(id).Owner for pause/resume/cancel, DefaultFolderForJID(jid) for
+//     schedule) — mirroring the deleted ipc bodies and inspect_tasks (inspect.go).
+//     It lives in the handler, not the Gate, because that owner resolution is a DB
+//     read the handler already performs; splitting it into the Gate would
+//     duplicate the read AND reorder the "target group not registered" / "task not
+//     found" validation ahead of the containment decision. The cap runs before any
+//     store write and rolls the tx back on denial.
 //
 // The operator REST face (/v1/tasks CRUD) now ALSO rides this handler — the
 // 5/16 REST fold: mountTasks REST-mounts list/get/patch/cancel with a
@@ -82,8 +79,8 @@ var tasksMCPNames = resources.ScheduledTasksMCPNames
 // Endpoints exist only to drive deriveMCPTools (Action ∩ MCPDoc) — the REST face
 // (/v1/tasks) is NOT mounted from this resource (see file header). Store is a
 // store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
-// contain is the per-face target-containment seam (tier model for the agent,
-// ownsFolder for REST) closed into the handler — see containFn.
+// contain is the per-face target-containment seam (auth.Authorize on the target
+// for the agent, ownsFolder for REST) closed into the handler — see containFn.
 func (s *Server) scheduledTasksResource(contain containFn, elevated bool) resreg.Resource {
 	r := resreg.Resource{
 		Name:      "scheduled_tasks",
@@ -106,21 +103,20 @@ func (s *Server) scheduledTasksResource(contain containFn, elevated bool) resreg
 // folding in the bespoke semantics the deleted ipc bodies enforced: cron/interval/
 // one-shot parsing, active-task dedup, DefaultFolderForJID target resolution, and
 // contextMode normalization. Per-task/target containment is the injected contain
-// seam (tier model for the agent, ownsFolder for REST). id is resolved only for the
-// list-all tier-0 widening (agent face).
+// seam (auth.Authorize on the target for the agent, ownsFolder for REST).
 func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, contain containFn, elevated bool) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
 		// The list-all key differs by surface, both through this one handler:
-		//   agent (MCP): a tier-0 (root) folder sees every task — the deleted
-		//     list_tasks body's isRoot widening.
+		//   agent (MCP): a root caller — the /root elevation or the "" sentinel —
+		//     sees every task; the deleted list_tasks body's isRoot widening.
 		//   operator (REST): only a root/service token (empty jwt_folder claim,
 		//     for which tasksTarget resolved Caller.Folder to "") sees all. A
-		//     folder-SCOPED token — even a tier-0 top-level one — resolves to
-		//     its own non-empty folder, so it lists ONLY its own tasks, never a
+		//     folder-SCOPED token — even a top-level one — resolves to its own
+		//     non-empty folder, so it lists ONLY its own tasks, never a
 		//     sibling's (the 5/16 list-all leak guard). The REST caller is
 		//     detected by the jwt_folder claim it always sets; the agent sets
-		//     none, so it keeps the tier-based widening.
+		//     none, so it keeps the elevation-based widening.
 		// Agent list-all widening rides the turn's EXPLICIT elevation (passed in) — not
 		// a re-resolve of the caller folder, which under /root from a named deep folder
 		// wrongly read non-root and lost the widening. The "" sentinel (operator/service)
@@ -188,8 +184,8 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		}
 		// PER-TASK-ID cap: resolve the task's owner and require the caller contain it
 		// — a folder must not pause/resume/cancel a task outside its reach. The
-		// per-face rule is the injected contain seam (agent tier model / REST
-		// ownsFolder).
+		// per-face rule is the injected contain seam (agent auth.Authorize on the
+		// owner / REST ownsFolder).
 		if err := contain(x.Caller, x.Action, task.Owner); err != nil {
 			return nil, err
 		}
@@ -260,11 +256,10 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 }
 
 // scheduledTasksPostBuild returns the ServeMCP seam that mounts the task tools on
-// the agent socket, with the tier-aware Gate + MatchingRules visibility for this
-// folder's grant rules injected. The Gate does the TOOL-level grant (CheckAction
-// + db.Authorize); the per-task/target structural cap lives in the handler (see
-// header). Only rules the socket already carries can widen visibility, so a
-// denied tier still sees nothing new.
+// the agent socket, with the per-target contain seam + the turn's visibility view
+// injected. The Gate is a no-op here; the per-task/target cap lives in the handler
+// (see header). Only grants the caller already holds can widen visibility, so a
+// denied caller sees nothing new.
 func (s *Server) scheduledTasksPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, callerID auth.Identity) func(*mcpserver.MCPServer) {
 	// Agent face: one evaluator on the resolved task owner — the caller must hold the
 	// tool scoped to cover it. Magnitude + containment in one; /root elevates via

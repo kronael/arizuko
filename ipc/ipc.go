@@ -56,7 +56,7 @@ type GatedFns struct {
 	// SubmitStatus delivers a mid-turn progress notice immediately as an interim
 	// "⏳ ..." message without ending the turn. Nil = method unconfigured.
 	SubmitStatus func(folder, turnID, text string) error
-	// Per-group ambient controls (spec 6/F).
+	// Per-group ambient controls (spec 5/F).
 	SetGroupOpen          func(folder string, open bool) error
 	SetGroupObserveWindow func(folder string, msgs, chars int) error
 	GroupObserveWindow    func(folder string) (msgs, chars int)
@@ -74,7 +74,7 @@ type GatedFns struct {
 	HostingDomain string
 	VhostAliases  map[string]string
 
-	// Slack assistant-pane controls (spec 6/D). Both stage values on the
+	// Slack assistant-pane controls (spec 8/D). Both stage values on the
 	// owning adapter; values fire after the next outbound into the pane.
 	// Adapters without pane semantics return chanlib.ErrUnsupported.
 	PaneSetPrompts func(jid string, prompts []core.PanePrompt) error
@@ -214,7 +214,7 @@ type StoreFns struct {
 	LogExternalCost func(folder, provider, model string, inputTok, outputTok, costCents int) error
 	// Connectors is the (discovered, namespaced) MCP-subprocess tool
 	// catalog, registered through the broker chain at buildMCPServer.
-	// Empty/nil disables the connector path. Spec 7/Y M6.
+	// Empty/nil disables the connector path. Spec 5/13.
 	Connectors []ConnectorTool
 
 	// ExtTools is the REST-descriptor tool catalog loaded from [[ext]]
@@ -228,7 +228,7 @@ type StoreFns struct {
 	// result to CallConnectorTool — which expands `{secret:KEY}` into the
 	// subprocess env AND scrubs those values from the result. Nil → no
 	// injection (the connector sees the placeholders literally), matching the
-	// pre-injection behaviour. Spec 7/Y. A non-nil error is a surrogate-OAuth
+	// pre-injection behaviour. Spec 5/13. A non-nil error is a surrogate-OAuth
 	// "reconnect" signal (spec 5/15): a required credential's refresh_token was
 	// revoked; the handler returns it to the agent as the tool result.
 	ResolveConnectorSecrets func(folder string, required []string) (map[string]string, error)
@@ -650,7 +650,7 @@ func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder s
 			// Store the sent message's own platform id in platform_id (the
 			// contract in store IsBotMessageByID): a later human reply to this
 			// message carries this id in reply_to, and the reply-to-bot →
-			// verb=mention promotion (spec 6/J) matches it. The gateway
+			// verb=mention promotion (spec 5/L) matches it. The gateway
 			// turn-result path does the same via MarkMessageDelivered; reply-
 			// tool sends were dropping it (platform_id empty) → threads rooted
 			// on a tool reply never re-promoted.
@@ -1592,7 +1592,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			return toolOK()
 		})
 
-	// Per-group ambient controls (spec 6/F). Both default to the calling
+	// Per-group ambient controls (spec 5/F). Both default to the calling
 	// folder; pass `folder` to edit a descendant. AuthorizeStructural
 	// gates cross-folder writes to own subtree (tier 0/1).
 	granted("set_observe_window",
@@ -1642,7 +1642,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		})
 
 	granted("set_group_open",
-		"Toggle a group's visibility to its siblings. Defaults to this folder; pass `folder` to flip a descendant (e.g. a parent opening a child for cross-sibling observation). When open=true, sibling folders' ambient observed messages surface in that group's <observed> block (and vice versa) — see spec 6/F. Tier 0-1; target must be caller's folder or a descendant.",
+		"Toggle a group's visibility to its siblings. Defaults to this folder; pass `folder` to flip a descendant (e.g. a parent opening a child for cross-sibling observation). When open=true, sibling folders' ambient observed messages surface in that group's <observed> block (and vice versa) — see spec 5/F. Tier 0-1; target must be caller's folder or a descendant.",
 		[]mcp.ToolOption{
 			mcp.WithBoolean("open", mcp.Required(),
 				mcp.Description("true to expose to siblings, false to seal off")),

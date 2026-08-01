@@ -144,8 +144,6 @@ func (s *Server) handleFindMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// --- routing resolution ---
-
 func (s *Server) handleRoutingResolve(w http.ResponseWriter, r *http.Request) {
 	_, tokenFolder, ok := s.authz(w, r, scopeRoutesRead...)
 	if !ok {
@@ -196,8 +194,6 @@ func (s *Server) handleErroredChats(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, out)
 }
-
-// --- engagement ---
 
 func (s *Server) handleEngagementGet(w http.ResponseWriter, r *http.Request) {
 	_, folder, ok := s.authz(w, r, scopeRoutesRead...)
@@ -253,8 +249,6 @@ func (s *Server) handleEngagementSet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
-// --- sessions (resume id) ---
-
 func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 	_, tokenFolder, ok := s.authz(w, r, scopeRead...)
 	if !ok {
@@ -271,8 +265,6 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, apiv1.SessionResponse{SessionID: s.db.SessionID(folder, r.URL.Query().Get("topic"))})
 }
-
-// --- external cost ---
 
 func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 	_, folder, ok := s.authz(w, r, scopeCost...)

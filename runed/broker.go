@@ -16,7 +16,9 @@ import (
 // authd's downscope endpoint (spec 5/P § brokering / 5/1 § POST /v1/tokens
 // downscope mode). runed mints nothing — authd enforces scope ⊆ parent and
 // folder ⊆ parent-folder. runed persists only the returned jti; the raw JWS
-// rides back to the agent over the SO_PEERCRED-gated MCP socket.
+// is dropped — routd hosts the agent's MCP socket in-process, so no
+// brokered token needs to reach the container (spec 5/P § Token delivery,
+// amended 2026-07-11).
 //
 // tokenFn, when set, supplies a live (auto-refreshing) service:runed token
 // from auth.ServiceToken — the downscope parent. When nil, the static
@@ -51,8 +53,6 @@ func NewHTTPBrokerWithSource(authdURL string, tokenFn func(context.Context) (str
 	}
 }
 
-// parentToken returns the live service token (tokenFn) when configured,
-// else the static fallback.
 func (b *httpBroker) parentToken(ctx context.Context) (string, error) {
 	if b.tokenFn != nil {
 		return b.tokenFn(ctx)

@@ -7,8 +7,7 @@ package routd
 
 import "github.com/kronael/arizuko/store"
 
-// RoleMember is the seeded floor role (the 12 messaging verbs). Migration 0023
-// seeds its acl rows; every folder principal is bound to it at group creation.
+// RoleMember is the seeded floor role (the 12 messaging verbs).
 const RoleMember = "role:member"
 
 // assignDefaultRole binds a folder principal to role:member (idempotent —

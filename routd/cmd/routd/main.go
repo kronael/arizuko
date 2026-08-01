@@ -97,10 +97,10 @@ func main() {
 		verify = keysetVerifier{ks: ks}
 	}
 
-	// runed client: routd's service token authenticates POST /v1/runs. The
-	// HMAC→ES256 cutover exchanges AUTHD_SERVICE_KEY for an authd-minted
-	// service:routd ES256 token at boot and refreshes it (auth.ServiceToken);
-	// authd's issuer-pin would 401 the static ROUTD_SERVICE_TOKEN. When
+	// runed client: routd's service token authenticates POST /v1/runs. routd
+	// exchanges AUTHD_SERVICE_KEY for an authd-minted service:routd ES256 token
+	// at boot and refreshes it (auth.ServiceToken); authd's issuer-pin would 401
+	// the static ROUTD_SERVICE_TOKEN. When
 	// AUTHD_URL or AUTHD_SERVICE_KEY is unset, fall back to the static env
 	// (additive, local-dev safe).
 	runTimeout := durOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
@@ -147,10 +147,9 @@ func main() {
 		runedClient = runedv1.NewClient(runedURL, os.Getenv("ROUTD_SERVICE_TOKEN"), runedWait)
 	}
 
-	// Channel plane (ported from gated): adapters register their egress URL +
-	// owned jid prefixes; the Deliverer resolves them on the way out using the
-	// same order gated used (latest inbound source → registry prefix match).
-	// In-memory registry — adapters re-register on routd restart.
+	// Channel plane: adapters register their egress URL + owned jid prefixes; the
+	// Deliverer resolves them on the way out (latest inbound source → registry
+	// prefix match). In-memory registry — adapters re-register on routd restart.
 	reg := chanreg.New()
 	reg.SetBearer(svcSrc) // service:routd egress token; nil → local dev (no auth)
 	deliver, onRegister, onDeregister := routd.NewChannelDeliverer(
@@ -172,10 +171,10 @@ func main() {
 		InstanceName:          envOr("ASSISTANT_NAME", "Andy"),
 		ObserveWindowMessages: intOr("OBSERVE_WINDOW_MESSAGES", 10),
 		ObserveWindowChars:    intOr("OBSERVE_WINDOW_CHARS", 4000),
-		// Pre-spawn budget gate (spec 5/34); default-on, mirrors core.LoadConfig.
+		// Pre-spawn budget gate (spec 11/19); default-on, mirrors core.LoadConfig.
 		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
-		// Spawn-time stale-session reset threshold (default 2 days, matching
-		// gateway.sessionIdleExpiry). SESSION_IDLE_EXPIRY overrides.
+		// Spawn-time stale-session reset threshold (default 2 days).
+		// SESSION_IDLE_EXPIRY overrides.
 		SessionIdle: durOr("SESSION_IDLE_EXPIRY", 0),
 		// Chat-initiated onboarding (ONBOARDING_ENABLED / ONBOARDING_PLATFORMS).
 		// A route miss federates an onboarding insert to onbod when enabled.
@@ -218,12 +217,11 @@ func main() {
 		groupfolder.ParseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
 	)
 	// SEND_DISABLED_GROUPS: muted folders persist outbound but don't deliver it
-	// (gateway.canSendToGroup). SEND_DISABLED_CHANNELS (jid-prefix) stays in the
+	// (Server.mutedGroup). SEND_DISABLED_CHANNELS (jid-prefix) stays in the
 	// Deliverer; this is the group-folder mute applied in appendAndDeliver.
 	srv.SetDisabledGroups(parseCSV(os.Getenv("SEND_DISABLED_GROUPS")))
 	// send_voice synthesis config (TTS_* env). Defaults mirror core.LoadConfig;
-	// unset TTS_ENABLED leaves voice off. Cache lives under DATA_DIR/tts (gated
-	// memoizes under ProjectRoot/tts).
+	// unset TTS_ENABLED leaves voice off. Cache lives under DATA_DIR/tts.
 	srv.SetTTS(routd.TTSConfig(
 		envOr("TTS_ENABLED", "false") == "true",
 		envOr("TTS_BASE_URL", "http://ttsd:8880"),
@@ -234,13 +232,13 @@ func main() {
 	))
 	srv.SetChannelRegistry(reg, onRegister, onDeregister)
 	// Audit writer for mutating MCP tool calls (GatedFns.Audit). Writes
-	// audit-system.jl in DATA_DIR — observability only, never the messages.db
-	// audit_log table (gated's store owns that). AUDIT_ENABLED unset → noop.
+	// audit-system.jl in DATA_DIR — observability only, never the routd.db
+	// audit_log table (audit.Init above owns that). AUDIT_ENABLED unset → noop.
 	srv.SetAudit(audit.New(audit.LoadConfig(dataDir, os.Getenv("ARIZUKO_INSTANCE"))))
-	// MCP connectors (spec 7/Y M6): load <DATA_DIR>/connectors.toml (or
-	// $CONNECTORS_TOML), spawn each once to harvest its tool catalog, register
+	// MCP connectors (spec 5/13 § connectors.toml): load <DATA_DIR>/connectors.toml
+	// (or $CONNECTORS_TOML), spawn each once to harvest its tool catalog, register
 	// through every per-turn MCP socket. Missing file is fine; a bad file is a
-	// boot failure (fail-fast, same as gated).
+	// boot failure (fail-fast).
 	if conns, cerr := routd.LoadConnectors(ctx, dataDir); cerr != nil {
 		slog.Error("connectors: load failed", "err", cerr)
 		os.Exit(1)

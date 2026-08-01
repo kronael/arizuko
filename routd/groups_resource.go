@@ -11,12 +11,11 @@ package routd
 // system-audit event itself via s.audit, exactly as the deleted ipc emitSys did.
 //
 // Because resreg SKIPS the injected Gate for forwarders (invoke runs Authz, never
-// Gate), ALL of register_group's auth rides Authz: the tool grant (grants.CheckAction
-// + db.Authorize — the deleted `granted` wrapper) THEN the tier containment
-// (auth.AuthorizeStructural on the child folder — tier ≥2 denied, tier 1 confined to
-// a direct child, tier 0 to non-world folders). The spawn cap (auth.CheckSpawnAllowed)
-// stays in the HANDLER, matching the deleted body's order: containment (Authz), then
-// the max_children cap (handler), then the write.
+// Gate), ALL of register_group's auth rides Authz: the 4/R single evaluator —
+// db.Authorize for mcp:register_group scoped to cover the CHILD folder — plus the
+// one non-scope residue that worlds (top-level folders) are CLI-only. The spawn cap
+// (auth.CheckSpawnAllowed) stays in the HANDLER, matching the deleted body's order:
+// containment (Authz), then the max_children cap (handler), then the write.
 //
 // Only the AGENT face rides this resource. The operator group forms are dashd's
 // FS-managed /dash/groups/* (container.SetupGroup) — a separate surface, untouched.
@@ -52,8 +51,8 @@ const groupsActionRegister = resreg.Action("register")
 // groupsResource is the single renderer for the agent's two group tools. FORWARDER
 // (Store nil): register_group's dir/route side-effects can't ride a resreg tx, so
 // resreg opens none and the handler owns the DB row (s.registerGroup) + the audit
-// emit. authz is the per-turn gate closure (tool grant + tier containment) built in
-// groupsPostBuild — for a forwarder invoke runs Authz, never Gate.
+// emit. authz is the per-turn gate closure (the grant check on the child folder)
+// built in groupsPostBuild — for a forwarder invoke runs Authz, never Gate.
 func (s *Server) groupsResource(authz func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error)) resreg.Resource {
 	return resreg.Resource{
 		Name:      "groups",
@@ -70,8 +69,8 @@ func (s *Server) groupsResource(authz func(resreg.Caller, resreg.Action, resreg.
 // register_group path (containment already ran in Authz): the spawn cap, then the
 // group row + room route + git-init via s.registerGroup, then the register_group
 // audit emit. list is refresh_groups: every registered group's folder — unscoped,
-// matching the deleted body (the tier≤2 grant is the only limit, applied at
-// visibility, never here).
+// matching the deleted body (the mcp:refresh_groups grant is the only limit,
+// applied at visibility, never here).
 func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
@@ -128,7 +127,7 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 // Audit sink — the forwarder equivalent of the deleted emitSys (resreg writes no
 // audit_log row for a forwarder). Folder is the CHILD folder (the audit target),
 // actor the caller's socket principal. A nil s.audit (tests without SetAudit) is a
-// no-op, mirroring emitSys's gated.Audit==nil guard.
+// no-op.
 func (s *Server) emitGroupRegisterAudit(c resreg.Caller, childFolder, jid string, err error) {
 	if s.audit == nil {
 		return
@@ -152,12 +151,10 @@ func (s *Server) emitGroupRegisterAudit(c resreg.Caller, childFolder, jid string
 
 // groupsPostBuild returns the ServeMCP seam that mounts register_group + refresh_groups
 // on the agent socket. Forwarder auth rides Authz (invoke skips Gate): register_group
-// runs the tool grant (CheckAction + db.Authorize) THEN the tier containment
-// (auth.AuthorizeStructural on the child folder); refresh_groups (list) carries no
-// runtime authz, matching the deleted direct-AddTool body. Visibility is MatchingRules
-// for BOTH tools — refresh_groups' former tier≤2 hard gate is now grant-derived (it is
-// added to the tier-1/2 rule sets in grants.DeriveRules) so the dashd tool browser,
-// which only has `rules` (no folder/tier), mirrors the socket exactly.
+// runs db.Authorize for mcp:register_group scoped to cover the child folder;
+// refresh_groups (list) carries no runtime authz, matching the deleted direct-AddTool
+// body. Both tools are gated at VISIBILITY by the same held-grant view, so the dashd
+// tool browser — which reads the acl rows, not a folder — mirrors the socket exactly.
 func (s *Server) groupsPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, callerID auth.Identity) func(*mcpserver.MCPServer) {
 	authz := func(_ resreg.Caller, a resreg.Action, args resreg.Args) (string, map[string]string, error) {
 		if a != groupsActionRegister {

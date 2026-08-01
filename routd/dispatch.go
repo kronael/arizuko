@@ -139,8 +139,9 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	}()
 	// Ghost-group guard. A route/engagement/sticky rule can point at a folder
 	// with no registered group row — hand-created, or one whose row was deleted
-	// (DeleteGroup has no route cascade). Its home may be mis-owned, so the agent
-	// spawns config-less and silently never replies. Refuse loud + tell the chat,
+	// and whose route cascade failed (DeleteGroup logs a cascade error rather than
+	// failing, and names this guard as the backstop). Its home may be mis-owned, so
+	// the agent spawns config-less and silently never replies. Refuse loud + tell the chat,
 	// and consume the batch (advance the cursor, no poison replay). Observe/web/
 	// hook targets never reach here — resolve() handles them before runTurn.
 	if !l.db.GroupExists(folder) {

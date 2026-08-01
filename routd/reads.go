@@ -14,7 +14,7 @@ import (
 // surfaces). routd owns the conversation/routing state.
 
 // Every nullable TEXT column is COALESCEd to '' so a NULL row never aborts the
-// scan (scanMessages reads into plain strings) — the monolith store does the
+// scan (scanMessages reads into plain strings) — the shared store does the
 // same (store/messages.go). Without this, ONE legacy/NULL row kills routd's
 // whole poll loop, silently (cursor never advances; no turns; no breaker).
 const msgReadCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp, is_from_me,
@@ -136,8 +136,6 @@ func (d *DB) FindMessages(query, scope, sender, since string, limit int) ([]Foun
 	return out, rows.Err()
 }
 
-// --- routing resolution ---
-
 // DefaultFolderForJID resolves the routing target folder for jid against the
 // current route table. "" when no route matches.
 func (d *DB) DefaultFolderForJID(jid string) string {
@@ -206,8 +204,6 @@ func (d *DB) WebRouteOwner(pathPrefix string) (string, bool) {
 	return folder, true
 }
 
-// --- errored chats ---
-
 // ErroredChat is one chat in the errored set with its inbound-since-error count
 // and resolved routing target.
 type ErroredChat struct {
@@ -247,8 +243,6 @@ func (d *DB) ErroredChats(folder string, isRoot bool) ([]ErroredChat, error) {
 	}
 	return out, rows.Err()
 }
-
-// --- external cost ---
 
 // LogExternalCost records one cost_log row for a non-Anthropic LLM call
 // (oracle/codex/openai). The model column carries provider:model; turn_id is a

@@ -13,11 +13,12 @@ package routd
 //     mutation+audit tx; list reuses resreg.ActionList (read-only, no tx).
 //     MCPNames maps every action back to the flat live tool name so no in-container
 //     tool is renamed.
-//   - CONTAINMENT lives in the HANDLER, per face (spec 5/W tier model). issue binds
-//     the token's owner_folder to the caller's socket folder ALWAYS (never a client
-//     arg); the arg-carried target_folder is only the JID's routing target, and the
-//     tier cap (authorizeRouteTokenMint: tier ≤2 → self+descendants, tier ≥3 → none)
-//     confines which folders a caller may point a token at. revoke addresses a token
+//   - CONTAINMENT is per face. issue binds the token's owner_folder to the caller's
+//     socket folder ALWAYS (never a client arg); the arg-carried target_folder is
+//     only the JID's routing target. Which folders a caller may point a token at is
+//     confined by the injected Gate on the agent face (the grant scope must cover
+//     the target; minting is default-deny) and by the equal-or-descend check in the
+//     handler on the REST face. revoke addresses a token
 //     by its JID but scopes the DELETE to owner_folder = the caller's folder, so a
 //     folder can only revoke tokens IT minted — a cross-folder JID matches zero rows
 //     (deleted=false), the exact ownership guard the deleted ipc body enforced via
@@ -30,9 +31,8 @@ package routd
 // injected routeTokensRESTGate — scope + JWT-folder containment). One shared handler,
 // two injected gates (CLAUDE.md "auth is a uniform middleware"). The REST wire shape is
 // now the handler's ({token,jid,url} / {tokens:[…]} / {deleted}), unified with the MCP
-// tools — the old bespoke RouteTokenResponse/204 shapes are retired. Only the REST-only
-// resolve (URL token → jid, webd; no MCP twin) stays hand-rolled. The Gate adds the
-// uniform tool grant the old registerRaw path omitted (it gated on VISIBILITY only).
+// tools. Only the REST-only resolve (URL token → jid, webd; no MCP twin) stays
+// hand-rolled. The Gate adds a uniform tool grant on top of tools/list visibility.
 
 import (
 	"context"
@@ -91,8 +91,8 @@ func (s *Server) routeTokensResource() resreg.Resource {
 }
 
 // routeTokensHandler runs issue_chat/issue_hook/revoke/list against routd.db,
-// folding in the bespoke semantics the deleted ipc bodies enforced: the mint tier
-// cap, segRe JID-segment validation, hex token mint, and the owner-scoped revoke.
+// folding in the bespoke semantics the deleted ipc bodies enforced: the mint
+// containment, segRe JID-segment validation, hex token mint, and the owner-scoped revoke.
 // The token's owner_folder is ALWAYS the caller's socket folder (x.Caller.Folder);
 // target_folder is only the JID's routing target.
 func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (any, error) {
@@ -168,10 +168,10 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 }
 
 // routeTokensPostBuild returns the ServeMCP seam that mounts the token tools on the
-// agent socket, with the tool-grant Gate + MatchingRules visibility for this folder's
-// grant rules injected. The Gate does the TOOL grant (CheckAction + db.Authorize);
-// the mint tier cap + owner-scoped revoke live in the handler (see header). Only rules
-// the socket already carries can widen visibility, so a denied tier still sees nothing.
+// agent socket, with the tool-grant Gate + the turn's visibility view injected. The
+// Gate runs db.Authorize on the mint target; the owner-scoped revoke lives in the
+// handler (see header). Only grants the caller already holds can widen visibility,
+// so a denied caller sees nothing.
 func (s *Server) routeTokensPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
 	res := s.routeTokensResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {

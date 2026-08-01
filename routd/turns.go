@@ -273,11 +273,10 @@ func (s *Server) deliverTurn(tc TurnContext, jid string, row *core.Message, thre
 // deliverStatus is the ONE renderer for an interim "⏳ ..." progress notice:
 // build an out-of-band row, deliver it, persist it. Always threaded so it
 // appears alongside the final reply. Shared by appendAndDeliver's status loop
-// and the mid-turn submit_status MCP path so the two can't drift.
-// deliverStatus sends one "⏳ …" interim notice, stamped verb="status" so it is
-// excluded from TurnHasBotReply (a status must never suppress the agent's real
-// reply) AND is the row submit_status reads back to edit in place on the next
-// status (spec 5/24).
+// and the mid-turn submit_status MCP path so the two can't drift. The row is
+// stamped verb="status" so it is excluded from TurnHasBotReply (a status must
+// never suppress the agent's real reply) AND is the row submit_status reads back
+// to edit in place on the next status (spec 5/24).
 func (s *Server) deliverStatus(tc TurnContext, jid, text string) {
 	row := s.outboundRow(tc, jid, "⏳ "+text, "")
 	row.Verb = "status"

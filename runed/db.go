@@ -70,8 +70,6 @@ func (d *DB) SQL() *sql.DB { return d.db }
 
 func nowTS() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// --- session_log ---
-
 // RecordSession opens a session_log row at spawn start, returning its id.
 func (d *DB) RecordSession(folder, sessionID string) (int64, error) {
 	res, err := d.db.Exec(`INSERT INTO session_log(group_folder, session_id, started_at)
@@ -140,7 +138,8 @@ type SessionRecord struct {
 }
 
 // RecentSessionRecords lists a folder's full session_log rows, newest first.
-// This is the federated read routd used to make by opening runed.db directly.
+// Backs routd's federated read (spec 5/P) — split ownership means routd
+// never opens runed.db directly.
 func (d *DB) RecentSessionRecords(folder string, limit int) ([]SessionRecord, error) {
 	if limit <= 0 {
 		limit = 20
@@ -163,8 +162,6 @@ func (d *DB) RecentSessionRecords(folder string, limit int) ([]SessionRecord, er
 	}
 	return out, rows.Err()
 }
-
-// --- spawns ---
 
 // Spawn is one container spawn (the execution-session envelope).
 type Spawn struct {
@@ -267,8 +264,6 @@ func (d *DB) GetSpawn(runID string) (Spawn, error) {
 	return s, nil
 }
 
-// --- mcp_tokens ---
-
 // RecordToken persists the REF of the downscoped token runed brokered for a
 // spawn (never the raw JWS). UNIQUE(run_id) enforces one token per spawn.
 func (d *DB) RecordToken(jti, runID, parentJTI, folder, scopeJSON, expiresAt string) error {
@@ -300,8 +295,6 @@ func (d *DB) SweepExpired(retention time.Duration) error {
 	return err
 }
 
-// --- circuit_breaker ---
-
 // GetFailures returns the consecutive failure count for a folder (0 if absent).
 func (d *DB) GetFailures(folder string) (int, error) {
 	var n int
@@ -330,10 +323,9 @@ func (d *DB) ResetFailures(folder string) error {
 	return err
 }
 
-// --- active spawns queries (DB-stateless manager) ---
-
 // ActiveSpawnForFolder returns the run_id of a folder's live spawn, or "" if
-// none. A "live" spawn is one in state queued or running.
+// none. A "live" spawn is one in state queued or running. The Manager holds
+// no in-memory spawn state; it answers "is one live" by querying here.
 func (d *DB) ActiveSpawnForFolder(folder string) (string, error) {
 	var runID string
 	err := d.db.QueryRow(`SELECT run_id FROM spawns

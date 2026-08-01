@@ -204,8 +204,6 @@ func (d *DB) SQL() *sql.DB { return d.db }
 
 func nowTS() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
-// --- groups ---
-
 // PutGroup upserts a group identity row, persisting the per-group model +
 // container_config so dispatchRun can forward them to runed (GroupConfig reads
 // them back). A zero Config marshals to a small JSON object — harmless; runed's
@@ -257,8 +255,6 @@ func (d *DB) GroupByFolder(folder string) (core.Group, bool) {
 	return g, true
 }
 
-// DeleteGroup removes a group identity row (spawn-on-delegation rollback when
-// the route insert fails — never leave a route-less orphan).
 // DeleteGroup removes the group, then cascades its routes + engagement so a
 // deleted folder never lingers as a ghost route/engagement target (GB1 L4b).
 // Without the cascade a later message to that route dispatches to a folder with
@@ -376,8 +372,6 @@ func (d *DB) RemoveGroupWatcher(observer, source string) error {
 		"DELETE FROM group_watchers WHERE observer=? AND source=?", observer, source)
 	return err
 }
-
-// --- messages (sole appender) ---
 
 // execer is the shared subset of *sql.DB and *sql.Tx PutMessage uses, so the
 // same INSERT serves both the auto-commit and in-tx (atomic-with-ledger)
@@ -617,8 +611,6 @@ func (d *DB) CountErroredChats() int {
 	return n
 }
 
-// --- chat cursor + sticky ---
-
 // GetAgentCursor reads the per-chat high-water mark fed to the agent.
 func (d *DB) GetAgentCursor(chatJID string) string {
 	var cur sql.NullString
@@ -716,8 +708,6 @@ func (d *DB) MarkMessagesObserved(folder string, ids []string) error {
 	return tx.Commit()
 }
 
-// --- routes ---
-
 // Routes returns the route table by ascending seq.
 func (d *DB) Routes() ([]core.Route, error) {
 	rows, err := d.db.Query(`SELECT id, seq, match, target,
@@ -783,8 +773,6 @@ func (d *DB) SetRoutes(folder string, routes []core.Route) (int, error) {
 // ErrNotFound signals an absent row to the HTTP layer (404).
 var ErrNotFound = errors.New("not found")
 
-// --- engagement + last-reply ---
-
 // SetEngagement claims an engagement window for (jid, topic) by folder
 // until now+ttl.
 func (d *DB) SetEngagement(jid, topic, folder string, ttl time.Duration) error {
@@ -830,8 +818,6 @@ func (d *DB) LastReplyID(jid, topic string) string {
 	d.db.QueryRow("SELECT last_reply_id FROM chat_reply_state WHERE jid=? AND topic=?", jid, topic).Scan(&id)
 	return id.String
 }
-
-// --- turn context + results ---
 
 // PutTurnContext records a turn's (folder, topic, chat_jid) at dispatch so late
 // callbacks resolve their topic from turn_id alone. returnTo is the delegation
@@ -1021,8 +1007,6 @@ func (d *DB) TurnResultRecorded(folder, turnID string) bool {
 	return n == 1
 }
 
-// --- sessions (lineage; session_id opaque to routd) ---
-
 // PutSession persists the session_id runed produced for (folder, topic).
 func (d *DB) PutSession(folder, topic, sessionID string) error {
 	_, err := d.db.Exec(`INSERT INTO sessions(group_folder, topic, session_id) VALUES(?,?,?)
@@ -1107,8 +1091,6 @@ func (d *DB) SessionID(folder, topic string) string {
 	return id.String
 }
 
-// --- cost ---
-
 // PutCost writes one cost_log row per model under the (folder,turn_id)
 // dedup; a duplicate submit_turn does not double-charge. userSub is the
 // JWT-derived caller (callerSubOfMsg of the turn's trigger sender; "" for
@@ -1175,8 +1157,6 @@ func startOfTodayUTC() string {
 	now := time.Now().UTC()
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
 }
-
-// --- proactive interjection ---
 
 // proactiveSelfSender is the synthetic inbound's sender. Rows from it never
 // reset the silence clock and never count as recent activity (the trigger
