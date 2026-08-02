@@ -67,9 +67,9 @@ type rpcResp struct {
 	} `json:"error,omitempty"`
 }
 
-var rpcSeq int64
+var rpcSeq atomic.Int64
 
-func nextRPCID() int64 { return atomic.AddInt64(&rpcSeq, 1) }
+func nextRPCID() int64 { return rpcSeq.Add(1) }
 
 // DiscoverConnectorTools spawns the connector with empty env, sends an
 // initialize handshake + tools/list, parses the catalog, kills the

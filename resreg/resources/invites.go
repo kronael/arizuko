@@ -37,7 +37,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "invites",
 		Table:     "invites",
-		RowType:   reflect.TypeOf(InvitesRow{}),
+		RowType:   reflect.TypeFor[InvitesRow](),
 		PKFields:  []string{"Token"},
 		Endpoints: InvitesEndpoints,
 	})

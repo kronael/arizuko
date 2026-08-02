@@ -703,10 +703,7 @@ func entity(text string, e tgbotapi.MessageEntity) string {
 	if e.Offset < 0 || e.Offset > len(u) {
 		return ""
 	}
-	end := e.Offset + e.Length
-	if end > len(u) {
-		end = len(u)
-	}
+	end := min(e.Offset+e.Length, len(u))
 	if end < e.Offset {
 		return ""
 	}

@@ -65,9 +65,9 @@ func TestSetup_NoEnv_StderrJSON(t *testing.T) {
 func TestSetup_WithEnv_FanOut(t *testing.T) {
 	resetSlogDefault(t)
 
-	var got int32
+	var got atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&got, 1)
+		got.Add(1)
 		// Consume body to keep client happy.
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.WriteHeader(http.StatusOK)
@@ -80,14 +80,14 @@ func TestSetup_WithEnv_FanOut(t *testing.T) {
 
 	shutdown := Setup("test-daemon", "test-instance")
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		slog.Info("fanout-record", "i", i)
 	}
 
 	// Shutdown flushes the batch processor.
 	shutdown()
 
-	final := atomic.LoadInt32(&got)
+	final := got.Load()
 	t.Logf("OTLP exporter received %d requests", final)
 	if final == 0 {
 		t.Errorf("OTLP exporter received no requests; expected at least one")

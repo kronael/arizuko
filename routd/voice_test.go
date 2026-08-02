@@ -101,7 +101,7 @@ func TestSendVoice_CachesSynthesis(t *testing.T) {
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	srv.SetTTS(TTSConfig(true, tts.URL, "v", "m", 5*time.Second, t.TempDir()))
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := srv.sendVoice("tg:7", "same text", "", "", ""); err != nil {
 			t.Fatalf("sendVoice #%d: %v", i, err)
 		}

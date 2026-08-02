@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/kronael/arizuko/store"
@@ -21,10 +22,8 @@ func (a *admin) requireOperator(w http.ResponseWriter, r *http.Request) bool {
 	if a.ks == nil {
 		return true
 	}
-	for _, g := range callerGroups(r) {
-		if g == "**" {
-			return true
-		}
+	if slices.Contains(callerGroups(r), "**") {
+		return true
 	}
 	http.Error(w, "forbidden", http.StatusForbidden)
 	return false

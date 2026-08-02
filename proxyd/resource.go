@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
+	"slices"
 	"strings"
 	"sync"
 
@@ -310,10 +311,10 @@ func routesResourceDecl(rr *routesResource) resreg.Resource {
 		Name:      "proxyd_routes",
 		Endpoints: resources.ProxydRoutesEndpoints,
 		MCPDoc:    resources.ProxydRoutesMCPDoc,
-		MCPArgs: resources.ProxydRoutesMCPArgs,
-		Authz:   routesAuthz,
-		Handler: rr.handle,
-		Store:   rr.st,
+		MCPArgs:   resources.ProxydRoutesMCPArgs,
+		Authz:     routesAuthz,
+		Handler:   rr.handle,
+		Store:     rr.st,
 	}
 }
 
@@ -357,11 +358,8 @@ func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 			_ = json.Unmarshal([]byte(hdr), &groups)
 		}
 		c := resreg.Caller{Sub: sub, Claims: map[string]string{}}
-		for _, g := range groups {
-			if g == "**" {
-				c.Claims["operator"] = "1"
-				break
-			}
+		if slices.Contains(groups, "**") {
+			c.Claims["operator"] = "1"
 		}
 		return c, nil
 	}

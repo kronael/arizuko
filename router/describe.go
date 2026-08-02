@@ -56,7 +56,7 @@ func Describe(routes []core.Route) []RouteView {
 			v.Explain += " [release-announce target]"
 		}
 		synth := synthMessage(r)
-		for j := 0; j < i; j++ {
+		for j := range i {
 			if RouteMatches(routes[j], synth) && expandTarget(routes[j].Target, synth) != "" {
 				v.ShadowedBy = routes[j].ID
 				break
@@ -68,7 +68,7 @@ func Describe(routes []core.Route) []RouteView {
 }
 
 func matchVerb(match string) string {
-	for _, f := range strings.Fields(match) {
+	for f := range strings.FieldsSeq(match) {
 		if k, val, ok := strings.Cut(f, "="); ok && k == "verb" {
 			return val
 		}
@@ -82,7 +82,7 @@ func matchVerb(match string) string {
 // under-approximates a glob rule's true match set (never over-claims a shadow).
 func synthMessage(r core.Route) core.Message {
 	pred := map[string]string{}
-	for _, f := range strings.Fields(r.Match) {
+	for f := range strings.FieldsSeq(r.Match) {
 		if k, val, ok := strings.Cut(f, "="); ok && k != "" {
 			pred[k] = val
 		}

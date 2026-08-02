@@ -51,7 +51,7 @@ func isValidFolder(folder string) bool {
 	if strings.Contains(folder, "..") || strings.ContainsAny(folder, "\\\x00") {
 		return false
 	}
-	for _, seg := range strings.Split(folder, "/") {
+	for seg := range strings.SplitSeq(folder, "/") {
 		if seg == "" || len(seg) > 128 {
 			return false
 		}
@@ -107,7 +107,7 @@ func JidFolder(jid string) string {
 // the common case is derived from HOSTING_DOMAIN and needs no entry.
 func ParseVhostAliases(s string) map[string]string {
 	m := map[string]string{}
-	for _, part := range strings.Split(s, ",") {
+	for part := range strings.SplitSeq(s, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue

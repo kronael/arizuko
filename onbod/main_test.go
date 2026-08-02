@@ -338,7 +338,7 @@ func TestHandleTokenLanding_AllowsReplay(t *testing.T) {
 
 	cfg := config{authBaseURL: "https://example.com"}
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		req := httptest.NewRequest("GET", "/onboard?token=tok-replay", nil)
 		w := httptest.NewRecorder()
 		handleOnboard(w, req, db, db, cfg)

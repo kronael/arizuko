@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -322,10 +323,8 @@ func hasAnyScope(held, wanted []string) bool {
 				return true
 			}
 		}
-		for _, h := range held {
-			if h == w {
-				return true
-			}
+		if slices.Contains(held, w) {
+			return true
 		}
 	}
 	return false
@@ -497,7 +496,6 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, apiv1.MessageAck{OK: true, ID: m.ID})
 }
-
 
 func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "messages:write") {

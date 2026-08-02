@@ -350,7 +350,7 @@ func TestRenderEntriesTruncates(t *testing.T) {
 	}
 	// create > maxDirEntries files
 	n := maxDirEntries + 5
-	for i := 0; i < n; i++ {
+	for i := range n {
 		name := filepath.Join(dir, "e"+pad(i)+".md")
 		if err := os.WriteFile(name, []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
@@ -569,7 +569,7 @@ func TestPortalFailedTasksDot(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO channels(name, url) VALUES('tel','http://t/')`); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if _, err := db.Exec(
 			`INSERT INTO task_run_logs(task_id, run_at, status) VALUES('t', datetime('now'), 'error')`); err != nil {
 			t.Fatal(err)

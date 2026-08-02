@@ -343,7 +343,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	for i, c := range chanlib.Chunk(req.Content, 2000) {
 		var msg *discordgo.Message
 		var err error
-		for attempt := 0; attempt < 3; attempt++ {
+		for attempt := range 3 {
 			if replyTo != "" && i == 0 {
 				msg, err = b.session.ChannelMessageSendReply(chID, c, &discordgo.MessageReference{MessageID: replyTo})
 			} else {
@@ -594,10 +594,7 @@ func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse,
 	}
 	var beforeID string
 	if !req.Before.IsZero() {
-		ms := req.Before.UnixMilli() - discordEpochMs
-		if ms < 0 {
-			ms = 0
-		}
+		ms := max(req.Before.UnixMilli()-discordEpochMs, 0)
 		beforeID = fmt.Sprintf("%d", ms<<22)
 	}
 	msgs, err := b.session.ChannelMessages(chID, limit, beforeID, "", "")

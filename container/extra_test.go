@@ -40,7 +40,7 @@ func TestWorldOf(t *testing.T) {
 
 func TestPickIP_ValidSubnet(t *testing.T) {
 	subnet := "10.42.7.0/24"
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		ip, err := PickIP(subnet)
 		if err != nil {
 			t.Fatalf("PickIP error: %v", err)

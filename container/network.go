@@ -13,7 +13,7 @@ import (
 // mutex guards the map; per-folder mutexes guard the docker calls so parallel
 // spawns on different folders don't block each other.
 type netMgr struct {
-	outer    sync.Mutex
+	outer     sync.Mutex
 	perFolder map[string]*sync.Mutex
 
 	// Populated lazily from docker network inspect so re-runs after restart
@@ -80,7 +80,7 @@ func pickFolderSubnet(mgr *netMgr, parent, folder string) (string, error) {
 	base32 := uint32(ip4[0])<<24 | uint32(ip4[1])<<16 | uint32(ip4[2])<<8 | uint32(ip4[3])
 	slotMask := uint32(slots-1) << 8 // slot bits sit just above the host /24 byte
 	base32 &^= slotMask
-	for i := 0; i < slots; i++ {
+	for i := range slots {
 		idx := (start + i) % slots
 		net32 := base32 | (uint32(idx) << 8)
 		cidr := fmt.Sprintf("%d.%d.%d.0/24",
@@ -117,7 +117,7 @@ func ensureFolderNetwork(prefix, crackbox, parent, folder string) (string, strin
 
 	// Retry on "Pool overlaps" — Docker may have orphan networks on the same /24.
 	var subnet string
-	for attempt := 0; attempt < 8; attempt++ {
+	for range 8 {
 		s, err := pickFolderSubnet(defaultNetMgr, parent, folder)
 		if err != nil {
 			return "", "", err
@@ -151,7 +151,7 @@ func inspectNetworkSubnet(name string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		s := strings.TrimSpace(line)
 		if s != "" {
 			return s, true

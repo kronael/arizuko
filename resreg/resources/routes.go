@@ -68,7 +68,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "routes",
 		Table:     "routes",
-		RowType:   reflect.TypeOf(RoutesRow{}),
+		RowType:   reflect.TypeFor[RoutesRow](),
 		PKFields:  []string{"Seq", "Match", "Target"},
 		Endpoints: RoutesEndpoints,
 		MCPDoc:    RoutesMCPDoc,

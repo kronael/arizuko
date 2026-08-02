@@ -579,7 +579,7 @@ func TestDash_TaskDetail_RunLogs(t *testing.T) {
 		 VALUES ('t4', 'bob', 'bob@s.whatsapp.net', 'daily report', '0 8 * * *', 'active', ?)`, now); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := inst.DB.Exec(
 			`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, error)
 			 VALUES ('t4', ?, ?, 'ok', '')`,

@@ -38,7 +38,7 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 	}
 
 	attempts := len(retryBackoffs) + 1
-	for i := 0; i < attempts; i++ {
+	for i := range attempts {
 		if i > 0 && req.GetBody != nil {
 			body, err := req.GetBody()
 			if err != nil {
@@ -87,10 +87,7 @@ func parseRetryAfter(h string) (time.Duration, bool) {
 		return time.Duration(secs) * time.Second, true
 	}
 	if t, err := http.ParseTime(h); err == nil {
-		d := time.Until(t)
-		if d < 0 {
-			d = 0
-		}
+		d := max(time.Until(t), 0)
 		return d, true
 	}
 	return 0, false

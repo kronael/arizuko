@@ -293,7 +293,7 @@ func TestModelCredentialsScopedToRuned(t *testing.T) {
 	gen(t, dir)
 
 	runed := read(t, dir, "env/runed.env")
-	for _, credential := range strings.Fields(credentials) {
+	for credential := range strings.FieldsSeq(credentials) {
 		if !strings.Contains(runed, credential) {
 			key, _, _ := strings.Cut(credential, "=")
 			t.Errorf("env/runed.env must carry %s", key)
@@ -304,7 +304,7 @@ func TestModelCredentialsScopedToRuned(t *testing.T) {
 			continue
 		}
 		got := read(t, dir, "env/"+daemon+".env")
-		for _, credential := range strings.Fields(credentials) {
+		for credential := range strings.FieldsSeq(credentials) {
 			key, _, _ := strings.Cut(credential, "=")
 			if strings.Contains(got, key+"=") {
 				t.Errorf("env/%s.env must not carry %s", daemon, key)

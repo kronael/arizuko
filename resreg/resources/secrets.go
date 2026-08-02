@@ -42,11 +42,11 @@ var SecretsEndpoints = []resreg.Endpoint{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:             "secrets",
-		Table:            "secrets",
-		RowType:          reflect.TypeOf(SecretsRow{}),
-		Endpoints:        SecretsEndpoints,
-		PKFields:         []string{"ScopeKind", "ScopeID", "Key"},
+		Name:      "secrets",
+		Table:     "secrets",
+		RowType:   reflect.TypeFor[SecretsRow](),
+		Endpoints: SecretsEndpoints,
+		PKFields:  []string{"ScopeKind", "ScopeID", "Key"},
 		// No folder scope: scope_id is polymorphic by scope_kind (folder OR
 		// user, spec 5/8 §"FK posture"). Moot for apply anyway —
 		// SkipApplyRebuild means apply never DELETE+INSERTs this table.

@@ -123,7 +123,7 @@ func FetchGoogleUser(ctx context.Context, token string) (sub, name, email string
 }
 
 func matchEmailAllowlist(email, allowlist string) bool {
-	for _, pat := range strings.Split(allowlist, ",") {
+	for pat := range strings.SplitSeq(allowlist, ",") {
 		pat = strings.TrimSpace(pat)
 		if pat == "" {
 			continue

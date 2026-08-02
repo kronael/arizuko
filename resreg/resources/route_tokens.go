@@ -99,7 +99,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "route_tokens",
 		Table:     "route_tokens",
-		RowType:   reflect.TypeOf(RouteTokensRow{}),
+		RowType:   reflect.TypeFor[RouteTokensRow](),
 		PKFields:  []string{"JID"},
 		Endpoints: RouteTokensEndpoints,
 		MCPDoc:    RouteTokensMCPDoc,

@@ -14,7 +14,7 @@ func TestRateLimitBucket(t *testing.T) {
 
 	// web: ceiling is 20 — first 20 pass, 21st trips.
 	jid := "web:atlas"
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		if !rl.allow(jid) {
 			t.Fatalf("web req %d denied, want allowed", i+1)
 		}
@@ -49,7 +49,7 @@ func TestRateLimitCeilingByPrefix(t *testing.T) {
 // Unit: a non-positive ceiling disables limiting (always allows).
 func TestRateLimitDisabled(t *testing.T) {
 	rl := newRateLimiter(0, 0)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		if !rl.allow("web:atlas") {
 			t.Fatalf("disabled limiter denied at req %d", i+1)
 		}
@@ -66,7 +66,7 @@ func TestRateLimitHandlerFlood(t *testing.T) {
 
 	var got429 bool
 	var bodyOf429 string
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		r := httptest.NewRequest("POST", "/chat/"+tok, strings.NewReader("content=hi&topic=t1"))
 		r.SetPathValue("token", tok)
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")

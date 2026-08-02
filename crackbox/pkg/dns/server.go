@@ -18,9 +18,9 @@ import (
 
 const (
 	// rcodeNoError = 0
-	rcodeFormErr = 1
+	rcodeFormErr  = 1
 	rcodeNXDOMAIN = 3
-	rcodeRefused = 5
+	rcodeRefused  = 5
 
 	qtypeANY = 255
 
@@ -154,7 +154,7 @@ func parseQuestion(pkt []byte) (name string, qtype uint16, ok bool) {
 	off := 12
 	var nameLen int
 	var labels []string
-	for i := 0; i < maxIter; i++ {
+	for range maxIter {
 		if off >= len(pkt) {
 			return "", 0, false
 		}
@@ -222,7 +222,7 @@ func synthResponse(query []byte, rcode byte) []byte {
 	// QDCOUNT=1 in parseQuestion, but be defensive on malformed paths
 	// like the ANY case where we trust the parser).
 	off := 12
-	for i := 0; i < maxIter; i++ {
+	for range maxIter {
 		if off >= len(query) {
 			return nil
 		}

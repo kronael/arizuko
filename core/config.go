@@ -146,7 +146,7 @@ type Config struct {
 // (rotation/migration). Returns nil when raw is empty/blank.
 func SecretKeyring(raw string) [][]byte {
 	var out [][]byte
-	for _, p := range strings.Split(raw, ",") {
+	for p := range strings.SplitSeq(raw, ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			out = append(out, []byte(p))
 		}
@@ -338,7 +338,7 @@ func parseCSV(s string) []string {
 		return nil
 	}
 	var out []string
-	for _, p := range strings.Split(s, ",") {
+	for p := range strings.SplitSeq(s, ",") {
 		p = strings.TrimSpace(p)
 		if p != "" {
 			out = append(out, p)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/mail"
+	"slices"
 	"strings"
 
 	"github.com/emersion/go-msgauth/authres"
@@ -66,7 +67,7 @@ func LoadAuthConfig(getenv func(string) string) AuthConfig {
 		VerifyDKIM:      envBool(getenv("EMAIL_VERIFY_DKIM")),
 	}
 	if raw := getenv("EMAIL_TRUSTED_DOMAINS"); raw != "" {
-		for _, d := range strings.Split(raw, ",") {
+		for d := range strings.SplitSeq(raw, ",") {
 			d = strings.ToLower(strings.TrimSpace(d))
 			if d == "" {
 				continue
@@ -160,12 +161,7 @@ func fromInAllowlist(fromHeader string, allowlist []string) bool {
 	if ascii, err := idna.Lookup.ToASCII(dom); err == nil {
 		dom = ascii
 	}
-	for _, t := range allowlist {
-		if dom == t {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(allowlist, dom)
 }
 
 // VerbForState maps a classify result to the InboundMsg.Verb string.

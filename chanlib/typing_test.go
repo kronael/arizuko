@@ -8,11 +8,11 @@ import (
 )
 
 func TestTypingRefresher_RefreshesUntilStopped(t *testing.T) {
-	var sends int32
-	var clears int32
+	var sends atomic.Int32
+	var clears atomic.Int32
 	r := NewTypingRefresher(20*time.Millisecond, time.Second,
-		func(string) bool { atomic.AddInt32(&sends, 1); return true },
-		func(string) { atomic.AddInt32(&clears, 1) },
+		func(string) bool { sends.Add(1); return true },
+		func(string) { clears.Add(1) },
 	)
 
 	r.Set("jid1", true)
@@ -22,25 +22,25 @@ func TestTypingRefresher_RefreshesUntilStopped(t *testing.T) {
 	// Allow any pending goroutine scheduling to settle.
 	time.Sleep(30 * time.Millisecond)
 
-	if got := atomic.LoadInt32(&sends); got < 3 {
+	if got := sends.Load(); got < 3 {
 		t.Errorf("sends = %d, want >= 3", got)
 	}
-	if got := atomic.LoadInt32(&clears); got != 1 {
+	if got := clears.Load(); got != 1 {
 		t.Errorf("clears = %d, want 1", got)
 	}
 
 	// After stop, no more sends should arrive.
-	before := atomic.LoadInt32(&sends)
+	before := sends.Load()
 	time.Sleep(60 * time.Millisecond)
-	if after := atomic.LoadInt32(&sends); after != before {
+	if after := sends.Load(); after != before {
 		t.Errorf("sends continued after stop: before=%d after=%d", before, after)
 	}
 }
 
 func TestTypingRefresher_MaxTTLCap(t *testing.T) {
-	var sends int32
+	var sends atomic.Int32
 	r := NewTypingRefresher(10*time.Millisecond, 50*time.Millisecond,
-		func(string) bool { atomic.AddInt32(&sends, 1); return true },
+		func(string) bool { sends.Add(1); return true },
 		nil,
 	)
 
@@ -48,30 +48,30 @@ func TestTypingRefresher_MaxTTLCap(t *testing.T) {
 	time.Sleep(200 * time.Millisecond) // well past maxTTL
 
 	// Sends should stop around maxTTL; allow some slack for scheduling.
-	got := atomic.LoadInt32(&sends)
+	got := sends.Load()
 	if got < 3 || got > 10 {
 		t.Errorf("sends = %d, want 3..10 (capped at maxTTL)", got)
 	}
 
 	// Confirm it really stopped.
-	before := atomic.LoadInt32(&sends)
+	before := sends.Load()
 	time.Sleep(60 * time.Millisecond)
-	if after := atomic.LoadInt32(&sends); after != before {
+	if after := sends.Load(); after != before {
 		t.Errorf("sends continued past maxTTL: before=%d after=%d", before, after)
 	}
 }
 
 func TestTypingRefresher_MaxTTLCallsClear(t *testing.T) {
-	var clears int32
+	var clears atomic.Int32
 	r := NewTypingRefresher(10*time.Millisecond, 50*time.Millisecond,
 		func(string) bool { return true },
-		func(string) { atomic.AddInt32(&clears, 1) },
+		func(string) { clears.Add(1) },
 	)
 
 	r.Set("jid1", true)
 	time.Sleep(200 * time.Millisecond) // well past maxTTL
 
-	if got := atomic.LoadInt32(&clears); got != 1 {
+	if got := clears.Load(); got != 1 {
 		t.Errorf("clears after maxTTL = %d, want 1", got)
 	}
 }
@@ -121,9 +121,9 @@ func TestTypingRefresher_PerJIDIsolation(t *testing.T) {
 }
 
 func TestTypingRefresher_ReentrantSetOn(t *testing.T) {
-	var sends int32
+	var sends atomic.Int32
 	r := NewTypingRefresher(20*time.Millisecond, time.Second,
-		func(string) bool { atomic.AddInt32(&sends, 1); return true },
+		func(string) bool { sends.Add(1); return true },
 		nil,
 	)
 
@@ -135,17 +135,17 @@ func TestTypingRefresher_ReentrantSetOn(t *testing.T) {
 	r.Set("jid1", false)
 
 	// Confirm no lingering goroutine is still firing.
-	before := atomic.LoadInt32(&sends)
+	before := sends.Load()
 	time.Sleep(60 * time.Millisecond)
-	if after := atomic.LoadInt32(&sends); after != before {
+	if after := sends.Load(); after != before {
 		t.Errorf("sends continued after stop: before=%d after=%d", before, after)
 	}
 }
 
 func TestTypingRefresher_StopAllOnShutdown(t *testing.T) {
-	var sends int32
+	var sends atomic.Int32
 	r := NewTypingRefresher(15*time.Millisecond, time.Second,
-		func(string) bool { atomic.AddInt32(&sends, 1); return true },
+		func(string) bool { sends.Add(1); return true },
 		nil,
 	)
 
@@ -154,17 +154,17 @@ func TestTypingRefresher_StopAllOnShutdown(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 	r.Stop()
 
-	before := atomic.LoadInt32(&sends)
+	before := sends.Load()
 	time.Sleep(60 * time.Millisecond)
-	if after := atomic.LoadInt32(&sends); after != before {
+	if after := sends.Load(); after != before {
 		t.Errorf("sends continued after Stop: before=%d after=%d", before, after)
 	}
 }
 
 func TestTypingRefresher_StopsOnSendError(t *testing.T) {
-	var sends int32
+	var sends atomic.Int32
 	r := NewTypingRefresher(20*time.Millisecond, time.Second,
-		func(string) bool { atomic.AddInt32(&sends, 1); return false },
+		func(string) bool { sends.Add(1); return false },
 		nil,
 	)
 
@@ -173,7 +173,7 @@ func TestTypingRefresher_StopsOnSendError(t *testing.T) {
 
 	// Eager send fires once in Set; loop sends once then stops on first error.
 	// Total: 2 sends (eager + one loop tick).
-	if got := atomic.LoadInt32(&sends); got < 1 || got > 2 {
+	if got := sends.Load(); got < 1 || got > 2 {
 		t.Errorf("sends = %d, want 1-2 (loop stops after error)", got)
 	}
 }
@@ -182,10 +182,10 @@ func TestTypingRefresher_EagerSendFailureStartsLoop(t *testing.T) {
 	// Eager send in Set fails; loop goroutine starts anyway and succeeds on
 	// subsequent ticks. This is the fix for "typing dead when first API call
 	// hits a transient error."
-	var sends int32
+	var sends atomic.Int32
 	r := NewTypingRefresher(20*time.Millisecond, time.Second,
 		func(string) bool {
-			n := atomic.AddInt32(&sends, 1)
+			n := sends.Add(1)
 			return n != 1 // first (eager) call fails; loop ticks succeed
 		},
 		nil,
@@ -195,7 +195,7 @@ func TestTypingRefresher_EagerSendFailureStartsLoop(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // several loop ticks
 	r.Set("jid1", false)
 
-	if got := atomic.LoadInt32(&sends); got < 3 {
+	if got := sends.Load(); got < 3 {
 		t.Errorf("sends = %d, want >= 3 (loop ran despite eager-send failure)", got)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -56,13 +57,9 @@ func NewKeySet(pub map[string]*ecdsa.PublicKey) *KeySet {
 // active key — no iat cap.
 func NewKeySetWithRetirement(pub map[string]*ecdsa.PublicKey, retiredAt map[string]time.Time) *KeySet {
 	keys := make(map[string]*ecdsa.PublicKey, len(pub))
-	for k, v := range pub {
-		keys[k] = v
-	}
+	maps.Copy(keys, pub)
 	ret := make(map[string]time.Time, len(retiredAt))
-	for k, v := range retiredAt {
-		ret[k] = v
-	}
+	maps.Copy(ret, retiredAt)
 	return &KeySet{keys: keys, retiredAt: ret}
 }
 

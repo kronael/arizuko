@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -86,8 +87,8 @@ func (l *Loop) paneHints(trigger []core.Message) string {
 // Newest-wins because a batch on one JID may span tokens with different
 // contexts; the turn answers the latest message. No context anywhere → "".
 func linkContextBlock(trigger []core.Message) string {
-	for i := len(trigger) - 1; i >= 0; i-- {
-		if c := trigger[i].LinkContext; c != "" {
+	for _, t := range slices.Backward(trigger) {
+		if c := t.LinkContext; c != "" {
 			return "<link-context>\n" + c + "\n</link-context>\n"
 		}
 	}

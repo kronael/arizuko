@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,8 +59,8 @@ func worldOf(folder string, elevated bool) string {
 	if elevated {
 		return ""
 	}
-	if i := strings.IndexByte(folder, '/'); i >= 0 {
-		return folder[:i]
+	if before, _, ok := strings.Cut(folder, "/"); ok {
+		return before
 	}
 	return folder
 }
@@ -738,9 +739,7 @@ func mergeSecrets(base, override map[string]string) map[string]string {
 	if base == nil {
 		base = make(map[string]string, len(override))
 	}
-	for k, v := range override {
-		base[k] = v
-	}
+	maps.Copy(base, override)
 	return base
 }
 

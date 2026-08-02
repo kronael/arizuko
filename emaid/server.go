@@ -157,8 +157,8 @@ func (s *server) fetchPart(uid imap.UID, section []int, maxBytes int64) ([]byte,
 // threadIDFromJID accepts both legacy `email:<thread>` and typed
 // `email:thread/<thread>` forms.
 func threadIDFromJID(jid string) string {
-	if strings.HasPrefix(jid, "email:thread/") {
-		return strings.TrimPrefix(jid, "email:thread/")
+	if after, ok := strings.CutPrefix(jid, "email:thread/"); ok {
+		return after
 	}
 	return strings.TrimPrefix(jid, "email:")
 }

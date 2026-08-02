@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"reflect"
 	"strings"
@@ -567,9 +568,7 @@ func emitAudit(ctx context.Context, tx *sql.Tx, x Execution, scope string, param
 
 func buildEvent(x Execution, scope string, params map[string]string, outcome, errMsg string, start time.Time) audit.Event {
 	ps := map[string]any{}
-	for k, v := range x.Args {
-		ps[k] = v
-	}
+	maps.Copy(ps, x.Args)
 	if scope != "" {
 		ps["_scope"] = scope
 	}
@@ -627,11 +626,9 @@ func decodeRESTArgs(req *http.Request, e Endpoint) (Args, error) {
 		if err := dec.Decode(&raw); err != nil && !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("invalid JSON: %w", err)
 		}
-		for k, v := range raw {
-			args[k] = v
-		}
+		maps.Copy(args, raw)
 	}
-	for _, seg := range strings.Split(e.Path, "/") {
+	for seg := range strings.SplitSeq(e.Path, "/") {
 		if !strings.HasPrefix(seg, "{") || !strings.HasSuffix(seg, "}") {
 			continue
 		}

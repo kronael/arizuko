@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -233,8 +234,8 @@ func (bc *bskyClient) fetchNotifications(rc *chanlib.RouterClient) error {
 	// unread notifications beyond the 25-item window stay unread (not
 	// silently dropped by a bulk seenAt=now).
 	ns := result.Notifications
-	for i := len(ns) - 1; i >= 0; i-- {
-		n := ns[i]
+	for _, n := range slices.Backward(ns) {
+
 		if n.IsRead {
 			continue
 		}
@@ -264,8 +265,8 @@ func bskyUserJID(did string) string {
 // bskyDIDFromJID reverses bskyUserJID for outbound calls. Accepts both
 // legacy `bluesky:<did>` and typed `bluesky:user/<encoded>`.
 func bskyDIDFromJID(jid string) string {
-	if strings.HasPrefix(jid, "bluesky:user/") {
-		enc := strings.TrimPrefix(jid, "bluesky:user/")
+	if after, ok := strings.CutPrefix(jid, "bluesky:user/"); ok {
+		enc := after
 		return strings.ReplaceAll(enc, "%3A", ":")
 	}
 	return strings.TrimPrefix(jid, "bluesky:")
@@ -290,9 +291,10 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 		verb = "reply"
 	}
 	atts := bc.extractAttachments(n)
-	content := n.Record.Text
+	var content strings.Builder
+	content.WriteString(n.Record.Text)
 	for _, a := range atts {
-		content += fmt.Sprintf(" [Image: %s]", a.Filename)
+		content.WriteString(fmt.Sprintf(" [Image: %s]", a.Filename))
 	}
 	ts, _ := time.Parse(time.RFC3339, n.IndexedAt)
 	// ID is the full at://repo/collection/rkey URI: it becomes the
@@ -306,7 +308,7 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 		ChatJID:     jid,
 		Sender:      jid,
 		SenderName:  name,
-		Content:     content,
+		Content:     content.String(),
 		Timestamp:   ts.Unix(),
 		Topic:       topic,
 		Verb:        verb,
@@ -321,7 +323,7 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 		return false
 	}
 	bc.lastInboundAt.Store(time.Now().Unix())
-	slog.Debug("inbound", "chat_jid", jid, "sender_jid", jid, "message_id", uriToKey(n.URI), "content_len", len(content), "verb", verb)
+	slog.Debug("inbound", "chat_jid", jid, "sender_jid", jid, "message_id", uriToKey(n.URI), "content_len", len(content.String()), "verb", verb)
 	return true
 }
 

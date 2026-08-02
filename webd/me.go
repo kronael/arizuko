@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -219,8 +220,8 @@ func (s *server) handleMeXThread(w http.ResponseWriter, r *http.Request) {
 	// messages lives in routd.db (stRoutd) — split ownership
 	msgs, _ := s.stRoutd.MessagesByTopic(folder, topic, before, 50)
 	w.Header().Set("Content-Type", "text/html")
-	for i := len(msgs) - 1; i >= 0; i-- {
-		writeMsgDiv(w, msgs[i])
+	for _, msg := range slices.Backward(msgs) {
+		writeMsgDiv(w, msg)
 	}
 }
 
@@ -257,8 +258,8 @@ func (s *server) handleMeThread(w http.ResponseWriter, r *http.Request) {
   <div id="messages" hx-ext="sse" sse-connect="%s" sse-swap="message" hx-swap="beforeend">`,
 		htmlEscape(sseURL))
 
-	for i := len(msgs) - 1; i >= 0; i-- {
-		writeMsgDiv(w, msgs[i])
+	for _, msg := range slices.Backward(msgs) {
+		writeMsgDiv(w, msg)
 	}
 
 	fmt.Fprintf(w, `</div>

@@ -94,7 +94,7 @@ func (m *Manager) discoverVMIP(vm *VM) bool {
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		for _, line := range strings.Split(string(data), "\n") {
+		for line := range strings.SplitSeq(string(data), "\n") {
 			fields := strings.Fields(line)
 			if len(fields) < 3 {
 				continue

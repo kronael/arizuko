@@ -21,11 +21,11 @@ import (
 type bskyMock struct {
 	mu             sync.Mutex
 	srv            *httptest.Server
-	createHits     int32
-	refreshHits    int32
-	listHits       int32
-	updateSeenHits int32
-	getRecordHits  int32
+	createHits     atomic.Int32
+	refreshHits    atomic.Int32
+	listHits       atomic.Int32
+	updateSeenHits atomic.Int32
+	getRecordHits  atomic.Int32
 	createRecords  []map[string]any
 	accessJwt      string
 	refreshJwt     string
@@ -43,7 +43,7 @@ func newBskyMock() *bskyMock {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/xrpc/com.atproto.server.createSession", func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&m.createHits, 1)
+		m.createHits.Add(1)
 		var body map[string]string
 		json.NewDecoder(r.Body).Decode(&body)
 		if body["identifier"] == "bad" {
@@ -56,7 +56,7 @@ func newBskyMock() *bskyMock {
 		})
 	})
 	mux.HandleFunc("/xrpc/com.atproto.server.refreshSession", func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&m.refreshHits, 1)
+		m.refreshHits.Add(1)
 		m.mu.Lock()
 		fails := m.refreshFails
 		m.mu.Unlock()
@@ -78,7 +78,7 @@ func newBskyMock() *bskyMock {
 		})
 	})
 	mux.HandleFunc("/xrpc/app.bsky.notification.listNotifications", func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&m.listHits, 1)
+		m.listHits.Add(1)
 		m.mu.Lock()
 		reject := m.rejectAccess
 		tok := m.accessJwt
@@ -92,11 +92,11 @@ func newBskyMock() *bskyMock {
 		json.NewEncoder(w).Encode(map[string]any{"notifications": ns})
 	})
 	mux.HandleFunc("/xrpc/app.bsky.notification.updateSeen", func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&m.updateSeenHits, 1)
+		m.updateSeenHits.Add(1)
 		w.Write([]byte(`{}`))
 	})
 	mux.HandleFunc("/xrpc/com.atproto.repo.getRecord", func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&m.getRecordHits, 1)
+		m.getRecordHits.Add(1)
 		rkey := r.URL.Query().Get("rkey")
 		json.NewEncoder(w).Encode(map[string]string{"cid": "cid-for-" + rkey})
 	})
@@ -204,10 +204,10 @@ func TestAuth_UsesSavedSessionThenRefresh(t *testing.T) {
 	if err := bc.auth(); err != nil {
 		t.Fatal(err)
 	}
-	if atomic.LoadInt32(&m.createHits) != 0 {
+	if m.createHits.Load() != 0 {
 		t.Error("createSession should not be called when refresh works")
 	}
-	if atomic.LoadInt32(&m.refreshHits) == 0 {
+	if m.refreshHits.Load() == 0 {
 		t.Error("refreshSession should be called")
 	}
 }
@@ -220,8 +220,8 @@ func TestAuth_FallsBackToCreate(t *testing.T) {
 	if err := bc.auth(); err != nil {
 		t.Fatal(err)
 	}
-	if atomic.LoadInt32(&m.createHits) != 1 {
-		t.Errorf("createHits = %d, want 1", atomic.LoadInt32(&m.createHits))
+	if m.createHits.Load() != 1 {
+		t.Errorf("createHits = %d, want 1", m.createHits.Load())
 	}
 }
 
@@ -252,12 +252,12 @@ func TestXRPC_RetryOn401WithRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("xrpc retry failed: %v", err)
 	}
-	if atomic.LoadInt32(&m.refreshHits) == 0 {
+	if m.refreshHits.Load() == 0 {
 		t.Error("refresh should have been called")
 	}
 	// list should have been called at least twice (once 401, once ok)
-	if atomic.LoadInt32(&m.listHits) < 2 {
-		t.Errorf("listHits = %d, want >= 2", atomic.LoadInt32(&m.listHits))
+	if m.listHits.Load() < 2 {
+		t.Errorf("listHits = %d, want >= 2", m.listHits.Load())
 	}
 }
 
@@ -280,12 +280,12 @@ func TestXRPC_401AndRefreshFailsTriesCreate(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected terminal error")
 	}
-	if atomic.LoadInt32(&m.refreshHits) == 0 {
+	if m.refreshHits.Load() == 0 {
 		t.Error("refresh should have been attempted")
 	}
 	// createSession is re-called as fallback
-	if atomic.LoadInt32(&m.createHits) < 2 {
-		t.Errorf("createHits = %d, want >= 2", atomic.LoadInt32(&m.createHits))
+	if m.createHits.Load() < 2 {
+		t.Errorf("createHits = %d, want >= 2", m.createHits.Load())
 	}
 }
 
@@ -330,8 +330,8 @@ func TestSend_WithReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if atomic.LoadInt32(&m.getRecordHits) != 1 {
-		t.Errorf("getRecordHits = %d, want 1", atomic.LoadInt32(&m.getRecordHits))
+	if m.getRecordHits.Load() != 1 {
+		t.Errorf("getRecordHits = %d, want 1", m.getRecordHits.Load())
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -578,8 +578,8 @@ func TestFetchNotifications_Dispatches(t *testing.T) {
 	if mr.msgs[1].Verb != "message" {
 		t.Errorf("verb = %q, want message", mr.msgs[1].Verb)
 	}
-	if atomic.LoadInt32(&m.updateSeenHits) != 2 {
-		t.Errorf("updateSeenHits = %d, want 2", atomic.LoadInt32(&m.updateSeenHits))
+	if m.updateSeenHits.Load() != 2 {
+		t.Errorf("updateSeenHits = %d, want 2", m.updateSeenHits.Load())
 	}
 }
 
@@ -623,7 +623,7 @@ func TestFetchNotifications_NoSeenOnDeliverFailure(t *testing.T) {
 	if err := bc.fetchNotifications(rc); err != nil {
 		t.Fatal(err)
 	}
-	if got := atomic.LoadInt32(&m.updateSeenHits); got != 0 {
+	if got := m.updateSeenHits.Load(); got != 0 {
 		t.Errorf("updateSeenHits = %d on delivery failure, want 0 (notification must stay unread)", got)
 	}
 }
@@ -731,13 +731,13 @@ func (m *bskyRouter) close() { m.srv.Close() }
 
 func TestFetchHistory(t *testing.T) {
 	var capturedQuery string
-	var pageHits int32
+	var pageHits atomic.Int32
 	mux := http.NewServeMux()
 	mux.HandleFunc("/xrpc/com.atproto.server.createSession", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(session{DID: "did:plc:me", AccessJwt: "a", RefreshJwt: "r"})
 	})
 	mux.HandleFunc("/xrpc/app.bsky.feed.getAuthorFeed", func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&pageHits, 1)
+		pageHits.Add(1)
 		capturedQuery = r.URL.RawQuery
 		// Return two posts, newest first; empty cursor → no more pages.
 		w.Write([]byte(`{
@@ -784,7 +784,7 @@ func TestFetchHistory(t *testing.T) {
 	if !strings.Contains(capturedQuery, "limit=50") {
 		t.Errorf("query missing limit: %q", capturedQuery)
 	}
-	if atomic.LoadInt32(&pageHits) == 0 {
+	if pageHits.Load() == 0 {
 		t.Error("feed endpoint never hit")
 	}
 }

@@ -70,7 +70,7 @@ func folderAncestry(folder string) []string {
 		return out
 	}
 	cur := ""
-	for _, p := range strings.Split(folder, "/") {
+	for p := range strings.SplitSeq(folder, "/") {
 		if cur == "" {
 			cur = p
 		} else {

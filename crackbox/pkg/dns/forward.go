@@ -89,7 +89,7 @@ func questionEnd(pkt []byte) (int, bool) {
 		return 0, false
 	}
 	off := 12
-	for i := 0; i < maxIter; i++ {
+	for range maxIter {
 		if off >= len(pkt) {
 			return 0, false
 		}

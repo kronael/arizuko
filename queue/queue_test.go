@@ -115,7 +115,7 @@ func TestCircuitBreaker(t *testing.T) {
 	})
 
 	// 3 errors to trip breaker
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		q.EnqueueMessageCheck("g1")
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -149,7 +149,7 @@ func TestCircuitBreaker_SilentNoOpDoesNotTrip(t *testing.T) {
 		return false, nil // success with no output (silent no-op)
 	})
 
-	for i := 0; i < circuitBreakerThreshold+2; i++ {
+	for range circuitBreakerThreshold + 2 {
 		q.EnqueueMessageCheck("g1")
 		time.Sleep(40 * time.Millisecond)
 	}

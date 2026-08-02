@@ -26,9 +26,9 @@ func shortBackoffs(t *testing.T) {
 
 func TestDoWithRetry_503ThenOK(t *testing.T) {
 	shortBackoffs(t)
-	var n int32
+	var n atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if atomic.AddInt32(&n, 1) == 1 {
+		if n.Add(1) == 1 {
 			w.WriteHeader(503)
 			return
 		}
@@ -46,17 +46,17 @@ func TestDoWithRetry_503ThenOK(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("got %d want 200", resp.StatusCode)
 	}
-	if got := atomic.LoadInt32(&n); got != 2 {
+	if got := n.Load(); got != 2 {
 		t.Fatalf("got %d requests want 2", got)
 	}
 }
 
 func TestDoWithRetry_429WithRetryAfter(t *testing.T) {
 	shortBackoffs(t)
-	var n int32
+	var n atomic.Int32
 	var firstAt, secondAt time.Time
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c := atomic.AddInt32(&n, 1)
+		c := n.Add(1)
 		if c == 1 {
 			firstAt = time.Now()
 			w.Header().Set("Retry-After", "1")
@@ -84,9 +84,9 @@ func TestDoWithRetry_429WithRetryAfter(t *testing.T) {
 
 func TestDoWithRetry_500Exhausted(t *testing.T) {
 	shortBackoffs(t)
-	var n int32
+	var n atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&n, 1)
+		n.Add(1)
 		w.WriteHeader(500)
 	}))
 	defer srv.Close()
@@ -100,16 +100,16 @@ func TestDoWithRetry_500Exhausted(t *testing.T) {
 	if resp.StatusCode != 500 {
 		t.Fatalf("got %d want 500", resp.StatusCode)
 	}
-	if got := atomic.LoadInt32(&n); got != 3 {
+	if got := n.Load(); got != 3 {
 		t.Fatalf("got %d requests want 3", got)
 	}
 }
 
 func TestDoWithRetry_400NoRetry(t *testing.T) {
 	shortBackoffs(t)
-	var n int32
+	var n atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&n, 1)
+		n.Add(1)
 		w.WriteHeader(400)
 	}))
 	defer srv.Close()
@@ -123,16 +123,16 @@ func TestDoWithRetry_400NoRetry(t *testing.T) {
 	if resp.StatusCode != 400 {
 		t.Fatalf("got %d want 400", resp.StatusCode)
 	}
-	if got := atomic.LoadInt32(&n); got != 1 {
+	if got := n.Load(); got != 1 {
 		t.Fatalf("got %d requests want 1", got)
 	}
 }
 
 func TestDoWithRetry_NetworkErrorRetried(t *testing.T) {
 	shortBackoffs(t)
-	var n int32
+	var n atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if atomic.AddInt32(&n, 1) == 1 {
+		if n.Add(1) == 1 {
 			hj, ok := w.(http.Hijacker)
 			if !ok {
 				t.Fatal("hijack unsupported")
@@ -154,7 +154,7 @@ func TestDoWithRetry_NetworkErrorRetried(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("got %d want 200", resp.StatusCode)
 	}
-	if got := atomic.LoadInt32(&n); got < 2 {
+	if got := n.Load(); got < 2 {
 		t.Fatalf("got %d requests want >=2", got)
 	}
 }
@@ -195,9 +195,9 @@ func TestDoWithRetry_BodyRewound(t *testing.T) {
 // the budget (len(backoffs)+1 total).
 func TestDoWithRetry_429Exhausted_NoExtraRequest(t *testing.T) {
 	shortBackoffs(t)
-	var n int32
+	var n atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&n, 1)
+		n.Add(1)
 		w.WriteHeader(429)
 	}))
 	defer srv.Close()
@@ -213,7 +213,7 @@ func TestDoWithRetry_429Exhausted_NoExtraRequest(t *testing.T) {
 	}
 	// shortBackoffs sets len=2, so budget = 3 attempts. The old code re-issued
 	// after the final 429, making 4 total. Fixed: exactly 3.
-	if got := atomic.LoadInt32(&n); got != 3 {
+	if got := n.Load(); got != 3 {
 		t.Fatalf("made %d requests, want 3 (no extra request after last 429)", got)
 	}
 }

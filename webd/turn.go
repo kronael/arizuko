@@ -82,10 +82,10 @@ func (s *server) handleTurnSnapshot(w http.ResponseWriter, r *http.Request) {
 		last = frames[len(frames)-1].ID
 	}
 	chanlib.WriteJSON(w, map[string]any{
-		"turn_id":        turnID,
-		"status":         info.Status,
-		"frames":         frames,
-		"last_frame_id":  last,
+		"turn_id":       turnID,
+		"status":        info.Status,
+		"frames":        frames,
+		"last_frame_id": last,
 	})
 }
 
@@ -208,7 +208,7 @@ func writeSSE(w http.ResponseWriter, f http.Flusher, s string) error {
 }
 
 func splitSSEFrame(frame string) (event, data string) {
-	for _, line := range strings.Split(frame, "\n") {
+	for line := range strings.SplitSeq(frame, "\n") {
 		switch {
 		case strings.HasPrefix(line, "event: "):
 			event = strings.TrimPrefix(line, "event: ")

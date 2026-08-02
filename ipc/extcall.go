@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -52,9 +53,7 @@ func CallExtTool(
 ) (*mcp.CallToolResult, error) {
 	// Copy args so we can delete consumed path params.
 	remaining := make(map[string]any, len(args))
-	for k, v := range args {
-		remaining[k] = v
-	}
+	maps.Copy(remaining, args)
 
 	// Render path params.
 	path := pathParam.ReplaceAllStringFunc(tool.Path, func(m string) string {
@@ -84,9 +83,7 @@ func CallExtTool(
 	default:
 		// POST/PUT/PATCH: build JSON body.
 		bodyMap := make(map[string]any, len(remaining))
-		for k, v := range remaining {
-			bodyMap[k] = v
-		}
+		maps.Copy(bodyMap, remaining)
 		if tool.AuthMethod == "json-body" {
 			if v := secrets[tool.SecretKey]; tool.Header != "" && v != "" {
 				bodyMap[tool.Header] = v

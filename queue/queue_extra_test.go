@@ -63,7 +63,7 @@ func TestEnqueueMessageCheck_CircuitBreakerBlocksThenReset(t *testing.T) {
 	})
 
 	// Trip the circuit breaker: 3 failures.
-	for i := 0; i < circuitBreakerThreshold; i++ {
+	for range circuitBreakerThreshold {
 		q.EnqueueMessageCheck("g1")
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -98,7 +98,7 @@ func TestActiveCount_AfterConcurrentRuns(t *testing.T) {
 		return true, nil
 	})
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		q.EnqueueMessageCheck(fmt.Sprintf("g%d", i))
 	}
 	time.Sleep(50 * time.Millisecond)

@@ -333,7 +333,7 @@ func durOr(k string, def time.Duration) time.Duration {
 // entries (SEND_DISABLED_CHANNELS), mirroring core.parseCSV.
 func parseCSV(s string) []string {
 	var out []string
-	for _, p := range strings.Split(s, ",") {
+	for p := range strings.SplitSeq(s, ",") {
 		if t := strings.TrimSpace(p); t != "" {
 			out = append(out, t)
 		}

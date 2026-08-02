@@ -28,8 +28,8 @@ func Resolve(folder string) Identity {
 }
 
 func WorldOf(folder string) string {
-	if idx := strings.Index(folder, "/"); idx != -1 {
-		return folder[:idx]
+	if before, _, ok := strings.Cut(folder, "/"); ok {
+		return before
 	}
 	return folder
 }

@@ -134,7 +134,7 @@ func TestStore_TurnFrames(t *testing.T) {
 	defer s.Close()
 
 	base := time.Now()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		m := core.Message{
 			ID: string(rune('a' + i)), ChatJID: "tg:1", Sender: "bot",
 			Content: "frame", Timestamp: base.Add(time.Duration(i) * time.Second),

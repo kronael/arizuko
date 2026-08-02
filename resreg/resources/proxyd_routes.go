@@ -20,15 +20,15 @@ import (
 // blob columns force a hook. We keep the public field shape natural
 // (`[]string`, `bool`) and pay the conversion in two short hooks.
 type ProxydRoutesRow struct {
-	Path                string   `db:"path"             yaml:"path"             json:"path"`
-	Backend             string   `db:"backend"          yaml:"backend"          json:"backend"`
-	Auth                string   `db:"auth"             yaml:"auth"             json:"auth"`
-	GatedBy             string   `db:"gated_by"         yaml:"gated_by,omitempty"         json:"gated_by,omitempty"`
-	RedirectTo          string   `db:"redirect_to"      yaml:"redirect_to,omitempty"      json:"redirect_to,omitempty"`
-	PreserveHeadersRaw  string   `db:"preserve_headers" yaml:"-"                json:"-"`
-	StripPrefixRaw      int      `db:"strip_prefix"     yaml:"-"                json:"-"`
-	PreserveHeaders     []string `db:"-"                yaml:"preserve_headers,omitempty" json:"preserve_headers,omitempty"`
-	StripPrefix         bool     `db:"-"                yaml:"strip_prefix,omitempty"     json:"strip_prefix,omitempty"`
+	Path               string   `db:"path"             yaml:"path"             json:"path"`
+	Backend            string   `db:"backend"          yaml:"backend"          json:"backend"`
+	Auth               string   `db:"auth"             yaml:"auth"             json:"auth"`
+	GatedBy            string   `db:"gated_by"         yaml:"gated_by,omitempty"         json:"gated_by,omitempty"`
+	RedirectTo         string   `db:"redirect_to"      yaml:"redirect_to,omitempty"      json:"redirect_to,omitempty"`
+	PreserveHeadersRaw string   `db:"preserve_headers" yaml:"-"                json:"-"`
+	StripPrefixRaw     int      `db:"strip_prefix"     yaml:"-"                json:"-"`
+	PreserveHeaders    []string `db:"-"                yaml:"preserve_headers,omitempty" json:"preserve_headers,omitempty"`
+	StripPrefix        bool     `db:"-"                yaml:"strip_prefix,omitempty"     json:"strip_prefix,omitempty"`
 }
 
 // ProxydRoutesMCPDoc is the single owner of proxyd_routes' per-action agent-
@@ -89,7 +89,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "proxyd_routes",
 		Table:     "proxyd_routes",
-		RowType:   reflect.TypeOf(ProxydRoutesRow{}),
+		RowType:   reflect.TypeFor[ProxydRoutesRow](),
 		PKFields:  []string{"Path"},
 		Endpoints: ProxydRoutesEndpoints,
 		MCPDoc:    ProxydRoutesMCPDoc,

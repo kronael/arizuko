@@ -69,12 +69,12 @@ type Mount struct {
 }
 
 type Route struct {
-	ID                     int64  `json:"id"`
-	Seq                    int    `json:"seq"`
-	Match                  string `json:"match"`
-	Target                 string `json:"target"`
-	ObserveWindowMessages  int    `json:"observe_window_messages,omitempty"`
-	ObserveWindowChars     int    `json:"observe_window_chars,omitempty"`
+	ID                    int64  `json:"id"`
+	Seq                   int    `json:"seq"`
+	Match                 string `json:"match"`
+	Target                string `json:"target"`
+	ObserveWindowMessages int    `json:"observe_window_messages,omitempty"`
+	ObserveWindowChars    int    `json:"observe_window_chars,omitempty"`
 }
 
 // TopicLineage is the per-topic state introduced by spec 6/F.
@@ -105,12 +105,12 @@ type RouteTarget struct {
 }
 
 func ParseRouteTarget(s string) RouteTarget {
-	i := strings.IndexByte(s, '#')
-	if i < 0 {
+	before, after, ok := strings.Cut(s, "#")
+	if !ok {
 		return RouteTarget{Folder: s}
 	}
-	frag := s[i+1:]
-	rt := RouteTarget{Folder: s[:i]}
+	frag := after
+	rt := RouteTarget{Folder: before}
 	switch frag {
 	case "observe":
 		rt.Mode = frag
@@ -136,8 +136,8 @@ func (rt RouteTarget) String() string {
 }
 
 func JidRoom(jid string) string {
-	if i := strings.IndexByte(jid, ':'); i >= 0 {
-		return jid[i+1:]
+	if _, after, ok := strings.Cut(jid, ":"); ok {
+		return after
 	}
 	return jid
 }

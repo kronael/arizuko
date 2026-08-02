@@ -785,8 +785,8 @@ func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
 
 func workspaceRel(fp string) (string, error) {
 	prefix := core.ContainerHome + "/"
-	if strings.HasPrefix(fp, prefix) {
-		return strings.TrimPrefix(fp, prefix), nil
+	if after, ok := strings.CutPrefix(fp, prefix); ok {
+		return after, nil
 	}
 	return "", fmt.Errorf("filepath must be under ~/ (%s)", core.ContainerHome)
 }
@@ -1889,10 +1889,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err := authzStructural("invite_create", targetGlob); err != nil {
 				return toolErr(err.Error())
 			}
-			maxUses := req.GetInt("max_uses", 1)
-			if maxUses < 1 {
-				maxUses = 1
-			}
+			maxUses := max(req.GetInt("max_uses", 1), 1)
 			var expiresAt *time.Time
 			if exp := req.GetString("expires_at", ""); exp != "" {
 				t, err := time.Parse(time.RFC3339, exp)

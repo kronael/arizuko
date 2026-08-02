@@ -119,9 +119,9 @@ func TestRotation(t *testing.T) {
 }
 
 func TestEmitWebFlushesWebhook(t *testing.T) {
-	var got int32
+	var got atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&got, 1)
+		got.Add(1)
 		io.Copy(io.Discard, r.Body)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -141,10 +141,10 @@ func TestEmitWebFlushesWebhook(t *testing.T) {
 	a.EmitWeb(WebEvent{Method: "GET", Path: "/x", Status: 200})
 
 	deadline := time.Now().Add(2 * time.Second)
-	for atomic.LoadInt32(&got) == 0 && time.Now().Before(deadline) {
+	for got.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if atomic.LoadInt32(&got) == 0 {
+	if got.Load() == 0 {
 		t.Fatal("EmitWeb did not flush the web webhook")
 	}
 }

@@ -60,7 +60,7 @@ func TestTaskRunLogs(t *testing.T) {
 	if err := s.CreateTask(task); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := s.db.Exec(
 			`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, error)
 			 VALUES (?, ?, ?, ?, ?)`,

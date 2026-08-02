@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -50,13 +51,7 @@ func TestGrantOperatorMembership(t *testing.T) {
 	}
 
 	ancs := s.Ancestors("github:1")
-	found := false
-	for _, a := range ancs {
-		if a == "role:operator" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(ancs, "role:operator")
 	if !found {
 		t.Fatalf("expected role:operator in ancestors, got %v", ancs)
 	}

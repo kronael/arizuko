@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	_ "modernc.org/sqlite"
 	"gopkg.in/yaml.v3"
+	_ "modernc.org/sqlite"
 )
 
 // TestRow is the synthetic schema. Composite PK on (kind, name); scope
@@ -51,7 +51,7 @@ func freshEngine(t *testing.T) (*sql.DB, *Resource) {
 	r := Register(Resource{
 		Name:     "testrows",
 		Table:    "testrows",
-		RowType:  reflect.TypeOf(TestRow{}),
+		RowType:  reflect.TypeFor[TestRow](),
 		PKFields: []string{"Kind", "Name"},
 		Scope:    ScopeSpec{Field: "Kind"},
 	})
@@ -536,7 +536,7 @@ func TestHooks_BeforeInsert(t *testing.T) {
 	r := Register(Resource{
 		Name:     "testrows",
 		Table:    "testrows",
-		RowType:  reflect.TypeOf(TestRow{}),
+		RowType:  reflect.TypeFor[TestRow](),
 		PKFields: []string{"Kind", "Name"},
 		Hooks: Hooks{
 			BeforeInsert: func(ctx context.Context, tx *sql.Tx, row any) error {
@@ -584,7 +584,7 @@ func TestColumnOverride_Write(t *testing.T) {
 	r := Register(Resource{
 		Name:     "nullable",
 		Table:    "nullable",
-		RowType:  reflect.TypeOf(Row{}),
+		RowType:  reflect.TypeFor[Row](),
 		PKFields: []string{"Name"},
 		Hooks: Hooks{
 			ColumnOverride: map[string]ColumnHook{

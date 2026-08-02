@@ -318,7 +318,7 @@ func TestHTTPChannelDrainOutbox_DeadJIDDoesNotBlock(t *testing.T) {
 	}
 
 	// The dead jid self-evicts after maxSendAttempts more drains.
-	for i := 0; i < maxSendAttempts; i++ {
+	for range maxSendAttempts {
 		ch.DrainOutbox()
 	}
 	if ch.QueueLen() != 0 {

@@ -111,7 +111,7 @@ func (d *dash) renderRecentRuns(w http.ResponseWriter) {
 	var tableRows [][]string
 	for rows.Next() {
 		var runID, folder, state, outcome, startedAt, endedAt string
-		var exitCode interface{}
+		var exitCode any
 		if err := rows.Scan(&runID, &folder, &state, &outcome, &exitCode, &startedAt, &endedAt); err != nil {
 			slog.Warn("runed page: recent scan", "err", err)
 			continue
@@ -242,7 +242,7 @@ func runStateClass(state string) string {
 }
 
 // exitCodeStr renders an exit_code (nullable INTEGER) as a string; "" when NULL.
-func exitCodeStr(v interface{}) string {
+func exitCodeStr(v any) string {
 	switch n := v.(type) {
 	case nil:
 		return ""

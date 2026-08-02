@@ -66,7 +66,7 @@ func TestHub_TopicIsolation(t *testing.T) {
 func TestHub_SubscribeCapPerKey(t *testing.T) {
 	h := newHub()
 	unsubs := make([]func(), 0, maxSubsPerKey)
-	for i := 0; i < maxSubsPerKey; i++ {
+	for range maxSubsPerKey {
 		_, u := h.subscribe("f", "t")
 		unsubs = append(unsubs, u)
 	}
@@ -101,7 +101,7 @@ func TestHub_PublishDropsSlowSubscribers(t *testing.T) {
 	defer unsub()
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			h.publish("f", "t", "m", "x")
 		}
 		close(done)
@@ -118,16 +118,14 @@ func TestHub_PublishDropsSlowSubscribers(t *testing.T) {
 func TestHub_Concurrent(t *testing.T) {
 	h := newHub()
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 50; j++ {
+	for range 10 {
+		wg.Go(func() {
+			for range 50 {
 				_, u := h.subscribe("f", "t")
 				h.publish("f", "t", "m", "x")
 				u()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

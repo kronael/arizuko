@@ -150,10 +150,7 @@ func queryTimeoutMs(runTTL time.Duration) int64 {
 	if runTTL <= 0 {
 		return 0
 	}
-	q := runTTL - 30*time.Second
-	if q < 60*time.Second {
-		q = 60 * time.Second
-	}
+	q := max(runTTL-30*time.Second, 60*time.Second)
 	return q.Milliseconds()
 }
 

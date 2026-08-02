@@ -307,7 +307,7 @@ func TestRecordSession_PerRunRows(t *testing.T) {
 	defer s.Close()
 
 	// Three runs of the same continued session.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		rowID, _ := s.RecordSession("grp", "sid-1", time.Now())
 		s.EndSession(rowID, "sid-1", "ok", "", 1)
 	}

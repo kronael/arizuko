@@ -75,7 +75,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "acl",
 		Table:     "acl",
-		RowType:   reflect.TypeOf(ACLRow{}),
+		RowType:   reflect.TypeFor[ACLRow](),
 		PKFields:  []string{"Principal", "Action", "Scope", "Params", "Predicate", "Effect"},
 		Endpoints: ACLEndpoints,
 		MCPDoc:    ACLMCPDoc,

@@ -287,8 +287,8 @@ func (s *server) issuerMint(ctx context.Context, sub string, requested []string,
 // bareSub strips the "user:"/"service:" prefix for the grants lookup (spec 5/1
 // "sub prefix rule" — bare sub everywhere except the JWT sub claim).
 func bareSub(sub string) string {
-	if i := strings.IndexByte(sub, ':'); i >= 0 {
-		return sub[i+1:]
+	if _, after, ok := strings.Cut(sub, ":"); ok {
+		return after
 	}
 	return sub
 }

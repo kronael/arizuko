@@ -25,11 +25,11 @@ func readEpisodeSummary(path string) (summary, epType string) {
 	lines := strings.Split(fm, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "type:") {
-			epType = strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "type:")), `"'`)
+		if after, ok := strings.CutPrefix(trimmed, "type:"); ok {
+			epType = strings.Trim(strings.TrimSpace(after), `"'`)
 		}
-		if strings.HasPrefix(trimmed, "summary:") {
-			val := strings.TrimSpace(strings.TrimPrefix(trimmed, "summary:"))
+		if after, ok := strings.CutPrefix(trimmed, "summary:"); ok {
+			val := strings.TrimSpace(after)
 			if val != "" && val != "|" && val != ">" {
 				summary = strings.Trim(val, `"'`)
 				continue

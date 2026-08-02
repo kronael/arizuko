@@ -583,7 +583,7 @@ func warnUnsatisfiedDeps(name string, fragment []byte, svcDir string) {
 	if m == nil {
 		return
 	}
-	for _, dep := range strings.Split(string(m[1]), ",") {
+	for dep := range strings.SplitSeq(string(m[1]), ",") {
 		dep = strings.Trim(strings.TrimSpace(dep), `'"`)
 		if dep == "" || dep == name || baseDaemons[dep] {
 			continue

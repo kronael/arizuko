@@ -112,7 +112,7 @@ func TestAuditCategoryFilter(t *testing.T) {
 func TestAuditPagination(t *testing.T) {
 	db := auditDB(t)
 	defer db.Close()
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		seedAudit(t, db, "mutation", fmt.Sprintf("act%d", i), "actor", "f", "ok")
 	}
 

@@ -59,7 +59,7 @@ type config struct {
 
 func loadConfig() config {
 	var subreddits []string
-	for _, s := range strings.Split(chanlib.EnvOr("REDDIT_SUBREDDITS", ""), ",") {
+	for s := range strings.SplitSeq(chanlib.EnvOr("REDDIT_SUBREDDITS", ""), ",") {
 		if s = strings.TrimSpace(s); s != "" {
 			subreddits = append(subreddits, s)
 		}

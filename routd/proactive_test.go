@@ -36,7 +36,7 @@ func seedQuestion(t *testing.T, db *DB, jid string, now time.Time, gap time.Dura
 	t.Helper()
 	last := now.Add(-gap)
 	base := jid + "-" + strconv.FormatInt(last.UnixNano(), 10) + "-"
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ts := last.Add(-time.Duration(n-1-i) * time.Minute)
 		content := "chatter"
 		if i == n-1 {
@@ -142,7 +142,7 @@ func TestProactiveNoSignal(t *testing.T) {
 	db, _ := OpenMem()
 	defer db.Close()
 	now := time.Now().UTC()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_ = db.PutMessage(core.Message{ID: "n" + strconv.Itoa(i), ChatJID: "slack:T/C/U",
 			Sender: "u1", Content: "no question here", Timestamp: now.Add(-time.Duration(5-i) * time.Minute), Verb: "message"})
 	}

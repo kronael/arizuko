@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -149,8 +150,8 @@ func (mc *mastoClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.History
 	}
 	before := req.Before
 	out := make([]chanlib.InboundMsg, 0, len(notes))
-	for i := len(notes) - 1; i >= 0; i-- {
-		n := notes[i]
+	for _, n := range slices.Backward(notes) {
+
 		if string(n.Account.ID) != accountID {
 			continue
 		}
@@ -184,12 +185,13 @@ func (mc *mastoClient) notificationToMsg(n *mastodon.Notification) (chanlib.Inbo
 		if n.Type == "reply" || topic != "" {
 			verb = "reply"
 		}
-		content := stripHTML(n.Status.Content)
+		var content strings.Builder
+		content.WriteString(stripHTML(n.Status.Content))
 		for _, att := range n.Status.MediaAttachments {
-			content += fmt.Sprintf(" [%s: %s]", att.Type, att.Description)
+			content.WriteString(fmt.Sprintf(" [%s: %s]", att.Type, att.Description))
 		}
 		msg.ID = string(n.Status.ID)
-		msg.Content = content
+		msg.Content = content.String()
 		msg.Timestamp = n.Status.CreatedAt.Unix()
 		msg.Topic = topic
 		// The parent status this toot answers — without it the reply's

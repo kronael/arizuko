@@ -16,7 +16,7 @@ func TestWriteTaskRows_visibleBeyondLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		if _, err := tx.Exec(
 			`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, status, created_at)
 			 VALUES (?, ?, 'web:x', 'p', 'active', '')`,

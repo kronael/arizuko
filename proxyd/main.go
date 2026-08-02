@@ -64,7 +64,7 @@ func loadConfig() config {
 // Empty = no client trusted; XFF is always replaced with the connection peer.
 func parseTrustedProxies(s string) []*net.IPNet {
 	var out []*net.IPNet
-	for _, part := range strings.Split(s, ",") {
+	for part := range strings.SplitSeq(s, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -589,7 +589,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/priv" || strings.HasPrefix(r.URL.Path, "/priv/") {
 		s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 			rest := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/priv"), "/")
-			folder := strings.SplitN(rest, "/", 2)[0]
+			folder, _, _ := strings.Cut(rest, "/")
 			if folder != "" {
 				var gs []string
 				if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
@@ -706,8 +706,8 @@ func (s *server) dispatchRouteToken(rp *httputil.ReverseProxy, w http.ResponseWr
 		token = r.URL.Query().Get("token")
 	} else {
 		for _, prefix := range []string{"/chat/", "/hook/"} {
-			if strings.HasPrefix(r.URL.Path, prefix) {
-				token = strings.SplitN(strings.TrimPrefix(r.URL.Path, prefix), "/", 2)[0]
+			if after, ok := strings.CutPrefix(r.URL.Path, prefix); ok {
+				token = strings.SplitN(after, "/", 2)[0]
 				break
 			}
 		}
@@ -756,7 +756,7 @@ func (s *server) davRoute(rp *httputil.ReverseProxy, w http.ResponseWriter, r *h
 		return
 	}
 
-	group := strings.SplitN(rest, "/", 2)[0]
+	group, _, _ := strings.Cut(rest, "/")
 	if !auth.MatchGroups(gs, group) {
 		slog.Warn("dav forbidden", "sub", r.Header.Get("X-User-Sub"),
 			"group", group, "path", r.URL.Path)

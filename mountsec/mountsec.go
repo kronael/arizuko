@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -155,10 +156,8 @@ func expandHome(p string) string {
 func matchesBlocked(real string, patterns []string) string {
 	parts := strings.Split(filepath.Clean(real), string(filepath.Separator))
 	for _, pat := range patterns {
-		for _, p := range parts {
-			if p == pat {
-				return pat
-			}
+		if slices.Contains(parts, pat) {
+			return pat
 		}
 	}
 	return ""

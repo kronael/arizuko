@@ -493,7 +493,7 @@ func TestHandleChatPortal_visibleBeyondLimit(t *testing.T) {
 	seedChatSession(t, inst, "eng", "tok-eng", "eng thread", old)
 	// 250 newer sessions in a folder the caller cannot see — enough to overrun
 	// the LIMIT 200 if visibility were filtered in Go after the fetch.
-	for i := 0; i < 250; i++ {
+	for i := range 250 {
 		ts := time.Now().Add(time.Duration(i) * time.Second).Format(time.RFC3339Nano)
 		seedChatSession(t, inst, "secret", fmt.Sprintf("tok-s%03d", i), fmt.Sprintf("secret %d", i), ts)
 	}

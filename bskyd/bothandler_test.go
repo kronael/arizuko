@@ -85,14 +85,14 @@ func TestBotHandler_Like(t *testing.T) {
 
 func TestBotHandler_Delete(t *testing.T) {
 	// Use a dedicated server so we can register deleteRecord.
-	var deleteHits int32
+	var deleteHits atomic.Int32
 	var gotBody map[string]any
 	mux := http.NewServeMux()
 	mux.HandleFunc("/xrpc/com.atproto.server.createSession", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(session{DID: "did:plc:me", AccessJwt: "a", RefreshJwt: "r"})
 	})
 	mux.HandleFunc("/xrpc/com.atproto.repo.deleteRecord", func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&deleteHits, 1)
+		deleteHits.Add(1)
 		json.NewDecoder(r.Body).Decode(&gotBody)
 		w.Write([]byte(`{}`))
 	})
@@ -112,8 +112,8 @@ func TestBotHandler_Delete(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if atomic.LoadInt32(&deleteHits) != 1 {
-		t.Errorf("deleteHits = %d", atomic.LoadInt32(&deleteHits))
+	if deleteHits.Load() != 1 {
+		t.Errorf("deleteHits = %d", deleteHits.Load())
 	}
 	if gotBody["rkey"] != "rkeyDEL" {
 		t.Errorf("rkey = %v", gotBody["rkey"])

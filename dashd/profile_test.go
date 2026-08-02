@@ -30,7 +30,7 @@ func profileTestDB(t *testing.T) *dash {
 
 func seedAuthUser(t *testing.T, d *dash, sub, name, linked string) {
 	t.Helper()
-	var ltp interface{}
+	var ltp any
 	if linked != "" {
 		ltp = linked
 	}

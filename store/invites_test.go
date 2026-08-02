@@ -192,7 +192,7 @@ func TestConsumeInviteAtomicConcurrent(t *testing.T) {
 		succeed int64
 	)
 	start := make(chan struct{})
-	for i := 0; i < racers; i++ {
+	for i := range racers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

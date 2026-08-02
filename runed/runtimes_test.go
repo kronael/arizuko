@@ -178,11 +178,11 @@ func TestDockerRuntimeRunTTLNoKillOnFastRun(t *testing.T) {
 		out: container.Output{Status: "success", ExitCode: 0},
 	}
 	close(runner.release) // run returns immediately.
-	var kills int32
+	var kills atomic.Int32
 	rt := &dockerRuntime{
 		cfg: &core.Config{}, folders: folders, runner: runner,
 		signal: func(string) error { return nil },
-		kill:   func(string) error { atomic.AddInt32(&kills, 1); return nil },
+		kill:   func(string) error { kills.Add(1); return nil },
 	}
 
 	rt.Run(context.Background(), RunSpec{
@@ -192,7 +192,7 @@ func TestDockerRuntimeRunTTLNoKillOnFastRun(t *testing.T) {
 	})
 	// Wait past the (already-disarmed) deadline to prove no late kill fires.
 	time.Sleep(80 * time.Millisecond)
-	if n := atomic.LoadInt32(&kills); n != 0 {
+	if n := kills.Load(); n != 0 {
 		t.Fatalf("fast run got %d kills, want 0 (deadline must not fire after completion)", n)
 	}
 }
@@ -256,12 +256,12 @@ func TestDockerRuntimeCancelKills(t *testing.T) {
 		started: make(chan struct{}), release: make(chan struct{}),
 		out: container.Output{Status: "error", Error: "cancelled", ExitCode: 137},
 	}
-	var kills int32
+	var kills atomic.Int32
 	rt := &dockerRuntime{
 		cfg: &core.Config{}, folders: folders, runner: runner,
 		signal: func(string) error { return nil },
 		kill: func(string) error {
-			atomic.AddInt32(&kills, 1)
+			kills.Add(1)
 			select {
 			case <-runner.release:
 			default:
@@ -287,7 +287,7 @@ func TestDockerRuntimeCancelKills(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("cancel did not Kill the live container; Run never returned")
 	}
-	if n := atomic.LoadInt32(&kills); n != 1 {
+	if n := kills.Load(); n != 1 {
 		t.Fatalf("cancel fired %d kills, want exactly 1", n)
 	}
 }

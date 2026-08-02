@@ -257,7 +257,7 @@ func TestRateLimiterDifferentKeys(t *testing.T) {
 // sweep boundary and asserts stale buckets are reclaimed (map stays bounded).
 func TestRateLimiterSweepReclaims(t *testing.T) {
 	rl := newRateLimiter(1, time.Nanosecond) // window so short every hit is instantly stale
-	for i := 0; i < sweepEvery+10; i++ {
+	for i := range sweepEvery + 10 {
 		rl.allow(fmt.Sprintf("ip-%d", i))
 	}
 	// The sweep fires at call sweepEvery; afterwards only buckets added since
@@ -583,7 +583,7 @@ func TestProxydRootRedirectExternal(t *testing.T) {
 func TestPubRedirectCachesProbe(t *testing.T) {
 	sp := &stubProbe{ok: true}
 	pr := &pubRedirect{url: "https://docs.example.com", ttl: time.Minute, probe: sp.probe}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if !pr.reachable() {
 			t.Fatal("want reachable")
 		}
@@ -906,7 +906,7 @@ func TestProxydSlinkRateLimiterBoundary(t *testing.T) {
 	defer up.Close()
 	s.chatAnonDOS = newRateLimiter(3, time.Minute)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		req := httptest.NewRequest("GET", "/chat/tok/path", nil)
 		req.RemoteAddr = "7.7.7.7:4242"
 		w := httptest.NewRecorder()

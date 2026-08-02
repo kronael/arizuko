@@ -21,10 +21,10 @@ import (
 // Discord delivers our own MESSAGE_CREATE over the gateway, and in user
 // mode Author.Bot is false, so without the Author.ID check we'd loop.
 func TestOnMessage_SkipsSelfAuthor(t *testing.T) {
-	var deliveries int32
+	var deliveries atomic.Int32
 	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/v1/messages") {
-			atomic.AddInt32(&deliveries, 1)
+			deliveries.Add(1)
 		}
 		w.Write([]byte(`{"ok":true}`))
 	}))
@@ -45,7 +45,7 @@ func TestOnMessage_SkipsSelfAuthor(t *testing.T) {
 		Author:    &discordgo.User{ID: "bot-self", Username: "sloth"},
 		Timestamp: time.Now(),
 	}})
-	if got := atomic.LoadInt32(&deliveries); got != 0 {
+	if got := deliveries.Load(); got != 0 {
 		t.Errorf("self-authored message delivered %d times, want 0", got)
 	}
 
@@ -57,7 +57,7 @@ func TestOnMessage_SkipsSelfAuthor(t *testing.T) {
 	}})
 	// Allow async delivery to run.
 	time.Sleep(50 * time.Millisecond)
-	if got := atomic.LoadInt32(&deliveries); got != 1 {
+	if got := deliveries.Load(); got != 1 {
 		t.Errorf("other-author delivered %d times, want 1", got)
 	}
 }

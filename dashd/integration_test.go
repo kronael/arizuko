@@ -147,7 +147,7 @@ func TestGroupListUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Insert 3 messages routed to this folder.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := inst.DB.Exec(
 			`INSERT INTO messages (id, chat_jid, sender, content, timestamp, routed_to)
 			 VALUES (?, 'jid', '', '', ?, ?)`,
@@ -173,13 +173,6 @@ func TestGroupListUsage(t *testing.T) {
 	if !strings.Contains(bs, "tok / 7d") {
 		t.Errorf("token data missing from groups page")
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // TestTaskList: seed scheduled_tasks rows, GET /dash/tasks/, assert rows

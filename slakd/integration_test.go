@@ -874,8 +874,7 @@ func TestHealthProbe_FlipsOnAuthFailure(t *testing.T) {
 	mock.authFail = true
 	mock.mu.Unlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go b.healthProbe(ctx, 2*time.Millisecond)
 
 	if !waitFor(500*time.Millisecond, func() bool { return !b.isConnected() }) {
@@ -1361,8 +1360,7 @@ func TestWatchdog_ReprobesOnStale(t *testing.T) {
 	before := mock.authCalls
 	mock.mu.Unlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go b.watchdog(ctx)
 
 	if !waitFor(500*time.Millisecond, func() bool {
@@ -1420,8 +1418,7 @@ func TestWatchdog_QuietHealthyNeverExits(t *testing.T) {
 	b.lastInboundAt.Store(time.Now().Add(-time.Hour).Unix())
 	b.connected.Store(false)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go b.watchdog(ctx)
 
 	// Many stale ticks pass; a healthy probe must keep it alive (and restore health).

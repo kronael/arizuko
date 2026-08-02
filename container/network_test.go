@@ -83,7 +83,7 @@ func TestPickFolderSubnetCollision(t *testing.T) {
 func TestPickFolderSubnetExhausted(t *testing.T) {
 	mgr := &netMgr{perFolder: map[string]*sync.Mutex{}, allocated: map[string]bool{}}
 	// /22 -> 4 /24 slots: 10.99.0.0, .1.0, .2.0, .3.0.
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		mgr.markAllocated(fmt.Sprintf("10.99.%d.0/24", i))
 	}
 	if _, err := pickFolderSubnet(mgr, "10.99.0.0/22", "x"); err == nil {
@@ -197,15 +197,13 @@ func TestEnsureFolderNetworkConcurrency(t *testing.T) {
 	const n = 8
 	var wg sync.WaitGroup
 	errs := make(chan error, n)
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			_, _, err := ensureFolderNetwork(
 				"arizuko_test", "arizuko_crackbox_test",
 				"10.99.0.0/16", "atlas/support")
 			errs <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

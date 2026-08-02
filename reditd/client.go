@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -174,7 +175,7 @@ const maxRetryAfter = 5 * time.Minute
 
 func (rc *redditClient) doWithRetry(req *http.Request) (*http.Response, error) {
 	refreshedOn401 := false
-	for attempt := 0; attempt < 3; attempt++ {
+	for range 3 {
 		resp, err := chanlib.DoWithRetry(rc.http, req)
 		if err != nil {
 			return nil, err
@@ -318,8 +319,8 @@ func (rc *redditClient) pollSource(key, path string, router *chanlib.RouterClien
 	// cursor only after each successful delivery so a crash mid-batch doesn't
 	// skip undelivered items.
 	children := l.Data.Children
-	for i := len(children) - 1; i >= 0; i-- {
-		t := children[i]
+	for _, t := range slices.Backward(children) {
+
 		if err := rc.handleThing(t, key, router); err != nil {
 			// Stop advancing on the first delivery failure so the next poll
 			// re-fetches from the last delivered item instead of skipping it.
@@ -442,8 +443,8 @@ func (rc *redditClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.Histor
 	before := req.Before
 	msgs := make([]chanlib.InboundMsg, 0, len(l.Data.Children))
 	// Reverse to oldest-first to match poll delivery order.
-	for i := len(l.Data.Children) - 1; i >= 0; i-- {
-		t := l.Data.Children[i]
+	for _, t := range slices.Backward(l.Data.Children) {
+
 		ts := int64(t.Data.CreatedAt)
 		if !before.IsZero() && ts >= before.Unix() {
 			continue

@@ -121,7 +121,7 @@ func TestCheckAll_UnreachableURL(t *testing.T) {
 	r.Register("dead", "http://127.0.0.1:1", []string{"dead:"}, nil)
 
 	// Use default client — connection to port 1 will fail
-	for i := 0; i < maxHealthFails; i++ {
+	for range maxHealthFails {
 		r.checkAll()
 	}
 

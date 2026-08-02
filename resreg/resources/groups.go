@@ -68,7 +68,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:          "groups",
 		Table:         "groups",
-		RowType:       reflect.TypeOf(GroupsRow{}),
+		RowType:       reflect.TypeFor[GroupsRow](),
 		PKFields:      []string{"Folder"},
 		Scope:         resreg.ScopeSpec{Field: "Folder"},
 		StampedFields: []string{"AddedAt", "UpdatedAt"},

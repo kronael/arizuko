@@ -48,12 +48,10 @@ func TestSerializationNoConcurrentDoubleSpawn(t *testing.T) {
 	_, mgr := newMgr(t, rt, 5)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
-		}()
+		})
 	}
 	wg.Wait()
 	if peak != 1 {
@@ -68,11 +66,11 @@ func TestSerializationNoConcurrentDoubleSpawn(t *testing.T) {
 // the steer callback wired (as the prod Runtime does), steers into the live
 // container and returns steered:true — no second spawn.
 func TestSteerWhenLive(t *testing.T) {
-	var spawns int32
+	var spawns atomic.Int32
 	wired := make(chan struct{})
 	release := make(chan struct{})
 	rt := FakeRuntime{Fn: func(ctx context.Context, spec RunSpec) RunResult {
-		atomic.AddInt32(&spawns, 1)
+		spawns.Add(1)
 		spec.RegisterSteer(func(string) bool { return true })
 		close(wired)
 		<-release
@@ -93,7 +91,7 @@ func TestSteerWhenLive(t *testing.T) {
 	}
 	close(release)
 	<-done
-	if n := atomic.LoadInt32(&spawns); n != 1 {
+	if n := spawns.Load(); n != 1 {
 		t.Fatalf("spawns=%d want exactly 1 container for one busy folder", n)
 	}
 }

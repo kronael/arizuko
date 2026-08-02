@@ -228,7 +228,7 @@ func waitHealthy(cli *client.Client, deadline time.Duration) error {
 	return lastErr
 }
 
-func logf(a Args, format string, args ...interface{}) {
+func logf(a Args, format string, args ...any) {
 	if a.Quiet {
 		return
 	}

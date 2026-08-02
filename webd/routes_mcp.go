@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -41,11 +42,8 @@ func registerRoutesMCP(srv *mcpserver.MCPServer, c *proxydClient, sub, name stri
 	// resreg's per-call resolver. Documented in webd/mcp.go.
 	callerFor := func(_ context.Context, _ mcp.CallToolRequest) (resreg.Caller, error) {
 		claims := map[string]string{}
-		for _, g := range groups {
-			if g == "**" {
-				claims["operator"] = "1"
-				break
-			}
+		if slices.Contains(groups, "**") {
+			claims["operator"] = "1"
 		}
 		return resreg.Caller{Sub: sub, Claims: claims}, nil
 	}
@@ -81,7 +79,7 @@ func routesForwarder(c *proxydClient, sub, name string, groups []string) resreg.
 		Name:      "proxyd_routes",
 		Endpoints: resources.ProxydRoutesEndpoints,
 		MCPDoc:    resources.ProxydRoutesMCPDoc,
-		MCPArgs: resources.ProxydRoutesMCPArgs,
+		MCPArgs:   resources.ProxydRoutesMCPArgs,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
 			return "", nil, nil
 		},
@@ -141,12 +139,7 @@ func argsToBody(args resreg.Args) map[string]any {
 // isOperator: the `**` marker in the caller's groups claim is the operator
 // gate (auth.MatchGroups). Mirrors proxyd/resource.go callerFromHTTP.
 func isOperator(groups []string) bool {
-	for _, g := range groups {
-		if g == "**" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(groups, "**")
 }
 
 // proxydClient is webd's tiny outbound HTTP client to proxyd's /v1/proxyd_routes

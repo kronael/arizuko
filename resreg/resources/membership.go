@@ -28,7 +28,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:          "acl_membership",
 		Table:         "acl_membership",
-		RowType:       reflect.TypeOf(ACLMembershipRow{}),
+		RowType:       reflect.TypeFor[ACLMembershipRow](),
 		PKFields:      []string{"Child", "Parent"},
 		StampedFields: []string{"AddedAt"},
 		Hooks: resreg.Hooks{

@@ -34,7 +34,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "onboarding_gates",
 		Table:     "onboarding_gates",
-		RowType:   reflect.TypeOf(OnboardingGatesRow{}),
+		RowType:   reflect.TypeFor[OnboardingGatesRow](),
 		PKFields:  []string{"Gate"},
 		Endpoints: OnboardingGatesEndpoints,
 	})

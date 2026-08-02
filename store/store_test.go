@@ -40,7 +40,7 @@ func TestPutMessageNoBusyUnderConcurrentWriters(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, writers*perWriter)
 	now := time.Now()
-	for w := 0; w < writers; w++ {
+	for w := range writers {
 		wg.Add(1)
 		s := a
 		if w%2 == 1 {
@@ -48,7 +48,7 @@ func TestPutMessageNoBusyUnderConcurrentWriters(t *testing.T) {
 		}
 		go func(w int, s *Store) {
 			defer wg.Done()
-			for i := 0; i < perWriter; i++ {
+			for i := range perWriter {
 				err := s.PutMessage(core.Message{
 					ID:        fmt.Sprintf("m-%d-%d", w, i),
 					ChatJID:   "tg:1",
@@ -156,7 +156,6 @@ func TestSessionState(t *testing.T) {
 		t.Fatalf("expected empty after delete, got %q", got)
 	}
 }
-
 
 func TestSystemMessages(t *testing.T) {
 	s, _ := OpenMem()

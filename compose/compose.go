@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -54,7 +55,7 @@ func readEnvFileKey(path, key string) string {
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		if k, v, ok := strings.Cut(line, "="); ok && strings.TrimSpace(k) == key {
 			return strings.TrimSpace(v)
 		}
@@ -403,12 +404,7 @@ func readFragments(servicesDir string) ([]string, error) {
 
 // hasService reports whether the fragment set contains name.
 func hasService(services []string, name string) bool {
-	for _, s := range services {
-		if s == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(services, name)
 }
 
 // activeProfiles derives COMPOSE_PROFILES from the instance feature flags.
@@ -992,7 +988,7 @@ func proxydService(app, flavor, dataDir string, env map[string]string, routes []
 	}
 	ports := []string{webPort + ":8080"}
 	if aliases := envOr(env, "WEB_PORT_ALIASES", ""); aliases != "" {
-		for _, a := range strings.Split(aliases, ",") {
+		for a := range strings.SplitSeq(aliases, ",") {
 			a = strings.TrimSpace(a)
 			if a != "" {
 				ports = append(ports, a+":8080")

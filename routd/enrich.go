@@ -74,7 +74,7 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 	}
 
 	langs := readWhisperLanguages(groupPath)
-	extra := ""
+	var extra strings.Builder
 	for i, att := range atts {
 		ext := extFromMime(att.Mime, att.Filename)
 		fname := sanitizeFilename(att.Filename)
@@ -129,19 +129,19 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 		}
 		containerPath := core.ContainerHome + "/media/" + day + "/" + fname
 		if transcript != "" {
-			extra += fmt.Sprintf("\n<attachment path=%q mime=%q filename=%q transcript=%q/>",
-				containerPath, att.Mime, displayName, transcript)
+			extra.WriteString(fmt.Sprintf("\n<attachment path=%q mime=%q filename=%q transcript=%q/>",
+				containerPath, att.Mime, displayName, transcript))
 		} else {
-			extra += fmt.Sprintf("\n<attachment path=%q mime=%q filename=%q/>",
-				containerPath, att.Mime, displayName)
+			extra.WriteString(fmt.Sprintf("\n<attachment path=%q mime=%q filename=%q/>",
+				containerPath, att.Mime, displayName))
 		}
 	}
 
-	if extra == "" {
+	if extra.String() == "" {
 		return
 	}
 
-	msg.Content += extra
+	msg.Content += extra.String()
 	msg.Attachments = ""
 	if err := l.db.EnrichMessage(msg.ID, msg.Content); err != nil {
 		slog.Warn("enrich: store update failed", "id", msg.ID, "err", err)
@@ -246,7 +246,7 @@ func readWhisperLanguages(groupPath string) []string {
 		return nil
 	}
 	var langs []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if l := strings.TrimSpace(line); l != "" {
 			langs = append(langs, l)
 		}

@@ -394,12 +394,13 @@ func (p *poller) handleMsg(
 
 // renderEmailContent builds the agent-visible text for one email message.
 func renderEmailContent(fromName, fromAddr, subject, date, toAddr, body string, atts []chanlib.InboundAttachment) string {
-	s := fmt.Sprintf("From: %s <%s>\nSubject: %s\nDate: %s\nTo: %s\n\n%s",
-		fromName, fromAddr, subject, date, toAddr, body)
+	var s strings.Builder
+	s.WriteString(fmt.Sprintf("From: %s <%s>\nSubject: %s\nDate: %s\nTo: %s\n\n%s",
+		fromName, fromAddr, subject, date, toAddr, body))
 	for _, a := range atts {
-		s += fmt.Sprintf(" [Attachment: %s]", a.Filename)
+		s.WriteString(fmt.Sprintf(" [Attachment: %s]", a.Filename))
 	}
-	return s
+	return s.String()
 }
 
 // classifyRaw extracts Authentication-Results + From headers from the

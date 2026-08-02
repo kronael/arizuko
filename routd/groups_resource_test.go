@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -334,8 +335,8 @@ func trimLastLine(b []byte) []byte {
 	for len(s) > 0 && (s[len(s)-1] == '\n' || s[len(s)-1] == '\r') {
 		s = s[:len(s)-1]
 	}
-	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] == '\n' {
+	for i, v := range slices.Backward(s) {
+		if v == '\n' {
 			return s[i+1:]
 		}
 	}

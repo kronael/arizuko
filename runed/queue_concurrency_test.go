@@ -81,7 +81,7 @@ func TestConcurrencyCapNoOverAdmit(t *testing.T) {
 	_, mgr := newMgr(t, rt, cap)
 
 	var wg sync.WaitGroup
-	for i := 0; i < callers; i++ {
+	for i := range callers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -132,9 +132,9 @@ func TestFolderBusySteerFailReturnsBusy(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	done := make(chan struct{})
-	var spawns int32
+	var spawns atomic.Int32
 	rt := FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
-		atomic.AddInt32(&spawns, 1)
+		spawns.Add(1)
 		close(started)
 		<-release
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
@@ -159,7 +159,7 @@ func TestFolderBusySteerFailReturnsBusy(t *testing.T) {
 	}
 	close(release)
 	<-done
-	if n := atomic.LoadInt32(&spawns); n != 1 {
+	if n := spawns.Load(); n != 1 {
 		t.Fatalf("spawns=%d want 1 (the busy caller must not spawn a second container)", n)
 	}
 }

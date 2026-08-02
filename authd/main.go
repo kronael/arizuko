@@ -161,7 +161,7 @@ var errMissingDB = errors.New("DATABASE or DATA_DIR env required")
 func loadServiceSecrets() map[string]string {
 	out := map[string]string{}
 	raw := os.Getenv("AUTHD_SERVICE_KEYS")
-	for _, pair := range strings.Split(raw, ",") {
+	for pair := range strings.SplitSeq(raw, ",") {
 		pair = strings.TrimSpace(pair)
 		if pair == "" {
 			continue

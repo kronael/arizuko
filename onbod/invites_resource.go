@@ -127,10 +127,7 @@ func createInviteTx(ctx context.Context, tx *sql.Tx, args resreg.Args) (*store.I
 	if issuedBySub == "" {
 		issuedBySub = "onbod"
 	}
-	maxUses := argInt(args, "max_uses")
-	if maxUses < 1 {
-		maxUses = 1
-	}
+	maxUses := max(argInt(args, "max_uses"), 1)
 	var expiresAt *time.Time
 	if s := argString(args, "expires_at"); s != "" {
 		t, err := time.Parse(time.RFC3339, s)

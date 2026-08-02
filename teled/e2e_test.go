@@ -109,7 +109,7 @@ func TestE2EMultipleMessages(t *testing.T) {
 
 	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("test-token")
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		rc.SendMessage(chanlib.InboundMsg{ChatJID: "telegram:123", Content: "msg"})
 	}
 	mr.mu.Lock()

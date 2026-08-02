@@ -92,16 +92,14 @@ func TestConcurrentInsert(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan struct{}, 2)
 	for range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			defer func() {
 				if r := recover(); r != nil {
 					errs <- struct{}{}
 				}
 			}()
 			upsertThread(db, "msg-dup@x.com", "tidX", "a@x.com", "msg-dup@x.com")
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

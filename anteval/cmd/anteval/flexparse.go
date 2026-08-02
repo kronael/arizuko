@@ -67,8 +67,8 @@ func isFlagToken(tok string) bool {
 // plus whether an inline "=value" was present.
 func flagName(tok string) (name string, hasInline bool) {
 	s := strings.TrimLeft(tok, "-")
-	if eq := strings.IndexByte(s, '='); eq >= 0 {
-		return s[:eq], true
+	if before, _, ok := strings.Cut(s, "="); ok {
+		return before, true
 	}
 	return s, false
 }

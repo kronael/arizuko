@@ -177,8 +177,8 @@ func matchPrincipal(pattern, p string) bool {
 }
 
 func splitNs(s string) (ns, rest string) {
-	if i := strings.IndexByte(s, ':'); i >= 0 {
-		return s[:i], s[i+1:]
+	if before, after, ok := strings.Cut(s, ":"); ok {
+		return before, after
 	}
 	return s, ""
 }
@@ -240,21 +240,21 @@ func predicateMatches(predicate string, claims map[string]string) bool {
 	if predicate == "" {
 		return true
 	}
-	for _, part := range strings.Split(predicate, ",") {
+	for part := range strings.SplitSeq(predicate, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
-		eq := strings.IndexByte(part, '=')
-		if eq < 0 {
+		before, after, hasEq := strings.Cut(part, "=")
+		if !hasEq {
 			// Bare key: claim must be present and non-empty.
 			if claims[part] == "" {
 				return false
 			}
 			continue
 		}
-		k := strings.TrimSpace(part[:eq])
-		v := strings.TrimSpace(part[eq+1:])
+		k := strings.TrimSpace(before)
+		v := strings.TrimSpace(after)
 		got, ok := claims[k]
 		if !ok {
 			return false
@@ -273,20 +273,20 @@ func paramsMatch(paramSpec string, params map[string]string) bool {
 	if paramSpec == "" {
 		return true
 	}
-	for _, part := range strings.Split(paramSpec, ",") {
+	for part := range strings.SplitSeq(paramSpec, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
-		eq := strings.IndexByte(part, '=')
-		if eq < 0 {
+		before, after, hasEq := strings.Cut(part, "=")
+		if !hasEq {
 			if _, ok := params[part]; !ok {
 				return false
 			}
 			continue
 		}
-		k := strings.TrimSpace(part[:eq])
-		v := strings.TrimSpace(part[eq+1:])
+		k := strings.TrimSpace(before)
+		v := strings.TrimSpace(after)
 		got, ok := params[k]
 		if !ok {
 			return false

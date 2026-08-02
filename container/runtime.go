@@ -71,7 +71,7 @@ func CleanupOrphans(instance, image string) {
 		return
 	}
 	var orphans []string
-	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for name := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		if name != "" {
 			orphans = append(orphans, name)
 		}

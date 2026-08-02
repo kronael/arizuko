@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -547,19 +548,13 @@ var navLinks = []struct {
 // from the signed X-User-Groups).
 func dashNavFor(r *http.Request) string {
 	urlPath := r.URL.Path
-	operator := false
-	for _, g := range callerGroups(r) {
-		if g == "**" {
-			operator = true
-			break
-		}
-	}
+	operator := slices.Contains(callerGroups(r), "**")
 	// identity badge: name from X-User-Name, fallback to sub sans provider prefix.
 	name := r.Header.Get("X-User-Name")
 	if name == "" {
 		sub := r.Header.Get("X-User-Sub")
-		if i := strings.Index(sub, ":"); i >= 0 {
-			name = sub[i+1:]
+		if _, after, ok := strings.Cut(sub, ":"); ok {
+			name = after
 		} else {
 			name = sub
 		}
@@ -1497,10 +1492,7 @@ func renderEntries(w io.Writer, groupDir, sub, title string, openDetails bool) {
 		return
 	}
 	total := len(mdFiles)
-	limit := total
-	if limit > maxDirEntries {
-		limit = maxDirEntries
-	}
+	limit := min(total, maxDirEntries)
 	summaryLabel := fmt.Sprintf("%d files", total)
 	if total > maxDirEntries {
 		summaryLabel = fmt.Sprintf("%d files (showing newest %d)", total, maxDirEntries)
@@ -1537,7 +1529,7 @@ func mdSummary(path string) string {
 	if err != nil {
 		return ""
 	}
-	for _, l := range strings.Split(string(data), "\n") {
+	for l := range strings.SplitSeq(string(data), "\n") {
 		l = strings.TrimSpace(l)
 		if l != "" && l != "---" {
 			return l

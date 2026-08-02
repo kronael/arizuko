@@ -33,7 +33,7 @@ type tgMock struct {
 	fileReplyTo []string // reply_to_message_id seen on each file-method call
 	actionHits  int32
 	// force an error on the next sendMessage call (for 400 fallback)
-	failMarkdownOnce int32
+	failMarkdownOnce atomic.Int32
 	// fail the HTML send (400) once for any chunk whose text contains this
 	// substring; the plain-text retry of that chunk succeeds.
 	failHTMLSubstr string
@@ -60,8 +60,8 @@ func newTGMock() *tgMock {
 				"id": 1, "is_bot": true, "username": m.username, "first_name": "Test",
 			})
 		case "sendMessage":
-			if atomic.LoadInt32(&m.failMarkdownOnce) == 1 && r.Form.Get("parse_mode") == "HTML" {
-				atomic.StoreInt32(&m.failMarkdownOnce, 0)
+			if m.failMarkdownOnce.Load() == 1 && r.Form.Get("parse_mode") == "HTML" {
+				m.failMarkdownOnce.Store(0)
 				writeTGErr(w, 400, "bad entity")
 				return
 			}
@@ -191,7 +191,7 @@ func TestBotSend_HTMLFallbackOnBadEntity(t *testing.T) {
 	m := newTGMock()
 	defer m.close()
 	// First HTML-parsed sendMessage fails 400; plain retry should succeed.
-	atomic.StoreInt32(&m.failMarkdownOnce, 1)
+	m.failMarkdownOnce.Store(1)
 
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
@@ -308,7 +308,7 @@ func TestBotSend_MultiChunkHTMLFallbackNoDup(t *testing.T) {
 func TestBotSend_HTMLFallbackPreservesReplyTo(t *testing.T) {
 	m := newTGMock()
 	defer m.close()
-	atomic.StoreInt32(&m.failMarkdownOnce, 1) // first HTML send 400s → plain retry
+	m.failMarkdownOnce.Store(1) // first HTML send 400s → plain retry
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
 

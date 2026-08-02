@@ -145,7 +145,7 @@ func TestRefreshRotationRaceSingleWinner(t *testing.T) {
 	var winners int
 	var successors []string
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer wg.Done()
 			_, newRefresh, err := a.Refresh(context.Background(), r0)
@@ -186,7 +186,7 @@ func TestMarkRefreshUsedAtomicSingleWinner(t *testing.T) {
 	var mu sync.Mutex
 	var wins int
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer wg.Done()
 			won, err := markRefreshUsed(db, raw)
@@ -219,7 +219,7 @@ func TestRotateConcurrentSingleActiveKey(t *testing.T) {
 	const n = 8
 	var wg sync.WaitGroup
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer wg.Done()
 			_ = a.Rotate() // a lost race may error; the invariant is checked below

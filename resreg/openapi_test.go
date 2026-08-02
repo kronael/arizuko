@@ -24,7 +24,7 @@ func registerOAPI(t *testing.T) {
 	Register(Resource{
 		Name:     "oapi_rows",
 		Table:    "oapi_rows",
-		RowType:  reflect.TypeOf(oapiTestRow{}),
+		RowType:  reflect.TypeFor[oapiTestRow](),
 		PKFields: []string{"Seq", "Match", "Target"},
 	})
 }
@@ -145,13 +145,13 @@ func TestOpenAPI_ResourceFilter(t *testing.T) {
 	Register(Resource{
 		Name:     "first",
 		Table:    "first",
-		RowType:  reflect.TypeOf(oapiTestRow{}),
+		RowType:  reflect.TypeFor[oapiTestRow](),
 		PKFields: []string{"Seq"},
 	})
 	Register(Resource{
 		Name:     "second",
 		Table:    "second",
-		RowType:  reflect.TypeOf(oapiTestRow{}),
+		RowType:  reflect.TypeFor[oapiTestRow](),
 		PKFields: []string{"Seq"},
 	})
 	out, _ := OpenAPI("testd", "/", []string{"second"})
@@ -171,7 +171,7 @@ func TestOpenAPI_MCPDoc(t *testing.T) {
 	Register(Resource{
 		Name:     "oapi_rows",
 		Table:    "oapi_rows",
-		RowType:  reflect.TypeOf(oapiTestRow{}),
+		RowType:  reflect.TypeFor[oapiTestRow](),
 		PKFields: []string{"Seq"},
 		MCPDoc: map[Action]string{
 			ActionCreate: "Create a row. When to use: seeding.",
@@ -220,7 +220,7 @@ func TestOpenAPI_EndpointsDriven(t *testing.T) {
 	Register(Resource{
 		Name:     "ep_rows",
 		Table:    "ep_rows",
-		RowType:  reflect.TypeOf(oapiTestRow{}),
+		RowType:  reflect.TypeFor[oapiTestRow](),
 		PKFields: []string{"Seq", "Match", "Target"},
 		Endpoints: []Endpoint{
 			{Verb: "POST", Path: "/v1/ep_rows", Action: Action("add")},

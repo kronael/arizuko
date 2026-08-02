@@ -18,6 +18,7 @@ package resreg
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
 	"sort"
@@ -444,9 +445,7 @@ func pkParams(r *Resource) []any {
 // components.responses so per-path JSON stays compact.
 func mergeResponses(success map[string]any) map[string]any {
 	out := map[string]any{}
-	for k, v := range success {
-		out[k] = v
-	}
+	maps.Copy(out, success)
 	for _, code := range []string{"400", "401", "403", "404", "409", "500"} {
 		out[code] = map[string]any{"$ref": "#/components/responses/" + code}
 	}
@@ -466,9 +465,7 @@ func stdResponses() map[string]any {
 	}
 	with := func(desc string) map[string]any {
 		m := map[string]any{"description": desc}
-		for k, v := range errRef {
-			m[k] = v
-		}
+		maps.Copy(m, errRef)
 		return m
 	}
 	return map[string]any{

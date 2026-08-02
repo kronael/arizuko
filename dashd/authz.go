@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/kronael/arizuko/auth"
@@ -23,7 +24,7 @@ func callerGroups(r *http.Request) []string {
 	var groups []string
 	_ = json.Unmarshal([]byte(hdr), &groups)
 	if len(groups) == 0 && !strings.HasPrefix(strings.TrimSpace(hdr), "[") {
-		for _, p := range strings.Split(hdr, ",") {
+		for p := range strings.SplitSeq(hdr, ",") {
 			if p = strings.TrimSpace(p); p != "" {
 				groups = append(groups, p)
 			}
@@ -46,10 +47,8 @@ func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
 			allowed = store.New(d.adminDB()).UserScopes(strings.TrimPrefix(sub, "user:"))
 		}
 	}
-	for _, a := range allowed {
-		if a == "**" {
-			return allowed, true
-		}
+	if slices.Contains(allowed, "**") {
+		return allowed, true
 	}
 	return allowed, false
 }

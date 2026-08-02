@@ -203,7 +203,7 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 		r.regMu.Unlock()
 	}
 	var last error
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := range 2 {
 		if attempt > 0 {
 			slog.Warn("send retry", "err", last)
 			// 401 on the monolith path = router has no record of our registration

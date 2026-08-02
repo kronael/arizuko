@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,8 +52,8 @@ func (s *server) handleXMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	msgs, _ := s.stRoutd.MessagesByTopic(folder, topic, before, 50)
 	w.Header().Set("Content-Type", "text/html")
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
+	for _, m := range slices.Backward(msgs) {
+
 		fmt.Fprintf(w, `<div class="msg %s" id="msg-%s"><p>%s</p><time>%s</time></div>`,
 			messageRole(m), m.ID, htmlEscape(m.Content), m.Timestamp.Format("15:04"))
 	}

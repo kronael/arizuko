@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -678,8 +679,8 @@ func (l *Loop) engaged(chatJID, topic string) (string, bool) {
 // not a direct address. web:<folder> and bare folder JIDs (no platform prefix)
 // address a group directly; the route table does not apply.
 func directFolder(jid string) string {
-	if strings.HasPrefix(jid, "web:") {
-		return strings.TrimPrefix(jid, "web:")
+	if after, ok := strings.CutPrefix(jid, "web:"); ok {
+		return after
 	}
 	if !strings.Contains(jid, ":") {
 		return jid
@@ -734,10 +735,5 @@ func onboardingAllowed(jid string, platforms []string) bool {
 		return true
 	}
 	p, _, _ := strings.Cut(jid, ":")
-	for _, allowed := range platforms {
-		if allowed == p {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(platforms, p)
 }

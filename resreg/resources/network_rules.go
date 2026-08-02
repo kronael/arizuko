@@ -62,7 +62,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:          "network_rules",
 		Table:         "network_rules",
-		RowType:       reflect.TypeOf(NetworkRulesRow{}),
+		RowType:       reflect.TypeFor[NetworkRulesRow](),
 		PKFields:      []string{"Folder", "Target"},
 		Endpoints:     NetworkRulesEndpoints,
 		MCPDoc:        NetworkRulesMCPDoc,

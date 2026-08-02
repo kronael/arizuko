@@ -325,7 +325,7 @@ func RouteMatchesIgnoreVerb(r core.Route, msg core.Message) bool {
 }
 
 func routeMatches(r core.Route, msg core.Message, ignoreVerb bool) bool {
-	for _, f := range strings.Fields(r.Match) {
+	for f := range strings.FieldsSeq(r.Match) {
 		k, pat, ok := strings.Cut(f, "=")
 		if !ok || k == "" {
 			continue

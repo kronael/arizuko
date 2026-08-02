@@ -76,7 +76,7 @@ func TestServiceTokenCachesUntilNearExpiry(t *testing.T) {
 	defer ts.Close()
 
 	src, _ := ServiceToken(ts.URL, "timed", "good-secret")
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if _, err := src.Token(context.Background()); err != nil {
 			t.Fatal(err)
 		}

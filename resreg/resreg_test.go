@@ -51,7 +51,7 @@ func withAuditDB(t *testing.T) *store.Store {
 // caller (verifies per-invocation resolution); fail flips the handler
 // to return an error.
 type fakeState struct {
-	seen      int32
+	seen      atomic.Int32
 	gotCaller atomic.Value // last Caller
 	fail      atomic.Bool
 }
@@ -75,7 +75,7 @@ func fakeResource(st *store.Store, s *fakeState) Resource {
 			return "**", nil, nil
 		},
 		Handler: func(_ context.Context, x Execution) (any, error) {
-			atomic.AddInt32(&s.seen, 1)
+			s.seen.Add(1)
 			s.gotCaller.Store(x.Caller)
 			if s.fail.Load() {
 				return nil, Errorf(http.StatusConflict, "boom")
@@ -132,7 +132,7 @@ func TestRESTHandler_DispatchesAllVerbs(t *testing.T) {
 			t.Errorf("%s %s -> %d (want %d) body=%s", c.method, c.path, w.Code, c.wantStatus, w.Body.String())
 		}
 	}
-	if got := atomic.LoadInt32(&s.seen); got != 3 {
+	if got := s.seen.Load(); got != 3 {
 		t.Errorf("seen = %d, want 3", got)
 	}
 }
@@ -198,7 +198,7 @@ func TestRESTHandler_AuthorizeDenied(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d", w.Code)
 	}
-	if got := atomic.LoadInt32(&s.seen); got != 0 {
+	if got := s.seen.Load(); got != 0 {
 		t.Errorf("handler ran despite denial (seen=%d)", got)
 	}
 	assertAudit(t, st, "denied", 1)
@@ -239,8 +239,8 @@ func TestGate_OverridesDefault(t *testing.T) {
 	if _, _, err := invoke(context.Background(), allow, xanon); err != nil {
 		t.Errorf("allow gate: unexpected err %v", err)
 	}
-	if atomic.LoadInt32(&s.seen) != 1 {
-		t.Errorf("allow gate: handler not invoked (seen=%d)", atomic.LoadInt32(&s.seen))
+	if s.seen.Load() != 1 {
+		t.Errorf("allow gate: handler not invoked (seen=%d)", s.seen.Load())
 	}
 }
 
@@ -260,7 +260,7 @@ func TestAuthz_ErrorShortCircuits(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
-	if got := atomic.LoadInt32(&s.seen); got != 0 {
+	if got := s.seen.Load(); got != 0 {
 		t.Errorf("handler ran (seen=%d)", got)
 	}
 }
@@ -533,7 +533,7 @@ func TestDeriveMCPTools_ReflectsRowType(t *testing.T) {
 	r := Resource{
 		Name:     "thing",
 		Table:    "thing",
-		RowType:  reflect.TypeOf(row{}),
+		RowType:  reflect.TypeFor[row](),
 		PKFields: []string{"Path"},
 		// created_at is server-stamped — never a create arg, never required.
 		StampedFields: []string{"CreatedAt"},

@@ -123,7 +123,7 @@ func TestTimedMultipleMessagesOrdered(t *testing.T) {
 	s, db := openSharedDB(t)
 
 	base := time.Now()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		ts := base.Add(time.Duration(i) * time.Second).Format(time.RFC3339)
 		db.Exec(timedInsertMsg, fmt.Sprintf("sched-ord-%d", i), "tg:400", fmt.Sprintf("msg-%d", i), ts)
 	}

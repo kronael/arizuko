@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sort"
 	"time"
 
@@ -55,10 +56,8 @@ func (d *dashServer) requireOperator(w http.ResponseWriter, r *http.Request) boo
 	if hdr != "" {
 		var groups []string
 		_ = json.Unmarshal([]byte(hdr), &groups)
-		for _, g := range groups {
-			if g == "**" {
-				return true
-			}
+		if slices.Contains(groups, "**") {
+			return true
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

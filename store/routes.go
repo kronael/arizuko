@@ -147,7 +147,7 @@ func (s *Store) DeleteRouteRow(id int64) (int64, error) {
 // fire — the gateway addresses web JIDs directly — and silently mask
 // the operator's setup error.
 func matchesWebJID(match string) bool {
-	for _, f := range strings.Fields(match) {
+	for f := range strings.FieldsSeq(match) {
 		k, pat, ok := strings.Cut(f, "=")
 		if !ok || k != "chat_jid" {
 			continue

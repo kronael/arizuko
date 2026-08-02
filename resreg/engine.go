@@ -112,7 +112,7 @@ func (r *Resource) initMeta() {
 		if tag == "" || tag == "-" {
 			continue
 		}
-		col := strings.Split(tag, ",")[0]
+		col, _, _ := strings.Cut(tag, ",")
 		fm := fieldMeta{idx: i, name: sf.Name, col: col, readExpr: col}
 		idx := i
 		fm.scanTarget = func(rowVal reflect.Value) any {
@@ -399,7 +399,7 @@ func (r *Resource) sortByPK(rv reflect.Value) reflect.Value {
 	src := reflect.MakeSlice(rv.Type(), n, n)
 	reflect.Copy(src, rv)
 	keys := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		keys[i] = r.pkKey(src.Index(i))
 	}
 	indexes := make([]int, n)

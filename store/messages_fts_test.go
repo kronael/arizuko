@@ -213,7 +213,7 @@ func TestMessagesFTS_Bulk(t *testing.T) {
 	defer s.Close()
 
 	now := time.Now()
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		c := fmt.Sprintf("entry %d filler text", i)
 		if i%50 == 0 {
 			c = c + " keyword target"

@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -1241,10 +1242,10 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 		jidsHTML = `<tr><td colspan="3" class="empty">No linked accounts. Message the bot from any platform to link it.</td></tr>`
 	}
 
-	var groupsHTML string
+	var groupsHTML strings.Builder
 	for _, folder := range userFolders(db, userSub) {
-		groupsHTML += fmt.Sprintf(
-			`<tr><td><span class="dot dot-ok"></span> %s</td></tr>`, esc(folder))
+		groupsHTML.WriteString(fmt.Sprintf(
+			`<tr><td><span class="dot dot-ok"></span> %s</td></tr>`, esc(folder)))
 	}
 
 	var routesHTML string
@@ -1299,7 +1300,7 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 </div></body></html>`,
 		theme.Head("Dashboard"),
 		esc(initial), esc(username), esc(userSub),
-		jidsHTML, groupsHTML, routesHTML)
+		jidsHTML, groupsHTML.String(), routesHTML)
 }
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
@@ -1406,12 +1407,7 @@ func userFolders(db *sql.DB, sub string) []string {
 }
 
 func isOperator(folders []string) bool {
-	for _, f := range folders {
-		if f == "**" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(folders, "**")
 }
 
 func handleDeleteRoute(w http.ResponseWriter, r *http.Request,

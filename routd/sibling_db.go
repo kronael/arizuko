@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"slices"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
@@ -194,10 +195,8 @@ func (d *DB) IsOperator(sub string) bool {
 	if sub == "" {
 		return false
 	}
-	for _, anc := range d.aclEval().Ancestors(sub) {
-		if anc == "role:operator" {
-			return true
-		}
+	if slices.Contains(d.aclEval().Ancestors(sub), "role:operator") {
+		return true
 	}
 	return auth.Authorize(d.aclEval(), auth.Caller{Principal: sub}, "admin", "**", nil)
 }
