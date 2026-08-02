@@ -28,7 +28,8 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
 ## Tables owned
 
 None. webd reads `route_tokens`, `groups`, `messages`, `turn_results` from
-routd.db (owned by routd) and `audit_log` from messages.db. It writes messages
+routd.db (owned by routd) and writes `audit_log` there too — one store handle,
+no messages.db straddle (`specs/5/16` § "One owner + federation"). It writes messages
 as a channel adapter via routd's `POST /v1/messages` (inbound path) and today
 reads them via its own `/api/*` paths directly off routd.db. Once federation
 lands, those reads migrate to routd's `GET /v1/messages`. Per-world hostnames

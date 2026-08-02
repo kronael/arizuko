@@ -57,16 +57,10 @@ func main() {
 
 	cfg := loadConfig()
 
-	st, err := store.Open(cfg.storeDir)
-	if err != nil {
-		slog.Error("open store", "err", err)
-		os.Exit(1)
-	}
-	defer st.Close()
-
-	// routd.db owns groups/messages/turn_results/route_tokens in the split topology.
-	// webd reads those for route-token resolution + history; a frozen messages.db
-	// twin would make post-cutover tokens/messages invisible.
+	// routd.db owns groups/messages/turn_results/route_tokens in the split topology,
+	// plus audit_log (routd migration 0016). webd reads those for route-token
+	// resolution + history and writes its audit rows there — one store, no
+	// messages.db straddle (webd owns no DB; split write-discipline).
 	stRoutd, err := store.OpenRoutd(cfg.storeDir)
 	if err != nil {
 		slog.Error("open routd.db", "err", err)
@@ -75,8 +69,7 @@ func main() {
 	defer stRoutd.Close()
 
 	// audit_log lives in routd.db (its owner, routd migration 0016) — not the
-	// frozen messages.db. webd's messages.db handle (st) is now unused by
-	// handlers; the audit sink writes to the owner DB.
+	// frozen messages.db.
 	audit.Init(stRoutd.DB(), os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
@@ -145,7 +138,7 @@ func main() {
 	}
 	slog.Info("webd starting", "addr", cfg.listenAddr)
 
-	srv := &http.Server{Handler: newServer(cfg, st, stRoutd, hub, rc, ks, svc).handler()}
+	srv := &http.Server{Handler: newServer(cfg, stRoutd, hub, rc, ks, svc).handler()}
 	go srv.Serve(ln)
 
 	<-ctx.Done()

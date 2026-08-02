@@ -89,7 +89,7 @@ func (m *mockRouter) sent() []chanlib.InboundMsg {
 
 // newTestServer builds a server wired to in-memory store + mock router.
 // Callers append groups via st.PutGroup before driving requests.
-// In tests, st serves as both messages.db and routd.db (single in-memory DB).
+// In tests, st stands in for routd.db (single in-memory DB).
 // The mock router persists inbound messages to st (simulates routd).
 func newTestServer(t *testing.T) (*server, *mockRouter, *store.Store) {
 	t.Helper()
@@ -106,8 +106,7 @@ func newTestServer(t *testing.T) (*server, *mockRouter, *store.Store) {
 	rc.SetToken("test-token")
 
 	cfg := config{assistantName: "assistant"}
-	// st serves as both messages.db (legacy) and routd.db (live reads)
-	return newServer(cfg, st, st, newHub(), rc, nil, nil), mr, st
+	return newServer(cfg, st, newHub(), rc, nil, nil), mr, st
 }
 
 func seedGroup(t *testing.T, st *store.Store, folder, name string) core.Group {
