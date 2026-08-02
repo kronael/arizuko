@@ -2216,7 +2216,7 @@ MUST bind it to the caller's folder." Same class as the 5/44 REST list-all leak.
 - **Fix (not applied):** bind at the store boundary, not the caller — give
   `TurnFrames` a `jid`/folder argument so both faces inherit containment from one
   query, rather than adding a second check inside the MCP handler.
-## B1 — PROPOSAL: connect the agent capability token to the gate, or delete it (2026-08-01, proposed — needs sign-off)
+## B1 — agent capability token: DELETED (2026-08-01, FIXED 42657378)
 
 The per-spawn brokered token is minted, persisted and GC'd but never reaches
 anything. `jti` has zero references in `ipc/` and `routd/mcp.go`; the tool-call
@@ -2262,7 +2262,7 @@ live-revocation property by
 `routd/revocation_live_test.go`. Decide: connect it tokenlessly, or delete
 `Broker`/`mcp_tokens` as dead weight.
 
-## B2 — Turn principal is rendered three different ways in routd (2026-08-01, open)
+## B2 — Turn principal rendered three ways in routd (2026-08-01, FIXED fc4a5ba2)
 
 One "who is this turn acting as" rule, three renderings — the
 one-renderer-many-sinks violation the root `CLAUDE.md` forbids:
@@ -2287,7 +2287,7 @@ the gate for `/root` elevation. Fix: keep the membership shortcut only for the
 grant shape it was written for (`admin`/`*`), and store any other action as a
 normal wildcard-scope acl row.
 
-## O1 — onboarding rows stranded in an undocumented `pending` status (2026-08-01, open)
+## O1 — onboarding rows stranded in an unknown status (2026-08-01, FIXED-loud fc4a5ba2)
 
 Live data carries `onboarding.status = 'pending'` (sloth 1 row, marinade 1
 row) but no code in `onbod/` writes or reads that value — the current status
@@ -2311,7 +2311,7 @@ state the pipeline has no transition out of, and nothing is loud about it.
   that the state machine should reject or migrate an unknown status loudly
   rather than ignoring the row
 
-## W1 — world creator's grant cannot reach their own subgroups (2026-08-01, proposed)
+## W1 — world creator's grant cannot reach their own subgroups (2026-08-01, FIXED ebb9991f)
 
 `createWorldTx` grants the creator `acl(sub, 'admin', <folder>)` — a BARE
 folder scope (`onbod/main.go`). `auth/acl.go matchSegments` requires an exact
@@ -2358,7 +2358,7 @@ instances.
 - **Source:** `onbod/main.go` createWorldTx + `onbod/main.go:508`; `auth/acl.go` matchSegments
 - **Status:** proposed — needs the reader migration designed before the grant changes
 
-## P1 — pairing is unreachable outside a route miss (2026-08-01, proposed)
+## P1 — pairing unreachable outside a route miss (2026-08-01, crash-ordering FIXED e5f62ef2)
 
 `onbod.linkJID` writes the correct `acl_membership(jid → sub)` edge, but the
 only path to it is a route MISS, and its success path creates a world. A user
@@ -2473,3 +2473,20 @@ should NOT be reattempted as written:
   makes it less so.
 
 - **Status:** closed — recorded to prevent a repeat, no action wanted
+
+## L1 — role membership read as a pairing claim (2026-08-02, FIXED 4e831f10)
+
+`acl_membership` carries two edge kinds — pairing (`jid → canonical sub`) and
+role membership (`jid → role:operator`) — and a JID may legitimately hold both.
+`linkJID`'s claim check selected any parent, so `QueryRow` could return the role
+row and refuse a valid re-pair with "already linked to another account", naming
+a role as the other account.
+
+Order-dependent, which is why it never surfaced: the `(child, parent)` index
+sorts by parent, so a `google:…` pairing happens to precede `role:operator` and
+hides it. sloth carries exactly this shape —
+`telegram:user/1183985669` paired to a google sub AND granted operator directly.
+
+- **Fix:** the claim check excludes `parent LIKE 'role:%'`. Test uses a sub
+  sorting after `role:` so the ordering is deterministic; falsified against the
+  unfiltered query.
