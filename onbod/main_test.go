@@ -61,7 +61,7 @@ func testDB(t *testing.T) *sql.DB {
 		CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT, created_at TEXT, context_mode TEXT);
 		CREATE TABLE acl (principal TEXT NOT NULL, action TEXT NOT NULL, scope TEXT NOT NULL, effect TEXT NOT NULL DEFAULT 'allow', params TEXT NOT NULL DEFAULT '', predicate TEXT NOT NULL DEFAULT '', granted_by TEXT, granted_at TEXT NOT NULL, grant_option INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (principal, action, scope, params, predicate, effect));
 		CREATE TABLE acl_membership (child TEXT NOT NULL, parent TEXT NOT NULL, added_by TEXT, added_at TEXT NOT NULL, PRIMARY KEY (child, parent));
-		CREATE TABLE auth_users (id INTEGER PRIMARY KEY AUTOINCREMENT, sub TEXT UNIQUE, username TEXT, hash TEXT, name TEXT, created_at TEXT);
+		CREATE TABLE user_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, sub TEXT UNIQUE, username TEXT, name TEXT, created_at TEXT);
 		CREATE TABLE channels (name TEXT PRIMARY KEY, url TEXT, capabilities TEXT);
 		CREATE TABLE onboarding_gates (gate TEXT PRIMARY KEY, limit_per_day INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1);
 		CREATE TABLE invites (token TEXT PRIMARY KEY, target_glob TEXT NOT NULL, issued_by_sub TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT, max_uses INTEGER NOT NULL DEFAULT 1, used_count INTEGER NOT NULL DEFAULT 0);
@@ -166,8 +166,8 @@ func TestDashboardLinksJID(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token_expires, created)
 		VALUES ('telegram:1', 'token_used', '2099-01-01T00:00:00Z', '2026-01-01')`)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
 
 	cfg := config{}
@@ -194,8 +194,8 @@ func TestDashboardLinksJID(t *testing.T) {
 
 func TestDashboardShowsUsernamePicker(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:new', 'github:new', 'New User', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:new', 'github:new', 'New User', '2026-01-01')`)
 
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/onboard", nil)
@@ -215,8 +215,8 @@ func TestDashboardShowsUsernamePicker(t *testing.T) {
 
 func TestCreateWorldValidUsername(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:new', 'github:new', 'New User', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:new', 'github:new', 'New User', '2026-01-01')`)
 
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"alice"}}
@@ -249,7 +249,7 @@ func TestCreateWorldValidUsername(t *testing.T) {
 
 	// username updated
 	var un string
-	db.QueryRow(`SELECT username FROM auth_users WHERE sub = 'github:new'`).Scan(&un)
+	db.QueryRow(`SELECT username FROM user_profiles WHERE sub = 'github:new'`).Scan(&un)
 	if un != "alice" {
 		t.Errorf("username not updated, got %q", un)
 	}
@@ -500,8 +500,8 @@ func TestLinkJIDDifferentUserRejected(t *testing.T) {
 
 func TestCreateWorldRoutesLinkedJIDs(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:new', 'github:new', 'New User', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:new', 'github:new', 'New User', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES ('github:new', 'telegram:10', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES ('github:new', 'discord:20', '2026-01-01')`)
 
@@ -542,8 +542,8 @@ func TestCreateWorldRoutesLinkedJIDs(t *testing.T) {
 
 func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:lonely', 'github:lonely', 'Lonely', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:lonely', 'github:lonely', 'Lonely', '2026-01-01')`)
 
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"lonely"}}
@@ -579,8 +579,8 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 func TestSecondJIDAutoLink(t *testing.T) {
 	db := testDB(t)
 	// Existing user with a world "alice/".
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at)
 		VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
@@ -626,8 +626,8 @@ func TestSecondJIDAutoLink(t *testing.T) {
 // for their linked JIDs.
 func TestCreateWorldOperatorAllowed(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:op', 'op', 'Op', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:op', 'op', 'Op', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:op', 'admin', '**', 'allow', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
 		VALUES ('github:op', 'telegram:99', '2026-01-01')`)
@@ -847,8 +847,8 @@ func TestQueuePositionRendering(t *testing.T) {
 		VALUES ('t:1', 'queued', '*', '2026-04-17T10:00:00Z', 'github:first', '2026-01-01')`)
 	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
 		VALUES ('t:2', 'queued', '*', '2026-04-17T10:01:00Z', 'github:second', '2026-01-01')`)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:second', 'second', 'Second', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:second', 'second', 'Second', '2026-01-01')`)
 
 	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 100)`)
 
@@ -924,8 +924,8 @@ func TestInviteCreation(t *testing.T) {
 
 func TestInviteConsume(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:bob', 'bob', 'Bob', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
 	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
 		VALUES ('github:bob', 'telegram:99', '2026-01-01')`)
@@ -1213,12 +1213,12 @@ func TestCSRFRejected(t *testing.T) {
 // user_sub is set and a later attacker with the cookie cannot rebind.
 func TestSecondJIDAutoLinkSingleUse(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:eve', 'eve', 'Eve', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:eve', 'eve', 'Eve', '2026-01-01')`)
 	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('eve', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:eve', 'admin', 'eve', 'allow', '2026-01-01')`)
 	// token_used row with user_sub still NULL.
@@ -1264,8 +1264,8 @@ func TestSecondJIDAutoLinkSingleUse(t *testing.T) {
 // after the first returns the "used" page.
 func TestInviteAtomicConsume(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:bob', 'bob', 'Bob', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
 	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
 	tok := createInvite(t, db, "alice", "telegram:1", 1)
 
@@ -1280,8 +1280,8 @@ func TestInviteAtomicConsume(t *testing.T) {
 	}
 
 	// Second consume — uses is now 1 == max_uses; must fail.
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:eve', 'eve', 'Eve', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:eve', 'eve', 'Eve', '2026-01-01')`)
 	req2 := httptest.NewRequest("GET", "/invite/"+tok, nil)
 	req2.SetPathValue("token", tok)
 	req2.Header.Set("X-User-Sub", "github:eve")
@@ -1325,8 +1325,8 @@ func TestAddRouteWrongTarget(t *testing.T) {
 func TestDashboardXSSEscape(t *testing.T) {
 	db := testDB(t)
 	attacker := `<script>alert(1)</script>`
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES (?, ?, '', '', '2026-01-01')`, attacker, attacker)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES (?, ?, '', '2026-01-01')`, attacker, attacker)
 	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES (?, 'admin', 'room', 'allow', '2026-01-01')`, attacker)
 	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES (?, ?, '2026-01-01')`,
 		attacker, attacker)
@@ -1348,8 +1348,8 @@ func TestDashboardXSSEscape(t *testing.T) {
 // Queue position render must escape the gate string (user-controlled via DB).
 func TestQueuePositionXSSEscape(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:x', 'x', 'X', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:x', 'x', 'X', '2026-01-01')`)
 	// gate value itself is stored, but the eta-msg is server-side formatted;
 	// ensure no raw DB reflection occurs in HTML without escape.
 	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
@@ -1524,8 +1524,8 @@ func TestLoadGatesEnabledFilter(t *testing.T) {
 func TestStateMachineMigrated(t *testing.T) {
 	db := migratedDB(t)
 	// Seed auth user + existing world for the JID to link to.
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 5)`)
 	db.Exec(`INSERT INTO onboarding (jid, status, created)
 		VALUES ('telegram:7', 'awaiting_message', '2026-01-01')`)
@@ -1818,8 +1818,8 @@ func TestUserOwnsMatchRejectsNonRoomPrefix(t *testing.T) {
 // "hours" wording (covers the >=60min branch).
 func TestQueuePositionETAHours(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:x', 'x', 'X', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:x', 'x', 'X', '2026-01-01')`)
 	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 1)`)
 	// 4 earlier queued entries + the caller → position 5, 5*1440/1 = 7200 min.
 	for i, jid := range []string{"t:a", "t:b", "t:c", "t:d"} {
@@ -2024,8 +2024,8 @@ func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
 		VALUES ('telegram:1', 'awaiting_message', 'tok-bind', '2099-01-01T00:00:00Z', '2026-01-01')`)
-	db.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
 
 	cfg := config{authBaseURL: "https://example.com"}

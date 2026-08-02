@@ -52,9 +52,9 @@ CREATE TABLE messages (
   timestamp TEXT, source TEXT NOT NULL DEFAULT '', verb TEXT,
   errored INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE sessions (group_folder TEXT, topic TEXT, session_id TEXT);
-CREATE TABLE auth_users (
+CREATE TABLE user_profiles (
   id INTEGER PRIMARY KEY, sub TEXT UNIQUE NOT NULL, username TEXT UNIQUE NOT NULL,
-  hash TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, linked_to_sub TEXT);
+  name TEXT NOT NULL, created_at TEXT NOT NULL, linked_to_sub TEXT);
 `
 
 // splitAdminDash wires a dash with DISTINCT messages.db (db/dbRW) and routd.db
@@ -429,18 +429,18 @@ func TestErroredCount_ReadsRoutdDB(t *testing.T) {
 	}
 }
 
-// TestProfile_ReadsRoutdDB: the profile name resolves from auth_users in routd.db
-// (routd owns auth_users post-split per routd/migrations/0011), not messages.db.
+// TestProfile_ReadsRoutdDB: the profile name resolves from user_profiles in routd.db
+// (routd owns it post-split per routd/migrations 0011 + 0025), not messages.db.
 func TestProfile_ReadsRoutdDB(t *testing.T) {
 	d, msg, routd := splitAdminDash(t, "alice@x")
 	if _, err := routd.Exec(
-		`INSERT INTO auth_users (sub, username, hash, name, created_at)
-		 VALUES ('google:bob', 'bob', '', 'Bob Live', '')`); err != nil {
+		`INSERT INTO user_profiles (sub, username, name, created_at)
+		 VALUES ('google:bob', 'bob', 'Bob Live', '')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := msg.Exec(
-		`INSERT INTO auth_users (sub, username, hash, name, created_at)
-		 VALUES ('google:bob', 'bob', '', 'Bob Stale', '')`); err != nil {
+		`INSERT INTO user_profiles (sub, username, name, created_at)
+		 VALUES ('google:bob', 'bob', 'Bob Stale', '')`); err != nil {
 		t.Fatal(err)
 	}
 	mux := newMux(d)

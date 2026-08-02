@@ -138,11 +138,11 @@ func TestOnboardingFlow(t *testing.T) {
 		t.Errorf("status = %q, want awaiting_message (presentation idempotent)", status)
 	}
 
-	// Seed the auth_users row + POST create_world (fake proxyd by
+	// Seed the user_profiles row + POST create_world (fake proxyd by
 	// setting X-User-Sub; CSRF cookie + form field double-submit).
 	sub := "github:alice"
-	inst.DB.Exec(`INSERT INTO auth_users (sub, username, hash, created_at)
-		VALUES (?, ?, '', ?)`, sub, sub, time.Now().Format(time.RFC3339))
+	inst.DB.Exec(`INSERT INTO user_profiles (sub, username, created_at)
+		VALUES (?, ?, ?)`, sub, sub, time.Now().Format(time.RFC3339))
 
 	// First: GET /onboard so the dashboard handler links the JID (atomic
 	// user_sub claim on onboarding row).
@@ -245,8 +245,8 @@ func TestOAuthCallback(t *testing.T) {
 	inst.DB.Exec(`INSERT INTO onboarding (jid, status, token_expires, created)
 		VALUES (?, 'token_used', '2099-01-01T00:00:00Z', ?)`,
 		jid, time.Now().Format(time.RFC3339))
-	inst.DB.Exec(`INSERT INTO auth_users (sub, username, hash, created_at)
-		VALUES (?, ?, '', ?)`, sub, sub, time.Now().Format(time.RFC3339))
+	inst.DB.Exec(`INSERT INTO user_profiles (sub, username, created_at)
+		VALUES (?, ?, ?)`, sub, sub, time.Now().Format(time.RFC3339))
 
 	c := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse

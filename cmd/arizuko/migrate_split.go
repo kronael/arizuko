@@ -141,12 +141,14 @@ var routdSpecs = []copySpec{
 	{dst: "pane_sessions", src: "pane_sessions",
 		cols: "team_id, user_id, thread_ts, channel_id, context_jid, opened_at",
 		sel:  "team_id, user_id, thread_ts, channel_id, context_jid, opened_at"},
-	// auth_users: routd.db OWNS it (routd migration 0011; cost_log.user_sub references
-	// it). Split onbod reads+writes it cross-DB on routd.db (xdb), so it MUST be copied
-	// — left an orphan, every existing user vanishes from onboarding / world-create.
-	{dst: "auth_users", src: "auth_users",
-		cols: "id, sub, username, hash, name, created_at, linked_to_sub, cost_cap_cents_per_day",
-		sel:  "id, sub, username, hash, name, created_at, linked_to_sub, cost_cap_cents_per_day"},
+	// user_profiles: routd.db OWNS it (routd migrations 0011 + 0025; cost_log.user_sub
+	// references it). Split onbod reads+writes it cross-DB on routd.db (xdb), so it MUST
+	// be copied — left an orphan, every existing user vanishes from onboarding /
+	// world-create. The source is a PRE-split messages.db: there the table predates the
+	// rename and is still auth_users, and `hash` (dropped by 0025) is not copied.
+	{dst: "user_profiles", src: "auth_users", transfm: true,
+		cols: "id, sub, username, name, created_at, linked_to_sub, cost_cap_cents_per_day",
+		sel:  "id, sub, username, name, created_at, linked_to_sub, cost_cap_cents_per_day"},
 
 	// transforms (schemas differ — explicit column remap)
 	// system_messages: group_id→folder, origin→source, event→kind, created_at→created; `attrs` dropped.
@@ -274,8 +276,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
 // …); authd's auth.db starts fresh. routd reads NONE of them — every table it
 // needs moved to routd.db or federated over HTTP. onboarding/invites/
 // onboarding_gates are NOT orphans (onbod OWNS them → onbodSpecs); auth_users is
-// NOT an orphan either (routd.db owns it → routdSpecs, read cross-DB by onbod).
-// auth_sessions stays — login sessions are ephemeral, re-minted on next login.
+// NOT an orphan either (routd.db owns it as user_profiles → routdSpecs, read
+// cross-DB by onbod). auth_sessions stays — the cookie-session path is gone.
 // Listed so the summary tells the operator messages.db is NOT retired.
 var orphanTables = []string{
 	"audit_log", "router_state",

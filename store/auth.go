@@ -15,11 +15,11 @@ type AuthUser struct {
 	LinkedToSub string // empty = canonical; non-empty = points at canonical sub
 }
 
-func (s *Store) CreateAuthUser(sub, username, hash, name string) error {
+func (s *Store) CreateAuthUser(sub, username, name string) error {
 	_, err := s.db.Exec(
-		`INSERT INTO auth_users (sub, username, hash, name, created_at)
-		 VALUES (?, ?, ?, ?, ?)`,
-		sub, username, hash, name, time.Now().Format(time.RFC3339),
+		`INSERT INTO user_profiles (sub, username, name, created_at)
+		 VALUES (?, ?, ?, ?)`,
+		sub, username, name, time.Now().Format(time.RFC3339),
 	)
 	return err
 }
@@ -42,7 +42,7 @@ func scanAuthUser(r rowScanner) (AuthUser, bool) {
 
 func (s *Store) AuthUserBySub(sub string) (AuthUser, bool) {
 	return scanAuthUser(s.db.QueryRow(
-		`SELECT `+authUserCols+` FROM auth_users WHERE sub = ?`, sub))
+		`SELECT `+authUserCols+` FROM user_profiles WHERE sub = ?`, sub))
 }
 
 // CanonicalSub returns sub if it's canonical, else the sub it's linked to.
@@ -59,7 +59,7 @@ func (s *Store) CanonicalSub(sub string) string {
 var errInvalidLink = errors.New("invalid link target")
 
 // LinkSubToCanonical attaches newSub to canonical. canonical must already
-// exist in auth_users and itself be canonical (no chains). If newSub is
+// exist in user_profiles and itself be canonical (no chains). If newSub is
 // new it is inserted; if it exists it is updated.
 func (s *Store) LinkSubToCanonical(newSub, name, canonical string) error {
 	if newSub == "" || canonical == "" || newSub == canonical {
@@ -73,7 +73,7 @@ func (s *Store) LinkSubToCanonical(newSub, name, canonical string) error {
 	defer tx.Rollback()
 	var canonicalLink sql.NullString
 	if err := tx.QueryRowContext(ctx,
-		`SELECT linked_to_sub FROM auth_users WHERE sub = ?`, canonical,
+		`SELECT linked_to_sub FROM user_profiles WHERE sub = ?`, canonical,
 	).Scan(&canonicalLink); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return errInvalidLink
@@ -84,10 +84,10 @@ func (s *Store) LinkSubToCanonical(newSub, name, canonical string) error {
 		return errInvalidLink
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO auth_users (sub, username, hash, name, created_at, linked_to_sub)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		`INSERT INTO user_profiles (sub, username, name, created_at, linked_to_sub)
+		 VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(sub) DO UPDATE SET linked_to_sub = excluded.linked_to_sub, name = excluded.name`,
-		newSub, newSub, "", name, time.Now().Format(time.RFC3339), canonical,
+		newSub, newSub, name, time.Now().Format(time.RFC3339), canonical,
 	); err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (s *Store) LinkSubToCanonical(newSub, name, canonical string) error {
 
 func (s *Store) LinkedSubs(canonical string) []string {
 	rows, err := s.db.Query(
-		`SELECT sub FROM auth_users WHERE linked_to_sub = ? ORDER BY sub`, canonical)
+		`SELECT sub FROM user_profiles WHERE linked_to_sub = ? ORDER BY sub`, canonical)
 	if err != nil {
 		return nil
 	}

@@ -321,7 +321,7 @@ type dash struct {
 	db      *sql.DB
 	dbRW    *sql.DB // alias of db for write paths; nil in some tests (read-only paths)
 	dbRoutd *sql.DB // routd.db handle. routd OWNS acl/groups/routes/route_tokens/
-	// secrets AND the live messages/sessions/cost_log/auth_users tables in the
+	// secrets AND the live messages/sessions/cost_log/user_profiles tables in the
 	// split topology (spec 5/5); dashd reads+writes those tables here. The legacy
 	// messages.db twin (db/dbRW) is frozen at cutover — read it for nothing routd owns.
 	dbOnbod *sql.DB // onbod.db handle. onbod OWNS invites/onboarding_gates in the

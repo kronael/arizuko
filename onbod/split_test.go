@@ -11,28 +11,28 @@ import (
 
 // In the split topology onbod opens TWO DBs: obdb (its OWNED tables —
 // onboarding/invites/onboarding_gates) and xdb (the routd-OWNED CROSS tables —
-// acl/acl_membership/groups/auth_users/routes). The handlers take (xdb, obdb).
+// acl/acl_membership/groups/user_profiles/routes). The handlers take (xdb, obdb).
 // These tests pass two distinct DBs (not the monolith db==db) to prove the
 // cross reads/writes hit routd.db, never the onbod-owned DB.
 
-// TestSplitDashboardReadsCrossFromRoutd seeds auth_users + acl + groups ONLY in
+// TestSplitDashboardReadsCrossFromRoutd seeds user_profiles + acl + groups ONLY in
 // xdb (routd.db) and asserts the dashboard finds the user and renders their
 // world — i.e. it read the cross tables from xdb, not obdb.
 func TestSplitDashboardReadsCrossFromRoutd(t *testing.T) {
 	xdb := testDB(t)  // routd.db side
 	obdb := testDB(t) // onbod.db side
 
-	xdb.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '', '2026-01-01')`)
+	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
 	xdb.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
 	xdb.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at)
 		VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
 
 	// The onbod-owned DB must NOT carry the cross rows (proving the read is xdb).
 	var n int
-	obdb.QueryRow(`SELECT COUNT(*) FROM auth_users WHERE sub = 'github:alice'`).Scan(&n)
+	obdb.QueryRow(`SELECT COUNT(*) FROM user_profiles WHERE sub = 'github:alice'`).Scan(&n)
 	if n != 0 {
-		t.Fatalf("test setup: auth_users leaked into obdb")
+		t.Fatalf("test setup: user_profiles leaked into obdb")
 	}
 
 	cfg := config{}
@@ -56,8 +56,8 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 	xdb := testDB(t)
 	obdb := testDB(t)
 
-	xdb.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:bob', 'bob', 'Bob', '', '2026-01-01')`)
+	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
 	xdb.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
 	xdb.Exec(`INSERT INTO acl_membership (parent, child, added_at)
 		VALUES ('github:bob', 'telegram:99', '2026-01-01')`)
@@ -108,8 +108,8 @@ func TestSplitCreateWorldWritesCrossToRoutd(t *testing.T) {
 	xdb := testDB(t)
 	obdb := testDB(t)
 
-	xdb.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:new', 'github:new', 'New', '', '2026-01-01')`)
+	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:new', 'github:new', 'New', '2026-01-01')`)
 	xdb.Exec(`INSERT INTO acl_membership (parent, child, added_at)
 		VALUES ('github:new', 'telegram:10', '2026-01-01')`)
 
@@ -151,8 +151,8 @@ func TestSplitInviteGrantFailureRollsBack(t *testing.T) {
 	xdb := testDB(t)
 	obdb := testDB(t)
 
-	xdb.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
-		VALUES ('github:bob', 'bob', 'Bob', '', '2026-01-01')`)
+	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
 	xdb.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
 	// Break the routd.db acl write so PutACLRow errors after the consume.
 	if _, err := xdb.Exec(`DROP TABLE acl`); err != nil {

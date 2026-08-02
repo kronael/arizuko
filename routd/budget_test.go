@@ -9,13 +9,13 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// seedUser inserts an auth_users row + per-user cap into routd's OWN routd.db
+// seedUser inserts a user_profiles row + per-user cap into routd's OWN routd.db
 // (migration 0011) by reusing the store writers — proving store.CreateAuthUser/
 // SetUserCap run verbatim against routd.db, the SAME source gated reads.
 func seedUser(t *testing.T, db *DB, sub string, capCents int) {
 	t.Helper()
 	s := store.New(db.SQL())
-	if err := s.CreateAuthUser(sub, sub, "x", sub); err != nil {
+	if err := s.CreateAuthUser(sub, sub, sub); err != nil {
 		t.Fatalf("create auth user: %v", err)
 	}
 	if err := s.SetUserCap(sub, capCents); err != nil {

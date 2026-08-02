@@ -11,11 +11,10 @@ func profileTestDB(t *testing.T) *dash {
 	t.Helper()
 	db := testDB(t)
 	if _, err := db.Exec(
-		`CREATE TABLE auth_users (
+		`CREATE TABLE user_profiles (
 			id INTEGER PRIMARY KEY,
 			sub TEXT UNIQUE NOT NULL,
 			username TEXT UNIQUE NOT NULL,
-			hash TEXT NOT NULL,
 			name TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			linked_to_sub TEXT
@@ -23,7 +22,7 @@ func profileTestDB(t *testing.T) *dash {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	// auth_users is routd-owned (routd/migrations/0011); dashd reads it via
+	// user_profiles is routd-owned (routd/migrations 0011 + 0025); dashd reads it via
 	// adminDB() (routd.db). Wire dbRoutd so the profile read resolves.
 	return &dash{db: db, dbRoutd: db}
 }
@@ -35,8 +34,8 @@ func seedAuthUser(t *testing.T, d *dash, sub, name, linked string) {
 		ltp = linked
 	}
 	_, err := d.adminDB().Exec(
-		`INSERT INTO auth_users (sub, username, hash, name, created_at, linked_to_sub)
-		 VALUES (?, ?, '', ?, '2026-05-01T00:00:00Z', ?)`,
+		`INSERT INTO user_profiles (sub, username, name, created_at, linked_to_sub)
+		 VALUES (?, ?, ?, '2026-05-01T00:00:00Z', ?)`,
 		sub, sub, name, ltp)
 	if err != nil {
 		t.Fatal(err)

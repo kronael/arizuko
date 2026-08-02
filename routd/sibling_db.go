@@ -82,7 +82,7 @@ func (d *DB) taskStore() *store.Store { return store.New(d.db) }
 func (d *DB) paneStore() *store.Store { return store.New(d.db) }
 
 // userStore wraps routd.db as a *store.Store for the per-user cap reader/writer
-// against auth_users. Reads only the cap column; authd owns the full identity
+// against user_profiles. Reads only the cap column; authd owns the full identity
 // record.
 func (d *DB) userStore() *store.Store { return store.New(d.db) }
 

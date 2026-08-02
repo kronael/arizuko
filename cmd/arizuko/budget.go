@@ -14,7 +14,7 @@ import (
 // cmdBudget manages per-folder and per-user cost caps + reports spend.
 // Spec 5/34. The pre-spawn gate in gateway/ refuses to spawn when today's
 // spend exceeds the lower of (folder cap, user cap). Caps stored on
-// `groups.cost_cap_cents_per_day` and `auth_users.cost_cap_cents_per_day`.
+// `groups.cost_cap_cents_per_day` and `user_profiles.cost_cap_cents_per_day`.
 func cmdBudget(args []string) {
 	need(args, 2, "arizuko budget <instance> <set|show> ...")
 	instance, action := args[0], args[1]

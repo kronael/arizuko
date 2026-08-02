@@ -237,9 +237,9 @@ func TestUserCap_RoundTrip(t *testing.T) {
 	defer s.Close()
 
 	if _, err := s.db.Exec(
-		`INSERT INTO auth_users (sub, username, hash, name, created_at)
-		 VALUES (?, ?, ?, ?, ?)`,
-		"google:bob", "bob", "x", "Bob", "2026-01-01T00:00:00Z"); err != nil {
+		`INSERT INTO user_profiles (sub, username, name, created_at)
+		 VALUES (?, ?, ?, ?)`,
+		"google:bob", "bob", "Bob", "2026-01-01T00:00:00Z"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 	if err := s.SetUserCap("google:bob", 100); err != nil {

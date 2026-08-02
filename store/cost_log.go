@@ -84,7 +84,7 @@ func (s *Store) SetFolderCap(folder string, cents int) error {
 func (s *Store) UserCap(userSub string) (int, error) {
 	var cents int
 	err := s.db.QueryRow(
-		`SELECT COALESCE(cost_cap_cents_per_day, 0) FROM auth_users WHERE sub = ?`,
+		`SELECT COALESCE(cost_cap_cents_per_day, 0) FROM user_profiles WHERE sub = ?`,
 		userSub).Scan(&cents)
 	if err != nil {
 		return 0, err
@@ -95,7 +95,7 @@ func (s *Store) UserCap(userSub string) (int, error) {
 // SetUserCap writes the per-day cap for one user. 0 = uncapped.
 func (s *Store) SetUserCap(userSub string, cents int) error {
 	_, err := s.db.Exec(
-		`UPDATE auth_users SET cost_cap_cents_per_day = ? WHERE sub = ?`,
+		`UPDATE user_profiles SET cost_cap_cents_per_day = ? WHERE sub = ?`,
 		cents, userSub)
 	return err
 }

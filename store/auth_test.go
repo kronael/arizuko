@@ -23,7 +23,7 @@ func TestCanonicalSubCanonicalSelf(t *testing.T) {
 	}
 	defer s.Close()
 
-	if err := s.CreateAuthUser("google:alice", "alice", "", "Alice"); err != nil {
+	if err := s.CreateAuthUser("google:alice", "alice", "Alice"); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.CanonicalSub("google:alice"); got != "google:alice" {
@@ -38,7 +38,7 @@ func TestLinkSubAndCanonicalResolve(t *testing.T) {
 	}
 	defer s.Close()
 
-	if err := s.CreateAuthUser("google:alice", "alice", "", "Alice"); err != nil {
+	if err := s.CreateAuthUser("google:alice", "alice", "Alice"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.LinkSubToCanonical("github:alice2", "Alice GH", "google:alice"); err != nil {
@@ -70,7 +70,7 @@ func TestLinkSubRejectsChain(t *testing.T) {
 	}
 	defer s.Close()
 
-	if err := s.CreateAuthUser("google:a", "a", "", "A"); err != nil {
+	if err := s.CreateAuthUser("google:a", "a", "A"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.LinkSubToCanonical("github:b", "B", "google:a"); err != nil {
@@ -104,10 +104,10 @@ func TestLinkSubUpdatesExistingNewSub(t *testing.T) {
 	}
 	defer s.Close()
 
-	if err := s.CreateAuthUser("google:a", "a", "", "A"); err != nil {
+	if err := s.CreateAuthUser("google:a", "a", "A"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateAuthUser("github:b", "b", "", "B"); err != nil {
+	if err := s.CreateAuthUser("github:b", "b", "B"); err != nil {
 		t.Fatal(err)
 	}
 	// b exists as canonical; now point it at google:a.

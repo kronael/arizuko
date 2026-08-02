@@ -93,7 +93,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	var principalOpts strings.Builder
 	principalOpts.WriteString(`<datalist id="principals">`)
 	if uRows, err := d.adminDB().Query(
-		`SELECT sub, name FROM auth_users ORDER BY name`); err == nil {
+		`SELECT sub, name FROM user_profiles ORDER BY name`); err == nil {
 		defer uRows.Close()
 		for uRows.Next() {
 			var sub, name string

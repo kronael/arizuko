@@ -72,7 +72,14 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 		VALUES('2026-01-04T00:00:00Z','main','u:1','claude',100,5,3,50,12)`)
 	exec(`INSERT INTO cost_log(ts, folder, user_sub, model, input_tok, cache_read, cache_write, output_tok, cents)
 		VALUES('2026-01-04T01:00:00Z','main','u:1','claude',200,5,3,80,24)`)
-	// auth_users: routd.db OWNS it; split onbod reads it cross-DB → must be copied.
+	// user_profiles: routd.db OWNS it; split onbod reads it cross-DB → must be copied.
+	// The source is a PRE-split messages.db, where the table still has its old name
+	// and its `hash` column (store migration 0076 renamed + dropped both), so create
+	// that legacy shape by hand rather than leaning on the current store schema.
+	exec(`CREATE TABLE auth_users (
+		id INTEGER PRIMARY KEY, sub TEXT UNIQUE NOT NULL, username TEXT UNIQUE NOT NULL,
+		hash TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL,
+		linked_to_sub TEXT, cost_cap_cents_per_day INTEGER NOT NULL DEFAULT 0)`)
 	exec(`INSERT INTO auth_users(sub, username, hash, name, created_at)
 		VALUES('github:alice','alice','h','Alice','2026-01-01T00:00:00Z')`)
 
@@ -145,8 +152,8 @@ func TestMigrateSplit(t *testing.T) {
 		"network_rules": 3, "chat_reply_state": 1, "group_watchers": 1,
 		// cost_log: 2 same-(folder,model) rows BOTH survive (synthetic per-row turn_id).
 		"system_messages": 1, "cost_log": 2,
-		// auth_users: routd.db owns it → copied (split onbod reads it cross-DB).
-		"auth_users": 1,
+		// user_profiles: routd.db owns it → copied (split onbod reads it cross-DB).
+		"user_profiles": 1,
 		// acl (5/33 unified evaluator): 1 seeded folder:main row + role:operator
 		// (migration 0022) + role:member's 12 messaging-verb rows (migration 0023) = 14.
 		// No per-tier bundles, no backfill containment rows — auth.Authorize reads the
@@ -221,13 +228,13 @@ func TestMigrateSplit(t *testing.T) {
 	if costN != 2 {
 		t.Errorf("cost_log rows = %d, want 2 (turn_id collapse dropped history)", costN)
 	}
-	// #6: auth_users copied to routd.db (split onbod reads it cross-DB).
+	// #6: user_profiles copied to routd.db (split onbod reads it cross-DB).
 	var auName string
-	if err := r.QueryRow(`SELECT username FROM auth_users WHERE sub='github:alice'`).Scan(&auName); err != nil {
-		t.Fatalf("auth_users not copied to routd.db: %v", err)
+	if err := r.QueryRow(`SELECT username FROM user_profiles WHERE sub='github:alice'`).Scan(&auName); err != nil {
+		t.Fatalf("user_profiles not copied to routd.db: %v", err)
 	}
 	if auName != "alice" {
-		t.Errorf("auth_users.username = %q, want alice", auName)
+		t.Errorf("user_profiles.username = %q, want alice", auName)
 	}
 
 	// acl: copied to routd.db (routd OWNS it now) with columns intact.

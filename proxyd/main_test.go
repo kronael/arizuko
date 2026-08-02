@@ -647,7 +647,7 @@ func TestProxydRequireAuthRefreshCookieIsNotIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err := st.CreateAuthUser("local:admin", "admin", "", "Admin"); err != nil {
+	if err := st.CreateAuthUser("local:admin", "admin", "Admin"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -682,7 +682,7 @@ func TestTryAuthRefreshCookieRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err := st.CreateAuthUser("local:bob", "bob", "", "Bob"); err != nil {
+	if err := st.CreateAuthUser("local:bob", "bob", "Bob"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -791,7 +791,7 @@ func TestProxydRouteWithES256BearerReachesUpstream(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err := st.CreateAuthUser("local:bob", "bob", "", "Bob"); err != nil {
+	if err := st.CreateAuthUser("local:bob", "bob", "Bob"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -825,7 +825,7 @@ func TestProxydRouteWithRefreshCookieRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err := st.CreateAuthUser("local:bob", "bob", "", "Bob"); err != nil {
+	if err := st.CreateAuthUser("local:bob", "bob", "Bob"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1730,7 +1730,7 @@ func TestProxydDavAuthFlow_DBGroupLookup(t *testing.T) {
 	}
 	defer st.Close()
 	// Create user + grant via acl row.
-	if err := st.CreateAuthUser("local:bob", "bob", "", "Bob"); err != nil {
+	if err := st.CreateAuthUser("local:bob", "bob", "Bob"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.PutACLRow(core.ACLRow{
@@ -1770,7 +1770,7 @@ func TestProxydDavAuthFlow_DBCrossGroupDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err := st.CreateAuthUser("local:carol", "carol", "", "Carol"); err != nil {
+	if err := st.CreateAuthUser("local:carol", "carol", "Carol"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.PutACLRow(core.ACLRow{

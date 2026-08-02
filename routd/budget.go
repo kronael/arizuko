@@ -8,7 +8,7 @@ import (
 
 // authSubPrefixes are the schemes authd writes as the canonical user sub.
 // Adapter senders (telegram:user/..., slack:user/...) are per-platform IDs not
-// bound to an auth_users row, so they carry no per-user cap.
+// bound to a user_profiles row, so they carry no per-user cap.
 var authSubPrefixes = []string{"google:", "github:", "local:"}
 
 // callerSubOfMsg returns the user_sub for the per-user budget cap, or "" to

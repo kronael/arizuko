@@ -72,7 +72,7 @@ func main() {
 
 	// Two handles, dual-path (spec 5/5):
 	//   obdb — onbod's OWNED tables (onboarding/invites/onboarding_gates).
-	//   xdb  — the CROSS tables (acl/acl_membership/groups/auth_users/routes), all
+	//   xdb  — the CROSS tables (acl/acl_membership/groups/user_profiles/routes), all
 	//          routd-OWNED in the split.
 	// Monolith (ONBOD_DB_PATH unset): both are the shared messages.db — every
 	// owned- and cross-table query stays exactly as before. Split (set): obdb is a
@@ -428,7 +428,7 @@ func promptUnprompted(db *sql.DB, cfg config) {
 }
 
 // handleOnboard and the onboarding flow below take two handles: db is the
-// CROSS-table DB (auth_users/acl/groups/routes/acl_membership — messages.db in
+// CROSS-table DB (user_profiles/acl/groups/routes/acl_membership — messages.db in
 // monolith, routd.db/auth.db owners in the split) and obdb is onbod's OWNED-
 // table DB (onboarding/invites/onboarding_gates — onbod.db in the split). In
 // the monolith obdb == db. Owned-table queries route through obdb; cross-table
@@ -590,7 +590,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, c
 	}
 
 	var username string
-	if err := db.QueryRow(`SELECT username FROM auth_users WHERE sub = ?`, userSub).Scan(&username); err != nil {
+	if err := db.QueryRow(`SELECT username FROM user_profiles WHERE sub = ?`, userSub).Scan(&username); err != nil {
 		renderPage(w, "Error", template.HTML("<p>User not found.</p>"))
 		return
 	}
@@ -643,7 +643,7 @@ func checkCSRF(r *http.Request) bool {
 
 // handleOnboardPost dispatches the dashboard form actions. All three
 // (create_world / delete_route / add_route) operate on CROSS-table state
-// (auth_users/groups/acl/routes); none touches an onbod-owned table.
+// (user_profiles/groups/acl/routes); none touches an onbod-owned table.
 func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
 	userSub := r.Header.Get("X-User-Sub")
 	if userSub == "" {
@@ -727,7 +727,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		return
 	}
 
-	// All cross-table writes (auth_users/groups/acl/routes) share one handle
+	// All cross-table writes (user_profiles/groups/acl/routes) share one handle
 	// (messages.db in monolith, routd.db in the split) → one tx makes the
 	// world atomic. The race guard is INSERT OR IGNORE + RowsAffected on
 	// groups, not the TOCTOU check above (that's a fast-path UX hint only).
@@ -781,7 +781,7 @@ func createWorldTx(db *sql.DB, folder, username, userSub, now string, jids []str
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`UPDATE auth_users SET username = ? WHERE sub = ?`,
+	if _, err := tx.Exec(`UPDATE user_profiles SET username = ? WHERE sub = ?`,
 		username, userSub); err != nil {
 		return err
 	}

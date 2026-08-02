@@ -635,7 +635,7 @@ func TestUserScopesOperatorViaMembership(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	s.CreateAuthUser("op", "op", "", "Operator")
+	s.CreateAuthUser("op", "op", "Operator")
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "role:operator", Action: "*", Scope: "**", Effect: "allow",
 	}); err != nil {
@@ -654,7 +654,7 @@ func TestUserScopesSpecificFolders(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	s.CreateAuthUser("u1", "u1", "", "User One")
+	s.CreateAuthUser("u1", "u1", "User One")
 	for _, scope := range []string{"alpha", "beta"} {
 		if err := s.AddACLRow(core.ACLRow{
 			Principal: "u1", Action: "admin", Scope: scope, Effect: "allow",
