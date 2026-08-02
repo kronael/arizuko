@@ -2651,5 +2651,42 @@ owner lacking one, which breaks the promised get→apply round trip.
 - **Affected:** `specs/5/8-yaml-manifests.md`, `specs/5/16-mcp-rest-unification.md`,
   `cmd/arizuko/apply.go`, `resreg/resreg.go:155`
 - **Fix:** answer the three questions in the spec first (they are design calls,
-  not implementation details), then the repoint is mechanical. Encoding the
-  owner on `resreg.Resource` is the natural home for decision 1.
+  not implementation details), then the repoint is mechanical.
+
+### Recommended answers (2026-08-02, awaiting sign-off)
+
+Second codex pass, asked to decide rather than diagnose. Its load-bearing
+premise verified: `arizuko_proxyd_krons` mounts the whole instance data dir
+read-write at `/srv/app/home`, so proxyd reaching `routd.db` directly is
+FS-mounted write-discipline, not a violation.
+
+1. **`proxyd_routes` stays in `routd.db`.** proxyd reads it there, its REST
+   handler writes there, package install writes there, and it has the FS mount
+   to do so legitimately. Moving the table buys migration + federation work and
+   nothing else. **Delete the empty `proxyd.db`** (after confirming it is empty
+   per instance) and stop opening it — an empty DB that the spec names as an
+   owner is a false authority that makes `apply` silently no-op.
+2. **`config_meta` goes into every manifest-owning DB** via that daemon's own
+   migrations — with (1), that is `routd.db` and `onbod.db` only. Each starts at
+   version 1; `messages.db`'s counter has no lineage and is ignored. Every
+   manifest-addressable mutation must bump its owner's counter **in the same
+   transaction**, resreg-shared and direct FS writers alike, or CAS is blind. A
+   single central counter is rejected: it cannot be updated atomically with a
+   mutation in a different SQLite file. Consequence to accept: scalar
+   `config_version:` manifests break and must be re-exported as a per-owner map.
+3. **Partial-apply recovers by content-aware skipping.** Version equality is
+   required only when an owner has a non-empty diff; stale version + empty diff
+   = already applied, skip without re-bumping. `--force` is reserved for stale
+   version + different content. Preflight all owners before committing any,
+   commit in deterministic owner order, stop at the first runtime failure.
+   Mixed-success `apply` exits 3 and prints which owner applied and which rolled
+   back; the rerun skips the applied owner and exits 0. `plan` exits 2 only on a
+   real conflict (stale + non-empty diff).
+
+Plus: add `Owner` to `resreg.Resource` as a typed logical enum
+(`OwnerRoutd`/`OwnerOnbod`) — **not** a filesystem path and not the serving
+daemon, so `proxyd_routes` is `OwnerRoutd` though proxyd serves it. Consumed by
+`apply`/`plan`/`export`/`get` to group resources and pick the DB opener;
+registry validation rejects an engine-managed resource with no owner.
+
+Say yes and `5/8` becomes the mechanical repoint it was originally described as.
