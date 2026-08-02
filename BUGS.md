@@ -2516,3 +2516,34 @@ concern, not a spec one.
   `template/web/pub/arizuko/legacy/products/{reality,slack-team}/setup.html`
 - **Fix:** replace with `AUTHD_SERVICE_KEY` (the one surviving symmetric
   bootstrap secret) and describe the ES256 exchange; redeploy `/pub`.
+
+## O2 — two adapters down on platform credentials, not code (2026-08-02, open)
+
+Fleet eval + redeploy of all three instances (2026-08-02 15:17–15:20). All units
+active, all daemons healthy, and the agent path is verified end-to-end on krons —
+a real bot row landed in `routd.db` at `2026-08-02T15:17:49Z`
+(`telegram:user/1112184352`), 35s after restart. Two adapters are nonetheless
+dead, both on expired platform credentials, both pre-existing and unaffected by
+the deploy:
+
+- **krons `whapd`** — `Restarting`, ~65-70s cadence, 30+ restarts observed.
+  Logs: `"session invalidated, delete auth dir and re-pair","code":401`. routd
+  auto-deregisters the `whatsapp` channel every ~3 failures. Needs the
+  `--pair <phone>` pairing-code re-auth, not a restart. A pairing code was
+  issued 2026-05-21 and never redeemed, so this has been down ~10 weeks.
+- **marinade `emaid`** — `health: starting` indefinitely, `RestartCount=0` (it
+  does not crash-loop, so it never gets flagged as failing). Logs:
+  `imap idle error … [AUTHENTICATIONFAILED] Invalid credentials` every ~60s;
+  routd deregisters the `email` channel every ~3 min. Needs the correct IMAP
+  password in secrets.
+
+Both are operator credential fixes, not code fixes — recorded so they stop being
+rediscovered by each fleet check. The second one is also a monitoring gap worth
+noting: an adapter stuck in `health: starting` forever looks less alarming in
+`docker ps` than a crash loop, while being equally down.
+
+- **Severity:** medium (two channels dead; no data loss, no security exposure)
+- **Scope:** operator credentials
+- **Affected:** `arizuko_whapd_krons`, `arizuko_emaid_marinade`
+- **Fix:** re-pair whapd per `reference_whapd_pairing`; set marinade's IMAP
+  password. Neither requires a deploy.
