@@ -638,7 +638,10 @@ func TestDavRouteForbidden(t *testing.T) {
 	}
 }
 
-func TestProxydRequireAuthExpiredRefreshToken(t *testing.T) {
+// A refresh_token cookie is not a credential at requireAuth: with authd
+// unconfigured there is nothing to trade it for, so the caller is bounced to
+// login even though a matching user row exists.
+func TestProxydRequireAuthRefreshCookieIsNotIdentity(t *testing.T) {
 	st, err := store.OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -647,12 +650,6 @@ func TestProxydRequireAuthExpiredRefreshToken(t *testing.T) {
 	if err := st.CreateAuthUser("local:admin", "admin", "", "Admin"); err != nil {
 		t.Fatal(err)
 	}
-	token := "expired-refresh"
-	if err := st.CreateAuthSession(
-		auth.HashToken(token), "local:admin", time.Now().Add(-time.Hour),
-	); err != nil {
-		t.Fatal(err)
-	}
 
 	s := &server{
 		cfg:         config{authSecret: "testsecret"},
@@ -665,52 +662,35 @@ func TestProxydRequireAuthExpiredRefreshToken(t *testing.T) {
 		w.WriteHeader(200)
 	})
 	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: token})
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "some-refresh"})
 	w := httptest.NewRecorder()
 	h(w, req)
 
 	if called {
-		t.Error("handler called with expired refresh session")
+		t.Error("handler called for a refresh_token cookie alone")
 	}
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want 303", w.Code)
 	}
 }
 
-func TestProxydRequireAuthRefreshTokenUserMissing(t *testing.T) {
+// Unit-level twin of the above: tryAuth itself never reads the cookie. Only
+// tryRefreshViaAuthd (authd's /v1/refresh) turns a refresh token into identity.
+func TestTryAuthRefreshCookieRejected(t *testing.T) {
 	st, err := store.OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	// session exists, but no auth_users row for its UserSub
-	token := "orphan-refresh"
-	if err := st.CreateAuthSession(
-		auth.HashToken(token), "local:ghost", time.Now().Add(time.Hour),
-	); err != nil {
+	if err := st.CreateAuthUser("local:bob", "bob", "", "Bob"); err != nil {
 		t.Fatal(err)
 	}
 
-	s := &server{
-		cfg:         config{authSecret: "testsecret"},
-		stRoutd:     st,
-		chatAnonDOS: newRateLimiter(10, time.Minute),
-	}
-	called := false
-	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(200)
-	})
+	s := &server{cfg: config{authSecret: "testsecret"}, stRoutd: st}
 	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: token})
-	w := httptest.NewRecorder()
-	h(w, req)
-
-	if called {
-		t.Error("handler called when session user is missing")
-	}
-	if w.Code != http.StatusSeeOther {
-		t.Errorf("status = %d, want 303", w.Code)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "any-refresh"})
+	if s.tryAuth(req) != nil {
+		t.Error("tryAuth accepted a refresh_token cookie")
 	}
 }
 
@@ -804,8 +784,8 @@ func TestProxydRouteWithJWTReachesUpstream(t *testing.T) {
 	}
 }
 
-// Valid refresh_token cookie admits the request to the upstream.
-func TestProxydRouteWithRefreshCookieReachesUpstream(t *testing.T) {
+// An ES256 access token minted by authd admits the request to the upstream.
+func TestProxydRouteWithES256BearerReachesUpstream(t *testing.T) {
 	st, err := store.OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -814,18 +794,18 @@ func TestProxydRouteWithRefreshCookieReachesUpstream(t *testing.T) {
 	if err := st.CreateAuthUser("local:bob", "bob", "", "Bob"); err != nil {
 		t.Fatal(err)
 	}
-	token := "valid-refresh"
-	if err := st.CreateAuthSession(
-		auth.HashToken(token), "local:bob", time.Now().Add(time.Hour),
-	); err != nil {
-		t.Fatal(err)
-	}
 
 	s, up := testRouteServer(t, st, "testsecret")
 	defer up.Close()
+	k, ks := es256KeySet(t)
+	s.ks, s.cfg.authdURL = ks, "http://authd"
+	tok, err := k.Sign(auth.TokenClaims{Sub: "local:bob", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	req := httptest.NewRequest("GET", "/panel/atlas", nil)
-	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: token})
+	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	s.route(w, req)
 
@@ -837,10 +817,35 @@ func TestProxydRouteWithRefreshCookieReachesUpstream(t *testing.T) {
 	}
 }
 
-// Raw auth secret passed as refresh_token must not yield a session hit.
+// A refresh_token cookie no longer admits anyone: the cookie-session path is
+// gone, and with authd unconfigured there is nothing to trade the cookie for.
+func TestProxydRouteWithRefreshCookieRejected(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.CreateAuthUser("local:bob", "bob", "", "Bob"); err != nil {
+		t.Fatal(err)
+	}
+
+	s, up := testRouteServer(t, st, "testsecret")
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/panel/atlas", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "valid-refresh"})
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303 (cookie is not an identity)", w.Code)
+	}
+}
+
+// Raw auth secret passed as refresh_token must not authenticate.
 // This is a belt-and-braces check for the TODO note about a supposed
-// raw-secret bypass: the code hashes the cookie value and looks it up as a
-// session, so the raw secret can never match.
+// raw-secret bypass: no cookie value is a credential, so the raw secret
+// can never match either.
 func TestProxydRouteRawSecretAsRefreshCookieRejected(t *testing.T) {
 	st, err := store.OpenMem()
 	if err != nil {
@@ -1705,8 +1710,19 @@ func TestProxydDavAuthFlow_CrossGroupDenied(t *testing.T) {
 	}
 }
 
-// /dav/* with DB-backed group lookup via refresh_token cookie: groups come
-// from acl table via UserScopes, not from JWT claims.
+// davES256Server builds the /dav/* server plus an authd key, and returns a
+// signer for ES256 access tokens — the branch that resolves groups from the acl
+// table via UserScopes instead of from JWT claims.
+func davES256Server(t *testing.T, st *store.Store) (*server, *httptest.Server, *auth.SigningKey) {
+	t.Helper()
+	s, up := testDavFullServer(t, st, "testsecret")
+	k, ks := es256KeySet(t)
+	s.ks, s.cfg.authdURL = ks, "http://authd"
+	return s, up, k
+}
+
+// /dav/* with DB-backed group lookup via an ES256 bearer: groups come from the
+// acl table via UserScopes, not from JWT claims.
 func TestProxydDavAuthFlow_DBGroupLookup(t *testing.T) {
 	st, err := store.OpenMem()
 	if err != nil {
@@ -1725,20 +1741,17 @@ func TestProxydDavAuthFlow_DBGroupLookup(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Create refresh session for cookie-based auth.
-	refreshTok := "dav-test-refresh"
-	if err := st.CreateAuthSession(
-		auth.HashToken(refreshTok), "local:bob", time.Now().Add(time.Hour),
-	); err != nil {
+
+	s, up, k := davES256Server(t, st)
+	defer up.Close()
+	// No Groups claim on the token: they must come from the DB.
+	tok, err := k.Sign(auth.TokenClaims{Sub: "local:bob", Typ: "user"}, time.Hour)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	s, up := testDavFullServer(t, st, "testsecret")
-	defer up.Close()
-
-	// Use refresh_token cookie; groups come from DB via UserScopes.
 	req := httptest.NewRequest("GET", "/dav/workspace-x/file.txt", nil)
-	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: refreshTok})
+	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	s.route(w, req)
 
@@ -1750,7 +1763,7 @@ func TestProxydDavAuthFlow_DBGroupLookup(t *testing.T) {
 	}
 }
 
-// DB grant for group A does not grant access to group B (via refresh cookie).
+// DB grant for group A does not grant access to group B.
 func TestProxydDavAuthFlow_DBCrossGroupDenied(t *testing.T) {
 	st, err := store.OpenMem()
 	if err != nil {
@@ -1768,18 +1781,16 @@ func TestProxydDavAuthFlow_DBCrossGroupDenied(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	refreshTok := "carol-refresh"
-	if err := st.CreateAuthSession(
-		auth.HashToken(refreshTok), "local:carol", time.Now().Add(time.Hour),
-	); err != nil {
+
+	s, up, k := davES256Server(t, st)
+	defer up.Close()
+	tok, err := k.Sign(auth.TokenClaims{Sub: "local:carol", Typ: "user"}, time.Hour)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	s, up := testDavFullServer(t, st, "testsecret")
-	defer up.Close()
-
 	req := httptest.NewRequest("GET", "/dav/other-folder/secret.txt", nil)
-	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: refreshTok})
+	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	s.route(w, req)
 

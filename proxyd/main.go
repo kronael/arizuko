@@ -107,7 +107,7 @@ func proxy(target string) *httputil.ReverseProxy {
 
 type server struct {
 	cfg         config
-	stRoutd     *store.Store    // routd.db: auth_sessions, proxyd_routes, acl, auth_users, route_tokens (split ownership; login reads one DB)
+	stRoutd     *store.Store    // routd.db: proxyd_routes, acl, auth_users, route_tokens (split ownership; scope lookup reads one DB)
 	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/8 no-cache)
 	viteProxy   *httputil.ReverseProxy
 	authdProxy  *httputil.ReverseProxy // nil when AUTHD_URL unset (local dev)
@@ -848,11 +848,12 @@ func (s *server) groupsForSub(sub string) []string {
 }
 
 // tryAuth returns an identity-stamped request if the caller has a valid
-// Bearer JWT or refresh-token cookie; otherwise nil.
+// Bearer JWT; otherwise nil. A refresh_token cookie is NOT an identity here —
+// requireAuth trades it for an access token via tryRefreshViaAuthd.
 //
-// Bearer verify is dual: HS256 (auth.VerifyJWT, legacy cookie/session) first,
-// then ES256 (auth.VerifyHTTP) against authd's JWKs when AUTHD_URL is set. Either
-// success stamps the same X-User-* headers; setUserHeaders attaches proxyd's own
+// Bearer verify is dual: HS256 (auth.VerifyJWT) first, then ES256
+// (auth.VerifyHTTP) against authd's JWKs when AUTHD_URL is set. Either success
+// stamps the same X-User-* headers; setUserHeaders attaches proxyd's own
 // service:proxyd bearer as the backend transit proof. With AUTHD_URL unset, ks is
 // nil and this is HS256-only.
 func (s *server) tryAuth(r *http.Request) *http.Request {
@@ -866,28 +867,7 @@ func (s *server) tryAuth(r *http.Request) *http.Request {
 			}
 		}
 	}
-	if s.stRoutd == nil {
-		return nil
-	}
-	cookie, err := r.Cookie("refresh_token")
-	if err != nil {
-		return nil
-	}
-	// auth_sessions + auth_users + acl all live in routd.db (stRoutd) — the
-	// whole cookie-login decision reads ONE DB post-split.
-	sess, ok := s.stRoutd.AuthSession(auth.HashToken(cookie.Value))
-	if !ok || !time.Now().Before(sess.ExpiresAt) {
-		return nil
-	}
-	// Resolve canonical at the cookie path too — refresh sessions are
-	// bound to the sub at creation time, but the user may have linked
-	// since. Single source of truth: store.CanonicalSub.
-	canonical := s.stRoutd.CanonicalSub(sess.UserSub)
-	u, ok := s.stRoutd.AuthUserBySub(canonical)
-	if !ok {
-		return nil
-	}
-	return s.setUserHeaders(r, u.Sub, u.Name, s.stRoutd.UserScopes(u.Sub))
+	return nil
 }
 
 // handleAuth proxies /auth/* to authd without redirecting. A redirect would
@@ -988,11 +968,11 @@ func main() {
 	cfg := loadConfig()
 	cfg.authSecret = coreCfg.AuthSecret
 
-	// routd.db owns auth_sessions/proxyd_routes/acl/auth_users/route_tokens in the
-	// split topology (spec 5/5), plus audit_log (routd migration 0016). proxyd
-	// reads those for the whole login decision (cookie session → user → scopes)
-	// + route resolution, and writes its audit rows here too (audit.Init below)
-	// — one store, no messages.db straddle.
+	// routd.db owns proxyd_routes/acl/auth_users/route_tokens in the split
+	// topology (spec 5/5), plus audit_log (routd migration 0016). proxyd reads
+	// those for scope resolution (verified sub → scopes) + route resolution, and
+	// writes its audit rows here too (audit.Init below) — one store, no
+	// messages.db straddle.
 	stRoutd, err := store.OpenRoutd(coreCfg.StoreDir)
 	if err != nil {
 		slog.Error("open routd.db", "err", err)

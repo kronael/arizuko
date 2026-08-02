@@ -2,32 +2,20 @@ package routd
 
 import (
 	"testing"
-	"time"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/store"
 )
 
-// TestMigration0015 proves routd.db gains auth_sessions + proxyd_routes and
-// that routd.Open backfills existing rows from a sibling messages.db (the
-// pre-split source proxyd used to read). Guards the two-DB login straddle fix:
-// proxyd now resolves cookie sessions from routd.db.
-func TestMigration0015AuthSessionsProxydRoutes(t *testing.T) {
+// TestMigration0015ProxydRoutes proves routd.db gains proxyd_routes and that
+// routd.Open backfills existing rows from a sibling messages.db (the pre-split
+// source proxyd used to read). Guards the two-DB route-resolution straddle fix.
+func TestMigration0015ProxydRoutes(t *testing.T) {
 	dir := t.TempDir()
 
-	// Seed a pre-split messages.db with a live session, a user, and a route.
+	// Seed a pre-split messages.db with a route.
 	msg, err := store.Open(dir) // store.Open == messages.db, runs store migrations
 	if err != nil {
 		t.Fatalf("open messages.db: %v", err)
-	}
-	if err := msg.CreateAuthUser("local:bob", "bob", "", "Bob"); err != nil {
-		t.Fatalf("seed user: %v", err)
-	}
-	token := "live-refresh"
-	if err := msg.CreateAuthSession(
-		auth.HashToken(token), "local:bob", time.Now().Add(time.Hour),
-	); err != nil {
-		t.Fatalf("seed session: %v", err)
 	}
 	if err := seedProxydRoute(t, msg, "/panel/", "http://up"); err != nil {
 		t.Fatalf("seed route: %v", err)
@@ -41,15 +29,7 @@ func TestMigration0015AuthSessionsProxydRoutes(t *testing.T) {
 	}
 	defer d.Close()
 
-	// routd.db is where proxyd now reads: the session must resolve here.
 	rst := store.New(d.SQL())
-	sess, ok := rst.AuthSession(auth.HashToken(token))
-	if !ok {
-		t.Fatal("auth_sessions row not backfilled into routd.db")
-	}
-	if sess.UserSub != "local:bob" {
-		t.Errorf("backfilled session user_sub = %q, want local:bob", sess.UserSub)
-	}
 	routes, err := rst.AllProxydRoutes()
 	if err != nil {
 		t.Fatalf("read proxyd_routes from routd.db: %v", err)
@@ -74,8 +54,43 @@ func TestMigration0015AuthSessionsProxydRoutes(t *testing.T) {
 	}
 }
 
+// TestMigration0024DropsAuthSessions proves the cookie-session table is gone
+// from routd.db AND that the backfill no longer recreates rows for it, even
+// though the legacy messages.db still carries the table.
+func TestMigration0024DropsAuthSessions(t *testing.T) {
+	dir := t.TempDir()
+
+	msg, err := store.Open(dir)
+	if err != nil {
+		t.Fatalf("open messages.db: %v", err)
+	}
+	if _, err := msg.DB().Exec(
+		`INSERT INTO auth_sessions (token_hash, user_sub, expires_at, created_at)
+		 VALUES ('h','local:bob','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`,
+	); err != nil {
+		t.Fatalf("seed legacy session: %v", err)
+	}
+	msg.Close()
+
+	d, err := Open(dir)
+	if err != nil {
+		t.Fatalf("routd.Open: %v", err)
+	}
+	defer d.Close()
+
+	var n int
+	if err := d.SQL().QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='auth_sessions'`,
+	).Scan(&n); err != nil {
+		t.Fatalf("probe sqlite_master: %v", err)
+	}
+	if n != 0 {
+		t.Error("auth_sessions still present in routd.db after migration 0024")
+	}
+}
+
 // TestMigration0015NoLegacyDB proves routd.Open is a clean no-op when there is
-// no sibling messages.db (a fresh install) — the tables exist, empty.
+// no sibling messages.db (a fresh install) — the table exists, empty.
 func TestMigration0015NoLegacyDB(t *testing.T) {
 	dir := t.TempDir()
 	d, err := Open(dir)
@@ -89,9 +104,6 @@ func TestMigration0015NoLegacyDB(t *testing.T) {
 	}
 	if len(routes) != 0 {
 		t.Errorf("fresh proxyd_routes = %d rows, want 0", len(routes))
-	}
-	if _, ok := store.New(d.SQL()).AuthSession("nope"); ok {
-		t.Error("fresh auth_sessions returned a row")
 	}
 }
 

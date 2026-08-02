@@ -77,8 +77,8 @@ func Open(dir string) (*DB, error) {
 }
 
 // copyLegacyProxydTables is a one-release, idempotent backfill: it copies
-// auth_sessions + proxyd_routes rows from the pre-split messages.db into
-// routd.db (where proxyd now reads them, so login touches ONE DB). Runs in
+// proxyd_routes rows from the pre-split messages.db into routd.db (where proxyd
+// now reads them, so route resolution touches ONE DB). Runs in
 // autocommit AFTER migrations because the migration runner wraps each file in
 // BEGIN EXCLUSIVE, and modernc.org/sqlite locks an ATTACHed DB when a write
 // transaction is already open on the main. Absent messages.db (fresh install)
@@ -107,7 +107,6 @@ func (d *DB) copyLegacyProxydTables(dir string) error {
 	// can't silently misalign the copy. legacy may predate either table (an
 	// old messages.db without proxyd_routes); skip a table that isn't there.
 	copies := []struct{ table, cols string }{
-		{"auth_sessions", "token_hash, user_sub, expires_at, created_at"},
 		{"proxyd_routes", "path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to"},
 	}
 	for _, c := range copies {

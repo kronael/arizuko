@@ -1,0 +1,11 @@
+-- Drop auth_sessions: the cookie-session auth path is gone.
+--
+-- Nothing minted a session post-split (store.CreateAuthSession had only test
+-- callers); every row on every instance was backfill copied from the frozen
+-- messages.db by routd.copyLegacyProxydTables, and all of it was long expired
+-- (newest expires_at 2026-06-05), so proxyd's cookie branch could not
+-- authenticate anyone. That branch and the backfill entry are removed in the
+-- same commit as this file, leaving no reader and no writer.
+--
+-- The messages.db copy is untouched — it is the frozen pre-split file.
+DROP TABLE IF EXISTS auth_sessions;

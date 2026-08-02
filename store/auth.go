@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"time"
-
-	"github.com/kronael/arizuko/audit"
 )
 
 type AuthUser struct {
@@ -15,13 +13,6 @@ type AuthUser struct {
 	Name        string
 	CreatedAt   time.Time
 	LinkedToSub string // empty = canonical; non-empty = points at canonical sub
-}
-
-type AuthSession struct {
-	TokenHash string
-	UserSub   string
-	ExpiresAt time.Time
-	CreatedAt time.Time
 }
 
 func (s *Store) CreateAuthUser(sub, username, hash, name string) error {
@@ -118,43 +109,6 @@ func (s *Store) LinkedSubs(canonical string) []string {
 		}
 	}
 	return out
-}
-
-func (s *Store) CreateAuthSession(tokenHash, userSub string, expiresAt time.Time) error {
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := tx.Exec(
-			`INSERT INTO auth_sessions (token_hash, user_sub, expires_at, created_at)
-			 VALUES (?, ?, ?, ?)`,
-			tokenHash, userSub, expiresAt.Format(time.RFC3339), time.Now().Format(time.RFC3339),
-		)
-		return audit.Event{
-			Category: audit.CategoryAuthN,
-			Action:   "token.mint",
-			Actor:    "user:" + userSub,
-			ActorSub: userSub,
-			Surface:  audit.SurfaceGateway,
-			Resource: "sessions/" + tokenHash[:min(len(tokenHash), 8)],
-			Outcome:  audit.OutcomeOK,
-			ParamsSummary: map[string]any{
-				"expires_at": expiresAt.Format(time.RFC3339),
-			},
-		}, err
-	})
-}
-
-func (s *Store) AuthSession(tokenHash string) (AuthSession, bool) {
-	var a AuthSession
-	var expires, created string
-	err := s.db.QueryRow(
-		`SELECT token_hash, user_sub, expires_at, created_at FROM auth_sessions WHERE token_hash = ?`,
-		tokenHash,
-	).Scan(&a.TokenHash, &a.UserSub, &expires, &created)
-	if err != nil {
-		return a, false
-	}
-	a.ExpiresAt, _ = time.Parse(time.RFC3339, expires)
-	a.CreatedAt, _ = time.Parse(time.RFC3339, created)
-	return a, true
 }
 
 // User-folder grants live in the `acl` table (post-0053). See
