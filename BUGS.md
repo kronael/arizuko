@@ -2857,3 +2857,39 @@ instance is non-zero.
 Note what that writer implies more broadly: routd still opens the frozen
 `messages.db` at every boot to copy legacy rows forward. That is the real
 blocker for retiring `messages.db`, and it is bigger than any single table.
+
+## M1 — agent-facing MCP tool descriptions still promise dissolved tiers and a dropped table (2026-08-02, open)
+
+Four tool descriptions in `ipc/ipc.go` tell the agent about authorization that
+no longer exists. These are not comments — they are the strings the model reads
+when deciding whether it may call a tool, so this is a behaviour bug in the
+agent surface, not documentation drift.
+
+- `:1177` (`post`) and `:1291` (`delete`) end with **"Tier 0-2 only."**
+- `:1874` (`invite_create`) and `:1956` (`invite_revoke`) end with
+  **"Tier 0-1 only."**
+
+Depth-derived tiers were removed; `auth/identity.go:11` states the principal
+"carries ZERO authorization (no tier, no world rank)". Authorization is a single
+`auth.Authorize` over ACL rows. An agent told "Tier 0-1 only" may decline a call
+it is in fact permitted to make, or reason wrongly about its own authority —
+the failure is silent and looks like model reticence rather than a bug.
+
+Same site, second defect: `invite_create` promises the recipient "gets a
+**`user_groups`** row matching target_glob". That table was cut over by
+`store/migrations/0053-acl-cutover.sql` and does not exist — `sqlite_master`
+count is 0 on krons. The row a recipient actually gets is an `acl` /
+`acl_membership` row.
+
+Found during the phase-1..4 spec minimization pass, which flagged it as live
+misinformation rather than stale prose. Verified independently against the code
+and the live DB before logging.
+
+- **Severity:** medium (silent under-use of granted authority; no privilege
+  escalation — the real gate is `auth.Authorize`, which is correct)
+- **Scope:** agent MCP tool descriptions
+- **Affected:** `ipc/ipc.go:1177,1291,1874,1956`
+- **Fix:** delete the tier sentences; restate `invite_create`'s effect in terms
+  of the `acl`/`acl_membership` row it actually writes. Grep the whole file for
+  other tier/`user_groups` references before calling it done — these four were
+  found by a full-file read, not a truncated grep.
