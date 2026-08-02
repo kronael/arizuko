@@ -22,7 +22,7 @@ import (
 
 // Setup installs slog.Default for the daemon. If OTEL_EXPORTER_OTLP_ENDPOINT
 // is unset, installs the stock JSON handler and returns a no-op shutdown.
-// Otherwise installs a fanout handler (stderr + OTLP bridge) and returns a
+// Otherwise installs a multi-handler (stderr + OTLP bridge) and returns a
 // shutdown func that flushes the exporter.
 //
 // Typical use:
@@ -59,7 +59,7 @@ func Setup(daemon, instance string) func() {
 	)
 
 	bridge := otelslog.NewHandler(daemon, otelslog.WithLoggerProvider(provider))
-	slog.SetDefault(slog.New(&fanout{stderr: stock, otel: bridge}))
+	slog.SetDefault(slog.New(slog.NewMultiHandler(stock, bridge)))
 
 	return func() {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
