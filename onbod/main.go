@@ -442,10 +442,22 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB
 		// both pass the SELECT above, but only the request whose UPDATE returns
 		// a row links the JID. The loser's RETURNING yields no row → no
 		// double-linkJID.
-		if claimed, ok := claimByToken(obdb, token, userSub); ok {
-			if err := linkJID(db, obdb, claimed, userSub); err != nil {
+		// Crash ordering: the membership edge is written BEFORE the token is
+		// consumed. The two live in different databases (edge in routd's,
+		// token in onbod's) with no cross-DB transaction, so one of them must
+		// survive a crash between the writes. Edge-first is safe wherever it
+		// crashes — AddMembership is INSERT OR IGNORE, so a replay writes the
+		// identical row and the still-live token simply gets used again.
+		// Consume-first would strand the user: token spent, no edge, no retry.
+		if jid, ok := jidForToken(obdb, token); ok {
+			if err := linkJID(db, obdb, jid, userSub); err != nil {
 				writeLinkErr(w, err)
 				return
+			}
+			if _, ok := claimByToken(obdb, token, userSub); !ok {
+				// Lost the race to a concurrent landing that wrote the same
+				// edge. Not an error.
+				slog.Info("onboarding token already claimed", "jid", jid)
 			}
 		}
 		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
@@ -457,12 +469,40 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB
 
 // claimByToken atomically binds userSub to the onboarding row for token in one
 // statement, returning the claimed jid only when this caller won the race.
+// jidForToken resolves a live token to its JID WITHOUT consuming it. The
+// consume is a separate step that runs only after the membership edge is
+// durable — see the crash-ordering note on handleTokenLanding.
+func jidForToken(obdb *sql.DB, token string) (string, bool) {
+	var jid string
+	// Keyed on the token alone: the token is the secret and is NULLed only by
+	// the consume step, so its presence IS "unclaimed". user_sub cannot be the
+	// guard here — linkJID sets it while approving, which would make a
+	// crash-replay look already-claimed and strand the still-live token.
+	err := obdb.QueryRow(
+		`SELECT jid FROM onboarding WHERE token = ?`,
+		token).Scan(&jid)
+	if err == sql.ErrNoRows {
+		return "", false
+	}
+	if err != nil {
+		slog.Error("resolve onboarding token", "err", err)
+		return "", false
+	}
+	return jid, true
+}
+
+// claimByToken consumes the token. Concurrent landings race here and exactly
+// one wins the UPDATE; the loser has already written the identical (idempotent)
+// edge, so nothing is lost.
 func claimByToken(obdb *sql.DB, token, userSub string) (string, bool) {
 	var jid string
+	// Keyed on the token alone, for the same reason as jidForToken: linkJID has
+	// already set user_sub by this point. Atomicity is preserved because
+	// exactly one UPDATE can null a given token and RETURN its row.
 	err := obdb.QueryRow(
 		`UPDATE onboarding
 		 SET user_sub = ?, status = 'token_used', token = NULL
-		 WHERE token = ? AND user_sub IS NULL
+		 WHERE token = ?
 		 RETURNING jid`,
 		userSub, token).Scan(&jid)
 	if err == sql.ErrNoRows {

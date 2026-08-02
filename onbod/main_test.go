@@ -434,15 +434,27 @@ func TestClaimByTokenSingleWinner(t *testing.T) {
 	}
 }
 
-// claimByToken must refuse an already-claimed row (loser of the race), so
-// handleTokenLanding never double-links.
+// A consumed token is one whose token column is NULL — the consume step nulls
+// it. user_sub is no longer the marker: since the edge is written BEFORE the
+// consume (P1 crash ordering), a row with user_sub set and a live token is the
+// legitimate mid-flight state that a replay must be able to finish.
+//
+// Takeover is still refused, one layer up: linkJID rejects a JID already bound
+// to a different account (errLinkRefused), so a second lander cannot rebind it.
 func TestClaimByTokenRefusesClaimed(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, user_sub, created)
-		VALUES ('telegram:1', 'token_used', 'spent-tok', '2099-01-01T00:00:00Z', 'github:alice', '2026-01-01')`)
+		VALUES ('telegram:1', 'token_used', NULL, '2099-01-01T00:00:00Z', 'github:alice', '2026-01-01')`)
 
 	if _, ok := claimByToken(db, "spent-tok", "github:bob"); ok {
-		t.Fatal("claimByToken should fail for an already-claimed row")
+		t.Fatal("claimByToken should fail once the token is consumed")
+	}
+	// And the takeover itself is refused where it matters.
+	if err := linkJID(db, db, "telegram:1", "github:alice"); err != nil {
+		t.Fatalf("owner link: %v", err)
+	}
+	if err := linkJID(db, db, "telegram:1", "github:bob"); !errors.Is(err, errLinkRefused) {
+		t.Fatalf("takeover want errLinkRefused, got %v", err)
 	}
 	var sub string
 	db.QueryRow(`SELECT user_sub FROM onboarding WHERE jid='telegram:1'`).Scan(&sub)
@@ -2179,5 +2191,44 @@ func TestFirstAdminFolder_HonoursSubtreeGrant(t *testing.T) {
 	}
 	if got := firstAdminFolder(db, "github:stranger"); got != "" {
 		t.Errorf("ungranted principal resolved to %q, want none", got)
+	}
+}
+
+// P1 crash ordering: the membership edge must be durable BEFORE the token is
+// consumed. The two writes land in different databases with no cross-DB
+// transaction, so a crash between them is possible at any point; edge-first is
+// the only order that is safe wherever it lands. This test simulates the crash
+// by doing the first half only, then replaying.
+func TestTokenLanding_EdgeSurvivesCrashBeforeConsume(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, created, token)
+		VALUES ('telegram:77', 'awaiting_message', '2026-01-01', 'tok-77')`)
+
+	// First half of the landing: resolve, write the edge, then "crash".
+	jid, ok := jidForToken(db, "tok-77")
+	if !ok || jid != "telegram:77" {
+		t.Fatalf("jidForToken = %q,%v", jid, ok)
+	}
+	if err := linkJID(db, db, jid, "github:alice"); err != nil {
+		t.Fatalf("linkJID: %v", err)
+	}
+
+	// The token must still be live, so the user can simply click again.
+	if _, ok := jidForToken(db, "tok-77"); !ok {
+		t.Fatal("token was consumed before the edge was durable — the stranding order")
+	}
+
+	// Replay: the edge write is idempotent and the consume now succeeds.
+	if err := linkJID(db, db, jid, "github:alice"); err != nil {
+		t.Fatalf("replayed linkJID must be a no-op, got: %v", err)
+	}
+	if _, ok := claimByToken(db, "tok-77", "github:alice"); !ok {
+		t.Fatal("replay could not consume the token")
+	}
+
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM acl_membership WHERE child='telegram:77'`).Scan(&n)
+	if n != 1 {
+		t.Errorf("replay produced %d edges, want exactly 1", n)
 	}
 }
