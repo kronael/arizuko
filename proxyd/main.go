@@ -988,20 +988,11 @@ func main() {
 	cfg := loadConfig()
 	cfg.authSecret = coreCfg.AuthSecret
 
-	// messages.db is opened only for the audit_log sink (audit.Init below);
-	// proxyd's routing + auth reads all moved to routd.db (stRoutd).
-	st, err := store.Open(coreCfg.StoreDir)
-	if err != nil {
-		slog.Error("open store", "err", err)
-		os.Exit(1)
-	}
-	defer st.Close()
-
 	// routd.db owns auth_sessions/proxyd_routes/acl/auth_users/route_tokens in the
-	// split topology (spec 5/5). proxyd reads those for the whole login decision
-	// (cookie session → user → scopes) + route resolution; reading one DB removes
-	// the messages.db straddle. A frozen messages.db twin would make post-cutover
-	// grants + sessions invisible to auth.
+	// split topology (spec 5/5), plus audit_log (routd migration 0016). proxyd
+	// reads those for the whole login decision (cookie session → user → scopes)
+	// + route resolution, and writes its audit rows here too (audit.Init below)
+	// — one store, no messages.db straddle.
 	stRoutd, err := store.OpenRoutd(coreCfg.StoreDir)
 	if err != nil {
 		slog.Error("open routd.db", "err", err)
@@ -1043,9 +1034,10 @@ func main() {
 
 	aud := audit.New(audit.LoadConfig(coreCfg.HostProjectRoot, coreCfg.Name))
 
-	// audit_log lives in routd.db (its owner, routd migration 0016) — not the
-	// frozen messages.db. proxyd still opens messages.db (st) for auth_sessions/
-	// proxyd_routes/web_routes, but the audit sink writes to the owner DB.
+	// audit_log lives in routd.db (its owner, routd migration 0016); proxyd is
+	// FS-mounted but owns no DB of its own, so it writes into the owner DB via
+	// the same stRoutd handle used for routing + auth (no proxyd.db, no
+	// messages.db straddle — BUGS.md Y1, split write-discipline).
 	audit.Init(stRoutd.DB(), coreCfg.Name)
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
