@@ -2378,42 +2378,54 @@ documented repair.
 - **Source:** `onbod/main.go` linkJID; `specs/5/31-identity-pairing.md`
 - **Status:** proposed — needs the cross-DB ownership decision first
 
-## P2 — `linked_to_sub` is a split-brain identity column (2026-08-01, proposed)
+## P2 — three identity-link mechanisms; authd owns two of them (2026-08-02, decided)
 
-`store.LinkSubToCanonical` writes `auth_users.linked_to_sub` and is tested,
-but has zero non-test callers; the live account-link path writes
-`oauth_identities` in auth.db instead. Meanwhile `proxyd/main.go:885` and
-`dashd/profile.go` still READ `linked_to_sub`, so those two surfaces resolve
-canonical identity from a column nothing maintains.
+"One human, many logins" is implemented three times. Operator decision
+2026-08-02: **collapse to one, exposed by authd in the system's canonical way**
+(a resreg resource — REST + MCP from one handler, per root CLAUDE.md), with
+proxyd and dashd consuming that surface rather than reading a table.
 
-Not a deletion: repointing the readers at `oauth_identities` crosses a DB
-owner boundary and needs a data migration. It also depends on the unsettled
-principal-grammar question (which namespaces exist, who may mint into each).
+| mechanism | DB | writer | read surface | live rows |
+|---|---|---|---|---|
+| `identities` + `identity_claims` | auth.db | `store/identities.go:33` | **yes** — `GET /v1/identities/{sub}` (`authd/http.go:384`), consumed by routd's `inspect_identity` | 0 everywhere |
+| `auth_users(user_id)` + `oauth_identities` | auth.db | `authd/store.go:122` (the live OAuth login path) | **none** | 1 (marinade) |
+| `auth_users.linked_to_sub` | **routd.db** | none (`LinkSubToCanonical` has no non-test caller) | read by `proxyd/main.go:885`, `dashd/profile.go:81` | 0 everywhere |
 
-**Verified 2026-08-01**: `linked_to_sub` is populated on ZERO rows across
-krons/sloth/marinade (5 auth_users total), and `LinkSubToCanonical` has no
-non-test caller. So both readers always get the empty answer:
-`proxyd/main.go:885` canonicalises to the input sub unchanged, and
-`dashd/profile.go:81` renders an always-empty linked-accounts list. The live
-link path writes `oauth_identities` in auth.db (`authd/store.go:122`; 1 row on
-marinade).
+So authd holds one model that is exposed but never populated, and one that is
+populated but never exposed; routd holds a third that is neither. The two
+readers in row 3 therefore always get the empty answer — proxyd canonicalises
+to the input sub unchanged, dashd renders an empty linked-accounts list.
 
-**Why this is not a deletion.** Both readers are correctly INTENDED — proxyd's
-comment says "the user may have linked since", and the profile page is meant to
-show linked accounts. The capability is broken, not obsolete. Deleting the
-column and its readers would remove account-linking display and canonical
-resolution rather than repair them.
+**Trap worth knowing**: `auth_users` exists in BOTH routd.db and auth.db with
+DIFFERENT schemas — `(sub, username, hash, name, created_at, linked_to_sub)`
+versus `(user_id, name, created_at)`. Same name, two databases, two meanings.
 
-The fix is to repoint both readers at `oauth_identities`, which authd owns —
-so it needs a decision: do proxyd and dashd cross-read auth.db (as dashd
-already cross-reads routd.db), or does authd expose the link set over its API?
-That is an ownership call, not a code cleanup, which is why this stays queued
-rather than being force-shipped.
+### Target
 
-- **Severity:** medium (account linking silently non-functional on two surfaces)
-- **Source:** `store/auth.go:60,73`; `proxyd/main.go:885`; `dashd/profile.go:81`;
-  live path `authd/store.go:122`
-- **Status:** proposed — needs the cross-owner read decision
+1. `oauth_identities` (+ `auth_users(user_id)`) becomes the single model: it has
+   the live writer and a first-class person entity, so no sub is "elected"
+   canonical and losing one provider account cannot orphan the rest.
+   `UNIQUE(provider, provider_sub)` already prevents one login mapping to two
+   people.
+2. Re-point `GET /v1/identities/{sub}` at it and register it as a resreg
+   resource so the MCP twin is derived rather than hand-rolled. The endpoint
+   already exists as the seed; today it reads the empty model.
+3. proxyd and dashd consume that surface. Note the accepted cost: this puts an
+   HTTP hop on proxyd's per-request cookie path, so authd being unreachable
+   degrades session canonicalisation — decide the failure mode (fail closed, or
+   fall through to the raw sub) as part of the work.
+4. Delete `identities`, `identity_claims`, `store/identities.go`,
+   `auth_users.linked_to_sub`, `CanonicalSub`, `LinkSubToCanonical`,
+   `SubsLinkedTo`, and `dashd`'s `linkedSubs` — additive DROP migrations in
+   both schemas.
+
+Deleting before step 2 lands would remove `inspect_identity`'s backing store,
+so the order matters.
+
+- **Severity:** medium (account linking non-functional on two surfaces)
+- **Source:** `store/identities.go`; `authd/store.go:122`; `authd/http.go:384`;
+  `store/auth.go:60,73`; `proxyd/main.go:885`; `dashd/profile.go:81`
+- **Status:** decided, not started — a feature build, not a cleanup
 
 ## P3b — rejected minimization phases, recorded so they are not retried (2026-08-01, closed)
 
