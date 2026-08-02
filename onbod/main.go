@@ -842,9 +842,14 @@ func gateFromKey(key string, limit int) gate {
 var errLinkRefused = errors.New("link refused")
 
 func linkJID(db, obdb *sql.DB, jid, userSub string) error {
+	// Role memberships are excluded: acl_membership carries BOTH pairing edges
+	// (jid -> canonical sub) and role membership (jid -> role:operator), and a
+	// JID may legitimately hold both. Without the filter QueryRow can return
+	// the role row in undefined order and refuse a valid re-pair, naming a role
+	// as the "other account" — sloth has exactly this shape today.
 	var existingSub string
 	if err := db.QueryRow(
-		`SELECT parent FROM acl_membership WHERE child = ?`, jid,
+		`SELECT parent FROM acl_membership WHERE child = ? AND parent NOT LIKE 'role:%'`, jid,
 	).Scan(&existingSub); err == nil && existingSub != userSub {
 		slog.Warn("jid already claimed", "jid", jid, "existing", existingSub, "attempted", userSub)
 		return fmt.Errorf("%w: %s is already linked to another account", errLinkRefused, jid)

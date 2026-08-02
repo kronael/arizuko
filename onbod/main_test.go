@@ -2250,3 +2250,30 @@ func TestKnownStatusesCoversEveryWriter(t *testing.T) {
 		t.Error("'pending' is not a status any writer produces; it must read as stranded")
 	}
 }
+
+// acl_membership carries pairing edges AND role memberships, and a JID may hold
+// both — a paired user granted operator directly. The claim check must ignore
+// role parents; otherwise QueryRow can return the role row in undefined order
+// and refuse a legitimate re-pair, naming "role:operator" as the other account.
+// sloth has exactly this shape in production.
+func TestLinkJID_RoleMembershipIsNotAClaim(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:5', 'token_used', '2026-01-01')`)
+	// The paired sub must sort AFTER "role:" so the role row comes first in the
+	// (child, parent) index — that ordering is what makes the unfiltered
+	// QueryRow return the role and refuse. With a sub like "google:..." the bug
+	// hides, because the pairing row happens to come first.
+	const sub = "zoom:alice"
+	if err := linkJID(db, db, "telegram:5", sub); err != nil {
+		t.Fatalf("first pair: %v", err)
+	}
+	// The JID is also granted operator directly.
+	if _, err := db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
+		VALUES ('telegram:5', 'role:operator', datetime('now'), 'cli')`); err != nil {
+		t.Fatal(err)
+	}
+	// Re-pairing to the SAME account must still succeed (idempotent replay).
+	if err := linkJID(db, db, "telegram:5", sub); err != nil {
+		t.Errorf("re-pair refused because of the role row: %v", err)
+	}
+}
