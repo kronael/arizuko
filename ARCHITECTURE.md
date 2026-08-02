@@ -774,7 +774,7 @@ Three substrates, clearly split:
 - **`audit_log` SQLite table** — source of truth for state-changing
   operations. ACID, transactional with the mutation. Forensic queries
   via `sqlite3`. Spec [`5/I`](specs/5/I-tool-call-logging.md) +
-  [`7/F`](specs/8/F-audit-stream.md).
+  [`7/F`](specs/5/I-tool-call-logging.md).
 - **slog → journald** — operational telemetry for everything (state
   changes + reads). High-rate, lossy by design (journald rotation,
   level filtering). `journalctl -u arizuko_<inst>` is the default

@@ -2,7 +2,7 @@
 
 Status: round-1 plan for `audit_log` SQLite table as source of truth for
 security and state-change events. Driven by [`specs/5/I`](../specs/5/I-tool-call-logging.md)
-and [`specs/8/F`](../specs/8/F-audit-stream.md).
+and [`specs/8/F`](../specs/5/I-tool-call-logging.md).
 
 ## Goal
 
@@ -48,7 +48,7 @@ months ago").
 ## Final field schema
 
 Per [`5/I`](../specs/5/I-tool-call-logging.md) plus the bookkeeping
-columns the spec defers to [`6/F`](../specs/8/F-audit-stream.md):
+columns the spec defers to [`6/F`](../specs/5/I-tool-call-logging.md):
 
 ```sql
 CREATE TABLE audit_log (
