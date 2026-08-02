@@ -104,6 +104,44 @@ func retireActiveKeys(db *sql.DB, at time.Time) error {
 	return err
 }
 
+// oauthIdentityForSub resolves a sub ("<provider>:<providerSub>") to the
+// canonical user that has linked it, plus every sub that user has linked.
+// This is the read half of upsertOAuthUser below — the model the live OAuth
+// login path actually populates. It replaces identities/identity_claims, which
+// this endpoint used to read and which nothing ever wrote (BUGS P2).
+func oauthIdentityForSub(db *sql.DB, sub string) (userID, name, createdAt string, subs []string, ok bool) {
+	provider, providerSub, found := strings.Cut(sub, ":")
+	if !found || provider == "" || providerSub == "" {
+		return "", "", "", nil, false
+	}
+	err := db.QueryRow(
+		`SELECT u.user_id, u.name, u.created_at
+		   FROM oauth_identities oi JOIN auth_users u ON u.user_id = oi.user_id
+		  WHERE oi.provider = ? AND oi.provider_sub = ?`,
+		provider, providerSub).Scan(&userID, &name, &createdAt)
+	if err != nil {
+		return "", "", "", nil, false
+	}
+	rows, err := db.Query(
+		`SELECT provider, provider_sub FROM oauth_identities
+		  WHERE user_id = ? ORDER BY provider`, userID)
+	if err != nil {
+		return "", "", "", nil, false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p, ps string
+		if err := rows.Scan(&p, &ps); err != nil {
+			return "", "", "", nil, false
+		}
+		subs = append(subs, p+":"+ps)
+	}
+	if err := rows.Err(); err != nil {
+		return "", "", "", nil, false
+	}
+	return userID, name, createdAt, subs, true
+}
+
 // createUser inserts a canonical user if absent and links a provider identity.
 // sub is stored bare. Returns the canonical user_id.
 func upsertOAuthUser(db *sql.DB, userID, name, provider, providerSub string) error {

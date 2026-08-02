@@ -4,24 +4,32 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
 // seedIdentity inserts a canonical identity + its sub claims directly into
 // auth.db (raw INSERTs avoid store.LinkSub's audit_log dependency — the
 // endpoint reads via store.GetIdentityForSub regardless of write path).
+// seedIdentity writes the model the OAuth login path populates — auth_users +
+// oauth_identities — which is what /v1/identities/{sub} now reads.
 func seedIdentity(t *testing.T, a *Authd, id, name string, subs ...string) {
 	t.Helper()
 	if _, err := a.db.Exec(
-		`INSERT INTO identities(id, name, created_at) VALUES(?,?,?)`,
+		`INSERT INTO auth_users(user_id, name, created_at) VALUES(?,?,?)`,
 		id, name, "2026-01-01T00:00:00Z"); err != nil {
-		t.Fatalf("seed identity: %v", err)
+		t.Fatalf("seed user: %v", err)
 	}
 	for _, sub := range subs {
+		provider, providerSub, ok := strings.Cut(sub, ":")
+		if !ok {
+			t.Fatalf("seed sub %q is not <provider>:<id>", sub)
+		}
 		if _, err := a.db.Exec(
-			`INSERT INTO identity_claims(sub, identity_id, claimed_at) VALUES(?,?,?)`,
-			sub, id, "2026-01-01T00:00:00Z"); err != nil {
-			t.Fatalf("seed claim %s: %v", sub, err)
+			`INSERT INTO oauth_identities(user_id, provider, provider_sub, linked_at)
+			 VALUES(?,?,?,?)`,
+			id, provider, providerSub, "2026-01-01T00:00:00Z"); err != nil {
+			t.Fatalf("seed link %s: %v", sub, err)
 		}
 	}
 }

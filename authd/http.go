@@ -13,7 +13,6 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/obs"
-	"github.com/kronael/arizuko/store"
 )
 
 // maxBodyBytes caps request bodies on the token endpoints. Both carry only a
@@ -381,10 +380,12 @@ func refreshFromRequest(w http.ResponseWriter, r *http.Request) (raw string, bro
 	return req.RefreshToken, false
 }
 
-// handleIdentity resolves a platform sender sub (e.g. tg:123, discord:abc) to
-// its canonical identity and the full set of subs that identity claims, reading
-// authd's OWN auth.db identities/identity_claims (authd owns identity — spec
-// 5/9). routd's inspect_identity tool snapshots this over HTTP.
+// handleIdentity resolves a sub to its canonical user and every sub that user
+// has linked, reading auth.db's auth_users + oauth_identities — the model the
+// OAuth login path actually populates. It previously read
+// identities/identity_claims, which had this read surface but no writer, so the
+// endpoint always answered "unclaimed" (BUGS P2). routd's inspect_identity tool
+// snapshots this over HTTP.
 // (service:routd carries it). 200 {"identity":{...}|null,"subs":[...]}; an
 // unclaimed sub returns {"identity":null,"subs":[]} (200, not 404) so the tool
 // renders the unclaimed shape directly.
@@ -403,16 +404,16 @@ func (s *server) handleIdentity(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad_request", "sub required")
 		return
 	}
-	idn, subs, ok := store.New(s.a.db).GetIdentityForSub(sub)
+	userID, name, createdAt, subs, ok := oauthIdentityForSub(s.a.db, sub)
 	if !ok {
 		writeJSON(w, map[string]any{"identity": nil, "subs": []string{}})
 		return
 	}
 	writeJSON(w, map[string]any{
 		"identity": map[string]any{
-			"id":         idn.ID,
-			"name":       idn.Name,
-			"created_at": idn.CreatedAt.Format(time.RFC3339),
+			"id":         userID,
+			"name":       name,
+			"created_at": createdAt,
 		},
 		"subs": subs,
 	})
