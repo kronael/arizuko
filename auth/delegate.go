@@ -1,6 +1,6 @@
 package auth
 
-// Delegation subset-check (spec 4/R). Replaces tier-masking: a principal may
+// Delegation subset-check (spec 5/33). Replaces tier-masking: a principal may
 // grant onward only a SUBSET of the acl rows it HOLDS, and only those it holds
 // WITH GRANT OPTION (grant_option=1). Postgres `GRANT … WITH GRANT OPTION`.
 //

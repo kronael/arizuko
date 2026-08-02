@@ -363,7 +363,7 @@ Durable rules the package layout obeys.
 ## Channel Protocol
 
 Channels are external processes registering via HTTP. Both sides are HTTP
-servers. Full protocol: `specs/4/1-channel-protocol.md`.
+servers. Full protocol: `specs/5/34-channel-protocol.md`.
 
 - **Inbound**: `POST /v1/messages` → store → route
 - **Outbound**: router calls `POST <url>/send` (synchronous)

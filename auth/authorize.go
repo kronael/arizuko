@@ -19,7 +19,7 @@ type Caller struct {
 
 // Authorize returns true iff caller is permitted to perform action on scope:
 // row-based grants over the caller's expanded principal set, deny-wins. It is the
-// SOLE runtime authorization evaluator (4/R): magnitude AND containment in one call
+// SOLE runtime authorization evaluator (5/33): magnitude AND containment in one call
 // — a delegated row scoped `acme/**` authorizes `mcp:<tool>` on any target under
 // acme. Management callsites pass the ACTUAL target as scope; a no-match is a deny.
 func Authorize(

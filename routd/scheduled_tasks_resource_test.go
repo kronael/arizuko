@@ -7,7 +7,7 @@ package routd
 // directly) so the seam + the injected contain seam (auth.Authorize on the resolved
 // task owner) + Visible predicate are all exercised.
 //
-// 4/R: no task tool is in the role:member floor, so every test delegates the ones it
+// 5/33: no task tool is in the role:member floor, so every test delegates the ones it
 // drives with grantMCPTools (scope <folder>/**). The PER-TASK-ID containment is what
 // still denies a caller acting on another folder's task;
 // TestScheduledTasksMCP_CrossFolderTaskDenied is the one that fails if the contain

@@ -182,7 +182,7 @@ model outgrows a row in the root table.
   and `/hook/<token>` surfaces; spec `specs/5/W-webhook-routes.md`.
 - **EXTENDING.md** — channels, actions, routing, mounts, skills,
   tasks, diary, autocall extension points.
-- **GRANTS.md** — pointer to `specs/4/9-acl-unified.md` (canonical) + the operator concepts page.
+- **GRANTS.md** — pointer to `specs/5/32-acl-unified.md` (canonical) + the operator concepts page.
 - **CHANGELOG.md** — what shipped, dated.
 
 Keep `EXTENDING.md` current as extension points evolve (channels,

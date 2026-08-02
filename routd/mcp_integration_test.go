@@ -24,7 +24,7 @@ func TestServeTurnMCP_ReplyOverSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	// PutGroup binds demo to role:member (4/R messaging floor) so reply is visible.
+	// PutGroup binds demo to role:member (5/33 messaging floor) so reply is visible.
 	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
 		t.Fatal(err)
 	}

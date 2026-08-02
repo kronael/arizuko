@@ -121,4 +121,4 @@ in tests; CI never exercises the real X surface.
 ## Related docs
 
 - `specs/2/k-twitter-adapter.md`
-- `specs/4/1-channel-protocol.md`
+- `specs/5/34-channel-protocol.md`

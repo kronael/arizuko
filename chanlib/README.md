@@ -78,4 +78,4 @@ Docker `HEALTHCHECK` marks containers `(unhealthy)` on 503.
 
 - `ARCHITECTURE.md` (Channel Protocol, Inbound Media Pipeline)
 - `EXTENDING.md`
-- `specs/4/1-channel-protocol.md`
+- `specs/5/34-channel-protocol.md`

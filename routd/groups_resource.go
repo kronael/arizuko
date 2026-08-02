@@ -11,7 +11,7 @@ package routd
 // system-audit event itself via s.audit, exactly as the deleted ipc emitSys did.
 //
 // Because resreg SKIPS the injected Gate for forwarders (invoke runs Authz, never
-// Gate), ALL of register_group's auth rides Authz: the 4/R single evaluator —
+// Gate), ALL of register_group's auth rides Authz: the 5/33 single evaluator —
 // db.Authorize for mcp:register_group scoped to cover the CHILD folder — plus the
 // one non-scope residue that worlds (top-level folders) are CLI-only. The spawn cap
 // (auth.CheckSpawnAllowed) stays in the HANDLER, matching the deleted body's order:
@@ -174,7 +174,7 @@ func (s *Server) groupsPostBuild(folder, callerSub string, authorize authorizeFn
 		if callerID.IsRoot && !strings.Contains(gfld, "/") {
 			return "", nil, resreg.Errorf(http.StatusForbidden, "worlds are CLI-only")
 		}
-		// 4/R: one evaluator — does the caller hold register_group scoped to cover the
+		// 5/33: one evaluator — does the caller hold register_group scoped to cover the
 		// child folder? A delegated row scoped `acme/**` authorizes registering under acme.
 		if !authorize(callerSub, gfld, "mcp:register_group", nil) {
 			return "", nil, resreg.Errorf(http.StatusForbidden, "register_group on %s: not permitted", gfld)

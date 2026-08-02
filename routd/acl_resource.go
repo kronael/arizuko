@@ -6,7 +6,7 @@ package routd
 // owns the auth POLICY (spec 5/16). Three semantics the shared handler preserves:
 //
 //   - scope-containment (the stricter MCP gate): a caller may only grant/revoke
-//     within its own authority — the Gate runs the 4/R single evaluator on the
+//     within its own authority — the Gate runs the 5/33 single evaluator on the
 //     `scope` arg (add/remove) or `folder` arg (list), then auth.Delegate
 //     (subset-of-held) for a non-root add. scope "**" (operator role) is thus
 //     reachable only from an operator/root grant.
@@ -195,7 +195,7 @@ func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, v
 		if !authorize(callerSub, target, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
 		}
-		// 4/R lineage delegation: a NON-root writer may only grant a row it HOLDS with
+		// 5/33 lineage delegation: a NON-root writer may only grant a row it HOLDS with
 		// the grant option (auth.Delegate — subset-of-held). Root delegates anything.
 		// This is what makes a group unable to hand out authority it wasn't delegated.
 		if x.Action == resreg.Action("add") && !callerID.IsRoot {

@@ -345,7 +345,7 @@ func channelTrusted(r *http.Request, ks *auth.KeySet) bool {
 // sub). Operator detection (the `**` marker in X-User-Groups) is recorded into
 // Claims["operator"]="1" so ACL row predicates can match `predicate=operator=1`.
 // Until the ACL is seeded with operator rows for the routes resource, this is
-// the bridge — see spec 4/9 §"Operator implicit".
+// the bridge — see spec 5/32 §"Operator implicit".
 func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 	return func(r *http.Request) (resreg.Caller, error) {
 		if !channelTrusted(r, ks) {

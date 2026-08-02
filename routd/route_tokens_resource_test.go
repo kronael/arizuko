@@ -5,7 +5,7 @@ package routd
 // mechanism through the ServeMCP postBuild seam instead of hand-rolled ipc bodies.
 // Each test drives the REAL unix socket end-to-end so the seam + injected Gate +
 // Visible predicate + the Gate's target containment + owner-scoped revoke are all
-// exercised. 4/R: NONE of the four tools is in the role:member floor — minting a
+// exercised. 5/33: NONE of the four tools is in the role:member floor — minting a
 // public unauthenticated endpoint AND the self-service list/revoke pair are all
 // explicit delegation (or /root). Every test that expects a tool to work delegates
 // it with grantMCPTools (scope <folder>/**).
@@ -248,7 +248,7 @@ func TestRouteTokensMCP_MintTargetContainment(t *testing.T) {
 
 // TestRouteTokensMCP_Visibility: the Visible predicate (auth.EffectiveActions)
 // preserves tools/list gating — a folder granted all four tools sees all four; an
-// ungranted folder sees NONE. 4/R demoted the former tier-1 self-service default:
+// ungranted folder sees NONE. 5/33 demoted the former tier-1 self-service default:
 // list_tokens/revoke_token are not in the role:member floor either, so a folder that
 // was never delegated them sees no token tool at all.
 func TestRouteTokensMCP_Visibility(t *testing.T) {
@@ -307,7 +307,7 @@ func TestServeTurnMCP_ElevatedMintsChatLink(t *testing.T) {
 }
 
 // TestServeTurnMCP_UnelevatedHidesMint is the control for the elevated test: the
-// same ungranted folder WITHOUT /root sees NO route-token tool. 4/R: the role:member
+// same ungranted folder WITHOUT /root sees NO route-token tool. 5/33: the role:member
 // floor is the 12 messaging verbs, so neither the mint pair nor the former
 // tier-1 self-service pair is advertised without an explicit delegation. `reply`
 // (a floor verb) is asserted visible so this is a real gate, not a dead socket.

@@ -205,7 +205,7 @@ func TestAuthorize_ParamGlob(t *testing.T) {
 	}
 }
 
-// TestAuthorizeWith_NoTierFallback pins 4/R phase e: the DeriveRules(tier) fallback
+// TestAuthorizeWith_NoTierFallback pins 5/33 phase e: the DeriveRules(tier) fallback
 // is deleted — magnitude comes from role membership (DATA), never a recomputed tier
 // int. A folder with no matching allow row (no membership) is DENIED, even for mcp:*.
 func TestAuthorizeWith_NoTierFallback(t *testing.T) {

@@ -31,7 +31,7 @@ func TestServeTurnMCP_RevokeAppliesToNextCallInSameTurn(t *testing.T) {
 
 	const folder = "w/a/b/c"
 	const jid = "slack:team/channel/c1"
-	// PutGroup binds the folder to role:member (the 4/R messaging floor), which
+	// PutGroup binds the folder to role:member (the 5/33 messaging floor), which
 	// is what makes reply visible — magnitude is role membership, not depth.
 	if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
 		t.Fatal(err)

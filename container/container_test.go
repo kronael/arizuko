@@ -201,7 +201,7 @@ func TestSeedSettings(t *testing.T) {
 		t.Errorf("is_root = %v", env["ARIZUKO_IS_ROOT"])
 	}
 	if _, ok := env["ARIZUKO_DELEGATE_DEPTH"]; ok {
-		t.Error("ARIZUKO_DELEGATE_DEPTH must be dropped (4/R — no delegate depth)")
+		t.Error("ARIZUKO_DELEGATE_DEPTH must be dropped (5/33 — no delegate depth)")
 	}
 	if env["WEB_HOST"] != "https://example.com" {
 		t.Errorf("web_host = %v", env["WEB_HOST"])
@@ -220,7 +220,7 @@ func TestSeedSettings(t *testing.T) {
 		t.Errorf("world (root) = %v, want empty", env["ARIZUKO_WORLD"])
 	}
 	if _, ok := env["ARIZUKO_TIER"]; ok {
-		t.Error("ARIZUKO_TIER must be dropped (4/R decision 10 — no tier rank)")
+		t.Error("ARIZUKO_TIER must be dropped (5/33 decision 10 — no tier rank)")
 	}
 	// Root publishes under DATA_DIR/web/pub/ → URL /pub/<path>.
 	if env["WEB_PREFIX"] != "pub" {
@@ -267,7 +267,7 @@ func TestSeedSettingsNonRoot(t *testing.T) {
 		t.Errorf("name (derived from folder basename) = %v, want support", env["ARIZUKO_GROUP_NAME"])
 	}
 	if _, ok := env["ARIZUKO_TIER"]; ok {
-		t.Error("ARIZUKO_TIER must be dropped (4/R decision 10 — no tier rank)")
+		t.Error("ARIZUKO_TIER must be dropped (5/33 decision 10 — no tier rank)")
 	}
 	// Tier 2 shares the parent world's web vhost.
 	// WEB_PREFIX = world name so the agent knows the subdomain.
@@ -292,7 +292,7 @@ func TestSeedSettingsTier1World(t *testing.T) {
 		t.Errorf("world = %v, want atlas", env["ARIZUKO_WORLD"])
 	}
 	if _, ok := env["ARIZUKO_TIER"]; ok {
-		t.Error("ARIZUKO_TIER must be dropped (4/R decision 10 — no tier rank)")
+		t.Error("ARIZUKO_TIER must be dropped (5/33 decision 10 — no tier rank)")
 	}
 	if env["ARIZUKO_GROUP_PARENT"] != "" {
 		t.Errorf("parent (tier-1) = %v, want empty", env["ARIZUKO_GROUP_PARENT"])

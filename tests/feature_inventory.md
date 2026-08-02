@@ -95,10 +95,10 @@ covered in each adapter's own `*_test.go`.
 | --------------------------------------------------- | ------ | ------------------------------------------------------------------------------ | ----------------------- |
 | Inbound service-token authn (ES256 JWKS verify)     | yes    | yes — `TestFeature_Auth/inbound-valid-token`, `split_federation_test.go`       | authd/README.md         |
 | Invalid/missing/wrong-scope rejection (401/403)     | yes    | yes — `TestFeature_Auth/inbound-invalid-token`                                 | `routd/server.go:authz` |
-| Folder-bound reply (flip-blocker containment)       | yes    | yes — `TestFeature_Auth/folder-bound-reply`, `routd/authz_containment_test.go` | specs/4/9               |
+| Folder-bound reply (flip-blocker containment)       | yes    | yes — `TestFeature_Auth/folder-bound-reply`, `routd/authz_containment_test.go` | specs/5/32              |
 | ES256 signing / JWKS publish                        | yes    | yes — `auth/es256_test.go`, `routd/channels_es256_test.go`                     | authd/README.md         |
 | Service token minting                               | yes    | yes — `auth/service_test.go`                                                   | authd/README.md         |
-| Scope resolution (full grant set, not folder claim) | yes    | yes — `split_federation_test.go::TestSplitFederation_StampResolvesFullGrants`  | specs/4/9               |
+| Scope resolution (full grant set, not folder claim) | yes    | yes — `split_federation_test.go::TestSplitFederation_StampResolvesFullGrants`  | specs/5/32              |
 | OAuth login (Google/GitHub/Discord/Telegram)        | yes    | no — authd is `package main`, OAuth front-end not in test harness              | authd/README.md         |
 | Refresh token family / reuse detection              | yes    | partial — authd unit                                                           | authd/README.md         |
 | Proxyd transit verification (`X-User-Sub` trust)    | yes    | partial — `dashd/auth_bearer_test.go`                                          | webd/README.md          |
@@ -114,10 +114,10 @@ covered in each adapter's own `*_test.go`.
 | Malformed-rule denies (no silent widen)  | yes    | yes — `TestFeature_Grants/malformed-rule-denies`                             | `grants/grants.go:ParseRule`   |
 | Tier derivation (0=`*`, deep=reply-only) | yes    | yes — `TestFeature_Grants/tier-derivation`, `auth/policy_tier_gate_test.go`  | `grants/grants.go:DeriveRules` |
 | REST acl:write scope gate                | yes    | yes — `TestFeature_Grants/rest-acl-scope-gate`, `routd/acl_endpoint_test.go` | `routd/server.go:handleACLAdd` |
-| Scope-widening prevention                | yes    | yes — tier-derivation + malformed-rule tests                                 | specs/4/9                      |
-| Role membership / cycle prevention       | yes    | partial — `auth/acl_test.go`                                                 | specs/4/9                      |
+| Scope-widening prevention                | yes    | yes — tier-derivation + malformed-rule tests                                 | specs/5/32                     |
+| Role membership / cycle prevention       | yes    | partial — `auth/acl_test.go`                                                 | specs/5/32                     |
 | Operator (`**`) resolution               | yes    | partial — `auth/authorize_test.go`                                           | ARCHITECTURE.md                |
-| ACL overlay / per-spawn cache            | yes    | partial — `routd/acl_overlay_test.go`                                        | specs/4/9                      |
+| ACL overlay / per-spawn cache            | yes    | partial — `routd/acl_overlay_test.go`                                        | specs/5/32                     |
 
 ## 6. Scheduled tasks
 

@@ -25,7 +25,7 @@ import (
 
 // grantMCPTools delegates folder's agent-socket principal (folder:<folder>) the
 // named mcp tools, scoped to its own subtree (folder/**, which covers the folder
-// itself and every descendant). 4/R: management is explicit delegation, not a tier
+// itself and every descendant). 5/33: management is explicit delegation, not a tier
 // default — a test that exercises a management tool grants it here. Shared across
 // the resource-parity tests.
 func grantMCPTools(t *testing.T, db *DB, folder string, tools ...string) {
@@ -207,7 +207,7 @@ func TestNetworkRulesMCP_Tier1SubtreeContainment(t *testing.T) {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
 	// Operator delegates world/a egress management over its own subtree (world/a/**):
-	// covers the folder itself and every descendant, denies siblings/parent — 4/R
+	// covers the folder itself and every descendant, denies siblings/parent — 5/33
 	// containment is the grant scope.
 	if err := db.AddACLRow(core.ACLRow{
 		Principal: "folder:world/a", Action: "mcp:network_allow",
@@ -251,12 +251,12 @@ func TestNetworkRulesMCP_Tier1SubtreeContainment(t *testing.T) {
 // grants the tool (which passes both grants.CheckAction and db.Authorize). This
 // fails on a Gate that only runs CheckAction + db.Authorize (the pilot shape) and
 // drops auth.AuthorizeStructural.
-// TestNetworkRulesMCP_ScopedGrantAllowsInScope pins the 4/R (B) model (spec 4/R
+// TestNetworkRulesMCP_ScopedGrantAllowsInScope pins the 5/33 (B) model (spec 5/33
 // decision 8, "containment = grant scope"): egress management is a DELEGABLE
 // scoped grant, not a hard tier cap. A folder the OPERATOR explicitly grants
 // network_allow (scoped to its own subtree) MAY manage egress there — and is
 // CONTAINED to that scope (a sibling target is denied). Depth is irrelevant; only
-// the grant + its scope decide. (Pre-4/R this was a hard tier-2 cap that ignored
+// the grant + its scope decide. (Pre-5/33 this was a hard tier-2 cap that ignored
 // the operator grant — TestNetworkRulesMCP_TierGateDeniesTier2, now superseded.)
 func TestNetworkRulesMCP_ScopedGrantAllowsInScope(t *testing.T) {
 	db, err := OpenMem()

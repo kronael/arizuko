@@ -72,7 +72,7 @@ func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 }
 
 // A folder that holds NO invite_create/invite_revoke grant is denied by the injected
-// Authorize (4/R: invite management is a delegated grant, not a floor tool); invite_list
+// Authorize (5/33: invite management is a delegated grant, not a floor tool); invite_list
 // (read-only, self-filtered) is granted here and stays allowed.
 func TestServeMCP_InviteWrite_Denied(t *testing.T) {
 	dir := t.TempDir()

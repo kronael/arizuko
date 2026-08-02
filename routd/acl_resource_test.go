@@ -110,7 +110,7 @@ func TestACLMCP_AddListRemove(t *testing.T) {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
 	grantMCPTools(t, db, "root", "add_acl", "remove_acl", "list_acl")
-	// 4/R: folder:root was DELEGATED "read" over its subtree WITH the grant option,
+	// 5/33: folder:root was DELEGATED "read" over its subtree WITH the grant option,
 	// so it may re-delegate a subset (auth.Delegate). Without this the add is refused.
 	if _, err := db.SQL().Exec(
 		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)
@@ -173,7 +173,7 @@ func TestACLMCP_OperatorGrantDeniedViaAgent(t *testing.T) {
 // TestACLMCP_ContainmentDenied — the security invariant. A folder ("world/a")
 // delegated add_acl over the `world` subtree may grant anywhere INSIDE world/**,
 // but a CROSS-SUBTREE scope AND "**" are denied, nothing written. Containment IS
-// the grant's scope (4/R decision 8) — fails if the Gate stops binding the `scope`
+// the grant's scope (5/33 decision 8) — fails if the Gate stops binding the `scope`
 // arg to it.
 func TestACLMCP_ContainmentDenied(t *testing.T) {
 	db, err := OpenMem()
@@ -191,7 +191,7 @@ func TestACLMCP_ContainmentDenied(t *testing.T) {
 		 VALUES ('folder:world/a', 'mcp:add_acl', 'world/**', 'allow', '', '', 'test', ?)`, nowTS()); err != nil {
 		t.Fatal(err)
 	}
-	// 4/R: folder:world/a was delegated "read" over world/** WITH the grant option —
+	// 5/33: folder:world/a was delegated "read" over world/** WITH the grant option —
 	// so it may re-delegate read within world/**, and the auth.Delegate scope-check
 	// itself refuses a cross-subtree scope (other/x), reinforcing the denial below.
 	if _, err := db.SQL().Exec(

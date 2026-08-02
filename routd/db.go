@@ -189,7 +189,7 @@ func open(dsn string) (*DB, error) {
 		sqldb.Close()
 		return nil, err
 	}
-	// role:member (the 4/R messaging floor) is seeded by migration 0023; every
+	// role:member (the 5/33 messaging floor) is seeded by migration 0023; every
 	// folder is bound to it at group creation (PutGroup). No open-time grant seeding
 	// or backfill — auth.Authorize reads the acl rows directly.
 	return &DB{db: sqldb}, nil
@@ -222,7 +222,7 @@ func (d *DB) PutGroup(g core.Group) error {
 		g.Folder, nowTS(), g.Product, model, string(cfgJSON), model, nowTS()); err != nil {
 		return err
 	}
-	// Create-time default role (4/R): bind the new folder to role:member so it holds
+	// Create-time default role (5/33): bind the new folder to role:member so it holds
 	// the messaging floor immediately. Everything above the floor is explicit
 	// delegation from a lineage ancestor (auth.Delegate at register_group / add_acl).
 	return assignDefaultRole(store.New(d.db), g.Folder)

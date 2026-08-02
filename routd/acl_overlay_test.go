@@ -31,7 +31,7 @@ func holdsAction(db *DB, folder, action string) bool {
 	return held(action)
 }
 
-// TestIntegration_RoleInheritedGrant (4/R): a grant held via ROLE membership
+// TestIntegration_RoleInheritedGrant (5/33): a grant held via ROLE membership
 // (acl_membership), not a direct folder:<path> row, is both VISIBLE
 // (EffectiveActions expands Ancestors) and ALLOWED (auth.Authorize expands
 // Ancestors) — the two reads agree.
@@ -91,7 +91,7 @@ func TestOperatorOverlay(t *testing.T) {
 	}
 }
 
-// TestDBAuthorize_MagnitudeFromMembership pins the 4/R floor: magnitude comes from a
+// TestDBAuthorize_MagnitudeFromMembership pins the 5/33 floor: magnitude comes from a
 // folder's role:member membership (DATA seeded at register), NOT depth. An
 // UNregistered folder (no membership) is denied — there is no tier default.
 func TestDBAuthorize_MagnitudeFromMembership(t *testing.T) {

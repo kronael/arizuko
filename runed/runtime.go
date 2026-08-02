@@ -27,9 +27,9 @@ type RunSpec struct {
 	Elevated        bool              // operator /root elevation → container.Input.Elevated (tier 0 + all-groups mount)
 	Model           string            // per-group model override; empty = instance default
 	ContainerConfig map[string]any    // opaque GroupConfig forwarded from groups.container_config
-	ShareReadOnly   bool              // 4/R grant decision → container.Input.ShareReadOnly (RO share mount)
-	Egress          bool              // 4/R grant decision → container.Input.Egress (append "*" to allowlist)
-	WebPublish      bool              // 4/R grant decision → container.Input.WebPublish (mount web surfaces)
+	ShareReadOnly   bool              // 5/33 grant decision → container.Input.ShareReadOnly (RO share mount)
+	Egress          bool              // 5/33 grant decision → container.Input.Egress (append "*" to allowlist)
+	WebPublish      bool              // 5/33 grant decision → container.Input.WebPublish (mount web surfaces)
 	EgressAllowlist []string          // routd-resolved crackbox allowlist → EgressConfig.AllowlistFn
 	Secrets         map[string]string // routd-resolved folder+user secrets (BYOA) → container.Input.Secrets, injected as container env
 

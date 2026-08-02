@@ -9,7 +9,7 @@ import (
 )
 
 // F1 (adversary audit): a fresh routd.db must seed role:operator WITH GRANT OPTION,
-// else auth.Delegate's root can delegate nothing once wired (spec 4/R step 3).
+// else auth.Delegate's root can delegate nothing once wired (spec 5/33 step 3).
 func TestOperatorSeededWithGrantOption(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {

@@ -35,7 +35,7 @@ type RunRequest struct {
 	// mount). A normal spawn is never root; folder shape does not grant it.
 	Elevated bool `json:"elevated,omitempty"`
 	// ShareReadOnly/Egress/WebPublish are the container-capability DECISIONS routd
-	// resolved from the folder's acl grants (4/R: mounts/egress/web are grants, not
+	// resolved from the folder's acl grants (5/33: mounts/egress/web are grants, not
 	// tier). runed forwards them to container.Input so buildMounts downgrades the
 	// share to RO, appends "*" to the egress allowlist, and mounts the web surfaces —
 	// each only when its grant holds. EgressAllowlist is the resolved crackbox

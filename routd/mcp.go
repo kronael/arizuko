@@ -520,7 +520,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 // ServeTurnMCP binds the per-turn agent MCP socket in-process: it stands up
 // ipc.ServeMCP wired to routd's own DB + Deliverer. expectedUID gates peers (1000 =
 // ant `node` user, or the dev host uid). Returns the stop func (removes the socket).
-// Called per-turn from runTurn before dispatch. 4/R: no grant bundle is computed —
+// Called per-turn from runTurn before dispatch. 5/33: no grant bundle is computed —
 // authz is auth.Authorize on the acl rows (magnitude + containment in one), visibility
 // is auth.EffectiveActions over the same rows; both elevate under /root.
 func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {

@@ -147,7 +147,7 @@ func TestMigrateSplit(t *testing.T) {
 		"system_messages": 1, "cost_log": 2,
 		// auth_users: routd.db owns it → copied (split onbod reads it cross-DB).
 		"auth_users": 1,
-		// acl (4/R unified evaluator): 1 seeded folder:main row + role:operator
+		// acl (5/33 unified evaluator): 1 seeded folder:main row + role:operator
 		// (migration 0022) + role:member's 12 messaging-verb rows (migration 0023) = 14.
 		// No per-tier bundles, no backfill containment rows — auth.Authorize reads the
 		// grant scope on the actual target. acl_membership: the test's 1 seeded edge +
@@ -232,7 +232,7 @@ func TestMigrateSplit(t *testing.T) {
 
 	// acl: copied to routd.db (routd OWNS it now) with columns intact.
 	var aclPrin, aclAction, aclScope, aclEffect string
-	// Scope to the migrated legacy row specifically — the 4/R backfill adds other
+	// Scope to the migrated legacy row specifically — the 5/33 backfill adds other
 	// folder:main rows (scoped containment) that would otherwise shadow it.
 	if err := r.QueryRow(
 		`SELECT principal, action, scope, effect FROM acl WHERE principal='folder:main' AND action='mcp:send'`).

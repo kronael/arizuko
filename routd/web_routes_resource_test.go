@@ -6,7 +6,7 @@ package routd
 // bodies. Each test drives the REAL unix socket end-to-end (not the handler
 // directly) so the seam + injected Gate + Visible predicate are exercised.
 //
-// 4/R: none of the three tools is in the role:member floor, so every test that
+// 5/33: none of the three tools is in the role:member floor, so every test that
 // drives one delegates it with grantMCPTools (scope <folder>/**). The Gate binds the
 // caller's OWN folder (the handler scopes every row by folder), so containment is
 // the grant covering that folder.

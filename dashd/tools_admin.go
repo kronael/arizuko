@@ -29,7 +29,7 @@ func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
 		struct{ Href, Label string }{"", "Tools"},
 	)
 
-	// Tool visibility is auth.EffectiveActions over the folder's acl rows (4/R: the
+	// Tool visibility is auth.EffectiveActions over the folder's acl rows (5/33: the
 	// same view the agent socket uses — a tool shows iff the folder holds it, reads
 	// unconditional). No tier/DeriveRules.
 	s := store.New(d.adminDB())

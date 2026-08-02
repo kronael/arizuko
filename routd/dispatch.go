@@ -521,7 +521,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	// a web-chat user's own ANTHROPIC_API_KEY shadows the folder default. routd
 	// decrypts here (it holds SECRETS_KEY); runed injects as container env.
 	secrets := l.db.FolderSecretsForUser(folder, string(caller))
-	// 4/R: mounts/egress/web are GRANTS, not tier. routd (the authz plane) resolves
+	// 5/33: mounts/egress/web are GRANTS, not tier. routd (the authz plane) resolves
 	// the three container-capability booleans from the folder's acl rows and ships
 	// them typed so runed/container consume a decision, not a rule bundle. An elevated
 	// /root turn holds `*` → all capabilities; a normal folder gets exactly what its

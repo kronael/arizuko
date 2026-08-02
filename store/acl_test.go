@@ -36,7 +36,7 @@ func TestACL_CRUD(t *testing.T) {
 	}
 }
 
-// spec 4/R: grant_option round-trips; default is false (WITHOUT grant option).
+// spec 5/33: grant_option round-trips; default is false (WITHOUT grant option).
 func TestACL_GrantOption(t *testing.T) {
 	s := openMem(t)
 	if err := s.AddACLRow(core.ACLRow{

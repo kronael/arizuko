@@ -26,7 +26,7 @@ func findTool(tools []mcp.Tool, name string) *mcp.Tool {
 }
 
 // holds returns a ListTools visibility predicate that reports true for exactly the
-// given tool names (4/R: visibility is auth.EffectiveActions — a name→bool view).
+// given tool names (5/33: visibility is auth.EffectiveActions — a name→bool view).
 func holds(names ...string) func(string) bool {
 	set := map[string]bool{}
 	for _, n := range names {

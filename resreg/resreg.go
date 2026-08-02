@@ -14,7 +14,7 @@
 //     resolver, not a captured Caller — shared MCP servers no longer
 //     collapse every call to one principal at registration time.
 //   - Canonical ACL gate. Resource.Authz returns (scope, params); the
-//     adapter calls auth.Authorize(...) per specs/4/9-acl-unified.md. No
+//     adapter calls auth.Authorize(...) per specs/5/32-acl-unified.md. No
 //     parallel scope predicate machinery.
 //   - Tx-bound audit. State-changing actions run inside a SQL
 //     transaction: handler does its work via Execution.Tx, the adapter

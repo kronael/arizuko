@@ -87,7 +87,7 @@ type Input struct {
 	// only when the turn resolved to an operator elevation (steer.go cmdRoot).
 	// Drives root=Elevated: tier 0, the /var/lib/groups mount, ARIZUKO_IS_ROOT=1.
 	Elevated bool `json:"-"`
-	// ShareReadOnly/EgressOpen/WebPublish are the 4/R container-capability grant
+	// ShareReadOnly/EgressOpen/WebPublish are the 5/33 container-capability grant
 	// decisions routd resolved from the folder's acl rows (mounts/egress/web are
 	// grants, not tier). ShareReadOnly downgrades /var/lib/share to RO; EgressOpen
 	// appends "*" to the crackbox allowlist (unconstrained network); WebPublish mounts
@@ -172,7 +172,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			"arizuko-%s-%s-%d", cfg.Name, safe, time.Now().UnixMilli())
 	}
 
-	// 4/R: the `egress` grant (resolved by routd, /root or an operator delegation)
+	// 5/33: the `egress` grant (resolved by routd, /root or an operator delegation)
 	// appends "*" so the spawn passes crackbox unconstrained while still benefiting
 	// from logging/secret injection. No grant → the inherited allowlist only.
 	if in.EgressOpen && in.Egress.AllowlistFn != nil {
@@ -544,7 +544,7 @@ func buildMounts(
 	m = append(m, volumeMount{
 		Host:      hp(cfg, share),
 		Container: "/var/lib/share",
-		RO:        in.ShareReadOnly, // 4/R: a `share_mount(readonly=true)` grant downgrades to RO
+		RO:        in.ShareReadOnly, // 5/33: a `share_mount(readonly=true)` grant downgrades to RO
 	})
 
 	claudeDir := filepath.Join(groupDir, ".claude")
@@ -601,7 +601,7 @@ func buildMounts(
 	}
 
 	// specs/5/V-web-vhosts.md: a folder with the `web:publish` grant (resolved by
-	// routd, 4/R) gets RO access to the whole public web tree at /var/lib/www, plus
+	// routd, 5/33) gets RO access to the whole public web tree at /var/lib/www, plus
 	// per-group bind-mount slots for the writable web surfaces (~/public_html and
 	// ~/private_html). No grant → no web surface.
 	pubHost := filepath.Join(cfg.WebDir, "pub")
@@ -815,7 +815,7 @@ func seedSettings(
 	env["ARIZUKO_GROUP_NAME"] = groupfolder.NameOf(in.Folder)
 	env["ARIZUKO_GROUP_PARENT"] = groupfolder.ParentOf(in.Folder)
 	env["ARIZUKO_WORLD"] = worldOf(in.Folder, elevated)
-	// ARIZUKO_TIER (the depth rank the agent used to see) is dropped — 4/R decision 10:
+	// ARIZUKO_TIER (the depth rank the agent used to see) is dropped — 5/33 decision 10:
 	// identity is world + path + granted capabilities, never a rank. tierOf survives
 	// ONLY above for WEB_PREFIX (the vhost coordinate, not authz).
 	if in.Model != "" {

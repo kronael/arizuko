@@ -125,7 +125,7 @@ not an allow/deny decision. The decision belongs to the injected
 
 - nil → `defaultGate`: the OPERATOR gate,
   `auth.Authorize(Store, caller, "<Name>:<action>", scope, params)` over
-  the ACL rows ([`specs/4/9-acl-unified.md`](../specs/4/9-acl-unified.md))
+  the ACL rows ([`specs/5/32-acl-unified.md`](../specs/5/32-acl-unified.md))
   — scope/ACL match, no tier. This is what operator REST mounts.
 - The daemon mounting the resource on the AGENT socket (routd) injects a
   tier-aware gate — `db.Authorize(sub, folder, "mcp:"+tool, params)`, the

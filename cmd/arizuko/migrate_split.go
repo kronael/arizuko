@@ -339,7 +339,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("routd.db: %w", err)
 	}
-	// 4/R: bind every migrated folder to role:member (the messaging floor). copyInto
+	// 5/33: bind every migrated folder to role:member (the messaging floor). copyInto
 	// copies group rows raw (no PutGroup → no assignDefaultRole), so a migrated agent
 	// would have no grants and couldn't even send. Idempotent (INSERT OR IGNORE).
 	if !dryRun {

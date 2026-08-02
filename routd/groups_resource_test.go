@@ -8,7 +8,7 @@ package routd
 // test drives the REAL unix socket end-to-end so the seam + Authz containment + the
 // handler's spawn cap + the visibility predicate are all exercised.
 //
-// 4/R: neither group tool is in the role:member floor — every test that expects one to
+// 5/33: neither group tool is in the role:member floor — every test that expects one to
 // work delegates it explicitly with grantMCPTools (scope <folder>/**, which covers the
 // folder itself and every descendant it may register under).
 

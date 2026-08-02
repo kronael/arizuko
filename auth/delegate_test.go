@@ -6,7 +6,7 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// spec 4/R: Delegate enforces subset-of-held-WITH-GRANT-OPTION. These cases
+// spec 5/33: Delegate enforces subset-of-held-WITH-GRANT-OPTION. These cases
 // stand in for tier-masking: authority narrows down a delegation chain by data,
 // not by folder depth.
 func TestDelegate(t *testing.T) {

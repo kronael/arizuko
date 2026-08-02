@@ -16,7 +16,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
-- **4/R tiers removed — one ACL evaluator, `role:member` floor + delegation
+- **5/33 tiers removed — one ACL evaluator, `role:member` floor + delegation
   (BREAKING).** Depth-derived tiers are gone: authorization is a single
   `auth.Authorize(principal, action, target, params)` over ACL rows — a delegated
   row's scope IS the containment. The old parallel `[]string` grant firewall
@@ -24,13 +24,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   backfill were **redundant second evaluators** and are deleted (~2.7k LOC). Every
   group is born a **`role:member`** (messaging verbs: reply/send/…); reads and
   memory (`set_work`) are always-on; everything else — register*group, routes,
-  `network*_`, schedule\__, invite, mint, acl, egress, `web:publish`,
-  `share_mount(readonly)` — is **explicit delegation** from a lineage ancestor or
-  the operator's `/root` grant. **Migration `0023` demotes existing sub-folders to
-  the floor** (they no longer get management by depth); the operator re-delegates
-  what each needs. Container capabilities (share RO / open egress / web publish)
-  travel to runed as typed booleans, not a grant language. `ARIZUKO_TIER` dropped
-  (decision 10). Spec: `specs/4/R`.
+  `network*\_`, schedule\__, invite, mint, acl, egress, `web:publish`,
+`share_mount(readonly)`— is **explicit delegation** from a lineage ancestor or
+the operator's`/root`grant. **Migration`0023`demotes existing sub-folders to
+the floor** (they no longer get management by depth); the operator re-delegates
+what each needs. Container capabilities (share RO / open egress / web publish)
+travel to runed as typed booleans, not a grant language.`ARIZUKO_TIER`dropped
+(decision 10). Spec:`specs/5/33`.
 
 ## [v0.63.0] — 2026-07-31
 
@@ -41,14 +41,14 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 >
 > • `arizuko packages install|upgrade|remove` — capabilities from a git source, hot-applied, no restart
 > • Surrogate OAuth connectors — add a "Connect &lt;service&gt;" flow with a TOML drop-in + env creds
-> • Grant delegation — pass onward only a subset of what you hold, WITH GRANT OPTION (4/R phase 1)
+> • Grant delegation — pass onward only a subset of what you hold, WITH GRANT OPTION (5/33 phase 1)
 > • `route_tokens` REST folded onto its resreg resource — one handler, both faces
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ### Added
 
-- **Grant delegation with `WITH GRANT OPTION` (spec `4/R`, phase 1).** ACL rows
+- **Grant delegation with `WITH GRANT OPTION` (spec `5/33`, phase 1).** ACL rows
   gain a `grant_option` axis (Postgres semantics): a holder may re-delegate a
   grant onward only if it holds that grant WITH the option, and only a **subset**
   of what it holds (`auth.Delegate`, enforced on every non-root `add_acl`). The
@@ -57,7 +57,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   chain — no depth number gates it. Internally root becomes a **grant, not a
   folder location** (`id.IsRoot` replaces the `id.Tier == 0` location checks).
   Tiers still back the default capability bundles for now; their full removal
-  (path = pure coordinate) is the staged remainder of `4/R`.
+  (path = pure coordinate) is the staged remainder of `5/33`.
 
 - **Operator-configurable OAuth providers — surrogate (spec `5/15`).** Adding a
   "Connect &lt;service&gt;" flow is now pure config: drop

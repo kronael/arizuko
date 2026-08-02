@@ -1,6 +1,6 @@
 package routd
 
-// seed_grants.go carries the 4/R default-role assignment: every group is born a
+// seed_grants.go carries the 5/33 default-role assignment: every group is born a
 // member of role:member (the messaging-verb floor, seeded by migration 0023).
 // Power above the floor is explicit delegation from a lineage ancestor or the
 // operator's root grant — never derived from path depth.

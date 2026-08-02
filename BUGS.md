@@ -2077,7 +2077,7 @@ mint, 48c7e5ce), F9 (surrogate over-aggressive credential null, 25e0d91c), F16
   scopes (`handleUserScopes`) that `auth/scope.go` rejects → the read twin may be
   reachable only by service/CLI tokens (folder="" → unfiltered list-all), and the
   subtree filter (`ownsFolder`) inverts for folder=""/"**". Entangled with the
-  tier/scope claim model that `4/R` rewrites — resolve there.
+  tier/scope claim model that `5/33` rewrites — resolve there.
 - **F7 (pre-existing).** `DELETE /v1/route_tokens/{jid}` matches one path segment;
   hook JIDs (`hook:acme/github`) and nested `web:` JIDs contain `/` → 404. Fix:
   `{jid...}` catch-all (verify resreg path-param binding) or a query param.
@@ -2093,7 +2093,7 @@ mint, 48c7e5ce), F9 (surrogate over-aggressive credential null, 25e0d91c), F16
   guarantee). F13: unvalidated `secret_key` collisions overwrite/clobber rows. F14:
   a provider removed from the registry leaves a live, unlistable, unrevocable token.
 
-## 4/R grant-surface flip — attempted, reverted (2026-07-30, adversary-caught)
+## 5/33 grant-surface flip — attempted, reverted (2026-07-30, adversary-caught)
 
 The role-based grant flip (`600fc408`) shipped broken; reverted (`0f8d956f`). An
 adversarial review (fable sub; codex dead this session) found + reproduced:
@@ -2124,7 +2124,7 @@ flip; BUG5 pre-existing. The correct flip must satisfy all five + the tests the
 review named (differential over the REAL path; operator-deny-vs-role-verb; restrict-
 via-role; multi-platform dedup; dashd/socket parity; reseed-staleness).
 
-## 4/R grant-flip bugs — RESOLVED (2026-07-30, re-shipped correctly)
+## 5/33 grant-flip bugs — RESOLVED (2026-07-30, re-shipped correctly)
 
 The adversary-caught flip bugs (BUG1-5, logged above) are addressed in the
 re-shipped corrected flip (`be724eed`):
@@ -2151,17 +2151,17 @@ Release-ready per the CEO audit after these (docs/positioning, not code):
   line in `security/index.html:44`. Fix: write `concepts/ext-mcp.html` (connectors)
   + link from landing; add `howto/add-connector.html` mirroring
   `howto/oauth-provider.html`. Half-day.
-- **Tier-language doc-debt (NOT stale yet — tracked for the 4/R rename pass).** ~27
+- **Tier-language doc-debt (NOT stale yet — tracked for the 5/33 rename pass).** ~27
   web pages + root docs say "tier"; today they're still factually accurate (roles ==
-  the tier bundles), so NOT release-blocking. But when 4/R phase (b)
+  the tier bundles), so NOT release-blocking. But when 5/33 phase (b)
   (AuthorizeStructural→scope) + the tier-scalar deletion land, every "tier"-language
   file must update in one coordinated pass. Files to sweep: `security/index.html`,
   `concepts/*`, `reference/mcp.html`+`grants.html`, root `SECURITY.md`/`ARCHITECTURE.md`/
-  `ROUTING.md`, ant self-skills reading `ARIZUKO_TIER`. Owner: the 4/R rename pass.
+  `ROUTING.md`, ant self-skills reading `ARIZUKO_TIER`. Owner: the 5/33 rename pass.
 - **README/landing polish:** SDK-comparison pitch (`README.md:88-102`) should move onto
   `index.html` (done: README "What's planned" 5/17-shipped staleness fixed 2026-07-31).
 
-## CTO audit — 4/R partial cutover (2026-07-31)
+## CTO audit — 5/33 partial cutover (2026-07-31)
 
 CRITICAL C1+C2 FIXED by reverting step (d) `edd42181` (commit `3a8b8291`): `egress`/`web:publish`
 off `tierOf` onto grants was NOT equivalence-preserving — `container.tierOf` (count+1) and
@@ -2350,7 +2350,7 @@ the correct design; the blocker is connection lifetime, not matching.
 Note also that `grant_option=1` — needed so an owner can invite admins —
 cannot be written yet: migration 0022 adds the column but krons' live `acl`
 table does not have it (`PRAGMA table_info(acl)`), so writing it would fail
-world creation with "no such column". That half waits on 4/R reaching the
+world creation with "no such column". That half waits on 5/33 reaching the
 instances.
 
 - **Severity:** medium (blocks the world-owner capability, no data at risk)

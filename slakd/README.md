@@ -217,4 +217,4 @@ and the raw body unmodified — any re-marshal invalidates the HMAC.
 ## Related docs
 
 - `specs/2/l-slakd.md` — adapter spec
-- `specs/4/1-channel-protocol.md` — router contract
+- `specs/5/34-channel-protocol.md` — router contract

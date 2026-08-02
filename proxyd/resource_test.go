@@ -48,7 +48,7 @@ func testResourceMux(t *testing.T, callerBuild resreg.CallerFromHTTPFunc) (*http
 	}
 	t.Cleanup(func() { st.Close() })
 	// Seed ACL so the operator (predicate operator=1) admits everywhere.
-	// Spec 4/9 — operator is emergent from the `**` row, not a role.
+	// Spec 5/32 — operator is emergent from the `**` row, not a role.
 	if err := st.AddACLRow(core.ACLRow{
 		Principal: "**", Action: "*", Scope: "**",
 		Effect: "allow", Predicate: "operator=1",

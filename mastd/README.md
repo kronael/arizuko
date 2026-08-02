@@ -80,4 +80,4 @@ extended 503 means instance issues.
 
 ## Related docs
 
-- `specs/4/1-channel-protocol.md`
+- `specs/5/34-channel-protocol.md`

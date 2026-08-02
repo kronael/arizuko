@@ -12,7 +12,7 @@ import (
 )
 
 // agent_gate.go holds the closures every cold-tier resource's agent-socket
-// postBuild shares. 4/R: authorization is ONE evaluator (auth.Authorize on the
+// postBuild shares. 5/33: authorization is ONE evaluator (auth.Authorize on the
 // ACTUAL target scope); visibility is one view (auth.EffectiveActions over the acl
 // rows). Keeping ONE source per concern stops the per-resource copies from drifting
 // (a past drift opened a cross-tenant hole — see web_routes delete).
@@ -40,7 +40,7 @@ func (s *Server) turnAuthorize(elevated bool) authorizeFn {
 func turnIdentity(folder string, elevated bool) auth.Identity {
 	id := auth.Resolve(folder)
 	if elevated {
-		id.IsRoot = true // /root elevation is root (spec 4/R decision 1)
+		id.IsRoot = true // /root elevation is root (spec 5/33 decision 1)
 	}
 	return id
 }

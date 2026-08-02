@@ -8,7 +8,7 @@ package routd
 // AND its audit_log row); routd owns the auth POLICY. The agent socket is
 // not the operator socket (spec 5/16 §Blocker), so routd injects:
 //
-//   - Gate: db.Authorize keyed mcp:<tool> on the socket's own folder (the 4/R
+//   - Gate: db.Authorize keyed mcp:<tool> on the socket's own folder (the 5/33
 //     single evaluator), NOT resreg's operator default.
 //   - Visible: auth.EffectiveActions over the caller's acl rows, so a caller
 //     that could not SEE a tool in tools/list still can't.

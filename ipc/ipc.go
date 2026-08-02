@@ -233,7 +233,7 @@ type StoreFns struct {
 	// revoked; the handler returns it to the agent as the tool result.
 	ResolveConnectorSecrets func(folder string, required []string) (map[string]string, error)
 
-	// Authorize is the SOLE per-call authz check (4/R): sub may call action (e.g.
+	// Authorize is the SOLE per-call authz check (5/33): sub may call action (e.g.
 	// "mcp:send") with params against `folder` as the SCOPE — the caller's own folder
 	// for magnitude, or the ACTUAL target folder for a management tool's containment (a
 	// delegated row scoped to a subtree covers it). Used by ServeMCP when callerSub !=
@@ -745,7 +745,7 @@ func WebPresenceFor(folder, webHost, hostingDomain string, aliases map[string]st
 	}
 }
 
-// authorizeJID is the MESSAGING containment (4/R: kept as route-ownership, separate
+// authorizeJID is the MESSAGING containment (5/33: kept as route-ownership, separate
 // from the acl magnitude gate). It prevents a sub-folder agent from dispatching to a
 // JID owned by a sibling: the jid's routing target must be the caller's folder or a
 // descendant (root bypasses). db.DefaultFolderForJID may be nil in tests.
@@ -924,7 +924,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	}
 
 	// authzStructural is the per-target containment for the hand-authored management
-	// tools (4/R: one evaluator). It re-runs auth.Authorize with the ACTUAL target as
+	// tools (5/33: one evaluator). It re-runs auth.Authorize with the ACTUAL target as
 	// the scope, so a delegated row scoped to a subtree covers exactly that subtree.
 	// An empty target = the caller's own folder (magnitude-only tools). Root/elevated
 	// pass via db.Authorize's allow-all; a nil Authorize (container/tests) is open.
@@ -2199,7 +2199,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		return toolJSON(map[string]any{"content": string(data), "exists": true})
 	})
 
-	// set_work (memory checkpoint) is always-on (4/R: reads + memory need no grant).
+	// set_work (memory checkpoint) is always-on (5/33: reads + memory need no grant).
 	srv.AddTool(mcp.NewTool("set_work",
 		mcp.WithDescription("Overwrite this group's work.md with a fresh snapshot of current work, blockers, and next steps. Use at turn end to checkpoint state for the next session. This replaces the file — read with get_work first if merging."),
 		mcp.WithString("content", mcp.Required()),

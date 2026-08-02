@@ -16,7 +16,7 @@ in code (`grants.DeriveRules`); operator overrides become `acl` rows.
 
 ## Canonical sources
 
-- **Spec**: [`specs/4/9-acl-unified.md`](specs/4/9-acl-unified.md) —
+- **Spec**: [`specs/5/32-acl-unified.md`](specs/5/32-acl-unified.md) —
   the model, principal namespace, action lattice, evaluation order,
   bootstrap, audit.
 - **Operator concepts**: `template/web/pub/concepts/grants.html` —

@@ -33,4 +33,4 @@ buffers outbound while an adapter is disconnected.
 ## Related docs
 
 - `ARCHITECTURE.md` (Channel Protocol)
-- `specs/4/1-channel-protocol.md`
+- `specs/5/34-channel-protocol.md`

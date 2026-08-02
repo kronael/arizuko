@@ -15,7 +15,7 @@ package routd
 // folder), so a caller may open/close egress for its own folder OR any folder its
 // grant scope covers — the documented egress-escalation path (ant/CLAUDE.md
 // network_allow(folder, host)). Containment is the injected Gate's single
-// evaluator run on the ARG folder (4/R: the grant scope IS the containment), so a
+// evaluator run on the ARG folder (5/33: the grant scope IS the containment), so a
 // write outside the caller's granted scope is impossible; egress management is
 // default-deny, absent from role:member. list reads the socket folder's own
 // resolved+own view (no target arg). There is no REST face today (agent-only,
@@ -149,7 +149,7 @@ func (s *Server) networkRulesPostBuild(folder, callerSub string, authorize autho
 		// One evaluator on the TARGET folder (resolved from args). Egress management is
 		// default-deny: role:member does not grant it, so only an operator-delegated
 		// `mcp:<name>` scoped to cover the target — or /root (authorize allow-all) —
-		// authorizes it. 4/R decision 8: the grant scope IS the containment; the old
+		// authorizes it. 5/33 decision 8: the grant scope IS the containment; the old
 		// hard tier cap is gone (an operator's explicit scoped delegation now takes
 		// effect, a non-operator still cannot self-grant).
 		target := networkTargetFolder(x.Args, folder)

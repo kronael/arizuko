@@ -185,7 +185,7 @@ Full threat model in [SECURITY.md](SECURITY.md).
 ## What's planned
 
 - End-user agent provisioning — POST a definition, get a tenant + chat token ([spec](specs/5/5-tenant-self-service.md))
-- Removing tiers — capability from delegated roles/grants, not folder depth ([spec](specs/4/R-paths-roles.md), in progress)
+- Removing tiers — capability from delegated roles/grants, not folder depth ([spec](specs/5/33-paths-roles.md), in progress)
 
 ## Build & test
 

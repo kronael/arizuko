@@ -94,7 +94,7 @@ func TestSocialActionsRegistered(t *testing.T) {
 		},
 		GroupsDir: "/tmp/groups",
 	}
-	// 4/R: visibility is db.Visible (nil → all shown); this test only checks the
+	// 5/33: visibility is db.Visible (nil → all shown); this test only checks the
 	// server builds. Root here (all tools).
 	srv := buildMCPServer(gated, StoreFns{}, "world", true, "")
 	if srv == nil {

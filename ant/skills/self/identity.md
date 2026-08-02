@@ -10,7 +10,7 @@ echo $ARIZUKO_ASSISTANT_NAME # instance name
 echo $ARIZUKO_IS_ROOT        # "1" during an elevated /root turn, "" otherwise
 echo $ARIZUKO_GROUP_NAME     # who
 echo $ARIZUKO_WORLD          # where
-# (no ARIZUKO_TIER — 4/R dropped the rank; capability = granted tools + folder scope)
+# (no ARIZUKO_TIER — 5/33 dropped the rank; capability = granted tools + folder scope)
 ```
 
 ## Introspect

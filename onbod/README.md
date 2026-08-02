@@ -137,6 +137,6 @@ rather than panicking. Do not remove this nil-check.
 ## Related docs
 
 - `specs/4/26-prototypes.md` (prototype mechanic)
-- `specs/4/9-acl-unified.md` (canonical ACL)
+- `specs/5/32-acl-unified.md` (canonical ACL)
 - `specs/5/17-openapi-mcp.md` (full `/v1/*` contract, token model; supersedes 5/5)
 - `ARCHITECTURE.md` (Onboarding section)

@@ -20,7 +20,7 @@ package routd
 //     TestRoutesMCP_DeleteSelfDefaultRefused fail if the guard is removed — a folder
 //     would orphan its own seq-0 default route.
 //
-// 4/R: no route tool is in the role:member floor, so every test delegates the ones
+// 5/33: no route tool is in the role:member floor, so every test delegates the ones
 // it drives with grantMCPTools (scope <folder>/**, which covers the folder and its
 // descendants — the cross-folder arms target a sibling/parent OUTSIDE that scope).
 

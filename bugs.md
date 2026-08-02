@@ -3044,7 +3044,7 @@ Codex flagged tier-1 `acme/team1` managing grants/invites/ACL on sibling
 `acme/team2` (`auth/policy.go:130-145` via `isInWorld`) as a cross-folder leak.
 VERIFIED by-design: `Resolve` makes a one-slash folder tier 1 = world admin, and
 the comment ("can only manage grants in own world") states the intent. The
-"world" is a deliberate authz scope (spec 4/9). Not logging as a bug; if the
+"world" is a deliberate authz scope (spec 5/32). Not logging as a bug; if the
 operator wants strict own-subtree-only for tier-1, that's a design change, not a
 fix. (Codex's secondary sub-claim — the MCP gate authz being against caller
 folder not target scope — would warrant a separate look IF world-admin is ever
