@@ -2791,3 +2791,33 @@ from a convention into an enforced boundary.
 - **Fix:** needs sign-off — cross-daemon schema move + migration per instance.
   Do not start piecemeal; `5/8` and `5/16` should be rewritten against the
   outcome, not before it.
+
+### The `auth_users` collision decomposes — there is nothing to merge (2026-08-02)
+
+The two tables are not drifted copies of one table; they model different
+things and were wrongly given the same name.
+
+`auth.db.auth_users` — `user_id` PK, `name`, `created_at`. The OAuth identity
+record, FK'd from `oauth_identities`.
+
+`routd.db.auth_users` — `sub`, `username`, `hash`, `name`, `created_at`,
+`linked_to_sub`, `cost_cap_cents_per_day`. Checked column by column:
+
+- **`username` + `hash` are dead.** Local password auth appears only in test
+  fixtures (`onbod/split_test.go`, `onbod/main_test.go`); the sole production
+  writer is `store/auth.go:96`, which supplies them to satisfy `NOT NULL`.
+  Nothing authenticates against them. Delete.
+- **`cost_cap_cents_per_day` is live but is not identity** —
+  `store/cost_log.go:87,98` read/write it as a per-user spend cap (the same
+  column also exists on `groups`). It belongs on a budget table keyed by sub,
+  not on an identity table.
+- **`sub`/`name`/`created_at`/`linked_to_sub`** are identity, duplicating
+  authd's row.
+
+So the resolution is not a merge: strip the dead credential columns, move the
+budget column to its own table, and the remainder consolidates into authd's
+`auth_users` — reconciling `sub` with authd's `user_id`. The name collision
+disappears instead of being resolved.
+
+**Timing:** both tables hold zero rows on krons. The data migration is empty
+today and will not stay that way.
