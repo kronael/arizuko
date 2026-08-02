@@ -2709,12 +2709,31 @@ than implementing it; it is machinery for a problem we no longer have.
 the DB opener is a separate, much smaller mapping. No per-daemon-DB fiction is
 needed, and the empty `proxyd.db` has no reason to exist.
 
-Q1 itself — whether to keep co-locating in `routd.db` and fix the spec's
-vocabulary ("owner DB" where it means "the cold-tier config DB"), or physically
-split — remains open. Evidence for keeping it: `routd/` contains **zero**
-references to `proxyd_routes`; the table sits there because proxyd resolves
-cookie → user → scopes → route from `auth_sessions`/`acl`/`auth_users`/
-`route_tokens` in one per-request decision (`proxyd/main.go:1001`), and those
-are genuinely shared. Splitting costs a second DB open per request and buys
-nothing. `proxyd.db` on krons is 0 bytes, dated Jul 11, referenced by no Go
-code at all.
+**Q1 — RESOLVED by `5/16`'s own rule, not by preference.** `5/16` § "One owner
++ federation" states: *"A resource is owned by the DB that migrates its table,
+never by whichever daemon reads it."* `proxyd_routes` is migrated by
+`routd/migrations/0015-auth-sessions-proxyd-routes.sql` → **owner is
+`routd.db`**. The owner-DB map three paragraphs below that sentence says
+`proxyd.db`, contradicting the rule it just stated. Fix the map, not the rule.
+
+The precedent is in the same section: `timed` owns no DB, reads
+`scheduled_tasks` from `routd.db`, routd owns it because routd migrates it.
+proxyd is that shape plus writes — permitted, since proxyd is FS-mounted
+(verified: `arizuko_proxyd_krons` mounts the instance data dir rw at
+`/srv/app/home`) and split write-discipline lets FS-mounted daemons write owned
+tables directly.
+
+So the two axes are: **subsystem** (who serves the face — proxyd) and **owner
+DB** (who migrates the table — routd.db). Per-subsystem export groups by the
+first and opens by the second. `proxyd.db` is never created; delete the 0-byte
+file.
+
+Separate federation remnant, not part of this: proxyd still opens `messages.db`,
+but only for the `audit_log` sink (`proxyd/main.go:993`). `routd.db` and
+`onbod.db` already carry their own `audit_log`, so retiring `messages.db`
+reduces to repointing that one sink. Corroborating: `routd/` contains **zero** references to
+`proxyd_routes`; the table sits in `routd.db` because proxyd resolves cookie →
+user → scopes → route from `auth_sessions`/`acl`/`auth_users`/`route_tokens` in
+one per-request decision (`proxyd/main.go:1001`). Splitting costs a second DB
+open per request and buys nothing. `proxyd.db` on krons is 0 bytes, dated
+Jul 11, referenced by no Go code at all.
