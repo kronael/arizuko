@@ -2689,4 +2689,32 @@ daemon, so `proxyd_routes` is `OwnerRoutd` though proxyd serves it. Consumed by
 `apply`/`plan`/`export`/`get` to group resources and pick the DB opener;
 registry validation rejects an engine-managed resource with no owner.
 
-Say yes and `5/8` becomes the mechanical repoint it was originally described as.
+### DECIDED (2026-08-02, user)
+
+**Q2 — yes, and exports are per subsystem.** `config_meta` lands in each
+manifest-owning DB via that daemon's own migrations, and the manifest carries a
+per-owner version rather than a scalar. Scalar `config_version:` manifests are
+rejected and re-exported.
+
+**Consequence: Q3 dissolves.** The partial-apply recovery design (preflight all
+owners, deterministic commit order, exit 3 on mixed success, content-aware skip
+on rerun) existed only to serve ONE global manifest spanning several DBs. With
+export scoped per subsystem there is one file, one DB, one transaction, one
+version — nothing to recover across. Delete that section from the spec rather
+than implementing it; it is machinery for a problem we no longer have.
+
+**Consequence for Q1.** Per-subsystem export separates the LOGICAL grouping
+(proxyd's routes belong to proxyd's export) from the PHYSICAL file (they live in
+`routd.db`, the shared cold-tier store). So the resreg tag is a *subsystem*, and
+the DB opener is a separate, much smaller mapping. No per-daemon-DB fiction is
+needed, and the empty `proxyd.db` has no reason to exist.
+
+Q1 itself — whether to keep co-locating in `routd.db` and fix the spec's
+vocabulary ("owner DB" where it means "the cold-tier config DB"), or physically
+split — remains open. Evidence for keeping it: `routd/` contains **zero**
+references to `proxyd_routes`; the table sits there because proxyd resolves
+cookie → user → scopes → route from `auth_sessions`/`acl`/`auth_users`/
+`route_tokens` in one per-request decision (`proxyd/main.go:1001`), and those
+are genuinely shared. Splitting costs a second DB open per request and buys
+nothing. `proxyd.db` on krons is 0 bytes, dated Jul 11, referenced by no Go
+code at all.
