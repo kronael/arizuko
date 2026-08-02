@@ -11,10 +11,12 @@ Run these checks and note which fail:
 # 1. OS (Linux x86_64 required)
 uname -s -m   # expect: Linux x86_64
 
-# 2. Go 1.27+ (build requirement — matches go.mod)
-go version    # need 1.27+; missing or <1.27 = blocker
-              # go.mod pins `toolchain go1.27rc2`; with GOTOOLCHAIN=auto
-              # (the default) an older Go auto-fetches it on first build
+# 2. Go 1.21+ (any version that understands toolchain switching)
+go version    # missing = blocker; <1.21 = blocker
+              # go.mod pins `toolchain go1.27rc2`. GOTOOLCHAIN=auto (the
+              # default) fetches that toolchain on first build, so an older
+              # Go is fine. GOTOOLCHAIN=local or an offline box is NOT —
+              # install go1.27rc2 by hand (see "Go missing or too old")
 
 # 3. Docker daemon running
 docker info >/dev/null 2>&1 && echo "docker ok" || echo "docker MISSING"
@@ -54,13 +56,21 @@ go version   # verify: go1.26.5 linux/amd64
 `g` adds itself and Go to `~/.local/bin` (or `~/go` by default). No sudo
 needed, no system Go touched.
 
-`go.mod` pins `toolchain go1.27rc2`, which `g` does not carry. Install the
-latest stable as above; `GOTOOLCHAIN=auto` (Go's default) then fetches
-`go1.27rc2` automatically on the first `go build`. To pin it by hand instead:
+`go.mod` pins `toolchain go1.27rc2` — a **release candidate**, because arizuko
+adopted Go 1.27's stdlib ahead of GA. `g` carries only stable releases, so
+install the latest stable as above and let `GOTOOLCHAIN=auto` (Go's default)
+fetch the RC on the first `go build`. That fetch is the only thing standing
+between a stable Go and a working build.
+
+Two cases where it does not apply, and you must install the RC by hand:
+`GOTOOLCHAIN=local` is set, or the machine has no network to `go.dev`.
 
 ```bash
 go install golang.org/dl/go1.27rc2@latest && go1.27rc2 download
 ```
+
+This pin moves to `go 1.27.0` once Go 1.27 ships GA (expected August 2026);
+see [`specs/5/36-go-1.27-adoption.md`](specs/5/36-go-1.27-adoption.md).
 
 Offline/air-gapped builds get no auto-fetch — install the RC toolchain
 explicitly before building.

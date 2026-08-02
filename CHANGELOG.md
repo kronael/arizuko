@@ -16,6 +16,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- **Build requires Go 1.27 (`toolchain go1.27rc2`) — BREAKING for builders.**
+  `go.mod` declares `go 1.27` and pins the release candidate; both Dockerfiles
+  build `FROM golang:1.27rc2-alpine` (neither `1.27-alpine` nor `1.27rc-alpine`
+  exists yet). With `GOTOOLCHAIN=auto` — Go's default — any Go 1.21+ fetches the
+  toolchain on first build and nothing else changes; `GOTOOLCHAIN=local` and
+  offline builds must install `go1.27rc2` by hand. Forced along the way:
+  `golang.org/x/net` v0.54 → v0.57, because v0.54 build-tags `http2/server.go`
+  off under Go 1.27 and `http2.TrailerPrefix` disappears, breaking grpc's
+  compile. Adopted with it: stdlib `uuid` (`google/uuid` stays as an indirect
+  dep — `mcp-go/server` still needs it), `strings.CutLast` at 8 parse sites, and
+  removal of 4 manual HTTP body drains the 1.27 client now does on `Close`. The
+  pin moves to `go 1.27.0` at GA. Spec `5/36`.
+- **`go fix` modernizer sweep — 130 files, −95 LOC, no toolchain needed.** Every
+  fix targets a pre-1.25 idiom the repo never back-filled: membership loops →
+  `slices.Contains` (17 sites), copy loops → `maps.Copy` (9), and `int32` +
+  `atomic.AddInt32` pairs → `atomic.Int32` in test helpers.
 - **5/33 tiers removed — one ACL evaluator, `role:member` floor + delegation
   (BREAKING).** Depth-derived tiers are gone: authorization is a single
   `auth.Authorize(principal, action, target, params)` over ACL rows — a delegated
