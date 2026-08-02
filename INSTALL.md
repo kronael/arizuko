@@ -11,8 +11,10 @@ Run these checks and note which fail:
 # 1. OS (Linux x86_64 required)
 uname -s -m   # expect: Linux x86_64
 
-# 2. Go 1.25+ (build requirement — matches go.mod)
-go version    # need 1.25+; missing or <1.25 = blocker
+# 2. Go 1.27+ (build requirement — matches go.mod)
+go version    # need 1.27+; missing or <1.27 = blocker
+              # go.mod pins `toolchain go1.27rc2`; with GOTOOLCHAIN=auto
+              # (the default) an older Go auto-fetches it on first build
 
 # 3. Docker daemon running
 docker info >/dev/null 2>&1 && echo "docker ok" || echo "docker MISSING"
@@ -44,16 +46,24 @@ manages multiple versions cleanly:
 ```bash
 curl -sSL https://raw.githubusercontent.com/stefanmaric/g/main/bin/g-install | bash
 # Re-source your shell profile (path the installer just printed), then:
-g install 1.25.5
-g set 1.25.5
-go version   # verify: go1.25.5 linux/amd64
+g install 1.26.5
+g set 1.26.5
+go version   # verify: go1.26.5 linux/amd64
 ```
 
 `g` adds itself and Go to `~/.local/bin` (or `~/go` by default). No sudo
 needed, no system Go touched.
 
-Note: `GOTOOLCHAIN=auto` lets Go auto-download the exact toolchain when the
-installed version is close but not exact — useful after `go.mod` bumps.
+`go.mod` pins `toolchain go1.27rc2`, which `g` does not carry. Install the
+latest stable as above; `GOTOOLCHAIN=auto` (Go's default) then fetches
+`go1.27rc2` automatically on the first `go build`. To pin it by hand instead:
+
+```bash
+go install golang.org/dl/go1.27rc2@latest && go1.27rc2 download
+```
+
+Offline/air-gapped builds get no auto-fetch — install the RC toolchain
+explicitly before building.
 
 ### Docker Compose v2 missing
 

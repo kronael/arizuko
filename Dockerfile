@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Reproducibility contract: base images pinned to explicit tags.
 # Bump versions intentionally; digests can be re-pinned via `docker pull` output.
-FROM golang:1.25-alpine AS build
+FROM golang:1.27rc2-alpine AS build
 RUN apk add --no-cache gcc musl-dev sqlite-dev make
 WORKDIR /src
 COPY go.mod go.sum ./
