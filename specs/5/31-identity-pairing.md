@@ -60,11 +60,26 @@ would be an invite, and that mechanism already exists.
    through the round-trip inside the signed, 10-minute, double-submit state
    that `?intent=link` already uses. Authenticated → a confirm page naming
    the channel identity and its consequence.
-5. `POST /pair/<token>` consumes the token — success or refusal — then in
-   one tx: reject if the JID already has a different parent; else write the
-   edge with `CanonicalSub(sub)` as parent (`store/auth.go:60`, so an
-   aliased sub never becomes a second parent), plus an audit row in onbod's
-   own `audit_log`.
+5. `POST /pair/<token>` **writes the edge first, then consumes the token.**
+   The token lives in onbod's DB and the edge in routd's, with no cross-DB
+   transaction, so the ordering decides what a crash between them leaves
+   behind. Edge-first is safe wherever it lands: `AddMembership` is
+   `INSERT OR IGNORE`, so a replay writes the identical row and the
+   still-live token is simply clicked again. Consume-first strands the
+   user — token spent, no edge, no retry.
+
+   Concretely: resolve the token to its JID WITHOUT consuming; reject if
+   the JID already has a different **non-role** parent (role membership is
+   not a pairing claim — a JID may hold both, `onbod/main.go`); else write
+   the edge, plus an audit row in onbod's own `audit_log`; then consume.
+   The consume is a single `UPDATE … RETURNING` keyed on the token, so
+   concurrent landings race there and exactly one wins — the loser has
+   already written the identical edge.
+
+   The claim marker is the **token**, not `user_sub`: the token is NULLed
+   only by the consume, whereas `user_sub` is set earlier while approving,
+   so keying on it makes a crash-replay look already-claimed.
+
 6. The outcome is delivered to the originating chat and rendered on the
    page. Both are loud on failure; neither is silent.
 7. The paired identity's new authority is live on its **next tool call**,
@@ -129,9 +144,10 @@ The remaining cases fall out:
 - **Same identity, same account, twice** — the edge exists; idempotent
   no-op, and the chat says so.
 - **Same identity, second account** — rejected, loud, at both surfaces:
-  unpair first. Today this case logs `slog.Warn("jid already claimed")` and
-  returns with no return value for the caller to check (`onbod/main.go:786`)
-  — a silent failure on a user-facing path.
+  unpair first. `linkJID` returns `errLinkRefused` and the landing answers
+  403 with the reason; it previously logged `slog.Warn("jid already
+claimed")` and returned nothing for the caller to check, which was a
+  silent failure on a user-facing path.
 - **One account, many channel identities** — expected and unconstrained.
   Alice pairs Telegram, Discord and Slack; many children, one parent.
 

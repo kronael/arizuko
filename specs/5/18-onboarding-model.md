@@ -94,16 +94,21 @@ that constrain it:
 
 - The check already exists in the right shape:
   `auth.MatchGroups(userFolders(sub), target)` (`onbod/main.go:1355`).
-- Nothing shipped can _hold_ subtree authority self-service. Every
-  self-service grant writes a bare folder scope — `createWorldTx`
-  (`onbod/main.go:737`) and invite join-mode (`onbod/main.go:1013`) both
-  write `acl(sub, admin, <folder>)`, and `matchSegments` requires an
-  exact segment count (`auth/acl.go:50`). So a world creator holds
-  `acme`, not `acme/**`, and **cannot route a JID into their own
-  subgroup** — step 7's "or a subgroup of W" is unreachable today.
-  Only a hand-run `arizuko grant <sub> 'acme/**'` produces it.
-  The other broad grant, `role:operator`, is unscoped and global
+- **World creation now grants the subtree** (`createWorldTx` writes
+  `acl(sub, admin, <folder>/**)`), so step 7's "or a subgroup of W" is
+  reachable. It could not be widened until its reader stopped comparing
+  strings: the folder lookup was `JOIN acl a ON a.scope = g.folder`, and
+  scopes are PATTERNS, so equality matched neither `acme` against
+  `acme/eng` nor `acme/**` against anything. The reader now asks
+  `auth.Authorize` per group — the single evaluator answers for ONE
+  group, so asking for all of them is a loop — rather than a second
+  matcher that could drift from it.
+- Invite join-mode (`onbod/main.go:1013`) still writes a bare folder
+  scope, and `role:operator` is still unscoped and global
   (`cmd/arizuko/main.go:535`, `routd/acl_resource.go:227`).
+  Delegation (`grant_option=1`) is unset at creation: the column is
+  `4/R`'s and has not reached every instance, so writing it would fail
+  world creation with "no such column".
 
 ## Staging: the other posture
 
@@ -200,8 +205,9 @@ username picker → `SetupGroup` then `createWorldTx`. No trailing slash →
 | --------------------------------- | -------------------------------------------------------------------------------------- |
 | `InsertOnboarding` fails          | `slog.Error` + `onboardingFailedNotice` into the chat (loud, correct)                  |
 | route-table read fails            | logged, treated as a miss, cursor advances — message dropped                           |
-| JID already paired to another sub | `slog.Warn` only; caller sees no explanation                                           |
-| gates configured, none match      | `slog.Warn` only; row stuck at `token_used` forever (below)                            |
+| JID already paired to another sub | `errLinkRefused` → 403 with the reason (was `slog.Warn` only)                          |
+| gates configured, none match      | `errLinkRefused` → 403 with the reason; row still stalls at `token_used` (below)       |
+| row in an unknown status          | `slog.Error` per poll naming the jid and status — stranded, never advances (BUGS O1)   |
 | token expired or reused           | "invalid, already used, or has expired" — no way to request another from the chat      |
 | queue full                        | **does not exist** — `limit_per_day` throttles rate; the queue is unbounded            |
 | operator deny                     | deletes the row; the JID re-onboards on its next message. Deny is a reset, not a block |
@@ -251,9 +257,16 @@ Every remaining state must be reachable and load-bearing. These are not:
   fired since the claim was made atomic.
 - **`token_used` is not a state.** It means `user_sub IS NOT NULL`, which
   the column already says. Its one distinct role — the terminal
-  no-gate-matched dead-end — should be an explicit, user-visible failure,
-  not a status that silently strands a row (`linkJID` returns without
-  writing, and dead `resetRow` never rescues it).
+  no-gate-matched dead-end — is now an explicit, user-visible failure
+  (`linkJID` returns `errLinkRefused`, the landing answers 403); the row
+  still stalls there, so the state itself is what remains to remove. The
+  dead `resetRow` that never rescued it has been deleted.
+
+  Note `user_sub` is no longer a claim marker either: since the pairing
+  edge is written BEFORE the token is consumed (`5/31` step 5), a row with
+  `user_sub` set and a live token is the legitimate mid-flight state a
+  crash-replay must be able to finish.
+
 - **`status` is fully derivable** from `prompted_at` / `user_sub` /
   `queued_at` / `admitted_at` — one stamp per transition, which is the
   "exactly one trigger" property stated as schema:
