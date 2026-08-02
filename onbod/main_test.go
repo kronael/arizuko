@@ -49,6 +49,9 @@ func testDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A second pooled connection to ":memory:" is a DIFFERENT, empty database,
+	// so anything doing two queries on this handle sees no fixtures. Pin to one.
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
 	_, err = db.Exec(`
 		CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER, match TEXT, target TEXT, observe_window_messages INTEGER, observe_window_chars INTEGER);
@@ -241,8 +244,8 @@ func TestCreateWorldValidUsername(t *testing.T) {
 	// user_groups granted
 	var ug string
 	db.QueryRow(`SELECT scope FROM acl WHERE principal = 'github:new'`).Scan(&ug)
-	if ug != "alice" {
-		t.Errorf("user_groups not set, got %q", ug)
+	if ug != "alice/**" {
+		t.Errorf("creator grant should be subtree-scoped, got %q", ug)
 	}
 
 	// username updated
@@ -2153,5 +2156,28 @@ func TestLinkJID_AlreadyClaimedIsRefused(t *testing.T) {
 	err := linkJID(db, db, "telegram:10", "github:mallory")
 	if !errors.Is(err, errLinkRefused) {
 		t.Errorf("takeover want errLinkRefused, got %v", err)
+	}
+}
+
+// W1: a creator's grant must reach the world's SUBGROUPS, and the reader that
+// resolves "which folder may this user administer" must honour the pattern
+// rather than compare strings. The old `JOIN acl a ON a.scope = g.folder`
+// matched neither `acme` against `acme/eng` nor `acme/**` against anything.
+func TestFirstAdminFolder_HonoursSubtreeGrant(t *testing.T) {
+	db := testDB(t)
+	if _, err := db.Exec(`INSERT INTO groups (folder, added_at)
+		VALUES ('acme', datetime('now')), ('acme/eng', datetime('now'))`); err != nil {
+		t.Fatalf("groups fixture: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_at, granted_by)
+		VALUES ('github:owner', 'admin', 'acme/**', 'allow', '', '', datetime('now'), 'test')`); err != nil {
+		t.Fatalf("acl fixture: %v", err)
+	}
+
+	if got := firstAdminFolder(db, "github:owner"); got == "" {
+		t.Fatal("subtree grant resolved to no folder — the reader is still comparing strings")
+	}
+	if got := firstAdminFolder(db, "github:stranger"); got != "" {
+		t.Errorf("ungranted principal resolved to %q, want none", got)
 	}
 }

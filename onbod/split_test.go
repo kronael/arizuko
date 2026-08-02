@@ -127,8 +127,8 @@ func TestSplitCreateWorldWritesCrossToRoutd(t *testing.T) {
 	}
 	var scope string
 	xdb.QueryRow(`SELECT scope FROM acl WHERE principal = 'github:new'`).Scan(&scope)
-	if scope != "newworld" {
-		t.Errorf("acl grant not in routd.db, got %q", scope)
+	if scope != "newworld/**" {
+		t.Errorf("acl grant should be subtree-scoped in routd.db, got %q", scope)
 	}
 	var routes int
 	xdb.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'newworld'`).Scan(&routes)

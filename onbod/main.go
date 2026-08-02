@@ -502,11 +502,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, c
 				writeLinkErr(w, err)
 				return
 			}
-			var folder string
-			if err := db.QueryRow(
-				`SELECT g.folder FROM groups g
-				 JOIN acl a ON a.scope = g.folder
-				 WHERE a.principal = ? AND a.effect='allow' LIMIT 1`, userSub).Scan(&folder); err == nil {
+			if folder := firstAdminFolder(db, userSub); folder != "" {
 				db.Exec(`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
 					"room="+core.JidRoom(c.Value), folder)
 			}
@@ -720,7 +716,7 @@ func createWorldTx(db *sql.DB, folder, username, userSub, now string, jids []str
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO acl
 		(principal, action, scope, effect, params, predicate, granted_at, granted_by)
 		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'onbod')`,
-		userSub, folder); err != nil {
+		userSub, folder+"/**"); err != nil {
 		return err
 	}
 	for _, jid := range jids {
@@ -833,6 +829,50 @@ func linkJID(db, obdb *sql.DB, jid, userSub string) error {
 	})
 	slog.Info("approved jid", "jid", jid, "user", userSub, "gate", "none")
 	return nil
+}
+
+// firstAdminFolder returns a folder the sub may administer, or "".
+//
+// Deliberately NOT `JOIN acl a ON a.scope = g.folder`: acl scopes are PATTERNS,
+// so string equality misses every subtree grant — an owner holding `acme/**`
+// matched no folder at all, which is why the creator grant had to stay
+// bare-scoped and could never reach its own subgroups (BUGS W1). SQL cannot
+// glob segments, so the rows are filtered by the single evaluator rather than
+// by a second matcher written here: Authorize answers for ONE group, so asking
+// for all of them is a loop over groups.
+func firstAdminFolder(db *sql.DB, userSub string) string {
+	folders, err := scanFolders(db)
+	if err != nil {
+		slog.Error("firstAdminFolder groups", "err", err)
+		return ""
+	}
+	// The cursor is drained and closed by scanFolders before the loop below:
+	// Authorize issues further queries on this same handle, and holding a read
+	// cursor open across them deadlocks a single-connection DB.
+	st := store.New(db)
+	for _, f := range folders {
+		if auth.Authorize(st, auth.Caller{Principal: userSub}, "admin", f, nil) {
+			return f
+		}
+	}
+	return ""
+}
+
+func scanFolders(db *sql.DB) ([]string, error) {
+	rows, err := db.Query(`SELECT folder FROM groups ORDER BY folder`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var f string
+		if err := rows.Scan(&f); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
 }
 
 // writeLinkErr surfaces a linkJID failure to the person who clicked the link.

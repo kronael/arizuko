@@ -208,8 +208,10 @@ func TestOnboardingFlow(t *testing.T) {
 	}
 	var ug string
 	inst.DB.QueryRow(`SELECT scope FROM acl WHERE principal = ?`, sub).Scan(&ug)
-	if ug != "alice" {
-		t.Errorf("user_groups row missing, got %q", ug)
+	// Subtree scope: an exact-folder grant authorizes the world and nothing
+	// under it, so the creator could never reach their own subgroups (W1).
+	if ug != "alice/**" {
+		t.Errorf("creator grant should be subtree-scoped, got %q", ug)
 	}
 	var routeN int
 	inst.DB.QueryRow(
