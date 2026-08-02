@@ -13,7 +13,7 @@ Composition: persona (`PERSONA.md` = author voice) + skills (`draft/`,
 
 ## Publishing safety
 
-The `publish` MCP tool is gated via the [HITL firewall](4-hitl-firewall.md).
+The `publish` MCP tool is gated via the [HITL firewall](../5/19-hitl-firewall.md).
 The `publish` skill documents the hold so the agent expects
 `{pending: true}` and reports the review queue link.
 
@@ -34,6 +34,6 @@ published = permanent. `/pub/` is served by `vited`.
 
 ## Depends on
 
-- [HITL firewall](4-hitl-firewall.md)
+- [HITL firewall](../5/19-hitl-firewall.md)
 - An adapter exposing a publish capability (bsky or mastodon)
 - [ant standalone](../dropped/13-b-ant-standalone.md) (dropped) for the folder shape

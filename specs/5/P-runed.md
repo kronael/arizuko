@@ -427,7 +427,7 @@ and `FakeRuntime` (tests).
 **Core carve-out (honest bar).** `runed`'s binary is not a strict
 no-`core` build: `docker.go` imports `core` (`core.GroupConfig`,
 `core.Config`) to drive the runner. The published wire contract
-(`runed/api/v1/`, [`39-runed-interface.md`](39-runed-interface.md))
+(`runed/api/v1/`, this spec § "HTTP interface")
 depends only on `types/`; the runtime glue still reads `core`.
 
 ## Touches
