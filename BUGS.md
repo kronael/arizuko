@@ -2581,3 +2581,75 @@ dashd UX decision and needs sign-off.
 - **Fix:** decide the link-when-unreachable question first, then align the test's
   BUILT list with `services.go` and make the probe condition reachable in tests
   (stub a healthy probe, or drop the status gate).
+
+## D7 — `make test-e2e` verifies nothing: no `webd` test matches `-run E2E` (2026-08-02, open)
+
+The target is `go test ./webd/... -count=1 -run E2E -timeout 300s`
+(`Makefile:73`), but no test function in `webd` has a name matching `E2E`, so it
+reports `ok ... [no tests to run]` and exits 0. The repo's actual `E2E`-named
+tests live elsewhere — `crackbox/test/egress_e2e_test.go` and
+`teled/e2e_test.go` — neither of which the target selects.
+
+This is a green light that never checks anything, and it is wired into release
+discipline: root `CLAUDE.md` and `specs/5/36` both say "run `make test-e2e`
+before tagging". Every such run has passed vacuously. It surfaced while shipping
+`specs/5/36` step 4, whose `strings.CutLast` conversions touch folder-path and
+reply-ID parsing — exactly the routing-adjacent code the target claims to cover.
+Those were verified by running the touched packages' full suites directly.
+
+Pre-existing and unrelated to the Go 1.27 work: `Makefile:71-74` is unchanged
+since well before it.
+
+- **Severity:** medium (false confidence at the release gate, not a live defect)
+- **Scope:** release verification
+- **Affected:** `Makefile:71-74`; cited by `CLAUDE.md` "Build & Test" and
+  `specs/5/36-go-1.27-adoption.md`
+- **Fix:** decide what the release e2e gate is meant to cover. Either write the
+  `webd` route-token E2E tests the target's comment describes ("release-only
+  webd slink E2E tests"), or repoint it at the suites that exist. A target that
+  selects zero tests must fail, not pass.
+
+## Y1 — `5/8` is not implementable as specced: three undecided questions (2026-08-02, proposal)
+
+`specs/5/8-yaml-manifests.md` is marked `partial` with the remaining work
+described as a mechanical repoint of `cmd/arizuko/apply.go` from the frozen
+`messages.db` to each resource's split owner DB. A codex readiness review, with
+its load-bearing claims verified against live krons, says otherwise. Three
+decisions are missing; an implementer would have to invent them.
+
+**1. `proxyd_routes` has no unambiguous owner.** `5/16` (canonical, duplicated
+into `5/8`) maps it to `proxyd.db`. On krons, `/srv/data/arizuko_krons/store/`
+does contain a `proxyd.db` file — but it is **empty**, holding neither
+`proxyd_routes` nor any table, while `proxyd_routes` actually lives in
+`routd.db` (`routd/migrations/0015-auth-sessions-proxyd-routes.sql`, read by
+`proxyd/main.go:1000`). An empty `proxyd.db` makes this worse than a missing
+one: an implementer following the spec writes to a DB nothing reads, and the CLI
+silently applies nothing. Decide — follow deployed reality (owner = `routd.db`)
+or move the table.
+
+**2. `config_meta` does not exist in any owner DB.** `5/8:316` states it is "a
+single-row table **in each owner DB**". Verified across all six krons DBs:
+`config_meta` exists **only** in the retired `messages.db`. So the entire
+optimistic-locking envelope the spec builds on has no home in the split layout,
+and no split-daemon writer bumps a per-owner version today.
+
+**3. Partial-apply recovery is self-contradictory.** Per-owner transactions are
+clear, but after owner A commits, its version moves N → N+1; re-running the same
+manifest stamped N now CAS-fails on A. The spec calls re-run "idempotent", which
+it cannot be. Undecided: whether identical content bypasses a stale CAS, whether
+committed owners are skipped, whether `--force`/re-export is the recovery path,
+plus owner ordering, mixed-success exit status, and what `plan` reports when one
+owner DB is ahead.
+
+Also noted: `resreg.Resource` carries `Table` but no owner field
+(`resreg/resreg.go:155`), so ownership has nowhere to live as data — it is prose
+in two specs. And `get` emits no version while strict `apply` rejects a touched
+owner lacking one, which breaks the promised get→apply round trip.
+
+- **Severity:** medium (blocks `5/8`; the commands stay inert meanwhile)
+- **Scope:** manifest CLI ownership + versioning model
+- **Affected:** `specs/5/8-yaml-manifests.md`, `specs/5/16-mcp-rest-unification.md`,
+  `cmd/arizuko/apply.go`, `resreg/resreg.go:155`
+- **Fix:** answer the three questions in the spec first (they are design calls,
+  not implementation details), then the repoint is mechanical. Encoding the
+  owner on `resreg.Resource` is the natural home for decision 1.
