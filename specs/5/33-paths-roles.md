@@ -2,7 +2,7 @@
 status: draft
 depends:
   [
-    4/9-acl-unified,
+    5/32-acl-unified,
     3/5-tool-authorization,
     4/19-action-grants,
     5/A-primitives-framing,
@@ -10,13 +10,13 @@ depends:
 supersedes-in-part: [3/5-tool-authorization, 4/19-action-grants]
 ---
 
-# specs/4/R — paths, roles, and grant-option (remove tiers)
+# specs/5/33 — paths, roles, and grant-option (remove tiers)
 
 > arizuko stops deriving capability from location. A **path** is where you are;
 > a **role** is what you may do; a **grant** carries a `WITH GRANT OPTION` level
 > that governs re-delegation. Authority flows by delegation (a subset of what you
 > hold), never by a depth number. Postgres's delegation simplicity over the AWS-
-> shaped policy row `4/9` already ships.
+> shaped policy row `5/32` already ships.
 
 ## Why
 
@@ -32,7 +32,7 @@ cutover (migration `0053`): `acl(principal, action, scope, params, predicate,
 effect)`, `acl_membership` (role membership + role→role hierarchy), `role:`
 principals, transitive `Ancestors()` with cycle prevention, deny-wins evaluation
 (`auth/authorize.go`). The `folder:<path>` principal is the path↔role bridge
-(`4/9` Open-Q3, "Lean: yes", now decided here). Net-new is small.
+(`5/32` Open-Q3, "Lean: yes", now decided here). Net-new is small.
 
 ## The three primitives
 
@@ -102,7 +102,7 @@ These close the open design questions; the rest of the spec is read through them
 send_file, send_voice, post, forward, quote, repost, like, dislike, edit, delete`.
    **Read tools and memory (`set_work`) are always-on** — every group can read its
    data and checkpoint memory without a grant. Everything ELSE (register*group,
-   routes, network*_, schedule\__, observe*\*, invite*\*, mint tokens, add_acl,
+   routes, network*\_, schedule\_\_, observe*\*, invite*\*, mint tokens, add_acl,
    grants) is **explicit delegation** from the creating group or a lineage ancestor.
    `role:operator`/root stays the escalation grant (decision 1). No per-depth bundle,
    no `open`/`closed` split. Every group is born a member; power above the floor is
@@ -156,11 +156,11 @@ FromACLOnly` dropped wildcard/scope/predicate. Also fix `ant/src/index.ts` root-
    the delegation chain sets containment by data.
 
 9. **The group→path RENAME is a SEPARATE later pass — not part of this cutover.**
-   4/R lands the authz model (root-grant, tier-dissolve, lineage delegation) FIRST;
+   5/33 lands the authz model (root-grant, tier-dissolve, lineage delegation) FIRST;
    the mechanical `group`/`folder`→`path` rename (300+ files, DB, MCP tool names,
    env, in-container skills) is its own spec + pass AFTER the authz change is live
    and stable. Coupling a huge rename to a risky auth cutover is how both break.
-   `4/R` may say "path" conceptually; the code keeps `folder`/`group` until the
+   `5/33` may say "path" conceptually; the code keeps `folder`/`group` until the
    rename pass.
 
 10. **`ARIZUKO_TIER` and every tier DISPLAY are dropped, not replaced with a
@@ -218,7 +218,7 @@ onboards a user):
    number**. A "top" principal just holds broad grants with the option; a leaf
    holds a narrow subset with none. Path depth is irrelevant.
 
-This retires `delegate_depth`/`tier` claims (`4/9:221`) as authz inputs.
+This retires `delegate_depth`/`tier` claims (`5/32:221`) as authz inputs.
 
 ## Grant-option: schema
 
@@ -288,7 +288,7 @@ converge — do it first.
   agent claims + `ARIZUKO_TIER`.
 - **DELETE** `grants/grants.go:176` `DeriveRules` (tier→grants) and the
   `auth/authorize.go:101-114` `mcp:*` tier-default fallback. `mcp:*` becomes an
-  explicit role grant like `interact`/`admin` already are (`4/9:192`) — so the
+  explicit role grant like `interact`/`admin` already are (`5/32:192`) — so the
   seeded default roles MUST cover the agent's full toolset (no fallback to catch a
   gap; a missing grant = the tool is denied, loud).
 - **REPLACE** `auth/policy.go` `AuthorizeStructural` folder-prefix containment
@@ -340,7 +340,7 @@ Concept-only where wire/DB identity is at stake; full where the compiler guards.
 
 ## Phasing (ship without a big-bang outage)
 
-1. **Spec** — this doc; reconcile `4/9` (grant-option + delegation, tier removed),
+1. **Spec** — this doc; reconcile `5/32` (grant-option + delegation, tier removed),
    `3/5` (tier×action defaults — retire), `4/19` (`DeriveRules` — retire), `5/A`
    (coordinate=path, capability=role), `GRANTS.md`, CLAUDE.md/ARCHITECTURE/
    SECURITY/ROUTING tenancy language.
@@ -718,7 +718,7 @@ record:
 - **(A) Keep the caps** — reframe each hard cap as a grant only `role:operator`/root holds (e.g.
   `mcp:network_allow` is simply never in any non-operator bundle and never delegable), so the
   cap becomes data (absence of the grant) rather than a tier arm. Equivalence-preserving.
-- **(B) Drop the caps** — 4/R decision 8 taken literally: if the operator grants a folder
+- **(B) Drop the caps** — 5/33 decision 8 taken literally: if the operator grants a folder
   `network_allow` scoped to its subtree, it MAY manage egress there. Simpler, truer to "grants
   not tiers", but a deliberate loosening of egress/acl/invite control that must be signed off.
 

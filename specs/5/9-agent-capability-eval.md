@@ -231,7 +231,7 @@ split a daemon out only if a hosted always-on watch is needed.
 
 Public surfaces only — the same ones a human or external tool uses. The
 parity case is a direct check of the uniform-MCP+REST invariant (`5/17`);
-webhook/chat-link cases lean on `5/W`; privilege cases on `4/9`. No
+webhook/chat-link cases lean on `5/W`; privilege cases on `5/32`. No
 arizuko Go imports; fs/sqlite reads are a non-gating `--debug` aid.
 
 Distinct from: the `eval` skill (operational health), `create-eval`

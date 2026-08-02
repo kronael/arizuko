@@ -8,7 +8,7 @@ supersedes: [4/chanlib-refactor.md]
 Each adapter is a standalone daemon that registers with `routd` over
 HTTP, forwards inbound platform events as messages, and receives
 outbound replies. The wire contract is
-[`1-channel-protocol.md`](1-channel-protocol.md); this file is the
+[`../5/34-channel-protocol.md`](../5/34-channel-protocol.md); this file is the
 roster plus the per-adapter decisions that live nowhere else.
 
 | Daemon | Platform  | JID prefix  | Language |

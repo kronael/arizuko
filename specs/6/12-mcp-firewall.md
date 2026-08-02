@@ -173,7 +173,7 @@ arizuko owns the per-(folder, agent) tool policy; the firewall enforces
 the derived list:
 
 1. arizuko's grant layer (`auth/`, `grants/`, against
-   [`specs/4/9-acl-unified.md`](../4/9-acl-unified.md)) resolves a
+   [`specs/5/32-acl-unified.md`](../5/32-acl-unified.md)) resolves a
    folder's grants into the **flat allowed-tool list** for the agent
    about to run a turn — the domain decision.
 2. arizuko pushes that flat list to the firewall (`PUT /v1/rules` or

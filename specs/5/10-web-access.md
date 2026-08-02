@@ -7,7 +7,7 @@ status: shipped
 DRAFT — proposes generalizing web _access_ (who may read which web
 content) without changing web _ownership_ (the per-folder slot model).
 Sibling of [`5/V`](V-web-vhosts.md) (vhosts + slots) and
-[`4/9`](../4/9-acl-unified.md) (the unified `Authorize` grant gate).
+[`5/32`](32-acl-unified.md) (the unified `Authorize` grant gate).
 
 ## Problem
 
@@ -41,7 +41,7 @@ P do X to folder F" — the unified `Authorize` grant gate.
 ## Approach — access IS a grant, reuse the one gate
 
 The platform already has exactly one authority for "may this principal
-touch this folder": `auth.Authorize` / the grant DSL (`4/9`), enforced
+touch this folder": `auth.Authorize` / the grant DSL (`5/32`), enforced
 as uniform middleware (CLAUDE.md "auth is a uniform middleware, bound to
 handler + params"). Chat reads, MCP tools, and REST all bind a target
 folder to the caller's grants. **Web reads are the one surface that
@@ -95,7 +95,7 @@ ACL table that gates everything else. Revoke = drop the grant.
   decision, not a parallel mechanism. (`5/17` "MCP + REST hand-rolled and
   uniform" extended to the web read path.)
 - **No new config surface.** No mount table, no per-path ACL file, no
-  "web access" DSL. The grant DSL (`4/9`) already expresses it.
+  "web access" DSL. The grant DSL (`5/32`) already expresses it.
 - **Ownership and access stay orthogonal.** Slots answer _where content
   lives_; grants answer _who may read it_. Moving a guide under
   `atlas/search` (ownership) and granting `research` read (access) are
@@ -109,7 +109,7 @@ ACL table that gates everything else. Revoke = drop the grant.
   "platform mount paths") is fixed and fine; this changes only the
   proxyd read gate, not what's mounted where.
 - NOT a new "web ACL" table. It is the existing `acl`/grant rows
-  (`4/9`), queried by the existing `UserScopes`.
+  (`5/32`), queried by the existing `UserScopes`.
 - NOT a change to `/pub` or to vhost derivation (`5/V`). A world's vhost
   still serves its own `/pub/<world>/` slot (per-tenant isolation — a
   vhost must NOT map to the shared `/pub/` root, which holds every
@@ -125,7 +125,7 @@ ACL table that gates everything else. Revoke = drop the grant.
   resolves the caller's grant patterns; the gate matches `<folder>`
   against them (reuse the scope-containment helper from `auth`/`grants`,
   not a new matcher).
-- `auth.Authorize` / `4/9` — the canonical containment decision to reuse.
+- `auth.Authorize` / `5/32` — the canonical containment decision to reuse.
 - `5/V` — ownership/slot/vhost model this builds on (unchanged).
 
 ## Implementation (shipped 2026-06-15)

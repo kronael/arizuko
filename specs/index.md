@@ -3,8 +3,8 @@
 ## The story (phases 5 → 6 → 7 → 8 → 9)
 
 **Phase 5** builds the platform's core capabilities: the surfaces
-(MCP, REST, web, voice, WebDAV), identity (auth, ACL, JID format,
-multi-account), routing (route table, topics, engagement, mentions,
+(MCP, REST, web, voice, WebDAV), ingress (the channel adapter contract,
+webhook routes), identity (auth, ACL, JID format, multi-account), routing (route table, topics, engagement, mentions,
 webhooks), tenancy (org-chart, invites, user-spawned agents,
 genericized daemons), and runtime (pipeline, middleware, modality).
 
@@ -47,7 +47,7 @@ combination is the platform thesis arizuko ships toward.
 | [1/](1/)   | core gateway — routing, channels, auth, scheduler                                                                     | shipped   |
 | [2/](2/)   | social channels — events, actions, twitter                                                                            | shipped   |
 | [3/](3/)   | permissions, cleanup, gaps                                                                                            | shipped   |
-| [4/](4/)   | channels, dashboards, memory, authorization — core architecture                                                       | shipped   |
+| [4/](4/)   | dashboards, memory, scheduler, personas — core architecture (channel protocol → `5/34`, ACL → `5/32`·`5/33`)          | shipped   |
 | [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                         | active    |
 | [6/](6/)   | adoption & interop + components — wrap-the-harness, the ship-in-parts catalogue (`6/16`), crackbox + mcp-firewall     | drafting  |
 | [7/](7/)   | operator cockpit — per-daemon dashboards + global hub                                                                 | active    |

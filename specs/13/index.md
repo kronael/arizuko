@@ -17,10 +17,10 @@ standalone, reusable across other agent workloads beyond arizuko.
 
 ---
 
-> **Dropped:** the standalone-ant trio (`13-b/c/d`) moved to
-> [`specs/dropped/`](../dropped/) — the Go rewrite is superseded by `6/1`
-> (scoped reimplement-in-Go) and `6/16` (ant = interface/template; the runner
-> is crackbox/dockbox). The standalone ant already ships in TS (`ant/ant`).
+> **Dropped:** the standalone-ant trio (`13-b/c/d`) is deleted — the Go
+> rewrite is superseded by `6/1` (scoped reimplement-in-Go) and `6/16`
+> (ant = interface/template; the runner is crackbox/dockbox). The standalone
+> ant already ships in TS (`ant/ant`).
 
 ## Queue (from comparative research)
 

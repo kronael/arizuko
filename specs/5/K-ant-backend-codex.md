@@ -282,24 +282,18 @@ abstract so one could be added, but arizuko ships claude + codex.
 
 1. **Per-spawn vs per-folder selection.** Env-per-spawn ships in v1.
    A folder-level `backend:` hint (resolved by runed, env still the
-   transport) is specified when the folder layout
-   ([../dropped/13-b-ant-standalone.md](../dropped/13-b-ant-standalone.md),
-   dropped) gains the slot.
+   transport) is specified when the folder layout gains the slot.
 2. **Codex protocol stability.** `app-server` is younger than claude's
    stream-json; field-level breakage between releases is likely. Pin
    `CODEX_VERSION` in the codex image variant when it exists.
 
 ## Relation to other specs
 
-- [../dropped/13-c-ant-mcp-runtime.md](../dropped/13-c-ant-mcp-runtime.md)
-  (dropped) — the once-planned Go runtime rewrite. The `Backend` seam
-  this spec defines is language-agnostic; if a Go harness ever lands it
-  is the scoped reimplement path in `6/1`, not that spec.
-- [../dropped/13-b-ant-standalone.md](../dropped/13-b-ant-standalone.md)
-  (dropped) — folder shape; this spec adds an optional `backend:` hint
-  (deferred).
-- [../dropped/13-d-ant-image-cutover.md](../dropped/13-d-ant-image-cutover.md)
-  (dropped) — image build; a codex variant follows the same pattern.
+- [../6/1-adoption-interop.md](../6/1-adoption-interop.md) — the `Backend`
+  seam this spec defines is language-agnostic; a Go harness, if one ever
+  lands, arrives through the scoped reimplement path there. The
+  once-planned Go rewrite of ant itself (`13-b/c/d`) was dropped and
+  deleted.
 - [P-runed.md](P-runed.md) — owns the per-tenant MCP socket and the
   `submit_turn` → `POST /v1/turns/{turn_id}/result` forward. The
   backend sits below all of it.

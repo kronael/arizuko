@@ -1,6 +1,7 @@
 ---
 status: shipped
-depends: [1-auth-standalone, 5/E-routd, 8-yaml-manifests, specs/4/9-acl-unified]
+depends:
+  [1-auth-standalone, 5/E-routd, 8-yaml-manifests, specs/5/32-acl-unified]
 ---
 
 # specs/5/17 — one handler, two faces: MCP for the agent, REST for humans
@@ -145,7 +146,7 @@ resreg owns the handler, tx, audit, and arg-derivation plumbing — but
 **no authorization policy**. Authorization is an **injected `Gate`** on
 the `Resource`: resreg calls it; the mounting daemon binds it per
 surface. The `Gate` DEFAULTS to today's operator check — `auth.Authorize`
-over the unified ACL rows ([4/9](../4/9-acl-unified.md)) — so the
+over the unified ACL rows ([5/32](32-acl-unified.md)) — so the
 operator REST path is unchanged and proxyd/webd need no edit; the agent
 socket OVERRIDES it. Both surfaces still produce a surface-agnostic
 `Caller`; the difference is which gate the mounting daemon injects, not

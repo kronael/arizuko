@@ -131,7 +131,7 @@ portal is a client of the same pipeline every channel uses.
   view.
 - **Sub-folder creation right.** Per-org flag or a new `create` right?
   The ACL model defines `interact` + `admin` only
-  ([`9-acl-unified.md`](9-acl-unified.md)).
+  ([`../5/32-acl-unified.md`](../5/32-acl-unified.md)).
 
 ## Non-goals
 

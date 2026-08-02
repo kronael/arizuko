@@ -1,15 +1,15 @@
 ---
 status: superseded-in-part
-superseded-in-part: [4/R-paths-roles]
+superseded-in-part: [5/33-paths-roles]
 ---
 
 # MCP Tool Authorization (per tier)
 
-> **Tier model retired by [`4/R-paths-roles`](../4/R-paths-roles.md).** This spec
-> describes the depth→tier→default-grants derivation that `4/R` removes: capability
+> **Tier model retired by [`5/33-paths-roles`](../5/33-paths-roles.md).** This spec
+> describes the depth→tier→default-grants derivation that `5/33` removes: capability
 > now comes from `role` bindings + `acl` grants (with a `grant_option` delegation
 > level), never from folder depth. Kept as the record of the model being replaced;
-> the tier×tool table below is the SOURCE for the default-role bundles `4/R` seeds
+> the tier×tool table below is the SOURCE for the default-role bundles `5/33` seeds
 > (`role:owner` = old tier 1, etc.). Do not add new tier logic here.
 
 Scope: **which MCP tools an agent in a given folder can call.** Tier

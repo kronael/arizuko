@@ -28,8 +28,8 @@ reading identity out of one gets you the wrong answer the first time
 the layout moves.
 
 Capability attached to that identity is the ACL's business, not this
-layer's — [`9-acl-unified.md`](9-acl-unified.md) for the row model and
-[`R-paths-roles.md`](R-paths-roles.md) for the path/role/grant-option
+layer's — [`../5/32-acl-unified.md`](../5/32-acl-unified.md) for the row model and
+[`../5/33-paths-roles.md`](../5/33-paths-roles.md) for the path/role/grant-option
 axes that replaced folder-depth tiers.
 
 ## MCP server

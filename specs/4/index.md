@@ -2,11 +2,10 @@
 status: shipped
 ---
 
-# specs/4 — channels, dashboards, memory, authorization
+# specs/4 — dashboards, memory, scheduler, personas
 
-## Channels and messaging
+## Messaging
 
-- [1-channel-protocol.md](1-channel-protocol.md) — HTTP adapter protocol: register/send/health
 - [social-adapters.md](social-adapters.md) — adapter roster; chanlib ownership; whapd/emaid decisions
 - [13-message-ids.md](13-message-ids.md) — reply threading, channel coverage, forward-metadata non-goal
 - [23-topic-routing.md](23-topic-routing.md) — `@agent` delegation, `#topic` sessions
@@ -21,9 +20,7 @@ status: shipped
 
 ## Authorization
 
-- [9-acl-unified.md](9-acl-unified.md) — one ACL primitive, three principals, `Authorize` call
-- [19-action-grants.md](19-action-grants.md) — **superseded in part** — rule grammar survives; storage → `9`, tiers → `R`
-- [R-paths-roles.md](R-paths-roles.md) — **draft** — remove tiers; path + role + grant-option; delegation = subset-of-held
+- [19-action-grants.md](19-action-grants.md) — **superseded in part** — rule grammar survives; storage → [`../5/32`](../5/32-acl-unified.md), tiers → [`../5/33`](../5/33-paths-roles.md)
 - [11-auth.md](11-auth.md) — outbound JID authorization (subtree containment, no tier bypass)
 
 ## Runtime
@@ -40,12 +37,15 @@ status: shipped
 
 Merged or moved out of this phase:
 
-| Was                   | Now                                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------------- |
-| `18-web-vhosts.md`    | [`../5/V-web-vhosts.md`](../5/V-web-vhosts.md) (2026-05-26)                                       |
-| `chanlib-refactor.md` | [`social-adapters.md`](social-adapters.md)                                                        |
-| `task-logs.md`        | [`8-scheduler-service.md`](8-scheduler-service.md)                                                |
-| `24-recall.md`        | [`17-knowledge-system.md`](17-knowledge-system.md)                                                |
-| `15-code-research.md` | [`17-knowledge-system.md`](17-knowledge-system.md) + [`../5/21-products.md`](../5/21-products.md) |
-| `U-user-dashboard.md` | [`3-chat-ui.md`](3-chat-ui.md)                                                                    |
-| `Y-minimal-setup.md`  | [`../5/27-compose-native-packaging.md`](../5/27-compose-native-packaging.md)                      |
+| Was                     | Now                                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `18-web-vhosts.md`      | [`../5/V-web-vhosts.md`](../5/V-web-vhosts.md) (2026-05-26)                                       |
+| `chanlib-refactor.md`   | [`social-adapters.md`](social-adapters.md)                                                        |
+| `task-logs.md`          | [`8-scheduler-service.md`](8-scheduler-service.md)                                                |
+| `24-recall.md`          | [`17-knowledge-system.md`](17-knowledge-system.md)                                                |
+| `15-code-research.md`   | [`17-knowledge-system.md`](17-knowledge-system.md) + [`../5/21-products.md`](../5/21-products.md) |
+| `U-user-dashboard.md`   | [`3-chat-ui.md`](3-chat-ui.md)                                                                    |
+| `1-channel-protocol.md` | [`../5/34-channel-protocol.md`](../5/34-channel-protocol.md) (2026-08-02)                         |
+| `9-acl-unified.md`      | [`../5/32-acl-unified.md`](../5/32-acl-unified.md) (2026-08-02)                                   |
+| `R-paths-roles.md`      | [`../5/33-paths-roles.md`](../5/33-paths-roles.md) (2026-08-02)                                   |
+| `Y-minimal-setup.md`    | [`../5/27-compose-native-packaging.md`](../5/27-compose-native-packaging.md)                      |

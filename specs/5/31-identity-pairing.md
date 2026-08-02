@@ -1,7 +1,7 @@
 ---
 status: draft
 depends:
-  [../4/9-acl-unified, 18-onboarding-model, 1-auth-standalone, W-webhook-routes]
+  [32-acl-unified, 18-onboarding-model, 1-auth-standalone, W-webhook-routes]
 ---
 
 # specs/5/31 — identity pairing (channel identity → verified account)
@@ -12,7 +12,7 @@ A channel user is anonymous. `telegram:user/123` is a principal that holds
 no grants and has no way to acquire any — grants attach to verified
 accounts, and nothing binds the two.
 
-The bridge already exists: `4/9`'s JID claim, an
+The bridge already exists: `5/32`'s JID claim, an
 `acl_membership(child=<channel JID>, parent=<canonical sub>)` edge that
 `expandPrincipals` (`auth/authorize.go:120`) follows transitively, tested at
 `auth/authorize_test.go:88`. And the write already exists: `onbod.linkJID`
@@ -170,7 +170,7 @@ than mirrored onto `pairings`.
 - **In flight** — an edge deleted mid-turn takes effect on the turn's next
   tool call. A turn already running loses the authority partway through; it
   does not run to completion on stale grants. This falls out of `Authorize`
-  reading the DB live: `auth/authorize.go` has no cache, and `4/9`
+  reading the DB live: `auth/authorize.go` has no cache, and `5/32`
   §Caching's `acl_version` watermark was never built. If that cache is ever
   added, next-call revocation is the contract it must preserve — for
   pairing it is the difference between unpairing and waiting out a turn.
@@ -269,7 +269,7 @@ a parallel binding path that can drift from the primary one. Step 4's signed
   generic mechanism instead.
 - **A short numeric code alongside the URL.** The URL is the code; a second
   redemption path for one binding is a second mechanism.
-- **Rewriting `acl` rows to the canonical sub at pair time** (`4/9` §4's
+- **Rewriting `acl` rows to the canonical sub at pair time** (`5/32` §4's
   other option). Rows untouched means no migration, no merge, and unpair is
   a row delete rather than a reversal.
 - **`used_count` on a pairing token.** A reusable pairing token binds one
@@ -279,7 +279,7 @@ a parallel binding path that can drift from the primary one. Step 4's signed
 
 ## Ties
 
-`4/9` — the membership edge, the principal namespace, the `acl_version`
+`5/32` — the membership edge, the principal namespace, the `acl_version`
 revocation contract; §Open-Q4 closed here. `5/18` — onboarding, which this
 extracts from. `5/29` — a guest is a paired channel identity; distinct from
 that spec's "account linking", which is **surrogate** OAuth (`5/15`,

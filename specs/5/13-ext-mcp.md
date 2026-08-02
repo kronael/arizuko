@@ -1,6 +1,6 @@
 ---
 status: shipped
-depends: [17-openapi-mcp, specs/4/9-acl-unified, specs/5/5-tenant-self-service]
+depends: [17-openapi-mcp, specs/5/32-acl-unified, specs/5/5-tenant-self-service]
 ---
 
 # specs/5/13 — external capability injection
@@ -197,7 +197,7 @@ ext:*:dns:read              # read-only DNS across any registered service
 ```
 
 The tool's `scope` field IS the grant string checked at call time. Same
-ACL engine and glob syntax as `4/9-acl-unified`.
+ACL engine and glob syntax as `5/32-acl-unified`.
 
 ---
 

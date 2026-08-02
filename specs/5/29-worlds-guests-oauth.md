@@ -39,7 +39,7 @@ group (`onbod/SetupGroup`). Agents are **peers within a world**, not nested.
 
 MCP tools: `agent_create`, `agent_list`, `agent_grant` (who — which world
 users/guests — may act in this agent, and with what scope). Grants stay the
-`[!]action(param=glob)` DSL (`4/9`); the world is the grant root.
+`[!]action(param=glob)` DSL (`5/32`); the world is the grant root.
 
 ## Tier 3 — Session
 
@@ -128,6 +128,6 @@ contradicts this model. Proposed resolutions:
 ## Ties
 
 `5/5` tenancy (org-chart → this collapse) · `5/18` onboarding · `5/S` JID ·
-`5/15` surrogate OAuth · `5/17` REST+MCP one-handler · `4/9` grants ·
+`5/15` surrogate OAuth · `5/17` REST+MCP one-handler · `5/32` grants ·
 `5/P` runed sessions/spawns · `5/21` products (the Tier-2 twin of the
 Tier-3 prototype).

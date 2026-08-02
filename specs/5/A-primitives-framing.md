@@ -7,7 +7,7 @@ depends:
     Q-unified-routing,
     E-routd,
     P-runed,
-    ../4/9-acl-unified,
+    32-acl-unified,
     ../17/9-positioning,
   ]
 ---
@@ -38,7 +38,7 @@ them.
    seventh stage: every stage references it, none sequences it. Identity
    is genuinely first-class in code (`store/identities.go:13`,
    `auth/identity.go:10`, `types/identity.go`) — it reads as a
-   coordinate system, not a step. **[`4/R`](../4/R-paths-roles.md) sharpens
+   coordinate system, not a step. **[`5/33`](33-paths-roles.md) sharpens
    this: the coordinate is the `path` (location — where you are); the
    capability is the `role` (what you may do); they compose and never leak
    into each other. The old `tier` (capability derived from path depth) is
@@ -227,7 +227,7 @@ principal do this here.** Tier defaults live in code
 (`grants.DeriveRules`, the `mcp:*` fallback); operator overrides are
 rows in the `acl` table (`store/migrations/0052-acl-unified.sql:3`),
 with identity indirection via `acl_membership`. Canonical spec
-`../4/9-acl-unified.md`; pointer `GRANTS.md`.
+`32-acl-unified.md`; pointer `GRANTS.md`.
 
 Honest note: authorization is **multi-gate**, not one switch. A
 structural gate enforces tree-shape invariants (caller-folder prefix,
@@ -496,7 +496,7 @@ review + a CTO audit flagged them):
   `grant_rules`.** `grant_rules`/`grants.DeriveRules` is the
   legacy/tier-default path; the unified model is the `acl` +
   `acl_membership` tables resolved by `auth.Authorize`
-  (`store/migrations/0052-acl-unified.sql`, `../4/9-acl-unified.md`).
+  (`store/migrations/0052-acl-unified.sql`, `32-acl-unified.md`).
 - **Workflow is operating discipline, not a shipped engine.** Describe
   the enforced opening (`5/X`) as a session-boundary rule on Turn +
   State; do not imply a separate workflow substrate.

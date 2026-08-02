@@ -485,6 +485,6 @@ and remains stronger than a token TTL would allow — `auth.Authorize` reads the
 ACL live, so a revoked grant stops the next tool call inside a live turn
 (`routd/revocation_live_test.go`).
 
-If a turn credential is ever wanted again, `4/9 § Caching` states the contract
+If a turn credential is ever wanted again, `5/32 § Caching` states the contract
 it must preserve: the token names the principal and never carries the
 permissions.

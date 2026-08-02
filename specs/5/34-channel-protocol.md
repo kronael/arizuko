@@ -70,9 +70,12 @@ JIDs the adapter owns — the router picks a return adapter by prefix
 match. `url` is where router calls the channel. Session token is used
 for subsequent channel→router calls.
 
-Re-registering an existing `name` from a different source IP or with
-a different `CHANNEL_SECRET` is rejected with 409 (origin pin); same
-origin re-registers transparently and refreshes the session token.
+Re-registering an existing `name` from a different source IP or under
+a different **service principal** is rejected with 409 (origin pin);
+same origin re-registers transparently and refreshes the session token.
+The pin is the verified `sub`, not the bearer — a `service:<daemon>`
+token rotates ~hourly and pinning the raw JWT would reject every
+legitimate refresh (`routd/channels.go`).
 
 #### Deliver inbound message
 
@@ -234,7 +237,7 @@ JID prefix and enforce auth:
 
 ```
 POST /v1/outbound
-Authorization: Bearer <CHANNEL_SECRET>
+Authorization: Bearer <service:<daemon> JWT>   // scope messages:write
 
 {
   "jid":     "<chat_jid>",
@@ -261,46 +264,51 @@ producers (onbod, timed) pass `channel: "onboarding"` etc. via
 
 ## Route targets
 
-A route target is a string. Its shape determines how gated
+A route target is a string. Its shape determines how routd
 dispatches the message:
 
 - **Folder path** (default) — e.g. `REDACTED/content`, optionally
-  written as `folder:REDACTED/content`. Gateway writes the message
+  written as `folder:REDACTED/content`. routd writes the message
   to the messages table; the agent container picks it up.
 - **`daemon:<name>`** — HTTP POST to a registered daemon's `/send`
   endpoint (same lookup as external channel adapters). Reserved
   for future expansion.
-- **`builtin:<name>`** — in-gateway handler. Reserved.
+- **`builtin:<name>`** — in-routd handler. Reserved.
 
 `folder:` is optional; existing bare-path rows continue to work.
 Only explicit daemon/builtin targets need a prefix.
 
-gated's command layer (`gatewayCommands` table in
-`gateway/commands.go`) dispatches `/approve`, `/reject`, and all
-other slash-commands directly — they never flow through routes.
-See `specs/4/9-gated.md` for route resolution details.
+Slash-commands (`/approve`, `/reject`, and the rest) are dispatched
+directly by `routd/steer.go` — they never flow through routes. Route
+resolution itself is [`E-routd.md`](E-routd.md).
 
 ## Agent channel
 
-The agent is currently an implicit channel — gated
-hardcodes `docker run` to spawn agent containers. The
-conceptual model is identical to any other channel:
+The agent is an implicit channel: it never registers, and its
+"address" is a folder rather than a URL. The conceptual model is
+otherwise identical to any other channel:
 
 - Route target is a group folder path
 - "Channel" receives the message and responds
 - Responses route back through the originating channel
 
-Future: agent registers as `http://agentd:8092`. gated
-becomes a pure router with no container logic.
+The split made this real — `runed` owns the spawn (`docker run`,
+[`P-runed.md`](P-runed.md)) and `routd` is a pure router with no
+container logic ([`E-routd.md`](E-routd.md)).
 
 ## Auth
 
-Shared secret from .env (`CHANNEL_SECRET`). Used for:
+An adapter exchanges its `AUTHD_SERVICE_KEY` bootstrap secret for a
+`service:<daemon>` ES256 JWT and presents that on **every**
+authenticated routd call — registration, `/v1/messages`, `/v1/pane`
+(`chanlib.RouterClient.svcToken`). routd offline-verifies against
+authd's JWKS; no shared symmetric secret remains
+([`1-auth-standalone.md`](1-auth-standalone.md)). The exchange is
+under the **daemon** principal (`AUTHD_SERVICE_NAME`, e.g. `teled`),
+never the channel name — the mismatch 401s and outbound dies silently.
 
-- Channel → router: registration (gets session token back)
-- Router → channel: all calls use the same shared secret
-
-Simple. Both sides trust each other via the shared secret.
+Router → channel is the internal docker network plus the adapter's own
+`/send` handler; adapters are not reachable from outside it.
 
 ## Lifecycle
 

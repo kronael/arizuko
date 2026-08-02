@@ -35,20 +35,20 @@ One row asks one question:
 - **predicate** — optional claim condition (`discord:guild=G123`,
   `github:org=acme`). Empty = no claim required.
 - **effect** — `allow` or `deny`. Deny wins.
-- **grant_option** _(added by [`4/R`](R-paths-roles.md))_ — `0|1`. `1` =
+- **grant_option** _(added by [`5/33`](33-paths-roles.md))_ — `0|1`. `1` =
   `WITH GRANT OPTION`: the holder may re-delegate this row (or a subset). The
   delegation axis, orthogonal to the action lattice's read/write coverage.
 
-> **[`4/R-paths-roles`](R-paths-roles.md) removes the tier axis.** The
+> **[`5/33-paths-roles`](33-paths-roles.md) removes the tier axis.** The
 > `grants.DeriveRules` tier→default derivation and the `mcp:*` tier-fallback in
 > `Authorize` (step 4 below) are deleted; `mcp:*` becomes an explicit role grant
 > like `interact`/`admin`. Default roles (`role:owner`/`member`/`reader`) seeded at
-> path-create carry the bundles tiers used to derive. Read `4/R` for the path
+> path-create carry the bundles tiers used to derive. Read `5/33` for the path
 > (location) / role / grant-option model; this spec stays the `acl` row + evaluator
 > canonical.
 
 ~~Tier defaults stay in code (`grants.DeriveRules`).~~ Only operator overrides — and
-now default-role seeds — become rows. (Tier derivation removed by `4/R`.)
+now default-role seeds — become rows. (Tier derivation removed by `5/33`.)
 
 ## Schema
 
@@ -196,8 +196,8 @@ Evaluation:
    glob-matches requested scope, predicate evaluates against claims,
    params glob-match call params.
 4. **Deny wins**: any matching `deny` row → reject. Otherwise any
-   matching `allow` → permit. No match → deny. (Pre-`4/R`, an unmatched
-   `mcp:*` fell back to tier defaults from `grants.DeriveRules`; `4/R`
+   matching `allow` → permit. No match → deny. (Pre-`5/33`, an unmatched
+   `mcp:*` fell back to tier defaults from `grants.DeriveRules`; `5/33`
    deletes that fallback — `mcp:*` is now an explicit role grant, so a
    missing grant denies loud instead of silently tier-defaulting.)
 
@@ -354,14 +354,14 @@ would push toward.
    on each Authorize, or trust JWT until expiry? Lean: trust JWT;
    1h renewal is fast enough.
 3. **`folder:` principal trust.** ~~Can the operator grant
-   `folder:atlas/eng admin atlas/**`?~~ **DECIDED by [`4/R`](R-paths-roles.md):
+   `folder:atlas/eng admin atlas/**`?~~ **DECIDED by [`5/33`](33-paths-roles.md):
    yes — the agent BECOMES a first-class `acl` principal (`folder:<path>` with
    rows seeded at path-create + delegated at spawn), replacing the injected
    `DeriveRules` grant slice. This is the path↔role bridge that lets tiers be
    removed.**
 4. **Anonymous-to-OAuth upgrade.** ~~When `telegram:user/123` later
    OAuths, rewrite rows to canonical sub or evaluate both forms?~~
-   **DECIDED by [`5/31`](../5/31-identity-pairing.md):** insert an
+   **DECIDED by [`5/31`](31-identity-pairing.md):** insert an
    `acl_membership(telegram:user/123, google:...)` edge at pair time; rows
    untouched, membership expansion handles the rest. `5/31` owns the
    mechanism — how the edge is minted, consented to, and revoked.

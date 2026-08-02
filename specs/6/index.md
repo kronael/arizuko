@@ -32,7 +32,9 @@ egress/sandbox/DNS) + `12` (MCP firewall) are the concrete component specs
 from the former phase 12. Dropped 2026-07-16: `3`+`4` (folded into `1`),
 `5`+`6`+`7` (folded into `16`), `11` (messaging-gateway — premature) and
 `13` (sandd — `runed` owns spawn). Self-learning + skill-guard moved to
-`5/22`·`5/23` (agent features, not components).
+`5/22`·`5/23` (agent features, not components); the Hermes integration moved
+to [`../5/35-hermes-integration.md`](../5/35-hermes-integration.md) 2026-08-02
+(it consumes the ingress + auth surfaces phase 5 owns).
 
 ## Ties
 

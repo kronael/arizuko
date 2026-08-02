@@ -2,14 +2,14 @@
 status: draft
 depends:
   [
-    1-adoption-interop,
-    16-daemon-standalone-matrix,
-    ../5/17-openapi-mcp,
-    ../5/W-webhook-routes,
+    ../6/1-adoption-interop,
+    ../6/16-daemon-standalone-matrix,
+    17-openapi-mcp,
+    W-webhook-routes,
   ]
 ---
 
-# specs/6/18 — connecting Hermes to arizuko's messaging plane
+# specs/5/35 — connecting Hermes to arizuko's messaging plane
 
 ## What this solves
 
@@ -20,7 +20,7 @@ it currently carries its own connector layer to reach users. Those two
 facts compose: Hermes should stop owning transport, and arizuko should
 stop pretending it needs to own the agent.
 
-Per [`6/1`](1-adoption-interop.md): adoption is addition, not
+Per [`6/1`](../6/1-adoption-interop.md): adoption is addition, not
 replacement. This spec is the concrete instance of that thesis.
 
 ## The interface already matches
@@ -87,7 +87,7 @@ Hermes could add cheaply:
    (`specs/5/I`). Not a log line that can be dropped.
 3. **Grants** — `auth.Authorize` is the sole runtime evaluator; every
    tool call is gated by `(action, scope, params)` bound to the caller's
-   folder (`specs/4/9`). Hermes has no per-user authorization over its
+   folder (`specs/5/32`). Hermes has no per-user authorization over its
    own tools.
 4. **Secrets injection** — folder- and user-scoped secrets resolved by
    routd and merged into the spawn env (`container/runner.go:266`), with
@@ -103,14 +103,14 @@ Hermes could add cheaply:
 Six credential kinds, each with one job. This is the part an integrator
 must get right; nothing else in the system is as easy to get subtly wrong.
 
-| Credential                       | Minted by                             | Held by               | Authorizes                                                                                                          |
-| -------------------------------- | ------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `AUTH_SECRET` / `CHANNEL_SECRET` | operator `.env`                       | authd, adapters       | bootstrap — the right to ask for a real token                                                                       |
-| `service:<daemon>` ES256 JWT     | authd (JWKS-verified)                 | each daemon           | that daemon's own scopes, e.g. `messages:write`                                                                     |
-| `service:proxyd` ES256 JWT       | authd                                 | proxyd only           | trust-stamping `X-User-*` inward; the pin is exactly `service:proxyd` and is load-bearing (`auth/middleware.go:14`) |
-| route token                      | routd, opaque 256-bit, sha256 at rest | whoever holds the URL | append at **one** JID; `/chat/<t>/`, `/hook/<t>`, `/chat/<t>/mcp`                                                   |
-| MCP socket                       | runed, per folder                     | the spawned agent     | folder identity by socket path + `SO_PEERCRED`; tools gated by `db.Authorize(sub, folder, "mcp:"+tool, params)`     |
-| user JWT                         | authd via OAuth                       | browser session       | operator/user scopes, folder-contained                                                                              |
+| Credential                   | Minted by                             | Held by               | Authorizes                                                                                                          |
+| ---------------------------- | ------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `AUTHD_SERVICE_KEY`          | operator `.env`                       | authd, each daemon    | bootstrap — the right to ask for a real token. The last symmetric secret; `CHANNEL_SECRET` is retired               |
+| `service:<daemon>` ES256 JWT | authd (JWKS-verified)                 | each daemon           | that daemon's own scopes, e.g. `messages:write`                                                                     |
+| `service:proxyd` ES256 JWT   | authd                                 | proxyd only           | trust-stamping `X-User-*` inward; the pin is exactly `service:proxyd` and is load-bearing (`auth/middleware.go:14`) |
+| route token                  | routd, opaque 256-bit, sha256 at rest | whoever holds the URL | append at **one** JID; `/chat/<t>/`, `/hook/<t>`, `/chat/<t>/mcp`                                                   |
+| MCP socket                   | runed, per folder                     | the spawned agent     | folder identity by socket path + `SO_PEERCRED`; tools gated by `db.Authorize(sub, folder, "mcp:"+tool, params)`     |
+| user JWT                     | authd via OAuth                       | browser session       | operator/user scopes, folder-contained                                                                              |
 
 Rules an integrator must not break:
 

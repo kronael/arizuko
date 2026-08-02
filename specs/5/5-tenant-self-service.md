@@ -214,7 +214,7 @@ Ship in order; each phase is useful even if later phases never land.
 Specs already shipped or planned that this references (do not duplicate
 their content):
 
-- `4/9-acl-unified.md` — canonical unified ACL (shipped); subsumes the
+- `5/32-acl-unified.md` — canonical unified ACL (shipped); subsumes the
 - `14/6-dynamic-channels.md` — channel adapter credentials (special case
   of folder-scope secrets); planned
 - `5/3-inspect-tools.md` — read-only introspection (shipped)

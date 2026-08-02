@@ -322,7 +322,7 @@ degrades that group's latency. Bounding (§Decided model #2) caps the
 blast radius to the budget; ownership caps who can arm it.
 
 - **Operator-owned by default.** `autocalls:create` / `:update` /
-  `:delete` are ACL actions (`specs/4/9-acl-unified.md`); the seed
+  `:delete` are ACL actions (`specs/5/32-acl-unified.md`); the seed
   grant scopes them to operators (the `**` grant row). An ordinary
   group member cannot define an autocall.
 - **Per-folder delegation is a grant, not a default.** An operator
@@ -482,7 +482,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
 - `specs/5/17-openapi-mcp.md` — `resreg.Resource` wires one
   hand-rolled handler to REST + MCP + audit + the ACL gate;
   `autocalls:<action>` is the action key.
-- `specs/4/9-acl-unified.md` — `autocalls:*` actions; operator-owned
+- `specs/5/32-acl-unified.md` — `autocalls:*` actions; operator-owned
   by default, folder-delegable by explicit grant.
 - `specs/9/6-functions.md` — the escape hatch for facts that need
   real work (shell, network, unbounded); autocalls stay cheap and

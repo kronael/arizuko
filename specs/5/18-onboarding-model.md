@@ -9,8 +9,8 @@ depends:
     S-jid-format,
     5-tenant-self-service,
     29-worlds-guests-oauth,
-    4/9-acl-unified,
-    4/R-paths-roles,
+    5/32-acl-unified,
+    5/33-paths-roles,
   ]
 supersedes: []
 ---
@@ -88,7 +88,7 @@ an operator", it is "does this user hold authority over _this_ target".
 A user with no worlds approves nothing.
 
 How that authority is represented — the grant shape, delegation,
-`WITH GRANT OPTION` — is [`4/R`](../4/R-paths-roles.md)'s output. This
+`WITH GRANT OPTION` — is [`5/33`](33-paths-roles.md)'s output. This
 spec consumes the predicate and does not define it. Two shipped facts
 that constrain it:
 
@@ -107,7 +107,7 @@ that constrain it:
   scope, and `role:operator` is still unscoped and global
   (`cmd/arizuko/main.go:535`, `routd/acl_resource.go:227`).
   Delegation (`grant_option=1`) is unset at creation: the column is
-  `4/R`'s and has not reached every instance, so writing it would fail
+  `5/33`'s and has not reached every instance, so writing it would fail
   world creation with "no such column".
 
 ## Staging: the other posture
@@ -342,13 +342,13 @@ Three findings:
    (`db.IsOperator`) demand the unscoped operator role. Under the target
    flow the privilege is world-scoped authority over the target — a
    different check, and one that must not be satisfied by the global role
-   alone once `4/R` lands.
+   alone once `5/33` lands.
 
 ## Open, blocking
 
 Ordered by who must move first.
 
-1. **`4/R`** — the representation of world-scoped routing authority, and
+1. **`5/33`** — the representation of world-scoped routing authority, and
    whether a self-service grant can ever be a subtree (`acme/**`). Step
    7 cannot be built until the predicate exists.
 2. **`5/29`** — whether `onboarding.token` folds into the pairing
@@ -369,7 +369,7 @@ stay canonical for their mechanisms. Nothing is superseded:
 - `5/B` — `#observe` semantics (firing/visibility split quoted here).
 - `5/L`, `5/G` — mention promotion, engagement continuation.
 - `5/E` — route-miss hook in the loop.
-- `4/9`, `4/R` — grant vocabulary; the authority predicate step 7 needs.
+- `5/32`, `5/33` — grant vocabulary; the authority predicate step 7 needs.
 - `5/5` — invites, gates, tenant self-service phases.
 - `5/29` — World → Agent → Session; the identity axis and the world
   roster this flow routes into.
