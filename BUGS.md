@@ -2803,10 +2803,16 @@ record, FK'd from `oauth_identities`.
 `routd.db.auth_users` — `sub`, `username`, `hash`, `name`, `created_at`,
 `linked_to_sub`, `cost_cap_cents_per_day`. Checked column by column:
 
-- **`username` + `hash` are dead.** Local password auth appears only in test
-  fixtures (`onbod/split_test.go`, `onbod/main_test.go`); the sole production
-  writer is `store/auth.go:96`, which supplies them to satisfy `NOT NULL`.
-  Nothing authenticates against them. Delete.
+- **`hash` is dead; `username` is NOT.** CORRECTED 2026-08-02 — the original
+  claim here ("username + hash are dead") was wrong, produced by running the
+  evidence grep through `| head -6`, getting six test-file hits, and concluding
+  from a truncated list. `onbod/main.go:784` writes `UPDATE auth_users SET
+  username = ?` inside `createWorldTx`, and `:593` reads it on every
+  `GET /onboard` — a failed scan renders "User not found." and returns, so
+  dropping the column breaks onboarding for every user rather than degrading a
+  dashboard. `hash` is genuinely dead: no `SELECT` anywhere, written only by
+  `store/auth.go:29,96` to satisfy `NOT NULL`. Delete `hash`; keep `username`
+  and carry it into `user_profiles`.
 - **`cost_cap_cents_per_day` is live but is not identity** —
   `store/cost_log.go:87,98` read/write it as a per-user spend cap (the same
   column also exists on `groups`). It belongs on a budget table keyed by sub,
@@ -2819,5 +2825,35 @@ budget column to its own table, and the remainder consolidates into authd's
 `auth_users` — reconciling `sub` with authd's `user_id`. The name collision
 disappears instead of being resolved.
 
-**Timing:** both tables hold zero rows on krons. The data migration is empty
-today and will not stay that way.
+**Timing.** CORRECTED — "both tables hold zero rows" was checked on krons ONLY
+and generalised. Real counts (read-only):
+
+| instance | `routd.db` `auth_sessions` | `routd.db` `auth_users` | `auth.db` `auth_users` |
+| -------- | -------------------------- | ----------------------- | ---------------------- |
+| krons    | 0                          | 0                       | 0                      |
+| sloth    | 5                          | 3                       | 0                      |
+| marinade | 3                          | 2                       | 1                      |
+
+sloth's rows are real Google identities; marinade has `local:admin` plus one
+Google row. `cost_cap_cents_per_day` is 0 everywhere. So the migration must
+carry data on two of three instances.
+
+### `auth_sessions` is not writer-less either (CORRECTED 2026-08-02)
+
+`routd/db.go:110` `copyLegacyProxydTables` `INSERT OR IGNORE`s into
+`auth_sessions` from the legacy `messages.db` on **every routd boot** — that is
+production code writing the table, contradicting the claim that nothing writes
+it. What does hold: nothing MINTS a session post-split (`CreateAuthSession` has
+only test callers), every row is backfill (counts match `messages.db` exactly),
+and all rows are long expired — newest `expires_at` is 2026-06-05 — so the
+cookie branch still cannot match in production.
+
+**Correct order, which the drop-first plan had backwards:** remove
+`auth_sessions` from `copyLegacyProxydTables` first, so the backfill stops and
+the rows go inert; then drop the table in a later migration once every instance
+reads zero. `specs/5/16`'s own migration gate already forbids dropping while an
+instance is non-zero.
+
+Note what that writer implies more broadly: routd still opens the frozen
+`messages.db` at every boot to copy legacy rows forward. That is the real
+blocker for retiring `messages.db`, and it is bigger than any single table.
