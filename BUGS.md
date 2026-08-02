@@ -2490,3 +2490,29 @@ hides it. sloth carries exactly this shape —
 - **Fix:** the claim check excludes `parent LIKE 'role:%'`. Test uses a sub
   sorting after `role:` so the ordering is deterministic; falsified against the
   unfiltered query.
+
+## S1 — retired `CHANNEL_SECRET` still documented as the live adapter credential (2026-08-02, open)
+
+`CHANNEL_SECRET` is gone from the code — `chanlib.RouterClient.svcToken` carries
+a `service:<daemon>` ES256 JWT on every authenticated routd call, and five call
+sites carry the comment "no `CHANNEL_SECRET` remains". Three places still tell a
+reader otherwise:
+
+- Root `CLAUDE.md ## Config` lists it as an anchor env var an operator must set.
+- `template/web/pub/arizuko/security/index.html` states adapter ingress is
+  "authenticated by `Authorization: Bearer $CHANNEL_SECRET`" and lists it under
+  operator anchors — this is the **live** security page on krons.
+- Two legacy product setup pages emit it in their `.env` sample.
+
+An operator following the security page sets a variable nothing reads, and
+believes ingress is guarded by a shared secret when it is guarded by a rotating
+signed token pinned to a verified `sub`. Spec-side copies were corrected with
+the `5/34` move (`6ae3e954`); these three were left because they are a docs
+concern, not a spec one.
+
+- **Severity:** medium (no exploit — the real gate is stronger than documented)
+- **Scope:** operator docs accuracy
+- **Affected:** `CLAUDE.md`, `template/web/pub/arizuko/security/index.html`,
+  `template/web/pub/arizuko/legacy/products/{reality,slack-team}/setup.html`
+- **Fix:** replace with `AUTHD_SERVICE_KEY` (the one surviving symmetric
+  bootstrap secret) and describe the ES256 exchange; redeploy `/pub`.
