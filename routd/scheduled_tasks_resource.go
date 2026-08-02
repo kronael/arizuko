@@ -42,8 +42,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/robfig/cron/v3"
 

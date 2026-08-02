@@ -337,8 +337,8 @@ func paramVal(param, key string) string {
 }
 
 func emailDomain(sub string) string {
-	if i := strings.LastIndex(sub, "@"); i >= 0 {
-		return sub[i+1:]
+	if _, domain, found := strings.CutLast(sub, "@"); found {
+		return domain
 	}
 	return ""
 }

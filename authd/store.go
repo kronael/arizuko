@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/obs"
@@ -180,7 +180,7 @@ func rotateRefresh(db *sql.DB, fam, sub string, scope []string, aud string, ttl 
 		return "", err
 	}
 	if fam == "" {
-		fam = uuid.NewString()
+		fam = uuid.New().String()
 	}
 	exp := time.Now().Add(ttl)
 	_, err = db.Exec(

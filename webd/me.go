@@ -488,9 +488,9 @@ func meFolderTopic(r *http.Request) (folder, topic string) {
 			break
 		}
 	}
-	idx := strings.LastIndex(raw, "/")
-	if idx < 0 {
+	before, after, found := strings.CutLast(raw, "/")
+	if !found {
 		return "", ""
 	}
-	return raw[:idx], raw[idx+1:]
+	return before, after
 }

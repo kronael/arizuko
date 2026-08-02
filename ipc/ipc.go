@@ -1795,11 +1795,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if depth >= 1 {
 				return toolErr(fmt.Sprintf("delegation depth %d exceeds limit 1", depth))
 			}
-			idx := strings.LastIndex(folder, "/")
-			if idx == -1 {
+			parent, _, found := strings.CutLast(folder, "/")
+			if !found {
 				return toolErr("unauthorized: no parent group")
 			}
-			parent := folder[:idx]
 			var replyTo string
 			if db.GetLastReplyID != nil {
 				// Active-topic key so an escalation from inside a thread

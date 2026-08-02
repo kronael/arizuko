@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,8 +14,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 // envOr / envInt: audit's own env readers. audit must not depend on the
@@ -263,7 +261,6 @@ func postWebhook(url, secret string, payload []byte) {
 			lastErr = err
 			continue
 		}
-		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return

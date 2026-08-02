@@ -147,7 +147,6 @@ func checkGitHubOrgMember(ctx context.Context, token, org, username string) bool
 		return false
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode == http.StatusNoContent
 }
 

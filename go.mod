@@ -12,7 +12,6 @@ require (
 	github.com/emersion/go-message v0.18.2
 	github.com/emersion/go-msgauth v0.7.0
 	github.com/go-jose/go-jose/v4 v4.1.4
-	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/mark3labs/mcp-go v0.45.0
 	github.com/matterbridge/telegram-bot-api/v6 v6.5.0
@@ -42,6 +41,7 @@ require (
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect

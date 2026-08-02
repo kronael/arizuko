@@ -325,8 +325,8 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	replyMsgID := 0
 	if req.ReplyTo != "" {
 		raw := req.ReplyTo
-		if i := strings.LastIndex(raw, "/"); i >= 0 {
-			raw = raw[i+1:]
+		if _, last, found := strings.CutLast(raw, "/"); found {
+			raw = last
 		}
 		if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
 			replyMsgID = int(n)
@@ -397,8 +397,8 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) (stri
 	reply := 0
 	if replyTo != "" {
 		raw := replyTo
-		if i := strings.LastIndex(raw, "/"); i >= 0 {
-			raw = raw[i+1:]
+		if _, last, found := strings.CutLast(raw, "/"); found {
+			raw = last
 		}
 		if n, err := strconv.Atoi(raw); err == nil {
 			reply = n

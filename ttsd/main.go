@@ -15,7 +15,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -99,7 +98,6 @@ func healthHandler(backend string) http.HandlerFunc {
 func backendUp(client *http.Client, backend string) bool {
 	resp, err := client.Get(strings.TrimRight(backend, "/") + "/health")
 	if err == nil {
-		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode < 500 {
 			return true
@@ -114,7 +112,6 @@ func backendUp(client *http.Client, backend string) bool {
 	if err != nil {
 		return false
 	}
-	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	return resp.StatusCode < 500
 }

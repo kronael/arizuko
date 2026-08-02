@@ -523,9 +523,8 @@ func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string, depth 
 	}
 
 	if !l.db.GroupExists(targetFolder) {
-		sep := strings.LastIndex(targetFolder, "/")
-		if sep > 0 {
-			parentFolder := targetFolder[:sep]
+		parentFolder, _, found := strings.CutLast(targetFolder, "/")
+		if found && parentFolder != "" {
 			if l.db.GroupExists(parentFolder) {
 				spawned, err := l.spawnFromPrototype(parentFolder, originJID)
 				if err == nil {

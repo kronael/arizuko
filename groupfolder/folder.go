@@ -18,21 +18,21 @@ func IsTopLevel(folder string) bool {
 // ParentOf returns the immediate parent folder of folder, or "" if folder is root.
 // "main/content" → "main", "main" → "".
 func ParentOf(folder string) string {
-	i := strings.LastIndex(folder, "/")
-	if i < 0 {
+	parent, _, found := strings.CutLast(folder, "/")
+	if !found {
 		return ""
 	}
-	return folder[:i]
+	return parent
 }
 
 // NameOf returns the last path segment of folder, used as the display label.
 // "main/content" → "content", "main" → "main".
 func NameOf(folder string) string {
-	i := strings.LastIndex(folder, "/")
-	if i < 0 {
+	_, name, found := strings.CutLast(folder, "/")
+	if !found {
 		return folder
 	}
-	return folder[i+1:]
+	return name
 }
 
 var reservedFolders = map[string]bool{"share": true, "*": true, "**": true}
