@@ -2547,3 +2547,37 @@ noting: an adapter stuck in `health: starting` forever looks less alarming in
 - **Affected:** `arizuko_whapd_krons`, `arizuko_emaid_marinade`
 - **Fix:** re-pair whapd per `reference_whapd_pairing`; set marinade's IMAP
   password. Neither requires a deploy.
+
+## D6 — `make test-all` is red: the services-hub link test cannot pass as written (2026-08-02, open)
+
+`tests/dashd-playwright/tests/services.spec.ts:32` ("built tiles link to their
+control plane") fails, so `make test-all` exits non-zero. Confirmed pre-existing
+— it reproduces on a clean tree, unrelated to the modernizer sweep (`a5645e4d`).
+
+Two independent mismatches, and the second makes the test unsatisfiable:
+
+1. **Stale list.** The spec asserts `BUILT = ['onbod','timed']` and puts
+   `routd`/`runed` in `UNBUILT`. `dashd/services.go:31-38` says the opposite —
+   `routd` and `runed` carry `Built: true`, `onbod` and `timed` `false`.
+2. **Unreachable assertion.** `dashd/services.go:142` renders the link only
+   when `s.Built && statuses[i] != statusUnknown`. The spec's own header comment
+   states that in tests no daemon hostname resolves, so every tile is
+   `unknown` — under its own stated conditions **no tile can ever render a
+   link**. Fixing only the BUILT list would leave it red.
+
+This also explains why the sibling test at :42 ("unbuilt tiles render name as
+text") passes: it passes trivially, because nothing links.
+
+Behind it is a real design question, hence proposal not fix: should a tile for a
+daemon that is built but currently unreachable link to its control plane? The
+current answer is no — which is arguably backwards, since an unreachable daemon
+is exactly the one an operator wants to click through to. Changing that is a
+dashd UX decision and needs sign-off.
+
+- **Severity:** medium (CI red; masks any real regression in the same suite)
+- **Scope:** dashd services hub + its playwright contract
+- **Affected:** `tests/dashd-playwright/tests/services.spec.ts:32`,
+  `dashd/services.go:31-38,142`
+- **Fix:** decide the link-when-unreachable question first, then align the test's
+  BUILT list with `services.go` and make the probe condition reachable in tests
+  (stub a healthy probe, or drop the status gate).
