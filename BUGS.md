@@ -2425,7 +2425,37 @@ so the order matters.
 - **Severity:** medium (account linking non-functional on two surfaces)
 - **Source:** `store/identities.go`; `authd/store.go:122`; `authd/http.go:384`;
   `store/auth.go:60,73`; `proxyd/main.go:885`; `dashd/profile.go:81`
-- **Status:** decided, not started — a feature build, not a cleanup
+### Step 1 SHIPPED (90e46d62)
+
+`GET /v1/identities/{sub}` now reads `auth_users`+`oauth_identities`. The
+endpoint had been answering `{identity:null,subs:[]}` for every sub, so routd's
+`inspect_identity` reported everyone as unclaimed.
+
+### Step 2 is NOT a deletion — correction to this entry
+
+The old model has two more live surfaces, found while attempting the delete:
+
+- **an operator CLI** — `arizuko identity list/create/link/unlink`
+  (`cmd/arizuko/main.go:815-870`), the only way to bind a platform sub to a
+  person by hand;
+- **`inspect_identity`** (`ipc/inspect.go:112`) reads
+  `GetIdentityForSub` straight from the DB, NOT through authd's endpoint — so
+  re-pointing the endpoint did not re-point the tool.
+
+So the two models are not redundant in the way this entry first claimed. They
+differ by WRITER: `identities`/`identity_claims` is manual and
+operator-driven and accepts any sub (`tg:42`); `oauth_identities` is written
+only by the OAuth login path (`upsertOAuthUser`) and has no manual entry point.
+Deleting the first would remove the operator's ability to link a platform
+identity by hand — which is the pairing capability `5/31` is about.
+
+**Revised step 2**: give `oauth_identities` a manual writer, migrate the CLI and
+`inspect_identity` onto it, THEN delete `identities`, `identity_claims`,
+`store/identities.go`, `linked_to_sub` + accessors, and dashd's `linkedSubs`.
+`provider`/`provider_sub` already holds a platform sub fine — the endpoint test
+seeds `tg:42` that way.
+
+- **Status:** step 1 shipped; step 2 re-scoped from deletion to migration
 
 ## P3b — rejected minimization phases, recorded so they are not retried (2026-08-01, closed)
 
