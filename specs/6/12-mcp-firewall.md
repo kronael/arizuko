@@ -2,7 +2,7 @@
 status: draft
 ---
 
-# mcp-firewall — transparent MCP tool-call filter
+# mcpfw — transparent MCP tool-call filter
 
 > Sits between an agent and its MCP servers, parses JSON-RPC, and
 > allows / denies / logs each `tools/call` against a flat ruleset.
@@ -26,7 +26,7 @@ The unmet need is **third-party MCP servers**. When a folder-agent connects
 to an external MCP server (a vendor tool, a community server), those tools
 never pass through arizuko's `Gate` — the agent talks to the upstream
 directly, and nothing checks which of the upstream's tools it may call.
-mcp-firewall is the generic component on THAT wire: intercept every
+mcpfw is the generic component on THAT wire: intercept every
 `tools/call` to an untrusted upstream, match the tool name against a flat
 allow/deny ruleset, pass or refuse. The _mechanism_ (parse JSON-RPC, match
 a tool name, forward or refuse) is generic; the _domain_ (which folder may
@@ -37,9 +37,9 @@ learns what a folder or grant is.
 This is a different layer from
 [../5/23-skill-guard.md](../5/23-skill-guard.md): skill-guard is a PreToolUse hook
 that scans the _content_ of agent-written skill files for threat
-patterns before they land on disk. mcp-firewall filters _JSON-RPC
+patterns before they land on disk. mcpfw filters _JSON-RPC
 tool calls_ on the wire. Skill-guard answers "is this skill file
-dangerous to write"; mcp-firewall answers "is this agent allowed to
+dangerous to write"; mcpfw answers "is this agent allowed to
 call this tool right now". Both gate the agent, at different layers;
 keep them distinct.
 
@@ -105,8 +105,8 @@ Three contracts (the component contract, `6/16`):
 **CLI** — primary surface, no arizuko process needed:
 
 ```
-mcp-firewall serve --upstream <addr> --rules <file> [--listen <sock-or-addr>]
-mcp-firewall check <tool-name>        # dry-run a name against the ruleset
+mcpfw serve --upstream <addr> --rules <file> [--listen <sock-or-addr>]
+mcpfw check <tool-name>        # dry-run a name against the ruleset
 ```
 
 `--upstream` may repeat (multiple upstream MCP servers fan in). The
@@ -121,51 +121,23 @@ matching the transport the client uses.
 - `GET /v1/log` — recent call decisions (for audit).
 - `GET /health`.
 
-**Go imports** — `mcp-firewall/pkg/...`:
+**Go imports** — `mcpfw/pkg/...`:
 
 - `firewall.NewProxy(Config) *Proxy` — what `serve` runs.
 - `rule.Decide(rules []Rule, tool string) Action` — the pure decision
   function (`Allow` / `Deny`), exposed so callers can share it.
 - `client.New(adminURL) *Client` — thin HTTP wrapper for pushing rules.
 
-## Layout
+## Layout + orthogonality
 
-The standard component skeleton (`6/16`):
-
-```
-mcp-firewall/
-  README.md            public surface: CLI, HTTP/admin API, Go imports
-  Makefile             build, test, lint, image
-  Dockerfile           ships its own image
-  CHANGELOG.md         its own version history
-  cmd/mcp-firewall/main.go
-  pkg/firewall/        proxy + JSON-RPC splice (public)
-  pkg/rule/            pure decide function (public)
-  pkg/client/          admin HTTP client (public)
-  internal/transport/  unix-socket / stdio / HTTP bridging (private)
-  testdata/            JSON-RPC frames + ruleset fixtures
-```
-
-## Orthogonality acceptance
-
-Per the component contract's mechanical test (`6/16`):
-
-- The mechanical grep returns empty:
-
-  ```
-  $ grep -rE 'github\.com/[^/]+/arizuko/(store|core|gateway|api|chanlib|chanreg|router|queue|ipc|grants|onbod|webd|gated|auth|audit|resreg|obs)' mcp-firewall/
-  <empty>
-  ```
-
-- `make -C mcp-firewall build && make -C mcp-firewall test` passes on a
-  host with **no arizuko process and no arizuko data directory**. Tests
-  drive the proxy against a stub upstream MCP server and assert
-  allow / deny / list-filter outcomes from `testdata/` fixtures.
-- Every signature takes strings (`tool string`, `upstream string`) and
-  the flat `Rule` shape — never `core.Folder`, `core.Grant`,
-  `types.Scope`, or anything grant-shaped.
-- The component reads its own env vars / flags and owns its own store;
-  it never opens `messages.db` or imports `grants`/`auth`.
+Standard component skeleton and mechanical grep test per `6/16` — `mcpfw/`
+is a sibling dir with its own `README`/`Makefile`/`Dockerfile`, `cmd/`,
+public `pkg/{firewall,rule,client}`, private `internal/transport/`, and
+`testdata/` JSON-RPC fixtures. Acceptance adds two component-specific
+checks on top of `6/16`'s: every signature takes strings (`tool`,
+`upstream`) and the flat `Rule` shape — never `core.Folder`, `core.Grant`,
+or anything grant-shaped — and `make -C mcpfw test` drives the proxy
+against a stub upstream on a host with no arizuko data directory.
 
 ## How arizuko consumes it
 
@@ -194,13 +166,13 @@ the derived list:
    CLAUDE.md).
 
 The split mirrors A's domain/mechanism table: arizuko owns _which tools
-this folder's grants permit_; mcp-firewall owns _match a tool name
+this folder's grants permit_; mcpfw owns _match a tool name
 against a flat rule list and forward or refuse the JSON-RPC call_.
 
 ## Out of scope
 
 - Deriving rules from grants (stays in `auth/` / `grants/`).
-- Folder / tier / scope concepts of any kind.
+- Folder / scope concepts of any kind.
 - Tool-argument inspection or payload scanning (a denied tool is denied
   by name; argument-level policy is a separate concern, not this gate).
 - Skill-file content scanning — that is
@@ -212,7 +184,7 @@ against a flat rule list and forward or refuse the JSON-RPC call_.
 
 ## Acceptance
 
-- `mcp-firewall serve --upstream <stub> --rules <file>` with a ruleset
+- `mcpfw serve --upstream <stub> --rules <file>` with a ruleset
   allowing `read_*` and denying `send_*`: an agent `tools/call` for
   `read_file` reaches the stub upstream and returns its result; a call
   for `send_message` returns a JSON-RPC error without touching upstream
@@ -220,6 +192,3 @@ against a flat rule list and forward or refuse the JSON-RPC call_.
 - A `tools/call` for a tool matched by no rule is denied (default-deny).
 - With `tools/list` filtering on, the denied tool does not appear in
   the listed tools returned to the client.
-- `make -C mcp-firewall build && make -C mcp-firewall test` passes on a
-  host with no arizuko data directory.
-- The orthogonality grep above returns empty.

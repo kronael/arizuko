@@ -8,286 +8,110 @@ relates-to: [5/G-engagement]
 
 ## Problem
 
-`ant/CLAUDE.md` (lines 478-511) carries a "Response size + medium"
-table — sweet spot and hard cap per surface (DM, channel, thread,
-Slack pane, web chat, email). Today this table is prompt-rule only:
-the agent reads it, but nothing in the runtime tells the agent
-_which_ row applies to the current turn. The agent guesses from the
-`outputStyle` value (`slack`, `telegram`, `discord`, `email`), which
-only encodes platform, not surface within the platform.
+`ant/CLAUDE.md` carried a "Response size + medium" table — sweet spot and
+hard cap per surface (DM, channel, thread, Slack pane, web chat, email).
+It was prompt-rule only: the agent read the table but nothing told it
+which row applied to the current turn. It guessed from the `outputStyle`
+value (`slack`, `telegram`, …), which encodes platform, not surface
+within the platform.
 
-Spec `5/G-engagement.md` (lines 151-174) proposed fixing this by
-emitting a `<surface>...</surface>` tag in `buildAgentPrompt`,
-computed from JID shape + thread context. That introduces a _second_
-mechanism for the same concern: output styles already shape output
-per platform, and we'd be adding a parallel prompt tag to shape
-output per surface.
+## Decision: extend the existing renderer, don't add a second one
 
-We already have one renderer for "how the agent shapes output for
-this turn": the output style file written into the container's
-`~/.claude/settings.json`. Extend it to per-surface; drop the
-`<surface>` tag.
+We already have exactly one renderer for "how the agent shapes output
+this turn" — the output-style file named in the container's
+`~/.claude/settings.json`. Split that per surface. The rejected
+alternative was a `<surface>…</surface>` prompt tag computed in
+`buildAgentPrompt` (proposed by an earlier revision of
+[`G-engagement.md`](G-engagement.md)): it would shape output per surface
+in parallel with output styles already shaping it per platform — two
+mechanisms, one concern, guaranteed drift.
 
-## Mechanism
+**Naming: `<platform>-<surface>.md`, two segments, no deeper.** No
+platform-less surface keys. `ant/output-styles/` ships
+`slack-{dm,channel,thread,pane}`, `telegram-{dm,group}`,
+`discord-{dm,channel}`, `email.md`, `web.md`, plus the bare
+`<platform>.md` fallbacks. Platforms whose length envelope isn't
+interesting (WhatsApp, Reddit, Mastodon, Bluesky, Twitter, LinkedIn) keep
+their single platform file; a channel with no matching file gets no
+`outputStyle` override and Claude Code falls back to its default.
+Operators override per folder via `~/.claude/output-styles/` — Claude
+Code's own settings precedence, no arizuko mechanism.
 
-### File naming
+**Name selection and file loading are separate concerns.** The picker
+does no host-side existence check: it derives the name, and Claude Code's
+`readOutputStyle` resolves `<home>/.claude/output-styles/<name>.md` at
+agent startup. That is what makes per-group operator overrides work for
+free. (An earlier revision specced a host-side `stat` fallback chain
+against `hostStylesDir`; it shipped without it — the image contract, "the
+agent image ships every per-surface file in the table", replaces it.)
 
-Split each platform's output-style file by surface. Convention:
-`<platform>-<surface>.md`. Concretely:
+**The length policy lives in the style file, not in the platform.** Each
+file opens with its surface's sweet spot, hard cap, and when to invoke
+the long-answer pattern (write to `~/reports/`, post summary + link).
+`ant/CLAUDE.md` reduces to a pointer at whatever file `outputStyle`
+selected; the long-answer pattern itself stays there because it is
+surface-agnostic.
 
-```
-ant/output-styles/
-  slack.md              # fallback (already shipped, v0.40.7)
-  slack-dm.md           # 1:1 DM
-  slack-channel.md      # top-level channel reply (hard 200ch cap)
-  slack-thread.md       # threaded reply (full ceiling)
-  slack-pane.md         # assistant.threads pane (spec 7/D)
+## Picker
 
-  telegram.md           # fallback
-  telegram-dm.md
-  telegram-group.md
+`container/runner.go:893` `pickOutputStyle(channel, chatJID, topic,
+paneLookup)` → `deriveSurface` (`:909`), called from the settings seed at
+`:830`. Returns `<channel>-<surface>` when the surface table matches,
+else bare `<channel>`, else `""` when channel is empty.
 
-  discord.md            # fallback
-  discord-dm.md
-  discord-channel.md    # guild text channel (incl. thread)
+Surface derivation is the table in `deriveSurface` — read it there. The
+two non-obvious inputs:
 
-  email.md              # one shape, no further split
-
-  web.md                # slink chat / web widget (new — full markdown ceiling)
-```
-
-No platform-less surface keys. No nesting deeper than two segments.
-Operators can override per-folder via `~/.claude/output-styles/`
-(already supported by Claude Code's settings precedence).
-
-WhatsApp, Reddit, Mastodon, Bluesky, Twitter, LinkedIn use their
-platform-name style file unchanged; per-surface split deferred. The
-agent image ships only the platform files that have corresponding
-adapters with a non-trivial length envelope (slack, telegram,
-discord, email, web). Channels without a matching file get no
-`outputStyle` override — Claude Code falls back to its default.
-
-### Picker
-
-`container/runner.go` writes `settings["outputStyle"] = in.Channel`
-today (one unconditional assignment guarded by `if in.Channel != ""`).
-Replace the RHS with a call to a new resolver:
-
-```go
-if in.Channel != "" {
-    settings["outputStyle"] = pickOutputStyle(
-        in.Channel, in.ChatJID, in.Topic, hostStylesDir, paneLookup,
-    )
-}
-```
-
-Keep the `if in.Channel != ""` guard. When the picker returns `""`,
-the assignment site still skips (or assigns empty — caller decides;
-we skip).
-
-`pickOutputStyle` signature:
-
-```go
-func pickOutputStyle(
-    channel, chatJID, topic, hostStylesDir string,
-    paneLookup func(channelID string) bool,
-) string
-```
-
-Steps:
-
-1. Derive `<surface>` from `(channel, chatJID, topic, pane)` per the
-   table below. `paneLookup(channelID)` is the runner-side pane bit;
-   for Slack it calls `store.GetPaneByChannel(channelID)` (the same
-   call `gateway.paneHints` already uses). For all other channels it
-   returns `false`. Lookup happens in the runner, not in the adapter.
-2. Compose name `<platform>-<surface>`. Stat
-   `<hostStylesDir>/<name>.md`. If present, return that name.
-3. Fall back to `<platform>` and stat `<hostStylesDir>/<platform>.md`.
-   If present, return `<platform>`.
-4. Otherwise return `""` (no override).
-
-One stat per spawn (two if the first miss). `hostStylesDir` is the
-host-side path to `ant/output-styles/` resolved from `cfg.HostAppDir`.
-This is intentionally NOT the in-container `~/.claude/output-styles/`
-path — the runner is host-side; the agent image bakes the same files
-from this directory at build (see `ant/Dockerfile`).
-
-There is no separate Claude-Code-resolves-it path: the picker is the
-single source of truth for which style name lands in settings.json.
-
-### Surface detection
-
-From `Input.ChatJID` shape (`specs/5/S-jid-format.md`) + `Input.Topic` +
-runner-side pane lookup:
-
-| Platform   | JID shape                 | Topic | Pane | Surface              |
-| ---------- | ------------------------- | ----- | ---- | -------------------- |
-| `slack`    | `slack:<ws>/dm/<id>`      | any   | no   | `dm`                 |
-| `slack`    | `slack:<ws>/channel/<id>` | any   | yes  | `pane`               |
-| `slack`    | `slack:<ws>/channel/<id>` | `""`  | no   | `channel`            |
-| `slack`    | `slack:<ws>/channel/<id>` | `≠""` | no   | `thread`             |
-| `slack`    | `slack:<ws>/group/<id>`   | any   | no   | `channel`            |
-| `telegram` | `telegram:user/<id>`      | any   | no   | `dm`                 |
-| `telegram` | `telegram:group/<id>`     | any   | no   | `group`              |
-| `discord`  | `discord:dm/<id>`         | any   | no   | `dm`                 |
-| `discord`  | `discord:<guild>/<chan>`  | any   | no   | `channel`            |
-| `email`    | any                       | any   | no   | (none — single file) |
-| `web`      | `web:<token>` / slink     | any   | no   | (none — single file) |
-
-For Slack specifically, `Topic` is set by slakd to `thread_ts` when
-the inbound is in a thread, else empty (`slakd/bot.go:255-258`). So
-`Topic != ""` is a valid thread signal for Slack. Other platforms'
-`Topic` semantics differ (arizuko-internal topic name vs platform
-thread root) but none of them have a `-thread` style row, so the
-difference doesn't surface in picker output.
-
-Pane detection: `paneLookup(channelID)` is invoked only when
-`channel == "slack"` and the parsed JID is `channel`-kind. The
-runner parses `slack:<ws>/<kind>/<id>` inline (mirrors
-`slakd/parseJID`); `<id>` is the channel ID passed to
-`store.GetPaneByChannel`. No new state, no slakd change.
-
-### Length policy lives in the file
-
-Each `<platform>-<surface>.md` file opens with one paragraph stating
-its surface's sweet spot, hard cap, and when to invoke the
-long-answer pattern (write to `~/reports/`, post summary + link).
-
-`ant/CLAUDE.md`'s "Response size + medium" section (lines 478-511)
-collapses to one sentence:
-
-> Your output style file (selected by `outputStyle` in settings.json)
-> states the length rules for this surface. Follow them; invoke the
-> long-answer pattern when your draft would exceed the sweet spot.
-
-The "long-answer pattern" prose itself stays in `ant/CLAUDE.md` —
-it's surface-agnostic and reused from every style file via reference.
+- **Slack `Topic` is the thread signal.** slakd sets it to `thread_ts`
+  for in-thread inbounds and leaves it empty otherwise, so `Topic != ""`
+  means "thread" _for Slack_. Other platforms' `Topic` is the
+  arizuko-internal topic name, a different thing — none of them has a
+  `-thread` style file, so the difference never surfaces in picker
+  output.
+- **Pane detection is runner-side**, `paneLookup(channelID)` against
+  `pane_sessions`, only for Slack `channel`-kind JIDs. No new state, no
+  slakd change.
 
 ## What this is NOT
 
-- **NOT a new prompt tag.** No `<surface>` element in
-  `buildAgentPrompt`. The output style file's content IS the signal.
-- **NOT runtime length enforcement.** No truncation, no
-  auto-splitting, no post-hoc trim. The agent self-caps from the
-  style file's text. Same trust model as today.
-- **NOT a personality override.** Personality stays in `PERSONA.md`
-  (spec `4/P-personas.md`). Output style is "how to shape the output
-  for this surface" — formatting dialect + length envelope.
-- **NOT a route configuration.** Operators do not pick output style
-  per route. Surface is derived from the turn's destination, not from
-  routing rules.
-- **NOT engagement-coupled.** Spec `5/G-engagement.md` covers when
-  the agent fires. This spec covers how it shapes output once it has
-  fired. The two are independent.
+- **NOT runtime length enforcement.** No truncation, no auto-splitting,
+  no post-hoc trim. The agent self-caps from the style file's text — same
+  trust model as every other prompt rule.
+- **NOT a personality override.** Personality is `PERSONA.md`
+  (`4/P-personas.md`). Output style is formatting dialect + length
+  envelope.
+- **NOT route configuration.** Surface is derived from the turn's
+  destination, never picked per route.
+- **NOT engagement-coupled.** [`G-engagement.md`](G-engagement.md) covers
+  _when_ the agent fires; this covers _how_ it shapes output once it has.
 
-## Migration
-
-- Existing groups have `outputStyle: "slack"` (or `"telegram"` etc.)
-  cached in `~/.claude/settings.json`. The runner overwrites this on
-  every spawn (the `settings["outputStyle"] = ...` assignment in
-  `seedSettings` is unconditional within its `in.Channel != ""`
-  guard), so old groups pick up the new style on next turn. No
-  code-side data migration needed.
-- The `migrate` skill's existing per-folder output-styles broadcast
-  (`ant/skills/migrate/SKILL.md:209-212`) copies any
-  `.claude/output-styles/*` files from the new image into each
-  session, so the new per-surface files reach existing groups when
-  they next run `/migrate`.
-- Existing `slack.md`, `telegram.md`, `discord.md`, `email.md` stay
-  as platform-default fallbacks. New per-surface files land
-  alongside, populated by trimming the length section in each
-  existing fallback file down to one surface.
-- `ant/CLAUDE.md` lines 478-511 reduced to the one-sentence pointer
-  above (the long-answer pattern paragraph stays).
-- Spec `5/G-engagement.md` "Length policy per surface" section
-  (lines 151-174) is struck and replaced with a one-line pointer
-  to this spec.
-
-No schema change. No prompt-builder change. Per-folder operator
-overrides keep working unchanged.
-
-## Tests
-
-Unit (`container/runner_test.go`):
-
-- `pickOutputStyle("slack", "slack:T1/dm/D1", "", dir, never)` → `slack-dm` (when `slack-dm.md` exists)
-- `pickOutputStyle("slack", "slack:T1/channel/C1", "", dir, never)` → `slack-channel`
-- `pickOutputStyle("slack", "slack:T1/channel/C1", "T123", dir, never)` → `slack-thread`
-- `pickOutputStyle("slack", "slack:T1/channel/C1", "", dir, paneTrue)` → `slack-pane`
-- `pickOutputStyle("telegram", "telegram:user/42", "", dir, never)` → `telegram-dm`
-- `pickOutputStyle("telegram", "telegram:group/42", "", dir, never)` → `telegram-group`
-- `pickOutputStyle("discord", "discord:dm/D1", "", dir, never)` → `discord-dm`
-- `pickOutputStyle("discord", "discord:G1/C1", "", dir, never)` → `discord-channel`
-- `pickOutputStyle("email", "", "", dir, never)` → `email`
-- `pickOutputStyle("web", "", "", dir, never)` → `web`
-- Fallback: `slack-channel.md` absent + `slack.md` present → `slack`
-- Fallback: both absent → `""`
-- Empty channel: `pickOutputStyle("", ...)` → `""` (assignment site skips)
-
-## Code surface
-
-| File                       | Change                                                                   | LOC  |
-| -------------------------- | ------------------------------------------------------------------------ | ---- |
-| `container/runner.go`      | new `pickOutputStyle` (table + stat-fallback); call from `seedSettings`  | ~70  |
-| `container/runner_test.go` | unit cases above                                                         | ~110 |
-| `gateway/gateway.go`       | pass `paneLookup` and `hostStylesDir` into Input/runner                  | ~10  |
-| `ant/output-styles/*.md`   | add `slack-{dm,channel,thread,pane}`, `telegram-{dm,group}`,             | ~200 |
-|                            | `discord-{dm,channel}`, `web.md`                                         |      |
-| `ant/CLAUDE.md`            | collapse lines 478-511 to one-sentence pointer                           | ~−30 |
-| `specs/5/G-engagement.md`  | strike "Length policy per surface" section, add pointer                  | ~−25 |
-| `slakd/*`                  | **no change** — Input is gateway-constructed; pane lookup is runner-side | 0    |
-
-Net: ~330 LOC, mostly new style-file content. Picker logic is one
-table-driven function with two stat calls.
+Note: `buildAgentPrompt` **does** emit one `<surface>` tag —
+`<surface>slack-pane</surface>` from `routd/prompt.go:58` `paneHints`,
+alongside `<pane-context>`. That is the pane-context feature, not this
+spec's mechanism, and it is the only `<surface>` value ever emitted.
 
 ## Closed questions
 
-- **Web surface split (iframe vs chat widget)**: no native iframe surface.
-  `web:<token>` JIDs arrive via GET+SSE regardless of how the host page embeds
-  the widget. The agent can't distinguish and there is no routing-layer split to
-  drive an output-style split. `web.md` covers all web surfaces; no further split.
-- **Email direction split**: no split. `email.md` is one file, minimal,
-  same convention as every other channel. Length/tone judgment is the LLM's.
+- **Web iframe vs chat widget**: no native iframe surface — `web:` JIDs
+  arrive via GET+SSE however the host page embeds the widget, and there
+  is no routing-layer split to drive a style split. `web.md` covers all.
+- **Email direction split**: none. One `email.md`; length and tone
+  judgment is the model's.
 
 ## Open: extending the per-turn envelope
 
-The decided substrate (output-style file + `<topic>` + `<pane-context>`)
-covers length-budget and scope. The shape of any FUTURE per-turn hint
-beyond that — engagement TTL, surface-cap numbers, reply-mode, recent
-activity — is parked here. Three framings sat on the table when the
-modality-envelope question was first opened (former spec 5/X):
+The shipped substrate is the output-style file plus `<topic>`,
+`<surface>`/`<pane-context>` and `<link-context>` sibling tags. The shape
+of any FUTURE per-turn hint (engagement TTL, reply-mode, recent activity)
+is parked. Three framings were on the table: **A** one attribute-bearing
+`<modality/>` block (compact, single parse — but the agent learns a new
+attribute per feature); **B** one sibling tag per concern (each spec owns
+its tag — but prompt sprawl); **C** a JSON `<context>` blob
+(programmatically clean — but mixes JSON into an XML prompt).
 
-- **Framing A — one block, all hints**: `<modality
-surface="slack-channel-thread" topic="#deploy" engagement-ttl-left="540"
-pane-context="..." reply-mode="thread"/>`. Compact, single parse.
-  Risk: agent learns a new attribute per feature; no progressive disclosure.
-- **Framing B — composable children**: one sibling tag per concern
-  (`<surface>`, `<engagement>`, etc.). Easier to add/remove; each spec
-  owns its own tag. Risk: prompt sprawl. (Closest to today's shipped
-  shape.)
-- **Framing C — JSON `<context>` blob**: programmatically clean. Risk:
-  mixes JSON with XML in the rest of the prompt.
-
-Catalog of plausible future hints:
-
-| Hint                                 | Source        | Why agent wants it                  |
-| ------------------------------------ | ------------- | ----------------------------------- |
-| `topic`, `parent_topic`              | 5/F (shipped) | scope replies; thread conflation    |
-| `pane-context`                       | 7/D (shipped) | fetch related history pre-reply     |
-| `surface` (output-style file picker) | this spec     | length cap, tone, actions           |
-| `engagement` (ttl/state)             | 5/G           | knows when re-mention is needed     |
-| `reply-mode` (thread/top/new-thread) | 5/G           | guide outbound `thread_ts` decision |
-| `recent-activity` (rate, last seen)  | future        | pacing decisions                    |
-
-Decision criteria when a new hint earns inclusion:
-
-1. New hint lands in ONE place (single touch-point in `buildAgentPrompt`
-   - one rule line in ant CLAUDE.md), not five.
-2. Survives doubling hint count without becoming unreadable.
-3. Doesn't force the agent to learn new parsing (XML already in
-   `<message>`/`<reply-to>`/`<observed>`).
-4. Greppable from the agent side: "show me my modality" is one regex.
-
-Framing B (composable children) is the default direction unless hint
-count explodes, at which point A or C earn the cost.
+**B is the default direction** — it is what shipped — unless the hint
+count explodes, at which point A or C earn their cost. A new hint earns
+inclusion when it lands in ONE place in `buildAgentPrompt` plus one rule
+line in `ant/CLAUDE.md`, survives doubling the hint count without
+becoming unreadable, forces no new parsing on the agent, and is greppable
+from the agent side.

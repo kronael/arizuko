@@ -2,152 +2,75 @@
 status: shipped
 ---
 
-# slakd — Slack channel adapter (bot-token, v1)
+# slakd — Slack channel adapter
 
-Slack workspace adapter. Same shape as `discd` / `teled`: registers
-with `gated` via `chanlib.RouterClient`, exposes `/send`, `/like`,
-`/delete`, `/upload`, `/health`. Lives at `slakd/`; goes in
-`template/services/slakd.toml`.
+Bot-token, single-workspace. Same shape as `discd` / `teled`: registers
+with routd via `chanlib.RouterClient`, exposes `/send`, `/like`,
+`/delete`, `/upload`, `/health`. Ships as
+`template/services/slakd.yml` + `slakd-routes.json`.
 
-## What ships in v1 (bot-token, single-workspace)
+## Decisions worth keeping
 
-One `xoxb-` token, one workspace. Multi-workspace = future spec.
+**HTTP webhooks via proxyd, not Socket Mode.** Public reachability is
+proxyd's job (`/slack/*` → `slakd:8080`), matching onbod / webd / dashd.
+Socket Mode would be a second transport to maintain for no gain, so
+there is no `SLAKD_PUBLIC_URL`.
 
-- HTTP Events API on `SLAKD_PORT` (internal). Public reachability via
-  `proxyd` — same pattern as `onbod` and `webd`. proxyd config gets
-  `SLAKD_ADDR=http://slakd:8080` + a `/slack/*` route forwarding to it;
-  no other public-URL machinery in slakd itself.
-- URL-verification handshake (`type=url_verification` → echo `challenge`).
-- Signing: `X-Slack-Signature` HMAC of `v0:<ts>:<body>` using
-  `SLACK_SIGNING_SECRET`; reject if `|ts - now| > 5 min`. proxyd MUST
-  pass body bytes and `X-Slack-Signature` / `X-Slack-Request-Timestamp`
-  headers verbatim (no re-marshal, no TLS re-sign) — else slakd can't verify.
-- Inbound: `message.channels`, `message.groups`, `message.im`,
-  `message.mpim`, `reaction_added`, `member_joined_channel`
-  (`verb=join`). Files arrive piggy-backed on `message.*` events via the
-  `files` array; do not subscribe to `file_shared`. NOT `app_mention` —
-  Slack fires it
-  alongside `message.*`; mirror `discd/bot.go:143` and set
-  `Verb="mention"` when the text contains `<@Uxxx>` matching
-  `auth.test`'s `bot_user_id`; otherwise `Verb=""` (default).
-- Outbound (Web API, `Bearer xoxb-...`): `chat.postMessage` (+`thread_ts`),
-  `chat.update`, `chat.delete`, `reactions.add`/`remove`,
-  `files.getUploadURLExternal` + `files.completeUploadExternal`
-  (`files.upload` deprecated 2025-05).
-- 429: respect `Retry-After` (same as discd / `ant/CLAUDE.md` tool
-  discipline). Per-method tiers are constants — log, don't compute.
+**proxyd must forward the body bytes verbatim.** Slack signs
+`v0:<ts>:<body>` with `SLACK_SIGNING_SECRET`; any re-marshal or TLS
+re-sign in front of slakd breaks verification. Reject when
+`|ts - now| > 5 min`.
 
-## JID and threading
+**Subscribe to `message.*`, never `app_mention`.** Slack fires
+`app_mention` _alongside_ `message.*`, so subscribing to both
+double-delivers. Mirroring `discd`, slakd sets `Verb="mention"` when the
+text contains `<@Uxxx>` matching `auth.test`'s `bot_user_id`, and `""`
+otherwise. Files arrive piggy-backed on `message.*` via the `files`
+array — do not subscribe to `file_shared` either, for the same reason.
 
-JID: `slack:<workspace>/<kind>/<id>` — same kind-segment shape as
-Telegram (`telegram:user/<id>`, `telegram:group/<id>`). Kind is `channel`
-(public/private),
-`dm` (direct message), or `group` (legacy mpim). Workspace ID and
-channel ID kept verbatim from Slack (paste-back from Slack URLs works:
-`T012ABCD`, `C0HJKL456`, etc.). Multi-workspace: one slakd daemon per
-workspace, JID disambiguates. `IsGroup`: kind=`dm` → false; else →
-true. Registered prefix: `slack:`. Examples:
-`slack:T012ABCD/channel/C0HJKL456`, `slack:T012ABCD/dm/D0XY9876`.
+**Threading rides `Topic`.** `Topic = thread_ts` on every threaded
+inbound; top-level messages get `""`. Reconstruction matches the root by
+`ID` and replies by `Topic`, so `get_thread` works with no
+slakd-specific code — the same shape as Telegram forum topics and
+Discord threads. Topic is opaque and never compared across platforms.
 
-**Threading**: slakd sets `Topic = thread_ts` on every inbound message
-that's in a thread. Top-level messages get `Topic=""`. Reconstruction
-matches the root by `ID` and replies by `Topic` — same shape as Telegram
-forum topics and Discord threads, handled by `get_thread` without
-slakd-specific code. Outbound: agent's `replyTo` resolves to the parent's
-Topic (or ID if parent is the root); slakd passes that as `thread_ts` to
-`chat.postMessage`. Topic is opaque — never compared across platforms.
+**Typing is a 👀 reaction**, not `conversations.typing` (RTM-only,
+discontinued 2024) and not `assistant.threads.setStatus`. One code path
+for panes and regular channels; `already_reacted` / `no_reaction` are
+ignored; silent no-op when no prior inbound is known for the JID.
 
-## Verbs
+**File auth differs per platform, and only here.** Discord uses
+time-signed CDN URLs and Telegram embeds the token in the URL path;
+Slack needs `Authorization: Bearer $SLACK_BOT_TOKEN` on the upstream
+fetch. Everything else is the standard `chanlib.URLCache` +
+`GET /files/<id>` proxy, so the agent fetches a stable credential-free
+URL and the Whisper path is identical to every other adapter.
 
-| Verb        | Method                                        |
-| ----------- | --------------------------------------------- |
-| `send`      | `chat.postMessage`                            |
-| `reply`     | `chat.postMessage` + `thread_ts`              |
-| `like`      | `reactions.add` (emoji from `Reaction` field) |
-| `dislike`   | `reactions.add` w/ `👎` per dislike-via-like  |
-| `delete`    | `chat.delete`                                 |
-| `edit`      | `chat.update`                                 |
-| `send_file` | `files.getUploadURLExternal` + complete       |
-| `post`      | maps to `send` on a channel JID               |
+`files.getUploadURLExternal` + `files.completeUploadExternal` —
+`files.upload` was deprecated 2025-05.
 
-## Typing indicator
+## JID
 
-`Typing(on=true)` adds a 👀 (`eyes`) reaction to the last inbound message for
-that JID. `Typing(on=false)` removes it. Single code path for pane and
-regular channels — no `conversations.typing` (RTM-only, discontinued 2024)
-and no `assistant.threads.setStatus`. `already_reacted` / `no_reaction`
-errors are ignored. Silent no-op if no prior inbound message is known for the
-JID.
+`slack:<workspace>/<kind>/<id>`, kind ∈ `channel` | `dm` | `group`
+(legacy mpim). IDs are verbatim from Slack so pasting from a Slack URL
+works. `IsGroup` is false only for `dm`. Multi-workspace = one slakd per
+workspace, disambiguated by the workspace segment.
 
-DMs (`message.im`) and non-mentioned channel messages emit `verb=""`
-(default `message`); mentions and threads ride in `Topic` or text, not
-the verb. Mirrors `discd/bot.go:147`.
+## Reactions
 
-## Reactions, files, caches
+`reaction_added` → `Verb: ClassifyEmoji(name)`, with the raw name in
+both `Content` and `Reaction`. Names arrive without colons
+(`thumbsup`). Workspace-custom emoji have no Unicode codepoint and fall
+through `ClassifyEmoji`'s unknown→like default; the agent still gets the
+name, which is enough for most flows. `reaction_removed` not emitted.
 
-`reaction_added` → `InboundMsg{Verb: ClassifyEmoji(name), Content: name,
-Reaction: name, ReplyTo: item.ts}`. Names arrive without colons
-(`thumbsup`); `reaction_removed` not emitted in v1. Workspace-custom
-emoji (`:partyparrot:`) lack Unicode codepoint, fall through
-`ClassifyEmoji`'s unknown→like default; `Reaction` carries the NAME —
-agent gets name + like verb, enough for most flows.
+## Out of scope
 
-Files: standard `chanlib.URLCache` + `GET /files/<id>` proxy pattern
-(same shape as `discd` and `teled` — `chanlib.Auth(ChannelSecret, …)`
-middleware in front, `chanlib.ProxyFile` for streaming). Only Slack-
-specific bit: upstream fetch adds `Authorization: Bearer $SLACK_BOT_TOKEN`
-(Discord uses time-signed CDN URLs, Telegram embeds the token in the URL
-path; Slack uses a request header). Agent fetches the stable
-`/files/<id>` URL without credentials; Whisper path identical to other
-adapters.
+OAuth install (manual install runbook in `slakd/README.md`;
+multi-workspace token store is a separate spec), Enterprise Grid, slash
+commands / shortcuts / modals / home tab / Block Kit, user tokens
+(`xoxp-`), and custom-emoji-as-dislike (needs a per-workspace
+`emoji.list` mapping).
 
-`users.info` (15 min TTL) → `SenderName`; `conversations.info` (15 min
-TTL) → `ChatName`. `auth.test` returns `bot_user_id`; slakd skips
-inbound where `event.user == bot_user_id` AND events with only `bot_id`
-set. Liveness = `auth.test`; `/health` returns 503 on auth failure.
-
-## Env vars
-
-```
-SLACK_BOT_TOKEN=xoxb-...     required
-SLACK_SIGNING_SECRET=...     required
-SLAKD_PORT=8080              internal HTTP listener (proxyd → /slack/*)
-SLAKD_USERS_CACHE_TTL=900    seconds
-```
-
-proxyd env gets `SLAKD_ADDR=http://slakd:8080` and routes `/slack/*` to it
-(parallel to `WEBD_ADDR`, `ONBOD_ADDR`). Slack's Event Subscription URL =
-`https://<host>/slack/events`. No `SLAKD_PUBLIC_URL` needed — proxyd
-handles the public surface.
-
-## Acceptance
-
-- Operator creates Slack App, sets bot token + signing secret in `.env`,
-  subscribes events to `https://<host>/slack/events` (proxyd → slakd).
-- `arizuko create slk && arizuko run slk`; `/health` 200; bot in `#test`;
-  agent replies in-channel and in 1:1 DM.
-- Thread round-trip: reply lands as `Topic`; `get_thread chat_jid:=slack:T<ws>/channel/<chan>
-topic:=<thread_ts>` returns the slice; `send_reply` with `replyTo` of
-  a thread message posts under the same thread.
-- `:thumbsdown:` → inbound `verb="dislike"`, `Reaction="thumbsdown"`.
-- File round-trip (inbound PDF via slakd `/files/` proxy; outbound PNG
-  via `files.getUploadURLExternal` + complete). Forged signature → 401.
-
-## Out of scope (deferred)
-
-- **OAuth install** — manual install only; per-workspace bot install
-  runbook lives in `slakd/README.md` (parallel to `teled/README.md`).
-  Multi-workspace token store = separate spec.
-- **Socket Mode** — not pursued; HTTP webhooks via proxyd is the
-  permanent default (matches onbod / webd / dashd pattern, no second
-  transport to maintain).
-- **Enterprise Grid**, **slash commands / shortcuts / modals / home
-  tab / Block Kit**, **user token** (`xoxp-`) — all separate specs.
-- **Custom-emoji-as-dislike** — needs per-workspace `emoji.list`
-  mapping; v1 falls through to like default.
-
-## Decisions
-
-- Signing-secret rotation: startup only (matches mastd). SIGHUP reload
-  not pursued.
-- File uploads post as the bot, not the agent persona — accepted for v1.
+Signing-secret rotation is startup-only, matching mastd. File uploads
+post as the bot, not the agent persona.

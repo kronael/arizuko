@@ -8,8 +8,9 @@ depends: [1-cockpit-index]
 **Purpose** — define the adapter dashboard ONCE: page grammar, show
 matrix, control verbs, health semantics. The ten channel adapters are
 variations on one chanlib runtime, so they get one dashboard renderer
-with per-adapter deltas. `7/12`–`7/14` instantiate this contract and
-list only deltas. Architecture, routing, auth, theme: [`7/1`](1-cockpit-index.md).
+with per-adapter deltas. [`7/12`](12-adapter-dashboards.md)
+instantiates this contract and lists only deltas. Architecture,
+routing, auth, theme: [`7/1`](1-cockpit-index.md).
 
 ## One renderer in chanlib
 
@@ -68,7 +69,7 @@ sinks (Docker healthcheck, chanreg health loop, dashboard).
 
 Registry-side state — `chanreg.Entry.HealthFails`, auto-deregister
 after 3 fails, registered URL/token — lives in **routd** and is shown
-on routd's channel-registry page ([`7/3`](3-routd-dashboard.md)). The
+on routd's channel-registry page ([`7/3`](3-per-daemon-dashboards.md)). The
 adapter overview links there; it does not duplicate it.
 
 ## Control
@@ -132,8 +133,9 @@ no MCP face is added (the platform's MCP face is routd's).
 Per [`7/1`](1-cockpit-index.md): proxyd `auth: "user"` transit +
 daemon-side `auth.ProxydTransit` verify of the `service:proxyd` bearer
 (then trust the stamped `X-User-*`) + `auth/dashauth.go` operator
-gate, CSRF on writes. Each adapter ships its own `[[proxyd_route]]`
-for `/dash/<adapter>/` in `template/services/<adapter>.toml`.
+gate, CSRF on writes. Each adapter ships its own `/dash/<adapter>/`
+entry in `template/services/<adapter>-routes.json`, beside its `.yml`
+compose fragment (root `CLAUDE.md` "Adding a channel adapter").
 
 Two callers, one function: the existing `/v1` verb routes keep
 `chanlib.Auth` (session-token bearer, called by routd); the dashboard

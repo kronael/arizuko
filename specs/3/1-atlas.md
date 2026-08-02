@@ -20,13 +20,21 @@ CLAUDE.md + character.json + group trigger mode.
 ## Sandboxed support (product pattern)
 
 ```
-atlas/               tier 1: world admin
-  atlas/support      tier 2: research backend (rw facts/)
-    atlas/support/web  tier 3: user-facing (ro, escalate-only)
+atlas/                 world admin
+  atlas/support        research backend (rw facts/)
+    atlas/support/web  user-facing (ro, escalate-only)
 ```
 
-Worker escalates to parent when facts insufficient. Product config,
-uses `5-permissions.md`.
+The user-facing leaf holds no write access and no outbound authority
+beyond its own chat; when the facts are insufficient it escalates to the
+parent, which owns the corpus. A public surface that could research
+would also be a public surface that could be steered into writing.
+
+This is product configuration over the platform primitives, not a
+platform feature — the depth-derived tiers it originally leaned on are
+gone ([`5-tool-authorization.md`](5-tool-authorization.md)); the same
+shape is now expressed as explicit role/ACL grants
+([`../5/33-paths-roles.md`](../5/33-paths-roles.md)).
 
 ## Deferred (v2)
 

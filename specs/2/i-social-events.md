@@ -59,35 +59,24 @@ forward, quote, dislike`
 | Reply in thread   | reply   | thread_id | msg_id |
 | Mailing list post | post    | list_id   | -      |
 
-## Impulse filter
+## Trigger gating (retired mechanism)
 
-Per-group weight-based batching between discovery and queue enqueue.
-Each verb has an integer weight. Events accumulate impulse per group.
-When sum >= threshold, flush to queue. Safety timeout flushes if
-threshold never reached.
+This spec originally paired the verb model with a per-group **impulse
+filter**: integer weights per verb, accumulating until a threshold
+flushed a batch. Two things about it were right and survive; the
+mechanism itself does not.
 
-### Default weights
+Right: triggering is orthogonal to routing (a message can be stored in a
+folder's scope without firing a turn), and the gate is universal —
+`isSocialJid()` is gone, so no channel-type branch decides trigger
+timing.
 
-| Verb    | Default | Notes                        |
-| ------- | ------- | ---------------------------- |
-| message | 100     |                              |
-| reply   | 100     |                              |
-| post    | 100     | tune down if feed is noisy   |
-| like    | 100     | tune to 5 for "20 = trigger" |
-| repost  | 100     | tune to 10 if noisy          |
-| follow  | 100     | tune to 10 if noisy          |
-| close   | 100     | triggers thread lifecycle    |
-| join    | 0       | ignored                      |
-| edit    | 0       | ignored                      |
-| delete  | 0       | ignored                      |
-
-Weight 0 = drop. Operator sets `weights` and `threshold` per group.
-
-### Flush delivery
-
-- Immediate (weight >= threshold): individual message with full content.
-- Batched (weight < threshold): plain text bracket summary,
-  e.g. `[5 likes on post abc123, 3 reposts, 10 new followers]`.
+Retired: the weights themselves. `routes.impulse_config` was dropped in
+migration `0054-route-target-fragment.sql`. Firing is now a `#observe`
+fragment on `routes.target` plus explicit `verb=` match keys and `seq`
+priority — [`../5/B-route-mode-ingestion.md`](../5/B-route-mode-ingestion.md).
+A "quiet this verb" rule became a route row instead of a tuning knob,
+which is legible in the routes table rather than buried in a JSON blob.
 
 ## Agent XML format
 

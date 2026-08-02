@@ -18,7 +18,9 @@ Routing (in order):
    `<data>/web/priv/<folder>/` (v0.45.11+, see
    `specs/5/V-web-vhosts.md`)
 5. `/dash/*` → `DASH_ADDR`, auth-gated
-6. `/slink/*` → `WEBD_ADDR`, public (token resolved at proxyd)
+6. `/chat/*` and `/hook/*` → `WEBD_ADDR`, public (route token resolved
+   at proxyd — [`../5/W-webhook-routes.md`](../5/W-webhook-routes.md);
+   the former `/slink/*` rule is gone, and webd 301s the legacy path)
 7. `/*` → auth-gated; unauth redirects to `/auth/login`
 
 `/pub/` zone maps to `~/public_html/` in each group container

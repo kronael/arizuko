@@ -20,11 +20,12 @@ into the router — the same broker-connector seam other MCP integrations use
 
 ## Consequences
 
-- chanlib + the interactive-prompt primitive (5/19) target **chat channels
-  only** (telegram/discord/slack/whatsapp/email); socials are out of scope for
+- chanlib + the interactive-prompt primitive
+  ([5/19](../5/19-hitl-firewall.md)) target **chat channels only**
+  (telegram/discord/slack/whatsapp/email); socials are out of scope for
   buttons/HITL prompts.
-- The socials product (`product-socials.md`) consumes this daemon, not raw
-  adapters.
+- The `socials` product (`ant/examples/socials/`) consumes this daemon, not
+  raw adapters.
 - Existing social adapters (mastd/bskyd/twitd/reditd/linkd) migrate under the
   daemon; the channel-vs-social split becomes explicit in the daemon map.
 

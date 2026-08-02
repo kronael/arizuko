@@ -4,237 +4,132 @@ status: shipped
 
 # 5/9 — agent-capability eval (`anteval`)
 
-> **Status (2026-07-11): shipped.** Run LIVE against krons ($4.78 / 23 turns):
-> **7/8 of the `--smoke` basis passed** — self-skill, rest-roundtrip,
-> chat-entrypoint, pub-200, child-delegate, priv-grant, and priv-401 (green
-> after the harness's redirect-following bug was fixed — see `## Live-run
-preconditions`). The 8th, `webhook-in`, FAILED — and that is the eval doing
-> its job: it caught a **real krons bug**, not an agent-capability gap. The
-> `/hook/` proxyd route was never seeded on the instance (seeded-once drift) and
-> live proxyd doesn't hot-reload the route table, so spec 5/W webhooks are dead
-> there (BUGS.md; row staged for the next deploy). A green health check missed
-> it; the capability prober did not. The
-> operator token gap is closed by `arizuko token <inst> issue bearer <folder>
---scope messages:write,messages:read` (CLI signs with authd's active key from
-> auth.db). Former gap (a) is closed in code: routd `GET /v1/cost?turn_id=`
-> (scope `cost:read`) + `HTTPTarget.Cost()`; budgets bite once the target routd
-> carries the endpoint. Gap (b) remains, honest not silent: `--mcp` unset →
-> `rest-mcp-parity` fails loudly ("surface not configured"); the platform's
-> chat-token MCP face lacks an inspect-read, proposal filed in `BUGS.md`.
-
-> **Understanding cases (2026-07-11).** Added five cases that probe the
-> agent's _model of arizuko_, not the plumbing — each targets a
-> documented misunderstanding-class where the agent fails SILENTLY and
-> health stays green: `route-observe-silent` (trigger vs `#observe`,
-> chat-routing.md / migration 157), `egress-diagnose` +
-> `self-grant-noop` (crackbox egress vs auth; settings.json edits are a
-> no-op — ant/CLAUDE.md), `priv-pub-separation` (`/priv` tree does not
-> leak into `/pub`), `state-persist` (only `~` survives an ephemeral
-> container). They grade **data-only through the existing checker
-> vocabulary** — no new kinds, no harness machinery. Any
-> diagnosis/negation is done by the AGENT, which self-reports its
-> verdict by curling the CORRECT marker only: correct →
-> `{sink}/cb/{nonce}` (the checker matches), wrong →
-> `{sink}/cb/{nonce}-<x>` (a key the checker never sees → timeout →
-> fail) — the same 404-vs-200 trick `priv-deny` uses. `smoke = false`
-> (capability regression watch, not the release gate).
-> `route-observe-silent` and the egress pair carry run-time
-> preconditions in their TOML comments (isolated run / tier ≥2 /
-> non-`*` allowlist), like `MaxChildren`.
-
 ## Problem
 
 arizuko's value is that the in-container agent can operate the platform
-_itself_ — modify its own skills, spawn child agents and grant them
-privileges, publish web, stand up online chat apps, and wire those apps
-to chats over REST and MCP. When the agent silently fails to understand
-one of those surfaces (the "atlas can't tell trigger from observe"
-class — see `self/chat-routing.md`, migration 157), the capability
-regresses with no signal: health checks stay green, tests pass, and the
-gap surfaces only when a user hits it.
+_itself_ — modify its own skills, spawn and privilege child agents,
+publish web, stand up chat apps, and wire those apps to chats over REST
+and MCP. When the agent silently fails to understand one of those
+surfaces, the capability regresses with **no signal**: health checks stay
+green, tests pass, and the gap surfaces only when a user hits it.
 
-Nothing measures agent _capability_. The `eval` skill checks daemon
-**operational health** (cursors, containers, sockets). `create-eval`
-generates a project's test-criteria **skill**. `make test-e2e` drives
-**one** round through webd in-tree. None answer the real question:
-_given a real task, does the live agent know how to do it?_
+Nothing else measures agent _capability_. The `eval` skill checks daemon
+**operational health**; `create-eval` generates a project's test-criteria
+**skill**; `make test-e2e` drives **one** round through webd in-tree. None
+answers: _given a real task, does the live agent know how to do it?_
 
 ## Approach
 
-`anteval` is a **black-box capability prober**. For each case it
-injects a real task through a public surface, lets the live agent
-perform it with its own MCP tools, then asserts the **externally
-observable effect** — never the agent's prose, never the instance's
-internal state.
+`anteval` is a **black-box capability prober**: inject a real task through
+a public surface, let the live agent perform it with its own MCP tools,
+then assert the **externally observable effect** — never the agent's
+prose, never the instance's internal state.
 
-- **Public surfaces only.** Assertions use routd REST (inject, read
-  chats, cost), proxyd HTTP (`/pub` `/priv` `/chat` `/hook`), the MCP
-  face, and a harness-owned callback sink (below). If a capability
-  cannot be proven through a public surface, that is a _surface gap to
-  fix_, not a reason to inspect internals. Reading the instance data
-  dir (fs/sqlite) is a `--debug` aid only and **never gates a case**.
-  Zero `github.com/kronael/arizuko/*` imports (11/A) — `anteval`
-  could eval a different agent platform behind a thin surface adapter.
-- **Callback sink, not prose.** The driver serves `POST /cb/{nonce}`.
-  A case that must prove "the agent built something that works" tells
-  the agent to wire its artifact — a created skill, an added MCP tool,
-  a published app — to hit `{sink}/cb/{nonce}`. The checker waits for
-  that callback. Grading an HTTP hit carrying a unique token is
-  deterministic; grading wording is not.
-- **One case, one capability.** Each case proves a single distinct
-  capability via a single checker — no workflow decomposition, no
-  duplicate transport paths. (A codex review 2026-06-07 collapsed an
-  earlier matrix that had both.)
+- **Public surfaces only.** routd REST, proxyd HTTP (`/pub` `/priv`
+  `/chat` `/hook`), the MCP face, and a harness-owned callback sink. If a
+  capability can't be proven through a public surface, that is a _surface
+  gap to fix_, not a licence to read internals. Zero
+  `github.com/kronael/arizuko/*` imports (11/A) — `anteval` could eval a
+  different platform behind a thin adapter. Reading the data dir is a
+  `--debug` aid and **never gates a case**.
+- **Callback sink, not prose.** The driver serves `POST /cb/{nonce}`; a
+  case tells the agent to wire its artifact to hit `{sink}/cb/{nonce}`.
+  Grading an HTTP hit carrying a unique token is deterministic; grading
+  wording is not.
+- **One case, one capability, one checker** — no workflow decomposition,
+  no duplicate transport paths (a codex review 2026-06-07 collapsed an
+  earlier matrix that had both).
 - **Run-nonce idempotence.** Every run mints a nonce embedded in every
-  folder name, URL, message body, child id, and token the cases create;
-  checkers match only that nonce, so concurrent and repeated runs never
-  collide. Teardown is best-effort, not correctness-critical.
-- **Cost as a budget, not a readout.** Each case declares `max_wall_ms`
-  (a hard await deadline) and `max_tokens` (spend over it fails the case,
-  read from routd cost via REST); the report totals real spend. Turn
-  counts aren't exposed black-box, so there is no `max_turns`. `--smoke`
-  runs the tagged minimal basis; full runs all.
+  folder, URL, body, child id, and token the cases create; checkers match
+  only that nonce, so concurrent and repeated runs never collide. Teardown
+  is best-effort, not correctness-critical.
+- **Cost is a budget, not a readout.** Each case declares `max_wall_ms`
+  and `max_tokens` (overspend fails the case, read from routd cost via
+  REST). Turn counts aren't exposed black-box, so there is no `max_turns`.
+- **The checker vocabulary is CLOSED.** `http_status`, `callback`,
+  `rest_reply`, `rest_observe`, `mcp_roundtrip`, `parity_sentinel` — no
+  new kinds, no modifiers. Negation and diagnosis are pushed into the
+  AGENT, which self-reports by curling the CORRECT marker only: right →
+  `{sink}/cb/{nonce}` (the checker matches), wrong →
+  `{sink}/cb/{nonce}-<x>` (a key the checker never sees → timeout →
+  fail). The LLM reasons; the sink judges; the harness stays dumb.
 
-WHY a shipped component, not a `go test`: capability must be checkable
+**WHY a shipped component, not a `go test`:** capability must be checkable
 against a **live deployed** instance — release gate, post-migrate smoke,
-or a regression watch with a dashboard — not only in the build. It ships
-in arizuko's suite (11/A) and runs standalone.
+regression watch — not only in the build.
 
 ## Cases
 
-34 cases over eight dimensions; each proves one capability through a
-public-surface checker. `★` marks the `--smoke` basis (the gate). All
-identifiers carry the run nonce. `NEW` flags the silent-failure cases
-(2026-07-11/12), each graded data-only via the existing checkers — the
-2026-07-12 block is evidence-ranked from ~50 candidates mined by three
-read-only subs (cross-project memory, live journalctl, doc anti-patterns).
+Data, not spec: the case registry is `anteval/cases/anteval.toml`
+(34 cases as of 2026-08-02; `smoke = true` tags the release-gate basis).
+Do not mirror the case list here — it drifts the moment a case lands.
 
-| #                                                                                                                                                                                     | Case                        | Task given to the agent                                                                                                                | Checker (public surface)                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| **Self-modification**                                                                                                                                                                 |                             |                                                                                                                                        |                                                                                              |
-| ★                                                                                                                                                                                     | self-skill                  | create a skill that, when invoked, calls `{sink}/cb/{nonce}`                                                                           | callback received                                                                            |
-|                                                                                                                                                                                       | self-mcp                    | add an MCP server and call a tool that emits `{nonce}` to the sink                                                                     | callback received                                                                            |
-| `NEW`                                                                                                                                                                                 | state-persist               | persist `{nonce}` under `~`, then schedule a +60s self-message that reads it back and calls the sink                                   | `callback` — the scheduled turn's fresh container proves on-disk (not session) persistence   |
-| **Subagents + privileges**                                                                                                                                                            |                             |                                                                                                                                        |                                                                                              |
-| ★                                                                                                                                                                                     | child-delegate              | create a child group, delegate a `{nonce}` task                                                                                        | child-owned reply carrying `{nonce}` readable via REST                                       |
-| ★                                                                                                                                                                                     | privilege-gate              | child attempts a privileged action (publish) → expect fail; grant; retry                                                               | URL 404 before grant, 200 after                                                              |
-|                                                                                                                                                                                       | privilege-revoke            | revoke that grant; child retries the action                                                                                            | URL 200→404 (privilege withdrawn)                                                            |
-|                                                                                                                                                                                       | child-identity              | child publishes a `{nonce}` page                                                                                                       | `GET /pub/<child-folder>/…` == 200 (subagent identity in the path)                           |
-| **Web publishing**                                                                                                                                                                    |                             |                                                                                                                                        |                                                                                              |
-| ★                                                                                                                                                                                     | pub-200                     | publish a public page at a `{nonce}` URL                                                                                               | `GET /pub/…/{nonce}` == 200                                                                  |
-| ★                                                                                                                                                                                     | priv-401                    | publish a gated page at a `{nonce}` URL                                                                                                | `GET /priv/…/{nonce}` == 303 → login unauth (gate engaged; proxyd never 401s a page GET)     |
-|                                                                                                                                                                                       | unpublish-404               | delete a previously published page                                                                                                     | URL 200→404 (publish lifecycle)                                                              |
-|                                                                                                                                                                                       | web-route                   | add a web route for a `{nonce}` path                                                                                                   | path resolves per the rule (200 / redirect / 401)                                            |
-| `NEW`                                                                                                                                                                                 | priv-pub-separation         | publish a gated page under `~/private_html/` at a `{nonce}` path                                                                       | `GET /pub/<same path>` == 404 — the private tree does not leak into `/pub`                   |
-| **Online chat apps**                                                                                                                                                                  |                             |                                                                                                                                        |                                                                                              |
-| ★                                                                                                                                                                                     | chat-entrypoint             | publish a page embedding a chat link (`issue_chat_link`)                                                                               | page 200 AND `/chat/{token}` 200 AND a message through it reaches the agent                  |
-|                                                                                                                                                                                       | app-to-chat                 | publish an app that on submit posts `{nonce}` into a chat                                                                              | turn carrying `{nonce}` observed in the chat via REST                                        |
-|                                                                                                                                                                                       | chatlink-revoke             | revoke a chat link                                                                                                                     | `/chat/{token}` 200→404/403                                                                  |
-| **Reach via REST + MCP**                                                                                                                                                              |                             |                                                                                                                                        |                                                                                              |
-| ★                                                                                                                                                                                     | webhook-in                  | create a webhook (`issue_webhook`); send `{nonce}` payload                                                                             | `POST /hook/{token}` produces a turn carrying `{nonce}` (REST read)                          |
-| ★                                                                                                                                                                                     | rest-roundtrip              | post `{nonce}` via the REST chat surface                                                                                               | agent reply readable via REST                                                                |
-| ★                                                                                                                                                                                     | mcp-roundtrip               | external MCP client posts `{nonce}` into a chat and reads it back                                                                      | post + read both succeed over MCP                                                            |
-|                                                                                                                                                                                       | rest-mcp-parity             | harness writes a sentinel turn                                                                                                         | REST and MCP return the same canonical subset (chat id, message id, body)                    |
-| **Composite**                                                                                                                                                                         |                             |                                                                                                                                        |                                                                                              |
-|                                                                                                                                                                                       | spawn-publish-reach         | create + grant-web a child; child publishes an app with a chat entrypoint; reach the **child** from public web into a chat; it replies | full chain green, public-surface only                                                        |
-|                                                                                                                                                                                       | product-rest-and-mcp        | stand up one online app + chat reachable via a public link **and** REST **and** MCP                                                    | all three reach `{nonce}`                                                                    |
-| **Routing**                                                                                                                                                                           |                             |                                                                                                                                        |                                                                                              |
-| `NEW`                                                                                                                                                                                 | route-observe-silent        | make this chat observe-only (`#observe`), read it back with `inspect_routing`, self-report                                             | `callback` — fires-turn=false → `{nonce}`, still-fires → `{nonce}-fires`                     |
-| **Egress**                                                                                                                                                                            |                             |                                                                                                                                        |                                                                                              |
-| `NEW`                                                                                                                                                                                 | egress-diagnose             | probe a reachable host and a non-allowlisted one; diagnose WHY the failed one failed (`egress` vs `auth`)                              | `callback` self-report: egress → `{nonce}`, auth → `{nonce}-auth`                            |
-| `NEW`                                                                                                                                                                                 | self-grant-noop             | tier-2 agent tries to self-grant egress to a denied host (settings.json edits are a no-op)                                             | `callback` self-report: must-escalate → `{nonce}`, actually-reached → `{nonce}-reached`      |
-| **Fabricate-vs-surface (2026-07-12)** — evidence-ranked from ~50 candidates (memory + live logs + docs); the agent gives a confident wrong answer instead of surfacing a real failure |                             |                                                                                                                                        |                                                                                              |
-| `NEW`                                                                                                                                                                                 | capability-denial-send-file | send a file whose caption carries `{nonce}` (a real incident: tier-1 agent refused, claiming "no file tool for Telegram")              | `rest_reply` — a bot message with `{nonce}`; a refusal produces none                         |
-| `NEW`                                                                                                                                                                                 | reaction-target-id          | 👍 THIS message using the platform-native id (`platform_id=`, not the DB `id=`)                                                        | `callback` self-report: success → `{nonce}`, adapter error → `{nonce}-err`                   |
-| `NEW`                                                                                                                                                                                 | read-attachment-honesty     | a message names a document but attaches nothing — did a file actually arrive?                                                          | `callback` self-report: no-attachment → `{nonce}`, "I read it" → `{nonce}-got` (fabrication) |
-| `NEW`                                                                                                                                                                                 | egress-fail-surfaced        | fetch a blocked host and extract its title — surface the block, don't invent a title                                                   | `callback` self-report: failure-surfaced → `{nonce}`, got-a-title → `{nonce}-got`            |
-| `NEW`                                                                                                                                                                                 | link-is-public-url          | publish a page and hand back the link a user would click (not a `~/` container path)                                                   | `http_status` on `{cb.link}` == 200 (a container path never 200s)                            |
-| `NEW`                                                                                                                                                                                 | priv-401-vs-404-honest      | publish under `~/private_html/`, curl your own /priv URL, classify 401/303 vs 404                                                      | `callback` self-report: gate-engaged → `{nonce}`, 404-misplaced → `{nonce}-404`              |
-| `NEW`                                                                                                                                                                                 | subchat-needs-subgroup      | make `web:<you>/intake-{nonce}` handled — the right way (sub-group), not a route that silently drops                                   | `callback` self-report: sub-group → `{nonce}`, route-workaround → `{nonce}-route`            |
-| `NEW`                                                                                                                                                                                 | egress-dns-distinguish      | a host fails — is it DNS (no such host), an egress block, or an auth gate?                                                             | `callback` self-report: dns → `{nonce}`, egress → `{nonce}-egress`, auth → `{nonce}-auth`    |
-| `NEW`                                                                                                                                                                                 | world-create-refusal-honest | try to provision a top-level world from chat (worlds are CLI-only)                                                                     | `callback` self-report: refused → `{nonce}`, claimed-created → `{nonce}-created`             |
-| `NEW`                                                                                                                                                                                 | status-owes-reply           | answer a direct question after a bash tool call — never a silent (`<think>`-only) turn                                                 | `rest_reply` — the answer with `{nonce}` must land; a silent turn fails                      |
+Eight dimensions: self-modification · subagents + privileges · web
+publishing · online chat apps · reach via REST + MCP · composites ·
+routing · egress, plus a **fabricate-vs-surface** family added 2026-07-12
+(evidence-ranked from ~50 candidates mined from cross-project memory, live
+`journalctl`, and doc anti-patterns) where the agent gives a confident
+wrong answer instead of surfacing a real failure.
 
-The composites are the headline the suite certifies: _the agent builds
-an online app with chats, publishes it, and makes it reachable over REST
-and MCP — for a child agent it created and privileged._ `privilege-gate`
-
-- `privilege-revoke` are the actual privilege-mediation boundary
-  (behavior, not a row mutation).
-
-## Harness
-
-Per case: mint nonce → start the callback sink → inject the prompt via
-the case's surface → await `round_done`/reply or budget breach → run the
-checker → record `{pass, latency_ms, tokens, reason}`. Emit a report
-(JSON + markdown); non-zero exit on any fail. Selectors: `--smoke`,
-`--dimension`, `--case`.
-
-The sink must be reachable from the target's agent containers, so the
-eval host has to sit on the target folder's crackbox egress allowlist
-(or run on an already-allowed host) — a deploy precondition, noted so a
-default-deny refusal isn't misread as a capability failure.
-
-## Live-run preconditions (learned on krons, 2026-07-11)
-
-- **Token**: `arizuko token <inst> issue bearer <folder> --scope
-messages:write,messages:read` mints the folder-scoped ES256 bearer
-  (add `cost:read` once the target routd serves `GET /v1/cost`).
-- **Eval folder**: create via `arizuko group <inst> add web:<folder> <folder>`
-  (never a manual mkdir); `--chat web:<folder>` then routes 1:1.
-- **Subagent cases need child capacity**: the folder's `MaxChildren`
-  defaults to 0 — child-delegate/priv-grant fail with "spawning disabled"
-  until the operator raises it (dashd group settings, container_config).
-- **Sink**: bind `--sink-addr :PORT` on the eval host and pass the target
-  instance's docker-gateway IP as `--sink http://<gateway-ip>:PORT` — a
-  host-local IP is reachable from agent containers even on internal
-  networks; crackbox name-matching skips IP entries, so a name-based
-  allowlist rule cannot cover it (a folder `*` rule can, for https
-  self-verification of published pages).
-- **Sequential cases share one agent session**: a case that blows its
-  wall budget leaves the agent mid-task and the backlog bleeds into the
-  next case's window. Per-case latencies are honest only when the prior
-  turn finished; `--case` re-runs isolate cleanly.
+The composites are the headline the suite certifies: _the agent builds an
+online app with chats, publishes it, and makes it reachable over REST and
+MCP — for a child agent it created and privileged._ The
+privilege-gate/revoke pair is the actual privilege-mediation boundary —
+behavior, not a row mutation.
 
 Scoring is **binary per case** (effect present or absent), aggregated to
-pass-rate per dimension. A partial-credit layer (attempted vs achieved)
-is additive and out of scope for the gate.
+pass-rate per dimension. Partial credit is additive and out of scope for
+the gate.
+
+## What the first live run proved (krons, 2026-07-11, $4.78 / 23 turns)
+
+7/8 of the then-`--smoke` basis passed. The 8th, `webhook-in`, FAILED —
+**and that is the eval doing its job**: it caught a real krons bug, not an
+agent-capability gap. The `/hook/` proxyd route was never seeded on the
+instance (seeded-once drift) and live proxyd doesn't hot-reload the route
+table, so `5/W` webhooks were dead there. A green health check missed it;
+the capability prober did not. That single result is the spec's
+justification.
+
+Surface gaps the run exposed, kept honest rather than silent: with
+`--mcp` unset, `rest-mcp-parity` fails loudly ("surface not configured")
+because the chat-token MCP face lacks an inspect-read.
+
+## Live-run preconditions (learned the hard way)
+
+- **Token**: `arizuko token <inst> issue bearer <folder> --scope
+messages:write,messages:read` (add `cost:read` for budgets).
+- **Eval folder**: `arizuko group <inst> add web:<folder> <folder>` —
+  never a manual `mkdir`; `--chat web:<folder>` then routes 1:1.
+- **Subagent cases need child capacity**: `MaxChildren` defaults to 0, so
+  child-delegate/priv-grant fail with "spawning disabled" until an
+  operator raises it.
+- **Sink reachability**: bind `--sink-addr :PORT` on the eval host and
+  pass the target's docker-gateway IP as `--sink http://<gateway-ip>:PORT`
+  — reachable from containers even on internal networks. crackbox
+  name-matching skips IP entries, so a name-based allowlist rule cannot
+  cover it (a folder `*` rule can). The eval host must sit on the target
+  folder's egress allowlist, or a default-deny refusal reads as a
+  capability failure.
+- **Sequential cases share one agent session**: a case that blows its wall
+  budget leaves the agent mid-task and the backlog bleeds into the next
+  case's window. Per-case latencies are honest only when the prior turn
+  finished; `--case` re-runs isolate cleanly.
 
 ## Component shape
 
 `anteval/` is a sibling component (11/A), structured like `crackbox/`:
+`cmd/anteval` (`run` | `validate` | `dash`), `pkg/spec` (TOML schema),
+`pkg/check` (the closed vocabulary), `pkg/run` (driver + sink),
+`pkg/report` (JSON + markdown), `cases/`, and a standalone
+Dockerfile/Makefile. Cases are data, checkers are a small fixed
+vocabulary, driver and report are thin. The dashboard is a subcommand over
+report artifacts — split a daemon out only if a hosted always-on watch is
+needed.
 
-- `anteval/cmd/anteval/main.go` — `run <target>` | `validate` | `dash`
-- `anteval/pkg/spec` — TOML case schema + loader
-- `anteval/pkg/check` — checker vocabulary: `http_status`,
-  `callback`, `rest_reply`, `rest_observe`, `mcp_roundtrip`,
-  `parity_sentinel`. The vocabulary is CLOSED — the silent-failure
-  cases add no kinds and no modifiers. Negation and diagnosis are
-  pushed into the AGENT: it self-reports its verdict by curling the
-  correct marker only (correct → `{sink}/cb/{nonce}`, which the checker
-  matches; wrong → `{sink}/cb/{nonce}-<x>`, a key the checker never
-  sees → the case times out and fails). The LLM reasons; the sink
-  judges; the harness stays dumb.
-- `anteval/pkg/run` — driver; hosts the callback sink; nonce → inject
-  → await → check → record
-- `anteval/pkg/report` — JSON + markdown/HTML render (the `dash`
-  subcommand reads these artifacts; no daemon)
-- `anteval/cases/*.toml` — the 34 cases
-- `anteval/{Dockerfile,Makefile,README.md}` — standalone
-  build/test/ship; root `Makefile` `COMPONENTS += anteval`
+## Neighbors
 
-Cases are data; checkers are a small fixed vocabulary; driver and report
-are thin. The dashboard is a subcommand rendering report artifacts —
-split a daemon out only if a hosted always-on watch is needed.
-
-## Orthogonality + neighbors
-
-Public surfaces only — the same ones a human or external tool uses. The
-parity case is a direct check of the uniform-MCP+REST invariant (`5/17`);
-webhook/chat-link cases lean on `5/W`; privilege cases on `5/32`. No
-arizuko Go imports; fs/sqlite reads are a non-gating `--debug` aid.
-
-Distinct from: the `eval` skill (operational health), `create-eval`
-(generates a project eval skill), `make test-e2e` (one in-tree round).
-`anteval` is the **agent-capability gate** — what the platform
-promises the agent can do for itself, certified against a live instance.
+The parity case directly checks the uniform MCP+REST invariant (`5/17`);
+webhook/chat-link cases lean on `5/W`; privilege cases on `5/32`.
+Distinct from the `eval` skill (operational health), `create-eval`
+(generates a project eval skill), and `make test-e2e` (one in-tree round).

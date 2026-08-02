@@ -6,128 +6,65 @@ supersedes-in-part: [4/19-action-grants.md]
 
 # Unified ACL — one primitive, three principals
 
-Authorization in arizuko is one row, one question:
+Authorization is one row and one question:
 
 ```
-(principal, action, scope, params, predicate, effect) → allow | deny
+(principal, action, scope, params, predicate, effect, grant_option) → allow | deny
 ```
 
-Every actor — human, agent, channel-room, role — is a principal of
-the same shape. Every decision goes through one `Authorize` call. Two
-tables: `acl` for grants, `acl_membership` for identity-indirection
-(role membership, JID claims, role hierarchy — same graph).
+Every actor — human, agent, channel room, role — is a principal of the same
+shape, and every decision goes through one `Authorize`. Two tables: `acl` for
+grants, `acl_membership` for identity-indirection (role membership, JID claims,
+role hierarchy — one graph, three uses).
 
-## Essence
+**Scope boundary.** This spec owns the row and the evaluator.
+[`5/33`](33-paths-roles.md) owns the model decision — no tiers, path/role/
+grant-option, delegation by subset-of-held. Nothing here derives authority from
+path depth.
 
-One row asks one question:
+## The row
 
-```
-(principal, action, scope, params, predicate, effect) → allow | deny
-```
-
-- **principal** — who is asking. Globbed. Namespaces below.
-- **action** — `interact`, `admin`, `mcp:<tool>`, `*`. Implication
-  lattice below.
-- **scope** — folder path or glob. Same grammar as today
-  (`auth/acl.go:21`).
-- **params** — optional name=glob predicates over call args
-  (`jid=telegram:*`). Carries forward `grants/grants.go:104`.
-- **predicate** — optional claim condition (`discord:guild=G123`,
-  `github:org=acme`). Empty = no claim required.
+- **principal** — who is asking. Globbed segment-wise on `/` AND `:` (so
+  `google:*` does not match `google:114/sub`).
+- **action** — `interact`, `admin`, `mcp:<tool>`, `*`.
+- **scope** — folder path or glob (`auth/acl.go:21` `matchPattern`; `**` crosses
+  segments, `*` does not).
+- **params** — optional `name=glob` predicates over call args (`jid=telegram:*`).
+- **predicate** — optional claim condition (`discord:guild=G123`). Empty = none.
 - **effect** — `allow` or `deny`. Deny wins.
-- **grant_option** _(added by [`5/33`](33-paths-roles.md))_ — `0|1`. `1` =
-  `WITH GRANT OPTION`: the holder may re-delegate this row (or a subset). The
-  delegation axis, orthogonal to the action lattice's read/write coverage.
+- **grant_option** — `0|1`. `1` = the holder may re-delegate this row or a
+  subset. The delegation axis, orthogonal to the action lattice's coverage.
+  Added by `5/33`; see `auth/delegate.go`.
 
-> **[`5/33-paths-roles`](33-paths-roles.md) removes the tier axis.** The
-> `grants.DeriveRules` tier→default derivation and the `mcp:*` tier-fallback in
-> `Authorize` (step 4 below) are deleted; `mcp:*` becomes an explicit role grant
-> like `interact`/`admin`. Default roles (`role:owner`/`member`/`reader`) seeded at
-> path-create carry the bundles tiers used to derive. Read `5/33` for the path
-> (location) / role / grant-option model; this spec stays the `acl` row + evaluator
-> canonical.
+Schema: `routd/migrations/0007-acl.sql` (+ `0021` for `grant_option`);
+`store/acl.go` is the reader/writer. Row counts are trivially small — hundreds,
+not millions.
 
-~~Tier defaults stay in code (`grants.DeriveRules`).~~ Only operator overrides — and
-now default-role seeds — become rows. (Tier derivation removed by `5/33`.)
+### Principal namespace
 
-## Schema
+| Namespace         | Example                  | Meaning                                    |
+| ----------------- | ------------------------ | ------------------------------------------ |
+| OAuth sub         | `google:114019...`       | Canonical human sub (`auth/oauth.go`).     |
+| Folder agent      | `folder:atlas/eng`       | The agent container at this folder.        |
+| Platform identity | `telegram:user/123456`   | Channel-side identity, no OAuth yet.       |
+| Room identity     | `discord:837.../1504...` | Channel/room JID — the route audience.     |
+| Role              | `role:operator`          | Indirection; members via `acl_membership`. |
+| Wildcard          | `**`, `google:*`         | Any principal / any sub in a namespace.    |
 
-Two tables. Permissions and identity-indirection stay separated —
-different concerns, different indexes, different write paths.
-
-```sql
--- Permissions: who can do what, where, with what effect.
-CREATE TABLE acl (
-  principal   TEXT NOT NULL,
-  action      TEXT NOT NULL,
-  scope       TEXT NOT NULL,
-  effect      TEXT NOT NULL DEFAULT 'allow',  -- 'allow' | 'deny'
-  params      TEXT NOT NULL DEFAULT '',       -- 'jid=telegram:*'
-  predicate   TEXT NOT NULL DEFAULT '',       -- 'discord:guild=X'
-  granted_by  TEXT,
-  granted_at  TEXT NOT NULL,
-  PRIMARY KEY (principal, action, scope, params, predicate, effect)
-);
-CREATE INDEX acl_by_principal_action ON acl(principal, action);
-CREATE INDEX acl_by_scope             ON acl(scope);
-
--- Identity / role indirection: child principal IS-A parent principal.
--- One graph subsumes JID claims, role membership, and role hierarchy.
-CREATE TABLE acl_membership (
-  child       TEXT NOT NULL,
-  parent      TEXT NOT NULL,
-  added_by    TEXT,
-  added_at    TEXT NOT NULL,
-  PRIMARY KEY (child, parent)
-);
-CREATE INDEX acl_membership_by_child ON acl_membership(child);
-```
-
-Row-count estimate: ~100 user grants + ~30 operator overrides + ~20
-room-acl rows + ~10 role rows. SQLite handles 10⁵ rows trivially.
-
-## Principal namespace
-
-Canonical formats, globbed segment-wise (no `/`-crossing for `*`):
-
-| Namespace          | Example                  | Meaning                                              |
-| ------------------ | ------------------------ | ---------------------------------------------------- |
-| OAuth sub          | `google:114019...`       | Canonical human sub from `auth/oauth.go`.            |
-| Folder agent       | `folder:atlas/eng`       | Agent container spawned at this folder.              |
-| Platform identity  | `telegram:user/123456`   | Channel-side identity, no OAuth yet.                 |
-| Room identity      | `discord:837.../1504...` | Channel/room JID — the route audience.               |
-| Role               | `role:operator`          | Indirection principal. Members via `acl_membership`. |
-| Operator wildcard  | `**`                     | Any principal.                                       |
-| Namespace wildcard | `google:*`, `folder:**`  | Any sub in namespace.                                |
-
-Glob anchoring is segment-wise on `/` AND on `:` (so `google:*` does
-not match `google:114/sub`). OAuth subs contain no `/`; the invariant
-is safe.
-
-## Action namespace
-
-Three families, one implication lattice:
+### Action lattice
 
 ```
-*       ⊃   admin   ⊃   interact
-*       ⊃   mcp:<tool>
-admin   ⊃   mcp:<tool>
+*  ⊃  admin  ⊃  interact
+*  ⊃  mcp:<tool>          admin ⊃ mcp:<tool>          mcp:* ⊃ mcp:<tool>
 ```
 
-- `interact` — read + send in scope. The floor for any participant.
-- `admin` — write platform state at scope (routes, grants, secrets,
-  membership).
-- `mcp:<tool>` — one MCP tool. The agent's call surface. `mcp:*`
-  matches every tool.
-- `*` — every action.
+Implication is evaluated, not denormalized (`auth/authorize.go` `actionCovers`).
+Granting `admin` is **not** equivalent to inserting one row per `mcp:<tool>` —
+the lattice is the contract.
 
-Implication is evaluated by `Authorize`, not denormalized. Granting
-`admin` is **not** equivalent to inserting one row per `mcp:<tool>`.
-The lattice is the contract.
+## Membership — roles, JID claims, channels
 
-## Membership: roles, JID claims, channels
-
-All three are `acl_membership` edges — same primitive, three uses.
+All three are `acl_membership` edges:
 
 | Edge                                                   | What it expresses |
 | ------------------------------------------------------ | ----------------- |
@@ -135,236 +72,96 @@ All three are `acl_membership` edges — same primitive, three uses.
 | `acl_membership(discord:user/811..., google:114alice)` | JID claim         |
 | `acl_membership(role:senior, role:operator)`           | role hierarchy    |
 
-**Implicit principal set at message arrival.** When discd receives a
-message from `discord:user/811...` in room `discord:837.../1504...`,
-the gateway expands the caller's principal set to include BOTH:
+At message arrival the caller's principal set expands to include both the sender
+JID and the room JID, plus everything transitively reachable from either
+(`auth/authorize.go` `expandPrincipals`). The room JID carries the route's
+baseline grants; transitive membership carries personal grants; one `acl` lookup
+serves both. Cycle prevention is a transactional walk on write.
 
-```
-expand(caller_jid, room_jid) =
-    {caller_jid, room_jid}
-  ∪ {p : transitively via acl_membership from caller_jid}
-  ∪ {p : transitively via acl_membership from room_jid}
-```
+Postgres/IAM mapping is 1:1 — `GRANT role TO user` is an `acl_membership` row,
+`GRANT perm TO role` is an `acl` row, an IAM group is `role:<name>`, an IAM
+binding is the `acl` row itself.
 
-The room JID carries the route's baseline grants; transitive
-membership carries personal grants. Both flow through one `acl`
-lookup.
+**Seeded roles** are `role:operator` (`*` on `**`, WITH GRANT OPTION) and
+`role:member` (the messaging floor) — both in `routd/migrations/` (`0022`,
+`0023`). There are no per-depth bundles.
 
-Postgres / IAM mapping:
+## Evaluation — `auth.Authorize` (`auth/authorize.go:25`)
 
-| Real-world             | Mirrored as                  |
-| ---------------------- | ---------------------------- |
-| `GRANT role TO user`   | `acl_membership(user, role)` |
-| `GRANT <perm> TO role` | `acl(role, action, scope)`   |
-| AWS IAM group          | `role:<name>` is the group   |
-| Google IAM binding     | The `acl` row IS the binding |
+Expand the caller's principals transitively; load exact-match rows plus wildcard
+rows that match the expanded set; for each, check action-covers, scope-glob,
+predicate against claims, and params against call args; **deny wins**; no match
+= deny.
 
-**Predefined roles** seeded at `arizuko create`:
+**There is no fallback.** An unmatched `mcp:*` used to fall back to
+depth-derived defaults; `5/33` deleted that, so a missing grant denies loud
+instead of silently defaulting (`auth/authorize_test.go:211`). `interact` and
+`admin` were never depth-defaulted — they have always been explicit rows or a
+route binding.
 
-- `role:operator` — has `(role:operator, *, **, allow)`. First OAuth
-  sub bound via `acl_membership` at create time.
-- `role:org-admin`, `role:org-member` — empty templates operators wire
-  up via the ACL write tools (shipped as MCP `add_acl`/`remove_acl`,
-  the twins of REST `POST`/`DELETE /v1/acl`).
-
-**Cycle prevention** on `acl_membership` writes: transactional
-recursive walk from the new edge's parent; abort if `child` is
-reached. Self-membership forbidden.
-
-## Behavior — `Authorize`
-
-```go
-func Authorize(
-    s        *store.Store,
-    principal string,             // canonical, post-CanonicalSub
-    action    string,             // "interact" | "admin" | "mcp:send" | ...
-    scope     string,             // folder being acted upon
-    claims    map[string]string,  // JWT claims (discord:guild, github:org)
-    params    map[string]string,  // call args (jid, ...)
-) bool
-```
-
-Evaluation:
-
-1. Expand caller's principal set transitively via `acl_membership`
-   (cycle-safe, exact-match query — `WHERE child IN (...)`).
-2. Load `acl` rows whose `principal` matches any expanded principal.
-   Pre-expansion converts `WHERE principal GLOB ?` (kills the index)
-   into `WHERE principal IN (?, ?, ...)`. Stored globs
-   (`discord:user/*`) handled by a second query path.
-3. For each row: action covers requested action (lattice), scope
-   glob-matches requested scope, predicate evaluates against claims,
-   params glob-match call params.
-4. **Deny wins**: any matching `deny` row → reject. Otherwise any
-   matching `allow` → permit. No match → deny. (Pre-`5/33`, an unmatched
-   `mcp:*` fell back to tier defaults from `grants.DeriveRules`; `5/33`
-   deletes that fallback — `mcp:*` is now an explicit role grant, so a
-   missing grant denies loud instead of silently tier-defaulting.)
-
-`interact` and `admin` have **no tier default**: they are always
-explicit grants (either an `acl` row or a route binding). Tier
-defaults exist only for `mcp:*`. This sidesteps the "additive rows
-can't revoke a tier default" problem cleanly. Route binding for
-channel-bots: `routes` row binds `J → F`, gateway expands inbound
-caller's set to include the room JID; one `acl(room_jid, interact,
+Route binding for channel bots: a `routes` row binds `J → F`, the inbound
+caller's set expands to include the room JID, and one `acl(room_jid, interact,
 F)` row grants the audience.
 
-**Row-implication over rule-grammar deny.** If a row grants
-`admin` on F and the derived rule list contains `!set_grants`, the
-row wins (operator's explicit grant overrides the agent's self-imposed
-deny). Rule grammar's `!action` syntax stays inside `grants/grants.go`
-for the `mcp:*` derivation only.
-
-## Token model — one shape for every actor
-
-Every actor (human, agent, CLI, dashd) holds the same bearer-token
-shape. No "agent auth" vs "user auth" branch at the auth boundary.
-
-```
-token = { principal, claims map[string]string, session_id, ttl }
-```
-
-| Actor | Issuer                                    | Principal        | Claims sourced from                                                | TTL                       |
-| ----- | ----------------------------------------- | ---------------- | ------------------------------------------------------------------ | ------------------------- |
-| Human | `auth/` after OAuth                       | `google:...`     | OAuth provider, refreshed at JWT renewal                           | 5 min, refresh kept alive |
-| Agent | gated at spawn                            | `folder:<path>`  | spawn context (existing env vars at `container/runner.go:680-700`) | container lifetime        |
-| CLI   | local-socket capability resolved to token | as authenticated | as authenticated                                                   | per-invocation            |
-
-Agent claims (frozen at spawn): `folder`, `world`, `tier`, `parent`,
-`is_root`, `delegate_depth` — all sourced from env vars gateway
-already injects. Predicates match `claims[key]` uniformly:
-
-```
-predicate=tier=0                 -- only root agents
-predicate=world=atlas            -- same-world only
-predicate=discord:guild=837...   -- human is guild member
-```
-
-Claim freshness is per-actor: human claims refresh at JWT renewal
-(1h default), agent claims never refresh (next spawn is the renewal).
-Session-token refresh is server-side mint, same for both.
-
-## Audit
-
-`RenderACL(principal, scope)` returns the effective rule list for a
-principal in scope — same evaluation as `Authorize`, exhaustive
-instead of short-circuited. **Operator-only** by default; a principal
-may render its own effective grants. Not a general agent tool —
-spec 5/A's "agent finds out at failure site" carries over.
-
-`acl_use_log(ts, principal, action, scope, allowed)` table keyed on
-ts. Sampled at 100% for denied, 1% for allowed. **Not built** — no
-such table exists in any schema; per-call auditing is `5/I`'s
-`audit_log` instead.
-
-## Caching
-
-**Not built, and not needed so far.** `Authorize` holds no cache: it
-reads `acl`/`acl_membership` on every call. The `acl_version`
-watermark this section originally specified — a monotonic counter
-containers poll to invalidate a row-set cache — exists nowhere in Go
-or SQL.
-
-The live read is what satisfies spec `5/A`'s "next message" contract,
-and it does so more strongly than the cache design would: revocation
-takes effect on the **next tool call within a live turn**, not merely
-the next message. `routd/revocation_live_test.go` pins that — a deny
-row added mid-turn denies the following call on the same open socket,
-and the test was falsified against the missing row before landing.
-
-This is also why a brokered turn token must never carry an affirmative
-scope (`specs/5/P`): baked authority would outlive a revoked grant
-until token expiry, reintroducing exactly the staleness the absent
-cache would have. If a cache is ever added, next-call revocation is
-the contract it must preserve.
-
-## Cross-spec impact
-
-- **`specs/5/6` middleware**: `granted` + `grantedJID` collapse to one
-  `gated(Authorize)` wrapper — JID flows through `params`.
-- **`specs/5/A`**: subsumed. The `right` + `audience_predicate`
-  columns proposed there become rows in `acl`. Route-as-auth survives
-  as the room-JID principal pattern.
-- **`specs/4/19`**: tier derivation stays in code; deny semantics
-  live in the `effect='deny'` column.
-- **`specs/5/17`**: `ScopePred` calls `Authorize`; the
-  `<resource>:<verb>[:own_group]` scope shorthand mints `acl` rows.
+`auth.EffectiveActions` (`auth/authorize.go:86`) is the separate **visibility**
+view for `tools/list` — does the caller hold this action at ANY scope. Deny rows
+are scope-specific and do not hide a tool; the per-call `Authorize` still
+enforces them.
 
 ## Bootstrap
 
-`arizuko create` inserts two rows idempotently:
+`arizuko create` idempotently inserts the `role:operator` grant row and an
+`acl_membership` edge binding the operator's OAuth sub to it. `OPERATOR_SUB` is
+read at create time only — never at runtime. Corrections go through the
+membership tools; the escape hatch is a direct DB edit.
 
-```sql
-INSERT INTO acl (principal, action, scope, effect, granted_at)
-  VALUES ('role:operator', '*', '**', 'allow', now)
-  ON CONFLICT DO NOTHING;
-INSERT INTO acl_membership (child, parent, added_at)
-  VALUES ($OPERATOR_SUB, 'role:operator', now)
-  ON CONFLICT DO NOTHING;
-```
+## No caching, deliberately
 
-`OPERATOR_SUB` is read at create-time only — no runtime env-read.
-Operator corrections via `membership.add` / `membership.remove` MCP tools;
-emergency escape hatch is direct DB edit.
+`Authorize` reads `acl`/`acl_membership` on every call. The `acl_version`
+watermark this spec once specified exists nowhere in Go or SQL, and the live
+read is _stronger_ than the cache design would have been: revocation takes
+effect on the **next tool call within a live turn**, not merely the next
+message. `routd/revocation_live_test.go` pins that.
 
-## Related work — OPA / Rego
+This is also why a brokered turn token must never carry an affirmative scope —
+baked authority would outlive a revoked grant until token expiry, reintroducing
+exactly the staleness the absent cache would have. If a cache is ever added,
+next-call revocation is the contract it must preserve.
 
-Open Policy Agent (CNCF graduated) ships a Datalog-based policy
-language, Rego, that solves the policy-decision shape arizuko's ACL
-table covers and several it doesn't (cross-row conditions, time
-predicates, multi-step set computation, decisions-with-explanation).
-Reference: https://www.openpolicyagent.org/docs/policy-language.
+## Audit
 
-Why we haven't adopted it (yet):
+Per-call auditing is `5/I`'s `audit_log`. The `acl_use_log` table and the
+`RenderACL` renderer this spec once proposed were never built and are not
+planned — the `acl` resource's list face already answers "what does this
+principal effectively hold" (`5/33` decision 11).
 
-- Our 80% case is `reply(jid=slack:*)`-shaped per-tool gating; Rego
-  is overkill.
-- arizuko's "minimal primitives" posture pushes against a heavy
-  embedded DSL prematurely.
-- Pulling in `github.com/open-policy-agent/opa/v1/rego` adds binary
-  weight and a learning curve for operators who'd need to author it.
+## Rejected
 
-Where it becomes interesting (reopen this spec when any of these land):
+- **OPA / Rego** (CNCF, Datalog-based policy). Our 80% case is
+  `reply(jid=slack:*)`-shaped per-tool gating; a heavy embedded DSL is
+  disproportionate and adds an authoring burden for operators. Reopen if
+  cross-row conditions ("may `merge` only if it previously `reviewed` the same
+  PR"), time-of-day rules, or operator-authored compliance policy appear.
+  Adoption shapes and the deeper write-up: `memory/reference_opa.md`.
+- **Denormalizing the action lattice** into one row per `mcp:<tool>` — loses the
+  contract and multiplies rows on every grant.
 
-- Cross-row conditions ("agent can `merge` only if it previously
-  `reviewed` the same PR"). Today: emergent in Go in `Authorize`.
-- Time-of-day or rate-shaped rules.
-- External compliance policies operators write themselves.
-- Self-healing repair gates (`specs/10/3-repair-playbooks.md`) — e.g.
-  "auto-repair only for skills tagged `auto_repairable`".
+## Cross-spec impact
 
-Adoption shapes if the threshold is crossed (in order of weight):
-
-1. **Coexistence** — fall through to Rego when ACL has no decision.
-2. **Replacement** — rewrite `grants/grants.go` as a Rego frontend;
-   `acl` table becomes Rego data input.
-3. **Steal ideas** — extend our DSL with Rego primitives (sets, time)
-   without embedding OPA. Mid-weight; preserves no-deps posture.
-
-For now the simple DSL stays. See `memory/reference_opa.md` for the
-deeper write-up, including which adoption shape each future need
-would push toward.
+- **[`5/33`](33-paths-roles.md)** — the model that sits on this row.
+- **[`5/17`](17-openapi-mcp.md)** — the injected `Gate` at each resource site
+  calls `Authorize`; resreg carries no auth policy of its own.
 
 ## Open questions
 
-1. **Predicate grammar.** Single `key=value` glob, or boolean
-   expression (`A AND B`)? Lean: single conjunction per row, multiple
-   rows for disjunction.
-2. **Membership freshness.** Discord/GitHub claims have TTL. Re-verify
-   on each Authorize, or trust JWT until expiry? Lean: trust JWT;
-   1h renewal is fast enough.
-3. **`folder:` principal trust.** ~~Can the operator grant
-   `folder:atlas/eng admin atlas/**`?~~ **DECIDED by [`5/33`](33-paths-roles.md):
-   yes — the agent BECOMES a first-class `acl` principal (`folder:<path>` with
-   rows seeded at path-create + delegated at spawn), replacing the injected
-   `DeriveRules` grant slice. This is the path↔role bridge that lets tiers be
-   removed.**
-4. **Anonymous-to-OAuth upgrade.** ~~When `telegram:user/123` later
-   OAuths, rewrite rows to canonical sub or evaluate both forms?~~
-   **DECIDED by [`5/31`](31-identity-pairing.md):** insert an
-   `acl_membership(telegram:user/123, google:...)` edge at pair time; rows
-   untouched, membership expansion handles the rest. `5/31` owns the
-   mechanism — how the edge is minted, consented to, and revoked.
-5. **`acl` write scope.** Who may write `acl`? Lean: only `*`
-   principal (operator) and folder-admin (`admin` at scope ⊇
-   row.scope).
+1. **Predicate grammar.** Single `key=value` glob, or boolean expression? Lean:
+   one conjunction per row, multiple rows for disjunction.
+2. **Membership freshness.** Discord/GitHub claims have TTL. Lean: trust the JWT
+   until expiry; 1h renewal is fast enough.
+3. **`acl` write scope.** Who may write `acl`? Today: root, plus any principal
+   passing `auth.Delegate` (subset of held, WITH GRANT OPTION).
+
+Closed and recorded elsewhere: `folder:` principal trust and the
+anonymous-to-OAuth upgrade — decided by [`5/33`](33-paths-roles.md) (the agent
+IS a first-class `acl` principal) and [`5/31`](31-identity-pairing.md) (an
+`acl_membership` edge at pair time; rows untouched).

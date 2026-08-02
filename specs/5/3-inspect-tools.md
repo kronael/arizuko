@@ -2,74 +2,44 @@
 status: shipped
 ---
 
-> Shipped 2026-04-22: `inspect_messages`, `inspect_routing`,
-> `inspect_tasks`, `inspect_session`. `inspect_logs` and
-> `inspect_health` deferred — require journal / docker-socket access
-> the agent container doesn't have.
->
-> Planned (2026-05-01): `inspect_messages` gains a `since` param
-> (forward time-window read) so the agent can pull only new rows
-> after a digest cron. Pairs with the autocalls `unread`/`errors`
-> extensions in [4-autocalls.md](4-autocalls.md).
+> Shipped 2026-04-22: `inspect_messages` (`ipc/ipc.go`),
+> `inspect_routing`, `inspect_tasks`, `inspect_session`,
+> `inspect_identity` (`ipc/inspect.go`). `inspect_logs` and
+> `inspect_health` are **dropped, not deferred** — they need journal and
+> docker-socket access the agent container does not have, and giving it
+> that access would defeat the container boundary.
 
 # Inspect Tools — operational introspection MCP surface
 
 The agent needs to reason about its own runtime, not just the
-conversation. Today that means reading files with `Bash` + `cat`, which
-is slow and opaque. A small set of `inspect_*` MCP tools gives the
-agent first-class access to logs, health, and routing state.
+conversation. **The decision is that this is a tool family, not `Bash`.**
 
-## Family
+`Bash` is always available but wrong for this: it makes the agent know the
+instance name, the systemd unit format, and grep patterns; its output is
+unbounded and blows context; and a non-operator agent should not have
+`Bash` at all. `inspect_*` returns shaped JSON with built-in limit/offset
+and an opaque `cursor` — structure, not text.
 
-| Tool               | Returns                                                       |
-| ------------------ | ------------------------------------------------------------- |
-| `inspect_messages` | local DB rows for a JID (see `3/G-history-backfill.md`)       |
-| `inspect_logs`     | recent log lines for a daemon or group (`journalctl`-shaped)  |
-| `inspect_health`   | service + container health (systemd + docker ps + cursor lag) |
-| `inspect_routing`  | JID → folder resolution + errored flag + last container run   |
-| `inspect_tasks`    | scheduled tasks, next_run, recent task_run_logs               |
-| `inspect_session`  | current session ID, message count, last context reset, resume |
+Read-only. `registerInspect` (`ipc/inspect.go`) takes the resolved
+`auth.Identity` and the caller's folder: root sees the instance, a named
+folder sees itself, and any handler that accepts a `jid` binds it to the
+caller's folder before answering (`db.JIDRoutedToFolder`) — the
+containment rule every MCP handler owes. Mutating verbs
+(`clear_errored`, `restart_adapter`) belong in their own family, never
+here.
 
-Read-only, tier-gated (tier 0 sees all instances; tier ≥1 sees own
-group only). No destructive variants here; mutating verbs (e.g.
-`clear_errored`, `restart_adapter`) belong in their own family.
-
-## Why not just shell
-
-`Bash` is always available but costly:
-
-- `journalctl -u arizuko_<inst> | grep …` requires the agent to know
-  instance name, systemd unit format, grep patterns.
-- Output is unbounded — no pagination, easy to blow context.
-- Tier 1+ agents shouldn't have `Bash` at all.
-
-`inspect_*` tools return shaped JSON with built-in limit/offset.
-Caller gets structure, not text.
-
-## Shape
-
-```
-inspect_logs(daemon|folder, since, limit, grep?) → {lines: [...], cursor: "..."}
-inspect_health()                                  → {services: [...], containers: [...]}
-inspect_routing(jid?)                             → {routes: [...], errored: [...]}
-```
-
-All follow the same pagination (`cursor` opaque string) and tier-gate
-pattern as existing MCP tools.
-
-## Files
-
-- `ipc/inspect.go` — tool registrations, delegate to existing code:
-  - `inspect_messages` → `store.MessagesBefore`
-  - `inspect_logs` → exec `journalctl` bounded by `--until` + `-n`
-  - `inspect_health` → `/health` endpoints + `docker ps` over the
-    docker socket (tier 0 / elevated `/root` turn only; tier ≥1 gets agent-scoped subset)
-  - `inspect_routing` → `routes` + `messages.errored` aggregation
-  - `inspect_tasks` → `scheduled_tasks` + recent `task_run_logs`
-  - `inspect_session` → `sessions` row + current `messages.db` cursor
+Each tool delegates to code that already exists rather than growing its
+own query layer: routing → `routes` + `messages.errored`; tasks →
+`scheduled_tasks` + recent `task_run_logs`; session → the `sessions` row +
+the current cursor; messages → the store's history read.
 
 ## Out of scope
 
-- Writing logs (use existing `slog`).
-- Modifying routes (see `14/6-dynamic-channels.md`).
-- Arbitrary shell (use `Bash`, tier-gated).
+- Writing logs (that is `slog`).
+- Modifying routes (`14/6-dynamic-channels.md`).
+- Arbitrary shell (that is `Bash`, and it is gated).
+
+<!-- UNVERIFIED as of 2026-08-02: the 2026-05-01 plan was a `since` param
+on `inspect_messages` for post-digest forward reads. `since` shipped on
+`find_messages` (FTS5 search, `ipc/ipc.go`) instead; `inspect_messages`
+does not carry one. -->

@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 ---
 
 # Cost caps + ephemeral budget nudges
@@ -51,7 +51,7 @@ CREATE INDEX idx_cost_log_user_at   ON cost_log(user_sub, at);
 
 Anthropic's API response carries `usage.input_tokens` and
 `usage.output_tokens` per call; the ant container forwards these
-to gated via the MCP `submit_turn` envelope (existing path; just
+to routd via the MCP `submit_turn` envelope (existing path; just
 adds token/cost fields). Gated writes one cost_log row per call.
 
 ### Budgets
@@ -68,7 +68,7 @@ Operator sets explicit caps via dashd or CLI.
 
 ### Mid-session nudges
 
-At the start of each turn, gateway computes `spent_today =
+At the start of each turn, routd computes `spent_today =
 SUM(cents) FROM cost_log WHERE folder = X AND at > today_start`
 (same for user). If `spent_today / cap >= 0.5`, append an ephemeral
 block to the per-turn envelope:
@@ -148,7 +148,7 @@ arizuko budget <inst> show folder <name>
 ## Acceptance
 
 1. A channel with `cost_cap_cents_per_day=0` (default) is never
-   gated; budget logic runs but no nudges, no stops.
+   routd; budget logic runs but no nudges, no stops.
 2. A channel with cap=200 cents, current spend 110 cents → next
    turn's envelope carries `<budget_notice level="50">`. The agent
    sees the nudge and can self-throttle.
@@ -189,7 +189,7 @@ arizuko budget <inst> show folder <name>
 - **Ephemeral nudges, not history.** Budget notices live in the
   per-turn envelope only — keeps the conversation clean.
 - **Hard stop without LLM call.** When cap is hit, the channel
-  message comes from gateway directly. We're literally out of
+  message comes from routd directly. We're literally out of
   budget; can't afford to ask the model how to phrase the refusal.
 - **Default zero (no cap).** Existing channels/users unaffected.
   Caps are operator opt-in.
@@ -203,11 +203,11 @@ arizuko budget <inst> show folder <name>
 - `store/migrations/<next>-cost-log.sql` — new table + chats /
   auth_users column adds.
 - `store/cost_log.go` (new) — write + aggregate helpers.
-- `gateway/budget.go` (new) — per-turn cap check + nudge
+- `routd/budget.go` — per-turn cap check + nudge
   composition.
-- `gateway/prompt_build*.go` — append `<budget_notice>` envelope.
+- `routd/prompt.go` — append `<budget_notice>` envelope.
   Follows the per-turn ephemeral XML block convention documented in
-  `gateway/README.md` ("Per-turn ephemeral XML blocks"); add a row to
+  `routd/README.md` ("Per-turn ephemeral XML blocks"); add a row to
   that table when this lands.
 - `ipc/submit_turn.go` (or equivalent in `ant/`) — forward token
   counts from Anthropic responses.

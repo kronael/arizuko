@@ -8,7 +8,7 @@ depends: [1-cockpit-index]
 `dashd` stops being the monolith that renders every operator view. It
 becomes the **cockpit hub** plus the home for **cross-cutting pages
 that span daemons** — and nothing else. Per-daemon runtime views move
-to the owning daemon (`7/3`–`7/14`). Architecture, read-path, auth, and
+to the owning daemon (`7/3`, `7/12`). Architecture, read-path, auth, and
 theme are defined in [`7/1`](1-cockpit-index.md); this spec lists only
 what dashd keeps.
 
@@ -23,7 +23,7 @@ registry, no autodiscovery.
 
 The hub renders **no** daemon-specific runtime view and holds **no**
 duplicate control renderer. When a per-daemon dashboard subsumes an old
-dashd page (e.g. proxyd's route editor `7/6`), the migrating PR deletes
+dashd page (e.g. proxyd's route editor, `7/3`), the migrating PR deletes
 the dashd version and repoints the link — never two renderers
 (CLAUDE.md "One renderer, many sinks").
 
@@ -42,13 +42,18 @@ dashd. **All of them read + write through the owning daemon's `/v1`
 | grants / ACL (rows, edges, roles, principal-effective) | authd `/v1` acl         | absorbs `4/V`; was direct read       |
 | routes / route-tokens                                  | routd `/v1` routes      | until/if moved to routd dash (`7/3`) |
 | memory (view/edit MEMORY.md, CLAUDE.md, diary/facts)   | routd `/v1` group files | absorbs `4/Q`; was direct FS/DB      |
-| profile / me-secrets / invites                         | authd + onbod `/v1`     | invites cross to onbod (`7/7`)       |
+| profile / me-secrets / invites                         | authd + onbod `/v1`     | invites cross to onbod (`7/3`)       |
 
 Migration rule (from `7/1`): a page primarily about ONE daemon's
 runtime or owned resources moves out to that daemon; a page that spans
 daemons or is operator-global stays here. `routes`/`route-tokens` are
 the ambiguous pair — they edit `routd`-owned tables; keep them here
-until `7/3` is built, then decide per "One renderer, many sinks".
+until routd's dashboard is built, then decide per "One renderer, many
+sinks".
+
+Two daemons already serve their own dashboard — onbod's admission queue
+and timed's overview — so the hub has live tiles to link the day it
+lands; their `/dash/` routes are already in `coreProxydRoutes`.
 
 ## Reconciliation
 

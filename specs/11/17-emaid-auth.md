@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 ---
 
 # emaid sender authentication + quarantine
@@ -13,13 +13,13 @@ Layered DMARC/DKIM/SPF verification + operator-controlled sender allowlist
 sub-group routing (e.g. quarantine) is the whole point of this spec.
 
 **Replaces** the existing fail-open `authResultsPass` at
-`emaid/imap.go:391`. That helper substring-matches against the first
+`emaid/auth.go` (the old `imap.go` helper is gone). That helper substring-matched against the first
 64KB of the raw message and returns true on missing header — opposite
 of safe default. The new classifier deletes it.
 
 ## Problem
 
-The email adapter delivers any IMAP inbox message to the gateway. Spam,
+The email adapter delivers any IMAP inbox message to routd. Spam,
 phishing, prompt-injection via subject/body all reach the agent
 unchecked. Routes can't distinguish "mail from a known partner" from
 "mail from a random sender claiming to be your CFO." An operator running
@@ -110,10 +110,10 @@ emaid sets `InboundMsg.Verb`:
 - `auth_state == "trusted"` → `verb = "message"` (today's default)
 - `auth_state == "untrusted"` → `verb = "untrusted"` (new value)
 
-**Collision with spec 6/J reply-to-bot promotion**: a stranger
+**Collision with spec 5/L reply-to-bot promotion**: a stranger
 replying to a bot message would otherwise be promoted to `verb=mention`
-by the gateway. Spec 6/J runs at api/api.go `handleMessage` AFTER the
-adapter ships. Resolution: gateway 6/J check is amended — if
+by routd, whose promotion check runs on the inbound handler AFTER the
+adapter ships. Resolution: the `5/L` check is amended — if
 `verb=="untrusted"`, do NOT promote to `mention`. The untrusted signal
 wins; an attacker reply-to-bot from an unverified address must not
 escalate to trigger.
@@ -139,7 +139,7 @@ INSERT INTO routes (match, target) VALUES
   ('platform=email verb=untrusted', 'atlas/quarantine');
 ```
 
-No new daemon code on the gateway side — the existing match
+No new daemon code on the routd side — the existing match
 expression grammar already supports `verb=untrusted` (any string value
 works; routes just compare). The `atlas/quarantine` group is a
 regular sub-group with its own CLAUDE.md instructing the agent how
@@ -200,16 +200,16 @@ Mox + maddy.
 
 ## Code surface
 
-| File                                  | Change                                                                  | LOC  |
-| ------------------------------------- | ----------------------------------------------------------------------- | ---- |
-| `emaid/imap.go:391` `authResultsPass` | DELETE (replaced by classifier)                                         | -22  |
-| `emaid/auth.go` (new)                 | A-R parser (pinned authserv-id) + From-domain allowlist + verb decision | ~100 |
-| `emaid/dkim.go` (new)                 | optional independent DKIM verify                                        | ~40  |
-| `emaid/main.go`                       | wire env vars; call `classify(msg)` before deliver                      | ~15  |
-| `emaid/auth_test.go` (new)            | 12 cases (see below)                                                    | ~220 |
-| `api/api.go`                          | spec 6/J collision: skip mention promotion when verb=="untrusted"       | ~3   |
-| `chanlib/chanlib.go`                  | NO change — Verb is already a string                                    |
-| `go.mod` / `go.sum`                   | add `github.com/emersion/go-msgauth` (MIT, NEW dep, small)              | 1    |
+| File                                    | Change                                                                  | LOC  |
+| --------------------------------------- | ----------------------------------------------------------------------- | ---- |
+| `authResultsPass` (was `emaid/imap.go`) | DONE — deleted; classifier is `emaid/auth.go:124`                       | -22  |
+| `emaid/auth.go` (new)                   | A-R parser (pinned authserv-id) + From-domain allowlist + verb decision | ~100 |
+| `emaid/dkim.go` (new)                   | optional independent DKIM verify                                        | ~40  |
+| `emaid/main.go`                         | wire env vars; call `classify(msg)` before deliver                      | ~15  |
+| `emaid/auth_test.go` (new)              | 12 cases (see below)                                                    | ~220 |
+| `routd/server.go`                       | spec 5/L collision: skip mention promotion when verb=="untrusted"       | ~3   |
+| `chanlib/chanlib.go`                    | NO change — Verb is already a string                                    |
+| `go.mod` / `go.sum`                     | add `github.com/emersion/go-msgauth` (MIT, NEW dep, small)              | 1    |
 
 Net: ~360 LOC including tests; -22 deletion of the unsafe helper.
 
@@ -238,7 +238,7 @@ dmarc=pass` with no pinned-authserv match → `verb=untrusted`**
 12. From: with IDN domain (Punycode `xn--example-...`) matched against
     UTF-8 allowlist entry → normalize before compare
 13. Multi-mailbox From: → `from_trusted=false` always
-14. Reply-to-bot collision: `verb=untrusted` arriving at gateway 6/J
+14. Reply-to-bot collision: `verb=untrusted` arriving at routd 5/L
     promotion path → stays `untrusted`, NOT promoted to `mention`
     (test in api/api_test.go)
 15. `EMAIL_UNVERIFIED_SUBJECT_PREFIX=false` (default) → subject

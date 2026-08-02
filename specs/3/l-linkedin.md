@@ -2,68 +2,41 @@
 status: shipped
 ---
 
-# LinkedIn Channel (`linkd`)
+# LinkedIn channel (`linkd`)
 
-Inbound feed items / mentions / comments on own posts. Outbound
-publishing (posts, comment replies, articles).
+Go daemon, same pattern as `mastd`/`bskyd`: polls the LinkedIn API,
+registers with routd as channel `linkedin`, JID prefix `linkedin:`.
+Ships as `template/services/linkd.yml`.
 
-DMs and InMail require LinkedIn partner program — out of scope.
-
-## Daemon
-
-Go daemon, same pattern as `mastd`/`bskyd`. Polls LinkedIn API,
-registers with gated as channel `linkedin`.
-
-- `linkd/main.go`
-- `template/services/linkd.toml`
+Scope is feed items, mentions, and comments on our own posts, plus
+outbound publishing. **DMs and InMail are out of scope** — they require
+the LinkedIn partner program, which is not obtainable for a
+self-hosted deployment.
 
 ## Auth
 
-OAuth2 PKCE. Scopes: `r_liteprofile`, `w_member_social`,
-`r_organization_social` (optional). Token in data dir. proxyd
-`/auth/linkedin` handles callback, writes to file, linkd reads.
+OAuth2 PKCE with scopes `r_liteprofile`, `w_member_social`, and
+optionally `r_organization_social`. proxyd handles the
+`/auth/linkedin` callback and writes the token to the data dir; linkd
+reads it. The callback lives in proxyd rather than linkd because proxyd
+already owns the public port and every other OAuth callback — a second
+public surface per adapter is the thing the proxy exists to prevent.
 
-## Flow
+## Polling shape
 
-Inbound: poll `/v2/shares?q=owners&owners=<urn>` for own posts, then
-`/v2/socialActions/<post-urn>/comments` for new comments. Also poll
-`/v2/networkUpdates` for mentions. Deliver each comment with `verb=comment`,
-`chat_jid=linkedin:<urn>`.
+Inbound needs two calls per cycle: `/v2/shares?q=owners` for our own
+posts, then `/v2/socialActions/<urn>/comments` per post, plus
+`/v2/networkUpdates` for mentions. That N+1 is why the poll interval is
+conservative — the free tier allows ~100 requests/day, which a 5-minute
+interval exhausts on its own.
 
-Outbound: `POST /send` → `linkd` → `POST /v2/ugcPosts` or
-`POST /v2/socialActions/<urn>/comments`. `/send-file` uses Assets API
-(register upload → upload bytes → reference in post).
-
-## Service template
-
-```toml
-image = "arizuko:latest"
-entrypoint = ["linkd"]
-
-[environment]
-ROUTER_URL = "http://gated:${API_PORT}"
-CHANNEL_SECRET = "${CHANNEL_SECRET}"
-ASSISTANT_NAME = "${ASSISTANT_NAME}"
-LISTEN_ADDR = ":8080"
-LISTEN_URL = "http://linkd:8080"
-LINKEDIN_CLIENT_ID = "${LINKEDIN_CLIENT_ID}"
-LINKEDIN_CLIENT_SECRET = "${LINKEDIN_CLIENT_SECRET}"
-LINKEDIN_POLL_INTERVAL = "300s"
-LINKEDIN_AUTO_PUBLISH = "false"
-```
+`LINKEDIN_AUTO_PUBLISH=false` by default: publishing to a professional
+identity is the one channel where a wrong agent post is expensive and
+not quietly deletable, so the default is draft-to-user.
 
 ## Open
 
-- Poll interval (5 vs 15 min; free tier rate limit 100 req/day)
-- Content approval gate: draft to user first, or publish directly?
-  `LINKEDIN_AUTO_PUBLISH=false` default.
-- Articles vs Posts (different endpoints — start with posts)
-- Personal profile vs org pages (different scopes)
-- JID format: `linkedin:<urn:li:person:xxx>` (stable) vs vanityName
-
-## Files
-
-- `linkd/main.go` — poll loop, OAuth refresh, channel registration
-- `auth/` — token storage (reuse existing primitives)
-- `proxyd/` — `/auth/linkedin` callback
-- `template/services/linkd.toml`
+- Articles vs posts use different endpoints; only posts are wired.
+- Personal profile vs organization pages need different scopes.
+- JID stability: `linkedin:<urn:li:person:xxx>` is stable, a vanity name
+  is not — the URN is used.

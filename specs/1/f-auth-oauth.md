@@ -11,6 +11,9 @@ Code: `auth/`.
 
 - **Access token**: JWT, 1hr TTL, in localStorage
   - Claims: `sub`, `name`, `provider`, `exp`
+  - Signed **ES256 by `authd`**; backends verify offline against JWKs.
+    (The HMAC-SHA256 signing this spec originally described is retired —
+    [`../5/1-auth-standalone.md`](../5/1-auth-standalone.md).)
 - **Refresh token**: opaque random (32 bytes), 30d TTL
   - Stored as SHA-256 hash in DB (high-entropy, argon2id not needed)
   - HttpOnly; SameSite=Strict; Secure; Path=/auth
@@ -56,24 +59,10 @@ window, keyed by `X-Forwarded-For` or `remoteAddress`.
 
 ## DB schema
 
-```sql
-CREATE TABLE auth_users (
-  id            INTEGER PRIMARY KEY,
-  sub           TEXT UNIQUE NOT NULL,  -- e.g. "local:<uuid4>"
-  username      TEXT UNIQUE NOT NULL,
-  hash          TEXT NOT NULL,         -- argon2id (empty for OAuth-only)
-  name          TEXT NOT NULL,
-  created_at    TEXT NOT NULL,
-  linked_to_sub TEXT                   -- NULL = canonical; else points at canonical sub
-);
-
-CREATE TABLE auth_sessions (
-  token_hash TEXT PRIMARY KEY,         -- SHA-256 hex of refresh token
-  user_sub   TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-```
+`auth_users` (`sub` unique, argon2id `hash` empty for OAuth-only,
+`linked_to_sub` NULL = canonical) and `auth_sessions` (SHA-256 hex of
+the refresh token as PK). Owned and migrated by `authd`; columns live in
+`authd/migrations/`.
 
 ## Account linking
 

@@ -5,95 +5,52 @@ supersedes: [4/Y-minimal-setup.md]
 
 # compose: native Docker Compose profiles and includes
 
-Replace `compose.go`'s custom PROFILE system and TOML mini-format with
-Docker Compose built-in machinery: `profiles:` for optional daemons,
-`include:` for channel adapters, thin `arizuko packages` wrapper.
+**DECISION: use Docker Compose's built-in machinery instead of
+re-implementing it.** `profiles:` for optional daemons, `include:` for
+channel adapters. The custom `PROFILE=minimal|web|full` enum and the
+hand-parsed `template/services/*.toml` mini-format are both retired.
 
-## Today's state
-
-- `compose/compose.go` (~900 LOC) builds docker-compose.yml by hand.
-- Optional core daemons (timed, onbod, davd) gated by Go conditionals
-  keyed off `PROFILE=minimal|web|full` env var baked at code-generation
-  time. Three hardcoded code paths.
-- Channel adapters dropped as custom TOML files (`template/services/*.toml`),
-  parsed line-by-line by `compose.go`, transformed to YAML by hand. Custom
-  mini-format: per-adapter env, `[[proxyd_route]]` blocks, `gated_by` conditions.
-- Generated compose.yml embeds all service definitions inline; no composition.
-
-## Target shape
-
-- Core daemons (`timed`, `onbod`, `davd`) get `profiles: ["timed"]` etc. in
-  their compose stanzas. Generated compose.yml includes all three, but Docker
-  only brings them up when `COMPOSE_PROFILES=timed,onbod` is set or
-  `docker compose --profile timed up` is used. No Go conditionals.
-- Channel adapters become native `.yml` fragments in `template/services/`.
-  Each `teled.yml`, `slakd.yml`, etc. is a valid partial compose service.
-  Generated compose.yml writes `include:` entries: `include: - ./services/teled.yml`.
-  Docker handles the rest — no TOML parsing, no per-adapter Go functions.
-- New `arizuko packages` subcommand:
-  - `arizuko packages list` — available (in template/) vs enabled (in datadir/).
-  - `arizuko packages add <name>` — copies fragment from template/ to datadir/services/.
-  - `arizuko packages remove <name>` — deletes from datadir/services/.
-- `compose.Generate()` shrinks to ~200 LOC: base service definitions
-  (authd/routd/runed/proxyd/webd/vited), static include paths for enabled
-  adapters, `PROXYD_ROUTES_JSON` from `template/services/*-routes.toml`.
-
-## Migration
-
-1. **Convert `template/services/*.toml` to `.yml` fragments** — one per
-   channel adapter. Each becomes a valid partial compose service (image, env,
-   ports, healthcheck). No TOML parsing; Docker's YAML loader is canonical.
-   Move `[[proxyd_route]]` → `template/services/*-routes.toml` (or keep as
-   comment in adapter .yml, evaluated by compose.go at include-time).
-
-2. **Move PROFILE conditionals to `profiles:`** — timed/onbod/davd get
-   `profiles: ["<name>"]` in generated compose.yml or in core-services.yml.
-   No Go `if profile == "full"`.
-
-3. **Rewrite compose.Generate()** — delete TOML parser, per-adapter service
-   functions. Write base service defs; emit `include:` for each enabled adapter
-   fragment; extract routes from template (if kept there) or parse from
-   richer .yml schema.
-
-4. **CLI wrapper `arizuko packages`** — read `template/services/`, list
-   available; read `<datadir>/services/`, list enabled; `add`/`remove` copy/delete.
-
-## What deletes
-
-- `compose/compose.go` lines ~200-400: TOML parser, `ParseServicesTOML()`,
-  per-adapter field extraction, `gated_by` filtering.
-- `compose/compose.go:450-550` (approx): `timedService()`, `onbodService()`,
-  `davdService()`, `davdProxyRoute()`, other per-daemon builder functions.
-- `compose/compose.go` PROFILE conditionals (~30 lines scattered).
-- `template/services/*.toml` TOML files; replaced by `.yml`.
-- Custom env-var gating for routes; Docker profile selection is the single
-  gate.
+Why: a custom TOML mini-format meant `compose.go` owned a parser, a
+per-adapter Go builder function, and a YAML emitter for something Docker's
+own YAML loader already does. Every new adapter cost Go code. Now a channel
+adapter ships `template/services/<name>.yml` — a valid partial compose
+service that Docker `include`s verbatim — plus an optional
+`<name>-routes.json` ([`7-proxyd-standalone.md`](7-proxyd-standalone.md)).
+**Adding an adapter touches no Go.**
 
 ## Opt-in by omission
 
 Profiles are the mechanism; the stance behind them predates them and
-survives unchanged: **a feature is off because its daemon is not
-running or its env var is not set — not because a flag says `false`.**
-Onboarding is off until `ONBOARDING_ENABLED=true`, WebDAV until
-`WEBDAV_ENABLED`, media transcription until `MEDIA_ENABLED`, the web
-bundle until `WEB_PORT`. `activeProfiles(env)` reads exactly those
-vars and derives `COMPOSE_PROFILES`; there is no second switch.
+survives unchanged: **a feature is off because its daemon is not running or
+its env var is not set — not because a flag says `false`.** Onboarding is
+off until `ONBOARDING_ENABLED=true`, WebDAV until `WEBDAV_ENABLED`, media
+transcription until `MEDIA_ENABLED`, the web bundle until `WEB_PORT`.
+`activeProfiles(env)` (`compose/compose.go:417`) reads exactly those vars
+and derives `COMPOSE_PROFILES`; there is no second switch.
 
-The floor of the deployment is the core plane plus one channel adapter
-(ARCHITECTURE.md "Core vs integrations"). Everything above that floor
-is a profile, and adding one is adding an env var — never editing
-`compose.go`.
+The floor of a deployment is the core plane plus one channel adapter
+(ARCHITECTURE.md "Core vs integrations"). Everything above that floor is a
+profile, and adding one is adding an env var — never editing `compose.go`.
 
-This is why per-feature boolean flags stay out of the compose layer:
-they would be a second gate that drifts from the first. The retired
-`PROFILE=minimal|web|full` enum was exactly that drift — three
-hardcoded Go paths encoding combinations the env vars already
-described.
+This is why per-feature boolean flags stay out of the compose layer: they
+would be a second gate that drifts from the first. The retired
+`PROFILE=minimal|web|full` enum was exactly that drift — three hardcoded Go
+paths encoding combinations the env vars already described.
+
+## Known gap
+
+**C2 — package removal left orphan proxyd routes.** Resolved by
+[`5/28`](28-packages.md): the installed-package record names the
+`proxyd_routes` rows a package owns, and `packages remove` deletes them
+through proxyd's handler rather than guessing at ownership.
 
 ## Code pointers
 
-- `compose/compose.go` — main target for shrinkage.
-- `template/services/` — source repository; convert all .toml to .yml.
-- `cmd/arizuko/packages.go` (new) — list/add/remove verbs.
-- `template/services/timed.yml`, `onbod.yml`, `davd.yml` (or one
-  `core-services.yml`) — where profiles land.
+- `compose/compose.go` — `activeProfiles` (:417), profile emission
+  (:811-813, :1024, :1055), the `include:` block (:687).
+- `template/services/*.yml` — the adapter fragments Docker includes.
+- `cmd/arizuko/packages.go` — the `list`/`add`/`remove` verbs over them.
+
+Optional core daemons (`timed`, `onbod`, `davd`) get their `profiles:` key
+emitted inline by `compose.go`, not from a `template/services/` fragment —
+they are core, not includable packages.

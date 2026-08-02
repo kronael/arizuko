@@ -2,58 +2,36 @@
 status: active
 ---
 
-# specs/7 — enterprise hardening: trust primitives on top of phase 5
+# specs/8 — enterprise hardening: trust primitives on top of phase 5
 
-The trust layer. Hardening that makes arizuko credible to regulated
-buyers and enterprise security reviews:
+The trust layer — the hardening that makes arizuko survive a regulated
+buyer's security review. Phase 5 builds the surfaces; this phase makes them
+defensible.
 
-- **Encryption at rest** — `messages.db` + `secrets` table (`E`)
-- **Audit stream** — `ipc_audit` for MCP mutations + proxyd access
-  log + cli_audit (`F`)
-- **Per-daemon secrets** — channel-secret separation; leaking one
-  adapter's bearer does not compromise others (`H`)
-- **Enterprise SSO** — SAML 2.0 SP-initiated + OIDC Authorization
-  Code; JIT provisioning + SCIM deprovisioning (`X`)
-- **External capability injection** — secrets-injected MCP tools,
-  connector spawner, grants-governed; see `specs/5/13-ext-mcp.md`
-- **MITM-isolated egress** — HTTPS termination on egred, `$VAR`
-  placeholder swap, per-instance CA; catches opaque HTTP clients
-  the broker can't (`Z`)
+| Spec                                                 | Status  | Hook                                                                                                                                             |
+| ---------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [A-hierarchical-skills.md](A-hierarchical-skills.md) | draft   | Nested `ant/skills/` layout + self-skill root; `resolve` descends a tree instead of enumerating all 93 SKILL.md frontmatters. Per-turn O(depth). |
+| [D-slack-agent-pane.md](D-slack-agent-pane.md)       | shipped | Slack AI sidebar: persisted `pane_sessions`, thread-started/context-changed handlers, staged title + suggested prompts, pane context in prompt.  |
+| [E-encryption-at-rest.md](E-encryption-at-rest.md)   | partial | AES-256-GCM on `secrets.value` under a `SECRETS_KEY` keyring (shipped). `messages.db` content columns deferred — it trades away SQL search.      |
+| [X-sso-saml.md](X-sso-saml.md)                       | draft   | Enterprise SSO: SAML 2.0 SP-initiated + OIDC Authorization Code on top of existing OAuth. JIT provisioning + optional SCIM deprovisioning.       |
 
-## Where this leads
+## Scope note
 
-Phase 7 hardening composes with phase 8's git-as-truth into the
-platform thesis:
+`D` is a channel-flavoured historical exception that bled in before the
+phase 5/8 split was clean. Per-platform adapter behaviour belongs next to
+the daemon (`slakd/README.md`), not in a phase-8 spec; future
+channel-specific items go there.
 
-- **Audit stream** (`F`) provides the SQLite audit log that
-  pairs with git history for warm-tier decisions; phase 8's
-  per-turn decision sidecar references the same actor identities.
-- **Encryption at rest** (`E`) keeps secret blobs safe in SQLite
-  while phase 8 explicitly keeps secrets OUT of git (refs only).
-- **Secret broker** (`Y`) + **per-daemon secrets** (`H`) lock down
-  the secret access surface that phase 8 references via
-  `(scope, name)` tuples in `agents.toml`.
-- **SSO** (`X`) and **MITM** (`Z`) are independent enterprise
-  asks; they don't depend on phase 8 but make the same buyer
-  ready to adopt it.
+## Deleted 2026-08-02
 
-## Scope notes
+| was                          | why                                                                                                                                                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `00-finalise-plan.md`        | a pre-split meta-plan to carve `gated` into `routerd`/`agent-runnerd`/`mcp-hostd`. `gated` was deleted outright at v0.50.0; the specs it sequenced now live in `5/`.                                    |
+| `F-audit-stream.md`          | proposed `ipc_audit`. Migration `0066` consolidated `ipc_audit` + `cli_audit` into the per-daemon **`audit_log`**, specced in [`../5/I-tool-call-logging.md`](../5/I-tool-call-logging.md). Superseded. |
+| `G-slack-multi-workspace.md` | unbuilt Slack OAuth multi-workspace, and channel-specific by the scope note above — belongs in `slakd/README.md` if it revives.                                                                         |
+| `H-per-daemon-secrets.md`    | claimed `<DAEMON>_CHANNEL_SECRET` had shipped. It never existed (zero code hits), and `CHANNEL_SECRET` itself is retired — adapters now exchange an ES256 service token via `AUTHD_SERVICE_KEY`.        |
+| `Z-egred-mitm.md`            | 593 lines proposing HTTPS-MITM on an `egred` daemon that was never built, premised on `gated`. Its own opening quoted `5/13` _rejecting_ MITM, then reintroduced it. `crackbox` (`6/8`) is the answer.  |
 
-Two specs in this phase are channel-flavored historical exceptions
-(D-slack-agent-pane, G-slack-multi-workspace) that bled in before
-the phase 5/7 split was clean. Per-platform adapter behavior
-generally lives next to daemon code (`slakd/`, `teled/`, etc.),
-not as spec files. Future channel-specific items get a per-daemon
-README rather than a phase-7 spec.
-
-| Spec                                                     | Status  | Hook                                                                                                                                                                                                                                   |
-| -------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [A-hierarchical-skills.md](A-hierarchical-skills.md)     | draft   | Nested `ant/skills/` layout + self-skill root; `resolve` descends a tree instead of enumerating all SKILL.md frontmatters. Per-turn cost O(depth) not O(N).                                                                            |
-| [D-slack-agent-pane.md](D-slack-agent-pane.md)           | shipped | Full Slack AI sidebar support: pane_sessions table; assistant_thread_started/\_context_changed event handlers; setTitle on open; setSuggestedPrompts after every reply; pane_context surfaced to agent prompt; PERSONA.md frontmatter. |
-| [E-encryption-at-rest.md](E-encryption-at-rest.md)       | partial | Encrypt `secrets` table + `messages.db` at rest; filesystem-attacker threat model. Shipped: AES-256-GCM on `secrets.value`. Deferred: `messages.db` content columns.                                                                   |
-| [F-audit-stream.md](F-audit-stream.md)                   | draft   | Audit log: `ipc_audit` table for MCP mutations + `cli_audit` (existing) + slog for proxyd access. No file export.                                                                                                                      |
-| [G-slack-multi-workspace.md](G-slack-multi-workspace.md) | draft   | Slack OAuth install flow + multi-workspace support in slakd.                                                                                                                                                                           |
-| [H-per-daemon-secrets.md](H-per-daemon-secrets.md)       | shipped | Per-daemon channel secrets: each adapter reads `<DAEMON>_CHANNEL_SECRET` with fallback to `CHANNEL_SECRET` so a leaked per-platform bearer does not compromise the others.                                                             |
-| [X-sso-saml.md](X-sso-saml.md)                           | draft   | Enterprise SSO: SAML 2.0 SP-initiated + OIDC Authorization Code, on top of existing OAuth. JIT provisioning + optional SCIM deprovisioning.                                                                                            |
-| [Z-egred-mitm.md](Z-egred-mitm.md)                       | draft   | HTTPS-MITM on egred: per-source TLS termination, `$VAR` placeholder swap on Authorization-class headers, CA per instance. Additive to Y — catches opaque HTTP clients (curl, requests, bash-grant scripts) the broker can't.           |
-| [00-finalise-plan.md](00-finalise-plan.md)               | draft   | Historical: bucket-6 finalisation plan from the pre-split era. Most referenced specs now live in [specs/5/](../5/).                                                                                                                    |
+There is no secret-broker spec: `specs/7/Y-secret-broker.md` was folded into
+[`../5/13-ext-mcp.md`](../5/13-ext-mcp.md) (commit `c6a878e4`). Code comments
+in `store/secrets.go` still cite the dead `6/Y`/`8/Y` paths.

@@ -57,8 +57,8 @@ Per-group. `users/alice` in group A ≠ group B. Cross-channel identity
 linking happens at the `auth_users.linked_to_sub` layer — orthogonal
 to per-group user context.
 
-## Files
+## Code
 
-- `router/` — inject `<user>` tag
-- `ant/skills/users/SKILL.md`
-- `container/CLAUDE.md` — document users/ pattern
+`router.UserContextXml(sender, groupDir)` builds the tag; the injection
+site is prompt assembly in `container/runner.go`. Agent behaviour is
+`ant/skills/users/SKILL.md`.

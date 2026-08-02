@@ -18,27 +18,24 @@ not chat primitives, handled out-of-band by operators.
 
 ## Actions
 
-| Action       | Platforms                           | Status  |
-| ------------ | ----------------------------------- | ------- |
-| `reply`      | all adapters                        | shipped |
-| `post`       | reditd, bskyd, mastd, discd         | partial |
-| `like`       | discord, mastodon, bluesky          | partial |
-| `delete`     | discord, mastodon, bluesky, reddit  | shipped |
-| `close`      | gateway (marks thread group closed) | planned |
-| `drop_group` | gateway (removes thread group)      | planned |
+Agent-facing verbs are `send`, `reply`, `post`, `like`, `dislike`,
+`delete`, `edit`, `forward`, `quote`, `repost`, `send_file` — registered
+in `ipc/ipc.go`, with per-adapter support declared through
+`chanlib.BotHandler` and the `NoSocial` / `NoFileSender` embeds. The
+live support matrix lives in each daemon's `README.md`, not here: a
+table in a spec drifts the moment an adapter gains a verb.
 
-> Updated 2026-04-24: `like` and `delete` are implemented at the
-> adapter + gateway layer on the listed platforms and registered as
-> MCP tools in `ipc/ipc.go`. Planned gateway-level group verb renamed
-> `delete` → `drop_group` to avoid collision with the platform tool.
+An adapter that cannot do a verb returns a structured
+`*chanlib.UnsupportedError` carrying `{Tool, Platform, Hint}` rather
+than a bare failure, so the agent learns the fallback from the error
+([`../4/19-action-grants.md`](../4/19-action-grants.md) §structured
+unsupported errors).
 
-## Tool shapes
-
-- `post`: `{ jid, content, media? }`
-- `reply`: `{ jid, target, content }` (shipped as `send_message`/`send_reply`)
-- `like`: `{ jid, target, reaction? }`
-- `delete`: `{ jid, target }`
-- `close` / `drop_group`: `{ group }`
+The planned gateway-level group verbs (`close`, `drop_group`) never
+shipped — neither name exists in the codebase. `drop_group` was the
+rename of a proposed `delete` to avoid colliding with the platform
+`delete` tool; the naming rule survives (different intents get different
+tool names, never one tool with a `kind` switch), the verbs do not.
 
 ## Decisions
 

@@ -5,44 +5,37 @@ shipped: 2026-05-01
 
 # Unified message routing
 
-Single message table, single router decision point, uniform
-`prefix:identifier` addressing.
+The addressing and single-writer decisions the router rests on. The
+router itself is [`E-routd.md`](E-routd.md).
 
-Principles:
+## Decisions
 
-- All messages (user input + agent output) flow through DB.
-- Router is sole decision point; no direct enqueue/callback shortcuts.
-- Uniform addressing: channels = `platform:account/id`, groups =
-  bare folder path (no prefix). `:` in target distinguishes typed
-  destinations (`daemon:`, `builtin:`, `folder:`) from bare folder
-  paths.
+**One message table, one decision point.** Every message — user input and
+agent output alike — flows through `messages`; nothing enqueues or calls
+back around the router. The pre-v0.25 shortcuts (`EnqueueTask`,
+`OutboundEntry`) were removed and MCP tools write messages directly.
+Delegation and escalation are messages carrying `forwarded_from`, not a
+separate transport.
 
-Router priority on resolution: @mention (explicit) > reply-chain
-(implicit continuation) > sticky (session) > default.
-Agent messages (sender without `:`) never get content-based routing.
+**Uniform addressing: channels are `platform:account/id`, groups are a
+bare folder path.** The presence of `:` is the discriminator — a JID
+without one addresses a registered group directly and the route table
+does not apply (`routd/loop.go:680` `directFolder`). The `local:` prefix
+was dropped for this: a prefix that only ever meant "not a platform" is
+noise, and its absence carries the same information. Agent-authored rows
+(sender without `:`) therefore never get content-based routing.
 
-## What shipped (v0.25 → 2026-05-01)
+**Outbound is poll-reconciled, not fire-and-forget.**
+`messages.status` (migration 0039) is `sent` | `pending` | `failed`.
+routd writes the bot row `pending`, attempts delivery inline, marks
+`sent` on success; a sweep re-dispatches `pending` rows older than 30s
+and fails them after 24h (`routd/loop.go:359`). The in-memory `chanreg`
+outbox stays, but only to drain on adapter reconnect — the DB row is the
+durable record.
 
-- Agent outputs written via `PutMessage`; delegation/escalation as
-  messages with `forwarded_from`. `EnqueueTask`/`OutboundEntry`
-  removed. MCP tools write messages directly.
-- `local:` prefix dropped. Inter-group / system messages use the bare
-  folder path (`atlas/content`, not `local:atlas/content`).
-  `LocalChannel.Owns` claims any JID without `:` that matches a
-  registered group; real channel JIDs always carry `platform:`.
-- `messages.status` column (migration 0039): `'sent'` (default /
-  inbound / suppressed), `'pending'` (outbound queued), `'failed'`
-  (terminal). `MarkMessageDelivered`/`MarkMessageStatus`/
-  `PendingOutboundOlderThan` form the poll-based delivery API.
-- Outbound delivery is poll-driven: routd writes the bot row as
-  `pending`, attempts delivery in line, marks `sent` on success.
-  An `outboundRetryLoop` scans `pending` rows older than 30s and
-  retries; rows older than 24h are marked `failed` and stopped.
-  The in-memory `chanreg` outbox stays for adapter reconnect drains.
-- `send_message` and `send_file` MCP tools stay distinct
-  (different intents, different sharp descriptions per the project's
-  tool-naming rule). Behind the MCP wall they funnel through one
-  shared internal `internalSend(jid, text, files)` helper so
-  persistence (`recordOutbound`) and routing remain symmetric. Prior
-  asymmetry — `send_file` did not record outbound rows — fixed by
-  this consolidation.
+**`send_message` and `send_file` stay separate tools** (different
+intents, different descriptions, per the tool-naming rule) but funnel
+through one internal `internalSend` (`ipc/ipc.go:665`) behind the MCP
+wall, so persistence and routing cannot diverge. They did diverge:
+`send_file` was not recording outbound rows at all until this
+consolidation. One renderer, many sinks.

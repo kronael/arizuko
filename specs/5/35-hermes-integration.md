@@ -16,92 +16,66 @@ depends:
 arizuko is not an assistant. It is the plane an assistant plugs into:
 ingress, persistence, routing, audit, grants, secrets, egress. Hermes
 (`NousResearch/hermes-agent`) is a harness — one agent, many turns — and
-it currently carries its own connector layer to reach users. Those two
-facts compose: Hermes should stop owning transport, and arizuko should
-stop pretending it needs to own the agent.
-
-Per [`6/1`](../6/1-adoption-interop.md): adoption is addition, not
-replacement. This spec is the concrete instance of that thesis.
+it carries its own connector layer to reach users. Those two facts
+compose: Hermes should stop owning transport, and arizuko should stop
+pretending it needs to own the agent. Per
+[`6/1`](../6/1-adoption-interop.md), adoption is addition, not
+replacement; this spec is the concrete instance.
 
 ## The interface already matches
 
 Hermes's `BasePlatformAdapter` (`gateway/platforms/base.py`) requires
-`connect`, `disconnect`, `send`, `send_typing`, `send_image`,
-`get_chat_info`, and optionally `edit_message`, `send_document`,
-`send_voice`, `send_video`, `send_animation`, `send_image_file`.
-Inbound dispatch is a callback registered via `set_message_handler`,
-delivering a `MessageEvent`.
-
+`connect`/`disconnect`/`send`/`send_typing`/`send_image`/`get_chat_info`
+plus optional `edit_message`, `send_document`, `send_voice`, …; inbound
+dispatch is a `set_message_handler` callback delivering a `MessageEvent`.
 arizuko's `chanlib.BotHandler` requires `Send`, `Typing`, `SendFile`,
 `SendVoice`, `Edit`, `Delete`, `Post`, `Like`, `Dislike`, `Forward`,
-`Quote`, `Repost`, `Pin`, `Unpin`, `FetchHistory`. Inbound dispatch is a
+`Quote`, `Repost`, `Pin`, `Unpin`, `FetchHistory`; inbound dispatch is a
 POST of `chanlib.InboundMsg` to routd.
 
-These are the same interface with different spelling. That is not a
-coincidence — both are the minimal verb set a chat platform exposes —
-and it means the adaptation is a mapping, not an architecture.
+Same interface, different spelling — not a coincidence, it is the minimal
+verb set a chat platform exposes. **The adaptation is a mapping, not an
+architecture.** Measured: Hermes's gateway is 39,005 LOC of which
+`gateway/platforms/` is 26,102 across 18 platforms; arizuko's adapters are
+~25k own LOC across ~10 platforms.
 
-**Measured**: Hermes's gateway is 39,005 LOC, of which
-`gateway/platforms/` is 26,102 across 18 platforms. arizuko's adapters
-are ~25k own LOC across ~10 platforms plus a vendored discordgo fork.
+## Two directions, both valid — **Mode B first**
 
-## Two directions, both valid
+- **Mode A — Hermes runs inside arizuko.** runed spawns "just another
+  binary" (`cfg.Image` selects the image, `container/runner.go`), and the
+  agent reaches the platform over MCP through the socat bridge
+  (`container/runner.go`). Hermes is already an MCP client with stdio
+  transport, so the seam needs configuration, not a port. Hermes then
+  deletes `gateway/platforms/` for anything arizuko carries.
+- **Mode B — Hermes's gateway becomes an arizuko edge.** Its 18 adapters
+  already implement arizuko's verb set; wrapped as channel edges they add
+  Feishu, Matrix, WeCom, Weixin, DingTalk, SMS, Mattermost, BlueBubbles,
+  and Home Assistant — nine platforms arizuko lacks.
 
-The interface match runs both ways, so there are two integrations, and
-they are not alternatives.
-
-### Mode A — Hermes runs inside arizuko
-
-runed spawns "just another binary": `cfg.Image` selects the container
-image (`container/runner.go:700`), and the agent reaches the platform
-over MCP through a socat bridge (`STDIO ↔ UNIX-CONNECT:/run/ipc/gated.sock`,
-`container/runner.go:860`). Hermes is already an MCP client with stdio
-transport (`tools/mcp_tool.py`, `mcp_servers` in `cli-config.yaml`), so
-the seam needs configuration, not a port.
-
-Hermes then deletes `gateway/platforms/` for any platform arizuko
-carries, and gains audit, persistence, grants, secrets, tenancy, and
-egress isolation it does not have today.
-
-### Mode B — Hermes's gateway becomes an arizuko edge
-
-Hermes's 18 platform adapters already implement arizuko's verb set.
-Wrapped as channel edges they give arizuko Feishu, Matrix, WeCom, Weixin,
-DingTalk, SMS, Mattermost, BlueBubbles, and Home Assistant — nine
-platforms it does not have.
-
-**Mode B first.** It is cheaper, reversible, and requires no change to
-how either project runs its agent. Mode A is the deeper win and should
-follow once B has proven the envelope mapping.
+**Mode B first** because it is cheaper, reversible, and changes how
+neither project runs its agent. Mode A is the deeper win and follows once
+B has proven the envelope mapping.
 
 ## What Hermes gains
 
-Each item is a property arizuko enforces structurally, not a feature
-Hermes could add cheaply:
-
-1. **Persistence** — every message a row in `routd.db`, with FTS5 search
-   (`find_messages`, `specs/5/C`). Hermes has session state, not a
-   queryable message corpus.
-2. **Audit** — one `audit_log` row per state transition, emitted in the
-   same transaction as the mutation via `audit.EmitInTx`
-   (`specs/5/I`). Not a log line that can be dropped.
-3. **Grants** — `auth.Authorize` is the sole runtime evaluator; every
-   tool call is gated by `(action, scope, params)` bound to the caller's
-   folder (`specs/5/32`). Hermes has no per-user authorization over its
-   own tools.
-4. **Secrets injection** — folder- and user-scoped secrets resolved by
-   routd and merged into the spawn env (`container/runner.go:266`), with
-   connector secrets broker-resolved at tool-call time (`specs/7/Y`) so
-   they never sit in the process environment.
-5. **Tenancy** — the folder coordinate is tenant, ACL, route, egress,
-   web host, and file tree at once. One Hermes deployment serves many
-   tenants without Hermes knowing tenancy exists.
-6. **Egress isolation** — per-folder network rules through crackbox.
+Each is a property arizuko enforces structurally, not a feature Hermes
+could add cheaply: **persistence** (every message a row in `routd.db` with
+FTS5 search, `5/C`) · **audit** (one `audit_log` row per state transition,
+emitted in the mutation's own transaction via `audit.EmitInTx`, `5/I` —
+not a droppable log line) · **grants** (`auth.Authorize` gates every tool
+call on `(action, scope, params)` bound to the caller's folder, `5/32`) ·
+**secrets injection** (folder- and user-scoped, resolved by routd into the
+spawn env, with connector secrets broker-resolved at tool-call time,
+`7/Y`, so they never sit in the process environment) · **tenancy** (the
+folder coordinate is tenant, ACL, route, egress, web host, and file tree
+at once — one Hermes deployment serves many tenants without Hermes
+knowing tenancy exists) · **egress isolation** (per-folder rules through
+crackbox).
 
 ## Token distribution
 
 Six credential kinds, each with one job. This is the part an integrator
-must get right; nothing else in the system is as easy to get subtly wrong.
+must get right; nothing else here is as easy to get subtly wrong.
 
 | Credential                   | Minted by                             | Held by               | Authorizes                                                                                                          |
 | ---------------------------- | ------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -109,7 +83,7 @@ must get right; nothing else in the system is as easy to get subtly wrong.
 | `service:<daemon>` ES256 JWT | authd (JWKS-verified)                 | each daemon           | that daemon's own scopes, e.g. `messages:write`                                                                     |
 | `service:proxyd` ES256 JWT   | authd                                 | proxyd only           | trust-stamping `X-User-*` inward; the pin is exactly `service:proxyd` and is load-bearing (`auth/middleware.go:14`) |
 | route token                  | routd, opaque 256-bit, sha256 at rest | whoever holds the URL | append at **one** JID; `/chat/<t>/`, `/hook/<t>`, `/chat/<t>/mcp`                                                   |
-| MCP socket                   | runed, per folder                     | the spawned agent     | folder identity by socket path + `SO_PEERCRED`; tools gated by `db.Authorize(sub, folder, "mcp:"+tool, params)`     |
+| MCP socket                   | per folder, per turn                  | the spawned agent     | folder identity by socket path + `SO_PEERCRED`; tools gated by `db.Authorize(sub, folder, "mcp:"+tool, params)`     |
 | user JWT                     | authd via OAuth                       | browser session       | operator/user scopes, folder-contained                                                                              |
 
 Rules an integrator must not break:
@@ -120,35 +94,33 @@ Rules an integrator must not break:
 - A route token is append-at-one-JID. It is not a capability to be
   widened; a URL pasted on a website must never carry verb authority.
 - Trust-stamped identity headers are trusted **only** behind the
-  `service:proxyd` pin. Widening that pin to `service:*` would let any
-  adapter assert an operator subject.
+  `service:proxyd` pin. Widening it to `service:*` would let any adapter
+  assert an operator subject.
 
 ## Known gaps this integration inherits
 
-- **`Sender` is authorization-bearing — now bound, but only by scheme.**
-  A channel sender reaches `auth.Authorize`: `steer.go` passes
-  `msg.Sender` to `db.IsOperator` → `Authorize(Caller{Principal: sub},
-"admin", "**")` (`routd/sibling_db.go:203`), and a platform JID claims
-  a canonical sub through an `acl_membership` edge (tested:
-  `auth/authorize_test.go:88`). `handleMessages` now rejects a sender
-  outside a platform scheme the adapter registered (`Entry.OwnsScheme`,
-  spec `4/1` § "chat_jid and sender are different shapes"). What that
-  does NOT do is bound an edge to a sub-namespace WITHIN its scheme, so a
-  compromised adapter can still assert any user of its own platform. An
-  integration is trusted for its platform, not beyond it.
-- **The turn is socket-credentialed, not token-credentialed.** runed
-  creates the SO_PEERCRED-gated socket and routd holds the other end, so
-  identity is established by construction at spawn. Hermes inherits this:
-  it authenticates by being the spawned process, and presents no
-  credential. An AssumeRole-shaped `Broker`/`mcp_tokens` path existed and
-  was deleted (`specs/5/P` § "Capability brokering — REMOVED"): no token
-  ever reached the container and authd forced every one to
-  `sub=service:runed`. Do not reintroduce one for Hermes — a bearer
-  string handed to an agent with a shell and egress can be copied out and
-  replayed after the turn; the socket cannot.
+Both must close before Mode A ships to a tenant that isn't the operator.
+
+- **`Sender` is authorization-bearing — bound, but only by scheme.** A
+  channel sender reaches `auth.Authorize`: `steer.go` passes `msg.Sender`
+  to `db.IsOperator` → `Authorize(Caller{Principal: sub}, "admin", "**")`
+  (`routd/sibling_db.go`), and a platform JID claims a canonical sub
+  through an `acl_membership` edge (`auth/authorize_test.go`
+  `TestAuthorize_JIDClaimViaMembership`). `handleMessages` rejects a
+  sender outside a scheme the adapter registered (`Entry.OwnsScheme`,
+  `4/1`). What that does NOT do is bound an edge to a sub-namespace
+  _within_ its scheme, so a compromised adapter can still assert any user
+  of its own platform. **An integration is trusted for its platform, not
+  beyond it.**
 - **Containment is per-handler, not per-store.** `BUGS.md` T1: the
   chat-token MCP `get_round` reads any turn in the instance because
   `store.TurnFrames` has no JID predicate while its HTTP twin checks one.
   Adding a second consumer of that surface multiplies the class.
 
-Both must close before Mode A ships to a tenant that isn't the operator.
+**The turn is socket-credentialed, not token-credentialed.** The
+`SO_PEERCRED`-gated socket is created at spawn and routd holds the other end
+([`P-runed.md`](P-runed.md) § Capability brokering — REMOVED), so identity
+is established by construction: Hermes authenticates by **being** the
+spawned process and presents no credential. **Do not reintroduce a bearer
+for Hermes** — a string handed to an agent with a shell and egress can be
+copied out and replayed after the turn; the socket cannot.

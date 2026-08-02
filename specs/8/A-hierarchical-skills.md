@@ -11,10 +11,10 @@ Today `ant/skills/` is a flat directory. `resolve` enumerates every
 SKILL.md frontmatter on every turn to find matches. Skill catalog
 size = per-turn cost in tokens + classifier work.
 
-This becomes a hardening problem at scale: a tier-0 instance with
-50+ skills enumerates 50+ descriptions on every prompt. The cost is
-linear in catalog size; growth is bounded by enumeration cost, not
-by useful capability.
+This becomes a hardening problem at scale: `ant/skills/` already carries
+93 SKILL.md files, every one of them enumerated on every prompt. The cost
+is linear in catalog size; growth is bounded by enumeration cost, not by
+useful capability.
 
 ## What this is
 
@@ -108,73 +108,21 @@ category prefix) remain enumerable. The catalog falls back to flat
 discovery for any skill that isn't under a recognized category.
 Operators don't lose the ability to add ad-hoc skills.
 
-## Tools side: deferred disclosure
+## The tools half — already solved, kept separate
 
-Skills are the _knowledge_ half of progressive disclosure. **Tools**
-are the other half, and they have the same context-pollution problem
-for the same reason — measured against the Anthropic API:
+Skills disclose **knowledge + workflows**; tools disclose **discrete typed
+callables**. The tool half of progressive disclosure is shipped and is NOT
+this spec's concern: per-MCP-server `alwaysLoad` (`@anthropic-ai/claude-agent-sdk`)
+keeps a server's tools eager, and omitting it defers them behind Anthropic's
+Tool Search Tool. Wired in [`ant/src/mcp-servers.ts`](../../ant/src/mcp-servers.ts):
+the `arizuko` core-messaging server is `alwaysLoad: true`; third-party
+connector servers default to deferred, which is what the Slack-200-tools
+case needed.
 
-- Tool defs ride the **request prefix on every turn** (stateless
-  Messages API). 1000 tool defs = 1000 sent every turn; prompt caching
-  makes re-sending cheap (~10% on hit) but does NOT reduce
-  context-window usage or attention dilution.
-- **Mutating the `tools` array nukes the cache** from `tools` onward
-  (system prompt + messages re-billed). So "enable/disable tools per
-  turn" is the most expensive option.
-
-The fix is Anthropic's native **Tool Search Tool**: tools marked
-`defer_loading: true` leave the eager `tools` array; the model sees
-only the Tool Search Tool + non-deferred tools, searches when it needs
-a capability, and matching schemas expand as **message-stream tool
-results** (append-only, cache-friendly) callable as native typed
-tools. Measured: 85% token reduction; Opus 4.5 selection 79.5%→88.1%.
-
-**The split for arizuko:**
-
-- **Eager** (loaded every turn): core messaging + read — `send`,
-  `reply`, `send_file`, `inspect_*` — plus Claude Code built-ins and
-  `ToolSearch` itself.
-- **Deferred** (`defer_loading: true`, found via search): connector
-  tools (mounted via `ipc/connector.go`), rarely-used management tools
-  (routes/web/tokens/group lifecycle).
-
-### Skills vs tools — division of labor
-
-The Tool Search Tool and the skill hierarchy are complementary, not
-competing — they disclose different content:
-
-- **Tool Search** discloses **tools** — discrete typed callable
-  functions (`slack.chat_postMessage`). Native MCP, one call.
-- **Skills** (`resolve` + this spec) disclose **knowledge + workflows**
-  — how-tos, multi-step recipes, the rules around a tool set.
-
-A connector's _tools_ are deferred MCP tools found via search; its
-_usage guidance_ is a skill found via resolve. The skill may point at
-tools; the tools don't need the skill to be callable.
-
-### Enablement (shipped)
-
-The SDK knob to defer MCP tools is **per-MCP-server `alwaysLoad?:
-boolean`** (`@anthropic-ai/claude-agent-sdk` 0.3.153). `alwaysLoad:
-true` keeps a server's tools eager; omit it and the server's tools
-defer behind the Tool Search Tool. Wired in `ant/src/mcp-servers.ts`:
-the `arizuko` server (core messaging) is `alwaysLoad: true`;
-third-party connector servers default to deferred.
-
-Limitation: `alwaysLoad` is per-server, and gated serves core +
-management + `connectors.toml` tools through one `arizuko` server — so
-gated's management tools ride eagerly with core. Deferring those needs
-a gated-side server split (`arizuko-core` + `arizuko-mgmt`), Go-side,
-only if the management surface grows enough to matter. Third-party
-connectors (the Slack-200-tools case) already defer correctly.
-
-**No-MCP-server case:** for an external service that publishes a REST
-API but no MCP server, auto-generate deferred MCP tools from its
-OpenAPI spec — `openapi2mcp` (Go library) + a curation/scope-annotation
-layer. Belongs in a future orthogonal component (see the component contract in
-[`../6/16-daemon-standalone-matrix.md`](../6/16-daemon-standalone-matrix.md)).
-Research: `.ship/research-openapi-mcp.md`. For services that DO ship an
-MCP server (most), mount it via `ipc/connector.go` — built.
+The residual limitation is that `alwaysLoad` is per-server, so the
+management tools ride eagerly alongside core on the one `arizuko` server.
+Splitting them (`arizuko-core` + `arizuko-mgmt`) is Go-side work worth doing
+only if the management surface grows enough to matter.
 
 ## Acceptance
 

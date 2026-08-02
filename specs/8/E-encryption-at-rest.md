@@ -4,36 +4,46 @@ status: partial
 
 # specs/8/E — Encryption at rest
 
-> Why this matters for phase 7: encrypted secrets in SQLite are
-> exactly why [`../9/3-git-as-truth.md`](../9/3-git-as-truth.md) keeps
-> secret blobs OUT of git. Git carries the `(scope, name)` reference;
-> the encrypted value stays here, decrypted in-process at spawn.
+`secrets` and `messages.db` sit plaintext on disk. An attacker with
+filesystem access reads Slack tokens, Anthropic keys, and the whole message
+history. Encrypting the secret values is the part enterprise review always
+asks for first.
 
-**Shipped (secrets table):** AES-256-GCM on `secrets.value` via `Store.SetSecretKey` + `Store.PurgeUnencryptedSecrets`. Key = SHA-256(AUTH_SECRET). Plaintext rows purged on startup — operators must re-enter secrets after first encrypted boot.
+## Shipped — the `secrets` table
 
-**Deferred:** messages.db column encryption (content, raw).
+AES-256-GCM over `secrets.value`, stored as `"v2:" + base64(nonce||ciphertext)`
+([`store/secrets.go`](../../store/secrets.go) — `secretV2Prefix`, `seal`,
+`gcm`). A value without the prefix is legacy plaintext and is read as-is, so
+an un-keyed instance keeps working.
 
-## What this solves
+The key comes from `SECRETS_KEY`, not from `AUTH_SECRET`
+([`core/config.go`](../../core/config.go) — `SecretKeyring`). It is a
+**keyring**: comma-separated, first non-empty entry seals, the rest decrypt
+only. That is the rotation mechanism — add the new key in front, let the old
+one linger until `EncryptPlaintextSecrets` has rewritten every row.
 
-`secrets` table and `messages.db` are plaintext on disk. An attacker
-with filesystem access gets Slack tokens, Anthropic API keys, and full
-message history. Required for any enterprise deployment.
+`Store.EncryptPlaintextSecrets` migrates legacy rows in place and is
+idempotent. It replaced `PurgeUnencryptedSecrets`, which **DELETEd** plaintext
+rows on startup — and because the write path never wrote the `v2:` prefix it
+tested for, that purge wiped every secret on every boot. The lesson is in the
+shape: a migration that removes data on a predicate the writer doesn't
+maintain is a data-loss bug, not a cleanup.
 
-## Scope
+Related: redeploying an image to an instance whose `.env` lacks `SECRETS_KEY`
+crash-looped a daemon and cost a krons outage (2026-06-05). Set the key before
+the first keyed boot.
 
-- `secrets` table: envelope-encrypt per-row values with a KMS-backed key
-- `.env` at-rest: out of scope (operator concern; document FS-level encryption)
-- `messages.db` content columns: encrypt `content`, `raw` at write time
-- Key derivation: support local key file (default) and external KMS (AWS KMS / GCP KMS via env var)
+## Deferred — `messages.db`
+
+Content-column encryption (`content`, `raw`) is not built. It is a heavier
+call than the secrets table because it trades away SQL search over message
+bodies, and the open questions are still open:
+
+- Which columns actually need it — `content` + `raw`, or attachments too?
+- SQLCipher (whole-file, transparent) vs application-level column encryption?
 
 ## Not in scope
 
-- Key rotation procedure (follow-on spec)
-- Search over encrypted content
-- Audit log of key access
-
-## Open questions
-
-- Which columns in `messages` need encryption — content + raw only, or attachments too?
-- Local key file path convention (`/srv/data/<instance>/keyring`?)
-- Whether to use SQLCipher vs application-level column encryption
+`.env` at rest is an operator concern — document filesystem-level encryption
+instead. Search over encrypted content and an audit log of key access are
+separate specs.

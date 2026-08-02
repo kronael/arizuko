@@ -4,25 +4,6 @@ status: shipped
 
 # specs/5/28 — arizuko packages
 
-> **Implementation status (2026-07-29).** The package manager is implemented +
-> tested end-to-end — install / upgrade / remove, git or local source,
-> record-backed, dirty-safe — across **all four package-install asset kinds**:
-> compose-fragment, proxyd-route (hot-applied live), grant/acl, and skills.
-> ~22 tests green. (Group-seed is create-time `5/21`, not a package asset.)
->
-> - **P0** installed-package record — `routd/packages_store.go`, migration `0020`. (`7f41a63d`)
-> - **P1** install + record-driven remove (`c53ab0d2`) · **P1b** git source (`83b7d009`)
-> - **P3** upgrade with dirty-detection (refuses to overwrite a local edit). (`c0557df8`)
-> - **P2** hot-apply routes to live `proxyd_routes` — **fixes `5/27` C2**. (`911a5ca2`)
-> - **P4** remove withdraws routes before fragments (no teardown window). (`4b15913e`)
-> - **grant** asset (`4f2e77b2`) · **skills** asset + seedSkills layer (`55eef35b`)
->
-> Full DoD shipped: repo docs (EXTENDING + CHANGELOG), web docs
-> (`reference/packages.html`), the `dashd` surface (`/dash/packages/`), and the
-> migration broadcast (`182`). The mechanical release last-mile — rebuild the ant
-> image, rsync web docs live (`/pub` 200), `git tag` — is a deploy step. Plan:
-> `.ship/plan-packages.md`.
-
 Source-first package manager: a package is a **git source** (GitHub URL,
 resolved to an immutable revision) that ships a **manifest** plus any subset of
 **asset kinds**. Install / upgrade / remove one mixed-asset package on an
@@ -46,7 +27,14 @@ is no standard way to distribute skills + fragments + routes + grants as one uni
 | State transport — moving a live agent's rows/files (`export`/`apply`)             | `5/20` (mech. 1) + `5/8` |
 | Compose fragment — one asset _kind_ (a file)                                      | `5/27`                   |
 | Prototype — a product instantiated at spawn (`5/29` Tier-3)                       | `5/29`                   |
-| OCI distribution envelope — rejected alternative                                  | `5/30` (superseded)      |
+
+**Rejected alternative — OCI artifacts** (spec deleted 2026-08-02). A
+package as a signed, registry-hosted `ghcr.io` artifact pulled via
+`oras-go/v2`, one media-typed layer per asset kind. Rejected because it buys
+registry/signing infrastructure arizuko does not need while losing the thing
+that makes a source-first package legible: the package IS a git repo you can
+read, fork, and pin to a revision. Reopen only if build-once/ship-anywhere
+becomes a real requirement (`5/29` flags prototypes as the plausible case).
 
 **5/28 is one package's lifecycle; 5/20 is state + how several products compose.**
 They meet only at restore (below).
@@ -155,7 +143,7 @@ its table is non-empty). The record names what to remove; no ownership guessing.
 
 > A declarative reconciler (apply/export/remove as one engine over resreg rows,
 > `provenance = ownership`) was drafted here and demolished by codex
-> (2026-07-28, `.ship/critique-cto-20260728.md`, 17 findings / 9 fatal). Chief
+> (2026-07-28, 17 findings / 9 fatal). Chief
 > kill: **provenance was a missing schema** — a `proxyd_routes` row carries
 > nothing saying a package installed it. The installed-package record above is
 > that schema, made minimal and explicit. Also fatal there: manifest-as-truth
@@ -171,7 +159,8 @@ GitHub-topic discovery; the sidecar per-group `MCP.json` (dropped, `5/13`).
 
 ## Code pointers
 
-- `cmd/arizuko/packages.go` — install/list/remove CLI (today: fragment copy only)
-- `container/runner.go:seedSkills()` — skill seeding at spawn
+- `cmd/arizuko/packages.go` — the `list`/`add`/`install`/`upgrade`/`remove` CLI
+- `routd/packages_store.go` (migration `0020`) — the installed-package record
+- `container/runner.go:1017` `seedSkills()` — skill seeding at spawn
 - `resreg/resources/proxyd_routes.go`, `routd/acl_resource.go` — the owner handlers
 - `ant/skills/self/migration.md` — the 3-way merge packages reuse for skills

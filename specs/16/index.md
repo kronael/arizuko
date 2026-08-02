@@ -2,7 +2,7 @@
 status: draft
 ---
 
-# specs/15 — multiplayer: shared sessions, durable streams, presence
+# specs/16 — multiplayer: shared sessions, durable streams, presence
 
 What we steal from **Centaur** (paradigmxyz/centaur — "multiplayer,
 self-hosted, secure agents", open-sourced 2026-05-21; Slack-native,

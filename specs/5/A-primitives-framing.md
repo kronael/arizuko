@@ -8,539 +8,226 @@ depends:
     E-routd,
     P-runed,
     32-acl-unified,
+    33-paths-roles,
     ../17/9-positioning,
   ]
 ---
 
 # specs/5/A — primitive framing (how to explain arizuko)
 
-A FRAMING spec: it changes no behavior. It distils arizuko to the
-smallest honest set of named primitives, then shows how those
-primitives stack into the things you deploy and ship — so the docs,
-the README, and the one-pager lead with the model, not the daemon
-zoo. The deliverable is the framing itself: the primitive names, what
-each owns, the code anchor that proves it, the four-layer decomposition
-they build into, and the grand-message wording each surface reuses.
-
-Verified against the tree at write time; every claim carries a
-`file:line` anchor or a package name. The spec's whole value is being
-in sync with the code — a drifted anchor is a bug here.
+A FRAMING spec: it changes no behavior. It fixes the vocabulary the
+README, `index.html`, and the docs site all reuse, so every surface names
+the same small model instead of the daemon zoo. Mechanism lives in the
+spec each primitive links to — this file must not restate it.
 
 ## Decisions (signed off)
 
-These three calls were debated and are now locked; the body assumes
-them.
-
 1. **Six pipeline primitives + Identity as a coordinate system.** The
-   visible pipeline is six stages — Event, Routing, Agent,
-   Authorization, Turn, State. **Identity** is the coordinate system
-   the six are addressed in (subs, JIDs, **paths**, roles, scopes), not a
-   seventh stage: every stage references it, none sequences it. Identity
-   is genuinely first-class in code (`store/identities.go:13`,
-   `auth/identity.go:10`, `types/identity.go`) — it reads as a
-   coordinate system, not a step. **[`5/33`](33-paths-roles.md) sharpens
-   this: the coordinate is the `path` (location — where you are); the
-   capability is the `role` (what you may do); they compose and never leak
-   into each other. The old `tier` (capability derived from path depth) is
-   removed — it was the coordinate/capability conflation this framing warns
-   against.**
-2. **"One job each, fixed pipeline, layered overrides — no special
-   cases."** Do NOT claim the primitives are independent (⊥). Reality is
-   layered coupling: routing reads the event's shape and is overridden
-   by engagement/direct-address/sticky (`routd/loop.go:382`);
-   authorization is multi-gate (`auth/policy.go:18` + `auth/authorize.go:36`);
-   a turn needs grants + container config + egress resolved before spawn
-   (`routd/dispatch.go:235`). The honest wedge is "one job each, fixed
-   pipeline, no special cases," never mathematical independence.
-3. **Reaction is the loop; Turn is the stage.** "Reaction" is the thesis
-   verb for the whole event→reaction loop. The runtime stage that
-   actually runs the agent is named **Turn** — so the loop's name and
-   the stage's name don't collide. **Workflow is not a seventh
-   primitive**: it is an operating discipline at the session boundary,
-   implemented by Turn + State + the session lifecycle (see "Workflows"
-   below and `5/X`).
+   pipeline is Event → Routing → Agent → Authorization → Turn → State.
+   **Identity** is the coordinate system those six are addressed in
+   (subs, JIDs, paths, roles, scopes), not a seventh stage: every stage
+   references it, none sequences it. [`5/33`](33-paths-roles.md) sharpens
+   the split — the `path` is location (where you are), the `role` is
+   capability (what you may do), and they never leak into each other.
+   The old `tier` (capability derived from path depth) was exactly that
+   leak and is **removed** (`auth.Identity` is `{Folder, IsRoot}`,
+   `auth/identity.go`; `types/identity.go` carries `UserSub`/`Folder`/
+   `Scope` and no tier).
+2. **Route-first order.** The runtime starts from "something happened,
+   where does it go?", so Routing precedes Agent. Docs follow the
+   runtime, not the org chart.
+3. **"One job each, fixed pipeline, layered overrides — no special
+   cases"** — never mathematical independence (⊥). Routing reads the
+   Event's shape and is overridden by engagement/direct-address/sticky
+   (`routd/loop.go` `resolve`); a Turn needs grants + container config +
+   egress resolved before spawn (`routd/dispatch.go` `dispatchRun`).
+4. **Reaction is the loop; Turn is the stage.** "Reaction" names the
+   whole event→reaction loop; the runtime stage that runs the agent is
+   **Turn**, so loop and stage names don't collide.
+5. **Workflow is not a seventh primitive.** It is an operating discipline
+   at the session boundary — Turn + State + the session lifecycle, built
+   on the `new_session` system message routd already injects
+   (`routd/dispatch.go:163`). Naming it a primitive would imply a
+   workflow engine that does not exist. <!-- UNVERIFIED: the former
+   spec 5/X is gone (its modality half landed in 5/Y); the shipped
+   surface is concepts/workflows.html and no spec owns the discipline. -->
 
 ## Thesis
 
 arizuko is an **event→reaction engine**: something happens, an agent
-reacts. The wedge is that the entire system reduces to a small named
-set of primitives, each owning one concern, composed in a fixed
-pipeline — no special cases. The apparent feature sprawl (channels,
-topics, tasks, webhooks, secrets, egress, delegation, observe) is all
-_recomposition_ of those primitives, never new machinery.
+reacts. The apparent feature sprawl (channels, topics, tasks, webhooks,
+secrets, egress, delegation, observe) is _recomposition_ of six
+primitives, never new machinery.
 
-The payoff is products. You don't assemble agent demos from low-level
-wiring; you ship **ownable agents as real products** — a Slack team
-agent, a personal reality agent, a company brain — each a folder of
-files you can diff, review, and fork on your own host (put it under git
-for revertable history; the platform doesn't commit for you — see
-BUGS.md 2026-07-14, make-it-true tracked in `9/3`).
-The same fixed pipeline serves all of them; only the folder contents
-and the routing differ. Ownership is what makes deep customization
-possible — the thing you need at this stage of AI, against opaque SaaS
-agents you can only tune through a text box (`7/9`).
+Two halves carry the pitch:
 
-The deeper wedge is _how_ you shape it: through language, not config.
-You mold the system by talking to LLMs that edit the files that ARE the
-system — persona, memory, skills, routing, even an operational fix. The
-agent is both what runs and how you author; there is no separate config
-console, because the conversation is the console. What keeps that safe is
-the daemon structure: each primitive lives in its own compartment (`routd`
-routes and runs the authz gate, `runed` executes, `authd` issues identity)
-with hard boundaries —
-folder scoping, the authz gate, ephemeral per-turn containers — so
-LLM-driven shaping stays bounded to what the grants allow. You reshape a
-system in natural language without it becoming a black box you can't
-audit: agent content lands as files you diff; routes, grants, and
-secrets land as SQLite rows in the same instance directory.
-Compartmentalized daemons make the molding safe; ownership makes it
-permanent. (This is the evolved lead — primitives and ownership are the
-two halves it rests on, not competing angles.)
+- **Ownership.** A product is a folder of files you diff, review, fork,
+  and back up with one `tar` on your own host — not a SaaS agent you tune
+  through a text box (`../17/9`). The platform does not commit for you
+  (make-it-true tracked in `../9/3-git-as-truth.md`).
+- **Language, not config.** You shape the system by talking to an LLM
+  that edits the files that ARE the system. What keeps that safe is the
+  daemon structure — `routd` routes and runs the authz gate, `runed`
+  executes, `authd` issues identity — so LLM-driven shaping stays inside
+  the ACL rows.
 
-## The platform bet — many specialized agents, one host
-
-(Added 2026-07-14, user-locked.) The deeper thing arizuko is: **hosting
-many specialized agents on one platform.** The bet is that agents must
-be specialized to share intent well — a focused persona + tight skills
-holds a job the way a general blob can't (`../17/9`) — and the platform's
-work is making specialization cheap and coexistence safe:
+**The platform bet** (user-locked 2026-07-14): hosting **many
+specialized agents on one host**. Specialization is what lets an agent
+hold a job a general blob can't; the platform's work is making it cheap
+and coexistence safe:
 
 - **Context isolation that keeps memory.** Each agent is a folder with
   its own persona/skills/memory, run in per-turn ephemeral containers;
-  with crackbox enabled, egress is allowlist-only. That lets a
-  specialized agent stand in a one-off deployment, a support channel, or
-  a hostile environment (unknown users, public chat — tier 3+ is
-  send-only) while keeping its own persistent memory; another folder's
-  home is never mounted into its container (shared world dirs and extra
-  mounts are explicit operator choices).
-- **Hand-offs through the org tree, not a mesh.** Departments shape
-  their own agents; work moves via `delegate_group` (parent→child,
-  `ipc/ipc.go:1828`), `escalate_group` (child→immediate parent,
-  `ipc/ipc.go:1779`) — both depth-capped at 1 — and, separately,
-  `observe_group` read-only subscriptions (`5/F`), each structurally
-  authorized (`auth.AuthzTarget`; tier 0/1 wider than tier 2). Three
-  distinct mechanisms — name them; never "any agent can message any
-  agent."
-- **Users move between agents.** A standalone exact `@<folder>` message
-  pins the WHOLE chat to that group's agent; bare `@` restores default
-  routing (`routd/steer.go:39`) — change agents, keep the conversation
-  surface.
+  with crackbox, egress is allowlist-only. Another folder's home is never
+  mounted in (shared world dirs are an explicit operator choice).
+- **Hand-offs through the org tree, not a mesh.** Three named mechanisms,
+  each authorized by `auth.Authorize`: `delegate_group` parent→child
+  (`ipc/ipc.go:1828`), `escalate_group` child→parent (`ipc/ipc.go:1779`),
+  both depth-capped at 1, and read-only `observe_group` (`5/F`). Never
+  "any agent can message any agent."
+- **Users move between agents.** A standalone exact `@<folder>` pins the
+  whole chat to that agent; bare `@` restores default routing
+  (`routd/steer.go`).
 
-Docs implication: this is the hero story ("one platform, many
-specialized agents — your departments each shape their own, isolation is
-structural, and they still talk"); ownership and language-shaping are
-the two halves under it. A product example must show it — reuse an
-existing multi-folder product (slack-team is the fit) rather than
-inventing a new one.
-
-The primitives are invariant across topologies. The former monolith
-(`gated`, now removed) and the split (`authd` + `routd` + `runed`, specs
-`5/E`/`5/P`, the only topology) reorganised the _daemons_; the primitives
-beneath don't move — README
-"Direction" (`README.md:56`): "the per-folder runtime — all unchanged."
-So the docs **name primitives, not daemons.** A reader who learns
-Event/Routing/Agent/Authorization/Turn/State understands arizuko
-whether it runs as one process or four.
-
-## Use cases first
-
-The docs lead with concrete, high-impact scenarios, THEN reveal each
-was the same primitives recomposed. Three, chosen for lowest
-hand-waving:
-
-1. **Slack @mention → delegate to a child → reply in-thread.** A
-   mention arrives as an Event; Routing maps it to a folder; the
-   Agent delegates to a child folder; a Turn runs; the reply goes out
-   and engagement keeps the thread live without re-mention. Exercises
-   Event → Routing → Agent → delegation → Turn → outbound → engagement.
-2. **A scheduled task wakes an agent that posts to a channel.** A
-   `timed` tick is just an Event; the same Routing + Turn run; "tasks"
-   are not a new primitive — they are scheduled Events.
-3. **A WebDAV drop / webhook POST feeds the SAME agent that chats in
-   Slack.** A `davd` file write or a `/hook/<token>` POST
-   (`webd/route_token.go:76`) is another Event source; same Agent,
-   same State, same Turn. The event _source_ is not a primitive.
-
-After the scenarios: the catalog, then "no special cases," then the
-four-layer decomposition.
+The primitives are invariant across topologies: the split
+(`authd`+`routd`+`runed`) reorganised the _daemons_, not the model. So
+the docs **name primitives, not daemons**.
 
 ## The primitives
 
-Pipeline order — the runtime starts from "something happened, where
-does it go?", so Routing precedes Agent. Each: one-sentence definition;
-the one concern it owns; its code anchor; what people mistake for a
-separate feature but is this primitive recomposed.
+| #   | Primitive         | Owns                        | Anchor                                                      | Recomposed as (not new primitives)                                          |
+| --- | ----------------- | --------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1   | **Event**         | the one inbox               | `core.Message` (`core/types.go:16`), `store.PutMessage`     | channel adapters, `emaid`, `/hook/<token>`, `timed` ticks, `davd`           |
+| 2   | **Routing**       | event → folder              | `router.ResolveRoute` (`router/router.go:356`), `5/Q`       | direct-address, engagement, sticky, observe, delegate, escalate             |
+| 3   | **Agent**         | who reacts, with what       | folder-as-data (`README.md:28`), `groupfolder`, `store`     | personas, skills, memory, sub-teams, **products**                           |
+| 4   | **Authorization** | may this principal, here    | `auth.Authorize` (`auth/authorize.go:25`), `5/32`, `5/33`   | grants UI, scope vocabulary, delegation limits                              |
+| 5   | **Turn**          | the bounded reaction        | `runed` container (`runed/docker.go`), `5/P`                | tasks, autocalls, interjections                                             |
+| 6   | **State**         | what survives the container | `store.Store` + the folder on disk, `5/E`/`5/P`             | secrets, egress allowlists, sessions                                        |
+|     | _Identity_        | the coordinate system       | `auth/identity.go`, `types/identity.go`, `store/identities` | subs, JIDs, paths, roles, scopes — referenced by all six, sequenced by none |
 
-### 1. Event
+Two honest notes the docs must carry:
 
-Anything that happens becomes one row in `messages`. **Owns: the one
-inbox.** A chat message, a webhook POST, an inbound email, a WebDAV
-file drop, a scheduled tick, a reaction — all land as rows.
-
-Honest note: a row is a rich envelope, not a bare string —
-`core.Message` carries `Verb`, `Topic`, `RoutedTo`, `Attachments`,
-`Source`, `TurnID`, `Status`, `PlatformID`, `ReplyToID`, … (`core/types.go:16`),
-persisted by `store.PutMessage` (`store/messages.go:12`).
-
-Recompositions, not primitives: channel adapters (`teled`, `slakd`, …),
-`emaid`, webhooks (`/hook/<token>`), `timed` ticks, `davd` file drops —
-all are **event sources writing rows**.
-
-### 2. Routing
-
-Maps an Event to the folder that reacts. **Owns: event → folder.**
-Route table `routes(seq, match, target)`, first-match-wins —
-`router.ResolveRoute`/`ResolveRouteTarget` (`router/router.go:356`),
-stored via `store/routes.go`.
-
-Honest note: routing is _layered_, not a single table lookup.
-`routd/loop.go:382` (`resolve`) checks, in order: (1) direct
-`web:<folder>` / bare-folder address bypass; (2) the route table; with
-engagement overriding the matched route, sticky `#topic` rewriting the
-dispatch topic (`effectiveTopic`, `routd/loop.go:423`), and `observe`
-mode producing silent ingest with no turn; (3) an engagement fallback
-on a route miss. Direct-address, engagement, sticky, observe, delegate,
-escalate are routing **layers**, not new primitives. Routing also reads
-the event's shape (`Verb`, `Topic`, `ReplyToID`) — it is coupled to
-Event by design.
-
-### 3. Agent (folder-as-data)
-
-An agent IS a folder of values — `PERSONA.md`, `skills/`, `MEMORY.md`,
-a `.diary/`, route rows, an ACL — plus a `groups` row. **Owns: who
-reacts and with what knowledge.** README "Overview" (`README.md:28`):
-"A folder is an agent." The org chart is the folder tree, arbitrary
-depth (`corp/eng/sre`); `groupfolder.ParentOf`/`NameOf`
-(`groupfolder/folder.go:13`) give hierarchy semantics; rows live via
-`store.PutGroup` (`store/groups.go:22`).
-
-Recompositions: personas, skills, memory, sub-teams, delegation
-targets are all just folder contents / folder structure. **A product
-is one such recomposition** — a folder with the right persona, skills,
-and routes (see "The four layers").
-
-### 4. Authorization
-
-One question — `(principal, action, scope) → allow | deny` — resolved
-by `auth.Authorize` (`auth/authorize.go:36`). **Owns: may this
-principal do this here.** Tier defaults live in code
-(`grants.DeriveRules`, the `mcp:*` fallback); operator overrides are
-rows in the `acl` table (`store/migrations/0052-acl-unified.sql:3`),
-with identity indirection via `acl_membership`. Canonical spec
-`32-acl-unified.md`; pointer `GRANTS.md`.
-
-Honest note: authorization is **multi-gate**, not one switch. A
-structural gate enforces tree-shape invariants (caller-folder prefix,
-tier bounds, task-owner-must-match) — `auth.AuthorizeStructural`
-(`auth/policy.go:18`); the ACL row gate is `auth.Authorize`
-(`auth/authorize.go:36`); many tool call-sites need both
-(`auth/README.md:10`). Capability scopes carried on tokens are a
-fourth layer. Describe the _question_ as one shape; the _resolution_
-is layered.
-
-Recompositions: the grants UI, the scope vocabulary, delegation limits
-are all views over / restrictions of this one question.
-
-### 5. Turn (execution)
-
-An ephemeral Docker container runs the agent loop for ONE turn, then
-exits. **Owns: the bounded reaction.** Every side effect is one MCP
-tool call (the same handler a REST endpoint reaches, as the uniform
-surface rolls out — `5/17`), through the auth gate, written to one
-`audit_log` row (`store/migrations/0066-audit-log.sql:30`). The
-container runtime is `runed/docker.go` (`dockerRuntime.Run`,
-`runed/docker.go:63`); the spawn request — model, container config,
-grants, egress allowlist all resolved _before_ spawn — is built in
-`routd/dispatch.go:220` (`dispatchRun`; egress resolved at
-`routd/dispatch.go:235`).
-
-Honest note: a Turn is not free-standing — it needs grants + container
-config + session + egress resolved first; that resolution is the
-coupling between Authorization, State, and Turn.
-
-Recompositions: tasks, autocalls, interjections are all just Turns
-triggered by different Events.
-
-### 6. State
-
-Two durable stores, **by design** — not a cache layer:
-
-- **Relational state** (`routd.db`, plus per-plane `auth.db`/`runed.db`/`onbod.db`):
-  events, routes, grants, ACL, sessions — `store.Store` over SQLite WAL (`store/store.go:19`).
-- **Per-agent folder on disk**: `PERSONA.md`, `skills/`, `MEMORY.md`,
-  `.diary/` — the agent-as-data substrate (`README.md:28`,
-  `README.md:52`). The folder is NOT a cache; containers are stateless
-  and mount it per turn (`README.md:44`).
-
-A tar of one instance dir is a complete backup (`README.md:88`).
-
-Honest note: state is split across **per-plane DBs** — `routd.db`
-(events, routes, grants, ACL, sessions), `auth.db` (identity, tokens),
-`runed.db` (run state), `onbod.db` (admissions) — specs `5/E`, `5/P`.
-The split is the only topology (`gated` removed).
-
-### Identity (the coordinate system)
-
-Identity is the **coordinate system everything is addressed in**:
-canonical subs + identity claims (`store/identities.go:13`), the
-runtime `Identity{Folder, Tier, World}` (`auth/identity.go:10`), the
-boundary-crossing IDs `UserSub`/`Folder`/`Tier`/`Scope`
-(`types/identity.go`), JIDs, and capability scopes. Every other
-primitive references it — Routing resolves to a folder, Authorization
-keys on a principal, a Turn runs as `sub: agent:<folder>`, State is
-folder-partitioned — but none _sequences_ it. Hence: a coordinate
-system, not a pipeline step.
-
-### Workflows (operating discipline, not a primitive)
-
-A multi-step job thrashes when each turn re-improvises from chat
-scrollback. The fix is not a workflow engine: it is making the
-**session/thread boundary** run a fixed opening before the agent
-free-associates — load context, open a plan-of-record file, apply the
-group's `CLAUDE.md` workflow, scan skills — then converse freely
-(`5/X`). Conversation stays free; the _opening_ gets strict (the
-shopkeeper greets, recalls your table, reads the order back, then
-acts).
-
-This is **Turn + State + the session lifecycle**, not new machinery:
-the session boundary already injects a `new_session` system message
-(`5/A` Turn / gateway); the discipline tightens that injection into a
-non-skippable opening directive and adds a `~/plans/<topic>.md`
-artifact. So workflows are recomposition too — an operating rule on the
-boundary of a Turn, addressed in the same Identity coordinates. Naming
-it a seventh primitive would imply a separate engine that does not
-exist.
+- **Authorization is ONE gate, not a stack.** `auth.Authorize` is the
+  sole runtime evaluator: row-based ACL over the caller's expanded
+  principal set, deny-wins, magnitude AND containment in one call. There
+  is no structural pre-gate and no tier fallback — `AuthorizeStructural`,
+  `grants.DeriveRules`, and the `grants/` package are deleted
+  (`auth/authorize_test.go` `TestAuthorizeWith_NoTierFallback` pins it).
+  Rows live in `routd.db` (`routd/migrations/0007-acl.sql`), with
+  identity indirection via `acl_membership`.
+- **State is two durable stores by design**, not a cache layer: the
+  per-plane DBs (`routd.db` events/routes/ACL/sessions, `auth.db`,
+  `runed.db`, `onbod.db`) AND the per-agent folder on disk. The folder is
+  not a cache; containers are stateless and mount it per turn.
 
 ## No special cases
 
-Each "feature" reduces to a primitive recomposed. This table is the
-docs' proof that the surface is small.
+The proof the surface is small — every "feature" is a row here, and none
+introduces machinery absent from the six primitives.
 
-| Apparent feature           | Is really…                                                 | Primitive            |
-| -------------------------- | ---------------------------------------------------------- | -------------------- |
-| Channel adapters           | event sources writing `messages` rows                      | Event                |
-| Webhooks (`/hook`)         | an event source (`webd/route_token.go:76`)                 | Event                |
-| Inbound email (`emaid`)    | an event source                                            | Event                |
-| WebDAV drop (`davd`)       | an event source                                            | Event                |
-| Scheduled tasks            | Events on a `timed` tick → a Turn                          | Event + Turn         |
-| Autocalls / interjection   | Turns triggered by a non-chat Event                        | Turn                 |
-| Topics                     | a scoping field on the Event + a Routing layer (sticky)    | Event + Routing      |
-| Engagement                 | a Routing override keyed on `(jid, topic)`                 | Routing              |
-| Observe                    | a Routing mode: silent ingest, no Turn                     | Routing              |
-| Delegation / escalation    | Routing to a child/parent folder                           | Routing + Agent      |
-| Personas / skills / memory | folder contents                                            | Agent (folder-data)  |
-| Workflows                  | an enforced opening at the session boundary                | Turn + State         |
-| Grants / scopes            | views over the one `Authorize` question                    | Authorization        |
-| Secrets                    | folder/user-scoped State resolved into a Turn              | State + Turn         |
-| Egress allowlist           | per-folder State resolved before spawn (`dispatch.go:235`) | State + Turn         |
-| A product                  | a folder with persona + skills + routes                    | Agent (recomposed)   |
-| Tasks dashboard / CLI      | a second surface over the same handlers (`5/17`)           | (surface, not prim.) |
-
-Every row is recomposition. None introduces machinery absent from the
-six primitives + identity coordinate system.
+| Apparent feature                             | Is really…                                              | Primitive            |
+| -------------------------------------------- | ------------------------------------------------------- | -------------------- |
+| Channel adapters / webhooks / email / WebDAV | event sources writing `messages` rows                   | Event                |
+| Scheduled tasks                              | Events on a `timed` tick → a Turn                       | Event + Turn         |
+| Autocalls / interjection                     | Turns triggered by a non-chat Event                     | Turn                 |
+| Topics                                       | a scoping field on the Event + a Routing layer (sticky) | Event + Routing      |
+| Engagement                                   | a Routing override keyed on `(jid, topic)`              | Routing              |
+| Observe                                      | a Routing mode: silent ingest, no Turn                  | Routing              |
+| Delegation / escalation                      | Routing to a child/parent folder                        | Routing + Agent      |
+| Personas / skills / memory                   | folder contents                                         | Agent (folder-data)  |
+| Workflows                                    | an enforced opening at the session boundary             | Turn + State         |
+| Grants / roles / scopes                      | views over the one `Authorize` question                 | Authorization        |
+| Secrets / egress allowlist                   | per-folder State resolved before spawn                  | State + Turn         |
+| A product                                    | a folder with persona + skills + routes                 | Agent (recomposed)   |
+| Dashboard / CLI                              | a second face over the same handlers (`5/17`)           | (surface, not prim.) |
 
 ## The four layers
 
-The "no special cases" claim has a structural twin: the same small set
-of concepts stacks, cleanly, into the things you deploy and ship. This
-is the spine of the grand message — primitives become packages become
-processes become products.
+Primitives become packages become processes become products.
 
-| Layer          | What it is                      | Examples                                                                        |
-| -------------- | ------------------------------- | ------------------------------------------------------------------------------- |
-| **Primitives** | invariant concepts              | Event, Routing, Agent, Authorization, Turn, State (+ Identity)                  |
-| **Components** | Go packages that implement them | `store`, `chanlib`, `router`, `groupfolder`, `auth`, `grants`, `ipc`, `runed`   |
-| **Daemons**    | deployable processes            | `authd`+`routd`+`runed` (the split, only topology); `webd`, `timed`, `slakd`, … |
-| **Products**   | installable agents              | Slack team agent, reality agent, company brain                                  |
+| Layer          | What it is                      | Examples                                                                          |
+| -------------- | ------------------------------- | --------------------------------------------------------------------------------- |
+| **Primitives** | invariant concepts              | Event, Routing, Agent, Authorization, Turn, State (+ Identity)                    |
+| **Components** | Go packages that implement them | `store`, `chanlib`, `router`, `groupfolder`, `auth`, `resreg`, `ipc`, `container` |
+| **Daemons**    | deployable processes            | `authd`+`routd`+`runed` (the only topology); `webd`, `timed`, `slakd`, …          |
+| **Products**   | installable agents              | Slack team agent, reality agent, company brain                                    |
 
-Per-primitive, the mapping is direct (each primitive has a home
-package, bundled into the monolith today and into a split daemon as the
-planes separate):
+Guardrails on the layer story:
 
-| Primitive     | Component (package)                                   | Daemon (monolith → split)    |
-| ------------- | ----------------------------------------------------- | ---------------------------- |
-| Event         | `store` (messages), `chanlib`/`chanreg`               | `gated` → `routd` + adapters |
-| Routing       | `router`                                              | `gated` → `routd`            |
-| Agent         | `groupfolder`, `store` (groups)                       | `gated` → `routd`            |
-| Authorization | `auth`, `grants`                                      | `gated` → `routd`            |
-| Turn          | `ipc` (MCP bridge), `runed` (container)               | `gated` → `runed`            |
-| State         | `store` (DB) + the folder on disk                     | `gated` → `routd`/`runed`    |
-| Identity      | `types/identity`, `auth/identity`, `store/identities` | `gated` → `authd`            |
-
-Honest notes on the four layers (do not let this become a just-so
-story):
-
-- **The public docs collapse Components into Daemons.** Operators
-  deploy daemons, not packages; the `components/` doc section lists
-  daemons. The package layer is real and worth naming in the spec and
-  README, but the operator-facing site keeps three layers
-  (primitives → daemons → products), not four. Don't invent a docs
-  section for packages.
-- **The lived shape is the split.** `gated` is removed; the three planes
-  (`authd`+`routd`+`runed`) are the only topology. Say "the split moves each
-  plane into its own daemon," not "the monolith bundles every component."
-- **A product is not a skin.** It earns the word "product" by carrying
-  bounded execution (Turn), an ACL (Authorization), state separation
-  (State + folder), and channel-native presence (Event sources) — not
-  by swapping a prompt. Prove it with a trace, not a slogan.
+- **The public docs collapse Components into Daemons** — operators deploy
+  daemons, not packages. The site keeps three layers; don't invent a
+  `components/` section for Go packages.
+- **It is a description, not a claim of clean code.** The daemons don't
+  own one plane each: State spans `routd`+`runed`, Agent lives in
+  `routd`. Don't imply a one-daemon-per-layer mapping.
+- **A product is not a skin.** It earns the word by carrying bounded
+  execution (Turn), an ACL (Authorization), state separation, and
+  channel-native presence — not by swapping a prompt.
 
 ## The grand message
 
-Lead arizuko with the four-layer story; the surfaces (README,
-`index.html`, the pitch) reuse this wording.
+**Headline.** _Shape an agent system in plain language — the LLM edits
+the files that are the system, compartmentalized daemons keep it
+bounded, and you own every change._
 
-**Headline (evolved lead).** _Shape an agent system in plain language —
-the LLM edits the files that are the system, compartmentalized daemons
-keep it bounded, and you own every change._
+**Elevator.** arizuko is an event→reaction engine you shape through LLMs:
+something happens, it's routed to a folder-agent, checked for permission,
+run for one bounded turn, and persisted in two durable stores — the DB
+and the agent's folder. You author and operate it by talking to an agent
+that edits those files, and the daemon compartments
+(`routd`/`runed`/`authd`) keep that molding inside the ACL. The wedge is
+that ownership and language meet: deep customization is changing files
+you diff, fork, and `git revert` on your own host.
 
-**Headline (product-first alternative, prior lead).** _Ship ownable
-agents as real products — each a folder that reacts to events through
-one fixed pipeline._
-
-**Elevator (3 sentences).** arizuko is an event→reaction engine you
-shape through LLMs: something happens, it's routed to a folder-agent,
-checked for permission, run for one bounded turn, and persisted in two
-durable stores — the shared DB and the agent's folder. You author and
-operate it by talking to an agent that edits those files (persona,
-skills, routing), and the daemon compartments (`routd`/`runed`/`authd`,
-each owning one primitive) keep that molding inside the grants — no
-black box, no breakout. The wedge is that ownership and language meet:
-deep customization is changing files you diff, fork, and `git revert` on
-your own host, not tuning an opaque SaaS agent through a text box.
-
-**One-pager reveal order** (use-cases first; primitives explain why the
-surface stays small, they don't open):
-
-1. Hero — "build real agents you own."
-2. Three product tiles — Slack team agent, reality agent, company brain.
-3. One traced example, top to bottom (below).
-4. The six primitives — the reason the surface stays small.
-5. The four-layer decomposition (the table above).
-6. Ownership / customization proof — folder tree, files, `git diff`,
-   self-hosted, one-tar backup.
-7. Honest constraints — Linux + Docker + SQLite, the split
-   (`authd`+`routd`+`runed`) is the shipped topology, the uniform
-   MCP+REST surface still converging.
-
-**The trace** — the one diagram that makes the model legible. One
-concrete event, the six primitives in a fixed column, the reply out:
+**The trace** — the one diagram that makes the model legible:
 
 ```
 Slack @mention in #eng
-   │
-   ▼  Event        one inbox row (messages)
-   ▼  Routing      → corp/eng/oncall
-   ▼  Agent        folder loaded: persona, skills, memory
-   ▼  Authorization can it read / send / delegate here?
-   ▼  Turn         one ephemeral container run
-   ▼  State        DB rows written + folder edits
-   │
+   ▼  Event         one inbox row (messages)
+   ▼  Routing       → corp/eng/oncall
+   ▼  Agent         folder loaded: persona, skills, memory
+   ▼  Authorization may this principal read / send / delegate here?
+   ▼  Turn          one ephemeral container run
+   ▼  State         DB rows written + folder edits
    ▼
 Reply in the Slack thread
 ```
 
-The key reveal: it looks like feature sprawl until you trace one
-example top to bottom — then it's six steps every time.
+It looks like feature sprawl until you trace one example top to bottom —
+then it's six steps every time.
 
-**Build-real-products angle** (emotional + rational, never
-framework-brochure):
-
-- This is not a chatbot you rent — it is a product you own.
-- Each product is a starter folder plus channel wiring on top of the
-  same fixed reaction pipeline.
-- The same engine ships a support agent, a team copilot, or a personal
-  life agent because each is the same reaction loop with different
-  folder contents and routing.
-- Customization is not prompt-tweaking in a SaaS UI; it is changing
-  files you own and can review.
-
-Avoid: "extensible platform," "flexible architecture," "powerful
+**Voice.** Avoid "extensible platform," "flexible architecture," "powerful
 abstractions," "scalable," "seamless." True and weak. Name the concrete
-thing instead (a table, a row, a file, a folder).
+thing — a table, a row, a file, a folder.
 
-**The layer above the model.** Models get better; agent harnesses get
-better; neither is the race arizuko runs. The gap is the layer above
-them — managing users, context, and organization across many agents,
-over time. The bet is that layer wants to be composable primitives you
-own rather than one system you rent — the Unix bet: small pieces you
-wire together, not a managed control plane. Call it a web-native Linux —
-primitives for identity (the folder/JID), storage (the folder tree),
-routing (the route table), and publishing (`~/public_html` → `/pub`, no
-deploy step) that outlive the model you run this week. Swap the agent
-for a better one tomorrow; the folder, its history, and its grants stay.
-This complements the ownership wedge above: ownership is what you get,
-composable-primitives-over-a-platform is how it's built.
+**The layer above the model.** Models and harnesses both get better;
+neither is the race arizuko runs. The gap is the layer above them —
+managing users, context, and organization across many agents over time —
+and the bet is that layer wants composable primitives you own rather than
+one system you rent. A web-native Linux: identity (folder/JID), storage
+(the folder tree), routing (the route table), publishing
+(`~/public_html` → `/pub`, no deploy step). Swap the agent tomorrow; the
+folder, its history, and its grants stay.
 
-## Honesty notes
+## Honesty guardrails
 
-The docs rewrite must NOT reintroduce these false claims (a codex
-review + a CTO audit flagged them):
+Claims the docs must NOT reintroduce:
 
-- **Not strict orthogonality.** The primitives are layered and coupled.
-  Routing depends on Event shape and is overridden by
-  engagement/direct-address/sticky (`routd/loop.go:382`). Authorization
-  is multi-gate (`auth/policy.go:18` + `auth/authorize.go:36`). A Turn
-  needs grants/config/egress resolved first (`routd/dispatch.go:235`).
-  Frame the wedge as "one job each, fixed pipeline, no special cases" —
-  not independence.
-- **Not "one SQLite is the only truth."** Two durable stores by design:
-  the shared DB _and_ the per-agent folder (`README.md:28`,
-  `store/store.go:19`). The folder is not a cache. The split adds
-  per-plane DBs (`5/E`, `5/P`).
-- **"One rule gates agent MCP and operator REST" is the TARGET, not
-  shipped fact.** It rolls out resource by resource — say "converging
-  on one MCP+REST surface." README "Direction" (`README.md:54`) notes
-  the _first_ resource (`proxyd/resource.go`) already runs the pattern;
-  the rest follow. Canonical mechanism: `5/17` (rollout in `5/16`).
-- **The grant primitive in code is the unified ACL, not just
-  `grant_rules`.** `grant_rules`/`grants.DeriveRules` is the
-  legacy/tier-default path; the unified model is the `acl` +
-  `acl_membership` tables resolved by `auth.Authorize`
-  (`store/migrations/0052-acl-unified.sql`, `32-acl-unified.md`).
-- **Workflow is operating discipline, not a shipped engine.** Describe
-  the enforced opening (`5/X`) as a session-boundary rule on Turn +
-  State; do not imply a separate workflow substrate.
-- **The four-layer story is a description, not a claim of clean code.**
-  The split shipped (`gated` removed), but the daemons don't cleanly
-  own four planes: State spans `routd`+`runed`, Agent lives in `routd`.
-  Don't imply a one-daemon-per-layer mapping.
+- **Not strict orthogonality** — the primitives are layered and coupled
+  (decision 3).
+- **Not "one SQLite is the only truth"** — two durable stores, plus
+  per-plane DBs after the split.
+- **Not "tiers"** — capability comes from ACL rows, never from path
+  depth (`5/33`). Any doc saying "tier 0/1/2/3" is stale.
+- **"One rule gates agent MCP and operator REST" is the target**, rolling
+  out resource by resource — say "converging on one MCP+REST surface"
+  (`5/17`, rollout `5/16`).
+- **Workflow is operating discipline, not a shipped engine** (decision 5).
+- **Owner is a convention, not an enforced boundary** — every core daemon
+  mounts the whole data dir rw as UID 1000 (`compose/compose.go`), so
+  per-plane DB ownership is discipline, not isolation.
 
-## Docs-rewrite implications
-
-**Landed 2026-06-13.** The evolved "shape through LLMs" lead is now the
-primary lead on `index.html` and `README.md` (product/ownership become the
-two halves it rests on, not competing leads); `concepts/workflows.html` is
-created and slotted after `tasks` in the curriculum; the product pages name
-their recomposition and link `concepts/primitives.html`. `concepts/primitives.html`
-
-- the four-layer/no-special-cases tables already shipped earlier (v0.49.0).
-  The site-wide `gated`→split daemon-name purge across `components/`/`reference/`/
-  `howto/` is tracked separately (`bugs.md`).
-
-What changed when this framing landed (the original to-do, kept for record):
-
-- **`index.html` lead.** Open use-cases-first per the grand-message
-  reveal order: hero → three product tiles → one traced example → the
-  six primitives → the four-layer table → ownership proof → honest
-  constraints.
-- **`concepts/index.html` curriculum order (`5/D` § Concepts
-  walkthrough).** Re-sequence so the primitive arc reads
-  Event → Routing → Agent → Authorization → Turn → State, with
-  identity threaded through; the per-platform/feature pages become
-  "this is primitive X recomposed."
-- **New `concepts/primitives.html`.** A single page holding the catalog
-  - the "no special cases" table + the four-layer table + the trace
-    diagram, as the conceptual spine the tour hangs off. Insert into the
-    curriculum order and fix neighbouring pagers per `5/D` § Maintenance.
-- **New `concepts/workflows.html`.** The session-governed-workflow
-  discipline (`5/X`): free conversation + enforced opening +
-  plan-of-record. Slot after Turn/State in the arc.
-- **Products pages.** Each product opens by naming the recomposition —
-  which folder contents + routing make it that product — and links to
-  `concepts/primitives.html`. Keeps "a product is the same pipeline,
-  different folder" visible (`17/9`, `5/21-products`).
-- **README lead.** Product-first + the six-step trace + the four-layer
-  table; shorten the current sprawl.
-- **Reference pages unchanged in shape** (`5/D` ownership rule):
-  concepts owns the narrative primitive framing; reference still owns
-  exhaustive grammar/fields.
+Docs consequences landed 2026-06-13 (`index.html` lead,
+`concepts/primitives.html`, `concepts/workflows.html`, product pages
+naming their recomposition); the standing trigger → page map lives in
+`template/web/CLAUDE.md` § Maintenance, not here.

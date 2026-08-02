@@ -5,9 +5,9 @@ status: draft
 # Social Adapter Model
 
 Social adapters (bskyd, mastd, reditd, twitd, linkd) operate differently from
-chat adapters (teled, discd, slakd, whapd, emaid). This spec defines the
-boundary; the observer system that handles broad monitoring is spec'd
-separately in `7/`.
+chat adapters (teled, discd, slakd, whapd, emaid). This spec defines that
+boundary. The observer system it hands broad monitoring to is **unspecced** —
+no spec exists for it yet.
 
 ## Problem
 
@@ -36,7 +36,7 @@ Social platforms are different:
 
 ## Design: Two-System Split
 
-### Adapter (this spec, 5/)
+### Adapter — this spec
 
 The social adapter covers the **immediate interaction landscape** only:
 
@@ -59,7 +59,7 @@ index.
 | Polling            | Rare (webhooks)        | Common (rate-limited) |
 | Trust model        | Authenticated users    | Public strangers      |
 
-### Observer (separate spec, 6/)
+### Observer — a different system, unspecced
 
 The observer handles **broad monitoring** — everything beyond the notification
 stream:
@@ -153,8 +153,8 @@ Existing social adapters (bskyd, mastd, reditd, twitd, linkd) are already
 thin — they don't have observer logic. This spec documents the intended
 boundary so future development doesn't conflate the two.
 
-The observer system is new work, spec'd in `7/`. Until it ships, agents on
-social platforms operate with notification-only context.
+The observer system is unspecced work. Until it exists, agents on social
+platforms operate with notification-only context.
 
 ## Open Questions
 
@@ -174,4 +174,5 @@ social platforms operate with notification-only context.
 
 - `5/L-mention-promotion` — verb promotion for replies/reactions
 - `5/G-engagement` — engagement window (applies differently to social)
-- `7/` — observer system spec (TBD)
+- [`7/12`](12-adapter-dashboards.md) — the operator dashboard deltas for
+  these five adapters

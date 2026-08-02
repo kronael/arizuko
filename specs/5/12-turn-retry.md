@@ -2,118 +2,63 @@
 status: shipped
 ---
 
-# Turn Retry on Failed Completion
+# Turn retry on failed completion
 
-When an agent turn dies mid-execution (SIGKILL, OOM, timeout) without
-delivering a reply, reschedule a follow-up turn with retry semantics.
+A turn that dies mid-execution (SIGKILL/OOM, `RUNED_RUN_TIMEOUT`) never
+reaches `submit_turn` or `reply`. The user sees silence, the guard
+against re-feeding a terminal turn blocks re-dispatch, and the only
+recovery is a fresh @mention. Motivating incident: BUGS 2026-06-14
+"deep-dive replies cut off".
 
-## Problem
+Retry fires on a clean `200 {outcome:"error"}` from runed
+(`routd/dispatch.go:307`). A _transport_ failure is a different case
+already handled by the loop — routd doesn't know whether the run
+happened, so it leaves the cursor un-advanced and the poll re-feeds
+([`E-routd.md`](E-routd.md) § routd↔runed).
 
-A turn that gets:
+## Decisions
 
-- Container killed (exit 137 = SIGKILL, typically OOM)
-- Timeout exceeded (RUNED_RUN_TIMEOUT, default 30m)
-- Transport failure (routd→runed blip)
+**"Did a bot row land?" is the success test, not "did `submit_turn`
+fire?"** routd already tracks `TurnHasBotReply`. A partial reply that
+reached the channel beats a retry that re-does the work, so an agent that
+posted a `reply` and then died counts as success. No bot row at all is
+the failure.
 
-...never reaches `submit_turn` or `reply`. The user sees silence. Currently:
+**Automatic and silent, bounded at `MAX_TURN_RETRY` (default 3)**
+(`core/config.go:250`, `routd/cmd/routd/main.go:188`). From the user's
+side this is one slightly slower reply; only the final failure surfaces,
+as an error notice. Retry state is `turn_context.retry_count` +
+`state='pending_retry'` (`routd/migrations/0013-retry-count.sql`,
+`routd/db.go:911` `IncrementRetryCount`), so it survives a routd restart
+and `RunningTurns` re-feeds `running` and `pending_retry` alike
+(`routd/db.go:929`).
 
-- routd marks the turn as failed in turn_context
-- The message stays in the queue but never re-dispatches (guard prevents
-  re-feeding a completed/failed turn)
-- User must re-mention to trigger a new turn
+**Short fixed backoff (10s, `routd/dispatch.go:467`), no exponential
+ramp.** The old container is
+already dying and the new one is a fresh spawn — there is nothing to wait
+for except the reaper. A long ramp would just extend the user's silence.
 
-## Design (decisions locked)
+**Global config only** — no per-folder or per-skill override. A retry
+budget is a property of the runtime, not of a tenant's content.
 
-**Automatic retry** with bounded attempts:
+**The retry turn is told it is a retry.** A system note ("attempt N of M,
+the previous attempt was killed before completing, be conservative with
+resource usage") is injected into the prompt, because the most common
+cause is OOM and the most useful response is for the agent to do less.
 
-1. When a turn ends without reply (no `submit_turn` call, no `reply` tool),
-   routd detects this in `recordTurnResult` (already tracks `TurnHasBotReply`)
-2. If `retry_count < MAX_TURN_RETRY` (default 3), reschedule the same message
-   for a new turn after a short backoff
-3. Increment `retry_count` on the turn_context row
-4. On final retry (attempt 3), if still no reply, deliver an error notice
-   to the user: "⚠️ Agent couldn't complete this request after 3 attempts."
+**What is retried**: the same input message and attachments, a fresh
+container, the same conversation context. **What is not**: turns that
+replied, turns the agent explicitly errored via `submit_turn`, and
+user-cancelled turns.
 
-**Backoff**: 10 seconds between retries. Always retry immediately after
-detecting failure — no extended delays. The old container dies naturally;
-the new one is a fresh spawn.
-
-**System note on retry**: Inject a system message into the retry turn's
-context: "This is retry attempt N of 3. The previous attempt was killed
-before completing. Be conservative with resource usage."
-
-**User visibility**: Silent until final failure. From the user's perspective,
-this is just a normal (slightly longer) agent reply. Only surface an error
-if all retries fail.
-
-**What gets retried**:
-
-- The SAME input message (user's text + attachments)
-- A FRESH container (new spawn, no stale state from crashed run)
-- The SAME conversation context (history load works as normal)
-
-**What doesn't retry**:
-
-- Turns that DID reply (success = bot message exists in messages table)
-- Turns where the agent explicitly errored via `submit_turn` with error flag
-- Turns killed by user cancel (if we add that)
-
-**Partial reply clarification**: If the agent posted a `reply` to the channel
-but died before `submit_turn`, `TurnHasBotReply` sees the bot row → success,
-no retry. A partial reply that reached the channel is better than nothing.
-If no reply reached the channel at all, that's a failure → retry.
-
-## Configuration
-
-Global only: `MAX_TURN_RETRY` in `.env` (default 3). No per-folder or
-per-skill overrides — keep it simple.
-
-## Engagement TTL
-
-Set `ENGAGEMENT_TTL` to 60m (up from 30m default). Retry delays (10s × 3)
-are negligible compared to TTL. Retry does NOT need to extend engagement
-because from the user's perspective, the turn is still "in progress" —
-they're waiting for a reply, engagement is naturally alive.
-
-## Schema change
-
-```sql
-ALTER TABLE turn_context ADD COLUMN retry_count INTEGER DEFAULT 0;
-```
-
-## Implementation sketch
-
-```go
-// routd/turns.go, in recordTurnResult after detecting no reply:
-if !hasBotReply && tc.RetryCount < cfg.MaxTurnRetry {
-    tc.RetryCount++
-    tc.Status = "pending_retry"
-    s.db.UpdateTurnContext(tc)
-    time.AfterFunc(10*time.Second, func() {
-        s.requeueTurn(tc.MessageID, tc.RetryCount)
-    })
-    slog.Warn("turn failed without reply, scheduling retry",
-        "message_id", tc.MessageID, "retry", tc.RetryCount)
-    return
-}
-if !hasBotReply {
-    // final failure: deliver error notice
-    s.deliverErrorNotice(tc, "Agent couldn't complete this request after 3 attempts.")
-}
-```
-
-```go
-// In prompt building, inject retry note:
-if retryCount > 0 {
-    systemNotes = append(systemNotes, fmt.Sprintf(
-        "This is retry attempt %d of %d. The previous attempt was killed "+
-        "before completing. Be conservative with resource usage.",
-        retryCount+1, cfg.MaxTurnRetry))
-}
-```
+**Retry does not extend engagement.** From the user's side the turn is
+still in progress — they are waiting — so the window is naturally alive.
+Three 10s delays are negligible against `ENGAGEMENT_TTL` either way.
 
 ## Related
 
-- `bugs.md` 2026-06-14 "deep-dive replies cut off" — the motivating incident
-- `specs/5/G-engagement.md` — engagement TTL (increase to 60m)
-- `specs/5/P-runed.md` — container lifecycle, RunTTL
+- [`E-routd.md`](E-routd.md) § Turn lifecycle — the terminal-signal
+  reconciliation this hooks into, and why stale `running` rows sweep to
+  `'expired'` rather than `'done'`.
+- [`P-runed.md`](P-runed.md) — container lifecycle, run TTL.
+- [`G-engagement.md`](G-engagement.md) — `ENGAGEMENT_TTL`.

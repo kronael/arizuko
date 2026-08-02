@@ -11,25 +11,14 @@ behavior via well-known files. Written by `container/`.
 
 Gateway writes `/home/node/.gateway-caps` on each container spawn.
 
-```toml
-[voice]
-enabled = true
-model = "large-v3"
-languages = ["cs", "ru"]
+Sections: `[voice]` (`enabled`, `model`), `[video]` (`enabled`),
+`[media]` (`enabled`, `max_size_mb`), `[web]` (`enabled`, `host` when
+`WEB_HOST` is set). Emitted by `writeGatewayCaps` in
+`container/runner.go` — read it there for the exact keys.
 
-[video]
-enabled = true
-
-[media]
-enabled = true
-max_size_mb = 50
-
-[web]
-enabled = true
-host = "REDACTED.REDACTED"
-```
-
-Agent treats it as advisory; missing file = assume defaults.
+Agent treats it as advisory; missing file = assume defaults. It is
+declarative capability discovery rather than trial-and-error: an agent
+that knows voice is off does not waste a turn attempting transcription.
 
 ## .whisper-language (agent-writable)
 

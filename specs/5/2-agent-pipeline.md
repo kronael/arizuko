@@ -2,23 +2,18 @@
 status: shipped
 ---
 
-> Shipped: both shapes rely only on existing primitives. Orchestration
-> uses the chat/route-token surface (`W-webhook-routes.md`, which renamed
-> slink) + `send_message`. Workflows use the Claude Code Agent tool inside
-> a container. No routd work outstanding; declarative workflow syntax
-> tracked separately in `13/6-workflows.md`.
-
 # Agent orchestration & workflows
 
-Two shapes:
+**Decided: neither shape needs new machinery, so none was built.**
 
-- **Orchestration** — long-lived groups messaging each other via slink.
-  Own session/memory.
-- **Workflows** — single group spawns subagents via Agent tool in one
-  container. Shared context.
+- **Orchestration** — long-lived groups messaging each other, each with
+  its own session and memory. Built from the existing chat/route-token
+  surface ([`W-webhook-routes.md`](W-webhook-routes.md), which renamed
+  slink) plus `send_message`, with skill files driving the topology. No
+  routd change.
+- **Workflows** — one group spawning subagents through the Claude Code
+  Agent tool inside a single container, sharing context. Already works;
+  nothing to add.
 
-Rationale: workflows already work via Claude Code Agent tool. No routd
-changes needed. Orchestration = existing chat/route-token surface +
-`send_message` + skill files driving the topology.
-
-Superseded for declarative flows by [../13/6-workflows.md](../13/6-workflows.md).
+Superseded for _declarative_ flows by
+[../13/6-workflows.md](22-self-learning.md).

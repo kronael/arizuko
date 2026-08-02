@@ -22,7 +22,7 @@ roster plus the per-adapter decisions that live nowhere else.
 | reditd | Reddit    | `reddit:`   | Go       |
 | linkd  | LinkedIn  | `linkedin:` | Go       |
 | whapd  | WhatsApp  | `whatsapp:` | TS       |
-| twitd  | Twitter/X | `x:`        | TS       |
+| twitd  | Twitter/X | `twitter:`  | TS       |
 
 Per-adapter env vars and verb-support tables live in each daemon's
 `README.md` — duplicating them here only lets them drift. JID grammar

@@ -51,7 +51,7 @@ arizuko-internal packages — consumed only through its CLI, HTTP API, or
 an id means, folder hierarchy, grants, when to spawn; the component owns
 _mechanism_ — a flat per-id ruleset, matching a request against it, opening
 sockets.** So a component takes strings (`id`, `host`, `tool`) and returns
-strings — never a `Folder`/`Grant`/`Tier`, never arizuko's `.env` or DB.
+strings — never a `Folder`/`Grant`, never arizuko's `.env` or DB.
 The mechanical test is one grep for `github.com/…/arizuko/(store|core|auth|
 router|grants|ipc|…)` under the component dir → empty. `ant/` is the mirror:
 TS in arizuko's repo, own build + Dockerfile, consumed as an image over a
@@ -82,22 +82,22 @@ standalone.
 Keep arizuko imports; run generic via TOML/env. These have a standalone
 spec and are the credible "drop in front of your stack" story.
 
-| Daemon   | Contract (stranger's promise)                            | Surface        | Gate to standalone                                            |
-| -------- | -------------------------------------------------------- | -------------- | ------------------------------------------------------------- |
-| `authd`  | OIDC login → mint/verify JWTs; sole signer + JWKs        | HTTP + JWKs    | `5/1` — split out as the token authority any daemon verifies  |
-| `proxyd` | Auth-gated reverse proxy, per-path tiers, runtime routes | Config + `/v1` | `5/7` steps 4–7: strip 4 folder refs, delegate all mint, docs |
-| `vited`  | Static `/pub` `/priv` origin (Vite)                      | HTTP           | 0 internal deps; near-generic (README exists)                 |
-| `davd`   | WebDAV workspace over upstream `dufs` + healthcheck      | HTTP (WebDAV)  | 0 internal deps; thin wrapper, near-generic                   |
+| Daemon   | Contract (stranger's promise)                                                 | Surface        | Gate to standalone                                            |
+| -------- | ----------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------- |
+| `authd`  | OIDC login → mint/verify JWTs; sole signer + JWKs                             | HTTP + JWKs    | `5/1` — split out as the token authority any daemon verifies  |
+| `proxyd` | Auth-gated reverse proxy, per-path `public`/`user`/`operator`, runtime routes | Config + `/v1` | `5/7` steps 4–7: strip 4 folder refs, delegate all mint, docs |
+| `vited`  | Static `/pub` `/priv` origin (Vite)                                           | HTTP           | 0 internal deps; near-generic (README exists)                 |
+| `davd`   | WebDAV workspace over upstream `dufs` + healthcheck                           | HTTP (WebDAV)  | 0 internal deps; thin wrapper, near-generic                   |
 
 ### Import-orthogonal components (the toolbox proper)
 
 Sibling dirs / libs consumed with no arizuko process (the component
 contract, above).
 
-| Component          | Contract                                           | Surface        | Gate                                                       |
-| ------------------ | -------------------------------------------------- | -------------- | ---------------------------------------------------------- |
-| `crackbox`/`egred` | Default-deny egress per source id + KVM sandbox    | CLI + HTTP     | **egress fails OPEN** (BUGS HIGH) — the real ship gate     |
-| `obs`              | Opt-in `audit_log`+journald+OTLP for any Go daemon | `import` + env | **Ships now** — has a README; needs only a drop-in example |
+| Component  | Contract                                           | Surface        | Gate                                                       |
+| ---------- | -------------------------------------------------- | -------------- | ---------------------------------------------------------- |
+| `crackbox` | Default-deny egress per source id + KVM sandbox    | CLI + HTTP     | **egress fails OPEN** (BUGS HIGH) — the real ship gate     |
+| `obs`      | Opt-in `audit_log`+journald+OTLP for any Go daemon | `import` + env | **Ships now** — has a README; needs only a drop-in example |
 
 ### Channel + effect/event daemons (correct as daemons — not extraction candidates)
 
@@ -171,7 +171,7 @@ is a feature, not sprawl.
 | **Web + management**   | `proxyd` `vited` `davd` `dashd`                                                         | put the agent on the web, run/observe/control | the _servekit_ bundle (above) |
 | **Onboarding**         | `onbod`                                                                                 | let people join safely                        | optional                      |
 | **Scheduling**         | `timed`                                                                                 | wake the agent on a clock                     | optional                      |
-| **Isolation / egress** | `crackbox`/`egred`                                                                      | contain what the agent can reach              | optional (security)           |
+| **Isolation / egress** | `crackbox`                                                                              | contain what the agent can reach              | optional (security)           |
 | **Capabilities**       | `ttsd` (+ Whisper/OpenAI hooks)                                                         | give the agent voice / extra models           | optional                      |
 | **Observability**      | `obs` (library)                                                                         | see what happened                             | opt-in, zero-overhead unset   |
 
@@ -181,84 +181,39 @@ deployment is _Core plane + one Channel_; a maxed one is every cluster.
 "One daemon per channel" is the right unit precisely because the deployer
 picks channels à la carte, and each fails/scales/reconnects on its own.
 
-## Counterpart landscape (market sweep, 2026-07-15)
+## Counterpart landscape — the durable finding
 
-A four-bucket web sweep asked, per part: does a real external counterpart
-exist, how crowded is it, and is arizuko's angle a commodity or an edge?
-**The finding validates `5/A`: no single primitive is unique — the
-composition is the moat.** Only the folder-as-agent router survives as
-near-unique, and even it has an honest neighbor (OpenClaw). Everything
-else is commodity or a _differentiated bundle_ (the pieces are buyable;
-the integrated shape is not).
+A market sweep (2026-07-15) asked per part whether a real external
+counterpart exists. **The finding validates `5/A`: no single primitive is
+unique — the composition is the moat.** Only the folder-as-agent org-tree
+router is near-unique, and even it has an honest neighbour (OpenClaw has
+multiple agents but no arbitrary-depth org-tree + inbox + escalation
+ladder). `crackbox` egress and `mcpfw` are early entrants in unsettled
+markets; `webd`/`dashd`/channel-fleet are differentiated _bundles_ (the
+pieces are buyable, the integrated shape is not); resreg's edge is rigor,
+not the idea (FastAPI-MCP ships the idea). Everything else — `authd`
+`proxyd` `runed` `timed` `onbod` `ttsd` `obs` and the KVM lib — is
+commodity against mature incumbents.
 
-| Part               | External category                        | Counterparts (nearest named)                              | Maturity          | Verdict                         |
-| ------------------ | ---------------------------------------- | --------------------------------------------------------- | ----------------- | ------------------------------- |
-| `routd`            | folder-as-agent org-tree router          | OpenClaw (no org-tree/inbox); LangGraph/AutoGen (in-proc) | EMERGING          | **DIFFERENTIATED (near-uniq)**  |
-| `crackbox`/`egred` | per-agent default-deny egress            | Stripe **smokescreen** (generic); Safeguard, Pipelock     | MATURE / emerging | **DIFFERENTIATED**              |
-| `mcpfw` (`6/12`)   | MCP tool-call firewall                   | **Invariant Gateway**, **Docker MCP Gateway**             | EMERGING          | DIFFERENTIATED, not unique      |
-| resreg two-face    | REST+MCP+OpenAPI from one handler        | **FastAPI-MCP** (direct hit); Speakeasy/Stainless         | EMERGING          | DIFF — edge is _rigor_ not idea |
-| channel fleet      | agent-first omni-channel bridge          | Matterbridge, Matrix/mautrix, Chatwoot (all human/CX)     | MATURE / emerging | **DIFFERENTIATED**              |
-| `webd`             | agent web presence (widget+SSE+hook+MCP) | Svix, Mercure, mcp-proxy (per-piece, no bundle)           | EMERGING (bundle) | **DIFFERENTIATED**              |
-| `dashd`            | self-hosted agent-ops console            | Langfuse/Helicone (obs half); Agent 365/Bedrock (cloud)   | EMERGING          | **DIFFERENTIATED**              |
-| `authd`            | OIDC/JWT issuer                          | Keycloak, Ory Hydra, Dex, Zitadel, Authentik              | MATURE            | COMMODITY                       |
-| `proxyd`           | auth-gated reverse proxy                 | oauth2-proxy, Pomerium, Ory Oathkeeper, Authelia          | MATURE            | COMMODITY (lightly diff)        |
-| `runed`            | ephemeral agent sandbox                  | E2B, Modal, Daytona, Cloudflare Sandbox, Fly Machines     | MATURE            | COMMODITY                       |
-| crackbox KVM lib   | microVM sandbox library                  | Firecracker, Kata, libkrun, gVisor                        | MATURE (dormant)  | COMMODITY                       |
-| `timed`            | cron → agent turn                        | Temporal, Inngest, Trigger.dev, Cloudflare Cron           | MATURE            | COMMODITY                       |
-| `onbod`            | multi-tenant onboarding                  | WorkOS, Clerk, Scalekit                                   | MATURE            | COMMODITY                       |
-| `ttsd`             | TTS proxy                                | ElevenLabs, OpenAI TTS, Cartesia, Piper                   | MATURE            | COMMODITY                       |
-| `obs`              | OTel + agent tracing                     | OTel/Collector, Langfuse, Helicone, OpenLLMetry           | MATURE            | COMMODITY                       |
+The vendor names behind that reading date fast; re-run the sweep rather
+than trusting a stale table. What does not date is the rule it produced:
 
-### Promote vs perfect — the strategy
+**Never claim a commodity part is novel** (codex/CTO-audit rule, `5/A`).
+"We have an egress proxy" is true and weak; "per-agent folder-scoped
+egress bound to agent identity, self-hosted" is the differentiated claim —
+and even that ships qualified while `crackbox` is opt-in and fails open
+(`BUGS.md`). Name the composition, not the part. Perfect the commodities
+silently; a landing page that leads with "our OIDC issuer" competes with
+Keycloak on Keycloak's turf and loses.
 
-Three tiers decide where marketing air goes. **Perfect all; promote the
-top two.**
-
-1. **Lead with the composition (near-unique).** The whole — a
-   self-hosted multi-tenant **folder-as-agent org-tree router** bundling
-   per-turn ephemeral folder-mounted containers + per-agent default-deny
-   egress + an MCP firewall + a multi-channel fleet — is what no named
-   competitor packages together. `routd` + the org-tree/inbox/escalation
-   substrate is the one piece with no clean equivalent (OpenClaw has
-   multiple agents but no arbitrary-depth org-tree + inbox + escalation
-   ladder; the frameworks are in-process DAGs). This IS the `5/A` hero
-   story; the sweep confirms it is honestly defensible.
-2. **Promote the differentiated bundles + new-market bets.** `crackbox`
-   per-agent egress and `mcpfw` are early entrants in genuinely _unsettled_
-   markets (agent egress, MCP security — both <18 months old) — promote as
-   category bets, not solved commodities. `webd`/`dashd`/channel-fleet are
-   integration edges: the shape isn't sold as a unit. resreg's edge is
-   **rigor** (reflection-OpenAPI, param-bound folder gate), not the idea
-   (FastAPI-MCP ships the idea) — pitch the rigor, don't claim first-of-kind.
-3. **Perfect the commodities silently — never lead with them.** `authd`
-   `proxyd` `runed` `timed` `onbod` `ttsd` `obs` + the KVM lib sit in
-   crowded, mature markets. Match table-stakes and move on; a landing page
-   that leads "our OIDC issuer" or "our TTS proxy" competes against
-   Keycloak and ElevenLabs on their turf and loses. Their job is to make
-   the composition work, not to be sold.
-
-Honest caveat for the docs: never claim a commodity part is novel
-(codex/CTO-audit rule, `5/A`). "We have an egress proxy" is true and weak;
-"per-agent folder-scoped egress bound to agent identity, self-hosted" is
-the differentiated claim — and even that ships qualified: `crackbox` is
-opt-in and default-deny is the _design_, currently fail-open (`BUGS.md`).
-Name the composition, not the part; and don't oversell the gate until it
-holds.
-
-### Replace a native part with its counterpart?
-
-Only the commodities, and only **behind arizuko's seam** — never a raw
-drop-in. `runed`'s `ContainerRuntime` seam (`5/P`, today Docker + Fake)
-could carry an external sandbox, but the folder-mount + MCP-socket contract
-makes E2B/Modal a real port, not a slot-in; `authd`, a thin sole-signer,
-can defer to Keycloak/Dex if it mints folder/tier claims + JWKs;
-`timed`/`ttsd`/`obs` are already thin proxies over swappable backends. The
-catch: _can_ ≠
-_should_ — swapping `authd` for Keycloak trades a small Go binary for a
-JVM + its own DB, against the plain-primitives / one-tar-backup ethos. The
-native parts stay minimal precisely so you never have to reach for the
-heavyweight. The differentiated/near-unique tier has no such swap: nothing
-external carries the folder binding.
+Replacing a native part with its counterpart is possible only for the
+commodities, and only **behind arizuko's seam** — never a raw drop-in.
+`runed`'s `ContainerRuntime` seam (`5/P`, today Docker + Fake) could carry
+an external sandbox, but the folder-mount + MCP-socket contract makes
+E2B/Modal a real port. The catch is _can_ ≠ _should_: swapping `authd` for
+Keycloak trades a small Go binary for a JVM + its own DB, against the
+plain-primitives / one-tar-backup ethos. The differentiated tier has no
+such swap — nothing external carries the folder binding.
 
 ## What this means for "ship in parts"
 

@@ -1,7 +1,6 @@
 ---
 status: draft
 depends: [5/17-openapi-mcp, 5/7-proxyd-standalone, 1-auth-standalone]
-supersedes: [10/18-daemon-dashboards]
 ---
 
 # Operator cockpit — architecture + contract
@@ -10,10 +9,10 @@ supersedes: [10/18-daemon-dashboards]
 `/dash/<daemon>/` HTMX namespace, rendering its own source, reading
 and writing only through its own `/v1` surface. A lean `dashd` hub
 probes and links them — an AWS-Console "Services" home, much leaner.**
-One renderer per daemon, one hub. This spec is the anchor; every
-per-daemon dashboard spec (`7/3`–`7/14`) points back here for
-architecture, routing, auth, theme, and non-goals, and adds only its
-own page list + show/control matrix.
+One renderer per daemon, one hub. This spec is the anchor; `7/2`,
+`7/3`, `7/11` and `7/12` point back here for architecture, routing,
+auth, theme, and non-goals, and add only their own page lists +
+show/control matrices.
 
 ## The shape
 
@@ -56,8 +55,8 @@ Consequences:
   owning daemon verifies it as a service principal), never the DB.
 - If a dashboard needs a datum no `/v1` endpoint exposes: first extend
   the existing `/v1/<resource>`; failing that, add a minimal
-  daemon-owned read endpoint (`/v1/<thing>/status`). Each per-daemon
-  spec lists the `/v1` additions it requires under "Required API work".
+  daemon-owned read endpoint (`/v1/<thing>/status`). `7/3` and `7/12`
+  list the `/v1` additions each daemon requires.
 - No new "dashboard API" separate from `/v1`. The HTML page is a third
   face on the same handler set (`specs/5/17`), not a fourth surface.
 
@@ -71,13 +70,18 @@ proxyd carries one route per daemon dashboard, registered statically
 /dash/<daemon>/   -> <daemon>:8080/dash/
 ```
 
-Adapter dashboards register via a `[[proxyd_route]]` entry in the
-adapter's `template/services/<daemon>.toml` (the channel-adapter
-pattern — no edit to `proxyd/main.go`). Core daemons that ship no
-service TOML (routd, runed, authd, proxyd, onbod, timed, dashd)
-register their `/dash/<daemon>/` route in `compose.go`'s default route
-list instead. Either way: a daemon with no route gets no hub tile; the
-route entry IS the registration, and there is no autodiscovery.
+Packaged daemons (channel adapters, ttsd, crackbox) ship their
+`/dash/<daemon>/` entry in a `template/services/<daemon>-routes.json`
+array beside their `.yml` compose fragment; compose collects the
+survivors after `gated_by` evaluation into `PROXYD_ROUTES_JSON`
+([`compose/compose.go`](../../compose/compose.go)
+`collectProxydRoutes`) — no edit to `proxyd/main.go`. Core daemons
+(routd, runed, authd, proxyd, onbod, timed, dashd) register in
+`coreProxydRoutes` in the same file; `/dash/onbod/` and `/dash/timed/`
+are already there, ordered ahead of the `/dash/` catch-all because
+matching is longest-prefix. Either way: a daemon with no route gets no
+hub tile; the route entry IS the registration, and there is no
+autodiscovery.
 
 ## Auth: two gates, shared helper
 
@@ -140,10 +144,10 @@ summary if the payload carries one, link to `/dash/<daemon>/`.
 
 ## Reconciliation of prior specs
 
-- `specs/11/18-daemon-dashboards.md` — **superseded by this spec.** Its
-  routing/auth/theme/hub model carries over almost verbatim; the one
-  change is the read-path (10/18 left `dashd`'s direct-DB pages in
-  place — this spec migrates them to `/v1`). Mark 10/18 superseded.
+- The former `11/18-daemon-dashboards.md` — superseded by this spec and
+  deleted 2026-08-02. Its routing/auth/theme/hub model carried over
+  almost verbatim; the one change is the read-path (it left `dashd`'s
+  direct-DB pages in place — this spec migrates them to `/v1`).
 - `specs/3/d-dashboards.md` (shipped) — historical input; the tile
   portal it shipped becomes the hub (`7/2`).
 - `specs/4/Q-dash-memory.md` (shipped) — the memory browser is a
@@ -152,53 +156,31 @@ summary if the payload carries one, link to `/dash/<daemon>/`.
 - `specs/4/V-dashd-acl-ui.md` (shipped) — the ACL UI is a retained
   cross-cutting `dashd` page (`7/2`), reading `authd`'s `/v1`.
 
-## Per-daemon spec template
-
-Every `7/3`–`7/14` spec uses this shape and stays under 500 lines:
-
-1. **Purpose** — one line.
-2. **Pages** — the page list.
-3. **Show** — live state each page surfaces.
-4. **Control** — which `/v1` verbs become UI affordances (kill run,
-   reset breaker, drain queue, approve admission, rotate key,
-   reconnect adapter, …).
-5. **Required `/v1` work** — only the daemon-local endpoints to add.
-6. **Auth** — point here; note any per-page exception.
-7. **HTMX fragments** — partial routes under `/dash/<daemon>/x/...`.
-8. **Non-goals** — point here; note daemon-specific exclusions.
-9. **Acceptance** — observable checks.
-
-No repeated architecture text, no implementation tutorial, no CSS prose
-beyond "use theme" — point back to this spec.
-
 ## The spec set
 
 | Spec   | Covers                                                          |
 | ------ | --------------------------------------------------------------- |
 | `7/1`  | this — architecture, read-path, routing, auth, theme, non-goals |
 | `7/2`  | dashd hub + retained cross-cutting operator pages               |
-| `7/3`  | routd — queue, breaker, channel-registry health, errored chats  |
-| `7/4`  | runed — active runs, history, capacity, broker tokens, kill run |
-| `7/5`  | authd — keys, tokens, OAuth providers, identity links           |
-| `7/6`  | proxyd — live route table, denials, auth transit                |
-| `7/7`  | onbod — admission queue, gates, invites                         |
-| `7/8`  | timed — scheduled tasks, next ticks, recent runs                |
-| `7/9`  | crackbox — egress policy, blocked attempts, registrations       |
-| `7/10` | webd + davd + ttsd — thin surfaces, one combined spec           |
+| `7/3`  | the ten core/edge daemon dashboards, one table + the residue    |
 | `7/11` | adapter dashboard contract — shared page grammar + health model |
-| `7/12` | whapd + teled + slakd — session chat adapters                   |
-| `7/13` | mastd + bskyd + reditd + linkd — stream/poll social adapters    |
-| `7/14` | discd + emaid + twitd — mixed gateway adapters                  |
+| `7/12` | the ten channel adapters, instantiating that contract           |
+
+A per-daemon section carries only: pages, the show/control matrix, the
+`/v1` additions it needs, and reasoning that does not generalise. No
+repeated architecture text, no implementation tutorial, no CSS prose
+beyond "use theme" — point back here.
 
 ## Build order
 
 1. `7/1` (this) + `7/2` hub — land architecture + the empty tile grid.
 2. `7/11` adapter contract — the repeated pattern, defined once.
-3. `7/8` timed, `7/7` onbod — high-value, small surfaces.
-4. `7/4` runed, `7/6` proxyd — operational depth.
-5. `7/3` routd, `7/5` authd — the big control surfaces.
-6. `7/12`–`7/14` adapters — repeated pattern work.
-7. `7/10` webd/davd/ttsd, `7/9` crackbox.
+3. Finish onbod (gates + invites pages) and timed (task pages): both
+   already serve a dashboard and need no new `/v1` work.
+4. runed, proxyd — operational depth.
+5. routd, authd — the big control surfaces.
+6. `7/12` adapters — repeated pattern work.
+7. webd/ttsd, crackbox.
 
 ## Reusable pieces
 
@@ -207,6 +189,9 @@ beyond "use theme" — point back to this spec.
 - `auth/dashauth.go` — promoted `requireAdmin` + same-origin CSRF for
   writes.
 - `chanreg/health.go` — canonical adapter liveness semantics (`7/11`).
+- `onbod/dash.go` + `timed/dash.go` — the two shipped dashboards; copy
+  their operator gate and their "one writer per resource, two faces"
+  shape rather than inventing a third.
 - existing `GET /health` + `GET /openapi.json` on every daemon.
 - existing `/v1` handlers (`specs/5/17`).
 
@@ -223,4 +208,7 @@ beyond "use theme" — point back to this spec.
 - [`specs/5/17-openapi-mcp.md`](../5/17-openapi-mcp.md) — the
   HTML page is a third face on the same `/v1` handler set.
 - [`specs/5/7-proxyd-standalone.md`](../5/7-proxyd-standalone.md) —
-  `[[proxyd_route]]` registration in the service TOML.
+  route field semantics and `gated_by` evaluation. Registration is a
+  `services/<daemon>-routes.json` array or `coreProxydRoutes`; the
+  `.toml` converter it describes is retired (root `CLAUDE.md`
+  "Adding a channel adapter" is current).

@@ -2,150 +2,68 @@
 status: shipped
 ---
 
-# Web access: grant-gated content, configurable cross-group sharing
+# Web access: `/priv` is a grant decision, not a second ACL
 
-DRAFT — proposes generalizing web _access_ (who may read which web
-content) without changing web _ownership_ (the per-folder slot model).
-Sibling of [`5/V`](V-web-vhosts.md) (vhosts + slots) and
-[`5/32`](32-acl-unified.md) (the unified `Authorize` grant gate).
+Sibling of [`5/V`](V-web-vhosts.md) (vhosts + slots — **ownership**) and
+[`5/32`](32-acl-unified.md) (the `Authorize` gate — **access**).
 
 ## Problem
 
-Web ownership is already clean and minimal — each group owns
-`~/public_html/` → `/pub/<folder>/` and `~/private_html/` →
-`/priv/<folder>/` (`5/V`), and a world is reached at its derived vhost
-(`<folder>.<HOSTING_DOMAIN>` → `/pub/<folder>/`). That part should not
-change.
+Web ownership was already clean: each group owns `~/public_html/` →
+`/pub/<folder>/` and `~/private_html/` → `/priv/<folder>/`. Access was not.
+`/pub/*` was public and `/priv/*` was **any logged-in user** — not
+folder-scoped, so a logged-in user with no grant on `atlas` could read
+`/priv/atlas/…`.
 
-Web **access** is the gap. It has exactly two settings:
+That made two natural operator wishes inexpressible: "the `research` group may
+read `atlas/search`'s private content", and "this guide belongs to
+`atlas/search`, shared with `research`". The only tools were move-the-file
+(ownership) or make-it-public. Copying is forbidden by `5/V`'s "one URL, one
+backing store".
 
-- `/pub/*` — public to everyone.
-- `/priv/*` — **any logged-in user** (`proxyd` `requireAuth`,
-  `proxyd/main.go:574`). NOT folder-scoped: a logged-in user with no
-  grant on `atlas` can read `/priv/atlas/...`.
+The binary model was inevitable only because web reads were the one surface that
+never went through the primitive already answering "may principal P touch folder
+F".
 
-So you cannot express the natural operator wishes that surfaced
-reorganizing atlas:
+## Decision — reuse the one gate
 
-- "the `research` group may read `atlas/search`'s private content" —
-  there is no per-folder web grant; `/priv` is all-or-nothing-logged-in.
-- "this guide belongs to `atlas/search`, shared with `research`" — the
-  only tools today are _move the file_ (ownership) or _make it public_.
-  Cross-group sharing has no expression short of copying files (which
-  `5/V` "one URL, one backing store" forbids) or a redirect.
+`/priv/<folder>/…` serves **iff the caller holds a grant whose scope covers
+`<folder>`** — the same containment `Authorize` does for chat, MCP, and REST.
+No new mount config, no per-path ACL table, no `web:read` verb.
 
-The binary model is "pretty bad but inevitable" only because access was
-never routed through the primitive that already answers "may principal
-P do X to folder F" — the unified `Authorize` grant gate.
+Cross-group sharing is therefore a **grant**, never a mount or a copy: the file
+stays in `atlas/search`'s slot and `research`'s access is a row in the same ACL
+table that gates everything else. Revoke = drop the grant. The `**` operator
+grant already covers every folder.
 
-## Approach — access IS a grant, reuse the one gate
+**Ownership stays untouched.** The indirection is load-bearing: inside the
+container the agent sees only `~/public_html/` — folder-agnostic, unaware of its
+own name — while on disk and in the URL it is `/pub/<folder>/`. So the access
+check must key on `<folder>` resolved from the URL path, **never on anything the
+agent supplies**. Ownership is agent-local; access is platform-resolved.
 
-The platform already has exactly one authority for "may this principal
-touch this folder": `auth.Authorize` / the grant DSL (`5/32`), enforced
-as uniform middleware (CLAUDE.md "auth is a uniform middleware, bound to
-handler + params"). Chat reads, MCP tools, and REST all bind a target
-folder to the caller's grants. **Web reads are the one surface that
-doesn't.** Close that — don't invent a second mount/ACL system.
+**`/pub` stays dumb.** Public is public — no per-request grant lookup on the hot
+public path.
 
-### Ownership unchanged
+## Shipped (2026-06-15)
 
-`/pub/<folder>/` and `/priv/<folder>/` stay backed by the owning
-group's slot (`5/V`). No new mount config, no file moves for sharing,
-no per-path mount table. A folder owns its slot; full stop.
+One edit, `proxyd/main.go:589` — the `/priv/*` branch. After auth stamps
+`X-User-Groups`, extract `<folder>` from the first path segment and call
+`auth.MatchGroups(gs, folder)` (`proxyd/main.go:601`), the same containment
+helper the WebDAV handler uses; 403 on no match, proxy to vited otherwise.
 
-The indirection is deliberate and load-bearing: **inside the group the
-agent sees only `~/public_html/`** — folder-agnostic, no awareness of
-its own name; **on disk and in the URL it is `/pub/<folder>/`** (the
-bind mount projects one onto the other, `5/V`). The agent never writes a
-folder-prefixed path and never needs to; `get_web_presence` (`5/V`) is
-how it learns its actual public URL. Access control must therefore key
-on `<folder>` (resolved from the URL path / the slot's backing dir) —
-the thing the agent doesn't see — NOT on anything the agent itself
-supplies. That keeps ownership (agent-local, `~/public_html/`) and
-access (platform-resolved, `<folder>`-scoped grant) cleanly orthogonal.
+Resolved along the way:
 
-### Access becomes a folder-scoped grant decision
+- **Read vs list** — vited serves files, not directory listings, so there is no
+  listing surface to scope separately.
+- **Grant verb** — none added. Any grant covering the folder (`interact`,
+  `admin`, `*`) passes; the existing scope vocabulary suffices.
+- **Inheritance** — a grant on `atlas` covers `atlas/search` via segment
+  traversal. Intended, not incidental.
 
-`proxyd` already resolves the caller's grant patterns into
-`X-User-Groups` (`groupsForSub` → `st.UserScopes`,
-`proxyd/main.go:782`). Today it computes them and only checks
-operator-ness. Extend the `/priv/<folder>/...` handler to make ONE
-structural decision: **serve iff the caller holds a read grant whose
-scope ⊇ `<folder>`** — the same containment `Authorize` already does for
-chat/MCP/REST. Reuse `auth.Authorize`/the scope-match helper; do not
-hand-roll a path ACL.
+## What this is not
 
-Result, with zero new primitives:
-
-| Want                                              | Expressed as                                                                                                                                                  |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| public page                                       | write to `~/public_html/` → `/pub/<folder>/` (today)                                                                                                          |
-| private to the owning group                       | `/priv/<folder>/` + the owner's existing self-grant (today, now actually enforced per-folder)                                                                 |
-| **research reads atlas/search's private content** | grant `research` principals a **read** scope on `atlas/search` (`arizuko grant` / `add_acl` / dashd) — the `/priv/atlas/search/...` gate then passes for them |
-| operator sees all                                 | the `**` operator grant already ⊇ every folder                                                                                                                |
-
-Cross-group sharing is a **grant**, never a mount or a copy. The file
-stays in `atlas/search`'s slot; `research`'s access is a row in the same
-ACL table that gates everything else. Revoke = drop the grant.
-
-### Why this is minimal + orthogonal
-
-- **One gate, more sinks.** `Authorize` already decides folder access
-  for chat/MCP/REST; web `/priv` becomes the fourth sink of the same
-  decision, not a parallel mechanism. (`5/17` "MCP + REST hand-rolled and
-  uniform" extended to the web read path.)
-- **No new config surface.** No mount table, no per-path ACL file, no
-  "web access" DSL. The grant DSL (`5/32`) already expresses it.
-- **Ownership and access stay orthogonal.** Slots answer _where content
-  lives_; grants answer _who may read it_. Moving a guide under
-  `atlas/search` (ownership) and granting `research` read (access) are
-  two independent, separately-documented operations.
-- **`/pub` stays dumb.** Public is public; only `/priv` consults grants.
-  No per-request grant lookup on the hot public path.
-
-## What this is NOT
-
-- NOT configurable bind-mounts. The container mount model (`5/V`
-  "platform mount paths") is fixed and fine; this changes only the
-  proxyd read gate, not what's mounted where.
-- NOT a new "web ACL" table. It is the existing `acl`/grant rows
-  (`5/32`), queried by the existing `UserScopes`.
-- NOT a change to `/pub` or to vhost derivation (`5/V`). A world's vhost
-  still serves its own `/pub/<world>/` slot (per-tenant isolation — a
-  vhost must NOT map to the shared `/pub/` root, which holds every
-  tenant + the docs site).
-
-## Code pointers
-
-- `proxyd/main.go:574` — the `/priv/*` handler (`requireAuth`); the
-  single edit site: add the folder-scoped grant check after auth, before
-  proxying to vited. Extract `<folder>` from the path's first segment
-  (mirror `groupfolder.JidFolder`'s grammar).
-- `proxyd/main.go:782` `groupsForSub` / `st.UserScopes` — already
-  resolves the caller's grant patterns; the gate matches `<folder>`
-  against them (reuse the scope-containment helper from `auth`/`grants`,
-  not a new matcher).
-- `auth.Authorize` / `5/32` — the canonical containment decision to reuse.
-- `5/V` — ownership/slot/vhost model this builds on (unchanged).
-
-## Implementation (shipped 2026-06-15)
-
-Single edit: `proxyd/main.go` `/priv/*` handler. After `requireAuth`
-stamps `X-User-Groups`, the inner closure:
-
-1. Extracts `<folder>` from the first path segment after `/priv/`.
-2. Calls `auth.MatchGroups(gs, folder)` — the same containment helper used
-   by the WebDAV handler. `**` = operator; parent grant covers child folder.
-3. Denies with 403 if no match; proxies to vited on success.
-
-Open questions resolved:
-
-- **Read vs list**: vited serves files (not directory listings), so the
-  check gates file reads. No listing surface to scope separately.
-- **Grant verb**: no new `web:read` verb. `MatchGroups` checks scope
-  containment against the caller's grant patterns — any grant (interact,
-  admin, `*`) covering the folder passes. Reuses the existing scope
-  vocabulary.
-- **Inheritance**: a grant on `atlas` covers `atlas/search` by
-  `matchSegments` traversal — confirmed and documented here as the
-  intended behavior.
+Not configurable bind-mounts (the container mount model in `5/V` is unchanged).
+Not a new web-ACL table. Not a change to `/pub` or vhost derivation — a world's
+vhost still serves its own `/pub/<world>/` slot, and must NOT map to the shared
+`/pub/` root, which holds every tenant plus the docs site.

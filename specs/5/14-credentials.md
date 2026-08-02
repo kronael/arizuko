@@ -12,207 +12,113 @@ supersedes:
 
 # specs/5/14 — credential model
 
-Three credential types that must not share an abstraction.
-Conflating them caused silent injection bugs and a wrong `scope_kind` split.
+Three credential types that **must not share an abstraction**. Conflating them
+caused silent injection bugs and a wrong `scope_kind` split.
 
----
+## 1. Env-profile keys
 
-## Three types
+`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`,
+`CODEX_API_KEY` — the canonical set is `store.EnvProfileKeys`
+(`store/secrets.go:103`).
 
-### 1. Env-profile keys
+- **Owner**: the user only. Never folder-scoped.
+- **Storage**: `secrets(scope_kind='user', scope_id=user_sub, …)`. The store
+  layer **rejects** these key names at `scope_kind='folder'` regardless of call
+  path (`store/secrets.go:118` `validateScope`) — the enforcement point, not a
+  handler convention.
+- **Injection**: at container spawn. The Claude Code CLI reads them from the
+  container env directly and cannot be broker-injected at call time.
+- **Platform fallback**: the operator's `.env` via `readSecrets()`, NOT the
+  table. A user row overrides it.
 
-`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`.
+> Omitting a canonical key from the generated `env/runed.env` caused a
+> fleet-wide `/login` outage after the v0.62 regeneration. The generator must
+> carry the full `EnvProfileKeys` set.
 
-- **Owner**: user only. Never folder-scoped, never operator-table-scoped.
-- **Storage**: `secrets(scope_kind='user', scope_id=user_sub, key, value)` —
-  same table as capability credentials. Store layer rejects
-  `scope_kind='folder'` for these keys at write time.
-- **Injection**: at container spawn. `mergeSecrets` layers user override on
-  top of operator platform fallback. Claude Code CLI reads from container env
-  directly — cannot be broker-injected at call time.
-- **Platform fallback**: operator `.env` via `readSecrets()`. NOT the table.
-- **Enforcement**: store layer rejects any write of these keys to `secrets`
-  or with `scope_kind='folder'`.
+## 2. Capability credentials
 
-### 2. Capability credentials
+`GITHUB_TOKEN`, `CF_API_TOKEN`, and any third-party API key.
 
-`GITHUB_TOKEN`, `BUILDKITE_TOKEN`, `CF_API_TOKEN`, and any third-party API key.
+- **Owner**: the user. A grant decides who else may trigger tool calls that
+  consume the key; the credential still belongs to the user.
+- **Storage**: `secrets(scope_kind='user', …)`, or `folder` for a shared team
+  key. User scope wins over folder.
+- **Resolution**: `FolderSecretsResolvedForUser(folder, callerSub)`
+  (`store/secrets.go:449`) — folder walk (deeper wins) with a user overlay. The
+  **triggering user's** key resolves; a folder default only when they have none.
+- **Injection**: today spawn-time via the container env (interim). Target:
+  call-time broker per `5/13` shape 3, so the key never lands in container env.
+  For subprocess connectors, `ConnectorSecrets` already narrows to declared keys
+  at call time.
 
-- **Owner**: user. Grant determines who else can trigger tool calls
-  that consume the key — but the credential always belongs to the user.
-- **Storage**: `secrets(scope_kind='user', scope_id=user_sub, key, value)`.
-  Folder scope allowed only for shared team keys (e.g. a GitHub org token
-  for a whole team) — user-scoped wins over folder-scoped.
-- **Injection**: today — spawn-time, via `RunRequest.Secrets → mergeSecrets`
-  (same path as env-profile keys, interim). Target — call-time broker per
-  shape 3 (spec 41): arizuko makes the HTTP call, key never lands in
-  container env. For MCP subprocess connectors, `ConnectorSecrets` narrows
-  to declared keys at call time.
-- **Resolution**: `ConnectorSecrets(folder, callerSub)` →
-  `FolderSecretsForUser(folder, callerSub)`. The triggering user's key
-  resolves, never a folder-level default unless the user has no override.
-- **Tool visibility**: a connector tool appears in MCP `tools/list` only
-  for sessions where `Authorize(folder, "mcp:"+tool)` passes.
+## 3. Infra / operator credentials
 
-### 3. Infra / operator credentials
+`AUTH_SECRET`, `SLACK_BOT_TOKEN`, `TELEGRAM_BOT_TOKEN`, and the per-daemon
+`AUTHD_SERVICE_KEY`.
 
-`CHANNEL_SECRET`, `AUTH_SECRET`, `SLACK_BOT_TOKEN`, `TELEGRAM_BOT_TOKEN`, etc.
-
-- **Owner**: operator. Never user-accessible, never in the `secrets` table.
+- **Owner**: the operator. Never user-accessible, never in the `secrets` table.
 - **Storage**: host `.env` only.
-- **Injection**: adapter tokens read by each daemon from env at boot.
-  Operator anchors read by `container/runner.go:readSecrets()` at spawn.
+- **Injection**: read from env at daemon boot; operator anchors read by
+  `container/runner.go` `readSecrets()` at spawn.
 
----
+(`CHANNEL_SECRET` was an infra credential of this class and is **retired** —
+adapters present a `service:<daemon>` ES256 JWT instead, `5/1`.)
 
-## Storage model
+## Storage summary
 
-| type        | table       | scope                                                  | user write         | operator write                           |
-| ----------- | ----------- | ------------------------------------------------------ | ------------------ | ---------------------------------------- |
-| env-profile | `secrets`   | `scope_kind='user'` only (folder rejected at store)    | `/dash/me/env`     | `.env` (platform fallback)               |
-| capability  | `secrets`   | `scope_kind='user'` (or `folder` for shared team keys) | `/dash/me/secrets` | `arizuko secret <inst> set <folder> KEY` |
-| infra       | host `.env` | n/a                                                    | never              | `.env` or systemd override               |
+| type        | table       | scope                                      | user write         | operator write                           |
+| ----------- | ----------- | ------------------------------------------ | ------------------ | ---------------------------------------- |
+| env-profile | `secrets`   | `user` only (folder rejected at the store) | `/dash/me/env`     | `.env` (platform fallback)               |
+| capability  | `secrets`   | `user`, or `folder` for a shared team key  | `/dash/me/secrets` | `arizuko secret <inst> set <folder> KEY` |
+| infra       | host `.env` | n/a                                        | never              | `.env` or a systemd override             |
 
----
+## Who is the caller
 
-## Resolution chain
+At dispatch, `callerSub` is the real user's sender for a human-triggered turn
+and `service:routd` for a `timed-*`/system turn. That single resolved caller
+threads through to `ConnectorSecrets` at call time (`routd/mcp.go`
+`buildStoreFns`). It is **not** the ACL principal (`"folder:"+folder`); the two
+serve different purposes and must not be conflated.
 
-**At dispatch** (`routd/dispatch.go:dispatchRun`):
+Consequence: a cron task that needs a capability credential requires a
+**folder-scoped** key set by the operator — it cannot inherit a user's personal
+key.
 
-```
-callerSub = last.Sender       // real-user trigger → user+folder resolution
-           "service:routd"    // timed-* / system → folder scope only
-```
+**The `chats.kind` gate is removed.** An earlier design gated the user-secret
+overlay on `chats.kind ∈ {dm, slink}`. What matters is whether `callerSub` is a
+real user sub, not the chat shape; group chats and DMs resolve the same way.
 
-**At container spawn**, two layers merged:
+## Grants stay orthogonal to ownership
 
-```
-mergeSecrets(
-  readSecrets(),                          // operator anchors (host env)
-  FolderSecretsForUser(folder, caller),   // capability creds: folder walk + user overlay
-)
-```
+Setting a key does not grant anything, and granting does not transfer ownership.
+An `acl` row `(folder:<path>, mcp:github:*, allow)` controls _who may invoke the
+tool_; the credential still resolves from the triggering user's `callerSub`.
 
-Env-profile keys arrive via the same `mergeSecrets` path only when the
-user has set a personal override in `secrets(scope_kind='user')`; otherwise
-the operator platform key from `readSecrets()` is the fallback.
-
-**At MCP connector tool-call**, narrowed (after the ConnectorSecrets fix):
-
-```
-ConnectorSecrets(folder, callerSub)
-  = FolderSecretsForUser(folder, callerSub) narrowed to connector.Secrets
-```
-
-`callerSub` is captured from `turnMCP.trigger` in `routd/mcp.go:buildStoreFns`
-— the same resolved caller used at dispatch. It is NOT the ACL principal
-(`"folder:"+folder`) used in `ServeTurnMCP:callerSub`; those serve different
-purposes.
-
-**`chats.kind` gate removed.** Spec 32 gated user-secret overlay on
-`chats.kind ∈ {dm, slink}`. Dropped: what matters is whether `callerSub`
-is a real user sub, not the chat shape. Group chats and DMs resolve the
-same way.
-
----
-
-## Grant model for capability credentials
-
-The user who sets a key implicitly holds `mcp:<connector>:<tool>` for
-any tool that key enables. Sharing with a folder:
-
-```
-acl(principal=folder:<path>, action=mcp:github:*, params=nil, effect=allow)
-```
-
-The credential always resolves from the **triggering user's** `callerSub`.
-The folder grant controls _who may invoke the tool_; it does not transfer
-key ownership.
-
-Two trigger scenarios:
-
-| trigger                 | callerSub       | key resolved from                          |
-| ----------------------- | --------------- | ------------------------------------------ |
-| real user (DM or group) | user JID        | user-scoped row; folder fallback if absent |
-| cron / timed-\*         | `service:routd` | folder-scoped row only (shared team key)   |
-
-Cron tasks that need a capability credential require a folder-scoped key
-set explicitly by the operator — they cannot inherit a user's personal key.
-
----
-
-## Tool announcement (grant-gated tools/list)
-
-Target: a connector tool appears in `tools/list` only for sessions where
-`Authorize(folder, "mcp:"+localName)` passes. Agents see only what they
-can use. The user says "use GitHub" → tool is discoverable only because
-the grant exists.
-
-Shipped: `ipc/ipc.go` gates registration — connectors on `mcp:`+localName,
-ext tools on their declared `scope` — skipping the tool when `Authorize`
-denies. The default tier allows all; an explicit deny hides the tool. The
-call-time grant check remains as defense in depth.
-
----
+**Tool announcement follows the grant.** A connector tool appears in `tools/list`
+only for sessions where `Authorize(folder, "mcp:"+localName)` passes
+(`ipc/ipc.go:987`); ext tools gate on their declared `scope`. Agents see only
+what they can use, and the call-time check remains as defence in depth.
 
 ## Write paths
 
-### /dash/me/secrets — capability credentials
+- **`/dash/me/secrets`** (`dashd/me_secrets.go`) — capability credentials,
+  `scope_kind='user'`. Rejects env-profile key names with an error pointing at
+  `/dash/me/env`.
+- **`/dash/me/env`** (`dashd/me_env.go`) — env-profile keys only. Shows the
+  operator fallback read-only ("Platform key active") when no user override
+  exists.
+- **`arizuko secret`** (`cmd/arizuko/secret.go`) — the operator path.
+- **Connect** ([`5/15`](15-surrogate-oauth.md)) — the OAuth-automated writer for
+  both types. It writes the same rows a paste would, plus `expires_at` and a
+  refresh token.
 
-`scope_kind='user'`, `scope_id=caller.sub`. Rejects env-profile key names at
-the handler with an error pointing to `/dash/me/env`.
-
-### /dash/me/env — env-profile keys
-
-Separate dashd endpoint. Writes `secrets(scope_kind='user')` with
-env-profile key names.
-
-- Keys allowed: `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
-  `OPENAI_API_KEY`, `CODEX_API_KEY`.
-- UI: "Model API keys — injected into your agent container at spawn".
-- Operator fallback shown read-only: "Platform key active" when no user
-  override exists.
-- Store layer rejects these key names at `scope_kind='folder'` regardless
-  of call path.
-
-### Connect (surrogate OAuth) — either type
-
-[`5/15`](15-surrogate-oauth.md) is the OAuth-automated write path for both:
-capability creds (GitHub, Linear) and env-profile OAuth tokens
-(`CLAUDE_CODE_OAUTH_TOKEN`, ChatGPT/codex). A "Connect" button runs the
-dance and writes the same rows a paste would — plus `expires_at` + refresh.
-
----
-
-## What's shipped
-
-| piece                                                     | location                                              | state |
-| --------------------------------------------------------- | ----------------------------------------------------- | ----- |
-| `secrets` table + AES-256-GCM                             | `store/secrets.go`                                    | ✓     |
-| Env-profile key enforcement at store layer                | `store/secrets.go:EnvProfileKeys`, `validateScope`    | ✓     |
-| `FolderSecretsResolvedForUser`                            | `store/secrets.go`, `routd/dispatch.go`               | ✓     |
-| Spawn-time capability inject (interim: via container env) | `routd/dispatch.go`, `container/runner.go`            | ✓     |
-| `ConnectorSecrets` user-scope (callerSub threaded)        | `routd/sibling_db.go`, `routd/mcp.go:buildStoreFns`   | ✓     |
-| Grant-gated `tools/list`                                  | `ipc/ipc.go:1019` Authorize check before registration | ✓     |
-| dashd `/dash/me/secrets` HTML + JSON                      | `dashd/me_secrets.go`                                 | ✓     |
-| dashd `/dash/me/env` HTML + JSON                          | `dashd/me_env.go`                                     | ✓     |
-| Operator CLI `arizuko secret`                             | `cmd/arizuko/secret.go`                               | ✓     |
-| OAuth write path (surrogate)                              | `specs/5/15-surrogate-oauth.md`                       | draft |
-| Shape 3 REST descriptor                                   | `ipc/extcall.go`, `routd/ext.go`, built-in providers  | ✓     |
-
-## What's not shipped
-
-All pieces from this spec are shipped. Remaining gaps in the broader ext-mcp
-surface belong to spec 41 (`registerWithSecrets` for Go handlers,
-`secret_use_log` per-key audit rows).
-
----
+Storage is `store/secrets.go` (AES-256-GCM at rest).
 
 ## Supersedes
 
-- `specs/5/13-ext-mcp.md` §Secrets table — replaced by this doc; 41 keeps
-  handler shapes (subprocess connector, REST descriptor) only.
-- `specs/5/5-tenant-self-service.md` §Phase-C §credentials §user-secret-injection —
-  `chats.kind` gate and scope model replaced here.
-- `specs/8/E-encryption-at-rest.md` §Anthropic-keys — operator anchors are
-  host env, not secrets table; only user BYOA overrides land in the table.
+- [`5/13`](13-ext-mcp.md) §Secrets table — replaced here; `5/13` keeps the
+  handler shapes only.
+- [`5/5`](5-tenant-self-service.md) §Phase-C secrets — the `chats.kind` gate and
+  scope model are replaced here.
+- [`8/E`](../8/E-encryption-at-rest.md) §Anthropic-keys — operator anchors are
+  host env, not the secrets table; only user BYOA overrides land in the table.

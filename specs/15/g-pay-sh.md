@@ -1,46 +1,34 @@
 ---
 status: draft
-depends: [hitl]
 ---
 
-# pay.sh Integration
+# pay.sh — agent-native paid API access
 
-Agent-first micropayment layer. Agents call paid APIs (email, SMS, image
-gen, search, crypto data, domains, blockchain RPC) via HTTP 402 — no API
-keys, Solana wallet is identity. 1,094+ endpoints across 75 providers.
+Agents call paid APIs (email, SMS, image generation, search, crypto data,
+domains, RPC) over HTTP 402 with a Solana wallet as identity — no API keys
+per provider. `pay mcp` exposes them as native MCP tools the agent discovers
+at session start, so no skill file is needed: MCP is self-describing.
 
-Reference: https://pay.sh, github.com/solana-foundation/pay (Rust + TS)
+Reference: pay.sh, `github.com/solana-foundation/pay`.
 
-## What
+## Blocked on HITL
 
-`pay mcp` exposes paid API access as native MCP tools the agent discovers
-at session start. No skill file needed — MCP is self-describing.
+Human-in-the-loop approval ([5/19](../5/19-hitl-firewall.md)) must ship
+first. Until an agent's spend can be held for approval, it cannot
+autonomously spend money. This is the whole gate; everything below is
+cheap once it lifts.
 
-## Phase A — HITL first (prerequisite)
+## Shape
 
-HITL (human-in-the-loop approval) must ship before agents can autonomously
-spend money. Until then, pay.sh is blocked.
+No new daemon, no skill file. `PAY_ENABLED=1` in a group's `.env` opts it
+in; the `pay` binary lands in the agent image, its wallet lives in the group
+home so it survives restarts, and the spawn injects `pay mcp` into the
+agent's MCP config. Per-group spend is capped by a daily-limit env var.
 
-## Phase B — pay.sh integration
+## Open
 
-1. Add `pay` binary to `ant/Dockerfile` (`npm install -g @solana/pay`)
-2. Wallet lives at `~/.pay/wallet` in group home (persists across restarts)
-3. gated injects `pay mcp` into agent `settings.json` at spawn when
-   `PAY_ENABLED=1` in group `.env`
-4. Headless signing: `PAY_AUTO_APPROVE=1` env var (verify CLI support;
-   if not supported, 30-line wrapper that reads key from env)
-5. `PAY_DAILY_LIMIT_USD` env var — per-group daily spend cap
-
-No new daemon. No skill file. `PAY_ENABLED=1` in `.env` opts a group in.
-
-## Providers (examples)
-
-| Category       | Provider      | Price range  |
-| -------------- | ------------- | ------------ |
-| Email          | StableEmail   | $0.001–$8    |
-| SMS/voice      | StablePhone   | $0.05–$20    |
-| Image gen      | StableStudio  | $0.01–$20    |
-| Web search     | Perplexity    | $0.01        |
-| Domain reg     | StableDomains | $0.10–$1,500 |
-| Crypto data    | StableCrypto  | $0.01        |
-| Blockchain RPC | QuickNode     | $0.001–$1    |
+- Headless signing: confirm the CLI supports non-interactive approval; if
+  not, a thin wrapper reads the key from the injected env.
+- Whether the daily cap belongs in env or, like other business state, in the
+  DB with a dashboard surface. Env is the v1 answer; a real deployment with
+  more than one paying group probably wants the DB.

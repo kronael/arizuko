@@ -2,50 +2,48 @@
 status: shipped
 ---
 
-# Prompt Format
+# Prompt format
 
-Stdin/stdout contract between `gated` and the in-container agent
-(`ant/`). Assembled by `router/`, consumed by `ant/src/runner.ts`.
+Stdin/stdout contract between the host and the in-container agent.
+Assembled by `router/` + `container/runner.go`, consumed by `ant/`.
 
 ## ContainerInput (stdin JSON)
 
-| Field           | Type     | Notes                                 |
-| --------------- | -------- | ------------------------------------- |
-| `prompt`        | string   | XML `<messages>` block                |
-| `sessionId`     | string?  | Resume; omit for new                  |
-| `groupFolder`   | string   | Filesystem-safe folder name           |
-| `chatJid`       | string   | Channel JID                           |
-| `topic`         | string?  | Topic session name                    |
-| `messageCount`  | number?  | Messages in this batch                |
-| `delegateDepth` | number?  | Delegation nesting depth              |
-| `assistantName` | string?  | `ASSISTANT_NAME` env                  |
-| `secrets`       | object?  | API keys; stripped, not logged        |
-| `channelName`   | string?  | Channel adapter name                  |
-| `messageId`     | string?  | Triggering message ID                 |
-| `grants`        | string[] | Authorization rules                   |
-| `sender`        | string?  | Message sender                        |
-| `soul`          | string?  | PERSONA.md content for persona        |
-| `systemMd`      | string?  | SYSTEM.md full system prompt override |
+Canonical shape is the `Input` struct in `container/runner.go` — read it
+there rather than duplicating the field list. Two fields carry a
+decision worth recording:
 
-## Prompt assembly order
+- `persona` — `PERSONA.md` content for the group, when present. (It was
+  called `soul` on the wire until the persona model settled; see
+  [`../4/P-personas.md`](../4/P-personas.md).)
+- `systemMd` — `SYSTEM.md` replaces the default system prompt outright
+  rather than appending to it. A group that ships one owns its whole
+  system prompt; there is no merge, because a half-overridden prompt is
+  the shape nobody can debug.
+
+`secrets` is stripped from the struct before any logging or persistence
+(`container/runner.go` nils it after the env build).
+
+Grants are **not** in the container input. Capability is checked at the
+MCP socket per call, not handed to the agent as data it could read or
+replay — [`../4/10-ipc.md`](../4/10-ipc.md).
+
+## Assembly order
 
 ```
-clock (clockXml) -> system messages (flushSystemMessages)
-  -> pendingArgs (command context) -> message history (formatMessages)
+clock → system messages → pendingArgs → message history
 ```
 
-`pendingArgs`: raw text following a command trigger (e.g.,
-`/ask what is X` -> `"what is X"`). Consumed once, deleted after read.
+`pendingArgs` is the raw text following a command trigger (`/ask what is
+X` → `"what is X"`). Consumed once, deleted after read.
 
-## Per-turn output (`submit_turn` JSON-RPC)
+## Per-turn output — `submit_turn`
 
-Per-turn results return over the gated MCP unix socket via the
-`submit_turn` method (hidden from `tools/list`):
+Results return over the same MCP unix socket via the `submit_turn`
+JSON-RPC method, hidden from `tools/list`:
 
 ```jsonc
 {
-  "jsonrpc": "2.0",
-  "id": 1,
   "method": "submit_turn",
   "params": {
     "turn_id": "<originating message id>",
@@ -56,26 +54,23 @@ Per-turn results return over the gated MCP unix socket via the
 }
 ```
 
-| Field        | Type             | Notes                       |
-| ------------ | ---------------- | --------------------------- |
-| `turn_id`    | string           | Idempotency key with folder |
-| `status`     | `success\|error` |                             |
-| `result`     | string?          | Empty/missing = silent      |
-| `session_id` | string?          | Persisted by host           |
-| `error`      | string?          | When `status === 'error'`   |
+One `submit_turn` per turn. `turn_id` + folder is the idempotency key.
+An empty or missing `result` means the turn was deliberately silent;
+`<internal>` tags are stripped before delivery.
 
-One `submit_turn` per turn. `<internal>` tags in `result` stripped
-before sending.
+Making the result a method call rather than parsed stdout is what makes
+silence expressible: a stdout-marker protocol cannot distinguish "no
+output" from "crashed before printing".
 
-## PERSONA.md and SYSTEM.md Injection
-
-If `PERSONA.md` exists in the group folder, its content is passed as the
-`soul` field. Agents should read and embody this persona.
-
-If `SYSTEM.md` exists in the group folder, its content replaces the
-default system prompt via `systemMd`.
+The delivery side of this contract has broken silently twice — once when
+`recordTurnResult` dropped the result outright, once when interim `⏳`
+status rows (also `is_bot_message=1`) made `TurnHasBotReply` think a
+reply had already landed, so the real answer was skipped on every
+multi-step turn. Both times health checks, dispatch, and `round_done`
+stayed green while users got nothing. Verify this path by asserting a
+bot row lands, never by asserting the turn completed.
 
 ## IPC close sentinel
 
-`_close` sentinel file (empty, no ext) in `/run/ipc/input/`
-ends agent loop.
+An empty `_close` file (no extension) in `/run/ipc/input/` ends the
+agent loop.

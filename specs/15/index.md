@@ -2,14 +2,21 @@
 status: planned
 ---
 
-# specs/14 — later
+# specs/15 — later
 
-Specs committed in direction but not scheduled. Each needs a dedicated sprint.
+Committed in direction, not scheduled. Each needs a dedicated sprint.
 
-| spec                                                         | status     | description                                                                             |
-| ------------------------------------------------------------ | ---------- | --------------------------------------------------------------------------------------- |
-| [d-agent-code-modification.md](d-agent-code-modification.md) | draft      | Staging area for root-agent-proposed gateway changes                                    |
-| [e-extend-gateway-self.md](e-extend-gateway-self.md)         | draft      | Root agent modifying gateway codebase (plugin dir or agent branch)                      |
-| [f-replaceability-research.md](f-replaceability-research.md) | draft      | Audit each shipped component against off-the-shelf alternatives                         |
-| ~~a-crackbox-sandboxing.md~~                                 | superseded | KVM/qemu sandboxing → [specs/6/9-crackbox-sandboxing.md](../6/9-crackbox-sandboxing.md) |
-| [g-pay-sh.md](g-pay-sh.md)                                   | draft      | pay.sh micropayment layer — agent-native paid API access via HTTP 402 + Solana wallet   |
+| Spec                                                         | Status     | Description                                                                              |
+| ------------------------------------------------------------ | ---------- | ---------------------------------------------------------------------------------------- |
+| [e-extend-gateway-self.md](e-extend-gateway-self.md)         | draft      | Agent modifies platform code — plugin dir vs staging tree vs agent branch; scope unmade. |
+| [f-replaceability-research.md](f-replaceability-research.md) | draft      | Prove off-the-shelf wouldn't have worked before building the next component.             |
+| [g-pay-sh.md](g-pay-sh.md)                                   | draft      | pay.sh micropayments — agent-native paid APIs via HTTP 402; blocked on HITL.             |
+| ~~a-crackbox-sandboxing.md~~                                 | superseded | KVM/qemu sandboxing → [6/9-crackbox-sandboxing.md](../6/9-crackbox-sandboxing.md)        |
+
+## Removed in the 2026-08-02 minimization
+
+- `d-agent-code-modification.md` — **merged into**
+  [e-extend-gateway-self.md](e-extend-gateway-self.md). Both were the same
+  concern (the agent changing platform code), `e` already linked to `d` as
+  "related", and between them they were 37 lines. The staging tree is now
+  one of three strawmen in `e`, which is what it always was.

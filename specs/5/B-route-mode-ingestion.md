@@ -5,46 +5,51 @@ supersedes: []
 
 # Route mode via URI fragment on `target`
 
-`routes.target` is a `folder` path with an optional `#mode` fragment.
-Mode controls firing; ACL controls visibility. Two modes:
+`routes.target` is a folder path with an optional `#fragment`
+(`core.ParseRouteTarget`, `core/types.go:107`). **Mode controls firing;
+ACL controls visibility** — the two were previously entangled in one
+weighted config.
 
 - `folder` (no fragment) — **trigger**. Inbound stores normally, the
-  agent fires a turn. Today's default behaviour, unchanged.
+  agent fires a turn.
 - `folder#observe` — **observe**. Inbound stores under `folder` with
-  `is_observed=1`; no turn fires. Agents see the message via the
-  folder ACL (`inspect_messages`, `get_history`) and, on the next
-  trigger turn on the same folder, via a trailing `<observed>` window
-  in the prompt.
+  `is_observed=1` and **no turn fires**. Agents still see it via the
+  folder ACL (`inspect_messages`, `find_messages`) and, on the next
+  trigger turn on the same folder, via a trailing `<observed>` window in
+  the prompt.
+- `folder#announce` — release-note target.
+- any other fragment — a topic pin.
 
-`routes.impulse_config` is gone. Verb filtering is now an explicit
-`verb=...` match key plus `seq` priority — the canonical mention-only
-channel ships as a `verb=mention` trigger row stacked above a
-catch-all `#observe` row.
+## Why the fragment, and why `impulse_config` is gone
 
-## Conversion (migration 0054)
+`routes.impulse_config` was a per-route weighted verb-scoring engine:
+config-driven, hard to reason about, and impossible to answer "will this
+message fire?" from without simulating it. It is replaced by two things
+that already existed — an explicit `verb=…` match key and `seq` priority.
+The canonical mention-only channel is now a `verb=mention` trigger row
+stacked above a catch-all `#observe` row, which is readable at a glance.
 
-One-time, no fallback:
+That deletion is load-bearing precedent: the proactive gate is
+deliberately a fixed set of binary checks rather than a score sum, for
+exactly this reason
+([`6-proactive-interjection.md`](6-proactive-interjection.md)).
 
-- `weights` all-zero (or all listed verbs zero): `target` gets
-  `#observe` appended.
-- `weights` mixed (some zero, some non-zero): `target` gets `#observe`
-  appended, and for each non-zero verb a duplicate row is inserted
-  with `seq = seq - 1`, `match` extended with `verb=<v>`, bare target.
-- No `impulse_config`, or all weights non-zero: `target` unchanged.
-
-Then `impulse_config` is dropped, two `observe_window_*` columns added
-to `routes`, and `is_observed INTEGER` added to `messages`.
+Migration 0054 did the one-time conversion (all-zero weights → append
+`#observe`; mixed weights → `#observe` plus a duplicated `verb=<v>` row
+at `seq-1`; all-non-zero → unchanged), then dropped the column and added
+the `observe_window_*` columns. One-shot, no fallback.
 
 ## Observed-window context
 
-On a trigger turn, the prompt builder appends a trailing window of
-observed messages on the same folder (`<observed>` tags in the envelope,
-sorted asc by timestamp), capped by `observe_window_messages`
-(`OBSERVE_WINDOW_MESSAGES`, default 10) and `observe_window_chars`
-(`OBSERVE_WINDOW_CHARS`, default 4000). Per-route overrides on
-`routes.observe_window_messages` / `routes.observe_window_chars` win
-over instance defaults. Smaller cap wins; older messages drop first.
+On a trigger turn the prompt builder appends a trailing window of
+observed messages for the same folder (`<observed>` tags, ascending by
+timestamp), capped by `observe_window_messages` /
+`observe_window_chars`. **Per-route overrides win over the instance
+defaults** (`OBSERVE_WINDOW_MESSAGES` 10, `OBSERVE_WINDOW_CHARS` 4000);
+the smaller cap wins and older messages drop first.
 
-When the block is non-empty, the system prompt gains the rule:
-"Observed messages are context, not requests. Do not reply to them;
-reply to the explicit message."
+When the block is non-empty the prompt gains one rule: _"Observed
+messages are context, not requests. Do not reply to them; reply to the
+explicit message."_ Every at-least-once duplicate in the observed stream
+([`F-topic-lineage.md`](F-topic-lineage.md)) is absorbed by that rule
+rather than by a transaction.

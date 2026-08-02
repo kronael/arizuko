@@ -26,12 +26,10 @@ All memory layers shipped.
 
 ## The pattern
 
-Given a directory of markdown files:
-
-1. **Index** — scan files, extract summaries (frontmatter or first N lines)
-2. **Select** — choose which summaries to inject (by recency, sender, relevance)
-3. **Inject** — insert selected summaries into agent prompt context
-4. **Nudge** — at defined moments, prompt the agent to write/update files
+Given a directory of markdown files: **index** (scan, extract
+`summary:` frontmatter), **select** (by recency, sender, relevance),
+**inject** (into prompt context), **nudge** (prompt the agent to
+write/update at defined moments).
 
 ## What fits this pattern
 
@@ -108,14 +106,13 @@ Nudge text comes from skill config, not hardcoded in gateway.
 
 ## Push layer implementation
 
-**Shipped**: diary (`diary.Read()` in `diary/diary.go`), user context
-(`router.UserContextXml()` in `router/router.go`), and episodes
-(`ReadRecentEpisodes()` in `container/episodes.go`). The injection
-point is `container/runner.go`, which appends each formatter's output
-to the prompt's `Annotations` slice before joining.
+`diary.Read()`, `router.UserContextXml()`, and `ReadRecentEpisodes()`
+each append to the prompt's `Annotations` slice at one injection point,
+`container/runner.go`.
 
-Each layer has its own formatter — no shared abstraction. Three
-similar small formatters beats premature unification.
+Each layer has its own formatter — no shared abstraction. Three similar
+small formatters beats premature unification; they select on different
+keys (date, sender, event) and only _look_ alike.
 
 ## Retrieval — `/recall-memories`
 
@@ -156,22 +153,16 @@ skill. Scales to ~300 files per group; beyond that, switch to v2.
 
 ### v2: CLI retrieval + Explore judge — designed, not built
 
-Nothing below exists yet; it is the agreed shape for when a group's
-corpus outgrows the grep. The judge stays the same Explore subagent —
-only the candidate set changes:
+The agreed shape for when a corpus outgrows the grep: expand the query
+into ~10 terms, retrieve per term via a mechanical `recall` CLI (SQLite
+FTS5 BM25 over a derived, safe-to-delete `.local/recall/` index), then
+hand the pre-filtered candidates to the **same** Explore judge. Only the
+candidate set changes.
 
-1. **Expand** — agent generates ~10 search terms from the query
-2. **Retrieve** — a `recall "term"` CLI per term (fast, mechanical)
-3. **Judge** — Explore subagent over the pre-filtered results
-
-The CLI would index per store under `.local/recall/` (a derived cache,
-safe to delete) with lazy mtime-based reindexing, and rank by SQLite
-FTS5 BM25 for keywords fused with vector cosine for semantics.
-
-The trigger is corpus size (~300 files), not dissatisfaction with
-quality — v1's weakness is that grep reads every summary, which costs
-tokens linearly, and that is a scale problem rather than an accuracy
-one.
+The trigger is corpus size (~300 files), not answer quality. v1's
+weakness is that grep reads every summary, costing tokens linearly —
+a scale problem, not an accuracy one. Building v2 before hitting that
+wall would trade a working simple thing for an index to keep coherent.
 
 ### recall-messages
 
@@ -205,7 +196,7 @@ This is the contract a knowledge-backed agent's `SYSTEM.md` encodes;
 product templates that ship one live under `ant/examples/<name>/`
 ([`../5/21-products.md`](../5/21-products.md)), not in this spec.
 The codebase-Q&A instance of it is
-[`../17/product-support.md`](../17/product-support.md).
+[`../17/product-support.md`](../17/index.md).
 
 ### Decided (previously open)
 
@@ -226,55 +217,20 @@ Session transcripts and diary entries compress into progressive
 summaries. Both use the same file format and are indexed by
 `/recall-memories`.
 
-```
-Episodes (from session transcripts):
-  .claude/projects/<uuid>.jl  ─┐
-  .claude/projects/<uuid>.jl  ─┤→ episodes/20260310.md  (day)
-  .claude/projects/<uuid>.jl  ─┘      ↓
-  episodes/20260310.md  ─┐
-  episodes/20260311.md  ─┤→ episodes/2026-W11.md  (week)
-  episodes/20260312.md  ─┘      ↓
-  episodes/2026-W10.md  ─┐
-  episodes/2026-W11.md  ─┤→ episodes/2026-03.md  (month)
+Both roll up day → week → month. Episodes aggregate from session
+transcripts (`.claude/projects/<uuid>.jl` → `episodes/YYYYMMDD.md` →
+`episodes/YYYY-Www.md` → `episodes/YYYY-MM.md`); diary aggregates from
+its daily entries into `diary/week/` and `diary/month/`.
 
-Diary (from work log entries):
-  diary/20260310.md  ─┐
-  diary/20260311.md  ─┤→ diary/week/2026-W11.md  (week)
-  diary/20260312.md  ─┘      ↓
-  diary/week/2026-W10.md  ─┐
-  diary/week/2026-W11.md  ─┤→ diary/month/2026-03.md  (month)
-```
+Rollup files carry the same `summary:` frontmatter as any other store
+entry, plus `period`, `type`, `store`, `sources`, and `aggregated_at`.
+Keeping one frontmatter shape across every store is what lets
+`/recall-memories` treat a month rollup and a fact file identically.
 
-File format:
-
-```markdown
----
-summary: >
-  - Shipped discord support
-  - Resolved telegram auth token rotation
-period: '2026-W11'
-type: week
-store: episodes
-sources:
-  - episodes/20260310.md
-aggregated_at: '2026-03-17T02:00:00Z'
----
-
-## Key decisions
-
-...
-```
-
-Compression runs as the `/compact-memories` skill via `timed` (cron),
-`context_mode: isolated`:
-
-```
-/compact-memories episodes day    → 0 2 * * *     daily
-/compact-memories episodes week   → 0 3 * * 1     Monday
-/compact-memories episodes month  → 0 4 1 * *     1st of month
-/compact-memories diary week      → 0 3 * * 1     Monday
-/compact-memories diary month     → 0 4 1 * *     1st of month
-```
+Compression runs as the `/compact-memories` skill on `timed` cron with
+`context_mode: isolated` — daily for episode-days, Monday for weeks,
+first-of-month for months. Isolated is required: a compaction turn that
+inherited the group session would summarize its own summarizing.
 
 ## Not in scope
 

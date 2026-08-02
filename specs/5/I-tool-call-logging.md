@@ -5,47 +5,40 @@ depends: [17-openapi-mcp]
 
 # specs/5/I — per-tool-call logging
 
-> **Status (2026-06-14): shipped.** Both layers complete. Layer A: `audit_log` (params_summary, duration_ms, turn_id, surface, redaction) emitted in-tx via `audit.EmitInTx` across every daemon. Layer B: PreToolUse/PostToolUse hooks in `ant/src/tool-log.ts`, wired via `ant/src/backend/claude.ts`, captured by `container/runner.go` which forwards `[ant] [tool]` lines to slog.
+> **Shipped 2026-06-14.** Layer A: `audit_log` (params_summary,
+> duration_ms, turn_id, surface, redaction) emitted in-tx via
+> `audit.EmitInTx` across every daemon. Layer B: PreToolUse/PostToolUse
+> hooks in `ant/src/tool-log.ts`, wired via `ant/src/backend/claude.ts`,
+> captured by `container/runner.go` which forwards `[ant] [tool]` lines to
+> slog.
 
 ## What this solves
 
-Both the platform surface (every MCP tool + every REST endpoint served by
-routd, proxyd, dashd, onbod, webd, davd) and the agent sandbox (Bash,
-Edit, Read, Write, Task, ...) produce a torrent of calls per turn. Today
-there is no uniform record — `resreg` emits a structured slog line per
-dispatch (see [`17-openapi-mcp.md`](17-openapi-mcp.md#audit-contract) audit contract), `cli_audit` covers CLI writes
-([`8/F`](../8/F-audit-stream.md)), but agent-internal tool use is invisible
-to the operator and platform-side reads aren't logged at all. The result:
-no single place to answer "what did agent X do in turn Y", no replay
-substrate, no acceptance signal for `8/1`'s "exactly one audit row per
-state transition".
-
-This spec defines the field schema and the split between transactional
-audit (DB) and operational telemetry (slog → journald). It cuts across
-both layers — platform handlers AND the in-container agent — so the
-operator sees one shape no matter who initiated the call.
+Both the platform surface (every MCP tool and REST endpoint) and the agent
+sandbox (Bash, Edit, Read, Write, Task, …) produce a torrent of calls per
+turn, and before this spec there was no uniform record: agent-internal
+tool use was invisible to the operator and platform-side reads weren't
+logged at all. No single place answered "what did agent X do in turn Y",
+no replay substrate, no acceptance signal for `8/1`'s "exactly one audit
+row per state transition".
 
 ## Two layers, one shape
 
-- **Layer A — platform-side.** Every MCP tool invocation (via `resreg`
-  dispatch or hand-rolled `ipc/ipc.go` handler) AND every REST endpoint
-  hit (routd, proxyd, dashd, onbod, webd, davd) emits one slog line.
-  State-changing calls additionally write one `audit_log` row in the
-  same DB transaction as the resource mutation.
-- **Layer B — inside the container.** The agent's own tool use is
-  captured via Claude Code SDK `PreToolUse` / `PostToolUse` hooks. The
-  agent surfaces one `[ant] [tool]` line per phase on **stderr**; runed's
-  container-log tap (`container/runner.go`) picks it up. No DB write — agent-internal tool use is
-  operational, not platform audit (the platform-side mutations the agent
-  reaches through MCP are already covered by Layer A).
+- **Layer A — platform-side.** Every MCP tool invocation and every REST
+  hit emits one slog line. State-changing calls additionally write one
+  `audit_log` row **in the same DB transaction as the mutation**.
+- **Layer B — inside the container.** The agent's own tool use is captured
+  by harness `PreToolUse`/`PostToolUse` hooks, surfaced as one
+  `[ant] [tool]` JSON line per phase on **stderr**, which runed's
+  container-log tap lifts into slog. **No DB write** — agent-internal tool
+  use is operational, not platform audit; the platform mutations the agent
+  reaches through MCP are already Layer A.
 
-The two layers share the slog field schema below so `journalctl |
-grep tool=Bash` and `journalctl | grep tool=set_routes` return rows of
-the same shape.
+They share one field schema, so `journalctl | grep tool=Bash` and
+`journalctl | grep tool=set_routes` return rows of the same shape. That
+shared schema is the deliverable of this spec.
 
-## Slog field schema
-
-Canonical keys, emitted by both layers:
+## Slog field schema (canonical — both layers)
 
 | Key              | Type   | Notes                                                                                |
 | ---------------- | ------ | ------------------------------------------------------------------------------------ |
@@ -57,124 +50,72 @@ Canonical keys, emitted by both layers:
 | `params_summary` | json   | Small JSON; sensitive params redacted; truncated to 1 KB                             |
 | `outcome`        | string | `ok` \| `error`                                                                      |
 | `error`          | string | Present only when `outcome=error`                                                    |
-| `duration_ms`    | int    | Wall-clock; for `agent_pretool` omit (no duration yet)                               |
-| `turn_id`        | string | When applicable (agent-initiated calls and any handler called inside a turn)         |
+| `duration_ms`    | int    | Wall-clock; omitted for `agent_pretool` (no duration yet)                            |
+| `turn_id`        | string | Agent-initiated calls and any handler called inside a turn                           |
 | `folder`         | string | Group folder, e.g. `atlas/support`                                                   |
-| `instance`       | string | Arizuko instance name (`krons`, `marinade`)                                          |
+| `instance`       | string | Instance name (`krons`, `marinade`)                                                  |
 
-`actor` + `actor_sub` together answer "who". `tool` + `resource` +
-`params_summary` answer "what". `outcome` + `error` + `duration_ms`
-answer "how it went". `turn_id` + `folder` + `instance` answer "where
-in the system". The schema is intentionally close to the
-`caller=... resource=... action=... surface=... target=... result=...`
-shape already defined in [`5/17` Audit contract](17-openapi-mcp.md#audit-contract)
-— this spec extends it with `params_summary`, `duration_ms`, `turn_id`
-and pins the surface enum for both layers.
+`actor` + `actor_sub` answer "who"; `tool` + `resource` +
+`params_summary` answer "what"; `outcome` + `error` + `duration_ms` answer
+"how it went"; `turn_id` + `folder` + `instance` answer "where". It
+extends the `caller/resource/action/surface/target/result` shape of
+[`5/17` Audit contract](17-openapi-mcp.md#audit-contract) with
+`params_summary`, `duration_ms`, `turn_id`, and pins the `surface` enum
+for both layers. `audit_log` carries the same columns plus `id` and
+`created_at`.
 
-## audit_log shape
+## Decisions
 
-Defined in [`8/F`](../8/F-audit-stream.md); this spec is the canonical
-field schema. Same columns as the slog keys above, plus:
-
-- `id` INTEGER PRIMARY KEY AUTOINCREMENT
-- `created_at` DATETIME NOT NULL DEFAULT (strftime ISO-8601 UTC)
-
-The audit row is the **source of truth** — written in the same SQLite
-transaction as the resource mutation. If the audit insert fails, the
-mutation rolls back. slog is operational telemetry; lossy by design
-(journald rotation, level filtering). If the two disagree, the audit
-table wins. The slog stream exists to drive interactive ops and
-operator dashboards without round-tripping SQLite per call; the DB
-row exists so that "show me every ACL write in the last quarter" is
-one query, deterministically.
-
-## Read-vs-write split
-
-- **State-changing** operations (CRUD writes — `create`, `update`,
-  `delete`, plus action verbs that mutate: `set_routes`, `add_grant`,
-  `schedule_task`, `register_group`, `revoke_token`, ...) write one
-  `audit_log` row AND emit one slog line. Same transaction as the
-  mutation; rollback on audit failure.
-- **Read-only** operations (`list_*`, `get_*`, `inspect_*`, plus all
-  REST GETs) emit slog only. No audit row. Volume is too high and
-  the row carries no decision value.
-
-The classifier is per-resource declaration: `resreg.Endpoint` and
-`resreg.MCPTool` already carry an `Action` ([`5/17` Caller and Resource shape](17-openapi-mcp.md#caller-and-resource-shape));
-`Action.Mutates() bool` is the gate. For hand-rolled handlers outside
-the registry, the handler tags itself (`audit.WriteRow(...)` is an
-explicit call site, not magic).
-
-## PreToolUse / PostToolUse hook design
-
-Claude Code SDK fires `PreToolUse` before each tool invocation and
-`PostToolUse` after, both as configurable hooks
-([Claude Code docs — Hooks](https://docs.claude.com/en/docs/claude-code/hooks)).
-
-- **Hook script.** Small bash (or python) wrapper shipped in the
-  `arizuko-ant` image at `/usr/local/bin/arizuko-tool-hook`. Reads
-  hook JSON on stdin, writes one JSON line per phase to stdout.
-- **Configuration.** Wired in the in-tree agent settings
-  (`ant/.claude/settings.json` or its template) so every spawned
-  container picks it up without per-folder configuration.
-- **Output format.** One line per phase, on the container's stderr,
-  picked up by runed's container-log tap (`container/runner.go`):
-
-  ```
-  [ant] [tool] {"phase":"pre","tool":"Bash","turn_id":"t-abc","args_summary":"<truncated>","folder":"atlas/support"}
-  [ant] [tool] {"phase":"post","tool":"Bash","turn_id":"t-abc","duration_ms":42,"outcome":"ok","folder":"atlas/support"}
-  ```
-
-  Same field names as the slog schema; runed translates the line
-  into a slog event when it lifts it out of the container log.
-
-- **Performance budget.** <10 ms overhead per tool call. The hook
-  does no IPC and no DB write — it just formats and prints. Layer A
-  picks up MCP calls the agent makes back into the platform; those
-  carry their own `turn_id` and full audit-row treatment.
+- **The audit row is the source of truth; slog is telemetry.** The row is
+  written in the same SQLite transaction as the mutation — **if the audit
+  insert fails, the mutation rolls back**. slog is lossy by design
+  (journald rotation, level filtering). If the two disagree, the table
+  wins. slog exists so interactive ops don't round-trip SQLite per call;
+  the row exists so "every ACL write last quarter" is one deterministic
+  query.
+- **Read/write split.** State-changing operations write an `audit_log`
+  row AND a slog line; read-only ones (`list_*`, `get_*`, `inspect_*`, all
+  REST GETs) emit slog only — the volume is too high and the row carries
+  no decision value. The classifier is a per-resource declaration, not
+  magic: `resreg.Endpoint`/`resreg.MCPTool` carry an `Action`, and
+  `Action.Mutates()` is the gate. Hand-rolled handlers tag themselves via
+  an explicit `audit.WriteRow(...)` call site.
+- **Layer B does no IPC and no DB write** — it formats and prints, budget
+  <10 ms per tool call. A hook that blocks on the platform would make
+  every agent tool call a distributed transaction.
+- **`audit_log` is per-daemon.** Each daemon owns and migrates its own DB
+  and its own audit table (`5/E`, `5/P`); correlation across them is the
+  `turn_id`, not a shared table.
 
 ## Open questions
 
-1. **Secret redaction in `params_summary`.** State-of-the-art for
-   hand-rolled audit: regex-known-keys (`password`, `token`, `key`,
-   `secret`, ...) plus a length cap (1 KB). Spec out the exact regex
-   set and the encoding for fields that hit the cap.
-2. **Self-introspection via MCP.** Should the agent see its own
-   `audit_log` rows through a `query_audit` MCP tool, scoped to its
-   own folder? Lean yes — it closes the loop on "remember what I did
-   last turn" without needing the agent to keep its own journal.
-3. **Retention / rotation.** `audit_log` grows monotonically. Size
-   cap? Time window? Move to per-month partitioned files after N
-   rows? Defer until the first instance hits 1 GB of audit.
-4. **LLM API call introspection.** Per-model-invocation logging
-   (one row per `messages.create`) is desirable for cost + replay,
-   but the SDK has no clean hook surface today. Postponed; track
-   via `cost_log` for now.
+1. **Secret redaction in `params_summary`** — the exact regex set
+   (`password`, `token`, `key`, `secret`, …) and the encoding for fields
+   that hit the 1 KB cap are still unpinned.
+2. **Self-introspection via MCP** — a `query_audit` tool scoped to the
+   agent's own folder. Lean yes: it closes "remember what I did last turn"
+   without the agent keeping its own journal.
+3. **Retention** — `audit_log` grows monotonically. Defer until an
+   instance hits 1 GB.
+4. **Per-model-invocation logging** — desirable for cost + replay, but the
+   SDK has no clean hook surface. `cost_log` covers it for now.
 
 ## Non-goals
 
-- **OTLP export.** Defined in [`O-observability.md`](O-observability.md):
-  slog stream tee'd to an OTLP exporter without changing the source
-  of truth (`audit_log` stays SQLite-canonical).
-- **Replacing slog with audit_log as the only sink.** slog is the
-  high-rate, lossy, interactive channel; audit_log is the durable,
-  transactional, queryable channel. Both stay.
-- **Logging full LLM responses inline.** Too large; the per-turn
-  artifact path under `~/turns/` ([`9/3` "git as truth"](../9/3-git-as-truth.md))
-  carries the verbatim turn output. `audit_log` carries the pointer.
+- **OTLP export** — [`O-observability.md`](O-observability.md) tees the
+  slog stream without moving the source of truth; `audit_log` stays
+  SQLite-canonical.
+- **Replacing slog with audit_log** — both stay; different rate,
+  durability, and query shape.
+- **Logging full LLM responses inline** — too large. The per-turn artifact
+  under `~/turns/` ([`9/3`](8-yaml-manifests.md)) carries the verbatim
+  output; `audit_log` carries the pointer.
 
 ## Cross-references
 
 - [`17-openapi-mcp.md`](17-openapi-mcp.md) — the
-  `Caller`/`Resource`/`Action` shape this spec extends, the audit
-  contract (one `audit_log` row per state transition), and the
-  `/v1/*` REST surfaces whose hits this spec covers.
-- [`5/E-routd.md`](E-routd.md), [`5/P-runed.md`](P-runed.md) — each
-  daemon owns its own DB; `audit_log` is co-located per daemon.
-- [`5/8-yaml-manifests.md` §OpenAPI emission](8-yaml-manifests.md#openapi-emission) — the
-  endpoint catalog this spec logs against.
-- [`8/F-audit-stream.md`](../8/F-audit-stream.md) — the DB-side
-  partner; defines the `audit_log` table that this spec gives the
-  field schema.
-- [`9/3-git-as-truth.md`](../9/3-git-as-truth.md) — turn-end sidecars
-  reference `audit_log.id` ranges produced under this spec.
+  `Caller`/`Resource`/`Action` shape this extends and the audit contract.
+- [`8-yaml-manifests.md` §OpenAPI emission](8-yaml-manifests.md#openapi-emission)
+  — the endpoint catalog logged against.
+- `../8/F-audit-stream.md` — defines the
+  `audit_log` table this spec gives the field schema.

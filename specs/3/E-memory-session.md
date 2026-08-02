@@ -45,15 +45,18 @@ reconstructs from `logicalParentUuid`.
 
 ### 2-day idle expiry
 
-At spawn, `gated` compares the per-chat agent cursor (timestamp of last
-processed non-bot message) against a hard-coded 2-day threshold. If
-exceeded, stored session id for `(folder, topic)` is deleted before
-container starts — next run is fresh. Not configurable: multi-day
-resumes are the root cause of MacroHype-class hallucinations where the
-agent blends historical state into the current turn.
+At spawn, routd compares the per-chat agent cursor (timestamp of the
+last processed non-bot message) against the idle threshold. If exceeded,
+the stored session id for `(folder, topic)` is deleted before the
+container starts — the next run is fresh.
 
-Implementation: `sessionIdleExpiry` constant + `sessionIdleExpired` in
-`gateway/gateway.go` (`runAgentWithOpts`).
+The reason is hallucination, not resource cleanup: multi-day resumes are
+the root cause of the failure where an agent blends historical state
+into the current turn and answers confidently about a world that has
+moved on. A stale session is worse than no session.
+
+Implementation: `sessionIdleExpiry` (2 days) + `sessionIdleExpired` in
+`routd/loop.go`, overridable via `SESSION_IDLE_EXPIRY`.
 
 ## Context injection on reset
 

@@ -1,45 +1,16 @@
-# Spec 6/9 — arizuko Positioning in the Agent Orchestration Landscape
+---
+status: research
+---
 
-Status: research / informational
+# Positioning — the competitive landscape
 
-## The edge: focused products, not general agents
+Competitive research. The _message_ is not decided here — the canonical
+framing (primitives → components → daemons → products, identity as the
+coordinate system) is signed off in
+[5/A-primitives-framing](../5/A-primitives-framing.md). This file holds
+only what 5/A does not: who else is in the market, and what not to say.
 
-The strongest differentiator first. **General agents fail most of the
-time.** A blob that's meant to do everything has no persona to hold it,
-no curated skill set to bound it, no routes to aim it — it drifts,
-hallucinates scope, and gives generic answers to specific jobs. arizuko's
-wedge is the opposite move: **ship a FOCUSED product** — a pre-seeded
-agent (persona + a tight, curated skill set + routes) aimed at exactly
-one job: support, company-brain, content authoring, PM, trip planning.
-
-A focused agent assembled from arizuko's primitives beats renting a
-general blob, on two axes:
-
-- **You own and shape it, you don't rent it.** The persona, the skills,
-  the routes, the knowledge are files in a folder you control — not a
-  prompt buried in someone's SaaS. Own the stack: the agent's identity
-  and capability surface are yours to read, diff, fork, and harden, on
-  your host. A rented general agent is a black box you tune through a
-  text box; a focused arizuko product is an asset you author.
-- **A tight skill set is a feature, not a limitation.** Constraining the
-  agent to the skills its one job needs (and gating the rest via ACL)
-  removes the failure modes general agents have — wrong tool, wrong
-  scope, confident nonsense outside its lane. The product catalog
-  ([P-product-templates](P-product-templates.md), [5/21-products](../5/21-products.md))
-  is exactly this: curated `ant/examples/<name>/` folders — persona +
-  skill whitelist + seed `facts/` — installed with one command
-  (`arizuko create <inst> --product <name>`). Company-brain
-  ([8-company-brain](8-company-brain.md)) is the same move pointed at
-  knowledge work: arizuko is the _action_ layer on top of retrieval,
-  not another general chatbot over your docs.
-
-Everything below — folder=agent, the small primitive set, MCP+REST,
-self-hosting — is what makes focused products cheap to assemble and
-yours to keep. That is the positioning lead.
-
-## The Market
-
-Five camps:
+## The market
 
 | Platform                             | Model                           | Gap                                                        |
 | ------------------------------------ | ------------------------------- | ---------------------------------------------------------- |
@@ -49,145 +20,61 @@ Five camps:
 | n8n / Zapier AI                      | Automation + AI bolt-ons        | Agents are steps, not autonomous entities                  |
 | Vertex AI / Bedrock / Copilot Studio | Managed enterprise cloud        | Data leaves infrastructure; per-seat pricing; no fork path |
 
-None of them ship a **focused, ownable agent** — a persona + curated
-skills + routes you author and host — assembled from **first-class
-persistent folder-agents** that coordinate over a uniform MCP+REST
-surface. They sell either a general blob (managed cloud) or low-level
-wiring you assemble yourself with no identity, persona, or ownership
-model (code/workflow frameworks).
+The market is splitting two ways — "GUI for business users" (Dify, n8n,
+Copilot Studio) and "code primitives for engineers" (LangGraph, AutoGen).
+Neither ships a **focused, ownable agent**: a persona + curated skills +
+routes the buyer authors and hosts. That third position — code-first _and_
+organization-aware — is the gap to occupy.
 
-## What arizuko Is
+## Why focused beats general
 
-The positioning that resonates:
+The strongest differentiator, and the one that survives contact with a
+buyer: **general agents fail most of the time.** A blob meant to do
+everything has no persona to hold it, no curated skill set to bound it, and
+no routes to aim it — it drifts and gives generic answers to specific jobs.
+Constraining an agent to the skills its one job needs (gating the rest via
+ACL) removes exactly the failure modes general agents have.
 
-> **Self-hosted, focused agents built as code.** A folder is an agent —
-> persona, skills, memory, ACL. Something happens, an agent reacts.
-> Folders compose into hierarchies. Every action is one MCP tool call,
-> reachable over REST too. No GUI, no managed control plane, no rented
-> blob.
+The product catalog ([5/21-products](../5/21-products.md)) is what makes
+this concrete: IaC without modules is a blank file; arizuko ships modules.
+The pitch is not "build your agent from primitives" — that is the engine —
+it is "take a focused agent that already does the job, and make it yours."
 
-Four properties no competitor has together:
+## What to avoid saying
 
-1. **Folder = agent.** Every team, customer, or job gets its own context
-   boundary, channel presence, persona, memory, and curated skill set.
-   Git-manageable. Diff-reviewable. The org chart is the folder tree
-   (`corp/eng/sre`, arbitrary depth).
+- **"AI assistant platform"** — too generic, reads as a ChatGPT wrapper.
+- **"General agent" / "do-anything agent"** — the anti-pitch.
+- **Comparison tables with cloud vendors** — we lose on managed ops and win
+  on everything else; neutral framing lands better.
+- **"RAG platform"** — Dify owns that frame. arizuko is the action layer
+  over retrieval ([8-company-brain](8-company-brain.md)).
+- **Benchmarks** — too early; correctness over performance.
 
-2. **Event → reaction over a small primitive set.** The whole system
-   reduces to a handful of primitives — Event, Routing, Agent,
-   Authorization, Turn, State, with identity as the cross-cutting
-   coordinate system — each owning one concern, composed in a fixed
-   pipeline, no special cases (one job each, layered overrides, never
-   strict orthogonality). The apparent feature sprawl (channels, topics,
-   tasks, webhooks, secrets, egress, delegation, observe, workflows) is
-   all recomposition of those primitives, never new machinery. Those
-   primitives stack into the things you deploy and ship —
-   primitives → components → daemons → products — the canonical framing
-   and four-layer table live in [specs/5/A](../5/A-primitives-framing.md).
-   A focused product is one such recomposition: a folder with the right
-   persona, skills, and routes.
+## Honest cost to name when asked
 
-3. **One uniform MCP+REST surface.** Every resource is reachable through
-   one hand-rolled handler with two faces — MCP for in-container agents,
-   REST for humans and external tools — over one auth gate and one
-   audited mutation path ([specs/5/17](../5/17-openapi-mcp.md)).
-   Agents that manage agents (register a child, set routes, schedule a
-   task) call the same handlers an operator would. Code manages code.
+N daemons means N services, N upgrade paths, N log streams. A systemd unit
+template plus `docker compose` mitigates it; nothing eliminates it. (The
+older version of this spec claimed a shared-schema migration chokepoint
+under `gated` — that is stale: `gated` was deleted at v0.50.0 and each
+split daemon owns and migrates its own DB.)
 
-4. **Own the stack.** One Linux host, Docker, SQLite WAL. A tar of the
-   data dir is the full backup. No per-seat pricing, no data leaving
-   your infrastructure, no control plane to depend on — and the focused
-   agent itself (persona, skills, routes, knowledge) is yours to read,
-   fork, and harden, not a black box you rent.
+## Feature gaps that would strengthen the pitch
 
-## Why componentized matters
+Not a plan — a list of what a skeptical buyer asks for and we cannot yet
+show. Each needs its own spec before it is work.
 
-Other code-first platforms (LangGraph, AutoGen) are monolithic
-runtimes: agents are objects in one process, coordinated by code in the
-same process. arizuko is _componentized_: agents (folders) and infra
-(daemons) are separate processes sharing a schema. The seam is data,
-not function calls. This is the middle two layers of the four-layer
-stack ([specs/5/A](../5/A-primitives-framing.md)):
-
-- **Components can be reimplemented in any language** without touching
-  the agent — the contract is the SQLite schema + message verbs.
-- **Any daemon can be replaced by an agent doing the same job**, as long
-  as it speaks the schema (the "every automation is a folder" framing,
-  [specs/10/4](../10/4-positioning-componentized.md)).
-- **Realtime falls out of composition**, not an execution model: the
-  channel adapters are separate daemons, so agents never poll.
-
-The honest cost: N daemons = N services, N upgrade paths, N log streams,
-and a shared-schema migration chokepoint (`gated` owns migrations). We
-mitigate with a systemd unit template + `docker compose`; we don't
-eliminate it.
-
-## The Positioning Gap to Own
-
-**"Infrastructure-as-Code for agents."** The DevOps parallel is exact:
-
-- Kubernetes put infrastructure in YAML; teams gained versioning, review, GitOps.
-- arizuko puts agents in folders; teams gain versioning, review, hierarchy.
-
-The market is splitting into "GUI for business users" (Dify, n8n, Copilot Studio) and "code primitives for engineers" (LangGraph, AutoGen). arizuko occupies a third position: **code-first + organization-aware** — targeting teams that want agents to be as manageable as their codebase.
-
-The product catalog is what makes this concrete for a buyer. IaC without
-modules is a blank file; arizuko ships modules — focused products
-([P-product-templates](P-product-templates.md), [5/21-products](../5/21-products.md))
-the operator installs and then owns and edits as code. The pitch is not
-"build your agent from primitives" (that's the engine); it's "take a
-focused agent that already does the job, and make it yours."
-
-## Features to Add / Strengthen
-
-### Near-term (fills obvious gaps vs competition)
-
-1. **`arizuko diff <instance>` / `arizuko status <instance>`**
-   Show what changed in agent config vs last deploy. Makes the "agents as code" story tangible. Audience: SREs doing code review of agent changes.
-
-2. **Grant visualization in dashd**
-   Interactive ACL explorer: which agents can do what, where. Currently grep-only. Needed for the compliance/audit story. Slogan hook: "audit-native agent orchestration."
-
-3. **`inspect_agents` MCP tool**
-   Let an agent discover its siblings and children (folder names, tier, last-active). Enables true agent-to-agent coordination without hardcoding paths. Required for the "agents manage agents" story.
-
-4. **Webhook-to-agent routing UI in dashd**
-   Visual routing table: "POST /hook/<token> → which folder." Currently config-only. Needed for operators who aren't reading ROUTING.md.
-
-### Medium-term (differentiators)
-
-5. **Per-folder git integration**
-   `groups/<folder>/workspace/` is already a docker volume mount. Add `git init` + auto-commit of agent-written files at session end. Makes every agent's knowledge base version-controlled. Addresses the "what did the agent change" audit question.
-
-6. **Agent-authored skills**
-   An agent writes `~/.claude/skills/custom-name/SKILL.md` → it shows up in the next session. Currently possible but undocumented. Formalizing this closes the "agents that can grow their own capabilities" loop.
-
-7. **Spawn-on-demand child groups**
-   An agent calls `register_group` to create a per-customer or per-issue child group. Root agent commissions it; customer talks to their own agent. Demo: `corp/support` auto-creates `corp/support/customer-<id>` on first contact.
-
-8. **MCP federation**
-   Expose arizuko's MCP socket as a reachable endpoint (not just unix, optionally TCP+TLS). Lets external Claude Desktop / IDE instances connect their tools through a controlled arizuko gateway. Positions arizuko as the MCP hub for a team.
-
-## Messaging Anchors (for landing, docs, pitch)
-
-- "Focused agents beat general ones. Ship an agent built for one job — own it, don't rent it."
-- "A folder is an agent: persona, curated skills, memory, ACL. Built as code, hosted on your box."
-- "Event → reaction over a handful of primitives. No special cases, no daemon zoo to learn."
-- "One surface: every action is an MCP tool call, reachable over REST too. Agents and operators drive the same handlers."
-- "$5 VPS. One tar of the data dir is the full backup. No managed control plane — that's the feature."
-- "10 channel adapters. Each speaks the platform's native API, not a webhook relay."
-
-## What to Avoid in Positioning
-
-- "AI assistant platform" — too generic; sounds like ChatGPT wrappers. The story is focused agents, not a general assistant.
-- "General agent" / "do-anything agent" — the anti-pitch. General agents fail most of the time; lead with the focused, ownable agent instead.
-- Comparison tables with cloud vendors (we lose on managed ops, win on everything else; neutral framing is better).
-- "RAG platform" — not the primary story; Dify owns that frame. arizuko is the action layer over retrieval ([8-company-brain](8-company-brain.md)).
-- Benchmarks — too early; correctness over performance.
+1. `arizuko diff <instance>` — what changed in agent config since last
+   deploy. Makes "agents as code" tangible to an SRE reviewing a change.
+2. Grant visualization in dashd — an ACL explorer; today it is grep-only.
+   The compliance/audit story needs it.
+3. `inspect_agents` — let an agent discover siblings and children so
+   agent-to-agent coordination stops hardcoding paths.
+4. Per-folder git integration — auto-commit agent-written files at session
+   end, answering "what did the agent change".
+5. MCP federation — expose the MCP surface beyond the unix socket so
+   external IDE/desktop clients route tools through arizuko.
 
 ## References
 
-- LangGraph: [python.langchain.com/docs/langgraph](https://python.langchain.com/docs/langgraph)
 - CrewAI vs LangGraph: datacamp.com/tutorial/crewai-vs-langgraph-vs-autogen
-- MCP anniversary post: blog.modelcontextprotocol.io/posts/2025-11-25-first-mcp-anniversary
 - Workflow-first vs code-first: techcommunity.microsoft.com/blog/azurearchitectureblog/building-ai-agents-workflow-first-vs-code-first-vs-hybrid/4466788

@@ -5,11 +5,15 @@ status: reference
 # specs/5/26 — integration use-case corpus (grounding for 5/25)
 
 ~120 concrete "agent + service → action" use cases collected 2026-07-16
-across four domains, to derive the integration surface (`5/25`). Columns:
-service · use case · tool name · read/write · auth method · acquisition
-path (mcp = vendor MCP server · openapi = auto-import candidate · rest =
-hand `[[ext]]` descriptor · go = Go handler) · scope string. Reference
-data; the design + findings live in `5/25`.
+across four domains. **Evidence only** — this file is the grounding for
+[`25-integration-catalog.md`](25-integration-catalog.md), which owns every
+finding and design decision derived from it. Do not restate conclusions
+here; they drift.
+
+Columns: service · use case · tool name · read/write · auth method ·
+acquisition path (mcp = vendor MCP server · openapi = auto-import
+candidate · rest = hand `[[ext]]` descriptor · go = Go handler) · scope
+string.
 
 ## Dev / infra / cloud
 
@@ -145,17 +149,8 @@ bucket is analytics/scheduling/listening + non-social capabilities.)
 | PDF generation   | render HTML/URL → PDF              | `pdf_generate`             | w   | apikey-header      | rest(binary/async) | `ext:pdf:render:write`          |
 | QR code          | generate a QR image                | `qrcode_generate`          | w   | none/apikey-query  | rest(binary)       | `ext:qrcode:generate:write`     |
 
-## Cross-cutting patterns (feed `5/25`)
-
-- **Auth tiers**: static-cred self-serve (~55–60%) · OAuth-only (~⅓,
-  Google/MS/Salesforce/Shopify/PayPal/accounting) · signature (SigV4/JWT →
-  Go handler). OAuth is the wall on agent self-serve.
-- **Acquisition precedence**: vendor MCP (GitHub/Stripe/Shopify/Supabase/
-  Firebase/Notion/Linear/Pinecone/Qdrant/Tavily/Firecrawl) → OpenAPI
-  auto-import (the default for API-first) → hand REST descriptor (the
-  workhorse for no-spec APIs) → Go handler (SigV4/JWT/2-step/non-HTTP).
-- **Stakes ≠ read/write**: money-movement + destructive writes need a
-  confirm + idempotency + dry-run, not a bare grant.
-- **Descriptor must express**: typed path-params · pagination (cursor/
-  offset/jsonapi) · idempotency keys · `response` json/binary/xml · async
-  submit+poll pairs · large-text truncation · multi/templated auth headers.
+The patterns these rows establish — auth tiers, the acquisition
+precedence, stakes ≠ read/write, and what the descriptor must express —
+are stated once, in
+[`25-integration-catalog.md`](25-integration-catalog.md) § What the corpus
+shows.

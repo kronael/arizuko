@@ -4,31 +4,25 @@ status: shipped
 
 # Worlds
 
-World = first folder segment of a group path. Enforced by
-`IsAuthorizedRoutingTarget` in `gateway/`.
+A world is the first segment of a folder path: `worldOf("atlas/support")
+== "atlas"`. `auth.WorldOf` / `auth.isInWorld` (`auth/identity.go`),
+`router.IsAuthorizedRoutingTarget` (`router/router.go:269`).
 
-```
-worldOf('atlas/support') === 'atlas'
-```
+The world is the delegation boundary. Same world and a descendant is
+allowed; cross-world, sibling, ancestor, and same-folder are denied.
+Inter-world traffic goes through `delegate_group` / `escalate_group`,
+never a direct send — that keeps one auditable hop between tenants
+instead of an implicit mesh.
 
-## Authorization boundary
+**Depth no longer confers authority.** The old model derived a tier from
+segment count and let it open tool slots; `5/33` dissolved it, and
+`auth.Resolve` now returns a folder that "carries ZERO authorization —
+only its own name". A folder's capability comes from its `acl` rows.
+World membership survives as a _containment_ rule, which is a different
+thing: it says who you may address, not what you may do.
 
-- An elevated `/root` turn (tier 0, operator-gated) can delegate to any
-  folder in any world
-- Same world, descendant: allowed
-- Cross world: denied
-- Sibling, ancestor, same-folder: denied
+## Share mount
 
-## Share mount pattern
-
-```
-/var/lib/share <- groups/<world>/share
-```
-
-Tier 0 and world groups can write. Deeper groups are readonly.
-
-## Open questions
-
-- Wildcard JID registration
-- Hierarchical platform JIDs like `telegram:chat:thread`
-- Tree-wide IPC auth beyond current action checks
+`groups/<world>/share` mounts at `/var/lib/share`. Whether it is
+writable is a container-capability grant (`ShareReadOnly`), resolved by
+routd at dispatch — not a function of depth.

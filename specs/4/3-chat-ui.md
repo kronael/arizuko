@@ -72,22 +72,15 @@ sub supplied in the URL.
 
 ### Shipped routes
 
-| Route                             | Method    | Purpose                                |
-| --------------------------------- | --------- | -------------------------------------- |
-| `/me/`                            | GET       | Portal landing                         |
-| `/me/chats`                       | GET       | Conversation index (filter by folder)  |
-| `/me/chats/new`                   | GET/POST  | Folder picker + new-thread bootstrap   |
-| `/me/chats/{folder}/{topic}`      | GET       | Thread view, paginated transcript      |
-| `/me/chats/{folder}/{topic}/send` | POST      | Send into the thread                   |
-| `/me/chats/{folder}/{topic}/sse`  | GET       | SSE stream, keyed `folder/topic`       |
-| `/me/folders/{folder...}`         | GET       | Folder detail                          |
-| `/me/folders/{folder...}/files`   | GET       | Allow-listed files listing             |
-| `/me/settings`                    | GET/PATCH | Per-user preferences                   |
-| `/me/x/*`                         | GET       | HTMX partials (folders, chats, thread) |
+Portal landing, conversation index, new-chat bootstrap, thread view +
+send + SSE, folder detail + allow-listed file listing, per-user
+settings, and `/me/x/*` HTMX partials. Registration is
+`webd/server.go`; handlers are `webd/me.go` — the thread and folder
+paths use catch-all `{folder...}` patterns and dispatch internally, so
+read the mux there rather than trusting a route table to stay current.
 
-Handlers in `webd/me.go`. Server-rendered HTMX, one renderer per page,
-partials under `/me/x/*` for incremental loads — no SPA, no
-client-side router, mirroring dashd's choice.
+Server-rendered HTMX, one renderer per page, partials for incremental
+loads — no SPA, no client-side router, mirroring dashd's choice.
 
 The **secrets, costs, invites, orgs, and account/JID-claim** pages
 designed for `/me/*` did not ship there. The user-facing credential

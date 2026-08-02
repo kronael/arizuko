@@ -2,82 +2,49 @@
 status: shipped
 ---
 
-# Audit Log
+# Audit log — outbound messages
 
-Every outbound message the gateway sends is recorded. Covers agent
-replies, MCP actions (send_message, send_reply, send_file), scheduler
-output, and control chat notifications. Reuses `messages` table with
-`is_from_me=1` and `is_bot_message=1` — inbound and outbound share one
-row shape, distinguished by flags.
+Every outbound message is recorded in `messages` with `is_from_me=1` and
+`is_bot_message=1`. Inbound and outbound share one row shape,
+distinguished by flags — not two tables, because "what did this chat
+look like" is then one ordered query rather than a merge.
 
-## Schema
+## `source` is the adapter of record
 
-Migration 0005 added `source TEXT` to `messages`. Migration 0023 dropped
-unused `group_folder` and repurposed `source` as canonical
-adapter-of-record per message.
+Migration 0005 added `source TEXT`; 0023 dropped the unused
+`group_folder` and repurposed `source`:
 
-`source` values:
+- **inbound** — the adapter name (`telegram`, `telegram-<suffix>`,
+  `discord`), stamped on delivery.
+- **outbound** — empty string; the producer is implied by the flags plus
+  `sender`.
 
-- **inbound**: adapter name (`telegram`, `telegram-<suffix>`, `discord`).
-  Stamped by `api.handleMessage` on `/v1/messages` delivery.
-- **outbound**: empty string (producer implied by flags + sender).
-
-Producer-category model (agent/mcp/scheduler/control/error) was
-abandoned — callers already mark outbound via `is_from_me`/`is_bot_message`,
-and the column was needed to break adapter ambiguity for shared JID
-prefixes.
-
-## API
-
-```go
-store.PutMessage(core.Message{
-    ChatJID:   chatJid,
-    Content:   text,
-    Sender:    groupFolder,
-    RoutedTo:  chatJid,
-    ReplyToID: parentMsgID,
-    FromMe:    true,
-    BotMsg:    true,
-})
-```
-
-Non-blocking: log warning on failure, never propagate. ID prefixed `out-`
-to avoid PK collision with inbound.
-
-## Producers
-
-| Producer  | File               | What                     |
-| --------- | ------------------ | ------------------------ |
-| agent     | gateway/gateway.go | streaming agent output   |
-| agent     | gateway/gateway.go | delegate/escalate output |
-| mcp       | ipc/ipc.go         | send_message tool        |
-| mcp       | ipc/ipc.go         | send_file tool           |
-| scheduler | timed/main.go      | scheduler messages       |
-| control   | gateway/notify.go  | operator notifications   |
-| adapter   | api/api.go         | inbound /v1/messages     |
-
-Inbound: `source = <adapter>`, `is_from_me = 0`.
-Outbound: `source = ''`, `is_from_me = 1`, `is_bot_message = 1`.
-
-## Queries
+A producer-category model (`agent`/`mcp`/`scheduler`/`control`/`error`)
+was designed and abandoned. Callers already mark outbound via
+`is_from_me` / `is_bot_message`, so the category was redundant — and the
+column was needed for something else entirely: breaking adapter
+ambiguity when two adapters share a JID prefix. That is what the
+outbound-routing query uses it for:
 
 ```sql
--- Full conversation
-SELECT * FROM messages WHERE chat_jid = ? ORDER BY timestamp;
-
--- Outbound only
-SELECT * FROM messages
-WHERE chat_jid = ? AND is_from_me = 1 ORDER BY timestamp;
-
--- Latest receiving adapter (used by outbound routing)
 SELECT source FROM messages
 WHERE chat_jid = ? AND source != '' AND is_bot_message = 0
 ORDER BY timestamp DESC LIMIT 1;
 ```
 
+## Write discipline
+
+`store.PutMessage` is the single write path. It is non-blocking: a
+failure logs a warning and never propagates, because losing an audit row
+must not fail the send the user is waiting on. Outbound IDs are prefixed
+`out-` to avoid PK collision with inbound.
+
+Per-daemon `audit_log` tables (a separate, later mechanism for
+management-action auditing) are covered in
+[`../5/17-openapi-mcp.md`](../5/17-openapi-mcp.md); this spec is about
+message traffic only.
+
 ## Not in scope
 
-- File archiving
-- Message delivery confirmation
-- Content redaction / retention policies
-- Gateway command responses (/ping, /stop — operational noise)
+File archiving, delivery confirmation, content redaction / retention,
+and gateway command responses (`/ping`, `/stop` — operational noise).

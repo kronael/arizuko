@@ -3,107 +3,49 @@ status: draft
 phase: next
 ---
 
-# Pinned Messages as Context
+# Pinned messages as context
 
-## Problem
-
-Users want to manage persistent agent context directly from the chat.
-CLAUDE.md requires file editing; pinned messages are native to
-Telegram/Discord and already familiar.
-
-## Concept
-
-Pinned messages in a chat become persistent context for the agent,
-similar to CLAUDE.md but user-managed from the platform. Pin a message
-to add context; unpin to remove it. The agent sees pins as background
-knowledge — not as messages to reply to.
+Users want to manage persistent agent context from the chat itself. Editing
+`CLAUDE.md` needs file access; pinning a message is native to Telegram and
+Discord and already familiar. A pin becomes background knowledge for the
+agent — not a message to reply to.
 
 ## Platform support
+
+The reason this is worth specifying: support is uneven, so the contract has
+to degrade cleanly rather than assume the feature exists.
 
 | Platform | Read pins        | Bot can pin | Pin events    |
 | -------- | ---------------- | ----------- | ------------- |
 | Telegram | getChatPinnedMsg | yes         | PinnedMessage |
 | Discord  | channel.Pins()   | yes         | MessageUpdate |
+| Mastodon | pinned statuses  | yes (own)   | no            |
+| Reddit   | stickied posts   | yes (mod)   | no            |
 | WhatsApp | no API           | no          | no            |
-| Email    | n/a              | n/a         | n/a           |
-| Mastodon | pinned statuses  | yes (own)   | n/a           |
 | Bluesky  | no API           | no          | no            |
-| Reddit   | stickied posts   | yes (mod)   | n/a           |
+| Email    | n/a              | n/a         | n/a           |
 
-## Adapter contract
+## Decisions
 
-New optional endpoint on adapters:
-
-```
-GET /pins?chat_jid=<jid>
-→ { "pins": [{ "id": "123", "sender": "alice", "content": "...", "timestamp": 1234567890 }] }
-```
-
-Capability: `"read_pins": true` in health response.
-Adapters without pin support return `{ "pins": [] }`.
-
-## Gateway integration
-
-### Session start
-
-When building the prompt for a new session (not resumed), gateway
-calls `GET /pins` on the channel adapter. Pinned content is injected
-as a `<pinned>` XML block before the message history:
-
-```xml
-<pinned>
-  <pin sender="alice" time="2026-04-05">Always respond in Spanish to @carlos</pin>
-  <pin sender="bot" time="2026-04-06">Project deadline: April 15th</pin>
-</pinned>
-```
-
-### Compaction
-
-PreCompact hook calls `get_pins` MCP tool (which proxies to
-`GET /pins` via gated). Injects pins into the compaction
-systemMessage with "preserve verbatim" instruction. Pins survive
-compaction because they're re-injected, not summarized.
-
-### On-demand
-
-Agent can call `get_pins` MCP tool at any time to re-read current
-pins (e.g. after noticing a pin event in the message stream).
-
-## MCP tools
-
-```
-get_pins(chatJid) → [{ id, sender, content, timestamp }]
-pin_message(chatJid, messageId) → ok  (bot pins a message)
-unpin_message(chatJid, messageId) → ok
-```
-
-`pin_message` / `unpin_message` require adapter support.
-`get_pins` works read-only on any adapter with `read_pins` cap.
-
-## Pin events
-
-Adapters that detect pin/unpin events send them as verb messages:
-
-```json
-{ "verb": "pin", "content": "<pinned content>", "sender": "alice" }
-{ "verb": "unpin", "content": "", "sender": "alice" }
-```
-
-Gateway routes these like normal messages. Agent sees them in
-context but the router can filter or annotate them.
+- **The platform is the source of truth; arizuko stores nothing.** Pins are
+  read from the adapter, never mirrored into a table. A second copy would
+  need reconciliation, and the operator can already see the truth in the
+  chat.
+- **Optional adapter capability, not a required endpoint.** Adapters expose
+  `GET /pins?chat_jid=…` and advertise `read_pins` in their health response;
+  adapters without pin support return an empty list rather than an error.
+  Write tools (`pin_message` / `unpin_message`) require explicit support;
+  reading works on any adapter that advertises the capability.
+- **Pins are re-injected, not summarized.** They enter the prompt as a
+  `<pinned>` block at session start, and the compaction hook re-injects them
+  rather than letting them be compacted away. That is what makes a pin
+  durable — surviving compaction is the whole point of pinning.
+- **Pin/unpin events arrive as ordinary verb messages**, routed like any
+  other message, so the agent can notice a pin changed and re-read.
 
 ## Not in scope
 
-- Storing pins in DB (platform is source of truth)
-- Syncing pins across platforms
-- Auto-pinning bot messages
-- Pin limits or pagination (Telegram: 1 pin, Discord: 50)
-
-## Implementation order
-
-1. `GET /pins` endpoint on teled + discd (read-only)
-2. `get_pins` MCP tool in ipc.go
-3. Gateway: inject `<pinned>` at session start
-4. PreCompact hook: re-inject on compaction
-5. Pin/unpin MCP tools + adapter endpoints (later)
-6. Pin event verb messages (later)
+- Storing pins in the DB (the platform is truth).
+- Syncing pins across platforms.
+- Auto-pinning the agent's own messages.
+- Pin limits and pagination (Telegram allows one, Discord fifty).

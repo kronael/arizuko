@@ -3,148 +3,72 @@ status: draft
 depends: specs/5/17-openapi-mcp.md
 ---
 
-# specs/9/2 — data model improvements (toward serialization-friendly entities)
+# specs/9/2 — the cold / warm / hot tier model
 
 ## Why
 
-Today's SQLite schema mixes three kinds of state in one bag:
+The schema mixes three kinds of state in one bag, and the boundary is not
+drawn anywhere explicit:
 
-- **Authoritative configuration** — ACL rules, routes, secret
-  metadata, persona+skills references, products+deployments. These
-  belong in git (Action 3); they need clean serialization shapes.
-- **Decision history** — turn transcripts, grant changes, route
-  mutations. These belong in git as commits with sidecar metadata.
-- **Operational state** — message queue, in-flight turns, cursors,
-  sticky-group bindings, engagement TTLs, indexes. These stay in
-  SQLite; they are cache.
+- **Cold — authoritative configuration.** ACL rules, routes, secret
+  metadata, persona + skills references. Operator or agent writes it
+  deliberately; it is the system's intent.
+- **Warm — decision history.** Turn transcripts, grant changes, route
+  mutations. Append-only, read for audit.
+- **Hot — operational state.** Message queue, in-flight turns, cursors,
+  sticky bindings, engagement TTLs, indexes. Rebuildable cache.
 
-The boundary is not drawn explicitly in the schema today. Some
-tables (`acl`, `routes`, `secrets`) carry authoritative data
-intermixed with operational columns. Others (`chats`,
-`scheduled_tasks`) blend per-row config with operational cursors.
-Before any git move, the entities need a clean separation so each
-row knows which tier it belongs to.
+Without the line drawn, a table's columns drift across tiers: `chats`
+carries a routing dimension (cold) next to `agent_cursor` and
+`sticky_group` (hot), and nothing in the schema says which is which.
 
-## What this spec is
+This vocabulary is load-bearing outside this spec. Root `CLAUDE.md` states
+the rule that **every cold-tier management entity is a resreg resource**,
+and `specs/CLAUDE.md` makes tier placement a definition-of-done item. Those
+rules need this file to say what a tier is.
 
-A pre-migration spec. It does NOT define the on-disk git format
-(that's `specs/9/3-git-as-truth.md`). It DOES decide which fields
-in which tables migrate, which stay, and what shape they take.
+## The tiers
 
-## The three tiers (recap from `specs/9/index.md`)
+| Tier              | Examples                                                                                | Discipline                                         |
+| ----------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Cold (config)     | ACL, routes, persona refs, skills selection, secret refs                                | A resreg resource — REST + MCP through one handler |
+| Warm (decisions)  | turn transcripts, `audit_log`, grant + route mutations                                  | Append-only; written in the mutation's own tx      |
+| Hot (operational) | message queue, cursors, in-flight turn state, engagement TTLs, sticky bindings, indexes | SQLite only, rebuildable; MCP-only agent actions   |
 
-| Tier              | Examples                                                                                | Lives in (post-phase)                |
-| ----------------- | --------------------------------------------------------------------------------------- | ------------------------------------ |
-| Cold (config)     | ACL, routes, persona refs, skills selection, secret refs, products, deployments         | Git — versioned, signed, distributed |
-| Warm (decisions)  | turn transcripts, grant audit, route mutations                                          | Git via digest commit at turn end    |
-| Hot (operational) | message queue, cursors, in-flight turn state, engagement TTLs, sticky bindings, indexes | SQLite only — rebuildable            |
+The tier decides the surface. Cold gets both faces (agent MCP + operator
+REST) off one handler. Hot-tier agent actions (`reply`/`send`/`inspect_*`)
+are the only hand-authored MCP-only tools — they have no operator twin
+because there is nothing for an operator to manage.
 
-## Concrete entity sharpening
+## Entity notes worth keeping
 
-For each entity, identify: (a) which columns are cold/warm/hot,
-(b) what the serialized git shape looks like, (c) whether the
-current schema needs to be split.
+**`secrets` — the blob never leaves SQLite.** Names and scopes are cold and
+may be referenced anywhere; the AES-256-GCM ciphertext is not. A manifest
+declares `slack_token = { scope = "folder", name = "slack" }` — the lookup
+tuple, never the value. At spawn the resolver looks up `(scope, name)`,
+decrypts in-process, and injects. See [`../8/E-encryption-at-rest.md`](../8/E-encryption-at-rest.md).
 
-### `acl`, `acl_membership`
+**`chats` is split across tiers and should not be.** The routing dimension
+(which group a JID belongs to) is cold and duplicates what `routes` owns;
+`agent_cursor` / `sticky_group` / `sticky_topic` are hot. Either move the
+routing dimension into `routes` or introduce a join — but stop carrying both
+tiers in one row.
 
-- Cold: rule string, scope, granted action, member list.
-- Hot: nothing — pure config.
-- Git shape: one file per acl rule (or one file per scope, with
-  rules as TOML array). Lean per-scope file for human readability.
+**`messages` has no cold tier.** Every row is event-shaped: warm for the
+content, hot for queue position and delivery state.
 
-### `routes`
-
-- Cold: match pattern, target folder, seq, observe-window settings.
-- Hot: nothing — pure config.
-- Git shape: one TOML file `routes.toml`, ordered by `seq`.
-
-### `secrets`
-
-**Secrets stay in SQLite. Git carries only names and scopes as
-references.** The AES-256-GCM encrypted blob never leaves
-`store/secrets.go`. This is non-negotiable: git is for distribution
-and audit of _configuration_; secret blobs are operational state
-that must stay on the operator's host, not in any artifact that
-gets pushed/cloned/diffed.
-
-- In SQLite (unchanged): name, scope (folder/user), AES-256-GCM
-  ciphertext, salt, metadata (created, rotated, who).
-- In git (reference only): a product or deployment in `agents.toml`
-  declares `slack_token = { scope = "folder", name = "slack" }` —
-  no value, no ciphertext, just the lookup tuple.
-- At spawn: container's secret-resolver looks up `(scope, name)`
-  in SQLite, decrypts in-process, injects into env. Existing
-  primitives.
-
-### `chats`
-
-- Cold: route mapping (which group does this JID belong to). Could
-  arguably move into `routes` table — `chats` becomes hot-only.
-- Hot: `agent_cursor`, `sticky_group`, `sticky_topic`, `is_group`.
-- Verdict: **split**. Move the routing dimension into `routes`;
-  keep `chats` as the operational hot-path index.
-
-### `messages`
-
-- Cold: nothing — every message is event-shaped.
-- Warm: the message itself (per-day digest commits).
-- Hot: queue position, delivery status, retry state.
-- Git shape: per-day per-chat JSONL files committed at digest time.
-  Hot fields stay in SQLite.
-
-### `scheduled_tasks`
-
-- Cold: schedule, prompt, target folder.
-- Hot: last-fired timestamp, error state.
-- Split: cold to git as TOML in folder, hot stays.
-
-### Products + deployments (new)
-
-These don't exist yet as tables. They're introduced fully cold:
-TOML files in git. SQLite gets a `deployments` operational cache
-table for fast lookup. See `specs/9/3-git-as-truth.md` for the
-serialization shape.
-
-## Schema changes implied
-
-Not all of these need to land in this spec — many can ride along
-with Action 3. The minimal set this spec commits to:
-
-1. Add `tier` column or use prefix conventions on table names to
-   make the cold/warm/hot intent explicit (decide pattern; document).
-2. Move routing dimension out of `chats` into `routes` (or
-   introduce `chat_routes` join if direct move is too invasive).
-3. Define the `deployments` table (cache shape only — the canonical
-   data lives in `agents.toml` in git).
-4. Define `audit_log` write contract — used for warm-tier
-   decisions only (the per-turn sidecar). Cold tier does NOT
-   emit audit rows because the working tree + git history IS the
-   audit (per `specs/9/3-git-as-truth.md`).
-
-Migrations under `store/migrations/` as usual. Schema owner is
-`gated` (CLAUDE.md). Other daemons connect r/w but never migrate.
+**`scheduled_tasks` splits cleanly.** Schedule, prompt and target folder are
+cold; last-fired timestamp and error state are hot.
 
 ## Non-goals
 
-- Defining the git on-disk format (`3-git-as-truth.md`).
-- Implementing the dual-write writer (`3-git-as-truth.md`).
-- Touching the message hot-path performance characteristics.
+Per-row tier columns. The tier is a property of the _column's meaning_, not
+a value to store — encoding it in the schema would invite code to branch on
+it. Documenting each entity's split in its `<pkg>/README.md` is the
+mechanism.
 
-## Acceptance
+## Open question
 
-- Each entity has an explicit cold/warm/hot column-level map in this
-  spec (filled out during implementation).
-- Migrations applied; old schemas still queryable for rollback.
-- `make test -short` passes; integration tests covering the moved
-  fields exist.
-- Documentation in each `<pkg>/README.md` reflects the entity's
-  new tier.
-
-## Open questions
-
-- ~~Secret blob location~~ — decided: stays in SQLite, git holds
-  refs only. Closed.
-- Routes ↔ chats refactor — clean move or compat shim?
-- `audit_log` — append-only single table, or per-resource tables?
-  Single table simpler; per-resource scales better. Lean single
-  initially.
+`audit_log` is per-daemon today, one table per owning DB. Whether it stays a
+single append-only table per daemon or splits per resource is unresolved;
+single is simpler and is what shipped.

@@ -1,199 +1,66 @@
 ---
-status: shipped
-depends: [5/32-acl-unified.md, 4/Q-dash-memory.md]
+status: superseded-in-part
+superseded-in-part: [5/32-acl-unified]
 ---
 
-# dashd ACL UI — operator surface for the unified authorization model
+# dashd ACL UI — designed four pages, shipped one
 
-## Essence
+> **Status corrected 2026-08-02.** This spec was marked `shipped`, but
+> none of the four top-level pages it specifies exist. Grepping the tree
+> for `/dash/acl`, `/dash/membership`, `/dash/roles`, or
+> `/dash/principals` returns nothing. What shipped instead is a single
+> folder-scoped page, and the gap between the two is the record worth
+> keeping.
 
-The dashd ACL UI lets an operator inspect, query, and write `acl` and
-`acl_membership` rows directly, plus manage `role:*` principals as
-first-class objects. Every authorization question in arizuko goes
-through one `Authorize` call against these two tables
-(`specs/5/32-acl-unified.md:9-18`); this UI is the operator-facing
-side of that same primitive. Four pages — rows, edges, roles,
-principal-effective — over the existing dashd HTMX + partial pattern
-(`dashd/main.go:309-320`). Read-only views first, then writes,
-gated by `Authorize(caller, "admin", "**", ...)`.
+## What shipped
 
-## Routes
+`GET /dash/groups/{folder}/grants`, plus `POST .../grants` and
+`POST .../grants/revoke` (`dashd/grants_admin.go`). It renders
+`store.ListACLByScope(folder)` — the ACL rows whose scope covers that
+one folder — behind `d.requireAdmin(w, r, folder)`.
 
-| Method | Path                                            | Purpose                                    | Returns                               |
-| ------ | ----------------------------------------------- | ------------------------------------------ | ------------------------------------- |
-| GET    | `/dash/acl`                                     | List + filter `acl` rows                   | Full page + `<tbody>` partial on HTMX |
-| POST   | `/dash/acl`                                     | Insert one row                             | `<tr>` partial appended to list       |
-| DELETE | `/dash/acl/{id}`                                | Delete row by composite key (form-encoded) | 204 + HTMX `hx-swap=delete`           |
-| GET    | `/dash/acl/x/rows`                              | Filtered rows partial (HTMX target)        | `<tr>...` fragment                    |
-| GET    | `/dash/membership`                              | List edges + transitive expander           | Full page                             |
-| POST   | `/dash/membership`                              | Add `(child, parent)` edge                 | `<tr>` partial                        |
-| DELETE | `/dash/membership/{id}`                         | Remove edge (composite key form)           | 204                                   |
-| GET    | `/dash/membership/x/expand?p=<principal>`       | Recursive parent walk                      | `<ul>` partial                        |
-| GET    | `/dash/roles`                                   | List `role:*` principals                   | Full page                             |
-| GET    | `/dash/roles/{name}`                            | Role detail (members + permissions)        | Full page, two `<table>` partials     |
-| GET    | `/dash/principals/{id}`                         | Effective ACL view for a principal         | Full page                             |
-| GET    | `/dash/principals/x/effective?p=<id>&scope=<s>` | RenderACL output                           | `<table>` partial                     |
+Authorization is per-folder, not the global `Authorize(caller, "admin",
+"**")` this spec proposed. That is the more conservative shape: an
+operator who administers one tenant does not get a console listing every
+principal in the instance.
 
-The composite-key DELETE form posts every PK column
-(`principal, action, scope, params, predicate, effect` for `acl`;
-`child, parent` for `acl_membership`) — schema lacks a surrogate
-id (`specs/5/32-acl-unified.md:58, 70`).
+## What did not ship, and why it still might
 
-## Pages
+Four global pages: `/dash/acl` (filterable row table with an insert
+form), `/dash/membership` (edge table + transitive closure expander),
+`/dash/roles` (role index + member/permission detail), and
+`/dash/principals/{id}` (effective-grants view — direct rows,
+role-derived rows, and the tier-default fallback).
 
-### `/dash/acl` — row table
+The one genuinely missing capability is **effective-grants**: "what can
+this principal actually do", resolved across `acl_membership`. The
+folder-scoped page answers "who can act here", which is the inverse
+question, and the inverse question is the one an operator asks when
+debugging a _deny_. Anyone reviving this should build that page first
+and skip the rest.
 
-Filter form (GET querystring): `principal`, `action`, `scope`,
-`effect`, `granted_by`. Each is a glob applied client-side via the
-filter form; backend uses `LIKE` with `%` substitution for `*` and
-exact `IN` for explicit lists. Columns shown: principal, action,
-scope, effect (badge), params, predicate, granted_by, granted_at,
-delete-button. Sort default `granted_at DESC`.
+The tier-default fallback section of that design is already dead —
+`grants.DeriveRules` no longer exists
+([`19-action-grants.md`](19-action-grants.md)), so effective grants are
+now just direct rows plus role-derived rows, which makes the page
+simpler than originally specced.
 
-Insert form (collapsible `<details>` above the table) with seven
-fields plus a "validate" preview that calls
-`/dash/acl/x/preview` (read-only `Authorize` dry-run vs the current
-row set) before submit. Predicate and params fields are free text;
-basic syntactic check (`key=value`, single conjunction per row,
-matching `specs/5/32-acl-unified.md:284-286` lean) rejects obviously
-malformed input — full grammar validation is a backend job in
-`grants/`.
+## Constraints that carry over
 
-Effect column renders `allow` green, `deny` red. A small badge
-next to each row indicates whether it overrides a tier default
-(query `grants.DeriveRules` for the same principal/scope and flag
-rows that shadow a derived default).
-
-### `/dash/membership` — edge table + transitive expander
-
-Two-column layout: edge table on the left, transitive expander on
-the right. Edge table columns: child, parent, added_by, added_at,
-delete-button. Add-edge form (top) takes `child` + `parent`, posts
-to `POST /dash/membership`; server runs the cycle check
-(`specs/5/32-acl-unified.md:157-159`) before insert.
-
-Transitive expander: text input for a principal; on change it issues
-`GET /dash/membership/x/expand?p=<id>` which returns a nested
-`<ul>` rendering the closure of `acl_membership` reachable from that
-principal. Same evaluation as step 1 of `Authorize`
-(`specs/5/32-acl-unified.md:176-177`). Re-uses the lookup; does not
-reimplement.
-
-### `/dash/roles` — role index + detail
-
-`/dash/roles` lists every distinct principal matching `role:%` from
-both `acl.principal` and `acl_membership.parent`. Columns: name,
-member count, permission count, click-through link.
-
-`/dash/roles/{name}` shows two panels:
-
-1. **Members** — rows from `acl_membership WHERE parent=?`. Add /
-   remove via the membership endpoints (forms target
-   `/dash/membership`); page is a view, not a separate write path.
-2. **Permissions** — rows from `acl WHERE principal=?`. Add / remove
-   via `/dash/acl` endpoints with the principal field pinned.
-
-This is the IAM-shaped surface from
-`template/web/pub/concepts/grants.html:77-86`.
-
-### `/dash/principals/{id}` — effective grants
-
-The "what can this principal actually do" page. Three sections:
-
-1. **Direct grants** — `acl WHERE principal=?` (no transitive
-   expansion).
-2. **Role-derived grants** — for each role reached transitively via
-   `acl_membership`, the rows on that role. Each row tagged with the
-   role it came from.
-3. **Tier-default fallback** — for `folder:` principals, output of
-   `grants.DeriveRules(folder)` filtered to `mcp:*` actions
-   (`specs/5/32-acl-unified.md:184-187`); shown only when no
-   explicit row covers that tool.
-
-Optional `?scope=<s>` parameter narrows everything to rows whose
-scope glob-matches `s`, producing the exact effective rule list
-`RenderACL` returns (`specs/5/32-acl-unified.md:234-239`). When
-absent, show all rows regardless of scope.
-
-## Existing `/dash/groups` refresh
-
-The current view (`dashd/main.go:427-480`) shows folders with their
-routes via `writeGroupRoutes` (`dashd/main.go:482-519`). Update each
-`<details>` block to show three sections instead of one:
-
-1. **Routes** — existing route table (kept).
-2. **ACL rows scoped to this folder** — `SELECT * FROM acl WHERE scope = ? OR ? GLOB scope` against the folder. Columns: principal, action, effect, params, predicate.
-3. **Principals with effective access** — distinct principals from
-   the ACL row query (expanded via `acl_membership` to surface
-   role members). Each principal links to
-   `/dash/principals/{id}?scope=<folder>`.
-
-No new top-level page — the augmentation is in-place. The existing
-`writeGroupRoutes` becomes one of three helpers called inside the
-`<details>` body.
-
-## Auth shape
-
-All routes require an authenticated operator. Reuse the
-`requireFolder` middleware pattern from `webd/server.go:128-139`
-(per-request user check), but with a scope of `**`:
-
-- **Reads** (`GET *`) gated by `Authorize(caller, "interact", "**", ...)`.
-- **Writes** (`POST`, `DELETE`) gated by `Authorize(caller, "admin", "**", ...)`.
-
-The `caller` principal is the canonical OAuth sub from the
-proxyd-signed `X-User-Sub` header (verified by
-`auth/middleware.go`). Failures return 403 with a small HTMX-aware
-fragment so inline writes show an error banner rather than a hard
-page swap. No bypass for the bootstrap operator at the UI layer —
-they pass the check via the `role:operator` row seeded at
-`arizuko create` (`specs/5/32-acl-unified.md:266-280`).
-
-## HTMX patterns
-
-Reuse the partial-rendering convention already established
-(`dashd/main.go:144-145`: `/dash/tasks/x/list`,
-`/dash/activity/x/recent`). Each list page has an `x/` sibling
-endpoint returning the inner fragment only.
-
-Partials:
-
-- `acl/x/rows`: `<tr>...</tr>` repeated. Used for filter changes
-  (form `hx-get="/dash/acl/x/rows" hx-trigger="change from:form"`)
-  and post-insert append (`hx-target="tbody" hx-swap="beforeend"`).
-- `membership/x/expand`: nested `<ul>` for the transitive closure.
-- `principals/x/effective`: `<table>` for the effective grant list,
-  re-rendered when the optional `scope` field changes.
-- `roles/x/members` and `roles/x/permissions`: the two panels on the
-  role detail page, each refreshable independently.
-
-No SPA. No JSON endpoints from dashd. Same `theme.CSS` +
-`theme.ThemeScript` + htmx CDN pattern as
-`dashd/main.go:162-167`.
-
-## Open questions
-
-1. **Conditional grant rendering.** A row with non-empty `params`
-   or `predicate` is conditional — rendered legibly how? Lean:
-   two extra columns shown verbatim, with a tooltip on hover
-   expanding them ("predicate `discord:guild=X` means: only when the
-   user's JWT carries `discord:guild=X`"). Avoid pretty-printing
-   in v1; the operator who wrote the row can read it.
-2. **Principal pattern validation.** Should the insert form reject
-   principals that don't match any known namespace prefix
-   (`google:`, `folder:`, `telegram:`, `discord:`, `role:`, `**`,
-   `*`)? Lean: warn but allow — new platform adapters will introduce
-   new prefixes; reject only structural bugs (whitespace, empty).
-3. **Bulk import.** A CSV upload for migrating from
-   `user_groups`-style rows? Lean: defer — the migration path lives
-   in the v0.40 release script, not the UI. UI does single-row CRUD
-   only.
-4. **`acl_use_log` audit view.** Deferred per docs commitment
-   (`template/web/pub/concepts/grants.html:115` — "agents discover
-   authorization at the failure site"). Add when the table fills
-   with real data.
-5. **Wildcard delete safety.** Deleting a row with `principal='**'`
-   or `scope='**'` could lock everyone out. Add a confirm-input
-   gate ("type the principal exactly"); deletion of the bootstrap
-   `role:operator, *, **` row warns "this is the bootstrap row;
-   continuing requires DB shell access". Lean: enforce the gate.
+- **Composite-key deletes.** `acl` and `acl_membership` have no
+  surrogate id, so a delete form must post every PK column
+  (`principal, action, scope, params, predicate, effect`;
+  `child, parent`). Schema:
+  [`../5/32-acl-unified.md`](../5/32-acl-unified.md).
+- **Cycle check before an edge insert** — `acl_membership` is walked
+  transitively by `Authorize`; a cycle hangs the resolver.
+- **Reuse the resolver, never reimplement it.** A transitive expander
+  must call the same lookup `Authorize` uses. A second implementation of
+  the closure walk is a second answer to the same question.
+- **Wildcard delete safety.** Deleting a `principal='**'` or
+  `scope='**'` row can lock everyone out; the bootstrap
+  `role:operator, *, **` row seeded at `arizuko create` is the one whose
+  removal needs DB-shell recovery. Gate it behind a type-the-name
+  confirm.
+- No SPA, no JSON endpoints from dashd — HTMX partials on `x/` siblings,
+  matching the rest of the daemon.

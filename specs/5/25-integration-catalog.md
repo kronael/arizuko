@@ -13,171 +13,120 @@ depends:
 # specs/5/25 — integration catalog: the surface, derived from use cases
 
 The niche: arizuko is **not the next agent** — it is the **gated, audited
-integration fabric + a curated service catalog** an agent operates. Browse
-a catalog of ready service templates, or point at any OpenAPI directly;
-every call is grant-gated, credential-brokered (secrets never enter the
-container), and audited through the one `5/13` dispatch chain. A skill set
-teaches the agent to install, use, and modify integrations. Bring your own
-agent/model — arizuko sells the wiring + governance + teaching, not the
-intelligence.
+integration fabric plus a curated service catalog** an agent operates.
+Browse ready templates or point at any OpenAPI directly; every call is
+grant-gated, credential-brokered (secrets never enter the container), and
+audited through the one `5/13` dispatch chain. Bring your own agent/model
+— arizuko sells the wiring, governance, and teaching, not the intelligence.
 
-This spec designs the **surface** from a ~120-use-case corpus (four
-domains: dev/infra/cloud, comms/productivity, commerce/data/finance,
-social/content/AI — full corpus `5/26`). The design is grounded in what
-real integrations need, not asserted.
+The surface below is **derived** from a ~120-use-case corpus
+([`26-integration-usecases.md`](26-integration-usecases.md)), not
+asserted.
 
-## What the corpus shows (the load-bearing findings)
+## What the corpus shows
 
-1. **Acquisition is a precedence, not a choice.** The same service can be
-   reached four ways; pick the highest that applies:
+1. **Acquisition is a precedence, not a choice.** The same service is
+   reachable four ways; take the highest that applies.
    1. **Vendor MCP server** — prefer when it exists (GitHub, Stripe,
-      Shopify, Supabase, Firebase, Notion, Linear, Pinecone, Qdrant,
-      Tavily, Firecrawl). Tracks the vendor's own auth/param evolution.
-      → `connectors.toml` (shipped, `5/13` shape 2).
+      Shopify, Supabase, Notion, Linear, Tavily, …). It tracks the
+      vendor's own auth/param evolution so we don't. → `connectors.toml`
+      (shipped, `5/13` shape 2).
    2. **OpenAPI auto-import** — the DEFAULT for API-first services
-      (Cloudflare, Vercel, Datadog, Grafana, Sentry, PayPal, Airtable,
-      PostHog, QuickBooks, Xero, SendGrid, HubSpot, YouTube, …). Point at
-      the spec → derive gated tools. → **`openapi2mcp`, the key gap**
-      (`8/A`, `.ship/research-openapi-mcp.md`; researched, not built).
+      (Cloudflare, Vercel, Datadog, Sentry, PayPal, Airtable, …). →
+      `openapi2mcp`, **the key gap** (`8/A`; researched, not built).
    3. **Hand REST descriptor** — the workhorse for small/stable/no-spec
-      APIs (Porkbun, Vault, Prometheus, WordPress, Ghost, Home Assistant,
-      Anthropic, ElevenLabs, …). → `[[ext]]` TOML (shipped, shape 3).
-   4. **Go handler** — the un-descriptor-able: AWS SigV4, GCP
-      service-account JWT, registry bearer-challenge, 2-step token
-      exchange (Infisical), non-HTTP (SMTP/IMAP). → shape 1.
+      APIs (Porkbun, Vault, Prometheus, Ghost, Home Assistant, …). →
+      `[[ext]]` TOML (shipped, shape 3).
+   4. **Go handler** — the un-descriptor-able: AWS SigV4, GCP SA-JWT,
+      registry bearer-challenge, 2-step token exchange, non-HTTP
+      (SMTP/IMAP). → shape 1.
 2. **Auth is the real fault line, not the tool count.** Three tiers:
-   - **Static-cred, self-serve** (~55–60%): `bearer` / `apikey-header` /
-     `apikey-query` / `basic` / `json-body` → a TOML field + one
-     `secret set`. The agent/operator wires these in minutes.
-   - **OAuth-only** (~⅓, concentrated: Google, Microsoft/Graph,
-     Salesforce, Shopify, PayPal, QuickBooks, Xero, GA4, Firebase): needs
-     a **human consent flow + refresh-token management** — NOT a TOML
-     field. This is the actual wall on agent self-serve; it routes to the
-     OAuth broker (`5/15`), flagged in the catalog per service.
-   - **Signature/derived** (AWS SigV4, GCP JWT): can't be a descriptor at
-     all → Go handler.
-3. **`read|write` is too coarse — add a stakes axis.** Reads (search,
-   analytics, weather, vector query) are low-stakes → default-grant. Writes
-   split: **money movement** (refund, capture, invoice) and **destructive**
-   (row delete, schema migration, S3 overwrite, DNS change, incident
-   resolve) are **high-stakes** → a confirmation gate (`5/19` HITL hold) +
-   idempotency + a dry-run/diff affordance, not just a grant check.
+   static-cred self-serve (~55–60%: `bearer`/`apikey-header`/
+   `apikey-query`/`basic`/`json-body` — a TOML field plus one
+   `secret set`); **OAuth-only (~⅓**, concentrated in Google, Microsoft
+   Graph, Salesforce, Shopify, PayPal, QuickBooks, Xero) which needs a
+   human consent flow and refresh management, **not** a TOML field — this
+   is the actual wall on agent self-serve, routed to the `5/15` broker;
+   and signature/derived (SigV4, GCP JWT) which can't be a descriptor at
+   all.
+3. **`read|write` is too coarse — add a stakes axis.** Reads are
+   low-stakes → default-grant. Writes split: **money movement** (refund,
+   capture, invoice) and **destructive** (row delete, schema migration,
+   S3 overwrite, DNS change) are **high-stakes** → a `5/19` HITL confirm
+   plus idempotency and a dry-run affordance, not just a grant check.
 4. **The descriptor must express more than base+method+path.** Recurring
-   across all four domains: typed path-params (`/zones/{zone_id}/…`);
-   **three pagination conventions** (cursor / offset / JSON:API → a
-   `pagination` field); idempotency keys (auto-generated by the dispatch
-   for high-stakes writes); **`response ∈ json|binary|xml`** (Figma/TTS/
-   maps/PDF move bytes; Namecheap returns XML); **async job pairs** (submit
-   → poll, shared scope, terminal-state contract — Replicate/Fal/Firecrawl/
-   PDF); a standardized `{filter, limit, cursor}` triple mapped to each
-   vendor's DSL rather than exposing raw query syntax to the agent; and a
-   large-text truncation convention (scrapers blow the tool-result budget).
-5. **Auth is not one-header.** `apikey-header` must carry a header name +
-   optional value-template (PagerDuty `Token token=%s`) and allow multiple
+   across all four domains: typed path-params; three pagination
+   conventions (cursor / offset / JSON:API); auto-generated idempotency
+   keys for high-stakes writes; `response ∈ json|binary|xml` (Figma, TTS,
+   maps, PDF move bytes; Namecheap returns XML); async submit→poll pairs
+   with a terminal-state contract; a standardized `{filter, limit,
+cursor}` triple mapped to each vendor's DSL rather than exposing raw
+   query syntax to the agent; and a large-text truncation convention
+   (scrapers blow the tool-result budget).
+5. **Auth is not one-header.** `apikey-header` needs a header name, an
+   optional value template (PagerDuty `Token token=%s`), and multiple
    headers (Datadog `DD-API-KEY` + `DD-APPLICATION-KEY`).
 
-## The template (an integration = one manifest)
+## The template — an integration is one manifest
 
-Extends `5/13`'s `[[ext]]`. A service template — the unit the catalog ships
-and `openapi2mcp` emits — declares:
+Extends `5/13`'s `[[ext]]`. Net-new fields, each earned by a finding
+above: `acquisition` (mcp|openapi|rest|go), `stakes` (low → default-grant,
+high → `5/19` confirm + idempotency), `kind` (sync | async submit+poll),
+`response` (json|binary|xml), `pagination` (none|cursor|offset|jsonapi),
+`idempotent`, plus multi/templated auth headers and an `oauth2` method
+that refs the `5/15` broker instead of naming a secret. Catalog metadata
+(`provider`, description, docs URL) rides along so the operator sees the
+governance before installing.
 
-```toml
-[[integration]]
-name        = "cloudflare"
-base        = "https://api.cloudflare.com/client/v4"
-acquisition = "rest"          # mcp | openapi | rest | go
-provider    = "Cloudflare"    # catalog metadata: description, docs URL, homepage
-
-  [integration.auth]
-  method   = "bearer"         # bearer|apikey-header|apikey-query|basic|json-body|oauth2|sigv4
-  secret   = "CF_API_TOKEN"
-  # apikey-header: headers = [{name="DD-API-KEY", value="{secret:DD_API}"}, …]  (multi + template)
-  # oauth2: provider ref → 5/15 broker (consent flow, NOT a secret field)
-
-  [[integration.tool]]
-  name       = "dns_upsert"
-  scope      = "ext:cloudflare:dns:write"
-  stakes     = "high"         # low → default-grant; high → 5/19 confirm + idempotency
-  method     = "POST"
-  path       = "/zones/{zone_id}/dns_records"
-  response   = "json"         # json | binary(content_type) | xml
-  kind       = "sync"         # sync | async(submit+poll, terminal states)
-  pagination = "none"         # none | cursor | offset | jsonapi
-  idempotent = true           # dispatch auto-generates Idempotency-Key
-```
-
-The blend/registration is `5/13`'s existing per-turn path; nothing in the
-runtime changes — a template compiles to the same gated MCP tools the agent
-already calls, through grants → secret-injection → handler → audit.
+**Nothing in the runtime changes.** A template compiles to the same gated
+MCP tools the agent already calls, through the existing chain: grants →
+secret injection → handler → audit.
 
 ## Acquisition, concretely
 
 - **`arizuko integration search [query]`** — browse the bundled catalog
-  (like today's built-in providers, `5/13`) + any given source. The
-  catalog surfaces per service: tools, scopes, auth tier (self-serve vs
-  OAuth), and stakes — so an operator sees the governance before installing.
+  plus any given source. Surfaces per service: tools, scopes, auth tier
+  (self-serve vs OAuth), and stakes.
 - **`arizuko integration add <inst> <folder> <source>`** — source is a
   catalog name, a git repo of templates, OR an **OpenAPI URL** (→
-  `openapi2mcp` derives the template, with scope + stakes annotation as a
-  curation step; large specs are filtered to the tools the folder needs).
-  Prints the exact `secret set` (static-cred) or OAuth-consent link
-  (`5/15`) and any `network allow` egress the tools require. NEVER
-  auto-grants.
-- **Direct use = the same path with an OpenAPI URL**; no catalog entry
-  needed. Catalog and direct-use produce one artifact: gated tools on the
-  `5/13` chain.
+  `openapi2mcp` derives the template; scope + stakes annotation is a
+  curation step, and large specs are filtered to the tools the folder
+  needs). Prints the exact `secret set` or OAuth-consent link and any
+  `network allow` egress the tools require. **NEVER auto-grants.**
+- **Direct use is the same path with an OpenAPI URL** — no catalog entry
+  needed. Catalog and direct-use produce one artifact.
 
-## The skills (teach the agent to operate it)
+## The skills
 
-A stock skill set — the "set of skills that teach the agent to work with
-the system": discover a service → install its template (catalog or
-OpenAPI) → request the secret/OAuth from the operator → smoke-test a read
-tool → use it; and modify/extend a template (add a tool, tighten a scope).
-This is arizuko's existing skill mechanism (`ant/skills/`), not new
-machinery — the agent operates the fabric the same way it operates
-`/diary` or `/find`.
+A stock skill set teaches the agent to operate the fabric: discover a
+service → install its template → request the secret/OAuth from the
+operator → smoke-test a read tool → use it; and modify a template (add a
+tool, tighten a scope). This is the existing `ant/skills/` mechanism, not
+new machinery.
 
-## Net-new vs reused
-
-| Piece                                                                                                         | Status                                |
-| ------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| Dispatch chain, `[[ext]]` REST descriptor, connectors, secret injection, audit, per-tool grants               | **reused** — `5/13`/`5/14`, shipped   |
-| Built-in provider catalog (Cloudflare/Porkbun/…)                                                              | **reused** — `5/13`, extend with more |
-| OAuth broker for oauth2 auth                                                                                  | **reused** — `5/15`                   |
-| HITL confirm for high-stakes writes                                                                           | **reused** — `5/19`                   |
-| `openapi2mcp` auto-import (the key gap)                                                                       | net-new (researched, `8/A`)           |
-| Template fields: `stakes`, `kind=async`, `response`, `pagination`, `idempotent`, multi/templated auth headers | net-new (extends `[[ext]]`)           |
-| `integration search/add` verbs + catalog surface                                                              | net-new                               |
-| The operator-integration skill set                                                                            | net-new (stock skills)                |
-
-## Honest risks / where it's hard
+## Honest risks
 
 1. **OAuth onboarding is the wall.** ~⅓ of the corpus can't be
-   agent-self-served — a human runs consent + refresh. `5/15` is the path,
-   but the catalog must be honest that these are operator-setup, not
-   one-click for the agent.
-2. **Auto-OpenAPI→MCP is not free.** Schema fidelity, huge specs (hundreds
-   of ops — needs scope/curation annotation, not blind import), and auth is
-   still manual afterward. It reduces hand-authoring, it doesn't erase
-   setup.
-3. **Signature / async / binary need escape hatches**, not the happy path:
-   Go handler for SigV4/JWT, the async submit+poll pair, a media store for
-   binary. A "one request → one JSON response" surface silently fails these.
-4. **High-stakes writes stay human-gated.** Money movement + destructive
-   ops keep the `5/19` confirm; do not sell autonomous high-stakes action —
-   the field hasn't shipped it and the corpus says don't.
+   agent-self-served. The catalog must say "operator setup", not
+   "one-click".
+2. **Auto-OpenAPI→MCP is not free.** Schema fidelity, hundred-op specs
+   needing curation not blind import, and auth still manual afterward. It
+   reduces hand-authoring; it does not erase setup.
+3. **Signature / async / binary need escape hatches**, not the happy
+   path. A "one request → one JSON response" surface silently fails them.
+4. **High-stakes writes stay human-gated.** Do not sell autonomous
+   money-movement — the field hasn't shipped it and the corpus says don't.
 5. **Third-party templates carry the third-party trust problem.** A
-   template's tool runs with the folder's real grants + secrets + egress —
-   folder containment bounds cross-tenant blast radius, not in-tenant
-   authority. Curated catalog first; third-party template repos need the
-   same posture as `6/17`'s third-party tier: skill-guard scan at add,
-   explicit confirm, and crackbox fail-CLOSED (BUGS) as the precondition.
+   template's tool runs with the folder's real grants, secrets, and
+   egress; folder containment bounds cross-tenant blast radius, not
+   in-tenant authority. Curated catalog first; third-party repos need
+   `6/17`'s third-party posture — skill-guard scan at add, explicit
+   confirm, and crackbox fail-CLOSED as the precondition.
 
 ## Ties
 
 `5/13` (the dispatch mechanism this catalogs) · `5/14` (credentials) ·
 `5/15` (OAuth broker — the auth wall) · `5/17` (two-face; arizuko's OWN
-resources are the reflexive case) · `5/19` (HITL hold — high-stakes gate) ·
-`6/12` (MCP firewall — gating third-party MCP servers) · `8/A` +
-`.ship/research-openapi-mcp.md` (openapi2mcp) · `6/1` (orchestration, not a
-harness — the positioning) · `5/26` (the raw use-case corpus).
+resources are the reflexive case) · `5/19` (HITL hold) · `6/12` (MCP
+firewall) · `8/A` (openapi2mcp) · `6/1` (positioning) ·
+[`5/26`](26-integration-usecases.md) (the corpus).

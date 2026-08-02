@@ -3,45 +3,21 @@ status: superseded-in-part
 superseded-in-part: [5/33-paths-roles]
 ---
 
-# MCP Tool Authorization (per tier)
+# MCP tool authorization per tier (the replaced model)
 
-> **Tier model retired by [`5/33-paths-roles`](../5/33-paths-roles.md).** This spec
-> describes the depth→tier→default-grants derivation that `5/33` removes: capability
-> now comes from `role` bindings + `acl` grants (with a `grant_option` delegation
-> level), never from folder depth. Kept as the record of the model being replaced;
-> the tier×tool table below is the SOURCE for the default-role bundles `5/33` seeds
-> (`role:owner` = old tier 1, etc.). Do not add new tier logic here.
+> **Tiers are dissolved.** `auth.Resolve` now returns a folder that
+> "carries ZERO authorization — only its own name"
+> (`auth/identity.go`); capability comes from `role` bindings + `acl`
+> rows with a `grant_option` delegation level
+> ([`../5/33-paths-roles.md`](../5/33-paths-roles.md)), never from folder
+> depth. This file is kept for one reason: the tier×action table below
+> is the **source** for the default-role bundles `5/33` seeds
+> (`role:owner` ≈ old tier 1, `role:member` ≈ old tier 2). Do not add
+> tier logic here.
 
-Scope: **which MCP tools an agent in a given folder can call.** Tier
-is derived from folder depth; actions are scoped to tier 0-3.
+Tier was `min(len(folder.split("/")), 3)`, with `root` at 0.
 
-For the broader auth picture — how `groups`, `user_groups`, `routes`
-compose to produce the grant rules — see
-[`GRANTS.md` (root)](../../GRANTS.md).
-
-**Path is identity, depth determines default grants.** Group identity
-is the folder path; segment names are advisory. Tier is computed from
-depth and decides which tool slots open. Core enforcement shipped.
-Escalation response wiring shipped: `LocalChannel.Send` now enqueues a
-message check on `local:<child>` and stores the parent reply as a
-non-bot message so the child resumes and replies to the original user
-JID.
-
-## Tiers
-
-Tier = `min(folder.split('/').length, 3)`. `root` is tier 0.
-
-| Tier | Depth | Example             |
-| ---- | ----- | ------------------- |
-| 0    | 0     | `root`              |
-| 1    | 1     | `atlas`             |
-| 2    | 2     | `atlas/support`     |
-| 3+   | 3+    | `atlas/support/web` |
-
-Suggested human labels per depth (`world / org / branch / unit / thread`)
-are documented in `ant/CLAUDE.md`. The system reads paths, not labels.
-
-## Action authorization
+## Tier × action (source for the seeded role bundles)
 
 | Action         | Tier 0     | Tier 1       | Tier 2      | Tier 3  |
 | -------------- | ---------- | ------------ | ----------- | ------- |
@@ -54,11 +30,11 @@ are documented in `ant/CLAUDE.md`. The system reads paths, not labels.
 | escalate_group | denied     | denied       | parent      | parent  |
 | refresh_groups | allowed    | denied       | denied      | denied  |
 
-> Updated 2026-04-24: tier 3+ can send_file (and send_reply), but not
-> send_message. See `grants/grants.go:166` and commit `db288f4`
-> ([feat] grants: tier 3+ can send files).
+Tier 3+ gained `send_file` and `send_reply` (but never `send_message`)
+so a leaf room could answer with an artifact without acquiring
+broadcast authority.
 
-## Mount enforcement
+## Tier × mount (source for the container-capability grants)
 
 | Mount                | Tier 0 | Tier 1 | Tier 2      | Tier 3      |
 | -------------------- | ------ | ------ | ----------- | ----------- |
@@ -74,62 +50,26 @@ are documented in `ant/CLAUDE.md`. The system reads paths, not labels.
 | `/var/lib/groups`    | rw     | no     | no          | no          |
 | `/app/src`           | rw     | rw     | rw          | ro          |
 
-`~/public_html` and `~/private_html` are bind-mounted per-group from
-`<data>/web/pub/<folder>/` and `<data>/web/priv/<folder>/`
-respectively — writes appear in the unified web tree (canonical
-filesystem). See `specs/5/V-web-vhosts.md` for the full slot model
-and URL mapping.
+These became explicit grants (`ShareReadOnly`, `EgressOpen`,
+`WebPublish`), resolved by routd at dispatch — `routd/dispatch.go`.
+`~/public_html` / `~/private_html` bind-mount per-group from the unified
+web tree; [`../5/V-web-vhosts.md`](../5/V-web-vhosts.md) is canonical.
 
-## Delegation prompt format
+## Delegation, which outlived the tiers
 
-```xml
-<delegated_by group="atlas">
-  ...original prompt...
-</delegated_by>
-```
+Downward delegation requires the sender to be an ancestor of the target
+folder; upward is `escalate_group` only, to the direct parent, one
+level. `send_message` cannot target a `local:` JID. The circuit breaker
+is `MAX_DELEGATE_DEPTH = 1` — no recursive chaining, because a fan-out
+loop between two agents has no natural stopping point.
 
-Child knows via `ARIZUKO_DELEGATE_DEPTH > 0` env. Fire-and-forget;
-child replies directly to `chatJid`.
-
-## `local:` routing enforcement
-
-All `local:` rules enforced in **action handlers** (not router).
-
-- Downward: sender must be ancestor of target folder.
-- Upward: `escalate_group` only, direct parent only (one level).
-- `send_message` cannot target `local:` JIDs.
-
-## Open: escalation response protocol
-
-Currently fire-and-forget. Intended design:
-
-```
-user -> worker (chatJid = user_jid)
-  worker calls escalate_group(prompt)
-    -> parent runs with chatJid = local:worker_folder
-      -> parent replies -> routed to worker
-        -> worker replies to user_jid with replyTo: original_msg_id
-```
-
-Every registered group gets `local:{folder}` JID for internal routing.
-
-Escalation XML:
+Delegated prompts arrive wrapped, and the child learns its depth from
+`ARIZUKO_DELEGATE_DEPTH`:
 
 ```xml
-<escalation from="atlas/support" reply_to="telegram:xxx" reply_id="789">
-  <original_message sender="John" id="789">user text (max 200 chars)</original_message>
-  ...worker's prompt...
-</escalation>
+<delegated_by group="atlas">...original prompt...</delegated_by>
 ```
 
-reply_id by channel:
-
-| Channel  | Type             | Send implementation                |
-| -------- | ---------------- | ---------------------------------- |
-| Telegram | integer string   | `reply_parameters: { message_id }` |
-| Discord  | snowflake string | `message.reply()` — not yet        |
-| WhatsApp | stanza ID        | needs quoted object — deferred     |
-| Mastodon | status ID        | stub exists                        |
-| Email    | Message-ID       | thread-based                       |
-
-Circuit breaker: `MAX_DELEGATE_DEPTH = 1`. No recursive chaining.
+Escalation replies route back through `local:<child>`: the parent's
+answer is stored as a non-bot message so the child resumes and answers
+the original user JID rather than the parent.

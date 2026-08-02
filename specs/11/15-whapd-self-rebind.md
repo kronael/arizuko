@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 ---
 
 # Self-service WhatsApp re-pair (operator-only)
@@ -40,7 +40,7 @@ This is NOT exposed via MCP. The agent CANNOT call pair-start.
 Two pieces. dashd grows ONE outbound HTTP path (its first — today
 dashd is read/write-SQLite-only) and uses `CHANNEL_SECRET` to call
 whapd's `/v1/pair/*` endpoints. This is a real new capability in
-dashd, not a re-use; it's small and contained. No gateway proxy,
+dashd, not a re-use; it's small and contained. No routd proxy,
 no `core.Pairer` capability, no MCP tool. One renderer per concern.
 
 ### 1. whapd HTTP surface
@@ -76,7 +76,7 @@ requesting ──baileys throws / network──▶ idle (start returns 500)
 pending ──connection.update.open──▶ idle (creds written, normal flow)
 pending ──60s timeout──▶ idle (failed silently; next /status shows idle)
 pending ──new /v1/pair/start──▶ 429 (cannot interrupt)
-*  ──auth-rotate (spec 8/16)──▶ unauthenticated (sibling-spec concern)
+*  ──auth-rotate (spec 11/16)──▶ unauthenticated (sibling-spec concern)
 ```
 
 `requesting` and `pending` are guarded by a mutex on the `bot`
@@ -98,7 +98,7 @@ So this is a refactor, not an extraction:
 class WhapdBot {
   private sock: WASocket | null;
   private pairing: { state, code?, expires_at?, deadline?, mu: Mutex };
-  private auth_rotate_count: number;  // for spec 8/16
+  private auth_rotate_count: number;  // for spec 11/16
 
   async requestPair(phone): Promise<{code, expires_at}> {
     await this.pairing.mu.acquire();
@@ -134,7 +134,7 @@ Critical transitions to handle (all tested below):
 - `requesting → failed` (Baileys throws on `requestPairingCode`)
 - `pending → cancel` not exposed — operator hits "try again" only after
   60s expiry. Avoids a cancel-race window.
-- `pending → rotation` reserved for spec 8/16; this spec is operator-only.
+- `pending → rotation` reserved for spec 11/16; this spec is operator-only.
 
 ### 3. dashd page
 
@@ -176,8 +176,8 @@ try again."
   is rare and operator-initiated). Exceeding returns 429 "too many
   attempts". WhatsApp bans the number on excess link attempts; this
   guard prevents one operator from burning the account in a tantrum.
-- **Audit**: every `/v1/pair/start` writes a row to gated's `messages`
-  table via gated's existing HTTP audit endpoint. Fields:
+- **Audit**: every `/v1/pair/start` writes a row to routd's `messages`
+  table via routd's existing HTTP audit endpoint. Fields:
   - `id` = `core.MsgID("pair")`
   - `chat_jid` = `"arizuko:admin/whapd"` (synthetic instance-level JID;
     appears in dashd activity feed but doesn't route)
@@ -189,7 +189,7 @@ try again."
     chat message via the channel; consumers that filter `from_me=true`
     to find sent messages won't see admin events)
   - `bot_msg` = `false` (admin events are not bot replies either)
-    Joint decision with spec 8/16: stay in `messages` (existing schema,
+    Joint decision with spec 11/16: stay in `messages` (existing schema,
     no new table). Both specs adopt the same synthetic-JID convention.
 
 ## Phone number storage
@@ -211,10 +211,10 @@ per-channel cache / env); env wins on minimality + correct scope.
   "copy 2-3 times before abstracting" — abstract when mastd, teled,
   or discd actually grow runtime re-auth. They don't today (env-var
   rotation for all three).
-- NOT a gateway-proxied endpoint. Gateway routes messages; the dashd
+- NOT a routd-proxied endpoint. routd routes messages; the dashd
   process can talk to whapd directly with `CHANNEL_SECRET` (the new
   outbound capability documented in §1) without adding a layer to
-  gateway.
+  routd.
 - NOT MCP-exposed for `pair_start`. Operator-only.
   `pair_status` could be MCP-exposed (read-only state for the
   agent to notify the operator in chat) — left for a follow-up; not
@@ -268,7 +268,7 @@ Failure-mode coverage, not happy-path:
 | `dashd/main.go`                                     | register the two new routes in the existing mux                                                                                                                                                                                                   | ~5   |
 | Tests                                               | the 10 cases above                                                                                                                                                                                                                                | ~200 |
 | `core/types.go`                                     | — (NO `Pairer` interface)                                                                                                                                                                                                                         | 0    |
-| `gateway/gateway.go`                                | — (NO proxy)                                                                                                                                                                                                                                      | 0    |
+| `routd` (NO proxy)                                  | — (NO proxy)                                                                                                                                                                                                                                      | 0    |
 | `ipc/ipc.go`                                        | — (NO MCP tool)                                                                                                                                                                                                                                   | 0    |
 
 **Net: ~475 LOC** including tests. Production code ~275 LOC.
@@ -280,7 +280,7 @@ page. This estimate is honest.
 
 No schema migration. The audit row uses an existing `messages`
 schema (sender + verb + content all present today). No code path
-in the gateway/store needs to learn `whapd:pair`.
+in routd/store needs to learn `whapd:pair`.
 
 ## Spec status
 

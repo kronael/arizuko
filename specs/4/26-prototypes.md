@@ -4,131 +4,74 @@ status: shipped
 
 # Prototypes
 
-Spawn and copy shipped. Spawns persist until removed; no auto-archive.
+A group's `prototype/` subdirectory defines what its children look like.
+When routd resolves a route target that doesn't exist,
+`spawnFromPrototype` (`routd/spawn.go`, called from `routd/steer.go`)
+copies the parent's `prototype/`, registers the child, and routes to it.
 
-A group's `prototype/` subdirectory defines what its children look
-like. When a child is spawned (via auto-threading or onboarding),
-the parent's `prototype/` is copied into the new child folder.
-
-## Model
-
-```
-groups/root/prototype/          what new worlds look like
-groups/atlas/prototype/         what atlas children look like
-groups/atlas/support/prototype/ what support children look like
-```
-
-When gated resolves a route target that doesn't exist,
-`spawnFromPrototype` copies the parent's `prototype/` dir,
-registers the child in DB, and routes to it.
-
-```
-gated resolves target "root/support/tg_123"
-  → target doesn't exist
-  → copy from "root/support/prototype/"
-  → register child in DB
-  → route to child
-```
-
-No special prototype flag or DB column. Any group with a
-`prototype/` subdirectory can spawn children.
+**No prototype flag and no DB column.** Any group with a `prototype/`
+subdirectory can spawn children — presence of the directory is the
+whole configuration. A boolean column would have been a second source of
+truth for something the filesystem already answers.
 
 ## What gets copied
 
-- `CLAUDE.md`, `PERSONA.md` — full copy (not symlink). Spawns are
-  independent once created.
-- Session, memory, workdir — NOT copied (fresh start)
-- DB state — new row, empty session
-- `skills/` — mounted read-only from parent (not copied)
+`CLAUDE.md` and `PERSONA.md` are **copied, not symlinked**, so a spawn
+is independent the moment it exists — editing a parent's prototype must
+not retroactively rewrite the character of children already talking to
+users. Session, memory, and workdir are not copied (fresh start);
+`skills/` is bind-mounted read-only from the parent rather than copied,
+because skills are versioned platform content, not per-group character.
 
-## Spawn limits
+## Spawn cap
 
-`max_children` on the parent group (default: 50). When reached, new
-targets fall through to the next route (fallback, not error).
+`Config.MaxChildren`, stored inside the group's `container_config` JSON
+blob (`core.GroupConfig`), enforced by `auth.CheckSpawnAllowed`:
 
-```sql
--- groups table
-max_children INTEGER DEFAULT 50  -- 0 = no spawning
-```
+- `< 0` — unlimited
+- `0` — spawning **disabled** (this is the zero value, so a group is
+  born unable to spawn until an operator opts in)
+- `n > 0` — at most `n` direct children
 
-## Spawn folder naming
+When the cap is hit the target falls through to the next route rather
+than erroring. A spawn cap exists to bound an inbound flood, and
+failing the whole message because the hundredth stranger messaged you
+is the wrong failure.
 
-Derived from the triggering JID. Colon replaced by underscore,
-special chars stripped:
+Ordering is load-bearing: containment authorization first, then the cap,
+then the write.
 
-```
-telegram:-100123456   → telegram_100123456
-discord:98765         → discord_98765
-```
+## Folder naming
 
-## Filesystem
+Derived from the triggering JID with `:` → `_` and special characters
+stripped (`telegram:-100123456` → `telegram_100123456`).
 
-```
-groups/
-  root/
-    prototype/          what new worlds look like
-      CLAUDE.md
-      PERSONA.md
-    support/            parent group (has prototype/)
-      prototype/
-        CLAUDE.md
-        PERSONA.md
-      tg_123/           spawn (child)
-        CLAUDE.md       copied from support/prototype/
-        PERSONA.md         copied from support/prototype/
-```
+## Lifecycle
 
-`template/` at repo root seeds `groups/root/prototype/` on
-`arizuko create`. It is the initial definition of what new worlds
-look like.
+Spawns persist until explicitly removed. No state machine, no
+auto-archival — storage is cheap and a wrongly-archived conversation is
+not. Spawns inherit the parent's `MIGRATION_VERSION` at creation and run
+migrations on boot if behind; existing spawns do not auto-update to a
+changed prototype (delete and re-create to refresh).
 
-## Thread lifecycle
+Routing rules are inherited from the parent. The hierarchy provides
+session and data isolation; routing is the parent's to configure.
 
-Spawn groups exist until explicitly removed. No state machine. No
-auto-archival. Storage is cheap; rule/route history that today's
-state-transitions tried to preserve will be captured by a proper
-audit log when one is added (TODO — currently no audit log of rule
-or route changes).
+## Agent-facing spawn is NOT wired
 
-## Migrations
+`register_group(fromPrototype=true)` returns
+`register_group: fromPrototype not configured`
+(`routd/groups_resource.go`). routd's agent socket never wired
+`SpawnGroup`/`SetupGroup`, so `register_group` has only ever created the
+row + route + git-init — no prototype clone, no skill-skeleton seed —
+since the split. The MCP-REST fold preserved that behavior verbatim
+rather than quietly changing it.
 
-Spawns inherit the parent's `MIGRATION_VERSION`. On boot, if spawn
-version < parent version, agent runs migrations from
-`skills/self/migrations/`. New spawns get current parent state.
-Existing spawns don't auto-update — delete and re-create to refresh.
-
-## Routing inheritance
-
-Spawns inherit routing rules from the parent. The hierarchy provides
-session and data isolation — routing is fixed by the parent's config.
-
-## Acceptance criteria
-
-1. `spawnFromPrototype` copies parent's `prototype/` to child folder
-2. `CLAUDE.md`, `PERSONA.md` copied; `skills/` bind-mounted read-only
-3. `max_children` enforced; fallback to next route when exceeded
-4. Folder names derived from JID (`spawnFolderName(jid string) string`)
-5. Spawns persist in DB; manual removal only
-
-## Agent-facing spawn mechanism
-
-Agents can spawn children directly via the `register_group` MCP tool with
-`fromPrototype=true`. The `name` parameter is optional — when omitted it
-defaults to the calling group's jid. This replaces the former `spawn_group`
-tool (removed; merged into `register_group`).
-
-```
-agent calls register_group(fromPrototype=true)
-  → ipc copies caller's prototype/ dir into new child folder
-  → registers child in DB
-  → child is ready to receive messages
-```
-
-The automatic gateway path (unregistered route target → spawnFromPrototype)
-remains the primary mechanism for inbound-triggered spawns.
+The automatic path (unrouted target → `spawnFromPrototype`) is the only
+live prototype spawn. Wiring the agent-facing one is a feature, not a
+bug fix.
 
 ## Not in scope
 
-- Prototype inheritance across worlds (each world's root defines its own)
-- Spawn creation from chat commands (use auto-threading routes)
-- Prototype creation from chat commands beyond `register_group`
+Prototype inheritance across worlds (each world's root defines its own),
+spawn or prototype creation from chat commands.

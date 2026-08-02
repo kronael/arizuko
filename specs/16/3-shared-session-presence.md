@@ -9,7 +9,8 @@ depends: [J-sse]
 two teammates watch a slink chat while the agent works, neither can see
 the other is there, nor that a turn is in flight — the session feels
 single-player even when it isn't. arizuko has no presence primitive
-anywhere (grep: zero `presence`/`participant`/`roster` in the code).
+anywhere — `presence`/`participant`/`roster` appear in no first-party
+package, only in vendored `third_party/discordgo`.
 
 ## What we steal
 
@@ -49,7 +50,9 @@ per-sender scoping inside a group — that fights the shared-context model
 
 ## Out of scope
 
-- Typing indicators for _human_ participants (that's `14/9-slink-typing`).
+- Typing indicators for _human_ participants. The agent-working half is the
+  `working` frame above; a human "X is typing" needs a client-side keystroke
+  signal and is a separate, smaller thing.
 - Cursor/selection sharing or any CRDT co-editing — this is presence +
   activity, not collaborative editing.
 - Presence across channel adapters (Slack/Telegram have their own native

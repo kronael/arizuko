@@ -13,7 +13,9 @@ Agent-written daily notes. The diary IS the task log. Reader: `diary/`.
 | MEMORY.md | Knowledge | Preferences, patterns, long-term projects |
 | Diary     | Work log  | Tasks, progress, decisions                |
 
-No work.md. MEMORY.md stays under 200 lines.
+MEMORY.md stays under 200 lines. A third file for _in-flight_ state
+landed later and is a separate layer —
+[`../3/W-work.md`](../3/W-work.md).
 
 ## Path
 
@@ -36,7 +38,12 @@ On new session, inject diary summaries as XML:
 </knowledge>
 ```
 
-14-day window until progressive summarization ships.
+Window is 14 entries (`diary.Read(groupDir, 14)`, called from
+`container/runner.go`). Week/month rollups exist but are **not**
+injected — the daily window already covers that span, so injecting both
+would spend context on the same events twice. They exist so
+`/recall-memories` can search longer timeframes
+([`../4/17-knowledge-system.md`](../4/17-knowledge-system.md)).
 
 ## Nudge triggers
 

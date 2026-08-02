@@ -3,220 +3,108 @@ status: shipped
 shipped: 2026-05-18
 ---
 
-# Gateway-side reply-to-bot → verb=mention promotion
-
-> **Shipped.** Thread-participation refinement landed 2026-06-10. Adapter
-> models differ by platform: slakd sets `ReplyTo = thread_ts`; discd uses
-> channel-as-thread (topic inherited via MessageByID); teled sets ReplyTo
-> for explicit replies. Telegram forum topics are an edge case — address
-> if reported broken.
->
-> **Fix 2026-06-14:** Bot messages that START a thread (threadRoot set,
-> tc.Topic empty) were stored with `topic=""`, so `threadHasBotMessage`
-> never found them. Now `deliverRow` stamps `row.Topic = threadRoot` on
-> success when a new thread is created. Discord sloth threads now trigger
-> mention promotion correctly.
+# routd-side reply-to-bot → `verb=mention` promotion
 
 ## Problem
 
-A reaction or reply pointing at one of the bot's own messages should
-fire the agent — it's the user directly engaging. Today this is
-adapter-side and inconsistent:
+A reaction or reply pointing at one of the bot's own messages should fire
+the agent — it's the user directly engaging. It used to be adapter-side
+and inconsistent: `discd` promoted (via a local `botMsgs` ring buffer);
+`teled`, `whapd`, `slakd` did not, shipping reactions as
+`verb=like`/`dislike` only. Operators who scoped routes to `verb=mention`
+to filter noise saw Discord work and the other three silently miss every
+reaction and text-reply directed at the bot.
 
-- `discd` promotes (both reactions and text replies) via local
-  `botMsgs` ring buffer (`discd/bot.go:251, 584-590`)
-- `teled`, `whapd`, `slakd` do NOT promote — reactions on bot
-  messages ship as `verb=like` / `verb=dislike` only
+## Decision: one renderer at the right ring
 
-Operators who scope routes to `verb=mention` to filter noise see
-Discord work and the other three silently miss every reaction +
-text-reply directed at the bot.
+Duplicating the discd pattern to three more adapters means four ring
+buffers of sent message ids, four register-on-Send hooks, four
+check-on-receive paths — and the ring buffer races container restarts,
+losing recently-sent ids. The information already lives in
+`messages.is_bot_message`, which routd writes on every outbound. Adapters
+stay dumb: they ship the raw verb and routd upgrades it at ingest,
+**before `PutMessage` and before routing**, so every downstream path
+(routing, observed window, prompt) sees one truth.
 
-## Why not duplicate the discd pattern to three more adapters
+`routd/server.go:480`:
 
-Each adapter would need its own ring buffer of sent message IDs +
-register-on-Send + check-on-receive. That's 4× the maintenance, and
-the ring buffer races container restarts (loses recently-sent IDs).
-The information already lives in `messages.is_bot_message` — routd
-writes it on every outbound. Adapter-side duplication is the wrong
-layer.
-
-## What ships
-
-One renderer at the right ring: **routd** promotes verb at inbound
-ingest, BEFORE PutMessage and routing. Adapters stay dumb; they ship
-the raw verb (`like` / `dislike` / `message`) and routd upgrades
-to `mention` when the parent is bot-authored.
-
-### Promotion rule
-
-```
-if verb != "untrusted" && m.ReplyTo != "" &&
-   store.ReplyTargetIsBot(m.ReplyTo) {
+```go
+if verb != "untrusted" &&
+    ((m.ReplyTo != "" && s.db.ReplyTargetIsBot(m.ReplyTo)) ||
+        s.db.ThreadHasBotMessage(m.ChatJID, m.Topic)) {
     verb = "mention"
 }
 ```
 
-The guard is `verb != "untrusted"`, not `!= "mention"`: an untrusted
-sender (emaid marks unverified senders `verb=untrusted`, spec 10/17)
-must NOT escalate to a mention this way — that would let a spoofed
-inbound drive an agent turn. Re-promoting an already-`mention` inbound
-is a harmless no-op, so no anti-double-promotion guard is needed.
+**The guard is `verb != "untrusted"`, not `!= "mention"`.** An untrusted
+sender (emaid marks unverified senders `verb=untrusted`,
+[`11/17-emaid-auth.md`](../11/17-emaid-auth.md)) must
+not escalate to a mention this way — that would let a spoofed inbound
+drive an agent turn. Re-promoting an already-`mention` inbound is a
+harmless no-op, so no anti-double-promotion guard is needed.
 
-### Where in code
+## Thread _participation_, not just thread _root_
 
-`routd/server.go` `handleMessages` immediately before `PutMessage`
-(guard at `routd/server.go:465`). The store row carries the promoted
-verb so all downstream paths (routing, observed-window, agent prompt)
-see one truth.
+A platform thread doesn't deliver each in-thread message as an explicit
+reply — it carries a thread anchor (Slack `thread_ts`, Discord parent
+channel). Two refinements, both driven by live debugging:
 
-### Adapter cleanup
+**Adapters set `ReplyTo` = the thread root for in-thread messages.** The
+adapter is the layer that knows the thread shape. Without it a follow-up
+in a thread the bot started arrives as `verb=message`, so the agent
+re-attends only while the [`G-engagement.md`](G-engagement.md) window is
+open and then goes silent until re-@mentioned. Human-rooted threads don't
+resolve as bot messages, so this never over-triggers.
 
-`discd/bot.go`:
+**Root-only was still too narrow** (atlas/Slack, 2026-06-09). The common
+case is that the bot _joined_ a human-started thread: root is human, so
+later replies arrive `verb=message` and the user experiences "it stopped
+listening mid-thread". Operator's words: _a reply is a mention if it
+replies to a bot message OR lands in a thread the bot started or
+participated in._ Hence the second term,
+`ThreadHasBotMessage(chat_jid, topic)` (`routd/db.go:1313`) — any bot row
+in the thread, which subsumes the root-only rule.
 
-- Remove `onReactionAdd` local promotion (line 251-253).
-- Remove `isMentioned` reply-to-bot branches (lines 584-590) —
-  the `botMsgs` ring-buffer check and the `ReferencedMessage.Author.ID
-== botID` branch.
-- KEEP the explicit `@<bot>` text-mention loop (lines 579-583) —
-  that's a different signal (the user typed `<@BOT_ID>` in body).
-- `botMsgs` ring buffer becomes vestigial; remove it.
+**Keyed on `chat_jid`, not `routed_to`/folder.** In the split the owning
+folder is unresolved at ingest (route resolution runs after the row is
+stored). The chat is the precise thread container anyway — one folder
+serves many chats — and `ChatJID` is present on the inbound.
 
-`teled`, `whapd`, `slakd`: no change. They already emit
-`ReplyTo: <bot-msg-id>` correctly; routd now promotes uniformly.
+**Topic inheritance runs BEFORE promotion** (`routd/server.go:470`) so
+the participation check sees the thread topic rather than an empty one.
 
-## Tests
+**Empty topic → false.** The chat's main timeline is not a thread;
+promoting there would re-fire on every root message in any channel the
+bot once spoke in. DMs and no-topic replies fall through to the
+reply-to-bot rule unchanged.
 
-`api/api_test.go` (new or extend):
+**A bot message that STARTS a thread must be stamped with the thread as
+its topic** (fix 2026-06-14, `routd/turns.go:314`). Such rows were stored
+with `topic=""`, so `ThreadHasBotMessage` never found them and Discord
+threads never promoted.
 
-1. Inbound with `verb=like, reply_to=<bot-msg-id>` → stored verb is
-   `mention`.
-2. Inbound with `verb=like, reply_to=<user-msg-id>` → stored verb
-   stays `like`.
-3. Inbound with `verb=message, reply_to=<bot-msg-id>` → stored verb
-   is `mention` (text reply to bot, all adapters).
-4. Inbound with `verb=mention, reply_to=<bot-msg-id>` → stored verb
-   stays `mention` (no double-promotion, no overwrite).
-5. Inbound with `verb=like, reply_to=""` → stored verb stays `like`
-   (reactions to nothing don't promote).
-6. Inbound with `verb=like, reply_to=<missing-id>` → stored verb
-   stays `like` (lookup misses, no promotion).
-
-`discd` tests: any existing test of `onReactionAdd` that asserted
-`verb=mention` for bot-msg reactions must move to api/api_test.go
-(the assertion is now valid for ALL adapters, not just discord).
+Adapter models still differ by platform — slakd sets
+`ReplyTo = thread_ts`; discd uses channel-as-thread with the topic
+inherited via `TopicByID`; teled sets `ReplyTo` for explicit replies.
+Telegram forum topics are a known edge case, unaddressed until reported
+broken.
 
 ## What this is NOT
 
-- NOT a behavior change for catch-all routes (`match=**`). They
-  fired on `verb=like` already; they keep firing.
-- NOT a change to the routing layer. `verb=mention` rules already
-  exist; this just makes them fire across all adapters consistently.
-- NOT cross-adapter ID collision. `messages.id` is unique across
-  the table (PRIMARY KEY); a discord message ID and a telegram
-  message ID can't collide on lookup.
-
-## Thread replies are implicit reply-to-bot
-
-The promotion keys on `ReplyTo`, but a platform thread doesn't deliver
-each in-thread message as an explicit reply — it carries a thread anchor
-(Slack `thread_ts`, Discord parent channel, …). An adapter that only sets
-`Topic` from that anchor and leaves `ReplyTo` empty defeats the promotion:
-a follow-up in a thread the bot started arrives as `verb=message`, so the
-agent only re-attends while the spec 5/G engagement window is open, then
-goes silent until the user re-@mentions.
-
-Fix at the adapter (the layer that knows the thread shape): **set
-`ReplyTo` = the thread root** for any in-thread message. The gateway
-promotion then flips it to `mention` only when that root resolves via
-`IsBotMessageByID` (`id` OR `platform_id`) — i.e. the thread was started
-by one of the bot's own messages. Human-rooted threads don't resolve, so
-they keep the engagement/mention path; no over-triggering.
-
-`slakd` sets `ReplyTo = thread_ts` for `thread_ts != ts` messages
-(`slakd/bot.go`). Other threaded adapters (`discd` parent channel,
-`teled` forum topics) should follow the same rule when their thread model
-is wired.
-
-## Refinement — thread _participation_, not just thread _root_ (shipped)
-
-> status of this section: **shipped** 2026-06-10. Requested 2026-06-09
-> after the atlas/Slack channel debugging.
-
-The shipped rule promotes a thread reply only when the thread _root_ is
-bot-authored (`ReplyTo` = root → `IsBotMessageByID`). That misses the
-common case: the bot **joined** a human-started thread (answered once),
-the user replies again later in that thread — root is human, so it
-arrives `verb=message` and the bot only re-attends while the `5/G`
-engagement window is open, then goes silent until re-@mentioned. The
-user experiences "it stopped listening mid-thread."
-
-Refined intent (operator words): _a reply is a mention if it replies to
-a bot message OR lands in a thread the bot **started or participated
-in**; otherwise the normal engagement/attention window applies._
-
-The ONE promotion site (routd `handleMessages`, before `PutMessage`) gains a
-second test — keyed on **`(chat_jid, topic)`, not `(topic, folder)`**:
-
-```go
-if verb != "untrusted" && m.ReplyTo != "" &&
-    (s.replyTargetIsBot(m.ReplyTo) ||                    // reply to a bot msg (shipped)
-     s.threadHasBotMessage(m.ChatJID, m.Topic)) {        // bot participated in this thread (new)
-    verb = "mention"
-}
-```
-
-- **`threadHasBotMessage(chatJID, topic)`** — has the bot already posted in
-  this thread? (`SELECT 1 FROM messages WHERE chat_jid=? AND topic=? AND
-is_bot_message=1 LIMIT 1`). "Started" is the bot root; "participated" is
-  _any_ bot row in the thread — this subsumes the shipped root-only rule.
-- **Why `chat_jid`, not `routed_to`/`folder`** (correction to the draft): in
-  the split, the owning folder is **unresolved at ingest** — route resolution
-  runs after the row is stored (see `server.go` "engagement is NOT committed at
-  ingress"). The chat is the precise thread container anyway (one folder serves
-  many chats), and `m.ChatJID` is present on the inbound. Topic-inheritance
-  (`m.Topic` from `TopicByID(ReplyTo)`) is resolved BEFORE the promotion so the
-  check sees the thread topic.
-- **Empty topic → false.** The chat's main timeline is not a thread; promoting
-  there would re-fire on every root message in a channel the bot once spoke in.
-  DMs / no-topic replies fall through to the reply-to-bot rule unchanged.
-- Lives in `routd/server.go` as `threadHasBotMessage`, a sibling of the existing
-  raw-SQL `replyTargetIsBot` — routd holds its own DB handle, not a
-  `store.Store`, so the query is routd-local (consistent with `replyTargetIsBot`,
-  not `store/messages.go`).
-- Threads the bot never spoke in stay on the engagement/attention path (`5/G`)
-  — no over-triggering in busy channels the bot merely observes.
-
-This is still **one renderer at one ring** (routd ingest, before `PutMessage`):
-participation is a property of the stored thread, not new adapter state. No
-adapter change beyond the already-required `ReplyTo`/`Topic` wiring.
-
-### Code surface (refinement, shipped)
-
-| File                   | Change                                                                                                                |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `routd/server.go`      | new `threadHasBotMessage(chatJID, topic) bool`; promotion gains the OR term; topic-inheritance moved before promotion |
-| `routd/parity_test.go` | `TestThreadParticipationPromotion`: participated-thread → mention; silent-thread → message; no-topic → message        |
+- **NOT a behavior change for catch-all routes.** They fired on
+  `verb=like` already and keep firing.
+- **NOT a routing-layer change.** `verb=mention` rules already existed;
+  this makes them fire consistently across adapters.
+- **NOT a cross-adapter id collision risk.** `messages.id` is the PRIMARY
+  KEY, unique across the table.
 
 ## Migration
 
-No schema change. Existing rows in `messages` keep their stored
-verb (immutable). The promotion only affects NEW inbound from the
-moment of deploy. Routes don't need touching.
+No schema change. Stored verbs are immutable, so promotion affects only
+inbound from the moment of deploy. Routes need no touching.
 
-## Code surface
-
-| File                | Change                                            | LOC  |
-| ------------------- | ------------------------------------------------- | ---- |
-| `store/messages.go` | new `IsBotMessageByID(id) bool`                   | ~10  |
-| `api/api.go`        | promotion block before PutMessage                 | ~5   |
-| `discd/bot.go`      | remove `botMsgs` field + uses; trim `isMentioned` | ~−40 |
-| Tests               | 6 cases above + discd test migration              | ~120 |
-
-Net: **~95 LOC** including tests. Production code SHRINKS by ~25 LOC
-(discd cleanup outweighs the gateway add).
-
-## Open questions
-
-None. The promotion rule is mechanical; ReplyToID is universally
-present on the verbs that need promoting.
+The discd cleanup that came with it — removing `onReactionAdd`'s local
+promotion, the `botMsgs` ring buffer, and the reply-to-bot branches of
+`isMentioned`, while KEEPING the explicit `@<bot>` text-mention loop
+(a different signal: the user typed `<@BOT_ID>`) — shrank production code
+by more than the routd addition.

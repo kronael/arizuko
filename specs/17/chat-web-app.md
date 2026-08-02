@@ -2,164 +2,84 @@
 status: draft
 ---
 
-# Chat Web App
+# Chat web app
 
-Full React/Tailwind/Vite SPA at `/pub/chat/` — the primary human-facing
-interface to arizuko. Discord-style three-panel layout, Claude-style message
-aesthetics. Replaces the HTMX scaffolding in `webd/pages.go`. Slink remains a
-pure API surface; this app is the web channel.
+A React/Vite SPA at `/pub/chat/` — the primary human-facing interface to
+arizuko, replacing the HTMX scaffolding in `webd/pages.go`.
 
 ## Problem
 
-The current HTMX chat pages (`/chat/<folder>`) are two separate pages: a groups
-grid and a per-group chat. Switching groups navigates away. There is no thread
-list panel, no real sidebar, no multi-group live view, and no path to group
-creation. The UX cannot scale to a user with 10+ groups and dozens of threads.
+The HTMX chat pages are two separate pages: a groups grid and a per-group
+chat. Switching groups navigates away. There is no thread list, no sidebar,
+no multi-group live view, and no path to group creation. It does not scale
+past a handful of groups.
 
-## Vision
+## Decisions
 
-A Discord-like three-panel shell: narrow left rail listing groups, a thread
-list for the selected group, and the chat pane. Every group is one AI agent;
-threads are topics within that agent's conversation space. The web is just
-another channel — messages sent from Telegram, Discord, or WhatsApp appear
-here too, with a small platform badge.
-
-Mobile collapses to a single pane with a nav drawer (groups → threads → chat).
-
-## Technology
-
-| Layer        | Choice                   | Reason                                          |
-| ------------ | ------------------------ | ----------------------------------------------- |
-| Framework    | React 19                 | Concurrent features, stable ecosystem           |
-| Build        | Vite 6                   | Already in the stack (vited); sub-second HMR    |
-| Styling      | Tailwind CSS 4           | Utility-first, dark/light trivial               |
-| State        | Zustand                  | Navigation + ephemeral UI state only            |
-| Data         | TanStack Query v5        | Caching, background refetch, optimistic updates |
-| Real-time    | EventSource (native SSE) | Already deployed; no WebSocket infra needed     |
-| Source root  | `chatapp/`               | New directory; separate from webd Go code       |
-| Build output | `template/web/pub/chat/` | Served by vited like all other pub pages        |
-
-The built output (`template/web/pub/chat/`) is committed to the repo (small,
-deterministic) so instances get it without a Node runtime at deploy time.
-`make chat` builds it (`cd chatapp && npm ci && npm run build`); `make chat-dev`
-runs `vite --mode development` with HMR, proxying `/api/*` to a running webd.
+- **Three-panel shell** (group rail → thread list → chat pane), collapsing
+  to one pane with a nav drawer on mobile. A group is one agent; threads are
+  topics in that agent's space. Messages from Telegram/Discord/WhatsApp
+  appear here too with a platform badge — the web is another channel, not a
+  privileged one.
+- **Hash routing** (`/pub/chat/#atlas/t1234`), served as a static page from
+  the existing `/pub` tree. Client-side routing under a hash needs no
+  catch-all server route and cannot 404 on a deep link.
+- **Built output is committed** to `template/web/pub/chat/` (small,
+  deterministic) so instances need no Node runtime at deploy time.
+- **Server data lives in the query cache, never in the UI store.** Only
+  navigation and ephemeral UI state (selected folder/topic, mobile panel,
+  per-group agent status) are client state. Two stores for one fact drift.
+- **New authenticated SSE endpoint**, not a reworked token stream. The
+  existing `/chat/<token>` route-token surface stays as the external,
+  share-by-link path ([5/W-webhook-routes](../5/W-webhook-routes.md)); the
+  app gets a JWT-gated per-group stream. Different auth boundary, different
+  endpoint.
+- **Not the operator dashboard.** Routing rules, grants, and admission
+  queues stay in `/dash/` (phase [7/](../7/)). This is the user chat
+  surface only.
 
 ## Data model
 
-- **Group** = folder = one agent: `{folder, name, description, status}`.
-  `status ∈ idle | thinking | active | error`, derived from runed container
-  state. `description` comes from the group's `PERSONA.md`.
-- **Thread** = topic within a group: `{topic_id, label, last_message_at}`.
-  `label` = first 40 chars of the first user message, stored as `topic_label`
-  on creation; falls back to `t<unix_ms>` if no label yet.
+- **Group** = folder = one agent: `{folder, name, description, status}`,
+  status derived from runed container state, description from the group's
+  persona frontmatter.
+- **Thread** = topic: `{topic_id, label, last_message_at}`; label is the
+  head of the first user message, stored at creation.
 - **Message** = `{id, role, content, topic, platform, ts, reply_to?}`.
-  `platform ∈ web | tg | dc | wa | …` — which channel the message entered on;
-  shown as a badge on user messages. Agent messages render as Markdown; user
-  messages are plain text.
-- **Tool call** = paired `tool_call` + `tool_result` SSE events keyed by
-  `call_id`, rendered as one collapsible card in the message stream.
-
-Navigation state (`selectedFolder`, `selectedTopic`, per-group `agentStatus`,
-`typingTopics`, mobile panel) lives in Zustand. All server data (groups,
-threads, messages) lives in the TanStack Query cache, not Zustand.
+  Agent messages render as Markdown, user messages as plain text.
+- **Tool call** = paired `tool_call` + `tool_result` frames keyed by
+  `call_id`, rendered as one collapsible card.
 
 ## API surface
 
-### Existing (kept, may need grant-filtering)
+Existing `/api/groups`, `/api/groups/<folder>/topics` and `.../messages`
+stay, but `GET /api/groups` must be intersected with the caller's grant
+scope (proxyd already supplies the caller's groups). New: `/api/me`, a
+per-group `GET .../status`, an authenticated `GET .../events` SSE stream, a
+`POST .../messages` send, topic creation, and a group-creation POST that
+routes to onbod's `SetupGroup` — visible only to callers whose grants allow
+it.
 
-| Method | Path                            | Notes                               |
-| ------ | ------------------------------- | ----------------------------------- |
-| `GET`  | `/api/groups`                   | Intersect with caller's grant scope |
-| `GET`  | `/api/groups/<folder>/topics`   | Unchanged                           |
-| `GET`  | `/api/groups/<folder>/messages` | Unchanged                           |
+The SSE frame vocabulary is the one `webd/hub.go` already emits (`message`,
+`typing`, `tool_call`, `tool_result`) — no new protocol. The chat pane holds
+one EventSource for the selected group+topic and closes it on switch;
+background groups poll for unread counts rather than holding open streams.
+Reconnect is exponential backoff with `Last-Event-ID` resumption — which is
+best-effort until [16/1-durable-turn-stream](../16/1-durable-turn-stream.md)
+lands, since the hub drops slow clients silently today
+(`webd/hub.go:70`).
 
-### New endpoints (webd)
+## Phasing
 
-| Method | Path                            | Body / Query                      | Response                                           |
-| ------ | ------------------------------- | --------------------------------- | -------------------------------------------------- |
-| `GET`  | `/api/me`                       | —                                 | `{sub, name, groups:[]}`                           |
-| `GET`  | `/api/groups/<folder>`          | —                                 | `{folder, name, description, status}`              |
-| `GET`  | `/api/groups/<folder>/status`   | —                                 | `{status}` (idle/thinking/active/error)            |
-| `GET`  | `/api/groups/<folder>/events`   | `?topic=<t>`                      | SSE stream (auth'd; web-app replacement for slink) |
-| `POST` | `/api/groups/<folder>/messages` | `{content, topic, reply_to?}`     | `{ok, id}`                                         |
-| `POST` | `/api/groups/<folder>/topics`   | `{label?, first_message?}`        | `{topic_id, label}`                                |
-| `POST` | `/api/groups`                   | `{name, description, channels[]}` | `{folder}` → onbod `SetupGroup`                    |
-| `GET`  | `/api/groups/<folder>/settings` | —                                 | `{name, soul_preview, slink_url, channels[]}`      |
+Each phase ships working and testable: (1) scaffold + auth + group list;
+(2) thread list + chat with SSE send/receive; (3) tool cards, platform
+badges, agent status; (4) group and thread creation, settings; (5) mobile,
+keyboard shortcuts, accessibility pass.
 
-`POST /api/groups/<folder>/messages` replaces the slink POST surface for
-authenticated users; slink POST keeps working for external scripts (the skill).
-`GET /api/groups/<folder>/events` is a new SSE endpoint gated by proxyd's
-`requireAuth` (JWT); the existing `/slink/stream` is untouched. `POST
-/api/groups` is visible only to callers whose grants allow group creation.
+## What this is not
 
-## SSE protocol
-
-The existing SSE event format from `hub.go` is reused:
-
-```
-event: message
-data: {"role":"assistant","content":"Hello…","topic":"t1234","id":"msg-abc"}
-
-event: typing
-data: {"folder":"atlas","topic":"t1234","on":true}
-
-event: tool_call
-data: {"tool":"read_file","input":{"path":"~/q3.md"},"call_id":"c1"}
-
-event: tool_result
-data: {"call_id":"c1","output":"# Q3 notes…","error":null}
-```
-
-The chat pane subscribes to one `EventSource` per selected group+topic; on
-topic switch the old source is closed and a new one opened. Background groups
-have no open SSE — unread counts poll `/api/groups/<folder>/topics` (30s when
-focused, 5min when backgrounded). On EventSource error, exponential backoff
-1s → 2s → 4s → 8s (cap 30s); `Last-Event-ID` resumes after brief blips.
-
-## URL structure
-
-Served from `/pub/chat/` (public static); all routing is client-side and
-hash-based (`/pub/chat/#atlas`, `/pub/chat/#atlas/t1234567890`). Hash routing
-avoids server-side 404s for deep links — no catch-all server route needed.
-`/auth/login?return_to=/pub/chat/%23atlas` returns to the right group after
-login.
-
-## webd changes
-
-1. Remove `handleGroupsPage` / `handleChatPage` (HTMX pages) and their `GET /`,
-   `GET /chat/{folder...}` routes — proxyd serves `/pub/chat/` statically.
-2. Add the new `/api/*` endpoints above.
-3. Grant-filter `GET /api/groups`: intersect `AllGroups()` with the caller's
-   `X-User-Groups` (already provided by proxyd middleware).
-4. Keep `webd/static/` for the slink widget until it's fully removed.
-
-The slink HTML widget is superseded, but the slink API (`/slink/<token>` POST,
-`/slink/stream` SSE) stays — it's the external surface used by the skill.
-
-## Implementation phases
-
-Each phase is an acceptance milestone: it ships working and testable.
-
-1. **Scaffold + auth + group list** — `chatapp/` (Vite + React + Tailwind),
-   `GET /api/me`, grant-filtered `GET /api/groups`, group rail renders + selects,
-   401 → auth redirect, `make chat`.
-2. **Thread list + basic chat** — thread list from `/api/groups/<folder>/topics`,
-   `GET .../events` SSE + `POST .../messages` in webd, chat pane (history + send
-   - SSE receive), virtual scroll, typing indicator.
-3. **Tool cards + platform badges + status** — `tool_call`/`tool_result` →
-   collapsible ToolCard, platform badge on user messages, `GET .../status`
-   polling → agent status indicator, unread dots.
-4. **Group + thread creation** — new-thread flow (topic POST), new-group modal
-   (POST to onbod), group settings panel, `⌘K` command palette.
-5. **Polish + mobile** — mobile drawer + bottom nav, keyboard shortcuts,
-   dark/light toggle, `Last-Event-ID` resumption, accessibility pass
-   (`aria-live` message list, keyboard-reachable controls, reduced-motion).
-
-## What this is NOT
-
-- Not a replacement for Telegram/Discord/WhatsApp. Those adapters stay; this
-  is one more channel feeding the same agents.
-- Not a multi-agent orchestration dashboard (that is `/dash/` — routing rules,
-  grants, admission queues). This is the user chat surface.
-- Not the slink public widget. Slink remains for anonymous/external access via
-  a share token; this app is for authenticated users who belong to the instance.
+- Not a replacement for the chat adapters — they stay, feeding the same
+  agents.
+- Not the operator dashboard (`/dash/`).
+- Not the public share widget — that is the route-token surface, for
+  external and anonymous access.

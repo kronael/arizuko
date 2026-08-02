@@ -41,18 +41,25 @@ Implementing IPC file sending — path translation bug.
 
 Plain markdown, no frontmatter, max ~20 lines.
 
-## Gateway injection
+## Injection
 
-On session start, if `groups/<folder>/work.md` exists, inject as system
-message (full content, no truncation). Injected after diary, before
-conversation history.
+`container/runner.go` reads `groups/<folder>/work.md` on prompt assembly
+and appends it as a `<knowledge layer="work">` annotation — full
+content, no truncation, after episodes and diary. Empty or missing file
+= no annotation.
 
 ## Triggers
 
-1. `/work` skill — agent-initiated anytime
-2. Pre-session nudge — if work.md >24h old, gateway annotates:
-   "work.md is stale — update or clear with /work"
-3. Session end — no automatic write
+1. `/work` skill — agent-initiated, any time.
+2. `get_work` / `set_work` MCP tools (`ipc/ipc.go`) — read at turn
+   start to recover what was in flight, overwrite at turn end.
+   `set_work` replaces the file, so read first if merging.
+3. No automatic write at session end.
+
+The staleness nudge this spec proposed ("work.md is stale — update or
+clear") was never built. The file is injected whenever it is non-empty
+regardless of age, so a stale `work.md` reads as current — clearing it
+is the agent's discipline, not the platform's.
 
 ## Layer comparison
 

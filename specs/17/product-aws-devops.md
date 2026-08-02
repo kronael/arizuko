@@ -169,7 +169,11 @@ identity so "the caller" is always one known human.
   grants inside arizuko (`aws:ec2:terminate` as a grant string). Worth
   it once `specs/5/13-ext-mcp.md` M-gap closes. Separate spec.
 - STS AssumeRole / short-lived session tokens instead of long-lived
-  `AWS_ACCESS_KEY_ID` — the broker could mint a session per turn. Ties
-  to `specs/5/15-surrogate-oauth.md`'s "write token into secrets" shape.
+  `AWS_ACCESS_KEY_ID`. There is **no broker to mint one**: the
+  `Broker`/`mcp_tokens` capability path was deleted, and a turn is
+  credentialed by the SO_PEERCRED socket, not an exchangeable token. Any
+  AssumeRole design starts from spawn-time injection
+  (`routd/dispatch.go:523`), not from a token exchange, and ties to
+  `specs/5/15-surrogate-oauth.md`'s "write token into secrets" shape.
 - Whether to seed a starter `facts/` (blank service-map + alert-def
   templates) with the product, or leave `facts/` empty like `support`.

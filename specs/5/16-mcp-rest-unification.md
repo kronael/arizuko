@@ -1,41 +1,20 @@
 ---
 status: partial
-depends: [5/13-ext-mcp, 5/17-openapi-mcp, specs/5/32-acl-unified]
+depends: [5/13-ext-mcp, 5/17-openapi-mcp, 5/32-acl-unified]
 moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 ---
 
-> **Status (2026-07-07).** Agent-MCP faces: all SEVEN agent-facing cold-tier
-> resources — `web_routes`, `routes`, `network_rules`, `scheduled_tasks`, `acl`,
-> `route_tokens`, `groups` — ride one `resreg.Resource` via the injected Gate.
-> `secrets` is REST-only, write-only (no agent face). REST second faces folded
-> onto the shared handler: `web_routes`, `acl`, `routes`, `scheduled_tasks`,
-> `secrets`, plus onbod's `/v1/invites` (`154cd17f`) and `/v1/gates`
-> (`4bd09532`). Containment for the tier-structural handlers (`routes`,
-> `scheduled_tasks`) is a routd-internal per-face `containFn` (agent → tier
-> `AuthorizeStructural`, REST → `ownsFolder`), which closed a live cross-tenant
-> task leak (`0d25b687`); the same empty-folder key later closed a `web_routes`
-> tier-0 delete + a `tasks` get twin (`ad44b081`). `network_rules` is agent-only
-> (no REST twin) — nothing to fold. OpenAPI emits each advertised resource's real
-> mounted `Endpoints` (`7c14efd6`); the dashd tool-browser renders the facade
-> tools (`df9ebad3` + `d5023c60`). **2026-07-29:** `route_tokens`' REST face is
-> now folded onto the shared handler (`tokens_http.go mountRouteTokens` +
-> `routeTokensRESTGate`) — the bespoke `handleToken*` bodies and the
-> `RouteTokenResponse`/204 wire shapes are retired; the REST face returns the
-> unified handler shape (`{token,jid,url}` / `{tokens:[…]}` / `{deleted}`) and the
-> REST-only `resolve` (no MCP twin) stays hand-rolled. **2026-07-30:** `groups` REST twin
-> SHIPPED as read-only (`routd/groups_http.go` `mountGroups`): `GET /v1/groups`
-> rides the shared handler, scoped to the caller's JWT subtree (closes the
-> rest_listall leak); the agent MCP face stays unscoped. Only LIST is mounted —
-> operator group CREATE stays dashd's FS-managed `SetupGroup` by write-discipline,
-> so routd opens no second bare create door (the decision recorded in `BUGS.md`,
-> resolved as option a). **Every agent-facing cold-tier resource now wears both
-> faces** (or the intended read-only/create-elsewhere split). Then the one-owner +
-> federation phase retires `messages.db`.
-> **2026-07-27:** `mcp_connectors` was floated for the adoption list but CUT
-> (2026-07-29): connectors + REST ext-providers ALREADY load from
-> `<datadir>/connectors.toml` — a resreg resource would add a second
-> source-of-truth (the reconciler-drift trap). Per-group `MCP.json` dropped;
-> connectors are global operator-defined resources, access via grants only.
+> **Status (2026-08-02).** Adoption is done; only "one owner + federation"
+> remains. All seven agent-facing cold-tier resources — `web_routes`, `routes`,
+> `network_rules`, `scheduled_tasks`, `acl`, `route_tokens`, `groups` — ride one
+> `resreg.Resource`, and each wears its REST twin on the same handler (plus
+> onbod's `/v1/invites` + `/v1/gates`). Two deliberate exceptions: `secrets` is
+> REST-only and write-only (the encrypted value must never ride the agent
+> surface); `network_rules` is agent-only. `groups`' REST twin is LIST-only —
+> operator CREATE stays dashd's FS-managed `SetupGroup`, so routd opens no second
+> bare create door. `mcp_connectors` was floated and CUT: connectors already load
+> from `<datadir>/connectors.toml`, and a resreg resource would add a second
+> source of truth.
 
 # specs/5/16 — MCP+REST unification (finish the adoption)
 
@@ -48,178 +27,84 @@ Orthogonal to `5/17` — mechanism vs rollout.
 
 ## The target
 
-One cold-tier handler, **two faces from one `resreg.Resource`**, one owner:
+One cold-tier handler, **two faces from one `resreg.Resource`** ([`5/17`](17-openapi-mcp.md)
+owns the mechanism), one owner:
 
-```
-       one in-process resreg.Resource (Handler + Endpoints + MCPDoc)
-                    │                                  │
-       deriveMCPTools + injected Gate         openapi.go (x-mcp-when)
-                    ▼                                  ▼
-      MCP tools (agent, tier-gated)     REST /v1/<res> + annotated doc
-                    │                                  │
-                    ▼                                  ▼
-                the agent                    dashd HTML + external CLIs
-                                             (call the REST face — no
-                                              hand-rolled CRUD)
-```
-
-- **One handler, two faces.** One in-process `resreg.Resource` per
-  cold-tier management resource; authorization is an **injected `Gate`**,
-  not resreg policy — operator REST defaults to `auth.Authorize`, the
-  agent socket injects its `mcp:`+tier `db.Authorize`. The agent's MCP
-  tools are `deriveMCPTools`'d from its `Endpoints`+`MCPDoc`; the REST doc
-  is emitted from the same `MCPDoc` — never a second hand-written tool
-  list.
-- **Hot-tier stays MCP-only** in `ipc/ipc.go` (`reply`/`send`/`inspect_*`) —
-  no REST resource to derive from; hand-authored.
+- **Hot-tier agent actions** (`reply`/`send`/`inspect_*`) stay MCP-only and
+  hand-authored in `ipc/ipc.go` — there is no REST resource to derive them from.
+  `ipc.go` doesn't disappear; it loses its management tool bodies and keeps the
+  hot-tier tools plus the unix-socket transport.
+- **Both faces is the default, not a universal.** Security-driven exceptions
+  stand and are intended (`secrets` REST-only, `network_rules` agent-only).
 - **One owner + federation**: each resource's table lives in exactly one
   daemon's DB; cross-daemon reads call the owner's face over HTTP — the owner
   resolves by compose service naming (`<DAEMON>_URL`), never a second
   `store.Open`. This retires `messages.db` as a shared 8th DB.
 
-(Current state is the **Status** blockquote at the top — one source, no drift.
-What follows is the design rationale: why the agent socket needs work resreg
-doesn't do, and the `Gate` seam that resolved it.)
+The orthogonal sibling concern is [`5/8`](8-yaml-manifests.md) — the same tables
+as declarative YAML you `export`/`apply`. 5/16 is the runtime surface, 5/8 the
+manifest transport; the row-level plumbing under both is not a concept worth
+naming.
 
-## Why the agent socket needs work resreg doesn't yet do
+## Why the agent face needed a seam of its own
 
-`proxyd_routes` proves the two-face mechanism ONLY on the OPERATOR socket:
-its MCP face lives on **webd's operator socket**, callers carry a `**` ACL
-row, and it is a GLOBAL forwarder with no folder-containment. The **agent
-socket** (`ipc.buildMCPServer`, per-folder in-container agent) authorizes
-on a different axis than `resreg.invoke` models today:
+`proxyd_routes` proved the two-face mechanism only on the OPERATOR socket: a
+global forwarder, callers holding a `**` ACL row, no folder containment. The
+agent socket is per-folder and must bind every call to a target, so a resource
+mounted there cannot simply reuse resreg's operator gate — `defaultGate`
+(`resreg/resreg.go:529`) checks a `<resource>:<action>` scope the agent
+principal never holds, and would deny every folder agent.
 
-- **Tier, not scope.** The agent path keys `mcp:<tool>` with
-  `AuthorizeOpts{Folder,WorldFolder,Tier}` → the tier-default-grants
-  fallback (`auth/authorize.go`, `grants/grants.go`). `resreg.invoke`
-  hardcodes `auth.Authorize("<name>:<action>", …)` with EMPTY opts → no
-  fallback → it DENIES every folder agent (current path allows
-  `mcp:set_web_route` for a tier-0 folder; a naive resreg path denies
-  `web_routes:create`).
-- **Visibility is a separate firewall.** `granted()`/`MatchingRules`
-  (`ipc/ipc.go`) gate which tools a tier even SEES in `tools/list`. An
-  unconditional `resreg.MCPTools` `AddTool` would WIDEN visibility.
+**Decision: resreg stays policy-free and the authorization is injected per
+surface.** Two paths were rejected — (A) re-implement the agent's decision
+inside `resreg.invoke`, which puts policy in the engine; (B) share only the
+handler and keep the agent MCP tools hand-rolled, which keeps the duplication
+this spec exists to remove. The shipped third path is a `Gate` seam plus a
+containment seam:
 
-## Resolution — the injected `Gate` seam (not "bake agent policy into resreg")
+- The agent socket sets `agentAllowGate`, a **no-op** resreg `Gate`
+  (`routd/agent_gate.go:65`), so the operator `defaultGate` does not run there.
+- The real check rides each handler's injected `containFn`
+  (`routd/routes_resource.go:85`): the agent face resolves the target from the
+  args and calls `auth.Authorize` on it; the REST face calls `ownsFolder` on the
+  JWT folder claim.
+- Visibility is a separate view: `auth.EffectiveActions` over the caller's ACL
+  rows (`routd/agent_gate.go:52`), not the gate.
+- The facade is in-process, not a second server — the agent tool is a generated
+  thin facade over the SAME handler, so the one-audit-row-in-the-mutation's-tx
+  invariant holds.
 
-resreg does NOT re-implement `granted()` or tier logic. Instead resreg
-gains a **`Gate` seam** on the `Resource` and stays policy-free:
-
-- **resreg** owns the handler, tx, audit, arg-derivation, and tool-spec
-  generation, and CALLS an injected `Gate`. The `Gate` DEFAULTS to today's
-  operator `auth.Authorize` — so proxyd/webd and every REST mount are
-  unchanged.
-- **routd** mounts the agent tools and OVERRIDES the `Gate` with the
-  proven agent closure: `db.Authorize(sub, folder, "mcp:"+tool, params)`
-  (`routd/sibling_db.go`) — the tier-default-grants path intact.
-- **In-process, not a second server.** The agent MCP tool is a GENERATED
-  thin facade over the SAME in-process handler (`Store` non-nil), so the
-  one-audit-row-in-the-mutation's-tx invariant holds. It is neither an
-  HTTP forward nor a second authz server.
-- **Visibility stays in the socket filter.** `resreg.MCPTools` does not
-  decide tier visibility; agent-tool registration stays driven by the
-  socket's `MatchingRules` filter (or a `visible(name)` predicate).
-
-This supersedes the earlier open A/B choice (A: re-implement the
-tier/`granted()` decision inside `resreg.invoke`; B: share only the
-handler, keep agent MCP fully hand-rolled). The `Gate` is the third path —
-resreg stays policy-free (A's flaw avoided) while the agent tool bodies
-still collapse onto the shared handler (B's duplication removed). Enabler
-already shipped: the `MCPNames` override that keeps flat agent tool names
-(`add_route`, `set_web_route`) across the migration (`443dc4d3`).
-
-## The deliverable: MCP management of the whole platform, written once
-
-The goal is **agent-first platform management** — every cold-tier management
-resource (`routes`, `acl`, `groups`, `secrets`, `scheduled_tasks`,
-`network_rules`, `web_routes`, `route_tokens`, `onboarding_gates`,
-`proxyd_routes`) reachable via **MCP** (agent, tier-gated) AND **REST**
-(human, OAuth-gated), one in-process handler. Both-faces is the **default,
-not a universal** — security-driven exceptions stand and are intended:
-`secrets` is REST-only (write-only, no agent face — the encrypted value must
-never ride the agent surface); `network_rules` is agent-MCP-only (no REST
-twin). That's `5/17`'s principle;
-this spec finishes the coverage and collapses the bespoke surfaces onto it.
-
-**Written once, not twice** — one `resreg.Resource` is authored; the agent's
-MCP tools are `deriveMCPTools`'d from its endpoints and the REST doc emitted
-from the same `MCPDoc`. No hand-authored `MCPTools` list per resource;
-shipping 5/17 is the mechanism this spec rides.
-
-**Two surfaces stay distinct — don't merge them:**
-
-- **Cold-tier management** (`/v1/*` resources) — REST-authored, MCP-derived.
-  `ipc/ipc.go`'s hand-rolled management tools (`list_routes`/`add_route`/…)
-  and `dashd`'s hand-rolled CRUD collapse onto this one handler per resource.
-- **Hot-tier agent actions** (`reply`, `send`, `engage`, `inspect_*`) —
-  **MCP-only by design**; no REST resource to derive from. They stay
-  hand-authored in `ipc/ipc.go`. So ipc.go doesn't disappear — it loses its
-  management tools, keeps the hot-tier tools + the unix-socket transport.
-
-The orthogonal sibling concern is `5/8` — the **same cold-tier resources as
-declarative YAML manifests** you `export`/`apply` (config-as-data). 5/16 is
-the runtime REST+MCP surface; 5/8 is the manifest transport. Same tables,
-two orthogonal fronts — the row-level plumbing underneath both is not a
-concept worth naming.
+**This section's earlier tier framing is dead.** It described the agent gate as
+a tier-keyed fallback (`AuthorizeOpts{Folder,WorldFolder,Tier}`, a `grants`
+package, a tier-capping `auth.AuthorizeStructural`). Tiers dissolved in
+[`5/33`](33-paths-roles.md): there is one evaluator, `auth.Authorize`
+(`auth/authorize.go:25`), over ACL rows, deny-wins, with no depth-derived
+fallback. `AuthorizeOpts`, `auth.AuthorizeStructural`, and the `grants` package
+have zero definitions and zero call sites in the tree. Stale comments naming
+them survive in `ipc/ipc.go` and several `_test.go` files — do not read those as
+evidence. The surviving lowercase `authzStructural` (`ipc/ipc.go:931`) is a
+different thing: a local closure for the hand-authored hot-tier tools that
+calls the same one evaluator on the target, carrying no tier.
 
 ## Two resources share the label `routes` (don't conflate them)
 
-- **message-routing** `routes` (routd's `routes` table: match→target folder):
-  COLLAPSED onto one `routesResource` handler (`routd/routes_resource.go`)
-  serving both faces — agent MCP (`add_route`/`set_routes`/`list_routes`) and
-  operator REST `/v1/routes` (`routd/routes_http.go` via `resreg.RegisterREST`).
-  The design-call that held it back — `{id}` REST addressing vs
-  `(seq,match,target)` PK + the seq-0 self-default guard — resolved in the
-  shared handler; containment is the per-face `containFn` (agent → tier
-  `AuthorizeStructural`, REST → `ownsFolder`).
-- **HTTP-proxy** `proxyd_routes` (proxyd's table): proxyd resreg REST
-  `/v1/proxyd_routes` + `webd/routes_mcp.go` MCP forwarder. **Already full
-  dual-dispatch — the exemplar to replicate, not a surface to collapse.**
+Message-routing `routes` is routd's match→target-folder table
+(`routd/routes_resource.go`); `proxyd_routes` is proxyd's HTTP reverse-proxy
+table. Both wear both faces; neither collapses into the other. A resource's name
+IS its wire identity, so this pair must never converge on one name — proxyd's
+live resource once drifted to `Name: "routes"` while its own catalog and
+OpenAPI said `proxyd_routes` (fixed 2026-07-01).
 
-## Migration recipe (per resource)
+## Invariants the migration established
 
-Every cold-tier resource migrates the same shape; each step ships and
-reverts independently:
+The per-resource rollout is done; two rules it produced outlive it:
 
-1. **Extract the shared in-process handler** — one handler holding the
-   resource's logic, tx, and arg-derivation, folding in the bespoke
-   semantics the hand-rolled agent tool carried: `set_routes`' seq-0
-   self-default guard, `del_web_route`'s tier-0 delete widening, a
-   resource's self-slot / path-claim rule. This handler is the single
-   renderer both faces sink to.
-2. **Mount REST** via `resreg.RegisterREST` with the DEFAULT `Gate`
-   (operator `auth.Authorize`) + `x-mcp-when` OpenAPI annotation; `dashd`'s
-   admin page calls this face instead of its direct-DB CRUD.
-3. **Keep the agent tool's socket registration** — it stays registered
-   through `buildMCPServer` so the tier visibility filter
-   (`MatchingRules`) and the `mcp:`+tier authz (`db.Authorize`, via the
-   injected `Gate`) stay intact; only its BODY changes to delegate into
-   the shared handler. Nothing of the agent's proven auth path moves into
-   resreg.
-4. **Reconcile the audit shape** — the agent path's `emitSys` /
-   `LogIPCAudit` and resreg's `audit.EmitInTx` must write the SAME row for
-   the same action, so `grep 'action=<verb>'` returns work regardless of
-   surface. Drift here re-splits the surfaces the migration just merged.
-5. **Delete only the per-tool BODY.** The shared closures — `registerRaw`,
-   `granted`, `authorizeCall`, `authzStructural`, `emitSys` — and every
-   hot-tier tool (`reply`/`send`/`inspect_*`) STAY; `ipc.go` keeps the
-   unix-socket transport plus the agent's auth/visibility scaffolding.
-
-**Order** — tractable first (both faces already mirror one writer, parity
-provable): `web_routes` (where the `Gate` blocker surfaced),
-`network_rules` (MCP-only → add a REST face), `onboarding_gates` (near-pure
-CRUD on onbod), `scheduled_tasks` (cron parsing in the handler), `secrets`
-(write-only: create + delete, no list/get). Then the design-call resources
-that need an addressing/scope decision first: `routes` (`{id}` REST key vs
-`(seq,match,target)` PK + seq-0 guard), `acl` (`**`→membership branch,
-body-DELETE — take the stricter MCP scope-containment, closing a REST
-cross-folder hole), `groups` + `acl_membership` (cross-daemon writers,
-spawn side-effects — highest risk).
-
-**One owner + federation** (final) — fold each resource's table to its
-owner daemon, repoint non-owner reads to the owner's face, and retire
-`messages.db` + its `store/migrations` twin once no reader remains. The
-resource model this phase realizes is specified next.
+- **Reconcile the audit shape.** Agent and REST must write the SAME `audit_log`
+  row for the same action, so a `grep 'action=<verb>'` finds the work regardless
+  of surface. Drift here re-splits the surfaces the fold just merged.
+- **Delete only the per-tool BODY.** The agent socket's registration, its
+  visibility view, and every hot-tier tool stay; only the management tool bodies
+  collapse into the shared handler.
 
 ## One owner + federation
 
@@ -439,15 +324,17 @@ detailed in the migration path below):
    refresh — bounded by `accessTTL = 15 * time.Minute` (`authd/main.go:25`).
    This is a real security-relevant latency, not a refactor; record and get
    sign-off, don't ship it silently.
-2. `auth_sessions` (`routd.db`) has **no live writer** —
-   `store.CreateAuthSession` (`store/auth.go:123`) is called from nowhere
-   except tests and a one-time split-cutover copy helper
-   (`routd/db.go:80-110`). `proxyd`'s cookie branch that reads it
-   (`main.go:876-890`) is dead code: authd's OAuth flow writes its own
-   `refresh_tokens` row in `auth.db`, never a `routd.db` `auth_sessions` row,
-   so `AuthSession(hash)` always misses and `requireAuth` falls through to
-   `tryRefreshViaAuthd` (the live path) anyway. Delete the table + the dead
-   Go code (verify zero rows on every instance first — destructive).
+2. `auth_sessions` (`routd.db`) — **DONE** (`db1e6f3c`, 2026-08-02). The table,
+   `store.CreateAuthSession`, and proxyd's cookie branch that read it are all
+   deleted. The branch was dead: authd's OAuth flow writes a `refresh_tokens`
+   row in `auth.db`, never a `routd.db` `auth_sessions` row, so the lookup
+   always missed and `requireAuth` fell through to `tryRefreshViaAuthd` — the
+   live path. Two premises stated here originally were wrong and are corrected
+   for the record: the table DID have a production writer
+   (`routd/db.go:110` copied it from legacy `messages.db` on every routd boot,
+   removed in the same commit), and it was NOT empty everywhere — sloth held 5
+   rows and marinade 3, all long expired. The backfill had to stop before the
+   drop, not after.
 3. Rename `routd.db`'s `auth_users` → `user_profiles` (schema unchanged) —
    removes the same-name-different-schema collision fact #3 flags, without
    touching `authd`'s `auth_users` (a different table, different owner,
@@ -564,50 +451,36 @@ inspect <container> | jq '.[0].Mounts'` matches the intended list per
 
 ## REST-face reconciliation (resolved — 2026-07-06)
 
-The agent MCP face of all seven cold-tier resources (`web_routes`,
-`routes`, `network_rules`, `scheduled_tasks`, `acl`, `route_tokens`,
-`groups`) rides one shared `resreg.Resource` handler with an injected tier
-`Gate`. Folding each resource's **REST** face onto that same handler was blocked not by auth —
-the scoped self-service check maps cleanly onto an injected REST `Gate`
-(`s.verify.Verify` → `hasAnyScope` + `ownsFolder`, reproduced verbatim) —
-but by **wire-contract drift** the then-hand-rolled REST handlers carried
-that resreg's conventions did not match. Concretely, on `web_routes` the
-fold had to reconcile:
+Folding each resource's REST face onto the shared handler was blocked not by
+auth but by **wire-contract drift**: the hand-rolled REST handlers carried
+response shapes, error bodies, and query-entangled paths that resreg's
+conventions did not match. That made the fold a contract decision on a security
+surface, not a mechanical cleanup — adopting the shared handler's wider delete
+scope would have handed REST callers a cross-folder delete they never had.
 
-1. `GET /v1/web_routes` is entangled with the `?path_prefix=` owner-lookup
-   (same method+path; `ServeMux` can't branch on query) — the aux must move
-   to its own endpoint before the resreg list can own that path.
-2. `DELETE` changes response (`{deleted:bool}` → `{ok:true}`/404) **and**
-   would adopt the shared handler's tier-0 widening — a _new_ cross-folder
-   delete for tier-0 REST callers (any top-level folder is tier-0).
-3. error body differs (`{error}` vs `{error,message}`); 4. list JSON
-   differs (`redirect_to` omitempty); 5. the shared handler acts on
-   `Caller.Folder`, but the REST face acts on the client-supplied target
-   bounded to the subtree — reconciling needs a body-read in `CallerFromHTTP`.
+**Resolved: full-unify.** The REST faces adopted resreg's conventions as the new
+contract (`?path_prefix=` relocated to `/v1/web_routes/owner`), and the
+structural handlers got the per-face `containFn` decouple. `secrets` folded as a
+forwarder with no resreg tx, because the encrypted value must not ride
+`audit_log`.
 
-So the REST-face fold was a **contract decision on a security surface**, not
-a mechanical cleanup. **Resolved — full-unify shipped.** The user took the
-full-unify call, so `web_routes`/`routes`/`scheduled_tasks`/`acl` adopted
-resreg's REST conventions (error/list/delete shapes + tier-0 delete widening +
-`?path_prefix=` relocated to `/v1/web_routes/owner`) as the new REST contract;
-the tier-structural handlers (`routes`, `scheduled_tasks`) got the per-face
-`containFn` decouple (agent → tier `AuthorizeStructural`, REST → `ownsFolder`),
-which also closed a live cross-tenant task leak (`0d25b687`). `secrets` folded
-its REST face afterward as a forwarder (no resreg tx — the enc value must not
-ride `audit_log`). `network_rules` stays agent-only — no REST twin to fold.
-`route_tokens`' REST face (`server.go handleToken*`) is not yet folded, and
-`groups` has no REST twin — the two remaining hand-rolled/absent surfaces.
+**The failure this produced, and the fix.** The delete/list widening was first
+keyed on tier-0 — but a NAMED top-level tenant is also tier-0, so the widening
+let one tenant delete and list a sibling tenant's rows. Live cross-tenant leak,
+closed by re-keying the widen on the **empty folder claim** (the genuine
+root/operator caller) rather than on depth: `routd/web_routes_resource.go:135`
+records it, `routd/web_routes_rest_test.go:108-165` pins it. This is the concrete
+reason depth-derived tiers are gone — a rank recomputed from a path cannot
+distinguish "operator" from "top-level tenant".
 
 ## Acceptance
 
 - A resource is served by exactly one in-process `resreg` handler; its
   agent MCP tool, its `/v1/<res>` REST endpoint, and its OpenAPI entry all
-  route through it — REST under the default `Gate`, agent under the
-  injected `mcp:`+tier `Gate`.
+  route through it — REST under the default `Gate`, the agent under the
+  no-op gate plus its `containFn`.
 - `dashd` admin page for that resource has no CRUD SQL — it calls the face.
-- `ipc/ipc.go` has no bespoke handler BODY for that resource — its agent
-  tool delegates to the shared handler; only the socket registration + the
-  tier authz/visibility scaffolding remain.
+- `ipc/ipc.go` has no bespoke handler BODY for that resource.
 - Agent and REST write the same-shape `audit_log` row for the same action.
 - Its table lives in one DB; no second daemon `store.Open`s it.
 - `make test` green per step; `arizuko apply` round-trips the resource.

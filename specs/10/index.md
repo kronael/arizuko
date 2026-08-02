@@ -2,88 +2,54 @@
 status: active
 ---
 
-# specs/9 — self-healing (Aeon mechanism incorporation)
+# specs/10 — self-healing
 
-A deliberate import of the three load-bearing mechanisms from
-[Aeon](https://github.com/aaronjmars/aeon) — a GitHub-Actions-based
-agent framework with 121 skills and a "self-healing" reputation. Aeon
-runs on cron in GHA; arizuko is a channel-native multi-tenant
-platform. The architecture does not port. The mechanisms do.
+A deliberate import of the load-bearing mechanisms from
+[Aeon](https://github.com/aaronjmars/aeon), a GitHub-Actions agent framework
+with a "self-healing" reputation. Aeon runs on cron in GHA; arizuko is a
+channel-native multi-tenant platform. The architecture does not port. The
+mechanisms do.
 
-Source analysis (memory): `reference_aeon.md`. Of the 9 mechanisms
-catalogued, three are imports for this phase, three are deferred to
-later phases, three are skipped because arizuko has a better answer.
+Aeon's self-healing reduces to one loop — judge the run, evaluate the
+history, fire a repair — and arizuko has none of it today. Source analysis:
+`reference_aeon.md` (memory).
 
-## Why this phase exists
+| Spec                                             | Status | Hook                                                                                                                                       |
+| ------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| [1-self-healing-loop.md](1-self-healing-loop.md) | draft  | the whole loop: Haiku-as-judge → `skill_health`, a state-evaluator module in `timed` → `verb=state-event`, `/repair-*` playbooks as skills |
 
-Aeon's "self-healing" reduces to a small loop:
+**Nothing here is built.** `skill_health` and `cooldowns` have zero hits in
+the schema, and no `ant/skills/repair-*` exists.
 
-1. **LLM-as-quality-gate** — Haiku scores Opus output after every run
-   (1-5 + flags + reasoning, JSON).
-2. **State-evaluator** — periodic check on a rolling score history
-   fires a reactive trigger when conditions match.
-3. **Repair playbooks** — opinionated skills the agent invokes on the
-   reactive trigger.
+## Design principle
 
-Combined with a cooldown table, that loop turns a noisy failure mode
-into a tracked, throttled, agent-driven repair. arizuko doesn't have
-this loop today. It should — once, mechanically, riding existing
-primitives.
+Don't introduce new primitives where the messaging primitive carries the
+seam. The evaluator is a message producer like `timed`; playbooks are
+skills, not infrastructure; the judge is a sub-call at container exit. The
+only new surface is two tables and one write tool.
 
-## Design principle (carried from CLAUDE.md)
+## Skipped Aeon mechanisms
 
-**Minimality and orthogonality.** Don't introduce new primitives where
-the messaging primitive carries the seam.
+Regression-hunter / git-blame (useful for the arizuko _codebase_, not for
+agents); cluster-first triage (defer until `skill_health` has signal to
+chew on); pull-based Telegram scheduling (we have instant webhooks);
+git-as-database (SQLite + per-folder files is more flexible — and phase 9
+rejected git-as-truth outright).
 
-- State-evaluator is a message producer, like `timed`. No new trigger
-  type in the gateway, no new MCP tool, no new daemon shape.
-- Repair playbooks are skills, not infrastructure. They drop into
-  `ant/skills/` and are invoked via normal dispatch when the agent
-  handles `verb=state-event`.
-- Self-eval is a Haiku sub-query at container exit, writing a row to
-  `skill_health`. Same shape as the existing `specs/13/8-self-eval`
-  predecessor — but with a stronger judge and a persistent surface.
+## Merged and deleted 2026-08-02
 
-The seam is the SQLite schema (`skill_health`, `cooldowns`) plus the
-existing message bus. Nothing else.
+| was                              | now                                                                                                                                                            |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `1-self-eval-haiku.md`           | merged into `1-self-healing-loop.md` — they were one loop split across three files, each inert alone                                                           |
+| `2-state-evaluator.md`           | merged into `1-self-healing-loop.md`                                                                                                                           |
+| `3-repair-playbooks.md`          | merged into `1-self-healing-loop.md`; the five per-playbook recipes were cut — a recipe is a skill body, not a spec                                            |
+| `4-positioning-componentized.md` | deleted. Superseded by `5/A-primitives-framing.md` + `6/16-daemon-standalone-matrix.md`, and actively wrong — it listed `gated` as a live schema-owning daemon |
+| `5-skill-catalog-audit.md`       | deleted. A methodology that was never run, headlining "arizuko's 56 skills" when `ant/skills/` carries 93                                                      |
 
-## Specs in this phase
+The merge also corrected the loop for the split: `routd` owns both tables,
+because `timed` owns no DB and reads over its service bearer. The originals
+had `gated` owning the migrations.
 
-| Spec                                                             | Status | Hook                                                               |
-| ---------------------------------------------------------------- | ------ | ------------------------------------------------------------------ |
-| [1-self-eval-haiku.md](1-self-eval-haiku.md)                     | draft  | Haiku scores Opus output; writes `skill_health` rows per run.      |
-| [2-state-evaluator.md](2-state-evaluator.md)                     | draft  | Message producer fires `verb=state-event` on conditions; cooldown. |
-| [3-repair-playbooks.md](3-repair-playbooks.md)                   | draft  | Opinionated skills for typed failure recovery (api, rate, schema). |
-| [4-positioning-componentized.md](4-positioning-componentized.md) | draft  | Capture componentized-daemon vs monolithic-GHA as the real diff.   |
-| [5-skill-catalog-audit.md](5-skill-catalog-audit.md)             | draft  | Map Aeon's 121 skills against arizuko's 56; prioritise imports.    |
-
-## Cross-spec dependencies
-
-- **`specs/4/P-personas.md`** — skills lifecycle, versioning, migration
-  hook. Repair playbooks ship under the same lifecycle (skill file in
-  `ant/skills/`, MIGRATION_VERSION bump, auto-broadcast on tag).
-- **`specs/13/8-self-eval-skill.md`** — the predecessor self-eval
-  spec, where the judge was the same model via in-container
-  `query()`. Superseded by `7/1` — Aeon's Haiku-judges-Opus is the
-  stronger design (cheaper judge, less reflexive). The 11/8 spec
-  retains the trigger-shape research; 6/1 supersedes the model
-  choice and the data shape.
-- **`specs/13/6-workflows.md`** — workflowd. `7/4` proposes dropping
-  this in favour of "any automation is a folder" — see that spec for
-  the case.
-- **`specs/5/13-ext-mcp.md`** — arizuko's answer to Aeon's
-  prefetch-outside-sandbox pattern. Not imported; called out in
-  `7/4` as "we already do this, but better".
-
-## Out of scope for this phase
-
-- **Regression-hunter / git-blame** (Aeon mechanism #5). Useful for
-  the arizuko _codebase_ (developer tool), not for agents.
-- **Cluster-first triage** (mechanism #6). Defer until `skill_health`
-  data accumulates and signature-grouping has signal to chew on.
-- **24h repair cooldown** (mechanism #9). Folded into `7/2` as the
-  cooldowns table; not a separate spec.
-- **Pull-based Telegram scheduler** (mechanism #8). Skip; we have
-  instant webhooks.
-- **Git-as-database** (mechanism #1). Skip; SQLite + per-folder
-  files is more flexible.
+`4` argued for dropping `13/6-workflows.md` in favour of "any automation is
+a folder". That call was never actioned in its own file; phase 13 was
+dissolved on 2026-08-02 and the workflowd idea went with it.

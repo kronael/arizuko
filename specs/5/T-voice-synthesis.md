@@ -34,4 +34,5 @@ input already (`VOICE_TRANSCRIPTION_ENABLED`); this is symmetric.
 Agent decides when to speak (voice-first persona, or matching the
 user's modality), not the system.
 
-See agent migration 088 + CHANGELOG [Unreleased].
+Code: `ttsd/`, `chanlib/handler.go:256` (`NoVoiceSender`),
+`chanreg/httpchan.go:229` (capability check). Agent migration 088.

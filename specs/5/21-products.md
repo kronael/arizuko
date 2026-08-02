@@ -5,191 +5,88 @@ relates-to: [../5/20-ant-portability]
 
 # Products — curated agent templates (producer side)
 
-A product is a curated template for an ant (agent). It bundles a persona,
-skills, and seed files so an operator can spin up a configured agent with one
-command instead of building from scratch.
+A product is a curated template for an ant: a persona, skills, and seed
+files, so an operator spins up a configured agent with one command instead
+of building from scratch.
 
-> **Scope split (2026-07-14).** This spec is the PRODUCER side: what a
-> product contains, the `PRODUCT.md` format, the catalog, how to author
-> one. Composition, distribution, and updates moved to
-> [`5/20-ant-portability`](../5/20-ant-portability.md), which supersedes
-> this file's single-template narrative: a group holds an ORDERED MIX of
-> products (`products.toml` + `products.lock`), blended per payload kind
-> (persona: first provider wins; skills: last wins wholesale; CLAUDE.md:
-> appended; the rest union) and synced uv-style from hosted sources.
-> Two 5/20 deltas to this file's text: products MAY bundle their own
-> `skills/` directories (not only whitelist stock ones), and the `skills`
-> list in `PRODUCT.md` is slated to become real gating rather than
-> informational.
+> **Scope split (2026-07-14).** This spec is the PRODUCER side — what a
+> product contains and how to author one. Composition, distribution, and
+> updates live in [`20-ant-portability.md`](20-ant-portability.md), which
+> supersedes this file's single-template narrative: a group holds an
+> ORDERED MIX of products, blended per payload kind.
 
 > **Product vs prototype (`5/29`).** A product instantiates at **group
-> creation** — it seeds an agent, [`5/29`](29-worlds-guests-oauth.md)
-> Tier 2. `5/29`'s **prototype** is the same shape (persona + skills + tool
-> grants) instantiated at **spawn time** inside a session (Tier 3), and
-> `5/5`'s `groups/<world>/prototype/` seed folder is a third instantiation
-> point (invite subgroup-create). Plausibly one concept under three names;
+> creation** ([`29-worlds-guests-oauth.md`](29-worlds-guests-oauth.md)
+> Tier 2). `5/29`'s **prototype** is the same shape instantiated at **spawn
+> time** (Tier 3), and `5/5`'s `groups/<world>/prototype/` seed folder is a
+> third instantiation point. Plausibly one concept under three names;
 > flagged, not merged — see `5/29` open questions.
 
 ## A product is a recomposition, not new machinery
 
 A product introduces no new code path. It is the same fixed reaction
 pipeline (Event → Routing → Agent → Authorization → Turn → State,
-[specs/5/A](../5/A-primitives-framing.md)) with different **folder
-contents** (persona, skills, seed facts) and different **routing** (which
-channels feed the folder). That is the whole product: the bottom of the
-four-layer stack — primitives → components → daemons → products — where
-the operator works. Two consequences:
+[`A-primitives-framing.md`](A-primitives-framing.md)) with different
+**folder contents** and different **routing**. That is the whole product:
+the bottom of the four-layer stack — primitives → components → daemons →
+products — where the operator works. Two consequences:
 
-- **A product page should name its recomposition.** `product-slack-team.md`
-  is the model: a table mapping each promise on the public page to the
-  primitive that already supports it. Every product spec carries one, so
-  "what's free today vs what needs work" is provable, not asserted.
-- **"Focused" is the wedge, not a limitation** ([specs/7/9](../17/9-positioning.md)).
-  Constraining the agent to its job's skills (and gating the rest via the
-  ACL — Authorization) removes the failure modes general agents have. A
-  product is a focused recomposition you own and edit as files, not a
-  general blob you rent.
+- **A product page must name its recomposition.** Every product spec
+  carries a table mapping each promise on the public page to the primitive
+  that already supports it, so "free today vs needs work" is provable
+  rather than asserted.
+- **"Focused" is the wedge, not a limitation**
+  ([`../17/9-positioning.md`](../17/9-positioning.md)). Constraining an
+  agent to its job's skills — and gating the rest via the ACL — removes the
+  failure modes general agents have. A product is a focused recomposition
+  you own and edit as files, not a general blob you rent.
 
 ## What a product is
 
-Products live in `ant/examples/<name>/`. Each product folder is a prototype
-for the group workspace that gets seeded into the new instance.
+Products live in `ant/examples/<name>/`; each folder is a prototype for the
+group workspace seeded into a new instance. `PRODUCT.md` (TOML: name,
+brand, tagline, skills list, `[[env]]` hints) is required. Optional and
+copied verbatim into the group dir: `PERSONA.md` (the agent's identity),
+`CLAUDE.md` (the per-group runbook read every session), `facts/` (seed
+knowledge), `tasks.toml` (seed scheduled tasks). Most products ship both
+Markdown files.
 
-Required file:
+**Two kinds of skill, don't conflate them.** The `skills` LIST in
+`PRODUCT.md` is a whitelist SELECTING stock skills from the image —
+informational today (`SetupGroup` seeds all of them), slated to become real
+gating. A product MAY ALSO bundle its OWN `skills/` directory: the managed
+payload `5/28` install/upgrade governs via dirty-detection and the 3-way
+merge. Stock selection ≠ bundled payload; a product may use either or both.
 
-```
-PRODUCT.md     TOML manifest: name, brand, tagline, skills list, env hints
-```
+`[[env]]` blocks are printed by `arizuko create` as setup instructions.
+They do **not** validate the env file — they are a checklist, not a gate.
 
-Optional files (copied verbatim into the group's data dir):
+## Installing and authoring
 
-```
-PERSONA.md        Agent persona — name, description, voice, scope, do/don't list
-CLAUDE.md      Operator runbook — memory conventions, escalation rules, KB structure
-facts/         Seed fact files (style guides, reference data, KB stubs)
-tasks.toml     Seed scheduled tasks
-```
+`arizuko create <inst> --product <name>` parses
+`ant/examples/<name>/PRODUCT.md`, creates the instance data dir and the
+`main` group row with `product=<name>`, then calls
+`container.SetupGroup(cfg, "main", productDir)` to copy the product files,
+seed `.claude/`, and chown to UID 1000. It finishes by printing the
+`[[env]]` hints. Implementation: `cmd/arizuko/main.go` (`cmdCreate`,
+`productManifest`).
 
-`PERSONA.md` is the agent's identity. `CLAUDE.md` is the per-group runbook that
-the agent reads every session. Both are optional but most products ship both.
+Authoring a new product is **filesystem-only — no code changes**:
+`cmdCreate` discovers products by scanning `ant/examples/` at runtime. Add
+the folder, then a spec at `specs/17/product-<name>.md` and a row in
+`specs/17/index.md`.
 
-Two kinds of skill (reconciled with `5/20`/`5/28`, 2026-07-29): the `skills`
-LIST in `PRODUCT.md` is a whitelist SELECTING stock skills (`ant/skills/`, in the
-image) to seed — today informational, slated to become real gating. A product MAY
-ALSO bundle its OWN `skills/` directory — the managed payload that `5/28`
-install/upgrade governs (dirty-detection + the 3-way merge). Stock selection ≠
-bundled payload; a product can use either or both.
-
-## How to install a product
-
-```bash
-arizuko create mybot --product support
-```
-
-`cmdCreate` in `cmd/arizuko/main.go`:
-
-1. Locates `ant/examples/<name>/PRODUCT.md` and parses it.
-2. Creates the instance data dir and seeds `.env` with `ASSISTANT_NAME`,
-   `CONTAINER_IMAGE`, `API_PORT`, `CHANNEL_SECRET`.
-3. Creates the `main` group row in the DB with `product=<name>`.
-4. Calls `container.SetupGroup(cfg, "main", productDir)` which:
-   - Creates `groups/main/` and `groups/main/logs/`
-   - Copies all files from `ant/examples/<name>/` into the group dir
-     (PERSONA.md, CLAUDE.md, facts/, tasks.toml — whatever is present)
-   - Seeds `.claude/skills/` from `ant/skills/` (all skills from the image)
-   - Seeds `.claude/CLAUDE.md` from `ant/CLAUDE.md` (the global ant runbook)
-   - Chowns the group dir to UID 1000 so the container can write to it
-5. Prints env hints from `PRODUCT.md [[env]]` blocks so the operator
-   knows which keys to set in `.env` before running.
-
-After creating:
-
-```bash
-# Edit .env to add required tokens (printed by create)
-arizuko run mybot
-```
-
-## PRODUCT.md format
-
-TOML file at the root of each product folder:
-
-```toml
-name    = "support"
-brand   = "atlas"
-tagline = "Embedded support agent — answers from your knowledge base, escalates when stuck."
-skills  = ["diary", "facts", "recall-memories", "users", "issues", "web"]
-
-[[env]]
-key      = "TELEGRAM_BOT_TOKEN"
-required = true
-hint     = "BotFather token — primary channel + escalation target"
-
-[[env]]
-key      = "OPENAI_API_KEY"
-required = false
-hint     = "Optional — enables web search fallback"
-```
-
-`skills` is informational today — `SetupGroup` seeds all global skills. It
-exists to document which skills the product actively uses and for future
-skill-gating. `[[env]]` blocks are printed by `arizuko create` as setup
-instructions; they do not automatically validate the env file.
-
-## Current catalog
-
-Products in `ant/examples/` (shipped):
-
-| Name       | Brand      | Tagline                                                      | facts/ seed                      |
-| ---------- | ---------- | ------------------------------------------------------------ | -------------------------------- |
-| slack-team | slack-team | One agent per Slack channel; shared context, per-user memory | —                                |
-| personal   | fiu        | Personal assistant with persistent memory                    | preferences.md (placeholder)     |
-| support    | atlas      | KB-backed support agent, escalates to human when stuck       | kb/ (empty, operator fills)      |
-| trip       | may        | Multi-step travel research → structured itinerary            | preferences.md (placeholder)     |
-| strategy   | prometheus | Domain tracker; weekly synthesis → team briefing             | domain.md, watchlist.md          |
-| pm         | sloth      | Team task board + weekly digest                              | tasks.md (empty board), team.md  |
-| reality    | rhias      | Ongoing life-context thread holder                           | threads/ (empty, operator seeds) |
-| creator    | inari      | Content pipeline — draft, refine, publish on approval        | style.md (placeholder)           |
-| socials    | phosphene  | Multi-platform distribution, schedule + engagement           | channels.md, voice.md            |
-
-Public pages at `/pub/products/<name>/` when the web layer is running.
-
-**Company brain** is a positioning product, not a seeded template
-([specs/17/8-company-brain.md](../17/8-company-brain.md)): arizuko is the action
-layer (Turn + State + Routing) over a retrieval backend, the genuine
-integration gap. It ships as framing + a setup recipe, not an
-`ant/examples/` folder, until connector skills land.
-
-## Creating a new product
-
-1. Create `ant/examples/<name>/`:
-   - Write `PRODUCT.md` with `name`, `brand`, `tagline`, `skills`, and any
-     `[[env]]` blocks the operator needs to fill in.
-   - Write `PERSONA.md` with frontmatter (`name`, `description`) and persona
-     sections (voice, what it does, what it never does).
-   - Write `CLAUDE.md` with the per-group runbook (KB lookup order, memory
-     conventions, escalation rules, response style, scope).
-   - Add `facts/` seed files if the product needs pre-populated knowledge.
-   - Add `tasks.toml` if the product has scheduled tasks.
-
-2. Test locally:
-
-   ```bash
-   arizuko create testbot --product <name>
-   arizuko run testbot
-   ```
-
-3. Add a spec file `specs/7/product-<name>.md` documenting skills, channels,
-   dependencies, and the web page pitch.
-
-4. Add the product to the catalog table in `specs/7/index.md`.
-
-No code changes are required — `cmdCreate` discovers products by scanning
-`ant/examples/` at runtime.
+The live catalog is `ant/examples/` itself; public pages render at
+`/pub/products/<name>/` when the web layer runs. **Company brain** is a
+positioning product, not a seeded template
+([`../17/8-company-brain.md`](../17/8-company-brain.md)): arizuko is the
+action layer over a retrieval backend, and it ships as framing plus a setup
+recipe until connector skills land.
 
 ## Open
 
-- Skill whitelisting: `skills` list in PRODUCT.md is not enforced yet; all
-  global skills are seeded regardless.
-- Third-party products: per-instance product dirs — defer.
-- `--product` accepting a URL or git repo — defer.
+- Skill whitelisting is not enforced; all global skills are seeded.
+- Third-party products (per-instance product dirs) — deferred.
+- `--product` accepting a URL or git repo — deferred; `5/20`'s source
+  resolvers are the intended path.
 - `arizuko product list` to enumerate known products — easy add-on.

@@ -6,7 +6,7 @@ depends: specs/5/4-autocalls.md, specs/5/8-yaml-manifests.md, specs/5/17-openapi
 # specs/9/7 — Configurable autocalls
 
 > Make the `<autocalls>` block operator-extensible. Today five facts
-> are hardcoded in `gateway/autocalls.go`. This spec lets operators
+> are hardcoded in `routd/prompt.go`. This spec lets operators
 > DEFINE additional autocalls — facts injected into every prompt so
 > the agent "sees the world around it" (unread counts, sibling
 > groups, active topics, custom environment facts) without spending a
@@ -15,19 +15,19 @@ depends: specs/5/4-autocalls.md, specs/5/8-yaml-manifests.md, specs/5/17-openapi
 
 ## Problem
 
-`specs/5/4-autocalls.md` shipped a fixed registry: five pure
-functions (`now`, `instance`, `folder`, `tier`, `session`) in
-`gateway/autocalls.go:26`, each `func(AutocallCtx) string`, rendered
-into `<autocalls>` by `renderAutocalls` (`gateway/autocalls.go:51`)
-and prepended to the prompt at `gateway/gateway.go:1024` — the single
-shared sink for both chat and web-topic paths. Adding a sixth fact is
+`specs/5/4-autocalls.md` shipped a fixed registry: four pure functions
+(`now`, `instance`, `folder`, `session`) in the `autocalls` slice in
+[`routd/prompt.go`](../../routd/prompt.go), each `func(autocallCtx) string`,
+rendered into `<autocalls>` by `renderAutocalls` and prepended to the prompt
+by `autocallsBlock` — the single shared sink for both chat and web-topic
+paths. Adding a fifth fact is
 a code edit + rebuild + redeploy. 31's own "planned extension"
 (`unread` per-JID, `errors` count) is stuck behind that wall.
 
 What 5/4 cannot do:
 
 - An operator cannot inject "you have 3 unread in solo/inbox" or
-  "siblings: eng, sre, oncall" without a gateway code change.
+  "siblings: eng, sre, oncall" without a routd code change.
 - A deployment cannot carry its autocall set in its config dump
   (5/8 manifest) — the facts an agent sees aren't operator data,
   they're frozen in the binary.
@@ -49,7 +49,7 @@ Three decisions, each resolving a tension from 5/4.
 ### 1. Two classes of autocall — pure and probe-backed
 
 5/4's `AutocallCtx`/`renderAutocalls` are defined "synchronously in
-microseconds — no I/O, no locks" (`gateway/autocalls.go:11`). Adding
+microseconds — no I/O, no locks" (`routd/prompt.go`). Adding
 a fact that reads the store is **not** a compatible extension of that
 contract — it is a deliberate semantic split. This spec REDEFINES the
 autocall contract into two classes:
@@ -72,23 +72,22 @@ The two kinds, each with a hard cost ceiling:
 | `query`    | one indexed read, budgeted | one store read | a whitelisted, parameterized store probe |
 
 - **`template`** — a small substitution string over the existing
-  `AutocallCtx` fields (`instance`, `folder`, `tier`, `session`,
+  `AutocallCtx` fields (`instance`, `folder`, `session`,
   `now`). Pure, zero I/O, identical cost profile to the five
-  builtins. Example expr: `"tier-{tier} agent in {folder}"`. The
+  builtins. Example expr: `"agent in {folder} on {instance}"`. The
   substitution vocabulary is exactly the `AutocallCtx` field set —
   no new resolvers, no arbitrary expression language.
 
 - **`query`** — names ONE entry from a **whitelisted probe table**
   (below) plus its bound arguments. The probe is a Go function in
-  the gateway doing a single indexed `SELECT` (or `COUNT`) scoped to
+  routd doing a single indexed `SELECT` (or `COUNT`) scoped to
   the resolving folder. NOT arbitrary SQL. NOT arbitrary code. The
   config row picks a probe by name and supplies its parameters; it
   never carries SQL text.
 
-There is no third "run a shell command / call a URL" kind. That is a
-function (`specs/9/6-functions.md`) or an MCP tool, not an autocall —
-an autocall renders inline on the hot prompt path and must stay
-cheap.
+There is no third "run a shell command / call a URL" kind. That is an MCP
+tool, not an autocall — an autocall renders inline on the hot prompt path
+and must stay cheap.
 
 ### 2. Cost budget — strict, not magical
 
@@ -119,7 +118,7 @@ coordination problem. Three controls:
 Skips are logged at `slog.Warn` (`autocall_skipped`, fields: `name`,
 `scope`, `reason ∈ {timeout, error, budget}`) so an operator who
 wrote a slow autocall sees it in journald. To avoid per-turn log
-spam, the gateway logs a given `(name, scope, reason)` at most once
+spam, routd logs a given `(name, scope, reason)` at most once
 per `AUTOCALL_LOG_INTERVAL` (default 60s); the value is never logged.
 
 This is the explicit resolution of tension #1: configurability does
@@ -134,7 +133,7 @@ DB (CLAUDE.md: "business state is DB-backed; infra is env"). The
 _budgets_ (`AUTOCALL_*_MS`) are infra and stay env vars.
 
 The definitions are one `resreg.Resource` (`autocalls`), owned by
-`gated`, hand-rolled like every other resource (CLAUDE.md:
+`routd`, hand-rolled like every other resource (CLAUDE.md:
 "MCP + REST hand-rolled and uniform … one hand-written handler").
 The win is uniformity, not codegen: the resource declares one
 `RowType` + `Handler` + `Authz`, and because it sets
@@ -229,12 +228,12 @@ payload across files dedups; with differing payload it's a parse-time
 error; twice in one file is a parse-time error.
 
 `ValidateRow` enforces: `kind ∈ {template, query}`; `name` is not a
-reserved builtin name (`now`, `instance`, `folder`, `tier`,
+reserved builtin name (`now`, `instance`, `folder`,
 `session`) — reserved names reject (see §Render, "Builtin names are
 reserved"); for `query`, `expr` names a registered probe and `params`
 decodes to that probe's typed arg schema (unknown keys reject); for
 `template`, `params` is empty and `expr` references only known
-`AutocallCtx` vars (`{instance}`, `{folder}`, `{tier}`, `{session}`,
+`AutocallCtx` vars (`{instance}`, `{folder}`, `{session}`,
 `{now}`).
 
 **`params` is a typed hole, acknowledged.** It's a JSON `TEXT` column
@@ -249,7 +248,7 @@ probe set is closed and platform-owned.
 
 ### Probe whitelist
 
-`query` autocalls may only name a probe from a small in-gateway
+`query` autocalls may only name a probe from a small in-routd
 registry. Each probe is a NEW Go func written for this purpose with a
 declared, typed arg schema and a **folder-scoped, cardinality-bounded
 read**. The existing store methods below are _models_, not
@@ -277,7 +276,7 @@ Each probe declares, in code:
    admissible; the cap is part of the probe's definition, not the
    config.
 
-The whitelist grows by a gateway code change (one Go func + one
+The whitelist grows by a routd code change (one Go func + one
 registry line) — deliberately. A probe is a hot-path read on every
 turn for every group that enables it; vetting it (folder-scoped,
 index-supported, cardinality-capped) is a platform decision, not
@@ -288,7 +287,7 @@ config to unbounded work.
 **Cross-folder metadata is a platform-vetted exception, not a
 default.** `siblings` surfaces _names_ of adjacent `open=1` folders —
 metadata, never content. That is admissible because (a) it's the same
-information a tier-appropriate agent could already enumerate, and (b)
+information the agent could already enumerate, and (b)
 it's restricted to open siblings (closed folders never appear). A
 probe that would surface another folder's _content_ is NOT admissible
 under this spec — that's an observe/`group_watchers` concern with its
@@ -342,16 +341,16 @@ blast radius to the budget; ownership caps who can arm it.
 ## Render and merge with builtins
 
 One renderer, one sink — unchanged from 5/4. `renderAutocalls`
-(`gateway/autocalls.go:51`) stays the only producer of the
+(`routd/prompt.go` (`renderAutocalls`)) stays the only producer of the
 `<autocalls>` block; `g.autocallsBlock(folder, topic)`
-(`gateway/gateway.go:1024`) stays the only call site. This spec
+(`routd/prompt.go` (`autocallsBlock`)) stays the only call site. This spec
 widens what that one renderer iterates, it does not add a second
 path. (CLAUDE.md: "one renderer, many sinks.")
 
 Order within the block:
 
 1. **Builtins first**, in their existing fixed order (`now`,
-   `instance`, `folder`, `tier`, `session`). They keep being defined
+   `instance`, `folder`, `session`). They keep being defined
    in code, not seeded as rows — they are platform invariants, not
    operator config, and code is their natural home (zero migration,
    zero rebuild risk).
@@ -362,11 +361,11 @@ Empty values are dropped (as today): a `template` resolving to `""`
 or a `query` that omitted (see §Omission semantics) produces no line.
 
 **Builtin names are reserved.** The five builtin names (`now`,
-`instance`, `folder`, `tier`, `session`) cannot be used by a
+`instance`, `folder`, `session`) cannot be used by a
 configured row — `ValidateRow` REJECTS such a row. No shadowing: an
 operator who wants a richer session fact picks a different name
 (`session_full`). This keeps the builtins' "ground truth" meaning
-fixed — a `tier:` line always means the platform-resolved tier, never
+fixed — a `folder:` line always means the platform-resolved folder, never
 an operator's reinterpretation — and removes a footgun (silently
 overriding `now` would let a misconfigured row hide the real clock).
 
@@ -429,15 +428,15 @@ or stale fact (CLAUDE.md: "strict, not magical").
   an empty table.)
 - **Test invariants update with the renderer.** `renderAutocalls`
   changes signature (it now needs store + folder + budgets, not just
-  `AutocallCtx`), so `gateway/autocalls_test.go` and any prompt-build
+  `AutocallCtx`), so `routd/prompt_test.go` and any prompt-build
   snapshot tests must be updated in the same commit: an empty-table
   case asserting byte-identical legacy output, plus new cases for
   `template` render, `query` render/omit/timeout, reserved-name
   reject, and folder-beats-instance collision (ship-with-tests:
-  MEMORY.md).
-- **Table is additive.** One `store/migrations/NNN` adds the
-  `autocalls` table + index; gated owns it (memory: gated owns
-  schema). No existing table touched.
+  its own DB).
+- **Table is additive.** One `routd/migrations/NNN` adds the
+  `autocalls` table + index; routd owns it (each split daemon owns + migrates
+  its own schema). No existing table touched.
 - **Per the ship checklist** (CLAUDE.md §Shipping changes): CHANGELOG
   entry, migration stub under `ant/skills/self/migrations/`,
   `MIGRATION_VERSION` bump, agent image rebuild. The `ant/CLAUDE.md`
@@ -447,7 +446,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
 - **resreg adoption** rides 5/8's engine: `autocalls` is one more
   `resreg.Resource` with `RowType`/`Table`/`PKFields`/`Scope` set —
   it gets CRUD/YAML/OpenAPI from the engine. The only non-generic
-  code is the gateway-side renderer integration and the probe
+  code is the routd-side renderer integration and the probe
   registry (neither is a transport concern).
 
 ## What this is NOT
@@ -484,13 +483,14 @@ or stale fact (CLAUDE.md: "strict, not magical").
   `autocalls:<action>` is the action key.
 - `specs/5/32-acl-unified.md` — `autocalls:*` actions; operator-owned
   by default, folder-delegable by explicit grant.
-- `specs/9/6-functions.md` — the escape hatch for facts that need
-  real work (shell, network, unbounded); autocalls stay cheap and
-  inline, functions do the heavy lifting elsewhere.
+- An MCP tool is the escape hatch for facts that need real work (shell,
+  network, unbounded); autocalls stay cheap and inline. The `functions`
+  primitive that used to hold that role was specced in `9/6` and deleted
+  2026-08-02 — it was built on the removed `gated` daemon.
 - `ant/CLAUDE.md` §Autocalls — agent-side contract (ground truth,
   don't re-fetch); unchanged in spirit, one sentence added.
-- Code anchors: `gateway/autocalls.go:26` (builtin slice), `:51`
-  (`renderAutocalls`), `gateway/gateway.go:1024` (single sink),
+- Code anchors: `routd/prompt.go` (`autocalls` slice) (builtin slice), `:51`
+  (`renderAutocalls`), `routd/prompt.go` (`autocallsBlock`) (single sink),
   `resreg/engine.go` (`ScopeSpec`, `Hooks`, generic CRUD).
 
 ## Open questions

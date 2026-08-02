@@ -2,152 +2,41 @@
 status: draft
 ---
 
-# specs/8 — platform program: MCP+REST unification, data model, git-as-truth
+# specs/9 — data model
 
-The platform thesis crystallized in the 2026-05-23 framing session.
-This phase carries it from positioning to mechanism.
+What arizuko's state _is_, tier by tier, and what the agent passively sees.
 
-## The framing (one paragraph)
+Phase 9 opened in 2026-05 as a three-action platform program: MCP+REST
+unification, data-model sharpening, and git-as-truth. Two of the three have
+since resolved elsewhere, and what remains is the data model itself.
 
-arizuko is an **agentic product platform** with two surfaces and one
-discipline. The surfaces: **MCP+REST** (the operations + runtime
-protocol, agent-first, REST as impedance match) and **git** (the
-serialized representation, the audit trail, the fork primitive, the
-distribution channel). The discipline: **agent is data** — persona,
-skills, ACL, routes, products, secrets-pointers, decisions, memory,
-diary are all values, versioned in git, mutated through the
-MCP+REST gate, projected into running containers at HEAD. Like
-"code is data" became cloud and infrastructure-as-code, now we have
-_agents as data_ — and agents managing agents on top of it.
+| Spec                                                       | Status | Hook                                                                                                                                          |
+| ---------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| [2-data-model.md](2-data-model.md)                         | draft  | the cold / warm / hot tier model — the vocabulary `CLAUDE.md` and `specs/CLAUDE.md` lean on for "every cold-tier entity is a resreg resource" |
+| [7-configurable-autocalls.md](7-configurable-autocalls.md) | draft  | operator-extensible `<autocalls>`: a DB-backed resreg resource layered over the four builtins, with two bounded kinds (`template`, `query`)   |
 
-## Why this is a phase, not a feature
+## Where the other two actions went
 
-Each of the three actions is independently shippable. Together they
-are the platform thesis. Out of order they don't compose. Pre-ordered:
+**MCP+REST unification** was pulled forward into active phase 5 —
+[`5/17-openapi-mcp.md`](../5/17-openapi-mcp.md) is the mechanism,
+[`5/16-mcp-rest-unification.md`](../5/16-mcp-rest-unification.md) the
+rollout. It is shipped, not pending.
 
-1. **MCP+REST unification** — **pulled to active phase 5 as
-   [`5/16-mcp-rest-unification.md`](../5/16-mcp-rest-unification.md)**
-   (it's in flight now, not a future phase-8 item). Finish what
-   `specs/5/17-openapi-mcp.md` started: one hand-rolled handler per
-   resource, both protocols, identical scopes + auth gate. Without this,
-   the operator + agent surfaces drift and the "git as truth" reconcile
-   loop has two masters to chase.
-2. **Data model improvements** — sharpen the entities (chats, routes,
-   grants, secrets, products, deployments) so they can be cleanly
-   serialized to git files. Many tables today are operational shapes,
-   not authoritative state — that boundary needs explicit lines
-   drawn before the git move can be principled.
-3. **Git as truth** — move what we can put in git easily _now_
-   into a per-instance git repo. Cold tier (ACL, routes, persona,
-   skills, MEMORY.md, .diary/) goes synchronously, written direct
-   to working tree; commits gate at turn boundary. Hard parts
-   (secrets blob location, chats split, inbound digest) stay in
-   SQLite until their own sub-specs land. Pragmatic, not
-   maximalist. Audit, history, fork, distribute — native git
-   verbs for everything that does migrate.
+**Git as truth is rejected, not deferred.**
+[`5/8-yaml-manifests.md`](../5/8-yaml-manifests.md) decided the opposite:
+the SQLite DB is authoritative and YAML manifests are a transport
+dump/import — `pg_dump`/`pg_restore` for the cold tier — with no DB→YAML
+sync, no startup-apply, no SIGHUP reload. Committing an `export` dump to git
+is fine; a continuously-synced git working tree is not the model.
 
-## Design principles (carried)
+## Deleted 2026-08-02
 
-- **One renderer, many sinks** (CLAUDE.md) — MCP+REST unification IS
-  this principle applied to the platform's external surface.
-- **Strict, not magical** (CLAUDE.md) — git is strict by construction
-  (commit or it didn't happen); no silent fallbacks for missing data,
-  no parent-folder inheritance for things the operator didn't write.
-- **Boring tech** (CLAUDE.md) — git is the most-known versioned-data
-  primitive on the planet; reach for it before inventing event logs,
-  CRDTs, or bespoke audit tables.
-- **Minimality and orthogonality** (CLAUDE.md) — three concerns, three
-  spec files, no cross-mixing. Don't smuggle git semantics into the
-  MCP/REST unification spec; don't smuggle data-model changes into
-  the git move.
+| was                                     | why                                                                                                                                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `3-git-as-truth.md`                     | the rejected approach above, and built on "the gateway is the only git writer" — `gated`/gateway was deleted at v0.50.0. No git-writing code was ever written.                             |
+| `4-data-ingestion-curation-eventing.md` | an open-questions doc premised on git-as-truth shipping, which self-disclaimed as not a vehicle for future work.                                                                           |
+| `6-functions.md`                        | 574 lines on a `functions` primitive spawned by a new `fnspd` host daemon bridging **containerized `gated`** to systemd-user. `gated` is gone and `fnspd` never existed outside this file. |
 
-## What this phase is NOT
-
-- Not a runtime rewrite. Containers, channel adapters, daemon shape
-  unchanged.
-- Not a bespoke event-sourcing system. ActiveGraph
-  (arxiv:2605.21997) inspired the direction; git replaces the
-  bespoke event log + projection + fork machinery. Adopt the
-  discipline, not the runtime.
-- Not Kubernetes / multi-node. Single-host operator footprint stays.
-- Not a product registry (that's `specs/7/...` / future-phase 6 work).
-- ~~Not the `agents.toml` declarative composer~~ — resolved
-  in [5/8-yaml-manifests.md](../5/8-yaml-manifests.md): the carrier
-  format is YAML, not TOML, and lives in this phase. Product
-  composition / mixin semantics remain open (8/4 Q2).
-
-## Sequencing
-
-Action 1 unblocks Action 2 (data model can target the unified
-surface). Actions 1+2 unblock Action 3 (clean entities + clean
-surface = clean git serialization). Within each action, ship the
-smallest viable version first; iterate behind that surface.
-
-Hard dependency on **Phase C of `specs/5/5-tenant-self-service.md`**
-(folder/user-scope secrets layering) — the BYOA primitive. Without
-secrets-as-references-resolvable-at-spawn, Action 3 can't ship
-safely.
-
-Also composes with phase 7 hardening: `specs/8/F-audit-stream.md`
-(audit log for warm tier), `specs/8/E-encryption-at-rest.md`
-(secrets stay encrypted in SQLite, never leak into git),
-`specs/5/13-ext-mcp.md` (per-call audit at the secret edge),
-`specs/8/H-per-daemon-secrets.md` (adapter-side compartments).
-
-## Specs in this phase
-
-- [2-data-model.md](2-data-model.md) — entity sharpening,
-  serialization-friendly shapes.
-- [3-git-as-truth.md](3-git-as-truth.md) — gateway as the only git
-  writer; dual-write event-sourcing-lite; SQLite as cache; fork via
-  `git worktree`; audit via `git log`.
-- [4-data-ingestion-curation-eventing.md](4-data-ingestion-curation-eventing.md)
-  — open questions: how ingestion, curation, and eventing fit the
-  agent-is-data + git-as-truth thesis. Status: draft (open questions;
-  no mechanism proposed).
-- [5/8-yaml-manifests.md](../5/8-yaml-manifests.md) — declarative YAML
-  carrier for cold-tier intent; flat resource namespace dispatched
-  through resreg; supersedes the `agents.toml` placeholder in
-  3/4. Status: shipped.
-- [6-functions.md](6-functions.md) — lambda/function primitive:
-  agent-authored scripts on host, triggered transiently by webhook /
-  cron / function-chain / manual via `systemd-run --transient` under
-  per-folder cgroup slice; host-side `fnspd` spawner bridges
-  containerized gated to host systemd-user manager. Status: draft.
-- [7-configurable-autocalls.md](7-configurable-autocalls.md) —
-  operator-extensible `<autocalls>` block: a DB-backed, resreg-managed
-  resource (REST+MCP+YAML+OpenAPI) layered over the five hardcoded
-  builtins. Two bounded kinds — `template` (pure, zero-I/O over
-  `AutocallCtx`) and `query` (one budgeted, folder-scoped indexed read
-  via a whitelisted probe, fail-open-to-omitted). Generalizes 5/4's
-  planned `unread`/`errors` entries; "agent is data" applied to what
-  the agent passively sees. Status: draft.
-
-## Open questions (referenced from each spec)
-
-These are real and unresolved at phase-open. Each child spec carries
-its own subset; the index keeps the master list.
-
-1. Inbound message storage — per-day JSONL in git, or hot-only in
-   SQLite?
-2. Crash recovery between SQLite write and git commit — replay
-   protocol?
-3. Fork lifecycle — does forked branch get its own container, same
-   DB, separate cache?
-4. Operator UX — `arizuko log/diff/revert` wrappers vs raw git?
-5. dashd tier-1 write — commit→apply, or commit-immediate-apply?
-6. Tracing granularity vs audit granularity — sidecar JSON enough,
-   or per-event commits on a side branch?
-7. Term "GitOps" — adopt (familiar to ops buyers) or substitute
-   "git-native" (cleaner for non-K8s audience)?
-
-## Pointers
-
-- Framing session diary: `.diary/20260523.md` (afternoon blocks
-  ~14:00–15:30).
-- Competitive sweep + ActiveGraph honesty check: same diary entry.
-- Three-lens synthesis (agent-is-data, agent-first, agent-is-graph
-  scoped to organizational layer): same diary.
-- Memory pointers: `~/.claude/projects/-home-onvos-app-arizuko/memory/`
-  (no permanent memory file yet; this index doubles as canonical
-  framing reference until POSITIONING.md exists at repo root).
+If the functions primitive revives, it needs a fresh spec against
+`routd`/`runed`, not a revert — the execution model it assumed no longer
+exists.

@@ -1,77 +1,58 @@
-# Company Brain — arizuko positioning and gaps
+---
+status: not planned
+---
 
-## Status: positioning product (retrieval is the integration gap)
+# Company brain — positioning, and the one real gap
 
-A flagship product in the grand message ([specs/5/A](../5/A-primitives-framing.md)),
-alongside the Slack team agent and the reality agent. Unlike those, it
-is **not** a seeded `ant/examples/` template yet — it ships as framing +
-a setup recipe, because its one genuine gap (connector ingestion +
-retrieval) is an integration, not a primitive arizuko is missing.
+A flagship use case in the grand message
+([5/A-primitives-framing](../5/A-primitives-framing.md)). Unlike the shipped
+products it is **not** an `ant/examples/` template and should not become
+one yet: its single genuine gap is connector ingestion + retrieval, which is
+an integration, not a primitive arizuko is missing.
 
-## The use case
+## The angle
 
-"Company brain" tools give teams a persistent AI that knows their docs,
-decisions, people, and projects. The agent answers questions across
-Confluence, Notion, Slack history, Drive, Jira, etc.
+"Company brain" tools give teams an AI that knows their docs, decisions,
+people, and projects. arizuko is the **action layer**, not the retrieval
+layer. Competitors answer questions about company knowledge; arizuko agents
+act on it — read intake, write daily briefs, escalate, coordinate, run on
+schedule.
 
-## arizuko's angle
+That is a recomposition of existing primitives, not new machinery: intake
+arrives as Events (Slack, email, webhook, WebDAV), Routing lands it in the
+right folder, the folder's `facts/` + memory is the State, a scheduled Turn
+writes the brief, and Authorization scopes what each team's brain may read.
+Retrieval is the one piece arizuko does not own — it delegates to an
+external backend via a skill.
 
-arizuko is the **action layer**, not the retrieval layer. Competitors
-answer questions about company knowledge. arizuko agents act on it — read
-Slack intake, write daily briefs, escalate issues, coordinate across
-teams, run on schedule.
+Pair arizuko with a vector-store skill (or Onyx as the retrieval backend)
+and you get both: semantic search **and** agents that act.
 
-This is a recomposition of the same primitives, not new machinery: intake
-arrives as **Events** (Slack, email, webhook, WebDAV); **Routing** lands
-it in the right folder; **State** (the folder's `facts/` + memory) is the
-knowledge; a scheduled **Turn** writes the brief; **Authorization** scopes
-what each team's brain may read. Retrieval is the one piece arizuko does
-not own — it delegates to an external backend via a skill.
+## Competitors
 
-The framing: pair arizuko with a vector store skill (or Onyx as a
-retrieval backend) and you get both: semantic search AND agents that act.
+- **Glean** — enterprise semantic search, 100+ connectors, RBAC-mirrored.
+- **Dust.tt** — agent-first, 50+ connectors, per-user memory, cloud SaaS.
+- **Onyx** (fka Danswer) — open-source, self-hosted, hybrid BM25+dense.
+- **Guru** — curated verified-card model, Slack-first, SME review.
+- **Notion AI / Confluence AI** — in-workspace, permission-aware, no
+  self-hosting.
 
-## Key competitors
+## Genuine gaps
 
-- **Glean** — enterprise semantic search, 100+ SaaS connectors, RBAC-mirrored permissions
-- **Dust.tt** — agent-first, 50+ connectors, per-user agent memory, cloud SaaS
-- **Onyx** (fka Danswer) — open-source, self-hosted, hybrid BM25+dense search, 50+ connectors
-- **Guru** — curated verified-card model, Slack-first, SME review workflows
-- **Notion AI / Confluence AI** — in-workspace AI, permission-aware, no self-hosting
+1. **No connector ingestion.** No OAuth crawlers, no delta sync from
+   Confluence/Notion/Drive. `facts/` and WebDAV mounts are manual — fine for
+   a small knowledge base, broken at Confluence scale. This is the blocker.
+2. **No semantic search.** No embedding pipeline; agents grep mounted files.
+   Breaks at enterprise corpus size.
+3. **No permission inheritance from source systems.** ACL is folder-level
+   and operator-managed; it cannot replicate a Jira or Salesforce permission
+   graph.
 
-Reference: `refs/onyx/` (cloned), `refs/onyx.md` (analysis).
+## Directions (unscheduled)
 
-## Genuine gaps today
-
-1. **No connector ingestion pipeline.** No OAuth crawlers, no delta sync
-   from Confluence/Notion/Drive. `facts/` and WebDAV mounts are manual.
-2. **No semantic search / vector store.** No embedding pipeline. Agents
-   grep mounted files; breaks at enterprise corpus scale.
-3. **No permission inheritance from source systems.** ACL is folder-level,
-   operator-managed. Can't replicate Jira/Salesforce permission graphs.
-
-## Data ingestion (primary gap)
-
-The biggest blocker for company-brain positioning is ingestion. Without
-automated connectors, the operator populates `facts/` manually or via WebDAV
-mounts. That's fine for small knowledge bases; it breaks for anything
-Confluence/Notion/Drive-scale.
-
-### Possible directions
-
-- **Connector skills**: lightweight per-source skills (Notion read,
-  Confluence search) that write to `facts/` on a schedule via `timed`.
-  Each skill = one OAuth token + one pull loop. No build-in embedding.
-- **Onyx as retrieval backend skill**: agent calls Onyx search API via
-  an MCP skill, gets ranked results, acts on them. Delegates the entire
-  ingestion + embedding problem to Onyx. No need to build RAG into arizuko.
-- **products/company-brain/**: product page framing arizuko as the
-  action+coordination layer, Onyx/Glean as the retrieval layer.
-
-### Action items (not yet planned)
-
-- [ ] Connector skill: Notion read → facts/
-- [ ] Connector skill: Confluence search → facts/
-- [ ] Onyx integration skill (search MCP tool calling Onyx API)
-- [ ] products/company-brain/ page (intro + setup)
-- [x] Landing page "acts on knowledge" bullet (done in v0.43.0)
+- **Connector skills** — one lightweight skill per source (Notion read,
+  Confluence search) writing into `facts/` on a `timed` schedule. One OAuth
+  token and one pull loop each; no embedding built in.
+- **Onyx as a retrieval backend** — the agent calls Onyx's search API
+  through a skill and acts on ranked results, delegating ingestion and
+  embedding entirely. Cheapest path to a credible answer; build nothing.

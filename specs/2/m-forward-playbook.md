@@ -7,13 +7,13 @@ status: shipped
 When the bot should reach for `forward` instead of `send` / `reply` /
 `repost`, and how to teach a per-group persona to do so.
 
-Mechanism is shipped: `ipc/ipc.go:1040` registers the MCP tool;
-`chanlib.Socializer.Forward` is the capability; per-adapter impl in
-`teled/bot.go:422`, `discd/bot.go:454`, `slakd/bot.go:907`,
-`mastd/client.go:275`, `emaid/server.go:53`,
-`whapd/src/server.ts:346`. Verb table in
-`specs/4/9-gated.md:211`; tool desc in `ipc/ipc.go:1042`. This spec is
-operator-facing: when to use, when not to, what to put in `CLAUDE.md`.
+Mechanism is shipped: `ipc/ipc.go` registers the `forward` MCP tool;
+`chanlib.BotHandler.Forward` (`chanlib/handler.go`) is the capability,
+with `NoSocial.Forward` returning `ErrUnsupported` for adapters that
+embed it. Adapter roster:
+[`../4/social-adapters.md`](../4/social-adapters.md). This spec is
+operator-facing: when to use forward, when not to, what to put in a
+group's `CLAUDE.md`.
 
 ## What `forward` is for
 
@@ -55,25 +55,24 @@ operator-justified shapes:
   this; the persona must. The platform stamp ("forwarded from
   …") leaks the source name even if the body is harmless.
 - **Public amplification.** Use `repost` (Mastodon boost, Bluesky
-  repost, X retweet). Forward is point-to-point; repost is
-  one-to-feed. Tool desc at `ipc/ipc.go:1070` already says this.
+  repost, X retweet). Forward is point-to-point; repost is one-to-feed.
 
 ## Per-adapter reality
 
 Only **Telegram** has a true native forward (preserves the
 "Forwarded from X" header). Everywhere else, `forward` degrades:
 
-| Adapter | Behavior                                                               |
-| ------- | ---------------------------------------------------------------------- |
-| teled   | native; `source_msg_id` must be `"<sourceChatJid>\|<msgId>"`           |
-| whapd   | degraded `send` with Baileys `isForwarded` flag + `forwardingScore: 1` |
-| discd   | `Unsupported` — hint to use `send(...— from <source>)`                 |
-| slakd   | `Unsupported` — hint to use `send(...— from <source>)`                 |
-| mastd   | `Unsupported` — hint to use `repost` or `post(... <permalink>)`        |
-| emaid   | `Unsupported` — hint to use `send` with `---- Forwarded message ----`  |
-| bskyd   | not implemented; same `Unsupported` shape expected                     |
-| reditd  | not implemented; same                                                  |
-| twitd   | hint-only (`specs/2/k-twitter-adapter.md:76`); no DM forward primitive |
+| Adapter | Behavior                                                                            |
+| ------- | ----------------------------------------------------------------------------------- |
+| teled   | native; `source_msg_id` must be `"<sourceChatJid>\|<msgId>"`                        |
+| whapd   | degraded `send` with Baileys `isForwarded` flag + `forwardingScore: 1`              |
+| discd   | `Unsupported` — hint to use `send(...— from <source>)`                              |
+| slakd   | `Unsupported` — hint to use `send(...— from <source>)`                              |
+| mastd   | `Unsupported` — hint to use `repost` or `post(... <permalink>)`                     |
+| emaid   | `Unsupported` — hint to use `send` with `---- Forwarded message ----`               |
+| bskyd   | not implemented; same `Unsupported` shape expected                                  |
+| reditd  | not implemented; same                                                               |
+| twitd   | hint-only ([`k-twitter-adapter.md`](k-twitter-adapter.md)); no DM forward primitive |
 
 Implication for personas: if a forward fails with `Unsupported`,
 **don't retry as another verb without rewriting**. The hint tells
@@ -103,12 +102,11 @@ The snippet names the verb, the two anti-patterns, and the
 degradation rule in four sentences. Operators adapt the group
 names; the rest is platform-mechanical.
 
-## Open questions
+## Open question
 
-1. Should `gateway.forwardToJID` (gateway.go:1368) check the source
-   group's `open` flag and refuse cross-boundary forwards? Today
-   the check is persona discipline only. A platform-side guard
-   would be strict-not-magical (mechanical refusal, no inference)
-   but requires resolving source JID → group, which the gateway
-   does not currently do for the forward verb. Defer until a real
-   leak occurs.
+Should the platform refuse a cross-boundary forward mechanically —
+resolving the source JID to its group and checking that group's `open`
+flag — rather than leaving it to persona discipline? That would be
+strict-not-magical (mechanical refusal, no inference), but the forward
+path does not resolve source JID → group today. Deferred until a real
+leak occurs.
