@@ -2737,3 +2737,57 @@ user → scopes → route from `auth_sessions`/`acl`/`auth_users`/`route_tokens`
 one per-request decision (`proxyd/main.go:1001`). Splitting costs a second DB
 open per request and buys nothing. `proxyd.db` on krons is 0 bytes, dated
 Jul 11, referenced by no Go code at all.
+
+## A1 — the split is deployment-shaped only: auth data lives in the router's DB (2026-08-02, proposal)
+
+The daemons look like microservices and are coupled through a shared filesystem.
+Three verified facts:
+
+**1. Every daemon mounts every DB.** `compose/compose.go:812`, in the *generic*
+`writeSvc` emitter, writes `- <dataDir>:/srv/app/home` for every service with no
+per-daemon condition. Verified on live krons: `arizuko_timed_krons` has the
+instance data dir mounted `rw`. So CLAUDE.md's "non-mounted daemons (slakd,
+timed) write via the owner's HTTP API" describes a boundary that does not exist —
+the split write-discipline is a convention, honored voluntarily in code.
+
+Honoring it: `timed`, `davd`, `teled` open no DB at all. Not honoring it:
+`proxyd` (routd.db), `webd` (messages.db + routd.db), `dashd` (messages.db +
+routd.db + onbod.db), and `slakd` (`slakd/main.go:44` opens routd.db) — which
+CLAUDE.md names as an HTTP writer. `timed` owns no DB because it chose the wire,
+not because it lacks access.
+
+**2. Authorization lives in the router.** `acl`, `acl_membership`,
+`auth_sessions`, `auth_users` are in `routd.db`. authd owns `auth.db` and holds
+`identities`, `oauth_identities`, `refresh_tokens`, `signing_keys`,
+`identity_claims`. So the daemon whose entire job is auth does not hold the
+authorization rows, and `auth.Authorize` — the sole evaluator — reads them out of
+the router's file.
+
+**3. `auth_users` is duplicated across two owner DBs.** It exists in BOTH
+`auth.db` and `routd.db`, and five packages write "it": `onbod/main.go`,
+`proxyd/main.go`, `authd/http.go`+`store.go`, `dashd/profile.go`,
+`routd/budget.go` — each hitting whichever DB its handle opened. Both are empty
+on krons today, so this is a latent split-brain, not live divergence. Nothing
+prevents divergence the moment both get rows.
+
+This is the root cause of Y1's confusion and of proxyd reading another daemon's
+tables: a daemon needing an auth answer must go where the auth rows happen to
+sit, which is routd.
+
+**Proposal.** Move `acl`, `acl_membership`, `auth_sessions`, and the single
+canonical `auth_users` into `auth.db` under authd. proxyd then answers identity
+by offline-verifying authd's ES256 token — the mechanism every other daemon
+already uses (`5/1`) — instead of opening routd.db. The one thing forcing a DB
+read is the opaque **session cookie**; have authd's login set a JWT-bearing
+cookie and proxyd's identity reads disappear entirely. Afterwards, narrow the
+mount per daemon at `compose/compose.go:812`, which turns the write-discipline
+from a convention into an enforced boundary.
+
+- **Severity:** high (architectural; latent split-brain on `auth_users`)
+- **Scope:** cross-daemon schema ownership + container mounts
+- **Affected:** `compose/compose.go:812`, `proxyd/main.go:869-890`,
+  `slakd/main.go:44`, `store/auth.go`, `authd/store.go`, CLAUDE.md's
+  write-discipline paragraph, `specs/5/16` owner-DB map
+- **Fix:** needs sign-off — cross-daemon schema move + migration per instance.
+  Do not start piecemeal; `5/8` and `5/16` should be rewritten against the
+  outcome, not before it.
