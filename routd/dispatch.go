@@ -486,16 +486,28 @@ func jidScheme(jid string) string {
 // dispatchRun renders the run request and calls runed POST /v1/runs. The
 // agent's conversation frames arrive out-of-band during the run via the
 // /v1/turns/{turn_id}/* callbacks; this returns the turn-boundary outcome.
+// turnCallerSub renders "who is this turn acting on behalf of" from its
+// trigger — the ONE rule, so spawn-time secret resolution and the agent's
+// per-tool-call connector-secret resolution cannot diverge. A timed or system
+// trigger has no human behind it and resolves to routd itself.
+//
+// This is deliberately NOT the tool-call authorization principal: that asks
+// "what may be done HERE", answered by folder:<path>. Whose credentials to
+// inject and what is permitted in a place are different questions (BUGS B2).
+func turnCallerSub(trigger string) string {
+	if trigger == "" || strings.HasPrefix(trigger, "timed-") || strings.HasPrefix(trigger, "system") {
+		return "service:routd"
+	}
+	return trigger
+}
+
 func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, trigger, batch string, elevated bool) (runedv1.RunOutcome, error) {
 	var cancel context.CancelFunc
 	if l.runTimeout > 0 {
 		ctx, cancel = context.WithTimeout(ctx, l.runTimeout)
 		defer cancel()
 	}
-	caller := types.UserSub("service:routd")
-	if trigger != "" && !strings.HasPrefix(trigger, "timed-") && !strings.HasPrefix(trigger, "system") {
-		caller = types.UserSub(trigger)
-	}
+	caller := types.UserSub(turnCallerSub(trigger))
 	model, containerCfg := l.db.GroupConfig(folder)
 	if model == "" {
 		model = l.defaultModel

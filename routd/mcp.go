@@ -461,12 +461,12 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			}
 			return out
 		},
-		PutMessage:     s.db.PutMessage,
-		GetLastReplyID: s.db.LastReplyID,
-		SetLastReply:   s.db.SetLastReply,
-		SetEngagement:  setEngagement,
-		BumpEngagement: setEngagement,
-		EngagedFolder:   func(jid, topic string) string { f, _ := s.db.Engaged(jid, topic); return f },
+		PutMessage:           s.db.PutMessage,
+		GetLastReplyID:       s.db.LastReplyID,
+		SetLastReply:         s.db.SetLastReply,
+		SetEngagement:        setEngagement,
+		BumpEngagement:       setEngagement,
+		EngagedFolder:        func(jid, topic string) string { f, _ := s.db.Engaged(jid, topic); return f },
 		LogExternalCost:      s.db.LogExternalCost,
 		CurrentTriggerSender: func(_ string) string { return t.trigger },
 		CurrentTopic:         func(_ string) string { return t.topic },
@@ -480,15 +480,8 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		ExtTools:   s.extTools,
 		// Capture the trigger sender so ConnectorSecrets resolves the triggering
 		// user's BYOA secrets (FolderSecretsForUser), not folder scope only.
-		// Normalize the caller the same way dispatchRun does (spec 5/14
-		// resolution chain): timed/system triggers resolve as service:routd, so
-		// a stray timed-<id> scope_id can't diverge connector-secret resolution
-		// from spawn-time resolution.
 		ResolveConnectorSecrets: func(folder string, required []string) (map[string]string, error) {
-			callerSub := t.trigger
-			if callerSub == "" || strings.HasPrefix(callerSub, "timed-") || strings.HasPrefix(callerSub, "system") {
-				callerSub = "service:routd"
-			}
+			callerSub := turnCallerSub(t.trigger)
 			res, err := s.db.ConnectorSecrets(folder, callerSub, required)
 			// secret_use_log writer (spec 5/13 §Audit, M2): one row per resolved key —
 			// records THAT a broker secret was read, never the value. Closes the gap

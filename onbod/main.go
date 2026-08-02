@@ -342,7 +342,46 @@ func emailDomain(sub string) string {
 	return ""
 }
 
+// knownStatuses is the complete set the pipeline can advance. A row in
+// anything else is stranded: no query selects it, so it is never prompted,
+// queued or admitted, and its jid PRIMARY KEY blocks a fresh insert — the user
+// can never onboard from that chat again. Two such rows exist in production
+// (BUGS O1), in a 'pending' status no code writes.
+var knownStatuses = map[string]bool{
+	"awaiting_message": true,
+	"token_used":       true,
+	"queued":           true,
+	"approved":         true,
+}
+
+// warnStrandedRows surfaces rows the state machine cannot move. It cannot
+// repair them — picking a status for a row of unknown provenance is the
+// operator's call — but silence is what let them sit unnoticed.
+func warnStrandedRows(db *sql.DB) {
+	rows, err := db.Query(`SELECT jid, status FROM onboarding`)
+	if err != nil {
+		slog.Error("stranded-row scan", "err", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var jid, status string
+		if err := rows.Scan(&jid, &status); err != nil {
+			slog.Error("stranded-row scan", "err", err)
+			return
+		}
+		if !knownStatuses[status] {
+			slog.Error("onboarding row stranded in an unknown status — it will never advance",
+				"jid", jid, "status", status, "known", "awaiting_message/token_used/queued/approved")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("stranded-row scan", "err", err)
+	}
+}
+
 func promptUnprompted(db *sql.DB, cfg config) {
+	warnStrandedRows(db)
 	rows, err := db.Query(
 		`SELECT jid FROM onboarding WHERE status = 'awaiting_message' AND prompted_at IS NULL`)
 	if err != nil {

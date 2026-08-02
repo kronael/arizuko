@@ -2232,3 +2232,21 @@ func TestTokenLanding_EdgeSurvivesCrashBeforeConsume(t *testing.T) {
 		t.Errorf("replay produced %d edges, want exactly 1", n)
 	}
 }
+
+// O1: a row in a status no query selects is stranded — never prompted, queued
+// or admitted, and its jid PRIMARY KEY blocks a fresh insert, so the user can
+// never onboard from that chat again. Two such rows exist in production. The
+// pipeline cannot repair them (picking a status is the operator's call) but it
+// must not stay silent about them.
+func TestKnownStatusesCoversEveryWriter(t *testing.T) {
+	// Every status the code writes must be one the pipeline can advance,
+	// otherwise we ship the O1 bug again with a new value.
+	for _, s := range []string{"awaiting_message", "token_used", "queued", "approved"} {
+		if !knownStatuses[s] {
+			t.Errorf("%q is written by the pipeline but not in knownStatuses", s)
+		}
+	}
+	if knownStatuses["pending"] {
+		t.Error("'pending' is not a status any writer produces; it must read as stranded")
+	}
+}
