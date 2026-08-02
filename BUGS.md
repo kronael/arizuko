@@ -2893,3 +2893,42 @@ and the live DB before logging.
   of the `acl`/`acl_membership` row it actually writes. Grep the whole file for
   other tier/`user_groups` references before calling it done — these four were
   found by a full-file read, not a truncated grep.
+
+## Y2 — fixing Y1 would activate an invite-token wipe and a raw-bearer export (2026-08-02, open)
+
+Hard ordering constraint on Y1, found during the phase-5 spec pass and verified
+independently.
+
+`resreg/resources/invites.go` does **not** set `SkipApplyRebuild`. Its two
+siblings in the same directory do — `route_tokens.go:111` and `secrets.go:54` —
+each with a comment giving the reason ("tokens are runtime-minted, not
+manifest-managed"; "enc_value blobs are set imperatively, never via apply").
+`resreg/engine.go:523` skips exactly those resources in the apply rebuild loop:
+
+```go
+for _, r := range All() {
+    if r.RowType == nil || r.SkipApplyRebuild { continue }
+```
+
+Two consequences, both currently latent:
+
+1. **`arizuko apply` destroys live invites.** Unguarded resources are
+   DELETE+INSERTed from the manifest, so every unredeemed invite token not in
+   the YAML is wiped.
+2. **`arizuko export` writes raw bearers to disk.** `invites.go:15` declares
+   `Token string \`db:"token" yaml:"token" json:"token"\`` — the token value
+   itself is serialized into the dump, which is then a credential file.
+
+Both are inert today **only** because the manifest CLI opens the frozen
+pre-split `messages.db` and therefore touches no live table (Y1). That means
+**Y1's fix activates this bug**: the moment `apply`/`export` are repointed at
+the owner DBs, the first `export` leaks live invite bearers and the first
+`apply` can wipe them.
+
+- **Severity:** high once Y1 ships; latent until then
+- **Scope:** manifest apply/export safety for token-bearing resources
+- **Affected:** `resreg/resources/invites.go`, `resreg/engine.go:523`
+- **Fix:** set `SkipApplyRebuild: true` on `invites` and drop `token` from the
+  YAML projection, matching `route_tokens`. **Do this BEFORE the Y1 repoint**,
+  not after — and while there, audit every resreg resource carrying a secret or
+  bearer field for the same omission rather than fixing only this one.
