@@ -125,23 +125,27 @@ Rules an integrator must not break:
 
 ## Known gaps this integration inherits
 
-- **`Sender` is authorization-bearing and unvalidated.** A channel sender
-  DOES reach `auth.Authorize` — `steer.go` passes `msg.Sender` to
-  `db.IsOperator` → `Authorize(Caller{Principal: sub}, "admin", "**")`
-  (`routd/sibling_db.go:203`), and a platform JID claims a canonical sub
-  through an `acl_membership` edge (tested: `auth/authorize_test.go:88`).
-  But `handleMessages` (`routd/server.go`, 98 lines) never mentions
-  `Sender`: it validates the ChatJID prefix against the channel registry
-  and nothing else. Any integration holding `messages:write` can assert
-  an arbitrary sender. An edge must be bound to its own principal
-  namespace **at routd**, never trusting edge-supplied identity.
+- **`Sender` is authorization-bearing — now bound, but only by scheme.**
+  A channel sender reaches `auth.Authorize`: `steer.go` passes
+  `msg.Sender` to `db.IsOperator` → `Authorize(Caller{Principal: sub},
+"admin", "**")` (`routd/sibling_db.go:203`), and a platform JID claims
+  a canonical sub through an `acl_membership` edge (tested:
+  `auth/authorize_test.go:88`). `handleMessages` now rejects a sender
+  outside a platform scheme the adapter registered (`Entry.OwnsScheme`,
+  spec `4/1` § "chat_jid and sender are different shapes"). What that
+  does NOT do is bound an edge to a sub-namespace WITHIN its scheme, so a
+  compromised adapter can still assert any user of its own platform. An
+  integration is trusted for its platform, not beyond it.
 - **The turn is socket-credentialed, not token-credentialed.** runed
   creates the SO_PEERCRED-gated socket and routd holds the other end, so
   identity is established by construction at spawn. Hermes inherits this:
   it authenticates by being the spawned process, and presents no
-  credential. `Broker`/`mcp_tokens` look like an AssumeRole path but no
-  token reaches the container and authd discards the requested sub — do
-  not build against them.
+  credential. An AssumeRole-shaped `Broker`/`mcp_tokens` path existed and
+  was deleted (`specs/5/P` § "Capability brokering — REMOVED"): no token
+  ever reached the container and authd forced every one to
+  `sub=service:runed`. Do not reintroduce one for Hermes — a bearer
+  string handed to an agent with a shell and egress can be copied out and
+  replayed after the turn; the socket cannot.
 - **Containment is per-handler, not per-store.** `BUGS.md` T1: the
   chat-token MCP `get_round` reads any turn in the instance because
   `store.TurnFrames` has no JID predicate while its HTTP twin checks one.

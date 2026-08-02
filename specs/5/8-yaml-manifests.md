@@ -304,7 +304,7 @@ Per-daemon ownership (post-split owners per [`E-routd.md`](E-routd.md),
 | onbod  | onboarding_gates                                                                                                                                                    |
 | authd  | — (signing keys / JWKs / sessions; no manifest-addressable config rows)                                                                                             |
 | proxyd | proxyd_routes (operator-composed enforcement point; see [`7-proxyd-standalone.md`](7-proxyd-standalone.md))                                                         |
-| runed  | — (execution runtime: spawns / session_log / mcp_tokens; all runtime tables, not config)                                                                            |
+| runed  | — (execution runtime: spawns / session_log; all runtime tables, not config)                                                                                         |
 | webd   | — (reads `web_routes` from routd; doc is informational)                                                                                                             |
 | dashd  | — (HTMX operator UI; CRUD lives in the owning daemons above)                                                                                                        |
 

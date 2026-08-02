@@ -83,7 +83,7 @@ Authorization: Bearer <session-token>
 {
   "id": "msg-uuid",
   "chat_jid": "telegram:mybot/-1001234567",
-  "sender": "telegram:mybot/12345",
+  "sender": "telegram:user/12345",
   "sender_name": "Alice",
   "content": "hello",
   "timestamp": 1709942400,
@@ -363,3 +363,28 @@ segment comes from `api.Self.UserName` after auth. JIDs become
 with its own prefix. Router routes by prefix. No conflict.
 `CHANNEL_ACCOUNT` overrides the platform name if needed.
 See specs/5/R-multi-account.md and specs/5/S-jid-format.md.
+
+## `chat_jid` and `sender` are different shapes
+
+A chat JID names a CONVERSATION and carries the adapter's registered prefix:
+`telegram:mybot/-1001234567`. A sender names a PERSON and does not:
+`telegram:user/12345` (`teled/bot.go`). They share only the scheme before the
+`:`. The two are checked separately at ingress, and by different rules:
+
+- **`chat_jid`** must fall under a `jid_prefixes` entry the registering adapter
+  declared — `Entry.Owns`. An adapter cannot inject conversations it does not
+  serve.
+- **`sender`** must sit in a platform scheme that adapter registered —
+  `Entry.OwnsScheme`. Prefix ownership cannot be used here: registered prefixes
+  are chat prefixes (`telegram:mybot/`) while senders are `telegram:user/<id>`,
+  so `Owns` would reject every legitimate sender.
+
+The sender check is deliberately NOT nested inside the chat-JID check.
+`web:`, `hook:` and bare-folder chat JIDs skip prefix ownership entirely, so an
+adapter posting `chat_jid: "web:main"` with another platform's sender would
+otherwise meet no check at all.
+
+Sender is authorization-bearing — `routd/steer.go` passes it to `IsOperator`,
+which reaches `auth.Authorize(…, "admin", "**")` — so an unvalidated sender is
+an escalation, not a cosmetic error. A bare scheme-less sender stays allowed: it
+cannot collide with an OAuth sub, which is always `<provider>:<id>`.
