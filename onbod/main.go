@@ -441,8 +441,7 @@ func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg
 		return
 	}
 	if userSub != "" {
-		_ = ensureCSRFToken(w, r, cfg)
-		handleDashboard(w, r, db, obdb, cfg, userSub)
+		handleDashboard(w, r, db, obdb, cfg, userSub, ensureCSRFToken(w, r, cfg))
 		return
 	}
 	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
@@ -568,7 +567,9 @@ func claimOnboarding(obdb *sql.DB, jid, userSub string) bool {
 	return n == 1
 }
 
-func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, userSub string) {
+// csrf is the double-submit token GET /onboard just minted; every form this
+// renders MUST echo it, because handleOnboardPost rejects a POST without it.
+func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, userSub, csrf string) {
 	if c, err := r.Cookie("onboard_jid"); err == nil && c.Value != "" {
 		claimed := claimOnboarding(obdb, c.Value, userSub)
 		// Single-use cookie: clear regardless of claim outcome.
@@ -606,7 +607,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, c
 
 	if groupCount == 0 {
 		if c, err := r.Cookie("pending_target"); err == nil && c.Value != "" {
-			renderUsernamePicker(w, username)
+			renderUsernamePicker(w, username, csrf)
 			return
 		}
 		renderPage(w, "Invite Required",
@@ -1194,15 +1195,16 @@ func renderPage(w http.ResponseWriter, title string, body template.HTML) {
 	fmt.Fprint(w, theme.Page(title, body))
 }
 
-func renderUsernamePicker(w http.ResponseWriter, currentUsername string) {
+func renderUsernamePicker(w http.ResponseWriter, currentUsername, csrf string) {
 	body := fmt.Sprintf(`<p class="dim" style="margin-bottom:.8em">Pick a username for your workspace. Lowercase letters, numbers, and hyphens only.</p>
 <form method="POST" action="/onboard">
 <input type="hidden" name="action" value="create_world">
+<input type="hidden" name="%s" value="%s">
 <input name="username" placeholder="username" value="%s" required autofocus
  pattern="[a-z][a-z0-9-]{2,29}" title="3-30 chars, lowercase, starts with letter"
  style="margin-bottom:1rem">
 <button type="submit" style="width:100%%">Create workspace</button>
-</form>`, html.EscapeString(currentUsername))
+</form>`, auth.CSRFField, html.EscapeString(csrf), html.EscapeString(currentUsername))
 	renderPage(w, "Create Workspace", template.HTML(body))
 }
 

@@ -5,15 +5,18 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
@@ -211,6 +214,70 @@ func TestDashboardShowsUsernamePicker(t *testing.T) {
 	if !strings.Contains(body, "create_world") {
 		t.Error("expected username picker form")
 	}
+}
+
+// The rendered form and the handler's CSRF check must be tested against each
+// other, not assumed to agree: a browser submits exactly the fields the
+// renderer emitted, so this replays those (plus the cookies the GET set).
+// postOnboard injects the double-submit pair itself, so no test built on it can
+// catch a form that omits the field — which is how BUGS F1 shipped.
+func TestUsernamePickerFormSatisfiesCSRFCheck(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:new', 'newbie', 'New User', '2026-01-01')`)
+
+	cfg := config{}
+	get := httptest.NewRequest("GET", "/onboard", nil)
+	get.Header.Set("X-User-Sub", "github:new")
+	get.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
+	gw := httptest.NewRecorder()
+	handleOnboard(gw, get, db, db, cfg)
+
+	form := formInputs(gw.Body.String())
+	if form.Get("action") != "create_world" {
+		t.Fatalf("no create_world form rendered, got fields %v", form)
+	}
+	if form.Get(auth.CSRFField) == "" {
+		t.Fatalf("rendered form carries no %q field, but handleOnboardPost requires one", auth.CSRFField)
+	}
+
+	post := httptest.NewRequest("POST", "/onboard", strings.NewReader(form.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.Header.Set("X-User-Sub", "github:new")
+	post.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
+	for _, c := range gw.Result().Cookies() {
+		post.AddCookie(c)
+	}
+	pw := httptest.NewRecorder()
+	handleOnboardPost(pw, post, db, cfg)
+
+	if pw.Code == http.StatusForbidden {
+		t.Fatalf("submitting the rendered form is rejected: %s", strings.TrimSpace(pw.Body.String()))
+	}
+	if pw.Code != http.StatusSeeOther {
+		t.Fatalf("want 303 from the rendered form, got %d: %s", pw.Code, pw.Body.String())
+	}
+}
+
+var (
+	inputTagRe = regexp.MustCompile(`<input\b[^>]*>`)
+	attrRe     = regexp.MustCompile(`([a-zA-Z-]+)="([^"]*)"`)
+)
+
+// formInputs collects the name/value pairs of every <input> on a page — what a
+// browser would submit from it.
+func formInputs(page string) url.Values {
+	vals := url.Values{}
+	for _, tag := range inputTagRe.FindAllString(page, -1) {
+		attrs := map[string]string{}
+		for _, m := range attrRe.FindAllStringSubmatch(tag, -1) {
+			attrs[m[1]] = m[2]
+		}
+		if n := attrs["name"]; n != "" {
+			vals.Set(n, html.UnescapeString(attrs["value"]))
+		}
+	}
+	return vals
 }
 
 func TestCreateWorldValidUsername(t *testing.T) {
