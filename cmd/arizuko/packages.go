@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/compose"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
@@ -541,6 +542,53 @@ func cmdPackages(args []string) {
 		fmt.Printf("removed %s — run `arizuko generate %s` to apply\n", name, args[0])
 	default:
 		die("usage: " + usage)
+	}
+}
+
+// planFragmentSync classifies the instance's installed fragments against the
+// bundled catalog. Both `arizuko generate` (report) and `--sync-services`
+// (apply) go through here, so the dry run and the apply can never disagree.
+func planFragmentSync(dataDir string) []compose.FragmentDrift {
+	plan, err := compose.PlanFragmentSync(filepath.Join(dataDir, "services"), packageTemplates(dataDir))
+	if err != nil {
+		die("Failed: read services/: %v", err)
+	}
+	return plan
+}
+
+// syncFragments rewrites every stale fragment from the bundled catalog, keeping
+// the previous content as `services/<name>.yml.bak`.
+//
+// Hand-edit policy is back-up-never-destroy, not refuse: the fix has to reach
+// every live instance (BUGS R1), and refusing on any local edit would leave the
+// bug live on exactly the instances that have one. The operator is never
+// surprised — plain `generate` prints the pending change on every run, and
+// nothing is written without this flag. A customisation is kept permanently by
+// renaming the file to `<kind>-<label>.yml`, which the planner classifies as a
+// variant and never writes.
+func syncFragments(dataDir string) {
+	svcDir := filepath.Join(dataDir, "services")
+	tmplDir := packageTemplates(dataDir)
+	for _, d := range planFragmentSync(dataDir) {
+		if !d.Stale() {
+			continue
+		}
+		path := filepath.Join(svcDir, d.File)
+		prev, err := os.ReadFile(path)
+		if err != nil {
+			die("Failed: read %s: %v", d.File, err)
+		}
+		tmpl, err := os.ReadFile(filepath.Join(tmplDir, d.Kind+".yml"))
+		if err != nil {
+			die("Failed: read catalog %s.yml: %v", d.Kind, err)
+		}
+		if err := writeFileAtomic(path+".bak", prev); err != nil {
+			die("Failed: back up %s: %v", d.File, err)
+		}
+		if err := writeFileAtomic(path, tmpl); err != nil {
+			die("Failed: update %s: %v", d.File, err)
+		}
+		fmt.Printf("updated services/%s from the bundled %s package (previous kept as %s.bak)\n", d.File, d.Kind, d.File)
 	}
 }
 

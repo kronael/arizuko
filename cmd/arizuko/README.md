@@ -13,7 +13,7 @@ beyond `docker` for `run` and `pair`).
 - Binary: `cmd/arizuko/main.go` → `./arizuko`
 - Commands:
   - `arizuko create <name> [--product <product>]` — seed data dir from `template/env.example`; `--product` copies skills and facts from `ant/examples/<product>/` and prints the env checklist
-  - `arizuko generate <instance>` — write `docker-compose.yml` + the compose-managed `.env` block
+  - `arizuko generate <instance> [--sync-services]` — write `docker-compose.yml` + the compose-managed `.env` block. `services/*.yml` are copies of the bundled catalog and nothing else refreshes them, so every generate (and every `run`) reports which installed fragments are behind their template; `--sync-services` rewrites the plain `<kind>.yml` copies, keeping the previous content as `<kind>.yml.bak`. A multi-account variant (`<kind>-<label>.yml`) is matched to its kind and reported, never rewritten — rename a customised fragment to that shape to hold it permanently
   - `arizuko packages <inst> list | add <name> | install <source-dir> | upgrade <name> | remove <name>` — `add` copies a bundled-catalog adapter fragment (`services/<name>.yml` + optional `<name>-routes.json`, spec 5/27); `install <source-dir>` installs a package from a git URL or local dir (compose fragment, `*-routes.json` proxyd route, `*-grants.json` acl, `skills/<name>/`), recording an `installed_packages` row so `upgrade` (refuses a dirty asset) and `remove` (deletes exactly what was recorded) are exact (spec 5/28)
   - `arizuko run <instance>` — generate + `docker compose up`
   - `arizuko status <instance>` — show compose services + channels
@@ -28,7 +28,7 @@ beyond `docker` for `run` and `pair`).
   - `arizuko token <inst> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]` — mint a folder-scoped ES256 access JWT signed with authd's active key (read from auth.db; operator-only). E.g. `--scope messages:write,messages:read` for anteval's inject+inspect
   - `arizuko invite <inst> create <target_glob> [--max-uses N] [--expires DURATION]`
   - `arizuko invite <inst> list [--issued-by SUB]`
-  - `arizuko invite <inst> revoke <ref>`
+  - `arizuko invite <inst> revoke <token>`
   - `arizuko send <inst> <folder> [<message>] [--wait | --stream] [--stdin] [--from <sender>] [--topic <topic>] [--token <raw>]` — inject a message into a folder's queue (uses topic for conversation continuity). Default is **operator-direct**: no token, writes the inbound straight to the DB on `web:<folder>` (the operator already owns the DB, same authority as `create`/`grant`/`secret`); the gateway poll loop runs the agent and `--wait`/`--stream` prints its reply. Pass `--token`/`ARIZUKO_CHAT_TOKEN` to instead POST the public `/chat/<token>` endpoint as a non-operator caller.
   - `arizuko budget <inst> set folder|user <name> --daily N` / `show folder|user <name>` — per-folder or per-user daily spend cap in cents (0 = uncapped); pre-spawn gate enforces lower of (folder cap, user cap)
   - `arizuko apply <inst> <manifest.yaml> [--force]` — restore cold-tier config from a YAML dump in one tx; CAS-checks `config_version` (spec 5/8)

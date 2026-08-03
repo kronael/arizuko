@@ -203,7 +203,24 @@ var daemonKeys = map[string][]string{
 	"whapd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
 	"twitd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
 	"crackbox": {"CRACKBOX_PROXY_ADDR", "CRACKBOX_ADMIN_ADDR", "CRACKBOX_ADMIN_SECRET", "CRACKBOX_STATE_PATH"},
+	// ttsd reads exactly TTSD_ADDR, TTS_BACKEND_URL and LOG_LEVEL (ttsd/main.go,
+	// ttsd/README.md "Config"), and its fragment sets all three in `environment:`,
+	// which outranks env_file. So it needs no scoped key of its own — the entry
+	// exists to move it off the shared .env, which handed it SECRETS_KEY,
+	// AUTH_SECRET, CLAUDE_CODE_OAUTH_TOKEN and every bot token.
+	"ttsd": {},
+	// kokoro's own compose (remsky/Kokoro-FastAPI docker/cpu) declares PYTHONPATH,
+	// ONNX_*, API_LOG_LEVEL and DOWNLOAD_MODEL — nothing arizuko sets. TZ only, so
+	// its logs carry the instance's clock.
+	"kokoro": {"TZ"},
 }
+
+// foreignImages are services running an image arizuko does not build. commonKeys
+// is "what every arizuko daemon reads"; a third-party image reads none of it,
+// and handing it OTEL_EXPORTER_OTLP_HEADERS (the collector's auth token) plus
+// HOST_DATA_DIR/HOST_APP_DIR would re-open on a smaller scale the leak that
+// putting it on the shared .env opened. Its env file is daemonKeys only.
+var foreignImages = map[string]bool{"kokoro": true}
 
 // adapterDaemons is the set of message-posting channel adapters. In the split
 // each authenticates to routd's /v1/messages with a service:<adapter> JWT
@@ -249,7 +266,10 @@ func writeEnvFiles(dataDir string, env map[string]string, perDaemon map[string]m
 		return err
 	}
 	for daemon, keys := range daemonKeys {
-		all := append([]string{}, commonKeys...)
+		var all []string
+		if !foreignImages[daemon] {
+			all = append(all, commonKeys...)
+		}
 		all = append(all, keys...)
 		if daemon == "runed" {
 			for key := range store.EnvProfileKeys {

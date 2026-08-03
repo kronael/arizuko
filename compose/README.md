@@ -51,6 +51,10 @@ slice with each package's routes file at generate time.
 
 - `Generate(dataDir string) (string, error)` — returns the compose YAML
 - `ProxydRoute` — one entry of a `<name>-routes.json`
+- `PlanFragmentSync(servicesDir, tmplDir) ([]FragmentDrift, error)` +
+  `Report([]FragmentDrift) []string` — classify the instance's installed
+  fragments against the bundled catalog and render the drift. Read-only;
+  `arizuko generate --sync-services` does the writing.
 
 ## Dependencies
 
@@ -61,13 +65,26 @@ slice with each package's routes file at generate time.
 - `compose.go` — reads `services/*.yml` fragments; `.yml` is the only
   package format (the pre-5/27 `.toml` converter was removed once every
   live data dir was on `.yml`).
+- `fragments.go` — those fragments are COPIES of `template/services/`, so a
+  catalog fix reaches new installs only until someone syncs. Matching is by
+  service kind, not filename: `teled-rhias.yml` maps to the `teled`
+  template, and because its filename says "variant" it is reported but
+  never rewritten.
 
 ## Scoped env keys
 
 Each daemon gets only the keys it needs, written to `env/<daemon>.env`
 (`commonKeys` + `daemonKeys` in `compose.go`). Secrets a daemon is not
 listed for never reach it. Shared secrets that cross a service boundary
-must appear in both lists.
+must appear in both lists. **No fragment may read the shared `.env`** —
+that file holds `SECRETS_KEY`, `AUTH_SECRET`, `GITHUB_CLIENT_SECRET`,
+`CLAUDE_CODE_OAUTH_TOKEN` and every bot token.
+
+A service running an image arizuko does not build is listed in
+`foreignImages` and gets `daemonKeys` only, no `commonKeys`: those are
+what every _arizuko_ daemon reads, and they include
+`OTEL_EXPORTER_OTLP_HEADERS` (the collector's auth token) plus the host's
+filesystem layout.
 
 ## Related docs
 

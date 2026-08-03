@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -46,6 +47,7 @@ func main() {
 		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
 		fmt.Println("  route    <instance> list | add <match> <target> [--seq|-s N] | rm <id>")
 		fmt.Println("  packages <instance> list | add <name> | remove <name>")
+		fmt.Println("  generate <instance> [--sync-services]  — --sync-services refreshes services/*.yml from the bundled catalog")
 		fmt.Println("  token    <instance> issue chat <folder> [<suffix>]")
 		fmt.Println("  token    <instance> issue webhook <folder> <label> [<suffix>]")
 		fmt.Println("  token    <instance> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]")
@@ -125,7 +127,7 @@ func auditCLI(s *store.Store, cmd string, args []string) {
 
 func cmdRun(args []string) {
 	need(args, 1, "arizuko run <instance>")
-	outPath := generateCompose(mustInstanceDir(args[0]))
+	outPath := generateCompose(args[0], mustInstanceDir(args[0]))
 	cmd := exec.Command("docker", "compose", "-f", outPath, "up", "--remove-orphans")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -135,11 +137,25 @@ func cmdRun(args []string) {
 }
 
 func cmdGenerate(args []string) {
-	need(args, 1, "arizuko generate <instance>")
-	generateCompose(mustInstanceDir(args[0]))
+	need(args, 1, "arizuko generate <instance> [--sync-services]")
+	dataDir := mustInstanceDir(args[0])
+	if slices.Contains(args[1:], "--sync-services") {
+		syncFragments(dataDir)
+	}
+	generateCompose(args[0], dataDir)
 }
 
-func generateCompose(dataDir string) string {
+func generateCompose(name, dataDir string) string {
+	// services/*.yml are copies of the bundled catalog and nothing refreshes
+	// them, so a shipped fix (adapter state mounts, a retired env var) sits
+	// unapplied on every live instance until someone looks. Report on every
+	// generate AND every run; `generate --sync-services` applies it.
+	if lines := compose.Report(planFragmentSync(dataDir)); len(lines) > 0 {
+		for _, l := range lines {
+			fmt.Fprintln(os.Stderr, "services: "+l)
+		}
+		fmt.Fprintf(os.Stderr, "services: run `arizuko generate %s --sync-services` to apply (previous kept as .bak)\n", name)
+	}
 	yml, err := compose.Generate(dataDir)
 	if err != nil {
 		die("Failed: %v", err)
@@ -707,10 +723,7 @@ func cmdInvite(args []string) {
 			die("Failed: %v", err)
 		}
 		auditCLI(s, "invite create", []string{glob})
-		// The token prints HERE and nowhere else — `invite list` shows only the
-		// ref, which revokes but cannot redeem.
 		fmt.Printf("token: %s\n", inv.Token)
-		fmt.Printf("ref: %s\n", store.InviteRef(inv.Token))
 		fmt.Printf("target_glob: %s\n", inv.TargetGlob)
 		fmt.Printf("max_uses: %d\n", inv.MaxUses)
 		if inv.ExpiresAt != nil {

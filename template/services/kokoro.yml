@@ -1,8 +1,10 @@
-# kokoro — upstream TTS model server behind ttsd. Third-party image.
+# kokoro — upstream TTS model server behind ttsd. Third-party image, so its env
+# is scoped to env/kokoro.env: the shared .env carries SECRETS_KEY, AUTH_SECRET,
+# CLAUDE_CODE_OAUTH_TOKEN and every bot token, none of which it reads.
 services:
   kokoro:
     container_name: ${APP}_kokoro_${FLAVOR}
     image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
-    env_file: ['../.env']
+    env_file: ['../env/kokoro.env']
     depends_on: [routd]
     restart: on-failure
