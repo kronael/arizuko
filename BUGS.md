@@ -3049,7 +3049,7 @@ family kill`. Timing-sensitive race assertion, not reproducible on demand.
 - **Status:** open, record-only — needs a root-cause pass on the race timing,
   not a fix on sight
 
-## F1 — onbod's dashboard forms never emit the CSRF field they are checked against (2026-08-03, open)
+## ✅ FIXED 2026-08-03 — F1 — onbod's dashboard forms never emit the CSRF field they are checked against (2026-08-03, fixed)
 
 `handleOnboardPost` rejects any request whose `csrf` form value is missing or
 does not match the `onbod_csrf` cookie, but no rendered form contains that
@@ -3064,12 +3064,16 @@ onbod's behavior exactly (the shared `EnsureCSRF` now RETURNS the token, which
 is what a renderer needs to embed); it did not add the missing field, because
 that is a behavior fix on a surface this work does not otherwise touch.
 
+Narrower than recorded: `renderUsernamePicker` is the ONLY form onbod renders
+for `POST /onboard`. `renderDashboard` renders read-only tables — the
+`add_route` / `delete_route` actions `handleOnboardPost` dispatches have no
+rendered form on any onbod page, so `create_world` was the whole live breakage.
+
 - **Severity:** high — onboarding self-service dashboard is unusable if confirmed
 - **Scope:** onbod HTML forms
-- **Affected:** `POST /onboard` (create_world / add_route / delete_route)
-- **Source:** onbod/main.go `checkCSRF`, `renderUsernamePicker`, `renderDashboard`
-- **Status:** open — needs a live check against an ONBOARDING_ENABLED instance
-  before fixing, in case a reverse proxy or a later handler supplies the field
-- **Fix:** thread the token from `auth.EnsureCSRF` into both renderers and emit
-  `<input type="hidden" name="csrf" value="...">`. One renderer per form; no
-  second CSRF path.
+- **Affected:** `POST /onboard` action=create_world
+- **Source:** onbod/main.go `checkCSRF`, `renderUsernamePicker`
+- **Status:** fixed — not deployed
+- **Fix:** 4def8f36 — the token `auth.EnsureCSRF` returns is threaded through
+  `handleDashboard` into the renderer, plus a test that replays the rendered
+  form's own inputs against the handler instead of injecting the pair.
