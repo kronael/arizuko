@@ -156,9 +156,10 @@ edge.
 
 Token generation and hashing reuse `store.HashRouteToken`
 (`store/route_tokens.go:52`), which exists precisely so a second writer does not
-duplicate the scheme. Both shipped token tables store their token in
-**plaintext** (`onboarding.token`, `invites.token`), so a DB read discloses
-every live link. Pairing does not inherit that.
+duplicate the scheme. `onboarding.token` is still stored in **plaintext**, so a DB
+read discloses every live onboarding link; `invites` was moved to hash-at-rest
+(`96a1293e`, ref = sha256(token) as the PK). Pairing follows invites, not
+onboarding.
 
 `owner_folder` is snapshotted at mint rather than looked up from `routes` at
 redeem, for the reason `5/W` gives: routes change, and a token's contract must
