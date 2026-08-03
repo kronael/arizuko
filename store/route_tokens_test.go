@@ -162,7 +162,7 @@ func TestRouteToken_Revoke(t *testing.T) {
 	}
 }
 
-func TestRouteTokenKind(t *testing.T) {
+func TestRouteTokenJIDKind(t *testing.T) {
 	cases := []struct{ jid, want string }{
 		{"web:acme", "chat"},
 		{"web:a/b/c", "chat"},
@@ -171,8 +171,8 @@ func TestRouteTokenKind(t *testing.T) {
 		{"", ""},
 	}
 	for _, tc := range cases {
-		if got := RouteTokenKind(tc.jid); got != tc.want {
-			t.Errorf("RouteTokenKind(%q)=%q want %q", tc.jid, got, tc.want)
+		if got := RouteTokenJIDKind(tc.jid); got != tc.want {
+			t.Errorf("RouteTokenJIDKind(%q)=%q want %q", tc.jid, got, tc.want)
 		}
 	}
 }

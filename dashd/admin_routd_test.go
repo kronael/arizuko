@@ -36,7 +36,8 @@ CREATE TABLE routes (
   observe_window_messages INTEGER, observe_window_chars INTEGER);
 CREATE TABLE route_tokens (
   token_hash BLOB PRIMARY KEY, jid TEXT NOT NULL,
-  owner_folder TEXT NOT NULL, created_at TEXT NOT NULL, context TEXT);
+  owner_folder TEXT NOT NULL, created_at TEXT NOT NULL, context TEXT,
+  kind TEXT NOT NULL DEFAULT 'route');
 CREATE TABLE scheduled_tasks (
   id TEXT PRIMARY KEY, owner TEXT NOT NULL, chat_jid TEXT NOT NULL,
   prompt TEXT NOT NULL, cron TEXT, next_run TEXT,

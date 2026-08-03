@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"time"
+
+	"github.com/kronael/arizuko/store"
 )
 
 // route_tokens, web_routes, and the idempotency ledger. route tokens are the
@@ -23,19 +25,21 @@ func (d *DB) IssueRouteToken(jid, ownerFolder, context string) (string, string, 
 	token := hex.EncodeToString(raw)
 	h := sha256.Sum256([]byte(token))
 	created := nowTS()
-	_, err := d.db.Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context)
-		VALUES(?,?,?,?,?)`, h[:], jid, ownerFolder, created, nullStr(context))
+	_, err := d.db.Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context, kind)
+		VALUES(?,?,?,?,?,?)`, h[:], jid, ownerFolder, created, nullStr(context), store.RouteTokenKindRoute)
 	if err != nil {
 		return "", "", err
 	}
 	return token, created, nil
 }
 
-// ResolveRouteToken hashes the raw token and returns (jid, owner_folder, context).
+// ResolveRouteToken hashes the raw token and returns (jid, owner_folder,
+// context). Scoped to route-kind rows — a pairing token (spec 5/31) is not a
+// delivery credential and resolves to ErrNotFound here.
 func (d *DB) ResolveRouteToken(token string) (jid, owner, context string, err error) {
 	h := sha256.Sum256([]byte(token))
-	err = d.db.QueryRow("SELECT jid, owner_folder, COALESCE(context,'') FROM route_tokens WHERE token_hash=?",
-		h[:]).Scan(&jid, &owner, &context)
+	err = d.db.QueryRow("SELECT jid, owner_folder, COALESCE(context,'') FROM route_tokens WHERE token_hash=? AND kind=?",
+		h[:], store.RouteTokenKindRoute).Scan(&jid, &owner, &context)
 	if err == sql.ErrNoRows {
 		return "", "", "", ErrNotFound
 	}
@@ -50,9 +54,11 @@ type RouteTokenRow struct {
 	Context     string
 }
 
-// ListRouteTokens returns the tokens owned by ownerFolder (no raw token).
+// ListRouteTokens returns the delivery tokens owned by ownerFolder (no raw
+// token). Pairing rows are excluded — see store.ListRouteTokens.
 func (d *DB) ListRouteTokens(ownerFolder string) ([]RouteTokenRow, error) {
-	rows, err := d.db.Query("SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE owner_folder=?", ownerFolder)
+	rows, err := d.db.Query("SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE owner_folder=? AND kind=?",
+		ownerFolder, store.RouteTokenKindRoute)
 	if err != nil {
 		return nil, err
 	}
@@ -68,10 +74,11 @@ func (d *DB) ListRouteTokens(ownerFolder string) ([]RouteTokenRow, error) {
 	return out, rows.Err()
 }
 
-// RevokeRouteTokens deletes all tokens for jid under ownerFolder; returns
-// the deleted count.
+// RevokeRouteTokens deletes all delivery tokens for jid under ownerFolder;
+// returns the deleted count.
 func (d *DB) RevokeRouteTokens(jid, ownerFolder string) (int64, error) {
-	res, err := d.db.Exec("DELETE FROM route_tokens WHERE jid=? AND owner_folder=?", jid, ownerFolder)
+	res, err := d.db.Exec("DELETE FROM route_tokens WHERE jid=? AND owner_folder=? AND kind=?",
+		jid, ownerFolder, store.RouteTokenKindRoute)
 	if err != nil {
 		return 0, err
 	}

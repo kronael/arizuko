@@ -30,9 +30,20 @@ type RouteToken struct {
 	Context string
 }
 
+// The JID-derived kind of a route token: which inbound surface its JID names.
+// Distinct from the stored `kind` column below — that one says whether the row
+// is a delivery bearer at all.
 const (
-	RouteTokenKindChat = "chat" // jid prefix "web:"
-	RouteTokenKindHook = "hook" // jid prefix "hook:"
+	RouteTokenJIDKindChat = "chat" // jid prefix "web:"
+	RouteTokenJIDKindHook = "hook" // jid prefix "hook:"
+)
+
+// The stored `kind` column (spec 5/31). Route delivery resolves only
+// KindRoute rows and pairing redemption only KindPair rows, so neither
+// credential can be redeemed as the other.
+const (
+	RouteTokenKindRoute = "route"
+	RouteTokenKindPair  = "pair"
 )
 
 // GenRouteToken returns a 256-bit base64url-encoded random token.
@@ -54,13 +65,14 @@ func HashRouteToken(raw string) []byte {
 	return sum[:]
 }
 
-// JIDKind returns "chat" for web: jids, "hook" for hook: jids, "" otherwise.
-func RouteTokenKind(jid string) string {
+// RouteTokenJIDKind returns "chat" for web: jids, "hook" for hook: jids, ""
+// otherwise.
+func RouteTokenJIDKind(jid string) string {
 	switch {
 	case strings.HasPrefix(jid, "web:"):
-		return RouteTokenKindChat
+		return RouteTokenJIDKindChat
 	case strings.HasPrefix(jid, "hook:"):
-		return RouteTokenKindHook
+		return RouteTokenJIDKindHook
 	default:
 		return ""
 	}
@@ -76,7 +88,7 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	if t.JID == "" || t.OwnerFolder == "" {
 		return fmt.Errorf("jid and owner_folder required")
 	}
-	if RouteTokenKind(t.JID) == "" {
+	if RouteTokenJIDKind(t.JID) == "" {
 		return fmt.Errorf("jid must start with web: or hook:")
 	}
 	ts := t.CreatedAt
@@ -85,8 +97,8 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		_, err := tx.Exec(
-			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context) VALUES (?, ?, ?, ?, ?)`,
-			HashRouteToken(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano), nilIfEmpty(t.Context),
+			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind) VALUES (?, ?, ?, ?, ?, ?)`,
+			HashRouteToken(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano), nilIfEmpty(t.Context), RouteTokenKindRoute,
 		)
 		return audit.Event{
 			Category: audit.CategoryChannel,
@@ -98,14 +110,15 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 			Outcome:  audit.OutcomeOK,
 			ParamsSummary: map[string]any{
 				"owner_folder": t.OwnerFolder,
-				"jid_kind":     RouteTokenKind(t.JID),
+				"jid_kind":     RouteTokenJIDKind(t.JID),
 			},
 		}, err
 	})
 }
 
-// LookupRouteToken resolves a raw bearer token to its row. Returns
-// (zero, false) when the token is unknown.
+// LookupRouteToken resolves a raw DELIVERY bearer token to its row. Returns
+// (zero, false) when the token is unknown or is not a route-kind row — a
+// pairing token (spec 5/31) never resolves here.
 func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 	if rawToken == "" {
 		return RouteToken{}, false
@@ -113,8 +126,8 @@ func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 	var t RouteToken
 	var createdAt string
 	err := s.db.QueryRow(
-		`SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE token_hash = ?`,
-		HashRouteToken(rawToken),
+		`SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE token_hash = ? AND kind = ?`,
+		HashRouteToken(rawToken), RouteTokenKindRoute,
 	).Scan(&t.JID, &t.OwnerFolder, &createdAt, &t.Context)
 	if err != nil {
 		return RouteToken{}, false
@@ -123,11 +136,13 @@ func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 	return t, true
 }
 
-// ListRouteTokens returns all tokens owned by ownerFolder.
+// ListRouteTokens returns the DELIVERY tokens owned by ownerFolder. Pairing
+// rows are excluded: enumerating ten-minute bearer attempts is surface nobody
+// needs (spec 5/31 § Unpair).
 func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
 	rows, err := s.db.Query(
-		`SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE owner_folder = ? ORDER BY created_at DESC`,
-		ownerFolder,
+		`SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE owner_folder = ? AND kind = ? ORDER BY created_at DESC`,
+		ownerFolder, RouteTokenKindRoute,
 	)
 	if err != nil {
 		return nil
@@ -146,7 +161,8 @@ func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
 	return out
 }
 
-// RevokeRouteToken deletes tokens with the given jid owned by ownerFolder.
+// RevokeRouteToken deletes DELIVERY tokens with the given jid owned by
+// ownerFolder.
 // Returns (true, nil) if at least one row was deleted, (false, nil) when
 // no matching row existed. ACL scope: the caller's `owner_folder` MUST
 // match — agents in folder A cannot revoke folder B's tokens.
@@ -154,8 +170,8 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 	var hit bool
 	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		res, err := tx.Exec(
-			`DELETE FROM route_tokens WHERE jid = ? AND owner_folder = ?`,
-			jid, ownerFolder,
+			`DELETE FROM route_tokens WHERE jid = ? AND owner_folder = ? AND kind = ?`,
+			jid, ownerFolder, RouteTokenKindRoute,
 		)
 		if err != nil {
 			return audit.Event{}, err

@@ -441,8 +441,8 @@ func (d *dash) handleChatNew(w http.ResponseWriter, r *http.Request) {
 	// Raw INSERT (not store.InsertRouteToken): routd.db has no audit_log table,
 	// so the audited writer would roll back. Same discipline as route_tokens.go.
 	if _, err := d.adminDB().Exec(
-		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at) VALUES (?, ?, ?, ?)`,
-		store.HashRouteToken(raw), jid, folder, now); err != nil {
+		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind) VALUES (?, ?, ?, ?, ?)`,
+		store.HashRouteToken(raw), jid, folder, now, store.RouteTokenKindRoute); err != nil {
 		slog.Warn("chat: mint token", "folder", folder, "err", err)
 		http.Error(w, "mint failed", http.StatusInternalServerError)
 		return

@@ -70,8 +70,8 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 			// table, so the audited writer would roll back. Same audit-free
 			// discipline as the secrets and grant rewires.
 			_, err := d.adminDB().Exec(
-				`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context) VALUES (?, ?, ?, ?, ?)`,
-				store.HashRouteToken(raw), jid, folder, time.Now().Format(time.RFC3339Nano), context)
+				`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind) VALUES (?, ?, ?, ?, ?, ?)`,
+				store.HashRouteToken(raw), jid, folder, time.Now().Format(time.RFC3339Nano), context, store.RouteTokenKindRoute)
 			if err != nil {
 				fmt.Fprint(w, htmlBanner("err", "insert error: "+err.Error()))
 			} else {
@@ -83,7 +83,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 	tokens := st.ListRouteTokens(folder)
 	var tableRows [][]string
 	for _, t := range tokens {
-		kind := store.RouteTokenKind(t.JID)
+		kind := store.RouteTokenJIDKind(t.JID)
 		revoke := fmt.Sprintf(
 			`<form method="post" action="/dash/tokens/%s/%s/revoke">`+
 				`<button class="btn btn-danger btn-sm" type="submit">revoke</button></form>`,
@@ -130,7 +130,8 @@ func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	// Raw DELETE (not store.RevokeRouteToken): audit-free for routd.db.
 	res, err := d.adminDB().Exec(
-		`DELETE FROM route_tokens WHERE jid = ? AND owner_folder = ?`, jid, folder)
+		`DELETE FROM route_tokens WHERE jid = ? AND owner_folder = ? AND kind = ?`,
+		jid, folder, store.RouteTokenKindRoute)
 	if err != nil {
 		http.Error(w, "revoke failed", http.StatusInternalServerError)
 		return

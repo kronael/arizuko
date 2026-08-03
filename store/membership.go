@@ -105,16 +105,27 @@ func (s *Store) RemoveMembership(child, parent string) error {
 // spec 5/5). Same self/cycle rejection; callers that own messages.db keep using
 // the audited AddMembership.
 func (s *Store) PutMembership(child, parent, addedBy string) error {
-	if child == parent {
-		return ErrSelfMembership
-	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := putMembershipTx(tx, child, parent, addedBy); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// putMembershipTx is the audit-free edge write on a caller-owned transaction —
+// the single implementation PutMembership and pairing redemption both run.
+// Redemption cannot call PutMembership: it must consume the token in the SAME
+// transaction, and PutMembership opens its own.
+func putMembershipTx(tx *sql.Tx, child, parent, addedBy string) error {
+	if child == parent {
+		return ErrSelfMembership
+	}
 	var hits int
-	err = tx.QueryRow(
+	if err := tx.QueryRow(
 		`WITH RECURSIVE up(p) AS (
 		   SELECT ? UNION
 		   SELECT acl_membership.parent FROM acl_membership
@@ -122,8 +133,7 @@ func (s *Store) PutMembership(child, parent, addedBy string) error {
 		 )
 		 SELECT COUNT(*) FROM up WHERE p = ?`,
 		parent, child,
-	).Scan(&hits)
-	if err != nil {
+	).Scan(&hits); err != nil {
 		return err
 	}
 	if hits > 0 {
@@ -133,14 +143,12 @@ func (s *Store) PutMembership(child, parent, addedBy string) error {
 	if addedBy != "" {
 		grantedBy = addedBy
 	}
-	if _, err := tx.Exec(
+	_, err := tx.Exec(
 		`INSERT OR IGNORE INTO acl_membership (child, parent, added_by, added_at)
 		 VALUES (?, ?, ?, ?)`,
 		child, parent, grantedBy, time.Now().Format(time.RFC3339),
-	); err != nil {
-		return err
-	}
-	return tx.Commit()
+	)
+	return err
 }
 
 // RemoveMembershipBare deletes (child → parent) WITHOUT emitting an audit_log

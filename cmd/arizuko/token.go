@@ -191,7 +191,7 @@ func tokenList(st *store.Store, args []string) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "JID\tKIND\tCREATED\tCONTEXT")
 	for _, t := range tokens {
-		kind := store.RouteTokenKind(t.JID)
+		kind := store.RouteTokenJIDKind(t.JID)
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", t.JID, kind, t.CreatedAt.Format(time.RFC3339), t.Context)
 	}
 	w.Flush()

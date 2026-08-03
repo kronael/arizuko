@@ -135,7 +135,8 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
 		}
-		raw, err := issueRouteTokenTx(ctx, x.Tx, jid, folder, strings.TrimSpace(argString(x.Args, "context")))
+		raw, err := issueRouteTokenTx(ctx, x.Tx, jid, folder,
+			strings.TrimSpace(argString(x.Args, "context")), store.RouteTokenKindRoute)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -230,7 +231,10 @@ func routeTokenJID(kind, targetFolder, sourceLabel, jidSuffix string) (jid, urlP
 // sha256(token) on tx (mirrors DB.IssueRouteToken so the mutation lands in
 // resreg.invoke's tx alongside its audit_log row), returning the raw token once.
 // context is the optional per-link processing instructions; "" stores NULL.
-func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, context string) (string, error) {
+// kind is store.RouteTokenKindRoute for a delivery bearer or
+// store.RouteTokenKindPair for a pairing link (spec 5/31) — one minter, so the
+// two credentials cannot drift apart in hashing or storage.
+func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, context, kind string) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -238,20 +242,22 @@ func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, context stri
 	raw := hex.EncodeToString(b)
 	h := sha256.Sum256([]byte(raw))
 	_, err := tx.ExecContext(ctx,
-		`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context) VALUES(?,?,?,?,?)`,
-		h[:], jid, owner, nowTS(), nullStr(context))
+		`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context, kind) VALUES(?,?,?,?,?,?)`,
+		h[:], jid, owner, nowTS(), nullStr(context), kind)
 	if err != nil {
 		return "", err
 	}
 	return raw, nil
 }
 
-// revokeRouteTokenTx deletes tokens for jid owned by owner on tx (mirrors
-// DB.RevokeRouteTokens), returning whether any row was removed. The owner_folder
-// predicate is the ownership containment — a cross-folder jid matches nothing.
+// revokeRouteTokenTx deletes delivery tokens for jid owned by owner on tx
+// (mirrors DB.RevokeRouteTokens), returning whether any row was removed. The
+// owner_folder predicate is the ownership containment — a cross-folder jid
+// matches nothing.
 func revokeRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner string) (bool, error) {
 	res, err := tx.ExecContext(ctx,
-		`DELETE FROM route_tokens WHERE jid=? AND owner_folder=?`, jid, owner)
+		`DELETE FROM route_tokens WHERE jid=? AND owner_folder=? AND kind=?`,
+		jid, owner, store.RouteTokenKindRoute)
 	if err != nil {
 		return false, err
 	}
