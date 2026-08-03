@@ -14,6 +14,37 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **Identity pairing — a chat account can act as a real user (spec `5/31`).**
+  A channel user was anonymous: `telegram:user/123` held no grants and had no
+  way to acquire any, unless it happened to arrive through onboarding's
+  route-miss path and provision a whole world. Pairing extracts that bridge.
+  The agent in a chat mints a link with `issue_pairing_link(jid)`; the human
+  opens `/pair/<token>`, signs in, and confirms — and from the next tool call
+  the channel identity resolves to their account and acts with what they
+  already hold. It grants nothing new; a token that could grant would be an
+  invite, and that is `5/5`. `unpair` (agent MCP) or `DELETE
+/v1/acl_membership` (REST) drops the link from either end.
+
+  Consent is the whole security boundary, because the edge is directional:
+  whoever controls the paired chat account can act as the human. So the
+  confirm page names the channel identity and states that consequence in one
+  sentence, `GET` writes nothing (an unfurl bot must not spend a pairing), and
+  the `POST` carries a double-submit CSRF token. Threat model in `SECURITY.md`
+  §"Pairing: consent is the boundary".
+
+  Mechanically a pairing IS a route token — `route_tokens.kind='pair'` — which
+  puts the token and the `acl_membership` edge it writes in one database and
+  therefore one transaction. Resolution is kind-scoped both ways, so a delivery
+  bearer and a pairing link can never be redeemed as each other. Links live ten
+  minutes and are single-use.
+
+  Fixed on the way: proxyd wrote an `auth_return` cookie that **nothing read**,
+  so any caller bounced to OAuth landed on `/` instead of the page they asked
+  for — it now rides authd's signed `StateIntent.Return`. CSRF moved to
+  `auth/csrf.go`, shared by webd and onbod instead of copied.
+
 ### Changed
 
 - **Build requires Go 1.27 (`toolchain go1.27rc2`) — BREAKING for builders.**
