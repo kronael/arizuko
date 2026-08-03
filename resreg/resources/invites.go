@@ -11,8 +11,14 @@ import (
 // and max_uses are INTEGER. Kept as plain scalars for uniform engine handling —
 // this row drives the /openapi.json schema only (onbod's handler does its own
 // scan via store.ListInvites), so no nullable-scan hook is needed here.
+//
+// `token` is the live bearer: whoever holds it redeems the grant. It stays on
+// the struct because it is the PK (engine matching) and the create/delete wire
+// shape, but carries `yaml:"-"` so `arizuko export` can never write it into a
+// manifest — the same exclusion route_tokens/secrets get by omitting their
+// token_hash/enc_value columns from the RowType (spec 5/8 §"Secret safety").
 type InvitesRow struct {
-	Token       string `db:"token"         yaml:"token"                  json:"token"`
+	Token       string `db:"token"         yaml:"-"                      json:"token"`
 	TargetGlob  string `db:"target_glob"   yaml:"target_glob"            json:"target_glob"`
 	IssuedBySub string `db:"issued_by_sub" yaml:"issued_by_sub"          json:"issued_by_sub"`
 	IssuedAt    string `db:"issued_at"     yaml:"issued_at"              json:"issued_at"`
@@ -37,8 +43,13 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "invites",
 		Table:     "invites",
-		RowType:   reflect.TypeFor[InvitesRow](),
+		RowType:   reflect.TypeOf(InvitesRow{}),
 		PKFields:  []string{"Token"},
 		Endpoints: InvitesEndpoints,
+		// Invite tokens are minted imperatively (invite_create / POST /v1/invites)
+		// and never round-trip through a manifest — Apply must never DELETE+INSERT
+		// this table, or an apply would revoke every live invite (mirrors
+		// route_tokens and secrets).
+		SkipApplyRebuild: true,
 	})
 }

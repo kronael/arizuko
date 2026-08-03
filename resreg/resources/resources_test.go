@@ -6,6 +6,7 @@ package resources
 // SELECT/INSERT every one against the real schema.
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -641,5 +642,93 @@ func TestFacadeMCP_RegistrySingleSource(t *testing.T) {
 		if !reflect.DeepEqual(got.MCPNames, c.names) {
 			t.Errorf("%s: registered MCPNames != exported var", c.name)
 		}
+	}
+}
+
+// seedInvite inserts one live invite row and returns its token. expires_at is
+// set non-NULL because InvitesRow scans it into a plain string with no
+// COALESCE hook, so a NULL-expiry invite fails the engine scan outright.
+func seedInvite(t *testing.T, db *sql.DB) string {
+	t.Helper()
+	const token = "live-bearer-do-not-export"
+	now := time.Now().UTC()
+	if _, err := db.Exec(
+		`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		token, "atlas/**", "agent:atlas", now.Format(time.RFC3339),
+		now.Add(24*time.Hour).Format(time.RFC3339), 3, 0,
+	); err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+// TestApply_NeverRebuildsInvites: invites are minted imperatively, so apply must
+// never DELETE+INSERT the table. A manifest that MENTIONS invites (the case the
+// engine would otherwise rebuild wholesale — an unmentioned resource is already
+// skipped) must leave every live invite redeemable. Without SkipApplyRebuild this
+// wipes the live bearer and replaces it with the manifest's, silently revoking
+// access. Mirrors TestPlanApplyAgree_Secrets.
+func TestApply_NeverRebuildsInvites(t *testing.T) {
+	db := openMem(t)
+	token := seedInvite(t, db)
+	// Manifest declares a DIFFERENT invite than what's live.
+	manifest := map[string]any{
+		"invites": []InvitesRow{{
+			Token: "manifest-token", TargetGlob: "ops/**",
+			IssuedBySub: "agent:ops", IssuedAt: time.Now().UTC().Format(time.RFC3339),
+			ExpiresAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339), MaxUses: 1,
+		}},
+	}
+	deltas, err := resreg.Plan(db, manifest)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	for _, d := range deltas {
+		if d.Resource == "invites" && d.Changed() {
+			t.Errorf("plan reports invites as actionable change %+v; apply must skip invites", d)
+		}
+	}
+	v0, _ := resreg.ConfigVersion(db)
+	if _, err := resreg.Apply(context.Background(), db, v0, false, manifest, nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM invites WHERE token = ?`, token).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("live invite wiped by apply (count=%d) — apply revoked a live bearer", n)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM invites WHERE token = 'manifest-token'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("apply INSERTed a manifest-declared invite (count=%d) — tokens are minted, never declared", n)
+	}
+}
+
+// TestExport_OmitsInviteToken: `arizuko export` dumps every registered resource,
+// so the manifest must not carry the invite bearer — holding the token IS the
+// grant, and a dump lands in git/backups/paste (spec 5/8 §"Secret safety", the
+// same exclusion route_tokens/secrets get by omitting their hash/blob columns).
+func TestExport_OmitsInviteToken(t *testing.T) {
+	db := openMem(t)
+	token := seedInvite(t, db)
+	manifest, err := resreg.Export(db)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	out, err := resreg.EmitYAML(manifest)
+	if err != nil {
+		t.Fatalf("EmitYAML: %v", err)
+	}
+	if bytes.Contains(out, []byte(token)) {
+		t.Errorf("export emitted the live invite bearer %q:\n%s", token, out)
+	}
+	// The row itself still exports (target_glob is non-secret metadata) — only
+	// the bearer is withheld, so this can't pass by dropping invites entirely.
+	if !bytes.Contains(out, []byte("atlas/**")) {
+		t.Errorf("export dropped the whole invites row; only the token must be withheld:\n%s", out)
 	}
 }
