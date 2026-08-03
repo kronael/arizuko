@@ -1174,7 +1174,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("post", "Create a new top-level post on a platform (mastodon toot, bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (`reply`), direct messages (`send`), or file delivery (`send_file`). Tier 0-2 only. Returns the new post's `id` (for `edit`, `delete`, or as `replyToId` to chain a thread).",
+	registerRaw("post", "Create a new top-level post on a platform (mastodon toot, bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (`reply`), direct messages (`send`), or file delivery (`send_file`). Returns the new post's `id` (for `edit`, `delete`, or as `replyToId` to chain a thread).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("content", mcp.Required()),
@@ -1288,7 +1288,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "delete",
-		desc: "Delete a post/message previously created by this agent (platform enforces authorship). Use to retract an incorrect or superseded post. Not for editing (no edit tool — delete and re-post) or for hiding inbound messages. Tier 0-2 only.",
+		desc: "Delete a post/message previously created by this agent (platform enforces authorship). Use to retract an incorrect or superseded post. Not for editing (no edit tool — delete and re-post) or for hiding inbound messages.",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
 			if gated.Delete == nil {
@@ -1642,7 +1642,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		})
 
 	granted("set_group_open",
-		"Toggle a group's visibility to its siblings. Defaults to this folder; pass `folder` to flip a descendant (e.g. a parent opening a child for cross-sibling observation). When open=true, sibling folders' ambient observed messages surface in that group's <observed> block (and vice versa) — see spec 5/F. Tier 0-1; target must be caller's folder or a descendant.",
+		"Toggle a group's visibility to its siblings. Defaults to this folder; pass `folder` to flip a descendant (e.g. a parent opening a child for cross-sibling observation). When open=true, sibling folders' ambient observed messages surface in that group's <observed> block (and vice versa) — see spec 5/F. Target must be caller's folder or a descendant.",
 		[]mcp.ToolOption{
 			mcp.WithBoolean("open", mcp.Required(),
 				mcp.Description("true to expose to siblings, false to seal off")),
@@ -1871,7 +1871,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	// visibility (list_acl stays tier 0-1) injected. See routd/acl_resource.go.
 
 	registerRaw("invite_create",
-		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets a user_groups row matching target_glob. Use to onboard new collaborators to a world or sub-folder you own. The agent's authority must cover target_glob — you can't issue access you don't have. Tier 0-1 only.",
+		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets an `acl` row granting admin on target_glob. Use to onboard new collaborators to a world or sub-folder you own. The agent's authority must cover target_glob — you can't issue access you don't have.",
 		[]mcp.ToolOption{
 			mcp.WithString("target_glob", mcp.Required()),
 			mcp.WithNumber("max_uses"),
@@ -1953,7 +1953,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		})
 
 	registerRaw("invite_revoke",
-		"Revoke an invite token YOU issued so it can no longer be redeemed. You may only revoke invites issued by your own folder — revoking another folder's token is rejected. Use invite_list to find your tokens. Not for issuing (invite_create). Tier 0-1 only.",
+		"Revoke an invite token YOU issued so it can no longer be redeemed. You may only revoke invites issued by your own folder — revoking another folder's token is rejected. Use invite_list to find your tokens. Not for issuing (invite_create).",
 		[]mcp.ToolOption{
 			mcp.WithString("token", mcp.Required()),
 		},

@@ -73,7 +73,7 @@ var RouteTokensMCPDoc = map[resreg.Action]string{
 var RouteTokensMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.Action("issue_chat"): {
 		{Name: "target_folder", Type: "string",
-			Description: "Folder the token routes to. Defaults to your own folder. Tier 0 = any; tier 1 = self+descendants; tier 2 = self only."},
+			Description: "Folder the token routes to. Defaults to your own folder; you may only target a folder your acl rows already cover."},
 		{Name: "jid_suffix", Type: "string",
 			Description: "Optional path appended to the JID (web:<folder>/<suffix>) — useful to partition multiple chat surfaces under one folder."},
 		{Name: "context", Type: "string",

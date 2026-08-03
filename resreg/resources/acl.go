@@ -47,7 +47,7 @@ var ACLMCPNames = map[resreg.Action]string{
 var ACLMCPDoc = map[resreg.Action]string{
 	resreg.Action("add"):    "Grant a principal access to a folder scope (an acl row); scope '**' grants the operator role. You can only grant within your own authority. Defaults action=admin, effect=allow.",
 	resreg.Action("remove"): "Revoke a principal's access to a folder scope (drop an acl row); scope '**' revokes the operator role. You can only revoke within your own authority.",
-	resreg.ActionList:       "List acl rows for a folder (scope matches the folder). Audit what's permitted before changing. Tier 0-1 only.",
+	resreg.ActionList:       "List acl rows for a folder (scope matches the folder). Audit what's permitted before changing.",
 }
 
 // ACLMCPArgs is the explicit per-action arg list. The agent face carries the exact
