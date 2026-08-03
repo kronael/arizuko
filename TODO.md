@@ -237,6 +237,19 @@ target list (capture; pick + spec as they mature):
   URLs, public-read subtrees, time-bounded tokens.
 - **Agent-authored skill marketplace**: agents publish skills to a
   registry; other agents discover + install with manifest + auth gate.
+- **Turn-level undo** (from choreographr, 2026-08-04): retract a bad turn
+  instead of re-prompting around it. That project links messages by
+  `parent_id` and walks the subtree; arizuko does not need the tree —
+  `messages.turn_id` already groups a turn, so the import is one `deleted`
+  column, a filter on read, and a verb. **The hard part is not the schema.**
+  Conversation state has two owners: `routd.db` (the delivery log) and Claude
+  Code's own session file inside the container. Soft-deleting in `routd.db`
+  alone desyncs them — the agent still remembers the undone turn on its next
+  spawn. So the design question that needs answering BEFORE any code is what
+  undo means: hide from the user only (honest, cheap, and the agent may then
+  reference something the user can no longer see), or roll back the container's
+  session too (fragile — arizuko does not own that file format). Needs sign-off
+  per the redesign gate.
 
 Each of these earns a spec when it moves to active. Parked here as
 raw direction, not yet committed to.
