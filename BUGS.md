@@ -3033,3 +3033,18 @@ with Make.
 - **Fix:** 1 needs an installed-fragment update path — a real `arizuko` command,
   not a manual edit, since it must run on every instance and survive the next
   `generate`. 2-6 are small and independent.
+
+## authd `TestRefreshRotationRaceSingleWinner` is flaky (2026-08-03, open)
+
+Found while verifying the R1 fragment-relink fix (unrelated package —
+`compose`/`cmd/arizuko` are untouched by this test). Fails intermittently
+(1/5 runs) in isolation with no other tests running:
+`bugfix_test.go:168: successor must be revoked after a concurrent-reuse
+family kill`. Timing-sensitive race assertion, not reproducible on demand.
+
+- **Severity:** low (test-only; no evidence of a production race, just an
+  assertion that sometimes loses a real race in the test harness)
+- **Scope:** authd refresh-token rotation test
+- **Source:** authd/bugfix_test.go:168, TestRefreshRotationRaceSingleWinner
+- **Status:** open, record-only — needs a root-cause pass on the race timing,
+  not a fix on sight
