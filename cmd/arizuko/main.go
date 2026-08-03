@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -47,7 +46,7 @@ func main() {
 		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
 		fmt.Println("  route    <instance> list | add <match> <target> [--seq|-s N] | rm <id>")
 		fmt.Println("  packages <instance> list | add <name> | remove <name>")
-		fmt.Println("  generate <instance> [--sync-services]  — --sync-services refreshes services/*.yml from the bundled catalog")
+		fmt.Println("  generate <instance>  — writes docker-compose.yml; also relinks any installed fragment that's still an identical catalog copy")
 		fmt.Println("  token    <instance> issue chat <folder> [<suffix>]")
 		fmt.Println("  token    <instance> issue webhook <folder> <label> [<suffix>]")
 		fmt.Println("  token    <instance> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]")
@@ -127,7 +126,7 @@ func auditCLI(s *store.Store, cmd string, args []string) {
 
 func cmdRun(args []string) {
 	need(args, 1, "arizuko run <instance>")
-	outPath := generateCompose(args[0], mustInstanceDir(args[0]))
+	outPath := generateCompose(mustInstanceDir(args[0]))
 	cmd := exec.Command("docker", "compose", "-f", outPath, "up", "--remove-orphans")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -137,25 +136,17 @@ func cmdRun(args []string) {
 }
 
 func cmdGenerate(args []string) {
-	need(args, 1, "arizuko generate <instance> [--sync-services]")
+	need(args, 1, "arizuko generate <instance>")
 	dataDir := mustInstanceDir(args[0])
-	if slices.Contains(args[1:], "--sync-services") {
-		syncFragments(dataDir)
-	}
-	generateCompose(args[0], dataDir)
+	generateCompose(dataDir)
 }
 
-func generateCompose(name, dataDir string) string {
-	// services/*.yml are copies of the bundled catalog and nothing refreshes
-	// them, so a shipped fix (adapter state mounts, a retired env var) sits
-	// unapplied on every live instance until someone looks. Report on every
-	// generate AND every run; `generate --sync-services` applies it.
-	if lines := compose.Report(planFragmentSync(dataDir)); len(lines) > 0 {
-		for _, l := range lines {
-			fmt.Fprintln(os.Stderr, "services: "+l)
-		}
-		fmt.Fprintf(os.Stderr, "services: run `arizuko generate %s --sync-services` to apply (previous kept as .bak)\n", name)
-	}
+func generateCompose(dataDir string) string {
+	// Installed fragments that are still identical copies of the bundled
+	// catalog become symlinks here, so a shipped fix (adapter state mounts, a
+	// retired env var) reaches this instance on every generate/deploy — no
+	// operator step, no flag to remember (BUGS R1).
+	relinkCatalog(dataDir)
 	yml, err := compose.Generate(dataDir)
 	if err != nil {
 		die("Failed: %v", err)

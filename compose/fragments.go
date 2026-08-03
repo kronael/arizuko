@@ -1,104 +1,159 @@
 package compose
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
+
+	"github.com/joho/godotenv"
 )
 
-// Installed fragments drift from the catalog. `<dataDir>/services/*.yml` are
-// COPIES of `template/services/*.yml` — `packages add` copies once and nothing
-// ever refreshes them, so a template edit reaches NEW installs only. That is how
-// the E1 adapter-state mounts stayed absent on every running instance while the
-// template already carried them (BUGS R1). Generate reports the drift on every
-// run; `arizuko generate <inst> --sync-services` applies it.
+// Installed fragments used to be COPIES of `template/services/*.yml` —
+// `packages add` copied once and nothing ever refreshed them, so a template
+// edit reached NEW installs only. That is how the E1 adapter-state mounts
+// stayed absent on every running instance while the template already carried
+// them (BUGS R1). RelinkCatalog replaces the copy with a symlink at the
+// catalog, so an edit reaches every instance on the next generate — there is
+// no copy left to fall behind.
 //
 // Fragments are matched to the catalog by SERVICE KIND, not filename: a
 // multi-account variant `teled-rhias.yml` maps to the `teled` template
-// (envFileName uses the same `<kind>-<label>` split). The filename is also what
-// decides whether a fragment is replaceable — see FragmentState.
+// (envFileName uses the same `<kind>-<label>` split) but is never linked — it
+// carries its own container_name/env, and linking it would collide with the
+// base service.
 
-// FragmentState classifies one installed fragment against the bundled catalog.
-type FragmentState string
-
-const (
-	// FragmentCurrent: every significant line matches its template. Nothing to do.
-	FragmentCurrent FragmentState = "current"
-	// FragmentStale: `<kind>.yml` whose content differs from `<kind>.yml` in the
-	// catalog. The filename says "plain copy of the shipped package", so sync
-	// replaces it (previous content kept as `<kind>.yml.bak`).
-	FragmentStale FragmentState = "stale"
-	// FragmentVariant: `<kind>-<label>.yml`. The operator authored it — it carries
-	// its own container_name/CHANNEL_NAME and replacing it with the base template
-	// would collide with the base service. NEVER written; only reported, so the
-	// operator can apply the catalog's changes by hand.
-	FragmentVariant FragmentState = "variant"
-	// FragmentLocal: no template of that kind ships. Not ours; silent.
-	FragmentLocal FragmentState = "local"
-)
-
-// FragmentDrift is one installed fragment's standing against the catalog.
-type FragmentDrift struct {
-	File  string // installed filename, e.g. "teled-rhias.yml"
-	Kind  string // catalog template it maps to, e.g. "teled" ("" when local)
-	State FragmentState
-	// Missing are catalog lines absent from the installed copy; Extra are
-	// installed lines the catalog no longer has (a retired CHANNEL_SECRET, or a
-	// variant's own identity lines). Both empty when current or local.
-	Missing []string
-	Extra   []string
+// HostCatalogDir returns the HOST-resolvable catalog dir from
+// <dataDir>/.env's HOST_APP_DIR — the value a symlink target must use,
+// because `docker compose` always resolves `include:` on the bare host,
+// never inside the ephemeral container `arizuko generate` may itself run in
+// (the deploy systemd unit's ExecStartPre runs `docker run --rm
+// arizuko:latest arizuko generate <inst>`, which mounts only the instance
+// data dir — not the checkout). False when HOST_APP_DIR is not set in .env:
+// unlike packageTemplates (which may fall back to this process's own
+// directory purely to read catalog bytes for comparison), a symlink target
+// is never derived from where this process happens to run (CLAUDE.md
+// "identity is configured, never derived").
+func HostCatalogDir(dataDir string) (string, bool) {
+	env, _ := godotenv.Read(filepath.Join(dataDir, ".env"))
+	host := env["HOST_APP_DIR"]
+	if host == "" {
+		return "", false
+	}
+	return filepath.Join(host, "template", "services"), true
 }
 
-// Stale reports whether sync would rewrite this fragment.
-func (d FragmentDrift) Stale() bool { return d.State == FragmentStale }
+// SymlinkFragment atomically points servicesDir/filename at
+// hostCatalogDir/filename, replacing any existing file or symlink there.
+// Symlink-then-rename, so a mid-failure never leaves the fragment missing
+// (the previous file/symlink stays until the rename succeeds).
+func SymlinkFragment(servicesDir, hostCatalogDir, filename string) error {
+	target := filepath.Join(hostCatalogDir, filename)
+	dst := filepath.Join(servicesDir, filename)
+	tmp := dst + ".symlink-tmp"
+	_ = os.Remove(tmp)
+	if err := os.Symlink(target, tmp); err != nil {
+		return fmt.Errorf("symlink %s: %w", filename, err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("point %s at the catalog: %w", filename, err)
+	}
+	return nil
+}
 
-// PlanFragmentSync compares every installed fragment in servicesDir against the
-// bundled catalog in tmplDir. Read-only: this is the dry run behind both the
-// warning Generate prints and the --sync-services apply.
-func PlanFragmentSync(servicesDir, tmplDir string) ([]FragmentDrift, error) {
+// RelinkCatalog converts every installed fragment in servicesDir that is a
+// byte-identical copy of its catalog template into a symlink at
+// hostCatalogDir, idempotently. readableCatalogDir is used only to READ
+// template bytes for the comparison — packageTemplates' resolution, which
+// works from inside the ephemeral generate container too, via the image's
+// baked-in /opt/arizuko/template/services. hostCatalogDir is the string
+// written into the symlink (see HostCatalogDir). A fragment is left
+// untouched — never linked — when:
+//   - its filename encodes a multi-account variant (<kind>-<label>.yml):
+//     linking would discard the operator's own container_name/env;
+//   - its content differs from the catalog template by even a byte (a
+//     rewritten comment counts — it is still the operator's edit): kept as a
+//     real file permanently, never auto-touched again;
+//   - no catalog template matches its kind: an operator-local fragment.
+//
+// Byte-exact, not a semantic diff: `packages add` writes the catalog fragment
+// verbatim, so anything else on disk means the operator (or a stale catalog
+// version) put it there, and converting is destructive either way.
+//
+// Idempotent WITHOUT reading through an already-linked fragment: hostCatalogDir
+// need not be readable from here at all (the ephemeral container `arizuko
+// generate` may run in cannot see the host checkout it just linked to — see
+// HostCatalogDir), so a fragment that is already a symlink is left exactly as
+// is on every later run, never re-read, never re-compared.
+func RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir string) (relinked []string, err error) {
 	names, err := readFragments(servicesDir)
 	if err != nil {
 		return nil, err
 	}
-	var out []FragmentDrift
 	for _, name := range names {
-		kind, tmpl, ok := catalogTemplate(tmplDir, name)
-		if !ok {
-			out = append(out, FragmentDrift{File: name + ".yml", State: FragmentLocal})
-			continue
+		if isSymlink(filepath.Join(servicesDir, name+".yml")) {
+			continue // already linked, by this or an earlier run
 		}
-		installed, err := os.ReadFile(filepath.Join(servicesDir, name+".yml"))
-		if err != nil {
-			return nil, fmt.Errorf("read services/%s.yml: %w", name, err)
+		kind, tmpl, ok := catalogTemplate(readableCatalogDir, name)
+		if !ok || name != kind {
+			continue // no catalog match, or a variant — never touched
 		}
-		d := FragmentDrift{File: name + ".yml", Kind: kind, State: FragmentCurrent}
-		// Classification compares every significant line, so a changed VALUE (an
-		// image tag, a URL) counts as behind; only comments are ignored.
-		switch {
-		case name != kind:
-			d.State = FragmentVariant
-		case !slices.Equal(significantLines(installed), significantLines(tmpl)):
-			d.State = FragmentStale
+		installed, rerr := os.ReadFile(filepath.Join(servicesDir, name+".yml"))
+		if rerr != nil {
+			return relinked, fmt.Errorf("read services/%s.yml: %w", name, rerr)
 		}
-		if d.State != FragmentCurrent {
-			d.Missing, d.Extra = lineDelta(installed, tmpl)
-			// A variant with no key-level delta already carries everything the
-			// catalog declares; its remaining differences ARE the variant.
-			if d.State == FragmentVariant && len(d.Missing) == 0 && len(d.Extra) == 0 {
-				d.State = FragmentCurrent
-			}
+		if !bytes.Equal(installed, tmpl) {
+			continue // diverged from the catalog — a hand edit, keep it real
 		}
-		out = append(out, d)
+		if err := SymlinkFragment(servicesDir, hostCatalogDir, name+".yml"); err != nil {
+			return relinked, err
+		}
+		relinked = append(relinked, name)
+		if err := relinkSidecarIfIdentical(servicesDir, readableCatalogDir, hostCatalogDir, name); err != nil {
+			return relinked, err
+		}
 	}
-	return out, nil
+	return relinked, nil
 }
 
-// catalogTemplate resolves an installed fragment name to its catalog template.
-// `teled` matches `teled.yml`; the multi-account variant `teled-rhias` falls
-// back to the base kind's template, the same `<kind>-<label>` split envFileName
-// uses to share one env file across accounts.
+// isSymlink reports whether path exists and is a symlink. False (not an
+// error) when path is missing, a regular file, or unreadable.
+func isSymlink(path string) bool {
+	fi, err := os.Lstat(path)
+	return err == nil && fi.Mode()&os.ModeSymlink != 0
+}
+
+// relinkSidecarIfIdentical links <name>-routes.json alongside its base
+// fragment when both the catalog and the instance carry one and they match —
+// the same drift risk applies to a package's route table as to its compose
+// fragment. Silently skipped (not an error) when either side has no sidecar,
+// the installed one has diverged, or it is already linked.
+func relinkSidecarIfIdentical(servicesDir, readableCatalogDir, hostCatalogDir, name string) error {
+	sidecar := name + "-routes.json"
+	if isSymlink(filepath.Join(servicesDir, sidecar)) {
+		return nil
+	}
+	tmpl, terr := os.ReadFile(filepath.Join(readableCatalogDir, sidecar))
+	if terr != nil {
+		return nil // catalog ships no routes sidecar for this kind
+	}
+	installed, ierr := os.ReadFile(filepath.Join(servicesDir, sidecar))
+	if ierr != nil {
+		return nil // instance never installed the sidecar
+	}
+	if !bytes.Equal(installed, tmpl) {
+		return nil // hand-edited — keep it real
+	}
+	return SymlinkFragment(servicesDir, hostCatalogDir, sidecar)
+}
+
+// catalogTemplate resolves an installed fragment name to its catalog
+// template. `teled` matches `teled.yml`; the multi-account variant
+// `teled-rhias` falls back to the base kind's template, the same
+// `<kind>-<label>` split envFileName uses to share one env file across
+// accounts.
 func catalogTemplate(tmplDir, name string) (kind string, body []byte, ok bool) {
 	for _, k := range candidateKinds(name) {
 		b, err := os.ReadFile(filepath.Join(tmplDir, k+".yml"))
@@ -114,97 +169,4 @@ func candidateKinds(name string) []string {
 		return []string{name, base}
 	}
 	return []string{name}
-}
-
-// lineDelta reports the catalog lines whose field is absent from the installed
-// copy (missing) and the installed lines whose field the catalog no longer
-// declares (extra) — "the state mount is gone" and "CHANNEL_SECRET is still
-// here", which is what the operator acts on.
-func lineDelta(installed, tmpl []byte) (missing, extra []string) {
-	have, want := significantLines(installed), significantLines(tmpl)
-	return absentFrom(want, have), absentFrom(have, want)
-}
-
-// absentFrom returns the lines of a whose field key — or, for a keyless list
-// item, whose exact text — does not occur in b.
-func absentFrom(a, b []string) []string {
-	keys, lines := map[string]bool{}, map[string]bool{}
-	for _, l := range b {
-		lines[strings.TrimSpace(l)] = true
-		if k := fieldKey(l); k != "" {
-			keys[k] = true
-		}
-	}
-	var out []string
-	for _, l := range a {
-		if k := fieldKey(l); k != "" {
-			if !keys[k] {
-				out = append(out, l)
-			}
-			continue
-		}
-		if !lines[strings.TrimSpace(l)] {
-			out = append(out, l)
-		}
-	}
-	return out
-}
-
-// fieldKey returns the YAML key a line sets, empty for a list item or a bare
-// value. The report compares key PRESENCE, not value: a multi-account variant
-// legitimately holds its own container_name and LISTEN_URL, and printing those
-// as drift on every generate would bury the lines that matter.
-func fieldKey(line string) string {
-	t := strings.TrimSpace(line)
-	if strings.HasPrefix(t, "- ") {
-		return ""
-	}
-	k, _, ok := strings.Cut(t, ":")
-	if !ok {
-		return ""
-	}
-	return k
-}
-
-// significantLines drops blanks and comments: a reworded header comment is not
-// a change an operator needs to act on.
-func significantLines(b []byte) []string {
-	var out []string
-	for _, l := range strings.Split(string(b), "\n") {
-		t := strings.TrimSpace(l)
-		if t == "" || strings.HasPrefix(t, "#") {
-			continue
-		}
-		out = append(out, strings.TrimRight(l, " \t"))
-	}
-	return out
-}
-
-// Report renders the drift as operator-facing lines, one block per fragment
-// that needs attention. Empty when every fragment is current or local — silence
-// is the "nothing to do" signal on a clean deploy.
-func Report(plan []FragmentDrift) []string {
-	var out []string
-	for _, d := range plan {
-		switch {
-		case d.State == FragmentStale && len(d.Missing)+len(d.Extra) == 0:
-			// Same fields, different values (an image tag, a URL) — sync still
-			// applies it, there is just no field-level line to show.
-			out = append(out, fmt.Sprintf("services/%s is behind the bundled %s package (values differ)", d.File, d.Kind))
-			continue
-		case d.State == FragmentStale:
-			out = append(out, fmt.Sprintf("services/%s is behind the bundled %s package:", d.File, d.Kind))
-		case d.State == FragmentVariant:
-			out = append(out, fmt.Sprintf("services/%s is a local variant of %s; apply by hand:", d.File, d.Kind))
-		default:
-			continue
-		}
-		for _, l := range d.Missing {
-			out = append(out, "  + "+strings.TrimSpace(l))
-		}
-		for _, l := range d.Extra {
-			out = append(out, "  - "+strings.TrimSpace(l))
-		}
-	}
-	return out
 }

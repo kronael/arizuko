@@ -93,106 +93,173 @@ func seedCatalog(t *testing.T, catalog, installed map[string]string) (svcDir, tm
 const teledV2 = "# teled\nservices:\n  teled:\n    image: arizuko:latest\n" +
 	"    volumes:\n      - '${DATA_DIR}/store/teled:/srv/app/home/store/teled'\n"
 
-// R1: `services/*.yml` are COPIES of the catalog, so a shipped fragment fix (the
-// E1 adapter state mounts) reaches new installs only. Classification is what
-// makes the drift visible: a plain `<kind>.yml` copy is replaceable, a
-// `<kind>-<label>.yml` multi-account variant is the operator's and never is.
-func TestPlanFragmentSyncClassifies(t *testing.T) {
+// isSymlinkTo asserts path is a symlink pointing at want.
+func isSymlinkTo(t *testing.T, path, want string) {
+	t.Helper()
+	fi, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("lstat %s: %v", path, err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is not a symlink", path)
+	}
+	got, err := os.Readlink(path)
+	if err != nil {
+		t.Fatalf("readlink %s: %v", path, err)
+	}
+	if got != want {
+		t.Fatalf("%s -> %q, want %q", path, got, want)
+	}
+}
+
+// isRealFile asserts path is a regular file (never converted to a symlink).
+func isRealFile(t *testing.T, path string) {
+	t.Helper()
+	fi, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("lstat %s: %v", path, err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("%s was converted to a symlink, want a real file", path)
+	}
+}
+
+// R1: `services/*.yml` used to be COPIES of the catalog, so a shipped fragment
+// fix (the E1 adapter state mounts) reached new installs only. RelinkCatalog
+// replaces an identical copy with a symlink at the catalog — a
+// `<kind>-<label>.yml` multi-account variant, a diverged hand edit, and an
+// uncatalogued local fragment are all left as real files, never linked.
+func TestRelinkCatalogClassifies(t *testing.T) {
 	svcDir, tmplDir := seedCatalog(t,
 		map[string]string{"teled.yml": teledV2},
 		map[string]string{
-			// byte-identical copy — nothing to do
+			// byte-identical copy — safe to link
 			"teled.yml": teledV2,
-			// pre-fix copy: no state mount, still emitting the retired CHANNEL_SECRET
-			"teled-rhias.yml": "services:\n  teled-rhias:\n    image: arizuko:latest\n" +
-				"    environment:\n      CHANNEL_SECRET: 'x'\n",
 			// operator's own package, not ours
 			"mine.yml": "services:\n  mine:\n    image: y\n",
 		})
+	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
 
-	plan, err := PlanFragmentSync(svcDir, tmplDir)
+	relinked, err := RelinkCatalog(svcDir, tmplDir, hostDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := map[string]FragmentDrift{}
-	for _, d := range plan {
-		got[d.File] = d
+	if !slices.Equal(relinked, []string{"teled"}) {
+		t.Fatalf("relinked = %v, want [teled]", relinked)
 	}
-	if s := got["teled.yml"].State; s != FragmentCurrent {
-		t.Errorf("identical copy = %s, want current", s)
-	}
-	if s := got["mine.yml"].State; s != FragmentLocal {
-		t.Errorf("uncatalogued fragment = %s, want local", s)
-	}
-	v := got["teled-rhias.yml"]
-	if v.State != FragmentVariant || v.Kind != "teled" {
-		t.Fatalf("variant = %s/%q, want variant/teled (match by kind, not filename)", v.State, v.Kind)
-	}
-	// The safety property: replacing a variant with the base template would give
-	// two services the same container_name. Sync must never rewrite it.
-	if v.Stale() {
-		t.Error("variant marked stale — sync would clobber the operator's account fragment")
-	}
-	if !slices.ContainsFunc(v.Missing, func(l string) bool { return strings.Contains(l, "store/teled") }) {
-		t.Errorf("variant missing-lines %v omit the catalog's state mount", v.Missing)
-	}
-	if !slices.ContainsFunc(v.Extra, func(l string) bool { return strings.Contains(l, "CHANNEL_SECRET") }) {
-		t.Errorf("variant extra-lines %v omit the retired CHANNEL_SECRET", v.Extra)
-	}
+	isSymlinkTo(t, filepath.Join(svcDir, "teled.yml"), filepath.Join(hostDir, "teled.yml"))
+	isRealFile(t, filepath.Join(svcDir, "mine.yml"))
 }
 
-// A plain `<kind>.yml` copy that has fallen behind is the case sync exists for.
-func TestPlanFragmentSyncFlagsStaleCopy(t *testing.T) {
+// A multi-account variant must never be linked: linking it would collide the
+// container_name with the base service.
+func TestRelinkCatalogSparesVariant(t *testing.T) {
 	svcDir, tmplDir := seedCatalog(t,
 		map[string]string{"teled.yml": teledV2},
-		map[string]string{"teled.yml": "services:\n  teled:\n    image: arizuko:latest\n"})
+		map[string]string{
+			"teled.yml":       teledV2,
+			"teled-rhias.yml": "services:\n  teled-rhias:\n    image: arizuko:latest\n    environment:\n      CHANNEL_SECRET: 'x'\n",
+		})
+	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
 
-	plan, err := PlanFragmentSync(svcDir, tmplDir)
+	if _, err := RelinkCatalog(svcDir, tmplDir, hostDir); err != nil {
+		t.Fatal(err)
+	}
+	isRealFile(t, filepath.Join(svcDir, "teled-rhias.yml"))
+	got, err := os.ReadFile(filepath.Join(svcDir, "teled-rhias.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan) != 1 || !plan[0].Stale() {
-		t.Fatalf("plan = %+v, want one stale fragment", plan)
-	}
-	report := strings.Join(Report(plan), "\n")
-	if !strings.Contains(report, "teled.yml is behind") || !strings.Contains(report, "store/teled") {
-		t.Fatalf("report does not show what would change:\n%s", report)
+	if !strings.Contains(string(got), "CHANNEL_SECRET") {
+		t.Error("variant content was altered")
 	}
 }
 
-// A value-only change (an image tag bump) has no field-level delta to print but
-// must still be classified stale — otherwise the catalog's new value never
-// reaches the instance, which is the whole failure this path exists to end.
-func TestPlanFragmentSyncFlagsValueOnlyDrift(t *testing.T) {
+// A plain `<kind>.yml` copy that has diverged from the catalog (a hand edit)
+// must never be silently overwritten or replaced with a symlink — that would
+// discard the operator's edit.
+func TestRelinkCatalogSparesHandEdit(t *testing.T) {
+	edited := "services:\n  teled:\n    image: arizuko:latest\n    ports: ['9999:9999']\n"
 	svcDir, tmplDir := seedCatalog(t,
-		map[string]string{"kokoro.yml": "services:\n  kokoro:\n    image: ghcr.io/x:v2\n"},
-		map[string]string{"kokoro.yml": "services:\n  kokoro:\n    image: ghcr.io/x:v1\n"})
+		map[string]string{"teled.yml": teledV2},
+		map[string]string{"teled.yml": edited})
+	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
 
-	plan, err := PlanFragmentSync(svcDir, tmplDir)
+	relinked, err := RelinkCatalog(svcDir, tmplDir, hostDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !plan[0].Stale() {
-		t.Fatalf("value-only drift = %s, want stale", plan[0].State)
+	if len(relinked) != 0 {
+		t.Fatalf("relinked = %v, want none (diverged copy)", relinked)
 	}
-	if report := strings.Join(Report(plan), "\n"); !strings.Contains(report, "values differ") {
-		t.Fatalf("report hides value-only drift:\n%s", report)
+	isRealFile(t, filepath.Join(svcDir, "teled.yml"))
+	got, err := os.ReadFile(filepath.Join(svcDir, "teled.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != edited {
+		t.Error("hand-edited fragment was altered")
 	}
 }
 
-// Comments are not behaviour: a reworded header must not nag the operator on
-// every generate.
-func TestPlanFragmentSyncIgnoresComments(t *testing.T) {
+// A second relink must not even attempt to read through the fragment: on a
+// real deploy, hostCatalogDir is a HOST path the ephemeral generate container
+// cannot see (that's the whole reason it differs from readableCatalogDir), so
+// re-reading an already-linked fragment there would fail loudly on every
+// later generate. The already-linked case must be a pure no-op instead.
+func TestRelinkCatalogIdempotent(t *testing.T) {
 	svcDir, tmplDir := seedCatalog(t,
-		map[string]string{"teled.yml": "# rewritten header\n" + teledV2},
-		map[string]string{"teled.yml": "# old header\n\n" + teledV2})
+		map[string]string{"teled.yml": teledV2},
+		map[string]string{"teled.yml": teledV2})
+	// hostDir deliberately points nowhere readable — mirrors the ephemeral
+	// generate container's view of a host-only catalog path.
+	hostDir := filepath.Join(t.TempDir(), "unreadable-from-here", "template", "services")
 
-	plan, err := PlanFragmentSync(svcDir, tmplDir)
+	if _, err := RelinkCatalog(svcDir, tmplDir, hostDir); err != nil {
+		t.Fatal(err)
+	}
+	relinked, err := RelinkCatalog(svcDir, tmplDir, hostDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(Report(plan)) != 0 {
-		t.Fatalf("comment-only drift reported: %v", Report(plan))
+	if len(relinked) != 0 {
+		t.Fatalf("second relink = %v, want none (already linked, nothing new)", relinked)
+	}
+	isSymlinkTo(t, filepath.Join(svcDir, "teled.yml"), filepath.Join(hostDir, "teled.yml"))
+}
+
+// A route-table sidecar carries the same drift risk as its base fragment and
+// links alongside it when both sides match.
+func TestRelinkCatalogLinksMatchingSidecar(t *testing.T) {
+	routes := `[{"path":"/slack/","backend":"http://slakd:8080","auth":"public"}]`
+	svcDir, tmplDir := seedCatalog(t,
+		map[string]string{"slakd.yml": "services:\n  slakd:\n    image: arizuko:latest\n", "slakd-routes.json": routes},
+		map[string]string{"slakd.yml": "services:\n  slakd:\n    image: arizuko:latest\n", "slakd-routes.json": routes})
+	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
+
+	if _, err := RelinkCatalog(svcDir, tmplDir, hostDir); err != nil {
+		t.Fatal(err)
+	}
+	isSymlinkTo(t, filepath.Join(svcDir, "slakd-routes.json"), filepath.Join(hostDir, "slakd-routes.json"))
+}
+
+// HostCatalogDir must never fall back to this process's own directory — a
+// symlink target is configured (.env HOST_APP_DIR) or absent, never derived.
+func TestHostCatalogDirRequiresExplicitHostAppDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("ASSISTANT_NAME=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := HostCatalogDir(dir); ok {
+		t.Fatal("HostCatalogDir returned ok with no HOST_APP_DIR set")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("HOST_APP_DIR=/srv/checkout\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := HostCatalogDir(dir)
+	if !ok || got != "/srv/checkout/template/services" {
+		t.Fatalf("HostCatalogDir = %q,%v, want /srv/checkout/template/services,true", got, ok)
 	}
 }
 

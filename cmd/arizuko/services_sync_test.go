@@ -30,49 +30,104 @@ func seedSyncInstance(t *testing.T, name string, catalog, installed map[string]s
 	if err := os.WriteFile(filepath.Join(dataDir, ".env"), []byte(env), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// godotenv.Load (core.LoadConfigFrom, inside packageTemplates) never
+	// overrides an already-set process env var, so an earlier test's
+	// HOST_APP_DIR would otherwise leak into this one. t.Setenv both pins the
+	// correct value up front and restores it when this test ends.
+	t.Setenv("HOST_APP_DIR", filepath.Join(base, "app"))
 	return dataDir
 }
 
 const catalogTeled = "services:\n  teled:\n    image: arizuko:latest\n" +
 	"    volumes:\n      - '${DATA_DIR}/store/teled:/srv/app/home/store/teled'\n"
 
-// R1: the E1 mount fix was inert because nothing ever refreshes an instance's
-// installed fragment. --sync-services is that path — and it must never destroy
-// what it replaces, nor touch a multi-account variant (rewriting teled-rhias.yml
-// with the base template would give two services one container_name).
-func TestSyncFragmentsUpdatesCopyBacksUpAndSparesVariant(t *testing.T) {
-	stale := "services:\n  teled:\n    image: arizuko:latest\n"
+// R1: the E1 mount fix was inert because nothing ever refreshed an instance's
+// installed fragment. relinkCatalog is the replacement — a byte-identical copy
+// becomes a symlink at the catalog on every generate, and a multi-account
+// variant is never touched (rewriting teled-rhias.yml with the base template
+// would give two services one container_name).
+func TestRelinkCatalogPointsIdenticalCopyAtCatalogAndSparesVariant(t *testing.T) {
 	variant := "services:\n  teled-rhias:\n    image: arizuko:latest\n"
 	dataDir := seedSyncInstance(t, "s",
 		map[string]string{"teled.yml": catalogTeled},
-		map[string]string{"teled.yml": stale, "teled-rhias.yml": variant})
+		map[string]string{"teled.yml": catalogTeled, "teled-rhias.yml": variant})
 
-	syncFragments(dataDir)
+	relinkCatalog(dataDir)
 
 	svcDir := filepath.Join(dataDir, "services")
-	got := readSvc(t, svcDir, "teled.yml")
-	if !strings.Contains(got, "store/teled") {
-		t.Errorf("teled.yml not updated from the catalog: %q", got)
+	fi, err := os.Lstat(filepath.Join(svcDir, "teled.yml"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if bak := readSvc(t, svcDir, "teled.yml.bak"); bak != stale {
-		t.Errorf("previous content not preserved: %q", bak)
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("teled.yml was not converted to a symlink")
+	}
+	if got := readSvc(t, svcDir, "teled.yml"); !strings.Contains(got, "store/teled") {
+		t.Errorf("teled.yml does not read through to the catalog content: %q", got)
 	}
 	if v := readSvc(t, svcDir, "teled-rhias.yml"); v != variant {
 		t.Errorf("variant rewritten: %q", v)
 	}
+	if fi, err := os.Lstat(filepath.Join(svcDir, "teled-rhias.yml")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Error("variant was converted to a symlink")
+	}
 }
 
-// A second sync is a no-op: the fragment now matches the catalog, so nothing is
-// rewritten and no stale .bak is minted on every deploy.
-func TestSyncFragmentsIdempotent(t *testing.T) {
+// A hand-edited copy — content that differs from the catalog — is never
+// touched: converting it would silently discard the operator's edit.
+func TestRelinkCatalogSparesHandEditedCopy(t *testing.T) {
+	edited := "services:\n  teled:\n    image: arizuko:latest\n    ports: ['1234:1234']\n"
+	dataDir := seedSyncInstance(t, "e",
+		map[string]string{"teled.yml": catalogTeled},
+		map[string]string{"teled.yml": edited})
+
+	relinkCatalog(dataDir)
+
+	svcDir := filepath.Join(dataDir, "services")
+	if fi, err := os.Lstat(filepath.Join(svcDir, "teled.yml")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("hand-edited copy was converted to a symlink")
+	}
+	if got := readSvc(t, svcDir, "teled.yml"); got != edited {
+		t.Errorf("hand-edited copy was rewritten: %q", got)
+	}
+}
+
+// Without HOST_APP_DIR set, relinkCatalog must do nothing rather than link to
+// a path derived from this process's own working directory (CLAUDE.md
+// "identity is configured, never derived").
+func TestRelinkCatalogNoopWithoutHostAppDir(t *testing.T) {
+	dataDir := seedSyncInstance(t, "n",
+		map[string]string{"teled.yml": catalogTeled},
+		map[string]string{"teled.yml": catalogTeled})
+	if err := os.WriteFile(filepath.Join(dataDir, ".env"), []byte("ASSISTANT_NAME=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	relinkCatalog(dataDir)
+
+	svcDir := filepath.Join(dataDir, "services")
+	if fi, err := os.Lstat(filepath.Join(svcDir, "teled.yml")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("linked without HOST_APP_DIR configured")
+	}
+}
+
+// A second relink is a no-op in effect: already-linked, re-linked to the same
+// target, nothing rewritten that a diff would show.
+func TestRelinkCatalogIdempotentAcrossGenerates(t *testing.T) {
 	dataDir := seedSyncInstance(t, "i",
 		map[string]string{"teled.yml": catalogTeled},
 		map[string]string{"teled.yml": catalogTeled})
 
-	syncFragments(dataDir)
+	relinkCatalog(dataDir)
+	relinkCatalog(dataDir)
 
-	if _, err := os.Stat(filepath.Join(dataDir, "services", "teled.yml.bak")); !os.IsNotExist(err) {
-		t.Fatalf("current fragment backed up anyway: %v", err)
+	svcDir := filepath.Join(dataDir, "services")
+	fi, err := os.Lstat(filepath.Join(svcDir, "teled.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("teled.yml is not a symlink after two relinks")
 	}
 }
 

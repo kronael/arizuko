@@ -349,28 +349,51 @@ func cmdPackages(args []string) {
 		need(args, 3, usage)
 		name := args[2]
 		mustPkgName(name)
-		// Read every source before writing any destination: a package installs
+		// Confirm the kind exists before writing anything — a package installs
 		// whole or not at all (no half-written fragment on a routes read error).
 		fragment, err := os.ReadFile(filepath.Join(tmplDir, name+".yml"))
 		if err != nil {
 			die("Failed: add %s: %v (catalog: %s)", name, err, tmplDir)
 		}
-		// A package's proxyd routes travel with it — proxyd's route table is
-		// assembled from these at generate time. Optional.
-		routes, rErr := os.ReadFile(filepath.Join(tmplDir, name+"-routes.json"))
-		if rErr != nil && !os.IsNotExist(rErr) {
-			die("Failed: add %s routes: %v", name, rErr)
-		}
 		if err := os.MkdirAll(svcDir, 0o755); err != nil {
 			die("Failed: mkdir services: %v", err)
 		}
-		if err := writeFileAtomic(filepath.Join(svcDir, name+".yml"), fragment); err != nil {
-			die("Failed: add %s: %v", name, err)
+		hasRoutes := false
+		if _, rErr := os.Stat(filepath.Join(tmplDir, name+"-routes.json")); rErr == nil {
+			hasRoutes = true
+		} else if !os.IsNotExist(rErr) {
+			die("Failed: add %s routes: %v", name, rErr)
 		}
-		if rErr == nil {
-			if err := writeFileAtomic(filepath.Join(svcDir, name+"-routes.json"), routes); err != nil {
-				die("Failed: add %s routes: %v", name, err)
+		// Prefer a symlink at the catalog over a copy: a copy never refreshes
+		// (BUGS R1 — the exact bug this replaces), a symlink always reads the
+		// current template. Falls back to a copy only when HOST_APP_DIR isn't
+		// configured, since the symlink target must be host-resolvable (see
+		// compose.HostCatalogDir) — never derived from where this process
+		// happens to run.
+		if hostDir, ok := compose.HostCatalogDir(dataDir); ok {
+			if err := compose.SymlinkFragment(svcDir, hostDir, name+".yml"); err != nil {
+				die("Failed: add %s: %v", name, err)
 			}
+			if hasRoutes {
+				if err := compose.SymlinkFragment(svcDir, hostDir, name+"-routes.json"); err != nil {
+					die("Failed: add %s routes: %v", name, err)
+				}
+			}
+		} else {
+			if err := writeFileAtomic(filepath.Join(svcDir, name+".yml"), fragment); err != nil {
+				die("Failed: add %s: %v", name, err)
+			}
+			if hasRoutes {
+				routes, rErr := os.ReadFile(filepath.Join(tmplDir, name+"-routes.json"))
+				if rErr != nil {
+					die("Failed: add %s routes: %v", name, rErr)
+				}
+				if err := writeFileAtomic(filepath.Join(svcDir, name+"-routes.json"), routes); err != nil {
+					die("Failed: add %s routes: %v", name, err)
+				}
+			}
+			fmt.Fprintln(os.Stderr, "warning: HOST_APP_DIR not set in .env — installed a local copy instead "+
+				"of a catalog link; it will not receive template fixes automatically. Set HOST_APP_DIR (see INSTALL.md).")
 		}
 		warnUnsatisfiedDeps(name, fragment, svcDir)
 		fmt.Printf("added %s — run `arizuko generate %s` to apply\n", name, args[0])
@@ -545,50 +568,27 @@ func cmdPackages(args []string) {
 	}
 }
 
-// planFragmentSync classifies the instance's installed fragments against the
-// bundled catalog. Both `arizuko generate` (report) and `--sync-services`
-// (apply) go through here, so the dry run and the apply can never disagree.
-func planFragmentSync(dataDir string) []compose.FragmentDrift {
-	plan, err := compose.PlanFragmentSync(filepath.Join(dataDir, "services"), packageTemplates(dataDir))
-	if err != nil {
-		die("Failed: read services/: %v", err)
+// relinkCatalog converts every installed fragment that's still a
+// byte-identical copy of the bundled catalog into a symlink, so a catalog fix
+// reaches this instance without a copy ever falling behind (BUGS R1). Runs on
+// every generate, unconditionally — no operator flag, since it never touches
+// a hand-edited or multi-account-variant fragment (compose.RelinkCatalog). A
+// no-op when HOST_APP_DIR isn't set in .env: without it there is no
+// host-resolvable path to link to, so fragments stay plain copies exactly as
+// before (degraded, not broken).
+func relinkCatalog(dataDir string) {
+	hostDir, ok := compose.HostCatalogDir(dataDir)
+	if !ok {
+		return
 	}
-	return plan
-}
-
-// syncFragments rewrites every stale fragment from the bundled catalog, keeping
-// the previous content as `services/<name>.yml.bak`.
-//
-// Hand-edit policy is back-up-never-destroy, not refuse: the fix has to reach
-// every live instance (BUGS R1), and refusing on any local edit would leave the
-// bug live on exactly the instances that have one. The operator is never
-// surprised — plain `generate` prints the pending change on every run, and
-// nothing is written without this flag. A customisation is kept permanently by
-// renaming the file to `<kind>-<label>.yml`, which the planner classifies as a
-// variant and never writes.
-func syncFragments(dataDir string) {
 	svcDir := filepath.Join(dataDir, "services")
-	tmplDir := packageTemplates(dataDir)
-	for _, d := range planFragmentSync(dataDir) {
-		if !d.Stale() {
-			continue
-		}
-		path := filepath.Join(svcDir, d.File)
-		prev, err := os.ReadFile(path)
-		if err != nil {
-			die("Failed: read %s: %v", d.File, err)
-		}
-		tmpl, err := os.ReadFile(filepath.Join(tmplDir, d.Kind+".yml"))
-		if err != nil {
-			die("Failed: read catalog %s.yml: %v", d.Kind, err)
-		}
-		if err := writeFileAtomic(path+".bak", prev); err != nil {
-			die("Failed: back up %s: %v", d.File, err)
-		}
-		if err := writeFileAtomic(path, tmpl); err != nil {
-			die("Failed: update %s: %v", d.File, err)
-		}
-		fmt.Printf("updated services/%s from the bundled %s package (previous kept as %s.bak)\n", d.File, d.Kind, d.File)
+	relinked, err := compose.RelinkCatalog(svcDir, packageTemplates(dataDir), hostDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "services: relink to catalog: %v\n", err)
+		return
+	}
+	for _, name := range relinked {
+		fmt.Printf("services/%s.yml now links to the bundled catalog (was an identical copy)\n", name)
 	}
 }
 
