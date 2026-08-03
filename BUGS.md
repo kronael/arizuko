@@ -2980,3 +2980,56 @@ adapters is a per-fragment edit, not one code change.
   `twitd.yml:9` already show the pattern — a single subpath, not the data dir),
   set `DATA_DIR` where absent, and make `loadOffset` fail loud instead of
   swallowing the read error.
+
+## R1 — codex review of the 2026-08-03 fix batch: six gaps (2026-08-03, open)
+
+Adversarial review of `50af5f50..e37a084b` (the Y2/M1/E1/D6/D7 fixes). Findings
+verified before logging. Ordered by consequence.
+
+**1. CRITICAL — the adapter-mount fix is inert on every live instance.**
+`compose/compose.go:383-402` includes each instance's OWN
+`/srv/data/arizuko_<inst>/services/*.yml`, not `template/services/`. Confirmed
+on krons: that directory holds installed copies ("Converted from
+services/teled.toml by `arizuko generate`"), including a second adapter
+`teled-rhias.yml`. Editing the template fixes NEW installs only —
+krons/sloth/marinade still have no adapter state mounts, so teled still replays
+~24h of Telegram updates on recreate. `cmd/arizuko/packages.go:347-375` copies
+templates only on `packages add`; there is no update path for installed
+fragments. The installed copies are also still emitting the retired
+`CHANNEL_SECRET`.
+
+**2. teled's swallow moved from read to write.** The startup read now fails
+loud through `chanlib/run.go:90-94`, but `teled/bot.go:92-94` only warns when
+the SAVE fails, advances the in-memory offset, and continues. A full or
+read-only mount looks healthy until restart, then replays from the last
+offset that actually persisted.
+
+**3. The dissolved-tier class is incomplete.** `resreg/resources/route_tokens.go:86`
+still tells `issue_webhook` "Tier rules match issue_chat_link", and — worse —
+the agent's own global instructions assert tier ceilings at `ant/CLAUDE.md:28`
+and `:165-166`. Those reach the model on every turn.
+
+**4. The invite-bearer fix is YAML-only.** `yaml:"-"` does stop `export`
+(`resreg/engine.go:359-375`), but `json:"token"` remains, so the live token is
+still returned by `GET /v1/invites` (`onbod/admin.go:53-72`), rendered in full
+by dashd (`dashd/invites.go:72-84`), printed by the CLI
+(`cmd/arizuko/main.go:732-743`), and published in OpenAPI
+(`resreg/openapi.go:122-143`). Y2 fixed the manifest path, not credential
+exposure generally.
+
+**5. `SkipApplyRebuild` now yields false advice.** `cmd/arizuko/apply.go:165-169`
+assumes every skipped resource is a secret and prints "set via `arizuko secret
+set`" — nonsense for invites.
+
+**6. The vacuous-target class remains.** `webd/Makefile:10-11` still runs
+`-run E2E` with no zero-match guard; only the root Makefile was hardened.
+
+Minimality notes (not defects): `shouldLink` is a one-line wrapper with a
+dedicated 21-line test the renderer test already covers; commit `32b180da`
+bundles three narrowings with the persistence fix and `e37a084b` bundles dashd
+with Make.
+
+- **Severity:** high (1 leaves the reported bug live on all three instances)
+- **Fix:** 1 needs an installed-fragment update path — a real `arizuko` command,
+  not a manual edit, since it must run on every instance and survive the next
+  `generate`. 2-6 are small and independent.
