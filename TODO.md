@@ -14,6 +14,18 @@ for shipped milestones.
   Phase D (chats.is_group) shipped. C reads `chats.is_group` and
   layers folder/user-scope secrets at container spawn. Spec at
   `specs/5/5-tenant-self-service.md`.
+- **Operator view of pairing edges (`5/31` follow-up, needs a call).**
+  Listing outstanding pairing TOKENS is correctly not a surface — a
+  10-minute single-use bearer gives an operator nothing to act on. The
+  resulting `acl_membership` claims are the opposite: durable, and the
+  answer to "why does this Telegram account carry Alice's authority?".
+  dashd today reads them only as `<datalist>` autocomplete on the grants
+  page (`dashd/grants_admin.go:111`) — no list, no cut. The blocker is a
+  design call, not markup: `DELETE /v1/acl_membership` binds the caller's
+  sub to `parent` on purpose, so an operator cannot use it, and the spec
+  says the third path is `arizuko apply`. Either that answer stands and
+  dashd shows the edges read-only, or the operator gets a face — decide
+  before building.
 - **`/pub/arizuko/` 13-post series** — specced in
   `content/spec.md`, voice in `content/meta/voice.md`. Long-form
   content authorship; separate session.
