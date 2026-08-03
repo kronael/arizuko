@@ -3048,3 +3048,28 @@ family kill`. Timing-sensitive race assertion, not reproducible on demand.
 - **Source:** authd/bugfix_test.go:168, TestRefreshRotationRaceSingleWinner
 - **Status:** open, record-only — needs a root-cause pass on the race timing,
   not a fix on sight
+
+## P1 — onbod's dashboard forms never emit the CSRF field they are checked against (2026-08-03, open)
+
+`handleOnboardPost` rejects any request whose `csrf` form value is missing or
+does not match the `onbod_csrf` cookie, but no rendered form contains that
+field: `renderUsernamePicker` and `renderDashboard` emit `<form method="POST"
+action="/onboard">` with no hidden `csrf` input. Every real dashboard submission
+— create_world, add_route, delete_route — should therefore 403 with "csrf token
+invalid". Only the tests pass, because `postOnboard` injects the pair itself.
+
+Found while extracting the double-submit helpers into `auth.EnsureCSRF` /
+`auth.CheckCSRF` for spec 5/31's pairing confirm page. The extraction preserved
+onbod's behavior exactly (the shared `EnsureCSRF` now RETURNS the token, which
+is what a renderer needs to embed); it did not add the missing field, because
+that is a behavior fix on a surface this work does not otherwise touch.
+
+- **Severity:** high — onboarding self-service dashboard is unusable if confirmed
+- **Scope:** onbod HTML forms
+- **Affected:** `POST /onboard` (create_world / add_route / delete_route)
+- **Source:** onbod/main.go `checkCSRF`, `renderUsernamePicker`, `renderDashboard`
+- **Status:** open — needs a live check against an ONBOARDING_ENABLED instance
+  before fixing, in case a reverse proxy or a later handler supplies the field
+- **Fix:** thread the token from `auth.EnsureCSRF` into both renderers and emit
+  `<input type="hidden" name="csrf" value="...">`. One renderer per form; no
+  second CSRF path.
