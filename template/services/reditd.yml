@@ -1,15 +1,20 @@
 # reditd — Reddit adapter. API credentials arrive via env/reditd.env;
-# REDDIT_SUBREDDITS (the watch list) is instance config.
+# REDDIT_SUBREDDITS (the watch list) is instance config. DATA_DIR is the narrow
+# state mount: it holds cursors.json, and losing it re-delivers every watched
+# subreddit's recent posts as new.
 services:
   reditd:
     container_name: ${APP}_reditd_${FLAVOR}
     image: arizuko:latest
     entrypoint: ['reditd']
+    volumes:
+      - '${DATA_DIR}/store/reditd:/srv/app/home/store/reditd'
     env_file: ['../env/reditd.env']
     environment:
       ROUTER_URL: 'http://routd:8080'
       REDDIT_SUBREDDITS: '${REDDIT_SUBREDDITS}'
       LISTEN_ADDR: ':8080'
       LISTEN_URL: 'http://reditd:8080'
+      DATA_DIR: '/srv/app/home/store/reditd'
     depends_on: [routd]
     restart: on-failure

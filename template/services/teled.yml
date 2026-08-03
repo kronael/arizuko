@@ -1,14 +1,19 @@
 # teled — Telegram adapter. Secrets arrive via env/teled.env (scoped by
-# compose.daemonKeys); only non-scoped config lives here.
+# compose.daemonKeys); only non-scoped config lives here. DATA_DIR is the narrow
+# state mount: it holds the getUpdates offset, and losing it makes Telegram
+# re-deliver its ~24h backlog, which the agent answers all over again.
 services:
   teled:
     container_name: ${APP}_teled_${FLAVOR}
     image: arizuko:latest
     entrypoint: ['teled']
+    volumes:
+      - '${DATA_DIR}/store/teled:/srv/app/home/store/teled'
     env_file: ['../env/teled.env']
     environment:
       ROUTER_URL: 'http://routd:8080'
       LISTEN_ADDR: ':8080'
       LISTEN_URL: 'http://teled:8080'
+      DATA_DIR: '/srv/app/home/store/teled'
     depends_on: [routd]
     restart: on-failure

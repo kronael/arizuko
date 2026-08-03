@@ -698,7 +698,7 @@ func Generate(dataDir string) (string, error) {
 	b.WriteString(proxydService(app, flavor, dataDir, env, routes))
 	b.WriteString(vitedService(app, flavor, dataDir))
 	b.WriteString(dashdService(app, flavor, dataDir, env))
-	b.WriteString(timedService(app, flavor, dataDir, env))
+	b.WriteString(timedService(app, flavor, env))
 	b.WriteString(onbodService(app, flavor, dataDir))
 	b.WriteString(davdService(app, flavor, dataDir, env))
 	b.WriteString(crackboxService(app, flavor, dataDir))
@@ -735,7 +735,7 @@ type svcDef struct {
 	app         string
 	flavor      string
 	entrypoint  string
-	dataDir     string
+	dataDir     string   // bind-mounted at containerDataMount; "" = no mount, no DATA_DIR
 	profile     string   // compose profile; "" = always up
 	volumes     []string // extra volume specs after the data-dir mount
 	ports       []string
@@ -809,9 +809,15 @@ func writeSvc(def svcDef) string {
 		fmt.Fprintf(&b, "    profiles: ['%s']\n", def.profile)
 	}
 	b.WriteString("    user: '1000:1000'\n")
-	fmt.Fprintf(&b, "    volumes:\n      - %s:%s\n", def.dataDir, containerDataMount)
-	for _, v := range def.volumes {
-		fmt.Fprintf(&b, "      - %s\n", v)
+	vols := def.volumes
+	if def.dataDir != "" {
+		vols = append([]string{fmt.Sprintf("%s:%s", def.dataDir, containerDataMount)}, vols...)
+	}
+	if len(vols) > 0 {
+		b.WriteString("    volumes:\n")
+		for _, v := range vols {
+			fmt.Fprintf(&b, "      - %s\n", v)
+		}
 	}
 	if len(def.ports) > 0 {
 		b.WriteString("    ports:\n")
@@ -821,9 +827,13 @@ func writeSvc(def svcDef) string {
 	}
 	b.WriteString(envFileFor(def.name))
 	// DATA_DIR is always the container-internal mount point — .env doesn't
-	// know this path, so every arizuko daemon needs the override.
-	b.WriteString("    environment:\n")
-	fmt.Fprintf(&b, "      DATA_DIR: '%s'\n", containerDataMount)
+	// know this path, so every mounted arizuko daemon needs the override.
+	if def.dataDir != "" || len(def.environment) > 0 {
+		b.WriteString("    environment:\n")
+	}
+	if def.dataDir != "" {
+		fmt.Fprintf(&b, "      DATA_DIR: '%s'\n", containerDataMount)
+	}
 	if len(def.environment) > 0 {
 		writeEnv(&b, def.environment)
 	}
@@ -919,16 +929,18 @@ func runedService(app, flavor, dataDir string, env map[string]string) string {
 	return b.String()
 }
 
-func timedService(app, flavor, dataDir string, env map[string]string) string {
+// timedService emits the scheduler. NO data-dir mount: timed opens no database
+// and reads no file — it federates its fire loop over routd HTTP, so mounting
+// the data dir would only hand it every other daemon's database.
+func timedService(app, flavor string, env map[string]string) string {
 	// TIMEZONE is the only compose-side transform; timed reads this name while
-	// the rest of the world uses TZ. timed federates its fire loop over routd
-	// HTTP (no messages.db); AUTHD_URL + AUTHD_SERVICE_KEY arrive via env/timed.env.
+	// the rest of the world uses TZ. AUTHD_URL + AUTHD_SERVICE_KEY arrive via
+	// env/timed.env.
 	return writeSvc(svcDef{
 		name:       "timed",
 		app:        app,
 		flavor:     flavor,
 		entrypoint: "timed",
-		dataDir:    dataDir,
 		profile:    "timed",
 		environment: map[string]string{
 			"TIMEZONE":   envOr(env, "TZ", "UTC"),
@@ -1049,7 +1061,9 @@ func vitedService(app, flavor, dataDir string) string {
 	fmt.Fprintf(&b, "    container_name: %s_vited_%s\n", app, flavor)
 	b.WriteString("    image: arizuko-vite:latest\n")
 	b.WriteString("    profiles: ['web']\n")
-	fmt.Fprintf(&b, "    volumes:\n      - %s/web:/web\n", dataDir)
+	// Read-only: vite serves /web and writes nothing into it — its dep cache
+	// lives at a container-local cacheDir (ant/vite.config.js).
+	fmt.Fprintf(&b, "    volumes:\n      - %s/web:/web:ro\n", dataDir)
 	// vite dev server has no /health; probe /@vite/client (always 200 in dev).
 	b.WriteString("    healthcheck:\n")
 	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:8080/@vite/client']\n")

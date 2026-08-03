@@ -1,13 +1,19 @@
 # emaid — IMAP/SMTP adapter. Mailbox credentials arrive via env/emaid.env.
+# DATA_DIR is the narrow state mount: emaid.db (its OWN SQLite database, the
+# message-id → thread map) lives there, so without it every reply starts a new
+# thread after a recreate.
 services:
   emaid:
     container_name: ${APP}_emaid_${FLAVOR}
     image: arizuko:latest
     entrypoint: ['emaid']
+    volumes:
+      - '${DATA_DIR}/store/emaid:/srv/app/home/store/emaid'
     env_file: ['../env/emaid.env']
     environment:
       ROUTER_URL: 'http://routd:8080'
       LISTEN_ADDR: ':8080'
       LISTEN_URL: 'http://emaid:8080'
+      DATA_DIR: '/srv/app/home/store/emaid'
     depends_on: [routd]
     restart: on-failure

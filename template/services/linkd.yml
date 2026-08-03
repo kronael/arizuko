@@ -1,9 +1,14 @@
 # linkd — LinkedIn adapter. OAuth credentials arrive via env/linkd.env.
+# DATA_DIR is the narrow state mount: it holds linkd-state-<name>.json, which
+# carries the REFRESHED access token — losing it can strand the adapter with no
+# usable credential.
 services:
   linkd:
     container_name: ${APP}_linkd_${FLAVOR}
     image: arizuko:latest
     entrypoint: ['linkd']
+    volumes:
+      - '${DATA_DIR}/store/linkd:/srv/app/home/store/linkd'
     env_file: ['../env/linkd.env']
     environment:
       ROUTER_URL: 'http://routd:8080'
@@ -11,5 +16,6 @@ services:
       LINKEDIN_AUTO_PUBLISH: 'false'
       LISTEN_ADDR: ':8080'
       LISTEN_URL: 'http://linkd:8080'
+      DATA_DIR: '/srv/app/home/store/linkd'
     depends_on: [routd]
     restart: on-failure

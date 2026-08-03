@@ -42,11 +42,17 @@ func main() {
 				slog.Error("telegram auth failed", "err", err)
 				return nil, nil, err
 			}
+			// Unreadable offset state is fatal: polling from 0 would re-deliver
+			// Telegram's whole retained queue. chanlib.Run logs and exits.
+			offset, err := b.loadOffset()
+			if err != nil {
+				return nil, nil, err
+			}
 			// Derive b.cancel synchronously here — assigning it inside the poll
 			// goroutine raced with stop() reading a still-nil b.cancel.
 			pollCtx, cancel := context.WithCancel(ctx)
 			b.cancel = cancel
-			go b.poll(pollCtx, rc)
+			go b.poll(pollCtx, rc, offset)
 			return newServer(cfg, b, b.isConnected, b.LastInboundAt).handler(), b.stop, nil
 		},
 	})

@@ -393,6 +393,11 @@ func TestTimedWiring(t *testing.T) {
 	if !strings.Contains(timed, `ROUTER_URL: "http://routd:8080"`) || !strings.Contains(timed, `TIMEZONE: "Europe/Prague"`) {
 		t.Errorf("timed wiring wrong; got:\n%s", timed)
 	}
+	// timed opens no DB and reads no file — a data-dir mount would hand the
+	// scheduler every other daemon's database for nothing.
+	if strings.Contains(timed, "volumes:") || strings.Contains(timed, "DATA_DIR") {
+		t.Errorf("timed must have no data-dir mount; got:\n%s", timed)
+	}
 	if !strings.Contains(serviceBlock(out, "onbod"), `ROUTER_URL: "http://routd:8080"`) {
 		t.Error("onbod ROUTER_URL must be routd")
 	}
@@ -470,6 +475,21 @@ func TestAppSrcMountRoutdAndRuned(t *testing.T) {
 		if strings.Contains(s, "/srv/app/arizuko:ro") || strings.Contains(s, "APP_SRC_DIR") {
 			t.Errorf("%s must have no source mount without HOST_APP_DIR, got:\n%s", name, s)
 		}
+	}
+}
+
+// Every daemon that IS mounted still gets the data dir at containerDataMount,
+// and vited — which only serves /web — gets it read-only.
+func TestDataMountsStayNarrow(t *testing.T) {
+	out := gen(t, seed(t, "API_PORT=8080\n"))
+	for _, svc := range []string{"authd", "routd", "runed", "dashd", "webd", "proxyd", "onbod"} {
+		if !strings.Contains(serviceBlock(out, svc), "/srv/app/home\n") {
+			t.Errorf("%s lost its data-dir mount; got:\n%s", svc, serviceBlock(out, svc))
+		}
+	}
+	vited := serviceBlock(out, "vited")
+	if !strings.Contains(vited, "/web:/web:ro\n") {
+		t.Errorf("vited must mount /web read-only (it never writes); got:\n%s", vited)
 	}
 }
 

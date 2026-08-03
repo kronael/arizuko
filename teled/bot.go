@@ -56,10 +56,29 @@ func newBot(cfg config) (*bot, error) {
 	return b, nil
 }
 
-func (b *bot) loadOffset() int {
-	data, _ := os.ReadFile(b.cfg.StateFile)
-	n, _ := strconv.Atoi(strings.TrimSpace(string(data)))
-	return n
+// loadOffset reads the persisted getUpdates offset. An absent file is a genuine
+// first run: offset 0, which makes Telegram send its whole retained queue. A
+// file that exists but cannot be read or parsed is NOT a first run — silently
+// falling back to 0 there re-delivers up to 24h of updates and the agent answers
+// every one of them again, so it errors and the adapter refuses to poll.
+func (b *bot) loadOffset() (int, error) {
+	if b.cfg.StateFile == "" {
+		return 0, nil // persistence disabled; saveOffset is a no-op too
+	}
+	data, err := os.ReadFile(b.cfg.StateFile)
+	if os.IsNotExist(err) {
+		slog.Info("no saved telegram offset; starting from the queued backlog",
+			"state_file", b.cfg.StateFile)
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read offset state %s: %w", b.cfg.StateFile, err)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("parse offset state %s: %w", b.cfg.StateFile, err)
+	}
+	return n, nil
 }
 
 // atomic write: tmp + fsync + rename so a crash never leaves a partial file.
@@ -136,9 +155,8 @@ type messageReactionUpdated struct {
 	NewReaction []reactionType `json:"new_reaction"`
 }
 
-func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
+func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient, offset int) {
 	defer close(b.done)
-	offset := b.loadOffset()
 	for {
 		select {
 		case <-ctx.Done():

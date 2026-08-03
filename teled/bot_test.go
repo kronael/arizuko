@@ -237,26 +237,46 @@ func TestLoadSaveOffset(t *testing.T) {
 	stateFile := filepath.Join(dir, "offset")
 	b := &bot{cfg: config{StateFile: stateFile}}
 
-	// No file → 0
-	if got := b.loadOffset(); got != 0 {
-		t.Errorf("loadOffset empty = %d, want 0", got)
+	// No file → first run, offset 0, no error
+	got, err := b.loadOffset()
+	if got != 0 || err != nil {
+		t.Errorf("loadOffset first run = (%d, %v), want (0, nil)", got, err)
 	}
 
 	b.saveOffset(42)
-	if got := b.loadOffset(); got != 42 {
-		t.Errorf("loadOffset after save = %d, want 42", got)
-	}
-
-	// Corrupt file → 0
-	os.WriteFile(stateFile, []byte("not-a-number"), 0o644)
-	if got := b.loadOffset(); got != 0 {
-		t.Errorf("loadOffset corrupt = %d, want 0", got)
+	if got, err := b.loadOffset(); got != 42 || err != nil {
+		t.Errorf("loadOffset after save = (%d, %v), want (42, nil)", got, err)
 	}
 
 	// Whitespace tolerated
 	os.WriteFile(stateFile, []byte("  99\n"), 0o644)
-	if got := b.loadOffset(); got != 99 {
-		t.Errorf("loadOffset whitespace = %d, want 99", got)
+	if got, err := b.loadOffset(); got != 99 || err != nil {
+		t.Errorf("loadOffset whitespace = (%d, %v), want (99, nil)", got, err)
+	}
+}
+
+// A state file that exists but can't be read or parsed must NOT degrade to
+// offset 0 — Telegram would re-send its ~24h backlog and the agent would answer
+// all of it. The adapter fails to start instead.
+func TestLoadOffsetUnusableStateIsLoud(t *testing.T) {
+	dir := t.TempDir()
+
+	corrupt := filepath.Join(dir, "corrupt")
+	os.WriteFile(corrupt, []byte("not-a-number"), 0o644)
+	b := &bot{cfg: config{StateFile: corrupt}}
+	if _, err := b.loadOffset(); err == nil {
+		t.Error("corrupt offset state must error, not silently read as 0")
+	}
+
+	// Unreadable: a directory at the state path fails ReadFile with EISDIR.
+	// (A 0o000 file stays readable for root, which CI often is.)
+	unreadable := filepath.Join(dir, "unreadable")
+	if err := os.Mkdir(unreadable, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b = &bot{cfg: config{StateFile: unreadable}}
+	if _, err := b.loadOffset(); err == nil {
+		t.Error("unreadable offset state must error, not silently read as 0")
 	}
 }
 
@@ -264,8 +284,8 @@ func TestLoadSaveOffsetEmptyStateFile(t *testing.T) {
 	// Empty StateFile → no-op (no panic, no file created)
 	b := &bot{cfg: config{StateFile: ""}}
 	b.saveOffset(123)
-	if got := b.loadOffset(); got != 0 {
-		t.Errorf("empty state file path, got %d", got)
+	if got, err := b.loadOffset(); got != 0 || err != nil {
+		t.Errorf("empty state file path = (%d, %v), want (0, nil)", got, err)
 	}
 }
 
