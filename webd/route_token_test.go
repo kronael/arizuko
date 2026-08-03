@@ -304,8 +304,10 @@ func TestHandleChatTokenPost_JSON(t *testing.T) {
 	}
 }
 
-// POST /hook/<token> → 204 + message forwarded to router.
-func TestHandleHookTokenPost(t *testing.T) {
+// TestE2EHookTokenPost — release-gate E2E via the webd route-token surface
+// (make test-e2e): mint a hook: token, POST through it, verify 204 + the
+// message lands at the router.
+func TestE2EHookTokenPost(t *testing.T) {
 	s, mr, st := newTestServer(t)
 	seedGroup(t, st, "main", "Main")
 	// Seed a hook: token directly via the store helper.

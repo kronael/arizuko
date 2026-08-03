@@ -45,11 +45,13 @@ func newIntegServer(t *testing.T) *integInst {
 	return &integInst{Inst: inst, srv: newServer(cfg, st, newHub(), rc, nil, nil), mr: mr, st: st}
 }
 
-// TestSlinkWebsocketEcho — adapted to webd's actual SSE transport. Verifies
-// the round-trip: client POSTs a chat message → row lands in `messages` +
-// router gets it → gated-side /send callback publishes an assistant frame →
-// the same client (subscribed via SSE) receives it.
-func TestSlinkWebsocketEcho(t *testing.T) {
+// TestE2ESlinkWebsocketEcho — release-gate E2E via the webd route-token
+// surface (make test-e2e): mint a chat token, POST through it, and verify
+// the full round-trip — row lands in `messages` + router gets it →
+// gated-side /send callback publishes an assistant frame → the same client
+// (subscribed via SSE) receives it. Adapted to webd's actual SSE transport
+// (the spec's "websocket echo" shape mapped onto slink's real transport).
+func TestE2ESlinkWebsocketEcho(t *testing.T) {
 	ii := newIntegServer(t)
 	_ = seedGroup(t, ii.st, "echo", "Echo")
 	tok := seedChatToken(t, ii.st, "echo")
@@ -137,10 +139,11 @@ func TestSlinkWebsocketEcho(t *testing.T) {
 	// simulate gated writing to the DB.
 }
 
-// TestSlinkMCPBridge exercises the MCP-over-HTTP endpoint with proxyd-signed
-// user headers. Confirms send tool routes through webd → store +
-// router, mirroring the websocket/MCP bridge intent.
-func TestSlinkMCPBridge(t *testing.T) {
+// TestE2ESlinkMCPBridge — release-gate E2E via the webd route-token surface
+// (make test-e2e): exercises the MCP-over-HTTP endpoint with proxyd-signed
+// user headers. Confirms the send tool routes through webd → store + router,
+// mirroring the websocket/MCP bridge intent.
+func TestE2ESlinkMCPBridge(t *testing.T) {
 	ii := newIntegServer(t)
 	seedGroup(t, ii.st, "alpha", "Alpha")
 

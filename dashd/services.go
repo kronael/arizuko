@@ -97,9 +97,18 @@ func classifyHealth(resp *http.Response, err error) string {
 	return statusErr
 }
 
+// shouldLink reports whether a tile links to its control plane: gated on
+// Built alone. An unreachable built daemon is exactly the one an operator
+// wants to click through to diagnose — hiding the link on a bad probe would
+// be backwards. Status is still shown via the dot; it never gates the link.
+func shouldLink(s service) bool {
+	return s.Built
+}
+
 // handleServices renders the cockpit services hub: one tile per known daemon
 // with a live /health status dot. Tiles with Built=true link into their /dash/
-// surface; others show the name as plain text until that surface ships.
+// surface regardless of probe status; others show the name as plain text
+// until that surface ships.
 func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
@@ -139,7 +148,7 @@ func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<div class="services-grid">`)
 	for i, s := range services {
 		var nameHTML string
-		if s.Built && statuses[i] != statusUnknown {
+		if shouldLink(s) {
 			nameHTML = fmt.Sprintf(`<a href="%s">%s</a>`, esc(s.Dash), esc(s.Name))
 		} else {
 			nameHTML = esc(s.Name)

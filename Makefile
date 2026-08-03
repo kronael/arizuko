@@ -68,9 +68,18 @@ test-race:
 	go test -race -count=1 ./runed/... ./timed/... ./routd/... ./store/... ./authd/...
 .PHONY: test-race
 
-# test-e2e: release-only webd slink E2E tests (slow, ≤5 min). Run before tagging.
+# test-e2e: release-only webd route-token E2E tests (TestE2E*, slow, ≤5 min).
+# Run before tagging. `go test` exits 0 even when -run matches nothing, so
+# fail explicitly on "no tests to run" — a selector matching zero tests must
+# not pass as a green gate.
 test-e2e:
-	go test ./webd/... -count=1 -run E2E -timeout 300s
+	@out=$$(go test ./webd/... -count=1 -run E2E -timeout 300s 2>&1); code=$$?; \
+	printf '%s\n' "$$out"; \
+	if printf '%s' "$$out" | grep -q 'no tests to run'; then \
+		echo "test-e2e: -run E2E matched no tests in ./webd/... — gate would pass vacuously" >&2; \
+		exit 1; \
+	fi; \
+	exit $$code
 .PHONY: test-e2e
 
 # play: Playwright browser suite against a throwaway dashd + seeded sqlite.
