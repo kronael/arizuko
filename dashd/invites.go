@@ -1,8 +1,7 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,25 +12,18 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// inviteRef is an opaque, stable handle for an invite used in the revoke URL.
-// The live token is a bearer, so putting it in a path leaks it to request /
-// proxy logs; its sha256 identifies the row without being redeemable.
-func inviteRef(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
-}
-
 // handleInvites renders the full invites page.
 // GET lists all pending invites with an inline create form.
 // POST /dash/invites/ creates a new invite.
-// POST /dash/invites/{token}/revoke deletes an invite.
+// POST /dash/invites/{ref}/revoke deletes an invite.
 func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Invites")
-	fmt.Fprint(w, `<p class="dim">Invite links. Each token is single-use by default; set max uses for multi-use links.</p>`)
+	fmt.Fprint(w, `<p class="dim">Invite links. Each token is single-use by default; set max uses for multi-use links. `+
+		`The link is shown once when you create it — this page lists each invite by its ref, which revokes but cannot redeem.</p>`)
 
 	idb := d.invitesDB()
 	if idb == nil {
@@ -58,6 +50,7 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 			if inv.ExpiresAt != nil {
 				expires = inv.ExpiresAt.Format("2006-01-02")
 			}
+			ref := store.InviteRef(inv.Token)
 			// Fully-used invites can't be redeemed again; hide revoke. MaxUses<=0
 			// means no use limit (always revocable).
 			revokeBtn := `<span class="dim">used</span>`
@@ -66,11 +59,11 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 					`<form method="post" action="/dash/invites/%s/revoke" class="form-inline"`+
 						` onsubmit="return confirm('revoke invite %s?')">`+
 						`<button type="submit">revoke</button></form>`,
-					inviteRef(inv.Token), esc(inv.Token[:8]),
+					ref, esc(ref[:8]),
 				)
 			}
 			tableRows[i] = []string{
-				`<code>` + esc(inv.Token) + `</code>`,
+				`<code>` + esc(ref) + `</code>`,
 				`<code>` + esc(inv.TargetGlob) + `</code>`,
 				esc(inv.IssuedBySub),
 				`<abbr title="` + esc(inv.IssuedAt.UTC().Format(time.RFC3339)) + `">` + relativeTS(inv.IssuedAt.UTC().Format(time.RFC3339)) + `</abbr>`,
@@ -80,7 +73,7 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		fmt.Fprint(w, htmlTable(
-			[]string{"Token", "Target", "Issued by", "Issued", "Expires", "Uses", ""},
+			[]string{"Ref", "Target", "Issued by", "Issued", "Expires", "Uses", ""},
 			tableRows,
 		))
 	}
@@ -140,8 +133,25 @@ func (d *dash) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "create failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	slog.Info("invite created", "token", inv.Token[:8], "target", targetGlob, "issuer", sub)
-	http.Redirect(w, r, "/dash/invites/", http.StatusSeeOther)
+	ref := store.InviteRef(inv.Token)
+	slog.Info("invite created", "ref", ref, "target", targetGlob, "issuer", sub)
+
+	// The bearer is shown HERE and nowhere else — the list page and every other
+	// read surface carry only the ref — so this renders the link instead of
+	// redirecting back to the list. connBaseURL is the configured public base
+	// (AUTH_BASE_URL, then WEB_HOST); unset → the relative path, which the
+	// operator prefixes with their own host.
+	link := "/invite/" + inv.Token
+	if d.connBaseURL != "" {
+		link = d.connBaseURL + link
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	pageTopFor(w, r, "Invite created")
+	fmt.Fprint(w, htmlBanner("ok", "Invite created for "+targetGlob+". Copy the link now — it is not shown again."))
+	fmt.Fprintf(w, `<p><code>%s</code></p>`, esc(link))
+	fmt.Fprintf(w, `<p class="dim">Ref (for revoking): <code>%s</code></p>`, esc(ref))
+	fmt.Fprint(w, `<p><a href="/dash/invites/">Back to invites</a></p>`)
+	pageClose(w, r)
 }
 
 func (d *dash) handleInviteRevoke(w http.ResponseWriter, r *http.Request) {
@@ -153,27 +163,11 @@ func (d *dash) handleInviteRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ref required", http.StatusBadRequest)
 		return
 	}
-	s := store.New(d.invitesDB())
-	// Resolve the opaque ref back to a token: the URL carries sha256(token), not
-	// the bearer, so match it against the current invite set.
-	invites, err := s.ListInvites("")
-	if err != nil {
-		slog.Warn("invites: revoke list", "err", err)
-		http.Error(w, "revoke failed", http.StatusInternalServerError)
-		return
-	}
-	token := ""
-	for _, inv := range invites {
-		if inviteRef(inv.Token) == ref {
-			token = inv.Token
-			break
+	if err := store.New(d.invitesDB()).RevokeInviteByRef(ref); err != nil {
+		if errors.Is(err, store.ErrInviteRefUnknown) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
 		}
-	}
-	if token == "" {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	if err := s.RevokeInvite(token); err != nil {
 		slog.Warn("invites: revoke", "ref", ref, "err", err)
 		http.Error(w, "revoke failed", http.StatusInternalServerError)
 		return

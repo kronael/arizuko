@@ -56,7 +56,7 @@ func TestInviteCRUD(t *testing.T) {
 		t.Errorf("want 2 invites for alice, got %d", len(mine))
 	}
 
-	if err := s.RevokeInvite(inv.Token); err != nil {
+	if err := s.RevokeInviteByRef(InviteRef(inv.Token)); err != nil {
 		t.Fatalf("RevokeInvite: %v", err)
 	}
 	if _, err := s.GetInvite(inv.Token); err == nil {

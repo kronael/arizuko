@@ -83,7 +83,7 @@ var RouteTokensMCPArgs = map[resreg.Action][]resreg.MCPArg{
 		{Name: "source_label", Type: "string", Required: true,
 			Description: "Short identifier of the upstream system (e.g. github, linear, stripe). Becomes the JID's source segment and the inbound sender field."},
 		{Name: "target_folder", Type: "string",
-			Description: "Folder the token routes to. Defaults to your own folder; same rule as issue_chat_link — you may only target a folder your acl rows already cover."},
+			Description: "Folder the token routes to. Defaults to your own folder. Tier rules match issue_chat_link."},
 		{Name: "jid_suffix", Type: "string",
 			Description: "Optional path appended to the JID — partition multiple webhooks under one source_label."},
 		{Name: "context", Type: "string",

@@ -138,13 +138,13 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			}
 			return out, nil
 		},
-		RevokeInvite: func(token string) error {
+		RevokeInvite: func(ref string) error {
 			oc := s.onbodClient()
 			if oc == nil {
 				return fmt.Errorf("invites unavailable: onbod not wired (ONBOD_URL unset)")
 			}
-			// Ownership gate: onbod's DELETE is token-only, so confirm the token
-			// is among THIS folder's invites before revoking — an agent must not
+			// Ownership gate: onbod's DELETE is ref-only, so confirm the ref is
+			// among THIS folder's invites before revoking — an agent must not
 			// revoke another folder's invite even though the wire call would.
 			owned, err := oc.ListInvites("agent:" + t.folder)
 			if err != nil {
@@ -152,7 +152,7 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			}
 			found := false
 			for _, inv := range owned {
-				if inv.Token == token {
+				if inv.Ref == ref {
 					found = true
 					break
 				}
@@ -160,7 +160,7 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			if !found {
 				return fmt.Errorf("invite not found or not owned by this folder")
 			}
-			return oc.RevokeInvite(token)
+			return oc.RevokeInviteByRef(ref)
 		},
 	}
 }
@@ -178,6 +178,7 @@ func (s *Server) onbodClient() OnbodClient {
 // layer's InviteInfo so the MCP tools never import store.
 func toInviteInfo(inv Invite) ipc.InviteInfo {
 	return ipc.InviteInfo{
+		Ref:         inv.Ref,
 		Token:       inv.Token,
 		TargetGlob:  inv.TargetGlob,
 		IssuedBySub: inv.IssuedBySub,

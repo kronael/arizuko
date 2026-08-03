@@ -154,33 +154,18 @@ func cmdPlan(args []string) {
 	}
 }
 
-// skipApplyRebuildHint names the CLI/agent surface that actually manages a
-// SkipApplyRebuild resource, so printPlan's "not applied" note points at a
-// real command instead of assuming every runtime-minted resource is a secret
-// (invites and route_tokens are also SkipApplyRebuild — see resreg.go
-// SkipApplyRebuild doc). Resources not listed here get a generic hint.
-var skipApplyRebuildHint = map[string]string{
-	"secrets":      "arizuko secret set",
-	"invites":      "arizuko invite <instance> create",
-	"route_tokens": "arizuko token <instance> issue chat|webhook",
-}
-
 // printPlan renders the plan delta in catalog order. Changed resources
 // list the add/update/remove PK strings. SkipApplyRebuild resources
-// never mutate via apply, so they print as informational "set/unset"
-// — never actionable +/~/- deltas (spec 5/8 §"Secret safety": plan must
-// agree with apply, which skips them).
+// (secrets) never mutate via apply, so they print as informational
+// "set/unset" — never actionable +/~/- deltas (spec 5/8 §"Secret
+// safety": plan must agree with apply, which skips them).
 func printPlan(deltas []resreg.ResourceDelta) {
 	any := false
 	for _, d := range deltas {
 		if d.SkipApplyRebuild {
 			if n := len(d.Add) + len(d.Update) + len(d.Unchanged); n > 0 {
 				any = true
-				hint, ok := skipApplyRebuildHint[d.Resource]
-				if !ok {
-					hint = "managed outside apply"
-				}
-				fmt.Printf("%s: %d set (not applied — %s)\n", d.Resource, n, hint)
+				fmt.Printf("%s: %d set (not applied — set via `arizuko secret set`)\n", d.Resource, n)
 			}
 			continue
 		}

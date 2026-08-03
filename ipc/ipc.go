@@ -51,7 +51,7 @@ type GatedFns struct {
 	FetchPlatformHistory func(jid string, before time.Time, limit int) (PlatformHistory, error)
 	CreateInvite         func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
 	ListInvites          func(issuedBy string) ([]InviteInfo, error)
-	RevokeInvite         func(token string) error
+	RevokeInvite         func(ref string) error
 	SubmitTurn           func(folder string, t TurnResult) error
 	// SubmitStatus delivers a mid-turn progress notice immediately as an interim
 	// "⏳ ..." message without ending the turn. Nil = method unconfigured.
@@ -137,7 +137,10 @@ type ModelUsage struct {
 }
 
 // InviteInfo mirrors store.Invite for the ipc layer (ipc must not import store).
+// Ref is the non-secret handle (store.InviteRef) every read surface uses; Token
+// is the live bearer and is populated ONLY on the create path.
 type InviteInfo struct {
+	Ref         string     `json:"ref"`
 	Token       string     `json:"token"`
 	TargetGlob  string     `json:"target_glob"`
 	IssuedBySub string     `json:"issued_by_sub"`
@@ -1871,7 +1874,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	// visibility (list_acl stays tier 0-1) injected. See routd/acl_resource.go.
 
 	registerRaw("invite_create",
-		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets an `acl` row granting admin on target_glob. Use to onboard new collaborators to a world or sub-folder you own. The agent's authority must cover target_glob — you can't issue access you don't have.",
+		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets an `acl` row granting admin on target_glob. The token comes back ONLY here, once — deliver it now; invite_list later shows just the `ref`. Use to onboard new collaborators to a world or sub-folder you own. The agent's authority must cover target_glob — you can't issue access you don't have.",
 		[]mcp.ToolOption{
 			mcp.WithString("target_glob", mcp.Required()),
 			mcp.WithNumber("max_uses"),
@@ -1907,6 +1910,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				map[string]any{"target_glob": targetGlob, "max_uses": maxUses}, nil)
 			out := map[string]any{
 				"token":       inv.Token,
+				"ref":         inv.Ref,
 				"target_glob": inv.TargetGlob,
 				"max_uses":    inv.MaxUses,
 			}
@@ -1926,7 +1930,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	// folder scope is applied by the routd closure (issued_by="agent:"+folder),
 	// not from any caller arg.
 	granted("invite_list",
-		"List the invite tokens THIS agent has issued (token, target glob, expiry, use count). Read-only; shows only your own folder's invites, never another folder's. Use to audit outstanding invites before invite_revoke. Not for issuing (invite_create) or revoking (invite_revoke).",
+		"List the invites THIS agent has issued (ref, target glob, expiry, use count). Raw tokens are NOT returned — they're shown once at invite_create; `ref` identifies an invite for invite_revoke without being redeemable. Read-only; shows only your own folder's invites, never another folder's. Use to audit outstanding invites before invite_revoke. Not for issuing (invite_create) or revoking (invite_revoke).",
 		nil,
 		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if gated.ListInvites == nil {
@@ -1939,7 +1943,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			out := make([]map[string]any, 0, len(invs))
 			for _, inv := range invs {
 				row := map[string]any{
-					"token":       inv.Token,
+					"ref":         inv.Ref,
 					"target_glob": inv.TargetGlob,
 					"max_uses":    inv.MaxUses,
 					"used_count":  inv.UsedCount,
@@ -1953,29 +1957,29 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		})
 
 	registerRaw("invite_revoke",
-		"Revoke an invite token YOU issued so it can no longer be redeemed. You may only revoke invites issued by your own folder — revoking another folder's token is rejected. Use invite_list to find your tokens. Not for issuing (invite_create).",
+		"Revoke an invite YOU issued so it can no longer be redeemed, addressed by the `ref` invite_list returns (not the raw token — that is never readable back). You may only revoke invites issued by your own folder. Not for issuing (invite_create).",
 		[]mcp.ToolOption{
-			mcp.WithString("token", mcp.Required()),
+			mcp.WithString("ref", mcp.Required()),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if gated.RevokeInvite == nil {
 				return toolErr("invite_revoke not configured")
 			}
-			token := req.GetString("token", "")
-			if token == "" {
-				return toolErr("token required")
+			ref := req.GetString("ref", "")
+			if ref == "" {
+				return toolErr("ref required")
 			}
 			if err := authzStructural("invite_revoke", folder); err != nil {
 				return toolErr(err.Error())
 			}
-			// Ownership (this token belongs to this folder) is enforced in the
+			// Ownership (this invite belongs to this folder) is enforced in the
 			// routd closure, which lists the folder's invites before DELETE.
-			if err := gated.RevokeInvite(token); err != nil {
-				emitSys("invite_revoke", folder, callerSub, map[string]any{"token": token}, err)
+			if err := gated.RevokeInvite(ref); err != nil {
+				emitSys("invite_revoke", folder, callerSub, map[string]any{"ref": ref}, err)
 				return toolErr(err.Error())
 			}
-			emitSys("invite_revoke", folder, callerSub, map[string]any{"token": token}, nil)
-			return toolJSON(map[string]any{"ok": true, "token": token})
+			emitSys("invite_revoke", folder, callerSub, map[string]any{"ref": ref}, nil)
+			return toolJSON(map[string]any{"ok": true, "ref": ref})
 		})
 
 	// add_acl / remove_acl migrated to routd/acl_resource.go (see the comment at

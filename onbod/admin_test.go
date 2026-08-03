@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -84,22 +85,30 @@ func TestAdminInviteCreateListDelete(t *testing.T) {
 		return listed.Invites
 	}
 
-	// create returns the server-generated token + persisted fields.
+	// create returns the server-generated bearer ONCE, plus its ref + fields.
 	w := do("POST", "/v1/invites", `{"target_glob":"main/","max_uses":3}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("create status=%d body=%s", w.Code, w.Body.String())
 	}
-	var created inviteJSON
+	var created inviteCreatedJSON
 	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode create: %v", err)
 	}
 	if created.Token == "" || created.TargetGlob != "main/" || created.MaxUses != 3 {
 		t.Fatalf("create returned wrong invite: %+v", created)
 	}
+	if created.Ref != store.InviteRef(created.Token) {
+		t.Fatalf("create ref = %q, want InviteRef(token)", created.Ref)
+	}
 
-	// list returns the one created invite.
-	if inv := list(); len(inv) != 1 || inv[0].Token != created.Token {
-		t.Fatalf("list = %+v, want the one created invite", inv)
+	// list identifies the invite by ref and NEVER by the bearer — neither as a
+	// field nor anywhere in the raw body.
+	if inv := list(); len(inv) != 1 || inv[0].Ref != created.Ref {
+		t.Fatalf("list = %+v, want the one created invite by ref", inv)
+	}
+	listBody := do("GET", "/v1/invites", "").Body.String()
+	if strings.Contains(listBody, created.Token) {
+		t.Fatalf("list leaked the invite bearer: %s", listBody)
 	}
 
 	// target_glob is required → 400 (validation before insert, no row added).
@@ -107,8 +116,13 @@ func TestAdminInviteCreateListDelete(t *testing.T) {
 		t.Fatalf("missing target_glob status=%d, want 400", w.Code)
 	}
 
-	// delete → {ok:true}, then gone.
-	if w := do("DELETE", "/v1/invites/"+created.Token, ""); w.Code != http.StatusOK {
+	// the raw bearer is not a delete key — only the ref addresses the row.
+	if w := do("DELETE", "/v1/invites/"+created.Token, ""); w.Code != http.StatusNotFound {
+		t.Fatalf("delete by raw token status=%d, want 404", w.Code)
+	}
+
+	// delete by ref → {ok:true}, then gone.
+	if w := do("DELETE", "/v1/invites/"+created.Ref, ""); w.Code != http.StatusOK {
 		t.Fatalf("delete status=%d body=%s", w.Code, w.Body.String())
 	}
 	if inv := list(); len(inv) != 0 {

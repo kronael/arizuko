@@ -18,15 +18,17 @@ func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 	gated := GatedFns{
 		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error) {
 			createdGlob, createdIssuer = targetGlob, issuedBySub
-			return InviteInfo{Token: "tok-1", TargetGlob: targetGlob, IssuedBySub: issuedBySub, MaxUses: maxUses, ExpiresAt: expiresAt}, nil
+			return InviteInfo{Ref: "ref-1", Token: "tok-1", TargetGlob: targetGlob, IssuedBySub: issuedBySub, MaxUses: maxUses, ExpiresAt: expiresAt}, nil
 		},
+		// The list closure returns no Token — onbod's list face has no such
+		// field, so a live bearer cannot reach the agent here either.
 		ListInvites: func(issuedBy string) ([]InviteInfo, error) {
 			if issuedBy != "agent:root" {
 				t.Fatalf("ListInvites issuedBy = %q, want agent:root (folder-scoped)", issuedBy)
 			}
-			return []InviteInfo{{Token: "tok-1", TargetGlob: "root/", MaxUses: 1, ExpiresAt: &exp}}, nil
+			return []InviteInfo{{Ref: "ref-1", TargetGlob: "root/", MaxUses: 1, ExpiresAt: &exp}}, nil
 		},
-		RevokeInvite: func(token string) error { revoked = token; return nil },
+		RevokeInvite: func(ref string) error { revoked = ref; return nil },
 	}
 	// folder "root" → tier 0 (operator).
 	stop, err := ServeMCP(sock, gated, StoreFns{}, "root", true, 0, "")
@@ -35,11 +37,15 @@ func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 	}
 	defer stop()
 
-	// create
-	if _, errText := callTool(t, sock, "invite_create", map[string]any{
+	// create — the ONLY surface that hands back the raw bearer, once.
+	created, errText := callTool(t, sock, "invite_create", map[string]any{
 		"target_glob": "root/", "max_uses": 3,
-	}); errText != "" {
+	})
+	if errText != "" {
 		t.Fatalf("invite_create: %s", errText)
+	}
+	if created["token"] != "tok-1" || created["ref"] != "ref-1" {
+		t.Fatalf("invite_create = %v, want the token once plus its ref", created)
 	}
 	if createdGlob != "root/" {
 		t.Fatalf("CreateInvite glob = %q, want root/", createdGlob)
@@ -48,7 +54,8 @@ func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 		t.Fatalf("CreateInvite issuer = %q, want agent:root", createdIssuer)
 	}
 
-	// list — folder-scoped, returns this folder's invites
+	// list — folder-scoped, returns this folder's invites by ref, never the
+	// bearer (the whole point: a read surface must not hand out a credential).
 	res, errText := callTool(t, sock, "invite_list", nil)
 	if errText != "" {
 		t.Fatalf("invite_list: %s", errText)
@@ -58,16 +65,19 @@ func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 		t.Fatalf("invite_list invites = %v, want one row", res["invites"])
 	}
 	row, _ := invs[0].(map[string]any)
-	if row["token"] != "tok-1" {
-		t.Fatalf("invite_list row token = %v, want tok-1", row["token"])
+	if row["ref"] != "ref-1" {
+		t.Fatalf("invite_list row ref = %v, want ref-1", row["ref"])
+	}
+	if _, ok := row["token"]; ok {
+		t.Fatalf("invite_list row carries a token field: %v", row)
 	}
 
-	// revoke
-	if _, errText := callTool(t, sock, "invite_revoke", map[string]any{"token": "tok-1"}); errText != "" {
+	// revoke — addressed by ref, which is all the agent ever holds.
+	if _, errText := callTool(t, sock, "invite_revoke", map[string]any{"ref": "ref-1"}); errText != "" {
 		t.Fatalf("invite_revoke: %s", errText)
 	}
-	if revoked != "tok-1" {
-		t.Fatalf("RevokeInvite token = %q, want tok-1", revoked)
+	if revoked != "ref-1" {
+		t.Fatalf("RevokeInvite ref = %q, want ref-1", revoked)
 	}
 }
 
@@ -101,7 +111,7 @@ func TestServeMCP_InviteWrite_Denied(t *testing.T) {
 	if _, errText := callTool(t, sock, "invite_create", map[string]any{"target_glob": "world/a/b/"}); errText == "" {
 		t.Fatalf("invite_create (tier2) should be denied")
 	}
-	if _, errText := callTool(t, sock, "invite_revoke", map[string]any{"token": "tok-x"}); errText == "" {
+	if _, errText := callTool(t, sock, "invite_revoke", map[string]any{"ref": "ref-x"}); errText == "" {
 		t.Fatalf("invite_revoke (tier2) should be denied")
 	}
 	if createCalls != 0 || revokeCalls != 0 {

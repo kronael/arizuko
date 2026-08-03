@@ -50,9 +50,12 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, map[string]string{"error": code, "message": msg})
 }
 
-// inviteJSON is the wire shape for an invite row (create response + list rows).
+// inviteJSON is the READ shape for an invite row. It has no token field at all:
+// the bearer is shown once at creation and never again, so a list response
+// cannot leak it however the handler is later edited. `ref` (store.InviteRef)
+// identifies the row for DELETE /v1/invites/{ref} without being redeemable.
 type inviteJSON struct {
-	Token       string `json:"token"`
+	Ref         string `json:"ref"`
 	TargetGlob  string `json:"target_glob"`
 	IssuedBySub string `json:"issued_by_sub"`
 	IssuedAt    string `json:"issued_at"`
@@ -61,15 +64,26 @@ type inviteJSON struct {
 	UsedCount   int    `json:"used_count"`
 }
 
+// inviteCreatedJSON is the CREATE-only shape: the read shape plus the raw
+// bearer, returned exactly once (mirrors route_tokens' issue verbs).
+type inviteCreatedJSON struct {
+	inviteJSON
+	Token string `json:"token"`
+}
+
 func toInviteJSON(inv store.Invite) inviteJSON {
 	out := inviteJSON{
-		Token: inv.Token, TargetGlob: inv.TargetGlob, IssuedBySub: inv.IssuedBySub,
+		Ref: store.InviteRef(inv.Token), TargetGlob: inv.TargetGlob, IssuedBySub: inv.IssuedBySub,
 		IssuedAt: inv.IssuedAt.Format(time.RFC3339), MaxUses: inv.MaxUses, UsedCount: inv.UsedCount,
 	}
 	if inv.ExpiresAt != nil {
 		out.ExpiresAt = inv.ExpiresAt.Format(time.RFC3339)
 	}
 	return out
+}
+
+func toInviteCreatedJSON(inv store.Invite) inviteCreatedJSON {
+	return inviteCreatedJSON{inviteJSON: toInviteJSON(inv), Token: inv.Token}
 }
 
 type insertOnboardingBody struct {

@@ -41,7 +41,7 @@ and invite redemption (FS-mounted, no federation).
   - `GET /invite/{token}` — invite redemption
 - Admin surface (bearer-gated, authd JWKS; nil keyset = open):
   - `POST /v1/onboarding` — record unrouted JID (invites:write)
-  - `POST /v1/invites`, `GET /v1/invites`, `DELETE /v1/invites/{token}` (invites:read/write)
+  - `POST /v1/invites`, `GET /v1/invites`, `DELETE /v1/invites/{ref}` (invites:read/write)
   - `GET /v1/gates`, `PUT /v1/gates/{gate}`, `DELETE /v1/gates/{gate}` (gates:read/write)
 - `GET /openapi.json` — only `onboarding_gates` resource (other endpoints hand-mounted)
 - Disable: `ONBOARDING_ENABLED=0` (exits immediately)

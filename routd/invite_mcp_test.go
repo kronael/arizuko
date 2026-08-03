@@ -6,8 +6,8 @@ import (
 )
 
 // buildGatedFns.RevokeInvite enforces folder ownership: onbod's DELETE is
-// token-only, so the closure first lists the folder's own invites and refuses a
-// token it didn't issue — an agent can't revoke another folder's invite.
+// ref-only, so the closure first lists the folder's own invites and refuses a
+// ref it didn't issue — an agent can't revoke another folder's invite.
 func TestBuildGatedFns_RevokeInvite_OwnershipGate(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -15,22 +15,22 @@ func TestBuildGatedFns_RevokeInvite_OwnershipGate(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	fo := &fakeOnbod{listed: []Invite{{Token: "mine", TargetGlob: "demo/", IssuedBySub: "agent:demo"}}}
+	fo := &fakeOnbod{listed: []Invite{{Ref: "ref-mine", TargetGlob: "demo/", IssuedBySub: "agent:demo"}}}
 	loop := NewLoop(db, &recRunner{}, LoopConfig{})
 	loop.SetOnbodClient(fo)
 	srv := NewServer(db, loop, nil, nil, 0, "")
 
 	fns := srv.buildGatedFns(turnMCP{folder: "demo"})
 
-	// Owned token → revoked.
-	if err := fns.RevokeInvite("mine"); err != nil {
+	// Owned ref → revoked.
+	if err := fns.RevokeInvite("ref-mine"); err != nil {
 		t.Fatalf("RevokeInvite(owned): %v", err)
 	}
-	if len(fo.revoked) != 1 || fo.revoked[0] != "mine" {
-		t.Fatalf("revoked = %v, want [mine]", fo.revoked)
+	if len(fo.revoked) != 1 || fo.revoked[0] != "ref-mine" {
+		t.Fatalf("revoked = %v, want [ref-mine]", fo.revoked)
 	}
 
-	// Token issued by another folder → rejected before the DELETE.
+	// Ref issued by another folder → rejected before the DELETE.
 	err = fns.RevokeInvite("someone-elses")
 	if err == nil {
 		t.Fatalf("RevokeInvite(cross-folder) should be rejected")
@@ -50,7 +50,7 @@ func TestBuildGatedFns_InviteCreateList(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 
 	exp := time.Date(2030, 5, 1, 0, 0, 0, 0, time.UTC)
-	fo := &fakeOnbod{listed: []Invite{{Token: "t1", TargetGlob: "demo/", MaxUses: 2, ExpiresAt: &exp}}}
+	fo := &fakeOnbod{listed: []Invite{{Ref: "ref-t1", TargetGlob: "demo/", MaxUses: 2, ExpiresAt: &exp}}}
 	loop := NewLoop(db, &recRunner{}, LoopConfig{})
 	loop.SetOnbodClient(fo)
 	srv := NewServer(db, loop, nil, nil, 0, "")
@@ -68,8 +68,13 @@ func TestBuildGatedFns_InviteCreateList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInvites: %v", err)
 	}
-	if len(invs) != 1 || invs[0].Token != "t1" || invs[0].ExpiresAt == nil {
+	if len(invs) != 1 || invs[0].Ref != "ref-t1" || invs[0].ExpiresAt == nil {
 		t.Fatalf("ListInvites mapped wrong: %+v", invs)
+	}
+	// The list face carries no bearer — onbod's list JSON has no token field, so
+	// it decodes empty and the agent can never read a live invite back.
+	if invs[0].Token != "" {
+		t.Fatalf("ListInvites leaked a token: %q", invs[0].Token)
 	}
 }
 

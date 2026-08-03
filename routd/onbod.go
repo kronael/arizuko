@@ -20,7 +20,7 @@ type OnbodClient interface {
 	CreateInvite(targetGlob string, maxUses int) (token string, err error)
 	CreateInviteFull(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (Invite, error)
 	ListInvites(issuedBy string) ([]Invite, error)
-	RevokeInvite(token string) error
+	RevokeInviteByRef(ref string) error
 	InsertOnboarding(jid string) error
 	ListGates() ([]GateRow, error)
 	PutGate(gate string, limitPerDay int) error
@@ -29,9 +29,12 @@ type OnbodClient interface {
 }
 
 // Invite is one invite row decoded from onbod's invite JSON (onbod's inviteJSON
-// shape). routd-local so the MCP invite tools see the full row (token, target,
-// issuer, expiry, use counts) — not just the token CreateInvite returns.
+// shape). routd-local so the MCP invite tools see the full row (ref, target,
+// issuer, expiry, use counts) — not just the token CreateInvite returns. Token
+// is populated ONLY by the create response; onbod's list omits it entirely, so
+// it decodes empty there by construction.
 type Invite struct {
+	Ref         string     `json:"ref"`
 	Token       string     `json:"token"`
 	TargetGlob  string     `json:"target_glob"`
 	IssuedBySub string     `json:"issued_by_sub"`
@@ -151,10 +154,11 @@ func (o *httpOnbod) ListInvites(issuedBy string) ([]Invite, error) {
 	return out.Invites, nil
 }
 
-// RevokeInvite deletes an invite by token (DELETE /v1/invites/{token}). onbod's
-// DELETE is token-only; the MCP twin enforces folder ownership before calling.
-func (o *httpOnbod) RevokeInvite(token string) error {
-	return o.do(http.MethodDelete, "/v1/invites/"+url.PathEscape(token), nil, nil)
+// RevokeInviteByRef deletes an invite by its ref (DELETE /v1/invites/{ref}).
+// The path never carries the bearer, so a proxy log of this call is harmless.
+// onbod's DELETE is ref-only; the MCP twin enforces folder ownership first.
+func (o *httpOnbod) RevokeInviteByRef(ref string) error {
+	return o.do(http.MethodDelete, "/v1/invites/"+url.PathEscape(ref), nil, nil)
 }
 
 // InsertOnboarding records a chat-initiated onboarding row for an unrouted JID

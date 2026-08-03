@@ -99,7 +99,7 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 			}
 			return out, nil
 		},
-		RevokeInvite:       s.RevokeInvite,
+		RevokeInvite:       s.RevokeInviteByRef,
 		AddGroupWatcher:    s.AddGroupWatcher,
 		RemoveGroupWatcher: s.RemoveGroupWatcher,
 	}
@@ -162,6 +162,7 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 
 func inviteToInfo(inv *store.Invite) ipc.InviteInfo {
 	return ipc.InviteInfo{
+		Ref:   store.InviteRef(inv.Token),
 		Token: inv.Token, TargetGlob: inv.TargetGlob, IssuedBySub: inv.IssuedBySub,
 		IssuedAt: inv.IssuedAt, ExpiresAt: inv.ExpiresAt,
 		MaxUses: inv.MaxUses, UsedCount: inv.UsedCount,
@@ -235,15 +236,20 @@ func TestMCP_InviteTools(t *testing.T) {
 		token = invs[0].Token
 	})
 
+	// invite_list identifies the invite by ref; the bearer was shown once at
+	// create and is not readable back on any surface.
 	t.Run("invite_list", func(t *testing.T) {
 		res := h.call(t, "invite_list", nil)
-		if !contentContains(res, token) {
-			t.Fatalf("invite_list missing created invite %q: %v", token, res.Content)
+		if !contentContains(res, store.InviteRef(token)) {
+			t.Fatalf("invite_list missing created invite ref: %v", res.Content)
+		}
+		if contentContains(res, token) {
+			t.Fatalf("invite_list leaked the bearer %q: %v", token, res.Content)
 		}
 	})
 
 	t.Run("invite_revoke", func(t *testing.T) {
-		h.call(t, "invite_revoke", map[string]any{"token": token})
+		h.call(t, "invite_revoke", map[string]any{"ref": store.InviteRef(token)})
 		invs, _ := h.S.ListInvites("agent:hq")
 		if len(invs) != 0 {
 			t.Fatalf("invite still present after revoke: %+v", invs)

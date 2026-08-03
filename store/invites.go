@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -27,7 +29,56 @@ type Invite struct {
 // missing, exhausted, or expired.
 var ErrInviteUnavailable = errors.New("invite unavailable")
 
+// ErrInviteRefUnknown is returned when a ref matches no live invite.
+var ErrInviteRefUnknown = errors.New("invite ref not found")
+
 const inviteCols = `token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count`
+
+// InviteRef is an invite's non-secret handle: hex(sha256(token)). The token is
+// a bearer — whoever holds it redeems the grant — so it is shown exactly once
+// at creation and every read surface carries the ref instead (the discipline
+// route_tokens gets by storing only token_hash). Full digest, never truncated:
+// a prefix could collide and revoke the wrong invite.
+//
+// This is the single owner of the mapping; onbod, dashd, the CLI and the agent
+// MCP tools all identify invites by the value it returns.
+func InviteRef(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+// inviteQueryer is the *sql.DB / *sql.Tx subset ResolveInviteRef needs, so the
+// REST handler can resolve inside resreg's mutation tx and the FS-mounted
+// callers can resolve on the open DB.
+type inviteQueryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// ResolveInviteRef returns the raw token of the invite whose InviteRef is ref.
+// SQLite has no sha256, so the digest is matched in Go over the token column.
+func ResolveInviteRef(ctx context.Context, q inviteQueryer, ref string) (string, error) {
+	if ref == "" {
+		return "", ErrInviteRefUnknown
+	}
+	rows, err := q.QueryContext(ctx, `SELECT token FROM invites`)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var token string
+		if err := rows.Scan(&token); err != nil {
+			return "", err
+		}
+		if InviteRef(token) == ref {
+			return token, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return "", ErrInviteRefUnknown
+}
 
 func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (*Invite, error) {
 	if targetGlob == "" {
@@ -64,7 +115,7 @@ func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expire
 			Actor:    "user:" + issuedBySub,
 			ActorSub: issuedBySub,
 			Surface:  audit.SurfaceGateway,
-			Resource: "invites/" + token[:min(len(token), 8)],
+			Resource: "invites/" + InviteRef(token)[:8],
 			Outcome:  audit.OutcomeOK,
 			ParamsSummary: map[string]any{
 				"target_glob": targetGlob,
@@ -131,7 +182,15 @@ func (s *Store) ListInvites(forIssuer string) ([]Invite, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) RevokeInvite(token string) error {
+// RevokeInviteByRef deletes the invite identified by ref (InviteRef). Read
+// surfaces never hand out the raw token, so the ref is the only handle an
+// operator or agent holds. Unknown ref → ErrInviteRefUnknown, so a caller
+// cannot mistake a no-op for a revocation.
+func (s *Store) RevokeInviteByRef(ref string) error {
+	token, err := ResolveInviteRef(context.Background(), s.db, ref)
+	if err != nil {
+		return err
+	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		_, err := tx.Exec(`DELETE FROM invites WHERE token = ?`, token)
 		return audit.Event{
@@ -139,7 +198,7 @@ func (s *Store) RevokeInvite(token string) error {
 			Action:   "invite.revoke",
 			Actor:    "system",
 			Surface:  audit.SurfaceGateway,
-			Resource: "invites/" + token[:min(len(token), 8)],
+			Resource: "invites/" + ref[:min(len(ref), 8)],
 			Outcome:  audit.OutcomeOK,
 		}, err
 	})
@@ -215,7 +274,7 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 		Actor:    "user:" + userSub,
 		ActorSub: userSub,
 		Surface:  audit.SurfaceGateway,
-		Resource: "invites/" + token[:min(len(token), 8)],
+		Resource: "invites/" + InviteRef(token)[:8],
 		Outcome:  audit.OutcomeOK,
 		ParamsSummary: map[string]any{
 			"target_glob": inv.TargetGlob,

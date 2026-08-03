@@ -33,7 +33,7 @@ those tables directly via the `store` package; it never migrates.
 - **Routes editor** (5): `GET|POST /dash/routes/`, `PATCH|DELETE /dash/routes/{id}`, `POST /dash/routes/{id}/delete` — admin-gated CRUD. (`routes_admin.go`)
 - **Groups CRUD** (8): `GET|POST /dash/groups/new`, `GET|POST /dash/groups/{folder...}` (dispatchers to settings/delete/grants), `DELETE /dash/groups/{folder...}`, `GET /dash/groups/{folder}/tools|grants`, `POST /dash/groups/{folder}/grants|grants/revoke` — admin-gated. Model selector dropdown writes `groups.model`; skill toggles create/remove `.disabled` markers. (`groups_admin.go`, `grants_admin.go`, `tools_admin.go`)
 - **Route tokens** (3): `GET|POST /dash/tokens/{folder}/`, `POST /dash/tokens/{folder}/{jid}/revoke` — issue chat/webhook tokens, revoke. Admin-gated writes; reads scope-filtered. (`route_tokens.go`)
-- **Invites** (3): `GET|POST /dash/invites/`, `POST /dash/invites/{token}/revoke` — operator-only (`**`). (`invites.go`)
+- **Invites** (3): `GET|POST /dash/invites/`, `POST /dash/invites/{ref}/revoke` — operator-only (`**`). (`invites.go`)
 - **WhatsApp re-pair** (3): `GET /dash/channels/whatsapp/pair`, `GET /dash/channels/whatsapp/pair/status`, `POST /dash/channels/whatsapp/pair/start` — operator-only (`**`), proxies to whapd with service:dashd bearer. (`channels.go`)
 
 ## Auth

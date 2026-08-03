@@ -388,8 +388,8 @@ func (f *fakeOnbod) CreateInviteFull(targetGlob, issuedBySub string, maxUses int
 	return Invite{Token: "tok-123", TargetGlob: targetGlob, IssuedBySub: issuedBySub, MaxUses: maxUses, ExpiresAt: expiresAt}, nil
 }
 func (f *fakeOnbod) ListInvites(issuedBy string) ([]Invite, error) { return f.listed, nil }
-func (f *fakeOnbod) RevokeInvite(token string) error {
-	f.revoked = append(f.revoked, token)
+func (f *fakeOnbod) RevokeInviteByRef(ref string) error {
+	f.revoked = append(f.revoked, ref)
 	return nil
 }
 func (f *fakeOnbod) InsertOnboarding(jid string) error {

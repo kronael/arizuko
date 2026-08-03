@@ -7,13 +7,14 @@ package main
 // POLICY via the injected REST Caller + Gate. onbod has no agent socket, so this
 // is REST-only — there is no MCP twin to share the handler with.
 //
-// The Endpoints mount at the REAL served paths (/v1/invites, /v1/invites/{token})
+// The Endpoints mount at the REAL served paths (/v1/invites, /v1/invites/{ref})
 // from resources.InvitesEndpoints — the single source the /openapi.json doc also
 // reads, so served routes and doc cannot drift.
 
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -91,12 +92,21 @@ func (a *admin) invitesHandler(ctx context.Context, x resreg.Execution) (any, er
 		if err != nil {
 			return nil, err
 		}
-		return toInviteJSON(*inv), nil
+		return toInviteCreatedJSON(*inv), nil
 
 	case resreg.ActionDelete:
-		token := argString(x.Args, "token")
-		if token == "" {
-			return nil, resreg.Errorf(http.StatusBadRequest, "token required")
+		ref := argString(x.Args, "ref")
+		if ref == "" {
+			return nil, resreg.Errorf(http.StatusBadRequest, "ref required")
+		}
+		// The caller only ever held the ref, so resolve it back to the PK on
+		// resreg's tx — the DELETE and its audit row stay in one transaction.
+		token, err := store.ResolveInviteRef(ctx, x.Tx, ref)
+		if err != nil {
+			if errors.Is(err, store.ErrInviteRefUnknown) {
+				return nil, resreg.Errorf(http.StatusNotFound, "no invite with ref %q", ref)
+			}
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		if _, err := x.Tx.ExecContext(ctx, `DELETE FROM invites WHERE token = ?`, token); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)

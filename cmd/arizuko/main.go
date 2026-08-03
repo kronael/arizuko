@@ -707,7 +707,10 @@ func cmdInvite(args []string) {
 			die("Failed: %v", err)
 		}
 		auditCLI(s, "invite create", []string{glob})
+		// The token prints HERE and nowhere else — `invite list` shows only the
+		// ref, which revokes but cannot redeem.
 		fmt.Printf("token: %s\n", inv.Token)
+		fmt.Printf("ref: %s\n", store.InviteRef(inv.Token))
 		fmt.Printf("target_glob: %s\n", inv.TargetGlob)
 		fmt.Printf("max_uses: %d\n", inv.MaxUses)
 		if inv.ExpiresAt != nil {
@@ -730,22 +733,22 @@ func cmdInvite(args []string) {
 			return
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "TOKEN\tTARGET_GLOB\tISSUED_BY\tISSUED_AT\tEXPIRES_AT\tUSED")
+		fmt.Fprintln(tw, "REF\tTARGET_GLOB\tISSUED_BY\tISSUED_AT\tEXPIRES_AT\tUSED")
 		for _, inv := range invs {
 			exp := "-"
 			if inv.ExpiresAt != nil {
 				exp = inv.ExpiresAt.Format(time.RFC3339)
 			}
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d/%d\n",
-				inv.Token, inv.TargetGlob, inv.IssuedBySub,
+				store.InviteRef(inv.Token), inv.TargetGlob, inv.IssuedBySub,
 				inv.IssuedAt.Format(time.RFC3339), exp,
 				inv.UsedCount, inv.MaxUses)
 		}
 		tw.Flush()
 
 	case "revoke":
-		need(args, 3, "arizuko invite <instance> revoke <token>")
-		if err := s.RevokeInvite(args[2]); err != nil {
+		need(args, 3, "arizuko invite <instance> revoke <ref>")
+		if err := s.RevokeInviteByRef(args[2]); err != nil {
 			die("Failed: %v", err)
 		}
 		auditCLI(s, "invite revoke", []string{args[2]})

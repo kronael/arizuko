@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/store"
 )
 
 func testDBWithInvites(t *testing.T) *sql.DB {
@@ -98,11 +100,20 @@ func TestHandleInviteCreateAndList(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusSeeOther {
+	// Create renders the bearer once instead of redirecting — this is the only
+	// surface that ever shows it.
+	if w.Code != http.StatusOK {
 		t.Fatalf("create status = %d, body = %q", w.Code, w.Body.String())
 	}
+	var token string
+	if err := db.QueryRow(`SELECT token FROM invites`).Scan(&token); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(w.Body.String(), "/invite/"+token) {
+		t.Errorf("create page does not show the invite link once: %q", w.Body.String())
+	}
 
-	// List page should now show the invite.
+	// List page shows the invite by ref, never the bearer.
 	req2 := httptest.NewRequest("GET", "/dash/invites/", nil)
 	req2.Header.Set("X-User-Sub", "github:operator")
 	w2 := httptest.NewRecorder()
@@ -117,6 +128,12 @@ func TestHandleInviteCreateAndList(t *testing.T) {
 	}
 	if strings.Contains(body, "No invites") {
 		t.Errorf("expected non-empty list, got empty-state message")
+	}
+	if strings.Contains(body, token) {
+		t.Errorf("invite bearer rendered on the list page: %q", body)
+	}
+	if !strings.Contains(body, store.InviteRef(token)) {
+		t.Errorf("invite ref missing from the list page: %q", body)
 	}
 }
 
@@ -171,7 +188,7 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 	req0.Header.Set("X-User-Sub", "github:operator")
 	w0 := httptest.NewRecorder()
 	mux.ServeHTTP(w0, req0)
-	ref := inviteRef(token)
+	ref := store.InviteRef(token)
 	list := w0.Body.String()
 	if !strings.Contains(list, `action="/dash/invites/`+ref+`/revoke"`) {
 		t.Errorf("revoke form does not use the opaque ref: %q", list)

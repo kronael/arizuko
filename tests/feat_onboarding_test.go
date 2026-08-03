@@ -6,6 +6,8 @@ package tests
 import (
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/store"
 )
 
 func TestFeature_Onboarding(t *testing.T) {
@@ -55,7 +57,7 @@ func TestFeature_Onboarding(t *testing.T) {
 	t.Run("invite-revoke", func(t *testing.T) {
 		s := mustMonolithDB(t)
 		inv, _ := s.CreateInvite("carol", "github:operator", 5, nil)
-		if err := s.RevokeInvite(inv.Token); err != nil {
+		if err := s.RevokeInviteByRef(store.InviteRef(inv.Token)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.ConsumeInviteNoGrant(inv.Token, "user:carol"); err == nil {
