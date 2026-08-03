@@ -58,7 +58,7 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{db: db}
-	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
+	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func OpenMem() (*Store, error) {
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(0)
 	s := &Store{db: db}
-	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
+	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -156,7 +156,19 @@ func (s *Store) Close() error {
 // Migrate applies store's embedded SQL migrations to db. Used by test
 // fixtures in other packages that open a raw *sql.DB.
 func Migrate(db *sql.DB) error {
-	return db_utils.Migrate(db, migrationFS, "migrations", serviceName)
+	return migrate(db)
+}
+
+// migrate applies store's embedded SQL migrations, then carries forward any
+// pre-I1 plaintext invite rows into the hash-at-rest shape
+// (BackfillInviteRefs) — SQLite has no sha256(), so that step can't be pure
+// SQL. Every opener (Open, OpenMem, the exported Migrate) routes through this
+// one function so none can skip it.
+func migrate(db *sql.DB) error {
+	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
+		return err
+	}
+	return BackfillInviteRefs(db)
 }
 
 // New wraps an already-open *sql.DB as a *Store. Caller owns the db lifetime

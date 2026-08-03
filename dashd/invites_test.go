@@ -16,7 +16,7 @@ func testDBWithInvites(t *testing.T) *sql.DB {
 	db := testDB(t)
 	for _, q := range []string{
 		`CREATE TABLE IF NOT EXISTS invites (
-			token TEXT PRIMARY KEY,
+			ref TEXT PRIMARY KEY,
 			target_glob TEXT NOT NULL,
 			issued_by_sub TEXT NOT NULL,
 			issued_at TEXT NOT NULL,
@@ -101,16 +101,21 @@ func TestHandleInviteCreateAndList(t *testing.T) {
 	mux.ServeHTTP(w, req)
 
 	// Create renders the bearer once instead of redirecting — this is the only
-	// surface that ever shows it.
+	// surface that ever shows it. The DB stores only its hash (I1), so recover
+	// it from the rendered link rather than querying for it.
 	if w.Code != http.StatusOK {
 		t.Fatalf("create status = %d, body = %q", w.Code, w.Body.String())
 	}
-	var token string
-	if err := db.QueryRow(`SELECT token FROM invites`).Scan(&token); err != nil {
-		t.Fatal(err)
+	body0 := w.Body.String()
+	const marker = "<code>/invite/"
+	i := strings.Index(body0, marker)
+	if i == -1 {
+		t.Fatalf("create page has no invite link: %q", body0)
 	}
-	if !strings.Contains(w.Body.String(), "/invite/"+token) {
-		t.Errorf("create page does not show the invite link once: %q", w.Body.String())
+	rest := body0[i+len(marker):]
+	token := rest[:strings.Index(rest, "<")]
+	if token == "" {
+		t.Fatalf("could not extract token from create page: %q", body0)
 	}
 
 	// List page shows the invite by ref, never the bearer.
@@ -169,11 +174,13 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	// Seed one invite directly (token long enough for the [:8] display slice).
+	// Seed one invite directly, keyed by ref (I1) — token here is just the
+	// would-be bearer, never itself persisted (long enough for the [:8]
+	// display slice).
 	const token = "tok-abcdef0123456789abcdef0123456789"
 	if _, err := db.Exec(
-		`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, max_uses, used_count)
-		 VALUES (?, 'carol', 'github:operator', datetime('now'), 1, 0)`, token,
+		`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, max_uses, used_count)
+		 VALUES (?, 'carol', 'github:operator', datetime('now'), 1, 0)`, store.InviteRef(token),
 	); err != nil {
 		t.Fatal(err)
 	}

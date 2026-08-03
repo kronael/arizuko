@@ -6,20 +6,18 @@ package tests
 import (
 	"testing"
 	"time"
-
-	"github.com/kronael/arizuko/store"
 )
 
 func TestFeature_Onboarding(t *testing.T) {
 	// CreateInvite returns a usable token; it appears in the issuer's list.
 	t.Run("invite-create-list", func(t *testing.T) {
 		s := mustMonolithDB(t)
-		inv, err := s.CreateInvite("alice", "github:operator", 1, nil)
+		inv, token, err := s.CreateInvite("alice", "github:operator", 1, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if inv.Token == "" || inv.TargetGlob != "alice" {
-			t.Fatalf("invite = %+v", inv)
+		if token == "" || inv.TargetGlob != "alice" {
+			t.Fatalf("invite = %+v token=%q", inv, token)
 		}
 		list, err := s.ListInvites("github:operator")
 		if err != nil || len(list) != 1 {
@@ -30,11 +28,11 @@ func TestFeature_Onboarding(t *testing.T) {
 	// Consuming a single-use invite increments used_count; a second consume fails.
 	t.Run("invite-consume-exhausts", func(t *testing.T) {
 		s := mustMonolithDB(t)
-		inv, _ := s.CreateInvite("bob", "github:operator", 1, nil)
-		if _, err := s.ConsumeInviteNoGrant(inv.Token, "user:bob"); err != nil {
+		_, token, _ := s.CreateInvite("bob", "github:operator", 1, nil)
+		if _, err := s.ConsumeInviteNoGrant(token, "user:bob"); err != nil {
 			t.Fatalf("first consume: %v", err)
 		}
-		if _, err := s.ConsumeInviteNoGrant(inv.Token, "user:bob2"); err == nil {
+		if _, err := s.ConsumeInviteNoGrant(token, "user:bob2"); err == nil {
 			t.Fatal("single-use invite should be exhausted")
 		}
 	})
@@ -42,13 +40,13 @@ func TestFeature_Onboarding(t *testing.T) {
 	// Multi-use invite can be consumed up to max_uses times.
 	t.Run("invite-multi-use", func(t *testing.T) {
 		s := mustMonolithDB(t)
-		inv, _ := s.CreateInvite("team", "github:operator", 3, nil)
+		_, token, _ := s.CreateInvite("team", "github:operator", 3, nil)
 		for i, sub := range []string{"user:a", "user:b", "user:c"} {
-			if _, err := s.ConsumeInviteNoGrant(inv.Token, sub); err != nil {
+			if _, err := s.ConsumeInviteNoGrant(token, sub); err != nil {
 				t.Fatalf("consume %d: %v", i, err)
 			}
 		}
-		if _, err := s.ConsumeInviteNoGrant(inv.Token, "user:d"); err == nil {
+		if _, err := s.ConsumeInviteNoGrant(token, "user:d"); err == nil {
 			t.Fatal("invite should be exhausted after max_uses")
 		}
 	})
@@ -56,11 +54,11 @@ func TestFeature_Onboarding(t *testing.T) {
 	// A revoked invite cannot be consumed.
 	t.Run("invite-revoke", func(t *testing.T) {
 		s := mustMonolithDB(t)
-		inv, _ := s.CreateInvite("carol", "github:operator", 5, nil)
-		if err := s.RevokeInviteByRef(store.InviteRef(inv.Token)); err != nil {
+		inv, token, _ := s.CreateInvite("carol", "github:operator", 5, nil)
+		if err := s.RevokeInviteByRef(inv.Ref); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.ConsumeInviteNoGrant(inv.Token, "user:carol"); err == nil {
+		if _, err := s.ConsumeInviteNoGrant(token, "user:carol"); err == nil {
 			t.Fatal("revoked invite should not consume")
 		}
 	})
@@ -69,8 +67,8 @@ func TestFeature_Onboarding(t *testing.T) {
 	t.Run("invite-expiry", func(t *testing.T) {
 		s := mustMonolithDB(t)
 		past := time.Now().Add(-time.Hour)
-		inv, _ := s.CreateInvite("dave", "github:operator", 1, &past)
-		if _, err := s.ConsumeInviteNoGrant(inv.Token, "user:dave"); err == nil {
+		_, token, _ := s.CreateInvite("dave", "github:operator", 1, &past)
+		if _, err := s.ConsumeInviteNoGrant(token, "user:dave"); err == nil {
 			t.Fatal("expired invite should not consume")
 		}
 	})
@@ -79,8 +77,8 @@ func TestFeature_Onboarding(t *testing.T) {
 	t.Run("invite-future-expiry-allows-then-blocks", func(t *testing.T) {
 		s := mustMonolithDB(t)
 		future := time.Now().Add(time.Hour)
-		inv, _ := s.CreateInvite("eve", "github:operator", 2, &future)
-		if _, err := s.ConsumeInviteNoGrant(inv.Token, "user:eve"); err != nil {
+		_, token, _ := s.CreateInvite("eve", "github:operator", 2, &future)
+		if _, err := s.ConsumeInviteNoGrant(token, "user:eve"); err != nil {
 			t.Fatalf("future-expiry invite should be consumable now: %v", err)
 		}
 	})

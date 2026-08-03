@@ -709,12 +709,12 @@ func cmdInvite(args []string) {
 		if err != nil {
 			die("usage: arizuko invite <instance> create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]: %v", err)
 		}
-		inv, err := s.CreateInvite(glob, "cli", maxUses, expiresAt)
+		inv, rawToken, err := s.CreateInvite(glob, "cli", maxUses, expiresAt)
 		if err != nil {
 			die("Failed: %v", err)
 		}
 		auditCLI(s, "invite create", []string{glob})
-		fmt.Printf("token: %s\n", inv.Token)
+		fmt.Printf("token: %s\n", rawToken)
 		fmt.Printf("target_glob: %s\n", inv.TargetGlob)
 		fmt.Printf("max_uses: %d\n", inv.MaxUses)
 		if inv.ExpiresAt != nil {
@@ -744,7 +744,7 @@ func cmdInvite(args []string) {
 				exp = inv.ExpiresAt.Format(time.RFC3339)
 			}
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d/%d\n",
-				store.InviteRef(inv.Token), inv.TargetGlob, inv.IssuedBySub,
+				inv.Ref, inv.TargetGlob, inv.IssuedBySub,
 				inv.IssuedAt.Format(time.RFC3339), exp,
 				inv.UsedCount, inv.MaxUses)
 		}

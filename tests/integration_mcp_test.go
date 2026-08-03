@@ -10,6 +10,7 @@ package tests
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"path/filepath"
@@ -82,11 +83,13 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 			return nil
 		},
 		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
-			inv, err := s.CreateInvite(targetGlob, issuedBySub, maxUses, expiresAt)
+			inv, rawToken, err := s.CreateInvite(targetGlob, issuedBySub, maxUses, expiresAt)
 			if err != nil {
 				return ipc.InviteInfo{}, err
 			}
-			return inviteToInfo(inv), nil
+			info := inviteToInfo(inv)
+			info.Token = rawToken
+			return info, nil
 		},
 		ListInvites: func(issuedBy string) ([]ipc.InviteInfo, error) {
 			invs, err := s.ListInvites(issuedBy)
@@ -160,13 +163,41 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 	return h
 }
 
+// inviteToInfo maps a store row (no raw-token field, I1) to the wire DTO.
+// Token stays unset here — the Create closure fills it in from the raw
+// bearer CreateInvite returns separately; a row read back via ListInvites
+// never has one to fill.
 func inviteToInfo(inv *store.Invite) ipc.InviteInfo {
 	return ipc.InviteInfo{
-		Ref:   store.InviteRef(inv.Token),
-		Token: inv.Token, TargetGlob: inv.TargetGlob, IssuedBySub: inv.IssuedBySub,
-		IssuedAt: inv.IssuedAt, ExpiresAt: inv.ExpiresAt,
+		Ref:         inv.Ref,
+		TargetGlob:  inv.TargetGlob,
+		IssuedBySub: inv.IssuedBySub,
+		IssuedAt:    inv.IssuedAt, ExpiresAt: inv.ExpiresAt,
 		MaxUses: inv.MaxUses, UsedCount: inv.UsedCount,
 	}
+}
+
+// firstJSONString decodes the first TextContent as a JSON object and returns
+// field key as a string. Used to recover a value (like invite_create's raw
+// token) that a read surface never round-trips — it exists only in this one
+// response.
+func firstJSONString(t *testing.T, res *mcp.CallToolResult, key string) string {
+	t.Helper()
+	for _, c := range res.Content {
+		tc, ok := c.(mcp.TextContent)
+		if !ok {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(tc.Text), &m); err != nil {
+			continue
+		}
+		if v, ok := m[key].(string); ok {
+			return v
+		}
+	}
+	t.Fatalf("no JSON field %q in tool result: %v", key, res.Content)
+	return ""
 }
 
 func (h *fullMCPHarness) call(t *testing.T, name string, args map[string]any) *mcp.CallToolResult {
@@ -229,11 +260,19 @@ func TestMCP_InviteTools(t *testing.T) {
 		if !contentContains(res, "token") {
 			t.Fatalf("invite_create missing token: %v", res.Content)
 		}
+		// The raw bearer is shown ONLY in the create response (I1: the DB
+		// stores just its hash) — read it from the tool result, not the store.
+		token = firstJSONString(t, res, "token")
+		if token == "" {
+			t.Fatalf("invite_create returned an empty token: %v", res.Content)
+		}
 		invs, err := h.S.ListInvites("agent:hq")
 		if err != nil || len(invs) != 1 {
 			t.Fatalf("invite not persisted: invs=%+v err=%v", invs, err)
 		}
-		token = invs[0].Token
+		if invs[0].Ref != store.InviteRef(token) {
+			t.Fatalf("persisted ref %q != InviteRef(created token)", invs[0].Ref)
+		}
 	})
 
 	// invite_list identifies the invite by ref; the bearer was shown once at

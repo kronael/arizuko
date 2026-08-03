@@ -6,26 +6,19 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// InvitesRow mirrors the invites table (store/migrations/0032-invites-rewrite).
+// InvitesRow mirrors the invites table (store/migrations/0077-invites-hash-at-rest).
 // expires_at is nullable in DB but exposed as an (omitempty) string; used_count
 // and max_uses are INTEGER. Kept as plain scalars for uniform engine handling —
 // this row drives the /openapi.json schema only (onbod's handler does its own
 // scan via store.ListInvites), so no nullable-scan hook is needed here.
 //
-// `token` is the live bearer: whoever holds it redeems the grant. It stays on
-// the struct because it is the DB PK (engine matching), but it is projected on
-// NO read surface — `yaml:"-"` keeps it out of `arizuko export`, `json:"-"`
-// keeps it out of both the list response and the /openapi.json schema. The
-// create response carries it once, out of band (onbod's inviteCreatedJSON),
-// exactly as route_tokens' issue verbs do (spec 5/8 §"Secret safety").
-//
-// `ref` (store.InviteRef = hex(sha256(token))) is the non-secret identity every
-// read surface hands out and the DELETE path takes. It is derived, not stored,
-// so it carries no `db:` tag — the engine skips it and it never round-trips
-// through a manifest.
+// `ref` (store.InviteRef = hex(sha256(token))) IS the DB primary key (I1) —
+// the raw bearer is never persisted, so there is no token field to leak here
+// even by omission-bug. `yaml:"-"` keeps ref out of `arizuko export` (it's
+// runtime-minted, not manifest state, like route_tokens' token_hash); `json:"ref"`
+// is what every read surface hands out and the DELETE path takes.
 type InvitesRow struct {
-	Token       string `db:"token"         yaml:"-"                      json:"-"`
-	Ref         string `                   yaml:"-"                      json:"ref"`
+	Ref         string `db:"ref"           yaml:"-"                      json:"ref"`
 	TargetGlob  string `db:"target_glob"   yaml:"target_glob"            json:"target_glob"`
 	IssuedBySub string `db:"issued_by_sub" yaml:"issued_by_sub"          json:"issued_by_sub"`
 	IssuedAt    string `db:"issued_at"     yaml:"issued_at"              json:"issued_at"`
@@ -53,7 +46,7 @@ func init() {
 		Name:      "invites",
 		Table:     "invites",
 		RowType:   reflect.TypeOf(InvitesRow{}),
-		PKFields:  []string{"Token"},
+		PKFields:  []string{"Ref"},
 		Endpoints: InvitesEndpoints,
 		// Invite tokens are minted imperatively (invite_create / POST /v1/invites)
 		// and never round-trip through a manifest — Apply must never DELETE+INSERT

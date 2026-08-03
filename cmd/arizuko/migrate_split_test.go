@@ -106,8 +106,10 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 	// onboarding + invites + onboarding_gates: onbod OWNS these now → copied to onbod.db.
 	exec(`INSERT INTO onboarding(jid, status, created, user_sub, gate, queued_at, admitted_at)
 		VALUES('tg:1','approved','2026-01-01T00:00:00Z','github:alice','*','2026-01-01T00:00:00Z','2026-01-01T01:00:00Z')`)
-	exec(`INSERT INTO invites(token, target_glob, issued_by_sub, issued_at, max_uses, used_count)
-		VALUES('inv-tok','main/','cli','2026-01-01T00:00:00Z',5,2)`)
+	// messages.db is opened via store.Open above, which already runs the I1
+	// hash-at-rest migration — invites is ref-shaped here, not token-shaped.
+	exec(`INSERT INTO invites(ref, target_glob, issued_by_sub, issued_at, max_uses, used_count)
+		VALUES(?,'main/','cli','2026-01-01T00:00:00Z',5,2)`, store.InviteRef("inv-tok"))
 	exec(`INSERT INTO onboarding_gates(gate, limit_per_day, enabled) VALUES('*',10,1)`)
 
 	if err := s.Close(); err != nil {
@@ -341,7 +343,7 @@ func TestMigrateSplit(t *testing.T) {
 	var invGlob string
 	var invMax, invUsed int
 	if err := odb.QueryRow(
-		`SELECT target_glob, max_uses, used_count FROM invites WHERE token='inv-tok'`).
+		`SELECT target_glob, max_uses, used_count FROM invites WHERE ref=?`, store.InviteRef("inv-tok")).
 		Scan(&invGlob, &invMax, &invUsed); err != nil {
 		t.Fatalf("read onbod.invites: %v", err)
 	}

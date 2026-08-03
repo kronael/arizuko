@@ -64,7 +64,7 @@ func testDB(t *testing.T) *sql.DB {
 		CREATE TABLE user_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, sub TEXT UNIQUE, username TEXT, name TEXT, created_at TEXT);
 		CREATE TABLE channels (name TEXT PRIMARY KEY, url TEXT, capabilities TEXT);
 		CREATE TABLE onboarding_gates (gate TEXT PRIMARY KEY, limit_per_day INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1);
-		CREATE TABLE invites (token TEXT PRIMARY KEY, target_glob TEXT NOT NULL, issued_by_sub TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT, max_uses INTEGER NOT NULL DEFAULT 1, used_count INTEGER NOT NULL DEFAULT 0);
+		CREATE TABLE invites (ref TEXT PRIMARY KEY, target_glob TEXT NOT NULL, issued_by_sub TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT, max_uses INTEGER NOT NULL DEFAULT 1, used_count INTEGER NOT NULL DEFAULT 0);
 		CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), category TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL, actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT, params_summary TEXT, outcome TEXT NOT NULL, error_msg TEXT, duration_ms INTEGER, turn_id TEXT, folder TEXT, instance TEXT, request_id TEXT, source_ip TEXT);
 	`)
 	if err != nil {
@@ -887,14 +887,15 @@ func TestNoGatesLegacyBehavior(t *testing.T) {
 
 // --- Invite tests ---
 
-// createInvite is a test helper that mints an invite via the new store API.
+// createInvite is a test helper that mints an invite via the new store API,
+// returning the raw bearer (I1: the DB stores only its hash).
 func createInvite(t *testing.T, db *sql.DB, targetGlob, issuedBy string, maxUses int) string {
 	t.Helper()
-	inv, err := store.New(db).CreateInvite(targetGlob, issuedBy, maxUses, nil)
+	_, token, err := store.New(db).CreateInvite(targetGlob, issuedBy, maxUses, nil)
 	if err != nil {
 		t.Fatalf("CreateInvite: %v", err)
 	}
-	return inv.Token
+	return token
 }
 
 func TestInviteCreation(t *testing.T) {
@@ -906,8 +907,8 @@ func TestInviteCreation(t *testing.T) {
 
 	var glob, issuedBy string
 	var maxUses, used int
-	db.QueryRow(`SELECT target_glob, issued_by_sub, max_uses, used_count FROM invites WHERE token = ?`,
-		token).Scan(&glob, &issuedBy, &maxUses, &used)
+	db.QueryRow(`SELECT target_glob, issued_by_sub, max_uses, used_count FROM invites WHERE ref = ?`,
+		store.InviteRef(token)).Scan(&glob, &issuedBy, &maxUses, &used)
 	if glob != "alice" {
 		t.Errorf("want target_glob=alice, got %q", glob)
 	}
@@ -962,7 +963,7 @@ func TestInviteConsume(t *testing.T) {
 
 	// used_count should be incremented
 	var used int
-	db.QueryRow(`SELECT used_count FROM invites WHERE token = ?`, token).Scan(&used)
+	db.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.InviteRef(token)).Scan(&used)
 	if used != 1 {
 		t.Errorf("want used_count=1, got %d", used)
 	}
@@ -971,8 +972,8 @@ func TestInviteConsume(t *testing.T) {
 func TestInviteExpired(t *testing.T) {
 	db := testDB(t)
 	past := "2020-01-01T00:00:00Z"
-	db.Exec(`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, max_uses, expires_at)
-		VALUES ('expired-tok', 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, ?)`, past)
+	db.Exec(`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, max_uses, expires_at)
+		VALUES (?, 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, ?)`, store.InviteRef("expired-tok"), past)
 
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/invite/expired-tok", nil)
@@ -992,8 +993,8 @@ func TestInviteExpired(t *testing.T) {
 
 func TestInviteMaxUses(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, used_count, max_uses)
-		VALUES ('used-tok', 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, 1)`)
+	db.Exec(`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, used_count, max_uses)
+		VALUES (?, 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, 1)`, store.InviteRef("used-tok"))
 
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/invite/used-tok", nil)
@@ -1013,8 +1014,8 @@ func TestInviteMaxUses(t *testing.T) {
 
 func TestInviteAuthRequired(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, max_uses)
-		VALUES ('auth-tok', 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1)`)
+	db.Exec(`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, max_uses)
+		VALUES (?, 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1)`, store.InviteRef("auth-tok"))
 
 	cfg := config{authBaseURL: "https://example.com", secureCookie: true}
 	req := httptest.NewRequest("GET", "/invite/auth-tok", nil)
@@ -1577,8 +1578,8 @@ func TestStateMachineMigrated(t *testing.T) {
 // Invite: auth_return cookie is also set when unauthenticated (regression guard).
 func TestInviteSetsCookieFlagsHTTPS(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, max_uses)
-		VALUES ('tok', 'alice', 'x', '2026-01-01T00:00:00Z', 1)`)
+	db.Exec(`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, max_uses)
+		VALUES (?, 'alice', 'x', '2026-01-01T00:00:00Z', 1)`, store.InviteRef("tok"))
 	cfg := config{authBaseURL: "https://example.com", secureCookie: true}
 	req := httptest.NewRequest("GET", "/invite/tok", nil)
 	req.SetPathValue("token", "tok")

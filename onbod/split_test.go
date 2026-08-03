@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/store"
 )
 
 // In the split topology onbod opens TWO DBs: obdb (its OWNED tables —
@@ -87,9 +89,11 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 		t.Errorf("acl grant leaked into onbod.db, got %d rows", inOnbod)
 	}
 
-	// invites used_count increments in onbod.db (obdb).
+	// invites used_count increments in onbod.db (obdb). Keyed by ref, not the
+	// raw token (I1: onbod.db stores only the hash — a raw-token lookup would
+	// find nothing against the post-I1 schema).
 	var used int
-	obdb.QueryRow(`SELECT used_count FROM invites WHERE token = ?`, token).Scan(&used)
+	obdb.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.InviteRef(token)).Scan(&used)
 	if used != 1 {
 		t.Errorf("want used_count=1 in onbod.db, got %d", used)
 	}
@@ -177,7 +181,7 @@ func TestSplitInviteGrantFailureRollsBack(t *testing.T) {
 
 	// The consume must be rolled back: used_count back to 0, invite not burned.
 	var used int
-	obdb.QueryRow(`SELECT used_count FROM invites WHERE token = ?`, token).Scan(&used)
+	obdb.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.InviteRef(token)).Scan(&used)
 	if used != 0 {
 		t.Errorf("invite burned without grant: used_count=%d want 0 (RestoreInvite)", used)
 	}

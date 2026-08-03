@@ -39,7 +39,7 @@ func TestInviteLandsInOnbodDB(t *testing.T) {
 	bootstrapOnbodDB(t, dir)
 
 	s := mustOpenOnbodDir(t, dir)
-	if _, err := s.CreateInvite("main/", "cli", 3, nil); err != nil {
+	if _, _, err := s.CreateInvite("main/", "cli", 3, nil); err != nil {
 		t.Fatalf("CreateInvite: %v", err)
 	}
 	if err := s.PutGate("*", 10); err != nil {
@@ -78,7 +78,7 @@ func TestInviteMonolithFallsBackToMessages(t *testing.T) {
 	// no onbod.db → fallback path.
 
 	s := mustOpenOnbodDir(t, dir)
-	if _, err := s.CreateInvite("main/", "cli", 1, nil); err != nil {
+	if _, _, err := s.CreateInvite("main/", "cli", 1, nil); err != nil {
 		t.Fatalf("CreateInvite: %v", err)
 	}
 	s.Close()

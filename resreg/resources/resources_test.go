@@ -645,17 +645,19 @@ func TestFacadeMCP_RegistrySingleSource(t *testing.T) {
 	}
 }
 
-// seedInvite inserts one live invite row and returns its token. expires_at is
-// set non-NULL because InvitesRow scans it into a plain string with no
-// COALESCE hook, so a NULL-expiry invite fails the engine scan outright.
+// seedInvite inserts one live invite row (keyed by ref = InviteRef(token), I1)
+// and returns the WOULD-BE bearer — never itself persisted — so callers can
+// assert it never appears anywhere it shouldn't. expires_at is set non-NULL
+// because InvitesRow scans it into a plain string with no COALESCE hook, so a
+// NULL-expiry invite fails the engine scan outright.
 func seedInvite(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	const token = "live-bearer-do-not-export"
 	now := time.Now().UTC()
 	if _, err := db.Exec(
-		`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count)
+		`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		token, "atlas/**", "agent:atlas", now.Format(time.RFC3339),
+		store.InviteRef(token), "atlas/**", "agent:atlas", now.Format(time.RFC3339),
 		now.Add(24*time.Hour).Format(time.RFC3339), 3, 0,
 	); err != nil {
 		t.Fatal(err)
@@ -675,7 +677,7 @@ func TestApply_NeverRebuildsInvites(t *testing.T) {
 	// Manifest declares a DIFFERENT invite than what's live.
 	manifest := map[string]any{
 		"invites": []InvitesRow{{
-			Token: "manifest-token", TargetGlob: "ops/**",
+			Ref: "manifest-ref", TargetGlob: "ops/**",
 			IssuedBySub: "agent:ops", IssuedAt: time.Now().UTC().Format(time.RFC3339),
 			ExpiresAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339), MaxUses: 1,
 		}},
@@ -694,13 +696,13 @@ func TestApply_NeverRebuildsInvites(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM invites WHERE token = ?`, token).Scan(&n); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM invites WHERE ref = ?`, store.InviteRef(token)).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 1 {
 		t.Errorf("live invite wiped by apply (count=%d) — apply revoked a live bearer", n)
 	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM invites WHERE token = 'manifest-token'`).Scan(&n); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM invites WHERE ref = 'manifest-ref'`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 0 {

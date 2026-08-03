@@ -15,8 +15,12 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 )
 
+// Invite is one invite row. It carries no raw-token field — the bearer is
+// generated, hashed, and returned exactly once by CreateInvite (mirrors
+// route_tokens' RouteToken, which likewise has no token field). Every other
+// accessor works from Ref, the row's hash-at-rest primary key.
 type Invite struct {
-	Token       string
+	Ref         string
 	TargetGlob  string
 	IssuedBySub string
 	IssuedAt    time.Time
@@ -32,57 +36,88 @@ var ErrInviteUnavailable = errors.New("invite unavailable")
 // ErrInviteRefUnknown is returned when a ref matches no live invite.
 var ErrInviteRefUnknown = errors.New("invite ref not found")
 
-const inviteCols = `token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count`
+const inviteCols = `ref, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count`
 
 // InviteRef is an invite's non-secret handle: hex(sha256(token)). The token is
 // a bearer — whoever holds it redeems the grant — so it is shown exactly once
-// at creation and every read surface carries the ref instead (the discipline
-// route_tokens gets by storing only token_hash). Full digest, never truncated:
-// a prefix could collide and revoke the wrong invite.
-//
-// This is the single owner of the mapping; onbod, dashd, the CLI and the agent
-// MCP tools all identify invites by the value it returns.
+// at creation and every other surface (including the DB itself, since I1) carries
+// the ref instead. Full digest, never truncated: a prefix could collide and
+// revoke the wrong invite. ref IS the invites table's primary key (I1), so this
+// is also the hash CreateInvite/ConsumeInvite/GetInvite key rows by.
 func InviteRef(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
 
-// inviteQueryer is the *sql.DB / *sql.Tx subset ResolveInviteRef needs, so the
-// REST handler can resolve inside resreg's mutation tx and the FS-mounted
-// callers can resolve on the open DB.
-type inviteQueryer interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
-
-// ResolveInviteRef returns the raw token of the invite whose InviteRef is ref.
-// SQLite has no sha256, so the digest is matched in Go over the token column.
-func ResolveInviteRef(ctx context.Context, q inviteQueryer, ref string) (string, error) {
-	if ref == "" {
-		return "", ErrInviteRefUnknown
+// BackfillInviteRefs carries rows from a freshly-migrated invites_legacy table
+// (the pre-I1 plaintext `token TEXT PRIMARY KEY` shape) into the hash-at-rest
+// invites table (`ref TEXT PRIMARY KEY`). SQLite has no sha256(), so the SQL
+// migration that produces invites_legacy (store 0077 / onbod 0003) only
+// reshapes the table; this Go step does the actual hashing, one time, then
+// drops invites_legacy. Idempotent: a no-op once invites_legacy is gone,
+// which is the state on every boot after the first. Called from store.migrate
+// (Open/OpenMem/Migrate all route through it) and onbod's openOwnedDB — every
+// opener that runs store's invites migrations also runs this.
+func BackfillInviteRefs(db *sql.DB) error {
+	var exists int
+	err := db.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='invites_legacy'`).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
 	}
-	rows, err := q.QueryContext(ctx, `SELECT token FROM invites`)
 	if err != nil {
-		return "", err
+		return err
 	}
-	defer rows.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(`SELECT token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count FROM invites_legacy`)
+	if err != nil {
+		return fmt.Errorf("read invites_legacy: %w", err)
+	}
+	type legacyInvite struct {
+		token, targetGlob, issuedBySub, issuedAt string
+		expiresAt                                sql.NullString
+		maxUses, usedCount                       int
+	}
+	var legacy []legacyInvite
 	for rows.Next() {
-		var token string
-		if err := rows.Scan(&token); err != nil {
-			return "", err
+		var r legacyInvite
+		if err := rows.Scan(&r.token, &r.targetGlob, &r.issuedBySub, &r.issuedAt,
+			&r.expiresAt, &r.maxUses, &r.usedCount); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan invites_legacy row: %w", err)
 		}
-		if InviteRef(token) == ref {
-			return token, nil
-		}
+		legacy = append(legacy, r)
 	}
 	if err := rows.Err(); err != nil {
-		return "", err
+		rows.Close()
+		return err
 	}
-	return "", ErrInviteRefUnknown
+	rows.Close() // must close before reusing tx for the inserts below
+
+	for _, r := range legacy {
+		if _, err := tx.Exec(
+			`INSERT INTO invites (`+inviteCols+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			InviteRef(r.token), r.targetGlob, r.issuedBySub, r.issuedAt,
+			r.expiresAt, r.maxUses, r.usedCount); err != nil {
+			return fmt.Errorf("carry invite forward: %w", err)
+		}
+	}
+	if _, err := tx.Exec(`DROP TABLE invites_legacy`); err != nil {
+		return fmt.Errorf("drop invites_legacy: %w", err)
+	}
+	return tx.Commit()
 }
 
-func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (*Invite, error) {
+// CreateInvite mints an invite and returns the row plus the raw bearer —
+// shown to the caller exactly once, never stored (mirrors route_tokens'
+// GenRouteToken + InsertRouteToken split).
+func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (*Invite, string, error) {
 	if targetGlob == "" {
-		return nil, errors.New("target_glob required")
+		return nil, "", errors.New("target_glob required")
 	}
 	// Strip trailing slash (subworld-create mode) before validating folder.
 	check := strings.TrimSuffix(targetGlob, "/")
@@ -90,15 +125,16 @@ func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expire
 		check = "/"
 	}
 	if check != "/" && !groupfolder.IsValidFolder(check) {
-		return nil, fmt.Errorf("invalid target_glob %q", targetGlob)
+		return nil, "", fmt.Errorf("invalid target_glob %q", targetGlob)
 	}
 	if issuedBySub == "" {
-		return nil, errors.New("issued_by_sub required")
+		return nil, "", errors.New("issued_by_sub required")
 	}
 	if maxUses < 1 {
 		maxUses = 1
 	}
 	token := core.GenHexToken()
+	ref := InviteRef(token)
 	now := time.Now().UTC()
 	var expStr sql.NullString
 	if expiresAt != nil {
@@ -108,14 +144,14 @@ func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expire
 		_, err := tx.Exec(
 			`INSERT INTO invites (`+inviteCols+`)
 			 VALUES (?, ?, ?, ?, ?, ?, 0)`,
-			token, targetGlob, issuedBySub, now.Format(time.RFC3339), expStr, maxUses)
+			ref, targetGlob, issuedBySub, now.Format(time.RFC3339), expStr, maxUses)
 		return audit.Event{
 			Category: audit.CategoryAuthN,
 			Action:   "invite.create",
 			Actor:    "user:" + issuedBySub,
 			ActorSub: issuedBySub,
 			Surface:  audit.SurfaceGateway,
-			Resource: "invites/" + InviteRef(token)[:8],
+			Resource: "invites/" + ref[:8],
 			Outcome:  audit.OutcomeOK,
 			ParamsSummary: map[string]any{
 				"target_glob": targetGlob,
@@ -123,16 +159,16 @@ func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expire
 			},
 		}, err
 	}); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	return &Invite{
-		Token:       token,
+		Ref:         ref,
 		TargetGlob:  targetGlob,
 		IssuedBySub: issuedBySub,
 		IssuedAt:    now,
 		ExpiresAt:   expiresAt,
 		MaxUses:     maxUses,
-	}, nil
+	}, token, nil
 }
 
 func scanInvite(row rowScanner) (*Invite, error) {
@@ -141,7 +177,7 @@ func scanInvite(row rowScanner) (*Invite, error) {
 		issuedAt  string
 		expiresAt sql.NullString
 	)
-	if err := row.Scan(&inv.Token, &inv.TargetGlob, &inv.IssuedBySub, &issuedAt,
+	if err := row.Scan(&inv.Ref, &inv.TargetGlob, &inv.IssuedBySub, &issuedAt,
 		&expiresAt, &inv.MaxUses, &inv.UsedCount); err != nil {
 		return nil, err
 	}
@@ -153,9 +189,10 @@ func scanInvite(row rowScanner) (*Invite, error) {
 	return &inv, nil
 }
 
+// GetInvite resolves the raw bearer token presented at redemption to its row.
 func (s *Store) GetInvite(token string) (*Invite, error) {
 	return scanInvite(s.db.QueryRow(
-		`SELECT `+inviteCols+` FROM invites WHERE token = ?`, token))
+		`SELECT `+inviteCols+` FROM invites WHERE ref = ?`, InviteRef(token)))
 }
 
 func (s *Store) ListInvites(forIssuer string) ([]Invite, error) {
@@ -182,17 +219,23 @@ func (s *Store) ListInvites(forIssuer string) ([]Invite, error) {
 	return out, rows.Err()
 }
 
-// RevokeInviteByRef deletes the invite identified by ref (InviteRef). Read
-// surfaces never hand out the raw token, so the ref is the only handle an
-// operator or agent holds. Unknown ref → ErrInviteRefUnknown, so a caller
-// cannot mistake a no-op for a revocation.
+// RevokeInviteByRef deletes the invite identified by ref (InviteRef) — ref IS
+// the primary key (I1), so this is a direct delete, no resolve step. Unknown
+// ref → ErrInviteRefUnknown, so a caller cannot mistake a no-op for a
+// revocation.
 func (s *Store) RevokeInviteByRef(ref string) error {
-	token, err := ResolveInviteRef(context.Background(), s.db, ref)
-	if err != nil {
-		return err
-	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := tx.Exec(`DELETE FROM invites WHERE token = ?`, token)
+		res, err := tx.Exec(`DELETE FROM invites WHERE ref = ?`, ref)
+		if err != nil {
+			return audit.Event{}, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return audit.Event{}, err
+		}
+		if n == 0 {
+			return audit.Event{}, ErrInviteRefUnknown
+		}
 		return audit.Event{
 			Category: audit.CategoryAuthN,
 			Action:   "invite.revoke",
@@ -200,7 +243,7 @@ func (s *Store) RevokeInviteByRef(ref string) error {
 			Surface:  audit.SurfaceGateway,
 			Resource: "invites/" + ref[:min(len(ref), 8)],
 			Outcome:  audit.OutcomeOK,
-		}, err
+		}, nil
 	})
 }
 
@@ -226,8 +269,8 @@ func (s *Store) ConsumeInviteNoGrant(token, userSub string) (*Invite, error) {
 // grant → the user is permanently locked out with no admin access.
 func (s *Store) RestoreInvite(token string) error {
 	_, err := s.db.Exec(
-		`UPDATE invites SET used_count = used_count - 1 WHERE token = ? AND used_count > 0`,
-		token)
+		`UPDATE invites SET used_count = used_count - 1 WHERE ref = ? AND used_count > 0`,
+		InviteRef(token))
 	return err
 }
 
@@ -235,6 +278,7 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 	if userSub == "" {
 		return nil, errors.New("user_sub required")
 	}
+	ref := InviteRef(token)
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -245,11 +289,11 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 	row := tx.QueryRow(
 		`UPDATE invites
 		 SET used_count = used_count + 1
-		 WHERE token = ?
+		 WHERE ref = ?
 		   AND used_count < max_uses
 		   AND (expires_at IS NULL OR expires_at > ?)
 		 RETURNING `+inviteCols,
-		token, now)
+		ref, now)
 	inv, err := scanInvite(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -274,7 +318,7 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 		Actor:    "user:" + userSub,
 		ActorSub: userSub,
 		Surface:  audit.SurfaceGateway,
-		Resource: "invites/" + InviteRef(token)[:8],
+		Resource: "invites/" + ref[:8],
 		Outcome:  audit.OutcomeOK,
 		ParamsSummary: map[string]any{
 			"target_glob": inv.TargetGlob,

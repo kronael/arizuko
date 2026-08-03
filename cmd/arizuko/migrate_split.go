@@ -205,22 +205,27 @@ CREATE INDEX IF NOT EXISTS idx_identity_claims_id ON identity_claims(identity_id
 
 // onbodSpecs map messages.db → onbod.db. onbod now OWNS the onboarding admission
 // state machine + invite links + per-gate limits (onbod migration 0001 mirrors
-// store 0009/0023/0024/0027/0071 for onboarding, 0032 for invites, 0029 for
-// onboarding_gates). Straight copies — identical schema both sides.
+// store 0009/0023/0024/0027/0071 for onboarding, 0032+0077 for invites, 0029 for
+// onboarding_gates). Straight copies — identical schema both sides. invites is
+// `ref`, not `token` (I1): messages.db is only ever created/opened via
+// store.Open, which always runs 0077 + the hash-at-rest backfill first, so by
+// the time this read-only ATTACH runs, the source is already ref-shaped — a
+// straight copy, no hashing needed here.
 var onbodSpecs = []copySpec{
 	{dst: "onboarding", src: "onboarding",
 		cols: "jid, status, prompted_at, created, token, token_expires, user_sub, gate, queued_at, admitted_at",
 		sel:  "jid, status, prompted_at, created, token, token_expires, user_sub, gate, queued_at, admitted_at"},
 	{dst: "invites", src: "invites",
-		cols: "token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count",
-		sel:  "token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count"},
+		cols: "ref, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count",
+		sel:  "ref, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count"},
 	{dst: "onboarding_gates", src: "onboarding_gates",
 		cols: "gate, limit_per_day, enabled",
 		sel:  "gate, limit_per_day, enabled"},
 }
 
-// onbodSchema mirrors onbod/migrations/*.sql so the migrator can bootstrap
-// onbod.db's owned tables before copying into them (onbod's migration FS is
+// onbodSchema mirrors onbod/migrations/*.sql's FINAL shape (0001 through the
+// invites hash-at-rest rework in 0003) so the migrator can bootstrap onbod.db's
+// owned tables before copying into them (onbod's migration FS is
 // package-private — onbod is package main; this one-shot DDL is the copy-target
 // bootstrap, IF NOT EXISTS so it's a no-op when onbod already migrated).
 const onbodSchema = `
@@ -238,7 +243,7 @@ CREATE TABLE IF NOT EXISTS onboarding (
 );
 CREATE INDEX IF NOT EXISTS idx_onboarding_token ON onboarding(token);
 CREATE TABLE IF NOT EXISTS invites (
-  token         TEXT PRIMARY KEY,
+  ref           TEXT PRIMARY KEY,
   target_glob   TEXT NOT NULL,
   issued_by_sub TEXT NOT NULL,
   issued_at     TEXT NOT NULL,

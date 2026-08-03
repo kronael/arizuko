@@ -12,12 +12,15 @@ func TestInviteCRUD(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	inv, err := s.CreateInvite("alice/", "github:alice", 3, nil)
+	inv, token, err := s.CreateInvite("alice/", "github:alice", 3, nil)
 	if err != nil {
 		t.Fatalf("CreateInvite: %v", err)
 	}
-	if len(inv.Token) != 64 {
-		t.Errorf("token len = %d, want 64", len(inv.Token))
+	if len(token) != 64 {
+		t.Errorf("token len = %d, want 64", len(token))
+	}
+	if inv.Ref != InviteRef(token) {
+		t.Errorf("Ref = %q, want InviteRef(token)", inv.Ref)
 	}
 	if inv.TargetGlob != "alice/" || inv.IssuedBySub != "github:alice" || inv.MaxUses != 3 || inv.UsedCount != 0 {
 		t.Errorf("CreateInvite returned wrong values: %+v", inv)
@@ -26,7 +29,7 @@ func TestInviteCRUD(t *testing.T) {
 		t.Error("IssuedAt should be set")
 	}
 
-	got, err := s.GetInvite(inv.Token)
+	got, err := s.GetInvite(token)
 	if err != nil {
 		t.Fatalf("GetInvite: %v", err)
 	}
@@ -34,10 +37,10 @@ func TestInviteCRUD(t *testing.T) {
 		t.Errorf("GetInvite mismatch: %+v", got)
 	}
 
-	if _, err := s.CreateInvite("bob", "github:alice", 1, nil); err != nil {
+	if _, _, err := s.CreateInvite("bob", "github:alice", 1, nil); err != nil {
 		t.Fatalf("CreateInvite: %v", err)
 	}
-	if _, err := s.CreateInvite("eve", "github:eve", 1, nil); err != nil {
+	if _, _, err := s.CreateInvite("eve", "github:eve", 1, nil); err != nil {
 		t.Fatalf("CreateInvite: %v", err)
 	}
 	all, err := s.ListInvites("")
@@ -56,10 +59,10 @@ func TestInviteCRUD(t *testing.T) {
 		t.Errorf("want 2 invites for alice, got %d", len(mine))
 	}
 
-	if err := s.RevokeInviteByRef(InviteRef(inv.Token)); err != nil {
+	if err := s.RevokeInviteByRef(inv.Ref); err != nil {
 		t.Fatalf("RevokeInvite: %v", err)
 	}
-	if _, err := s.GetInvite(inv.Token); err == nil {
+	if _, err := s.GetInvite(token); err == nil {
 		t.Error("expected GetInvite to fail after revoke")
 	}
 }
@@ -69,11 +72,11 @@ func TestInviteCreateExpiresAt(t *testing.T) {
 	defer s.Close()
 
 	exp := time.Now().Add(24 * time.Hour)
-	inv, err := s.CreateInvite("alice", "github:alice", 1, &exp)
+	_, token, err := s.CreateInvite("alice", "github:alice", 1, &exp)
 	if err != nil {
 		t.Fatalf("CreateInvite: %v", err)
 	}
-	got, err := s.GetInvite(inv.Token)
+	got, err := s.GetInvite(token)
 	if err != nil {
 		t.Fatalf("GetInvite: %v", err)
 	}
@@ -93,8 +96,8 @@ func TestConsumeInviteHappyPath(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	inv, _ := s.CreateInvite("alice", "github:alice", 2, nil)
-	got, err := s.ConsumeInvite(inv.Token, "github:bob")
+	_, token, _ := s.CreateInvite("alice", "github:alice", 2, nil)
+	got, err := s.ConsumeInvite(token, "github:bob")
 	if err != nil {
 		t.Fatalf("ConsumeInvite: %v", err)
 	}
@@ -118,8 +121,8 @@ func TestConsumeInviteNoGrantSkipsACL(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	inv, _ := s.CreateInvite("alice", "github:alice", 2, nil)
-	got, err := s.ConsumeInviteNoGrant(inv.Token, "github:bob")
+	_, token, _ := s.CreateInvite("alice", "github:alice", 2, nil)
+	got, err := s.ConsumeInviteNoGrant(token, "github:bob")
 	if err != nil {
 		t.Fatalf("ConsumeInviteNoGrant: %v", err)
 	}
@@ -140,11 +143,11 @@ func TestConsumeInviteExhausted(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	inv, _ := s.CreateInvite("alice", "github:alice", 1, nil)
-	if _, err := s.ConsumeInvite(inv.Token, "github:bob"); err != nil {
+	_, token, _ := s.CreateInvite("alice", "github:alice", 1, nil)
+	if _, err := s.ConsumeInvite(token, "github:bob"); err != nil {
 		t.Fatalf("first consume: %v", err)
 	}
-	_, err := s.ConsumeInvite(inv.Token, "github:eve")
+	_, err := s.ConsumeInvite(token, "github:eve")
 	if !errors.Is(err, ErrInviteUnavailable) {
 		t.Errorf("second consume: want ErrInviteUnavailable, got %v", err)
 	}
@@ -155,8 +158,8 @@ func TestConsumeInviteExpired(t *testing.T) {
 	defer s.Close()
 
 	past := time.Now().Add(-time.Hour)
-	inv, _ := s.CreateInvite("alice", "github:alice", 1, &past)
-	_, err := s.ConsumeInvite(inv.Token, "github:bob")
+	_, token, _ := s.CreateInvite("alice", "github:alice", 1, &past)
+	_, err := s.ConsumeInvite(token, "github:bob")
 	if !errors.Is(err, ErrInviteUnavailable) {
 		t.Errorf("expired consume: want ErrInviteUnavailable, got %v", err)
 	}
@@ -185,7 +188,7 @@ func TestConsumeInviteAtomicConcurrent(t *testing.T) {
 
 	const maxUses = 5
 	const racers = 20
-	inv, _ := s.CreateInvite("alice", "github:alice", maxUses, nil)
+	_, token, _ := s.CreateInvite("alice", "github:alice", maxUses, nil)
 
 	var (
 		wg      sync.WaitGroup
@@ -201,9 +204,9 @@ func TestConsumeInviteAtomicConcurrent(t *testing.T) {
 			// SQLite busy timeouts can surface as transient errors under
 			// heavy contention; retry exactly once. The atomicity check
 			// below still catches over-issuance.
-			_, err := s.ConsumeInvite(inv.Token, user)
+			_, err := s.ConsumeInvite(token, user)
 			if err != nil && !errors.Is(err, ErrInviteUnavailable) {
-				_, err = s.ConsumeInvite(inv.Token, user)
+				_, err = s.ConsumeInvite(token, user)
 			}
 			if err == nil {
 				atomic.AddInt64(&succeed, 1)
@@ -219,7 +222,7 @@ func TestConsumeInviteAtomicConcurrent(t *testing.T) {
 	}
 
 	// DB state must agree with success count: no lost or extra increments.
-	got, _ := s.GetInvite(inv.Token)
+	got, _ := s.GetInvite(token)
 	if int64(got.UsedCount) != succeed {
 		t.Errorf("DB used_count = %d, succeed = %d", got.UsedCount, succeed)
 	}
@@ -230,23 +233,74 @@ func TestConsumeInviteAtomicConcurrent(t *testing.T) {
 // when the cross-DB acl grant fails, so an invite is never burned without a grant.
 func TestRestoreInviteRollsBackConsume(t *testing.T) {
 	s, _ := OpenMem()
-	inv, err := s.CreateInvite("acme", "github:alice", 1, nil)
+	_, token, err := s.CreateInvite("acme", "github:alice", 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ConsumeInviteNoGrant(inv.Token, "github:bob"); err != nil {
+	if _, err := s.ConsumeInviteNoGrant(token, "github:bob"); err != nil {
 		t.Fatalf("first consume: %v", err)
 	}
 	// Exhausted now — a second consume must fail.
-	if _, err := s.ConsumeInviteNoGrant(inv.Token, "github:carol"); err == nil {
+	if _, err := s.ConsumeInviteNoGrant(token, "github:carol"); err == nil {
 		t.Fatal("expected exhausted invite to reject the second consume")
 	}
 	// Roll back the first consume (simulating a failed downstream grant).
-	if err := s.RestoreInvite(inv.Token); err != nil {
+	if err := s.RestoreInvite(token); err != nil {
 		t.Fatalf("RestoreInvite: %v", err)
 	}
 	// Redeemable again — not burned without a grant.
-	if _, err := s.ConsumeInviteNoGrant(inv.Token, "github:bob"); err != nil {
+	if _, err := s.ConsumeInviteNoGrant(token, "github:bob"); err != nil {
 		t.Fatalf("consume after restore should succeed: %v", err)
+	}
+}
+
+// TestBackfillInviteRefsCarriesLegacyRows: a pre-I1 plaintext invites table
+// (renamed to invites_legacy by the SQL migration) is carried forward with
+// its content intact, keyed by the hash instead of the raw token, and the
+// legacy table is dropped. Simulates what store 0077 / onbod 0003 leave
+// behind on an instance with existing invites.
+func TestBackfillInviteRefsCarriesLegacyRows(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	// OpenMem already ran BackfillInviteRefs once (a no-op — the fresh schema
+	// has no invites_legacy). Recreate the pre-I1 shape with a live row to
+	// simulate an existing instance, then backfill again.
+	if _, err := s.db.Exec(`
+		CREATE TABLE invites_legacy (
+		  token TEXT PRIMARY KEY, target_glob TEXT NOT NULL, issued_by_sub TEXT NOT NULL,
+		  issued_at TEXT NOT NULL, expires_at TEXT, max_uses INTEGER NOT NULL DEFAULT 1,
+		  used_count INTEGER NOT NULL DEFAULT 0
+		);
+		INSERT INTO invites_legacy VALUES
+		  ('plaintext-tok', 'alice', 'github:alice', '2026-01-01T00:00:00Z', NULL, 3, 1);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := BackfillInviteRefs(s.db); err != nil {
+		t.Fatalf("BackfillInviteRefs: %v", err)
+	}
+
+	got, err := s.GetInvite("plaintext-tok")
+	if err != nil {
+		t.Fatalf("GetInvite after backfill: %v", err)
+	}
+	if got.Ref != InviteRef("plaintext-tok") || got.TargetGlob != "alice" || got.UsedCount != 1 || got.MaxUses != 3 {
+		t.Errorf("carried row wrong: %+v", got)
+	}
+
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='invites_legacy'`).Scan(&n)
+	if n != 0 {
+		t.Error("invites_legacy not dropped after backfill")
+	}
+
+	// Idempotent: a second call (as every later boot would make) is a no-op,
+	// not an error, and the carried row is untouched.
+	if err := BackfillInviteRefs(s.db); err != nil {
+		t.Fatalf("second BackfillInviteRefs: %v", err)
+	}
+	if _, err := s.GetInvite("plaintext-tok"); err != nil {
+		t.Fatalf("row lost across idempotent backfill: %v", err)
 	}
 }

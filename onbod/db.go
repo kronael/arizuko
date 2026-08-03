@@ -5,6 +5,7 @@ import (
 	"embed"
 
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -28,6 +29,13 @@ func openOwnedDB(ownDSN string) (*sql.DB, error) {
 		return nil, err
 	}
 	if err := db_utils.Migrate(db, onbodMigrationFS, "migrations", onbodServiceName); err != nil {
+		db.Close()
+		return nil, err
+	}
+	// SQLite has no sha256(), so migration 0003 (invites hash-at-rest) only
+	// reshapes the table; this carries any pre-existing plaintext rows forward
+	// and drops the renamed-out-of-the-way invites_legacy (store/invites.go).
+	if err := store.BackfillInviteRefs(db); err != nil {
 		db.Close()
 		return nil, err
 	}

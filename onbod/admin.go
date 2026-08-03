@@ -65,7 +65,9 @@ type inviteJSON struct {
 }
 
 // inviteCreatedJSON is the CREATE-only shape: the read shape plus the raw
-// bearer, returned exactly once (mirrors route_tokens' issue verbs).
+// bearer, returned exactly once (mirrors route_tokens' issue verbs). The
+// bearer never lives on store.Invite (I1) — the caller that just minted it
+// passes it in separately.
 type inviteCreatedJSON struct {
 	inviteJSON
 	Token string `json:"token"`
@@ -73,7 +75,7 @@ type inviteCreatedJSON struct {
 
 func toInviteJSON(inv store.Invite) inviteJSON {
 	out := inviteJSON{
-		Ref: store.InviteRef(inv.Token), TargetGlob: inv.TargetGlob, IssuedBySub: inv.IssuedBySub,
+		Ref: inv.Ref, TargetGlob: inv.TargetGlob, IssuedBySub: inv.IssuedBySub,
 		IssuedAt: inv.IssuedAt.Format(time.RFC3339), MaxUses: inv.MaxUses, UsedCount: inv.UsedCount,
 	}
 	if inv.ExpiresAt != nil {
@@ -82,8 +84,8 @@ func toInviteJSON(inv store.Invite) inviteJSON {
 	return out
 }
 
-func toInviteCreatedJSON(inv store.Invite) inviteCreatedJSON {
-	return inviteCreatedJSON{inviteJSON: toInviteJSON(inv), Token: inv.Token}
+func toInviteCreatedJSON(inv store.Invite, rawToken string) inviteCreatedJSON {
+	return inviteCreatedJSON{inviteJSON: toInviteJSON(inv), Token: rawToken}
 }
 
 type insertOnboardingBody struct {

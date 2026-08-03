@@ -50,7 +50,7 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 			if inv.ExpiresAt != nil {
 				expires = inv.ExpiresAt.Format("2006-01-02")
 			}
-			ref := store.InviteRef(inv.Token)
+			ref := inv.Ref
 			// Fully-used invites can't be redeemed again; hide revoke. MaxUses<=0
 			// means no use limit (always revocable).
 			revokeBtn := `<span class="dim">used</span>`
@@ -127,13 +127,13 @@ func (d *dash) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s := store.New(d.invitesDB())
-	inv, err := s.CreateInvite(targetGlob, sub, maxUses, expiresAt)
+	inv, rawToken, err := s.CreateInvite(targetGlob, sub, maxUses, expiresAt)
 	if err != nil {
 		slog.Warn("invites: create", "err", err)
 		http.Error(w, "create failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	ref := store.InviteRef(inv.Token)
+	ref := inv.Ref
 	slog.Info("invite created", "ref", ref, "target", targetGlob, "issuer", sub)
 
 	// The bearer is shown HERE and nowhere else — the list page and every other
@@ -141,7 +141,7 @@ func (d *dash) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	// redirecting back to the list. connBaseURL is the configured public base
 	// (AUTH_BASE_URL, then WEB_HOST); unset → the relative path, which the
 	// operator prefixes with their own host.
-	link := "/invite/" + inv.Token
+	link := "/invite/" + rawToken
 	if d.connBaseURL != "" {
 		link = d.connBaseURL + link
 	}
