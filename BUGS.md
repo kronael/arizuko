@@ -3049,7 +3049,7 @@ family kill`. Timing-sensitive race assertion, not reproducible on demand.
 - **Status:** open, record-only — needs a root-cause pass on the race timing,
   not a fix on sight
 
-## P1 — onbod's dashboard forms never emit the CSRF field they are checked against (2026-08-03, open)
+## F1 — onbod's dashboard forms never emit the CSRF field they are checked against (2026-08-03, open)
 
 `handleOnboardPost` rejects any request whose `csrf` form value is missing or
 does not match the `onbod_csrf` cookie, but no rendered form contains that
