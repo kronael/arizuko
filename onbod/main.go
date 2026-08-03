@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -442,7 +441,7 @@ func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg
 		return
 	}
 	if userSub != "" {
-		ensureCSRFToken(w, r, cfg)
+		_ = ensureCSRFToken(w, r, cfg)
 		handleDashboard(w, r, db, obdb, cfg, userSub)
 		return
 	}
@@ -622,23 +621,12 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, c
 // Prevents cross-site forms from exploiting the auth proxy cookie.
 const csrfCookieName = "onbod_csrf"
 
-func ensureCSRFToken(w http.ResponseWriter, r *http.Request, cfg config) {
-	if c, err := r.Cookie(csrfCookieName); err == nil && c.Value != "" {
-		return
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name: csrfCookieName, Value: core.GenHexToken(), Path: "/",
-		MaxAge: 86400, HttpOnly: false, Secure: cfg.secureCookie, SameSite: http.SameSiteStrictMode,
-	})
+func ensureCSRFToken(w http.ResponseWriter, r *http.Request, cfg config) string {
+	return auth.EnsureCSRF(w, r, csrfCookieName, cfg.secureCookie)
 }
 
 func checkCSRF(r *http.Request) bool {
-	c, err := r.Cookie(csrfCookieName)
-	if err != nil || c.Value == "" {
-		return false
-	}
-	got := r.FormValue("csrf")
-	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(c.Value)) == 1
+	return auth.CheckCSRF(r, csrfCookieName)
 }
 
 // handleOnboardPost dispatches the dashboard form actions. All three

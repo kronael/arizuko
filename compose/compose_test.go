@@ -221,6 +221,9 @@ func TestProxydRoutesAssembled(t *testing.T) {
 		`\"path\":\"/slack/\"`, `\"backend\":\"http://slakd:8080\"`, // per-service
 		`\"path\":\"/chat/\"`, `\"path\":\"/dash/\"`, // core
 		`\"path\":\"/dav/\"`, // WEBDAV_ENABLED defaults on
+		// Pairing (spec 5/31): auth `user` so an anonymous visitor is bounced
+		// through OAuth before the confirm page renders.
+		`{\"path\":\"/pair/\",\"backend\":\"http://webd:8080\",\"auth\":\"user\"}`,
 	} {
 		if !strings.Contains(proxyd, want) {
 			t.Errorf("PROXYD_ROUTES_JSON missing %s; got:\n%s", want, proxyd)

@@ -92,17 +92,21 @@ func (o *oauth) loginPage(w http.ResponseWriter, r *http.Request) {
 
 // redirect builds the provider authorize URL and writes the CSRF state + PKCE
 // cookies, then 302s. ?intent=link carries the current sub for account linking.
+//
+// The return path rides ONE carrier: the signed StateIntent.Return, sourced from
+// ?return= (link flow) or the auth_return cookie proxyd's requireAuth drops when
+// it bounces an unauthenticated caller here. Reading the cookie is what makes
+// "land back on the page you asked for" true — it was written and never read
+// before, so a bounced caller landed on / instead (spec 5/31 needs the pairing
+// URL to survive the round-trip). The cookie is validated by SafeReturn before
+// it enters the SIGNED state and cleared on consume so it cannot leak into a
+// later, unrelated login.
 func (o *oauth) redirect(provider string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		intent := auth.StateIntent{}
+		ret := o.consumeReturn(w, r)
+		intent := auth.StateIntent{Return: ret}
 		if r.URL.Query().Get("intent") == "link" {
 			if from := o.bearerSub(r); from != "" {
-				ret := ""
-				if rt := r.URL.Query().Get("return"); rt != "" {
-					if safe, ok := auth.SafeReturn(rt); ok {
-						ret = safe
-					}
-				}
 				intent = auth.NewLinkIntent(from, ret)
 			}
 		}
@@ -119,6 +123,35 @@ func (o *oauth) redirect(provider string) http.HandlerFunc {
 			"&code_challenge_method=S256"
 		http.Redirect(w, r, dst, http.StatusTemporaryRedirect)
 	}
+}
+
+// authReturnCookie is the same-origin hand-off proxyd (and onbod) write before
+// bouncing a caller to /auth/login.
+const authReturnCookie = "auth_return"
+
+// consumeReturn reads the post-login destination — ?return= wins, else the
+// auth_return cookie — validates it as a local path and clears the cookie.
+// Returns "" when there is no safe destination.
+func (o *oauth) consumeReturn(w http.ResponseWriter, r *http.Request) string {
+	raw := r.URL.Query().Get("return")
+	if raw == "" {
+		if c, err := r.Cookie(authReturnCookie); err == nil {
+			raw = c.Value
+		}
+	}
+	if raw == "" {
+		return ""
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: authReturnCookie, Value: "", Path: "/",
+		MaxAge: -1, HttpOnly: true, Secure: o.secure, SameSite: http.SameSiteLaxMode,
+	})
+	safe, ok := auth.SafeReturn(raw)
+	if !ok {
+		slog.Warn("discarding unsafe post-login return path", "return", raw)
+		return ""
+	}
+	return safe
 }
 
 func (o *oauth) authorizeURL(provider string) string {

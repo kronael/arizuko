@@ -139,6 +139,12 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /me/chats/{folder...}", s.requireUser(s.handleMeThreadOrList))
 	mux.HandleFunc("GET /me/folders/{folder...}", s.requireUser(s.handleMeFolderOrFiles))
 
+	// Identity pairing (spec 5/31). GET is side-effect-free; the POST writes the
+	// membership edge. Both require a signed-in human — proxyd's `user` gate
+	// bounces an anonymous visitor through OAuth and back here.
+	mux.HandleFunc("GET /pair/{token}", s.requireUser(s.handlePairGet))
+	mux.HandleFunc("POST /pair/{token}", s.requireUser(s.handlePairPost))
+
 	mux.HandleFunc("GET /{$}", s.requireUser(s.handleGroupsPage))
 	mux.HandleFunc("GET /panel/{folder...}", s.requireFolder(s.handleChatPage))
 

@@ -263,3 +263,73 @@ func jsonField(t *testing.T, body []byte, key string) string {
 	s, _ := m[key].(string)
 	return s
 }
+
+// The post-login return path rides the SIGNED state, sourced from the
+// auth_return cookie proxyd drops when it bounces an unauthenticated caller
+// here. Without this the cookie was written and never read, so a bounced caller
+// landed on / — spec 5/31 needs the pairing URL to survive the round-trip.
+func TestOAuthRedirectCarriesAuthReturnCookie(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	cfg := &core.Config{AuthSecret: "csrf-key", AuthBaseURL: "https://auth.example", GoogleClientID: "gid"}
+	o := newOAuth(t, a, cfg, nil)
+
+	cases := []struct {
+		name   string
+		cookie string
+		query  string
+		want   string
+	}{
+		{"cookie", "/pair/abc123", "", "/pair/abc123"},
+		{"query wins", "/pair/abc123", "?return=%2Fdash%2Fstatus", "/dash/status"},
+		{"absolute rejected", "https://evil.test/x", "", ""},
+		{"scheme-relative rejected", "//evil.test/x", "", ""},
+		{"none", "", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/auth/google"+c.query, nil)
+			if c.cookie != "" {
+				req.AddCookie(&http.Cookie{Name: "auth_return", Value: c.cookie})
+			}
+			rec := httptest.NewRecorder()
+			o.redirect("google")(rec, req)
+
+			state := cookieValue(rec.Result().Cookies(), "oauth_state")
+			cb := httptest.NewRequest("GET", "/auth/google/callback?code=abc&state="+state, nil)
+			for _, ck := range rec.Result().Cookies() {
+				cb.AddCookie(ck)
+			}
+			_, _, intent, ok := o.callbackCode(httptest.NewRecorder(), cb)
+			if !ok {
+				t.Fatal("callback rejected the state redirect wrote")
+			}
+			if intent.Return != c.want {
+				t.Errorf("intent.Return = %q, want %q", intent.Return, c.want)
+			}
+		})
+	}
+}
+
+// The cookie is cleared on consume so it cannot steer a later, unrelated login.
+func TestOAuthRedirectClearsAuthReturnCookie(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	cfg := &core.Config{AuthSecret: "csrf-key", AuthBaseURL: "https://auth.example", GoogleClientID: "gid"}
+	o := newOAuth(t, a, cfg, nil)
+
+	req := httptest.NewRequest("GET", "/auth/google", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_return", Value: "/pair/abc123"})
+	rec := httptest.NewRecorder()
+	o.redirect("google")(rec, req)
+
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "auth_return" {
+			if c.MaxAge >= 0 {
+				t.Fatalf("auth_return not cleared: MaxAge=%d value=%q", c.MaxAge, c.Value)
+			}
+			return
+		}
+	}
+	t.Fatal("redirect did not clear the auth_return cookie")
+}

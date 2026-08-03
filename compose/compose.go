@@ -332,6 +332,10 @@ var coreProxydRoutes = []ProxydRoute{
 	// → handler routes by presence. Spec 5/W.
 	{Path: "/chat/", Backend: "http://webd:8080", Auth: "public"},
 	{Path: "/hook/", Backend: "http://webd:8080", Auth: "public"},
+	// /pair/ — identity pairing (spec 5/31). `user` so an anonymous visitor is
+	// bounced through OAuth with the pairing URL as the return path; the human
+	// must be signed in before the confirm page is even rendered.
+	{Path: "/pair/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/panel/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/api/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/x/", Backend: "http://webd:8080", Auth: "user"},

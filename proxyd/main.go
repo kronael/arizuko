@@ -944,10 +944,9 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			if r.URL.RawQuery != "" {
 				rt += "?" + r.URL.RawQuery
 			}
-			secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 			http.SetCookie(w, &http.Cookie{
 				Name: "auth_return", Value: rt, Path: "/",
-				MaxAge: 600, HttpOnly: true, Secure: secure,
+				MaxAge: 600, HttpOnly: true, Secure: auth.SecureRequest(r),
 				SameSite: http.SameSiteLaxMode,
 			})
 		}
