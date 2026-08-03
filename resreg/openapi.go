@@ -230,6 +230,11 @@ func endpointPaths(r *Resource) map[string]map[string]any {
 	schemaRef := map[string]any{"$ref": "#/components/schemas/" + schemaName(r.Name)}
 	out := map[string]map[string]any{}
 	for _, e := range r.Endpoints {
+		// MCP-only actions have no REST face to document; RegisterREST skips
+		// them too, so doc and mount stay in step.
+		if e.MCPOnly {
+			continue
+		}
 		pathKey, params := openAPIPath(e.Path)
 		item := out[pathKey]
 		if item == nil {

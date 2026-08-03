@@ -110,11 +110,20 @@ type Handler func(ctx context.Context, x Execution) (any, error)
 // Endpoint declares one REST face of an action. Verb is the HTTP method.
 // Path is a stdlib-mux pattern; placeholders ({name}) bind to Args keys
 // of the same name. Status is the success response code.
+//
+// MCPOnly marks an action that has NO REST face: RegisterREST does not mount
+// it and /openapi.json does not advertise it, but deriveMCPTools still
+// produces its agent tool. Verb/Path/Status are unused and stay empty. This
+// keeps ONE endpoint list per resource — an action with no human caller
+// (route_tokens' issue_pairing_link, spec 5/31) is declared here rather than
+// hand-authored next to the derived ones, so the tool browser and the agent
+// socket read the same source the REST face does.
 type Endpoint struct {
-	Verb   string
-	Path   string
-	Action Action
-	Status int
+	Verb    string
+	Path    string
+	Action  Action
+	Status  int
+	MCPOnly bool
 }
 
 // MCPTool is the DERIVED MCP face of one action — produced by
@@ -248,6 +257,9 @@ type CallerFromMCPFunc func(ctx context.Context, req mcp.CallToolRequest) (Calle
 // surface-specific Caller from each request.
 func RegisterREST(mux *http.ServeMux, r Resource, build CallerFromHTTPFunc) {
 	for _, e := range r.Endpoints {
+		if e.MCPOnly {
+			continue
+		}
 		mux.Handle(e.Verb+" "+e.Path, restHandler(r, build, e))
 	}
 }

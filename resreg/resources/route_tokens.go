@@ -27,9 +27,13 @@ type RouteTokensRow struct {
 // The REST-only resolve (URL token → jid, webd) has no MCP twin and stays
 // hand-rolled. Both faces now share routeTokensHandler, so /openapi.json
 // advertises these paths.
+// issue_pair is MCPOnly: the agent in the chat is the practical minter, and an
+// operator REST twin would be a second face for a caller who does not exist
+// (spec 5/31 § Rejected).
 var RouteTokensEndpoints = []resreg.Endpoint{
 	{Verb: "POST", Path: "/v1/route_tokens/chat", Action: resreg.Action("issue_chat"), Status: 201},
 	{Verb: "POST", Path: "/v1/route_tokens/hook", Action: resreg.Action("issue_hook"), Status: 201},
+	{Action: resreg.Action("issue_pair"), MCPOnly: true},
 	{Verb: "GET", Path: "/v1/route_tokens", Action: resreg.ActionList},
 	{Verb: "DELETE", Path: "/v1/route_tokens/{jid}", Action: resreg.Action("revoke")},
 }
@@ -40,6 +44,7 @@ var RouteTokensEndpoints = []resreg.Endpoint{
 var RouteTokensMCPNames = map[resreg.Action]string{
 	resreg.Action("issue_chat"): "issue_chat_link",
 	resreg.Action("issue_hook"): "issue_webhook",
+	resreg.Action("issue_pair"): "issue_pairing_link",
 	resreg.ActionList:           "list_tokens",
 	resreg.Action("revoke"):     "revoke_token",
 }
@@ -59,6 +64,13 @@ var RouteTokensMCPDoc = map[resreg.Action]string{
 		"Returns {token, url, jid} once. Use to register an external " +
 		"system (GitHub, Linear, Stripe, …) as a fire-and-forget event " +
 		"source for the folder. Spec 5/W.",
+	resreg.Action("issue_pair"): "Mint a one-time link that binds a channel identity to the human " +
+		"account behind it. Send the URL to that person in the chat; they " +
+		"sign in, confirm, and from then on their messages resolve to their " +
+		"account and carry whatever authority it already holds. Pairing " +
+		"GRANTS NOTHING by itself — to hand out authority use invite_create. " +
+		"The link expires in 10 minutes and works once. Returns {url, jid}; " +
+		"the URL is shown once. Spec 5/31.",
 	resreg.ActionList: "List route tokens (chat links + webhooks) owned by your folder. " +
 		"Returns rows with {jid, owner_folder, created_at, context}. Raw tokens " +
 		"are NOT returned — they're shown once at issue time. Spec 5/W.",
@@ -88,6 +100,10 @@ var RouteTokensMCPArgs = map[resreg.Action][]resreg.MCPArg{
 			Description: "Optional path appended to the JID — partition multiple webhooks under one source_label."},
 		{Name: "context", Type: "string",
 			Description: "Optional processing instructions for this hook's inbound (e.g. 'Stripe events; summarize daily, no replies'). Rendered to the handling agent as <link-context> on every message arriving through this token. Spec 5/W."},
+	},
+	resreg.Action("issue_pair"): {
+		{Name: "jid", Type: "string", Required: true,
+			Description: "Channel identity to pair (e.g. telegram:user/123). It must route to your folder — you can only mint a pairing for a chat you handle."},
 	},
 	resreg.Action("revoke"): {
 		{Name: "jid", Type: "string", Required: true,

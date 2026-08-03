@@ -26,6 +26,11 @@ package routd
 //     READ (unlike scheduled_tasks' GetTask.Owner) because the owner is bound to the
 //     caller, never supplied — the WHERE clause IS the containment.
 //
+// issue_pair (issue_pairing_link, spec 5/31) is the one MCPOnly action: it mints a
+// kind='pair' token instead of a delivery bearer, and its owner_folder is the folder
+// the JID ROUTES to rather than the caller's socket folder. The agent in the chat is
+// the only caller, so it has no REST twin and /openapi.json does not advertise one.
+//
 // BOTH faces ride this resource: the AGENT face (agent socket, route_tokensPostBuild,
 // injected tool-grant Gate) and the operator REST face (tokens_http.go mountRouteTokens,
 // injected routeTokensRESTGate — scope + JWT-folder containment). One shared handler,
@@ -62,6 +67,7 @@ import (
 const (
 	routeTokensActionIssueChat = resreg.Action("issue_chat")
 	routeTokensActionIssueHook = resreg.Action("issue_hook")
+	routeTokensActionIssuePair = resreg.Action("issue_pair")
 	routeTokensActionRevoke    = resreg.Action("revoke")
 )
 
@@ -150,6 +156,26 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		slog.Info(routeTokensMCPNames[x.Action], "folder", folder, "target", target, "jid", jid)
 		return map[string]any{"token": raw, "jid": jid, "url": url}, nil
 
+	case routeTokensActionIssuePair:
+		// The pairing's owner_folder is the folder the JID ROUTES to, not the
+		// caller's socket folder: the same value the Gate authorized the caller
+		// against, so the two cannot disagree.
+		jid := strings.TrimSpace(argString(x.Args, "jid"))
+		target, err := pairingTargetFolder(s.db, jid)
+		if err != nil {
+			return nil, err
+		}
+		if s.webHost == "" {
+			return nil, resreg.Errorf(http.StatusInternalServerError,
+				"cannot mint a pairing link: WEB_HOST is unset, so there is no URL to hand out")
+		}
+		raw, err := issueRouteTokenTx(ctx, x.Tx, jid, target, "", store.RouteTokenKindPair)
+		if err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
+		}
+		slog.Info("issue_pairing_link", "folder", folder, "target", target, "jid", jid)
+		return map[string]any{"url": s.webHost + "/pair/" + raw, "jid": jid}, nil
+
 	case routeTokensActionRevoke:
 		jid := strings.TrimSpace(argString(x.Args, "jid"))
 		if jid == "" {
@@ -187,6 +213,15 @@ func (s *Server) routeTokensPostBuild(folder, callerSub string, authorize author
 			if t := strings.TrimSpace(argString(x.Args, "target_folder")); t != "" {
 				target = t
 			}
+		case routeTokensActionIssuePair:
+			// A pairing names an EXISTING chat, so its target is where that chat
+			// already routes — never a client-supplied folder. Authorizing the
+			// caller against it is the containment outbound `send` applies
+			// (ipc.authorizeJID's route-ownership rule), evaluated once here.
+			var err error
+			if target, err = pairingTargetFolder(s.db, strings.TrimSpace(argString(x.Args, "jid"))); err != nil {
+				return err
+			}
 		}
 		if !authorize(callerSub, target, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
@@ -194,6 +229,33 @@ func (s *Server) routeTokensPostBuild(folder, callerSub string, authorize author
 		return nil
 	}
 	return mountAgentResource(res, callerSub, folder, visible)
+}
+
+// pairingTargetFolder resolves the folder a pairing's JID routes to. That folder
+// is BOTH what the Gate authorizes the caller against and the token's
+// owner_folder, so the mint gate is the route-ownership rule outbound `send`
+// already applies (ipc.authorizeJID): a caller can only mint a pairing for a
+// chat it handles. Resolved twice per call — once in the Gate, once in the
+// handler — because resreg's Gate cannot hand a value to the handler; it is the
+// same read of the same route table, so the two cannot disagree.
+//
+// An ingress surface is not an identity: web:/hook: JIDs name a route token's
+// public endpoint and anon: names an IP hash whose next holder would inherit the
+// account, so neither is pairable (spec 5/31 § Not in scope).
+func pairingTargetFolder(db *DB, jid string) (string, error) {
+	if jid == "" {
+		return "", resreg.Errorf(http.StatusBadRequest, "jid required")
+	}
+	if store.RouteTokenJIDKind(jid) != "" || strings.HasPrefix(jid, "anon:") {
+		return "", resreg.Errorf(http.StatusBadRequest,
+			"%s is an ingress surface, not a channel identity — pair the person's platform identity", jid)
+	}
+	target := db.DefaultFolderForJID(jid)
+	if target == "" {
+		return "", resreg.Errorf(http.StatusForbidden,
+			"forbidden: chat %s has no route in this instance", jid)
+	}
+	return target, nil
 }
 
 // routeTokenJID builds the (jid, url-prefix) for a mint exactly as the deleted
