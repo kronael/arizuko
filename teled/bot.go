@@ -29,6 +29,12 @@ type bot struct {
 	mentionRe *regexp.Regexp
 	typing    *chanlib.TypingRefresher
 	offsetMu  sync.Mutex
+	// saveFailStreak counts consecutive saveOffset failures, guarded by offsetMu.
+	// A lone failure is logged and ignored (transient write hiccups happen); a
+	// run of maxSaveFailStreak means the mount is persistently broken (full or
+	// read-only disk) and every further update would be re-answered on the next
+	// restart, so the process exits loudly instead of polling on regardless.
+	saveFailStreak int
 	// connected reflects the long-poll liveness to Telegram's Bot API.
 	// Set true after getMe in newBot; cleared when the updates channel closes
 	// (auth revocation or unrecoverable transport failure).
@@ -81,7 +87,24 @@ func (b *bot) loadOffset() (int, error) {
 	return n, nil
 }
 
+// maxSaveFailStreak is how many consecutive saveOffset failures teled tolerates
+// before treating the mount as persistently broken rather than transiently busy.
+const maxSaveFailStreak = 3
+
+// fatalExit is os.Exit, indirected so tests can assert the escalation fires
+// without killing the test binary.
+var fatalExit = os.Exit
+
 // atomic write: tmp + fsync + rename so a crash never leaves a partial file.
+// A single failure is logged and swallowed — transient write hiccups must not
+// crash-loop the poll goroutine. maxSaveFailStreak consecutive failures means
+// the mount is actually broken (full or read-only disk): every update since
+// the last successful save would silently replay from stale offset on the
+// next planned restart, so the process exits now instead, which (a) bounds
+// the replay to the handful of updates since the last good save instead of up
+// to 24h, and (b) surfaces the failure loudly via the crash/restart itself —
+// journalctl and `systemctl status` both show a failed/restarting unit,
+// where a Warn log would sit unread until someone goes looking.
 func (b *bot) saveOffset(offset int) {
 	if b.cfg.StateFile == "" {
 		return
@@ -90,8 +113,16 @@ func (b *bot) saveOffset(offset int) {
 	defer b.offsetMu.Unlock()
 	tmp := b.cfg.StateFile + ".tmp"
 	if err := writeAtomic(tmp, b.cfg.StateFile, strconv.Itoa(offset)); err != nil {
-		slog.Warn("offset save failed", "err", err)
+		b.saveFailStreak++
+		slog.Warn("offset save failed", "err", err, "consecutive", b.saveFailStreak)
+		if b.saveFailStreak >= maxSaveFailStreak {
+			slog.Error("offset save failing persistently; exiting so the mount problem is visible",
+				"consecutive", b.saveFailStreak, "state_file", b.cfg.StateFile)
+			fatalExit(1)
+		}
+		return
 	}
+	b.saveFailStreak = 0
 }
 
 func writeAtomic(tmp, dst, content string) error {

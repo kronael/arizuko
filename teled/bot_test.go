@@ -280,6 +280,80 @@ func TestLoadOffsetUnusableStateIsLoud(t *testing.T) {
 	}
 }
 
+// A single saveOffset failure is a transient hiccup and must not crash the
+// poll loop — only a persistent run of failures should.
+func TestSaveOffsetTransientFailureDoesNotExit(t *testing.T) {
+	dir := t.TempDir()
+	// Parent dir doesn't exist, so every write fails with ENOENT.
+	stateFile := filepath.Join(dir, "missing-subdir", "offset")
+	b := &bot{cfg: config{StateFile: stateFile}}
+
+	exited := 0
+	orig := fatalExit
+	fatalExit = func(int) { exited++ }
+	defer func() { fatalExit = orig }()
+
+	for i := 0; i < maxSaveFailStreak-1; i++ {
+		b.saveOffset(i)
+	}
+	if exited != 0 {
+		t.Fatalf("exited after %d consecutive failures, want 0 (below threshold %d)",
+			maxSaveFailStreak-1, maxSaveFailStreak)
+	}
+}
+
+// maxSaveFailStreak consecutive failures means the mount is actually broken
+// (full/read-only disk); the process must exit rather than keep polling
+// while every offset since the last good save goes unpersisted.
+func TestSaveOffsetPersistentFailureExits(t *testing.T) {
+	dir := t.TempDir()
+	stateFile := filepath.Join(dir, "missing-subdir", "offset")
+	b := &bot{cfg: config{StateFile: stateFile}}
+
+	var exitCode, exited int
+	orig := fatalExit
+	fatalExit = func(code int) { exited++; exitCode = code }
+	defer func() { fatalExit = orig }()
+
+	for i := 0; i < maxSaveFailStreak; i++ {
+		b.saveOffset(i)
+	}
+	if exited != 1 {
+		t.Fatalf("fatalExit called %d times, want exactly 1 after %d consecutive failures",
+			exited, maxSaveFailStreak)
+	}
+	if exitCode != 1 {
+		t.Errorf("exit code = %d, want 1", exitCode)
+	}
+}
+
+// A successful save must reset the streak, so an occasional blip on an
+// otherwise-healthy mount never accumulates toward the exit threshold.
+func TestSaveOffsetStreakResetsOnSuccess(t *testing.T) {
+	dir := t.TempDir()
+	badFile := filepath.Join(dir, "missing-subdir", "offset")
+	goodFile := filepath.Join(dir, "offset")
+	b := &bot{cfg: config{StateFile: badFile}}
+
+	exited := 0
+	orig := fatalExit
+	fatalExit = func(int) { exited++ }
+	defer func() { fatalExit = orig }()
+
+	for i := 0; i < maxSaveFailStreak-1; i++ {
+		b.saveOffset(i)
+	}
+	b.cfg.StateFile = goodFile
+	b.saveOffset(100) // succeeds, resets streak
+	b.cfg.StateFile = badFile
+	for i := 0; i < maxSaveFailStreak-1; i++ {
+		b.saveOffset(i)
+	}
+	if exited != 0 {
+		t.Fatalf("exited = %d, want 0 — the reset after a success must not carry over", exited)
+	}
+}
+
 func TestLoadSaveOffsetEmptyStateFile(t *testing.T) {
 	// Empty StateFile → no-op (no panic, no file created)
 	b := &bot{cfg: config{StateFile: ""}}
