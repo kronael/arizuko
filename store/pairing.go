@@ -11,6 +11,7 @@ package store
 // of its own.
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -99,6 +100,21 @@ func (s *Store) RedeemPairing(rawToken, parentSub string) (string, error) {
 		return "", err
 	}
 	return jid, nil
+}
+
+// UnpairTx deletes ONE acl_membership edge on tx, scoped to added_by =
+// PairingAddedBy so it can never reach role membership or a manifest-applied
+// row. Returns whether an edge went. Takes effect on the identity's next tool
+// call — Authorize reads the DB live (spec 5/32 § No caching).
+func UnpairTx(ctx context.Context, tx *sql.Tx, child, parent string) (bool, error) {
+	res, err := tx.ExecContext(ctx,
+		`DELETE FROM acl_membership WHERE child = ? AND parent = ? AND added_by = ?`,
+		child, parent, PairingAddedBy)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // pairingJID resolves a raw token to its JID, kind-scoped to 'pair' and bounded

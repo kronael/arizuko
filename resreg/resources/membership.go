@@ -24,6 +24,38 @@ type ACLMembershipRow struct {
 var ErrMembershipCycle = errors.New("acl_membership: cycle")
 var ErrMembershipSelf = errors.New("acl_membership: self")
 
+// The resource carries exactly ONE action (spec 5/31 § Unpair): delete, scoped
+// to added_by='pairing' so it can never reach role membership. Adding an edge
+// stays a consented redemption or a manifest apply — there is no add face here.
+// The DELETE is body-addressed because the PK is composite (child, parent).
+var ACLMembershipEndpoints = []resreg.Endpoint{
+	{Verb: "DELETE", Path: "/v1/acl_membership", Action: resreg.ActionDelete},
+}
+
+// ACLMembershipMCPNames keeps the agent-facing verb flat and honest: `unpair` is
+// what it does, and it is the exact inverse of issue_pairing_link.
+var ACLMembershipMCPNames = map[resreg.Action]string{
+	resreg.ActionDelete: "unpair",
+}
+
+var ACLMembershipMCPDoc = map[resreg.Action]string{
+	resreg.ActionDelete: "Undo a pairing: stop a channel identity from acting as " +
+		"the account it was linked to. Both endpoints of the link may call this — " +
+		"the agent handling that chat, or the account holder over REST. It only " +
+		"touches links made by pairing, never role membership, and it cannot add " +
+		"authority (there is no inverse verb). Takes effect on the identity's next " +
+		"tool call. Spec 5/31.",
+}
+
+var ACLMembershipMCPArgs = map[resreg.Action][]resreg.MCPArg{
+	resreg.ActionDelete: {
+		{Name: "child", Type: "string", Required: true,
+			Description: "The channel identity to unlink (e.g. telegram:user/123). It must route to your folder."},
+		{Name: "parent", Type: "string", Required: true,
+			Description: "The account it currently acts as (e.g. google:alice)."},
+	},
+}
+
 func init() {
 	resreg.Register(resreg.Resource{
 		Name:          "acl_membership",
@@ -31,6 +63,10 @@ func init() {
 		RowType:       reflect.TypeFor[ACLMembershipRow](),
 		PKFields:      []string{"Child", "Parent"},
 		StampedFields: []string{"AddedAt"},
+		Endpoints:     ACLMembershipEndpoints,
+		MCPDoc:        ACLMembershipMCPDoc,
+		MCPArgs:       ACLMembershipMCPArgs,
+		MCPNames:      ACLMembershipMCPNames,
 		Hooks: resreg.Hooks{
 			ValidateRow: func(ctx context.Context, tx *sql.Tx, row any) error {
 				r := row.(*ACLMembershipRow)

@@ -249,6 +249,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/sessions", s.handleSessionGet)
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
 	s.mountACL(mux)
+	// /v1/acl_membership DELETE — the account side of unpair (spec 5/31). The
+	// caller's verified sub must BE the edge's parent.
+	s.mountMembership(mux)
 	// /v1/secrets write surface (POST set/seal + key-DELETE) rides the shared
 	// secretsHandler via resreg — the 5/16 REST fold (secrets_resource.go). Forwarder
 	// (no resreg tx/audit) so the plaintext value never lands in audit_log; the
