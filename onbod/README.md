@@ -16,6 +16,13 @@ flow confirms identity (authd), onbod creates a user world via
 - Promote queued users to `approved` via `admitFromQueue` loop (~60s).
 - Second-JID auto-link when a user already has a world.
 
+Onboarding writes its own JID→sub claim (`linkJID`, `added_by='linkJID'`)
+carried across the OAuth round-trip in the unsigned `onboard_jid` cookie.
+Identity pairing (`specs/5/31-identity-pairing.md`) is the general
+mechanism for the same edge and does NOT go through onbod; folding
+onbod's greeting onto a pairing link is outstanding, and until it lands a
+`linkJID` edge is out of reach of the `unpair` verb.
+
 ## Tables owned
 
 `onboarding`, `invites`, `onboarding_gates` (+ its own `audit_log`).
@@ -37,7 +44,8 @@ and invite redemption (FS-mounted, no federation).
 - Listen: `$ONBOD_LISTEN_ADDR` (default `:8080`)
 - Public surface (transit-verified via authd JWKS):
   - `GET /onboard` — dashboard or queue position
-  - `POST /onboard` — CSRF-protected form actions (create_world, add/delete route)
+  - `POST /onboard` — CSRF-protected form actions (create_world; add/delete
+    route are dispatched but no page renders a form for them)
   - `GET /invite/{token}` — invite redemption
 - Admin surface (bearer-gated, authd JWKS; nil keyset = open):
   - `POST /v1/onboarding` — record unrouted JID (invites:write)

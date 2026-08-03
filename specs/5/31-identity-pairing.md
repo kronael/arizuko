@@ -144,6 +144,13 @@ across the OAuth round-trip in the unsigned `onboard_jid` cookie into
 one. Folding onbod's greeting onto a pairing link (and deleting that cookie) is
 the follow-up; it is a change to onboarding's flow, not to pairing.
 
+The two writers are distinguishable and that has a live consequence: onbod
+stamps `added_by='linkJID'`, so an edge created by onboarding is **not**
+reachable by `unpair`, which is scoped to `added_by='pairing'`. Deliberate —
+unpair must not become a general `acl_membership` delete — but it means an
+onboarding-era link is still removable only through `arizuko apply` until the
+fold lands.
+
 ## Not in scope
 
 - **`anon:<ip-hash>` web-chat senders** (`webd/route_token.go:50`). An IP hash

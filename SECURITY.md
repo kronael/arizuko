@@ -133,6 +133,38 @@ rendered to the agent as `<link-context>`) — is set only at mint time
 by an authorized issuer (tier-capped MCP, scoped REST, dashd admin,
 CLI); the public URL cannot alter it.
 
+### Pairing: consent is the boundary
+
+A pairing link (`/pair/<token>`, `kind='pair'` in `route_tokens` — spec
+`specs/5/31-identity-pairing.md`) writes ONE thing: the
+`acl_membership(child=<channel JID>, parent=<account sub>)` edge that
+makes an anonymous channel identity resolve to a verified account. A
+channel identity holds no grants, ever; this edge is the only bridge to
+authority, and it grants nothing new — the paired identity acts as the
+human, who holds whatever they already held.
+
+The edge is **directional**, and the direction decides who bears the
+risk: whoever controls `telegram:user/999` can then act as
+`google:alice`. Alice bears all of it. So the attack is **consent
+phishing** — Mallory mints a link for HER OWN chat (the mint gate
+permits nothing else) and sends it to Alice.
+
+The defence has to sit where the risk sits, which is the one step the
+account owner performs: the browser confirm at `POST /pair/<token>`
+(`webd/pair.go`). The page names the channel identity and states the
+consequence in one sentence, and the write carries a double-submit CSRF
+token (`auth/csrf.go`). `GET` is side-effect-free — chat platforms
+unfurl links and an unfurl bot must not spend a pairing.
+
+What is NOT a defence: the ten-minute TTL (a minter mints again on
+demand) and where the URL is pasted (the token names the JID it binds,
+so relocating it only discloses the secret — the phishing case above).
+A channel identity has at most one non-role parent, enforced inside the
+redemption transaction, because `expandPrincipals` unions and a second
+parent would silently hand the identity two humans' authority. Either
+end of the edge can drop it with `unpair`; it never reaches role
+membership (scoped to `added_by='pairing'`).
+
 ### Public vs private web tree separation
 
 `<data>/web/pub/` and `<data>/web/priv/` are **separate filesystem

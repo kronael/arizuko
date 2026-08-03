@@ -56,6 +56,11 @@ Shipped today (see `server.go`):
   and `POST /chat/{token}/mcp` (`route_token.go`, `chat_mcp.go`, `turn.go`).
   The URL token IS the capability.
 - `POST /hook/{token}` — fire-and-forget webhook ingest (rate-limited).
+- `GET|POST /pair/{token}` — identity pairing (spec 5/31, `pair.go`).
+  `GET` renders the confirm page and writes nothing — chat platforms
+  unfurl links and an unfurl bot must not spend a pairing. `POST` writes
+  the `acl_membership` edge and consumes the token in one routd
+  transaction, behind a double-submit CSRF token.
 - `GET /chat/stream` — SSE stream for route-token topics (`hub.go`).
 - `GET|POST /slink/{token}/...` — legacy; 301 redirects to `/chat/...`.
 - `GET|POST /me/...` — authed per-user chat console: index, chats list,
@@ -83,6 +88,12 @@ Planned per `specs/5/17-openapi-mcp.md`:
   trusted directly (no verifier, no proxyd). webd never signs tokens.
 - `/send`, `/typing`, `/v1/round_done` are gated by `chanlib.Auth`:
   ES256 `service:routd` token when `AUTHD_URL` is set, open in local dev.
+- `/pair/<token>` is the exception among token surfaces: proxyd gates it
+  `user`, so an anonymous visitor is bounced through OAuth and returns to
+  the same URL. The token names WHICH channel identity to link; the
+  signed-in `sub` is WHO it links to, and the human's consent at the
+  confirm step is the security boundary (`SECURITY.md` §"Pairing:
+  consent is the boundary").
 - `/chat/<token>/*` and `/hook/<token>` stay unauthenticated; the URL
   route-token IS the capability (looked up in `route_tokens`, resolved to
   folder via proxyd's `X-Chat-Token` + `X-Folder` stamps verified via
@@ -137,11 +148,13 @@ delivered messages.
 - `pages.go` — authed HTML pages (root, panel)
 - `partials.go` — authed HTMX partials (`/x/groups/*`)
 - `assets.go` — embedded static asset serving (`/static/*`, `/assets/*`)
+- `pair.go` — identity-pairing confirm + redemption (`/pair/<token>`)
 - `ratelimit.go` — per-token rate limiter for `/chat/*` and `/hook/*`
 
 ## Related docs
 
 - `specs/5/17-openapi-mcp.md` — federated `/v1/*` contract (supersedes 5/5)
+- `specs/5/31-identity-pairing.md` — the pairing surface webd serves
 - `specs/5/J-sse.md` — SSE streams + slink-MCP transport
 - `specs/4/3-chat-ui.md`
 - `ARCHITECTURE.md` (Web Channel section)

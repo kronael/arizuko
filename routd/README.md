@@ -34,7 +34,8 @@ Spec: `specs/5/E`.
 `routd.db` (routd owns + migrates its own schema):
 
 - Message store: `messages`, `chats`, `engagement`
-- Routing: `routes`, `web_routes`, `route_tokens`
+- Routing: `routes`, `web_routes`, `route_tokens` (`kind='route'`
+  delivery bearers + `kind='pair'` identity-pairing links, spec 5/31)
 - Orchestration: `turn_context`, `turn_results`
 - Auth+grants: `acl`, `acl_membership`, `secrets`, `secret_use_log`
 - Scheduler: `scheduled_tasks`, `task_run_logs`
@@ -49,8 +50,11 @@ data arrives over HTTP (authd identity, runed session_log).
 
 `/openapi.json` emits schema for: `routes`, `web_routes`, `acl` (the
 REST-exposed subset). `secrets` is excluded (its `enc_value` blob must
-never appear in a read surface); `acl_membership`/`network_rules` are
-MCP-only.
+never appear in a read surface); `network_rules` is MCP-only.
+`acl_membership` exposes exactly one face-pair: `unpair` (MCP) and
+`DELETE /v1/acl_membership` (REST), both scoped to `added_by='pairing'`.
+Writing that edge is not an endpoint at all — it happens only when a
+human confirms a pairing link in a browser (spec 5/31).
 
 ## Entry points
 
@@ -67,6 +71,12 @@ Endpoints (`server.go`, `channels.go`):
   (optional `context` = per-link processing instructions, spec 5/W)
 - `GET /v1/route_tokens`, `DELETE /v1/route_tokens/{jid}` — list/revoke
 - `POST /v1/route_tokens/resolve` — validate token
+- `DELETE /v1/acl_membership` — unpair; the caller's sub must BE the
+  `parent` (spec 5/31). The agent twin is the `unpair` MCP tool, whose
+  containment is the child JID's routing folder instead
+- MCP-only: `issue_pairing_link(jid)` mints a `kind='pair'` route token
+  for a JID that routes to the caller's folder. No REST twin by design
+  — no operator mints a pairing for a chat they are not in (spec 5/31)
 - `POST /v1/channels/register`, `POST /v1/channels/deregister` — adapter registry
 - `GET /v1/channels` — adapter list
 - `GET /v1/messages/{inspect,thread,find}` — message reads

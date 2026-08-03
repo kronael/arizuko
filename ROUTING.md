@@ -58,6 +58,25 @@ URL composes three orthogonal axes:
    (`messages.link_context`), rendered to the agent as
    `<link-context>` in the turn envelope.
 
+### Token kinds — delivery vs pairing (`/pair/<token>`)
+
+`route_tokens.kind` says what a row IS. `route` is a delivery bearer —
+the two surfaces above. `pair` is an **identity-pairing link** served by
+webd at `/pair/<token>`: redeeming it writes the `acl_membership` edge
+that makes a channel identity (`telegram:user/123`) resolve to the
+account of whoever confirms, which is the only way an anonymous channel
+user acquires any authority at all. Spec
+`specs/5/31-identity-pairing.md`.
+
+Resolution is kind-scoped in both directions — delivery accepts only
+`route`, redemption only `pair` — so neither is redeemable as the other.
+A pairing is minted by the agent in the chat (`issue_pairing_link`, MCP
+only; the JID must route to the agent's folder), lives ten minutes, is
+single-use, and grants nothing by itself. `GET /pair/<token>` is
+side-effect-free so an unfurl bot cannot spend it; the `POST` is the
+consent step, and the threat model that shapes it is SECURITY.md
+§"Pairing: consent is the boundary". The inverse verb is `unpair`.
+
 ## Route Table
 
 The `routes` table is a flat list of rules evaluated against every
@@ -494,12 +513,13 @@ applies a default auth-gate.
 
 ### Fixed prefixes (evaluated first, in order)
 
-| Path prefix                                             | Behaviour                                                       |
-| ------------------------------------------------------- | --------------------------------------------------------------- |
-| `/chat/`, `/hook/`                                      | route-token surfaces — no auth required                         |
-| `/pub/`                                                 | Vite public assets — no auth required; serves `<data>/web/pub/` |
-| `/priv/`                                                | JWT-gated; serves `<data>/web/priv/` (v0.45.11+, separate tree) |
-| `/panel/`, `/api/`, `/x/`, `/static/`, `/auth/`, `/mcp` | auth-gated, forwarded upstream                                  |
+| Path prefix                                             | Behaviour                                                                                            |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `/chat/`, `/hook/`                                      | route-token surfaces — no auth required                                                              |
+| `/pair/`                                                | identity pairing — JWT-gated; an anonymous visitor bounces through OAuth and returns to the same URL |
+| `/pub/`                                                 | Vite public assets — no auth required; serves `<data>/web/pub/`                                      |
+| `/priv/`                                                | JWT-gated; serves `<data>/web/priv/` (v0.45.11+, separate tree)                                      |
+| `/panel/`, `/api/`, `/x/`, `/static/`, `/auth/`, `/mcp` | auth-gated, forwarded upstream                                                                       |
 
 For `/api/` and `/x/` paths (and any request with `Accept: application/json`),
 `requireAuth` returns `{"error":"unauthorized"}` with HTTP 401 instead of
