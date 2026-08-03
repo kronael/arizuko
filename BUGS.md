@@ -2932,3 +2932,51 @@ the owner DBs, the first `export` leaks live invite bearers and the first
   YAML projection, matching `route_tokens`. **Do this BEFORE the Y1 repoint**,
   not after — and while there, audit every resreg resource carrying a secret or
   bearer field for the same omission rather than fixing only this one.
+
+## E1 — five adapters keep state in unmounted paths; it dies on every recreate (2026-08-03, open)
+
+Found by the mount audit. `teled`, `bskyd`, `reditd`, `linkd` and `emaid` each
+persist state under a data-dir path, and their compose fragments declare
+**`volumes:` zero times** — verified on `template/services/{teled,bskyd,reditd,linkd,emaid}.yml`,
+and `sudo docker inspect arizuko_teled_krons` returns an EMPTY mount list. The
+state lives inside the container layer and is destroyed on every recreate.
+
+| daemon | state | code |
+| ------ | ----- | ---- |
+| teled  | Telegram update offset | `teled/bot.go:60` (`loadOffset`), written `:66-101` |
+| bskyd  | `bluesky-session.json` | `bskyd/client.go:80`, written `:92,95` |
+| reditd | `cursors.json` | `reditd/client.go:78`, written `:88,90` |
+| linkd  | `linkd-state-<name>.json` | `linkd/client.go:95,122`, written `:143,161` |
+| emaid  | `emaid.db` (a whole SQLite DB) | `emaid/store.go:22`, created `:19-38` |
+
+**teled is the user-visible one.** `loadOffset` is
+`data, _ := os.ReadFile(b.cfg.StateFile)` — the error is swallowed, so a missing
+file silently returns offset 0. Telegram treats `getUpdates` offset 0 as "send
+everything still queued" and retains ~24h, so a recreate can re-deliver up to a
+day of updates and the agent answers them all again. Silent by construction: no
+log line marks the reset.
+
+`emaid` is the structural oddity — it opens a SQLite database at a path nothing
+mounts, so it silently starts empty each time.
+
+Note `reditd` and `emaid` are not even given `DATA_DIR`, so their paths resolve
+relative to the container working dir.
+
+Correcting a related claim recorded earlier in **A1**: the universal
+`<dataDir>:/srv/app/home` rw mount comes from `compose/compose.go:811` in
+`writeSvc`, which emits ONLY the eight core daemons (authd, routd, runed, timed,
+onbod, dashd, proxyd, webd). The 10 channel adapters plus davd/ttsd/vited are
+NOT emitted there — they are standalone fragments included verbatim
+(`compose.go:384`), each declaring its own volumes or none. So "one line hands
+every daemon every database" is true of the core eight only, and narrowing the
+adapters is a per-fragment edit, not one code change.
+
+- **Severity:** high for teled (duplicate agent replies after any recreate);
+  medium for the rest (re-auth / re-scan / lost dedup state)
+- **Scope:** compose fragment volumes for channel adapters
+- **Affected:** `template/services/{teled,bskyd,reditd,linkd,emaid}.yml`,
+  `teled/bot.go:60`
+- **Fix:** give each fragment the narrow rw mount it needs (`whapd.yml:9` and
+  `twitd.yml:9` already show the pattern — a single subpath, not the data dir),
+  set `DATA_DIR` where absent, and make `loadOffset` fail loud instead of
+  swallowing the read error.
