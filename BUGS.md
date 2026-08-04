@@ -3327,3 +3327,85 @@ second OAuth identity — which no one has.
   lookup, not new state. Do NOT silently rewrite the principal: moving a grant
   without the operator asking is the failure mode N1 chose an immutable
   canonical to avoid.
+
+## Z1 — all three live instances run a routd/onbod image ~5 days stale; a chunk of shipped migrations is not live (2026-08-04, open)
+
+Found verifying `83cccc78` (the 5/8 CAS/repoint) against read-only `.backup`
+copies of the three live instance DBs (never touched the originals). Every
+instance's `migrations` table stops at `routd` version **19** and `onbod`
+version **2**, dated 2026-07-12 and 2026-06-06 respectively — but the
+codebase's `routd/migrations/` goes to **0027** and `onbod/migrations/` to
+**0003**, with 0021 (2026-07-30), 0023/0025/0026/0027 (2026-08-01 through
+2026-08-04) and onbod 0003 (2026-08-03) all added AFTER the running image.
+`sudo docker inspect arizuko_routd_krons` shows image `30c7bd65…`, tagged
+`arizuko:latest`, **created 2026-07-30 07:42**; `sudo systemctl status
+arizuko_krons` shows the container restarted 11h ago (2026-08-04 10:39) —
+so the SERVICE restarted recently, but on the SAME stale image, and no new
+migration ran because the binary inside it doesn't contain them. Identical
+version numbers (19 / 2) on krons, sloth, AND marinade — one shared stale
+image, not a per-instance drift.
+
+Concrete consequence for code shipped this week: `route_tokens.kind`
+(migration 0026, 5/31 pairing-vs-route distinction) and onbod's invites
+hash-at-rest `ref` PK (migration 0003) do not exist on any live routd.db/
+onbod.db yet — `resreg.Export`/`Checksum` fail outright on those two
+resources against live data today (`no such column: kind` / `no such column:
+ref`), confirmed by the same verification run. This is NOT a bug in
+`83cccc78`'s `route_tokens`/`invites` RowFilter changes — the code is correct
+against the schema the codebase defines and against a freshly-migrated DB
+(`routd.OpenMem()`, which the CI-equivalent tests use) — it is a **deployment
+gap**: this week's migrations, and everything else shipped since the 2026-07-30
+image build, are not protecting any live user.
+
+- **Severity:** high (a growing list of shipped fixes — pairing grants,
+  role-member 4R, user-profiles, drop-linked-to-sub, invites hash-at-rest —
+  is not live on any instance)
+- **Scope:** deployment / image freshness, all three instances
+- **Affected:** krons, sloth, marinade (`routd`, `onbod`)
+- **Source:** `.backup` copies verified 2026-08-04 21:4x UTC; live `migrations`
+  table + `docker inspect`/`systemctl status` (read-only checks)
+- **Fix:** rebuild + redeploy (`sudo make images` then `sudo systemctl restart
+  arizuko_<instance>` per instance) — an operator action, not attempted here
+  per "never touch a live instance." Once redeployed, re-verify `route_tokens`/
+  `invites` export against real data (this session's synthetic-schema tests
+  already cover the post-migration shape; only the live-data path was blocked).
+
+## Z2 — proxyd_routes round-trip is not a no-op: `[]string{}` vs `nil` breaks Diff on every row with no preserve_headers (2026-08-04, open)
+
+Found in the same live-DB verification pass (read-only, all three instances):
+exporting `proxyd_routes`, re-parsing the emitted fragment, and diffing against
+the live table reports EVERY row as `update` — 12/12 on krons, 10/10 on sloth,
+11/11 on marinade — never `add`/`remove`, so it is a payload-equality bug, not
+a scope/PK bug, and it is instance-independent (same shape on all three).
+
+Root cause, verified: every live row has `preserve_headers = '[]'` (confirmed
+via direct query, not assumed) — `ProxydRoutesRow`'s `BeforeInsert`
+(`resreg/resources/proxyd_routes.go`) always writes `'[]'\'` for a nil/empty
+`PreserveHeaders`, never NULL or `''`. `AfterScan` then
+`json.Unmarshal([]byte("[]"), &r.PreserveHeaders)`, which yields a **non-nil
+empty** `[]string{}`. But `PreserveHeaders` carries `yaml:"preserve_headers,
+omitempty"`, so a row with no headers is OMITTED from the emitted YAML
+entirely; re-parsing that fragment leaves the Go zero value, **`nil`**.
+`engine.go`'s `payloadEqual` falls through to `reflect.DeepEqual`, which
+treats `[]string{}` and `nil` as unequal — the classic Go slice-identity trap.
+Every existing test exercises either the live value alone (never round-trips
+through EmitYAML/ParseYAML) or a row with a genuinely non-empty
+`PreserveHeaders`, so this never surfaced until compared against real rows.
+
+Pre-existing — `83cccc78` did not touch `proxyd_routes.go`'s hooks or
+`payloadEqual`; found during general verification of that commit, not fixed
+per CLAUDE.md's bug-triage protocol (don't fix on discovery).
+
+- **Severity:** medium — `arizuko plan`/`get` misreport every proxyd route as
+  changed when nothing changed; an operator `apply` of an unmodified export
+  would still be a correct no-op DELETE+INSERT (same values back), so this is
+  a round-trip-honesty violation (spec 5/8 §"Round-trip honesty"), not a data
+  -loss risk.
+- **Scope:** `resreg` engine (`payloadEqual`) or `proxyd_routes.go` (`AfterScan`)
+- **Affected:** `proxyd_routes` resource, live on krons/sloth/marinade
+- **Source:** live-DB verification 2026-08-04 21:4x UTC (`.backup` copies)
+- **Fix:** either normalize in `AfterScan` (empty JSON array → `nil`, matching
+  what a round-trip through YAML always produces) or teach `payloadEqual` to
+  treat a nil and a zero-length slice as equal generically — the general form
+  is probably right, since any future `[]string`-typed field with `omitempty`
+  hits the identical trap.
