@@ -123,9 +123,11 @@ ACL; do not add a second check in the loop.
   `onboard_jid` cookie and bounces to `/auth/login`; `X-User-Sub` survives only
   when `auth.ProxydTransit` holds; `claimOnboarding` + `linkJID`
   (`onbod/main.go:558`, `:845`) write the `acl_membership` edge.
-- **6 — no picker.** `handleDashboard` (`onbod/main.go:572`) auto-picks the
-  first `acl`-joined folder SQLite happens to return — no `ORDER BY`, no
-  membership walk, no action filter, no user confirmation.
+- ~~**6 — no picker.**~~ **SHIPPED** (`d9e57288`). `firstAdminFolder` became
+  `adminFolders` — the same `auth.Authorize`-per-group evaluator, returning the
+  whole set — and `renderWorldPicker` posts to the existing `handleAddRoute`.
+  One world routes directly with no page; zero administrable worlds renders an
+  explicit dead end rather than an empty picker.
 - **7 — the route write is a side effect, not an act.** It happens inside that
   claim, inside `createWorldTx`, and inside invite redemption; the latter two
   loop over _every_ JID the sub has paired and route them all at the target.
@@ -236,9 +238,12 @@ names the survivor.
    (gates/queue) is observed by a poll. Still open from `5/29`: whether
    `gate` survives as a stranger throttle; whether a stranger who chose no
    world may create one (today: only via an invite).
-2. **Here, once that lands** — replace the auto-pick with the picker, render a
-   form for the existing `handleAddRoute`, register `onboarding` as a resreg
-   resource, drop the derivable `status` column.
+2. ~~replace the auto-pick with the picker, render a form for the existing
+   `handleAddRoute`~~ — **SHIPPED** (`d9e57288`). Still open here: register
+   `onboarding` as a resreg resource, and step 7's missing attribution — the
+   `routes` row still records no approver, and `createWorldTx` plus invite
+   redemption still write routes as a side effect over _every_ paired JID.
+   The derivable-`status` deletion was closed as NOT derivable (`P3b`).
 
 ## Consolidates
 
