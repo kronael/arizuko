@@ -6,9 +6,9 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// Caller is the bearer of a request. Principal must be canonical
-// (post-CanonicalSub for OAuth subs). Claims carry JWT claims used by
-// row predicates.
+// Caller is the bearer of a request. Principal is the JWT subject as authd
+// minted it — there is no resolve step in front of it. Claims carry JWT claims
+// used by row predicates.
 type Caller struct {
 	Principal string
 	Claims    map[string]string
