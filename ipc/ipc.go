@@ -986,7 +986,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	for i := range db.Connectors {
 		tool := db.Connectors[i] // capture
 		// Skip announcement when the folder's own principal lacks grant. Default
-		// tier allows mcp:* so this only hides tools covered by an explicit deny.
+		// a grant of mcp:* covers every tool, so this only hides tools an explicit deny covers.
 		if db.Authorize != nil && !db.Authorize("folder:"+folder, folder, "mcp:"+tool.LocalName, nil) {
 			continue
 		}
@@ -1597,7 +1597,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	// Per-group ambient controls (spec 5/F). Both default to the calling
 	// folder; pass `folder` to edit a descendant. AuthorizeStructural
-	// gates cross-folder writes to own subtree (tier 0/1).
+	// gates cross-folder writes to the caller's own subtree.
 	granted("set_observe_window",
 		"Override a group's ambient observe-window caps (messages and/or chars). Defaults to this folder; pass `folder` to edit a descendant. Per-group caps win over instance env defaults; per-route caps still win over both. Pass -1 to clear an override. Omit messages|chars to leave unchanged.",
 		[]mcp.ToolOption{
@@ -1751,7 +1751,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if jid == "" {
 				return toolErr("chatJid required")
 			}
-			// inject_message carries no per-jid containment (the old gate was tier-only);
+			// inject_message carries no per-jid containment (the old gate was depth-derived);
 			// magnitude on the caller's own folder is the whole check — a grant-holder
 			// may inject anywhere, as before.
 			if err := authzStructural("inject_message", identity.Folder); err != nil {
@@ -1779,7 +1779,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	// (its group-row + route + git-init FS side-effects via s.registerGroup can't
 	// ride a resreg tx), so its auth + audit live in routd/groups_resource.go.
 
-	granted("escalate_group", "Hand a prompt up to this group's parent folder; the parent responds back through this child. Use when the request exceeds this group's authority/tier or needs operator review. Not for peer/child handoff (delegate_group) or creating a new group (register_group). Depth capped at 1.",
+	granted("escalate_group", "Hand a prompt up to this group's parent folder; the parent responds back through this child. Use when the request exceeds this group's authority or needs operator review. Not for peer/child handoff (delegate_group) or creating a new group (register_group). Depth capped at 1.",
 		[]mcp.ToolOption{
 			mcp.WithString("prompt", mcp.Required()),
 			mcp.WithString("chatJid", mcp.Required()),
@@ -1870,8 +1870,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	// list_acl / add_acl / remove_acl are no longer hand-rolled here. They ride
 	// resreg's two-face mechanism (spec 5/16): routd owns the shared handler +
 	// tx/audit and mounts them on this server via the ServeMCP postBuild seam,
-	// with the agent's tier-aware Gate (scope-containment) + MatchingRules
-	// visibility (list_acl stays tier 0-1) injected. See routd/acl_resource.go.
+	// with the agent's Gate (scope-containment) + MatchingRules visibility
+	// injected. See routd/acl_resource.go.
 
 	registerRaw("invite_create",
 		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets an `acl` row granting admin on target_glob. The token comes back ONLY here, once — deliver it now; invite_list later shows just the `ref`. Use to onboard new collaborators to a world or sub-folder you own. The agent's authority must cover target_glob — you can't issue access you don't have.",
@@ -1986,7 +1986,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	// the former list_acl site above).
 
 	// issue_chat_link / issue_webhook / list_tokens / revoke_token migrated to
-	// routd/route_tokens_resource.go (spec 5/16, agent-MCP fold). Their mint tier
+	// routd/route_tokens_resource.go (spec 5/16, agent-MCP fold). Their mint gate
 	// cap + owner-scoped revoke ride the resreg postBuild seam now.
 
 	if db.MessagesBefore != nil {
@@ -2059,7 +2059,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				return toolErr("find_messages: " + err.Error())
 			}
 			// Post-fetch ACL: drop rows whose chat_jid isn't routed to caller's
-			// folder. Tier-0 (operator) bypasses. JIDRoutedToFolder is the same
+			// folder. An operator grant bypasses. JIDRoutedToFolder is the same
 			// gate inspect_messages uses (spec 5/C).
 			filtered := hits[:0]
 			if !identity.IsRoot && db.JIDRoutedToFolder != nil {
@@ -2229,7 +2229,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	// are no longer hand-rolled here. They ride resreg's two-face mechanism
 	// (spec 5/16 pilot): routd owns the shared handler + tx/audit and mounts
 	// them on this server via the ServeMCP postBuild seam, with the agent's
-	// tier-aware Gate + MatchingRules visibility injected. get_web_presence
+	// Gate + MatchingRules visibility injected. get_web_presence
 	// stays hand-authored — it is a read-only presence report, not web_routes
 	// CRUD, and has no resreg REST twin.
 	granted("get_web_presence",
@@ -2240,7 +2240,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if target == "" {
 				target = folder
 			}
-			// tier-1+ may only inspect own folder or descendants; tier-0 any.
+			// a scoped grant inspects its own folder or descendants; operator any.
 			if !identity.IsRoot && target != folder &&
 				!strings.HasPrefix(target, folder+"/") {
 				return toolErr("get_web_presence: can only query own folder or descendants")
