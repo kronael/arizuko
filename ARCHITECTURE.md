@@ -299,8 +299,7 @@ standalone daemon owning its own DB:
   JWKS so every daemon verifies offline via the `auth/` library. Acts
   as the OAuth provider and mints `service:<daemon>` tokens from each
   daemon's `AUTHD_SERVICE_KEY`. Owns `auth.db` (`signing_keys`,
-  `auth_users`, `oauth_identities`, `refresh_tokens`, `identities`,
-  `identity_claims`, `identity_codes`). Spec
+  `auth_users`, `oauth_identities`, `refresh_tokens`). Spec
   [`specs/5/1-auth-standalone.md`](specs/5/1-auth-standalone.md).
 
 `auth/` ships as a Go library (offline JWT verify, OAuth helpers, ACL,
@@ -429,8 +428,7 @@ each daemon re-sequences its own `migrations/` from `0001`.
 - **`runed.db`** (`runed/migrations/`): `spawns`, `session_log`,
   `spawn_logs`, `mcp_tokens`, `circuit_breaker`.
 - **`authd.db`** (`authd/migrations/`): `signing_keys`, `auth_users`,
-  `oauth_identities`, `refresh_tokens`, `identities`, `identity_claims`,
-  `identity_codes`.
+  `oauth_identities`, `refresh_tokens`.
 - **`onbod.db`** (`onbod/migrations/`): `onboarding`, `onboarding_gates`,
   `invites`.
 
@@ -471,9 +469,6 @@ each daemon re-sequences its own `migrations/` from `0001`.
 | `oauth_identities`   | user_id + provider (unique), provider_sub, linked_at (authd.db)                                                                                                                                                                                                                            |
 | `refresh_tokens`     | token_hash (PK), family_id, sub, scope, aud, issued_at, expires_at, used_at, revoked_at (authd.db)                                                                                                                                                                                         |
 | `signing_keys`       | kid (PK), priv_pem, pub_pem, active, created_at, retired_at (authd.db)                                                                                                                                                                                                                     |
-| `identities`         | id (PK), name, created_at — canonical cross-channel user (advisory, spec 5/9) (authd.db, migration 0004)                                                                                                                                                                                   |
-| `identity_claims`    | sub (PK), identity_id, claimed_at — sender-sub → identity merge (authd.db, migration 0004)                                                                                                                                                                                                 |
-| `identity_codes`     | code (PK), identity_id, expires_at — short-lived link codes (authd.db, migration 0004)                                                                                                                                                                                                     |
 | `onboarding`         | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at (onbod.db)                                                                                                                                                                                                  |
 | `onboarding_gates`   | gate (PK), limit_per_day, enabled (onbod.db)                                                                                                                                                                                                                                               |
 | `invites`            | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count (onbod.db)                                                                                                                                                                                             |

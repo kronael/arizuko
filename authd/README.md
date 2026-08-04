@@ -22,14 +22,14 @@ successful login for an ES256 access + refresh token. Spec: `specs/5/1`.
   revokes the whole family); re-snapshot grants on refresh
 - Self-mint `service:authd` at boot and exchange daemon service keys for
   `service:<name>` tokens
-- Resolve platform sender subs (`tg:123`, `discord:abc`) to canonical identity
-  via `GET /v1/identities/{sub}` (reads `auth.db` identities/identity_claims)
+- Resolve platform sender subs (`tg:123`, `discord:abc`) to the canonical user
+  via `GET /v1/identities/{sub}` (reads `auth_users` + `oauth_identities`, the
+  model the OAuth login path populates)
 
 ## Tables owned
 
-`signing_keys`, `refresh_tokens`, `auth_users`, `oauth_identities`,
-`identities`, `identity_claims`, `identity_codes` — created by authd's
-own migrations in `authd/migrations/`. authd owns `auth.db` and runs
+`signing_keys`, `refresh_tokens`, `auth_users`, `oauth_identities` —
+created by authd's own migrations in `authd/migrations/`. authd owns `auth.db` and runs
 its own migrations; it MUST NOT touch another daemon's DB (CLAUDE.md
 DB-ownership rule).
 

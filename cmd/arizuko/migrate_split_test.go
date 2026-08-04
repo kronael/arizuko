@@ -56,11 +56,6 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 		VALUES('folder:main','mcp:send','main','allow','2026-01-01T00:00:00Z')`)
 	exec(`INSERT INTO acl_membership(child, parent, added_at)
 		VALUES('tg:1','role:operator','2026-01-01T00:00:00Z')`)
-	// identities/identity_claims: authd OWNS these now → copied to auth.db.
-	// identity_codes is not copied — authd 0005 drops it (never-built link-code flow).
-	exec(`INSERT INTO identities(id, name, created_at) VALUES('idn-alice','alice','2026-01-01T00:00:00Z')`)
-	exec(`INSERT INTO identity_claims(sub, identity_id, claimed_at) VALUES('tg:42','idn-alice','2026-01-01T00:00:00Z')`)
-	exec(`INSERT INTO identity_claims(sub, identity_id, claimed_at) VALUES('discord:7','idn-alice','2026-01-01T00:00:00Z')`)
 
 	// transform: system_messages (group_id→folder, origin→source, event→kind, created_at→created; attrs dropped)
 	exec(`INSERT INTO system_messages(group_id, origin, event, attrs, body, created_at)
@@ -253,31 +248,6 @@ func TestMigrateSplit(t *testing.T) {
 			aclPrin, aclAction, aclScope, aclEffect)
 	}
 
-	// identity: copied to auth.db (authd OWNS it now). routd.db must NOT have it.
-	var idTbl string
-	if err := r.QueryRow(
-		`SELECT name FROM sqlite_master WHERE type='table' AND name='identities'`).Scan(&idTbl); err != sql.ErrNoRows {
-		t.Errorf("routd.db must not contain an `identities` table (federated to authd), found %q (err=%v)", idTbl, err)
-	}
-	adb, err := sql.Open("sqlite", filepath.Join(storeDir, "auth.db"))
-	if err != nil {
-		t.Fatalf("open auth.db: %v", err)
-	}
-	defer adb.Close()
-	if got := count(t, adb, "identities"); got != 1 {
-		t.Errorf("auth.identities: got %d rows, want 1", got)
-	}
-	if got := count(t, adb, "identity_claims"); got != 2 {
-		t.Errorf("auth.identity_claims: got %d rows, want 2", got)
-	}
-	var idName string
-	if err := adb.QueryRow(`SELECT name FROM identities WHERE id='idn-alice'`).Scan(&idName); err != nil {
-		t.Fatalf("read auth.identities: %v", err)
-	}
-	if idName != "alice" {
-		t.Errorf("auth.identities name = %q want alice", idName)
-	}
-
 	// secrets: copied to routd.db (routd OWNS it now) with the encrypted `value`
 	// bytes intact — same SECRETS_KEY decrypts on the routd side.
 	var secScope, secKey, secVal string
@@ -465,18 +435,16 @@ func TestMigrateSplitCoalescesNullMessageCols(t *testing.T) {
 	}
 }
 
-// TestMigrateSplitMigrationsIdempotent: migrate-split bootstraps auth.db +
-// onbod.db with CREATE TABLE IF NOT EXISTS but records NO row in the
-// `migrations(service,version)` table. So on the next authd/onbod boot,
-// db_utils.Migrate sees version 0 and re-runs 0004-identities.sql /
-// 0001-onboarding.sql against the already-bootstrapped tables. If those CREATEs
-// aren't idempotent, authd/onbod crash-loop with `table already exists`. This
-// replays that exact boot by exec'ing the real migration .sql against the
-// migrate-split-bootstrapped DBs — it must be a no-op, not an error.
+// TestMigrateSplitMigrationsIdempotent: migrate-split bootstraps onbod.db with
+// CREATE TABLE IF NOT EXISTS but records NO row in the `migrations(service,
+// version)` table. So on the next onbod boot, db_utils.Migrate sees version 0
+// and re-runs 0001-onboarding.sql against the already-bootstrapped tables. If
+// those CREATEs aren't idempotent, onbod crash-loops with `table already
+// exists`. This replays that exact boot by exec'ing the real migration .sql
+// against the migrate-split-bootstrapped DB — it must be a no-op, not an error.
 //
-// authd/onbod are package main (their migration embed.FS is unreachable here),
-// so we read the migration files from disk — the same bytes db_utils.Migrate
-// would exec.
+// onbod is package main (its migration embed.FS is unreachable here), so we read
+// the migration file from disk — the same bytes db_utils.Migrate would exec.
 func TestMigrateSplitMigrationsIdempotent(t *testing.T) {
 	storeDir := filepath.Join(t.TempDir(), "store")
 	seedMessagesDB(t, storeDir)
@@ -489,7 +457,6 @@ func TestMigrateSplitMigrationsIdempotent(t *testing.T) {
 		mig   string // the migration file db_utils.Migrate would re-run on boot
 		table string // a table both pre-create — the collision point
 	}{
-		{"auth.db", "../../authd/migrations/0004-identities.sql", "identities"},
 		{"onbod.db", "../../onbod/migrations/0001-onboarding.sql", "onboarding"},
 	}
 	for _, c := range cases {

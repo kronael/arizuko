@@ -79,6 +79,19 @@ what each needs. Container capabilities (share RO / open egress / web publish)
 travel to runed as typed booleans, not a grant language.`ARIZUKO_TIER`dropped
 (decision 10). Spec:`specs/5/33`.
 
+### Removed
+
+- **`identities` / `identity_claims` and `arizuko identity` — a model nothing
+  read.** The advisory cross-channel identity tables (spec `5/9`) had a read
+  surface and a CLI writer that never met: `GET /v1/identities/{sub}` was
+  re-pointed at `auth_users` + `oauth_identities` (the model the OAuth login
+  path actually populates) in `90e46d62`, which left `arizuko identity
+list|link|unlink` writing rows no reader ever looked at. Zero rows on every
+  deployed instance. Manually binding a platform identity to a person is what
+  `5/31` pairing does, with consent and an inverse (`unpair`). Dropped by authd
+  migration `0006`; `inspect_identity` is unchanged — it already resolves
+  through authd's endpoint.
+
 ## [v0.63.0] — 2026-07-31
 
 > arizuko v0.63.0 — packages, connectors, and delegated grants

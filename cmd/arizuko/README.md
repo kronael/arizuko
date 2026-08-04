@@ -20,7 +20,6 @@ beyond `docker` for `run` and `pair`).
   - `arizuko pair <instance> <svc>` — `docker compose run --rm`
   - `arizuko group <inst> list | add | rm | grant | ungrant | grants`
   - `arizuko gate  <inst> list | add | rm | enable | disable`
-  - `arizuko identity <inst> list | link <sub> [--name N] [--id ID] | unlink <sub>` — manage identity ↔ sub links
   - `arizuko network <inst> allow|deny <folder> <target> | list | resolve <folder>` — per-folder egress allow/deny rules
   - `arizuko secret <inst> set <folder> KEY --value V | list <folder> | delete <folder> KEY` — folder-scoped secrets
   - `arizuko user-secret <inst> set <user_sub> KEY --value V | list <user_sub> | delete <user_sub> KEY` — user-scoped secrets
@@ -43,7 +42,7 @@ beyond `docker` for `run` and `pair`).
 
 ## Files
 
-- `main.go` — command dispatch + `create`/`generate`/`run`/`status`/`pair`/`group`/`gate`/`invite`/`identity`/`chat`
+- `main.go` — command dispatch + `create`/`generate`/`run`/`status`/`pair`/`group`/`gate`/`invite`/`chat`
 - `apply.go` — `apply`/`plan`/`get`/`export` (YAML manifests, spec 5/8)
 - `budget.go` — `budget` spend caps
 - `network.go` — `network` egress rules

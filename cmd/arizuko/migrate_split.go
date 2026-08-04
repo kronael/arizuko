@@ -18,12 +18,11 @@ import (
 // instance's messages.db for the CUTOVER_SPLIT topology. messages.db stays
 // ALIVE: dashd keeps writing the orphan tables. ACL moved to routd's own DB
 // (routd 0007), secrets to routd's own DB (routd 0008), tasks to routd's own DB
-// (routd 0009), pane_sessions to routd's own DB (routd 0010), and identity to
-// authd's auth.db (authd 0004), so acl/acl_membership + secrets/secret_use_log +
-// scheduled_tasks/task_run_logs + pane_sessions +
-// identities/identity_claims are COPIED, not left. So this
-// migrator COPIES the conversation/routing/run/acl/secrets/tasks/pane state into
-// the new DBs and identity into auth.db; the orphan tables stay where they are.
+// (routd 0009) and pane_sessions to routd's own DB (routd 0010), so
+// acl/acl_membership + secrets/secret_use_log + scheduled_tasks/task_run_logs +
+// pane_sessions are COPIED, not left. So this migrator COPIES the
+// conversation/routing/run/acl/secrets/tasks/pane state into the new DBs; the
+// orphan tables stay where they are.
 // It is idempotent (INSERT OR IGNORE on primary keys) and safe to run on a copy.
 func cmdMigrateSplit(args []string) {
 	// flexParse lets --dry-run sit on either side of <instance>; it requires
@@ -173,36 +172,6 @@ var runedSpecs = []copySpec{
 		sel:  "id, group_folder, session_id, started_at, ended_at, result, error, message_count"},
 }
 
-// authdSpecs map messages.db → auth.db. authd now OWNS identity (authd migration
-// 0004 mirrors store 0035): identities/identity_claims are straight copies —
-// identical schema both sides. identity_codes is NOT copied: authd 0005 drops
-// it (a never-built link-code flow, empty on every instance).
-var authdSpecs = []copySpec{
-	{dst: "identities", src: "identities",
-		cols: "id, name, created_at",
-		sel:  "id, name, created_at"},
-	{dst: "identity_claims", src: "identity_claims",
-		cols: "sub, identity_id, claimed_at",
-		sel:  "sub, identity_id, claimed_at"},
-}
-
-// authdIdentitySchema mirrors authd/migrations/0004-identities.sql so the
-// migrator can bootstrap auth.db's identity tables before copying into them
-// (authd's migration FS is package-private; this one-shot DDL is the copy-target
-// bootstrap, IF NOT EXISTS so it's a no-op when authd already migrated).
-const authdIdentitySchema = `
-CREATE TABLE IF NOT EXISTS identities (
-  id         TEXT PRIMARY KEY,
-  name       TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS identity_claims (
-  sub         TEXT PRIMARY KEY,
-  identity_id TEXT NOT NULL,
-  claimed_at  TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_identity_claims_id ON identity_claims(identity_id);`
-
 // onbodSpecs map messages.db → onbod.db. onbod now OWNS the onboarding admission
 // state machine + invite links + per-gate limits (onbod migration 0001 mirrors
 // store 0009/0023/0024/0027/0071 for onboarding, 0032+0077 for invites, 0029 for
@@ -308,20 +277,6 @@ func migrateSplit(storeDir string, dryRun bool) error {
 		return fmt.Errorf("open runed.db: %w", err)
 	}
 	defer udb.Close()
-	// auth.db: authd OWNS identity (authd 0004). Open it and bootstrap the
-	// identity schema (IF NOT EXISTS — no-op when authd already migrated) so the
-	// copy target exists. authd's migration FS is package-private, hence the
-	// inline DDL (authdIdentitySchema mirrors it verbatim).
-	adb, err := sql.Open("sqlite", filepath.Join(storeDir, "auth.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
-	if err != nil {
-		return fmt.Errorf("open auth.db: %w", err)
-	}
-	defer adb.Close()
-	if !dryRun {
-		if _, err := adb.Exec(authdIdentitySchema); err != nil {
-			return fmt.Errorf("auth.db identity schema: %w", err)
-		}
-	}
 	// onbod.db: onbod OWNS onboarding/invites/onboarding_gates (onbod 0001).
 	// Bootstrap the schema (IF NOT EXISTS — no-op when onbod already migrated) so
 	// the copy target exists. onbod's migration FS is package-private (package
@@ -361,10 +316,6 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("runed.db: %w", err)
 	}
-	aN, err := copyInto(adb, msgPath, authdSpecs, dryRun)
-	if err != nil {
-		return fmt.Errorf("auth.db: %w", err)
-	}
 	oN, err := copyInto(odb, msgPath, onbodSpecs, dryRun)
 	if err != nil {
 		return fmt.Errorf("onbod.db: %w", err)
@@ -384,13 +335,12 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	fmt.Println("\nsummary:")
 	fmt.Printf("  routd.db rows: %s\n", fmtCounts(routdSpecs, rN))
 	fmt.Printf("  runed.db rows: %s\n", fmtCounts(runedSpecs, uN))
-	fmt.Printf("  auth.db rows:  %s\n", fmtCounts(authdSpecs, aN))
 	fmt.Printf("  onbod.db rows: %s\n", fmtCounts(onbodSpecs, oN))
 	fmt.Printf("\norphan tables LEFT IN messages.db (not copied — messages.db is NOT retired):\n  %v\n",
 		orphanTables)
-	fmt.Println("  (dashd keeps writing messages.db; acl+secrets+tasks+pane copied to routd.db; identity copied to auth.db; onboarding+invites+gates copied to onbod.db; routd opens NO sibling DB.)")
+	fmt.Println("  (dashd keeps writing messages.db; acl+secrets+tasks+pane copied to routd.db; onboarding+invites+gates copied to onbod.db; routd opens NO sibling DB.)")
 	if !dryRun {
-		chownMatch(msgPath, storeDir, "routd.db", "runed.db", "auth.db", "onbod.db")
+		chownMatch(msgPath, storeDir, "routd.db", "runed.db", "onbod.db")
 	}
 	return nil
 }
