@@ -582,10 +582,6 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, c
 				writeLinkErr(w, err)
 				return
 			}
-			if folder := firstAdminFolder(db, userSub); folder != "" {
-				db.Exec(`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
-					"room="+core.JidRoom(c.Value), folder)
-			}
 		}
 	}
 
@@ -613,6 +609,33 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, c
 		renderPage(w, "Invite Required",
 			template.HTML(`<p>You need an invite link to join. Ask an admin for one.</p>`))
 		return
+	}
+
+	// Spec 5/18 step 6 — choose. A paired JID with no route is silent, so ask
+	// where it goes before showing anything else. Keyed on that state rather
+	// than on the single-use onboard_jid cookie the claim above just cleared:
+	// a reload of this page must still reach the choice, not drop the JID.
+	if jid := unroutedJID(db, userSub); jid != "" {
+		switch folders := adminFolders(db, userSub); len(folders) {
+		case 0:
+			renderNoWorld(w, jid)
+			return
+		case 1:
+			// One world is not a choice.
+			if _, err := db.Exec(
+				`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
+				"room="+core.JidRoom(jid), folders[0]); err != nil {
+				slog.Error("route paired jid", "jid", jid, "target", folders[0], "err", err)
+				http.Error(w, "could not route "+jid+"; try again or contact the operator",
+					http.StatusInternalServerError)
+				return
+			}
+			slog.Info("route added", "match", "room="+core.JidRoom(jid),
+				"target", folders[0], "sub", userSub)
+		default:
+			renderWorldPicker(w, jid, folders, csrf)
+			return
+		}
 	}
 
 	renderDashboard(w, db, userSub, username)
@@ -905,7 +928,10 @@ func linkJID(db, obdb *sql.DB, jid, userSub string) error {
 	return nil
 }
 
-// firstAdminFolder returns a folder the sub may administer, or "".
+// adminFolders lists every folder the sub may administer. Spec 5/18 step 6 is
+// the caller CHOOSING which of THEIR worlds a JID lands in, so the whole set is
+// the answer — returning the first one SQLite happens to hand back picked for
+// the user, which is wrong the moment they hold two.
 //
 // Deliberately NOT `JOIN acl a ON a.scope = g.folder`: acl scopes are PATTERNS,
 // so string equality misses every subtree grant — an owner holding `acme/**`
@@ -914,19 +940,42 @@ func linkJID(db, obdb *sql.DB, jid, userSub string) error {
 // glob segments, so the rows are filtered by the single evaluator rather than
 // by a second matcher written here: Authorize answers for ONE group, so asking
 // for all of them is a loop over groups.
-func firstAdminFolder(db *sql.DB, userSub string) string {
+func adminFolders(db *sql.DB, userSub string) []string {
 	folders, err := scanFolders(db)
 	if err != nil {
-		slog.Error("firstAdminFolder groups", "err", err)
-		return ""
+		slog.Error("adminFolders groups", "err", err)
+		return nil
 	}
 	// The cursor is drained and closed by scanFolders before the loop below:
 	// Authorize issues further queries on this same handle, and holding a read
 	// cursor open across them deadlocks a single-connection DB.
 	st := store.New(db)
+	var out []string
 	for _, f := range folders {
 		if auth.Authorize(st, auth.Caller{Principal: userSub}, "admin", f, nil) {
-			return f
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// unroutedJID returns the sub's first paired JID that no route names, or "".
+// That state IS the silence spec 5/18 opens with: the chat is proven and
+// linked, its messages land in routd.db, and nothing surfaces them. The match
+// predicate mirrors renderDashboard's routing table so the page that asks and
+// the page that reports agree on what "routed" means.
+func unroutedJID(db *sql.DB, sub string) string {
+	for _, jid := range membershipJIDs(db, sub) {
+		room := core.JidRoom(jid)
+		var n int
+		if err := db.QueryRow(
+			`SELECT COUNT(*) FROM routes WHERE match = ? OR match LIKE ?`,
+			"room="+room, "room="+room+" %").Scan(&n); err != nil {
+			slog.Error("unroutedJID route lookup", "jid", jid, "err", err)
+			return ""
+		}
+		if n == 0 {
+			return jid
 		}
 	}
 	return ""
@@ -1206,6 +1255,48 @@ func renderUsernamePicker(w http.ResponseWriter, currentUsername, csrf string) {
 <button type="submit" style="width:100%%">Create workspace</button>
 </form>`, auth.CSRFField, html.EscapeString(csrf), html.EscapeString(currentUsername))
 	renderPage(w, "Create Workspace", template.HTML(body))
+}
+
+// renderWorldPicker is spec 5/18 step 6: the caller picks which of THEIR worlds
+// the proven JID lands in. It posts to handleAddRoute, which re-checks both
+// halves (authority over target, ownership of match) — the radio list is a
+// convenience, never the authorization.
+//
+// The csrf field is not optional: handleOnboardPost 403s any POST whose form
+// value does not match the onbod_csrf cookie, which is how the create_world
+// form shipped broken (BUGS F1).
+func renderWorldPicker(w http.ResponseWriter, jid string, folders []string, csrf string) {
+	esc := html.EscapeString
+	var opts strings.Builder
+	for i, f := range folders {
+		checked := ""
+		if i == 0 {
+			checked = " checked"
+		}
+		opts.WriteString(fmt.Sprintf(
+			`<label style="display:block;padding:.3rem 0">`+
+				`<input type="radio" name="target" value="%s" style="width:auto;margin-right:.5rem"%s>%s</label>`,
+			esc(f), checked, esc(f)))
+	}
+	body := fmt.Sprintf(`<p class="dim" style="margin-bottom:.8em">Pick the world that should handle <span class="id">%s</span>. Messages from that chat go to the world you choose; earlier messages stay where they are.</p>
+<form method="POST" action="/onboard">
+<input type="hidden" name="action" value="add_route">
+<input type="hidden" name="%s" value="%s">
+<input type="hidden" name="match" value="room=%s">
+%s
+<button type="submit" style="width:100%%;margin-top:1rem">Route this chat</button>
+</form>`, esc(jid), auth.CSRFField, esc(csrf), esc(core.JidRoom(jid)), opts.String())
+	renderPage(w, "Choose a world", template.HTML(body))
+}
+
+// renderNoWorld is the terminal page for an empty choice set. Rendering a
+// picker with no options, or silently showing the dashboard, both leave the
+// chat unrouted with no explanation — the user must be told why.
+func renderNoWorld(w http.ResponseWriter, jid string) {
+	renderPage(w, "Nowhere to route", template.HTML(fmt.Sprintf(
+		`<p><span class="id">%s</span> is linked to your account, but you don't administer any world it could go to, so it stays silent.</p>`+
+			`<p class="dim">Ask an admin for an invite to a world, then open this page again.</p>`,
+		html.EscapeString(jid))))
 }
 
 func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string) {

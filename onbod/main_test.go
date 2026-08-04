@@ -265,7 +265,8 @@ var (
 )
 
 // formInputs collects the name/value pairs of every <input> on a page — what a
-// browser would submit from it.
+// browser would submit from it. Radios and checkboxes count only when checked,
+// as a browser submits exactly one of a radio group.
 func formInputs(page string) url.Values {
 	vals := url.Values{}
 	for _, tag := range inputTagRe.FindAllString(page, -1) {
@@ -273,11 +274,150 @@ func formInputs(page string) url.Values {
 		for _, m := range attrRe.FindAllStringSubmatch(tag, -1) {
 			attrs[m[1]] = m[2]
 		}
+		switch attrs["type"] {
+		case "radio", "checkbox":
+			if !strings.Contains(tag, " checked") {
+				continue
+			}
+		}
 		if n := attrs["name"]; n != "" {
 			vals.Set(n, html.UnescapeString(attrs["value"]))
 		}
 	}
 	return vals
+}
+
+// twoWorldUser: alice administers two worlds and has just paired a JID that no
+// route names — spec 5/18's step 6, where the choice is hers to make.
+func twoWorldUser(t *testing.T) *sql.DB {
+	t.Helper()
+	db := testDB(t)
+	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
+	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('acme', '2026-01-01'), ('beta', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES
+		('github:alice', 'admin', 'acme', 'allow', '2026-01-01'),
+		('github:alice', 'admin', 'beta', 'allow', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
+		VALUES ('github:alice', 'telegram:42', '2026-01-01')`)
+	return db
+}
+
+func getOnboard(db *sql.DB, sub string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("GET", "/onboard", nil)
+	req.Header.Set("X-User-Sub", sub)
+	w := httptest.NewRecorder()
+	handleOnboard(w, req, db, db, config{})
+	return w
+}
+
+// With two worlds there is no defensible auto-pick: the dashboard used to route
+// the JID into whichever folder SQLite returned first, silently and without the
+// owner ever seeing the other option. Every world must be offered, and nothing
+// may be written until the owner submits.
+func TestUnroutedJIDOffersEveryAdminWorld(t *testing.T) {
+	db := twoWorldUser(t)
+
+	w := getOnboard(db, "github:alice")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200 picker, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, folder := range []string{"acme", "beta"} {
+		if !strings.Contains(body, `value="`+folder+`"`) {
+			t.Errorf("world %q is not offered as a choice", folder)
+		}
+	}
+	if !strings.Contains(body, "telegram:42") {
+		t.Error("picker must name the chat being routed")
+	}
+
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n)
+	if n != 0 {
+		t.Errorf("auto-picked a world before the owner chose: %d routes written", n)
+	}
+}
+
+// Same contract as TestUsernamePickerFormSatisfiesCSRFCheck, for the second
+// form onbod renders: replay exactly the fields the page emits, with the
+// cookies the GET set. postOnboard injects the double-submit pair itself, so
+// only a test built from the rendered page can catch a missing csrf field —
+// which is how BUGS F1 shipped.
+func TestWorldPickerFormSatisfiesCSRFCheck(t *testing.T) {
+	db := twoWorldUser(t)
+
+	gw := getOnboard(db, "github:alice")
+	form := formInputs(gw.Body.String())
+	if form.Get("action") != "add_route" {
+		t.Fatalf("no add_route form rendered, got fields %v", form)
+	}
+	if form.Get(auth.CSRFField) == "" {
+		t.Fatalf("rendered form carries no %q field, but handleOnboardPost requires one", auth.CSRFField)
+	}
+	if form.Get("match") != "room=42" || form.Get("target") == "" {
+		t.Fatalf("form does not bind the chat to a world: %v", form)
+	}
+
+	post := httptest.NewRequest("POST", "/onboard", strings.NewReader(form.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.Header.Set("X-User-Sub", "github:alice")
+	for _, c := range gw.Result().Cookies() {
+		post.AddCookie(c)
+	}
+	pw := httptest.NewRecorder()
+	handleOnboardPost(pw, post, db, config{})
+
+	if pw.Code == http.StatusForbidden {
+		t.Fatalf("submitting the rendered form is rejected: %s", strings.TrimSpace(pw.Body.String()))
+	}
+	if pw.Code != http.StatusSeeOther {
+		t.Fatalf("want 303 from the rendered form, got %d: %s", pw.Code, pw.Body.String())
+	}
+
+	var target string
+	db.QueryRow(`SELECT target FROM routes WHERE match = 'room=42'`).Scan(&target)
+	if target != form.Get("target") {
+		t.Errorf("route target = %q, want the chosen %q", target, form.Get("target"))
+	}
+}
+
+// One world is not a choice — asking would be a page with a single radio.
+func TestSingleWorldRoutesWithoutAsking(t *testing.T) {
+	db := twoWorldUser(t)
+	db.Exec(`DELETE FROM groups WHERE folder = 'beta'`)
+
+	w := getOnboard(db, "github:alice")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200 dashboard, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "add_route") {
+		t.Error("asked the owner to choose between one world")
+	}
+	var target string
+	db.QueryRow(`SELECT target FROM routes WHERE match = 'room=42'`).Scan(&target)
+	if target != "acme" {
+		t.Errorf("single world not routed automatically, target=%q", target)
+	}
+}
+
+// An empty choice set is a terminal page, not a picker with no options and not
+// a dashboard that quietly omits the chat: the owner must be told the chat has
+// nowhere to go.
+func TestNoAdminWorldIsAnExplicitDeadEnd(t *testing.T) {
+	db := twoWorldUser(t)
+	// alice keeps a scope (so she is past the invite gate) but administers
+	// nothing: her grants name folders that do not exist as groups.
+	db.Exec(`DELETE FROM groups`)
+
+	w := getOnboard(db, "github:alice")
+	body := w.Body.String()
+	if strings.Contains(body, "add_route") {
+		t.Fatal("rendered an empty picker")
+	}
+	if !strings.Contains(body, "telegram:42") || !strings.Contains(body, "Nowhere to route") {
+		t.Errorf("dead end not explained to the user, got: %s", body)
+	}
 }
 
 func TestCreateWorldValidUsername(t *testing.T) {
@@ -2242,7 +2382,7 @@ func TestLinkJID_AlreadyClaimedIsRefused(t *testing.T) {
 // resolves "which folder may this user administer" must honour the pattern
 // rather than compare strings. The old `JOIN acl a ON a.scope = g.folder`
 // matched neither `acme` against `acme/eng` nor `acme/**` against anything.
-func TestFirstAdminFolder_HonoursSubtreeGrant(t *testing.T) {
+func TestAdminFolders_HonoursSubtreeGrant(t *testing.T) {
 	db := testDB(t)
 	if _, err := db.Exec(`INSERT INTO groups (folder, added_at)
 		VALUES ('acme', datetime('now')), ('acme/eng', datetime('now'))`); err != nil {
@@ -2253,11 +2393,12 @@ func TestFirstAdminFolder_HonoursSubtreeGrant(t *testing.T) {
 		t.Fatalf("acl fixture: %v", err)
 	}
 
-	if got := firstAdminFolder(db, "github:owner"); got == "" {
-		t.Fatal("subtree grant resolved to no folder — the reader is still comparing strings")
+	// Both the world AND its subgroup are choices the owner may be offered.
+	if got := adminFolders(db, "github:owner"); len(got) != 2 {
+		t.Fatalf("subtree grant enumerated %v, want both acme and acme/eng", got)
 	}
-	if got := firstAdminFolder(db, "github:stranger"); got != "" {
-		t.Errorf("ungranted principal resolved to %q, want none", got)
+	if got := adminFolders(db, "github:stranger"); len(got) != 0 {
+		t.Errorf("ungranted principal enumerated %v, want none", got)
 	}
 }
 
