@@ -3523,3 +3523,60 @@ run-slot awareness.
   + the CLI's live-runed HTTP call are one coherent design, not three
   independent patches. Propose in `specs/5/P-runed.md` per this spec's own
   note that the mechanism's long-term home is there, not here.
+
+## Z5 — `network_rules`' seed migration uses `CURRENT_TIMESTAMP`, making two fresh instances' checksums permanently unequal (2026-08-04, open)
+
+Found chasing a flaky archive test (a cross-agent report of ONE failure led to
+a 50-run `-count` sweep, not dismissed as a fluke). `routd/migrations/0005-
+network-rules.sql` seeds two default rows (`anthropic.com`, `api.anthropic.
+com`) with `created_at = CURRENT_TIMESTAMP` — SQLite's own wall-clock `now()`,
+evaluated at MIGRATION-RUN time, second resolution. `network_rules` is a
+registered `resreg` resource (`resreg/resources/network_rules.go`) whose row
+content — `created_at` included — is part of `resreg.Export`/`Checksum`'s
+projection for every `routd.db`, unconditionally (not just for resources a
+given manifest mentions). Two independently-bootstrapped `routd.Open` calls
+(the exact shape `cmd/arizuko/apply_test.go`'s `openInstance` helper uses
+everywhere) therefore get DIFFERENT `network_rules` seed timestamps whenever
+the two migration runs cross a wall-clock second — same-second runs
+coincidentally match, which is why this was never caught before: every
+existing cross-instance test (`TestCLI_ExportApply_RealFiles` and this
+session's own archive tests) already uses `--force` for its apply, which
+skips the checksum comparison entirely and never exercises this path.
+
+`CreatedAt` is declared `StampedFields: []string{"CreatedAt"}` on this
+resource, so `Diff`/`plan`'s comparison already correctly ignores it — this
+is NOT a live bug in ordinary `apply`/`plan` output today. It only bites the
+content-hash CAS `Checksum` computes (spec 5/8's gate for whether `apply`
+requires `--force`), which hashes the raw `Export` projection with no
+StampedFields exclusion. `routd/migrations/0022-seed-operator-grant-
+option.sql` seeds a comparable default row (`role:operator`'s base ACL grant)
+and gets this right — a fixed literal `'2026-07-30T00:00:00Z'`, not
+`CURRENT_TIMESTAMP` — so the inconsistency is between two migrations solving
+the same "seed a default row" problem, not a property of seeding itself.
+
+- **Severity:** low (no live-instance impact — a real instance's
+  `network_rules` seed timestamp never changes after first boot, so its OWN
+  checksum stays stable across repeated exports; this only bites a scenario
+  comparing checksums ACROSS two independently-bootstrapped instances without
+  `--force`, which no shipped code path does today) — but a real round-trip-
+  honesty gap in the same class as Z2, and a landmine for the next test or
+  tool that tries a no-force cross-instance config compare
+- **Scope:** `routd/migrations/0005-network-rules.sql`; the general question
+  of whether `Checksum` should exclude `StampedFields` the way `Diff` already
+  does (Z2's `payloadEqual` fix, if it lands, is the natural place to also
+  fix this — both are "the hash is more sensitive than the comparison the
+  rest of the engine already treats as canonical")
+- **Affected:** any code comparing two independently-migrated `routd.db`
+  checksums without `--force`; `cmd/arizuko/archive_test.go`'s
+  `TestArchive_Apply_SkipsNonEmptyFolderUnlessForce` worked around it by
+  testing `tarGroups`/`extractGroups` directly instead of the full checksum-
+  gated `applyArchive` pipeline
+- **Source:** `routd/migrations/0005-network-rules.sql`,
+  `resreg/resources/network_rules.go:73`, verified 2026-08-04 by a 50-run
+  `-count` sweep with the migration file moved aside vs restored
+- **Fix:** re-seed via a new migration with a fixed literal timestamp
+  (matching 0022's pattern) to normalize future installs — cannot rewrite an
+  already-applied migration; separately, decide whether `Checksum` should
+  exclude `StampedFields` generically (would also close part of Z2's gap).
+  Needs sign-off (schema + a content-hash semantics change), not attempted
+  here.

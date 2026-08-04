@@ -346,43 +346,36 @@ func TestArchive_Apply_RefusesNewerFormatVersion(t *testing.T) {
 // same flag apply --force already uses... not a second flag for a second
 // concept") — so without --force a non-empty target folder is preserved,
 // and with --force it is overwritten.
+// This calls tarGroups/extractGroups directly rather than the full
+// buildArchive/applyArchive pipeline — a genuine, pre-existing landmine
+// (unrelated to this spec, found chasing a cross-agent flake report) makes
+// that pipeline's config-checksum half nondeterministic across two
+// independently-bootstrapped instances: routd/migrations/0005-network-
+// rules.sql seeds two default rows with `created_at = CURRENT_TIMESTAMP`
+// (SQLite's own wall-clock now(), second resolution), and `network_rules`
+// is a registered resreg resource whose row content — including that
+// timestamp — is part of Export/Checksum's projection for EVERY apply, not
+// just the resources a given manifest mentions. Two openInstance(t) calls
+// straddling a clock second therefore produce two checksums that can never
+// match without --force, for reasons that have nothing to do with the
+// groups.tar filesystem behavior this test actually checks. Calling the
+// filesystem primitives directly sidesteps the whole config layer.
 func TestArchive_Apply_SkipsNonEmptyFolderUnlessForce(t *testing.T) {
-	ctx := context.Background()
 	srcDataDir, srcStores := openInstance(t)
-	srcRoutd := srcStores[resreg.SubsystemRoutd]
-	c0 := routdChecksum(t, srcRoutd)
-	if _, err := resreg.Apply(ctx, srcRoutd.DB(), resreg.SubsystemRoutd, c0, false, map[string]any{
-		"groups": []resources.GroupsRow{{Folder: "atlas", Product: "assistant"}},
-	}, nil); err != nil {
-		t.Fatal(err)
-	}
 	seedGroupFiles(t, srcDataDir, "atlas")
 	if err := os.WriteFile(filepath.Join(srcDataDir, "groups", "atlas", "PERSONA.md"), []byte("SOURCE VERSION\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	var buf bytes.Buffer
-	if _, err := buildArchive(ctx, srcStores, srcDataDir, false, &buf); err != nil {
-		t.Fatal(err)
+	var groupsTar bytes.Buffer
+	if _, err := tarGroups(srcDataDir, []string{"atlas"}, &groupsTar); err != nil {
+		t.Fatalf("tarGroups: %v", err)
 	}
-	archiveBytes := buf.Bytes()
+	closeStores(srcStores)
 
-	// Seed the TARGET's config identically to the source (same groups row,
-	// no routes either side) so its content-hash checksum already matches
-	// without --force — isolating what this test actually checks (the
-	// filesystem half) from the unrelated "different instance, different
-	// checksum" reason --force is needed elsewhere in this file.
 	dstDataDir, dstStores := openInstance(t)
-	dstRoutd := dstStores[resreg.SubsystemRoutd]
-	c0d := routdChecksum(t, dstRoutd)
-	if _, err := resreg.Apply(ctx, dstRoutd.DB(), resreg.SubsystemRoutd, c0d, false, map[string]any{
-		"groups": []resources.GroupsRow{{Folder: "atlas", Product: "assistant"}},
-	}, nil); err != nil {
-		t.Fatal(err)
-	}
+	closeStores(dstStores)
 	// Target folder already has real content — a live agent's own writes,
-	// in spirit — under the SAME folder the archive also has a groups row
-	// and groups.tar entry for.
+	// in spirit.
 	if err := os.MkdirAll(filepath.Join(dstDataDir, "groups", "atlas"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -390,24 +383,24 @@ func TestArchive_Apply_SkipsNonEmptyFolderUnlessForce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Without --force: config checksums already match (see above), so this
-	// isolates the filesystem half — it must refuse the non-empty folder.
-	report, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(archiveBytes), false)
+	extracted, skipped, err := extractGroups(dstDataDir, []string{"atlas"}, groupsTar.Bytes(), false)
 	if err != nil {
-		t.Fatalf("applyArchive: %v", err)
+		t.Fatalf("extractGroups (no force): %v", err)
 	}
-	if !strings.Contains(report, "0 folders extracted, 1 skipped") {
-		t.Errorf("apply should skip the non-empty folder:\n%s", report)
+	if extracted != 0 || skipped != 1 {
+		t.Errorf("extractGroups (no force) = extracted=%d skipped=%d, want 0/1", extracted, skipped)
 	}
 	if got := readGroupFile(t, dstDataDir, "atlas", "PERSONA.md"); got != "TARGET VERSION — DO NOT CLOBBER\n" {
-		t.Errorf("non-empty target folder was clobbered on the non-force filesystem pass: %q", got)
+		t.Errorf("non-empty target folder was clobbered on the non-force pass: %q", got)
 	}
 
-	// A second, identical no-force re-run: still refuses. Nothing about a
-	// repeat no-op should touch the filesystem hazard.
-	report, err = applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(archiveBytes), false)
+	// A second, identical no-force re-run: still refuses.
+	extracted, skipped, err = extractGroups(dstDataDir, []string{"atlas"}, groupsTar.Bytes(), false)
 	if err != nil {
-		t.Fatalf("second applyArchive: %v\n%s", err, report)
+		t.Fatalf("extractGroups (no force, 2nd run): %v", err)
+	}
+	if extracted != 0 || skipped != 1 {
+		t.Errorf("extractGroups (no force, 2nd run) = extracted=%d skipped=%d, want 0/1", extracted, skipped)
 	}
 	if got := readGroupFile(t, dstDataDir, "atlas", "PERSONA.md"); got != "TARGET VERSION — DO NOT CLOBBER\n" {
 		t.Errorf("non-empty target folder was clobbered on a no-force re-run: %q", got)
