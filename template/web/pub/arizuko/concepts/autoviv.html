@@ -98,7 +98,6 @@ senders &mdash; ask the operator instead.</code></pre>
     <h2>limits</h2>
     <ul>
       <li><strong>Operator grant required.</strong> <code>register_group</code> goes through the structural gate: a tier-1 caller may only create direct children of its own folder. <code>atlas</code> can register <code>atlas/eng-support</code>, not <code>main/foo</code>; top-level folders need tier-0.</li>
-      <li><strong>Spawn quota.</strong> Direct children are capped at the parent&rsquo;s <code>max_children</code> (default 16; <code>-1</code> unlimited, <code>0</code> disables spawning).</li>
       <li><strong>Idempotency is partial.</strong> Re-registering the same folder is safe, but the route insert is unconditional &mdash; calling <code>register_group</code> twice with the same JID writes a duplicate route row. Have the agent check <code>list_routes</code> first.</li>
       <li><strong>Folder seeding is best-effort.</strong> If <code>SetupGroup</code> fails, the group + route are still written and <code>routd</code> logs a warning. Inspect <code>groups/&lt;folder&gt;/</code> if the new agent acts blank.</li>
     </ul>
@@ -113,7 +112,7 @@ senders &mdash; ask the operator instead.</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/autoviv.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-10">2026-06-10</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

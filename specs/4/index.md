@@ -9,7 +9,6 @@ status: shipped
 - [social-adapters.md](social-adapters.md) — adapter roster; chanlib ownership; whapd/emaid decisions
 - [13-message-ids.md](13-message-ids.md) — reply threading, channel coverage, forward-metadata non-goal
 - [23-topic-routing.md](23-topic-routing.md) — `@agent` delegation, `#topic` sessions
-- [26-prototypes.md](26-prototypes.md) — `prototype/` spawn, `max_children`, folder naming
 
 ## Web surfaces
 
@@ -46,3 +45,4 @@ Merged or moved out of this phase:
 | `9-acl-unified.md`      | [`../5/32-acl-unified.md`](../5/32-acl-unified.md) (2026-08-02)                                                                                                                                                                                                            |
 | `R-paths-roles.md`      | [`../5/33-paths-roles.md`](../5/33-paths-roles.md) (2026-08-02)                                                                                                                                                                                                            |
 | `Y-minimal-setup.md`    | [`../5/27-compose-native-packaging.md`](../5/27-compose-native-packaging.md)                                                                                                                                                                                               |
+| `26-prototypes.md`      | Deleted — the `prototype/` spawn, its `max_children` cap and the derived folder naming were removed 2026-08-04. Groups are created explicitly with `register_group`; delegating to a folder that does not exist fails with an error naming that tool.                      |

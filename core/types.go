@@ -57,9 +57,8 @@ type Group struct {
 }
 
 type GroupConfig struct {
-	Mounts      []Mount
-	Timeout     time.Duration
-	MaxChildren int
+	Mounts  []Mount
+	Timeout time.Duration
 }
 
 type Mount struct {

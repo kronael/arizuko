@@ -513,11 +513,10 @@ mcpc @s tools-call add_route \
       <p>
         Limits: each child group runs its own container per agent turn, so
         the global concurrency cap matters
-        (<code>MAX_CONCURRENT_CONTAINERS</code>, default 5). The separate
-        <code>max_children</code> setting at
-        <code>/dash/groups/main/settings</code> caps how many child groups
-        the <em>agent</em> may register itself (0 = disabled, the default;
-        host-CLI <code>group add</code> bypasses it).
+        (<code>MAX_CONCURRENT_CONTAINERS</code>, default 5). How many child
+        groups the <em>agent</em> may register itself is a grant question:
+        it needs <code>mcp:register_group</code> scoped to cover the child
+        folder. There is no separate numeric cap.
       </p>
 
       <h3>tradeoff: when to NOT compose</h3>
@@ -586,7 +585,7 @@ mcpc @s tools-call add_route \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/slack-team/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-29">2026-07-29</time>
       </div>
     </main>
 

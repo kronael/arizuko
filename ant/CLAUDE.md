@@ -27,6 +27,8 @@ Your MCP tool list is your actual grant set — when unsure what you can do, che
 
 **Topics**: the transient work-unit (one conversation), overlaid on a group — not a path level. Created with `#topic` or `/new #topic`. Many per group. Topics complete; groups persist.
 
+**Creating a group** is always explicit: `register_group(folder="<full/path>", jid="<chat jid>")`. Nothing auto-creates one — delegating or routing to a folder that does not exist fails and tells you to call this. You need `register_group` in your tool list (it is not in the `role:member` floor); if it is absent, ask the operator rather than working around it. There is no numeric cap on how many you may create — your grant's scope is the whole limit.
+
 # Autocalls
 
 The gateway opens every prompt with an `<autocalls>` block of facts resolved at prompt-build time: `now` (UTC RFC3339), `instance`, `folder`, `session` (short id). Ground truth, always fresh. NEVER call a tool to re-fetch what autocalls already provided.

@@ -62,7 +62,7 @@
     <h2>Why it exists</h2>
     <p>Two problems would have no good answer without onbod. First, a new user reaching the bot has nothing &mdash; no record in <code>auth_users</code>, no folder, no skills, no settings, no default tasks. Something has to put them through identity confirmation, decide whether to admit them, and bring them online.</p>
 
-    <p>Second, group creation is not <code>mkdir</code>. <code>container.SetupGroup</code> creates <code>&lt;groups&gt;/&lt;folder&gt;/</code> and <code>logs/</code>, copies the prototype if one is named, seeds <code>.claude/skills/</code> with the standard skill set, writes default settings, and chowns everything to the container UID. Skipping any step yields a folder the agent cannot use.</p>
+    <p>Second, group creation is not <code>mkdir</code>. <code>container.SetupGroup</code> creates <code>&lt;groups&gt;/&lt;folder&gt;/</code> and <code>logs/</code>, copies <code>seedDir</code> in when one is given, seeds <code>.claude/skills/</code> with the standard skill set, writes default settings, and chowns everything to the container UID. Skipping any step yields a folder the agent cannot use.</p>
 
     <p>The rule is firm: operators never <code>mkdir</code> a group by hand. Stand it up through onbod (invite redemption or the <code>/v1/users</code> path) so it gets the full set of files.</p>
 
@@ -78,7 +78,7 @@
         |     /onboard landing → OAuth (GitHub/Google/Discord)
         |     gate match → onboarding queue (per-gate daily limit)
         |     admitFromQueue (~60s) → approved
-        |     container.SetupGroup(folder, prototype)
+        |     container.SetupGroup(folder, seedDir)
         v     auth.Mint(sub, scope=[users:read self], iss=onbod)
       user gets redemption token, dashd verifies it via auth.VerifyHTTP</code></pre>
     </div>
@@ -104,12 +104,12 @@ export GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
     <p>Set <code>ONBOARDING_ENABLED=0</code> and onbod exits immediately. Health: <code>GET /health</code> returns 200 when the database is reachable; queued users see their position on <code>/onboard</code>, which refreshes every 30 seconds.</p>
 
     <h2>SetupGroup, the one canonical path</h2>
-    <p>Every group folder in an arizuko instance was created by one function: <code>container.SetupGroup(cfg, folder, prototype)</code>. It runs the same five steps in the same order:</p>
+    <p>Every group folder in an arizuko instance was created by one function: <code>container.SetupGroup(cfg, folder, seedDir)</code>. It runs the same five steps in the same order:</p>
 
     <ul>
       <li>Resolve the folder against <code>cfg.GroupsDir</code>; reject anything that escapes.</li>
       <li><code>mkdir -p</code> the group folder and its <code>logs/</code> subdirectory.</li>
-      <li>If a prototype is named, copy its tree in (no symlinks).</li>
+      <li>If a <code>seedDir</code> is given, copy its tree in (no symlinks).</li>
       <li>Seed <code>.claude/skills/</code> with the standard skill set, write default settings.</li>
       <li>Chown the whole tree to the container UID (1000) so the agent inside can write.</li>
     </ul>
@@ -125,7 +125,6 @@ export GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
       <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; verifies the session tokens onbod mints.</li>
       <li><code>specs/5/1-auth-standalone.md</code> &mdash; auth and admission model.</li>
       <li><code>specs/5/5-uniform-mcp-rest.md</code> &mdash; <code>/v1/invites</code> and <code>/v1/users</code> surface.</li>
-      <li><code>specs/4/26-prototypes.md</code> &mdash; the prototype mechanic <code>SetupGroup</code> copies from.</li>
     </ul>
 
 
@@ -135,7 +134,7 @@ export GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/onbod.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

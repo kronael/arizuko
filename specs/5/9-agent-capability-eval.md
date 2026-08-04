@@ -101,9 +101,9 @@ because the chat-token MCP face lacks an inspect-read.
 messages:write,messages:read` (add `cost:read` for budgets).
 - **Eval folder**: `arizuko group <inst> add web:<folder> <folder>` —
   never a manual `mkdir`; `--chat web:<folder>` then routes 1:1.
-- **Subagent cases need child capacity**: `MaxChildren` defaults to 0, so
-  child-delegate/priv-grant fail with "spawning disabled" until an
-  operator raises it.
+- **Subagent cases need a child that exists**: nothing auto-creates a
+  group. Create the child with `register_group` (the eval folder must hold
+  `mcp:register_group`) before a child-delegate case can pass.
 - **Sink reachability**: bind `--sink-addr :PORT` on the eval host and
   pass the target's docker-gateway IP as `--sink http://<gateway-ip>:PORT`
   — reachable from containers even on internal networks. crackbox

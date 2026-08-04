@@ -7,14 +7,14 @@ Docker runner, mount setup, skill seeding for the agent container.
 Spawns one `docker run -i --rm` per agent invocation. Builds mounts,
 seeds `settings.json` and `.claude/skills/`, pipes input JSON on stdin,
 waits for exit. Per-turn results return over MCP via `submit_turn`;
-stdout is discarded. Also owns `SetupGroup` to create new group folders
-from a prototype.
+stdout is discarded. Also owns `SetupGroup` to create new group folders.
 
 ## Public API
 
 - `Run(cfg, folders, in) Output` — single container run
 - `Input`, `Output`, `Runner`, `DockerRunner`
-- `SetupGroup(cfg, folder, prototype) error` — seed a new group dir
+- `SetupGroup(cfg, folder, seedDir) error` — create a group dir, optionally
+  copying `seedDir` (a product template) in as its starting files
 - `EnsureRunning() error` — verify docker daemon
 - `CleanupOrphans(instance, image)` — stop stale `arizuko-*`
 - `SanitizeFolder(folder) string` — safe docker network/container names

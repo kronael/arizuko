@@ -2,8 +2,6 @@ package routd
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -483,67 +481,57 @@ func TestCmdApproveReject(t *testing.T) {
 	}
 }
 
-// TestSpawnOnDelegation: delegating to an unknown child whose parent exists
-// with a prototype/ dir spawns the child (group + room route) and lands the
-// delegation row on it (port of gateway.delegateViaMessage spawn-on-delegation).
-func TestSpawnOnDelegation(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatalf("open mem: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	groups := t.TempDir()
-	loop := NewLoop(db, &recRunner{}, LoopConfig{GroupsDir: groups})
-	loop.StopQueue()
+// TestDelegateToMissingFolderFailsLoudly: delegating to a folder that does not
+// exist creates nothing and reports back into the originating chat, naming the
+// missing folder AND register_group — routing consumed the message, so a silent
+// drop would swallow it. Replaces TestSpawnOnDelegation + TestSpawnDeniedNoPrototype:
+// no parent, no prototype/ dir and no config ever auto-creates a group.
+func TestDelegateToMissingFolderFailsLoudly(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	_ = db.PutGroup(core.Group{Folder: "root"})
 
-	// parent group with a prototype/ dir on disk + unlimited children.
-	_ = db.PutGroup(core.Group{Folder: "root", Config: core.GroupConfig{MaxChildren: -1}})
-	proto := filepath.Join(groups, "root", "prototype")
-	if err := os.MkdirAll(proto, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(proto, "PERSONA.md"), []byte("hi"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	loop.delegate("root/ghost", "do the thing", "tg:1")
 
-	childJID := "tg:555"
-	childFolder := spawnFolderName("root", childJID)
-	loop.delegate(childFolder, "do the thing", childJID)
-
-	if !db.GroupExists(childFolder) {
-		t.Fatalf("child group %q not spawned", childFolder)
+	if db.GroupExists("root/ghost") {
+		t.Fatal("delegation auto-created a group; groups are created explicitly")
 	}
-	// prototype was copied into the child dir.
-	if _, err := os.Stat(filepath.Join(groups, childFolder, "PERSONA.md")); err != nil {
-		t.Fatalf("prototype not copied: %v", err)
+	if routes, _ := db.Routes(); len(routes) != 0 {
+		t.Fatalf("delegation added routes for a missing folder: %+v", routes)
 	}
-	// a room-matched route now targets the child.
-	routes, _ := db.Routes()
-	var routed bool
-	for _, r := range routes {
-		if r.Target == childFolder && r.Match == "room="+core.JidRoom(childJID) {
-			routed = true
+	if msgs, _ := db.MessagesSince("root/ghost", ""); len(msgs) != 0 {
+		t.Fatalf("delegation row landed on a non-existent folder: %+v", msgs)
+	}
+	got := lastAck(t, dl)
+	for _, want := range []string{"root/ghost", "register_group"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("delegation failure ack = %q, must name %q so the agent knows what to do", got, want)
 		}
-	}
-	if !routed {
-		t.Fatalf("no room route for spawned child: %+v", routes)
-	}
-	// the delegation row landed on the child with the return address.
-	msgs, _ := db.MessagesSince(childFolder, "")
-	if len(msgs) != 1 || msgs[0].Content != "do the thing" || msgs[0].ForwardedFrom != childJID {
-		t.Fatalf("delegation row=%+v want content=do the thing from %s", msgs, childJID)
 	}
 }
 
-// TestSpawnDeniedNoPrototype: an unknown target whose parent has no prototype/
-// dir is NOT spawned and drops (no group, no route) — routd never invents a
-// container/group out of thin air.
-func TestSpawnDeniedNoPrototype(t *testing.T) {
+// TestDelegateToExistingChildStillWorks: the shape live instances already have —
+// an ordinary child group with an ordinary room= route — routes and delegates
+// exactly as before the auto-spawn removal.
+func TestDelegateToExistingChildStillWorks(t *testing.T) {
 	db, loop, _ := recLoop(t)
-	_ = db.PutGroup(core.Group{Folder: "root"})
-	loop.delegate("root/ghost", "hi", "tg:1")
-	if db.GroupExists("root/ghost") {
-		t.Fatal("child spawned without a prototype dir")
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	_ = db.PutGroup(core.Group{Folder: "rhias"})
+	_ = db.PutGroup(core.Group{Folder: "rhias/nemo"})
+	if _, err := db.AddRoute(core.Route{Seq: 0, Match: "room=" + core.JidRoom("tg:555"), Target: "rhias/nemo"}); err != nil {
+		t.Fatal(err)
+	}
+
+	loop.delegate("rhias/nemo", "do the thing", "tg:555")
+
+	msgs, _ := db.MessagesSince("rhias/nemo", "")
+	if len(msgs) != 1 || msgs[0].Content != "do the thing" || msgs[0].ForwardedFrom != "tg:555" {
+		t.Fatalf("delegation row=%+v want content=do the thing from tg:555", msgs)
+	}
+	if len(dl.sends) != 0 {
+		t.Fatalf("a successful delegation must not ack an error: %+v", dl.sends)
 	}
 }
 

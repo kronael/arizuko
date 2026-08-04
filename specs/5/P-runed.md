@@ -136,11 +136,10 @@ app-server` second ([`K-ant-backend-codex.md`](K-ant-backend-codex.md)).
 ## Sub-agent spawning (via routd, not a runed endpoint)
 
 There is **no** `POST /v1/runs/{run_id}/spawn`. Sub-agent delegation
-flows through `routd`: `routd/spawn.go` `spawnFromPrototype` materializes
-a child group under `parentFolder/<sanitized>`, and `routd/steer.go`
-`delegateViaMessage(depth+1)` issues a normal `POST /v1/runs` for the
-child. From runed's view the child is just another run. Depth is capped
-at 1 in routd.
+flows through `routd`: `routd/steer.go` `delegateViaMessage` writes the
+prompt to an EXISTING child group, which issues a normal `POST /v1/runs`.
+From runed's view the child is just another run. The child is never
+created implicitly — an unknown target is an error naming `register_group`.
 
 ## Auth
 

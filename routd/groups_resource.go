@@ -13,19 +13,11 @@ package routd
 // Because resreg SKIPS the injected Gate for forwarders (invoke runs Authz, never
 // Gate), ALL of register_group's auth rides Authz: the 5/33 single evaluator —
 // db.Authorize for mcp:register_group scoped to cover the CHILD folder — plus the
-// one non-scope residue that worlds (top-level folders) are CLI-only. The spawn cap
-// (auth.CheckSpawnAllowed) stays in the HANDLER, matching the deleted body's order:
-// containment (Authz), then the max_children cap (handler), then the write.
+// one non-scope residue that worlds (top-level folders) are CLI-only. Holding the
+// grant IS the authority to create; there is no second numeric cap behind it.
 //
 // Only the AGENT face rides this resource. The operator group forms are dashd's
 // FS-managed /dash/groups/* (container.SetupGroup) — a separate surface, untouched.
-//
-// fromPrototype note: routd's buildGatedFns never wired SpawnGroup/SetupGroup on the
-// agent socket, so register_group has ONLY ever created the row + route + git-init
-// (never a prototype clone or a skill-skeleton seed) since the split. The fold
-// preserves that EXACTLY — fromPrototype=true returns the same "not configured"
-// error, and no dir-seed runs. Wiring the prototype spawn is a feature, out of a
-// fold's scope.
 
 import (
 	"context"
@@ -66,9 +58,9 @@ func (s *Server) groupsResource(authz func(resreg.Caller, resreg.Action, resreg.
 }
 
 // groupsHandler runs register/list against routd.db. register is the manual
-// register_group path (containment already ran in Authz): the spawn cap, then the
-// group row + room route + git-init via s.registerGroup, then the register_group
-// audit emit. list is refresh_groups: every registered group's folder — unscoped,
+// register_group path (containment already ran in Authz): the group row + room
+// route + git-init via s.registerGroup, then the register_group audit emit.
+// list is refresh_groups: every registered group's folder — unscoped,
 // matching the deleted body (the mcp:refresh_groups grant is the only limit,
 // applied at visibility, never here).
 func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, error) {
@@ -94,22 +86,9 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 
 	case groupsActionRegister:
 		jid := argString(x.Args, "jid")
-		if argBool(x.Args, "fromPrototype") {
-			// routd never wired the prototype spawn on the agent socket (see header):
-			// preserve the pre-fold "not configured" behavior verbatim.
-			return nil, resreg.Errorf(http.StatusBadRequest, "register_group: fromPrototype not configured")
-		}
 		gfld := argString(x.Args, "folder")
 		if gfld == "" {
-			return nil, resreg.Errorf(http.StatusBadRequest, "folder required when fromPrototype is false")
-		}
-		// Spawn cap (max_children): after Authz's containment, before the write —
-		// matching the deleted ipc order. No audit on cap denial (ditto).
-		groups := s.db.AllGroups()
-		if pg, ok := groups[x.Caller.Folder]; ok {
-			if err := auth.CheckSpawnAllowed(pg, groups); err != nil {
-				return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
-			}
+			return nil, resreg.Errorf(http.StatusBadRequest, "folder required")
 		}
 		gr := core.Group{Folder: gfld, AddedAt: time.Now()}
 		if err := s.registerGroup(jid, gr); err != nil {
@@ -144,7 +123,7 @@ func (s *Server) emitGroupRegisterAudit(c resreg.Caller, childFolder, jid string
 		ActorSub: actor,
 		Tool:     "register_group",
 		Folder:   childFolder,
-		Params:   map[string]any{"jid": jid, "fromPrototype": false},
+		Params:   map[string]any{"jid": jid},
 		Outcome:  outcome,
 	})
 }
@@ -160,11 +139,7 @@ func (s *Server) groupsPostBuild(folder, callerSub string, authorize authorizeFn
 		if a != groupsActionRegister {
 			return "", nil, nil // refresh_groups: read, no runtime authz (visibility-gated only)
 		}
-		// The prototype path derives the child folder (no arg target); an empty folder
-		// falls through to the handler's "folder required".
-		if argBool(args, "fromPrototype") {
-			return "", nil, nil
-		}
+		// An empty folder falls through to the handler's "folder required".
 		gfld := argString(args, "folder")
 		if gfld == "" {
 			return "", nil, nil
@@ -183,11 +158,4 @@ func (s *Server) groupsPostBuild(folder, callerSub string, authorize authorizeFn
 	}
 	res := s.groupsResource(authz)
 	return mountAgentResource(res, callerSub, folder, visible)
-}
-
-// argBool reads a bool arg from a resreg.Args map (MCP bool args decode to a Go bool
-// via decodeMCPArgs; an absent/other-typed arg yields false).
-func argBool(args resreg.Args, key string) bool {
-	b, _ := args[key].(bool)
-	return b
 }

@@ -3,6 +3,7 @@ package routd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -42,8 +43,8 @@ func TestBuildGatedFnsSendReply(t *testing.T) {
 
 // TestRegisterGroupAddsRoute: the manual register_group path persists the group
 // AND adds a room-matched default route + git-inits the group dir (ported from
-// gateway.registerGroupIPC). Without the route the group is an unreachable,
-// un-respawnable orphan — the bug this closes.
+// gateway.registerGroupIPC). Without the route the group is an unreachable
+// orphan — the bug this closes.
 func TestRegisterGroupAddsRoute(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -76,6 +77,36 @@ func TestRegisterGroupAddsRoute(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(groupsDir, "ops", ".git")); err != nil {
 		t.Fatalf("group dir not git-inited: %v", err)
+	}
+}
+
+// TestRegisterGroupRollsBackOnAddRouteError: when the route insert fails, the
+// group row is rolled back so no route-less, unreachable orphan is left behind.
+// registerGroup is now the only holder of this invariant — it was previously
+// also covered through the deleted prototype spawn.
+func TestRegisterGroupRollsBackOnAddRouteError(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	srv.SetDirs(t.TempDir(), "")
+
+	// Drop routes so PutGroup succeeds but AddRoute fails.
+	if _, err := db.SQL().Exec("DROP TABLE routes"); err != nil {
+		t.Fatalf("drop routes: %v", err)
+	}
+
+	err = srv.registerGroup("telegram:888", core.Group{Folder: "ops"})
+	if err == nil {
+		t.Fatal("registerGroup swallowed the AddRoute error; the group would be orphaned")
+	}
+	if !strings.Contains(err.Error(), "add route") {
+		t.Errorf("error = %q, want 'add route' context", err.Error())
+	}
+	if db.GroupExists("ops") {
+		t.Fatal("AddRoute failure left an orphan group row (no rollback)")
 	}
 }
 

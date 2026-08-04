@@ -191,8 +191,8 @@ func toInviteInfo(inv Invite) ipc.InviteInfo {
 
 // registerGroup is the manual register_group path (the groups resource handler
 // calls it): it persists the group, adds a room-matched default route (rolling
-// the group row back if the route insert fails so a route-less, unreachable,
-// un-respawnable orphan is never left behind), then git-inits the group dir.
+// the group row back if the route insert fails so a route-less, unreachable
+// orphan is never left behind), then git-inits the group dir.
 // The jid supplies the route's room literal.
 func (s *Server) registerGroup(jid string, g core.Group) error {
 	if err := s.db.PutGroup(g); err != nil {

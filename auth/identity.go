@@ -1,11 +1,6 @@
 package auth
 
-import (
-	"fmt"
-	"strings"
-
-	"github.com/kronael/arizuko/core"
-)
+import "strings"
 
 // Identity is a folder's non-elevated authz coordinate. 5/33 decision 2: the path
 // carries ZERO authorization (no tier, no world rank) — only its own name and the
@@ -43,24 +38,4 @@ func IsDirectChild(parent, child string) bool {
 		return false
 	}
 	return !strings.Contains(child[len(parent)+1:], "/")
-}
-
-// CheckSpawnAllowed: MaxChildren<0 = unlimited, 0 = disabled.
-func CheckSpawnAllowed(parent core.Group, groups map[string]core.Group) error {
-	if parent.Config.MaxChildren < 0 {
-		return nil
-	}
-	if parent.Config.MaxChildren == 0 {
-		return fmt.Errorf("spawning disabled (max_children=0)")
-	}
-	n := 0
-	for _, g := range groups {
-		if IsDirectChild(parent.Folder, g.Folder) {
-			n++
-		}
-	}
-	if n >= parent.Config.MaxChildren {
-		return fmt.Errorf("max_children limit reached (%d)", parent.Config.MaxChildren)
-	}
-	return nil
 }

@@ -300,7 +300,7 @@
         <tr><td><code>folder</code></td><td>TEXT PK</td><td>NOT NULL</td><td></td><td>folder path (e.g. <code>atlas/support</code>)</td></tr>
         <tr><td><code>name</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>display name</td></tr>
         <tr><td><code>added_at</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>RFC3339</td></tr>
-        <tr><td><code>container_config</code></td><td>TEXT</td><td>NULL</td><td></td><td>JSON GroupConfig (mounts, timeout, max_children)</td></tr>
+        <tr><td><code>container_config</code></td><td>TEXT</td><td>NULL</td><td></td><td>JSON GroupConfig (mounts, timeout)</td></tr>
         <!-- removed by spec 5/W: tokens live in the route_tokens table now -->
         <tr><td><code>parent</code></td><td>TEXT</td><td>NULL</td><td></td><td>parent folder path</td></tr>
         <tr><td><code>updated_at</code></td><td>TEXT</td><td>NULL</td><td></td><td>RFC3339</td></tr>

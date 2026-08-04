@@ -49,18 +49,17 @@ var GroupsMCPNames = map[resreg.Action]string{
 // GroupsMCPDoc is the single owner of the group tools' agent-facing one-liners.
 // Copy verbatim — the agent wire contract.
 var GroupsMCPDoc = map[resreg.Action]string{
-	resreg.Action("register"): "Create a child agent group and route a jid to it. Use when onboarding a new chat into its own isolated workspace/session, or when spinning up a sub-agent from this group's prototype/ (fromPrototype=true). Not for promoting work up (escalate_group) or handing a task to an existing child (delegate_group).",
+	resreg.Action("register"): "Create a child agent group at `folder` and route `jid` to it — this is the ONLY way a group comes into existence; nothing auto-creates one. Pass the full path (e.g. folder=\"acme/support\") and the chat jid that should land there. Use when onboarding a new chat into its own isolated workspace/session, or before delegating to a child that does not exist yet. Not for promoting work up (escalate_group) or handing a task to an existing child (delegate_group).",
 	resreg.ActionList:         "Return folder for every registered group. Use to discover delegation targets or audit the group tree. Not for routing details (inspect_routing) or per-group tasks (inspect_tasks).",
 }
 
 // GroupsMCPArgs is the explicit per-action arg list for the agent face — register's
-// {jid, fromPrototype, folder} shape, NOT the RowType columns, so it overrides
-// RowType reflection for the derived tool. refresh_groups (list) takes no args.
+// {jid, folder} shape, NOT the RowType columns, so it overrides RowType reflection
+// for the derived tool. refresh_groups (list) takes no args.
 var GroupsMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.Action("register"): {
+		{Name: "folder", Type: "string", Required: true},
 		{Name: "jid", Type: "string", Required: true},
-		{Name: "fromPrototype", Type: "bool"},
-		{Name: "folder", Type: "string"},
 	},
 }
 

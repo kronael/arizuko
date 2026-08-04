@@ -69,8 +69,8 @@ arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
     <p>Queued users see their position on <code>/onboard</code>, which auto-refreshes every 30 seconds. Operators approve manually through <a href="../components/dashd.html">dashd</a> or by adjusting gate config.</p>
 
     <h2>SetupGroup writes a group</h2>
-    <p>Once a user is approved (via invite or queue), <code>onbod</code> calls <code>container.SetupGroup(cfg, folder, prototype)</code>. That function is the only correct way to create a group &mdash; never <code>mkdir</code> a folder under <code>groups/</code> by hand.</p>
-    <p>It creates the group directory plus <code>logs/</code>, copies the prototype tree if one is configured (<code>ONBOARDING_PROTOTYPE</code>), then runs <code>seedGroupDir</code>:</p>
+    <p>Once a user is approved (via invite or queue), <code>onbod</code> calls <code>container.SetupGroup(cfg, folder, seedDir)</code>. That function is the only correct way to create a group &mdash; never <code>mkdir</code> a folder under <code>groups/</code> by hand.</p>
+    <p>It creates the group directory plus <code>logs/</code>, copies <code>seedDir</code> in when one is given (the CLI passes a product template; onboarding passes none), then runs <code>seedGroupDir</code>:</p>
     <ul>
       <li><code>.claude/skills/</code> &mdash; every directory under <code>ant/skills/</code> with a valid name is copied in. See <a href="../concepts/skills.html">skills</a>.</li>
       <li><code>.claude/CLAUDE.md</code> &mdash; copied from <code>ant/CLAUDE.md</code>.</li>
@@ -94,7 +94,7 @@ arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/onboarding.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-10">2026-06-10</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

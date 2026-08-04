@@ -497,44 +497,45 @@ func (l *Loop) resolveTarget(chatJID string, msg core.Message, selfFolder string
 	return ""
 }
 
+// escOriginRe extracts the escalation origin (folder + jid) from a delegated
+// prompt's <escalation_origin/> tag. When present, the child's reply routes back
+// to that worker jid instead of the original chat.
+var escOriginRe = regexp.MustCompile(`<escalation_origin\s[^/]*folder="([^"]+)"[^/]*jid="([^"]+)"[^/]*/>`)
+
+// escalationWorker returns the escalation-origin return address carried in a
+// delegated prompt, or "" when the prompt is a plain delegation. Returns m[1],
+// the folder capture group (not jid).
+func escalationWorker(prompt string) string {
+	m := escOriginRe.FindStringSubmatch(prompt)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
 // delegate writes a delegation message to the target group's folder JID and
-// enqueues it. ForwardedFrom carries the origin chat as the return address so the
-// child's reply-to-bot routes back. When the target is unknown but its parent
-// exists with a prototype/ dir, it is spawned on the fly. Depth-0 entry.
+// enqueues it. A missing target is reported back into the originating chat —
+// routing consumes the message, so a silent drop would swallow it.
 func (l *Loop) delegate(targetFolder, prompt, originJID string) {
-	if err := l.delegateViaMessage(targetFolder, prompt, originJID, 0); err != nil {
+	if err := l.delegateViaMessage(targetFolder, prompt, originJID); err != nil {
 		slog.Warn("delegate failed", "target", targetFolder, "err", err)
+		l.ack(originJID, err.Error())
 	}
 }
 
 // delegateViaMessage writes the delegation row and triggers the target's queue.
-// On an unknown target whose parent group exists, it spawns a child from the
-// parent's prototype/ dir and recurses once (depth guard). The child's reply
-// routes back to forwardedFrom — overridden to the escalation worker jid when the
-// prompt carries an <escalation_origin/> tag.
-func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string, depth int) error {
-	if depth > 1 {
-		return fmt.Errorf("delegation depth exceeded")
-	}
-
+// ForwardedFrom carries the origin chat as the return address so the child's
+// reply-to-bot routes back — overridden to the escalation worker jid when the
+// prompt carries an <escalation_origin/> tag. Groups are never created here: an
+// unknown target is an error naming the folder and the tool that creates it.
+func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string) error {
 	fwdFrom := originJID
 	if worker := escalationWorker(prompt); worker != "" {
 		fwdFrom = worker
 	}
 
 	if !l.db.GroupExists(targetFolder) {
-		parentFolder, _, found := strings.CutLast(targetFolder, "/")
-		if found && parentFolder != "" {
-			if l.db.GroupExists(parentFolder) {
-				spawned, err := l.spawnFromPrototype(parentFolder, originJID)
-				if err == nil {
-					return l.delegateViaMessage(spawned.Folder, prompt, originJID, depth+1)
-				}
-				slog.Warn("delegate: spawn from prototype failed",
-					"parent", parentFolder, "target", targetFolder, "err", err)
-			}
-		}
-		return fmt.Errorf("delegate target not found: %s", targetFolder)
+		return fmt.Errorf("no group %q — create it first with register_group(folder=%q, jid=<chat jid>), then retry", targetFolder, targetFolder)
 	}
 
 	_ = l.db.PutMessage(core.Message{

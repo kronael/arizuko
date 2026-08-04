@@ -1,9 +1,6 @@
 package routd
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,42 +8,8 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// Tier-2 parity: spawn.go rollback + observeWindow override + recoverPending
-// re-enqueue + LatestSource resolution, all shipped but under-tested vs gated.
-
-// --- spawnFromPrototype AddRoute-error rollback (mirror gateway_extra) ---
-
-// TestSpawnFromPrototype_AddRouteError: when the route insert fails, the child
-// group row is rolled back so no route-less, un-respawnable orphan is left
-// behind (gated TestSpawnFromPrototype_AddRouteError).
-func TestSpawnFromPrototype_AddRouteError(t *testing.T) {
-	db, l, groups := promptLoop(t)
-	parentFolder := "main"
-	protoDir := filepath.Join(groups, parentFolder, "prototype")
-	if err := os.MkdirAll(protoDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	os.WriteFile(filepath.Join(protoDir, "CLAUDE.md"), []byte("# proto"), 0o644)
-	_ = db.PutGroup(core.Group{Folder: parentFolder, AddedAt: time.Now().UTC(),
-		Config: core.GroupConfig{MaxChildren: 5}})
-
-	// Drop the routes table so PutGroup succeeds but AddRoute fails.
-	if _, err := db.SQL().Exec("DROP TABLE routes"); err != nil {
-		t.Fatalf("drop routes: %v", err)
-	}
-
-	_, err := l.spawnFromPrototype(parentFolder, "telegram:888")
-	if err == nil {
-		t.Fatal("spawnFromPrototype swallowed AddRoute error; child would be orphaned")
-	}
-	if !strings.Contains(err.Error(), "add route") {
-		t.Errorf("error = %q, want 'add route' context", err.Error())
-	}
-	// The child group row must be rolled back — no un-respawnable orphan.
-	if _, ok := db.GroupByFolder(spawnFolderName(parentFolder, "telegram:888")); ok {
-		t.Fatal("AddRoute failure left an orphan child group row (no rollback)")
-	}
-}
+// Tier-2 parity: observeWindow override + recoverPending re-enqueue +
+// LatestSource resolution, all shipped but under-tested vs gated.
 
 // --- observeWindow first-route-wins (mirror gateway_extra) ---
 

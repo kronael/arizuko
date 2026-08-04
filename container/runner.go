@@ -961,7 +961,10 @@ func deriveSurface(
 	return ""
 }
 
-func SetupGroup(cfg *core.Config, folder, prototype string) error {
+// SetupGroup creates the group dir (plus logs/ and the web slots) and, when
+// seedDir is non-empty, copies it in as the starting file set. cmd/arizuko
+// passes a product template dir; dashd and onbod pass "" (empty group).
+func SetupGroup(cfg *core.Config, folder, seedDir string) error {
 	r := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
 	groupDir, err := r.GroupPath(folder)
 	if err != nil {
@@ -973,9 +976,9 @@ func SetupGroup(cfg *core.Config, folder, prototype string) error {
 	if err := os.MkdirAll(filepath.Join(groupDir, "logs"), 0o755); err != nil {
 		return fmt.Errorf("mkdir logs: %w", err)
 	}
-	if prototype != "" {
-		if err := chanlib.CopyDirNoSymlinks(prototype, groupDir); err != nil {
-			slog.Warn("setup group: copy prototype", "folder", folder, "err", err)
+	if seedDir != "" {
+		if err := chanlib.CopyDirNoSymlinks(seedDir, groupDir); err != nil {
+			slog.Warn("setup group: copy seed dir", "folder", folder, "err", err)
 		}
 	}
 	// Per-group web slots — bind-mounted into ~/public_html and ~/private_html

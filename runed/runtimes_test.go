@@ -319,7 +319,10 @@ func TestContainerConfigToGroupConfig(t *testing.T) {
 	rt.Run(context.Background(), RunSpec{
 		RunID: "run_cfg", Folder: "demo", ContainerName: "arizuko-test-demo-cfg",
 		MessageBatch: "m", Model: "claude-opus-4-8",
-		ContainerConfig: map[string]any{"MaxChildren": 3, "Timeout": int64(90 * time.Second)},
+		// MaxChildren is a leftover key from the removed prototype spawn: live rows
+		// still carry it, and the decode into core.GroupConfig must ignore it rather
+		// than fail — that is what let the removal ship without a data migration.
+		ContainerConfig: map[string]any{"MaxChildren": 16, "Timeout": int64(90 * time.Second)},
 		RegisterSteer:   func(func(string) bool) {},
 	})
 
@@ -333,7 +336,7 @@ func TestContainerConfigToGroupConfig(t *testing.T) {
 	if in.Model != "claude-opus-4-8" {
 		t.Fatalf("Input.Model=%q want claude-opus-4-8", in.Model)
 	}
-	if in.Config.MaxChildren != 3 || in.Config.Timeout != 90*time.Second {
-		t.Fatalf("Input.Config=%+v want MaxChildren=3 Timeout=90s", in.Config)
+	if in.Config.Timeout != 90*time.Second {
+		t.Fatalf("Input.Config=%+v want Timeout=90s (leftover MaxChildren key must be ignored)", in.Config)
 	}
 }

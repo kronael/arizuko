@@ -6,7 +6,7 @@ package routd
 // row + route + git-init FS side-effects can't ride a resreg tx), so its auth (one
 // auth.Authorize on the CHILD folder) rides Authz and its audit rides s.audit. Each
 // test drives the REAL unix socket end-to-end so the seam + Authz containment + the
-// handler's spawn cap + the visibility predicate are all exercised.
+// visibility predicate are all exercised.
 //
 // 5/33: neither group tool is in the role:member floor — every test that expects one to
 // work delegates it explicitly with grantMCPTools (scope <folder>/**, which covers the
@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,10 +162,8 @@ func TestGroupsMCP_RootElevationRegistersUngranted(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	// world/a/b is deliberately NOT a registered group and holds no grants: that
-	// keeps the handler's spawn cap out of play (it only fires when the caller's OWN
-	// folder is a registered parent — see TestGroupsMCP_SpawnCapFires), so this test
-	// isolates the elevation containment cleanly.
+	// world/a/b is deliberately NOT a registered group and holds no grants, so this
+	// test isolates the elevation containment cleanly.
 	groupsDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(groupsDir, "world/a/b/child"), 0o755); err != nil {
 		t.Fatal(err)
@@ -180,27 +179,59 @@ func TestGroupsMCP_RootElevationRegistersUngranted(t *testing.T) {
 	}
 }
 
-// TestGroupsMCP_SpawnCapFires: the handler's spawn cap (auth.CheckSpawnAllowed) still
-// bites — a parent at max_children=1 with one existing child cannot register a
-// second. Containment passes (the target is a direct child), so this isolates the
-// handler-side max_children guard.
-func TestGroupsMCP_SpawnCapFires(t *testing.T) {
+// TestGroupsMCP_NoSpawnCap: holding the grant IS the authority to create. The old
+// max_children cap denied this exact call (the default 0 meant "spawning disabled",
+// so register_group 403'd for almost every group); with the cap gone, a grant-holder
+// with an existing child registers a second. Replaces TestGroupsMCP_SpawnCapFires.
+func TestGroupsMCP_NoSpawnCap(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	_ = db.PutGroup(core.Group{Folder: "world/team", Config: core.GroupConfig{MaxChildren: 1}})
+	_ = db.PutGroup(core.Group{Folder: "world/team"})
 	_ = db.PutGroup(core.Group{Folder: "world/team/existing"})
 	grantMCPTools(t, db, "world/team", "register_group")
 	sock := serveGroupsMCP(t, db, "world/team", "folder:world/team", t.TempDir())
 
 	if _, e := callToolText(t, sock, "register_group",
-		map[string]any{"jid": "telegram:903", "folder": "world/team/second"}); e == "" {
-		t.Fatal("register past max_children should be denied by the spawn cap")
+		map[string]any{"jid": "telegram:903", "folder": "world/team/second"}); e != "" {
+		t.Fatalf("register_group with the grant held must succeed: %s", e)
 	}
-	if db.GroupExists("world/team/second") {
-		t.Fatal("spawn-cap-denied register still wrote a group row")
+	if !db.GroupExists("world/team/second") {
+		t.Fatal("register_group did not write the group row")
+	}
+}
+
+// TestGroupsMCP_RegisterThenDelegate: the replacement for the deleted auto-spawn,
+// end to end. Delegating to a folder that does not exist fails; register_group
+// creates it; the same delegation then lands. This is the proof the capability
+// survived the removal — only the implicitness went away.
+func TestGroupsMCP_RegisterThenDelegate(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	_ = db.PutGroup(core.Group{Folder: "world/team"})
+	grantMCPTools(t, db, "world/team", "register_group")
+	sock := serveGroupsMCP(t, db, "world/team", "folder:world/team", t.TempDir())
+
+	loop.delegate("world/team/support", "handle this", "tg:9")
+	if msgs, _ := db.MessagesSince("world/team/support", ""); len(msgs) != 0 {
+		t.Fatalf("delegation landed before the group existed: %+v", msgs)
+	}
+	if got := lastAck(t, dl); !strings.Contains(got, "register_group") {
+		t.Fatalf("failure ack = %q, must point at register_group", got)
+	}
+
+	if _, e := callToolText(t, sock, "register_group",
+		map[string]any{"jid": "tg:9", "folder": "world/team/support"}); e != "" {
+		t.Fatalf("register_group: %s", e)
+	}
+
+	loop.delegate("world/team/support", "handle this", "tg:9")
+	msgs, _ := db.MessagesSince("world/team/support", "")
+	if len(msgs) != 1 || msgs[0].Content != "handle this" || msgs[0].ForwardedFrom != "tg:9" {
+		t.Fatalf("delegation after register_group=%+v want content=handle this from tg:9", msgs)
 	}
 }
 

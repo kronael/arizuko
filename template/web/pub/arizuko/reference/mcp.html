@@ -387,15 +387,14 @@
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON array of <code>{folder, name, parent?}</code>.</p>
 
     <h3 id="register_group"><code>register_group</code> <span class="tier">tier 0&ndash;1</span></h3>
-    <p>Create a child agent group and route a JID to it. Use when onboarding a new chat into its own isolated workspace, or when spinning up a sub-agent from this group's <code>prototype/</code> (<code>fromPrototype=true</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1657"><code>ipc/ipc.go:1657</code></a> &middot; Grant action: <code>register_group</code> (in <code>tier1FixedActions</code>) &middot; <code>auth.CheckSpawnAllowed</code> enforces spawn quota when registering manually.</p>
+    <p>Create a child agent group and route a JID to it. This is the only way a group comes into existence &mdash; nothing auto-creates one, and delegating to a folder that does not exist fails with an error naming this tool.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1657"><code>ipc/ipc.go:1657</code></a> &middot; Grant action: <code>register_group</code> (in <code>tier1FixedActions</code>) &middot; Holding the grant, scoped to cover the child folder, is the whole authority to create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
         <tr><td class="name">jid</td><td class="type">string</td><td class="req req-y">yes</td><td>Source chat JID to route into the new group.</td></tr>
         <tr><td class="name">name</td><td class="type">string</td><td class="req req-n">no</td><td>Display name; defaults to the JID.</td></tr>
-        <tr><td class="name">fromPrototype</td><td class="type">boolean</td><td class="req req-n">no</td><td>If true, spawn a child via <code>SpawnGroup(parentFolder, jid)</code>; <code>folder</code> is derived.</td></tr>
-        <tr><td class="name">folder</td><td class="type">string</td><td class="req req-n">no</td><td>Required when <code>fromPrototype=false</code>. Target folder path.</td></tr>
+        <tr><td class="name">folder</td><td class="type">string</td><td class="req req-y">yes</td><td>Full path of the group to create, e.g. <code>acme/support</code>.</td></tr>
         <tr><td class="name">parent</td><td class="type">string</td><td class="req req-n">no</td><td>Parent folder (for tree).</td></tr>
       </tbody>
     </table>
@@ -880,7 +879,7 @@ base = "https://api.cloudflare.com/client/v4"
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-01">2026-07-01</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-06">2026-07-06</time>
       </div>
     </main>
 

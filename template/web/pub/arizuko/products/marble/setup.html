@@ -69,9 +69,9 @@ arizuko group krons add web:krons/public/marble krons/public/marble</code></pre>
         <code>DATA_DIR</code>, falling back to the current working directory. If
         the instance <code>.env</code> doesn&rsquo;t set it, prefix the command:
         <code>DATA_DIR=/srv/data/arizuko_&lt;instance&gt; arizuko group &hellip;</code>.
-        And if the parent group has <code>max_children=0</code>, the agent-side
-        <code>register_group</code> tool refuses &mdash; this host CLI path
-        bypasses that gate, so create sub-groups from the host.
+        And the agent can create the sub-group itself with
+        <code>register_group</code> if its folder holds that grant &mdash; the
+        host CLI is the operator path, not the only one.
       </div>
 
       <h2>2. bundle the dataset</h2>
@@ -193,9 +193,9 @@ EOF</code></pre>
           or two calls instead of ten.
         </li>
         <li>
-          <strong>Rate limiting.</strong> Set <code>max_children</code> on the
-          group at <code>/dash/groups/&lt;folder&gt;/settings</code> to cap
-          concurrent turns &mdash; each visitor question is one container.
+          <strong>Rate limiting.</strong> Each visitor question is one
+          container, so the instance-wide
+          <code>MAX_CONCURRENT_CONTAINERS</code> is what bounds the load.
         </li>
         <li>
           <strong>Swap the dataset.</strong> Nothing here is Marble-specific.

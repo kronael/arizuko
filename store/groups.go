@@ -420,28 +420,3 @@ func (s *Store) SetGroupModel(folder, model string) error {
 		model, folder)
 	return err
 }
-
-// SetGroupMaxChildren updates MaxChildren inside the container_config JSON blob
-// with a single json_set write — no read-modify-write, so it can't lose a
-// concurrent SetGroupModel/PutGroup update. Key is "MaxChildren": core.GroupConfig
-// has no JSON tags, so json.Marshal emits the Go field name verbatim.
-func (s *Store) SetGroupMaxChildren(folder string, n int) error {
-	_, err := s.db.Exec(
-		`UPDATE groups
-		   SET container_config = json_set(COALESCE(container_config, '{}'), '$.MaxChildren', ?)
-		 WHERE folder = ?`,
-		n, folder)
-	return err
-}
-
-// ClearGroupMaxChildren removes the MaxChildren key from container_config so the
-// group falls back to the unset default (Config.MaxChildren == 0 = disabled).
-// Used by the settings form when the field is left blank.
-func (s *Store) ClearGroupMaxChildren(folder string) error {
-	_, err := s.db.Exec(
-		`UPDATE groups
-		   SET container_config = json_remove(container_config, '$.MaxChildren')
-		 WHERE folder = ?`,
-		folder)
-	return err
-}

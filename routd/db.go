@@ -236,7 +236,8 @@ func (d *DB) GroupExists(folder string) bool {
 
 // GroupByFolder returns the full group identity (Config decoded from the
 // container_config JSON TEXT) for folder, or (zero, false) when absent.
-// Spawn-on-delegation reads the parent's Config.MaxChildren through it.
+// Unknown keys in container_config are ignored — live rows still carry the
+// MaxChildren key from the removed prototype spawn.
 func (d *DB) GroupByFolder(folder string) (core.Group, bool) {
 	var g core.Group
 	var added string
@@ -263,7 +264,7 @@ func (d *DB) GroupByFolder(folder string) (core.Group, bool) {
 //
 // The group delete is the hard invariant (returned error). The cascade is
 // best-effort AFTER it: a cascade failure is logged, not fatal — L4a's ghost
-// guard still refuses any leftover route loudly, and the caller (prototype-spawn
+// guard still refuses any leftover route loudly, and the caller (registerGroup's
 // rollback) must be able to remove the orphan group row even if routes is
 // unavailable.
 func (d *DB) DeleteGroup(folder string) error {

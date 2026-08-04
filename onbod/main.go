@@ -726,14 +726,10 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 			return
 		}
 	}
-	prototype := filepath.Join(coreCfg.GroupsDir, parent, "prototype")
-	if _, err := os.Stat(prototype); err != nil {
-		prototype = ""
-	}
 	// FS setup BEFORE the DB tx: a DB failure after FS leaves a stray group
 	// dir (re-creatable, harmless), whereas a committed group row with no FS
 	// is a broken world. Order so the durable record is last.
-	if err := container.SetupGroup(coreCfg, folder, prototype); err != nil {
+	if err := container.SetupGroup(coreCfg, folder, ""); err != nil {
 		slog.Error("create world: setup group", "folder", folder, "err", err)
 		renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
 		return

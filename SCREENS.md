@@ -600,7 +600,6 @@ p.dim: Group {folder} · product {product}
   open:                   [checkbox] open — sibling groups can see messages sent here
   observe_window_messages: [number input] max messages a sibling sees (0 = default 50)
   observe_window_chars:   [number input] max chars per observation (0 = default 2000)
-  max_children:           [number input] 0 = disabled, -1 = unlimited
   [button: save]
 </form>
 
@@ -634,7 +633,6 @@ p.dim: Unchecked skills are disabled on next agent run.
 
 - Product, model (from groups table)
 - open flag, observe_window settings (from groups table / store helpers)
-- max_children from container_config JSON
 - Stock skills list (from ant/skills/ in appDir)
 - Per-skill disabled state (from .claude/skills/{name}/.disabled marker)
 

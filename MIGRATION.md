@@ -125,7 +125,7 @@ sticky_topic)`. Dropped `name`, `channel`, `is_group`, `last_message_time`
   recoverable via `messages` JOIN.
 - **`groups`**: rekeyed by `folder` (PK) instead of `jid`; JID→folder
   mappings moved to `routes` as `type='default'`. kanipi had `max_children`,
-  `world`; arizuko stores `max_children` in `container_config` JSON.
+  `world`; arizuko has neither (the spawn cap was removed 2026-08-04).
   `agent_cursor` moved from groups to `chats`.
 - **`scheduled_tasks`**: kanipi `group_folder`+`schedule_type`+
   `schedule_value`+`context_mode`+`last_run`+`last_result`. arizuko `owner`
@@ -180,9 +180,9 @@ Name changed; mechanism identical.
 `/opt/arizuko/ant/skills/`. Move any baseline files into the skills
 system.
 
-Prototype spawning is wired via `ONBOARDING_PROTOTYPE` env (operator
-default) and `register_group fromPrototype=true` (per-call). New groups
-clone from `groups/<prototype>/` instead of bare `template/`.
+Prototype spawning is **not ported**. Groups are created explicitly with
+`register_group` (agent) or the dashd/CLI forms (operator); nothing clones a
+`prototype/` dir.
 
 ## Features Not Ported
 
@@ -193,9 +193,9 @@ clone from `groups/<prototype>/` instead of bare `template/`.
 | File transfer (`/file ...`) | Not ported                                |
 | Cross-channel preemption    | Not implemented                           |
 
-Previously listed as not-ported, now shipped: prototype spawning (see
-above), per-group web slots + derived per-world hosts (proxyd derives
-`<world>.<HOSTING_DOMAIN>` → `/pub/<world>/`; `specs/5/V-web-vhosts.md`).
+Previously listed as not-ported, now shipped: per-group web slots + derived
+per-world hosts (proxyd derives `<world>.<HOSTING_DOMAIN>` → `/pub/<world>/`;
+`specs/5/V-web-vhosts.md`).
 
 ## Data Directory
 
