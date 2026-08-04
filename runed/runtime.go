@@ -23,6 +23,7 @@ type RunSpec struct {
 	TriggerSender   string
 	CallerSub       types.UserSub
 	TurnID          string
+	Kind            string // 'agent' | 'backup' | ... — selects the Executor (spec 5/8)
 	Isolated        bool
 	Elevated        bool              // operator /root elevation → container.Input.Elevated (tier 0 + all-groups mount)
 	Model           string            // per-group model override; empty = instance default

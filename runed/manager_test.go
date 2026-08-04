@@ -220,12 +220,12 @@ func TestCircuitBreakerTripAndReset(t *testing.T) {
 	}
 }
 
-// TestRunTTLThreadedToRuntime: m.runTTL is the intended run ceiling. The
-// Manager no longer arms a detached kill-timer (which raced container
-// creation); instead it threads the ceiling into RunSpec.RunTTL and the
-// Runtime enforces it from within the run path. This asserts the manager
-// hands its runTTL down on every spawn (gap 1 — the enforcement-relocation
-// contract; the actual kill is covered by TestDockerRuntimeRunTTLKill).
+// TestRunTTLThreadedToRuntime: m.runTTL is the intended run ceiling, still
+// threaded into RunSpec.RunTTL for the executor's own use (dockerRuntime's
+// queryTimeoutMs, the agent's in-container abort hint) even though the KILL
+// enforcement moved to ctx wrapping (TestManagerAppliesRunTTLDeadline covers
+// that half; TestDockerRuntimeCtxDeadlineKills covers dockerRuntime's side
+// of honoring the wrapped ctx).
 func TestRunTTLThreadedToRuntime(t *testing.T) {
 	var gotTTL atomic.Int64
 	rt := FakeRuntime{Fn: func(_ context.Context, spec RunSpec) RunResult {
@@ -247,6 +247,41 @@ func TestRunTTLThreadedToRuntime(t *testing.T) {
 		t.Fatalf("RunSpec.RunTTL=%s want 20ms (manager must thread runTTL to the runtime)", got)
 	}
 }
+
+// TestManagerAppliesRunTTLDeadline: spec 5/8 "wedge protection... uniform
+// across kinds" — Manager.spawn arms the RunTTL kill-deadline by wrapping
+// ctx with context.WithTimeout at the shared dispatch site, not inside any
+// one executor. This exercises a minimal Runtime double that (like
+// dockerRuntime's armCancel) does nothing but honor ctx.Done(), proving the
+// deadline actually reaches the executor through Manager — not just that
+// RunSpec.RunTTL carries the raw value (TestRunTTLThreadedToRuntime).
+func TestManagerAppliesRunTTLDeadline(t *testing.T) {
+	rt := ctxWatchingRuntime{}
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatalf("open mem db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	mgr := NewManager(db, rt, ManagerConfig{
+		Instance: "test", MaxConcurrent: 5, RunTTL: 20 * time.Millisecond,
+	})
+
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	if out.Outcome != runedv1.OutcomeError {
+		t.Fatalf("outcome=%q want error (ctx deadline elapsed mid-run)", out.Outcome)
+	}
+}
+
+// ctxWatchingRuntime blocks until ctx.Done(), mirroring dockerRuntime's
+// armCancel contract (kill/abort on ctx death) without any docker/container
+// machinery — used to prove Manager wires the RunTTL deadline onto ctx.
+type ctxWatchingRuntime struct{}
+
+func (ctxWatchingRuntime) Run(ctx context.Context, _ RunSpec) RunResult {
+	<-ctx.Done()
+	return RunResult{Outcome: runedv1.OutcomeError, Error: ctx.Err().Error()}
+}
+func (ctxWatchingRuntime) Kill(string) error { return nil }
 
 // TestBreakerResetsOnSilent: gated resets the breaker on ANY clean exit
 // (runForGroup success=true), silent included. A folder alternating

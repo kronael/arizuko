@@ -163,7 +163,10 @@ func (d *DB) RecentSessionRecords(folder string, limit int) ([]SessionRecord, er
 	return out, rows.Err()
 }
 
-// Spawn is one container spawn (the execution-session envelope).
+// Spawn is one container spawn (the execution-session envelope). Kind
+// selects the Manager.Run post-claim executor ('agent' | 'backup' | ...,
+// spec 5/8 "Filesystem restore claims the folder's run slot"); it defaults
+// to 'agent' so every pre-existing caller is unaffected.
 type Spawn struct {
 	RunID         string
 	Folder        string
@@ -171,6 +174,7 @@ type Spawn struct {
 	ContainerName string
 	SessionLogID  int64
 	SessionID     string
+	Kind          string
 	State         string
 	Outcome       string
 	ExitCode      int
@@ -180,14 +184,19 @@ type Spawn struct {
 	EndedAt       string
 }
 
-// CreateSpawn inserts a spawns row in state=queued.
+// CreateSpawn inserts a spawns row in state=queued. An empty Kind stores as
+// 'agent' (the column default), so existing callers need no change.
 func (d *DB) CreateSpawn(s Spawn) error {
+	kind := s.Kind
+	if kind == "" {
+		kind = "agent"
+	}
 	_, err := d.db.Exec(`INSERT INTO spawns
 		(run_id, folder, topic, container_name, session_log_id,
-		 session_id, state, created_at)
-		VALUES(?,?,?,?,?,?,?,?)`,
+		 session_id, kind, state, created_at)
+		VALUES(?,?,?,?,?,?,?,?,?)`,
 		s.RunID, s.Folder, s.Topic, s.ContainerName, nz64(s.SessionLogID),
-		nullStr(s.SessionID), s.State, nowTS())
+		nullStr(s.SessionID), kind, s.State, nowTS())
 	return err
 }
 
@@ -234,10 +243,10 @@ func (d *DB) GetSpawn(runID string) (Spawn, error) {
 	var exit sql.NullInt64
 	var steered int
 	err := d.db.QueryRow(`SELECT run_id, folder, topic, container_name, session_log_id,
-		session_id, state, outcome, exit_code, steered, created_at, started_at, ended_at
+		session_id, kind, state, outcome, exit_code, steered, created_at, started_at, ended_at
 		FROM spawns WHERE run_id=?`, runID).Scan(
 		&s.RunID, &s.Folder, &s.Topic, &s.ContainerName, &logID,
-		&sess, &s.State, &outcome, &exit, &steered, &s.CreatedAt, &started, &ended)
+		&sess, &s.Kind, &s.State, &outcome, &exit, &steered, &s.CreatedAt, &started, &ended)
 	if err == sql.ErrNoRows {
 		return Spawn{}, ErrNotFound
 	}
@@ -315,10 +324,23 @@ func (d *DB) ActiveSpawnForFolder(folder string) (string, error) {
 	return runID, err
 }
 
-// ActiveCount returns the total number of live spawns (queued or running).
+// ActiveCount returns the total number of live spawns (queued or running),
+// every kind included — the true in-flight count (shutdown logging, tests).
 func (d *DB) ActiveCount() (int, error) {
 	var n int
 	err := d.db.QueryRow("SELECT COUNT(*) FROM spawns WHERE state IN ('queued','running')").Scan(&n)
+	return n, err
+}
+
+// ActiveAgentCount returns the number of live kind='agent' spawns — the
+// global concurrency cap's actual budget (spec 5/8). A containerless kind
+// (e.g. 'backup') consumes no docker/host resource comparable to a
+// container and must not compete with agent turns for the cap, or a
+// backup request could starve real agent spawns (or vice versa, get
+// wrongly rejected busy by unrelated container load).
+func (d *DB) ActiveAgentCount() (int, error) {
+	var n int
+	err := d.db.QueryRow("SELECT COUNT(*) FROM spawns WHERE kind='agent' AND state IN ('queued','running')").Scan(&n)
 	return n, err
 }
 

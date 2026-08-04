@@ -119,11 +119,15 @@ func TestExitCodeMessageCountFlow(t *testing.T) {
 	}
 }
 
-// TestDockerRuntimeRunTTLKill: dockerRuntime.Run enforces RunSpec.RunTTL as a
-// kill-deadline FROM WITHIN the run path. A run that outlives runTTL is Kill'd
-// by name; the kill is armed only once the run is underway and stops when the
-// run returns — no detached manager timer racing container creation (gap 1).
-func TestDockerRuntimeRunTTLKill(t *testing.T) {
+// TestDockerRuntimeCtxDeadlineKills: RunTTL is no longer armed inside
+// dockerRuntime.Run — the caller (Manager.spawn) wraps ctx with the RunTTL
+// deadline and dockerRuntime's armCancel kills on ctx.Done() regardless of
+// cause (spec 5/8 "wedge protection... uniform across kinds"). This proves
+// dockerRuntime's half: a ctx that dies mid-run gets its container Kill'd by
+// name, with the kill armed only once the run is underway and stopping when
+// the run returns — no detached timer racing container creation (gap 1).
+// Manager-level wiring of RunTTL onto ctx is TestManagerAppliesRunTTLDeadline.
+func TestDockerRuntimeCtxDeadlineKills(t *testing.T) {
 	folders := &groupfolder.Resolver{GroupsDir: t.TempDir(), IpcDir: t.TempDir()}
 	runner := &blockingRunner{
 		started: make(chan struct{}), release: make(chan struct{}),
@@ -133,8 +137,9 @@ func TestDockerRuntimeRunTTLKill(t *testing.T) {
 	rt := &dockerRuntime{
 		cfg: &core.Config{}, folders: folders, runner: runner,
 		signal: func(string) error { return nil },
-		// The TTL watcher fires this; capture the name and release the run so
-		// it returns (the prod kill would stop the container, ending the run).
+		// The deadline watcher fires this; capture the name and release the
+		// run so it returns (the prod kill would stop the container, ending
+		// the run).
 		kill: func(name string) error {
 			select {
 			case killed <- name:
@@ -149,29 +154,32 @@ func TestDockerRuntimeRunTTLKill(t *testing.T) {
 		},
 	}
 
-	res := rt.Run(context.Background(), RunSpec{
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	res := rt.Run(ctx, RunSpec{
 		RunID: "run_ttl", Folder: "demo", ContainerName: "arizuko-test-demo-ttl",
-		MessageBatch: "m", RunTTL: 20 * time.Millisecond,
+		MessageBatch: "m",
 		RegisterSteer: func(func(string) bool) {},
 	})
 	select {
 	case name := <-killed:
 		if name != "arizuko-test-demo-ttl" {
-			t.Fatalf("runTTL Kill got name %q want arizuko-test-demo-ttl", name)
+			t.Fatalf("deadline Kill got name %q want arizuko-test-demo-ttl", name)
 		}
 	default:
-		t.Fatal("runTTL deadline never Kill'd the over-ceiling container")
+		t.Fatal("ctx deadline never Kill'd the over-ceiling container")
 	}
 	if res.Outcome != runedv1.OutcomeError {
 		t.Fatalf("outcome=%q want error (the killed run)", res.Outcome)
 	}
 }
 
-// TestDockerRuntimeRunTTLNoKillOnFastRun: a run that finishes inside runTTL is
-// NOT Kill'd, and no kill fires after the run returns — the watcher stops
-// deterministically on completion (gap 2, the late-kill race). RunTTL=0 (no
-// ceiling) likewise never arms.
-func TestDockerRuntimeRunTTLNoKillOnFastRun(t *testing.T) {
+// TestDockerRuntimeNoKillOnFastRunWithinDeadline: a run that finishes before
+// its ctx deadline is NOT Kill'd, and no kill fires after the run returns —
+// the watcher stops deterministically on completion (gap 2, the late-kill
+// race). A ctx with no deadline (context.Background(), the Kind='agent'
+// default when RunTTL<=0) likewise never fires.
+func TestDockerRuntimeNoKillOnFastRunWithinDeadline(t *testing.T) {
 	folders := &groupfolder.Resolver{GroupsDir: t.TempDir(), IpcDir: t.TempDir()}
 	runner := &blockingRunner{
 		started: make(chan struct{}), release: make(chan struct{}),
@@ -185,9 +193,11 @@ func TestDockerRuntimeRunTTLNoKillOnFastRun(t *testing.T) {
 		kill:   func(string) error { kills.Add(1); return nil },
 	}
 
-	rt.Run(context.Background(), RunSpec{
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	rt.Run(ctx, RunSpec{
 		RunID: "run_fast", Folder: "demo", ContainerName: "arizuko-test-demo-fast",
-		MessageBatch: "m", RunTTL: 50 * time.Millisecond,
+		MessageBatch: "m",
 		RegisterSteer: func(func(string) bool) {},
 	})
 	// Wait past the (already-disarmed) deadline to prove no late kill fires.

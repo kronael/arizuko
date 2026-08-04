@@ -235,6 +235,39 @@ code 3, no "rerun skips the applied owner." A failed cross-subsystem apply
 ends with every subsystem back at its pre-apply content hash; a clean
 re-run is just `apply` again.
 
+**CRITICAL, found by cross-check against `31-identity-pairing.md`, fixed
+here before any code lands: `acl_membership` pairing edges must be
+excluded from the projection this rollback restores, or rollback
+resurrects a revoked identity link.** Verified against the code:
+`acl_membership` is an ordinary `resreg` resource with no `Scope` and no
+`SkipApplyRebuild` (`resreg/resources/membership.go`), so it rebuilds
+wholesale — `DeleteAll` + full re-`Insert` — exactly like any other
+global config table (`resreg/engine.go`'s `Apply` loop), and `Export`
+scans the whole table with no filter. The pre-image this section takes is
+built from that same `Export`. Walk the failure: a caller `unpair`s
+(`ACLMembershipEndpoints`' DELETE, scoped to `added_by='pairing'`)
+between the pre-image snapshot and a later subsystem's failure; rollback
+re-applies the pre-image via the same DELETE+INSERT `apply` codepath,
+which re-inserts the edge the caller just revoked — silently handing back
+authority they deliberately gave up, with no error and no record. **Rule:
+`added_by='pairing'` rows are never part of any manifest-visible
+projection for this resource** — not in the content hash, not in
+CAS-scoped DELETE+INSERT, not in the pre-image/rollback set. They are
+explicit runtime consent state (an identity's own choice, made and undone
+through `issue_pairing_link`/`unpair`, spec `31-identity-pairing.md`), the
+same class of thing `SkipApplyRebuild` already carves out for
+secrets/tokens, not declarative operator intent — the resource's own doc
+comment already draws this line for the config-manifest path ("Adding an
+edge stays a consented redemption or a manifest apply — there is no add
+face here"); this decision extends the same reasoning to the archive
+path. Mechanism, not yet built: `resreg` has no row-level exclusion
+predicate today (`ScanAll`/`DeleteAll` operate on the whole table); the
+engine needs one — a `WHERE`-fragment field alongside `Scope`, honored by
+both — before `acl_membership` can safely register in an archived
+subsystem's resource set. **Blocking precondition on this section
+shipping**, tracked in `BUGS.md`; role-membership rows (`added_by` unset)
+are unaffected and still round-trip normally.
+
 ## Consistency levels — an archive is a smear, and must say so
 
 A full-instance archive taken from a running system is not a snapshot; it
@@ -454,6 +487,35 @@ messages, not carried from the archive** — there is no `chats.yaml`
 document, and the archive still ships no `chats` row content beyond
 this one derived column.
 
+**Decided, not merely deferred: pending onboarding admissions must be
+archived state, not rederived from the cursor.** A route-missed message
+can queue a pending admission (`routd/loop.go`'s `routeMiss` →
+`onbod.InsertOnboarding`, a row in onbod's own `onboarding` table) and
+`routeMiss` unconditionally `advance`s the cursor past it regardless of
+whether the insert succeeded — a deliberate fail-forward the live system
+already relies on ("a re-fed miss would replay forever"). Setting
+`agent_cursor` past that message on import (above) reproduces the exact
+same fail-forward on a restored instance: the imported message is marked
+seen, so it is never re-offered to `routeMiss`, so a pending admission
+that isn't independently in the archive is gone for good — the person is
+neither in the queue nor going to message again on their own. Rederiving
+by _not_ advancing the cursor for such chats was considered and rejected:
+the archive carries no "was this a route-miss" flag on a message row, and
+even if it did, replaying it against the target's own (possibly
+different) routing rules is nondeterministic — not a real reconstruction.
+**Decision: archive it.** `onboarding` is presently NOT a `resreg`
+resource (unlike its sibling `onboarding_gates`, created by the same
+migration, `onbod/migrations/0001-onboarding.sql`) — CLAUDE.md's "every
+cold-tier management entity is a resreg resource" already calls this a
+review-blocker independent of archiving. Once registered the same way
+`onboarding_gates` is, it rides this spec's existing mechanism for free
+(one more table in `onbod.yaml`, no special-casing) — small, bounded,
+PK-keyed, exactly the shape config documents already handle. **Blocking
+precondition, same as the `acl_membership` one above**, tracked in
+`BUGS.md`, not built in `onbod/` by this pass (out of this spec's
+territory this pass — the registration is `resreg/resources/`, the
+handler wiring is `onbod/`).
+
 ### Secret and token values
 
 **DECISION (2026-08-04, operator): encrypted secret blobs travel as-is.
@@ -476,6 +538,46 @@ true` even inside the archive path; a rebuild would wipe live blobs.
 same reason "Tokens in manifests" (below) already forbids rebuilding
 credential material from an operator-edited manifest. Ordinary config
 `apply` is unaffected; only `archive apply` touches these columns.
+
+**DECISION (cross-check pass, this revision): two corrections to the
+token half of this lane, both verified against the code, not assumed.**
+
+1. **`route_tokens` archives `kind='route'` only — pairing tokens
+   (`kind='pair'`) are excluded entirely.** Two independent reasons, either
+   sufficient alone: (a) `route_tokens.owner_folder` is `TEXT NOT NULL`
+   today (`routd/migrations/0001-initial-schema.sql:144`), but the
+   onboarding→pairing fold this spec's `31-identity-pairing.md` depends on
+   (`specs/5/31`, commit `709ea647`) plans making it nullable for
+   greeting-originated pairing links — the generic exporter scans every
+   row into `RouteTokensRow.OwnerFolder string` (`resreg/resources/route_tokens.go:15`,
+   `resreg/engine.go` `ScanAll`), and a `NULL` there fails the scan the
+   moment that migration lands. (b) Independent of (a): pairing links are
+   10-minute, single-use credentials — archiving them has no DR value, and
+   reviving one (below) is actively harmful. `archive export` filters the
+   `route_tokens` document to `kind='route'`; `archive apply`'s UPSERT
+   lane never writes a `kind='pair'` row.
+2. **The UPSERT lane can revive a revoked or consumed credential — this
+   was under-specified above.** `route_tokens` revocation and `invites`
+   revocation are both a literal `DELETE` (`routd/tokens.go`
+   `RevokeRouteTokens`, `routd/route_tokens_resource.go`
+   `revokeRouteTokenTx`, `onbod/invites_resource.go`'s invite DELETE) —
+   the row is gone from the live table, not flagged. The blob/hash itself
+   never leaks (archives hold hashes/ciphertext, not bearers), but
+   restoring a row whose bearer link still sits in someone's chat
+   scrollback makes that link valid again — a real access-control
+   regression, not a data-integrity one, so "UPSERT never deletes, hence
+   safe" (this section's original framing) was answering the wrong
+   question. **Fix: `route_tokens`/`invites` restore is OFF by default.**
+   `archive apply` skips these two documents' UPSERT step and reports what
+   it skipped, unless `--force` — the same override "Restoring onto a
+   populated instance" (below) already uses for the filesystem step, not a
+   third flag for a third concept — AND even with `--force` it refuses
+   unless the target's `route_tokens`/`invites` tables are already empty
+   (a proven-empty target, i.e. genuine DR onto a fresh instance, not a
+   merge or re-run that could clobber post-export revocations). `secrets`
+   is unaffected by this gate: a secret has no revoke-by-delete lifecycle
+   comparable to a redeemable link, and its own per-row keyring validation
+   (below) is the correctness gate for it.
 
 **Fails loud, validating every row, using existing code, not new
 crypto — and no new exported decrypt surface.** `store.open()`
@@ -598,14 +700,28 @@ today.** Naming them precisely so "claim the slot" isn't hand-waved:
   spawn row's recorded `kind` selects which executor's `Kill` to call) —
   currently both call `m.runtime.Kill` unconditionally
   (`manager.go:277,306`).
-- **Breaker accounting scopes to `kind='agent'`.**
-  `GetFailures`/`IncrFailures`/`ResetFailures` (`manager.go:98-100,283-291`)
-  are keyed on folder with no kind awareness today — a failed backup would
-  otherwise count against the agent and could stop it spawning. `endRun`
-  must skip breaker accounting entirely for non-agent kinds.
-  `spawns.state`/`outcome`/`exit_code` still record the backup's own
-  success/failure (visibility is unaffected), only the breaker's
-  interpretation of failure changes.
+- **`kind='agent'` scoping is not just the breaker's failure counter — four
+  sites need it, verified against the code.** `GetFailures`/`IncrFailures`/
+  `ResetFailures` (`manager.go:98-100,283-291`) are keyed on folder with no
+  kind awareness today:
+  1. `endRun`'s breaker update — a failed backup would otherwise count
+     against the agent and could stop it spawning; must skip entirely for
+     non-agent kinds. `spawns.state`/`outcome`/`exit_code` still record the
+     backup's own success/failure (visibility unaffected), only the
+     breaker's interpretation changes.
+  2. The reset-on-new-inbound at `Run`'s top (`manager.go:98`) — a backup
+     request is not an agent inbound and must not reset the agent's
+     failure streak either.
+  3. The global concurrency cap (`manager.go:132`, `ActiveCount` vs
+     `maxRun`) — `MaxConcurrent` bounds container/host resource usage,
+     which a containerless kind doesn't consume; counting a backup here
+     could let it starve real agent spawns or get wrongly capacity-capped
+     by unrelated agent load. A non-agent kind's serialization comes
+     entirely from the per-folder run-slot claim, not this cap.
+  4. Session-log bookkeeping (`manager.go:167`, `RecordSession`/
+     `SetSpawnSessionLogID`/`EndSession`) — `session_log` is agent-session
+     history; a backup run has no agent session and gets no row, the same
+     treatment `Isolated` runs already get.
 - **The busy-branch steer attempt must skip non-agent kinds.** Today, when
   `active != nil`, `Run` unconditionally tries `steer(req.MessageBatch)`
   if a steer callback is registered (`manager.go:112-118`) — correct for a
@@ -689,12 +805,21 @@ that was never a group at all.
 
 Config apply was never dangerous here — it's CAS-checked, scoped, and its
 blast radius is exactly the rows the manifest mentions. The archive's
-non-config subsystems have three different risk profiles, and a populated
+non-config subsystems have four different risk profiles, and a populated
 target is where they diverge:
 
-- **Config + secrets + tokens:** unchanged risk. CAS'd DELETE+INSERT for
-  config; UPSERT (never delete) for secret/token values. Safe on a
-  populated instance by the same reasoning as today.
+- **Config:** unchanged risk. CAS'd DELETE+INSERT, blast radius exactly
+  the manifest's rows.
+- **Secrets:** UPSERT, always on — a secret has no revoke-by-delete
+  lifecycle a revival could reactivate; per-row keyring validation
+  ("Secret and token values," above) is its correctness gate.
+- **`route_tokens`(`kind='route'`)/`invites`: revival risk, gated
+  off by default.** Both are `SkipApplyRebuild` DELETE-to-revoke
+  credentials, verified against the code (above) — restoring a
+  deliberately-revoked row makes a still-circulating link valid again.
+  Skipped unless `--force`, and even then refused unless the target's
+  table is already empty (a proven-empty DR target). Pairing tokens
+  (`kind='pair'`) are never archived at all (above).
 - **Message history:** safe by construction — `INSERT OR IGNORE` never
   overwrites or deletes an existing row. Restoring an archive twice, or
   onto an instance that already has some of the same history, converges
@@ -946,8 +1071,12 @@ codegen, no third-party ORMs.
 - [`5-tenant-self-service.md`](5-tenant-self-service.md) — Phase C secret
   layering composes with the `secrets` resource.
 - [`31-identity-pairing.md`](31-identity-pairing.md) — precedent for
-  "co-locate what must be atomic" (`route_tokens.kind`), cited three times
-  above as the principle this spec keeps reapplying.
+  "co-locate what must be atomic" (`route_tokens.kind`), cited above as
+  the principle this spec keeps reapplying; also two blocking
+  preconditions this spec now depends on (`acl_membership`
+  `added_by='pairing'` exclusion, `route_tokens` `kind='route'`-only
+  archival) and one forward risk (`owner_folder` going nullable per the
+  onboarding→pairing fold, `709ea647`) — all above, tracked in `BUGS.md`.
 
 ## Pointers
 

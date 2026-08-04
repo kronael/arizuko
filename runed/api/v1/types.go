@@ -29,6 +29,12 @@ type RunRequest struct {
 	Model            string         `json:"model"`            // group override; empty = instance default
 	ContainerConfig  map[string]any `json:"container_config"` // opaque GroupConfig forwarded from groups.container_config
 	Isolated         bool           `json:"isolated"`         // timed-isolated:* runs: one-off container, no session persist
+	// Kind selects the post-claim executor ('agent' | 'backup' | ..., spec
+	// 5/8 "Filesystem restore claims the folder's run slot"). Empty = 'agent'
+	// (the column default), so every existing caller is unaffected. A
+	// non-agent kind carries no MessageBatch and must never be steered into
+	// a live agent's running container, nor count toward its breaker.
+	Kind string `json:"kind,omitempty"`
 	// Elevated is the operator /root elevation signal: routd sets it true ONLY
 	// for a turn an operator raised via /root (steer.go cmdRoot). runed forwards
 	// it to container.Input.Elevated → root=Elevated (tier 0, /var/lib/groups

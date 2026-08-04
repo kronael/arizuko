@@ -40,12 +40,17 @@ const (
 // (container-lifetime, inherently non-persistable). The mutex guards just
 // the atomic count-and-claim of the admit path.
 type Manager struct {
-	db       *DB
-	runtime  Runtime
-	scopes   []types.Scope // runed's service scope ceiling for brokered tokens
-	runTTL   time.Duration
-	instance string
-	maxRun   int
+	db *DB
+	// executors dispatches the post-claim step by spawns.kind (spec 5/8
+	// "Filesystem restore claims the folder's run slot"): 'agent' is wired
+	// by NewManager from the production Runtime; other kinds (e.g. 'backup')
+	// register via RegisterExecutor. Executor IS the existing Runtime
+	// interface — no new interface for a new kind.
+	executors map[string]Runtime
+	scopes    []types.Scope // runed's service scope ceiling for brokered tokens
+	runTTL    time.Duration
+	instance  string
+	maxRun    int
 
 	mu       sync.Mutex
 	steerFns map[string]func(batch string) bool // folder -> steer callback (runtime-wired)
@@ -70,14 +75,44 @@ func NewManager(db *DB, runtime Runtime, cfg ManagerConfig) *Manager {
 		cfg.MaxConcurrent = defaultMaxConcurrent
 	}
 	return &Manager{
-		db:       db,
-		runtime:  runtime,
-		scopes:   cfg.Scopes,
-		runTTL:   cfg.RunTTL,
-		instance: cfg.Instance,
-		maxRun:   cfg.MaxConcurrent,
-		steerFns: map[string]func(batch string) bool{},
+		db:        db,
+		executors: map[string]Runtime{"agent": runtime},
+		scopes:    cfg.Scopes,
+		runTTL:    cfg.RunTTL,
+		instance:  cfg.Instance,
+		maxRun:    cfg.MaxConcurrent,
+		steerFns:  map[string]func(batch string) bool{},
 	}
+}
+
+// RegisterExecutor wires an additional kind's post-claim executor onto the
+// shared dispatch site (e.g. 'backup' — spec 5/8). 'agent' is reserved for
+// the production Runtime NewManager already wired and cannot be replaced
+// here.
+func (m *Manager) RegisterExecutor(kind string, exec Runtime) {
+	if kind == "" || kind == "agent" || exec == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.executors[kind] = exec
+}
+
+// executor resolves kind to its Executor, defaulting an empty kind to
+// 'agent' (every pre-kind caller). Used only by cleanup paths (Kill) that
+// must not fail on an already-validated spawn; Run validates kind up front
+// and fails loud on an unknown one instead of silently falling back.
+func (m *Manager) executor(kind string) Runtime {
+	if kind == "" {
+		kind = "agent"
+	}
+	m.mu.Lock()
+	exec, ok := m.executors[kind]
+	m.mu.Unlock()
+	if !ok {
+		return m.executors["agent"]
+	}
+	return exec
 }
 
 // Run executes (or steers) one agent turn as a pure claim-or-reject
@@ -91,12 +126,28 @@ func NewManager(db *DB, runtime Runtime, cfg ManagerConfig) *Manager {
 //     DB-backed dispatch queue.
 func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	folder := string(req.Folder)
+	kind := req.Kind
+	if kind == "" {
+		kind = "agent"
+	}
+	// Unknown kind is a caller/programming error, not a transient condition —
+	// fail loud now rather than admit a spawn with no executor to dispatch to.
+	m.mu.Lock()
+	_, known := m.executors[kind]
+	m.mu.Unlock()
+	if !known {
+		return runedv1.RunOutcome{}, fmt.Errorf("runed: unknown run kind %q", kind)
+	}
 
 	// A new inbound resets the breaker for a broken folder (spec 5/P §
-	// circuit breaker: "a new inbound resets it"). Done before admission so
-	// a retry after 3 failures actually spawns.
-	if failures, _ := m.db.GetFailures(folder); failures >= circuitBreakerThreshold {
-		_ = m.db.ResetFailures(folder)
+	// circuit breaker: "a new inbound resets it"). Scoped to kind='agent'
+	// (spec 5/8): a backup request is not an agent inbound and must not
+	// reset the agent's failure streak. Done before admission so a retry
+	// after 3 failures actually spawns.
+	if kind == "agent" {
+		if failures, _ := m.db.GetFailures(folder); failures >= circuitBreakerThreshold {
+			_ = m.db.ResetFailures(folder)
+		}
 	}
 
 	// The admission decision and spawn-row creation are one atomic critical
@@ -112,8 +163,15 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 		return runedv1.RunOutcome{}, fmt.Errorf("check active spawn: %w", err)
 	}
 	if active != nil {
-		steer := m.steerFns[folder]
-		steered := steer != nil && steer(req.MessageBatch)
+		// A non-agent request (e.g. a backup) carries no message and must
+		// never be steered into a live agent's running container — steering
+		// an empty batch into whatever turn is live is a real bug, not a
+		// hypothetical (spec 5/8). Only kind='agent' attempts the steer.
+		var steered bool
+		if kind == "agent" {
+			steer := m.steerFns[folder]
+			steered = steer != nil && steer(req.MessageBatch)
+		}
 		runID, sessionID := active.RunID, active.SessionID
 		m.mu.Unlock()
 		if steered {
@@ -123,20 +181,28 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 				SessionID: sessionID, Steered: true,
 			}, nil
 		}
-		// Steer failed (container already exited) or not yet wired: reject as
-		// busy. routd re-feeds next poll (no internal queue).
+		// Steer failed (container already exited), not attempted (non-agent
+		// kind), or not yet wired: reject as busy. routd re-feeds next poll
+		// (no internal queue).
 		return runedv1.RunOutcome{Busy: true}, nil
 	}
 
 	// Global concurrency cap: reject as busy when full (routd re-feeds).
-	activeCount, err := m.db.ActiveCount()
-	if err != nil {
-		m.mu.Unlock()
-		return runedv1.RunOutcome{}, fmt.Errorf("check active count: %w", err)
-	}
-	if activeCount >= m.maxRun {
-		m.mu.Unlock()
-		return runedv1.RunOutcome{Busy: true}, nil
+	// Scoped to kind='agent' (spec 5/8) — MaxConcurrent (MAX_CONCURRENT_
+	// CONTAINERS) bounds container/host resource usage, which a
+	// containerless kind doesn't consume. A non-agent kind is uncapped
+	// here; its serialization comes entirely from the per-folder
+	// exclusivity above (one live spawn per folder, any kind).
+	if kind == "agent" {
+		activeCount, err := m.db.ActiveAgentCount()
+		if err != nil {
+			m.mu.Unlock()
+			return runedv1.RunOutcome{}, fmt.Errorf("check active count: %w", err)
+		}
+		if activeCount >= m.maxRun {
+			m.mu.Unlock()
+			return runedv1.RunOutcome{Busy: true}, nil
+		}
 	}
 
 	// Idle folder, under cap: claim the slot by creating the spawn row NOW
@@ -149,7 +215,7 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 	containerName := fmt.Sprintf("arizuko-%s-%s-%d", m.instance, container.SanitizeFolder(folder), time.Now().UnixMilli())
 	if err := m.db.CreateSpawn(Spawn{
 		RunID: runID, Folder: folder, Topic: req.Topic, ContainerName: containerName,
-		SessionID: sessionID, State: "queued",
+		SessionID: sessionID, Kind: kind, State: "queued",
 	}); err != nil {
 		m.mu.Unlock()
 		return runedv1.RunOutcome{}, fmt.Errorf("create spawn: %w", err)
@@ -163,32 +229,48 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 // spawn row is already created (under the Run lock) to claim the slot.
 func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sessionID, containerName string) runedv1.RunOutcome {
 	folder := string(req.Folder)
+	kind := req.Kind
+	if kind == "" {
+		kind = "agent"
+	}
+	exec := m.executor(kind) // Run already validated kind is registered.
 
-	// Isolated (timed-isolated:*) runs are one-off containers: no session_log
-	// row. The spawns row still exists for GET/DELETE.
+	// Isolated (timed-isolated:*) runs are one-off containers, and a
+	// non-agent kind has no agent session at all: neither gets a
+	// session_log row. The spawns row still exists for GET/DELETE.
 	var logID int64
-	if !req.Isolated {
+	if !req.Isolated && kind == "agent" {
 		logID, _ = m.db.RecordSession(folder, sessionID)
 		_ = m.db.SetSpawnSessionLogID(runID, logID)
 	}
 
 	_ = m.db.StartSpawn(runID, sessionID)
 
-	// Enforce runTTL as a kill-deadline: m.runTTL is the intended run ceiling
-	// (broker token TTL), but a CONTAINER_TIMEOUT > runTTL would let the
-	// container outrun it. The Runtime honors RunTTL from within the run path
-	// (kill armed once the run is underway, stopped when it returns) so no
-	// detached manager timer races container creation.
-	//
+	// RunTTL's kill-deadline is armed HERE, at the shared dispatch site, by
+	// wrapping ctx with a deadline — not inside any one executor (spec 5/8
+	// "wedge protection... uniform across kinds": every kind's executor
+	// gets this for free by honoring ctx cancellation, the ordinary Go
+	// contract, instead of each one reimplementing a RunTTL-specific
+	// timer). dockerRuntime's armCancel already kills on ctx.Done()
+	// regardless of cause (deadline or an explicit cancel from routd
+	// dropping the request), so wrapping here is the only change it needs.
+	runCtx := ctx
+	if m.runTTL > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, m.runTTL)
+		defer cancel()
+	}
+
 	// RegisterSteer wires the steer callback into the live-run slot once the
 	// Runtime's container + IPC are up, so a concurrent POST /v1/runs steers
-	// into it instead of spawning afresh.
-	res := m.runtime.Run(ctx, RunSpec{
+	// into it instead of spawning afresh. A containerless (non-agent)
+	// executor simply never calls it, registering no steer callback.
+	res := exec.Run(runCtx, RunSpec{
 		RunID: runID, Folder: folder, ContainerName: containerName,
 		Topic: req.Topic, ChatJID: req.ChatJID, Channel: req.Channel,
 		SessionID: sessionID, MessageBatch: req.MessageBatch,
 		TriggerSender: req.TriggerSender, CallerSub: req.CallerSub,
-		TurnID: req.TurnID, Isolated: req.Isolated,
+		TurnID: req.TurnID, Kind: kind, Isolated: req.Isolated,
 		Elevated: req.Elevated,
 		Model:    req.Model, ContainerConfig: req.ContainerConfig,
 		ShareReadOnly: req.ShareReadOnly, Egress: req.Egress, WebPublish: req.WebPublish,
@@ -212,12 +294,12 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		// Operator must reset it manually: UPDATE spawns SET state='exited' WHERE run_id=?
 		slog.Error("runed: EndSpawn failed — spawn may become zombie", "run_id", runID, "err", err)
 	}
-	if !req.Isolated {
+	if !req.Isolated && kind == "agent" {
 		if err := m.db.EndSession(logID, res.NewSessionID, res.Outcome, res.Error, res.MessageCount); err != nil {
 			slog.Error("runed: EndSession failed", "log_id", logID, "err", err)
 		}
 	}
-	breakerTripped := m.endRun(folder, runID, failed)
+	breakerTripped := m.endRun(folder, runID, failed, kind)
 
 	out := runedv1.RunOutcome{
 		RunID: runID, Outcome: res.Outcome, SessionID: endSession, Error: res.Error,
@@ -238,15 +320,23 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 // DB. Returns true when this exit trips the breaker (failure count reaches
 // the threshold on this run). The slot frees implicitly (no running row);
 // there is no admission queue to drain — routd re-feeds next poll.
-func (m *Manager) endRun(folder, runID string, failed bool) bool {
+//
+// Breaker accounting is scoped to kind="agent" (spec 5/8): a failed backup
+// run must never count against the agent's breaker and stop it spawning —
+// spawns.state/outcome/exit_code still record the backup's own
+// success/failure (EndSpawn, unconditional), only the breaker's
+// interpretation of failure changes here.
+func (m *Manager) endRun(folder, runID string, failed bool, kind string) bool {
 	var tripped bool
-	if failed {
-		newCount, _ := m.db.IncrFailures(folder)
-		tripped = newCount == circuitBreakerThreshold
-	} else {
-		// Any clean exit resets the breaker (silent included); a folder
-		// alternating error/silent must never creep to the threshold.
-		_ = m.db.ResetFailures(folder)
+	if kind == "agent" {
+		if failed {
+			newCount, _ := m.db.IncrFailures(folder)
+			tripped = newCount == circuitBreakerThreshold
+		} else {
+			// Any clean exit resets the breaker (silent included); a folder
+			// alternating error/silent must never creep to the threshold.
+			_ = m.db.ResetFailures(folder)
+		}
 	}
 
 	// Clear the steer callback (the container is gone).
@@ -270,7 +360,9 @@ func (m *Manager) SetSteer(folder, runID string, steer func(batch string) bool) 
 	m.steerFns[folder] = steer
 }
 
-// Kill stops a run's container (DELETE /v1/runs/{id}) and frees its slot.
+// Kill stops a run (DELETE /v1/runs/{id}) and frees its slot. The spawn's
+// recorded kind selects which executor's Kill runs (spec 5/8) — a backup
+// run's Kill is dispatched the same way an agent's is, no special-casing.
 // Idempotent: killing an already-exited run is a no-op 200. A deliberate
 // kill records state=killed WITHOUT outcome=error and does NOT count toward
 // the breaker (it's operator intent, not a run failure). The slot frees
@@ -282,7 +374,7 @@ func (m *Manager) Kill(runID string) error {
 	}
 	live := sp.State == "running" || sp.State == "queued"
 	if live {
-		_ = m.runtime.Kill(sp.ContainerName)
+		_ = m.executor(sp.Kind).Kill(sp.ContainerName)
 		// KillSpawn re-checks the state in SQL — a run that completed normally
 		// between GetSpawn and here keeps its terminal state (not 'killed').
 		_ = m.db.KillSpawn(runID)

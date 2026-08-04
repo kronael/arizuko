@@ -66,11 +66,10 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		ipcDir, _ := d.folders.IpcPath(spec.Folder)
 		spec.RegisterSteer(d.steerInto(ipcDir, spec.ContainerName))
 	}
-	stopTTL := d.armRunTTL(spec.RunTTL, spec.ContainerName)
-	defer stopTTL()
-	// Honor cancellation: if routd drops the request (a network blip mid-run),
-	// kill the container instead of orphaning it — else it runs to RunTTL while
-	// routd re-feeds the same turn into a second container (double execution).
+	// armCancel kills the container when ctx dies — the caller (Manager.spawn)
+	// wraps ctx with the RunTTL deadline before calling Run, so ctx dying
+	// covers both RunTTL elapsing and routd dropping the request. See
+	// armCancel's doc comment.
 	stopCancel := d.armCancel(ctx, spec.ContainerName)
 	defer stopCancel()
 	var gc core.GroupConfig
@@ -144,8 +143,9 @@ func (d *dockerRuntime) egress(allowlist []string) container.EgressConfig {
 
 // queryTimeoutMs derives the agent's in-container query timeout from the run
 // ceiling: 30s below RunTTL so the agent aborts + delivers a graceful summary
-// BEFORE armRunTTL's hard kill, floored at 60s. RunTTL<=0 (no ceiling) → 0
-// (agent keeps its built-in default).
+// BEFORE the RunTTL deadline's hard kill (armed by Manager.spawn, see
+// armCancel), floored at 60s. RunTTL<=0 (no ceiling) → 0 (agent keeps its
+// built-in default).
 func queryTimeoutMs(runTTL time.Duration) int64 {
 	if runTTL <= 0 {
 		return 0
@@ -154,48 +154,26 @@ func queryTimeoutMs(runTTL time.Duration) int64 {
 	return q.Milliseconds()
 }
 
-// runTTLPollInterval is how often the runTTL watcher retries Kill after the
-// deadline elapses — covers a container that hasn't finished `docker run`
-// (not yet killable by name) when the ceiling first fires.
-const runTTLPollInterval = 250 * time.Millisecond
+// deadlineKillPollInterval is how often armCancel retries Kill after ctx
+// dies — covers a container that hasn't finished `docker run` (not yet
+// killable by name) when ctx.Done() first fires.
+const deadlineKillPollInterval = 250 * time.Millisecond
 
-// armRunTTL starts the runTTL kill-deadline watcher and returns a stop func
-// the caller defers. ttl<=0 disarms (returns a no-op stop). Once ttl elapses
-// the watcher Kills the container by name and keeps retrying on an interval
-// until the run returns — so a slow `docker run` that wasn't yet killable when
-// the deadline first fired is still reaped (fixes the single-shot startup
-// race). The stop func closes done and the watcher exits, so NO kill can fire
-// after the run completes (fixes the late-kill-after-Stop()==false race). Kill
-// is idempotent, making the retries harmless.
-func (d *dockerRuntime) armRunTTL(ttl time.Duration, containerName string) func() {
-	if ttl <= 0 || containerName == "" {
-		return func() {}
-	}
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-done:
-			return
-		case <-time.After(ttl):
-		}
-		for {
-			_ = d.Kill(containerName)
-			select {
-			case <-done:
-				return
-			case <-time.After(runTTLPollInterval):
-			}
-		}
-	}()
-	var once sync.Once
-	return func() { once.Do(func() { close(done) }) }
-}
-
-// armCancel kills the container if ctx is cancelled mid-run (routd dropped the
-// POST /v1/runs request — a network blip). Without it the container orphans
-// until runTTL and routd re-feeds the turn into a second container (double
-// execution). Returns a stop func the caller defers so a completed run cancels
-// the watcher — no kill fires after the run returns. Kill is idempotent.
+// armCancel kills the container when ctx dies mid-run — whether because
+// routd dropped the POST /v1/runs request (a network blip) or because the
+// run outlived RunTTL. Both are the SAME signal from this Runtime's point
+// of view: the caller (Manager.spawn) wraps ctx with a RunTTL deadline
+// before calling Run (spec 5/8 "wedge protection... uniform across
+// kinds"), so this Runtime needs no RunTTL-specific code of its own —
+// ctx.Done() covers it. Without this the container orphans until RunTTL
+// and routd re-feeds the turn into a second container (double execution).
+// Once ctx dies the watcher Kills the container by name and keeps
+// retrying on an interval until the run returns — so a slow `docker run`
+// that wasn't yet killable when ctx first died is still reaped (fixes the
+// single-shot startup race). Returns a stop func the caller defers so a
+// completed run cancels the watcher — no kill fires after the run returns
+// (fixes the late-kill-after-Stop()==false race). Kill is idempotent,
+// making the retries harmless.
 func (d *dockerRuntime) armCancel(ctx context.Context, containerName string) func() {
 	if ctx == nil || containerName == "" {
 		return func() {}
@@ -204,8 +182,16 @@ func (d *dockerRuntime) armCancel(ctx context.Context, containerName string) fun
 	go func() {
 		select {
 		case <-done:
+			return
 		case <-ctx.Done():
+		}
+		for {
 			_ = d.Kill(containerName)
+			select {
+			case <-done:
+				return
+			case <-time.After(deadlineKillPollInterval):
+			}
 		}
 	}()
 	var once sync.Once
