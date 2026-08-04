@@ -10,7 +10,11 @@ import (
 // expires_at is nullable in DB but exposed as an (omitempty) string; used_count
 // and max_uses are INTEGER. Kept as plain scalars for uniform engine handling —
 // this row drives the /openapi.json schema only (onbod's handler does its own
-// scan via store.ListInvites), so no nullable-scan hook is needed here.
+// scan via store.ListInvites). ExpiresAt DOES need the nullable-scan hook below
+// (corrected — found by the 5/8 archive round-trip test: a real, unexpiring
+// invite — `arizuko invite create` with no --expires — scans NULL and crashed
+// ScanAll outright, breaking `arizuko export`/`get`/`plan` on onbod for any
+// instance holding one).
 //
 // `ref` (store.InviteRef = hex(sha256(token))) IS the DB primary key (I1) —
 // the raw bearer is never persisted, so there is no token field to leak here
@@ -54,5 +58,18 @@ func init() {
 		// this table, or an apply would revoke every live invite (mirrors
 		// route_tokens and secrets).
 		SkipApplyRebuild: true,
+		Hooks: resreg.Hooks{
+			ColumnOverride: map[string]resreg.ColumnHook{
+				// expires_at is NULL for an invite minted with no --expires
+				// (store/migrations/0077); every other nullable-mapped-to-
+				// non-pointer column in this package uses the identical
+				// COALESCE+nilIfEmptyString pair (route_tokens.Context,
+				// groups.UpdatedAt).
+				"ExpiresAt": {
+					Read:  "COALESCE(expires_at, '')",
+					Write: nilIfEmptyString,
+				},
+			},
+		},
 	})
 }
