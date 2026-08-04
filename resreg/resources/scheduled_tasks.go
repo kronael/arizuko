@@ -77,6 +77,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "scheduled_tasks",
 		Table:     "scheduled_tasks",
+		DB:        resreg.SubsystemRoutd,
 		RowType:   reflect.TypeFor[ScheduledTasksRow](),
 		PKFields:  []string{"ID"},
 		Endpoints: ScheduledTasksEndpoints,

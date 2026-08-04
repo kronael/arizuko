@@ -62,6 +62,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:          "network_rules",
 		Table:         "network_rules",
+		DB:            resreg.SubsystemRoutd,
 		RowType:       reflect.TypeFor[NetworkRulesRow](),
 		PKFields:      []string{"Folder", "Target"},
 		Endpoints:     NetworkRulesEndpoints,

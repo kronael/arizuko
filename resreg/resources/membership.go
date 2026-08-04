@@ -60,6 +60,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:          "acl_membership",
 		Table:         "acl_membership",
+		DB:            resreg.SubsystemRoutd,
 		RowType:       reflect.TypeFor[ACLMembershipRow](),
 		PKFields:      []string{"Child", "Parent"},
 		StampedFields: []string{"AddedAt"},
@@ -67,6 +68,15 @@ func init() {
 		MCPDoc:        ACLMembershipMCPDoc,
 		MCPArgs:       ACLMembershipMCPArgs,
 		MCPNames:      ACLMembershipMCPNames,
+		// CRITICAL (spec 5/8 §"Cross-subsystem apply"): pairing edges are
+		// consented runtime state made and undone through
+		// issue_pairing_link/unpair (spec 5/31), never declarative operator
+		// intent — they must stay OUT of every manifest-visible read AND
+		// write: the content-hash checksum, the CAS-scoped DELETE+INSERT
+		// rebuild, and (once built) the pre-image/rollback set. Without this,
+		// rollback re-applying a pre-image taken before a caller unpaired
+		// would silently resurrect authority they deliberately revoked.
+		RowFilter: "(added_by IS NULL OR added_by != 'pairing')",
 		Hooks: resreg.Hooks{
 			ValidateRow: func(ctx context.Context, tx *sql.Tx, row any) error {
 				r := row.(*ACLMembershipRow)

@@ -89,6 +89,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "proxyd_routes",
 		Table:     "proxyd_routes",
+		DB:        resreg.SubsystemRoutd,
 		RowType:   reflect.TypeFor[ProxydRoutesRow](),
 		PKFields:  []string{"Path"},
 		Endpoints: ProxydRoutesEndpoints,

@@ -7,6 +7,7 @@ package resreg
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -24,9 +25,20 @@ type TestRow struct {
 	Value string `db:"value" yaml:"value"`
 }
 
+// testSubsystem is the synthetic owner-DB tag these tests register
+// "testrows" under — content-hash CAS (Apply/Export/Plan) is per subsystem.
+const testSubsystem = "test"
+
+// testSchema carries an audit_log table (id PK only) because Apply's write-
+// lock trick issues one no-op UPDATE against it (spec 5/8 §"Content-hash
+// CAS" — the real table exists in routd.db/onbod.db; resreg's own invoke()
+// already assumes it for every mutation's audit row, so a synthetic test DB
+// must too). No columns beyond `id` are needed here since every Apply call
+// in this file passes opts=nil (no audit row insert, which needs the full
+// column set — covered instead by resreg/resources' integration tests
+// against the real schema).
 const testSchema = `
-CREATE TABLE config_meta (version INTEGER NOT NULL DEFAULT 0);
-INSERT INTO config_meta (version) VALUES (0);
+CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT);
 CREATE TABLE testrows (
   kind  TEXT NOT NULL,
   name  TEXT NOT NULL,
@@ -51,6 +63,7 @@ func freshEngine(t *testing.T) (*sql.DB, *Resource) {
 	r := Register(Resource{
 		Name:     "testrows",
 		Table:    "testrows",
+		DB:       testSubsystem,
 		RowType:  reflect.TypeFor[TestRow](),
 		PKFields: []string{"Kind", "Name"},
 		Scope:    ScopeSpec{Field: "Kind"},
@@ -134,6 +147,74 @@ func TestDeleteScope_CompositePK(t *testing.T) {
 	}
 }
 
+// TestRowFilter_ExcludesFromScanDeleteAndChecksum: a resource's RowFilter
+// keeps matching rows out of ScanAll, DeleteAll/DeleteScope, and therefore
+// the content-hash checksum (Export/Checksum are built on ScanAll) — the
+// same mechanism spec 5/8's CRITICAL finding uses to keep acl_membership
+// pairing edges and route_tokens pairing tokens out of every
+// manifest-visible read AND write.
+func TestRowFilter_ExcludesFromScanDeleteAndChecksum(t *testing.T) {
+	reset()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if _, err := db.Exec(testSchema); err != nil {
+		t.Fatal(err)
+	}
+	r := Register(Resource{
+		Name:      "testrows",
+		Table:     "testrows",
+		DB:        testSubsystem,
+		RowType:   reflect.TypeFor[TestRow](),
+		PKFields:  []string{"Kind", "Name"},
+		Scope:     ScopeSpec{Field: "Kind"},
+		RowFilter: "kind != 'excluded'",
+	})
+	insertRaw(t, db,
+		TestRow{Kind: "a", Name: "x", Value: "1"},
+		TestRow{Kind: "excluded", Name: "hidden", Value: "9"},
+	)
+	got, err := r.ScanAll(db)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	if rows := got.([]TestRow); len(rows) != 1 || rows[0].Kind != "a" {
+		t.Fatalf("ScanAll = %v, want only kind=a (excluded row must not appear)", rows)
+	}
+	c1, err := Checksum(db, testSubsystem)
+	if err != nil {
+		t.Fatalf("Checksum: %v", err)
+	}
+	// A checksum computed after inserting MORE excluded-kind rows must be
+	// unchanged — excluded rows never enter the projection Checksum hashes.
+	insertRaw(t, db, TestRow{Kind: "excluded", Name: "hidden2", Value: "10"})
+	c2, err := Checksum(db, testSubsystem)
+	if err != nil {
+		t.Fatalf("Checksum 2: %v", err)
+	}
+	if c1 != c2 {
+		t.Errorf("checksum changed after inserting an excluded row: %s -> %s", c1, c2)
+	}
+	// DeleteAll must never touch excluded rows.
+	tx, _ := db.Begin()
+	if err := r.DeleteAll(context.Background(), tx); err != nil {
+		t.Fatalf("DeleteAll: %v", err)
+	}
+	tx.Commit()
+	var remaining int
+	db.QueryRow(`SELECT COUNT(*) FROM testrows WHERE kind = 'excluded'`).Scan(&remaining)
+	if remaining != 2 {
+		t.Errorf("excluded rows remaining = %d, want 2 (DeleteAll must not touch them)", remaining)
+	}
+	var total int
+	db.QueryRow(`SELECT COUNT(*) FROM testrows`).Scan(&total)
+	if total != 2 {
+		t.Errorf("total rows = %d, want 2 (only the non-excluded row was deleted)", total)
+	}
+}
+
 func TestParseRows_RoundTrip(t *testing.T) {
 	_, r := freshEngine(t)
 	yamlIn := `
@@ -166,7 +247,7 @@ func TestParseRows_RoundTrip(t *testing.T) {
 func TestParseYAML_StrictRejectsUnknownKey(t *testing.T) {
 	freshEngine(t)
 	manifest := []byte(`
-config_version: 0
+checksum: "sha256:0"
 testrowz:
   - kind: a
     name: x
@@ -186,7 +267,7 @@ testrowz:
 func TestParseYAML_StrictRejectsUnknownField(t *testing.T) {
 	freshEngine(t)
 	manifest := []byte(`
-config_version: 0
+checksum: "sha256:0"
 testrows:
   - kind: a
     name: x
@@ -202,6 +283,28 @@ testrows:
 	}
 }
 
+// TestParseYAML_ChecksumNotInResourceMap: "checksum" is extracted
+// separately and never left as a manifestRows key — Apply's per-key
+// subsystem validation would otherwise try (and fail) to look it up as a
+// resource name.
+func TestParseYAML_ChecksumNotInResourceMap(t *testing.T) {
+	freshEngine(t)
+	manifest := []byte(`
+checksum: "sha256:deadbeef"
+testrows: []
+`)
+	rows, checksum, err := ParseYAML(manifest)
+	if err != nil {
+		t.Fatalf("ParseYAML: %v", err)
+	}
+	if checksum != "sha256:deadbeef" {
+		t.Errorf("checksum = %q, want sha256:deadbeef", checksum)
+	}
+	if _, ok := rows["checksum"]; ok {
+		t.Error("checksum must not be a manifestRows key")
+	}
+}
+
 func TestYAMLEmit_Deterministic(t *testing.T) {
 	db, _ := freshEngine(t)
 	insertRaw(t, db,
@@ -209,7 +312,7 @@ func TestYAMLEmit_Deterministic(t *testing.T) {
 		TestRow{Kind: "a", Name: "x", Value: "1"},
 		TestRow{Kind: "a", Name: "y", Value: "2"},
 	)
-	m1, err := Export(db)
+	m1, err := Export(db, testSubsystem)
 	if err != nil {
 		t.Fatalf("Export 1: %v", err)
 	}
@@ -217,7 +320,7 @@ func TestYAMLEmit_Deterministic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Emit 1: %v", err)
 	}
-	m2, err := Export(db)
+	m2, err := Export(db, testSubsystem)
 	if err != nil {
 		t.Fatalf("Export 2: %v", err)
 	}
@@ -239,44 +342,52 @@ func TestYAMLEmit_Deterministic(t *testing.T) {
 	}
 }
 
-func TestApply_VersionMismatch(t *testing.T) {
+func TestApply_ChecksumMismatch(t *testing.T) {
 	db, _ := freshEngine(t)
-	// db is at version 0; tell Apply manifest is at version 42 → mismatch.
-	_, err := Apply(context.Background(), db, 42, false, map[string]any{
+	// db's testrows table is empty; a bogus checksum can never match it.
+	_, err := Apply(context.Background(), db, testSubsystem, "sha256:bogus", false, map[string]any{
 		"testrows": []TestRow{{Kind: "a", Name: "x", Value: "1"}},
 	}, nil)
 	if err == nil {
-		t.Fatalf("Apply: want ErrVersionMismatch, got nil")
+		t.Fatalf("Apply: want ErrChecksumMismatch, got nil")
 	}
-	if !strings.Contains(err.Error(), "config_version mismatch") {
-		t.Errorf("err = %v, want ErrVersionMismatch wrap", err)
+	if !errors.Is(err, ErrChecksumMismatch) {
+		t.Errorf("err = %v, want ErrChecksumMismatch", err)
 	}
 }
 
+// TestApply_RoundTrip: applying the same content twice is a no-op on the
+// checksum (content-hash CAS's headline property over the old counter,
+// which advanced even on an idempotent re-apply of identical rows).
 func TestApply_RoundTrip(t *testing.T) {
 	db, _ := freshEngine(t)
 	rows := []TestRow{
 		{Kind: "a", Name: "x", Value: "1"},
 		{Kind: "b", Name: "z", Value: "3"},
 	}
-	v, err := Apply(context.Background(), db, 0, false, map[string]any{
+	c0, err := Checksum(db, testSubsystem)
+	if err != nil {
+		t.Fatalf("Checksum: %v", err)
+	}
+	c1, err := Apply(context.Background(), db, testSubsystem, c0, false, map[string]any{
 		"testrows": rows,
 	}, nil)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if v != 1 {
-		t.Errorf("version after apply = %d, want 1", v)
+	if c1 == c0 {
+		t.Errorf("checksum unchanged after apply that added rows")
 	}
-	// re-apply with same data + new version → idempotent
-	v2, err := Apply(context.Background(), db, 1, false, map[string]any{
+	// re-apply the SAME content, CAS'd against the checksum Apply just
+	// returned → idempotent, checksum unchanged.
+	c2, err := Apply(context.Background(), db, testSubsystem, c1, false, map[string]any{
 		"testrows": rows,
 	}, nil)
 	if err != nil {
 		t.Fatalf("Apply 2: %v", err)
 	}
-	if v2 != 2 {
-		t.Errorf("version after 2nd apply = %d, want 2", v2)
+	if c2 != c1 {
+		t.Errorf("checksum changed on idempotent re-apply of identical content: %s -> %s", c1, c2)
 	}
 	var n int
 	db.QueryRow(`SELECT COUNT(*) FROM testrows`).Scan(&n)
@@ -289,7 +400,7 @@ func TestApply_RoundTrip(t *testing.T) {
 // export a configured DB, apply that manifest to a fresh DB, re-export, and
 // the config data must be identical. This is the "agent is data" backup/restore
 // guarantee — `arizuko export` → git → `arizuko apply` reproduces the config
-// exactly (config_version is metadata that legitimately differs, excluded).
+// exactly.
 func TestExportApply_FullRoundTrip(t *testing.T) {
 	db1, _ := freshEngine(t)
 	insertRaw(t, db1,
@@ -297,24 +408,26 @@ func TestExportApply_FullRoundTrip(t *testing.T) {
 		TestRow{Kind: "a", Name: "y", Value: "2"},
 		TestRow{Kind: "b", Name: "z", Value: "3"},
 	)
-	m1, err := Export(db1)
+	m1, err := Export(db1, testSubsystem)
 	if err != nil {
 		t.Fatalf("Export db1: %v", err)
 	}
 
 	db2, _ := freshEngine(t) // fresh empty DB; registry re-registers testrows
-	if _, err := Apply(context.Background(), db2, 0, false, map[string]any{
+	c0, err := Checksum(db2, testSubsystem)
+	if err != nil {
+		t.Fatalf("Checksum db2: %v", err)
+	}
+	if _, err := Apply(context.Background(), db2, testSubsystem, c0, false, map[string]any{
 		"testrows": m1["testrows"],
 	}, nil); err != nil {
 		t.Fatalf("Apply exported manifest to a fresh DB: %v", err)
 	}
-	m2, err := Export(db2)
+	m2, err := Export(db2, testSubsystem)
 	if err != nil {
 		t.Fatalf("Export db2: %v", err)
 	}
 
-	delete(m1, "config_version")
-	delete(m2, "config_version")
 	y1, _ := yaml.Marshal(m1)
 	y2, _ := yaml.Marshal(m2)
 	if string(y1) != string(y2) {
@@ -335,10 +448,13 @@ func TestApply_EmptyScopedListClears(t *testing.T) {
 	)
 
 	// Manifest MENTIONS testrows with an empty list → clears every row.
-	v, err := Apply(context.Background(), db, 0, false, map[string]any{
-		"testrows": []TestRow{},
-	}, nil)
+	c0, err := Checksum(db, testSubsystem)
 	if err != nil {
+		t.Fatalf("Checksum: %v", err)
+	}
+	if _, err := Apply(context.Background(), db, testSubsystem, c0, false, map[string]any{
+		"testrows": []TestRow{},
+	}, nil); err != nil {
 		t.Fatalf("Apply empty: %v", err)
 	}
 	var n int
@@ -348,9 +464,17 @@ func TestApply_EmptyScopedListClears(t *testing.T) {
 	}
 
 	// Re-seed, then apply a manifest that does NOT mention testrows at all →
-	// the resource is untouched.
+	// the resource is untouched. A direct-SQL insert (bypassing Apply)
+	// changes the DB's content hash, so the CAS token must be recomputed
+	// fresh — exactly the class of drift a counter-based CAS would have
+	// missed (spec 5/8 §"Content-hash CAS": "it catches a manual sqlite3
+	// edit").
 	insertRaw(t, db, TestRow{Kind: "a", Name: "x", Value: "1"})
-	if _, err := Apply(context.Background(), db, v, false, map[string]any{}, nil); err != nil {
+	c1, err := Checksum(db, testSubsystem)
+	if err != nil {
+		t.Fatalf("Checksum 2: %v", err)
+	}
+	if _, err := Apply(context.Background(), db, testSubsystem, c1, false, map[string]any{}, nil); err != nil {
 		t.Fatalf("Apply absent: %v", err)
 	}
 	db.QueryRow(`SELECT COUNT(*) FROM testrows`).Scan(&n)
@@ -382,18 +506,52 @@ func TestPlan_EmptyScopedListMatchesApply(t *testing.T) {
 
 func TestApply_Force(t *testing.T) {
 	db, _ := freshEngine(t)
-	// version is 0; manifest claims 99; without force → error
-	_, err := Apply(context.Background(), db, 99, false, map[string]any{}, nil)
+	// testrows is empty; manifest claims a bogus checksum → without force, error.
+	_, err := Apply(context.Background(), db, testSubsystem, "sha256:bogus", false, map[string]any{}, nil)
 	if err == nil {
 		t.Fatal("want error without force")
 	}
-	// With force → bypass CAS
-	v, err := Apply(context.Background(), db, 99, true, map[string]any{}, nil)
+	// With force → bypass CAS.
+	sum, err := Apply(context.Background(), db, testSubsystem, "sha256:bogus", true, map[string]any{}, nil)
 	if err != nil {
 		t.Fatalf("Apply --force: %v", err)
 	}
-	if v != 1 {
-		t.Errorf("version after forced apply = %d, want 1", v)
+	if sum == "" {
+		t.Errorf("checksum after forced apply is empty")
+	}
+}
+
+// TestApply_UnknownSubsystem: a manifestRows key naming a resource from a
+// DIFFERENT subsystem than the one Apply was called against rejects before
+// touching the DB — spec 5/8 §"Document schema": a document meant for one
+// owner DB must not carry another subsystem's rows.
+func TestApply_UnknownSubsystem(t *testing.T) {
+	freshEngine(t)
+	reset()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if _, err := db.Exec(testSchema); err != nil {
+		t.Fatal(err)
+	}
+	Register(Resource{
+		Name:     "testrows",
+		Table:    "testrows",
+		DB:       "other-subsystem",
+		RowType:  reflect.TypeFor[TestRow](),
+		PKFields: []string{"Kind", "Name"},
+		Scope:    ScopeSpec{Field: "Kind"},
+	})
+	_, err = Apply(context.Background(), db, testSubsystem, "", true, map[string]any{
+		"testrows": []TestRow{{Kind: "a", Name: "x", Value: "1"}},
+	}, nil)
+	if err == nil {
+		t.Fatal("want error: testrows belongs to other-subsystem, not test")
+	}
+	if !strings.Contains(err.Error(), "other-subsystem") {
+		t.Errorf("err = %v, want it to name the resource's real subsystem", err)
 	}
 }
 
@@ -468,10 +626,14 @@ func TestPlan_NoChangeAfterApply(t *testing.T) {
 			{Kind: "b", Name: "z", Value: "3"},
 		},
 	}
-	if _, err := Apply(context.Background(), db, 0, false, manifest, nil); err != nil {
+	c0, err := Checksum(db, testSubsystem)
+	if err != nil {
+		t.Fatalf("Checksum: %v", err)
+	}
+	if _, err := Apply(context.Background(), db, testSubsystem, c0, false, manifest, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	deltas, err := Plan(db, manifest)
+	deltas, err := Plan(db, testSubsystem, manifest)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -498,8 +660,8 @@ func TestGetResource_RoundTrip(t *testing.T) {
 	if _, ok := frag["testrows"]; !ok {
 		t.Fatalf("fragment missing testrows key: %v", frag)
 	}
-	if _, ok := frag["config_version"]; ok {
-		t.Error("fragment must not carry config_version")
+	if _, ok := frag["checksum"]; ok {
+		t.Error("fragment must not carry a checksum")
 	}
 	out, err := EmitYAML(frag)
 	if err != nil {
@@ -522,6 +684,50 @@ func TestGetResource_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestRetarget_RewritesScopeFieldOnly: Retarget rewrites the declared
+// Scope.Field column and nothing else, on a COPY (the input slice is
+// untouched) — spec 5/8 §"Path-retargeting apply".
+func TestRetarget_RewritesScopeFieldOnly(t *testing.T) {
+	_, r := freshEngine(t)
+	rows := []TestRow{
+		{Kind: "a", Name: "x", Value: "1"},
+		{Kind: "a", Name: "y", Value: "2"},
+	}
+	got, err := r.Retarget(rows, "b")
+	if err != nil {
+		t.Fatalf("Retarget: %v", err)
+	}
+	out := got.([]TestRow)
+	if len(out) != 2 || out[0].Kind != "b" || out[1].Kind != "b" {
+		t.Fatalf("Retarget = %v, want every row's Kind rewritten to b", out)
+	}
+	if out[0].Name != "x" || out[1].Name != "y" || out[0].Value != "1" || out[1].Value != "2" {
+		t.Errorf("Retarget touched non-scope fields: %v", out)
+	}
+	if rows[0].Kind != "a" || rows[1].Kind != "a" {
+		t.Errorf("Retarget mutated the input slice in place: %v", rows)
+	}
+}
+
+// TestRetarget_RefusesUnscopedResource: a resource with no declared Scope
+// (routes/acl/scheduled_tasks/secrets in the real registry) errors rather
+// than guessing which column is the folder.
+func TestRetarget_RefusesUnscopedResource(t *testing.T) {
+	reset()
+	r := Register(Resource{
+		Name:     "testrows",
+		Table:    "testrows",
+		DB:       testSubsystem,
+		RowType:  reflect.TypeFor[TestRow](),
+		PKFields: []string{"Kind", "Name"},
+		// No Scope set.
+	})
+	_, err := r.Retarget([]TestRow{{Kind: "a", Name: "x", Value: "1"}}, "b")
+	if err == nil {
+		t.Fatal("want error: resource has no ScopeSpec")
+	}
+}
+
 // TestHooks_BeforeInsert exercises the write-side hook chain.
 func TestHooks_BeforeInsert(t *testing.T) {
 	reset()
@@ -536,6 +742,7 @@ func TestHooks_BeforeInsert(t *testing.T) {
 	r := Register(Resource{
 		Name:     "testrows",
 		Table:    "testrows",
+		DB:       testSubsystem,
 		RowType:  reflect.TypeFor[TestRow](),
 		PKFields: []string{"Kind", "Name"},
 		Hooks: Hooks{
@@ -568,8 +775,6 @@ func TestColumnOverride_Write(t *testing.T) {
 	}
 	defer db.Close()
 	if _, err := db.Exec(`
-		CREATE TABLE config_meta (version INTEGER NOT NULL DEFAULT 0);
-		INSERT INTO config_meta VALUES (0);
 		CREATE TABLE nullable (
 		  name  TEXT PRIMARY KEY,
 		  model TEXT  -- nullable
@@ -584,6 +789,7 @@ func TestColumnOverride_Write(t *testing.T) {
 	r := Register(Resource{
 		Name:     "nullable",
 		Table:    "nullable",
+		DB:       testSubsystem,
 		RowType:  reflect.TypeFor[Row](),
 		PKFields: []string{"Name"},
 		Hooks: Hooks{

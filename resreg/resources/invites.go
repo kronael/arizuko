@@ -45,6 +45,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "invites",
 		Table:     "invites",
+		DB:        resreg.SubsystemOnbod,
 		RowType:   reflect.TypeOf(InvitesRow{}),
 		PKFields:  []string{"Ref"},
 		Endpoints: InvitesEndpoints,

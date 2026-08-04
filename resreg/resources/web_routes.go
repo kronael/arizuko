@@ -62,6 +62,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:          "web_routes",
 		Table:         "web_routes",
+		DB:            resreg.SubsystemRoutd,
 		RowType:       reflect.TypeFor[WebRoutesRow](),
 		PKFields:      []string{"PathPrefix"},
 		Endpoints:     WebRoutesEndpoints,

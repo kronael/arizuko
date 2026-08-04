@@ -4,16 +4,25 @@ package main
 //
 // Implementation choices:
 //
-//   - `apply <manifest_file>` reads ONE file (not a dir) in v1. The
-//     spec talks about a manifest/ dir with merge semantics; we ship
-//     the single-file path first because the directory path is more
-//     about file ergonomics than engine correctness. Composition stays
-//     on the spec until an operator hits it.
-//   - `export` dumps `arizuko_<instance>` store as one YAML doc to
-//     stdout. The deterministic-key-order acceptance criterion is met
-//     by resreg.EmitYAML's canonical sort.
-//   - The CLI dies on validation errors before touching the DB. CAS
-//     check + DELETE+INSERT happen in one tx via resreg.Apply.
+//   - The config manifest spans TWO owner DBs (routd.db, onbod.db — the
+//     only two with resreg resources per spec 5/16's owner-DB map), so
+//     every verb here opens both stores and operates per SUBSYSTEM
+//     (resreg.SubsystemRoutd / resreg.SubsystemOnbod). This is the step 4
+//     fix for the long-standing inertness bug (BUGS.md Y1): these four
+//     verbs used to call the frozen pre-split store.Open(messages.db) and
+//     never reached a production instance.
+//   - `apply <manifest_file>` reads ONE file (not a dir) in v1. The spec
+//     talks about a manifest/ dir with merge semantics; we ship the
+//     single-file path first because the directory path is more about
+//     file ergonomics than engine correctness. Composition stays on the
+//     spec until an operator hits it.
+//   - `export` dumps each subsystem as its own `---`-separated YAML
+//     document, concatenated into one file/stdout (spec 5/8 §"Surface":
+//     "to a single path they concatenate as ---separated documents").
+//     Document order is fixed (routd, then onbod) for determinism.
+//   - The CLI dies on validation errors before touching the DB. The
+//     content-hash CAS check + DELETE+INSERT happen in one tx per
+//     subsystem via resreg.Apply.
 
 import (
 	"context"
@@ -27,6 +36,38 @@ import (
 	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
 	"github.com/kronael/arizuko/store"
 )
+
+// subsystemOrder is the fixed, deterministic order export concatenates
+// subsystem documents in and apply/plan report them in.
+func subsystemOrder() []string {
+	return []string{resreg.SubsystemRoutd, resreg.SubsystemOnbod}
+}
+
+// openSubsystemStores opens routd.db and onbod.db — the two owner DBs the
+// config manifest spans. Strict: store.OpenRoutd/OpenOnbod error if the
+// owning daemon has never booted to migrate its DB (no silent divergent
+// schema), matching this CLI's existing "die loud" posture.
+func openSubsystemStores(dataDir string) (map[string]*store.Store, error) {
+	routd, err := store.OpenRoutd(dataDir + "/store")
+	if err != nil {
+		return nil, fmt.Errorf("open routd.db: %w", err)
+	}
+	onbod, err := store.OpenOnbod(dataDir + "/store")
+	if err != nil {
+		routd.Close()
+		return nil, fmt.Errorf("open onbod.db: %w", err)
+	}
+	return map[string]*store.Store{
+		resreg.SubsystemRoutd: routd,
+		resreg.SubsystemOnbod: onbod,
+	}, nil
+}
+
+func closeStores(stores map[string]*store.Store) {
+	for _, s := range stores {
+		s.Close()
+	}
+}
 
 func cmdApply(args []string) {
 	if len(args) < 2 {
@@ -42,46 +83,55 @@ func cmdApply(args []string) {
 		}
 	}
 	dataDir := mustInstanceDir(instance)
-	st, err := store.Open(dataDir + "/store")
+	stores, err := openSubsystemStores(dataDir)
 	if err != nil {
 		die("Failed: open store: %v", err)
 	}
-	defer st.Close()
+	defer closeStores(stores)
 	data, err := os.ReadFile(file)
 	if err != nil {
 		die("Failed: read %s: %v", file, err)
 	}
-	manifest, version, err := resreg.ParseYAML(data)
+	docs, err := resreg.SplitDocuments(data)
 	if err != nil {
-		die("Failed: parse %s: %v", file, err)
+		die("Failed: split %s: %v", file, err)
 	}
-	// Pre-apply DB version is the true "from"; the manifest version is not
-	// (with --force against a drifted DB they differ, and printing manifest
-	// would misreport the prior state).
-	fromVer, err := resreg.ConfigVersion(st.DB())
-	if err != nil {
-		die("Failed: read config_version: %v", err)
-	}
-	// Plan first (non-mutating) so the operator sees the delta the apply
-	// commits — spec 5/8 §"Apply lifecycle" step 5 (print plan + ok).
-	if deltas, perr := resreg.Plan(st.DB(), manifest); perr == nil {
-		printPlan(deltas)
-	}
-	// Apply writes its own single audit_log summary row in-tx (actor +
-	// manifest digest + per-resource counts + final version), spec 5/8
-	// §"CAS implementation" (3). No separate auditCLI — one row per apply.
 	digest := sha256.Sum256(data)
-	opts := &resreg.ApplyOpts{Actor: os.Getenv("USER"), ManifestDigest: hex.EncodeToString(digest[:])}
-	newVer, err := resreg.Apply(context.Background(), st.DB(), version, force, manifest, opts)
-	if err != nil {
-		if errors.Is(err, resreg.ErrVersionMismatch) {
-			fmt.Fprintf(os.Stderr, "config_version mismatch (manifest=%d db=%d). "+
-				"Re-export and re-apply, or use --force.\n", version, newVer)
-			os.Exit(2)
+	digestHex := hex.EncodeToString(digest[:])
+	for _, doc := range docs {
+		manifest, checksum, perr := resreg.ParseYAML(doc)
+		if perr != nil {
+			die("Failed: parse %s: %v", file, perr)
 		}
-		die("Failed: apply: %v", err)
+		if len(manifest) == 0 {
+			continue // an empty document (e.g. a trailing ---) carries nothing to apply
+		}
+		subsystem, serr := resreg.SubsystemOf(manifest)
+		if serr != nil {
+			die("Failed: %v", serr)
+		}
+		st := stores[subsystem]
+		// Plan first (non-mutating) so the operator sees the delta the apply
+		// commits — spec 5/8 §"Apply lifecycle" step 5 (print plan + ok).
+		if deltas, perr := resreg.Plan(st.DB(), subsystem, manifest); perr == nil {
+			fmt.Printf("--- %s ---\n", subsystem)
+			printPlan(deltas)
+		}
+		// Apply writes its own single audit_log summary row in-tx (actor +
+		// manifest digest + per-resource counts + final checksum), spec 5/8
+		// §"CAS implementation" (3). No separate auditCLI — one row per apply.
+		opts := &resreg.ApplyOpts{Actor: os.Getenv("USER"), ManifestDigest: digestHex}
+		newSum, aerr := resreg.Apply(context.Background(), st.DB(), subsystem, checksum, force, manifest, opts)
+		if aerr != nil {
+			if errors.Is(aerr, resreg.ErrChecksumMismatch) {
+				fmt.Fprintf(os.Stderr, "%s: checksum mismatch (manifest=%s db=%s). "+
+					"Re-export and re-apply, or use --force.\n", subsystem, checksum, newSum)
+				os.Exit(2)
+			}
+			die("Failed: apply %s: %v", subsystem, aerr)
+		}
+		fmt.Printf("applied %s (%s); checksum: %s -> %s\n", file, subsystem, checksum, newSum)
 	}
-	fmt.Printf("applied %s; config_version: %d -> %d\n", file, fromVer, newVer)
 }
 
 func cmdExport(args []string) {
@@ -91,18 +141,31 @@ func cmdExport(args []string) {
 	}
 	instance := args[0]
 	dataDir := mustInstanceDir(instance)
-	st, err := store.Open(dataDir + "/store")
+	stores, err := openSubsystemStores(dataDir)
 	if err != nil {
 		die("Failed: open store: %v", err)
 	}
-	defer st.Close()
-	manifest, err := resreg.Export(st.DB())
-	if err != nil {
-		die("Failed: export: %v", err)
-	}
-	out, err := resreg.EmitYAML(manifest)
-	if err != nil {
-		die("Failed: emit yaml: %v", err)
+	defer closeStores(stores)
+	var out []byte
+	for _, subsystem := range subsystemOrder() {
+		st := stores[subsystem]
+		manifest, merr := resreg.Export(st.DB(), subsystem)
+		if merr != nil {
+			die("Failed: export %s: %v", subsystem, merr)
+		}
+		sum, cerr := resreg.Checksum(st.DB(), subsystem)
+		if cerr != nil {
+			die("Failed: checksum %s: %v", subsystem, cerr)
+		}
+		manifest["checksum"] = sum
+		doc, eerr := resreg.EmitYAML(manifest)
+		if eerr != nil {
+			die("Failed: emit yaml %s: %v", subsystem, eerr)
+		}
+		if len(out) > 0 {
+			out = append(out, []byte("---\n")...)
+		}
+		out = append(out, doc...)
 	}
 	if len(args) >= 2 {
 		if err := os.WriteFile(args[1], out, 0o644); err != nil {
@@ -116,7 +179,8 @@ func cmdExport(args []string) {
 
 // cmdPlan: non-mutating diff of a manifest vs live DB (spec 5/8
 // §"Apply lifecycle" step 3). Parses + validates, prints the per-resource
-// add/update/unchanged/remove delta, never opens a write tx.
+// add/update/unchanged/remove delta per subsystem document, never opens a
+// write tx.
 func cmdPlan(args []string) {
 	if len(args) < 2 {
 		fmt.Println("usage: arizuko plan <instance> <manifest.yaml>")
@@ -125,32 +189,47 @@ func cmdPlan(args []string) {
 	instance := args[0]
 	file := args[1]
 	dataDir := mustInstanceDir(instance)
-	st, err := store.Open(dataDir + "/store")
+	stores, err := openSubsystemStores(dataDir)
 	if err != nil {
 		die("Failed: open store: %v", err)
 	}
-	defer st.Close()
+	defer closeStores(stores)
 	data, err := os.ReadFile(file)
 	if err != nil {
 		die("Failed: read %s: %v", file, err)
 	}
-	manifest, version, err := resreg.ParseYAML(data)
+	docs, err := resreg.SplitDocuments(data)
 	if err != nil {
-		die("Failed: parse %s: %v", file, err)
+		die("Failed: split %s: %v", file, err)
 	}
-	dbVer, err := resreg.ConfigVersion(st.DB())
-	if err != nil {
-		die("Failed: read config_version: %v", err)
-	}
-	deltas, err := resreg.Plan(st.DB(), manifest)
-	if err != nil {
-		die("Failed: plan: %v", err)
-	}
-	printPlan(deltas)
-	if version != dbVer {
-		fmt.Printf("\nconfig_version: manifest=%d db=%d — apply would reject without --force\n", version, dbVer)
-	} else {
-		fmt.Printf("\nconfig_version: %d (match)\n", dbVer)
+	for _, doc := range docs {
+		manifest, checksum, perr := resreg.ParseYAML(doc)
+		if perr != nil {
+			die("Failed: parse %s: %v", file, perr)
+		}
+		if len(manifest) == 0 {
+			continue
+		}
+		subsystem, serr := resreg.SubsystemOf(manifest)
+		if serr != nil {
+			die("Failed: %v", serr)
+		}
+		st := stores[subsystem]
+		dbSum, cerr := resreg.Checksum(st.DB(), subsystem)
+		if cerr != nil {
+			die("Failed: checksum %s: %v", subsystem, cerr)
+		}
+		deltas, derr := resreg.Plan(st.DB(), subsystem, manifest)
+		if derr != nil {
+			die("Failed: plan %s: %v", subsystem, derr)
+		}
+		fmt.Printf("--- %s ---\n", subsystem)
+		printPlan(deltas)
+		if checksum != dbSum {
+			fmt.Printf("checksum: manifest=%s db=%s — apply would reject without --force\n", checksum, dbSum)
+		} else {
+			fmt.Printf("checksum: %s (match)\n", dbSum)
+		}
 	}
 }
 
@@ -192,7 +271,8 @@ func printPlan(deltas []resreg.ResourceDelta) {
 // cmdGet: emit a live-DB manifest fragment for one resource (spec 5/8
 // §"arizuko get round-trip"). The fragment re-applies to a no-op — same
 // shape `apply` accepts. Secret rows emit metadata only (the engine's
-// SELECT omits the enc_value blob, which isn't in SecretsRow).
+// SELECT omits the enc_value blob, which isn't in SecretsRow). Opens only
+// the resource's OWN owner subsystem — resreg.Resource.DB says which.
 func cmdGet(args []string) {
 	if len(args) < 2 {
 		fmt.Println("usage: arizuko get <instance> <resource>")
@@ -200,12 +280,20 @@ func cmdGet(args []string) {
 	}
 	instance := args[0]
 	resource := args[1]
+	r := resreg.Lookup(resource)
+	if r == nil {
+		die("Failed: unknown resource %q", resource)
+	}
 	dataDir := mustInstanceDir(instance)
-	st, err := store.Open(dataDir + "/store")
+	stores, err := openSubsystemStores(dataDir)
 	if err != nil {
 		die("Failed: open store: %v", err)
 	}
-	defer st.Close()
+	defer closeStores(stores)
+	st, ok := stores[r.DB]
+	if !ok {
+		die("Failed: resource %q has no configured owner subsystem %q", resource, r.DB)
+	}
 	frag, err := resreg.GetResource(st.DB(), resource)
 	if err != nil {
 		die("Failed: get %s: %v", resource, err)

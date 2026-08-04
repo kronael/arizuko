@@ -4,6 +4,16 @@ package resources
 // Apply against a real store DB (migrations 0001..0067 applied). Each
 // resource registers via init(); this test verifies the engine can
 // SELECT/INSERT every one against the real schema.
+//
+// store.Migrate's schema is the frozen pre-split messages.db shape, which
+// happens to carry every table BOTH routd.db and onbod.db now own (it was
+// forked from the same source at the split) — a convenient single-DB
+// testbed for exercising the engine's SELECT/INSERT column shapes. It is
+// NOT standing in for the split topology itself: Export/Apply/Plan below
+// are always called with an EXPLICIT subsystem (resreg.SubsystemRoutd or
+// resreg.SubsystemOnbod), matching what `cmd/arizuko` does against the
+// REAL, separate routd.db/onbod.db files (see cmd/arizuko/apply_test.go for
+// that end-to-end proof).
 
 import (
 	"bytes"
@@ -32,41 +42,70 @@ func openMem(t *testing.T) *sql.DB {
 	return db
 }
 
+// routdChecksum is a small helper so every Apply call in this file computes
+// its CAS token fresh from the live DB, exactly as an operator's `arizuko
+// apply` would (spec 5/8 §"Content-hash CAS": recomputed at read time, no
+// stored counter).
+func routdChecksum(t *testing.T, db *sql.DB) string {
+	t.Helper()
+	c, err := resreg.Checksum(db, resreg.SubsystemRoutd)
+	if err != nil {
+		t.Fatalf("Checksum(routd): %v", err)
+	}
+	return c
+}
+
+func onbodChecksum(t *testing.T, db *sql.DB) string {
+	t.Helper()
+	c, err := resreg.Checksum(db, resreg.SubsystemOnbod)
+	if err != nil {
+		t.Fatalf("Checksum(onbod): %v", err)
+	}
+	return c
+}
+
 func TestExport_FreshDB(t *testing.T) {
 	db := openMem(t)
-	m, err := resreg.Export(db)
+	m, err := resreg.Export(db, resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatalf("Export: %v", err)
-	}
-	v := m["config_version"].(int64)
-	// Fresh DB: 2 seeded network_rules + 1 seeded acl (`role:operator,*,**`)
-	// → bootstrap config_version = 3.
-	if v != 3 {
-		t.Errorf("config_version = %d, want 3 (2 network_rules + 1 acl seed)", v)
 	}
 	if _, ok := m["routes"]; !ok {
 		t.Error("Export missing routes key")
 	}
-	if _, ok := m["network_rules"]; !ok {
-		t.Error("Export missing network_rules key")
+	nr, ok := m["network_rules"].([]NetworkRulesRow)
+	if !ok {
+		t.Fatalf("Export missing network_rules key")
+	}
+	// Fresh DB: 2 seeded global network_rules rows.
+	if len(nr) != 2 {
+		t.Errorf("network_rules = %d rows, want 2 (seeded globals)", len(nr))
+	}
+	acl, ok := m["acl"].([]ACLRow)
+	if !ok {
+		t.Fatalf("Export missing acl key")
+	}
+	// Fresh DB: 1 seeded acl row (`role:operator,*,**`).
+	if len(acl) != 1 {
+		t.Errorf("acl = %d rows, want 1 (seeded operator role)", len(acl))
 	}
 }
 
 func TestApply_RoundTrip_Routes(t *testing.T) {
 	db := openMem(t)
-	v0, _ := resreg.ConfigVersion(db)
+	c0 := routdChecksum(t, db)
 	rows := []RoutesRow{
 		{Seq: 0, Match: "platform=telegram room=123", Target: "atlas"},
 		{Seq: 1, Match: "platform=slack", Target: "ops"},
 	}
-	v1, err := resreg.Apply(context.Background(), db, v0, false, map[string]any{
+	c1, err := resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c0, false, map[string]any{
 		"routes": rows,
 	}, nil)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if v1 != v0+1 {
-		t.Errorf("version after apply = %d, want %d", v1, v0+1)
+	if c1 == c0 {
+		t.Errorf("checksum unchanged after apply that added routes")
 	}
 	// Verify the rows landed.
 	r := resreg.Lookup("routes")
@@ -86,12 +125,12 @@ func TestApply_RoundTrip_Routes(t *testing.T) {
 // wiped redirect_to from every redirect route.
 func TestApply_RoundTrip_ProxydRoutes_PreservesRedirectTo(t *testing.T) {
 	db := openMem(t)
-	v0, _ := resreg.ConfigVersion(db)
+	c0 := routdChecksum(t, db)
 	rows := []ProxydRoutesRow{
 		{Path: "/go", RedirectTo: "https://example.com/dest", Auth: "public"},
 		{Path: "/api/", Backend: "http://svc:8080", Auth: "user"},
 	}
-	if _, err := resreg.Apply(context.Background(), db, v0, false, map[string]any{
+	if _, err := resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c0, false, map[string]any{
 		"proxyd_routes": rows,
 	}, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -116,7 +155,7 @@ func TestApply_RoundTrip_ProxydRoutes_PreservesRedirectTo(t *testing.T) {
 
 func TestApply_RoundTrip_NetworkRules(t *testing.T) {
 	db := openMem(t)
-	v0, _ := resreg.ConfigVersion(db)
+	c0 := routdChecksum(t, db)
 	// Apply with empty network_rules wipes the seeded globals (apply is
 	// full-rebuild). The operator must include them in the manifest.
 	rows := []NetworkRulesRow{
@@ -124,7 +163,7 @@ func TestApply_RoundTrip_NetworkRules(t *testing.T) {
 		{Folder: "", Target: "api.anthropic.com"},
 		{Folder: "atlas", Target: "api.openai.com"},
 	}
-	_, err := resreg.Apply(context.Background(), db, v0, false, map[string]any{
+	_, err := resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c0, false, map[string]any{
 		"network_rules": rows,
 	}, nil)
 	if err != nil {
@@ -140,7 +179,7 @@ func TestApply_RoundTrip_NetworkRules(t *testing.T) {
 
 func TestApply_Groups_WithJSONBlob(t *testing.T) {
 	db := openMem(t)
-	v0, _ := resreg.ConfigVersion(db)
+	c0 := routdChecksum(t, db)
 	rows := []GroupsRow{
 		{
 			Folder:             "atlas",
@@ -150,7 +189,7 @@ func TestApply_Groups_WithJSONBlob(t *testing.T) {
 			CostCapCentsPerDay: 5000,
 		},
 	}
-	if _, err := resreg.Apply(context.Background(), db, v0, false, map[string]any{
+	if _, err := resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c0, false, map[string]any{
 		"groups": rows,
 	}, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -187,9 +226,9 @@ func TestApply_Secrets_SkipsRebuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v0, _ := resreg.ConfigVersion(db)
+	c0 := routdChecksum(t, db)
 	// Apply with EMPTY secrets list — must NOT wipe the row.
-	_, err = resreg.Apply(context.Background(), db, v0, false, map[string]any{
+	_, err = resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c0, false, map[string]any{
 		"secrets": []SecretsRow{},
 	}, nil)
 	if err != nil {
@@ -204,9 +243,9 @@ func TestApply_Secrets_SkipsRebuild(t *testing.T) {
 
 func TestMembership_CycleRejected(t *testing.T) {
 	db := openMem(t)
-	v0, _ := resreg.ConfigVersion(db)
+	c0 := routdChecksum(t, db)
 	// First apply: a -> b
-	_, err := resreg.Apply(context.Background(), db, v0, false, map[string]any{
+	_, err := resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c0, false, map[string]any{
 		"acl_membership": []ACLMembershipRow{
 			{Child: "a", Parent: "b"},
 		},
@@ -214,11 +253,11 @@ func TestMembership_CycleRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply 1: %v", err)
 	}
-	v1, _ := resreg.ConfigVersion(db)
+	c1 := routdChecksum(t, db)
 	// Now try b -> a: this would cycle. Apply is full-rebuild, so we have
 	// to include the original edge AND the cycling one. Engine wipes,
 	// inserts a→b OK, then tries b→a — cycle check sees a as parent of b.
-	_, err = resreg.Apply(context.Background(), db, v1, false, map[string]any{
+	_, err = resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c1, false, map[string]any{
 		"acl_membership": []ACLMembershipRow{
 			{Child: "a", Parent: "b"},
 			{Child: "b", Parent: "a"},
@@ -229,15 +268,70 @@ func TestMembership_CycleRejected(t *testing.T) {
 	}
 }
 
+// TestMembership_PairingRowsExcludedFromChecksumAndRebuild: added_by='pairing'
+// edges (spec 5/31's consented pairing links, added outside the manifest
+// apply path) never enter acl_membership's content-hash checksum, its
+// DELETE+INSERT rebuild, or a later Export — spec 5/8 CRITICAL finding
+// ("Cross-subsystem apply"): a pre-image rollback built from Export must
+// never be able to resurrect a pairing edge a caller revoked.
+func TestMembership_PairingRowsExcludedFromChecksumAndRebuild(t *testing.T) {
+	db := openMem(t)
+	c0 := routdChecksum(t, db)
+	if _, err := resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c0, false, map[string]any{
+		"acl_membership": []ACLMembershipRow{{Child: "a", Parent: "b"}},
+	}, nil); err != nil {
+		t.Fatalf("seed role membership: %v", err)
+	}
+	c1 := routdChecksum(t, db)
+	// Insert a pairing edge directly (the imperative redemption path, not
+	// through resreg.Insert — mirrors how routd's pairing redemption writes
+	// it: raw SQL, added_by='pairing').
+	if _, err := db.Exec(
+		`INSERT INTO acl_membership (child, parent, added_by, added_at) VALUES (?, ?, 'pairing', ?)`,
+		"telegram:user/1", "google:alice", time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		t.Fatal(err)
+	}
+	c2 := routdChecksum(t, db)
+	if c2 != c1 {
+		t.Errorf("checksum changed after inserting a pairing edge: %s -> %s", c1, c2)
+	}
+	m, err := resreg.Export(db, resreg.SubsystemRoutd)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	for _, row := range m["acl_membership"].([]ACLMembershipRow) {
+		if row.AddedBy == "pairing" {
+			t.Errorf("Export emitted a pairing edge: %+v", row)
+		}
+	}
+	// A subsequent apply that rebuilds acl_membership (mentions it in the
+	// manifest) must leave the pairing edge alone.
+	if _, err := resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c2, false, map[string]any{
+		"acl_membership": []ACLMembershipRow{{Child: "a", Parent: "b"}},
+	}, nil); err != nil {
+		t.Fatalf("rebuild apply: %v", err)
+	}
+	var n int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM acl_membership WHERE child='telegram:user/1' AND parent='google:alice' AND added_by='pairing'`,
+	).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("pairing edge survived count = %d, want 1 (apply's rebuild must not touch it)", n)
+	}
+}
+
 // TestApply_ScopedLeavesOutOfScopeRow: a partial manifest mentioning only
 // folder "atlas" must NOT delete a live network_rules row for folder
 // "ops" — scoped DELETE+INSERT (spec 5/8 §"Atomicity model"). Before the
 // scoped-apply fix this was a wholesale DeleteAll that wiped "ops".
 func TestApply_ScopedLeavesOutOfScopeRow(t *testing.T) {
 	db := openMem(t)
-	v0, _ := resreg.ConfigVersion(db)
+	c0 := routdChecksum(t, db)
 	// Seed two folders' rules (network_rules has a clean Folder scope, no FK).
-	if _, err := resreg.Apply(context.Background(), db, v0, false, map[string]any{
+	if _, err := resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c0, false, map[string]any{
 		"network_rules": []NetworkRulesRow{
 			{Folder: "atlas", Target: "api.openai.com"},
 			{Folder: "ops", Target: "api.pagerduty.com"},
@@ -245,9 +339,9 @@ func TestApply_ScopedLeavesOutOfScopeRow(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	v1, _ := resreg.ConfigVersion(db)
+	c1 := routdChecksum(t, db)
 	// Partial manifest: only the atlas folder, with a different target.
-	if _, err := resreg.Apply(context.Background(), db, v1, false, map[string]any{
+	if _, err := resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c1, false, map[string]any{
 		"network_rules": []NetworkRulesRow{
 			{Folder: "atlas", Target: "api.anthropic.com"},
 		},
@@ -284,8 +378,8 @@ func TestApply_ScopedLeavesOutOfScopeRow(t *testing.T) {
 // created_at was server-stamped — no phantom update (spec 5/8 step 3).
 func TestDiff_IgnoresStampedTimestamp(t *testing.T) {
 	db := openMem(t)
-	v0, _ := resreg.ConfigVersion(db)
-	if _, err := resreg.Apply(context.Background(), db, v0, false, map[string]any{
+	c0 := routdChecksum(t, db)
+	if _, err := resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c0, false, map[string]any{
 		"network_rules": []NetworkRulesRow{
 			{Folder: "atlas", Target: "api.openai.com"},
 		},
@@ -325,7 +419,7 @@ func TestPlanApplyAgree_Secrets(t *testing.T) {
 	manifest := map[string]any{
 		"secrets": []SecretsRow{{ScopeKind: "folder", ScopeID: "ops", Key: "github_token"}},
 	}
-	deltas, err := resreg.Plan(db, manifest)
+	deltas, err := resreg.Plan(db, resreg.SubsystemRoutd, manifest)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -336,8 +430,8 @@ func TestPlanApplyAgree_Secrets(t *testing.T) {
 	}
 	// Apply: the live secret row must survive (SkipApplyRebuild), so plan
 	// (no change) and apply (no change to the row) agree.
-	v0, _ := resreg.ConfigVersion(db)
-	if _, err := resreg.Apply(context.Background(), db, v0, false, manifest, nil); err != nil {
+	c0 := routdChecksum(t, db)
+	if _, err := resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c0, false, manifest, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	var n int
@@ -384,13 +478,13 @@ func TestSecretsOpenAPIWriteOnly(t *testing.T) {
 }
 
 // TestApply_WritesOneAuditRow: an apply with ApplyOpts writes exactly one
-// audit_log summary row (actor + manifest digest + final config_version),
-// not one per resource (spec 5/8 §"CAS implementation" (3)).
+// audit_log summary row (actor + manifest digest + final checksum), not one
+// per resource (spec 5/8 §"CAS implementation" (3)).
 func TestApply_WritesOneAuditRow(t *testing.T) {
 	db := openMem(t)
-	v0, _ := resreg.ConfigVersion(db)
+	c0 := routdChecksum(t, db)
 	opts := &resreg.ApplyOpts{Actor: "op", ManifestDigest: "deadbeef"}
-	newVer, err := resreg.Apply(context.Background(), db, v0, false, map[string]any{
+	newSum, err := resreg.Apply(context.Background(), db, resreg.SubsystemRoutd, c0, false, map[string]any{
 		"routes": []RoutesRow{
 			{Seq: 0, Match: "platform=slack", Target: "ops"},
 			{Seq: 1, Match: "platform=tele", Target: "atlas"},
@@ -421,8 +515,8 @@ func TestApply_WritesOneAuditRow(t *testing.T) {
 	if p["manifest_digest"] != "deadbeef" {
 		t.Errorf("manifest_digest = %v, want deadbeef", p["manifest_digest"])
 	}
-	if int64(p["config_version"].(float64)) != newVer {
-		t.Errorf("config_version = %v, want %d", p["config_version"], newVer)
+	if p["checksum"] != newSum {
+		t.Errorf("checksum = %v, want %q", p["checksum"], newSum)
 	}
 	// Per-resource counts present for the two mentioned resources.
 	res, _ := p["resources"].(map[string]any)
@@ -682,7 +776,7 @@ func TestApply_NeverRebuildsInvites(t *testing.T) {
 			ExpiresAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339), MaxUses: 1,
 		}},
 	}
-	deltas, err := resreg.Plan(db, manifest)
+	deltas, err := resreg.Plan(db, resreg.SubsystemOnbod, manifest)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -691,8 +785,8 @@ func TestApply_NeverRebuildsInvites(t *testing.T) {
 			t.Errorf("plan reports invites as actionable change %+v; apply must skip invites", d)
 		}
 	}
-	v0, _ := resreg.ConfigVersion(db)
-	if _, err := resreg.Apply(context.Background(), db, v0, false, manifest, nil); err != nil {
+	c0 := onbodChecksum(t, db)
+	if _, err := resreg.Apply(context.Background(), db, resreg.SubsystemOnbod, c0, false, manifest, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	var n int
@@ -710,14 +804,15 @@ func TestApply_NeverRebuildsInvites(t *testing.T) {
 	}
 }
 
-// TestExport_OmitsInviteToken: `arizuko export` dumps every registered resource,
-// so the manifest must not carry the invite bearer — holding the token IS the
-// grant, and a dump lands in git/backups/paste (spec 5/8 §"Secret safety", the
-// same exclusion route_tokens/secrets get by omitting their hash/blob columns).
+// TestExport_OmitsInviteToken: `arizuko export` dumps every registered resource
+// in a subsystem, so the manifest must not carry the invite bearer — holding
+// the token IS the grant, and a dump lands in git/backups/paste (spec 5/8
+// §"Secret safety", the same exclusion route_tokens/secrets get by omitting
+// their hash/blob columns).
 func TestExport_OmitsInviteToken(t *testing.T) {
 	db := openMem(t)
 	token := seedInvite(t, db)
-	manifest, err := resreg.Export(db)
+	manifest, err := resreg.Export(db, resreg.SubsystemOnbod)
 	if err != nil {
 		t.Fatalf("Export: %v", err)
 	}
@@ -732,5 +827,50 @@ func TestExport_OmitsInviteToken(t *testing.T) {
 	// the bearer is withheld, so this can't pass by dropping invites entirely.
 	if !bytes.Contains(out, []byte("atlas/**")) {
 		t.Errorf("export dropped the whole invites row; only the token must be withheld:\n%s", out)
+	}
+}
+
+// TestRouteTokens_PairingExcludedFromExport: route_tokens' RowFilter
+// (kind='route') keeps kind='pair' pairing links out of every
+// manifest-visible read of this resource — spec 5/8 §"Secret and token
+// values" (1): pairing tokens are 10-minute single-use credentials with no
+// archival value, and must never appear in a YAML document at all.
+func TestRouteTokens_PairingExcludedFromExport(t *testing.T) {
+	db := openMem(t)
+	if _, err := db.Exec(`INSERT INTO groups (folder, added_at, product) VALUES ('atlas', ?, 'assistant')`,
+		time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Exec(
+		`INSERT INTO route_tokens (jid, owner_folder, token_hash, created_at, kind) VALUES (?, ?, ?, ?, ?)`,
+		"web:atlas", "atlas", "hash-route", now, "route",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO route_tokens (jid, owner_folder, token_hash, created_at, kind) VALUES (?, ?, ?, ?, ?)`,
+		"telegram:user/1", "atlas", "hash-pair", now, "pair",
+	); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resreg.Lookup("route_tokens").ScanAll(db)
+	if err != nil {
+		t.Fatalf("ScanAll: %v", err)
+	}
+	rows := got.([]RouteTokensRow)
+	if len(rows) != 1 || rows[0].JID != "web:atlas" {
+		t.Fatalf("ScanAll = %v, want only the kind='route' row", rows)
+	}
+	manifest, err := resreg.Export(db, resreg.SubsystemRoutd)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	out, err := resreg.EmitYAML(manifest)
+	if err != nil {
+		t.Fatalf("EmitYAML: %v", err)
+	}
+	if bytes.Contains(out, []byte("telegram:user/1")) {
+		t.Errorf("export emitted a pairing token's jid:\n%s", out)
 	}
 }

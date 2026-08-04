@@ -44,6 +44,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "secrets",
 		Table:     "secrets",
+		DB:        resreg.SubsystemRoutd,
 		RowType:   reflect.TypeFor[SecretsRow](),
 		Endpoints: SecretsEndpoints,
 		PKFields:  []string{"ScopeKind", "ScopeID", "Key"},

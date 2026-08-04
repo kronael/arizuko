@@ -62,6 +62,14 @@ const (
 	ActionDelete Action = "delete"
 )
 
+// Owner-subsystem keys for Resource.DB — spec 5/8's "one subsystem = one
+// owner DB" (routd.db, onbod.db; the only two owner DBs with resreg
+// resources per 5/16's owner-DB map).
+const (
+	SubsystemRoutd = "routd"
+	SubsystemOnbod = "onbod"
+)
+
 // Mutates reports whether an action writes state. Read-only actions
 // (list, get) emit slog only; mutating actions write one audit_log row
 // inside the same tx as the resource mutation.
@@ -204,6 +212,25 @@ type Resource struct {
 	PKFields []string     // Go field names making up the natural PK
 	Scope    ScopeSpec    // DeleteScope filter; zero = no per-scope op
 	Hooks    Hooks        // optional semantics callbacks
+
+	// DB names the owner subsystem (SubsystemRoutd | SubsystemOnbod) whose
+	// physical DB file holds Table. Required for any resource with a
+	// RowType — Export/Apply/Plan are per-subsystem (spec 5/8 §"Cross-
+	// subsystem apply": one subsystem = one owner DB), and there is no way
+	// to derive which DB a table lives in from the table name alone.
+	// Identity is configured, never derived (root CLAUDE.md).
+	DB string
+
+	// RowFilter is an optional SQL boolean WHERE-fragment (no placeholders —
+	// a compile-time constant, never operator input) ANDed into ScanAll,
+	// DeleteScope, and DeleteAll. It excludes rows that must never enter the
+	// manifest-visible projection: acl_membership excludes added_by='pairing'
+	// edges (consented runtime state, not declarative config — spec 5/8
+	// §"Cross-subsystem apply" CRITICAL finding), route_tokens excludes
+	// kind='pair' pairing tokens (10-minute single-use credentials with no
+	// archival value — spec 5/8 §"Secret and token values" (1)). Empty =
+	// no filter.
+	RowFilter string
 
 	// SkipApplyRebuild causes Apply to skip DELETE+INSERT for this resource.
 	// Set true for resources whose tables hold operator data that the engine

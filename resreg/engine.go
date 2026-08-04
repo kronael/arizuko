@@ -18,9 +18,12 @@ package resreg
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"sort"
 	"strings"
@@ -165,14 +168,45 @@ func (r *Resource) newRowPtr() reflect.Value {
 	return reflect.New(r.meta.rowType)
 }
 
+// Querier is the read subset both *sql.DB and *sql.Tx satisfy. ScanAll takes
+// one so a caller can read via the live DB (ordinary Export/Diff/GetResource)
+// or via an in-flight *sql.Tx (Apply's in-transaction CAS recheck, which must
+// see exactly the snapshot it is about to write against — spec 5/8
+// §"Content-hash CAS": "apply recomputes the hash from the live DB, in the
+// same transaction that will write").
+type Querier interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+// whereFilter returns "" or " WHERE (RowFilter)" — the shared RowFilter
+// clause ScanAll/DeleteScope/DeleteAll all apply, so a resource's excluded
+// rows (pairing edges, pairing tokens) stay uniformly out of every
+// manifest-visible read AND write path.
+func (r *Resource) whereFilter() string {
+	if r.RowFilter == "" {
+		return ""
+	}
+	return " WHERE (" + r.RowFilter + ")"
+}
+
+// andFilter returns "" or " AND (RowFilter)", for appending after an
+// existing WHERE clause (DeleteScope already has one).
+func (r *Resource) andFilter() string {
+	if r.RowFilter == "" {
+		return ""
+	}
+	return " AND (" + r.RowFilter + ")"
+}
+
 // ScanAll reads every row in the table, ordered by PK columns (or by
-// the first column when PKFields is empty). Returns a `[]RowType`.
-func (r *Resource) ScanAll(db *sql.DB) (any, error) {
+// the first column when PKFields is empty). Rows excluded by RowFilter
+// never appear. Returns a `[]RowType`.
+func (r *Resource) ScanAll(q Querier) (any, error) {
 	if r.meta == nil {
 		return nil, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
 	}
-	q := "SELECT " + strings.Join(r.meta.columns, ", ") + " FROM " + r.Table + r.orderBy()
-	rows, err := db.Query(q)
+	query := "SELECT " + strings.Join(r.meta.columns, ", ") + " FROM " + r.Table + r.whereFilter() + r.orderBy()
+	rows, err := q.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("%s: query: %w", r.Name, err)
 	}
@@ -272,7 +306,7 @@ func (r *Resource) DeleteScope(ctx context.Context, tx *sql.Tx, scope string) er
 	if r.meta.scopeField == nil {
 		return fmt.Errorf("resreg: %s has no ScopeSpec; use DeleteAll", r.Name)
 	}
-	q := "DELETE FROM " + r.Table + " WHERE " + r.meta.scopeField.col + " = ?"
+	q := "DELETE FROM " + r.Table + " WHERE " + r.meta.scopeField.col + " = ?" + r.andFilter()
 	_, err := tx.ExecContext(ctx, q, scope)
 	if err != nil {
 		return fmt.Errorf("%s: delete-scope: %w", r.Name, err)
@@ -285,7 +319,7 @@ func (r *Resource) DeleteAll(ctx context.Context, tx *sql.Tx) error {
 	if r.meta == nil {
 		return fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
 	}
-	_, err := tx.ExecContext(ctx, "DELETE FROM "+r.Table)
+	_, err := tx.ExecContext(ctx, "DELETE FROM "+r.Table+r.whereFilter())
 	if err != nil {
 		return fmt.Errorf("%s: delete-all: %w", r.Name, err)
 	}
@@ -321,6 +355,54 @@ func (r *Resource) manifestScopes(rows any) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Retarget returns a copy of rows (a []RowType slice, matching Export's
+// output shape) with every row's Scope.Field column set to newFolder. This
+// is the one mechanically-safe, engine-owned building block for "export
+// folder X, apply as folder Y" (an archive restore under a new path, a
+// template/prototype copy, a cross-instance folder migration — spec 5/8
+// §"Path-retargeting apply"): a caller retargets a folder-scoped resource's
+// rows with this, then calls Apply — Apply itself derives the DELETE+INSERT
+// scope from the rows' CURRENT Scope.Field value (manifestScopes), so a
+// retargeted row lands under newFolder with zero change to Apply.
+//
+// Deliberately narrow, not a blanket "rewrite every folder reference"
+// mechanism: it touches ONLY the one column ScopeSpec.Field names. Errors
+// for a resource with no declared Scope (HasScope() == false) — acl.scope
+// (a glob), routes.target/match (a path fragment; a spawned child's route
+// must be DERIVED from its own JID, never copied verbatim),
+// scheduled_tasks.chat_jid and secrets.scope_id (both polymorphic: folder OR
+// something else) — rather than silently no-op'ing or guessing which
+// column is the folder. A resource WITH a declared Scope.Field can still
+// embed the folder elsewhere in row content outside that column
+// (web_routes.redirect_to points into the folder's own /pub|priv/<folder>/
+// web root) — Retarget does not know about those; a caller relying on it
+// for such a resource must rewrite that content itself. Named gap, not an
+// oversight.
+func (r *Resource) Retarget(rows any, newFolder string) (any, error) {
+	if !r.HasScope() {
+		return nil, fmt.Errorf("resreg: %s has no ScopeSpec; Retarget refuses to guess which field is the folder", r.Name)
+	}
+	rv := reflect.ValueOf(rows)
+	if !rv.IsValid() {
+		return rows, nil
+	}
+	if rv.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("resreg: %s Retarget wants a slice, got %s", r.Name, rv.Kind())
+	}
+	out := reflect.MakeSlice(rv.Type(), rv.Len(), rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		row := reflect.New(rv.Type().Elem()).Elem()
+		row.Set(rv.Index(i))
+		field := row.Field(r.meta.scopeField.idx)
+		if field.Kind() != reflect.String {
+			return nil, fmt.Errorf("resreg: %s Scope.Field %q is not a string column", r.Name, r.meta.scopeField.name)
+		}
+		field.SetString(newFolder)
+		out.Index(i).Set(row)
+	}
+	return out.Interface(), nil
 }
 
 // ParseRows decodes a YAML node (sequence of mappings) into a `[]RowType`.
@@ -459,9 +541,10 @@ func (r *Resource) insertValues(rowVal reflect.Value) ([]any, error) {
 	return out, nil
 }
 
-// ErrVersionMismatch is returned by Apply when manifest config_version
-// does not match DB config_meta.version and force is false.
-var ErrVersionMismatch = errors.New("config_version mismatch")
+// ErrChecksumMismatch is returned by Apply when the manifest's declared
+// checksum does not match the live DB's recomputed content hash and force
+// is false.
+var ErrChecksumMismatch = errors.New("checksum mismatch")
 
 // ApplyOpts carries the optional audit context for an apply. When
 // non-nil, Apply writes exactly ONE audit_log row in the same tx
@@ -473,53 +556,93 @@ type ApplyOpts struct {
 	ManifestDigest string // sha256 of the manifest bytes, for forensic correlation
 }
 
-// Apply runs the scoped-rebuild lifecycle in one BEGIN IMMEDIATE tx:
-// CAS check → per-resource DELETE (scoped or wholesale) → INSERT rows
-// from manifest → bump config_version → one audit row. Single tx, atomic.
+// lockTable is a table guaranteed present in every owner DB — audit_log
+// ships in routd.db and onbod.db (resreg's own invoke() already assumes it
+// for every mutation's audit row, so this is not a new coupling). Apply
+// issues one no-op UPDATE against it to upgrade its DEFERRED tx to a write
+// lock immediately: a write statement, even matching zero rows, forces
+// SQLite's RESERVED lock as soon as it runs, so the checksum recheck and the
+// following writes become one atomic critical section — concurrent applies
+// block rather than racing. Mirrors the pre-hash-CAS "UPDATE config_meta SET
+// version=version" trick without a config_meta table.
+const lockTable = "audit_log"
+
+// Checksum computes the content hash of one subsystem's manifest-visible
+// projection: sha256 of the canonical EmitYAML bytes of Export(q,
+// subsystem) — the SAME renderer that produces the manifest, minus the
+// checksum field itself (Export's output never carries one). Spec 5/8
+// §"Content-hash CAS": recomputed fresh from live rows at read time: no
+// counter, no table, nothing for a writer to remember to bump.
+func Checksum(q Querier, subsystem string) (string, error) {
+	m, err := Export(q, subsystem)
+	if err != nil {
+		return "", err
+	}
+	b, err := EmitYAML(m)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// Apply runs the scoped-rebuild lifecycle for ONE subsystem (one owner DB)
+// in one tx: in-tx checksum recheck → per-resource DELETE (scoped or
+// wholesale) → INSERT rows from manifest → recompute checksum → one audit
+// row. Single tx, atomic. Returns the new checksum.
 //
-// `force` skips the CAS check; the version still advances.
+// `force` skips the checksum check.
 //
-// `manifestRows` maps Resource.Name → []RowType slice. Resources with a
-// clean folder-scope column (HasScope) DELETE only the folders the
-// manifest mentions (spec 5/8 §"Atomicity model": scoped DELETE+INSERT),
-// so a partial manifest leaves out-of-scope rows untouched; a resource
-// the manifest omits entirely is not touched. Scope-less resources
+// `manifestRows` maps Resource.Name → []RowType slice; every key must name a
+// resource registered with Resource.DB == subsystem — a document meant for
+// one owner DB must not carry another subsystem's rows (spec 5/8 §"Document
+// schema": "the apply tool resolves each resource name to its owning DB").
+// Resources with a clean folder-scope column (HasScope) DELETE only the
+// folders the manifest mentions (spec 5/8 §"Atomicity model": scoped
+// DELETE+INSERT), so a partial manifest leaves out-of-scope rows untouched; a
+// resource the manifest omits entirely is not touched. Scope-less resources
 // rebuild wholesale (DeleteAll) — only when the manifest mentions them.
-// SkipApplyRebuild resources (secrets) are never wiped/rebuilt; the
-// version still bumps once per tx.
-func Apply(ctx context.Context, db *sql.DB, manifestVersion int64, force bool, manifestRows map[string]any, opts *ApplyOpts) (int64, error) {
+// SkipApplyRebuild resources (secrets, route_tokens, invites) are never
+// wiped/rebuilt. RowFilter-excluded rows (pairing edges, pairing tokens)
+// never enter the checksum, the DELETE, or the recomputed checksum — they
+// are simply invisible to this whole lifecycle (spec 5/8 CRITICAL finding).
+func Apply(ctx context.Context, db *sql.DB, subsystem string, wantChecksum string, force bool, manifestRows map[string]any, opts *ApplyOpts) (string, error) {
+	for name := range manifestRows {
+		r := Lookup(name)
+		if r == nil {
+			return "", fmt.Errorf("resreg: unknown resource %q", name)
+		}
+		if r.DB != subsystem {
+			return "", fmt.Errorf("resreg: resource %q belongs to subsystem %q, not %q", name, r.DB, subsystem)
+		}
+	}
 	// Audit counts are computed from the pre-tx snapshot (a plain read on
 	// the primary connection) before BeginTx — an in-tx read would open a
 	// 2nd connection that, for :memory: DBs, can't see the schema.
 	var counts map[string]any
 	if opts != nil {
-		c, err := applyCounts(db, manifestRows)
+		c, err := applyCounts(db, subsystem, manifestRows)
 		if err != nil {
-			return 0, err
+			return "", err
 		}
 		counts = c
 	}
-	// Take a write lock immediately. modernc.org/sqlite serializes
-	// concurrent writers via SQLite's RESERVED lock; doing a `_dummy`
-	// write at tx start upgrades the implicit DEFERRED tx to IMMEDIATE,
-	// matching spec §"Optimistic locking" — concurrent applies block
-	// rather than racing. Cheap: one no-op row in config_meta.
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("begin: %w", err)
+		return "", fmt.Errorf("begin: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "UPDATE config_meta SET version = version"); err != nil {
-		return 0, fmt.Errorf("acquire write lock: %w", err)
+	if _, err := tx.ExecContext(ctx, "UPDATE "+lockTable+" SET id = id WHERE 1 = 0"); err != nil {
+		return "", fmt.Errorf("acquire write lock: %w", err)
 	}
-	var current int64
-	if err := tx.QueryRowContext(ctx, "SELECT version FROM config_meta").Scan(&current); err != nil {
-		return 0, fmt.Errorf("read config_version: %w", err)
+	current, err := Checksum(tx, subsystem)
+	if err != nil {
+		return "", fmt.Errorf("checksum: %w", err)
 	}
-	if !force && current != manifestVersion {
-		return current, fmt.Errorf("%w: db=%d manifest=%d", ErrVersionMismatch, current, manifestVersion)
+	if !force && current != wantChecksum {
+		return current, fmt.Errorf("%w: db=%s manifest=%s", ErrChecksumMismatch, current, wantChecksum)
 	}
-	for _, r := range All() {
+	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil || r.SkipApplyRebuild {
 			continue
 		}
@@ -546,30 +669,27 @@ func Apply(ctx context.Context, db *sql.DB, manifestVersion int64, force bool, m
 			return current, err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE config_meta SET version = version + 1"); err != nil {
-		return current, fmt.Errorf("bump config_version: %w", err)
-	}
-	var newVer int64
-	if err := tx.QueryRowContext(ctx, "SELECT version FROM config_meta").Scan(&newVer); err != nil {
-		return current, fmt.Errorf("read new config_version: %w", err)
+	newChecksum, err := Checksum(tx, subsystem)
+	if err != nil {
+		return current, fmt.Errorf("checksum after write: %w", err)
 	}
 	if opts != nil {
-		if err := emitApplyAudit(ctx, tx, opts, counts, newVer); err != nil {
+		if err := emitApplyAudit(ctx, tx, opts, counts, newChecksum); err != nil {
 			return current, fmt.Errorf("audit: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return current, fmt.Errorf("commit: %w", err)
 	}
-	return newVer, nil
+	return newChecksum, nil
 }
 
 // applyCounts diffs the manifest against the pre-tx live DB for every
-// mentioned, rebuildable resource and returns per-resource
+// mentioned, rebuildable resource in subsystem and returns per-resource
 // {add,update,delete} counts for the audit summary. Read-only.
-func applyCounts(db *sql.DB, manifestRows map[string]any) (map[string]any, error) {
+func applyCounts(db *sql.DB, subsystem string, manifestRows map[string]any) (map[string]any, error) {
 	counts := map[string]any{}
-	for _, r := range All() {
+	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil || r.SkipApplyRebuild {
 			continue
 		}
@@ -590,8 +710,8 @@ func applyCounts(db *sql.DB, manifestRows map[string]any) (map[string]any, error
 
 // emitApplyAudit writes the single per-apply summary row in-tx
 // (spec 5/8 §"CAS implementation" (3)): actor, manifest digest,
-// per-resource add/update/delete counts, final config_version.
-func emitApplyAudit(ctx context.Context, tx *sql.Tx, opts *ApplyOpts, counts map[string]any, newVer int64) error {
+// per-resource add/update/delete counts, final checksum.
+func emitApplyAudit(ctx context.Context, tx *sql.Tx, opts *ApplyOpts, counts map[string]any, newChecksum string) error {
 	return audit.EmitInTx(ctx, tx, audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "config.apply",
@@ -601,42 +721,25 @@ func emitApplyAudit(ctx context.Context, tx *sql.Tx, opts *ApplyOpts, counts map
 		Outcome:  audit.OutcomeOK,
 		ParamsSummary: map[string]any{
 			"manifest_digest": opts.ManifestDigest,
-			"config_version":  newVer,
+			"checksum":        newChecksum,
 			"resources":       counts,
 		},
 	})
 }
 
-// ConfigVersion returns the current config_meta.version, or 0 if the
-// table is empty / missing.
-func ConfigVersion(db *sql.DB) (int64, error) {
-	var v int64
-	err := db.QueryRow("SELECT version FROM config_meta").Scan(&v)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	return v, nil
-}
-
-// Export reads every registered resource via ScanAll and assembles a
-// manifest map keyed by Resource.Name. Includes "config_version" at
-// the top level. Deterministic per canonical key order.
-func Export(db *sql.DB) (map[string]any, error) {
-	ver, err := ConfigVersion(db)
-	if err != nil {
-		return nil, fmt.Errorf("config_version: %w", err)
-	}
-	out := map[string]any{
-		"config_version": ver,
-	}
-	for _, r := range All() {
+// Export reads every registered resource of ONE subsystem via ScanAll and
+// assembles a manifest map keyed by Resource.Name. No checksum key — Export
+// IS the exact projection Checksum hashes, so baking a checksum into its own
+// output would hash itself; callers that want one call Checksum separately
+// (or EmitYAML the result of both, per cmdExport). Deterministic per
+// canonical key order.
+func Export(q Querier, subsystem string) (map[string]any, error) {
+	out := map[string]any{}
+	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil {
 			continue
 		}
-		rows, err := r.ScanAll(db)
+		rows, err := r.ScanAll(q)
 		if err != nil {
 			return nil, err
 		}
@@ -649,14 +752,14 @@ func Export(db *sql.DB) (map[string]any, error) {
 // the named resource's rows (live `SELECT *`), shaped exactly as Export
 // would nest it so the fragment re-applies to a no-op (spec 5/8
 // §"arizuko get round-trip"). Returns an error for unknown resources or
-// resources without a RowType. No config_version is stamped — a fragment
-// is scoped, not a full dump.
-func GetResource(db *sql.DB, name string) (map[string]any, error) {
+// resources without a RowType. No checksum is stamped — a fragment is
+// scoped, not a full subsystem dump.
+func GetResource(q Querier, name string) (map[string]any, error) {
 	r := Lookup(name)
 	if r == nil || r.RowType == nil {
 		return nil, fmt.Errorf("resreg: unknown or schema-less resource %q", name)
 	}
-	rows, err := r.ScanAll(db)
+	rows, err := r.ScanAll(q)
 	if err != nil {
 		return nil, err
 	}
@@ -703,12 +806,12 @@ func (d ResourceDelta) Changed() bool {
 //
 // SkipApplyRebuild resources still diff (so `plan`/`get` report metadata)
 // — the apply path is what skips the write, not the diff.
-func (r *Resource) Diff(db *sql.DB, manifestRows any) (ResourceDelta, error) {
+func (r *Resource) Diff(q Querier, manifestRows any) (ResourceDelta, error) {
 	d := ResourceDelta{Resource: r.Name, SkipApplyRebuild: r.SkipApplyRebuild}
 	if r.meta == nil {
 		return d, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
 	}
-	live, err := r.ScanAll(db)
+	live, err := r.ScanAll(q)
 	if err != nil {
 		return d, err
 	}
@@ -807,17 +910,17 @@ func (r *Resource) byPK(rv reflect.Value) map[string]reflect.Value {
 	return out
 }
 
-// Plan diffs a parsed manifest (Resource.Name → []RowType, plus a
-// "config_version" key Diff ignores) against the live DB for every
-// resource the manifest mentions, in catalog order. Non-mutating. Backs
-// `arizuko plan` (spec 5/8 §"Apply lifecycle" step 3).
+// Plan diffs a parsed manifest (Resource.Name → []RowType) against the live
+// DB for every resource in subsystem the manifest mentions, in catalog
+// order. Non-mutating. Backs `arizuko plan` (spec 5/8 §"Apply lifecycle"
+// step 3).
 //
 // Resources the manifest omits are skipped — apply leaves them untouched
 // (scoped restore: absent scopes are not deleted), so plan reports no
 // delta for them and stays exactly equal to apply.
-func Plan(db *sql.DB, manifest map[string]any) ([]ResourceDelta, error) {
+func Plan(q Querier, subsystem string, manifest map[string]any) ([]ResourceDelta, error) {
 	var out []ResourceDelta
-	for _, r := range All() {
+	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil {
 			continue
 		}
@@ -825,7 +928,7 @@ func Plan(db *sql.DB, manifest map[string]any) ([]ResourceDelta, error) {
 		if !ok {
 			continue
 		}
-		d, err := r.Diff(db, rows)
+		d, err := r.Diff(q, rows)
 		if err != nil {
 			return nil, err
 		}
@@ -834,25 +937,26 @@ func Plan(db *sql.DB, manifest map[string]any) ([]ResourceDelta, error) {
 	return out, nil
 }
 
-// EmitYAML writes the manifest map (from Export) as a deterministic YAML
-// document. Top-level keys sort: config_version first, then resource
-// keys lexicographic. Per-resource rows are sorted by PK via EmitRows.
+// EmitYAML writes the manifest map (from Export, plus an optional injected
+// "checksum" string key) as a deterministic YAML document. Top-level keys
+// sort: checksum first, then resource keys lexicographic. Per-resource rows
+// are sorted by PK via EmitRows.
 func EmitYAML(manifest map[string]any) ([]byte, error) {
 	keys := make([]string, 0, len(manifest))
 	for k := range manifest {
-		if k != "config_version" {
+		if k != "checksum" {
 			keys = append(keys, k)
 		}
 	}
 	sort.Strings(keys)
 	root := &yaml.Node{Kind: yaml.MappingNode}
-	if v, ok := manifest["config_version"]; ok {
+	if v, ok := manifest["checksum"]; ok {
 		vn := &yaml.Node{}
 		if err := vn.Encode(v); err != nil {
 			return nil, err
 		}
 		root.Content = append(root.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Value: "config_version"}, vn)
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "checksum"}, vn)
 	}
 	resByName := map[string]*Resource{}
 	for _, r := range All() {
@@ -887,24 +991,26 @@ func EmitYAML(manifest map[string]any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// ParseYAML decodes a manifest document into a map of resource name →
-// []RowType slice. The reserved key "config_version" stays in the map
-// as int64. Strict per spec 5/8 §"Apply lifecycle" step 1: an unknown
-// top-level key (a typo'd resource name) rejects before the DB is
-// touched, so an operator's intended config can't silently fail to apply.
-func ParseYAML(data []byte) (map[string]any, int64, error) {
+// ParseYAML decodes ONE manifest document into a map of resource name →
+// []RowType slice. The reserved key "checksum" is extracted and returned
+// separately — it is never left in the map, so it can never be mistaken for
+// a resource name by Apply's per-key subsystem check. Strict per spec 5/8
+// §"Apply lifecycle" step 1: an unknown top-level key (a typo'd resource
+// name) rejects before the DB is touched, so an operator's intended config
+// can't silently fail to apply.
+func ParseYAML(data []byte) (map[string]any, string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, 0, fmt.Errorf("yaml unmarshal: %w", err)
+		return nil, "", fmt.Errorf("yaml unmarshal: %w", err)
 	}
 	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
 		doc = *doc.Content[0]
 	}
 	if doc.Kind != yaml.MappingNode {
-		return nil, 0, fmt.Errorf("manifest root must be a mapping")
+		return nil, "", fmt.Errorf("manifest root must be a mapping")
 	}
 	out := map[string]any{}
-	var version int64
+	var checksum string
 	resByName := map[string]*Resource{}
 	for _, r := range All() {
 		resByName[r.Name] = r
@@ -912,24 +1018,83 @@ func ParseYAML(data []byte) (map[string]any, int64, error) {
 	for i := 0; i+1 < len(doc.Content); i += 2 {
 		key := doc.Content[i].Value
 		val := doc.Content[i+1]
-		if key == "config_version" {
-			if err := val.Decode(&version); err != nil {
-				return nil, 0, fmt.Errorf("config_version: %w", err)
+		if key == "checksum" {
+			if err := val.Decode(&checksum); err != nil {
+				return nil, "", fmt.Errorf("checksum: %w", err)
 			}
-			out[key] = version
 			continue
 		}
 		r, ok := resByName[key]
 		if !ok || r.RowType == nil {
-			return nil, 0, fmt.Errorf("unknown resource key %q (line %d)", key, doc.Content[i].Line)
+			return nil, "", fmt.Errorf("unknown resource key %q (line %d)", key, doc.Content[i].Line)
 		}
 		rows, err := r.ParseRows(val)
 		if err != nil {
-			return nil, 0, err
+			return nil, "", err
 		}
 		out[key] = rows
 	}
-	return out, version, nil
+	return out, checksum, nil
+}
+
+// SplitDocuments splits a `---`-separated multi-document YAML byte stream
+// into its individual documents (spec 5/8 §"Multi-document YAML": "to a
+// single path they concatenate as ---separated documents"). A single-
+// document file returns a one-element slice unchanged. Pure byte-stream
+// splitting on yaml.v3's document boundary, done via a decoder loop rather
+// than string-splitting on "---" so a literal "---" inside a scalar value
+// never misparses as a boundary.
+func SplitDocuments(data []byte) ([][]byte, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	var docs [][]byte
+	for {
+		var doc yaml.Node
+		err := dec.Decode(&doc)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("split documents: %w", err)
+		}
+		b, err := yaml.Marshal(&doc)
+		if err != nil {
+			return nil, fmt.Errorf("split documents: re-encode: %w", err)
+		}
+		docs = append(docs, b)
+	}
+	return docs, nil
+}
+
+// SubsystemOf inspects a parsed manifest's resource keys (as returned by
+// ParseYAML) and returns the single subsystem they all belong to. Errors on
+// an empty manifest (nothing to infer from) or on keys spanning more than
+// one subsystem — a document produced by this package's own Export never
+// mixes subsystems, so this is a defense against a hand-edited manifest that
+// merged rows from two owner DBs into one file (spec 5/8: "the apply tool
+// resolves each resource name to its owning DB at dispatch").
+func SubsystemOf(manifest map[string]any) (string, error) {
+	seen := map[string]bool{}
+	for name := range manifest {
+		r := Lookup(name)
+		if r == nil {
+			return "", fmt.Errorf("resreg: unknown resource %q", name)
+		}
+		seen[r.DB] = true
+	}
+	switch len(seen) {
+	case 0:
+		return "", fmt.Errorf("resreg: manifest document names no resource; cannot infer subsystem")
+	case 1:
+		for s := range seen {
+			return s, nil
+		}
+	}
+	subs := make([]string, 0, len(seen))
+	for s := range seen {
+		subs = append(subs, s)
+	}
+	sort.Strings(subs)
+	return "", fmt.Errorf("resreg: manifest document mixes subsystems %v; one document must target one owner DB", subs)
 }
 
 // --- registry ---------------------------------------------------------
@@ -968,6 +1133,19 @@ func Lookup(name string) *Resource {
 		}
 	}
 	return nil
+}
+
+// BySubsystem returns the registered resources whose Resource.DB equals
+// subsystem, in registration order — the per-owner-DB view Export/Apply/Plan
+// operate over (spec 5/8: "one subsystem = one owner DB").
+func BySubsystem(subsystem string) []*Resource {
+	var out []*Resource
+	for _, r := range registry {
+		if r.DB == subsystem {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // reset clears the registry. Test-only.

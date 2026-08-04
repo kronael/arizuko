@@ -115,6 +115,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "route_tokens",
 		Table:     "route_tokens",
+		DB:        resreg.SubsystemRoutd,
 		RowType:   reflect.TypeFor[RouteTokensRow](),
 		PKFields:  []string{"JID"},
 		Endpoints: RouteTokensEndpoints,
@@ -125,5 +126,26 @@ func init() {
 		// manifest — Apply must never DELETE+INSERT this table (mirrors secrets).
 		StampedFields:    []string{"CreatedAt"},
 		SkipApplyRebuild: true,
+		// kind='pair' pairing links are 10-minute single-use credentials with
+		// no archival value, and reviving one is actively harmful (spec 5/8
+		// §"Secret and token values" (1)) — exclude them from every
+		// manifest-visible read of this resource (config export, get, plan,
+		// and later the archive) so they never appear in a YAML document at
+		// all. kind='route' (chat/hook delivery bearers) is unaffected.
+		RowFilter: "kind = 'route'",
+		Hooks: resreg.Hooks{
+			ColumnOverride: map[string]resreg.ColumnHook{
+				// context is nullable with no default (routd/migrations/
+				// 0018-route-token-context.sql: "NULL = pre-context token") —
+				// every token minted before that migration scans NULL. Without
+				// this override ScanAll fails outright on any such row, which
+				// would make `arizuko export`/`get`/`plan` crash on real
+				// instances the moment step 4 repoints them at live routd.db.
+				"Context": {
+					Read:  "COALESCE(context, '')",
+					Write: nilIfEmptyString,
+				},
+			},
+		},
 	})
 }

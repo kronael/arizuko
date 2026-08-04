@@ -2,97 +2,182 @@ package main
 
 // E2E test for `arizuko apply` + `arizuko export`. Exercises:
 //   - parse: YAML decode for every resource kind we support
-//   - CAS reject: stale config_version causes ErrVersionMismatch
-//   - CAS pass: matching version applies cleanly
+//   - CAS reject: stale checksum causes ErrChecksumMismatch
+//   - CAS pass: matching checksum applies cleanly
 //   - full rebuild: pre-existing rows wiped, manifest rows inserted
 //   - round-trip: apply → export → apply produces a no-op (idempotent)
+//   - the CLI wrapper (cmdExport/cmdApply) actually reaches REAL routd.db +
+//     onbod.db files on disk, not the frozen pre-split messages.db — the
+//     step 4 fix for the long-standing inertness bug (BUGS.md Y1).
 //
-// Uses a tempfile SQLite (via store.Open + tempdir) and the same
-// resreg.Apply path the CLI uses. The CLI wrapper itself is a thin
-// shim; testing the orchestrator covers the load-bearing logic.
+// openInstance below bootstraps a real routd.db (via routd.Open, the same
+// migration sequence the daemon itself runs) and a real onbod.db (via the
+// onbodSchema DDL constant migrate_split.go already carries for the exact
+// same reason: onbod's migration FS is package-private, package main, so
+// this constant is the established precedent for bootstrapping onbod.db's
+// schema from OUTSIDE the onbod package). Most tests then drive
+// resreg.Apply/Export/Plan/GetResource directly against the resulting
+// *store.Store handles — the same "orchestrator, not the thin CLI shim"
+// philosophy the original version of this file documented — because the
+// CLI wrapper functions (cmdApply/cmdExport/...) call os.Exit on error,
+// which is unsafe to exercise from inside a test process. One dedicated
+// test (TestCLI_ExportApply_RealFiles) drives the actual cmdExport/cmdApply
+// entry points via ARIZUKO_DATA_DIR, proving the real, operator-facing
+// path — success only, since only the error paths os.Exit.
 
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
 
-func openInstance(t *testing.T) (string, *store.Store) {
+// openInstance bootstraps a real routd.db + onbod.db pair under a fresh
+// instance data dir and returns (dataDir, stores) exactly as
+// openSubsystemStores would hand cmdApply/cmdExport/cmdPlan/cmdGet.
+func openInstance(t *testing.T) (string, map[string]*store.Store) {
 	t.Helper()
-	dir := t.TempDir()
-	st, err := store.Open(filepath.Join(dir, "store"))
-	if err != nil {
+	dataDir := t.TempDir()
+	storeDir := filepath.Join(dataDir, "store")
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
-	return dir, st
+	// Bootstrap routd.db via routd's OWN migration sequence — the same one
+	// the daemon runs at boot.
+	rdb, err := routd.Open(storeDir)
+	if err != nil {
+		t.Fatalf("routd.Open (bootstrap): %v", err)
+	}
+	rdb.Close()
+	// Bootstrap onbod.db via the onbodSchema DDL constant (migrate_split.go,
+	// same package) — onbod's own migration FS is package-private (package
+	// main), so this inline DDL is the established way to create its schema
+	// from outside the onbod package.
+	odb, err := sql.Open("sqlite", filepath.Join(storeDir, "onbod.db")+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
+	if err != nil {
+		t.Fatalf("open onbod.db (bootstrap): %v", err)
+	}
+	if _, err := odb.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := odb.Exec(onbodSchema); err != nil {
+		t.Fatalf("onbod.db bootstrap schema: %v", err)
+	}
+	odb.Close()
+
+	stores, err := openSubsystemStores(dataDir)
+	if err != nil {
+		t.Fatalf("openSubsystemStores: %v", err)
+	}
+	t.Cleanup(func() { closeStores(stores) })
+	return dataDir, stores
 }
 
-func dbConfigVersion(t *testing.T, db *sql.DB) int64 {
+func routdChecksum(t *testing.T, st *store.Store) string {
 	t.Helper()
-	v, err := resreg.ConfigVersion(db)
+	c, err := resreg.Checksum(st.DB(), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return v
+	return c
+}
+
+// TestOpenSubsystemStores_RealFiles is the step 4 core assertion: the CLI's
+// store-opening path reaches ACTUAL, SEPARATE routd.db/onbod.db files — not
+// the frozen pre-split messages.db (the inertness bug, BUGS.md Y1).
+func TestOpenSubsystemStores_RealFiles(t *testing.T) {
+	dataDir, stores := openInstance(t)
+	storeDir := filepath.Join(dataDir, "store")
+	for _, name := range []string{"routd.db", "onbod.db"} {
+		if _, err := os.Stat(filepath.Join(storeDir, name)); err != nil {
+			t.Errorf("%s does not exist on disk: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(storeDir, "messages.db")); err == nil {
+		t.Error("messages.db (the frozen pre-split schema) was created — the CLI must never touch it")
+	}
+	rst, ok := stores[resreg.SubsystemRoutd]
+	if !ok {
+		t.Fatal("openSubsystemStores did not return a routd store")
+	}
+	ost, ok := stores[resreg.SubsystemOnbod]
+	if !ok {
+		t.Fatal("openSubsystemStores did not return an onbod store")
+	}
+	// A write through the returned *store.Store actually lands in the
+	// separate file on disk, proving these are not two handles onto the
+	// same DB.
+	if _, err := resreg.Apply(context.Background(), rst.DB(), resreg.SubsystemRoutd, routdChecksum(t, rst), false, map[string]any{
+		"routes": []resources.RoutesRow{{Seq: 0, Match: "", Target: "atlas"}},
+	}, nil); err != nil {
+		t.Fatalf("Apply to routd store: %v", err)
+	}
+	var n int
+	if err := ost.DB().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='routes'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Error("onbod.db has a routes table — routd.db and onbod.db are not actually separate files")
+	}
 }
 
 func TestApply_CASReject(t *testing.T) {
-	_, st := openInstance(t)
+	_, stores := openInstance(t)
+	st := stores[resreg.SubsystemRoutd]
 	manifest := []byte(`
-config_version: 999
+checksum: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 routes:
   - seq: 0
     match: ""
     target: atlas
 `)
-	parsed, version, err := resreg.ParseYAML(manifest)
+	parsed, checksum, err := resreg.ParseYAML(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 999 {
-		t.Fatalf("parsed version = %d, want 999", version)
-	}
-	_, err = resreg.Apply(context.Background(), st.DB(), version, false, parsed, nil)
+	_, err = resreg.Apply(context.Background(), st.DB(), resreg.SubsystemRoutd, checksum, false, parsed, nil)
 	if err == nil {
 		t.Fatal("expected CAS reject")
 	}
-	if !strings.Contains(err.Error(), "config_version mismatch") {
-		t.Errorf("err = %v, want ErrVersionMismatch wrap", err)
+	if !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Errorf("err = %v, want ErrChecksumMismatch wrap", err)
 	}
 }
 
 func TestApply_CASPass(t *testing.T) {
-	_, st := openInstance(t)
-	v0 := dbConfigVersion(t, st.DB())
+	_, stores := openInstance(t)
+	st := stores[resreg.SubsystemRoutd]
+	c0 := routdChecksum(t, st)
 	manifest := []byte(`
-config_version: ` + itoa(v0) + `
+checksum: "` + c0 + `"
 routes:
   - seq: 0
     match: ""
     target: atlas
 `)
-	parsed, version, err := resreg.ParseYAML(manifest)
+	parsed, checksum, err := resreg.ParseYAML(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	newV, err := resreg.Apply(context.Background(), st.DB(), version, false, parsed, nil)
+	newSum, err := resreg.Apply(context.Background(), st.DB(), resreg.SubsystemRoutd, checksum, false, parsed, nil)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if newV != v0+1 {
-		t.Errorf("new version = %d, want %d", newV, v0+1)
+	if newSum == c0 {
+		t.Errorf("checksum unchanged after apply that added a route")
 	}
 }
 
 func TestApply_FullRebuild(t *testing.T) {
-	_, st := openInstance(t)
+	_, stores := openInstance(t)
+	st := stores[resreg.SubsystemRoutd]
 	// Insert a row outside the manifest path; Apply must wipe it.
 	r := resreg.Lookup("routes")
 	tx, _ := st.DB().Begin()
@@ -102,9 +187,9 @@ func TestApply_FullRebuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	tx.Commit()
-	v0 := dbConfigVersion(t, st.DB())
+	c0 := routdChecksum(t, st)
 	// Apply manifest with different rows.
-	_, err := resreg.Apply(context.Background(), st.DB(), v0, false, map[string]any{
+	_, err := resreg.Apply(context.Background(), st.DB(), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"routes": []resources.RoutesRow{
 			{Seq: 0, Match: "", Target: "ops"},
 		},
@@ -123,21 +208,22 @@ func TestApply_FullRebuild(t *testing.T) {
 }
 
 func TestApply_RoundTrip_Idempotent(t *testing.T) {
-	_, st := openInstance(t)
-	v0 := dbConfigVersion(t, st.DB())
+	_, stores := openInstance(t)
+	st := stores[resreg.SubsystemRoutd]
+	c0 := routdChecksum(t, st)
 	manifest := map[string]any{
 		"routes": []resources.RoutesRow{
 			{Seq: 0, Match: "platform=tele", Target: "atlas"},
 			{Seq: 1, Match: "platform=slack", Target: "ops"},
 		},
 	}
-	v1, err := resreg.Apply(context.Background(), st.DB(), v0, false, manifest, nil)
+	c1, err := resreg.Apply(context.Background(), st.DB(), resreg.SubsystemRoutd, c0, false, manifest, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Export → bytes → parse → apply again. Should be a no-op behaviorally
-	// (rows identical) and bump version by exactly 1.
-	exp, err := resreg.Export(st.DB())
+	// Export → bytes → parse → apply again. Should be a no-op: identical
+	// rows, checksum unchanged.
+	exp, err := resreg.Export(st.DB(), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,19 +231,16 @@ func TestApply_RoundTrip_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, version, err := resreg.ParseYAML(yamlBytes)
+	parsed, _, err := resreg.ParseYAML(yamlBytes)
 	if err != nil {
 		t.Fatalf("re-parse: %v", err)
 	}
-	if version != v1 {
-		t.Errorf("round-trip version = %d, want %d", version, v1)
-	}
-	v2, err := resreg.Apply(context.Background(), st.DB(), version, false, parsed, nil)
+	c2, err := resreg.Apply(context.Background(), st.DB(), resreg.SubsystemRoutd, c1, false, parsed, nil)
 	if err != nil {
 		t.Fatalf("Apply 2: %v", err)
 	}
-	if v2 != v1+1 {
-		t.Errorf("v2 = %d, want %d", v2, v1+1)
+	if c2 != c1 {
+		t.Errorf("checksum changed on idempotent re-apply: %s -> %s", c1, c2)
 	}
 	// Row content should be identical to what we applied.
 	r := resreg.Lookup("routes")
@@ -168,48 +251,36 @@ func TestApply_RoundTrip_Idempotent(t *testing.T) {
 	}
 }
 
-// TestApply_ForceFromVersion: under --force against a drifted DB the
-// manifest version differs from the DB version. cmdApply prints the
-// pre-apply DB version (resreg.ConfigVersion before Apply) as the "from",
-// not the manifest version, so the success line reports the true prior state.
-func TestApply_ForceFromVersion(t *testing.T) {
-	_, st := openInstance(t)
-	// Advance the DB a couple of versions so it drifts from a stale manifest.
-	v0 := dbConfigVersion(t, st.DB())
-	if _, err := resreg.Apply(context.Background(), st.DB(), v0, false, map[string]any{
+// TestApply_ForceBypassesChecksum: under --force against a drifted DB the
+// manifest checksum differs from the DB's live checksum; force skips the
+// check and applies anyway, returning the new (different) checksum.
+func TestApply_ForceBypassesChecksum(t *testing.T) {
+	_, stores := openInstance(t)
+	st := stores[resreg.SubsystemRoutd]
+	c0 := routdChecksum(t, st)
+	if _, err := resreg.Apply(context.Background(), st.DB(), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"routes": []resources.RoutesRow{{Seq: 0, Match: "", Target: "atlas"}},
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	dbVer := dbConfigVersion(t, st.DB()) // true pre-apply version
-	staleManifest := dbVer - 1           // a drifted, lower manifest version
-
-	fromVer, err := resreg.ConfigVersion(st.DB())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fromVer != dbVer {
-		t.Fatalf("from = %d, want db version %d", fromVer, dbVer)
-	}
-	if fromVer == staleManifest {
-		t.Fatalf("from must be the DB version, not the stale manifest version %d", staleManifest)
-	}
-	// Force-apply with the stale version; succeeds and bumps from the DB version.
-	newVer, err := resreg.Apply(context.Background(), st.DB(), staleManifest, true, map[string]any{
+	// c0 is now stale (the DB moved past it). Force-apply against the stale
+	// checksum succeeds and returns a fresh one reflecting the new content.
+	newSum, err := resreg.Apply(context.Background(), st.DB(), resreg.SubsystemRoutd, c0, true, map[string]any{
 		"routes": []resources.RoutesRow{{Seq: 0, Match: "", Target: "ops"}},
 	}, nil)
 	if err != nil {
 		t.Fatalf("force Apply: %v", err)
 	}
-	if newVer != fromVer+1 {
-		t.Errorf("new version = %d, want fromVer+1 = %d", newVer, fromVer+1)
+	if newSum == c0 {
+		t.Errorf("checksum unchanged after forced apply that changed content")
 	}
 }
 
 func TestExport_DeterministicAcrossRuns(t *testing.T) {
-	_, st := openInstance(t)
-	v0 := dbConfigVersion(t, st.DB())
-	_, err := resreg.Apply(context.Background(), st.DB(), v0, false, map[string]any{
+	_, stores := openInstance(t)
+	st := stores[resreg.SubsystemRoutd]
+	c0 := routdChecksum(t, st)
+	_, err := resreg.Apply(context.Background(), st.DB(), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"routes": []resources.RoutesRow{
 			{Seq: 0, Match: "z", Target: "atlas"},
 			{Seq: 1, Match: "a", Target: "ops"},
@@ -222,9 +293,9 @@ func TestExport_DeterministicAcrossRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exp1, _ := resreg.Export(st.DB())
+	exp1, _ := resreg.Export(st.DB(), resreg.SubsystemRoutd)
 	b1, _ := resreg.EmitYAML(exp1)
-	exp2, _ := resreg.Export(st.DB())
+	exp2, _ := resreg.Export(st.DB(), resreg.SubsystemRoutd)
 	b2, _ := resreg.EmitYAML(exp2)
 	if string(b1) != string(b2) {
 		t.Errorf("export non-deterministic:\n--- 1 ---\n%s\n--- 2 ---\n%s", b1, b2)
@@ -235,9 +306,10 @@ func TestExport_DeterministicAcrossRuns(t *testing.T) {
 // and diffed against the live DB, reports no change — the round-trip
 // honesty acceptance criterion (spec 5/8 §"arizuko get round-trip").
 func TestGetRoundTrip_NoOp(t *testing.T) {
-	_, st := openInstance(t)
-	v0 := dbConfigVersion(t, st.DB())
-	if _, err := resreg.Apply(context.Background(), st.DB(), v0, false, map[string]any{
+	_, stores := openInstance(t)
+	st := stores[resreg.SubsystemRoutd]
+	c0 := routdChecksum(t, st)
+	if _, err := resreg.Apply(context.Background(), st.DB(), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"acl": []resources.ACLRow{
 			{Principal: "user:alice", Action: "read", Scope: "atlas/", Effect: "allow"},
 			{Principal: "user:bob", Action: "tasks:*", Scope: "ops/", Effect: "allow"},
@@ -269,13 +341,14 @@ func TestGetRoundTrip_NoOp(t *testing.T) {
 // TestPlan_MatchesApply: a plan against a populated DB reports the adds
 // the subsequent apply commits, then a second plan reports clean.
 func TestPlan_MatchesApply(t *testing.T) {
-	_, st := openInstance(t)
+	_, stores := openInstance(t)
+	st := stores[resreg.SubsystemRoutd]
 	manifest := map[string]any{
 		"routes": []resources.RoutesRow{
 			{Seq: 0, Match: "platform=tele", Target: "atlas"},
 		},
 	}
-	deltas, err := resreg.Plan(st.DB(), manifest)
+	deltas, err := resreg.Plan(st.DB(), resreg.SubsystemRoutd, manifest)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -288,10 +361,10 @@ func TestPlan_MatchesApply(t *testing.T) {
 	if routesDelta == nil || len(routesDelta.Add) != 1 {
 		t.Fatalf("plan routes Add = %+v, want one add", routesDelta)
 	}
-	if _, err := resreg.Apply(context.Background(), st.DB(), dbConfigVersion(t, st.DB()), false, manifest, nil); err != nil {
+	if _, err := resreg.Apply(context.Background(), st.DB(), resreg.SubsystemRoutd, routdChecksum(t, st), false, manifest, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	deltas2, err := resreg.Plan(st.DB(), manifest)
+	deltas2, err := resreg.Plan(st.DB(), resreg.SubsystemRoutd, manifest)
 	if err != nil {
 		t.Fatalf("Plan 2: %v", err)
 	}
@@ -307,7 +380,7 @@ func TestPlan_MatchesApply(t *testing.T) {
 // bogus row field before any DB write (spec 5/8 §"Apply lifecycle" step 1).
 func TestStrictParse_CLIPath(t *testing.T) {
 	typoKey := []byte(`
-config_version: 0
+checksum: "sha256:0"
 routez:            # typo: should be "routes"
   - seq: 0
     match: ""
@@ -317,7 +390,7 @@ routez:            # typo: should be "routes"
 		t.Error("ParseYAML accepted typo'd resource key 'routez'")
 	}
 	bogusField := []byte(`
-config_version: 0
+checksum: "sha256:0"
 routes:
   - seq: 0
     match: ""
@@ -329,26 +402,82 @@ routes:
 	}
 }
 
-// itoa avoids importing strconv in the package init bloat.
-func itoa(n int64) string {
-	if n == 0 {
-		return "0"
+// TestCLI_ExportApply_RealFiles drives the ACTUAL operator-facing entry
+// points (cmdExport, cmdApply — via ARIZUKO_DATA_DIR, exactly how a real
+// invocation resolves an instance dir) end to end: seed rows through the
+// CLI's own apply path, export to a file, apply that file to a SECOND fresh
+// instance's real routd.db/onbod.db, and confirm the row lands. This is the
+// step 4 acceptance proof — before this pass, cmdExport/cmdApply opened the
+// frozen messages.db and never reached a production instance's real DBs
+// (BUGS.md Y1). Only the success path is exercised: cmdApply/cmdExport call
+// os.Exit on error, which is unsafe from inside a test process.
+func TestCLI_ExportApply_RealFiles(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+
+	srcDir, srcStores := openInstance(t)
+	_ = srcDir
+	srcRoutd := srcStores[resreg.SubsystemRoutd]
+	c0 := routdChecksum(t, srcRoutd)
+	if _, err := resreg.Apply(context.Background(), srcRoutd.DB(), resreg.SubsystemRoutd, c0, false, map[string]any{
+		"routes": []resources.RoutesRow{{Seq: 0, Match: "platform=tele", Target: "atlas"}},
+	}, nil); err != nil {
+		t.Fatalf("seed source: %v", err)
 	}
-	neg := false
-	if n < 0 {
-		neg = true
-		n = -n
+	closeStores(srcStores)
+
+	// srcDir is openInstance's own t.TempDir, unrelated to ARIZUKO_DATA_DIR —
+	// move its store/ tree under the instance name cmdExport/cmdApply resolve.
+	instDir := filepath.Join(base, "arizuko_srcinst")
+	if err := os.MkdirAll(instDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
+	if err := os.Rename(filepath.Join(srcDir, "store"), filepath.Join(instDir, "store")); err != nil {
+		t.Fatal(err)
 	}
-	if neg {
-		i--
-		b[i] = '-'
+
+	outFile := filepath.Join(base, "export.yaml")
+	cmdExport([]string{"srcinst", outFile})
+	data, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("read exported file: %v", err)
 	}
-	return string(b[i:])
+	if !strings.Contains(string(data), "platform=tele") {
+		t.Fatalf("exported file missing seeded route:\n%s", data)
+	}
+	if !strings.Contains(string(data), "---") {
+		t.Errorf("exported file has no ---separated documents (expected routd.yaml + onbod.yaml)")
+	}
+
+	// Bootstrap a SECOND, fresh instance and apply the export into it.
+	dstDataDir, dstStores := openInstance(t)
+	closeStores(dstStores)
+	dstInstDir := filepath.Join(base, "arizuko_dstinst")
+	if err := os.MkdirAll(dstInstDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(dstDataDir, "store"), filepath.Join(dstInstDir, "store")); err != nil {
+		t.Fatal(err)
+	}
+	cmdApply([]string{"dstinst", outFile, "--force"})
+
+	// Verify directly against the destination instance's REAL routd.db file.
+	dstSt, err := store.OpenRoutd(filepath.Join(dstInstDir, "store"))
+	if err != nil {
+		t.Fatalf("open destination routd.db: %v", err)
+	}
+	defer dstSt.Close()
+	got, err := resreg.Lookup("routes").ScanAll(dstSt.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, r := range got.([]resources.RoutesRow) {
+		if r.Match == "platform=tele" && r.Target == "atlas" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("applied route missing from destination routd.db: %v", got)
+	}
 }

@@ -68,6 +68,7 @@ func init() {
 	resreg.Register(resreg.Resource{
 		Name:          "groups",
 		Table:         "groups",
+		DB:            resreg.SubsystemRoutd,
 		RowType:       reflect.TypeFor[GroupsRow](),
 		PKFields:      []string{"Folder"},
 		Scope:         resreg.ScopeSpec{Field: "Folder"},

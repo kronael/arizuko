@@ -268,6 +268,53 @@ subsystem's resource set. **Blocking precondition on this section
 shipping**, tracked in `BUGS.md`; role-membership rows (`added_by` unset)
 are unaffected and still round-trip normally.
 
+## Path-retargeting apply (open door, not built)
+
+**Apply's data model already supports "export folder X, apply as folder
+Y" — confirmed 2026-08-04, not yet wired to any caller.** `resreg.Apply`
+consumes already-decoded `map[string]any` of typed rows, never a file path,
+and derives its DELETE+INSERT scope from the rows' OWN `Scope.Field` value
+(`manifestScopes`) — never from a reference back to wherever the rows came
+from. A caller can therefore retarget a batch of rows to a new folder
+before calling `Apply`, with zero change to `Apply` itself.
+`resreg.Resource.Retarget(rows, newFolder)` is the engine-owned building
+block for the one mechanically-safe case: it rewrites ONLY the declared
+`ScopeSpec.Field` column, for the three resources that have one (`groups`,
+`web_routes`, `network_rules` — verified against `resreg/resources/*.go`,
+2026-08-04; every other resource has no `Scope` at all).
+
+Four future consumers of this door, named so the next agent doesn't
+re-derive it: `4/26` prototype spawn (`routd/spawn.go`'s
+`spawnFromPrototype` — `CopyDirNoSymlinks` + `PutGroup` + `AddRoute` with
+rollback is an archive export→apply per folder, minus the file, done by
+hand today); `register_group`'s unbuilt `fromPrototype` path
+(`routd/groups_resource.go:100` currently returns "not configured");
+`5/28`'s seed-once package group; cross-instance folder migration.
+
+**The rewrite is partial and per-resource, never global — verified against
+the schema, not assumed.** Two findings:
+
+1. Retargeting is NOT a blanket "rewrite every folder reference." `routes`
+   has no `Scope.Field` (`target`/`match` are path fragments, and a spawned
+   child's route must be DERIVED from its own JID —
+   `match := "room=" + core.JidRoom(childJID)` — never copied from the
+   parent's own routes verbatim), so `Retarget` refuses it
+   (`HasScope() == false`) rather than guessing. Same refusal for `acl`
+   (`scope` is a glob, no declared `Scope`), `scheduled_tasks.chat_jid` and
+   `secrets.scope_id` (both polymorphic: folder OR something else, by a
+   separate discriminator column) — `route_tokens.owner_folder` and
+   `invites.target_glob` are moot (`SkipApplyRebuild`, never rebuilt by
+   `Apply` regardless of retargeting).
+2. Even a resource WITH a declared `Scope.Field` can embed the folder
+   elsewhere in row content the column doesn't cover: `web_routes.
+redirect_to` points into the folder's own `/pub|priv/<folder>/` web root
+   (its own MCPDoc says so) — `Retarget` only rewrites `folder`, so a
+   caller retargeting `web_routes` rows must ALSO rewrite `redirect_to`
+   itself. Named gap, not covered by the generic helper.
+
+No prototype/`register_group`/package-seed/migration wiring ships in this
+pass — only the `Retarget` primitive and this note.
+
 ## Consistency levels — an archive is a smear, and must say so
 
 A full-instance archive taken from a running system is not a snapshot; it
