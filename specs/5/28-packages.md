@@ -26,7 +26,7 @@ is no standard way to distribute skills + fragments + routes + grants as one uni
 | Composition — one group blends an ordered LIST of products (per-kind precedence)  | `5/20`                   |
 | State transport — moving a live agent's rows/files (`export`/`apply`)             | `5/20` (mech. 1) + `5/8` |
 | Compose fragment — one asset _kind_ (a file)                                      | `5/27`                   |
-| Prototype — a product instantiated at spawn (`5/29` Tier-3)                       | `5/29`                   |
+| Prototype — a product instantiated at spawn (`5/5` Tier-3)                        | `5/5`                    |
 
 **Rejected alternative — OCI artifacts** (spec deleted 2026-08-02). A
 package as a signed, registry-hosted `ghcr.io` artifact pulled via
@@ -34,7 +34,7 @@ package as a signed, registry-hosted `ghcr.io` artifact pulled via
 registry/signing infrastructure arizuko does not need while losing the thing
 that makes a source-first package legible: the package IS a git repo you can
 read, fork, and pin to a revision. Reopen only if build-once/ship-anywhere
-becomes a real requirement (`5/29` flags prototypes as the plausible case).
+becomes a real requirement (`5/5` flags prototypes as the plausible case).
 
 **5/28 is one package's lifecycle; 5/20 is state + how several products compose.**
 They meet only at restore (below).

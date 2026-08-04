@@ -15,7 +15,7 @@ shipped: 2026-05-01
 > ([`34-channel-protocol.md`](34-channel-protocol.md) §"`chat_jid` and
 > `sender` are different shapes").
 
-> **Forward pointer.** [`5/29`](29-worlds-guests-oauth.md) collapses
+> **Forward pointer.** [`5/5`](5-worlds-agents-sessions.md) collapses
 > tenancy to World → Agent → Session and leaves open how those address
 > onto this wire form: folders (`world/agent`) are route _targets_, not
 > JIDs, so the question is whether a session stays addressed by `run_id`

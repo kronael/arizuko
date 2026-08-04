@@ -118,7 +118,7 @@ Storage is `store/secrets.go` (AES-256-GCM at rest).
 
 - [`5/13`](13-ext-mcp.md) §Secrets table — replaced here; `5/13` keeps the
   handler shapes only.
-- [`5/5`](5-tenant-self-service.md) §Phase-C secrets — the `chats.kind` gate and
-  scope model are replaced here.
+- [`5/5`](5-worlds-agents-sessions.md) §Secrets (Phase C) — the `chats.kind`
+  gate and scope model are replaced here.
 - [`8/E`](../8/E-encryption-at-rest.md) §Anthropic-keys — operator anchors are
   host env, not the secrets table; only user BYOA overrides land in the table.

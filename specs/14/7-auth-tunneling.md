@@ -23,7 +23,7 @@ channel specifics live in the channel's own spec.
   future challenge-auth platform.
 - Operators otherwise `ssh` in and edit `.env` — a wall for non-technical
   operators and a hard blocker for tenant self-service
-  ([5/5-tenant-self-service](../5/5-tenant-self-service.md)).
+  ([5/5-worlds-agents-sessions](../5/5-worlds-agents-sessions.md)).
 - Every adapter that grows challenge auth would otherwise reinvent the same
   pairing surface.
 

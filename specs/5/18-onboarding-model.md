@@ -7,8 +7,7 @@ depends:
     G-engagement,
     E-routd,
     S-jid-format,
-    5-tenant-self-service,
-    29-worlds-guests-oauth,
+    5-worlds-agents-sessions,
     5/32-acl-unified,
     5/33-paths-roles,
   ]
@@ -231,11 +230,11 @@ names the survivor.
 
 ## Open, blocking
 
-1. ~~**`5/29`** — whether `onboarding.token` folds into the pairing carrier~~
+1. ~~**`5/5`** — whether `onboarding.token` folds into the pairing carrier~~
    — designed in [`5/31`](31-identity-pairing.md) § "Onboarding — the fold,
    designed": `token`/`token_expires` fold into `route_tokens`, `prompted_at`
    survives as a cooldown, redemption moves to `/pair/{token}`, admission
-   (gates/queue) is observed by a poll. Still open from `5/29`: whether
+   (gates/queue) is observed by a poll. Still open from `5/5`: whether
    `gate` survives as a stranger throttle; whether a stranger who chose no
    world may create one (today: only via an invite).
 2. ~~replace the auto-pick with the picker, render a form for the existing
@@ -249,7 +248,7 @@ names the survivor.
 
 Canonical umbrella for the onboarding narrative; nothing is superseded. `5/B`
 (`#observe`), `5/L`/`5/G` (mention promotion, engagement), `5/E` (route-miss
-hook), `5/32`+`5/33` (grant vocabulary), `5/5` (invites, gates), `5/29` (the
-world roster this routes into), `5/31` (pairing — onboarding redeems the bridge
+hook), `5/32`+`5/33` (grant vocabulary), `5/5` (invites, gates, the world
+roster this routes into), `5/31` (pairing — onboarding redeems the bridge
 rather than owning it, which is what makes pairing reachable outside a route
 miss), `7/7` (operator queue page), `ROUTING.md` (route-table syntax).

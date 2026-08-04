@@ -1068,8 +1068,8 @@ codegen, no third-party ORMs.
   adopted** (see lead DECISION); unedited.
 - `../9/4-data-ingestion-curation-eventing.md`
   — Q2/Q5 open; extend the resource set when they resolve.
-- [`5-tenant-self-service.md`](5-tenant-self-service.md) — Phase C secret
-  layering composes with the `secrets` resource.
+- [`5-worlds-agents-sessions.md`](5-worlds-agents-sessions.md) — Phase C
+  secret layering composes with the `secrets` resource.
 - [`31-identity-pairing.md`](31-identity-pairing.md) — precedent for
   "co-locate what must be atomic" (`route_tokens.kind`), cited above as
   the principle this spec keeps reapplying; also two blocking

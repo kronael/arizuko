@@ -397,7 +397,7 @@ a spec cannot make from reading a symbol name.
 
 `5/32` — the membership edge, the principal namespace, the no-cache revocation
 contract; its Open-Q4 closed here. `5/18` — onboarding, which this extracts
-from and whose Open-blocking Q1 (the token fold) closes here. `5/29` — a guest
+from and whose Open-blocking Q1 (the token fold) closes here. `5/5` — a guest
 is a paired channel identity; distinct from that spec's "account linking",
 which is **surrogate** OAuth (`5/15`), not identity pairing. `5/1` — the OAuth
 login this redeems behind. `5/W` — the token table it joins.

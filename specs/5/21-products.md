@@ -15,12 +15,11 @@ of building from scratch.
 > supersedes this file's single-template narrative: a group holds an
 > ORDERED MIX of products, blended per payload kind.
 
-> **Product vs prototype (`5/29`).** A product instantiates at **group
-> creation** ([`29-worlds-guests-oauth.md`](29-worlds-guests-oauth.md)
-> Tier 2). `5/29`'s **prototype** is the same shape instantiated at **spawn
-> time** (Tier 3), and `5/5`'s `groups/<world>/prototype/` seed folder is a
-> third instantiation point. Plausibly one concept under three names;
-> flagged, not merged — see `5/29` open questions.
+> **Product vs prototype (`5/5`).** A product instantiates at **group
+> creation** ([`5-worlds-agents-sessions.md`](5-worlds-agents-sessions.md)
+> Tier 2). That spec's Tier-3 **prototype** — the `groups/<world>/prototype/`
+> seed folder, applied at spawn time — is the same shape under a second name,
+> not merged into one authored asset — see its design resolutions.
 
 ## A product is a recomposition, not new machinery
 
