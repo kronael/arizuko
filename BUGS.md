@@ -2668,7 +2668,19 @@ since well before it.
   webd slink E2E tests"), or repoint it at the suites that exist. A target that
   selects zero tests must fail, not pass.
 
-## Y1 — `5/8` is not implementable as specced: three undecided questions (2026-08-02, proposal)
+## ✅ FIXED 2026-08-04 Y1 — `5/8` is not implementable as specced: three undecided questions (2026-08-02, proposal)
+
+**Fix:** `83cccc78`. Built exactly the "DECIDED (2026-08-02, user)" resolution
+below: `resreg.Resource.DB` carries the SUBSYSTEM (`routd`|`onbod`, a logical
+tag, not a filesystem path) as content-hash CAS replaces `config_meta`
+per-subsystem (`resreg.Checksum`, no table); `cmd/arizuko/apply.go`'s four
+`store.Open(messages.db)` sites are repointed to `store.OpenRoutd`/`OpenOnbod`,
+proven end-to-end by `TestCLI_ExportApply_RealFiles` (drives the actual
+`cmdExport`/`cmdApply` against real on-disk `routd.db`/`onbod.db` files, not a
+frozen schema). `proxyd_routes` stays `routd`-owned per the resolved Q1 (no
+`proxyd.db` is ever opened by this code). One operational item NOT done here
+(out of scope — never touch a live instance/`.db`): deleting each live
+instance's empty `proxyd.db` file remains an operator cleanup task.
 
 `specs/5/8-yaml-manifests.md` is marked `partial` with the remaining work
 described as a mechanical repoint of `cmd/arizuko/apply.go` from the frozen
@@ -2953,7 +2965,15 @@ and the live DB before logging.
   other tier/`user_groups` references before calling it done — these four were
   found by a full-file read, not a truncated grep.
 
-## Y2 — fixing Y1 would activate an invite-token wipe and a raw-bearer export (2026-08-02, open)
+## ✅ FIXED 2026-08-03 Y2 — fixing Y1 would activate an invite-token wipe and a raw-bearer export (2026-08-02, open)
+
+**Fix:** `5c6a5421` (shipped BEFORE Y1's repoint, as this entry's own "Fix"
+line required) — `SkipApplyRebuild: true` on `invites`, and `InvitesRow`
+carries no `token`/bearer field, only `ref`. Found stale (still marked open)
+during the Y1 repoint pass 2026-08-04; re-verified live with two new tests
+(`TestApply_NeverRebuildsInvites`, `TestExport_OmitsInviteToken`,
+`resreg/resources/resources_test.go`) against the NOW-repointed real
+`onbod.db`, not the frozen schema this entry originally worried about.
 
 Hard ordering constraint on Y1, found during the phase-5 spec pass and verified
 independently.
