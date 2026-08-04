@@ -111,6 +111,14 @@ var daemonKeys = map[string][]string{
 	// Verifies via authd JWKS. NO crackbox, NO docker socket.
 	"routd": {
 		"AUTHD_URL", "AUTHD_SERVICE_KEY", "ONBOD_URL",
+		// RUNED_RUN_TIMEOUT: routd reads it (routd/cmd/routd/main.go:106) to size
+		// its own dispatch deadline as runTimeout+2m, deliberately OUT-WAITING
+		// runed's container kill. Without it here routd silently kept the 20m
+		// default while runed honoured a longer .env value — routd's deadline
+		// fired first, turn_context stayed `running`, and the next poll re-fed
+		// the SAME turn into a second container: the user's message executed
+		// twice. marinade ships RUNED_RUN_TIMEOUT=30m, so this was live.
+		"RUNED_RUN_TIMEOUT",
 		// routd detects the route miss that fires chat-initiated onboarding
 		// (loop.go InsertOnboarding); the flag gates it. onbod holds the same
 		// vars but never sees inbound — without these on routd the greeting +

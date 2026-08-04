@@ -590,3 +590,24 @@ func serviceBlock(out, name string) string {
 	}
 	return out[start:]
 }
+
+// routd sizes its dispatch deadline from RUNED_RUN_TIMEOUT (routd/cmd/routd/
+// main.go:106) so it OUT-WAITS runed's container kill. If compose hands the var
+// to runed but not routd, routd keeps the 20m default while runed honours a
+// longer .env value: routd's deadline fires first, turn_context stays
+// `running`, and the next poll re-feeds the SAME turn into a second container.
+// marinade ships RUNED_RUN_TIMEOUT=30m, so this was live, not hypothetical.
+func TestRunTimeoutReachesBothRoutdAndRuned(t *testing.T) {
+	for _, d := range []string{"routd", "runed"} {
+		found := false
+		for _, k := range daemonKeys[d] {
+			if k == "RUNED_RUN_TIMEOUT" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s does not receive RUNED_RUN_TIMEOUT — the daemon that "+
+				"misses it uses a stale default and the turn runs twice", d)
+		}
+	}
+}
