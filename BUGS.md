@@ -3409,3 +3409,117 @@ per CLAUDE.md's bug-triage protocol (don't fix on discovery).
   treat a nil and a zero-length slice as equal generically — the general form
   is probably right, since any future `[]string`-typed field with `omitempty`
   hits the identical trap.
+
+## Z3 — `onboarding` (onbod) still not a resreg resource; archiving it as speced would leak a live plaintext bearer (2026-08-04, open)
+
+Spec 5/8 §"Decided, not merely deferred: pending onboarding admissions must be
+archived state" calls registering `onboarding` "a Blocking precondition, same
+as the acl_membership one above... register it the same way `onboarding_gates`
+is... rides this spec's existing mechanism for free." Verified against the
+code before attempting it (as this pass's own instructions required) and found
+the prescription does not actually work safely:
+
+1. **`onboarding.token` is a live PLAINTEXT bearer, not a hash.**
+   `onbod/main.go:403-419` mints it (`core.GenHexToken()`), stores it in the
+   clear (`UPDATE onboarding SET token = ?`), and `onbod/dash.go:50` states
+   outright: "the token column is never read or rendered (a live onboarding
+   token is a bearer...)". `onboarding_gates` — the resource the spec says to
+   copy — has no such column; the two tables are not the same shape the spec's
+   analogy assumes. A plain `resreg.Register` with `RowType` including `Token`
+   would put that bearer straight into `arizuko export`/`get` YAML the moment
+   the resource lands — the exact class of bug Y2 (`5c6a5421`) just fixed for
+   `invites`, reopened for a table Y2 never touched.
+2. **The table has no folder scope**, so ANY manifest apply mentioning
+   `onboarding` — even an unrelated one, since `resreg.Apply`'s loop rebuilds
+   every mentioned resource wholesale when `HasScope()==false` — would
+   `DeleteAll`+`InsertAll` the WHOLE table. Since `Insert`'s column list is
+   derived purely from the registered `RowType`'s `db:` tags, and a
+   bearer-safe `RowType` would have to OMIT `token`/`token_expires` (matching
+   `route_tokens`' precedent of omitting `token_hash` from its config
+   `RowType` entirely) to avoid ever writing/reading the bearer via the
+   manifest path, that same omission means every rebuild via a normal
+   `arizuko apply`/`archive apply` config step would silently NULL out every
+   live chat-onboarding magic link instance-wide — a correctness regression
+   `onboarding_gates` (no live-credential column) never risks.
+
+Both are novel to `onboarding` specifically — `route_tokens`/`invites` already
+solved this exact shape (hash-at-rest PK, `SkipApplyRebuild`, a
+`yaml:"-"`/omitted bearer field, a SEPARATE archive-only value-carrying doc)
+and the same treatment would work here too, but it is real, unbuilt design
+work, not "register it the same way" as the spec currently states. Not
+attempted under this pass's time budget — logged instead of risking a bearer
+leak or a live-link wipe shipping in `cmd/arizuko/archive.go`.
+
+- **Severity:** medium (archive/config-manifest correctness + a credential-
+  leak class, not yet reachable — `onboarding` isn't registered, so nothing
+  ships broken today; it blocks doing this right later, not a live bug now)
+- **Scope:** `resreg/resources/` (registration), spec 5/8 (the analogy needs
+  correcting, not just the code)
+- **Affected:** `onbod.db` `onboarding` table; archive's `onbod.yaml` document
+  (pending admissions are NOT part of the archive built in this pass)
+- **Source:** verified against `onbod/main.go:403-419`, `onbod/dash.go:50`,
+  `resreg/resources/route_tokens.go` (the hash-at-rest precedent),
+  `resreg/engine.go`'s `Apply`/`Insert` column-list derivation, 2026-08-04
+- **Fix:** mirror `route_tokens`/`invites`: a folder-less, `SkipApplyRebuild`
+  registration with `token`/`token_expires` omitted from `RowType` entirely
+  (config manifest never sees them), plus an archive-only
+  `ArchiveOnboardingRow`-with-token document and its own UPSERT-not-rebuild
+  import lane — the same shape `resreg/archive.go`'s `ArchiveRouteTokenRow`/
+  `ArchiveInviteRow` already establish. Needs sign-off before landing (spec
+  correction + new archive document), not attempted here.
+
+## Z4 — archive apply's filesystem restore has no live run-slot claim; wiring one is unspecified cross-daemon protocol (2026-08-04, proposal)
+
+Spec 5/8 §"Filesystem restore claims the folder's run slot" specifies
+`groups.tar` extraction should claim the folder's `runed` spawn slot
+(`kind='backup'`) so no live agent turn can start mid-extraction. The
+CLAIM MECHANISM shipped (`397bc16f`): `Manager.executors map[string]Runtime`,
+`RegisterExecutor`, and `Run`'s per-kind dispatch are all real and generic
+today (`runed/manager.go`). Two things do NOT exist and were out of this
+pass's scope (findings 3-5 were the explicit ask, this is a different spec
+section):
+
+1. **No `kind='backup'` executor.** Nothing implements the `Runtime`
+   interface's `Run`/`Kill` to extract a tar entry instead of spawning
+   Docker, and nothing calls `RegisterExecutor("backup", ...)`.
+2. **No wire contract for an offline CLI to reach a live `runed`.**
+   `arizuko archive apply` (`cmd/arizuko/archive.go`) is an OFFLINE tool —
+   like `arizuko apply`/`export` before it, it opens `routd.db`/`onbod.db`
+   directly via `store.OpenRoutd`/`OpenOnbod`, never talks to a running
+   daemon. Claiming a live run-slot needs an HTTP call into a LIVE `runed`
+   (`runed/api/v1.Client.Run`, the exact contract routd already uses) with
+   `Kind: "backup"` — but `RunRequest` (the PINNED wire type, `runed/api/v1/
+  types.go`) has no field telling the backup executor WHAT to restore
+   (a tar path, an archive-relative folder entry, a staging dir to swap in).
+   Inventing that shape now, under this pass's time budget, would be a new
+   cross-daemon contract this spec names but does not pin down — exactly the
+   kind of thing CLAUDE.md's "redesigns need sign-off" rule reserves for a
+   recorded proposal, not inline code.
+
+**What `archive apply` does instead, today:** `extractGroups` (`cmd/arizuko/
+archive.go`) refuses a folder's filesystem step outright when the target tree
+is non-empty, unless `--force` (matching spec 5/8 "Restoring onto a populated
+instance" for the flag semantics), but performs NO live-turn exclusion check
+either way — an empty/missing target (the primary DR case the spec itself
+calls "what a real DR restore wants") has no live agent to race in the first
+place; a non-empty target under `--force` is the operator's own call, same as
+today's `SetupGroup`/`arizuko repair` filesystem-prep path, which also has no
+run-slot awareness.
+
+- **Severity:** low today (no live conflict is possible against the DR/empty-
+  target case this ships for; a `--force` restore onto a genuinely live,
+  populated folder has a real but narrow race window — extraction isn't
+  atomic — same class of risk operators already accept running `arizuko
+  repair`/`SetupGroup` against a live folder)
+- **Scope:** `runed` (a `kind='backup'` executor), `runed/api/v1` (a
+  `RunRequest` field naming what to restore), `cmd/arizuko/archive.go` (the
+  HTTP call to claim the slot before extracting)
+- **Affected:** `archive apply` onto a folder with a live, running agent
+- **Source:** `runed/manager.go` (`RegisterExecutor`/executors map, confirmed
+  no caller), `runed/api/v1/types.go` (`RunRequest`, confirmed no restore-
+  source field), `cmd/arizuko/archive.go` (`extractGroups`), verified
+  2026-08-04
+- **Fix:** needs sign-off — the `RunRequest` extension + the backup executor
+  + the CLI's live-runed HTTP call are one coherent design, not three
+  independent patches. Propose in `specs/5/P-runed.md` per this spec's own
+  note that the mechanism's long-term home is there, not here.
