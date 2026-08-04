@@ -243,3 +243,25 @@ func csrfFromGet(t *testing.T, s *server, token, sub string) string {
 	t.Fatal("GET did not set the CSRF cookie")
 	return ""
 }
+
+// The JWT sub arrives prefixed ("user:google:123", spec 5/1's sub prefix rule)
+// but every stored principal is bare — acl.principal, acl_membership.parent.
+// Storing the prefixed form makes the edge expand to a principal that matches
+// no grant, so pairing succeeds and grants nothing. That is how it shipped
+// (BUGS.md V1); this pins the strip so it cannot come back.
+func TestPair_ParentIsStoredBare(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "hq", "hq")
+	token := seedPairingToken(t, st, "telegram:user/900", "hq", time.Now())
+
+	csrf := csrfFromGet(t, s, token, "user:google:123")
+	if w := pairPOST(t, s, token, "user:google:123", csrf); w.Code != http.StatusOK {
+		t.Fatalf("pair POST = %d, body %s", w.Code, w.Body.String())
+	}
+
+	got := parentsOf(t, st, "telegram:user/900")
+	if len(got) != 1 || got[0] != "google:123" {
+		t.Fatalf("stored parent = %v, want [google:123] — a prefixed parent "+
+			"matches no acl row and the pairing grants nothing", got)
+	}
+}

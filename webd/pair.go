@@ -66,7 +66,7 @@ func (s *server) handlePairPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sub := userSub(r)
-	jid, err := s.stRoutd.RedeemPairing(r.PathValue("token"), sub)
+	jid, err := s.stRoutd.RedeemPairing(r.PathValue("token"), auth.BareSub(sub))
 	switch {
 	case errors.Is(err, store.ErrPairingConflict):
 		// The ONE distinct error: it is the only one the user can act on.

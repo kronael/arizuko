@@ -27,6 +27,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
@@ -114,7 +115,10 @@ func (s *Server) mountMembership(mux *http.ServeMux) {
 		if s.verify == nil {
 			return nil
 		}
-		if c.Sub == "" || c.Sub != target {
+		// c.Sub arrives with the JWT "user:" prefix; target is the stored
+		// parent, which is bare (5/1's sub prefix rule). Comparing them raw
+		// never matches — the same mismatch that made pairing itself inert.
+		if c.Sub == "" || auth.BareSub(c.Sub) != target {
 			return resreg.Errorf(http.StatusForbidden,
 				"only the linked account may unpair it")
 		}
