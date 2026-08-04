@@ -60,6 +60,8 @@ func main() {
 		fmt.Println("  plan     <instance> <manifest.yaml>  — non-mutating diff vs live config")
 		fmt.Println("  get      <instance> <resource>       — emit one resource as a YAML fragment")
 		fmt.Println("  export   <instance> [output.yaml]")
+		fmt.Println("  archive  export <instance> [file] [--quiesced]  — full backup: config+secrets+messages+group trees")
+		fmt.Println("  archive  apply  <instance> <archive.tar> [--force]")
 		fmt.Println("  migrate-split <instance> [--dry-run]  — populate routd.db + runed.db from messages.db (CUTOVER_SPLIT)")
 		os.Exit(1)
 	}
@@ -82,10 +84,11 @@ func main() {
 		"user-secret":   cmdUserSecret,
 		"budget":        cmdBudget,
 		"token":         cmdToken,
-		"apply":         cmdApply,  // spec 5/8
-		"plan":          cmdPlan,   // spec 5/8
-		"get":           cmdGet,    // spec 5/8
-		"export":        cmdExport, // spec 5/8
+		"apply":         cmdApply,   // spec 5/8
+		"plan":          cmdPlan,    // spec 5/8
+		"get":           cmdGet,     // spec 5/8
+		"export":        cmdExport,  // spec 5/8
+		"archive":       cmdArchive, // spec 5/8
 		"migrate-split": cmdMigrateSplit,
 	}
 	fn, ok := cmds[os.Args[1]]
