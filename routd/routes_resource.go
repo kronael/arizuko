@@ -159,7 +159,7 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 		if err := contain(x.Caller, routesActionAdd, route.Target); err != nil {
 			return nil, err
 		}
-		rid, err := addRouteTx(ctx, x.Tx, route)
+		rid, err := addRouteTx(ctx, x.Tx, route, x.Caller.Sub, routesMCPNames[routesActionAdd])
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -215,7 +215,8 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 				return nil, resreg.Errorf(http.StatusForbidden, "cannot delete own default route")
 			}
 		}
-		if err := setRoutesTx(ctx, x.Tx, folder, routes); err != nil {
+		if err := setRoutesTx(ctx, x.Tx, folder, routes,
+			x.Caller.Sub, routesMCPNames[routesActionSet]); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		slog.Info("routes set", "folder", folder, "count", len(routes))
@@ -317,10 +318,17 @@ func argJSONString(args resreg.Args, key string) string {
 
 // addRouteTx appends one route row on tx (mirrors DB.AddRoute so the mutation lands
 // in resreg.invoke's tx alongside its audit_log row), returning the new id.
-func addRouteTx(ctx context.Context, tx *sql.Tx, r core.Route) (int64, error) {
+//
+// added_by/added_via carry the same (who, act) pair onbod stamps (spec 5/18 step
+// 7). Redundant here with resreg's audit_log row — same DB, same tx — but a
+// reader must not need to know which daemon wrote a row to learn who wrote it;
+// one query over `routes` answers for every attributed writer.
+func addRouteTx(ctx context.Context, tx *sql.Tx, r core.Route, by, via string) (int64, error) {
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars) VALUES(?,?,?,?,?)`,
-		r.Seq, r.Match, r.Target, nz(r.ObserveWindowMessages), nz(r.ObserveWindowChars))
+		`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars, added_by, added_via)
+		 VALUES(?,?,?,?,?,?,?)`,
+		r.Seq, r.Match, r.Target, nz(r.ObserveWindowMessages), nz(r.ObserveWindowChars),
+		nullIfEmpty(by), nullIfEmpty(via))
 	if err != nil {
 		return 0, err
 	}
@@ -331,7 +339,11 @@ func addRouteTx(ctx context.Context, tx *sql.Tx, r core.Route) (int64, error) {
 // `folder/`, then inserts `routes`, on tx (mirrors DB.SetRoutes). An empty folder
 // replaces the whole table; the folder-scoped delete keeps a scoped caller from
 // wiping another folder's routes.
-func setRoutesTx(ctx context.Context, tx *sql.Tx, folder string, routes []core.Route) error {
+//
+// Every inserted row is stamped with this caller: set_routes does not edit rows,
+// it replaces them, so the caller genuinely created each survivor and inheriting
+// the replaced rows' attribution would be a lie.
+func setRoutesTx(ctx context.Context, tx *sql.Tx, folder string, routes []core.Route, by, via string) error {
 	if folder == "" {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM routes"); err != nil {
 			return err
@@ -343,8 +355,10 @@ func setRoutesTx(ctx context.Context, tx *sql.Tx, folder string, routes []core.R
 	}
 	for _, r := range routes {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars) VALUES(?,?,?,?,?)`,
-			r.Seq, r.Match, r.Target, nz(r.ObserveWindowMessages), nz(r.ObserveWindowChars)); err != nil {
+			`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars, added_by, added_via)
+			 VALUES(?,?,?,?,?,?,?)`,
+			r.Seq, r.Match, r.Target, nz(r.ObserveWindowMessages), nz(r.ObserveWindowChars),
+			nullIfEmpty(by), nullIfEmpty(via)); err != nil {
 			return err
 		}
 	}
@@ -362,6 +376,17 @@ func deleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// nullIfEmpty lands NULL rather than '' in an attribution column. `added_by IS
+// NULL` means "no actor recorded"; `added_by = ''` would be a recorded actor
+// with an empty name, and the two must not read alike (same rule as
+// audit.nullable).
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // routeTargetWithin reports whether a route's target folder is the caller's own

@@ -127,20 +127,35 @@ ACL; do not add a second check in the loop.
   whole set — and `renderWorldPicker` posts to the existing `handleAddRoute`.
   One world routes directly with no page; zero administrable worlds renders an
   explicit dead end rather than an empty picker.
-- **7 — the route write is a side effect, not an act.** It happens inside that
-  claim, inside `createWorldTx`, and inside invite redemption; the latter two
-  loop over _every_ JID the sub has paired and route them all at the target.
-  Nothing records who routed what.
+- ~~**7 — the route write is a side effect, not an act.**~~ **SHIPPED**
+  (`120d5461`). `routes.added_by`/`added_via` name who exercised routing
+  authority and by which act (`picker` / `sole_world` in onbod, the tool name in
+  routd). A COLUMN, not an audit row keyed to the route: onbod writes `routes`
+  into routd.db while its `audit.Init` targets onbod.db, so no transaction spans
+  the two and an audit row can commit while its route rolls back.
+  `acl_membership.added_by` is the precedent, and `UnpairTx` is the proof it
+  earns more than forensics. Two columns because who and by-which-act are
+  independent — one column is `acl_membership`'s ambiguity, where the value is
+  sometimes a principal and sometimes a mechanism.
+  `createWorldTx` and invite redemption write no routes at all now; both redirect
+  to `/onboard`, whose step-6 branch routes the ONE unrouted JID. The loop was
+  load-bearing nowhere. Its seq-0 rows outranked any higher-seq route a chat
+  already had (`seq ASC, id ASC`), so redeeming an invite moved chats the caller
+  never named. onbod is left with a single `routes` INSERT.
+  Existing rows keep NULL — "no actor recorded", not backfilled: nothing reads
+  the columns as a precondition. Still NULL-writing: `store.AddRoute`/
+  `PutRouteRow` (dashd, CLI) and resreg's manifest `Apply`, which rebuilds
+  `routes` wholesale.
 - **8 — dead end.** A caller with no world is told to find an invite. The
   username picker renders only behind a `pending_target` cookie, which only
   invite redemption sets. Chat-initiated onboarding cannot produce a world on
   its own: the gate queue admits you, then sends you away.
 
-**The correctly-shaped handler already exists and is tested** —
-`handleAddRoute` checks `MatchGroups(folders, target)` **and**
-`userOwnsMatch(sub, match)`, exactly step 7's binding. **No HTML form renders
-it**: the dashboard emits a read-only routing table. Steps 6–7 are built
-server-side and unreachable from a browser.
+`handleAddRoute` is the binding: `MatchGroups(folders, target)` **and**
+`userOwnsMatch(sub, match)`, one check per axis of step 7's rule. Step 6's picker
+posts to it, so the browser reaches it; the sole-world branch skips the form (one
+world is not a choice) but not the authority — its target comes from
+`adminFolders` and its match from `unroutedJID`, both membership-derived.
 
 Loud-vs-silent audit of the failure branches: insert failure, an already-paired
 JID, and a no-gate-match all surface (chat notice / `errLinkRefused` → 403). A
@@ -164,8 +179,9 @@ into world W by user U":
   whoever exercised routing authority. They coincide only in the self-serve case.
 - **`approved` is instance-global** — the daily cap counts per `gate` across the
   whole instance, so two worlds cannot hold independent admission policy.
-- **The routing act is not in the table** — it is a side effect, leaving an
-  unattributed `routes` row.
+- **The routing act is not in the table** — it never was one of this row's
+  facts. The act's record lives on the `routes` row it writes
+  (`added_by`/`added_via`, step 7), which is where the target already is.
 
 So `approved` grants nothing: nothing reads it as a precondition, and the one
 gate (a negative `status='queued'` short-circuit on `/onboard`) runs **after**
@@ -238,11 +254,12 @@ names the survivor.
    `gate` survives as a stranger throttle; whether a stranger who chose no
    world may create one (today: only via an invite).
 2. ~~replace the auto-pick with the picker, render a form for the existing
-   `handleAddRoute`~~ — **SHIPPED** (`d9e57288`). Still open here: register
-   `onboarding` as a resreg resource, and step 7's missing attribution — the
-   `routes` row still records no approver, and `createWorldTx` plus invite
-   redemption still write routes as a side effect over _every_ paired JID.
-   The derivable-`status` deletion was closed as NOT derivable (`P3b`).
+   `handleAddRoute`~~ — **SHIPPED** (`d9e57288`). ~~step 7's missing
+   attribution~~ — **SHIPPED** (`120d5461`). Still open here: register
+   `onboarding` as a resreg resource; stamp the remaining `routes` writers
+   (`store.AddRoute`/`PutRouteRow`, resreg `Apply`) so `added_by IS NULL` means
+   only "pre-attribution"; and step 8's dead end. The derivable-`status`
+   deletion was closed as NOT derivable (`P3b`).
 
 ## Consolidates
 

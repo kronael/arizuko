@@ -57,7 +57,7 @@ func testDB(t *testing.T) *sql.DB {
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
 	_, err = db.Exec(`
-		CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER, match TEXT, target TEXT, observe_window_messages INTEGER, observe_window_chars INTEGER);
+		CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER, match TEXT, target TEXT, observe_window_messages INTEGER, observe_window_chars INTEGER, added_by TEXT, added_via TEXT);
 		CREATE TABLE groups (folder TEXT PRIMARY KEY, parent TEXT, name TEXT, added_at TEXT, slink_token TEXT, product TEXT);
 		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, prompted_at TEXT, created TEXT, token TEXT, token_expires TEXT, user_sub TEXT, gate TEXT, queued_at TEXT, admitted_at TEXT);
 		CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, is_from_me INTEGER, is_bot_message INTEGER, source TEXT NOT NULL DEFAULT '');
@@ -705,7 +705,11 @@ func TestLinkJIDDifferentUserRejected(t *testing.T) {
 	}
 }
 
-func TestCreateWorldRoutesLinkedJIDs(t *testing.T) {
+// Spec 5/18 step 7 inverts what this used to assert. Creating a world routed
+// EVERY JID the sub had paired at it — two chats moved when the user asked for
+// a world. create_world now writes no route; the /onboard landing it redirects
+// to routes the ONE unrouted JID, and the next landing the next.
+func TestCreateWorldRoutesNoJIDs(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:new', 'github:new', 'New User', '2026-01-01')`)
@@ -728,22 +732,22 @@ func TestCreateWorldRoutesLinkedJIDs(t *testing.T) {
 	}
 
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'newworld'`).Scan(&n)
-	if n != 2 {
-		t.Errorf("expected 2 routes for linked JIDs, got %d", n)
+	db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("create_world wrote %d route(s) as a side effect; want 0", n)
 	}
 
-	var match1, match2 string
-	rows, _ := db.Query(`SELECT match FROM routes WHERE target = 'newworld' ORDER BY match`)
-	defer rows.Close()
-	if rows.Next() {
-		rows.Scan(&match1)
+	// One landing, one route — not one per paired chat.
+	getOnboard(db, "github:new")
+	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'newworld'`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("landing routed %d chats; the act concerns one", n)
 	}
-	if rows.Next() {
-		rows.Scan(&match2)
-	}
-	if match1 != "room=10" || match2 != "room=20" {
-		t.Errorf("expected room=10 and room=20, got %q and %q", match1, match2)
+	// The other chat is not stranded: the next landing reaches it, one act each.
+	getOnboard(db, "github:new")
+	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'newworld'`).Scan(&n)
+	if n != 2 {
+		t.Errorf("second landing left %d routes; the remaining chat is stranded", n)
 	}
 }
 
@@ -829,8 +833,8 @@ func TestSecondJIDAutoLink(t *testing.T) {
 	}
 }
 
-// Operator (user_groups has "**") can create a world and routes are written
-// for their linked JIDs.
+// Operator (an acl "**" grant) can create a world. The world is the assertion;
+// routes are not written here at all (5/18 step 7).
 func TestCreateWorldOperatorAllowed(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
@@ -853,10 +857,15 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
 	}
+	var folder string
+	db.QueryRow(`SELECT folder FROM groups WHERE folder = 'opworld'`).Scan(&folder)
+	if folder != "opworld" {
+		t.Errorf("operator's world not created")
+	}
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'opworld'`).Scan(&n)
-	if n != 1 {
-		t.Errorf("expected 1 route, got %d", n)
+	db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n)
+	if n != 0 {
+		t.Errorf("create_world wrote %d route(s) as a side effect; want 0", n)
 	}
 }
 
@@ -1161,11 +1170,13 @@ func TestInviteConsume(t *testing.T) {
 		t.Errorf("want user_groups folder=alice, got %q", folder)
 	}
 
-	// Route should exist for bob's JID
+	// Redemption is a grant and nothing else (5/18 step 7). It used to route
+	// every paired JID at the target; the /onboard it redirects to routes the
+	// one unrouted chat, attributed.
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE match = 'room=99' AND target = 'alice'`).Scan(&n)
-	if n != 1 {
-		t.Errorf("want 1 route for room=99→alice, got %d", n)
+	db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n)
+	if n != 0 {
+		t.Errorf("redemption wrote %d route(s) as a side effect; want 0", n)
 	}
 
 	// used_count should be incremented

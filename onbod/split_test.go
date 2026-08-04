@@ -98,11 +98,13 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 		t.Errorf("want used_count=1 in onbod.db, got %d", used)
 	}
 
-	// route to bob's JID lands in routd.db.
+	// Redemption grants authority and writes NO route (5/18 step 7). It used to
+	// route every paired JID at the target; /onboard's step-6 branch routes the
+	// one unrouted JID instead, as an attributed act.
 	var routes int
-	xdb.QueryRow(`SELECT COUNT(*) FROM routes WHERE match = 'room=99' AND target = 'alice'`).Scan(&routes)
-	if routes != 1 {
-		t.Errorf("want 1 route in routd.db, got %d", routes)
+	xdb.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&routes)
+	if routes != 0 {
+		t.Errorf("invite redemption wrote %d route(s); want 0", routes)
 	}
 }
 
@@ -134,10 +136,13 @@ func TestSplitCreateWorldWritesCrossToRoutd(t *testing.T) {
 	if scope != "newworld/**" {
 		t.Errorf("acl grant should be subtree-scoped in routd.db, got %q", scope)
 	}
+	// create_world writes NO route (5/18 step 7) — the caller asked for a world,
+	// not for their chats to move. The redirect lands on /onboard, which routes
+	// the one unrouted JID.
 	var routes int
-	xdb.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'newworld'`).Scan(&routes)
-	if routes != 1 {
-		t.Errorf("want 1 route in routd.db, got %d", routes)
+	xdb.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&routes)
+	if routes != 0 {
+		t.Errorf("create_world wrote %d route(s); want 0", routes)
 	}
 	var leaked int
 	obdb.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = 'newworld'`).Scan(&leaked)

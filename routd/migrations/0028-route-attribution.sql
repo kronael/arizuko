@@ -1,0 +1,25 @@
+-- routes.added_by / added_via (spec 5/18 step 7): a route row records WHO
+-- exercised routing authority over its target and BY WHICH ACT. Before this, a
+-- `routes` row appeared with no record of either, so "why does this chat go
+-- here?" had no answer at all.
+--
+-- A column, not an audit_log row keyed to the route. onbod writes `routes` into
+-- routd.db but its audit.Init targets onbod.db (onbod/main.go:109) — two
+-- databases, no cross-DB transaction, so an audit row can commit while the route
+-- it describes rolls back. The attribution has to be IN the row to commit with
+-- it. `acl_membership.added_by` is the same shape and proved load-bearing beyond
+-- forensics: UnpairTx scopes its DELETE to added_by='pairing' so an identity edge
+-- can never delete a role membership.
+--
+-- Two columns because the answer is two independent facts. added_by alone
+-- collapses to the acl_membership ambiguity, where the value is sometimes a
+-- principal ('google:alice') and sometimes a mechanism ('pairing') and a reader
+-- cannot tell which.
+--
+-- NULL means the writer recorded no actor: every row predating this migration,
+-- plus any writer not yet stamping (store.AddRoute/PutRouteRow — dashd + CLI —
+-- and resreg's manifest Apply, which rebuilds routes wholesale). Not backfilled
+-- with a sentinel: nothing reads these columns as a precondition, so a sentinel
+-- would only assert an actor that never existed.
+ALTER TABLE routes ADD COLUMN added_by  TEXT;
+ALTER TABLE routes ADD COLUMN added_via TEXT;

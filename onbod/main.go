@@ -622,16 +622,15 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, c
 			return
 		case 1:
 			// One world is not a choice.
-			if _, err := db.Exec(
-				`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
-				"room="+core.JidRoom(jid), folders[0]); err != nil {
+			if err := insertRoute(db, "room="+core.JidRoom(jid), folders[0],
+				userSub, routeViaSoleWorld); err != nil {
 				slog.Error("route paired jid", "jid", jid, "target", folders[0], "err", err)
 				http.Error(w, "could not route "+jid+"; try again or contact the operator",
 					http.StatusInternalServerError)
 				return
 			}
 			slog.Info("route added", "match", "room="+core.JidRoom(jid),
-				"target", folders[0], "sub", userSub)
+				"target", folders[0], "sub", userSub, "via", routeViaSoleWorld)
 		default:
 			renderWorldPicker(w, jid, folders, csrf)
 			return
@@ -740,8 +739,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	// world atomic. The race guard is INSERT OR IGNORE + RowsAffected on
 	// groups, not the TOCTOU check above (that's a fast-path UX hint only).
 	now := time.Now().Format(time.RFC3339)
-	jids := membershipJIDs(db, userSub)
-	if err := createWorldTx(db, folder, username, userSub, now, jids); err != nil {
+	if err := createWorldTx(db, folder, username, userSub, now); err != nil {
 		slog.Error("create world: db tx", "folder", folder, "err", err)
 		http.Error(w, "create world failed", http.StatusInternalServerError)
 		return
@@ -779,11 +777,17 @@ func membershipJIDs(db *sql.DB, userSub string) []string {
 	return jids
 }
 
-// createWorldTx writes the username + group + admin grant + per-JID routes in
-// one tx. Spec 5/W: no automatic chat token at folder creation. The groups
-// INSERT OR IGNORE + RowsAffected==0 detects a concurrent creator (TOCTOU)
-// and fails closed instead of granting admin on someone else's world.
-func createWorldTx(db *sql.DB, folder, username, userSub, now string, jids []string) error {
+// createWorldTx writes the username + group + admin grant in one tx. Spec 5/W:
+// no automatic chat token at folder creation. The groups INSERT OR IGNORE +
+// RowsAffected==0 detects a concurrent creator (TOCTOU) and fails closed
+// instead of granting admin on someone else's world.
+//
+// It writes NO routes. Spec 5/18 step 7: it used to route every JID the sub had
+// ever paired at the new folder, which is a blast radius, not an act — the
+// caller asked for a world, not for their other chats to move. The redirect
+// lands on /onboard, whose step-6 branch routes the ONE unrouted JID at hand
+// with an explicit, attributed act.
+func createWorldTx(db *sql.DB, folder, username, userSub, now string) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -806,12 +810,6 @@ func createWorldTx(db *sql.DB, folder, username, userSub, now string, jids []str
 		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'onbod')`,
 		userSub, folder+"/**"); err != nil {
 		return err
-	}
-	for _, jid := range jids {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
-			"room="+core.JidRoom(jid), folder); err != nil {
-			return err
-		}
 	}
 	return tx.Commit()
 }
@@ -1214,22 +1212,13 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 		return
 	}
 
-	if rows, err := db.Query(
-		`SELECT child FROM acl_membership WHERE parent = ?`, userSub,
-	); err == nil {
-		var jids []string
-		for rows.Next() {
-			var jid string
-			rows.Scan(&jid)
-			jids = append(jids, jid)
-		}
-		rows.Close()
-		for _, jid := range jids {
-			db.Exec(`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
-				"room="+core.JidRoom(jid), target)
-		}
-	}
-
+	// Redemption grants authority over the target and stops there. Spec 5/18
+	// step 7: it used to route EVERY JID the sub had ever paired at the target,
+	// which silently moved a returning user's already-routed chats into the
+	// world they had just been invited to — the seq-0 rows it wrote outrank any
+	// higher-seq route those chats already had. It also discarded the Exec
+	// error. /onboard's step-6 branch routes the one unrouted JID instead.
+	//
 	// Spec 5/W: no slink redirect — the operator (or agent) issues a
 	// chat link on demand. Land on /onboard after invite redemption.
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
@@ -1545,6 +1534,30 @@ func userOwnsMatch(db *sql.DB, sub, match string) bool {
 	return false
 }
 
+// Route provenance, stamped into routes.added_via beside added_by's WHO. Spec
+// 5/18 step 7: the two onboarding acts are not the same act, and an operator
+// asking "why does this chat go here?" gets a materially different answer from
+// each — one is a choice the caller made, the other is a route onbod wrote
+// without asking.
+const (
+	routeViaPicker    = "picker"     // the caller chose the world (step 6's form)
+	routeViaSoleWorld = "sole_world" // one administrable world, so no choice to offer
+)
+
+// insertRoute is onbod's ONLY routes writer, so no onbod path can produce an
+// unattributed row. Authorization belongs to the caller (handleAddRoute's
+// MatchGroups + userOwnsMatch; the sole-world branch's adminFolders +
+// unroutedJID) — this records who acted and how, and nothing else.
+//
+// Plain INSERT, not INSERT OR IGNORE: `routes` carries no UNIQUE constraint, so
+// OR IGNORE ignored nothing and only swallowed genuine write errors.
+func insertRoute(db *sql.DB, match, target, sub, via string) error {
+	_, err := db.Exec(
+		`INSERT INTO routes (seq, match, target, added_by, added_via) VALUES (0, ?, ?, ?, ?)`,
+		match, target, sub, via)
+	return err
+}
+
 func handleAddRoute(w http.ResponseWriter, r *http.Request,
 	db *sql.DB, sub string, folders []string) {
 	match := strings.TrimSpace(r.FormValue("match"))
@@ -1571,14 +1584,12 @@ func handleAddRoute(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	_, err := db.Exec(
-		`INSERT INTO routes (seq, match, target) VALUES (0, ?, ?)`,
-		match, target)
-	if err != nil {
+	if err := insertRoute(db, match, target, sub, routeViaPicker); err != nil {
 		slog.Error("add route", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	slog.Info("route added", "match", match, "target", target, "sub", sub)
+	slog.Info("route added", "match", match, "target", target, "sub", sub,
+		"via", routeViaPicker)
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }

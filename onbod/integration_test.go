@@ -140,9 +140,14 @@ func TestOnboardingFlow(t *testing.T) {
 
 	// Seed the user_profiles row + POST create_world (fake proxyd by
 	// setting X-User-Sub; CSRF cookie + form field double-submit).
+	// Checked, not discarded: user_profiles.name is NOT NULL, so this seed
+	// silently failed for as long as it omitted the column, and every later
+	// assertion ran against a dashboard rendering "User not found" at 200.
 	sub := "github:alice"
-	inst.DB.Exec(`INSERT INTO user_profiles (sub, username, created_at)
-		VALUES (?, ?, ?)`, sub, sub, time.Now().Format(time.RFC3339))
+	if _, err := inst.DB.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES (?, ?, ?, ?)`, sub, sub, "Alice", time.Now().Format(time.RFC3339)); err != nil {
+		t.Fatalf("seed user_profiles: %v", err)
+	}
 
 	// First: GET /onboard so the dashboard handler links the JID (atomic
 	// user_sub claim on onboarding row).
@@ -213,12 +218,36 @@ func TestOnboardingFlow(t *testing.T) {
 	if ug != "alice/**" {
 		t.Errorf("creator grant should be subtree-scoped, got %q", ug)
 	}
+	// create_world itself writes no route (5/18 step 7) — the route is the act
+	// the /onboard landing performs, and it names who did it.
 	var routeN int
-	inst.DB.QueryRow(
-		`SELECT COUNT(*) FROM routes WHERE target = 'alice' AND match = 'room=42'`,
-	).Scan(&routeN)
-	if routeN != 1 {
-		t.Errorf("expected 1 route for linked jid, got %d", routeN)
+	inst.DB.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&routeN)
+	if routeN != 0 {
+		t.Errorf("create_world wrote %d route(s) as a side effect; want 0", routeN)
+	}
+
+	// Follow the redirect the POST returned; that landing routes the chat.
+	reqR, _ := http.NewRequest("GET", srv.URL+"/onboard", nil)
+	reqR.Header.Set("X-User-Sub", sub)
+	respR, err := c.Do(reqR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rbody, _ := io.ReadAll(respR.Body)
+	respR.Body.Close()
+	if respR.StatusCode != http.StatusOK {
+		t.Fatalf("post-create landing: status=%d body=%s", respR.StatusCode, rbody)
+	}
+	var addedBy, addedVia string
+	if err := inst.DB.QueryRow(
+		`SELECT COALESCE(added_by, ''), COALESCE(added_via, '') FROM routes
+		 WHERE target = 'alice' AND match = 'room=42'`,
+	).Scan(&addedBy, &addedVia); err != nil {
+		t.Fatalf("expected the linked jid routed after the landing: %v; page: %s", err, rbody)
+	}
+	if addedBy != sub || addedVia != routeViaSoleWorld {
+		t.Errorf("route attribution = (%q, %q), want (%q, %q)",
+			addedBy, addedVia, sub, routeViaSoleWorld)
 	}
 
 	// SetupGroup side-effect: group folder + .claude dir exist on disk.
