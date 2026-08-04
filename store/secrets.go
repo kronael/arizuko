@@ -369,6 +369,82 @@ func (s *Store) EncryptPlaintextSecrets(ctx context.Context) error {
 	return tx.Commit()
 }
 
+// ArchiveSecretRow is one row of the archive's routd.secrets.yaml document
+// (spec 5/8 "Secret and token values"): SecretsRow's shape
+// (resreg/resources/secrets.go) plus Value — the encrypted-at-rest blob the
+// config manifest deliberately omits. Value travels exactly as stored
+// ("v2:"+base64(nonce||ciphertext), or legacy plaintext) — never decrypted
+// for transport.
+type ArchiveSecretRow struct {
+	ScopeKind string `yaml:"scope_kind"`
+	ScopeID   string `yaml:"scope_id"`
+	Key       string `yaml:"key"`
+	Value     string `yaml:"value"`
+	CreatedAt string `yaml:"created_at,omitempty"`
+}
+
+// ExportSecretRows reads every secrets row, blob included, for the archive's
+// routd.secrets.yaml document. Unlike ListSecrets/GetSecret it does NOT
+// decrypt — the blob travels as-is (spec 5/8: "encrypted secret blobs travel
+// as-is. SECRETS_KEY never enters the archive").
+func (s *Store) ExportSecretRows(ctx context.Context) ([]ArchiveSecretRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT scope_kind, scope_id, key, value, created_at FROM secrets ORDER BY scope_kind, scope_id, key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ArchiveSecretRow
+	for rows.Next() {
+		var r ArchiveSecretRow
+		if err := rows.Scan(&r.ScopeKind, &r.ScopeID, &r.Key, &r.Value, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ValidateAndImportSecrets validates EVERY row's blob against the configured
+// keyring BEFORE writing any of them, then UPSERTs by (scope_kind, scope_id,
+// key) — never DELETE+INSERT, matching secrets' existing SkipApplyRebuild
+// discipline (spec 5/8 "Secret and token values": "One DB can hold blobs
+// sealed under different retired keys... a single probe row proves nothing
+// about the rest"). Refuses the WHOLE batch on the first validation failure,
+// naming the failing (scope_kind, scope_id, key) without echoing the value —
+// no row is written when any row fails. Uses the existing package-private
+// open() (the keyring probe SetSecret/GetSecret already rely on); no new
+// decrypt surface is exported — the plaintext this returns internally is
+// discarded immediately, never returned to the caller.
+func (s *Store) ValidateAndImportSecrets(ctx context.Context, rows []ArchiveSecretRow) (int, error) {
+	for _, r := range rows {
+		if _, err := s.open(r.Value); err != nil {
+			return 0, fmt.Errorf("secret %s/%s/%s: %w", r.ScopeKind, r.ScopeID, r.Key, err)
+		}
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	for _, r := range rows {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
+			 VALUES (?, ?, ?, ?, ?)
+			 ON CONFLICT(scope_kind, scope_id, key) DO UPDATE SET
+			   value = excluded.value,
+			   created_at = excluded.created_at`,
+			r.ScopeKind, r.ScopeID, r.Key, r.Value, r.CreatedAt,
+		); err != nil {
+			return 0, fmt.Errorf("secret %s/%s/%s: %w", r.ScopeKind, r.ScopeID, r.Key, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(rows), nil
+}
+
 // folderAncestors returns folder paths for resolution, deepest first, ending with "root".
 // e.g. "atlas/eng/sre" → ["atlas/eng/sre", "atlas/eng", "atlas", "root"].
 func folderAncestors(folder string) []string {

@@ -19,6 +19,136 @@ func rawSecretValue(t *testing.T, s *Store, scope SecretScope, scopeID, key stri
 	return v
 }
 
+// TestValidateAndImportSecrets_ValidatesAllBeforeWritingAny is Finding 5
+// (spec 5/8 "Secret and token values"): a batch where one row's blob fails
+// to decrypt under the configured keyring must write NOTHING — not even the
+// rows before it in the batch — and must name the failing row without
+// echoing its value.
+func TestValidateAndImportSecrets_ValidatesAllBeforeWritingAny(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	s.SetSecretKeys([]byte("archive-key"))
+
+	good, err := s.seal("plain-value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := []ArchiveSecretRow{
+		{ScopeKind: "folder", ScopeID: "atlas", Key: "GOOD", Value: good, CreatedAt: "2026-01-01T00:00:00Z"},
+		{ScopeKind: "folder", ScopeID: "atlas", Key: "BAD", Value: "v2:not-valid-base64-or-worse", CreatedAt: "2026-01-01T00:00:00Z"},
+	}
+	_, err = s.ValidateAndImportSecrets(context.Background(), rows)
+	if err == nil {
+		t.Fatal("expected an error for the malformed row")
+	}
+	if !strings.Contains(err.Error(), "folder/atlas/BAD") {
+		t.Errorf("error must name the failing row, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "plain-value") {
+		t.Errorf("error must never echo a value, got: %v", err)
+	}
+	// Nothing written — including the row that validated fine.
+	if _, err := s.GetSecret(ScopeFolder, "atlas", "GOOD"); !errors.Is(err, ErrSecretNotFound) {
+		t.Errorf("GOOD row must not be written when BAD fails validation, got err=%v", err)
+	}
+}
+
+// TestValidateAndImportSecrets_DifferentRetiredKeys is Finding 5's other
+// half: "one DB can hold blobs sealed under different retired keys" — a
+// batch where each row is sealed under a DIFFERENT key still validates
+// (every key in the keyring is tried per row), and both rows import.
+func TestValidateAndImportSecrets_DifferentRetiredKeys(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	s.SetSecretKeys([]byte("key-old"))
+	sealedOld, err := s.seal("value-old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetSecretKeys([]byte("key-new"), []byte("key-old")) // rotate: new active, old retained
+	sealedNew, err := s.seal("value-new")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows := []ArchiveSecretRow{
+		{ScopeKind: "folder", ScopeID: "atlas", Key: "OLD", Value: sealedOld, CreatedAt: "2026-01-01T00:00:00Z"},
+		{ScopeKind: "folder", ScopeID: "atlas", Key: "NEW", Value: sealedNew, CreatedAt: "2026-01-01T00:00:00Z"},
+	}
+	n, err := s.ValidateAndImportSecrets(context.Background(), rows)
+	if err != nil {
+		t.Fatalf("ValidateAndImportSecrets: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("imported = %d, want 2", n)
+	}
+	got, err := s.GetSecret(ScopeFolder, "atlas", "OLD")
+	if err != nil || got.Value != "value-old" {
+		t.Errorf("OLD = %+v, err=%v", got, err)
+	}
+}
+
+// TestValidateAndImportSecrets_UpsertNotRebuild is the archive UPSERT
+// discipline (spec 5/8 "Secret and token values"): importing must update an
+// existing row by (scope_kind, scope_id, key), not require the table be
+// empty, and must never touch a row the batch doesn't mention.
+func TestValidateAndImportSecrets_UpsertNotRebuild(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	s.SetSecretKeys([]byte("k"))
+
+	if err := s.SetSecret(ScopeFolder, "atlas", "UNTOUCHED", "stays"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSecret(ScopeFolder, "atlas", "OVERWRITE", "old-value"); err != nil {
+		t.Fatal(err)
+	}
+	newVal, err := s.seal("new-value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := []ArchiveSecretRow{
+		{ScopeKind: "folder", ScopeID: "atlas", Key: "OVERWRITE", Value: newVal, CreatedAt: "2026-02-01T00:00:00Z"},
+	}
+	if _, err := s.ValidateAndImportSecrets(context.Background(), rows); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetSecret(ScopeFolder, "atlas", "OVERWRITE")
+	if err != nil || got.Value != "new-value" {
+		t.Errorf("OVERWRITE = %+v, err=%v", got, err)
+	}
+	untouched, err := s.GetSecret(ScopeFolder, "atlas", "UNTOUCHED")
+	if err != nil || untouched.Value != "stays" {
+		t.Errorf("UNTOUCHED = %+v, err=%v", untouched, err)
+	}
+}
+
+// TestExportSecretRows_TravelsAsIs confirms ExportSecretRows never decrypts —
+// the stored ciphertext form travels verbatim (spec 5/8: "encrypted secret
+// blobs travel as-is").
+func TestExportSecretRows_TravelsAsIs(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	s.SetSecretKeys([]byte("k"))
+	if err := s.SetSecret(ScopeFolder, "atlas", "TOKEN", "sk-secret-xyz"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.ExportSecretRows(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	if !strings.HasPrefix(rows[0].Value, "v2:") {
+		t.Errorf("Value = %q, want v2: ciphertext", rows[0].Value)
+	}
+	if strings.Contains(rows[0].Value, "sk-secret-xyz") {
+		t.Error("plaintext leaked into exported row")
+	}
+}
+
 func TestSecret_EncryptionAtRest_RoundTrip(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
