@@ -3232,3 +3232,48 @@ unlinking is rare and is de-escalation.
   `auth/authorize.go:15,136` (read-only — the expansion needs no change)
 - **Belongs to:** `specs/5/32` (it owns the principal namespace and
   `expandPrincipals`); write the section there before implementing.
+
+## V2 — dashd duplicates ~4,500 LOC of control planes phase 7 moves away (2026-08-04, proposal)
+
+Codex review of the dashd surface against the post-phase-5 end state. Almost
+nothing is *dead* — the identity deletions left only textual rot. The problem is
+**duplication**: dashd hosts control planes that `specs/7/3` moves to each
+daemon's own `/dash/<daemon>/`.
+
+| target | LOC | why |
+| ------ | --- | ---- |
+| `chat.go` + test | ~1,019 | duplicates webd's `/me/chats/new`; **records the RAW reusable route bearer** (`chat.go:25,38,450`) |
+| routes / route_tokens / errored-retry | ~867 | duplicates routd's planned `/dash/routd/`. The mint form (`route_tokens.go:103`) should not survive anywhere — cockpit may list/revoke, minting belongs to webd and agent tools |
+| `runed_page.go` | 526 | reads `runed.db.spawns` directly and proxies kill; both are runed's |
+| tasks (`main.go:771`, `tasks_admin.go`) | ~505 | duplicates timed's dashboard, including a SECOND cron parser and next-run computation |
+| invites + whapd pairing | ~782 | belong on `/dash/onbod/` and `/dash/whapd/` |
+| usage / audit / packages | ~842 | usage reads the frozen `messages.db` (`usage_page.go:38`); audit reads only routd's `audit_log` while claiming to be global; packages duplicates the CLI |
+
+Plus in-page duplicates: the `/dash/` tile portal repeats `/dash/services/`;
+`/dash/status/` repeats counts and calls them health while the hub probes real
+health; groups repeats usage and route rows; the 53-line tool browser duplicates
+MCP `tools/list`.
+
+**`chat.go` is deletable NOW, ahead of the rest.** `chat_sessions` does not exist
+on krons, sloth or marinade — the portal has never been used, so there is no data
+to preserve and no capability to lose. Deleting it also removes a plaintext
+bearer store of exactly the class Y2/I1 just closed for invites.
+
+**Everything else is SEQUENCED, not free.** Deleting dashd's routes page before
+routd serves `/dash/routd/` loses the capability. Order: build the per-daemon
+page, then delete dashd's copy. That ordering is the whole proposal.
+
+**The one real gap** is not an edge list — it is an **authority-provenance view**.
+`grants_admin.go:52` renders only `acl` rows and consumes `acl_membership` merely
+as autocomplete (`:92`), so an operator cannot answer "why does this Telegram
+account carry Alice's authority?". The view needs child → parent, `added_by`,
+role chains and the resulting effective grants, wired to the existing unpair
+action.
+
+Explicitly NOT to add: an outstanding-pairings page (a 10-minute single-use token
+offers an operator no action) and an archive page (`arizuko archive` is a CLI
+operation).
+
+- **Severity:** medium (duplication + one unused plaintext bearer store)
+- **Fix:** delete `chat.go` now; sequence the rest behind phase 7; add authority
+  provenance.
