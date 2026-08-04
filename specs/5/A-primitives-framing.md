@@ -95,15 +95,15 @@ the docs **name primitives, not daemons**.
 
 ## The primitives
 
-| #   | Primitive         | Owns                        | Anchor                                                      | Recomposed as (not new primitives)                                          |
-| --- | ----------------- | --------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
-| 1   | **Event**         | the one inbox               | `core.Message` (`core/types.go:16`), `store.PutMessage`     | channel adapters, `emaid`, `/hook/<token>`, `timed` ticks, `davd`           |
-| 2   | **Routing**       | event → folder              | `router.ResolveRoute` (`router/router.go:356`), `5/Q`       | direct-address, engagement, sticky, observe, delegate, escalate             |
-| 3   | **Agent**         | who reacts, with what       | folder-as-data (`README.md:28`), `groupfolder`, `store`     | personas, skills, memory, sub-teams, **products**                           |
-| 4   | **Authorization** | may this principal, here    | `auth.Authorize` (`auth/authorize.go:25`), `5/32`, `5/33`   | grants UI, scope vocabulary, delegation limits                              |
-| 5   | **Turn**          | the bounded reaction        | `runed` container (`runed/docker.go`), `5/P`                | tasks, autocalls, interjections                                             |
-| 6   | **State**         | what survives the container | `store.Store` + the folder on disk, `5/E`/`5/P`             | secrets, egress allowlists, sessions                                        |
-|     | _Identity_        | the coordinate system       | `auth/identity.go`, `types/identity.go`, `store/identities` | subs, JIDs, paths, roles, scopes — referenced by all six, sequenced by none |
+| #   | Primitive         | Owns                        | Anchor                                                    | Recomposed as (not new primitives)                                          |
+| --- | ----------------- | --------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1   | **Event**         | the one inbox               | `core.Message` (`core/types.go:16`), `store.PutMessage`   | channel adapters, `emaid`, `/hook/<token>`, `timed` ticks, `davd`           |
+| 2   | **Routing**       | event → folder              | `router.ResolveRoute` (`router/router.go:356`), `5/Q`     | direct-address, engagement, sticky, observe, delegate, escalate             |
+| 3   | **Agent**         | who reacts, with what       | folder-as-data (`README.md:28`), `groupfolder`, `store`   | personas, skills, memory, sub-teams, **products**                           |
+| 4   | **Authorization** | may this principal, here    | `auth.Authorize` (`auth/authorize.go:25`), `5/32`, `5/33` | grants UI, scope vocabulary, delegation limits                              |
+| 5   | **Turn**          | the bounded reaction        | `runed` container (`runed/docker.go`), `5/P`              | tasks, autocalls, interjections                                             |
+| 6   | **State**         | what survives the container | `store.Store` + the folder on disk, `5/E`/`5/P`           | secrets, egress allowlists, sessions                                        |
+|     | _Identity_        | the coordinate system       | `auth/identity.go`, `types/identity.go`, `authd/store.go` | subs, JIDs, paths, roles, scopes — referenced by all six, sequenced by none |
 
 Two honest notes the docs must carry:
 

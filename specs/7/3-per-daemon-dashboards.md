@@ -94,16 +94,19 @@ so the "tokens" page is **refresh families**: `refresh_tokens` grouped
 by `family_id`, with live / spent / revoked state. A reuse-revoked
 family is the forensic trace of a replay.
 
-The identities page renders **two distinct table families** — easy to
-conflate, so they are shown separately:
+The identities page renders one table family: `auth_users` +
+`oauth_identities`
+([`authd/migrations/0001-authd-schema.sql:22,32`](../../authd/migrations/0001-authd-schema.sql))
+— the canonical user and its provider logins, what
+`GET /v1/identities/{sub}` resolves for routd's `inspect_identity`.
 
-1. `auth_users` + `oauth_identities`
-   ([`authd/migrations/0001-authd-schema.sql:22,32`](../../authd/migrations/0001-authd-schema.sql))
-   — the canonical user and its provider logins.
-2. `identities` + `identity_claims`
-   ([`authd/migrations/0004-identities.sql`](../../authd/migrations/0004-identities.sql))
-   — cross-channel claims (`tg:123`, `discord:abc`), what
-   `GET /v1/identities/{sub}` resolves for routd's `inspect_identity`.
+There used to be a second family here — `identities` + `identity_claims`, an
+advisory cross-channel-claim table with no live writer — dropped 2026-08-04
+(`fcd845cb`, `authd/migrations/0006-drop-identities.sql`). Binding a channel
+identity to a person is now [`5/31`](../5/31-identity-pairing.md) pairing,
+which writes `acl_membership`, not this page's table — the dashboard row
+above ("unlink provider identity") only ever unlinks an `oauth_identities`
+row.
 
 `GET /v1/keys` is the public JWKS and must stay public-cacheable —
 hence the separate operator-gated `GET /v1/keys/meta`. Providers are

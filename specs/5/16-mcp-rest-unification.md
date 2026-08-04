@@ -244,13 +244,15 @@ today (`resreg/resreg.go:155-195` has no `Owner` field — `Y1`'s
 recommendation, not yet built).
 
 `authd`'s `auth.db` is a **separate owner**, outside this table: it owns
-`identities`, `oauth_identities`, `refresh_tokens`, `signing_keys`,
-`identity_claims`, `auth_users` — none of these are resreg-managed cold-tier
-resources (no agent/REST CRUD face), so they don't belong in the resource
-owner-DB map; they're identity infrastructure. `authd`'s `auth_users`
+`oauth_identities`, `refresh_tokens`, `signing_keys`, `auth_users` — none of
+these are resreg-managed cold-tier resources (no agent/REST CRUD face), so
+they don't belong in the resource owner-DB map; they're identity
+infrastructure. (`identities`/`identity_claims` — an advisory cross-channel
+claim axis with no live writer — were dropped 2026-08-04, `fcd845cb`; binding
+a channel identity to a person is `5/31` pairing now.) `authd`'s `auth_users`
 (`user_id TEXT PRIMARY KEY`, anchors `oauth_identities` FK,
 `authd/migrations/0001-authd-schema.sql:22-26`) and `routd.db`'s former
-`auth_users` (`sub TEXT UNIQUE`, carries `linked_to_sub`/cost caps,
+`auth_users` (`sub TEXT UNIQUE`, carried cost caps,
 `routd/migrations/0011-cost-log-user-sub.sql:16-25`) are **different tables
 that happened to share a name** — different PK, different purpose, both
 live, both empty on krons at time of writing (verify on every instance

@@ -57,66 +57,27 @@ window, keyed by `X-Forwarded-For` or `remoteAddress`.
 | `GITHUB_CLIENT_SECRET`  | GitHub OAuth client secret                                                                                                                    |
 | `GITHUB_ALLOWED_ORG`    | GitHub org name; members-only enforcement on callback                                                                                         |
 
-## DB schema
+## DB schema, account linking, collision handling — superseded
 
-`auth_users` (`sub` unique, argon2id `hash` empty for OAuth-only,
-`linked_to_sub` NULL = canonical) and `auth_sessions` (SHA-256 hex of
-the refresh token as PK). Owned and migrated by `authd`; columns live in
-`authd/migrations/`.
+This section described a `routd.db` `auth_users(linked_to_sub)` account-link
+model with a resolve function (`store.CanonicalSub`/`LinkSubToCanonical`), an
+`intent=link` collision dispatcher, and a seven-case confirm page. That model
+never had a writer — `LinkSubToCanonical` had no non-test caller — so both its
+readers (proxyd's identity-header stamping, `dashd`'s linked-accounts list)
+always saw the empty answer. It was one of three "one human, many logins"
+mechanisms that had accreted side by side (`BUGS.md` P2). Deleted 2026-08-04
+(`54125cbd`): the column, `CanonicalSub`, `LinkSubToCanonical`, `LinkedSubs`,
+`AuthUserBySub`, and the `AuthUser` row type. `auth_sessions` (the refresh-token
+table named above) is likewise gone — refresh tokens live in `authd`'s own
+`refresh_tokens`.
 
-## Account linking
-
-A user may attach multiple OAuth provider subs to one account. The
-`auth_users.linked_to_sub` column points each linked sub at its
-canonical sub. A row is canonical when `linked_to_sub IS NULL`. We
-do not allow chains — `LinkSubToCanonical` rejects when the target
-itself is linked.
-
-`store.CanonicalSub(sub)` is the single resolve point: it returns
-`sub` for canonical or unknown subs, otherwise the canonical it's
-linked to. Called once, at JWT mint time
-(`auth.issueSession`). Downstream code (proxyd's identity-header
-stamping, webd, gateway, ipc, …) only ever sees canonical subs in
-JWT claims and `X-User-Sub` headers — no callers re-resolve.
-
-Initiating a link: a logged-in user clicks a "Link account" button
-on `/dash/profile`, which redirects to
-`/auth/{provider}?intent=link&return=/dash/profile/`. The redirect
-handler reads the caller's existing session (Bearer JWT or refresh
-cookie via the store), encodes `intent=link` and the canonical
-sub-to-link-to into the OAuth state cookie's signed payload, and
-sends them to the provider as usual.
-
-State token shape: the OAuth state cookie is `ts.nonce.sig` for
-plain logins or `ts.nonce.payload.sig` when carrying intent. The
-HMAC covers everything before the trailing `.sig`. The payload is
-base64url(`{"i":"link","f":"<canonical-sub>","r":"<return>"}`).
-Verify accepts both shapes.
-
-## Collision handling
-
-When the OAuth callback resolves to `B:bob`, the dispatcher fans out
-to seven cases:
-
-| #   | intent=link? | session? | new sub state                     | action                             |
-| --- | ------------ | -------- | --------------------------------- | ---------------------------------- |
-| 1   | yes          | (any)    | already linked to `LinkFrom`      | refresh session, no-op             |
-| 2   | yes          | (any)    | canonical for some other user `C` | render collision page              |
-| 3   | yes          | (any)    | new                               | write link, refresh                |
-| 4   | no           | active   | new                               | render collision page              |
-| 5   | no           | active   | canonical for some other user `C` | render collision page              |
-| 6   | no           | none     | new                               | create canonical row, log in       |
-| 7   | no           | none     | exists (canonical or linked)      | log in via canonical (one resolve) |
-
-The collision page is one HTML template with two buttons + a
-hidden HMAC-signed `collideToken`:
-
-- **Link**: commits `LinkSubToCanonical(newSub, name, currentSub)`
-  and refreshes the session as `currentSub`.
-- **Log out**: deletes the refresh cookie + session, then logs in
-  as `newSub` (creating a canonical row if new).
-
-The token is HMAC-signed (`AUTH_SECRET`) and 10min-TTL, so a copied
-collision URL is uninteresting. The "Link" button is disabled when
-the new sub is canonical for an existing user (we don't merge two
-existing accounts via this UI — that's a manual operator action).
+The live model is `authd`'s `auth.db`: `auth_users(user_id)` +
+`oauth_identities(user_id, provider, provider_sub)`, written by the OAuth
+callback (`authd/store.go` `upsertOAuthUser`) whether or not `intent=link` is
+set — there is no separate resolve step or collision page. The callback either
+creates a new canonical user, resolves an existing `(provider, provider_sub)`
+to its user, or (under `intent=link`) attaches the new identity to the
+current session's user, hard-failing if that identity already belongs to
+someone else. Current schema and the account-linking rules that replace
+everything above are [`../5/1-auth-standalone.md`](../5/1-auth-standalone.md)
+§"Account linking + collision rules".

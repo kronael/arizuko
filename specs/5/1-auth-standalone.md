@@ -85,8 +85,11 @@ Presenting an already-used token is a theft signal: authd revokes the entire
 authd owns `auth.db` and migrates it from `authd/migrations/*.sql`, keyed
 `service="authd"` in the shared `migrations` table so its numbering is
 independent of `store/`. Schema is `authd/migrations/0001-authd-schema.sql`
-(`signing_keys`, `auth_users`, `oauth_identities`, `refresh_tokens`) plus
-`0004-identities.sql` (the advisory `identities`/`identity_claims` axis).
+(`signing_keys`, `auth_users`, `oauth_identities`, `refresh_tokens`).
+`0004-identities.sql` added an advisory `identities`/`identity_claims`
+cross-channel-claim axis, never populated by any live writer; `0006` dropped
+both tables 2026-08-04 (`fcd845cb`) — binding a channel identity to a person is
+[`5/31`](31-identity-pairing.md) pairing now.
 
 `signing_keys` validity is **time-based, no `revoked` flag**: a key serves while
 `active` OR `now < retired_at + maxAccessTTL`. Emergency revoke backdates

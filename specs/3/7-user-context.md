@@ -54,8 +54,9 @@ learning, log meaningful interactions (not small talk).
 ## Scope
 
 Per-group. `users/alice` in group A ≠ group B. Cross-channel identity
-linking happens at the `auth_users.linked_to_sub` layer — orthogonal
-to per-group user context.
+binding happens at the `acl_membership` layer (a channel JID paired to a
+verified account, [`../5/31-identity-pairing.md`](../5/31-identity-pairing.md))
+— orthogonal to per-group user context.
 
 ## Code
 

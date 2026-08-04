@@ -43,8 +43,12 @@ for multiple directories); Kerberos/NTLM.
 | SAML | `saml:<NameID>`    | `saml:alice@corp.example.com` |
 | OIDC | `oidc:<sub claim>` | `oidc:A1B2C3D4`               |
 
-`CanonicalSub` normalises these the same way existing providers are normalised.
-Existing `user_groups` rows with matching subs continue to work — no migration.
+These are provider subs (`(provider, provider_sub)` unique) like any other —
+there is no separate normalisation step to hook (`CanonicalSub`, the resolve
+function this line originally named, was deleted 2026-08-04, `54125cbd`; it
+had no non-test caller — see [`../5/1-auth-standalone.md`](../5/1-auth-standalone.md)
+§"Account linking + collision rules" for the live model). Existing `user_groups`
+rows with matching subs continue to work — no migration.
 
 ## Config
 
@@ -124,9 +128,10 @@ registerOIDC(cfg) — discovers endpoints from OIDC issuer URL,
 registerSCIM(cfg) — registers /auth/scim/v2/Users REST handler
 ```
 
-**State and JWT issuance**: identical to existing `dispatchOAuth` path —
-SSO callback resolves to a sub string and calls `dispatchOAuth(sub, name, ...)`.
-No changes to JWT issuance, cookie handling, or `CanonicalSub` logic.
+**State and JWT issuance**: identical to the existing OAuth dispatch path —
+SSO callback resolves to a sub string and calls the same upsert-and-issue
+logic. No changes to JWT issuance or cookie handling. (`CanonicalSub` no
+longer exists — see above.)
 
 **Library choice**: `crewjam/saml` is the de-facto Go SAML SP library
 (MIT, well-maintained, used by HashiCorp Vault). `coreos/go-oidc` for OIDC
@@ -141,10 +146,9 @@ once, never overwrite unless deleted.
 ## JIT provisioning flow
 
 1. SSO callback resolves sub (e.g. `saml:alice@corp.example.com`)
-2. `store.CanonicalSub(sub)` — returns existing canonical sub if linked, else sub
-3. `store.UserGroupsForSub(sub)` — check for existing `user_groups` rows
-4. If none and `SSO_DEFAULT_GLOB != ""`: insert `user_groups(sub, SSO_DEFAULT_GLOB)`
-5. Continue to JWT issuance (same as OAuth)
+2. `store.UserGroupsForSub(sub)` — check for existing `user_groups` rows
+3. If none and `SSO_DEFAULT_GLOB != ""`: insert `user_groups(sub, SSO_DEFAULT_GLOB)`
+4. Continue to JWT issuance (same as OAuth)
 
 If `SSO_DEFAULT_GLOB` is empty and the user has no rows, they land on a
 "no access configured" page — same behaviour as an unrecognised OAuth user today.
