@@ -1,6 +1,6 @@
 ---
 status: draft
-relates-to: [../5/20-ant-portability]
+relates-to: [../5/28-packages]
 ---
 
 # Products — curated agent templates (producer side)
@@ -9,9 +9,10 @@ A product is a curated template for an ant: a persona, skills, and seed
 files, so an operator spins up a configured agent with one command instead
 of building from scratch.
 
-> **Scope split (2026-07-14).** This spec is the PRODUCER side — what a
-> product contains and how to author one. Composition, distribution, and
-> updates live in [`20-ant-portability.md`](20-ant-portability.md), which
+> **Scope split (2026-07-14, repointed 2026-08-04).** This spec is the
+> PRODUCER side — what a product contains and how to author one.
+> Composition, distribution, and updates live in
+> [`28-packages.md`](28-packages.md) (`5/20` dissolved into it), which
 > supersedes this file's single-template narrative: a group holds an
 > ORDERED MIX of products, blended per payload kind.
 

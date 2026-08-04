@@ -100,12 +100,11 @@ data entities defined here, and `9/3` moves the cold tier into git.
 
 ## Packaging and distribution
 
-| Spec                                                             | Status  | Hook                                                                                             |
-| ---------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------ |
-| [28-packages.md](28-packages.md)                                 | shipped | **The package manager (canonical lifecycle).** Source-first: a git source plus its `PRODUCT.md`. |
-| [27-compose-native-packaging.md](27-compose-native-packaging.md) | shipped | Compose `profiles:` for optional daemons and `include:` for adapter fragments — no custom DSL.   |
-| [20-ant-portability.md](20-ant-portability.md)                   | draft   | Portable agents, pg_dump style: one `export`/`apply` pair.                                       |
-| [21-products.md](21-products.md)                                 | draft   | Producer side — what a product contains and how it is authored.                                  |
+| Spec                                                             | Status  | Hook                                                                                                                                                       |
+| ---------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [28-packages.md](28-packages.md)                                 | shipped | **The package manager (canonical lifecycle) and composition** — one package's install/upgrade/remove, plus how a group blends an ordered LIST of products. |
+| [27-compose-native-packaging.md](27-compose-native-packaging.md) | shipped | Compose `profiles:` for optional daemons and `include:` for adapter fragments — no custom DSL.                                                             |
+| [21-products.md](21-products.md)                                 | draft   | Producer side — what a product contains and how it is authored.                                                                                            |
 
 ## Docs, tooling, interop
 
@@ -117,10 +116,11 @@ data entities defined here, and `9/3` moves the cold tier into git.
 
 ## Retired
 
-Deleted in the 2026-08-02 minimization pass. Recorded here so the decision
-survives the file.
+Deleted specs, folded elsewhere. Recorded here so the decision survives the
+file.
 
-| Spec                 | Fate                                                                                                                                                                                            |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `11-auth-api.md`     | Merged into [1-auth-standalone.md](1-auth-standalone.md) — it described authd's `/v1/*` wire surface, now a section there. Nothing outside this index referenced it.                            |
-| `30-oci-packages.md` | Superseded by [28-packages.md](28-packages.md). OCI artifacts as the distribution envelope lost to source-first, distributor-managed packages; the rejected-alternative reason lives in `5/28`. |
+| Spec                    | Fate                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `11-auth-api.md`        | 2026-08-02. Merged into [1-auth-standalone.md](1-auth-standalone.md) — it described authd's `/v1/*` wire surface, now a section there. Nothing outside this index referenced it.                                                                                                                                                                                                                                                                                        |
+| `30-oci-packages.md`    | 2026-08-02. Superseded by [28-packages.md](28-packages.md). OCI artifacts as the distribution envelope lost to source-first, distributor-managed packages; the rejected-alternative reason lives in `5/28`.                                                                                                                                                                                                                                                             |
+| `20-ant-portability.md` | 2026-08-04. Dissolved — its one still-owned decision (a group blends an ordered LIST of products; the per-payload-kind collision rule) moved into [28-packages.md](28-packages.md), which already owned one package's lifecycle and only deferred that question here. State transport (`export`/`apply`) was already a one-line pointer to `5/8`, unchanged; nothing of `5/8`'s content moved. Pre-dissolve draft: `git log --follow -- specs/5/20-ant-portability.md`. |

@@ -129,5 +129,7 @@ the codex image variant when it exists.
   dropped and deleted.
 - [P-runed.md](P-runed.md) — the execution envelope the backend runs
   inside; harness-agnostic by design.
-- [20-ant-portability.md](20-ant-portability.md) — fleet ops operate on
-  the folder, not the harness, so they stay backend-agnostic.
+- [8-yaml-manifests.md](8-yaml-manifests.md) (state transport) and
+  [28-packages.md](28-packages.md) (package/product composition) — fleet
+  ops operate on the folder, not the harness, so they stay
+  backend-agnostic.

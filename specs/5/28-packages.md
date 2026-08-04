@@ -19,14 +19,14 @@ is no standard way to distribute skills + fragments + routes + grants as one uni
 
 ## The packaging cluster — who owns what
 
-| Concern                                                                           | Spec                     |
-| --------------------------------------------------------------------------------- | ------------------------ |
-| **Package manager** — install / upgrade / remove one unit's lifecycle             | **this spec (5/28)**     |
-| Producer side — what a product/package _contains_ (`PRODUCT.md`, persona, skills) | `5/21`                   |
-| Composition — one group blends an ordered LIST of products (per-kind precedence)  | `5/20`                   |
-| State transport — moving a live agent's rows/files (`export`/`apply`)             | `5/20` (mech. 1) + `5/8` |
-| Compose fragment — one asset _kind_ (a file)                                      | `5/27`                   |
-| Prototype — a product instantiated at spawn (`5/5` Tier-3)                        | `5/5`                    |
+| Concern                                                                           | Spec                  |
+| --------------------------------------------------------------------------------- | --------------------- |
+| **Package manager** — install / upgrade / remove one unit's lifecycle             | **this spec (5/28)**  |
+| Producer side — what a product/package _contains_ (`PRODUCT.md`, persona, skills) | `5/21`                |
+| Composition — one group blends an ordered LIST of products (per-kind precedence)  | **this spec (below)** |
+| State transport — moving a live agent's rows/files (`export`/`apply`)             | `5/8`                 |
+| Compose fragment — one asset _kind_ (a file)                                      | `5/27`                |
+| Prototype — a product instantiated at spawn (`5/5` Tier-3)                        | `5/5`                 |
 
 **Rejected alternative — OCI artifacts** (spec deleted 2026-08-02). A
 package as a signed, registry-hosted `ghcr.io` artifact pulled via
@@ -36,8 +36,9 @@ that makes a source-first package legible: the package IS a git repo you can
 read, fork, and pin to a revision. Reopen only if build-once/ship-anywhere
 becomes a real requirement (`5/5` flags prototypes as the plausible case).
 
-**5/28 is one package's lifecycle; 5/20 is state + how several products compose.**
-They meet only at restore (below).
+**5/28 is one package's lifecycle AND how several products compose in one
+group.** State transport (`export`/`apply`, moving a live agent's rows and
+files) is `5/8`'s; the two meet only at restore (below).
 
 ## Package = source + manifest + asset kinds
 
@@ -51,18 +52,30 @@ One manifest, and it is the **shipped `PRODUCT.md`** (`5/21`) — NOT a second
 | compose fragment | `<name>.yml` (+ `<name>-routes.json`)                         | `5/27` (a file)                                   |
 | proxyd route     | a `proxyd_routes` row, keyed by path                          | `store.PutProxydRoute` (live)                     |
 | grant            | an `acl` row, keyed by identity                               | `store.PutACLRow`                                 |
+| image extension  | `Dockerfile.ant` (`FROM arizuko-ant` + system deps)           | operator builds explicitly, never automatic       |
+
+**Trust follows what's touched.** Skills, compose fragments, routes, and
+grants above are agent/operator space, updatable via the lock. An image
+extension changes what software exists INSIDE the sandbox only — mounts,
+egress, and grants stay platform-set regardless of image, so the trust
+decision is supply-chain, made once, explicitly, by the operator building
+it. **Never** package-modifiable: daemons, cross-folder grants, host
+`connectors.toml`, platform settings keys.
 
 A **group seed is NOT a package-install asset** — a package installs
-instance-wide, but seeding a group is inherently create-a-specific-group. That is
-`arizuko create --product` / a `5/21` product applied at group creation, not
-here.
+instance-wide, but seeding a group is inherently create-a-specific-group.
+`PERSONA.md`, `CLAUDE.md`, `facts/`, `tasks.toml`, `[[env]]` hints, and
+`mcpServers` entries are seed content: applied once at group creation via
+`arizuko create --product` / a `5/21` product (`container.SetupGroup`,
+`container/runner.go:964`), then owned by the group as local state — never
+re-touched by install/upgrade/remove, here or anywhere else.
 
 `requires:` (env vars) is a preflight **warning**, never a gate.
 
 ## The installed-package record (the one new mechanism)
 
-`5/20`'s `products.lock` generalises to a single per-instance **installed
-record**, one entry per installed package:
+One mechanism, not two — the lock composition (below) needs IS this
+per-instance **installed record**, one entry per installed package:
 
 - **source** + resolved **immutable revision**;
 - the **manifest as installed** — the exact identities this install owns (route
@@ -122,6 +135,17 @@ do NOT retire it. When a real upstream channel + automatic dirty-capture exist,
 "file the diff" becomes one command; until then it is manual. Local is the R&D
 edge, upstream the durable form (`6/`'s loop) — but nothing is overwritten unseen.
 
+**Direction, not yet built (2026-07-14).** Today `/migrate` performs the
+whole 3-way walk agent-side (`ant/skills/self/migration.md`, triggered by
+`checkMigrationVersion`, `routd/loop.go:434`). The intended shape moves the
+mechanical part into the harness — deterministic Go at seed/spawn time,
+where `seedSkills` already walks `.merge-base` — so `new-upstream` copies,
+`only-ours` keeps, and only `both-changed` becomes a conflict marker for the
+agent. `/migrate` shrinks to conflict resolution only; judgment stays with
+the agent, mechanics leave it. Constraint: the merge lib stays isolated from
+packaging — it does not grow into a second package manager, and
+`migrations/NNN-*.md` files stay agent-executed instructions by design.
+
 ## Resolves `5/27` C2
 
 `packages remove slakd` reads the installed record, finds it owns the
@@ -129,15 +153,37 @@ edge, upstream the durable form (`6/`'s loop) — but nothing is overwritten uns
 proxyd's handler — the live table updates (not a JSON blob proxyd ignores when
 its table is non-empty). The record names what to remove; no ownership guessing.
 
-## Composition + restore ordering (both → `5/20`)
+## Composition — blending an ordered product list
 
-- **Two packages in one group:** deterministic per-kind precedence is `5/20`'s
-  blend rule (persona: first-wins; skills: last-wins wholesale; CLAUDE.md:
-  appended; rows: union, cross-package collision refused). That IS the collision
-  rule — 5/28 owns one package; 5/20 owns how several compose.
-- **Restore vs install:** both write rows. Rule — **restore agent state first,
-  then package sync reasserts package-declared identities**, so a cloned agent's
-  recorded packages re-install their rows over the restored baseline.
+A group is not limited to one product: `~/products.toml` is the ordered
+mix (`source =` per entry, resolved the same way packages are — local dir
+or a shallow git clone pinned to its resolved revision). Two providers
+share no merge base, so **blend is per PAYLOAD KIND, never a content
+merge**:
+
+| Payload                      | Blend                                      | On upstream update        |
+| ---------------------------- | ------------------------------------------ | ------------------------- |
+| `skills/`                    | union by name; LAST product wins wholesale | managed: clean replace    |
+| `PERSONA.md`                 | FIRST provider wins; later warned          | seed-once                 |
+| `CLAUDE.md`                  | appended as marked sections, in order      | seed-once                 |
+| `facts/`, `tasks.toml`       | union; filename collision = refuse         | seed-once                 |
+| `settings.json` `mcpServers` | map union; name collision = refuse         | managed                   |
+| `Dockerfile.ant` (Tier C)    | at most one in the mix                     | operator rebuilds         |
+| `migrations/NNN-*.md`        | per product                                | run above the lock's mark |
+
+That table IS the cross-package collision rule this spec's own
+install/upgrade (above) defers to when a GROUP, not an instance, is the
+install target. The seed/managed split is per KIND, not per product:
+skills and `mcpServers` entries stay upstream-managed — what `sync`/
+`update` touch, same dirty-detection as any other asset above; identity
+and knowledge (persona, facts) seed once and become the group's own
+state, changed only by overlay (`~/CLAUDE.md`, `.disabled`, a custom
+skill) or fork-and-repoint, never edited in place.
+
+**Restore vs install:** both write rows. Rule — **restore agent state
+first, then package sync reasserts package-declared identities**, so a
+cloned agent's recorded packages re-install their rows over the restored
+baseline.
 
 ## Reconciler alternative — demolished
 
@@ -161,6 +207,9 @@ GitHub-topic discovery; the sidecar per-group `MCP.json` (dropped, `5/13`).
 
 - `cmd/arizuko/packages.go` — the `list`/`add`/`install`/`upgrade`/`remove` CLI
 - `routd/packages_store.go` (migration `0020`) — the installed-package record
+- `container/runner.go:964` `SetupGroup()` — group-seed entry point (Tier A)
 - `container/runner.go:1017` `seedSkills()` — skill seeding at spawn
 - `resreg/resources/proxyd_routes.go`, `routd/acl_resource.go` — the owner handlers
 - `ant/skills/self/migration.md` — the 3-way merge packages reuse for skills
+- `routd/loop.go:434` `checkMigrationVersion()` — the update trigger
+- `cmd/arizuko/main.go:28` `productManifest` — the shared `PRODUCT.md` parse

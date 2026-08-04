@@ -37,11 +37,11 @@ not components); the Hermes integration moved to
 
 Deleted 2026-08-02:
 
-| was                          | why                                                                                                                                                                  |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `2-target-matrix.md`         | competitive intel duplicating the Agent Research Hub, which it named as the real source of truth. Dated vendor tables rot; re-read the Hub instead.                  |
-| `17-agentic-distribution.md` | self-disclaimed "recorded debate, NOT a build order" whose own codex critique folded it into `5/20`. The honest-removal delta landed in `5/28` (shipped 2026-07-29). |
-| `slides.md`                  | a 10-slide pitch deck — presentation material, no buildable content.                                                                                                 |
+| was                          | why                                                                                                                                                                                                |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `2-target-matrix.md`         | competitive intel duplicating the Agent Research Hub, which it named as the real source of truth. Dated vendor tables rot; re-read the Hub instead.                                                |
+| `17-agentic-distribution.md` | self-disclaimed "recorded debate, NOT a build order" whose own codex critique folded it into `5/20` (since dissolved into `5/28`). The honest-removal delta landed in `5/28` (shipped 2026-07-29). |
+| `slides.md`                  | a 10-slide pitch deck — presentation material, no buildable content.                                                                                                                               |
 
 `16`'s counterpart landscape was compressed to its durable finding (the
 composition is the moat; never claim a commodity part is novel); the dated
