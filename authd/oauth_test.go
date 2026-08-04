@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	_ "modernc.org/sqlite"
@@ -236,6 +237,227 @@ func TestOAuthRedirectStateRoundTrips(t *testing.T) {
 	if _, _, _, ok := o.callbackCode(httptest.NewRecorder(), bad); ok {
 		t.Fatal("forged state must be rejected")
 	}
+}
+
+// ?intent=link must carry the BARE current sub. It used to carry the raw JWT
+// claim ("user:google:g-1"), which dispatch wrote straight into
+// auth_users.user_id — forking a second account keyed "user:google:g-1" instead
+// of linking to the first, and double-prefixing the next mint to
+// "user:user:google:g-1".
+func TestOAuthLinkIntentCarriesBareSub(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	cfg := &core.Config{AuthSecret: "csrf-key", AuthBaseURL: "https://auth.example", GitHubClientID: "gid"}
+	o := newOAuth(t, a, cfg, nil)
+
+	// First login establishes the account.
+	first := httptest.NewRequest("GET", "/auth/google/callback", nil)
+	first.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	o.dispatch(rec, first, "google", "g-1", "Alice", auth.StateIntent{})
+	token := jsonField(t, rec.Body.Bytes(), "token")
+
+	// Alice, signed in, starts a GitHub link.
+	link := httptest.NewRequest("GET", "/auth/github?intent=link", nil)
+	link.Header.Set("Authorization", "Bearer "+token)
+	linkRec := httptest.NewRecorder()
+	o.redirect("github")(linkRec, link)
+
+	state := cookieValue(linkRec.Result().Cookies(), "oauth_state")
+	cb := httptest.NewRequest("GET", "/auth/github/callback?code=abc&state="+state, nil)
+	for _, c := range linkRec.Result().Cookies() {
+		cb.AddCookie(c)
+	}
+	_, _, intent, ok := o.callbackCode(httptest.NewRecorder(), cb)
+	if !ok {
+		t.Fatal("callback rejected the state redirect wrote")
+	}
+	if intent.LinkFrom != "google:g-1" {
+		t.Fatalf("LinkFrom = %q, want bare google:g-1", intent.LinkFrom)
+	}
+
+	// Completing the link attaches to the SAME account, never a second one.
+	cb.Header.Set("Accept", "application/json")
+	linkDone := httptest.NewRecorder()
+	o.dispatch(linkDone, cb, "github", "gh-1", "Alice", intent)
+	if linkDone.Code != http.StatusOK {
+		t.Fatalf("link dispatch status %d: %s", linkDone.Code, linkDone.Body.String())
+	}
+	var users int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM auth_users`).Scan(&users); err != nil {
+		t.Fatal(err)
+	}
+	if users != 1 {
+		t.Fatalf("linking forked the account: %d auth_users rows, want 1", users)
+	}
+	if !userExists(db, "google:g-1") {
+		t.Fatal("canonical account google:g-1 must survive the link")
+	}
+	sub, err := auth.VerifyToken(jsonField(t, linkDone.Body.Bytes(), "token"), a.LocalKeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.Sub != "user:google:g-1" {
+		t.Fatalf("post-link sub = %q, want user:google:g-1 (no double prefix)", sub.Sub)
+	}
+}
+
+// The point of the whole exercise: a LINKED ALIAS logging in must mint the
+// ACCOUNT's canonical sub, so it lands on the account's acl rows. Before this,
+// linking a second provider produced a login alias with none of the account's
+// authority (BUGS N1). fakeGrants is keyed by the sub authd looks up, so a
+// grant present only for the canonical sub proves the resolution happened.
+func TestOAuthAliasLoginResolvesToCanonicalSub(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	// Only the canonical sub holds authority. github:gh-1 holds none.
+	o := newOAuth(t, a, nil, fakeGrants{
+		"google:g-1": {Scope: []string{"tasks:read"}, Folder: "atlas/main"},
+	})
+
+	// Alice's account, then a GitHub identity linked to it.
+	o.dispatch(httptest.NewRecorder(), jsonReq(), "google", "g-1", "Alice", auth.StateIntent{})
+	o.dispatch(httptest.NewRecorder(), jsonReq(), "github", "gh-1", "Alice",
+		auth.StateIntent{Intent: "link", LinkFrom: "google:g-1"})
+
+	// A LATER, plain login through the alias — no link intent this time.
+	rec := httptest.NewRecorder()
+	o.dispatch(rec, jsonReq(), "github", "gh-1", "Alice", auth.StateIntent{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("alias login status %d: %s", rec.Code, rec.Body.String())
+	}
+	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.Sub != "user:google:g-1" {
+		t.Fatalf("alias login sub = %q, want the canonical user:google:g-1", sub.Sub)
+	}
+	// ...and it therefore carries the account's authority.
+	if !auth.HasScope(sub.Scope, "tasks", "read") {
+		t.Fatalf("alias login must see the account's grants, got scope %v", sub.Scope)
+	}
+	if sub.Extra["arz/folder"] != "atlas/main" {
+		t.Fatalf("alias login folder = %q, want atlas/main", sub.Extra["arz/folder"])
+	}
+}
+
+// The canonical login is unaffected: it resolves to itself, and resolution must
+// not disturb the account row or spawn a second one.
+func TestOAuthCanonicalLoginUnaffectedByResolution(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	o := newOAuth(t, a, nil, fakeGrants{
+		"google:g-1": {Scope: []string{"tasks:read"}, Folder: "atlas/main"},
+	})
+
+	o.dispatch(httptest.NewRecorder(), jsonReq(), "google", "g-1", "Alice", auth.StateIntent{})
+	o.dispatch(httptest.NewRecorder(), jsonReq(), "github", "gh-1", "Alice",
+		auth.StateIntent{Intent: "link", LinkFrom: "google:g-1"})
+
+	rec := httptest.NewRecorder()
+	o.dispatch(rec, jsonReq(), "google", "g-1", "Alice", auth.StateIntent{})
+	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.Sub != "user:google:g-1" {
+		t.Fatalf("canonical login sub = %q, want user:google:g-1", sub.Sub)
+	}
+	if !auth.HasScope(sub.Scope, "tasks", "read") {
+		t.Fatalf("canonical login lost its grants: %v", sub.Scope)
+	}
+	var users int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM auth_users`).Scan(&users); err != nil {
+		t.Fatal(err)
+	}
+	if users != 1 {
+		t.Fatalf("%d auth_users rows, want 1", users)
+	}
+}
+
+// The security half: an UNLINKED provider sub must resolve to ITSELF, never to
+// somebody else's account. A resolver that fell back to a partial match, or
+// keyed on provider alone, would hand Mallory Alice's grants.
+func TestOAuthUnlinkedSubDoesNotResolveToAnotherAccount(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	o := newOAuth(t, a, nil, fakeGrants{
+		"google:g-1": {Scope: []string{"tasks:read"}, Folder: "atlas/main"},
+	})
+
+	o.dispatch(httptest.NewRecorder(), jsonReq(), "google", "g-1", "Alice", auth.StateIntent{})
+
+	// Mallory: same provider, different provider_sub, linked to nobody.
+	rec := httptest.NewRecorder()
+	o.dispatch(rec, jsonReq(), "google", "g-666", "Mallory", auth.StateIntent{})
+	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.Sub != "user:google:g-666" {
+		t.Fatalf("unlinked sub resolved to %q — must stay its own principal", sub.Sub)
+	}
+	if len(sub.Scope) != 0 {
+		t.Fatalf("unlinked sub picked up grants it does not hold: %v", sub.Scope)
+	}
+	// A *different provider* with an identical provider_sub is likewise separate.
+	rec2 := httptest.NewRecorder()
+	o.dispatch(rec2, jsonReq(), "github", "g-1", "Trudy", auth.StateIntent{})
+	sub2, err := auth.VerifyToken(jsonField(t, rec2.Body.Bytes(), "token"), a.LocalKeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub2.Sub != "user:github:g-1" {
+		t.Fatalf("github:g-1 resolved to %q — provider must be part of the key", sub2.Sub)
+	}
+	if len(sub2.Scope) != 0 {
+		t.Fatalf("github:g-1 picked up google:g-1's grants: %v", sub2.Scope)
+	}
+}
+
+// Resolving the alias at mint means the token subject no longer says WHICH
+// login was presented — and nothing downstream (proxyd's X-User-Sub, the resreg
+// audit actor derived from it) can recover that. The login audit row is where
+// the fact survives: actor = the account, resource = the credential presented.
+func TestOAuthLoginAuditRecordsTheActualLogin(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	o := newOAuth(t, a, nil, nil)
+	audit.Init(db, "test")
+	t.Cleanup(func() { audit.Init(nil, "") })
+
+	o.dispatch(httptest.NewRecorder(), jsonReq(), "google", "g-1", "Alice", auth.StateIntent{})
+	o.dispatch(httptest.NewRecorder(), jsonReq(), "github", "gh-1", "Alice",
+		auth.StateIntent{Intent: "link", LinkFrom: "google:g-1"})
+
+	rec := httptest.NewRecorder()
+	o.dispatch(rec, jsonReq(), "github", "gh-1", "Alice", auth.StateIntent{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("alias login status %d", rec.Code)
+	}
+
+	var actor, resource string
+	err := db.QueryRow(
+		`SELECT actor, resource FROM audit_log
+		  WHERE category = ? AND action = 'login' ORDER BY id DESC LIMIT 1`,
+		audit.CategoryAuthN).Scan(&actor, &resource)
+	if err != nil {
+		t.Fatalf("no login audit row: %v", err)
+	}
+	if actor != "user:google:g-1" {
+		t.Fatalf("audit actor = %q, want the canonical user:google:g-1", actor)
+	}
+	if resource != "github:gh-1" {
+		t.Fatalf("audit resource = %q, want the presented login github:gh-1", resource)
+	}
+}
+
+// jsonReq is a callback request that asks for the JSON login delivery.
+func jsonReq() *http.Request {
+	r := httptest.NewRequest("GET", "/auth/callback", nil)
+	r.Header.Set("Accept", "application/json")
+	return r
 }
 
 // downGrants always reports the backend is unavailable (a non-ErrNoGrants error).

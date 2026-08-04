@@ -19,6 +19,7 @@ import (
 
 	"html/template"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/theme"
@@ -277,32 +278,49 @@ func (o *oauth) telegram(w http.ResponseWriter, r *http.Request) {
 
 // dispatch resolves the provider identity to a canonical authd user (creating
 // or linking as needed) and issues an ES256 session. provider+providerSub
-// identify the external identity; the canonical user_id is "<provider>:<sub>"
-// for a first login (the simple-stays-simple default — the full collision UI is
-// a later step, spec 5/1 § Account linking).
+// identify the external identity; the account's canonical sub is
+// auth_users.user_id.
+//
+// **Alias resolution happens here, at mint** (spec 5/32 § Alias resolution).
+// `acl.principal` keys on provider subs, so a returning login that is a LINKED
+// ALIAS must mint the ACCOUNT's canonical sub or it is a principal with none of
+// the account's grants. Nothing downstream resolves: auth.Authorize evaluates
+// the subject it is handed.
+//
+// The three cases of spec 5/1 § Account linking, in order:
+//   - explicit link — attach to the caller's own (already canonical) account;
+//   - returning login — resolve the identity to the account that owns it;
+//   - first login — the identity is its own canonical, and upsert creates it.
 func (o *oauth) dispatch(w http.ResponseWriter, r *http.Request, provider, providerSub, name string, intent auth.StateIntent) {
 	if providerSub == "" {
 		http.Error(w, "oauth failed", http.StatusBadGateway)
 		return
 	}
-	userID := provider + ":" + providerSub
-	canonical := userID
+	login := provider + ":" + providerSub
+	canonical := login
 	if intent.Intent == "link" && intent.LinkFrom != "" {
 		canonical = intent.LinkFrom
+	} else if owner, _, _, _, linked := oauthIdentityForSub(o.a.db, login); linked {
+		canonical = owner
 	}
 	if err := upsertOAuthUser(o.a.db, canonical, name, provider, providerSub); err != nil {
-		slog.Error("oauth upsert user", "user", canonical, "err", err)
+		// UNIQUE(provider, provider_sub) fires when a link targets an identity
+		// another account already owns — the hard fail of spec 5/1, not a merge.
+		slog.Error("oauth upsert user", "user", canonical, "login", login, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	o.issueSession(w, r, canonical, intent.Return)
+	o.issueSession(w, r, canonical, login, intent.Return)
 }
 
 // issueSession is the ES256 counterpart of auth/web.go issueSession: snapshot
 // scope from grants, mint the access JWT, create a refresh_tokens row, deliver
 // per Accept (browser → HttpOnly cookie + localStorage bootstrap; JSON →
 // {token,expires_at,refresh_token}).
-func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, returnTo string) {
+//
+// sub is the account's canonical sub; login is the provider identity actually
+// presented. They differ whenever a linked alias signs in.
+func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, login, returnTo string) {
 	scope, folder, ok := o.snapshot(r.Context(), sub)
 	if !ok {
 		writeErr(w, http.StatusServiceUnavailable, "grants_unavailable", "grants backend unavailable")
@@ -328,6 +346,24 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, return
 		return
 	}
 	exp := time.Now().Add(o.a.accessTTL).UTC().Format(time.RFC3339)
+
+	// The subject is the ACCOUNT's canonical sub, so from here on nothing can
+	// tell which provider login was presented — not the JWT, not proxyd's
+	// X-User-Sub, not the audit actor derived from it. Record it at the one
+	// point that still knows both. Not a JWT claim: refresh_tokens stores only
+	// the canonical sub, so a login claim would vanish on the first refresh and
+	// a half-present claim is worse than none.
+	audit.Emit(r.Context(), audit.Event{
+		Category: audit.CategoryAuthN,
+		Action:   "login",
+		Actor:    claimSub,
+		ActorSub: sub,
+		Resource: login,
+		Scope:    strings.Join(scope, ","),
+		Surface:  audit.SurfaceGateway,
+		Folder:   folder,
+		Outcome:  audit.OutcomeOK,
+	})
 
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
 		writeJSON(w, map[string]any{"token": access, "expires_at": exp, "refresh_token": refresh})
@@ -399,10 +435,16 @@ func (o *oauth) me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// bearerSub returns the verified sub of the request's bearer ("" if none/invalid).
+// bearerSub returns the verified BARE sub of the request's bearer ("" if
+// none/invalid). Bare, not the raw claim: its one consumer is StateIntent.
+// LinkFrom, which lands in auth_users.user_id, and that column stores the sub
+// without the "user:" prefix (spec 5/1 § "sub prefix rule"). Returning the raw
+// claim forked the account instead of linking to it — the link wrote a second
+// auth_users row keyed "user:google:alice" and the next mint double-prefixed it
+// to "user:user:google:alice".
 func (o *oauth) bearerSub(r *http.Request) string {
 	if sub, err := auth.VerifyHTTP(r, o.a.LocalKeySet()); err == nil {
-		return sub.Sub
+		return bareSub(sub.Sub)
 	}
 	return ""
 }

@@ -3137,10 +3137,59 @@ rendered form on any onbod page, so `create_world` was the whole live breakage.
   `handleDashboard` into the renderer, plus a test that replays the rendered
   form's own inputs against the handler instead of injecting the pair.
 
-## N1 — linked OAuth logins do not share authority (2026-08-04, approved, to build)
+## N1 — linked OAuth logins do not share authority (2026-08-04, FIXED)
 
 **Approved by the operator**, recorded here because it is an authorization-model
 change and the tree was busy when it was decided.
+
+> **Shipped with a different design than the one below.** The operator
+> superseded the `Caller.Extra` union with **alias resolution at mint**: authd
+> resolves the presented login to the account's canonical provider sub and
+> stamps that as the JWT subject. Everything below the "The design" heading is
+> the rejected plan, kept for the record. Canonical spec section: `5/32`
+> § "Alias resolution — one account, one principal".
+>
+> Why the union was dropped: it makes one person N principals at every
+> evaluation, spreads their grants across N rows, and leaves the union stale
+> until token expiry. Resolving to one sub keeps one person one principal and
+> leaves `expandPrincipals` untouched — a strictly smaller change than the one
+> that was billed as "no new mechanism in the authorization path".
+>
+> **Canonical = `auth_users.user_id`** — set to the first login's
+> `provider:providerSub` at account creation, never rewritten. Not earliest
+> `linked_at` (unlink would move it and silently transfer authority); not a new
+> `canonical_sub` column (a second carrier of a fact `user_id` already holds).
+> No schema migration, nothing to backfill. Verified on copies of all three live
+> `auth.db`: krons 0/0 rows, sloth 0/0, marinade 1/1 — 0 principals move.
+>
+> **Two things the entry got wrong.** (1) The symptom is not "a principal with
+> no grants" — the alias login returned **HTTP 500**, because `dispatch` tried
+> to create a second account for an identity `UNIQUE(provider, provider_sub)`
+> already owned. (2) The trade-off "unlinking takes effect at token expiry" does
+> not apply; there is no union to go stale. The real unlink hazard is different
+> and is now a spec constraint: **unlinking the canonical identity must be
+> refused**, or the account is anchored to a login nobody holds. No unlink path
+> exists today.
+>
+> **Blocked on a prerequisite the entry did not see:** `?intent=link` put the
+> raw JWT subject (`user:google:g-1`) into `StateIntent.LinkFrom`, which
+> `dispatch` wrote into `auth_users.user_id` — a column `5/1` pins as bare. So
+> linking forked a new account instead of attaching to one, and the next mint
+> double-prefixed to `user:user:google:g-1`. Fixed first, in `b2d70368`; no
+> test covered the link path at all.
+>
+> **What resolution costs:** the subject no longer says which credential was
+> presented (proxyd's `X-User-Sub` and `5/I`'s audit actor both derive from it).
+> Carried as an `authn`/`login` audit row in authd — NOT a JWT claim, since
+> `refresh_tokens` stores only the canonical sub and the claim would vanish on
+> the first refresh.
+>
+> - **Fixed:** `b2d70368` (link prefix), `53049d70` (resolution + tests)
+> - **Deployed:** no
+> - **Follow-up (not done):** propagate the login identity past authd —
+>   proxyd would need an `X-User-Login` header for `resreg`'s audit actor to
+>   distinguish "Alice via Google" from "Alice via GitHub". Out of scope here
+>   (proxyd + resreg are not authd).
 
 `oauth_identities` (auth.db) already models what is wanted: one `auth_users` row
 per person, many provider logins, with `UNIQUE(provider, provider_sub)` making a

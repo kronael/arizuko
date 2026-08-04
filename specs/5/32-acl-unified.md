@@ -44,12 +44,64 @@ not millions.
 
 | Namespace         | Example                  | Meaning                                    |
 | ----------------- | ------------------------ | ------------------------------------------ |
-| OAuth sub         | `google:114019...`       | Canonical human sub (`auth/oauth.go`).     |
+| OAuth sub         | `google:114019...`       | Canonical human sub (see below).           |
 | Folder agent      | `folder:atlas/eng`       | The agent container at this folder.        |
 | Platform identity | `telegram:user/123456`   | Channel-side identity, no OAuth yet.       |
 | Room identity     | `discord:837.../1504...` | Channel/room JID — the route audience.     |
 | Role              | `role:operator`          | Indirection; members via `acl_membership`. |
 | Wildcard          | `**`, `google:*`         | Any principal / any sub in a namespace.    |
+
+### Alias resolution — one account, one principal
+
+**A principal in `acl` is a provider sub, never an account id.** `google:114...`
+is the row key; there is no `user:` prefix and no account-level indirection in
+the table. That is deliberate — channel identities (`telegram:user/123`) and
+OAuth subs then share one namespace and one glob grammar.
+
+It also means a person with several linked logins would otherwise be several
+principals. `oauth_identities` (auth.db) records that they are one person;
+authorization must consume that fact somewhere. **It is consumed at mint, not at
+evaluation:** authd resolves the presented login to the account's canonical
+provider sub and stamps THAT as the JWT `sub` (`authd/oauth.go` `dispatch`).
+`auth.Authorize` sees an ordinary principal and does no resolution — no lookup,
+no second identity path, no cross-daemon read of auth.db from routd.
+
+This covers OAuth logins only. A channel JID (`discord:user/811...`) is not an
+`oauth_identities` row and never resolves; it reaches a person's grants through
+an `acl_membership` edge at pair time ([`5/31`](31-identity-pairing.md)). Two
+mechanisms, because they answer different questions — "which account is this
+login?" versus "whose channel identity is this?".
+
+**The canonical sub is `auth_users.user_id`.** `dispatch` sets it to the FIRST
+login's `<provider>:<providerSub>` and nothing rewrites it. Immutability is the
+whole point: `acl` rows key on this value, so a canonical that moved would
+silently strip an account of its grants.
+
+- **Not earliest `linked_at`** — derivable with no schema change, but unlinking
+  the earliest identity moves the canonical, and moving it silently transfers
+  authority. Rejected on stability.
+- **Not a new `canonical_sub` column** — `user_id` already carries exactly this
+  fact. A second carrier of one fact is two carriers that drift.
+- **Unlinking the canonical identity must be refused, loudly.** It cannot move
+  the canonical (the column is immutable), but it would anchor the account to a
+  login nobody holds. Re-designation is an operator action; there is no unlink
+  path today, and this is the constraint the one that gets built must satisfy.
+
+**What resolution costs.** The subject no longer says which login was presented,
+and nothing downstream can recover it — proxyd stamps `X-User-Sub` from the
+subject and `5/I`'s audit actor derives from that. The fact survives in authd's
+own `audit_log`: an `authn`/`login` row whose `actor` is the account and whose
+`resource` is the credential presented. Deliberately NOT a JWT claim —
+`refresh_tokens` stores only the canonical sub, so a login claim would vanish on
+the first refresh, and a claim that is present at login and absent 15 minutes
+later is worse than no claim.
+
+**Rejected: a sibling-subs union in the token.** The earlier design minted every
+linked sub as a claim and folded them into `Caller.Extra` so `expandPrincipals`
+would union them. It works, but it makes one person N principals at every
+evaluation, spreads their grants across N rows, and leaves the union stale until
+token expiry. Resolving to one canonical sub keeps one person one principal and
+leaves this spec's evaluator untouched.
 
 ### Action lattice
 

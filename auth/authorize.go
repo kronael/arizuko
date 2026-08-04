@@ -7,8 +7,11 @@ import (
 )
 
 // Caller is the bearer of a request. Principal is the JWT subject as authd
-// minted it — there is no resolve step in front of it. Claims carry JWT claims
-// used by row predicates.
+// minted it: for a human that is the ACCOUNT's canonical provider sub, already
+// resolved at mint from whichever linked login was presented (spec 5/32 §
+// Alias resolution). There is no resolve step here — Authorize evaluates the
+// principal it is handed, and `acl.principal` rows key on that same value.
+// Claims carry JWT claims used by row predicates.
 type Caller struct {
 	Principal string
 	Claims    map[string]string

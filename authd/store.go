@@ -109,6 +109,10 @@ func retireActiveKeys(db *sql.DB, at time.Time) error {
 // This is the read half of upsertOAuthUser below — the model the live OAuth
 // login path actually populates. It replaces identities/identity_claims, which
 // this endpoint used to read and which nothing ever wrote (BUGS P2).
+//
+// It is also the mint-time alias resolver (oauth.go dispatch): ONE reader, so
+// what /v1/identities/{sub} reports and what the token subject becomes can
+// never disagree.
 func oauthIdentityForSub(db *sql.DB, sub string) (userID, name, createdAt string, subs []string, ok bool) {
 	provider, providerSub, found := strings.Cut(sub, ":")
 	if !found || provider == "" || providerSub == "" {
@@ -142,8 +146,17 @@ func oauthIdentityForSub(db *sql.DB, sub string) (userID, name, createdAt string
 	return userID, name, createdAt, subs, true
 }
 
-// createUser inserts a canonical user if absent and links a provider identity.
-// sub is stored bare. Returns the canonical user_id.
+// upsertOAuthUser inserts a canonical user if absent and links a provider
+// identity. sub is stored bare.
+//
+// `auth_users.user_id` IS the account's canonical sub: dispatch sets it to the
+// FIRST login's "<provider>:<providerSub>" and nothing ever rewrites it (the
+// ON CONFLICT below touches `name` only). That immutability is load-bearing —
+// `acl.principal` rows key on this value, so a canonical that moved would
+// silently strip an account of its grants. Do not add an UPDATE of user_id, and
+// do not let an unlink remove the identity whose provider:provider_sub equals
+// user_id: that leaves the account anchored to a login nobody holds. Refuse it
+// loudly when an unlink path is built (spec 5/32 § Alias resolution).
 func upsertOAuthUser(db *sql.DB, userID, name, provider, providerSub string) error {
 	tx, err := db.Begin()
 	if err != nil {
