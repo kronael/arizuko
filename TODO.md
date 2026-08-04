@@ -13,7 +13,7 @@ for shipped milestones.
 - **Phase C of 5/5** (secrets resolver) — Phase B (invites) and
   Phase D (chats.is_group) shipped. C reads `chats.is_group` and
   layers folder/user-scope secrets at container spawn. Spec at
-  `specs/5/5-tenant-self-service.md`.
+  `specs/5/5-worlds-agents-sessions.md`.
 - **Operator view of pairing edges (`5/31` follow-up, needs a call).**
   Listing outstanding pairing TOKENS is correctly not a surface — a
   10-minute single-use bearer gives an operator nothing to act on. The
