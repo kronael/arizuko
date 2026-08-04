@@ -3277,3 +3277,33 @@ operation).
 - **Severity:** medium (duplication + one unused plaintext bearer store)
 - **Fix:** delete `chat.go` now; sequence the rest behind phase 7; add authority
   provenance.
+
+## N2 — an operator can grant to a non-canonical alias, silently (2026-08-04, open)
+
+Residual risk from N1 (`beecf595`), verified as having **zero live instances**
+today but no guard against acquiring one.
+
+authd now resolves a linked OAuth login to the account's canonical sub
+(`auth_users.user_id`) at mint. Grants are keyed on provider subs. So if Alice's
+canonical is `google:X` and she links `github:Y`, an operator who grants to
+`github:Y` creates a row that **can never match**: Alice's JWT always carries
+`google:X`, and `expandPrincipals` compares exact strings.
+
+Same shape for pairing: an `acl_membership.parent` naming a non-canonical alias
+is unreachable — and unreachable to unpair too, since the contain seam compares
+the caller's canonical sub against the stored parent.
+
+Verified fleet-wide: `oauth_identities` is EMPTY on krons and sloth, and
+marinade's single row is its own canonical (`user_id` = `provider:provider_sub`).
+sloth's two granted principals (`google:114015391913260915382`,
+`discord:user/811295670702047272`) appear in no link table, so each resolves to
+itself. **Nothing is stranded today**, and nothing can be until someone links a
+second OAuth identity — which no one has.
+
+- **Severity:** low now, medium once anyone links a second login
+- **Fix:** reject (or loudly warn on) a grant or pairing whose principal is a
+  known non-canonical `oauth_identities.provider_sub`. authd already answers
+  this — `oauthIdentityForSub` returns the owning account — so the check is a
+  lookup, not new state. Do NOT silently rewrite the principal: moving a grant
+  without the operator asking is the failure mode N1 chose an immutable
+  canonical to avoid.
