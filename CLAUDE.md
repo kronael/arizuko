@@ -338,7 +338,7 @@ needed; don't fight it where it is.
 ## Config
 
 `.env` in data dir or env vars (`core.LoadConfig`). Anchor vars:
-`CHANNEL_SECRET`, `AUTH_SECRET`, `HOST_DATA_DIR`, `CONTAINER_IMAGE`,
+`AUTHD_SERVICE_KEY`, `AUTH_SECRET`, `HOST_DATA_DIR`, `CONTAINER_IMAGE`,
 `WEB_HOST`, `ASSISTANT_NAME`. Per-daemon vars documented in each
 `<daemon>/README.md`. Business state (gates, grants, onboarding) lives
 in the DB; infra toggles live in env.
