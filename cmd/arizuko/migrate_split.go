@@ -155,6 +155,17 @@ var routdSpecs = []copySpec{
 	{dst: "system_messages", src: "system_messages", transfm: true,
 		cols: "id, folder, source, kind, body, created",
 		sel:  "id, group_id, origin, event, body, created_at"},
+	// proxyd_routes: routd.db OWNS it (routd migration 0015 mirrors store
+	// 0050 + 0072 redirect_to); proxyd resolves routes there. Straight copy.
+	{dst: "proxyd_routes", src: "proxyd_routes",
+		cols: "path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to",
+		sel:  "path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to"},
+	// audit_log: routd.db OWNS it (routd migration 0016 mirrors store 0066);
+	// dashd/proxyd/webd all emit + read there. Straight copy — `id` carried so
+	// forensic ids stay stable (routd.db has no audit_log before its migrations).
+	{dst: "audit_log", src: "audit_log",
+		cols: "id, created_at, category, action, actor, actor_sub, resource, scope, surface, params_summary, outcome, error_msg, duration_ms, turn_id, folder, instance, request_id, source_ip",
+		sel:  "id, created_at, category, action, actor, actor_sub, resource, scope, surface, params_summary, outcome, error_msg, duration_ms, turn_id, folder, instance, request_id, source_ip"},
 	// cost_log: messages.db has no turn_id column (routd PK is folder,turn_id,model).
 	// Synthesize a UNIQUE turn_id per source row ('mig-'||rowid) — a constant ''
 	// would collapse every legacy (folder,model) pair to ONE row under INSERT OR
@@ -247,17 +258,20 @@ CREATE TABLE IF NOT EXISTS audit_log (
   source_ip       TEXT
 );`
 
-// orphanTables stay in messages.db post-cutover: dashd owns some (audit_log,
-// …); authd's auth.db starts fresh. routd reads NONE of them — every table it
-// needs moved to routd.db or federated over HTTP. onboarding/invites/
-// onboarding_gates are NOT orphans (onbod OWNS them → onbodSpecs); auth_users is
-// NOT an orphan either (routd.db owns it as user_profiles → routdSpecs, read
-// cross-DB by onbod). auth_sessions stays — the cookie-session path is gone.
-// Listed so the summary tells the operator messages.db is NOT retired.
+// orphanTables stay in messages.db post-cutover: no daemon reads them. Every
+// table a daemon still needs moved to routd.db / onbod.db / runed.db or is
+// federated over HTTP. onboarding/invites/onboarding_gates are NOT orphans
+// (onbod OWNS them → onbodSpecs); auth_users is NOT an orphan either (routd.db
+// owns it as user_profiles → routdSpecs, read cross-DB by onbod);
+// audit_log/proxyd_routes are NOT orphans (routd.db owns both → routdSpecs).
+// auth_sessions stays — the cookie-session path is gone. config_meta stays
+// pending the `arizuko apply` repoint (BUGS.md Y1).
+//
+// Listed so the summary tells the operator what is left behind. messages.db is
+// RETIRED — no daemon opens it — but the file is NOT deleted: it holds pre-split
+// history. Disposing of it is the operator's call, separately.
 var orphanTables = []string{
-	"audit_log", "router_state",
-	"proxyd_routes", "config_meta", "cli_audit", "ipc_audit",
-	"auth_sessions",
+	"router_state", "config_meta", "cli_audit", "ipc_audit", "auth_sessions",
 }
 
 func migrateSplit(storeDir string, dryRun bool) error {
@@ -337,9 +351,10 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	fmt.Printf("  routd.db rows: %s\n", fmtCounts(routdSpecs, rN))
 	fmt.Printf("  runed.db rows: %s\n", fmtCounts(runedSpecs, uN))
 	fmt.Printf("  onbod.db rows: %s\n", fmtCounts(onbodSpecs, oN))
-	fmt.Printf("\norphan tables LEFT IN messages.db (not copied — messages.db is NOT retired):\n  %v\n",
+	fmt.Printf("\norphan tables LEFT IN messages.db (not copied — no daemon reads them):\n  %v\n",
 		orphanTables)
-	fmt.Println("  (dashd keeps writing messages.db; acl+secrets+tasks+pane copied to routd.db; onboarding+invites+gates copied to onbod.db; routd opens NO sibling DB.)")
+	fmt.Println("  (messages.db is RETIRED — no daemon opens it after this run. The FILE is kept:")
+	fmt.Println("   it holds pre-split history; deleting it is your call, separately.)")
 	if !dryRun {
 		chownMatch(msgPath, storeDir, "routd.db", "runed.db", "onbod.db")
 	}

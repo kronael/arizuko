@@ -9,15 +9,15 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// TestMigration0016AuditLog proves routd.db gains audit_log and that routd.Open
-// backfills existing rows from a sibling messages.db (the pre-split shared sink
-// dashd/proxyd/webd used to write). Guards the audit-owner move: audit now
-// lands in routd.db, so messages.db can retire.
-func TestMigration0016AuditLog(t *testing.T) {
+// TestMigration0016AuditLogIgnoresLegacy proves routd.db gains audit_log, that
+// audit emits land there, and that routd.Open does NOT read a sibling
+// messages.db to fill it. audit's owner is routd.db; the one-time monolith copy
+// belongs to `arizuko migrate-split` alone.
+func TestMigration0016AuditLogIgnoresLegacy(t *testing.T) {
 	dir := t.TempDir()
 
-	// Seed a pre-split messages.db with one audit_log row via the same insert
-	// path the daemons use (store.Open runs store/0066 → messages.db audit_log).
+	// A pre-split messages.db carrying audit rows must be inert (store.Open runs
+	// store/0066 → messages.db audit_log).
 	msg, err := store.Open(dir)
 	if err != nil {
 		t.Fatalf("open messages.db: %v", err)
@@ -33,22 +33,19 @@ func TestMigration0016AuditLog(t *testing.T) {
 	}
 	msg.Close()
 
-	// routd.Open runs 0016 (schema) + copyLegacyAuditLog (backfill).
 	d, err := Open(dir)
 	if err != nil {
 		t.Fatalf("routd.Open: %v", err)
 	}
 	defer d.Close()
 
-	// routd.db is where audit now writes + is read: the row must resolve here.
 	var n int
 	if err := d.SQL().QueryRow(
-		`SELECT COUNT(*) FROM audit_log WHERE action='acl.add' AND folder='atlas/support'`,
-	).Scan(&n); err != nil {
+		`SELECT COUNT(*) FROM audit_log WHERE action='acl.add'`).Scan(&n); err != nil {
 		t.Fatalf("read audit_log from routd.db: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("audit_log row not backfilled into routd.db: got %d, want 1", n)
+	if n != 0 {
+		t.Errorf("routd.Open read the retired messages.db: got %d audit rows, want 0", n)
 	}
 
 	// A fresh emit against routd.db lands (routd's own mutation paths depend on
@@ -60,22 +57,6 @@ func TestMigration0016AuditLog(t *testing.T) {
 		Outcome:  audit.OutcomeOK,
 	}); err != nil {
 		t.Fatalf("emit into routd.db audit_log: %v", err)
-	}
-
-	// Idempotent: re-opening must not duplicate the backfilled row.
-	d.Close()
-	d2, err := Open(dir)
-	if err != nil {
-		t.Fatalf("routd.Open (second): %v", err)
-	}
-	defer d2.Close()
-	var m int
-	if err := d2.SQL().QueryRow(
-		`SELECT COUNT(*) FROM audit_log WHERE action='acl.add'`).Scan(&m); err != nil {
-		t.Fatalf("re-read audit_log: %v", err)
-	}
-	if m != 1 {
-		t.Errorf("second open duplicated audit_log: got %d rows, want 1", m)
 	}
 }
 

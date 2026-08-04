@@ -6,13 +6,14 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// TestMigration0015ProxydRoutes proves routd.db gains proxyd_routes and that
-// routd.Open backfills existing rows from a sibling messages.db (the pre-split
-// source proxyd used to read). Guards the two-DB route-resolution straddle fix.
-func TestMigration0015ProxydRoutes(t *testing.T) {
+// TestMigration0015ProxydRoutesIgnoresLegacy proves routd.db gains proxyd_routes
+// and that routd.Open does NOT read a sibling messages.db to fill it. The
+// monolith→split copy belongs to `arizuko migrate-split` alone; routd opening
+// the retired monolith on every boot was the last reason it stayed live.
+func TestMigration0015ProxydRoutesIgnoresLegacy(t *testing.T) {
 	dir := t.TempDir()
 
-	// Seed a pre-split messages.db with a route.
+	// A pre-split messages.db sitting next to routd.db must be inert.
 	msg, err := store.Open(dir) // store.Open == messages.db, runs store migrations
 	if err != nil {
 		t.Fatalf("open messages.db: %v", err)
@@ -22,41 +23,23 @@ func TestMigration0015ProxydRoutes(t *testing.T) {
 	}
 	msg.Close()
 
-	// routd.Open runs 0015 (schema) + copyLegacyProxydTables (backfill).
 	d, err := Open(dir)
 	if err != nil {
 		t.Fatalf("routd.Open: %v", err)
 	}
 	defer d.Close()
 
-	rst := store.New(d.SQL())
-	routes, err := rst.AllProxydRoutes()
+	routes, err := store.New(d.SQL()).AllProxydRoutes()
 	if err != nil {
 		t.Fatalf("read proxyd_routes from routd.db: %v", err)
 	}
-	if len(routes) != 1 || routes[0].Path != "/panel/" {
-		t.Fatalf("proxyd_routes not backfilled: %+v", routes)
-	}
-
-	// Idempotent: re-opening must not duplicate or error (INSERT OR IGNORE).
-	d.Close()
-	d2, err := Open(dir)
-	if err != nil {
-		t.Fatalf("routd.Open (second): %v", err)
-	}
-	defer d2.Close()
-	routes2, err := store.New(d2.SQL()).AllProxydRoutes()
-	if err != nil {
-		t.Fatalf("re-read proxyd_routes: %v", err)
-	}
-	if len(routes2) != 1 {
-		t.Errorf("second open duplicated proxyd_routes: got %d rows, want 1", len(routes2))
+	if len(routes) != 0 {
+		t.Errorf("routd.Open read the retired messages.db: got %d proxyd_routes, want 0", len(routes))
 	}
 }
 
 // TestMigration0024DropsAuthSessions proves the cookie-session table is gone
-// from routd.db AND that the backfill no longer recreates rows for it, even
-// though the legacy messages.db still carries the table.
+// from routd.db, even though a legacy messages.db still carries it.
 func TestMigration0024DropsAuthSessions(t *testing.T) {
 	dir := t.TempDir()
 

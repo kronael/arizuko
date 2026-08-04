@@ -1,7 +1,6 @@
 package routd
 
 import (
-	"context"
 	"database/sql"
 	"embed"
 	"encoding/json"
@@ -54,117 +53,16 @@ func (d *DB) SetSecretKeys(raws ...[]byte) { d.secretKeyring = raws }
 
 // Open opens routd.db at dir/routd.db (WAL, FK on) and runs the routd migration
 // sequence. routd opens NO sibling DB — every table it needs is in routd.db
-// (acl/secrets/tasks/pane) or federated over HTTP (identity → authd, session_log
-// → runed). See sibling_db.go.
+// (acl/secrets/tasks/pane/proxyd_routes/audit_log) or federated over HTTP
+// (identity → authd, session_log → runed). See sibling_db.go. The one-time
+// monolith→split copy of proxyd_routes + audit_log belongs to
+// `arizuko migrate-split`, the sole tool that reads messages.db.
 func Open(dir string) (*DB, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	dsn := filepath.Join(dir, "routd.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
-	d, err := open(dsn)
-	if err != nil {
-		return nil, err
-	}
-	if err := d.copyLegacyProxydTables(dir); err != nil {
-		d.Close()
-		return nil, err
-	}
-	if err := d.copyLegacyAuditLog(dir); err != nil {
-		d.Close()
-		return nil, err
-	}
-	return d, nil
-}
-
-// copyLegacyProxydTables is a one-release, idempotent backfill: it copies
-// proxyd_routes rows from the pre-split messages.db into routd.db (where proxyd
-// now reads them, so route resolution touches ONE DB). Runs in
-// autocommit AFTER migrations because the migration runner wraps each file in
-// BEGIN EXCLUSIVE, and modernc.org/sqlite locks an ATTACHed DB when a write
-// transaction is already open on the main. Absent messages.db (fresh install)
-// is a no-op. INSERT OR IGNORE keeps it idempotent across restarts; the
-// messages.db copies are left intact as a fallback (no DROP).
-func (d *DB) copyLegacyProxydTables(dir string) error {
-	legacy := filepath.Join(dir, "messages.db")
-	if _, err := os.Stat(legacy); err != nil {
-		return nil // no pre-split DB → nothing to backfill
-	}
-	// Pin to ONE connection: ATTACH is per-connection, so the INSERT must run on
-	// the same conn or it sees no `legacy` schema. Autocommit (no BEGIN) — an
-	// open write tx locks the ATTACHed DB under modernc.org/sqlite.
-	ctx := context.Background()
-	conn, err := d.db.Conn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	if _, err := conn.ExecContext(ctx,
-		"ATTACH DATABASE ? AS legacy", "file:"+legacy+"?mode=ro"); err != nil {
-		return fmt.Errorf("attach legacy messages.db: %w", err)
-	}
-	defer conn.ExecContext(ctx, "DETACH DATABASE legacy")
-	// Explicit column lists (not SELECT *) so a divergent legacy column order
-	// can't silently misalign the copy. legacy may predate either table (an
-	// old messages.db without proxyd_routes); skip a table that isn't there.
-	copies := []struct{ table, cols string }{
-		{"proxyd_routes", "path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to"},
-	}
-	for _, c := range copies {
-		var n int
-		if err := conn.QueryRowContext(ctx,
-			"SELECT 1 FROM legacy.sqlite_master WHERE type='table' AND name=?", c.table,
-		).Scan(&n); err != nil {
-			continue
-		}
-		if _, err := conn.ExecContext(ctx, fmt.Sprintf(
-			"INSERT OR IGNORE INTO %s (%s) SELECT %s FROM legacy.%s",
-			c.table, c.cols, c.cols, c.table)); err != nil {
-			return fmt.Errorf("backfill %s from messages.db: %w", c.table, err)
-		}
-	}
-	return nil
-}
-
-// copyLegacyAuditLog is a one-release, idempotent backfill: it copies audit_log
-// rows from the pre-split messages.db into routd.db (where dashd/proxyd/webd now
-// emit + read, so audit lands in the owner DB). Same autocommit + ATTACH shape
-// as copyLegacyProxydTables. Absent messages.db (fresh install) is a no-op. The
-// AUTOINCREMENT id PK is copied verbatim (routd.db had NO audit_log before this,
-// so no collisions); INSERT OR IGNORE keeps it idempotent across restarts and
-// the messages.db copy is left intact as a fallback (no DROP).
-func (d *DB) copyLegacyAuditLog(dir string) error {
-	legacy := filepath.Join(dir, "messages.db")
-	if _, err := os.Stat(legacy); err != nil {
-		return nil // no pre-split DB → nothing to backfill
-	}
-	ctx := context.Background()
-	conn, err := d.db.Conn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	if _, err := conn.ExecContext(ctx,
-		"ATTACH DATABASE ? AS legacy", "file:"+legacy+"?mode=ro"); err != nil {
-		return fmt.Errorf("attach legacy messages.db: %w", err)
-	}
-	defer conn.ExecContext(ctx, "DETACH DATABASE legacy")
-	// A pre-split messages.db predating store/0066 has no audit_log — skip then.
-	var present int
-	if err := conn.QueryRowContext(ctx,
-		"SELECT 1 FROM legacy.sqlite_master WHERE type='table' AND name='audit_log'",
-	).Scan(&present); err != nil {
-		return nil
-	}
-	// Explicit column list (not SELECT *) so a divergent legacy column order
-	// can't silently misalign the copy; id carried so forensic ids are stable.
-	const cols = "id, created_at, category, action, actor, actor_sub, resource, " +
-		"scope, surface, params_summary, outcome, error_msg, duration_ms, " +
-		"turn_id, folder, instance, request_id, source_ip"
-	if _, err := conn.ExecContext(ctx,
-		"INSERT OR IGNORE INTO audit_log ("+cols+") SELECT "+cols+" FROM legacy.audit_log"); err != nil {
-		return fmt.Errorf("backfill audit_log from messages.db: %w", err)
-	}
-	return nil
+	return open(dsn)
 }
 
 // OpenMem opens a fresh isolated in-memory routd.db for tests. The DB name
