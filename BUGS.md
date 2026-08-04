@@ -2358,25 +2358,62 @@ instances.
 - **Source:** `onbod/main.go` createWorldTx + `onbod/main.go:508`; `auth/acl.go` matchSegments
 - **Status:** proposed — needs the reader migration designed before the grant changes
 
-## P1 — pairing unreachable outside a route miss (2026-08-01, crash-ordering FIXED e5f62ef2)
+## P1 — pairing unreachable outside a route miss (2026-08-01, FIXED by 5/31)
 
-`onbod.linkJID` writes the correct `acl_membership(jid → sub)` edge, but the
-only path to it is a route MISS, and its success path creates a world. A user
-in an already-routed chat can therefore never pair, which is the capability
-`specs/5/31` exists to deliver. Pairing and admission are two mechanisms
-sharing one entry point.
+`onbod.linkJID` wrote the correct `acl_membership(jid → sub)` edge, but the only
+path to it was a route MISS whose success path creates a world. `specs/5/31`
+shipped the extraction: `route_tokens kind='pair'`, `issue_pairing_link`,
+`GET/POST /pair/<token>`, `unpair`. Token and edge are both in routd.db, so the
+cross-DB ownership problem this entry raised does not arise.
 
-**Blocker, not effort:** the extraction cannot be done atomically as drawn.
-Pairing tokens live in `onbod.db`; the membership edge lives in routd's DB;
-`linkJID` holds two independent `*sql.DB` handles and issues separate
-statements. There is no `ATTACH` or cross-database transaction, so "consume
-the token and write the edge in one tx" needs an ownership decision — either
-one daemon owns both writes, or the flow tolerates a partial state with a
-documented repair.
+## P1b — fold onbod's greeting onto pairing (2026-08-04, PROPOSED — redesign, needs sign-off)
 
-- **Severity:** medium (capability blocked; no data at risk)
-- **Source:** `onbod/main.go` linkJID; `specs/5/31-identity-pairing.md`
-- **Status:** proposed — needs the cross-DB ownership decision first
+The reverse direction of P1 has NOT shipped: onbod still mints
+`onboarding.token`, posts `/onboard?token=…`, carries the JID across OAuth in
+the unsigned `onboard_jid` cookie, and writes its own edge stamped
+`added_by='linkJID'` — a second writer into the same table.
+
+Investigated 2026-08-04 as a deletion; it is a **redesign of onboarding's
+control flow**, not a swap. Three blockers, each an addition:
+
+1. **The shipped mint structurally refuses the JIDs onbod greets.**
+   `pairingTargetFolder` (`routd/route_tokens_resource.go`) 403s when
+   `DefaultFolderForJID(jid) == ""`, and `router.ResolveRoute` has no
+   catch-all. onbod's row is inserted only in routd's route-MISS branch
+   (`routd/loop.go:557`), so every greeted JID is unrouted by construction.
+   onbod would need its own exported `store` mint with a different gate — a
+   second minting rule, replacing the second edge writer it removes.
+2. **10-minute TTL vs a once-only greeting.** `store.PairingTTL` is 10 min;
+   the greeting link is 24 h and `promptUnprompted` prompts each JID exactly
+   once (`WHERE prompted_at IS NULL`). A user who clicks late is permanently
+   locked out — the `jid` PRIMARY KEY blocks a fresh onboarding row. Needs a
+   re-prompt policy that does not spam the chat.
+3. **`linkJID` is also the admission advance.** It queues (gate match),
+   approves (no gates), or refuses to the user's face (`errLinkRefused` → 403
+   via `writeLinkErr`), and emits the `onboarding.queue`/`.approve` audit
+   rows. `RedeemPairing` writes only the edge and webd's success page is
+   terminal, so the whole admission half loses its trigger and its way to
+   report the outcome. Needs a new trigger (a tick scanning for newly-paired
+   `awaiting_message` rows, plus a chat follow-up) — the flow moves from
+   browser-continuity to chat-async.
+
+Live evidence that the stated harm is not yet biting: **zero
+`added_by='linkJID'` rows** on krons, sloth and marinade
+(`SELECT added_by, COUNT(*) FROM acl_membership GROUP BY 1` →
+`cli:kron-all`, `cli:kron-discord`, `migration-0053`, `admin`,
+`cli:ondra-grant` only). So nothing in production is currently out of reach of
+`unpair`.
+
+Restamping `linkJID`'s edge to `'pairing'` is NOT a safe one-liner either: it
+would let `unpair` delete an edge while `onboarding.user_sub` still names that
+sub and the row still reads approved/queued, leaving the admission row stale.
+
+- **Severity:** low today (two writers, but one has written nothing)
+- **Source:** `onbod/main.go` linkJID/handleTokenLanding/handleDashboard;
+  `specs/5/31-identity-pairing.md` §"Onboarding — extracted from, not yet
+  folded onto"
+- **Status:** proposed — needs sign-off on the chat-async admission flow
+  before any code moves
 
 ## P2 — three identity-link mechanisms; authd owns two of them (2026-08-02, decided)
 
@@ -2455,7 +2492,29 @@ identity by hand — which is the pairing capability `5/31` is about.
 `provider`/`provider_sub` already holds a platform sub fine — the endpoint test
 seeds `tg:42` that way.
 
-- **Status:** step 1 shipped; step 2 re-scoped from deletion to migration
+### Step 2 SHIPPED as a deletion (2026-08-04, fcd845cb + 54125cbd)
+
+The revision above was itself wrong on one point: `inspect_identity` had
+already moved. `routd/identity.go` resolves through authd's
+`GET /v1/identities/{sub}` (`b6aabfd2`), which step 1 re-pointed at
+`auth_users` + `oauth_identities` — so the tool needed no work.
+
+That left `arizuko identity link|unlink` as the only writer, filling a table no
+reader ever looked at, which is not a capability to preserve. And the manual
+bind it nominally offered is what `5/31` pairing now does with consent and an
+inverse. So step 2 landed as a straight delete, no manual writer added:
+`store/identities.go`, the CLI subcommand, `linked_to_sub` + `CanonicalSub` +
+`LinkSubToCanonical` + `LinkedSubs` + `AuthUserBySub`, dashd's `linkedSubs`,
+and migrate-split's copy of the two tables. Dropped by authd `0006` and routd
+`0027`.
+
+**Step 3 is what remains** and is an addition, not a deletion: dashd's
+"Linked accounts" section was removed rather than left rendering an
+always-empty table, so showing a real list means dashd consuming authd's
+`GET /v1/identities/{sub}` — including the failure-mode decision this entry
+already flagged. proxyd no longer reads `CanonicalSub` at all.
+
+- **Status:** steps 1 + 2 shipped; step 3 (dashd consumes authd's endpoint) open
 
 ## P3b — rejected minimization phases, recorded so they are not retried (2026-08-01, closed)
 
