@@ -481,16 +481,88 @@ func TestAppSrcMountRoutdAndRuned(t *testing.T) {
 	}
 }
 
-// Every daemon that IS mounted still gets the data dir at containerDataMount,
-// and vited — which only serves /web — gets it read-only.
-func TestDataMountsStayNarrow(t *testing.T) {
-	out := gen(t, seed(t, "API_PORT=8080\n"))
-	for _, svc := range []string{"authd", "routd", "runed", "dashd", "webd", "proxyd", "onbod"} {
-		if !strings.Contains(serviceBlock(out, svc), "/srv/app/home\n") {
-			t.Errorf("%s lost its data-dir mount; got:\n%s", svc, serviceBlock(out, svc))
+// The per-daemon data mount table. A daemon gets the subpaths it actually
+// opens and nothing else — mount topology, not convention, is what keeps one
+// daemon out of another's DB and out of the live agent sockets under ipc/
+// (spec 5/16, BUGS A1). Each entry is justified at its emitter in compose.go;
+// widening one here means the daemon really did grow a new path, so state why
+// in the emitter comment too.
+//
+// routd/runed/dashd take the whole tree on purpose: routd reads store/ +
+// groups/ + ipc/ + web/ + tts/ + surrogate/ + connectors.toml, runed drives
+// the spawn path, and dashd is the operator console over four DBs plus the
+// groups tree.
+var wantDataMounts = map[string][]string{
+	"authd":  {"/store:/srv/app/home/store"},
+	"webd":   {"/store:/srv/app/home/store"},
+	"proxyd": {"/store:/srv/app/home/store"},
+	"onbod": {
+		"/store:/srv/app/home/store",
+		"/groups:/srv/app/home/groups",
+		"/web:/srv/app/home/web",
+	},
+	"routd": {":/srv/app/home"},
+	"runed": {":/srv/app/home"},
+	"dashd": {":/srv/app/home"},
+}
+
+func TestDataMountsAreScopedPerDaemon(t *testing.T) {
+	dir := seed(t, "API_PORT=8080\n")
+	out := gen(t, dir)
+	for svc, want := range wantDataMounts {
+		s := serviceBlock(out, svc)
+		if s == "" {
+			t.Errorf("%s not emitted", svc)
+			continue
+		}
+		for _, w := range want {
+			if !strings.Contains(s, "- "+dir+w+"\n") {
+				t.Errorf("%s missing mount %q; got:\n%s", svc, dir+w, s)
+			}
+		}
+		// The whole-tree mount is exactly `<dataDir>:/srv/app/home`. A scoped
+		// daemon must never carry it — that is the boundary this test defends.
+		if want[0] != ":/srv/app/home" && strings.Contains(s, "- "+dir+":"+containerDataMount+"\n") {
+			t.Errorf("%s mounts the whole data dir; it is scoped to %v:\n%s", svc, want, s)
 		}
 	}
-	vited := serviceBlock(out, "vited")
+}
+
+// A scoped daemon must not reach the instance secrets or another agent's live
+// MCP socket. Both are children of the data dir, so a whole-tree mount hands
+// them over; these are the two that cost the most if it regresses.
+func TestScopedDaemonsCannotReachIpcOrDotEnv(t *testing.T) {
+	dir := seed(t, "API_PORT=8080\n")
+	out := gen(t, dir)
+	for _, svc := range []string{"authd", "webd", "proxyd", "onbod"} {
+		s := serviceBlock(out, svc)
+		if strings.Contains(s, "/ipc:") {
+			t.Errorf("%s must not mount ipc/ (live agent MCP sockets); got:\n%s", svc, s)
+		}
+		if strings.Contains(s, "- "+dir+":") {
+			t.Errorf("%s must not mount the data-dir root (.env lives there); got:\n%s", svc, s)
+		}
+	}
+}
+
+// Every mounted daemon still resolves DATA_DIR to the container mount point,
+// scoped or not — the subpaths land under it, so the env stays identical.
+func TestScopedDaemonsKeepDataDirEnv(t *testing.T) {
+	out := gen(t, seed(t, "API_PORT=8080\n"))
+	// runed renders its env through writeEnv (double quotes), the rest through
+	// writeSvc's own line (single quotes) — assert the value, not the quoting.
+	for svc := range wantDataMounts {
+		s := serviceBlock(out, svc)
+		if !strings.Contains(s, `DATA_DIR: "`+containerDataMount+`"`) &&
+			!strings.Contains(s, `DATA_DIR: '`+containerDataMount+`'`) {
+			t.Errorf("%s lost DATA_DIR; got:\n%s", svc, s)
+		}
+	}
+}
+
+// vited only serves /web and writes nothing into it.
+func TestVitedWebMountIsReadOnly(t *testing.T) {
+	vited := serviceBlock(gen(t, seed(t, "API_PORT=8080\n")), "vited")
 	if !strings.Contains(vited, "/web:/web:ro\n") {
 		t.Errorf("vited must mount /web read-only (it never writes); got:\n%s", vited)
 	}
