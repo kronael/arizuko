@@ -87,9 +87,9 @@ Four config verbs, unchanged, all in `cmd/arizuko/apply.go`:
 
 Two new archive verbs (unbuilt — CLI names, not yet in `cmd/arizuko/`):
 
-- `arizuko archive export <instance> [dir_or_file] [--quiesced] [--since <RFC3339>]`
-  — full backup: config + secret values + message history + group
-  filesystem trees.
+- `arizuko archive export <instance> [file] [--quiesced]` — full backup:
+  config + secret values + message history + group filesystem trees, as
+  one tar file.
 - `arizuko archive apply <instance> <archive> [--force]` — full restore.
 
 **Rebuild scope is the load-bearing decision for config.** Per resource,
@@ -143,23 +143,6 @@ filesystem trees). Forcing them through the row-schema engine would bloat
 one mechanism to serve two very different shapes (bounded declarative
 config vs. unbounded immutable log vs. a directory tree); see "The
 full-instance archive" for what each actually is.
-
-## OpenAPI emission
-
-**This spec owns OpenAPI emission** (it subsumed the former
-openapi-discoverable spec). The same `RowType` reflection emits an OpenAPI
-3.1 document per daemon — no `huma`, no `swag`, no codegen
-(`resreg/openapi.go`). Every HTTP-serving daemon mounts `GET
-/openapi.json`, including daemons owning no resources, so the aggregator
-page (`/pub/arizuko/reference/openapi.html`) lists them uniformly.
-
-**The endpoint is public and mounts BEFORE auth middleware** — schemas
-describe surface, not data. The doc is cached for the process lifetime.
-
-Known limit: OpenAPI emits a fixed CRUD convention, so a resource whose
-mounted handler diverges from its `resreg/resources/*.go` declaration can
-still drift. Single-sourcing the two declarations is `5/16`'s deferred
-"one owner + federation" work.
 
 ## Content-hash CAS, not a counter
 
@@ -332,13 +315,17 @@ end rather than pretending it isn't there.
 
 ### Shape
 
-A **directory** of per-subsystem artifacts, tarred as a whole for
-transport — same units whether it lands as a directory or a single tar,
-matching the multi-document YAML decision's own directory-vs-single-file
-duality:
+**One transport shape: a single tar file — not a directory the tool also
+accepts as input.** The multi-document YAML decision (above) is about a
+single subsystem's document structure; it doesn't extend to "the archive
+as a whole is a directory or a tar, pick one at call time" — that would
+be two entry points into `archive apply` (walk a directory vs. untar to
+a temp dir) for one artifact, for a convenience ( `ls`-without-extracting)
+`tar tf` already gives for free. `archive export` always writes one
+`.tar`; `archive apply` always reads one. Contents:
 
 ```
-archive.yaml            # consistency level, per-subsystem snapshot timestamps
+archive.yaml             # format_version, consistency level, per-subsystem snapshot timestamps
 routd.yaml               # config manifest document (this spec's existing mechanism)
 onbod.yaml                # config manifest document
 routd.secrets.yaml       # secret + route-token/invite VALUES (see below) — separate
@@ -349,7 +336,11 @@ groups.tar               # groups/<folder>/ trees, one entry per folder
 
 `routd.yaml`/`onbod.yaml` are byte-identical to what `arizuko export`
 would produce standalone — literally the same function call, written to a
-different path. Everything else is new.
+different path. Everything else is new. `groups.tar` stays a
+tar-inside-the-tar rather than flattened entries, because it carries
+filesystem trees with their own structure/permissions — a different
+shape from its sibling YAML/JSONL documents, not a format this spec
+otherwise uses.
 
 Not archived, and why: `auth.db` (identities, refresh tokens, signing
 keys) and `runed.db` (spawn/session execution history) are outside the
@@ -364,12 +355,13 @@ be actively wrong, not merely out of scope.
 
 ### Message history
 
-**Full, always — no time window, no opt-in flag.** The operator's own
-framing ("message history" as part of "everything," "a full instance
-backup/restore") settles this; a partial-by-default archive would silently
-fail the one property the operator asked for. `--since <RFC3339>`
-narrows `archive export` for operators who want cheaper incrementals
-(krons has real volume), but the unqualified command is the full table.
+**Full, always — no time window, no opt-in flag, no `--since`.** The
+operator's own framing ("message history" as part of "everything," "a
+full instance backup/restore") settles this; a partial-by-default archive
+would silently fail the one property the operator asked for. Incremental
+export is a different tool with a different contract (a resumable
+cursor, a retention policy) — out of scope here, not a flag away from
+this one.
 
 Format: JSONL (`.jl`), not YAML. `messages` is unbounded and event-shaped
 (`9/2`: "no cold tier... warm for the content, hot for queue position and
@@ -384,8 +376,9 @@ because none of it applies to an append-only table.
 
 **Import semantics: idempotent bulk append, not rebuild.** `messages.id`
 is the PK; import is `INSERT OR IGNORE` (or equivalent) keyed on it, so
-re-running the same archive, or an overlapping `--since` window, is a
-no-op on already-present rows. No CAS, no rollback — the "manifest
+re-running the same archive twice, or restoring onto a target that
+already has some of the same history, is a no-op on already-present
+rows. No CAS, no rollback — the "manifest
 projection, not the database" boundary above states plainly that rollback
 covers config only; messages were never in that projection, so this
 isn't a gap in the rollback design, it's outside its stated scope. Import
@@ -400,61 +393,106 @@ verbatim by the bulk import — no rewriting, no cross-reference to resolve,
 because nothing else in `routd.db` FK-references them (`chat_jid` has no
 declared FK to `chats.jid`).
 
-**FTS index rebuild: none needed, by construction.** `messages_fts` is a
-trigger-maintained shadow (`store/migrations/0070-messages-fts.sql`):
-`messages_fts_ai` fires `AFTER INSERT ON messages`. As the bulk import
-INSERTs rows through the normal `messages` table (not a raw file copy),
-the existing trigger populates the FTS shadow incrementally, per row, for
-free — the same mechanism migration 0070 already relies on for live
-traffic. No separate "rebuild the index" step, no new code.
+**FTS index rebuild: none needed, by construction — and JSONL is the
+right transport, not a normal-tables copy.** `messages_fts` is a
+trigger-maintained shadow. Corrected citation, verified against the code
+this pass: `store/migrations/0070-messages-fts.sql` is the legacy
+frozen `messages.db`'s copy of this trigger — dead once the CLI is
+repointed to `routd.db` (Phase 2 below). The live trigger the archive
+actually imports against is `routd/migrations/0001-initial-schema.sql:56-68`,
+which is byte-for-byte the same `messages_fts_ai`/`_au`/`_ad` logic,
+just folded into routd's own initial schema instead of a numbered
+migration (routd restarted migration numbering at the split).
 
-`chats` rows (hot tier — `agent_cursor`, `sticky_group`, `sticky_topic`)
-are deliberately **not** part of this artifact. They're rebuildable
-operational state (`9/2`), not history; a restored instance starts with
-whatever `chats` rows already exist (or none, on a fresh instance) and
-repopulates them as new messages route through, same as today.
+Codex proposed importing message history by copying rows "through the
+normal tables" instead of a JSONL lane, arguing that lets the existing
+FTS triggers populate for free. Checked against `pollOnce`/the trigger
+definitions: **the spec's original claim holds, but the codex framing is
+a false dichotomy, not a live disagreement.** `AFTER INSERT ON messages`
+fires on any ordinary SQL `INSERT` regardless of what produced the row
+values — a JSONL-decode-then-`INSERT`, and an `ATTACH`-and-`INSERT...
+SELECT` between two live SQLite files, are both "through the normal
+messages table" from the trigger's point of view; the only import shape
+that would skip it is a raw page-level copy (`VACUUM INTO`, a file `cp`),
+which this spec already rejects as a transport ("Consistency levels,"
+above — cheaper to take one explicit read tx than a file-level copy). So
+"normal tables" was never actually on the table as
+an alternative to JSONL for the FTS question — it's an alternative to
+JSONL only as an _archive format_, and loses there: an archive must be a
+durable, portable artifact readable on a different host, months later,
+with the source DB gone — `ATTACH`+`INSERT SELECT` needs both DBs
+mounted simultaneously and produces nothing you can store or diff.
+JSONL is the artifact; the row-schema/YAML engine is the wrong fit for
+the same cardinality reason already stated (loading hundreds of
+thousands of rows into a `yaml.Node` tree). JSONL also matches the
+line-oriented batching "Import semantics" (above) already requires
+(read N lines, one `INSERT` batch, commit, repeat) more directly than a
+table-to-table bulk copy would. No separate "rebuild the index" step
+either way, no new code — the existing trigger does the work on every
+import path this spec considered.
 
-### Secret and token values — the "as-is" lane
+`chats` rows (hot tier — `sticky_group`, `sticky_topic`, `is_group`) are
+deliberately **not** part of this artifact — rebuildable operational
+state (`9/2`), not history.
+
+**One exception, load-bearing, not optional: `agent_cursor`.** Verified
+against the live dispatch path, not assumed: `routd/loop.go`'s
+`pollOnce` (lines 491-518) reads every message after the global min
+cursor, groups by chat, and — unless that chat's own `agent_cursor`
+already covers the batch (the `last.Timestamp <= cursor` skip at line 506) — enqueues the chat for a turn. `GetAgentCursor`/`SetAgentCursor`
+(`routd/db.go:614-625`) read/write `chats.agent_cursor` directly; a chat
+with no `chats` row reads back `""` (the `sql.NullString` zero value),
+which sorts before every real RFC3339 timestamp. So importing message
+history without also setting `agent_cursor` makes the restored
+instance's poller treat the entire imported history as unseen and
+dispatch a turn — the agent answering every historical message — for
+every restored chat. Message import therefore ends with one `INSERT ...
+ON CONFLICT(jid) DO UPDATE SET agent_cursor=excluded.agent_cursor` per
+imported `chat_jid`, setting it to `MAX(messages.timestamp)` over the
+rows just written for that chat. This is **derived from the imported
+messages, not carried from the archive** — there is no `chats.yaml`
+document, and the archive still ships no `chats` row content beyond
+this one derived column.
+
+### Secret and token values
 
 **DECISION (2026-08-04, operator): encrypted secret blobs travel as-is.
 `SECRETS_KEY` never enters the archive. Import fails loud if the key on
 the target cannot decrypt.**
 
 The stored form is already a plain string — `"v2:" + base64(nonce ||
-ciphertext)` (`store/secrets.go:21,35`) — trivially a YAML scalar, no new
-encoding needed. `routd.secrets.yaml` carries a row shape identical to the
-existing `SecretsRow` (`resreg/resources/secrets.go`) plus the `Value`
-field the config manifest deliberately omits ("Secret safety," below,
-unchanged for plain `export`). Row count here is small (per-folder/user
-secrets, not an unbounded table), so YAML is the right fit, unlike
-messages.
+ciphertext)` (`store/secrets.go:21,35`; the column is `secrets.value`,
+renamed from `enc_value` — lineage comment `routd/migrations/0008-secrets.sql:5`)
+— trivially a YAML scalar, no new encoding needed. `routd.secrets.yaml`
+carries a row shape identical to the existing `SecretsRow`
+(`resreg/resources/secrets.go`) plus the `Value` field the config
+manifest deliberately omits ("Secret safety," below, unchanged for plain
+`export`).
 
-Import is **UPSERT by `(scope_kind, scope_id, key)`, never DELETE+INSERT**
-— `secrets` keeps `SkipApplyRebuild = true` even inside the archive path;
-this decision only adds a value to what was previously metadata-only, it
-does not change the never-wipe-by-omission invariant that flag exists to
-enforce (`resreg/resources/secrets.go`'s own doc comment already
-anticipated this: "Rebuilding triples from YAML on apply... is drafted").
-The same lane covers `route_tokens`/`invites` hash-at-rest values — a
-generalization of this decision, not a new one: system-generated
-credential material (secret blobs, token hashes) travels as-is through an
-UPSERT lane, never through config's DELETE+INSERT+CAS lane, for the same
-reason "Tokens in manifests" (below) already forbids rebuilding them from
-an operator-edited manifest. Ordinary config `apply` is unaffected — it
-still never touches these tables' credential columns; only `archive
-apply` does, via this dedicated lane.
+Import is **UPSERT by `(scope_kind, scope_id, key)`, copying the column
+verbatim, never DELETE+INSERT** — `secrets` keeps `SkipApplyRebuild =
+true` even inside the archive path; a rebuild would wipe live blobs.
+`route_tokens`/`invites` hash-at-rest values UPSERT the same way, for the
+same reason "Tokens in manifests" (below) already forbids rebuilding
+credential material from an operator-edited manifest. Ordinary config
+`apply` is unaffected; only `archive apply` touches these columns.
 
-**Fails loud, using existing code, not new crypto.** `store.open()`
-(`store/secrets.go:41`) already tries every key in the configured keyring
-(`s.secretKeys`, populated from `core.SecretKeyring`'s comma-separated
-`SECRETS_KEY`) and returns an error if none authenticate — AES-GCM's tag
-check makes this a wrong-key detector for free. `archive apply` calls the
-same function on one row before writing anything for this subsystem, and
-refuses the whole secrets step (not the whole archive — config and
-messages proceed independently) if it fails. This needs `store.open` (or
-an equivalent one-row decrypt-check) reachable from the archive CLI —
-currently package-private; exporting it is a small, mechanical change,
-not new logic.
+**Fails loud, validating every row, using existing code, not new
+crypto — and no new exported decrypt surface.** `store.open()`
+(`store/secrets.go:41`) already tries every key in the configured
+keyring and returns an error if none authenticate — AES-GCM's tag check
+makes this a wrong-key detector for free. One DB can hold blobs sealed
+under different retired keys (a rotation mid-history), so a single probe
+row proves nothing about the rest: **`archive apply` validates every row
+in `routd.secrets.yaml` before writing any of them**, and refuses the
+whole secrets step (not the whole archive — config and messages proceed
+independently) on the first failure, naming the failing `(scope_kind,
+scope_id, key)` without echoing the value. `store.open` stays
+package-private — the CLI never gains a decrypt capability. The
+validate-and-import path is one method living in `store/` (same package
+as `secrets.go`) that calls the private `open()` per row internally and
+discards the plaintext; its exported surface is "validate and import a
+batch," never "decrypt and return."
 
 ### Group filesystem trees
 
@@ -636,8 +674,9 @@ parallel validator: for resources carrying a declared `Scope`,
 `manifestScopes` (`resreg/engine.go:305`) already extracts every folder
 the manifest touches for that resource — the same set already used to
 pick scoped-DELETE targets. For string-typed references `Scope` cannot
-capture (globs, fragments — the exact set "Scope cannot be inferred from
-RowType" already names), the check is a per-resource `Hooks.ValidateRow`
+capture (globs, fragments — the set "FK posture" (below) enumerates:
+`acl.scope`, `routes.target`, `scheduled_tasks.chat_jid`,
+`secrets.scope_id`), the check is a per-resource `Hooks.ValidateRow`
 — the existing, documented extension point for "validation beyond types"
 (`resreg/engine.go:34-60`'s `Hooks` doc comment), not new mechanism.
 
@@ -678,37 +717,29 @@ target is where they diverge:
 
 ### Cross-instance portability
 
-What travels cleanly, and what doesn't, verified against the actual
-columns rather than assumed:
+**JIDs and folder paths travel verbatim — nothing is rewritten.**
+`messages.chat_jid`, `route_tokens.jid`, `scheduled_tasks.chat_jid` stay
+bound to the _source_ instance's channel credentials (a specific
+WhatsApp number, a specific Telegram bot token); a restored chat won't
+resume routing until the same external account is reconnected on the
+target. No FK enforces these, so nothing breaks on import — it's an
+operational fact, not a data bug, and there is no correct rewrite target
+without operator input. Same reasoning covers `WEB_HOST` (never embedded
+in a row — read from the environment at call sites, so there's nothing
+to rewrite) and already-issued token/pairing URLs (the `WEB_HOST` a
+recipient already has is baked in at mint time, not stored, so the URL
+breaks on restore even though the token row itself imports fine).
+`SECRETS_KEY` never travels (above), for the same class of reason:
+cross-instance secrets restore needs the operator to carry the key
+out-of-band.
 
-- **`WEB_HOST` is never embedded in a row.** It's read from the
-  environment at call sites (`core/config.go:191`,
-  `container/runner.go:797`, `routd/route_tokens_resource.go:170` for
-  pairing-link URLs) and composed into a URL only at read/render time. No
-  rewrite needed on import; the archive carries no host to rewrite.
-- **`proxyd_routes.backend`** is a compose service URL
-  (`http://dashd:8080` style, `store/migrations/0050-proxyd-routes.sql:7`)
-  — portable as long as the target instance uses the same
-  `:8080`-per-daemon compose convention it always does (CLAUDE.md). No
-  rewrite needed.
-- **Channel JIDs are NOT rewritten and make the archive instance-
-  specific.** `messages.chat_jid`, `route_tokens.jid`,
-  `scheduled_tasks.chat_jid` are bound to the _source_ instance's channel
-  credentials (a specific WhatsApp number, a specific Telegram bot token).
-  Restoring onto a different instance leaves them syntactically valid but
-  operationally inert — no FK enforces them, so nothing breaks, but a
-  restored chat history won't resume routing until the same external
-  accounts are reconnected on the target. This is a fact about the
-  archive, not a bug to fix by rewriting — there is no correct rewrite
-  target without operator input.
-- **`SECRETS_KEY` never travels** (decision above) — a secrets subsystem
-  is only meaningful on a target holding the same key(s); cross-instance
-  secrets restore requires the operator to carry the key out-of-band.
-- **Already-issued token/pairing URLs break** on cross-instance restore
-  even though the token rows themselves import fine — the URL a recipient
-  already has embeds the _source_ instance's `WEB_HOST`, baked in at mint
-  time, not stored. Not a data problem; an operational one, same shape as
-  the JID case.
+**Refuse an older target binary; don't try to translate for it.**
+`archive.yaml` stamps `format_version: N` — a small integer bumped only
+when an archive document's shape changes, independent of `arizuko`'s
+release tags. `archive apply` refuses outright when the archive's
+`format_version` exceeds the target binary's compiled-in
+`resreg.ArchiveFormatVersion`: failing loud beats silently ignoring
+fields an older binary doesn't know about.
 
 ## Apply is a restore, so filesystem prep follows the commit
 
@@ -868,92 +899,40 @@ responsibly.
 
 ## FK posture
 
-**FKs are ON globally** (`store/store.go` sets `PRAGMA foreign_keys=ON` per
-connection). **Declare a FK when** (a) the reference is row-shaped — single
-target table, not polymorphic — and (b) on parent delete the runtime wants
-either silent CASCADE or explicit RESTRICT, never silent dangling.
+**FKs are ON globally** (`store/store.go` sets `PRAGMA foreign_keys=ON`).
+Three FKs are declared and self-enforce, all CASCADE: `task_run_logs →
+scheduled_tasks` (0011), `web_routes.folder → groups` (0068),
+`route_tokens.owner_folder → groups` (0069).
 
-Three FKs qualify in v1, all CASCADE: `task_run_logs → scheduled_tasks`
-(0011), `web_routes.folder → groups` (0068), `route_tokens.owner_folder →
-groups` (0069). Run history, URL pinning, and webhook tokens all become
-meaningless when their parent dies.
-
-Every other cross-table reference is **intentionally string-typed**, for
-one of four reasons: polymorphic encoding with no single target table
-(`acl.principal`, `acl.scope`, `acl_membership`, `secrets.scope_id`,
-`scheduled_tasks.chat_jid`); legitimate rows a FK would reject
-(`network_rules.folder=''` carries instance-global rules, and SQLite has no
-`FOREIGN KEY … WHERE` to exclude them); not column-equal to a folder
-(`routes.target`); or deliberate stranding for forensics (`messages`,
-`audit_log`, `cost_log` — CASCADE would delete silently, RESTRICT would
-block legitimate removals). Active routing state (`chats.sticky_group`,
-`chat_reply_state`, `group_watchers`) is cleared explicitly in the apply tx
-instead, so the cleanup is auditable and ordered rather than a silent
-SET NULL. This same list is exactly what "The missing-group rule" above
-must validate for the string-typed half, since SQLite's own FK enforcement
-only covers the first paragraph.
-
-**Insert in catalog order** so `groups` precedes its children; DELETE
-reverses. No config-to-config cycle exists in v1; if one appears, set
-`PRAGMA defer_foreign_keys=ON` at tx start.
-
-## Non-goals
-
-No live reload / file watcher / DB→YAML sync. No DAG dependency resolution
-beyond catalog ordering. No web UI for manifests, no multi-instance apply,
-no transactional cross-daemon rollback of anything wider than the config
-projection (above). Imperative `arizuko group add` verbs stay for ad-hoc
-work — manifests are the declarative path, not a replacement.
-
-Concluded, not merely deferred, should NOT be built:
-
-- **A generic streaming/row-schema engine extension for unbounded
-  tables.** Message history's JSONL lane is deliberately outside
-  `resreg` — teaching the row-schema engine to stream would serve exactly
-  one consumer (`messages`) at real complexity cost (CAS/diff/rollback
-  semantics that don't apply to an append-only log). Not worth it.
-- **A per-folder lease/TTL or "pause new dispatch" flag for filesystem
-  restore.** Rejected in favor of claiming the existing run slot (above)
-  — building a second serialization mechanism next to one that already
-  does the job is exactly the anti-pattern this spec keeps naming and
-  avoiding.
-- **`auth.db`/`runed.db` in the archive.** Out of scope on purpose (above)
-  — not an oversight to fix later.
-- **A raw whole-DB-file snapshot (`VACUUM INTO`) as the transport for any
-  archive document.** Verified usable under WAL with live writers (above),
-  but not needed: the row-level export path only needs one explicit read
-  transaction per owner DB for snapshot isolation, which is cheaper and
-  keeps the archive's documents human-readable/diffable, unlike an opaque
-  DB-file copy.
+Everything else cross-table is **intentionally string-typed — no FK**,
+so SQLite catches none of it. That gap is exactly what "The missing-group
+rule" (above) closes for archive/manifest restore; the string-typed set
+it must validate: `acl.principal`/`acl.scope`/`acl_membership`
+(polymorphic), `secrets.scope_id` (polymorphic by `scope_kind`),
+`scheduled_tasks.chat_jid`, `routes.target` (not column-equal to a
+folder), `network_rules.folder=''` (instance-global rows a FK would
+reject). `messages`/`audit_log`/`cost_log` reference folders too but are
+left dangling on group delete, deliberately, for forensics — see "Group
+removal semantics" for the routing-state tables that DO get cleared
+instead.
 
 Implementation constraint: standard Go idioms only — `reflect`, struct
 tags, `database/sql`, `gopkg.in/yaml.v3`, `encoding/json`. No DSLs, no
 codegen, no third-party ORMs.
 
-## Open questions
-
-1. **Registry endpoint shape** — `GET /v1/_resources` as JSON Schema vs a
-   custom shape. Decide at implementation time.
-2. **Cross-class dependencies** — a `scheduled_task` referencing an invite
-   landing later needs two apply runs. DAG resolver only if a real
-   collision surfaces.
-3. **dashd as a manifest editor** — out of scope.
-4. **`5/16`'s owner-DB map still documents the OLD per-owner-DB
-   `config_meta` counter design** (its "Owner-DB map" table lists
-   `config_meta` as an owned table per DB, and its Y1-adjacent "DECIDED"
-   prose describes the counter this spec now replaces with a content
-   hash). Not fixed here — out of this spec's authorized scope this pass
-   — but it needs a follow-up edit to `5/16` so the two specs agree; flag
-   for operator sign-off before that edit ships, per this repo's
-   "redesigns need sign-off" rule.
-
 ## Cross-refs
 
 - [`17-openapi-mcp.md`](17-openapi-mcp.md) — the transport half of
-  `resreg.Resource`; the REST + MCP faces this tool talks to.
+  `resreg.Resource` (REST + MCP faces this tool talks to), and, as of
+  this pass, sole owner of OpenAPI emission (moved out of this spec —
+  redundant with root `CLAUDE.md` "Discoverability" and 17's own
+  handler/declaration-drift caveat).
 - [`16-mcp-rest-unification.md`](16-mcp-rest-unification.md) — the owner-DB
-  map the CLI must be repointed to. Its `config_meta` references are stale
-  against this spec's content-hash CAS (open question 4, above).
+  map the CLI must be repointed to (Phase 2 below). Its `config_meta`
+  references are stale against this spec's content-hash CAS — needs a
+  follow-up edit so the two specs agree; flag for operator sign-off
+  before that edit ships, per root `CLAUDE.md`'s "redesigns need
+  sign-off" rule.
 - [`P-runed.md`](P-runed.md) — owns the run/spawn admission model this
   spec's filesystem-restore mechanism extends with a `kind` dispatch; that
   prose's long-term home once built.

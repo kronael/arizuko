@@ -51,10 +51,16 @@ MCP tool nor an annotation. That is the way to keep an operation REST-only
 OpenAPI 3.1 permits `x-*` on any object, so tooling that ignores
 `x-mcp-when` still sees a normal doc.
 
-The emission machinery itself (reflection → OpenAPI) is owned by
-[`8-yaml-manifests.md`](8-yaml-manifests.md) §"OpenAPI emission", along
-with the row-schema half of `resreg.Resource` (`RowType`, `Table`,
-`PKFields`, `Scope`, `Hooks`).
+**This spec owns OpenAPI emission** (moved here from `5/8` 2026-08-04 —
+that spec is authoritative for the row-schema half of `resreg.Resource`
+instead: `RowType`, `Table`, `PKFields`, `Scope`, `Hooks`). The same
+`RowType` reflection that derives MCP tools emits an OpenAPI 3.1 document
+per daemon — no `huma`, no `swag`, no codegen (`resreg/openapi.go`).
+Every HTTP-serving daemon mounts `GET /openapi.json`, including daemons
+owning no resources, so the aggregator page
+(`/pub/arizuko/reference/openapi.html`) lists them uniformly. **The
+endpoint is public and mounts BEFORE auth middleware** — schemas
+describe surface, not data — and is cached for the process lifetime.
 
 ## Caller and Execution
 
