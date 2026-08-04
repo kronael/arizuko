@@ -23,7 +23,7 @@ Primary methods (by domain):
 - Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `SetGroupModel`, `GroupUsageBulk`
 - Sessions: `GetSession`, `SetSession`, `RecordSession`, `EndSession`, `RecentSessions`
 - Sticky: `SetStickyGroup`, `GetStickyGroup`, `SetStickyTopic`, `GetStickyTopic`
-- Auth: `CreateAuthUser`, `AuthUserBySub`, `AuthUserByUsername`, `CanonicalSub`, `LinkSubToCanonical`, `LinkedSubs`, `CreateAuthSession`, `AuthSession`, `DeleteAuthSession`
+- Auth: `CreateAuthUser` — one row per sub in `user_profiles`. Account linking lives in authd (`auth.db`'s `auth_users` + `oauth_identities`), not here.
 - ACL (spec 6/9): `AddACLRow`, `RemoveACLRow`, `ListACL`, `ListACLByScope`, `ACLRowsFor`, `ACLWildcardRows`, `UserScopes`
 - Membership: `AddMembership`, `RemoveMembership`, `Members`, `Ancestors` — roles + JID→sub claims (`acl_membership` table)
 - Tasks: `CreateTask`, `GetTask`, `ListTasks`, `UpdateTask`, `DeleteTask`, `TaskRunLogs`

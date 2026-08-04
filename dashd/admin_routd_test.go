@@ -55,7 +55,7 @@ CREATE TABLE messages (
 CREATE TABLE sessions (group_folder TEXT, topic TEXT, session_id TEXT);
 CREATE TABLE user_profiles (
   id INTEGER PRIMARY KEY, sub TEXT UNIQUE NOT NULL, username TEXT UNIQUE NOT NULL,
-  name TEXT NOT NULL, created_at TEXT NOT NULL, linked_to_sub TEXT);
+  name TEXT NOT NULL, created_at TEXT NOT NULL);
 `
 
 // splitAdminDash wires a dash with DISTINCT messages.db (db/dbRW) and routd.db

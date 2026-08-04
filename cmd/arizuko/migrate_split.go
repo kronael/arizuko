@@ -144,10 +144,11 @@ var routdSpecs = []copySpec{
 	// references it). Split onbod reads+writes it cross-DB on routd.db (xdb), so it MUST
 	// be copied — left an orphan, every existing user vanishes from onboarding /
 	// world-create. The source is a PRE-split messages.db: there the table predates the
-	// rename and is still auth_users, and `hash` (dropped by 0025) is not copied.
+	// rename and is still auth_users; `hash` (dropped by 0025) and `linked_to_sub`
+	// (dropped by 0027 — nothing ever wrote it) are not copied.
 	{dst: "user_profiles", src: "auth_users", transfm: true,
-		cols: "id, sub, username, name, created_at, linked_to_sub, cost_cap_cents_per_day",
-		sel:  "id, sub, username, name, created_at, linked_to_sub, cost_cap_cents_per_day"},
+		cols: "id, sub, username, name, created_at, cost_cap_cents_per_day",
+		sel:  "id, sub, username, name, created_at, cost_cap_cents_per_day"},
 
 	// transforms (schemas differ — explicit column remap)
 	// system_messages: group_id→folder, origin→source, event→kind, created_at→created; `attrs` dropped.

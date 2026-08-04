@@ -80,7 +80,7 @@ Identity badge always right-aligned in nav: `{name} ◆` (operator) or
 ├── /dash/tokens/{folder}/      Web route tokens (issue + revoke)
 ├── /dash/invites/              Onboarding invites (operator only)
 ├── /dash/memory/               Agent memory file browser
-├── /dash/profile/              Identity + linked providers + secrets
+├── /dash/profile/              Account ID + add-a-provider + secrets
 └── /dash/me/secrets            Per-user secret CRUD
 ```
 
@@ -1180,22 +1180,17 @@ Show current identity, linked OAuth accounts, and option to link more.
 
 ```
 h1: Profile
-p.dim: Your canonical identity and linked providers.
+p.dim: Your account and the providers you can add to it.
 
 [table: field | value]
-  Canonical sub  {sub (code)}
-  Name           {name}        (if set)
-
-[section: Linked accounts]
-[table: Sub]
-  google:{email}
-  github:{username}
+  Your account ID  {sub (code)}
+  Name             {name}        (if set)
 
 [section: Add a provider]
-  [oauth-btn: Link Google]    (hidden if already linked)
-  [oauth-btn: Link GitHub]    (hidden if already linked)
-  [oauth-btn: Link Discord]   (hidden if already linked)
-  [oauth-btn: Link Telegram]  (hidden if already linked)
+  [oauth-btn: Link Google]    (hidden for the signed-in sub's own provider)
+  [oauth-btn: Link GitHub]
+  [oauth-btn: Link Discord]
+  [oauth-btn: Link Telegram]
   p.empty: All known providers already linked.  (if none to add)
 ```
 

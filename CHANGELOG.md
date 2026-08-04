@@ -92,6 +92,18 @@ list|link|unlink` writing rows no reader ever looked at. Zero rows on every
   migration `0006`; `inspect_identity` is unchanged — it already resolves
   through authd's endpoint.
 
+- **`user_profiles.linked_to_sub` — the third account-link model, never
+  written.** Two readers consulted it (`store.CanonicalSub`, dashd's "Linked
+  accounts" list) and no writer ever filled it: linking a provider from
+  `/dash/profile` goes `?intent=link` → authd's OAuth dispatch →
+  `oauth_identities` in `auth.db`. So the profile page's linked-accounts table
+  was structurally always empty; it is gone, and the "Add a provider" buttons
+  (which do work) stay. Zero non-NULL values on every instance. Dropped by routd
+  migration `0027` along with `CanonicalSub`, `LinkSubToCanonical`,
+  `LinkedSubs`, `AuthUserBySub` and the `AuthUser` row type. Showing a real
+  linked-account list means dashd consuming authd's `GET /v1/identities/{sub}`
+  — tracked in `BUGS.md` P2 step 3, not shipped here.
+
 ## [v0.63.0] — 2026-07-31
 
 > arizuko v0.63.0 — packages, connectors, and delegated grants

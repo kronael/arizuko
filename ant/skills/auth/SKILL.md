@@ -11,16 +11,18 @@ user-invocable: true
 
 # Auth
 
-arizuko stores one row per `(provider:sub)` in `auth_users`. One row
-per identity is **canonical**; others link to it via `linked_to_sub`.
-The canonical sub is the JWT subject — every backend (proxyd, dashd,
-webd) sees one stable identity per user, no matter how they logged in.
+authd stores one `auth_users(user_id)` row per person and one
+`oauth_identities(user_id, provider, provider_sub)` row per login they
+have linked (`auth.db`). The canonical sub is the JWT subject — every
+backend (proxyd, dashd, webd) sees one stable identity per user, no
+matter how they logged in.
 
 ## Canonical sub
 
 - First provider you log in with becomes canonical.
-- Linked rows have `linked_to_sub = <canonical>`; their session resolves
-  to the canonical sub when issued (see `auth/oauth.go:dispatchOAuth`).
+- A linked login gets an `oauth_identities` row under the canonical
+  `user_id`; its session is issued for that user (`authd/oauth.go`
+  `dispatch` → `upsertOAuthUser`).
 - A canonical row can have any number of linked siblings — log in via
   any of them, you land in the same account.
 
@@ -58,7 +60,7 @@ would silently destroy account state).
   account, or log out and continue as the other identity.
 - Lost access to canonical provider → log in with any linked sibling;
   same canonical sub resolves.
-- Wrong account merged → no auto-undo. Operator removes the
-  `linked_to_sub` value directly in `auth_users` if needed.
+- Wrong account merged → no auto-undo. Operator deletes the
+  `oauth_identities` row in `auth.db` if needed.
 
 Spec: `specs/1/f-auth-oauth.md`. Code: `auth/oauth.go`, `auth/collide.go`.

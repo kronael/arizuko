@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"strings"
@@ -37,21 +36,14 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 	var name string
 	_ = d.adminDB().QueryRow(
 		`SELECT name FROM user_profiles WHERE sub = ?`, sub).Scan(&name)
-	fmt.Fprint(w, `<p class="dim">Your canonical identity and linked providers.</p>`)
+	fmt.Fprint(w, `<p class="dim">Your account and the providers you can add to it.</p>`)
 	identity := `<table>` + htmlDetail("Your account ID", `<code>`+esc(sub)+`</code>`)
 	if name != "" {
 		identity += htmlDetail("Name", esc(name))
 	}
 	fmt.Fprint(w, identity+`</table>`)
 
-	linked, _ := d.linkedSubs(sub)
 	prefixes := map[string]bool{providerPrefix(sub): true}
-	var linkedRows [][]string
-	for _, ls := range linked {
-		linkedRows = append(linkedRows, []string{fmt.Sprintf(`<code>%s</code>`, esc(ls))})
-		prefixes[providerPrefix(ls)] = true
-	}
-	fmt.Fprint(w, htmlSection("Linked accounts", htmlTable([]string{"Linked login"}, linkedRows)))
 
 	var providerLinks string
 	for _, p := range supportedProviders {
@@ -74,27 +66,6 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 			`<p><a class="btn btn-secondary" href="/dash/me/secrets">Manage API keys</a></p>`))
 
 	pageClose(w, r)
-}
-
-func (d *dash) linkedSubs(canonical string) ([]string, error) {
-	rows, err := d.adminDB().Query(
-		`SELECT sub FROM user_profiles WHERE linked_to_sub = ? ORDER BY sub`,
-		canonical)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var s sql.NullString
-		if err := rows.Scan(&s); err != nil {
-			return nil, err
-		}
-		if s.Valid && s.String != "" {
-			out = append(out, s.String)
-		}
-	}
-	return out, rows.Err()
 }
 
 func providerPrefix(sub string) string {
