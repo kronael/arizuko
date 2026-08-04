@@ -3136,3 +3136,50 @@ rendered form on any onbod page, so `create_world` was the whole live breakage.
 - **Fix:** 4def8f36 — the token `auth.EnsureCSRF` returns is threaded through
   `handleDashboard` into the renderer, plus a test that replays the rendered
   form's own inputs against the handler instead of injecting the pair.
+
+## N1 — linked OAuth logins do not share authority (2026-08-04, approved, to build)
+
+**Approved by the operator**, recorded here because it is an authorization-model
+change and the tree was busy when it was decided.
+
+`oauth_identities` (auth.db) already models what is wanted: one `auth_users` row
+per person, many provider logins, with `UNIQUE(provider, provider_sub)` making a
+given provider account belong to exactly one person. The `?intent=link` flow
+(`authd/oauth.go:108`, binding via the signed `LinkFrom` state) populates it.
+
+**But authorization does not consume it.** `acl.principal` and
+`acl_membership.parent` key on *provider subs* (`google:alice`), not on the
+account. So linking a second OAuth yields a login alias, not shared authority:
+Alice pairs Telegram to `google:alice`, later links GitHub, and logging in via
+GitHub she is a principal with no grants — the same person, recorded as such,
+with none of her authority.
+
+The step that nominally covered this was `Store.CanonicalSub`, which read
+`auth_users.linked_to_sub`. It was **never written in production** (its writer
+had no non-test caller; `auth_users` is 0 rows on krons), so it was an identity
+function, and it is being deleted as superseded. `auth/authorize.go:10` still
+refers to it.
+
+**The design — no new mechanism in the authorization path.**
+`auth/authorize.go:15` documents `Caller.Extra` as "Extra principals to fold
+into the expansion set **without a DB lookup**", and `expandPrincipals` already
+seeds its frontier from it (`:136`). authd already queries a user's linked subs
+(`authd/store.go:126`). So:
+
+1. authd mints the account's sibling provider subs into the token as a claim.
+2. The verifier populates `Caller.Extra` from that claim.
+3. `expandPrincipals` folds them in — unchanged.
+
+routd never reads `auth.db`, so this adds no cross-daemon coupling. The
+alternative — having `expandPrincipals` walk `oauth_identities` directly — was
+rejected for exactly that reason (it is the `A1` pattern).
+
+**Trade-off to accept:** unlinking an OAuth takes effect at token expiry (~15
+min), not instantly. Same class as the pending scopes-in-token decision;
+unlinking is rare and is de-escalation.
+
+- **Scope:** `authd` token minting + the verifier's `Caller.Extra` population
+- **Affected:** `authd/store.go:126`, `authd/oauth.go`, `auth/jwks.go:181`,
+  `auth/authorize.go:15,136` (read-only — the expansion needs no change)
+- **Belongs to:** `specs/5/32` (it owns the principal namespace and
+  `expandPrincipals`); write the section there before implementing.
