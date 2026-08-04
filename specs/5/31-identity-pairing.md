@@ -131,25 +131,201 @@ Unredeemed tokens are not separately revocable — they expire in ten minutes, a
 minting again is the same operation. Listing outstanding pairings is not an
 ability anyone needs; enumerating ten-minute bearer attempts is surface.
 
-## Onboarding — extracted from, not yet folded onto
+## Onboarding — the fold, designed
 
-Pairing has **no** dependency on onbod, `ONBOARDING_ENABLED`,
-`ONBOARDING_PLATFORMS`, or route-miss handling. That independence is the point
-of the extraction and it holds today.
+Pairing's core has no dependency on onbod, `ONBOARDING_ENABLED`,
+`ONBOARDING_PLATFORMS`, or route-miss handling, and none of this touches that.
+What follows finishes the reverse direction: onbod's greeting stops running a
+second write path into `acl_membership` and starts consuming the pairing link
+this spec already ships. `BUGS.md` P1b investigated a straight swap and
+correctly stopped at three blockers, each an addition, not a deletion — this
+design closes all three. It also closes `5/18`'s Open-blocking Q1 ("whether
+`onboarding.token` folds into the pairing carrier"); `5/18`'s own verdict on
+the three token mechanisms was already "fold it" — this is that fold.
 
-The reverse direction has **not** shipped: onbod still mints its own
-`onboarding.token`, still posts `/onboard?token=…`, and still carries the JID
-across the OAuth round-trip in the unsigned `onboard_jid` cookie into
-`linkJID` — a second write path into the same edge, which can drift from this
-one. Folding onbod's greeting onto a pairing link (and deleting that cookie) is
-the follow-up; it is a change to onboarding's flow, not to pairing.
+Today the two writers are distinguishable and it costs something: onbod stamps
+`acl_membership.added_by='linkJID'`, so an edge onboarding created is **not**
+reachable by `unpair`, scoped to `added_by='pairing'`. After the fold every
+edge — onboarding-sourced or agent-minted — is written by `RedeemPairing` and
+stamped `'pairing'` uniformly. The distinction, and the gap it caused, both go
+away.
 
-The two writers are distinguishable and that has a live consequence: onbod
-stamps `added_by='linkJID'`, so an edge created by onboarding is **not**
-reachable by `unpair`, which is scoped to `added_by='pairing'`. Deliberate —
-unpair must not become a general `acl_membership` delete — but it means an
-onboarding-era link is still removable only through `arizuko apply` until the
-fold lands.
+### One mint, per-caller target resolver
+
+`pairingTargetFolder` (`routd/route_tokens_resource.go:245`) is called twice
+inside routd — once from the Gate closure (`:222`), once from the handler
+(`:164`) — because resreg's Gate authorizes but cannot hand its result to the
+handler; both calls serve the _same_ caller (the agent, over the MCP socket)
+enforcing the _same_ rule (the JID must already route to the caller's
+folder). onbod's greeting is not a third call site in that pair — it is a
+**different process**. It cannot reach `s.routeTokensHandler`, the Gate
+closure, or any per-request `resreg.Execution`, whatever shape the injection
+takes. A `Resource`-level plugin point (a field, a second `Gate`) built to
+reach across a boundary Go closures cannot cross would be a mechanism solving
+a problem two functions in the same file don't have.
+
+The mint already resolves this correctly: `issueRouteTokenTx`
+(`routd/route_tokens_resource.go:299`) takes `target` as a plain argument and
+never computes it — resolution happens entirely in the caller, before the
+call. That is where "per-caller resolver" already lives, and the fold keeps it
+there. What moves is _which callers can reach the mint at all_: pull the
+32-byte/`sha256`/`INSERT … kind='pair'` body out of `issueRouteTokenTx` into
+`store/pairing.go`, next to `RedeemPairing`, as
+
+```go
+func IssuePairingLink(ctx context.Context, x rowExecer, jid, ownerFolder string) (rawToken string, err error)
+```
+
+satisfied by both `*sql.Tx` (routd's resreg mutation tx, unchanged agent-mint
+path: `target = pairingTargetFolder(s.db, jid)`) and `*sql.DB` (onbod's `xdb`,
+the same raw handle it already writes `acl_membership`/`routes` through
+today, `onbod/main.go:101`). This mirrors `rowQuerier` two functions down in
+the same file (`store/pairing.go:42`), which exists for the identical reason:
+`PeekPairing` runs outside a transaction, `RedeemPairing` runs inside one, and
+one function serves both by taking the executor as an argument instead of
+assuming a `*Tx`.
+
+onbod's resolver is not a route-ownership check — it is the constant
+`ownerFolder = ""`. `InsertOnboarding` only ever fires from the route-**miss**
+branch (`routd/loop.go:557`); "this JID routes nowhere" is proved by the
+row's existence, not re-derived at greet time.
+
+### `owner_folder` must go nullable
+
+`""` will not insert. `route_tokens.owner_folder` is `NOT NULL REFERENCES
+groups(folder) ON DELETE CASCADE`
+(`store/migrations/0069-fk-route-tokens-owner-folder.sql:16`) — true today
+because a delivery-kind token always has a real owning folder. A greeting
+sent before any human is known has no folder to reference, by construction;
+that is the whole reason onboarding exists apart from pairing. Neither
+`PeekPairing` nor `RedeemPairing` reads `owner_folder` for a `kind='pair'`
+row — the column is write-only on this path — and the pair kind is already
+excluded from `ListRouteTokens` (`store/route_tokens.go:142`) and revoke
+(`revokeRouteTokenTx`, `routd/route_tokens_resource.go:319`), both filtered to
+`kind=route`. So `NULL` costs nothing functionally. A follow-up migration
+relaxes the column to nullable; SQLite's FK check is a no-op on `NULL`, so
+onbod's mint satisfies the constraint by having nothing to reference, not by
+inventing a placeholder folder (the alternative — a permanent sentinel row in
+`groups` — is rejected below).
+
+### Deleting "greet once, ever"
+
+`promptUnprompted` (`onbod/main.go:383`) claims `WHERE prompted_at IS NULL` —
+a row it has ever prompted never matches again, `jid` is the table's primary
+key, and the 10-minute pairing TTL means the link is almost always dead by the
+time anyone revisits the row. That combination is a permanent lockout, not a
+rate limit; the only escape today is `RepromptOnboarding`
+(`store/onboarding.go:182`) behind an operator dashboard action
+(`handleDashReprompt`, `onbod/dash.go:119`) most deployments don't route
+anyone to. `5/18` names the same gap directly: "an expired token cannot be
+re-requested from the chat."
+
+Delete `onboarding.token`, `token_expires`, and `idx_onboarding_token` in a
+follow-up onbod migration — `5/18`'s own verdict on the three token
+mechanisms already says a second timer duplicating `route_tokens`'
+`created_at` + `PairingTTL` shouldn't exist. `prompted_at` is **not**
+deleted — `5/18` keeps it explicitly ("the remaining row is `(jid,
+prompted_at, user_sub)` plus throttles") — but its meaning changes from
+_ever_ to _last_. The claim query becomes
+
+```sql
+WHERE status = 'awaiting_message' AND (prompted_at IS NULL OR prompted_at < ?)
+```
+
+bound to `now - store.PairingTTL`. One constant now governs two things that
+used to be unrelated numbers: how long a link stays redeemable, and how long
+before the greeter will hand out another one. A user who messages again after
+their old link has silently expired gets a fresh one at the next poll tick
+(`cfg.pollInterval`, default 10s, `onbod/main.go:270`) — no operator action,
+ever. `RepromptOnboarding`, `handleDashReprompt`, and the dashboard's
+reprompt button are dead once this ships; the cooldown is the reprompt.
+
+## Admission observes; redemption does not refuse
+
+`linkJID` (`onbod/main.go:834`) does three things in one call: writes the
+`acl_membership` edge, evaluates gates and advances the onboarding row (queue
+or approve), and — on no gate match or an existing different parent —
+refuses to the user's face via `errLinkRefused` → 403 (`writeLinkErr`,
+`onbod/main.go:955`). `RedeemPairing` (`store/pairing.go:58`) does only the
+first of those — it has no concept of a gate, and its one refusal
+(`ErrPairingConflict`) is a fact about the edge itself (this identity already
+belongs to someone else), not about admission policy. Splitting redemption
+from admission means the edge write can no longer fail for a gate reason:
+every pairing that resolves to a live token and a fresh identity succeeds,
+unconditionally, at the browser. Gate evaluation moves entirely to after that
+write, over data the write already committed.
+
+**How admission observes the edge — decided: poll, not a hook.** A hook would
+live in webd's `handlePairPost` (`webd/pair.go:60`, the only place redemption
+happens) calling onbod synchronously once `RedeemPairing` succeeds. That is
+new cross-daemon surface in both directions: webd has no relationship to
+onbod today — no URL, no service token, no failure policy (does a stalled
+admission call fail the pairing the user is staring at, or get silently
+dropped and rely on the poll anyway?) — and it puts routd's identity-write
+path one HTTP round trip from onbod's uptime. onbod already holds a direct
+handle onto `routd.db` (`xdb`, `onbod/main.go:101`) and already reads/writes
+`acl_membership`/`routes` through it — the same FS-mounted direct-access
+pattern `linkJID` uses today. The poll needs nothing new: extend the tick
+that already runs `promptUnprompted`, scanning `onboarding WHERE
+status='awaiting_message' AND user_sub IS NULL` (still unclaimed) against
+`acl_membership WHERE added_by='pairing'` (now written by a webd-driven
+redemption instead of onbod itself) for a JID paired since the last look. On a
+match it runs exactly `linkJID`'s admission half — gate lookup, queue or
+approve, audit row — minus the edge write, which already happened. No new
+coupling, no new failure mode, no new state: the dedup is `onboarding`'s
+existing `jid` primary key and `user_sub IS NULL` guard, unchanged.
+
+Latency is bounded by `cfg.pollInterval` — 10s by default, the same tick
+`promptUnprompted` already runs on, an order of magnitude tighter than
+`admitFromQueue`'s existing 60-second admission-from-queue cadence
+(`onbod/main.go:208`) that nobody has treated as too slow.
+
+**What happens to `errLinkRefused`'s loud 403 — decided: it moves to chat,
+verbatim, and does not disappear.** The refusal is now discovered on a poll
+tick, after the browser page that used to show it is long gone — the fix
+cannot be "keep the 403"; the fail-loud rule (root `CLAUDE.md`) says surface
+it to the user, not that it must be HTTP. It reaches them the way the
+greeting itself now does: onbod's existing `/v1/outbound` federation to routd
+(`sendReply`, `onbod/main.go:1298`), already proven for the greeting message.
+The observer sets `status='refused'` — a new terminal status, replacing
+`token_used`'s old silent-dead-end role that `5/18` already flagged for
+deletion — stamps `user_sub` (so the row stops matching and the refusal is
+sent exactly once), and emits `onboarding.refuse` alongside the existing
+`onboarding.queue`/`.approve` audit actions (`onbod/main.go:864`, `:891`).
+`ErrPairingConflict` is unaffected: it is still discovered synchronously,
+inside `RedeemPairing`, and still shown in the browser the user is looking at
+(`webd/pair.go:71`).
+
+**Carried forward unchanged, not redesigned:** `handleDashboard`'s
+auto-route-on-claim (`firstAdminFolder` + `INSERT OR IGNORE INTO routes`,
+today at `onbod/main.go:585`) is `5/18`'s own acknowledged wart — "the route
+write is a side effect, not an act" — not a step this fold is asked to fix.
+It moves into the same observer (same inputs: `xdb`, the now-known
+`userSub`), so an existing admin pairing a new channel keeps getting it
+auto-routed, exactly as today. Elevating it to a real step with a picker is
+`5/18` steps 6–8, still unshipped, still out of this scope.
+
+Both required flows hold under this design. (a) A new user messages an
+unrouted chat: route-miss inserts the onboarding row (unchanged) →
+`promptUnprompted` mints a `kind='pair'` token with `ownerFolder=NULL` and
+sends `/pair/<token>` → the user completes OAuth and consent on webd
+(unchanged, generic — webd needs no onboarding awareness at all) →
+`RedeemPairing` writes the edge → within one poll tick the observer evaluates
+gates and the chat receives "queued" / "approved" / the refusal. (b) An
+existing user pairs a second channel: entirely the shipped agent-mint path,
+untouched — the observer's `user_sub IS NULL` scan only ever matches rows
+`InsertOnboarding` created, so an agent-minted pairing is invisible to it.
+
+| onboarding today                                                                           | after the fold                                     |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| `status`: `awaiting_message → token_used → {queued, approved}`                             | `awaiting_message → {queued, approved, refused}`   |
+| `token`, `token_expires`, `idx_onboarding_token`                                           | deleted — `route_tokens` carries the link          |
+| `prompted_at`: set once, `IS NULL` guard                                                   | reset on every send, cooldown guard (`PairingTTL`) |
+| link: `authBaseURL + "/onboard?token=" + token`                                            | `webHost + "/pair/" + IssuePairingLink(...)`       |
+| redemption: `handleTokenLanding`/`jidForToken`/`claimByToken`/`onboard_jid` cookie (onbod) | `GET`/`POST /pair/{token}` (webd, unchanged)       |
+| edge write + admission: `linkJID`, one call                                                | edge: `RedeemPairing`. admission: poll observer    |
+| refusal: `errLinkRefused` → 403 in browser                                                 | `status='refused'` → chat message                  |
+| `RepromptOnboarding`, `handleDashReprompt`, reprompt button                                | deleted — cooldown is the reprompt                 |
 
 ## Not in scope
 
@@ -177,6 +353,19 @@ fold lands.
   redemption path for one binding is a second mechanism.
 - **`used_count`** — a pairing binds one identity pair, so a second use has
   nothing to do. Single-use makes revocation and consumption the same operation.
+- **A `resreg.Gate`-shaped resolver plugin reaching across the routd/onbod
+  process boundary** — the two processes cannot share a Go closure; the
+  resolver stays a plain argument to a shared `store/` function, which is
+  where it already lived for the one caller that shipped.
+- **A permanent sentinel row in `groups`** to satisfy `owner_folder`'s FK for
+  greeting-originated tokens. Nullable is smaller and it's the truth — there
+  is no folder yet. A platform-manufactured group is exactly what "operator
+  data fixes belong to the operator; platform stays mechanical" (root
+  `CLAUDE.md`) rules out.
+- **A synchronous webd→onbod hook at redemption** — new coupling in both
+  directions for a latency win the user cannot perceive (the outcome still
+  travels over a chat send either way), when onbod already has direct DB
+  access to the fact it needs to observe.
 
 ## Where this spec was wrong
 
@@ -208,6 +397,7 @@ a spec cannot make from reading a symbol name.
 
 `5/32` — the membership edge, the principal namespace, the no-cache revocation
 contract; its Open-Q4 closed here. `5/18` — onboarding, which this extracts
-from. `5/29` — a guest is a paired channel identity; distinct from that spec's
-"account linking", which is **surrogate** OAuth (`5/15`), not identity pairing.
-`5/1` — the OAuth login this redeems behind. `5/W` — the token table it joins.
+from and whose Open-blocking Q1 (the token fold) closes here. `5/29` — a guest
+is a paired channel identity; distinct from that spec's "account linking",
+which is **surrogate** OAuth (`5/15`), not identity pairing. `5/1` — the OAuth
+login this redeems behind. `5/W` — the token table it joins.

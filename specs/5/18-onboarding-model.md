@@ -229,9 +229,13 @@ names the survivor.
 
 ## Open, blocking
 
-1. **`5/29`** — whether `onboarding.token` folds into the pairing carrier;
-   whether `gate` survives as a stranger throttle; whether a stranger who chose
-   no world may create one (today: only via an invite).
+1. ~~**`5/29`** — whether `onboarding.token` folds into the pairing carrier~~
+   — designed in [`5/31`](31-identity-pairing.md) § "Onboarding — the fold,
+   designed": `token`/`token_expires` fold into `route_tokens`, `prompted_at`
+   survives as a cooldown, redemption moves to `/pair/{token}`, admission
+   (gates/queue) is observed by a poll. Still open from `5/29`: whether
+   `gate` survives as a stranger throttle; whether a stranger who chose no
+   world may create one (today: only via an invite).
 2. **Here, once that lands** — replace the auto-pick with the picker, render a
    form for the existing `handleAddRoute`, register `onboarding` as a resreg
    resource, drop the derivable `status` column.
