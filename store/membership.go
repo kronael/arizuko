@@ -60,16 +60,19 @@ func (s *Store) AddMembership(child, parent, addedBy string) error {
 	); err != nil {
 		return err
 	}
-	actor := addedBy
-	if actor == "" {
-		actor = "system"
+	// addedBy is the grantor recorded in the row itself; it stands in as the
+	// actor for callers that never set AsUser/AsCLI — the fallback AddACLRow
+	// already uses, so the two acl writers render one identity.
+	actor, actorSub, surface := s.auditIdentity()
+	if s.auditSub == "" && addedBy != "" {
+		actor, actorSub = addedBy, addedBy
 	}
 	if err := audit.EmitInTx(context.Background(), tx, audit.Event{
 		Category: audit.CategoryAuthZ,
 		Action:   "membership.add",
 		Actor:    actor,
-		ActorSub: addedBy,
-		Surface:  audit.SurfaceGateway,
+		ActorSub: actorSub,
+		Surface:  surface,
 		Resource: "acl_membership/" + child + "/" + parent,
 		Outcome:  audit.OutcomeOK,
 		ParamsSummary: map[string]any{
@@ -83,6 +86,7 @@ func (s *Store) AddMembership(child, parent, addedBy string) error {
 }
 
 func (s *Store) RemoveMembership(child, parent string) error {
+	actor, actorSub, surface := s.auditIdentity()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		_, err := tx.Exec(
 			`DELETE FROM acl_membership WHERE child = ? AND parent = ?`,
@@ -91,8 +95,9 @@ func (s *Store) RemoveMembership(child, parent string) error {
 		return audit.Event{
 			Category: audit.CategoryAuthZ,
 			Action:   "membership.remove",
-			Actor:    "system",
-			Surface:  audit.SurfaceGateway,
+			Actor:    actor,
+			ActorSub: actorSub,
+			Surface:  surface,
 			Resource: "acl_membership/" + child + "/" + parent,
 			Outcome:  audit.OutcomeOK,
 		}, err
@@ -100,10 +105,12 @@ func (s *Store) RemoveMembership(child, parent string) error {
 }
 
 // PutMembership inserts (child → parent) idempotently WITHOUT emitting an
-// audit_log row — the audit-free twin of AddMembership for a DB that has no
-// audit_log table (routd.db, which OWNS acl_membership in the split topology —
-// spec 5/5). Same self/cycle rejection; callers that own messages.db keep using
-// the audited AddMembership.
+// audit_log row — the audit-free twin of AddMembership for an edge no operator
+// asked for: the role:member seed every group creation writes, and the 4r
+// migration backfill. routd.db (which OWNS acl_membership — spec 5/5) HAS had
+// audit_log since routd migration 0016, so a missing table is never the reason;
+// an operator-driven grant uses the audited AddMembership. Same self/cycle
+// rejection.
 func (s *Store) PutMembership(child, parent, addedBy string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -148,14 +155,6 @@ func putMembershipTx(tx *sql.Tx, child, parent, addedBy string) error {
 		 VALUES (?, ?, ?, ?)`,
 		child, parent, grantedBy, time.Now().Format(time.RFC3339),
 	)
-	return err
-}
-
-// RemoveMembershipBare deletes (child → parent) WITHOUT emitting an audit_log
-// row — the audit-free twin of RemoveMembership for an audit_log-less DB (routd.db).
-func (s *Store) RemoveMembershipBare(child, parent string) error {
-	_, err := s.db.Exec(
-		`DELETE FROM acl_membership WHERE child = ? AND parent = ?`, child, parent)
 	return err
 }
 

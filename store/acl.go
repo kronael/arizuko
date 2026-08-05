@@ -141,23 +141,6 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-// RemoveACLRowBare deletes an acl row WITHOUT emitting an audit_log row — the
-// audit-free twin of RemoveACLRow used by the FS-mounted daemons (dashd grants
-// admin, the CLI) that write acl into routd.db directly. routd itself uses the
-// audited RemoveACLRow.
-func (s *Store) RemoveACLRowBare(row core.ACLRow) error {
-	if row.Effect == "" {
-		row.Effect = "allow"
-	}
-	_, err := s.db.Exec(
-		`DELETE FROM acl
-		 WHERE principal = ? AND action = ? AND scope = ?
-		   AND params = ? AND predicate = ? AND effect = ?`,
-		row.Principal, row.Action, row.Scope,
-		row.Params, row.Predicate, row.Effect)
-	return err
-}
-
 func scanACLRow(rows *sql.Rows) (core.ACLRow, error) {
 	var r core.ACLRow
 	var grantedBy sql.NullString

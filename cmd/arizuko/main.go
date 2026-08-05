@@ -361,7 +361,9 @@ func cmdGroup(args []string) {
 	// audit_log (routd migration 0016) — one routd.db handle serves every action
 	// here, reads included. `list` used to read the frozen messages.db and print
 	// the pre-split group set, disagreeing with the writes beside it (BUGS.md Q1).
-	s := mustOpenACL(dataDir)
+	// AsCLI attributes grant/ungrant to the invoking operator: the CLI has no
+	// X-User-* header to learn a sub from.
+	s := mustOpenACL(dataDir).AsCLI(os.Getenv("USER"))
 	defer s.Close()
 
 	switch action {
@@ -515,21 +517,24 @@ func mustOpenOnbod(dataDir string) *store.Store {
 	return s
 }
 
-// runGrant writes acl rows audit-free (routd.db has no audit_log table — same
-// discipline as routd's own grant endpoint).
+// runGrant writes acl rows through the AUDITED AddACLRow / AddMembership:
+// routd.db HAS had audit_log since routd migration 0016, so the grant and its
+// audit row commit together, matching what the same grant already records
+// through dashd and MCP. Granting authority is the mutation an audit trail
+// exists for.
 func runGrant(s *store.Store, sub, pat string, w io.Writer) error {
 	if sub == "" || pat == "" {
 		return errEmptyGrant
 	}
 	if pat == "**" {
 		// Operator grant: add to role:operator instead of a per-folder row.
-		if err := s.PutMembership(sub, "role:operator", "arizuko grant"); err != nil {
+		if err := s.AddMembership(sub, "role:operator", "arizuko grant"); err != nil {
 			return err
 		}
 		fmt.Fprintf(w, "granted %s -> role:operator\n", sub)
 		return nil
 	}
-	if err := s.PutACLRow(core.ACLRow{
+	if err := s.AddACLRow(core.ACLRow{
 		Principal: sub, Action: "admin", Scope: pat,
 		Effect: "allow", GrantedBy: "arizuko grant",
 	}); err != nil {
@@ -544,13 +549,13 @@ func runUngrant(s *store.Store, sub, pat string, w io.Writer) error {
 		return errEmptyGrant
 	}
 	if pat == "**" {
-		if err := s.RemoveMembershipBare(sub, "role:operator"); err != nil {
+		if err := s.RemoveMembership(sub, "role:operator"); err != nil {
 			return err
 		}
 		fmt.Fprintf(w, "ungranted %s -> role:operator\n", sub)
 		return nil
 	}
-	if err := s.RemoveACLRowBare(core.ACLRow{
+	if err := s.RemoveACLRow(core.ACLRow{
 		Principal: sub, Action: "admin", Scope: pat, Effect: "allow",
 	}); err != nil {
 		return err
