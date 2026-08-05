@@ -344,6 +344,12 @@ var coreProxydRoutes = []ProxydRoute{
 	// bounced through OAuth with the pairing URL as the return path; the human
 	// must be signed in before the confirm page is even rendered.
 	{Path: "/pair/", Backend: "http://webd:8080", Auth: "user"},
+	// /me — the user portal (webd/me.go). `user`: every handler is behind
+	// webd's requireUser, so a public route here would only trade the OAuth
+	// bounce for a bare 401. Bare + slash mirror /onboard: webd's mux 301s
+	// /me → /me/, which never happens if proxyd drops /me at the catch-all.
+	{Path: "/me", Backend: "http://webd:8080", Auth: "user"},
+	{Path: "/me/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/panel/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/api/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/x/", Backend: "http://webd:8080", Auth: "user"},

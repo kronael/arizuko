@@ -719,12 +719,13 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 	chatRoute := Route{Path: "/chat/", Backend: up.URL, Auth: "public"}
 	panelRoute := Route{Path: "/panel/", Backend: up.URL, Auth: "user"}
 	slinkRoute := Route{Path: "/slink/", Backend: up.URL, Auth: "public"}
+	meRoute := Route{Path: "/me/", Backend: up.URL, Auth: "user"}
 	s := &server{
 		cfg:         config{authSecret: secret},
 		stRoutd:     st, // tests use single in-memory DB with all tables
 		viteProxy:   httputil.NewSingleHostReverseProxy(u),
 		chatAnonDOS: newRateLimiter(10, time.Minute),
-		rr:          newRoutesResource(nil, []Route{chatRoute, panelRoute, slinkRoute}),
+		rr:          newRoutesResource(nil, []Route{chatRoute, panelRoute, slinkRoute, meRoute}),
 	}
 	return s, up
 }
@@ -781,6 +782,70 @@ func TestProxydRouteWithJWTReachesUpstream(t *testing.T) {
 	}
 	if got := w.Header().Get("X-User-Sub"); got != "alice" {
 		t.Errorf("X-User-Sub upstream echo = %q, want alice", got)
+	}
+}
+
+// The /me user portal must dispatch as a private surface. Before the route
+// existed, MatchRoute missed and route()'s final catch-all answered 302
+// /pub/me/... — the portal was unreachable in production. Assert the gate,
+// not just the reachability: `user` sends an anonymous caller through OAuth.
+func TestProxydMeRouteRequiresUser(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/me/chats", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if loc := w.Header().Get("Location"); strings.HasPrefix(loc, "/pub/") {
+		t.Fatalf("/me/chats fell through to the public catch-all: 302 %s", loc)
+	}
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/auth/login" {
+		t.Errorf("location = %q, want /auth/login", loc)
+	}
+}
+
+// With identity the portal reaches webd, path intact (no prefix strip) and
+// the user stamped — webd's own requireUser keys every /me page off that sub.
+func TestProxydMeRouteWithJWTReachesWebd(t *testing.T) {
+	s, up := testRouteServer(t, nil, "testsecret")
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/me/chats/solo/inbox", nil)
+	req.Header.Set("Authorization", "Bearer "+testMintJWT([]byte("testsecret"), "alice"))
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("X-Upstream-Path"); got != "/me/chats/solo/inbox" {
+		t.Errorf("upstream path = %q, want /me/chats/solo/inbox", got)
+	}
+	if got := w.Header().Get("X-User-Sub"); got != "alice" {
+		t.Errorf("X-User-Sub = %q, want alice", got)
+	}
+}
+
+// webd mounts /me/x/folders and /me/x/chats while /x/ is a separate core
+// route; longest-prefix must keep the portal's own /x under /me/.
+func TestMatchRouteMeBeatsSiblingPrefixes(t *testing.T) {
+	routes := []Route{
+		{Path: "/me/", Backend: "http://webd:8080", Auth: "user"},
+		{Path: "/x/", Backend: "http://webd:8080", Auth: "user"},
+		{Path: "/mcp", Backend: "http://webd:8080", Auth: "user"},
+	}
+	for _, path := range []string{"/me/", "/me/chats", "/me/settings", "/me/x/folders"} {
+		rt := MatchRoute(routes, path)
+		if rt == nil {
+			t.Fatalf("MatchRoute(%q) = nil", path)
+		}
+		if rt.Path != "/me/" {
+			t.Errorf("MatchRoute(%q).Path = %q, want /me/", path, rt.Path)
+		}
 	}
 }
 

@@ -235,6 +235,32 @@ func TestProxydRoutesAssembled(t *testing.T) {
 	}
 }
 
+// The /me user portal (webd/me.go, 13 handlers) shipped unreachable: spec 5/V
+// lists /me among the globally-served reserved prefixes, but coreProxydRoutes
+// never declared it, so proxyd's MatchRoute missed and the final catch-all
+// turned every /me/* request into a /pub/me/* redirect. Assert the exact
+// emitted objects — path, backend and auth in one shape — and that no gate
+// can drop them: a portal that only appears when some env var is set is the
+// same dead surface again.
+func TestProxydRoutesUserPortal(t *testing.T) {
+	// Onboarding/WebDAV off, no service fragments: the barest instance still
+	// serves /me.
+	proxyd := serviceBlock(gen(t, seed(t, "WEB_PORT=8095\nWEBDAV_ENABLED=false\n")), "proxyd")
+	for _, want := range []string{
+		`{\"path\":\"/me\",\"backend\":\"http://webd:8080\",\"auth\":\"user\"}`,
+		`{\"path\":\"/me/\",\"backend\":\"http://webd:8080\",\"auth\":\"user\"}`,
+	} {
+		if !strings.Contains(proxyd, want) {
+			t.Errorf("PROXYD_ROUTES_JSON missing %s; got:\n%s", want, proxyd)
+		}
+	}
+	// The portal is per-user, gated by webd's requireUser. Routing it public
+	// would hand an unauthenticated caller straight to those handlers.
+	if strings.Contains(proxyd, `\"path\":\"/me\",\"backend\":\"http://webd:8080\",\"auth\":\"public\"`) {
+		t.Error("/me must not be a public route")
+	}
+}
+
 func TestProxydRoutesGating(t *testing.T) {
 	routesJSON := `[{"path":"/slack/","backend":"http://slakd:8080","auth":"public","gated_by":"SLACK_BOT_TOKEN"}]`
 	for _, tc := range []struct {
