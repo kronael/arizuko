@@ -54,10 +54,11 @@ func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
 }
 
 // visible reports whether a non-operator caller may see `folder`. Operators see
-// everything. Otherwise the folder must be granted directly (auth.MatchGroups —
-// `**`/`*` patterns) OR be a subtree of a granted folder (allowed "corp/eng" →
-// "corp/eng/sre"). MatchGroups requires equal segment depth for non-`**`
-// patterns, so the subtree case is checked explicitly.
+// everything; everyone else needs a scope covering the folder, decided by the
+// one containment rule (auth.MatchGroups). Subtree reach is the grant's job —
+// `corp/eng/**` reaches `corp/eng/sre`, a bare `corp/eng` does not. dashd used
+// to walk folder prefixes here, which handed the dashboard a wider rule than
+// auth.Authorize gives every other surface.
 func visible(allowed []string, operator bool, folder string) bool {
 	if operator {
 		return true
@@ -65,18 +66,7 @@ func visible(allowed []string, operator bool, folder string) bool {
 	if folder == "" {
 		return false
 	}
-	if auth.MatchGroups(allowed, folder) {
-		return true
-	}
-	for _, a := range allowed {
-		if a == "" {
-			continue
-		}
-		if folder == a || strings.HasPrefix(folder, a+"/") {
-			return true
-		}
-	}
-	return false
+	return auth.MatchGroups(allowed, folder)
 }
 
 // requireVisible gates a per-folder GET to a non-operator caller. Operators

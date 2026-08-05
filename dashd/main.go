@@ -803,9 +803,10 @@ func (d *dash) handleTasksPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 // ownerVisibleSQL builds a WHERE predicate restricting a folder-valued column to
-// the caller's granted folders (direct row or subtree), mirroring visible() so a
-// LIMIT counts only visible rows. ok is false when a grant carries a glob ('*')
-// SQL can't express — the caller then over-fetches and lets visible() filter.
+// the caller's granted folders, mirroring visible() so a LIMIT counts only
+// visible rows. A glob-free scope covers exactly its own folder, so equality is
+// the whole predicate. ok is false when a grant carries a glob ('*') SQL can't
+// express — the caller then over-fetches and lets visible() filter.
 func ownerVisibleSQL(col string, allowed []string) (where string, args []any, ok bool) {
 	var terms []string
 	for _, a := range allowed {
@@ -815,8 +816,8 @@ func ownerVisibleSQL(col string, allowed []string) (where string, args []any, ok
 		if strings.ContainsRune(a, '*') {
 			return "", nil, false
 		}
-		terms = append(terms, col+" = ? OR "+col+" LIKE ?")
-		args = append(args, a, a+"/%")
+		terms = append(terms, col+" = ?")
+		args = append(args, a)
 	}
 	if len(terms) == 0 {
 		return "0", nil, true // no concrete grants → nothing visible

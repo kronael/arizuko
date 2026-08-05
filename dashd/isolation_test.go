@@ -5,8 +5,9 @@ package main
 // assertion below is a hard isolation guarantee:
 //
 //   - operator (`**`)  → full instance view (no feature drop).
-//   - alice (admin on corp/eng) → sees corp/eng AND its subtree corp/eng/sre,
-//     never corp/sales.
+//   - alice (admin on corp/eng/**) → sees corp/eng AND its subtree corp/eng/sre,
+//     never corp/sales. The `/**` is load-bearing: a bare `corp/eng` grant
+//     covers that one folder, so it would NOT reach corp/eng/sre.
 //   - bob (admin on corp/sales) → sees corp/sales only, never corp/eng.
 //
 // Identity arrives via the proxyd-signed X-User-Groups header (= the caller's
@@ -24,9 +25,13 @@ import (
 )
 
 const (
-	folderEng   = "corp/eng"
-	folderSre   = "corp/eng/sre"
-	folderSales = "corp/sales"
+	folderEng = "corp/eng"
+	folderSre = "corp/eng/sre"
+	// alice manages the eng SUBTREE, so her grant says so. A bare `corp/eng`
+	// scope covers `corp/eng` and nothing under it — containment is the glob,
+	// never a prefix walk in the reader (5/33 decision 8).
+	folderEngTree = folderEng + "/**"
+	folderSales   = "corp/sales"
 )
 
 // isoEnv builds a dash server seeded with two tenants + a subfolder, and the
@@ -48,7 +53,7 @@ func isoEnv(t *testing.T) (*http.ServeMux, *testutils.Inst) {
 	// the UserScopes fallback.
 	for _, g := range []core.ACLRow{
 		{Principal: "op@x", Action: "admin", Scope: "**", Effect: "allow"},
-		{Principal: "alice@x", Action: "admin", Scope: folderEng, Effect: "allow"},
+		{Principal: "alice@x", Action: "admin", Scope: folderEngTree, Effect: "allow"},
 		{Principal: "bob@x", Action: "admin", Scope: folderSales, Effect: "allow"},
 	} {
 		if err := inst.Store.AddACLRow(g); err != nil {
@@ -88,7 +93,7 @@ func get(t *testing.T, mux *http.ServeMux, r *http.Request) (int, string) {
 //     NOT corp/sales (cross-tenant exclusion).
 func TestIso_Groups_AliceSeesSubtreeNotSales(t *testing.T) {
 	mux, _ := isoEnv(t)
-	code, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/groups/", nil), "alice@x", folderEng))
+	code, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/groups/", nil), "alice@x", folderEngTree))
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -109,7 +114,7 @@ func TestIso_Routes_AliceScoped(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	code, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/routes/", nil), "alice@x", folderEng))
+	code, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/routes/", nil), "alice@x", folderEngTree))
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -125,7 +130,7 @@ func TestIso_Tasks_AliceScoped(t *testing.T) {
 	seedTask(t, inst, "task-sre", folderSre)
 	seedTask(t, inst, "task-sales", folderSales)
 
-	code, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/tasks/", nil), "alice@x", folderEng))
+	code, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/tasks/", nil), "alice@x", folderEngTree))
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -134,7 +139,7 @@ func TestIso_Tasks_AliceScoped(t *testing.T) {
 	mustNotContain(t, body, "task-sales", "alice MUST NOT see corp/sales task")
 
 	// The partial (htmx refresh) must enforce the same scope.
-	code, body = get(t, mux, as(httptest.NewRequest("GET", "/dash/tasks/x/list", nil), "alice@x", folderEng))
+	code, body = get(t, mux, as(httptest.NewRequest("GET", "/dash/tasks/x/list", nil), "alice@x", folderEngTree))
 	if code != 200 {
 		t.Fatalf("partial status = %d", code)
 	}
@@ -148,7 +153,7 @@ func TestIso_Activity_AliceScoped(t *testing.T) {
 	seedMsg(t, inst, "m-sre", "web:"+folderSre, "SRE-MARKER")
 	seedMsg(t, inst, "m-sales", "web:"+folderSales, "SALES-MARKER")
 
-	code, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/activity/", nil), "alice@x", folderEng))
+	code, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/activity/", nil), "alice@x", folderEngTree))
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -156,7 +161,7 @@ func TestIso_Activity_AliceScoped(t *testing.T) {
 	mustContain(t, body, "SRE-MARKER", "alice sees corp/eng/sre activity (subtree)")
 	mustNotContain(t, body, "SALES-MARKER", "alice MUST NOT see corp/sales activity")
 
-	code, body = get(t, mux, as(httptest.NewRequest("GET", "/dash/activity/x/recent", nil), "alice@x", folderEng))
+	code, body = get(t, mux, as(httptest.NewRequest("GET", "/dash/activity/x/recent", nil), "alice@x", folderEngTree))
 	if code != 200 {
 		t.Fatalf("partial status = %d", code)
 	}
@@ -166,7 +171,7 @@ func TestIso_Activity_AliceScoped(t *testing.T) {
 // 2d. Memory picker: alice's dropdown lists corp/eng[/sre], not corp/sales.
 func TestIso_Memory_AlicePickerScoped(t *testing.T) {
 	mux, _ := isoEnv(t)
-	code, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/memory/", nil), "alice@x", folderEng))
+	code, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/memory/", nil), "alice@x", folderEngTree))
 	if code != 200 {
 		t.Fatalf("status = %d", code)
 	}
@@ -190,7 +195,7 @@ func TestIso_PerFolderGET_AliceForbiddenOnSales(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			code, _ := get(t, mux, as(httptest.NewRequest("GET", c.path, nil), "alice@x", folderEng))
+			code, _ := get(t, mux, as(httptest.NewRequest("GET", c.path, nil), "alice@x", folderEngTree))
 			if code != http.StatusForbidden {
 				t.Errorf("GET %s as alice = %d, want 403 (cross-tenant leak)", c.path, code)
 			}
@@ -198,7 +203,7 @@ func TestIso_PerFolderGET_AliceForbiddenOnSales(t *testing.T) {
 	}
 
 	// Sanity: alice's OWN subtree is reachable (not 403).
-	code, _ := get(t, mux, as(httptest.NewRequest("GET", "/dash/groups/corp/eng/sre/settings", nil), "alice@x", folderEng))
+	code, _ := get(t, mux, as(httptest.NewRequest("GET", "/dash/groups/corp/eng/sre/settings", nil), "alice@x", folderEngTree))
 	if code != 200 {
 		t.Errorf("GET own subtree settings = %d, want 200", code)
 	}
@@ -209,13 +214,13 @@ func TestIso_PerFolderGET_AliceForbiddenOnSales(t *testing.T) {
 func TestIso_InstanceWide_AliceForbidden(t *testing.T) {
 	mux, _ := isoEnv(t)
 	for _, path := range []string{"/dash/invites/", "/dash/channels/whatsapp/pair"} {
-		code, _ := get(t, mux, as(httptest.NewRequest("GET", path, nil), "alice@x", folderEng))
+		code, _ := get(t, mux, as(httptest.NewRequest("GET", path, nil), "alice@x", folderEngTree))
 		if code != http.StatusForbidden {
 			t.Errorf("GET %s as alice = %d, want 403", path, code)
 		}
 	}
 	// Nav on a scoped page omits the operator-only invites link for alice.
-	_, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/groups/", nil), "alice@x", folderEng))
+	_, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/groups/", nil), "alice@x", folderEngTree))
 	mustNotContain(t, body, `href="/dash/invites/"`, "non-operator nav MUST NOT show invites link")
 	mustContain(t, body, `href="/dash/groups/"`, "scoped links stay in nav")
 }
@@ -336,7 +341,7 @@ func TestIso_PortalCounts_Scoped(t *testing.T) {
 		}
 	}
 
-	alice := []string{folderEng}
+	alice := []string{folderEngTree}
 	// alice: corp/eng + corp/eng/sre groups (NOT corp, corp/sales).
 	if n := d.countVisibleGroups(alice, false); n != 2 {
 		t.Errorf("countVisibleGroups(alice) = %d, want 2 (eng+sre)", n)
@@ -362,29 +367,66 @@ func TestIso_PortalCounts_Scoped(t *testing.T) {
 	}
 }
 
-// visible() unit coverage: the subtree predicate and cross-tenant exclusion,
-// independent of HTTP wiring.
+// visible() unit coverage: containment comes from the grant's glob, never from
+// a prefix walk in dashd. Independent of HTTP wiring.
 func TestIso_VisiblePredicate(t *testing.T) {
-	allowed := []string{folderEng}
 	cases := []struct {
-		folder string
-		want   bool
+		name    string
+		allowed []string
+		folder  string
+		want    bool
 	}{
-		{folderEng, true},       // exact
-		{folderSre, true},       // subtree
-		{folderSales, false},    // sibling tenant
-		{"corp", false},         // parent is NOT visible from a child grant
-		{"corp/england", false}, // prefix-but-not-subtree (no false positive)
-		{"", false},
+		{"subtree grant, own folder", []string{folderEngTree}, folderEng, true},
+		{"subtree grant, child", []string{folderEngTree}, folderSre, true},
+		{"subtree grant, sibling tenant", []string{folderEngTree}, folderSales, false},
+		{"subtree grant, parent", []string{folderEngTree}, "corp", false},
+		{"subtree grant, prefix-but-not-subtree", []string{folderEngTree}, "corp/england", false},
+		{"subtree grant, empty folder", []string{folderEngTree}, "", false},
+
+		// The rule dashd's deleted prefix loop broke: a bare folder scope is
+		// ONE folder. Grant `corp/eng/**` if you mean the subtree.
+		{"exact grant, own folder", []string{folderEng}, folderEng, true},
+		{"exact grant does NOT reach child", []string{folderEng}, folderSre, false},
+		{"child grant does NOT reach parent", []string{folderSre}, folderEng, false},
+
+		{"direct-children glob, child", []string{"corp/*"}, folderEng, true},
+		{"direct-children glob, grandchild", []string{"corp/*"}, folderSre, false},
+
+		{"operator glob covers everything", []string{"**"}, folderSre, true},
+		{"no grants", nil, folderEng, false},
 	}
 	for _, c := range cases {
-		if got := visible(allowed, false, c.folder); got != c.want {
-			t.Errorf("visible(%v, false, %q) = %v, want %v", allowed, c.folder, got, c.want)
+		if got := visible(c.allowed, false, c.folder); got != c.want {
+			t.Errorf("%s: visible(%v, false, %q) = %v, want %v",
+				c.name, c.allowed, c.folder, got, c.want)
 		}
 	}
 	// Operator sees everything regardless of allowed set.
 	if !visible(nil, true, folderSales) {
 		t.Error("operator must see any folder")
+	}
+}
+
+// ownerVisibleSQL is a prefilter, not a gate — but it must not be WIDER than
+// visible(), or a LIMIT counts rows the caller may never see. A glob-free scope
+// covers exactly its own folder, so the predicate is equality; a glob scope is
+// inexpressible in SQL and reports ok=false so the caller over-fetches.
+func TestIso_OwnerVisibleSQLMirrorsVisible(t *testing.T) {
+	where, args, ok := ownerVisibleSQL("owner", []string{folderEng})
+	if !ok {
+		t.Fatal("glob-free scope must be expressible")
+	}
+	if where != "(owner = ?)" {
+		t.Errorf("where = %q, want %q", where, "(owner = ?)")
+	}
+	if len(args) != 1 || args[0] != folderEng {
+		t.Errorf("args = %v, want [%s]", args, folderEng)
+	}
+	if _, _, ok := ownerVisibleSQL("owner", []string{folderEngTree}); ok {
+		t.Error("glob scope must report ok=false, not a hand-rolled LIKE")
+	}
+	if where, _, ok := ownerVisibleSQL("owner", nil); !ok || where != "0" {
+		t.Errorf("no grants = (%q, %v), want (\"0\", true)", where, ok)
 	}
 }
 
