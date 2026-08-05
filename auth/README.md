@@ -6,9 +6,9 @@ Identity, ES256 tokens, JWKS, OAuth, authorization policy, HTTP middleware.
 
 Shared auth primitives used across daemons. Four concerns: (1) user auth
 (password argon2, JWT sessions, OAuth providers, Telegram widget),
-(2) runtime identity resolution for agents (`Identity` from folder and
-tier), (3) authorization — a structural gate (`AuthorizeStructural`) and
-an ACL row-grant gate (`Authorize`), (4) **the canonical platform-token
+(2) runtime identity resolution for agents (`Identity` — folder plus the
+root-elevation flag), (3) authorization — one ACL row-grant gate
+(`Authorize`), (4) **the canonical platform-token
 format** — authd signs, every backend verifies through this library. No
 daemon implements its own JWT format.
 
@@ -54,9 +54,9 @@ header for rotation):
 
 ## Public API
 
-- Identity: `Identity`, `Resolve(folder string) Identity`, `WorldOf(folder)`, `IsDirectChild(parent, child)`, `CheckSpawnAllowed`
-- Structural authz: `AuthorizeStructural(id Identity, tool string, target AuthzTarget) error`, `AuthzTarget`, `MatchGroups(allowed, folder)` — tree-shape invariants (caller-folder prefix, tier bounds, task-owner-must-match).
-- ACL row-grant authz: `Authorize(s *store.Store, caller Caller, action, scope string, params map[string]string) bool` and `AuthorizeWith(..., opts AuthorizeOpts)` — deny-wins row grants with tier-default fallback for `mcp:*` actions. Many tool callsites need both gates.
+- Identity: `Identity`, `Resolve(folder string) Identity`, `WorldOf(folder)`, `IsDirectChild(parent, child)`
+- Glob helper: `MatchGroups(allowed, folder)` — does a folder fall in an allowed-list glob.
+- ACL row-grant authz: `Authorize(s *store.Store, caller Caller, action, scope string, params map[string]string) bool` — deny-wins row grants, no fallback (an action with no matching allow row is denied). `EffectiveActions(s, caller)` is the `tools/list` visibility view; `Delegate` bounds re-delegation to a subset of rows held WITH GRANT OPTION.
 - Token verify: `VerifyToken(token string, ks *KeySet) (Subject, error)`, `VerifyHTTP(r *http.Request, ks *KeySet) (Subject, error)`, `HasScope(scope []string, resource, verb string) bool`, `MatchesAudience(sub Subject, aud)`.
 - JWKS: `PublicJWKS(keys ...*SigningKey) ([]byte, error)` (authd's `/v1/keys`); `FetchKeys(ctx, authdURL)` + `KeySet` (backend-side cache).
 - Service bootstrap: `ServiceToken(authdURL, daemon, key) (*TokenSource, error)`; `(*TokenSource).Token(ctx)` returns a live, auto-refreshed `service:<name>` token.
@@ -100,9 +100,10 @@ if !auth.HasScope(sub.Scope, "tasks", "write") { return 403 }
 
 ## Files
 
-- `identity.go` — tier/world resolution, spawn rules
-- `policy.go` — `AuthorizeStructural` (tree-shape / tier-bound gate)
-- `authorize.go` — `Authorize`/`AuthorizeWith` (ACL row-grant gate, `Caller`)
+- `identity.go` — folder/world resolution, root elevation
+- `acl.go` — `MatchGroups`, scope-glob matching
+- `authorize.go` — `Authorize`, `EffectiveActions` (ACL row-grant gate, `Caller`)
+- `delegate.go` — `Delegate` (subset-of-held, WITH GRANT OPTION)
 - `es256.go` — `TokenClaims`, `Subject`, `SigningKey`, `Sign`/`MintForSubject`/`MintNarrower`
 - `jwks.go` — `KeySet`, `VerifyToken`, `VerifyHTTP`, `PublicJWKS`, `FetchKeys`
 - `scope.go` — `HasScope`, scope intersection/coverage helpers

@@ -50,7 +50,7 @@ and excluded from the `config_version` count per spec.
 - routd's cold-tier agent tools — `routes`, `web_routes`,
   `network_rules`, `scheduled_tasks`, `acl` (one `*_resource.go` each),
   mounted on the agent MCP socket via a `postBuild` seam with the
-  tier-aware `Gate` injected, and — where a REST twin exists (`routes`,
+  agent `Gate` injected, and — where a REST twin exists (`routes`,
   `web_routes`, `scheduled_tasks` as `/v1/tasks`, `acl`) — the same
   handler on the operator REST face with a scope/folder `Gate`. This is
   the spec 5/16 fold. The hot-tier tools (`reply`/`send`/`inspect_*`)
@@ -93,15 +93,16 @@ register, so the two faces can't drift.
 - `MCPTools(srv, r, callerFor, visible)` — emits matching MCP tools.
   `callerFor` is invoked **per call**, not at registration time —
   privilege confusion in shared MCP servers is structurally precluded.
-  `visible(name)` gates which tools the caller's tier may even see in
-  `tools/list` (nil → all visible).
+  `visible(name)` gates which tools the caller may even see in
+  `tools/list` — `auth.EffectiveActions`, i.e. does the caller hold the
+  action at any scope (nil → all visible).
 
 ## Types
 
 - `Resource{Name, Endpoints, MCPDoc, MCPArgs, Authz, Gate, Handler,
 Store, RowType}` — one literal per resource per daemon. `Gate` is the
   injected authz decision (nil → operator `defaultGate`; agent socket
-  overrides with the tier-aware gate). MCP tools are DERIVED
+  overrides with its own gate). MCP tools are DERIVED
   from `Endpoints` (`deriveMCPTools`) using `MCPDoc` (per-action prose) +
   `MCPArgs` (per-action args); there is no hand-authored `MCPTools` list.
 - `Action` — short verb constant (`list`, `get`, `create`, `update`,
@@ -127,10 +128,11 @@ not an allow/deny decision. The decision belongs to the injected
   `auth.Authorize(Store, caller, "<Name>:<action>", scope, params)` over
   the ACL rows ([`specs/5/32-acl-unified.md`](../specs/5/32-acl-unified.md))
   — scope/ACL match, no tier. This is what operator REST mounts.
-- The daemon mounting the resource on the AGENT socket (routd) injects a
-  tier-aware gate — `db.Authorize(sub, folder, "mcp:"+tool, params)`, the
-  tier-default-grants path. Same handler, different gate; resreg is not a
-  second authz server.
+- The daemon mounting the resource on the AGENT socket (routd) injects
+  `db.Authorize(sub, folder, "mcp:"+tool, params)`, which calls the same
+  `auth.Authorize` over the same `acl` rows — the difference is the
+  identity source (socket folder vs JWT), not the policy. Same handler,
+  different gate; resreg is not a second authz server.
 
 Forwarder resources (`Store == nil`) skip the gate — the downstream
 daemon authorizes. Returning `err` from `Authz` short-circuits (e.g.

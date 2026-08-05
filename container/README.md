@@ -46,11 +46,11 @@ Every container:
 - `ipc/` → `/run/ipc` (rw, for MCP socket)
 - `groups/<world>/share/` → `/var/lib/share` (rw; ro if `share_mount` grant with `readonly=true`)
 
-Elevated `/root` turn only (tier 0):
+Elevated `/root` turn only:
 
 - `GROUPS_DIR` → `/var/lib/groups` (rw)
 
-Tier 0-2 (web-enabled):
+With the `web:publish` grant:
 
 - `WEB_DIR/pub/` → `/var/lib/www` (ro, whole tree)
 - `WEB_DIR/pub/<folder>/` → `~/public_html` (rw)

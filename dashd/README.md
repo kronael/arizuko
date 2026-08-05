@@ -7,7 +7,7 @@ CRUD, and admin-gated CRUD over routes, groups, invites, and grants.
 
 Standalone HTMX portal for operators and signed-in users. Reads most of
 its data directly from the shared SQLite (`messages.db`) and the group
-filesystem; TIER 1 write paths cover routes, groups, per-user secrets,
+filesystem; write paths cover routes, groups, per-user secrets,
 invites, grants, model selector, and skill toggles — all gated by
 `auth.Authorize`.
 

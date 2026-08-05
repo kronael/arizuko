@@ -80,7 +80,7 @@ pub/
     index.html            reference overview
     env.html              all env vars, grouped by daemon
     cli.html              arizuko CLI commands (create, run, invite, chat, group …)
-    mcp.html              MCP tools reference (all 30+ tools, params, tiers)
+    mcp.html              MCP tools reference (all 30+ tools, params, grants)
     schema.html           SQLite tables (messages, groups, user_groups, …)
     grants.html           grant rule syntax
     jid.html              JID format reference
@@ -175,7 +175,7 @@ or schema column. Comprehensive, flat, searchable.
 `reference/mcp.html` — every MCP tool:
 
 - Name, params (JSON schema), return shape
-- Tier requirement
+- Required grant (`mcp:<tool>`)
 - Example call (mcpc style)
 
 `reference/schema.html` — every SQLite table:
@@ -184,7 +184,7 @@ or schema column. Comprehensive, flat, searchable.
 - Which daemon owns writes
 - Key indexes
 
-`reference/grants.html` — grant rule syntax, tier defaults, examples.
+`reference/grants.html` — the acl row, action lattice, roles, delegation, examples.
 `reference/jid.html` — JID format, all typed forms, glob matching.
 
 ### Howto (`howto/`)
@@ -315,18 +315,18 @@ static file server or by deploying to a running instance (`/pub/`).
 Docs are part of a change, not a later chore. **When you change a
 surface, update its page in the same commit.** Spec: `specs/5/D`.
 
-| You changed…                   | Update…                                                                                                                   |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| a CLI command / flag           | `reference/cli.html`                                                                                                      |
-| an env var                     | `reference/env.html`                                                                                                      |
-| an MCP tool (name, args, tier) | `reference/mcp.html`                                                                                                      |
-| a DB schema migration          | `reference/schema.html`                                                                                                   |
-| a grant scope or the grant DSL | `reference/grants.html` + `concepts/grants.html` + `concepts/scopes.html`                                                 |
-| JID / token / topic grammar    | the `reference/*` page + its `concepts/*` twin                                                                            |
-| a new daemon                   | `components/<daemon>.html` + `components/index.html` + the `reference/openapi.html` row                                   |
-| a new channel adapter          | `components/<adapter>.html` (+ a `howto/` recipe if setup is non-trivial)                                                 |
-| a new concept / primitive      | a `concepts/<x>.html` page **and** slot it into the curriculum order in `concepts/index.html`, fixing neighbouring pagers |
-| a tagged release               | `changelog/index.html`                                                                                                    |
+| You changed…                    | Update…                                                                                                                   |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| a CLI command / flag            | `reference/cli.html`                                                                                                      |
+| an env var                      | `reference/env.html`                                                                                                      |
+| an MCP tool (name, args, grant) | `reference/mcp.html`                                                                                                      |
+| a DB schema migration           | `reference/schema.html`                                                                                                   |
+| a grant scope or the grant DSL  | `reference/grants.html` + `concepts/grants.html` + `concepts/scopes.html`                                                 |
+| JID / token / topic grammar     | the `reference/*` page + its `concepts/*` twin                                                                            |
+| a new daemon                    | `components/<daemon>.html` + `components/index.html` + the `reference/openapi.html` row                                   |
+| a new channel adapter           | `components/<adapter>.html` (+ a `howto/` recipe if setup is non-trivial)                                                 |
+| a new concept / primitive       | a `concepts/<x>.html` page **and** slot it into the curriculum order in `concepts/index.html`, fixing neighbouring pagers |
+| a tagged release                | `changelog/index.html`                                                                                                    |
 
 Discipline:
 

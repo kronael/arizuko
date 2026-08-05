@@ -6,14 +6,15 @@ Group-folder path resolution and validation.
 
 Translates a `folder` string into filesystem paths (`groups/<folder>`,
 `ipc/<folder>/gated.sock`, `groups/<folder>/media/<YYYYMMDD>`). Rejects
-traversal attempts (`..`, absolute paths, symlink escapes). `IsRoot`
-distinguishes tier-0 (root) from sub-worlds.
+traversal attempts (`..`, absolute paths, symlink escapes). `IsTopLevel`
+reports whether a folder is a world (no `/`). It is a shape test, not a
+privilege check — capability comes from `acl` rows.
 
 ## Public API
 
 - `Resolver` — constructed with base group + ipc dirs
 - `(*Resolver).GroupPath(folder)`, `IpcPath(folder)`, `EnsureWithinBase(path)`
-- `IsRoot(folder string) bool`
+- `IsTopLevel(folder string) bool`
 - `IpcInputDir(ipcDir)`, `IpcSocket(ipcDir)`, `GroupMediaDir(groupDir, day)`
 
 ## Dependencies

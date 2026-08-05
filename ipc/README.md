@@ -12,13 +12,13 @@ bounded to 8 per socket. Hot-tier action tools (send/reply/post/like/…,
 `register_group`, `inject_message`, `engage`, …) mutate state; the
 `inspect_*` family is read-only introspection. Cold-tier management
 tools (`set_routes`/`schedule_task`/`network_allow`/…) are resreg-served,
-not hand-rolled here — see "Tool surface" below. Identity (folder, tier)
-is resolved from the socket path; the kernel-attested peer uid
-(`SO_PEERCRED`) gates every connection. Tool visibility is filtered by
-`grants.MatchingRules` (a tool whose name matches no rule is never
-registered); each call is then authorized by the agent gate
-`db.Authorize(sub, folder, "mcp:"+tool, params)` — the tier-default-grants
-path routd injects.
+not hand-rolled here — see "Tool surface" below. Identity (the folder) is
+resolved from the socket path; the kernel-attested peer uid
+(`SO_PEERCRED`) gates every connection. Tool visibility is
+`auth.EffectiveActions` over the folder's `acl` rows (a tool the caller
+holds at no scope is never registered); each call is then authorized by
+the agent gate `db.Authorize(sub, folder, "mcp:"+tool, params)` routd
+injects. One row set feeds both, so list and gate agree.
 
 Hot vs cold tier: the **hot-tier** runtime actions (`reply`/`send`/
 `like`/`inspect_*`/`engage`/`fork_topic`) are MCP-only, hand-authored,
@@ -37,8 +37,7 @@ At agent socket bind, the MCP host mints a capability token via
 
 - `sub: "agent:<folder>"`
 - `folder: <group folder>`
-- `tier: <resolved tier>`
-- `scope: <snapshot of grants for this folder/tier>`
+- `scope: <snapshot of the folder's granted actions>`
 - `iss: "mcp-host"`
 
 The token is handed to the agent at handshake time (env var or first
@@ -113,7 +112,7 @@ the `routes` (`add_route`/`set_routes`/`list_routes`/`delete_route`),
 `list_tasks`), and `acl` (`add_acl`/`remove_acl`/`list_acl`) tools each ride
 one `resreg.Resource`. routd owns the shared handler + tx/audit and mounts
 them on this server through the `ServeMCP` postBuild seam, injecting a
-tier-aware `Gate` + `MatchingRules` visibility. ipc keeps the transport +
+the agent `Gate` + `EffectiveActions` visibility. ipc keeps the transport +
 the hot-tier tools above, not these bodies.
 
 Slack pane controls: `pane_set_prompts`, `pane_set_title`.
@@ -136,7 +135,8 @@ container is discarded.
 
 Read-only introspection: `inspect_messages`, `inspect_routing`,
 `inspect_tasks`, `inspect_session`, `inspect_identity`, `find_messages`.
-Tier 0 sees all instances; tier ≥1 is scoped to its folder subtree.
+An elevated `/root` turn sees every folder; an ordinary turn is scoped to
+its own folder subtree.
 Replaces ad-hoc `Bash sqlite3 …` audits.
 
 `find_messages` is FTS5-backed full-text search (spec 5/C): bare

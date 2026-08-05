@@ -18,14 +18,14 @@ Spec: `specs/5/E`.
 - Ingest inbound from channel adapters; append messages (sole appender).
 - Resolve `routes` (topic / sticky / reply rules) to a target folder.
 - Run the orchestration loop: claim a turn, dispatch to runed, track results.
-- Host the in-process per-turn MCP socket: derive folder grant rules
-  (`grants.DeriveRules`), wire `ipc.ServeMCP` to routd's DB + Deliverer,
+- Host the in-process per-turn MCP socket: resolve the folder's container
+  capabilities from `acl`, wire `ipc.ServeMCP` to routd's DB + Deliverer,
   and forward the agent's conversation tools (`reply`/`send`/`like`/…)
   back through `/v1/turns/{turn_id}/*`. routd injects the agent authz
-  gate here — `db.Authorize(sub, folder, "mcp:"+tool, params)` (the
-  tier-default-grants path) — and gates tool visibility via
-  `grants.MatchingRules`; resreg-served cold-tier resources reuse that
-  injected gate instead of their default operator gate.
+  gate here — `db.Authorize(sub, folder, "mcp:"+tool, params)` — and gates
+  tool visibility via `auth.EffectiveActions`; resreg-served cold-tier
+  resources reuse that injected gate instead of their default operator
+  gate.
 - Channel egress via the `chanreg` Deliverer (adapters register their
   egress URL + owned JID prefixes).
 
