@@ -1748,10 +1748,15 @@ metadata belongs in a dump.
 - **Severity:** medium
 - **Scope:** cmd/arizuko resreg apply/plan/export/get, config_meta ownership
 - **Affected:** all instances (YAML-manifest config management dead post-split)
-- **Source:** cmd/arizuko/apply.go:45,94,128,204 (store.Open messages.db); resreg/engine.go:627-645 (exports every RowType); resreg/resources/invites.go:14-21,36-43 (raw token registered); store/migrations/0067-config-meta.sql
-- **Status:** open
+- **Source:** resreg/engine.go:627-645 (exports every RowType); resreg/resources/invites.go:14-21,36-43 (raw token registered); store/migrations/0067-config-meta.sql
+- **Status:** PARTIAL (verified 2026-08-05) — the messages.db half is DONE: `apply.go` now
+  opens routd.db + onbod.db per subsystem via `openSubsystemStores` (`store.OpenRoutd`/
+  `OpenOnbod`, apply.go:46-58), so these verbs reach production config. STILL OPEN: (1)
+  `config_meta` remains an orphan in messages.db, so the CAS counter has no owner-DB home;
+  (2) the 5/8 token-exclusion gap — `resreg.Export` still scans every RowType including the
+  raw invite `Token`, which now that the repoint has landed means a live-token export.
 
-## dashd reads messages/chats/cost_log/task_run_logs from frozen messages.db (2026-07-01, open)
+## ✅ FIXED 2026-08-05 — dashd reads messages/chats/cost_log/task_run_logs from frozen messages.db (2026-07-01)
 
 Several dashd read paths still query the pre-split messages.db handle (`d.db`) for tables that
 moved to routd.db: `routd_page.go` reads `messages`/`chats` (errored + pending outbound counts,
@@ -1765,13 +1770,14 @@ audit.Init + the audit reader to routd.db). These readers should be repointed to
 - **Scope:** dashd routd_page.go / usage_page.go / chat.go direct messages.db reads
 - **Affected:** all instances (dashd status/usage/chat views show stale post-split data)
 - **Source:** dashd/routd_page.go:50,64,126; dashd/usage_page.go:38; dashd/chat.go:138,369
-- **Status:** PARTIAL (2026-07-05) — `routd_page.go` errored/pending counts + retry UPDATE
-  repointed to routd.db (live). STILL OPEN: (1) `usage_page.go` GroupUsageBulk + volume — NOT
-  a handle swap: cost_log has divergent schemas across messages.db (store 0049: `ts/cents/
-  input_tok`) and routd.db (routd 0001: `recorded_at/cost_cents/input_tokens`); GroupUsageBulk's
-  SQL matches the store schema, so it needs a query rewrite to read routd.db's live cost_log.
-  (2) `chat.go` chat_sessions is dashd-owned in messages.db (no external writer) — moving it needs
-  the mint-write path repointed too. Until both land, dashd still holds `store.Open(messages.db)`.
+- **Status:** ✅ RESOLVED — both remaining halves landed. `usage_page.go`'s aggregation was
+  rewritten for routd's cost_log columns and moved into dashd (its only consumer);
+  `store.GroupUsageBulk`/`GroupUsageSummary` deleted rather than left as a store-schema twin.
+  `chat_sessions` became a real routd table (migration 0029) instead of a lazily-CREATEd
+  table inside the monolith; it held zero rows on all three instances, so no backfill.
+  dashd's `db`/`dbRW` fields are gone — the monolith is unreachable by construction — and
+  `resolveDSN` refuses a `DB_PATH` ending in `messages.db` so a stale env fails loudly.
+- **Fix:** 3c2b7ad7
 
 ## Product PRODUCT.md manifests declare a non-existent `facts` skill (2026-07-09, OPEN)
 
@@ -2822,10 +2828,20 @@ timed) write via the owner's HTTP API" describes a boundary that does not exist 
 the split write-discipline is a convention, honored voluntarily in code.
 
 Honoring it: `timed`, `davd`, `teled` open no DB at all. Not honoring it:
-`proxyd` (routd.db), `webd` (messages.db + routd.db), `dashd` (messages.db +
-routd.db + onbod.db), and `slakd` (`slakd/main.go:44` opens routd.db) — which
-CLAUDE.md names as an HTTP writer. `timed` owns no DB because it chose the wire,
-not because it lacks access.
+`proxyd` (routd.db), `webd` (routd.db), `dashd` (routd.db + onbod.db +
+runed.db), and `slakd` (`slakd/main.go:44` opens routd.db) — which CLAUDE.md
+names as an HTTP writer. `timed` owns no DB because it chose the wire, not
+because it lacks access.
+
+**messages.db is no longer in that list (2026-08-05, `e5e75bd5` + `3c2b7ad7`).**
+routd's two boot-time legacy copiers are deleted and dashd is repointed, so no
+daemon opens the monolith — it was the one file legitimately shared by several
+daemons and therefore the stated blocker on per-owner `store/` subdirectories.
+That blocker is lifted; the remaining ones are enumerated in Q1 (three CLI verbs
+still open it) and the cross-DB reads catalogued above (onbod→routd.db,
+dashd→3 DBs), which a per-owner mount would have to keep reachable. The
+messages.db FILE stays on all three instances — it holds pre-split history, and
+disposing of it is an operator decision, separate from retiring the code path.
 
 **2. Authorization lives in the router.** `acl`, `acl_membership`,
 `auth_sessions`, `auth_users` are in `routd.db`. authd owns `auth.db` and holds
@@ -3580,3 +3596,80 @@ the same "seed a default row" problem, not a property of seeding itself.
   exclude `StampedFields` generically (would also close part of Z2's gap).
   Needs sign-off (schema + a content-hash semantics change), not attempted
   here.
+
+## Q1 — three `arizuko` CLI verbs still open the frozen messages.db (2026-08-05, open)
+
+With dashd repointed (`3c2b7ad7`) and routd's legacy copiers deleted (`e5e75bd5`), no
+DAEMON opens the pre-split monolith. Three CLI verbs still do, via `store.Open` — the
+only remaining function that resolves `messages.db`:
+
+- **`arizuko group list`** (`cmd/arizuko/main.go:360,368`) reads `s.AllGroups()` off the
+  frozen DB, so it prints the pre-split group set. Every OTHER `group` verb (add/rm/grant/
+  ungrant) already routes through `mustOpenACL` → routd.db, so this one read is the odd
+  one out and silently disagrees with the writes beside it.
+- **`arizuko budget set|show`** (`cmd/arizuko/budget.go:23`) is entirely on the monolith:
+  `SetFolderCap`/`SetUserCap` write caps routd never reads, and `SpendTodayFolder`/
+  `SpendTodayUser` sum the frozen `cost_log`. routd has its OWN `SpendTodayFolder`/
+  `SpendTodayUser`/`FolderCap`/`UserCap` on routd.db (`routd/db.go:1032-1047`,
+  `routd/sibling_db.go:92`) — the pair that the pre-spawn budget gate actually consults.
+  So `budget set` appears to succeed and changes nothing enforced.
+- **`arizuko create`** (`cmd/arizuko/main.go:291`) CREATES an empty `messages.db` in every
+  new instance's `store/`, then chowns it. A fresh install ships a monolith no daemon
+  opens — which also makes "messages.db is retired" false for new instances.
+
+Same class as the already-fixed `arizuko network` (2026-06-21) and `arizuko apply`
+repoints: the verb was never moved to the owner DB at cutover. `store.OpenRoutd` already
+exists, so `group list` and `budget` are a handle swap plus a `cost_log` column rewrite
+for the spend queries (routd's shape is `recorded_at`/`cost_cents`, the store's is
+`ts`/`cents`). `create` should simply stop making the file.
+
+Not fixed here: out of the messages.db-retirement slice's scope (daemon reads), and the
+budget swap changes an operator-facing surface, so it wants its own tests.
+
+- **Severity:** medium (`budget set` is a silent no-op; `group list` prints stale truth)
+- **Scope:** cmd/arizuko target-DB routing
+- **Affected:** all instances — `arizuko group list`, `arizuko budget`, `arizuko create`
+- **Source:** cmd/arizuko/main.go:291,360; cmd/arizuko/budget.go:23; store/store.go:51
+- **Status:** open
+
+## Q2 — dashd's audit-free writers outlived their reason, so admin mutations are unaudited (2026-08-05, open)
+
+Five sites in dashd justify using audit-FREE store variants with the same stale claim —
+"routd.db has no audit_log table, so the audited writer would roll back":
+`groups_admin.go:122,412`, `route_tokens.go:69,131`, `routes_admin.go:157`,
+`grants_admin.go:216,267`, `chat.go:416`. routd migration **0016** added `audit_log` to
+routd.db, and dashd's own sink has pointed there since; `audit.Init(dbRoutd, …)` runs at
+boot. The premise is false, and the consequence is that operator grant/route/route-token/
+group mutations through the dashboard persist with no audit row — while the same
+mutations through the CLI and MCP surfaces are audited.
+
+Found while retiring messages.db (the comments are adjacent to the repointed reads).
+Left in place: switching to the audited writers is a behavior change on seven mutation
+paths and belongs in its own commit with per-path tests, not smuggled into a repoint.
+
+- **Severity:** medium (operator mutations invisible to the audit trail; surfaces disagree)
+- **Scope:** dashd admin write paths vs audit/log.go
+- **Affected:** all instances — dashboard grant/route/token/group/task mutations
+- **Source:** dashd/groups_admin.go:122,412; route_tokens.go:69,131; routes_admin.go:157; grants_admin.go:216,267; chat.go:416; routd/migrations/0016-audit-log.sql
+- **Status:** open
+
+## Q3 — dashd tests wire a STORE-schema DB as routd.db (2026-08-05, open)
+
+`testutils.NewInstance` runs `store.Migrate` — the pre-split messages.db schema — and
+dashd tests pass that handle as `dbRoutd`. The two schemas overlap enough (messages,
+groups, acl, routes) that this passed unnoticed, but they diverge on `cost_log`
+(`ts/cents/input_tok` vs `recorded_at/cost_cents/input_tokens`) and on tables routd added
+after the split (`chat_sessions`, migration 0029), which the store schema simply lacks.
+
+Two dashd tests now compensate in-line — `TestGroupListUsage` DROPs and recreates
+`cost_log` in routd's shape, and the chat tests CREATE `chat_sessions` themselves. That
+works but means the fixture can assert against a schema production does not have, so a
+genuine column-name regression can pass. The durable fix is a routd-schema instance
+helper (`testutils.NewRoutdInstance` running routd's migration FS) for daemons that read
+routd.db; `store.Migrate` should stay only where the frozen schema is the subject.
+
+- **Severity:** low (test-fidelity; can mask a real schema drift)
+- **Scope:** tests/testutils vs routd/migrations
+- **Affected:** dashd test suite (and any future daemon test wiring inst.DB as routd.db)
+- **Source:** tests/testutils/testutils.go:49; dashd/integration_test.go (cost_log swap); dashd/chat_test.go:createChatSessions
+- **Status:** open
