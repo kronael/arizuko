@@ -25,7 +25,7 @@ survives unchanged: **a feature is off because its daemon is not running or
 its env var is not set — not because a flag says `false`.** Onboarding is
 off until `ONBOARDING_ENABLED=true`, WebDAV until `WEBDAV_ENABLED`, media
 transcription until `MEDIA_ENABLED`, the web bundle until `WEB_PORT`.
-`activeProfiles(env)` (`compose/compose.go:417`) reads exactly those vars
+`activeProfiles(env)` (`compose/compose.go:451`) reads exactly those vars
 and derives `COMPOSE_PROFILES`; there is no second switch.
 
 The floor of a deployment is the core plane plus one channel adapter

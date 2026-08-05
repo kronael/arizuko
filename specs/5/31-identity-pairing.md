@@ -19,7 +19,7 @@ two.
 
 Both halves already shipped. The bridge is `5/32`'s JID claim — an
 `acl_membership(child=<channel JID>, parent=<canonical sub>)` edge that
-`expandPrincipals` (`auth/authorize.go:120`) follows transitively.
+`expandPrincipals` (`auth/authorize.go:123`) follows transitively.
 
 But that write used to be reachable from exactly one place: a route **miss**, on
 an `ONBOARDING_PLATFORMS` platform, with `ONBOARDING_ENABLED`, whose success
@@ -66,7 +66,7 @@ arise.
 | `GET /pair/{token}` — side-effect-free confirm page                                     | `webd/pair.go:35`, mounted `webd/server.go:145`                                                   |
 | `POST /pair/{token}` — redeem in one routd transaction                                  | `webd/pair.go:60` → `store.RedeemPairing`                                                         |
 | anonymous visitor bounced through OAuth and back                                        | `compose/compose.go:338` (`/pair/` is `Auth: "user"`) → `authd/oauth.go:135` `consumeReturn`      |
-| unpair                                                                                  | `routd/membership_resource.go:56`, `resreg/resources/membership.go`                               |
+| unpair                                                                                  | `routd/membership_resource.go:57`, `resreg/resources/membership.go`                               |
 
 `webd` serves the browser half because it already opens `routd.db`, so
 redemption is local. onbod is not in the path at all.
@@ -205,7 +205,7 @@ sent before any human is known has no folder to reference, by construction;
 that is the whole reason onboarding exists apart from pairing. Neither
 `PeekPairing` nor `RedeemPairing` reads `owner_folder` for a `kind='pair'`
 row — the column is write-only on this path — and the pair kind is already
-excluded from `ListRouteTokens` (`store/route_tokens.go:142`) and revoke
+excluded from `ListRouteTokens` (`store/route_tokens.go:135`) and revoke
 (`revokeRouteTokenTx`, `routd/route_tokens_resource.go:319`), both filtered to
 `kind=route`. So `NULL` costs nothing functionally. A follow-up migration
 relaxes the column to nullable; SQLite's FK check is a no-op on `NULL`, so
@@ -251,7 +251,7 @@ reprompt button are dead once this ships; the cooldown is the reprompt.
 `acl_membership` edge, evaluates gates and advances the onboarding row (queue
 or approve), and — on no gate match or an existing different parent —
 refuses to the user's face via `errLinkRefused` → 403 (`writeLinkErr`,
-`onbod/main.go:955`). `RedeemPairing` (`store/pairing.go:58`) does only the
+`onbod/main.go:960`). `RedeemPairing` (`store/pairing.go:58`) does only the
 first of those — it has no concept of a gate, and its one refusal
 (`ErrPairingConflict`) is a fact about the edge itself (this identity already
 belongs to someone else), not about admission policy. Splitting redemption

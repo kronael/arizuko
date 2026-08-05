@@ -159,7 +159,7 @@ prefixes do not overlap. `GET /v1/keys` is **public**, mounted before auth
 middleware; everything else needs a bootstrap secret or a bearer. JSON errors
 are `{"error":"<code>","message":"<human>"}`.
 
-Routes: `authd/http.go:93-98`. OAuth routes: `authd/oauth.go:52-69`.
+Routes: `authd/http.go:93-98`. OAuth routes: `authd/oauth.go:53-70`.
 
 - **`GET /v1/keys`** — the JWK Set, marshalled from rows that are active or
   within their overlap window. `Cache-Control: public, max-age=3600`; verifiers

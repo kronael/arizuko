@@ -52,7 +52,7 @@ naming.
 global forwarder, callers holding a `**` ACL row, no folder containment. The
 agent socket is per-folder and must bind every call to a target, so a resource
 mounted there cannot simply reuse resreg's operator gate — `defaultGate`
-(`resreg/resreg.go:529`) checks a `<resource>:<action>` scope the agent
+(`resreg/resreg.go:572`) checks a `<resource>:<action>` scope the agent
 principal never holds, and would deny every folder agent.
 
 **Decision: resreg stays policy-free and the authorization is injected per
@@ -240,7 +240,7 @@ table") — proxyd _serves_ it over REST/MCP and writes it directly
 **owner DB** (who migrates the table) are different axes; `resreg.Resource`
 needs a typed `Owner` field (`OwnerRoutd`/`OwnerOnbod` — logical owner, not a
 filesystem path or the serving daemon) to carry this, which it does not have
-today (`resreg/resreg.go:155-195` has no `Owner` field — `Y1`'s
+today (`resreg/resreg.go:172-212` has no `Owner` field — `Y1`'s
 recommendation, not yet built).
 
 `authd`'s `auth.db` is a **separate owner**, outside this table: it owns
@@ -263,7 +263,7 @@ schemas; see the auth decision.
 
 `auth.Authorize(s *store.Store, caller, action, scope, params)`
 (`auth/authorize.go:25`) is the sole runtime ACL evaluator and it needs a
-LOCAL `*store.Store` — `resreg`'s `defaultGate` (`resreg/resreg.go:529`)
+LOCAL `*store.Store` — `resreg`'s `defaultGate` (`resreg/resreg.go:572`)
 calls it against `r.Store`, the mounting daemon's own handle. A DB holding
 only routing tables (had `proxyd.db` ever been real) cannot authorize
 anything with this function; something must either hold `acl`/

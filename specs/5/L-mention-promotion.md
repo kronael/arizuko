@@ -62,7 +62,7 @@ later replies arrive `verb=message` and the user experiences "it stopped
 listening mid-thread". Operator's words: _a reply is a mention if it
 replies to a bot message OR lands in a thread the bot started or
 participated in._ Hence the second term,
-`ThreadHasBotMessage(chat_jid, topic)` (`routd/db.go:1313`) — any bot row
+`ThreadHasBotMessage(chat_jid, topic)` (`routd/db.go:1220`) — any bot row
 in the thread, which subsumes the root-only rule.
 
 **Keyed on `chat_jid`, not `routed_to`/folder.** In the split the owning
@@ -70,7 +70,7 @@ folder is unresolved at ingest (route resolution runs after the row is
 stored). The chat is the precise thread container anyway — one folder
 serves many chats — and `ChatJID` is present on the inbound.
 
-**Topic inheritance runs BEFORE promotion** (`routd/server.go:470`) so
+**Topic inheritance runs BEFORE promotion** (`routd/server.go:475`) so
 the participation check sees the thread topic rather than an empty one.
 
 **Empty topic → false.** The chat's main timeline is not a thread;

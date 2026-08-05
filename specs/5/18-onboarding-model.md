@@ -121,7 +121,7 @@ ACL; do not add a second check in the loop.
   `/v1/outbound` under a `service:onbod` bearer. The landing sets an
   `onboard_jid` cookie and bounces to `/auth/login`; `X-User-Sub` survives only
   when `auth.ProxydTransit` holds; `claimOnboarding` + `linkJID`
-  (`onbod/main.go:558`, `:845`) write the `acl_membership` edge.
+  (`onbod/main.go:560`, `:845`) write the `acl_membership` edge.
 - ~~**6 — no picker.**~~ **SHIPPED** (`d9e57288`). `firstAdminFolder` became
   `adminFolders` — the same `auth.Authorize`-per-group evaluator, returning the
   whole set — and `renderWorldPicker` posts to the existing `handleAddRoute`.

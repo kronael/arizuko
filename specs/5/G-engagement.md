@@ -73,7 +73,7 @@ routd defers the claim to dispatch, where the resolved folder is known.
 `PutMessage`, for transactional tidiness. The split made that
 impossible; the code comment records the reason.)
 
-**Reaction topic inheritance** (`routd/server.go:470`). Reactions arrive
+**Reaction topic inheritance** (`routd/server.go:475`). Reactions arrive
 with an empty `Topic` and a `ReplyTo` pointing at the reacted-to message,
 so routd sets `Topic = TopicByID(ReplyTo)` before promotion. Without it,
 a reaction on a threaded message lands in the main engagement scope.

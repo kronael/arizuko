@@ -215,7 +215,7 @@ GitHub-topic discovery; the sidecar per-group `MCP.json` (dropped, `5/13`).
 - `cmd/arizuko/packages.go` — the `list`/`add`/`install`/`upgrade`/`remove` CLI
 - `routd/packages_store.go` (migration `0020`) — the installed-package record
 - `container/runner.go:964` `SetupGroup()` — group-seed entry point (Tier A)
-- `container/runner.go:1017` `seedSkills()` — skill seeding at spawn
+- `container/runner.go:1019` `seedSkills()` — skill seeding at spawn
 - `resreg/resources/proxyd_routes.go`, `routd/acl_resource.go` — the owner handlers
 - `ant/skills/self/migration.md` — the 3-way merge packages reuse for skills
 - `routd/loop.go:434` `checkMigrationVersion()` — the update trigger

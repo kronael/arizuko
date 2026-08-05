@@ -72,22 +72,19 @@ within a world**, not nested. Intended tools: `agent_create`, `agent_list`,
 One agent run: the turn container (`5/P`), its **subagent spawns**,
 auto-onboarding, and prototyping.
 
-Two things share the word "prototype", and must not be conflated. The
-**automatic** case is shipped: a delegated message targeting an unrouted
-child folder makes `routd/steer.go:529` spawn one from the parent's
-`prototype/` dir (`routd/spawn.go:44` `spawnFromPrototype` — copy, register,
-room-route, with rollback). That's system routing, not an agent action, and
-`4/26` fully specifies it (template dir, `room=<jid room>` route match,
-`max_children` cap via `auth.CheckSpawnAllowed`) — not restated here.
+Prototyping has **one** mechanism, and it is not a prototype feature.
+Automatic prototype spawn was deleted (`4a9a49c7`, with `4/26`): a
+delegated message to an unrouted folder no longer creates anything —
+`routd/steer.go`'s `delegateViaMessage` errors naming the folder and the
+tool that creates it. Groups are never created by routing.
 
-The **agent-initiated** case — "make me a copy of this group at that
-path" — has no mechanism of its own and needs none: `5/8` already ships the
-two primitives (export a folder, apply it at a target path). Spawning a
-prototype by hand, seeding a `5/28` package group, and cross-instance folder
-migration are each a **recipe** over those two verbs — product/use-case
-guidance, not a spec, not a new tool. `register_group`'s `fromPrototype` flag
-stays unwired (`routd/groups_resource.go:100`, returns "not configured");
-wiring it would be a second mechanism beside `5/8`'s.
+"Make me a copy of this group at that path" needs no mechanism of its own:
+`5/8` already ships the two primitives (export a folder, apply it at a
+target path). Spawning a prototype, seeding a `5/28` package group, and
+cross-instance folder migration are each a **recipe** over those two verbs
+— product/use-case guidance, not a spec, not a new tool. Anything that
+copies-and-registers behind one verb would be a second mechanism beside
+`5/8`'s, which is why the old one went.
 
 A subagent gets a strict subset of the parent's grants, by
 `auth.Delegate`-style subset-of-held (`5/33`), never by a depth rung.

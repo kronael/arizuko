@@ -34,7 +34,7 @@ agent MCP call
 ## Shape 1 — Go handler with secrets: NOT BUILT, deliberately
 
 `registerWithSecrets` has **no consumer**. Every in-container tool registers via
-`registerRaw` (`ipc/ipc.go:884`), and the operator-configurable credential
+`registerRaw` (`ipc/ipc.go:861`), and the operator-configurable credential
 surface is fully covered by shapes 2 and 3. A plain Go built-in that needs
 folder secrets would be the first consumer — none does, so building the plumbing
 now is a speculative primitive. Add it WITH its first consumer.

@@ -293,13 +293,12 @@ block for the one mechanically-safe case: it rewrites ONLY the declared
 `web_routes`, `network_rules` — verified against `resreg/resources/*.go`,
 2026-08-04; every other resource has no `Scope` at all).
 
-Four future consumers of this door, named so the next agent doesn't
-re-derive it: `4/26` prototype spawn (`routd/spawn.go`'s
-`spawnFromPrototype` — `CopyDirNoSymlinks` + `PutGroup` + `AddRoute` with
-rollback is an archive export→apply per folder, minus the file, done by
-hand today); `register_group`'s unbuilt `fromPrototype` path
-(`routd/groups_resource.go:100` currently returns "not configured");
-`5/28`'s seed-once package group; cross-instance folder migration.
+Two future consumers of this door, named so the next agent doesn't
+re-derive it: `5/28`'s seed-once package group, and cross-instance folder
+migration. Prototype spawn was the third until `4a9a49c7` deleted it
+(with `4/26`) precisely because copy-register-route behind one verb
+duplicated export→apply — see `5/5` §"Tier 3 — Session". A new consumer
+belongs here as a recipe over the two verbs, never as its own mechanism.
 
 **The rewrite is partial and per-resource, never global — verified against
 the schema, not assumed.** Two findings:
@@ -817,7 +816,7 @@ is built. `groups.open` (`store/groups.go:238-260`) was checked as a
 candidate "pause admission" lever and rejected as a red herring: it's read
 _only_ by `dashd`'s admin page for cross-group sibling visibility
 (spec 6/F), never consulted by any dispatch or admission path — the
-`routd/db.go:329` comment calling it "ambient turn admission" is stale
+`routd/db.go:228` comment calling it "ambient turn admission" is stale
 prose, not evidence of behavior.
 
 #### The CLI side: `archive apply` takes the hold
@@ -865,7 +864,7 @@ time.
 
 The check reuses the existing scope machinery rather than inventing a
 parallel validator: for resources carrying a declared `Scope`,
-`manifestScopes` (`resreg/engine.go:305`) already extracts every folder
+`manifestScopes` (`resreg/engine.go:339`) already extracts every folder
 the manifest touches for that resource — the same set already used to
 pick scoped-DELETE targets. For string-typed references `Scope` cannot
 capture (globs, fragments — the set "FK posture" (below) enumerates:
