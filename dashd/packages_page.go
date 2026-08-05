@@ -6,8 +6,11 @@ import (
 )
 
 // handlePackages lists the instance's installed packages (spec 5/28): the
-// installed_packages record, read from routd.db. Read-only for v1 — install /
-// upgrade / remove is the `arizuko packages` CLI.
+// installed_packages record, read from routd.db. Read-only, and so is the
+// resource behind it (`GET /v1/installed_packages`, routd/packages_resource.go)
+// — install / upgrade / remove is the `arizuko packages` CLI, because it also
+// writes host files and restarts sidecars. There is no control surface to add
+// here until there is one to call.
 func (d *dash) handlePackages(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return

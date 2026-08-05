@@ -4,11 +4,16 @@ status: partial
 
 # specs/5/28 — arizuko packages
 
-> **Status (2026-08-05).** Partial. `installed_packages` carries no resreg
-> registration, so it has neither a REST nor an MCP face and every mutation is
-> CLI-only (BUGS `F1`). `applyPackageRoutes` writes proxyd routes with no audit
-> row, while `applyPackageGrants` beside it in the same install path audits per
-> grant (BUGS `F2`). The "Composition" section below is unbuilt — no reader for
+> **Status (2026-08-05).** Partial. `installed_packages` now registers a resreg
+> resource (BUGS `F1`, closed) wearing both faces off one handler — the operator's
+> two GETs under `/v1/installed_packages` and the agent's `list_packages` /
+> `get_package` tools, each gated on the whole tree because the record is
+> instance-wide. The surface is READ-ONLY on purpose: install / upgrade / remove
+> writes host files and restarts sidecars, so a write face here would be a second
+> install path beside the CLI's.
+> Still open: `applyPackageRoutes` writes proxyd routes with no audit row, while
+> `applyPackageGrants` beside it in the same install path audits per grant (BUGS
+> `F2`); and the "Composition" section below is unbuilt — no reader for
 > `products.toml` exists (BUGS `F3`).
 
 Source-first package manager: a package is a **git source** (GitHub URL,
@@ -214,6 +219,11 @@ GitHub-topic discovery; the sidecar per-group `MCP.json` (dropped, `5/13`).
 
 - `cmd/arizuko/packages.go` — the `list`/`add`/`install`/`upgrade`/`remove` CLI
 - `routd/packages_store.go` (migration `0020`) — the installed-package record
+- `resreg/resources/installed_packages.go` — the catalog decl (RowType →
+  `/openapi.json`, read-only Endpoints, agent tool names/docs)
+- `routd/packages_resource.go` — the mounted handler; one renderer, two injected
+  gates, both bound to the instance-wide `**` target
+- `dashd/packages_page.go` — the operator's `/dash/packages/` read
 - `container/runner.go:964` `SetupGroup()` — group-seed entry point (Tier A)
 - `container/runner.go:1019` `seedSkills()` — skill seeding at spawn
 - `resreg/resources/proxyd_routes.go`, `routd/acl_resource.go` — the owner handlers

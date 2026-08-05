@@ -226,6 +226,27 @@ func (s *Server) recentSessions(folder string, n int) []core.SessionRecord {
 	return s.sessions.RecentSessions(folder, n)
 }
 
+// OpenAPIResources names the resources routd's /openapi.json advertises. It sits
+// beside Handler (which mounts them) rather than in cmd/routd, so a test can
+// assert the doc matches what is actually served — it once could not, and a
+// resource mounted here but absent there was invisible to every operator tool.
+//
+// List ONLY resources routd actually serves over REST, so /openapi.json can't
+// advertise phantom 404 endpoints. route_tokens' full Endpoint set
+// (chat/hook/list/revoke) is mounted (5/16 fold), so it is advertised.
+// installed_packages declares only its two GETs (spec 5/28: install/upgrade/
+// remove is the CLI, not a row write), so no phantom write verb appears either.
+// groups is OMITTED: only its GET (read twin) is mounted, but its resource
+// Endpoints also declare POST (register) which routd does NOT serve over REST
+// (create stays dashd's SetupGroup) — advertising it would emit a phantom POST
+// /v1/groups. acl_membership is dashd-FS-managed; network_rules is MCP-only via
+// network_allow/deny/list. secrets declares explicit write-only Endpoints (POST
+// create + key-DELETE, no read), so OpenAPI emits exactly those — a sealed value
+// can't leak through a convention GET (spec 5/8 §"Secret safety").
+var OpenAPIResources = []string{
+	"routes", "web_routes", "acl", "secrets", "route_tokens", "installed_packages",
+}
+
 // Handler builds the routed mux. GET /health and /openapi.json are public;
 // everything else is bearer-gated by the Verifier.
 func (s *Server) Handler() http.Handler {
@@ -237,6 +258,10 @@ func (s *Server) Handler() http.Handler {
 	s.mountWebRoutes(mux)
 	s.mountRouteTokens(mux)
 	s.mountGroups(mux)
+	// /v1/installed_packages read face (spec 5/28). Read-only by design — the
+	// install/upgrade/remove lifecycle writes host files and restarts sidecars,
+	// so it stays the `arizuko packages` CLI (packages_resource.go header).
+	s.mountInstalledPackages(mux)
 	// REST read/manage surface — the twin of routd's in-process MCP StoreFns
 	// (the agent reaches the same data over the socket, humans/tools over HTTP)
 	mux.HandleFunc("GET /v1/messages/inspect", s.handleInspectMessages)

@@ -253,21 +253,7 @@ func main() {
 	}
 	reg.StartHealthLoop(ctx)
 	mux := srv.Handler().(*http.ServeMux)
-	// routd owns the residual config + conversation tables (spec 5/8 catalog).
-	// List ONLY resources routd actually serves over REST so /openapi.json can't
-	// advertise phantom 404 endpoints — these names must match the mounted /v1
-	// handlers below. route_tokens' full Endpoint set (chat/hook/list/revoke) is
-	// mounted (5/16 fold), so it is advertised. groups is OMITTED: only its GET
-	// (read twin) is mounted, but its resource Endpoints also declare POST
-	// (register) which routd does NOT serve over REST (create stays dashd's
-	// SetupGroup) — advertising it would emit a phantom POST /v1/groups. acl_membership
-	// is dashd-FS-managed; network_rules is MCP-only via network_allow/deny/list.
-	// secrets declares explicit write-only Endpoints (POST create + key-DELETE, no
-	// read), so OpenAPI emits exactly those — a sealed value can't leak through a
-	// convention GET (spec 5/8 §"Secret safety").
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("routd", []string{
-		"routes", "web_routes", "acl", "secrets", "route_tokens",
-	}))
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("routd", routd.OpenAPIResources))
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
 	}
