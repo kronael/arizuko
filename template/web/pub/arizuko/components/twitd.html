@@ -66,7 +66,7 @@
         |  agent-twitter-client poll (mentions, DM convs)
         v
       twitd     (LISTEN_ADDR=:8080, Bun runtime)
-        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        |  POST /v1/messages    (service:<daemon> ES256 bearer)
         v
       routd
         |  POST /send           (callback to twitd)
@@ -94,7 +94,8 @@
 
     <h2>Standalone usage</h2>
     <pre><code>export ROUTER_URL=http://routd:8080
-export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export AUTHD_URL=http://authd:8080
+export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
 export TWITTER_AUTH_DIR=/srv/data/store/twitter-auth
 export TWITTER_POLL_INTERVAL=90
@@ -120,7 +121,7 @@ bun dist/main.js</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/twitd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

@@ -73,7 +73,7 @@
     <h2>How it fits</h2>
     <div class="callout">
       <pre><code>channel adapter (teled / slakd / webd / &hellip;)
-        |  POST /v1/messages   (CHANNEL_SECRET signed)
+        |  POST /v1/messages   (service:&lt;daemon&gt; ES256 bearer)
         v
       routd   resolve routes  -> target folder
         |     authz gate       (auth.AuthorizeWith on acl / acl_membership)
@@ -87,7 +87,7 @@
       channel deliverer (chanreg)  -> back out to the adapter</code></pre>
     </div>
 
-    <p>Inputs: signed inbound from channel adapters (<code>POST /v1/messages</code>, <code>CHANNEL_SECRET</code>); the agent&rsquo;s conversation-tool calls over the in-process MCP socket; due-task claims from <a href="timed.html">timed</a>. Outputs: dispatch calls to runed (<code>POST /v1/runs</code>); delivered replies through the <code>chanreg</code> deliverer to whichever adapter owns the JID prefix.</p>
+    <p>Inputs: authenticated inbound from channel adapters (<code>POST /v1/messages</code>, bearing a <code>service:&lt;daemon&gt;</code> ES256 token); the agent&rsquo;s conversation-tool calls over the in-process MCP socket; due-task claims from <a href="timed.html">timed</a>. Outputs: dispatch calls to runed (<code>POST /v1/runs</code>); delivered replies through the <code>chanreg</code> deliverer to whichever adapter owns the JID prefix.</p>
 
     <p>Hard deps: <a href="runed.html">runed</a> reachable at <code>$RUNED_URL</code> to execute turns; <a href="authd.html">authd</a>&rsquo;s JWKS to verify tokens offline (routd verifies, never signs). Channel adapters register their egress URL and owned JID prefixes via <code>POST /v1/channels/register</code>.</p>
 
@@ -103,7 +103,6 @@ export LISTEN_ADDR=:8080
 export RUNED_URL=http://runed:8080
 export AUTHD_URL=http://authd:8080
 export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
-export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
 export WEB_HOST=localhost:8080
 ./routd</code></pre>
 
@@ -129,7 +128,7 @@ export WEB_HOST=localhost:8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/routd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

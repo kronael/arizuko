@@ -325,14 +325,14 @@ target: engineering</code></pre>
             </td>
           </tr>
           <tr>
-            <td><code>SLAKD_CHANNEL_SECRET</code></td>
-            <td>no</td>
-            <td>inherits <code>CHANNEL_SECRET</code></td>
+            <td><code>AUTHD_SERVICE_KEY</code></td>
+            <td>yes</td>
+            <td>&mdash;</td>
             <td>
-              optional per-adapter override of
-              <code>CHANNEL_SECRET</code>. slakd presents this bearer to
-              routd; registration binds it to the slack channel record so
-              a leaked Slack manifest does not compromise other adapters
+              exchanged at <code>AUTHD_URL</code> for the
+              <code>service:slakd</code> ES256 token slakd presents to routd
+              on every call; registration pins the slack channel record to
+              the verified subject, not to the rotating token
             </td>
           </tr>
           <tr>

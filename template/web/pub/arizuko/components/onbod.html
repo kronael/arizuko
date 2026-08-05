@@ -94,7 +94,8 @@
 export ONBOD_LISTEN_ADDR=:8080
 export ROUTER_URL=http://routd:8080
 export AUTH_SECRET=$(openssl rand -hex 32)
-export CHANNEL_SECRET=$(openssl rand -hex 32)
+export AUTHD_URL=http://authd:8080
+export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
 export AUTH_BASE_URL=https://example.com
 export ONBOARDING_ENABLED=1
 export ONBOARDING_GATES='github-org:myorg:5,catch-all:0'
@@ -134,7 +135,7 @@ export GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/onbod.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-04">2026-08-04</time>
       </div>
     </main>
 

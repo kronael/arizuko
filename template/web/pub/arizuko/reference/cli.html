@@ -65,7 +65,7 @@
     <h2 id="lifecycle" class="group-h2">Instance lifecycle</h2>
 
     <h3 id="create"><span class="sig">arizuko create &lt;name&gt; [--product &lt;product&gt;]</span></h3>
-    <p>Seed an instance data dir, write <code>.env</code> with a generated <code>CHANNEL_SECRET</code>, open <code>store/</code>, insert the default <code>main</code> group, set up its group folder, and seed default tasks. If <code>--product</code> is given, reads <code>ant/examples/&lt;product&gt;/PRODUCT.md</code>, prints the env checklist, and copies the product's skills/facts into the new group.</p>
+    <p>Seed an instance data dir, write <code>.env</code> with a generated <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>, open <code>store/</code>, insert the default <code>main</code> group, set up its group folder, and seed default tasks. If <code>--product</code> is given, reads <code>ant/examples/&lt;product&gt;/PRODUCT.md</code>, prints the env checklist, and copies the product's skills/facts into the new group.</p>
     <table>
       <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
       <tr><td><code>--product</code></td><td>string</td><td><code>""</code></td><td>Product template name; looked up under <code>$HostAppDir/ant/examples/&lt;product&gt;/PRODUCT.md</code>. On miss, prints known products and exits non-zero.</td></tr>
@@ -491,7 +491,7 @@ arizuko secret krons set main OPENAI_API_KEY --value sk-xxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-13">2026-07-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-29">2026-07-29</time>
       </div>
     </main>
 

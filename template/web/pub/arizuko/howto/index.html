@@ -69,7 +69,7 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
     <pre><code>sudo arizuko create demo</code></pre>
     <p>This seeds <code>/srv/data/arizuko_demo/</code> with:</p>
     <ul>
-      <li><code>.env</code> &mdash; instance config with a fresh <code>CHANNEL_SECRET</code>. Mode <code>0600</code>. Edit it to add API keys later.</li>
+      <li><code>.env</code> &mdash; instance config with a fresh <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. Mode <code>0600</code>. Edit it to add API keys later.</li>
       <li><code>store/messages.db</code> &mdash; SQLite database (WAL). One default group called <code>main</code>.</li>
       <li><code>groups/main/</code> &mdash; the first agent's home: <code>PERSONA.md</code>, <code>.claude/</code> session dir, <code>facts/</code>, <code>diary/</code>.</li>
       <li><code>ipc/main/</code> &mdash; placeholder for the MCP unix socket the agent will use.</li>
@@ -158,7 +158,7 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-29">2026-07-29</time>
       </div>
     </main>
 

@@ -56,12 +56,12 @@
 <p>In plain terms, a channel adapter is a translator between one chat app and arizuko. Each app &mdash; Telegram, Slack, WhatsApp &mdash; has its own way of talking; the adapter turns that into the one format arizuko understands, and turns arizuko&rsquo;s replies back into something the app can post.</p>
 <p>A channel adapter is a small daemon that speaks one upstream platform&rsquo;s protocol on one side and arizuko&rsquo;s HTTP contract on the other. Telegram on the left, <code>routd</code> on the right.</p>
 
-<p>Inbound: the adapter receives a message from the platform, signs the request with <code>CHANNEL_SECRET</code>, and POSTs it to <code>routd</code> at <code>/v1/messages</code>. Outbound: <code>routd</code> calls the adapter back at <code>POST /send</code> with the agent&rsquo;s reply, and the adapter pushes it to the platform.</p>
+<p>Inbound: the adapter receives a message from the platform and POSTs it to <code>routd</code> at <code>/v1/messages</code>, bearing the <code>service:&lt;daemon&gt;</code> ES256 token it exchanged <code>AUTHD_SERVICE_KEY</code> for. Outbound: <code>routd</code> calls the adapter back at <code>POST /send</code> with the agent&rsquo;s reply, and the adapter pushes it to the platform.</p>
 
 <p>One adapter per platform. One container per adapter. Each runs on <code>LISTEN_ADDR=:8080</code> inside its container; Docker networking keeps the ports collision-free.</p>
 
 <h2>Why they exist</h2>
-<p>Every platform has its own protocol &mdash; Telegram long-polls, Discord holds a websocket, Mastodon streams, email speaks IMAP. Putting any of that into <code>routd</code> would bind the message loop to one platform&rsquo;s quirks. The adapter absorbs the quirks so <code>routd</code> only ever sees a signed <code>POST /v1/messages</code>. Add a platform by adding an adapter; <code>routd</code> doesn&rsquo;t change.</p>
+<p>Every platform has its own protocol &mdash; Telegram long-polls, Discord holds a websocket, Mastodon streams, email speaks IMAP. Putting any of that into <code>routd</code> would bind the message loop to one platform&rsquo;s quirks. The adapter absorbs the quirks so <code>routd</code> only ever sees an authenticated <code>POST /v1/messages</code>. Add a platform by adding an adapter; <code>routd</code> doesn&rsquo;t change.</p>
 
 <h2>The shared shape</h2>
 <p>Every adapter binds to the same Go interface in <code>core/types.go</code>:</p>
@@ -88,7 +88,7 @@
     |  platform-native protocol
     v
   &lt;channel adapter&gt;   (LISTEN_ADDR=:8080, own container)
-    |  POST /v1/messages    (signed by CHANNEL_SECRET)
+    |  POST /v1/messages    (service:&lt;daemon&gt; ES256 bearer)
     v
   routd
     |  POST /send            (callback to adapter)
@@ -99,7 +99,7 @@
   platform</code></pre>
 </div>
 
-<p>The trust contract is symmetric: <code>routd</code> verifies inbound HMACs, the adapter verifies outbound HMACs. Neither trusts a request without a valid <code>CHANNEL_SECRET</code> signature. See <a href="../concepts/auth.html">auth</a>.</p>
+<p>The trust contract is symmetric, and both directions are ES256 bearers verified against <code>authd</code>&rsquo;s JWKS &mdash; no shared HMAC secret. Inbound, <code>routd</code> requires a <code>service:</code> subject; outbound, the adapter&rsquo;s <code>chanlib</code> gate requires the subject to be exactly <code>service:routd</code>. Each token is exchanged from <code>AUTHD_SERVICE_KEY</code> and rotates roughly hourly. See <a href="../concepts/auth.html">auth</a>.</p>
 
 <h2>The adapters</h2>
 <table>
@@ -155,7 +155,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/channels.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-13">2026-07-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-29">2026-07-29</time>
       </div>
     </main>
 

@@ -66,7 +66,7 @@
         |  websocket: MESSAGE_CREATE, MESSAGE_REACTION_ADD, ...
         v
       discd     (LISTEN_ADDR=:8080)
-        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        |  POST /v1/messages    (service:<daemon> ES256 bearer)
         v
       routd
         |  POST /send           (callback to discd)
@@ -87,7 +87,8 @@
     <p>discd is a plain Go binary. It needs a reachable routd and a Discord bot or user token.</p>
 
     <pre><code>export ROUTER_URL=http://routd:8080
-export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export AUTHD_URL=http://authd:8080
+export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
 export DISCORD_BOT_TOKEN=...
 export ASSISTANT_NAME=arizuko
@@ -112,7 +113,7 @@ export ASSISTANT_NAME=arizuko
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/discd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

@@ -66,7 +66,7 @@
         |  Baileys multi-device socket
         v
       whapd     (LISTEN_ADDR=:8080, Node runtime)
-        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        |  POST /v1/messages    (service:<daemon> ES256 bearer)
         v
       routd
         |  POST /send           (callback to whapd)
@@ -92,7 +92,8 @@
 
     <h2>Standalone usage</h2>
     <pre><code>export ROUTER_URL=http://routd:8080
-export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export AUTHD_URL=http://authd:8080
+export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
 export WHATSAPP_AUTH_DIR=/srv/data/store/whatsapp-auth
 export DATA_DIR=/srv/data/arizuko_demo
@@ -112,7 +113,7 @@ node dist/main.js</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/whapd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

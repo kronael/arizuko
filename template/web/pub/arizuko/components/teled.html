@@ -66,7 +66,7 @@
         |  long-poll getUpdates (allowed_updates=[message, message_reaction])
         v
       teled     (LISTEN_ADDR=:8080)
-        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        |  POST /v1/messages    (service:<daemon> ES256 bearer)
         v
       routd
         |  POST /send           (callback to teled)
@@ -87,7 +87,8 @@
     <p>teled is a plain Go binary. It needs a reachable routd, a bot token from <code>@BotFather</code>, and a writable data dir for the poll offset.</p>
 
     <pre><code>export ROUTER_URL=http://routd:8080
-export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export AUTHD_URL=http://authd:8080
+export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
 export TELEGRAM_BOT_TOKEN=123456:ABC-...
 export DATA_DIR=/srv/data/arizuko_demo
@@ -114,7 +115,7 @@ export ASSISTANT_NAME=arizuko
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/teled.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

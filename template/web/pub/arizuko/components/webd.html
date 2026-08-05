@@ -75,14 +75,14 @@
       proxyd          (auth for /api/*, /mcp ; strips identity on /chat/*)
         |
         v
-      webd  --POST /v1/messages--&gt;  routd     (CHANNEL_SECRET signed)
+      webd  --POST /v1/messages--&gt;  routd     (service:webd ES256 bearer)
         ^                            |
         |                            v
         +--POST /send----------  arizuko-ant container
             (routd calls webd back; webd fans to SSE subscribers)</code></pre>
     </div>
 
-    <p>Inputs: HTTP from browsers and MCP clients; HTTP callbacks from routd (<code>/send</code>, <code>/typing</code>, <code>/v1/round_done</code>) authenticated by <code>CHANNEL_SECRET</code>; signed identity headers forwarded from proxyd under <code>PROXYD_HMAC_SECRET</code>. Outputs: HTML pages and SSE frames to the browser, signed POSTs to routd&rsquo;s <code>/v1/messages</code>.</p>
+    <p>Inputs: HTTP from browsers and MCP clients; HTTP callbacks from routd (<code>/send</code>, <code>/typing</code>, <code>/v1/round_done</code>) authenticated by a <code>service:routd</code> ES256 bearer; identity headers forwarded from proxyd. Outputs: HTML pages and SSE frames to the browser, and POSTs to routd&rsquo;s <code>/v1/messages</code> bearing webd&rsquo;s own <code>service:webd</code> token.</p>
 
     <p>Hard deps: a reachable routd at <code>$ROUTER_URL</code>, and routd&rsquo;s <code>routd.db</code> (webd&rsquo;s <code>/api/*</code> chat reads still hit that DB directly today; they migrate to <code>/v1/messages</code> when that ships).</p>
 
@@ -94,7 +94,8 @@ cd /srv/data/myinstance
 WEBD_LISTEN=:9001 \
 WEBD_URL=http://localhost:9001 \
 ROUTER_URL=http://localhost:8080 \
-CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2) \
+AUTHD_URL=http://localhost:8081 \
+AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2) \
 WEB_HOST=localhost:9001 \
 /path/to/webd</code></pre>
 
@@ -105,7 +106,7 @@ WEB_HOST=localhost:9001 \
       <li><code>WEBD_LISTEN</code> &mdash; HTTP listen address (default <code>:8080</code>).</li>
       <li><code>WEBD_URL</code> &mdash; URL routd should call back on (default <code>http://webd:8080</code>).</li>
       <li><code>ROUTER_URL</code> &mdash; where routd is reachable (default <code>http://routd:8080</code>).</li>
-      <li><code>CHANNEL_SECRET</code> &mdash; HMAC shared with routd for <code>/v1/*</code> + <code>/send</code> + <code>/typing</code>.</li>
+      <li><code>AUTHD_URL</code>, <code>AUTHD_SERVICE_KEY</code> &mdash; exchanged for the <code>service:webd</code> ES256 token webd presents on <code>/v1/*</code>, and the JWKS it verifies routd&rsquo;s callbacks against on <code>/send</code> + <code>/typing</code>.</li>
       <li><code>PROXYD_HMAC_SECRET</code> &mdash; verifies identity headers forwarded by proxyd for <code>/api/*</code>, <code>/x/*</code>, <code>/mcp</code>.</li>
       <li><code>WEB_HOST</code>, <code>ASSISTANT_NAME</code> &mdash; rendered into the chat widget and issued URLs.</li>
     </ul>
@@ -127,7 +128,7 @@ WEB_HOST=localhost:9001 \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/webd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 
