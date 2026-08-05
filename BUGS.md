@@ -3951,3 +3951,516 @@ its own verdict — a secret's audit row must not carry the value.
     `PutACLRow`/`PutMembership` stay (test seeding; the `role:member` seed at
     group creation, the 4r migration backfill) with the missing-table
     justification struck from their comments.
+## F1 — `installed_packages` is a management table with no resreg resource (2026-08-05, PROPOSED — redesign, needs sign-off)
+
+Every cold-tier management entity is required to register a resreg `Resource`,
+so one handler wears a REST face for operators and a derived MCP face for
+agents. `installed_packages` registers none: `resreg/resources/` has no packages
+resource, `dashd/packages_page.go` is read-only by its own comment ("install /
+upgrade / remove is the `arizuko packages` CLI"), and the only mutation path is
+`cmd/arizuko/packages.go` writing through `routd/packages_store.go`. Root
+`CLAUDE.md` names this exact shape: *"A management resource without a resreg
+registration is a review-blocker."*
+
+The consequence is the drift the rule exists to prevent — an agent cannot see or
+manage what an operator installed, and the two surfaces disagree about what a
+package is. Registering it is not a mechanical addition: package install runs a
+multi-step side-effecting lifecycle (git fetch at a pinned revision, asset
+copy, grant apply, route apply) that does not fit the CRUD convention resreg
+emits, so the resource shape has to be designed — probably a narrow
+`list`/`get` face plus explicit install/remove actions, not a table CRUD.
+
+- **Severity:** medium (agent/operator surfaces disagree; documented review-blocker)
+- **Scope:** packages lifecycle vs resreg
+- **Affected:** all instances — `arizuko packages`
+- **Source:** resreg/resources/ (no packages resource); dashd/packages_page.go:8-25; cmd/arizuko/packages.go; routd/packages_store.go; CLAUDE.md:71-73
+- **Status:** PROPOSED — redesign, needs sign-off. Do not register a CRUD
+  resource for it without agreeing the action shape first.
+- **Found:** specs/5 frontmatter audit; `5/28` demoted to `partial`.
+
+## F2 — package route installs write no audit row (2026-08-05, open)
+
+`applyPackageRoutes` (`cmd/arizuko/packages.go:230-253`) installs a package's
+public routes through `st.PutProxydRoute` (`store/proxyd_routes.go:51-79`),
+whose whole body is DELETE + INSERT + Commit with no audit call.
+`applyPackageGrants` runs from the SAME install path twenty lines earlier
+(`packages.go:448` and `:453`) and audits per grant. So installing a package
+records which authority it handed out but not which public URL it opened —
+the half with the larger blast radius is the silent one.
+
+This is the **sixth** instance of the unaudited-mutation class, and the first
+one that is not a grant or a secret. Five were closed 2026-08-05: `81521b18`
+(dashd admin mutations), `7ac3401e` (store bearer-hash), `877ea615` (`arizuko
+grant`/`ungrant`), `f445b639` (package grants, per grant not per bundle),
+`703f6e75` (`arizuko secret`). Q5 fixed the grant loop in this very file and
+left the route loop beside it untouched.
+
+Adjacent, checked and NOT filed: `arizuko group add` also writes routes through
+the audit-free `PutRouteRow` (`cmd/arizuko/main.go:411-431`), but `auditCLI(s,
+"group add", …)` records the act itself, so the cascade is attributable. The
+package path has no such covering row.
+
+- **Severity:** medium (public route changes invisible to the audit trail)
+- **Scope:** package install route apply
+- **Affected:** all instances — `arizuko packages add` for any package shipping `*-routes.json`
+- **Source:** cmd/arizuko/packages.go:230-253,448,453; store/proxyd_routes.go:51-79
+- **Status:** open
+- **Fix:** the same swap Q5 made for grants — an audited `PutProxydRoute` twin
+  emitting via `EmitInTx` inside the existing tx, stamped `package:<name>` the
+  way `AddACLRow` now carries `granted_by`, plus the falsifiable per-writer test
+  shape `route_audit_test.go` established.
+
+## F3 — `5/28`'s composition section is written as shipped and is unbuilt (2026-08-05, open)
+
+`specs/5/28-packages.md` §"Composition — blending an ordered product list"
+(lines 156-181) is in the present tense among shipped material, but
+`grep -rln "products.toml" --include="*.go" .` returns zero files — nothing
+reads a product list, and the per-payload-kind collision rule it specifies has
+no implementation. The spec's own "## Deferred" section (216-219) lists other
+unbuilt items and omits this one, so the reader has no signal.
+
+This is the decision that moved here when `20-ant-portability.md` dissolved
+(`specs/5/index.md:126`), which is likely how it arrived already sounding
+settled.
+
+- **Severity:** low (spec-accuracy; no runtime effect)
+- **Scope:** specs/5/28 composition
+- **Affected:** readers of 5/28
+- **Source:** specs/5/28-packages.md:156-181,216-219
+- **Status:** open
+- **Fix:** move the composition section under "Deferred", or mark it with the
+  unbuilt-section convention `5/5` and `5/8` use ("Only … below are built").
+
+## F4 — `5/10`'s grant inheritance does not exist; two callers reinvent it (2026-08-05, PROPOSED — redesign, needs sign-off)
+
+`specs/5/10-web-access.md` justifies `/priv` access with segment traversal — a
+grant on `atlas` covering `atlas/search`. `auth.MatchGroups` (`auth/acl.go`)
+does not do that: `matchSegments` requires equal segment count, so pattern
+`atlas` matches target `atlas` only; reaching the subtree needs `atlas/**` or
+`**`. The stated mechanism is fiction.
+
+The promised *behaviour* does happen, which is why nobody noticed — but through
+two independent bolt-ons, neither documented, which is precisely the "two paths
+drift" shape the one-gate rule bans:
+
+- `dashd/authz.go:56-80` loops `strings.HasPrefix(folder, a+"/")`, with a
+  comment admitting *"MatchGroups requires equal segment depth… so subtree is
+  checked explicitly."*
+- `proxyd/main.go:589-610` truncates the request path to its first segment with
+  `strings.Cut` before calling `MatchGroups`, so `/priv/atlas/search/x` is
+  authorized against the literal `atlas`. Same outcome, third mechanism.
+
+Two sub-claims from the audit were checked and are FALSE: proxyd does not
+"lack inheritance" (it truncates instead), and coverage is not thin —
+`auth/acl_test.go` has 14 table-driven cases including cross-folder denial and
+`**`, and `proxyd_internals_test.go` adds 6 more.
+
+Deciding whether depth-inheritance belongs in `MatchGroups` changes what every
+existing `acl` row means — a grant on `atlas` would silently start covering
+every descendant. That is an authorization-semantics change and is not shipped
+without sign-off. The alternative (keep exact-depth matching, delete both
+bolt-ons, require explicit `atlas/**` rows, migrate existing rows) is also a
+semantics change.
+
+- **Severity:** medium (spec misdescribes the gate; three matching behaviours in tree)
+- **Scope:** auth.MatchGroups semantics; dashd + proxyd subtree reach
+- **Affected:** all instances — `/priv` and dashd folder visibility
+- **Source:** specs/5/10-web-access.md; auth/acl.go matchSegments; dashd/authz.go:56-80; proxyd/main.go:589-610
+- **Status:** PROPOSED — redesign, needs sign-off. Either direction rewrites the
+  meaning of live `acl` rows.
+- **Found:** specs/5 frontmatter audit; `5/10` demoted to `partial`.
+
+## F5 — `store.UserScopes` decides folder visibility without action or deny (2026-08-05, PROPOSED — redesign, needs sign-off)
+
+`specs/5/32` makes `auth.Authorize` the one question the ACL answers.
+`store.UserScopes` (`store/acl.go:200-228`) is a second reader:
+`SELECT DISTINCT scope FROM acl WHERE effect='allow' AND principal IN (…)`.
+It ignores the `action` column entirely, has no deny-wins precedence against a
+scope that also carries an allow row on a different action, and is blind to
+wildcard-principal rows that `auth.Authorize` honours.
+
+Its callers split, and only one half is a defect:
+
+- **Inert** — `dashd/authz.go` feeds the result into `auth.Caller.Extra` as
+  principal aliases, and a full `auth.Authorize` downstream re-checks action,
+  deny and wildcards. The blindness cannot escape here.
+- **Live** — `dashd/authz.go` `visible()` / `requireVisible()` /
+  `requireOperator()` and `onbod/dash.go:20-29` treat the derived set as the
+  terminal 200/403 decision with no downstream `Authorize`. A deny row that
+  `auth.Authorize` would honour does not hide a folder from the dashboard.
+
+So the violation is real but confined to the read/visibility surface, not the
+mutation surface. Routing visibility through `auth.Authorize` changes which
+folders appear for existing users — a live authorization-behaviour change.
+
+- **Severity:** medium (deny rows do not suppress dashboard visibility)
+- **Scope:** store.UserScopes vs auth.Authorize
+- **Affected:** all instances — dashd + onbod folder lists
+- **Source:** store/acl.go:200-228; dashd/authz.go visible/requireVisible/requireOperator; onbod/dash.go:20-29
+- **Status:** PROPOSED — redesign, needs sign-off. Deleting the second reader
+  changes what users can see today.
+- **Found:** specs/5 frontmatter audit; `5/32` demoted to `partial`.
+
+## F6 — `5/K`'s backend contract claims more than `ant/` implements (2026-08-05, open)
+
+Four statements in `specs/5/K-ant-backend-codex.md` are not backed by the code:
+
+1. **Graceful degradation is unimplemented.** `capabilities()` has exactly two
+   call sites, both tests (`codex.test.ts:67`, `select.test.ts:32`); nothing in
+   `ant/src/index.ts` branches on it. The spec (lines 57-58) promises the
+   runtime "degrades gracefully" when a capability is `false`.
+2. **The backends disagree on a capability the spec says both satisfy.**
+   `claude.ts:443` sets `setModelLive: false`, `codex.ts:323` sets it `true`;
+   spec lines 59-60 say *"Both claude and codex satisfy every field today."*
+3. **`claude.ts` has no dedicated test file** — the default backend, driving
+   every production turn, is exercised only indirectly. `codex.ts` has
+   `codex.test.ts`.
+4. **`ARIZUKO_BACKEND` is undocumented.** Read at `ant/src/index.ts:444-445`
+   and `ant/src/backend/index.ts:1,14,25`; it appears in no README, no
+   ARCHITECTURE/EXTENDING section, and no `template/` env file — the switch
+   that picks the harness is discoverable only by reading the source.
+
+- **Severity:** medium (the default backend is untested; the selector is undiscoverable)
+- **Scope:** ant backend abstraction
+- **Affected:** all instances running ant
+- **Source:** ant/src/backend/claude.ts:443; ant/src/backend/codex.ts:323; ant/src/index.ts:444-445; ant/src/backend/index.ts:1,14,25; specs/5/K-ant-backend-codex.md:57-60
+- **Status:** open
+- **Fix:** four independent pieces — wire or drop `capabilities()`; make the
+  spec's claim match the two backends (or make `claude.ts` support it); add
+  `claude.test.ts`; document `ARIZUKO_BACKEND` in `EXTENDING.md` +
+  `reference/env.html`. Each is its own concern; do not bundle.
+
+## F7 — runed has no `audit_log` table at all (2026-08-05, open)
+
+`specs/5/I`'s Layer A is "state-changing REST call writes an `audit_log` row in
+its own tx", and every other daemon that owns a DB implements it — authd, onbod
+and routd each carry an `audit_log` migration and `EmitInTx` call sites. runed
+carries neither: `grep -ri audit runed/` is empty, and `runed/migrations/`
+(0001-0004) never creates the table. This is deeper than unwritten calls — there
+is nowhere to write.
+
+The two endpoints that need it are the highest-consequence ones runed has:
+`handleRun` (`runed/server.go:86-115`) spawns a container, `handleHold`
+(`server.go:123-147`) claims a folder's run slot. Both call the manager
+directly.
+
+Precision on the spec: `specs/5/I-tool-call-logging.md:32` mentions runed once,
+under Layer B (the stderr tool-log tap, explicitly "no DB write"). So the spec
+does not name runed as a Layer A participant — but Layer A is stated as an
+unconditional rule for state-changing REST, which `/v1/runs` and `/v1/holds`
+are.
+
+- **Severity:** medium (container spawns and run-slot claims leave no trail)
+- **Scope:** runed audit instrumentation
+- **Affected:** all instances
+- **Source:** runed/migrations/0001-0004 (no audit_log); runed/server.go:86-115,123-147; specs/5/I-tool-call-logging.md:32
+- **Status:** open
+- **Fix:** a runed migration adding `audit_log` in the shape routd migration
+  0016 uses, then `EmitInTx` in both handlers. Note the correlation requirement
+  — a spawn row is only useful joined to the turn, so it must carry `turn_id`.
+
+## F8 — the OpenAPI aggregator page misstates routd and omits two daemons (2026-08-05, open)
+
+Two errors on `template/web/pub/arizuko/reference/openapi.html`, the page
+`specs/5/17` designates as the discovery surface:
+
+1. Line 89 states `secrets` is *"excluded… to keep enc_value blobs off any read
+   surface"*. routd includes it — `routd/cmd/routd/main.go:268-269` lists
+   `secrets` in the `OpenAPIHandler` allowlist, with a write-only verb set. The
+   protection is real, the description of it is not. (The audit also claimed
+   `route_tokens` was falsely described as excluded; it is not mentioned on the
+   page at all, so that half is DISPROVED.)
+2. The aggregator table (lines 55-81) lists six daemons — routd, proxyd, onbod,
+   webd, dashd, timed. Eight mount `/openapi.json`: **authd**
+   (`authd/main.go:114`) and **runed** (`runed/cmd/runed/main.go:116`) are
+   missing. No reverse drift — nothing listed is unmounted.
+
+- **Severity:** low (discovery gap + one false security claim in operator docs)
+- **Scope:** web docs vs routd/authd/runed mounts
+- **Affected:** operators using the aggregator
+- **Source:** template/web/pub/arizuko/reference/openapi.html:55-81,89; routd/cmd/routd/main.go:268-269; authd/main.go:114; runed/cmd/runed/main.go:116
+- **Status:** open
+- **Fix:** correct line 89 to describe `secrets` as included write-only, and add
+  the two rows. Deploy via the rsync workflow and verify `/pub/…` returns 200.
+
+## F9 — `dashd/me_env.go` writes credentials with zero tests (2026-08-05, open)
+
+`dashd/me_env.go` has four handlers, three of which write — create, update and
+delete a named credential, all reaching `PutSecretRow`. No test anywhere in
+`dashd/*_test.go` references those handlers or the `/dash/me/env` path. Its
+twin `dashd/me_secrets.go` has twenty tests across `me_secrets_test.go` (11),
+`me_secrets_byoa_test.go` (7) and `me_secrets_routd_test.go` (2) — the
+asymmetry is larger than the audit's "11 vs 0" suggested.
+
+WISDOM requires tests in the same commit as any new write path; this one shipped
+without them, on the credential surface.
+
+- **Severity:** medium (untested credential write path)
+- **Scope:** dashd user-env credential handlers
+- **Affected:** all instances — the `/me` portal
+- **Source:** dashd/me_env.go; dashd/me_secrets_test.go, me_secrets_byoa_test.go, me_secrets_routd_test.go
+- **Status:** open
+- **Fix:** mirror the `me_secrets` test shape per handler. Include the
+  no-plaintext-in-audit assertion `TestSecretAuditNeverCarriesValue`
+  established for the CLI path.
+
+## F10 — two of `5/6`'s acceptance criteria have no test (2026-08-05, open)
+
+`routd/proactive_test.go` tags acceptance criteria 1, 2, 4, 5 and 7 by comment
+and never covers 3 or 6:
+
+- **#3** — a silent outcome still arms the cooldown. The string `outcome:
+  "silent"` appears nowhere in the tree, so nothing asserts the silent branch
+  records anything.
+- **#6** — a proactive turn does not bump engagement, so the next human message
+  routes normally. No assertion exists on engagement state after a proactive
+  fire.
+
+Both are the criteria that keep the feature from becoming a nuisance — the
+cooldown and the not-hijacking-the-conversation guarantees.
+
+Checked and NOT a defect: `CHANGELOG.md:967` (v0.47.0) still says the feature is
+"not yet switched on", and that remains true — `PROACTIVE_ENABLED`
+(`routd/proactive.go:39`) defaults false via `boolEnv("")` and no
+`template/services/*.yml` sets it. Stale-sounding, factually correct.
+
+- **Severity:** low (untested guard rails on a feature that is off everywhere)
+- **Scope:** routd proactive tests
+- **Affected:** any instance that enables `PROACTIVE_ENABLED`
+- **Source:** routd/proactive_test.go; routd/proactive.go:39; specs/5/6-proactive-interjection.md
+- **Status:** open
+- **Fix:** two table cases in the existing file, tagged to the criteria the way
+  the other five are.
+
+## F11 — proxyd's route surface is documented under routd's resource name (2026-08-05, open)
+
+The resource is `proxyd_routes` (`resreg/resources/proxyd_routes.go:90-91`,
+`proxyd/resource.go:311`), so the wire path is `/v1/proxyd_routes` and — with no
+`MCPNames` override — the derived tools are `proxyd_routes.*`. Both operator
+documents still say `routes`, which is routd's message-routing resource:
+
+- `proxyd/README.md` lines 16, 48, 58-62, 65, 105, 148 say `/v1/routes`, and
+  line 52 names the MCP tools `routes.list/get/create/update/delete`.
+- `template/web/pub/arizuko/components/proxyd.html:60,104,130` and its `legacy/`
+  twin say `/v1/routes`.
+
+This is the doc half of the drift fixed in code 2026-07-01, when proxyd's live
+resource had drifted to `Name: "routes"` while its catalog already said
+`proxyd_routes`. The rule it violates — a resource name is its globally unique
+wire identity, and two daemons must never claim one — is in root `CLAUDE.md`.
+An operator following the README calls the wrong daemon.
+
+Separately, `dashd/services.go:33` declares the proxyd tile `Built:false` and no
+`proxyd_routes` view or control exists in `dashd/`.
+
+- **Severity:** medium (documented endpoint does not exist; collides with routd's name)
+- **Scope:** proxyd docs + dashd surface
+- **Affected:** operators managing proxyd routes
+- **Source:** proxyd/README.md:16,48,52,58-62,65,105,148; template/web/pub/arizuko/components/proxyd.html:60,104,130; resreg/resources/proxyd_routes.go:90-91; dashd/services.go:33
+- **Status:** open
+- **Fix:** rename in both documents (mechanical), then decide the dashd view
+  separately — that is a feature, not a doc fix.
+
+## F12 — the engagement TTL in the operator docs is not routd's default (2026-08-05, open)
+
+`template/web/pub/arizuko/concepts/engagement.html:65` tells operators the TTL
+defaults to `20m`. routd defaults it to 30m in both places it sets one:
+`routd/cmd/routd/main.go:203` `durOr("ENGAGEMENT_TTL", 30*time.Minute)`, and
+`routd/server.go:144-145` re-defaults to 30m when the value is zero. An operator
+reasoning about why the bot is still replying is off by 50%.
+
+`core/config.go:248` does carry a `20*time.Minute` default, which is probably
+where the number came from — but that is the removed-monolith config path and
+nothing routd runs reads it, so it does not rescue the doc.
+
+No dashd surface shows or clears engagement windows either, so the operator can
+neither see who is engaged nor end it.
+
+- **Severity:** low (wrong number in operator docs; no operator control)
+- **Scope:** web docs vs routd default; dashd surface
+- **Affected:** all instances
+- **Source:** template/web/pub/arizuko/concepts/engagement.html:65; routd/cmd/routd/main.go:203; routd/server.go:144-145; core/config.go:248
+- **Status:** open
+- **Fix:** correct the doc to 30m (mechanical). The dashd view is a separate
+  feature. Consider deleting the dead `core/config.go` default so the two
+  numbers cannot disagree again.
+
+## F13 — webd resolves route tokens in-process, and the endpoint `5/W` specifies is dead (2026-08-05, open)
+
+`specs/5/W-webhook-routes.md:164-167` states, in bold, that **webd does not open
+`routd.db`** because cross-daemon direct DB reads are barred, and that it
+resolves a URL token through `POST /v1/route_tokens/resolve` so routd does the
+hashing and webd never sees the table.
+
+Neither half is true. `webd/main.go:64` opens `routd.db` via `store.OpenRoutd`,
+and `lookupRouteToken` (`webd/route_token.go:55-58`) calls
+`s.stRoutd.LookupRouteToken(token)` in-process. The resolve handler exists —
+`routd/tokens_http.go:31` — and has zero production callers repo-wide; the only
+thing exercising it is `routd/contract_test.go:314`.
+
+So there is an unused HTTP surface maintained as if it were the contract, and a
+documented daemon boundary that is not enforced. Either webd's direct read is
+correct and the spec plus the dead endpoint should go, or the boundary is
+correct and webd should move onto it — but the current state teaches the wrong
+model to anyone reading either the spec or the endpoint.
+
+- **Severity:** medium (spec describes a boundary the code does not have; dead endpoint)
+- **Scope:** webd ↔ routd route-token resolution
+- **Affected:** all instances — `/chat/<token>/` and `/hook/<token>`
+- **Source:** webd/main.go:64; webd/route_token.go:55-58; routd/tokens_http.go:31; routd/contract_test.go:314; specs/5/W-webhook-routes.md:164-167
+- **Status:** open
+- **Fix:** pick one direction and delete the other path — do not leave both.
+  Note the FS-mounted write-discipline rule already permits webd's direct read
+  if webd is mounted, which would make deleting the endpoint the smaller change.
+
+## F14 — `5/12` and `5/24` never reached the operator web docs (2026-08-05, open)
+
+Definition-of-done item 5 requires an operator-facing page under
+`template/web/pub/`. Two shipped specs have only a changelog line:
+
+- **`5/12-turn-retry`** — no `concepts/` or `reference/` page, and
+  `MAX_TURN_RETRY` is absent from `reference/env.html`. Everything else holds:
+  tests at `routd/fixes_test.go:437,475`, repo docs at `routd/README.md:128`,
+  and no dashd row is owed (the spec makes it global config with no per-folder
+  override). The similarly-named retry button at `dashd/routd_page.go:104`
+  clears an unrelated `messages.errored` flag — different mechanism, not this
+  one.
+- **`5/24-live-tasklist-status`** — no web page, and additionally
+  `routd/README.md` never mentions `submit_status` even though routd owns
+  `mcpSubmitStatus` / `deliverStatus` per the spec's own pointers. That is a
+  second, independent gap (item 3, repo docs).
+
+Checked and DISPROVED: `5/27-compose-native-packaging` was claimed to have the
+same gap and does not — web docs
+(`components/channels.html:136`, `reference/env.html:720-721`), tests
+(`compose/compose_test.go:97`), repo docs (`ARCHITECTURE.md:697,709`,
+`EXTENDING.md:209`) and a dashd surface (`dashd/packages_page.go`) all exist.
+It keeps `status: shipped`.
+
+- **Severity:** low (undiscoverable behaviour; no runtime effect)
+- **Scope:** web docs
+- **Affected:** operators
+- **Source:** specs/5/12-turn-retry.md; specs/5/24-live-tasklist-status.md; routd/README.md
+- **Status:** open
+- **Fix:** one `concepts/` page each plus the `MAX_TURN_RETRY` env row, and a
+  `submit_status` paragraph in `routd/README.md`. Deploy via rsync, verify 200.
+
+## F15 — authd has no cockpit tile and no operator token revocation (2026-08-05, open)
+
+Two item-6 gaps on the daemon that signs every token in the system:
+
+- `dashd/services.go:33` declares the authd tile `{"authd", …, false, ""}` —
+  `Built:false`. The sole ES256 signer has no operator surface.
+- Nothing lets an operator revoke another user's refresh-token family.
+  `revokeFamily` (`authd/store.go:256`) exists but fires only from reuse
+  detection (`authd/server.go:285,300`, `authd/oauth.go:413`).
+
+Nuance the audit did not state: self-service revocation *does* exist —
+`POST /auth/logout` (`authd/oauth.go:409-410`) revokes the caller's own family
+via their own cookie, which satisfies the spec's own "logout" case (lines
+63-64). The gap is specifically admin-initiated revocation — the incident-
+response verb, when a session must be killed and the user cannot or will not do
+it.
+
+- **Severity:** medium (no way to cut off a compromised session)
+- **Scope:** dashd cockpit + authd admin surface
+- **Affected:** all instances
+- **Source:** dashd/services.go:33; authd/store.go:256; authd/server.go:285,300; authd/oauth.go:409-413
+- **Status:** open
+- **Fix:** two concerns, two changes — the cockpit tile, and an authorized
+  revoke endpoint. The endpoint is the one that matters; it needs its own authz
+  decision (who may revoke whose session) rather than defaulting to operator.
+
+## F16 — the tier-drift sweep never scanned the web docs, and root docs still drift (2026-08-05, open)
+
+The sweep that removed numeric tiers from the docs reported taking stale
+references from 114 to 1. The measurement is not sound: its grep used
+`--include="*.md"`, and the 169 files under `template/web/pub` are all `.html`
+— so the entire operator-facing docs site scored zero by construction, whether
+or not it drifted.
+
+Hand-classified against the current code (excluding hot-tier/cold-tier, which is
+a different and still-valid concept, and excluding CHANGELOG/BUGS history where
+past state is the point), roughly eight stale tier-as-authority references
+remain, concentrated in the root documents the sweep evidently did not re-check:
+`CLAUDE.md:54`, `ARCHITECTURE.md:332,594-595,864`, `EXTENDING.md:59`,
+`SECURITY.md:39,131`, and `specs/4/P-personas.md:45` (still "Tier 2/3: ro
+mounts"). Tiers are gone from the code — no `Tier` field, no `auth/policy.go`,
+no `AuthorizeStructural` — so each of these describes an authority model that
+does not exist.
+
+The three specs the sweep named — `5/33`, `5/A`, `5/M` — read clean in full and
+keep `status: shipped`.
+
+- **Severity:** low (docs describe a removed authority model)
+- **Scope:** root docs + web docs tier references
+- **Affected:** readers of CLAUDE/ARCHITECTURE/EXTENDING/SECURITY
+- **Source:** CLAUDE.md:54; ARCHITECTURE.md:332,594-595,864; EXTENDING.md:59; SECURITY.md:39,131; specs/4/P-personas.md:45
+- **Status:** open
+- **Fix:** re-run the sweep with `--include='*.html'` included, then fix the
+  root-doc sites. Note `CLAUDE.md` is a project-instruction file — that edit
+  wants the user's eye, not a bulk rewrite.
+
+## F17 — `obs/metrics.go`'s header comment undercounts its own metrics (2026-08-05, open)
+
+`obs/metrics.go:3` says "nine families". The file defines fifteen
+(`obs/metrics.go:25-104`). `specs/5/O-observability.md` says "Fifteen families"
+and is correct — the spec is right and the code comment is stale, the reverse of
+the usual direction. Worth recording because an earlier audit asserted the count
+was eleven and the spec wrong; both halves of that were incorrect.
+
+- **Severity:** low (comment-only)
+- **Scope:** obs package doc comment
+- **Affected:** readers of obs/
+- **Source:** obs/metrics.go:3 vs obs/metrics.go:25-104
+- **Status:** open
+- **Fix:** one word. Or drop the count — a number in a comment beside the list
+  it counts will drift again.
+
+## F18 — two live copies of the false "routd.db has no audit_log" claim survive (2026-08-05, open)
+
+Q2, Q4 and Q5 retired this claim across dashd, `cmd/arizuko` and onbod. Two
+copies remain, both justifying an audit-free writer with a premise that has been
+false since routd migration 0016:
+
+- `store/groups.go:85` — `DeleteGroupRow` is documented as the audit-free twin
+  "for callers writing to routd.db (which has no audit_log table)". Its caller
+  `cmd/arizuko/main.go:439` (`group rm`) does emit an `auditCLI` row beside it,
+  so the behaviour is covered; the justification is what is wrong.
+- `routd/dark_tools_test.go:82` — "Uses the audit-free `PutTaskRow` (routd.db
+  has no audit_log table)." Test seeding only, so **comment-only fix**.
+
+Checked and NOT defects — these two say something different and true:
+`resreg/engine.go:553` refers to the engine's own minimal isolation-test schema,
+and `cmd/arizuko/migrate_split.go:166` refers to routd.db *before its migrations
+run*, which is the state that code operates on.
+
+- **Severity:** low (comment-only; both writers are otherwise accounted for)
+- **Scope:** stale justification comments
+- **Affected:** future readers choosing an audit-free writer
+- **Source:** store/groups.go:85; routd/dark_tools_test.go:82
+- **Status:** open
+- **Fix:** strike the parenthetical from both, as Q5 did for
+  `PutACLRow`/`PutMembership`. Do not change the writers — `DeleteGroupRow`'s
+  caller audits, and the test seeds.
+
+## F19 — Q4 and Q5 record fix commits that are not in HEAD's history (2026-08-05, open)
+
+The Status lines of two closed entries cite SHAs that
+`git merge-base --is-ancestor … HEAD` rejects: Q4 cites `015b0e6d`, Q5 cites
+`5c8abc3e`, `ddc53d59` and `84ea34d5`. The commits they describe are real and
+present under different SHAs with identical subjects — `877ea615` ("audit
+arizuko grant and ungrant"), `f445b639` ("audit package grants, per grant not
+per bundle"), `703f6e75` ("audit arizuko secret set and delete") — so the work
+shipped and only the citation is wrong, presumably recorded before a rebase.
+
+This matters because those Status lines are the audit trail for an audit-trail
+fix: `git show 5c8abc3e` fails, so the recorded evidence cannot be checked.
+
+- **Severity:** low (record accuracy)
+- **Scope:** BUGS.md Q4/Q5 Status lines
+- **Affected:** anyone verifying the closed entries
+- **Source:** BUGS.md Q4, Q5
+- **Status:** open
+- **Fix:** repoint to the ancestor SHAs above. Worth a habit: verify a SHA is an
+  ancestor of HEAD before recording it as the fix.
