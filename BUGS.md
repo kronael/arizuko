@@ -4058,7 +4058,7 @@ settled.
 - **Fix:** move the composition section under "Deferred", or mark it with the
   unbuilt-section convention `5/5` and `5/8` use ("Only … below are built").
 
-## F4 — `5/10`'s grant inheritance does not exist; two callers reinvent it (2026-08-05, PROPOSED — redesign, needs sign-off)
+## F4 — `5/10`'s grant inheritance does not exist; two callers reinvent it (2026-08-05, FIXED 2026-08-05)
 
 `specs/5/10-web-access.md` justifies `/priv` access with segment traversal — a
 grant on `atlas` covering `atlas/search`. `auth.MatchGroups` (`auth/acl.go`)
@@ -4093,11 +4093,40 @@ semantics change.
 - **Scope:** auth.MatchGroups semantics; dashd + proxyd subtree reach
 - **Affected:** all instances — `/priv` and dashd folder visibility
 - **Source:** specs/5/10-web-access.md; auth/acl.go matchSegments; dashd/authz.go:56-80; proxyd/main.go:589-610
-- **Status:** PROPOSED — redesign, needs sign-off. Either direction rewrites the
-  meaning of live `acl` rows.
-- **Found:** specs/5 frontmatter audit; `5/10` demoted to `partial`.
+- **Status:** FIXED (`6409b14a` + follow-up). Signed off; shipped as
+  keep-the-glob. The scope glob IS the containment (`5/33` d8, `5/33` d2, root
+  CLAUDE.md "no parent-folder inheritance"), so `atlas` is one folder and
+  `atlas/**` is the subtree. `auth.Authorize` already read it that way through
+  the same `matchPattern`, so teaching `MatchGroups` to inherit would have
+  silently widened every grant on every surface; `5/10`'s claim was the outlier
+  and is corrected. dashd's prefix loop deleted; its SQL prefilter twin
+  (`ownerVisibleSQL`'s `LIKE 'a/%'`) deleted with it.
 
-## F5 — `store.UserScopes` decides folder visibility without action or deny (2026-08-05, PROPOSED — redesign, needs sign-off)
+  **Live-row impact: none, verified by enumeration**, not assumed. Every `acl`
+  row on all three instances: krons 15, sloth 15, marinade 13. Only 4 are not
+  scoped `**` — krons' two `folder:eval/…  web_route.set` rows (scope == the
+  folder exactly, no child groups), sloth's `google:114015…  admin  coach`
+  (`coach` has no subfolders), and sloth's `discord:user/811295…  admin  main`
+  (`main` has 5 children, but `acl_membership` binds that principal to
+  `role:operator`, so `callerScope` short-circuits on `**` and never reached the
+  deleted loop). Everyone else holds `**`. No migration; no live row rewritten.
+
+  The audit's framing that all three mechanisms compensate for `MatchGroups` was
+  2/3 right. proxyd's truncation answers a DIFFERENT question — a slot path is
+  not a folder — and answered it wrong in both directions: folders are
+  multi-segment, so `atlas/search` was 403'd on its own `/priv` page, and a
+  scope of `atlas/*` reached nothing. Replaced by `auth.MatchSlot`, one helper
+  defined in terms of `MatchGroups`, documented as `5/V` filesystem containment
+  (the parent's `~/private_html` bind-mount physically holds the child's slot),
+  never grant inheritance. Pure widening over the old behaviour, and no live
+  principal holds a deep enough grant to notice.
+
+  Coverage: `auth/acl_test.go` 14 → 41 cases, plus `MatchSlot` and the
+  malformed-glob case; `dashd` predicate rewritten; `proxyd` +7 cases. Each
+  mechanism was broken one at a time and only its own test failed.
+- **Found:** specs/5 frontmatter audit; `5/10` demoted to `partial`, now shipped.
+
+## F5 — `store.UserScopes` decides folder visibility without action or deny (2026-08-05, PARTIALLY FIXED 2026-08-05)
 
 `specs/5/32` makes `auth.Authorize` the one question the ACL answers.
 `store.UserScopes` (`store/acl.go:200-228`) is a second reader:
@@ -4124,9 +4153,25 @@ folders appear for existing users — a live authorization-behaviour change.
 - **Scope:** store.UserScopes vs auth.Authorize
 - **Affected:** all instances — dashd + onbod folder lists
 - **Source:** store/acl.go:200-228; dashd/authz.go visible/requireVisible/requireOperator; onbod/dash.go:20-29
-- **Status:** PROPOSED — redesign, needs sign-off. Deleting the second reader
-  changes what users can see today.
-- **Found:** specs/5 frontmatter audit; `5/32` demoted to `partial`.
+- **Status:** PARTIALLY FIXED. The second READER is gone: `UserScopes` moved to
+  `auth.UserScopes` and now projects the same rows `Authorize` loads (expanded
+  principals + wildcard-principal rows) instead of its own
+  `SELECT DISTINCT scope … principal IN (…)`. That closes the wildcard-principal
+  blindness outright — a `google:*` grant authorized fine yet produced an EMPTY
+  `X-User-Groups`. Documented and tested as a LISTING that can never be a
+  verdict, with the deny/action gaps pinned as tests rather than left implicit.
+  Live impact nil: no instance has a wildcard-principal row or a deny row (all
+  43 rows fleet-wide are `allow`).
+
+  **STILL OPEN, still needs sign-off:** dashd's read gate remains a scope-list
+  match rather than an `auth.Authorize` call, so a deny row still cannot
+  suppress dashboard visibility. That last step is a policy decision, not a
+  refactor — it must pick WHICH action dashboard read requires (`interact` is
+  the natural floor), and a `[]string` header is structurally incapable of
+  carrying deny, so the gate has to move off the header entirely. Not shipped
+  inline. Note the original entry overstated onbod: `onbod/dash.go`
+  `requireOperator` only tests for `**`, it does no per-folder visibility.
+- **Found:** specs/5 frontmatter audit; `5/32` demoted to `partial`, now shipped.
 
 ## F6 — `5/K`'s backend contract claims more than `ant/` implements (2026-08-05, open)
 
