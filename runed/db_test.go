@@ -25,7 +25,7 @@ func TestDBSpawnLifecycle(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create spawn: %v", err)
 	}
-	if err := db.StartSpawn("run_1", "sess0"); err != nil {
+	if _, err := db.StartSpawn("run_1", "sess0"); err != nil {
 		t.Fatalf("start spawn: %v", err)
 	}
 	if err := db.EndSpawn("run_1", "exited", "ok", 0); err != nil {
@@ -61,7 +61,7 @@ func TestKillSpawnDoesNotOverwriteTerminal(t *testing.T) {
 
 	// run that completed normally before the kill lands.
 	_ = db.CreateSpawn(Spawn{RunID: "done", Folder: "demo", ContainerName: "c1", State: "queued"})
-	_ = db.StartSpawn("done", "s")
+	_, _ = db.StartSpawn("done", "s")
 	if err := db.EndSpawn("done", "exited", "ok", 0); err != nil {
 		t.Fatalf("end spawn: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestKillSpawnDoesNotOverwriteTerminal(t *testing.T) {
 
 	// a still-running run IS killed.
 	_ = db.CreateSpawn(Spawn{RunID: "live", Folder: "demo2", ContainerName: "c2", State: "queued"})
-	_ = db.StartSpawn("live", "s")
+	_, _ = db.StartSpawn("live", "s")
 	if err := db.KillSpawn("live"); err != nil {
 		t.Fatalf("kill spawn: %v", err)
 	}

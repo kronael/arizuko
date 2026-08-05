@@ -315,7 +315,7 @@ func TestBreakerResetsOnSilent(t *testing.T) {
 func TestKillDoesNotRelabelCompletedRun(t *testing.T) {
 	db, mgr := newMgr(t, FakeRuntime{}, 5)
 	_ = db.CreateSpawn(Spawn{RunID: "r", Folder: "demo", ContainerName: "c", State: "queued"})
-	_ = db.StartSpawn("r", "s")
+	_, _ = db.StartSpawn("r", "s")
 	if err := db.EndSpawn("r", "exited", "ok", 0); err != nil {
 		t.Fatalf("end spawn: %v", err)
 	}

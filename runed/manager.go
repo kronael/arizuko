@@ -300,6 +300,33 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	kind := kindOf(req.Kind)
 	exec := m.executor(kind) // admit's caller already validated the kind.
 
+	// Take the claim BEFORE anything is recorded or launched. started=false
+	// means a DELETE killed this run between admit's CreateSpawn and here, so
+	// the row is already terminal and the folder reads FREE — launching anyway
+	// would put a second container on one folder's mount the moment a
+	// concurrent POST /v1/runs claims it. Reported as Busy: the existing
+	// "nothing was admitted, nothing ran" contract, so routd leaves the cursor
+	// un-advanced and re-feeds from its own queue without counting a deliberate
+	// kill toward the breaker. Returning here (not later) is also what keeps an
+	// aborted launch from opening a session_log row nothing will ever close,
+	// and from running endRun — which would clear a real failure streak and
+	// delete a steer callback that by now belongs to the folder's NEXT run.
+	started, err := m.db.StartSpawn(runID, sessionID)
+	if err != nil {
+		// Spawn row stays 'queued' → the folder is held until runed restarts
+		// (ExpireOrphans), the same operator-visible zombie EndSpawn failure
+		// leaves. Aborting is still right: we cannot launch on a claim we could
+		// not take.
+		slog.Error("runed: StartSpawn failed — launch aborted, spawn may stay queued",
+			"run_id", runID, "folder", folder, "kind", kind, "err", err)
+		return runedv1.RunOutcome{Busy: true}
+	}
+	if !started {
+		slog.Warn("runed: launch aborted — run killed before start",
+			"run_id", runID, "folder", folder, "kind", kind)
+		return runedv1.RunOutcome{Busy: true}
+	}
+
 	// Isolated (timed-isolated:*) runs are one-off containers, and a
 	// non-agent kind has no agent session at all: neither gets a
 	// session_log row. The spawns row still exists for GET/DELETE.
@@ -308,8 +335,6 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		logID, _ = m.db.RecordSession(folder, sessionID)
 		_ = m.db.SetSpawnSessionLogID(runID, logID)
 	}
-
-	_ = m.db.StartSpawn(runID, sessionID)
 
 	// RunTTL's kill-deadline is armed HERE, at the shared dispatch site, by
 	// wrapping ctx with a deadline — not inside any one executor (spec 5/8

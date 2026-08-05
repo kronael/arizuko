@@ -200,18 +200,29 @@ func (d *DB) CreateSpawn(s Spawn) error {
 	return err
 }
 
-// StartSpawn flips a spawn to state=running with its resolved session_id.
-// Guarded on state='queued' — the only state a fresh claim is in. Without
-// it a DELETE landing in the window between CreateSpawn (the claim) and
-// here would be undone: 'killed' flipped back to 'running', a terminal row
-// resurrected, and the folder held until RunTTL. Reachable for any kind,
-// but only a hold makes it easy to hit — Manager.Hold hands the caller a
-// releasable handle while the run's goroutine is still starting.
-func (d *DB) StartSpawn(runID, sessionID string) error {
-	_, err := d.db.Exec(`UPDATE spawns SET state='running', session_id=?, started_at=?
+// StartSpawn flips a spawn to state=running with its resolved session_id and
+// reports whether the claim was still there to take. Guarded on
+// state='queued' — the only state a fresh claim is in. Without it a DELETE
+// landing in the window between CreateSpawn (the claim) and here would be
+// undone: 'killed' flipped back to 'running', a terminal row resurrected, and
+// the folder held until RunTTL. Reachable for any kind, but only a hold makes
+// it easy to hit — Manager.Hold hands the caller a releasable handle while the
+// run's goroutine is still starting.
+//
+// started=false means that DELETE won: the row is already terminal and the
+// caller MUST NOT launch. The guard alone only made the ROW right — the
+// folder then reads free (ActiveSpawnForFolder counts queued/running only)
+// while a launch nobody can see proceeds, so a concurrent claim puts a second
+// container on one folder's mount.
+func (d *DB) StartSpawn(runID, sessionID string) (started bool, err error) {
+	res, err := d.db.Exec(`UPDATE spawns SET state='running', session_id=?, started_at=?
 		WHERE run_id=? AND state='queued'`,
 		sessionID, nowTS(), runID)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // EndSpawn records the terminal state + outcome + exit code at teardown.

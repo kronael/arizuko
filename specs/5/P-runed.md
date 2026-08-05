@@ -75,6 +75,15 @@ a busy folder with a _live_ container takes the new batch as a **steer**,
 not a reject — addressed deterministically from the `spawns` row
 (container name + `IPC_DIR/<folder>/`), never from a stored closure.
 
+`busy=true` also covers a claim that was **admitted and then killed before
+it launched**: `DB.StartSpawn` reports whether its `state='queued'` guard
+matched, and `spawn()` aborts when it did not. Guarding only the row is not
+enough — a `killed` row makes the folder read _free_
+(`ActiveSpawnForFolder` counts `queued`/`running`), so an unguarded launch
+puts a second container on one folder's mount. `busy` is the right report
+because nothing ran: routd re-feeds without advancing the cursor and
+without charging a deliberate kill to the breaker.
+
 **Session-id ownership.** The `sessions` table — per-`(folder, topic)`
 `session_id` plus topic lineage — lives in **`routd.db`, not `runed.db`**
 ([`E-routd.md`](E-routd.md) § Topic lineage). `runed` _produces_ the id
