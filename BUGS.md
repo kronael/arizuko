@@ -3903,4 +3903,51 @@ its own verdict — a secret's audit row must not carry the value.
   possibly `cmd/arizuko/secret.go`
 - **Affected:** all instances — `arizuko grant|ungrant`, `arizuko packages apply`
 - **Source:** cmd/arizuko/main.go:518,526,532,547,553; cmd/arizuko/packages.go:200
-- **Status:** open
+- **Status:** fixed 2026-08-05 (`5c8abc3e`, `ddc53d59`, `84ea34d5`). All three
+  sites were defects; none was legitimately audit-free.
+  - `main.go` grant/ungrant — **defect**, the mechanical swap the entry
+    predicted: `AddACLRow`/`RemoveACLRow` for a scoped grant,
+    `AddMembership`/`RemoveMembership` for the `**` operator grant, `AsCLI` for
+    the actor. `AddMembership`/`RemoveMembership` had to move onto
+    `auditIdentity()` first — they rendered Actor/Surface by hand
+    (`addedBy`-or-`system` over `gateway`), so an `AsCLI` store wrote an
+    operator grant as anonymous gateway traffic. One renderer now serves both
+    acl writers; unattributed output is byte-for-byte unchanged.
+  - `packages.go` — **defect, and the verdict is N rows, not one**. A bundle row
+    would say "installed grantpkg" and hide WHICH authority it handed to whom;
+    the question an audit trail answers is per-grant, and the bundle is already
+    recorded durably in `installed_packages`. The objection to a per-row trail
+    (N anonymous rows at one timestamp do not read as one act) is defeated by
+    naming the package in each row, not by collapsing them — so each grant
+    writes `granted_by: package:<name>` and `AddACLRow`'s ParamsSummary gained
+    `granted_by`, without which the actor (`cli:alice` either way) cannot
+    distinguish a typed grant from one a package brought in. Settled
+    independently by an asymmetry the entry did not predict: `packages remove`
+    ALREADY reversed grants through the audited `RemoveACLRow`, one row each —
+    install was the silent half, so grants appeared from nowhere and were
+    recorded only on the way out.
+  - `secret.go` — **defect, and its comment was wrong twice**: it claimed
+    routd.db has no audit_log AND that this matched "routd's POST /v1/secrets
+    endpoint", which calls the audited `SetSecret`
+    (`routd/secrets_resource.go:126`). The CLI was the last silent secret
+    writer, not a peer of routd's. `SetSecret`/`DeleteSecret` are behaviourally
+    identical to the Bare twins (same `validateScope`, same sealing, same
+    `ErrSecretNotFound`), so this adds a row and changes nothing else.
+  - **No secret reaches an audit row.** The payload was already safe — the row
+    holds `secrets/<scope>/<id>/<key>` plus `"encrypted": bool`, delete holds no
+    params, and `audit.marshalParams` redacts key names matching
+    `token|secret|api_key|^key$`. So the fix is the CALL SITE, not the payload
+    shape. Nothing asserted the invariant, though, so
+    `TestSecretAuditNeverCarriesValue` now scans EVERY column of both rows for
+    the plaintext, across folder/user scope and sealed/unsealed stores. Proven
+    non-vacuous: adding `"note": value` to the ParamsSummary fails it (the
+    redaction regex does NOT save a badly-named key).
+  - **Falsifiable, per writer:** reverting each of the six writers one at a time
+    fails only its own audit case (no row / `actor=system`) while the behavior
+    tests (`TestGrantThenList`, `TestGrantLandsInRoutdDB`,
+    `TestPackagesInstallGrants`, `TestSecretLandsInRoutdDB`) stay green.
+  - `RemoveACLRowBare` and `RemoveMembershipBare` are deleted — this was their
+    last caller, and they were the false claim in executable form.
+    `PutACLRow`/`PutMembership` stay (test seeding; the `role:member` seed at
+    group creation, the 4r migration backfill) with the missing-table
+    justification struck from their comments.
