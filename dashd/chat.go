@@ -402,7 +402,8 @@ func (d *dash) handleChatNew(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, ok := d.requireAdmin(w, r, folder); !ok {
+	sub, ok := d.requireAdmin(w, r, folder)
+	if !ok {
 		return
 	}
 	if d.adminDB() == nil {
@@ -412,11 +413,12 @@ func (d *dash) handleChatNew(w http.ResponseWriter, r *http.Request) {
 	raw := store.GenRouteToken()
 	jid := "web:" + folder
 	now := time.Now().Format(time.RFC3339Nano)
-	// Raw INSERT (not store.InsertRouteToken): routd.db has no audit_log table,
-	// so the audited writer would roll back. Same discipline as route_tokens.go.
-	if _, err := d.adminDB().Exec(
-		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind) VALUES (?, ?, ?, ?, ?)`,
-		store.HashRouteToken(raw), jid, folder, now, store.RouteTokenKindRoute); err != nil {
+	// InsertRouteToken, the audited writer: routd.db HAS had audit_log since
+	// routd migration 0016, so the mint and its audit row commit together.
+	// AsUser attributes the mint to the operator.
+	if err := store.New(d.adminDB()).AsUser(sub).InsertRouteToken(raw, store.RouteToken{
+		JID: jid, OwnerFolder: folder,
+	}); err != nil {
 		slog.Warn("chat: mint token", "folder", folder, "err", err)
 		http.Error(w, "mint failed", http.StatusInternalServerError)
 		return

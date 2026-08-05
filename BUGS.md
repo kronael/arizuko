@@ -3753,7 +3753,21 @@ paths and belongs in its own commit with per-path tests, not smuggled into a rep
 - **Scope:** dashd admin write paths vs audit/log.go
 - **Affected:** all instances — dashboard grant/route/token/group/task mutations
 - **Source:** dashd/groups_admin.go:122,412; route_tokens.go:69,131; routes_admin.go:157; grants_admin.go:216,267; chat.go:416; routd/migrations/0016-audit-log.sql
-- **Status:** open
+- **Status:** fixed 2026-08-05
+- **Fix:** per-site, since the audit-free choice was not uniformly wrong. Five
+  sites moved to the audited writer (`AddACLRow`, `RemoveACLRow`, `AddRoute`,
+  `InsertRouteToken` ×2, `RevokeRouteToken`). The two group handlers KEPT their
+  raw multi-table transactions — `PutGroup`/`DeleteGroup` open their own tx and
+  cannot carry the admin grant or the acl/routes cascade — and emit via
+  `audit.EmitInTx` inside that same tx instead; group delete's pre-existing emit
+  also moved from post-commit into the tx, so an audit row can no longer outlive
+  a rolled-back delete. The audited writers hardcoded `Actor: "system"` /
+  `Surface: gateway`, which would have recorded an operator action as the
+  system, so `store.Store` gained `AsUser(sub)` + a single `auditIdentity()`
+  renderer generalizing the actor seam `AddACLRow` already had via
+  `row.GrantedBy`. Falsifiability proven per site: reverting each to its
+  audit-free writer fails its test with `actor_sub = ""`.
+  Tests: `dashd/audit_mutations_test.go`.
 
 ## Q3 — dashd tests wire a STORE-schema DB as routd.db (2026-08-05, open)
 
@@ -3774,4 +3788,34 @@ routd.db; `store.Migrate` should stay only where the frozen schema is the subjec
 - **Scope:** tests/testutils vs routd/migrations
 - **Affected:** dashd test suite (and any future daemon test wiring inst.DB as routd.db)
 - **Source:** tests/testutils/testutils.go:49; dashd/integration_test.go (cost_log swap); dashd/chat_test.go:createChatSessions
+- **Status:** fixed 2026-08-05
+- **Fix:** `testutils.NewRoutdInstance` migrates a real routd DB; every dashd
+  fixture uses it. Both in-line compensations deleted (the `cost_log`
+  DROP+recreate and `createChatSessions`). A SECOND fixture had the same defect:
+  `dashd/admin_routd_test.go`'s hand-rolled `adminSchema` const claimed to mirror
+  routd/migrations but omitted `audit_log`, `messages.sender NOT NULL`, and
+  `route_tokens.owner_folder`'s FK to `groups` — deleted in favour of the real
+  schema, which immediately caught three test rows production would reject.
+  `splitAdminDash` now also calls `audit.Init` as dashd's main does, so handlers
+  emitting through the package sink are actually observable in tests.
+
+## Q4 — the same false "routd.db has no audit_log" justification survives in cmd/arizuko and onbod (2026-08-05, open)
+
+Q2 retired the claim in dashd, but two more sites still carry it. `cmd/arizuko/route.go:16`
+states "routd.db has no audit_log table, so we use PutRouteRow / DeleteRouteRow (the
+audit-free twins) — same discipline as `arizuko grant` and `arizuko secret`" — false
+since routd migration 0016, so `arizuko route add|rm` mutates the live route table with
+no audit row. `onbod/main.go:1147` writes the invite-accept acl grant via the audit-free
+`PutACLRow`, justified as "the same FS-direct discipline as dashd's routd.db writers" —
+a reference that is now stale, since dashd's writers audit.
+
+Not fixed here: `cmd/arizuko/` is owned by another agent this session, and onbod is
+outside the dashd brief. Both are the same one-line-per-site change Q2 made, plus the
+`AsUser` seam for the CLI's operator identity (the CLI has no `X-User-*` header, so its
+actor would need to come from the invoking operator or stay `system` deliberately).
+
+- **Severity:** medium (CLI route mutations invisible to the audit trail; same class as Q2)
+- **Scope:** cmd/arizuko route CLI, onbod invite-accept
+- **Affected:** all instances — `arizuko route add|rm`, onbod invite acceptance
+- **Source:** cmd/arizuko/route.go:16; onbod/main.go:1147; routd/migrations/0016-audit-log.sql
 - **Status:** open

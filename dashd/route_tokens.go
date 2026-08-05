@@ -23,8 +23,10 @@ var webhookLabelRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 	folder := r.PathValue("folder")
+	var sub string
 	if r.Method == http.MethodPost {
-		if _, ok := d.requireAdmin(w, r, folder); !ok {
+		var ok bool
+		if sub, ok = d.requireAdmin(w, r, folder); !ok {
 			return
 		}
 	} else {
@@ -62,16 +64,12 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 		}
 		if jid != "" {
 			raw := store.GenRouteToken()
-			var context any
-			if c := r.FormValue("context"); c != "" {
-				context = c
-			}
-			// Raw INSERT (not store.InsertRouteToken): routd.db has no audit_log
-			// table, so the audited writer would roll back. Same audit-free
-			// discipline as the secrets and grant rewires.
-			_, err := d.adminDB().Exec(
-				`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind) VALUES (?, ?, ?, ?, ?, ?)`,
-				store.HashRouteToken(raw), jid, folder, time.Now().Format(time.RFC3339Nano), context, store.RouteTokenKindRoute)
+			// InsertRouteToken, the audited writer: routd.db HAS had audit_log
+			// since routd migration 0016, so the mint and its audit row commit
+			// together. AsUser attributes the mint to the operator.
+			err := st.AsUser(sub).InsertRouteToken(raw, store.RouteToken{
+				JID: jid, OwnerFolder: folder, Context: r.FormValue("context"),
+			})
 			if err != nil {
 				fmt.Fprint(w, htmlBanner("err", "insert error: "+err.Error()))
 			} else {
@@ -121,22 +119,18 @@ func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {
 	// unescapes it back to the raw JID here (same as folderPath/{folder}).
 	jid := r.PathValue("jid")
 
-	if _, ok := d.requireAdmin(w, r, folder); !ok {
+	sub, ok := d.requireAdmin(w, r, folder)
+	if !ok {
 		return
 	}
 	if d.adminDB() == nil {
 		http.Error(w, "read-only", http.StatusServiceUnavailable)
 		return
 	}
-	// Raw DELETE (not store.RevokeRouteToken): audit-free for routd.db.
-	res, err := d.adminDB().Exec(
-		`DELETE FROM route_tokens WHERE jid = ? AND owner_folder = ? AND kind = ?`,
-		jid, folder, store.RouteTokenKindRoute)
-	if err != nil {
-		http.Error(w, "revoke failed", http.StatusInternalServerError)
-		return
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	// RevokeRouteToken, the audited writer (routd.db has audit_log since routd
+	// migration 0016). AsUser attributes the revoke to the operator.
+	hit, err := store.New(d.adminDB()).AsUser(sub).RevokeRouteToken(jid, folder)
+	if err != nil || !hit {
 		http.Error(w, "revoke failed", http.StatusInternalServerError)
 		return
 	}

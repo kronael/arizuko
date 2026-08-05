@@ -9,54 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/tests/testutils"
 	_ "modernc.org/sqlite"
 )
-
-// adminSchema is the minimal set of routd-owned admin tables dashd reads+writes
-// (mirrors routd/migrations/). Used to stand up an isolated routd.db twin so a
-// write can be proven to land in routd.db and NOT messages.db.
-const adminSchema = `
-CREATE TABLE acl (
-  principal TEXT NOT NULL, action TEXT NOT NULL, scope TEXT NOT NULL,
-  effect TEXT NOT NULL DEFAULT 'allow', params TEXT NOT NULL DEFAULT '',
-  predicate TEXT NOT NULL DEFAULT '', granted_by TEXT, granted_at TEXT NOT NULL,
-  grant_option INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (principal, action, scope, params, predicate, effect));
-CREATE TABLE acl_membership (
-  child TEXT NOT NULL, parent TEXT NOT NULL, added_by TEXT, added_at TEXT NOT NULL,
-  PRIMARY KEY (child, parent));
-CREATE TABLE groups (
-  folder TEXT PRIMARY KEY, added_at TEXT NOT NULL, container_config TEXT,
-  updated_at TEXT, product TEXT NOT NULL DEFAULT 'assistant',
-  cost_cap_cents_per_day INTEGER NOT NULL DEFAULT 0, open INTEGER NOT NULL DEFAULT 1,
-  observe_window_messages INTEGER, observe_window_chars INTEGER, model TEXT);
-CREATE TABLE routes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER NOT NULL DEFAULT 0,
-  match TEXT NOT NULL DEFAULT '', target TEXT NOT NULL,
-  observe_window_messages INTEGER, observe_window_chars INTEGER);
-CREATE TABLE route_tokens (
-  token_hash BLOB PRIMARY KEY, jid TEXT NOT NULL,
-  owner_folder TEXT NOT NULL, created_at TEXT NOT NULL, context TEXT,
-  kind TEXT NOT NULL DEFAULT 'route');
-CREATE TABLE scheduled_tasks (
-  id TEXT PRIMARY KEY, owner TEXT NOT NULL, chat_jid TEXT NOT NULL,
-  prompt TEXT NOT NULL, cron TEXT, next_run TEXT,
-  status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL,
-  context_mode TEXT NOT NULL DEFAULT 'group');
-CREATE TABLE task_run_logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
-  run_at TEXT NOT NULL, duration_ms INTEGER, status TEXT NOT NULL,
-  result TEXT, error TEXT);
-CREATE TABLE messages (
-  id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT,
-  timestamp TEXT, source TEXT NOT NULL DEFAULT '', verb TEXT,
-  errored INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE sessions (group_folder TEXT, topic TEXT, session_id TEXT);
-CREATE TABLE user_profiles (
-  id INTEGER PRIMARY KEY, sub TEXT UNIQUE NOT NULL, username TEXT UNIQUE NOT NULL,
-  name TEXT NOT NULL, created_at TEXT NOT NULL);
-`
 
 // splitAdminDash wires a dash on routd.db, the ONLY store dashd opens. The admin
 // ACL row the requireAdmin gate consults is seeded there, so a passing write also
@@ -65,22 +21,27 @@ CREATE TABLE user_profiles (
 // is why these tests assert on routd.db alone.
 func splitAdminDash(t *testing.T, adminSub string) (*dash, *sql.DB) {
 	t.Helper()
-	name := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
-	routd, err := sql.Open("sqlite",
-		"file:admin_routd_"+name+"?mode=memory&cache=shared")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := routd.Exec(adminSchema); err != nil {
-		t.Fatalf("routd.db schema: %v", err)
-	}
+	inst := testutils.NewRoutdInstance(t)
+	routd := inst.DB
+	// dashd/main.go points the package-level audit sink at routd.db at startup;
+	// without the same wiring here the handlers that use audit.Emit (rather than
+	// an in-tx write) would silently drop their rows and a missing-audit
+	// regression would read as a pass.
+	audit.Init(routd, "test")
+	t.Cleanup(func() { audit.Init(nil, "") })
 	// Operator grant lives in routd.db only.
 	if _, err := routd.Exec(
 		`INSERT INTO acl (principal, action, scope, effect, granted_at)
 		 VALUES (?, 'admin', '**', 'allow', '')`, adminSub); err != nil {
 		t.Fatalf("seed admin grant: %v", err)
 	}
-	t.Cleanup(func() { routd.Close() })
+	// "team" is the folder these tests act on. It must exist: route_tokens
+	// .owner_folder is an FK to groups(folder), so a token cannot be minted for
+	// a folder that was never created.
+	if _, err := routd.Exec(
+		`INSERT OR IGNORE INTO groups (folder, added_at) VALUES ('team', '')`); err != nil {
+		t.Fatalf("seed team group: %v", err)
+	}
 	return &dash{dbRoutd: routd, groupsDir: t.TempDir()}, routd
 }
 
@@ -145,9 +106,6 @@ func TestGrantList_ReadsRoutdDB(t *testing.T) {
 // TestGroupDelete_TargetsRoutdDB: deleting a group removes the row from routd.db.
 func TestGroupDelete_TargetsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	if _, err := routd.Exec(`INSERT INTO groups (folder, added_at) VALUES ('team', '')`); err != nil {
-		t.Fatal(err)
-	}
 	mux := newMux(d)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/delete", "", "alice@x"))
@@ -374,8 +332,8 @@ func TestActivity_ReadsRoutdDB(t *testing.T) {
 func TestErroredCount_ReadsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	if _, err := routd.Exec(
-		`INSERT INTO messages (id, chat_jid, content, timestamp, errored)
-		 VALUES ('e-live', 'web:liveerr', 'x', '2026-06-14T00:00:00Z', 1)`); err != nil {
+		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, errored)
+		 VALUES ('e-live', 'web:liveerr', 'u', 'x', '2026-06-14T00:00:00Z', 1)`); err != nil {
 		t.Fatal(err)
 	}
 	if n := d.countVisibleErroredChats(nil, true); n != 1 {

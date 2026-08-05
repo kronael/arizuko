@@ -24,7 +24,7 @@ import (
 // run. Returns server + the testutils Inst (Store + DB).
 func newRWDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	t.Helper()
-	inst := testutils.NewInstance(t)
+	inst := testutils.NewRoutdInstance(t)
 	groupsDir := filepath.Join(inst.Tmp, "groups")
 	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
 		t.Fatal(err)

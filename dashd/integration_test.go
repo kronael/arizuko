@@ -20,7 +20,7 @@ import (
 
 func newDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	t.Helper()
-	inst := testutils.NewInstance(t)
+	inst := testutils.NewRoutdInstance(t)
 	groupsDir := filepath.Join(inst.Tmp, "groups")
 	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -137,18 +137,6 @@ func TestGroupListUsage(t *testing.T) {
 	now := time.Now().Format(time.RFC3339)
 	if _, err := inst.DB.Exec(
 		`INSERT INTO groups (folder, added_at) VALUES (?, ?)`, folder, now); err != nil {
-		t.Fatal(err)
-	}
-	// The groups page reads routd.db's cost_log (recorded_at / input_tokens /
-	// output_tokens / cost_cents). testutils.NewInstance migrates the pre-split
-	// STORE schema, whose cost_log is the divergent ts / input_tok / cents shape,
-	// so swap the table for routd's before seeding.
-	if _, err := inst.DB.Exec(`DROP TABLE cost_log;
-		CREATE TABLE cost_log (
-		  folder TEXT NOT NULL, turn_id TEXT NOT NULL, model TEXT NOT NULL,
-		  input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
-		  cost_cents INTEGER NOT NULL DEFAULT 0, recorded_at TEXT NOT NULL,
-		  PRIMARY KEY (folder, turn_id, model))`); err != nil {
 		t.Fatal(err)
 	}
 	// One row today: 500 input + 200 output = 700 tokens, 15 cents.

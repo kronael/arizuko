@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -119,10 +118,10 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s := store.New(d.adminDB())
-	// Raw INSERT (not store.PutGroup): routd.db has no audit_log table, so the
-	// audited writer would roll back — same audit-free discipline as the secrets
-	// and grant rewires. Group row + admin grant share one tx: an ACL failure
-	// must NOT leave a group with no admin (orphaned, inaccessible).
+	// Raw INSERT rather than store.PutGroup because PutGroup opens its own tx
+	// and cannot carry the admin grant: the group row and the grant share one tx
+	// so an ACL failure never leaves a group with no admin (orphaned,
+	// inaccessible). The audit row joins that same tx below.
 	now := time.Now().Format(time.RFC3339)
 	tx, err := d.adminDB().Begin()
 	if err != nil {
@@ -146,6 +145,25 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		tx.Rollback()
 		slog.Error("group create: grant admin", "folder", folder, "sub", sub, "err", err)
 		http.Error(w, "grant admin failed", http.StatusInternalServerError)
+		return
+	}
+	if err := audit.EmitInTx(r.Context(), tx, audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "group.create",
+		Actor:    "user:" + sub,
+		ActorSub: sub,
+		Surface:  audit.SurfaceREST,
+		Resource: "groups/" + folder,
+		Folder:   folder,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"folder":  folder,
+			"product": product,
+		},
+	}); err != nil {
+		tx.Rollback()
+		slog.Error("group create: audit", "folder", folder, "err", err)
+		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
 	}
 	if err := tx.Commit(); err != nil {
@@ -397,7 +415,8 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return
 	}
-	if _, ok := d.requireAdmin(w, r, folder); !ok {
+	sub, ok := d.requireAdmin(w, r, folder)
+	if !ok {
 		return
 	}
 	if d.adminDB() == nil {
@@ -409,8 +428,9 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 	// grant + route rows in ONE transaction so a parent delete never leaves
 	// orphaned child groups, and a re-created folder cannot inherit stale admin
 	// grants or routing targets. Covers the subtree (X/...) and X/**-style globs.
-	// Audit-free direct writes (routd.db has no audit_log) — same discipline as
-	// handleGroupCreate's raw INSERT.
+	// store.DeleteGroup can't stand in: it opens its own tx and touches only
+	// groups. The audit row joins this tx so it cannot outlive a rolled-back
+	// delete.
 	tx, err := d.adminDB().Begin()
 	if err != nil {
 		slog.Warn("group delete: begin", "folder", folder, "err", err)
@@ -451,20 +471,26 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
+	if err := audit.EmitInTx(r.Context(), tx, audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "group.delete",
+		Actor:    "user:" + sub,
+		ActorSub: sub,
+		Surface:  audit.SurfaceREST,
+		Resource: "groups/" + folder,
+		Folder:   folder,
+		Outcome:  audit.OutcomeOK,
+	}); err != nil {
+		tx.Rollback()
+		slog.Warn("group delete: audit", "folder", folder, "err", err)
+		http.Error(w, "delete failed", http.StatusInternalServerError)
+		return
+	}
 	if err := tx.Commit(); err != nil {
 		slog.Warn("group delete: commit", "folder", folder, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
-	audit.Emit(context.Background(), audit.Event{
-		Category: audit.CategoryMutation,
-		Action:   "group.delete",
-		Actor:    "rest:dashd",
-		Surface:  audit.SurfaceREST,
-		Resource: "groups/" + folder,
-		Folder:   folder,
-		Outcome:  audit.OutcomeOK,
-	})
 	if d.groupsDir != "" {
 		// Best-effort cleanup. Symlink-escape guard via filepath.Clean +
 		// prefix check before rm.

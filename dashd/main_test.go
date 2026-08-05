@@ -593,7 +593,7 @@ func setupMemoryTest(t *testing.T) (*dash, string, *http.ServeMux) {
 	if err := os.MkdirAll(filepath.Join(groups, folder, "diary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	inst := testutils.NewInstance(t)
+	inst := testutils.NewRoutdInstance(t)
 	if err := inst.Store.AddACLRow(core.ACLRow{
 		Principal: "admin@x", Action: "admin", Scope: folder, Effect: "allow",
 	}); err != nil {

@@ -39,16 +39,18 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 	); err != nil {
 		return err
 	}
-	actor := row.GrantedBy
-	if actor == "" {
-		actor = "system"
+	// GrantedBy is the grantor recorded in the row itself; it stands in as the
+	// actor for callers that never set AsUser (the CLI, onbod invite-accept).
+	actor, actorSub, surface := s.auditIdentity()
+	if s.auditSub == "" && row.GrantedBy != "" {
+		actor, actorSub = row.GrantedBy, row.GrantedBy
 	}
 	if err := audit.EmitInTx(ctx, tx, audit.Event{
 		Category: audit.CategoryAuthZ,
 		Action:   "acl.add",
 		Actor:    actor,
-		ActorSub: row.GrantedBy,
-		Surface:  audit.SurfaceGateway,
+		ActorSub: actorSub,
+		Surface:  surface,
 		Resource: fmt.Sprintf("acl/%s/%s/%s", row.Principal, row.Action, row.Scope),
 		Folder:   row.Scope,
 		Outcome:  audit.OutcomeOK,
@@ -84,11 +86,13 @@ func (s *Store) RemoveACLRow(row core.ACLRow) error {
 	); err != nil {
 		return err
 	}
+	actor, actorSub, surface := s.auditIdentity()
 	if err := audit.EmitInTx(ctx, tx, audit.Event{
 		Category: audit.CategoryAuthZ,
 		Action:   "acl.remove",
-		Actor:    "system",
-		Surface:  audit.SurfaceGateway,
+		Actor:    actor,
+		ActorSub: actorSub,
+		Surface:  surface,
 		Resource: fmt.Sprintf("acl/%s/%s/%s", row.Principal, row.Action, row.Scope),
 		Folder:   row.Scope,
 		Outcome:  audit.OutcomeOK,

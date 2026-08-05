@@ -213,9 +213,10 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 		Params:    params,
 		GrantedBy: sub,
 	}
-	// PutACLRow (not AddACLRow): routd.db has no audit_log table, so the
-	// audit-free writer is used — same discipline as the CLI grant path.
-	if err := s.PutACLRow(row); err != nil {
+	// AddACLRow, the audited writer: routd.db HAS had audit_log since routd
+	// migration 0016, so the grant lands with its audit row in one transaction.
+	// Same INSERT OR IGNORE as PutACLRow; the actor comes from row.GrantedBy.
+	if err := s.AddACLRow(row); err != nil {
 		slog.Warn("grants add: insert", "folder", folder, "err", err)
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
@@ -264,8 +265,10 @@ func (d *dash) handleGroupGrantRevoke(w http.ResponseWriter, r *http.Request) {
 		Params:    params,
 		Predicate: predicate,
 	}
-	// RemoveACLRowBare (not RemoveACLRow): audit-free for routd.db.
-	if err := s.RemoveACLRowBare(row); err != nil {
+	// RemoveACLRow, the audited writer (routd.db has audit_log since routd
+	// migration 0016). AsUser attributes the revoke to the operator — unlike a
+	// grant, the row carries no field naming who removed it.
+	if err := s.AsUser(sub).RemoveACLRow(row); err != nil {
 		slog.Warn("grants revoke: delete", "folder", folder, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return

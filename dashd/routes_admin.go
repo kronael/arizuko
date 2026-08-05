@@ -147,18 +147,20 @@ func (d *dash) handleRouteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	folder := core.ParseRouteTarget(body.Target).Folder
-	if _, ok := d.requireAdmin(w, r, folder); !ok {
+	sub, ok := d.requireAdmin(w, r, folder)
+	if !ok {
 		return
 	}
 	if d.adminDB() == nil {
 		http.Error(w, "routes store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	// PutRouteRow (not store.AddRoute): routd.db has no audit_log table, so the
-	// audited writer would roll back — same audit-free discipline as the secrets
-	// and grant rewires. Mirrors AddRoute's full column set so observe-window
-	// columns are not dropped.
-	id, err := store.New(d.adminDB()).PutRouteRow(core.Route{
+	// AddRoute, the audited writer: routd.db HAS had audit_log since routd
+	// migration 0016, so the route and its audit row commit together — matching
+	// the update and delete handlers below, which already audit. AddRoute's
+	// plain INSERT matches PutRouteRow's INSERT OR IGNORE here because routes
+	// has no unique constraint beyond the autoincrement id, so nothing to ignore.
+	id, err := store.New(d.adminDB()).AsUser(sub).AddRoute(core.Route{
 		Seq:                   body.Seq,
 		Match:                 body.Match,
 		Target:                body.Target,

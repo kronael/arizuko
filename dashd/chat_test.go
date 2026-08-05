@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,7 +17,7 @@ import (
 // caller seeds groups/messages/tokens against inst.DB.
 func chatTestDash(t *testing.T) (*testutils.Inst, *http.ServeMux) {
 	t.Helper()
-	inst := testutils.NewInstance(t)
+	inst := testutils.NewRoutdInstance(t)
 	d := &dash{dbRoutd: inst.DB, dbOnbod: inst.DB, groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -146,23 +145,10 @@ func TestHandleChatGroup_grantedMember(t *testing.T) {
 	}
 }
 
-// createChatSessions declares chat_sessions in the test instance DB. routd owns
-// the table (migration 0029), but testutils.NewInstance migrates the pre-split
-// STORE schema, which never had it — so dashd tests that touch the chat portal
-// create it here.
-func createChatSessions(t *testing.T, inst *testutils.Inst) {
-	t.Helper()
-	if _, err := inst.DB.Exec(`CREATE TABLE IF NOT EXISTS chat_sessions (
-		id INTEGER PRIMARY KEY AUTOINCREMENT, folder TEXT NOT NULL,
-		token TEXT NOT NULL UNIQUE, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)`); err != nil {
-		t.Fatalf("create chat_sessions: %v", err)
-	}
-}
-
-// seedChatSession creates chat_sessions (idempotent) and inserts one row.
+// seedChatSession inserts one chat_sessions row. routd owns the table
+// (migration 0029) and NewRoutdInstance migrates it, so no declaration here.
 func seedChatSession(t *testing.T, inst *testutils.Inst, folder, token, label, createdAt string) {
 	t.Helper()
-	createChatSessions(t, inst)
 	if _, err := inst.DB.Exec(
 		`INSERT INTO chat_sessions (folder, token, label, created_at) VALUES (?,?,?,?)`,
 		folder, token, label, createdAt); err != nil {
@@ -310,7 +296,6 @@ func TestHandleChatPortal_scoped(t *testing.T) {
 
 func TestHandleChatNew_recordsSession(t *testing.T) {
 	inst, mux := chatTestDash(t)
-	createChatSessions(t, inst)
 	folder := "alice"
 	addGroup(t, inst, folder)
 	if err := inst.Store.AddACLRow(core.ACLRow{
@@ -378,19 +363,16 @@ func TestHandleChatNew_creates(t *testing.T) {
 	}
 }
 
-// TestHandleChatNew_missingChatSessions: with routd.db carrying only the admin
-// schema (no chat_sessions), handleChatNew must still redirect 303 — recording
-// the raw token for a continue link is best-effort, never the mint's success
-// condition.
+// TestHandleChatNew_missingChatSessions: with routd.db missing chat_sessions,
+// handleChatNew must still redirect 303 — recording the raw token for a continue
+// link is best-effort, never the mint's success condition.
 func TestHandleChatNew_missingChatSessions(t *testing.T) {
-	// Build a routd-only DB with the admin schema (acl + route_tokens).
-	routd, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer routd.Close()
-	if _, err := routd.Exec(adminSchema); err != nil {
-		t.Fatalf("routd schema: %v", err)
+	// Start from the real routd schema and drop only the table under test, so
+	// the absence is the one deliberate divergence rather than a fixture that
+	// silently lags routd's migrations.
+	routd := testutils.NewRoutdInstance(t).DB
+	if _, err := routd.Exec(`DROP TABLE chat_sessions`); err != nil {
+		t.Fatalf("drop chat_sessions: %v", err)
 	}
 	folder := "solo"
 	if _, err := routd.Exec(`INSERT INTO groups (folder, added_at) VALUES (?, '')`, folder); err != nil {

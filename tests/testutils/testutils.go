@@ -1,5 +1,5 @@
 // Package testutils provides shared fixtures for daemon integration tests:
-// an in-memory DB wired to store migrations, a FakeChannel recording all
+// a migrated DB (store or routd schema), a FakeChannel recording all
 // outbound calls, a FakePlatform httptest server, and small assertion helpers.
 package testutils
 
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -33,7 +34,39 @@ type Inst struct {
 	ChanReg   *chanreg.Registry
 }
 
-// NewInstance builds an Inst. Registers t.Cleanup to close the DB.
+// NewRoutdInstance builds an Inst whose DB carries the ROUTD schema — the one
+// routd.db actually has in production. Daemons that read routd.db (dashd) must
+// use this, not NewInstance: the two schemas overlap on messages/groups/acl/
+// routes but diverge on cost_log (recorded_at/cost_cents/input_tokens vs the
+// store's ts/cents/input_tok) and on tables routd added after the split
+// (chat_sessions, 0029), so a store-schema fixture lets a genuine column-name
+// regression pass. NewInstance stays for callers whose subject IS the frozen
+// pre-split schema. Registers t.Cleanup to close the DB.
+func NewRoutdInstance(t *testing.T) *Inst {
+	t.Helper()
+	tmp := t.TempDir()
+	rdb, err := routd.Open(filepath.Join(tmp, "store"))
+	if err != nil {
+		t.Fatalf("routd.Open: %v", err)
+	}
+	db := rdb.SQL()
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		t.Fatalf("rand: %v", err)
+	}
+	inst := &Inst{
+		DB:        db,
+		Store:     store.New(db),
+		Tmp:       tmp,
+		JWTSecret: secret,
+		ChanReg:   chanreg.New(),
+	}
+	t.Cleanup(func() { rdb.Close() })
+	return inst
+}
+
+// NewInstance builds an Inst on the STORE (pre-split messages.db) schema.
+// Registers t.Cleanup to close the DB.
 func NewInstance(t *testing.T) *Inst {
 	t.Helper()
 	tmp := t.TempDir()

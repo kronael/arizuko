@@ -95,6 +95,7 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	if ts.IsZero() {
 		ts = time.Now()
 	}
+	actor, actorSub, surface := s.auditIdentity()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		_, err := tx.Exec(
 			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -103,8 +104,9 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 		return audit.Event{
 			Category: audit.CategoryChannel,
 			Action:   "route_token.mint",
-			Actor:    "system",
-			Surface:  audit.SurfaceGateway,
+			Actor:    actor,
+			ActorSub: actorSub,
+			Surface:  surface,
 			Resource: "route_tokens/" + t.JID,
 			Folder:   t.OwnerFolder,
 			Outcome:  audit.OutcomeOK,
@@ -168,6 +170,7 @@ func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
 // match — agents in folder A cannot revoke folder B's tokens.
 func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 	var hit bool
+	actor, actorSub, surface := s.auditIdentity()
 	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		res, err := tx.Exec(
 			`DELETE FROM route_tokens WHERE jid = ? AND owner_folder = ? AND kind = ?`,
@@ -181,8 +184,9 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 		return audit.Event{
 			Category: audit.CategoryChannel,
 			Action:   "route_token.revoke",
-			Actor:    "system",
-			Surface:  audit.SurfaceGateway,
+			Actor:    actor,
+			ActorSub: actorSub,
+			Surface:  surface,
 			Resource: "route_tokens/" + jid,
 			Folder:   ownerFolder,
 			Outcome:  audit.OutcomeOK,

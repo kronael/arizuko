@@ -66,11 +66,13 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	actor, actorSub, surface := s.auditIdentity()
 	if err := audit.EmitInTx(ctx, tx, audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "route.create",
-		Actor:    "system",
-		Surface:  audit.SurfaceGateway,
+		Actor:    actor,
+		ActorSub: actorSub,
+		Surface:  surface,
 		Resource: fmt.Sprintf("routes/%d", id),
 		Folder:   r.Target,
 		Outcome:  audit.OutcomeOK,

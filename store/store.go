@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/db_utils"
 	_ "modernc.org/sqlite"
 )
@@ -26,6 +27,32 @@ type Store struct {
 	// sealed under an older one (set the new key first, old ones after, then a
 	// startup re-seal migrates them). Empty = encryption disabled.
 	secretKeys [][32]byte
+
+	// auditSub is the operator this Store's audited writers attribute their
+	// audit_log rows to. Empty = the daemon acting on its own, recorded as
+	// "system" over the gateway surface — right for background work, wrong for
+	// a request a human made. Set via AsUser.
+	auditSub string
+}
+
+// AsUser returns a shallow copy of s whose audited writers attribute their
+// audit_log rows to sub over the REST surface. Request-scoped callers use it so
+// a dashboard mutation is recorded against the operator who made it rather than
+// as "system": dashd learns sub from the proxyd-stamped X-User-* headers.
+func (s *Store) AsUser(sub string) *Store {
+	cp := *s
+	cp.auditSub = sub
+	return &cp
+}
+
+// auditIdentity renders the (Actor, ActorSub, Surface) triple the audited
+// writers stamp. One renderer, so the anonymous and operator-attributed forms
+// cannot drift apart.
+func (s *Store) auditIdentity() (actor, actorSub, surface string) {
+	if s.auditSub == "" {
+		return "system", "", audit.SurfaceGateway
+	}
+	return "user:" + s.auditSub, s.auditSub, audit.SurfaceREST
 }
 
 // SetSecretKeys derives a 32-byte AES key from each raw value via SHA-256.

@@ -67,7 +67,7 @@ func TestRequireSameOrigin(t *testing.T) {
 // requireAdmin: caller with admin on scope is admitted;
 // caller without admin is denied.
 func TestRequireAdmin_Admitted(t *testing.T) {
-	inst := testutils.NewInstance(t)
+	inst := testutils.NewRoutdInstance(t)
 	if err := inst.Store.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "mygroup", Effect: "allow",
 	}); err != nil {
@@ -89,7 +89,7 @@ func TestRequireAdmin_Admitted(t *testing.T) {
 }
 
 func TestRequireAdmin_Denied(t *testing.T) {
-	inst := testutils.NewInstance(t)
+	inst := testutils.NewRoutdInstance(t)
 	// stranger has no admin grant
 	d := &dash{dbRoutd: inst.DB}
 
@@ -107,7 +107,7 @@ func TestRequireAdmin_Denied(t *testing.T) {
 
 // Operator with ** grant is admitted for any scope.
 func TestRequireAdmin_OperatorGrant(t *testing.T) {
-	inst := testutils.NewInstance(t)
+	inst := testutils.NewRoutdInstance(t)
 	if err := inst.Store.AddACLRow(core.ACLRow{
 		Principal: "op@x", Action: "admin", Scope: "**", Effect: "allow",
 	}); err != nil {
@@ -126,7 +126,7 @@ func TestRequireAdmin_OperatorGrant(t *testing.T) {
 
 // X-User-Groups header (JSON array) folds extra principals in.
 func TestRequireAdmin_GroupHeader(t *testing.T) {
-	inst := testutils.NewInstance(t)
+	inst := testutils.NewRoutdInstance(t)
 	// Grant is on "ops" principal; user's groups claim includes "ops".
 	if err := inst.Store.AddACLRow(core.ACLRow{
 		Principal: "ops", Action: "admin", Scope: "grp", Effect: "allow",
@@ -160,7 +160,7 @@ func TestRequireAdmin_NoSub(t *testing.T) {
 
 // Cross-origin POST is rejected by requireSameOrigin inside requireAdmin.
 func TestRequireAdmin_CrossOriginRejected(t *testing.T) {
-	inst := testutils.NewInstance(t)
+	inst := testutils.NewRoutdInstance(t)
 	if err := inst.Store.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
 	}); err != nil {
