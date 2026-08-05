@@ -32,7 +32,7 @@ type pkgGrant struct {
 func (g pkgGrant) row() core.ACLRow {
 	e := g.Effect
 	if e == "" {
-		e = "allow" // match store.PutACLRow's default so RemoveACLRow matches
+		e = "allow" // match store.AddACLRow's default so RemoveACLRow matches
 	}
 	return core.ACLRow{Principal: g.Principal, Action: g.Action, Scope: g.Scope,
 		Effect: e, Params: g.Params, Predicate: g.Predicate}
@@ -175,12 +175,20 @@ func hasTable(rdb *routd.DB, name string) bool {
 // compose-fragment assets (not copied to services/), so this scans the source
 // dir directly. Returns each applied grant as JSON for the record, so remove
 // can reverse it exactly.
-func applyPackageGrants(rdb *routd.DB, dir string) []string {
+//
+// ONE audit row per grant, not one for the bundle (BUGS.md Q5). A bundle row
+// would say "installed ttsd" and hide that the install handed somebody admin on
+// a folder — the query an audit trail exists to answer ("who granted this, and
+// when") is per-grant, and `installed_packages` already records the bundle. Each
+// row names the package in granted_by, so a per-grant trail still reads as one
+// act. `packages remove` already emits per-grant acl.remove; install now matches
+// it instead of leaving grants that appear from nowhere and vanish on the record.
+func applyPackageGrants(rdb *routd.DB, name, dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		die("Failed: read source %s: %v", dir, err)
 	}
-	st := store.New(rdb.SQL())
+	st := packageACLStore(rdb)
 	var recorded []string
 	for _, e := range entries {
 		n := e.Name()
@@ -197,7 +205,8 @@ func applyPackageGrants(rdb *routd.DB, dir string) []string {
 		}
 		for _, g := range grants {
 			row := g.row()
-			if err := st.PutACLRow(row); err != nil {
+			row.GrantedBy = "package:" + name
+			if err := st.AddACLRow(row); err != nil {
 				die("Failed: apply grant %s/%s: %v", row.Principal, row.Action, err)
 			}
 			j, _ := json.Marshal(row)
@@ -205,6 +214,13 @@ func applyPackageGrants(rdb *routd.DB, dir string) []string {
 		}
 	}
 	return recorded
+}
+
+// packageACLStore wraps routd.db for the package grant writers, attributed to the
+// operator who ran the CLI — a package brings the grants, but a person chose to
+// install it, and that is who the trail must name.
+func packageACLStore(rdb *routd.DB) *store.Store {
+	return store.New(rdb.SQL()).AsCLI(os.Getenv("USER"))
 }
 
 // applyPackageRoutes hot-applies every route in the package's `*-routes.json`
@@ -434,7 +450,7 @@ func cmdPackages(args []string) {
 			}
 		}
 		if hasTable(rdb, "acl") {
-			if grants := applyPackageGrants(rdb, dir); len(grants) > 0 {
+			if grants := applyPackageGrants(rdb, name, dir); len(grants) > 0 {
 				manifest["grant"] = grants
 			}
 		}
@@ -521,7 +537,7 @@ func cmdPackages(args []string) {
 			// is ever routed at a sidecar mid-teardown, THEN drop the fragment
 			// files. Bring-up health-gating is compose's (healthcheck +
 			// depends_on) — the CLI can't reach docker-internal backends.
-			st := store.New(rdb.SQL())
+			st := packageACLStore(rdb)
 			if paths := rec.Manifest["proxyd_route"]; len(paths) > 0 && hasTable(rdb, "proxyd_routes") {
 				for _, p := range paths {
 					if _, err := st.DeleteProxydRoute(p); err != nil {

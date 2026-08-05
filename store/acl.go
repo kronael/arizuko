@@ -60,6 +60,10 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 			"scope":     row.Scope,
 			"effect":    row.Effect,
 			"predicate": row.Predicate,
+			// The grantor the row itself records. Distinguishes a grant an
+			// operator typed from one a package install brought in, which the
+			// actor alone cannot show — both are the same person at a terminal.
+			"granted_by": row.GrantedBy,
 		},
 	}); err != nil {
 		return err
