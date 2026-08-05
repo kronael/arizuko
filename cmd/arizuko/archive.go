@@ -7,21 +7,16 @@ package main
 // literally); everything else here (routd.secrets.yaml, routd.messages.jl,
 // groups.tar, archive.yaml) is new.
 //
+// The filesystem restore claims each folder's runed run slot before
+// overwriting its tree (spec 5/8 "Filesystem restore claims the folder's run
+// slot"): apply POSTs /v1/holds to a LIVE runed and releases in a defer, so
+// no agent turn can start mid-extraction. Either the instance is up and the
+// hold is taken, or the operator passes --stopped to assert it is down.
+// Never neither — an unguarded restore is the exact race the hold exists to
+// prevent, so an unreachable runed is fatal, not a warning.
+//
 // NOT built in this pass, by explicit scope decision — recorded in BUGS.md,
 // not silently skipped:
-//   - The filesystem-restore run-slot claim (spec 5/8 "Filesystem restore
-//     claims the folder's run slot"): runed's kind='agent'/kind dispatch
-//     machinery shipped (397bc16f), but no kind='backup' executor exists,
-//     and wiring this offline CLI to a LIVE runed over HTTP to claim a
-//     folder's spawn slot is a new cross-daemon wire contract this spec
-//     names but does not pin down (what RunRequest carries to tell the
-//     executor WHAT to restore). Restoring groups.tar onto a NON-EMPTY
-//     target (--force) therefore has no live-turn exclusion here — the
-//     operator must ensure no turn is in flight for that folder themselves
-//     (stopping the instance, per --quiesced's own recommended workflow,
-//     removes the hazard entirely). Restoring onto an EMPTY/missing target
-//     — the primary DR case this spec calls out as "what a real DR restore
-//     wants" — has no live agent to race in the first place.
 //   - "The missing-group rule" preflight and the cross-subsystem pre-image
 //     rollback: separate spec sections, not among the findings this pass
 //     was asked to verify, not built here.
@@ -56,6 +51,7 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 	"gopkg.in/yaml.v3"
 )
@@ -144,15 +140,19 @@ func cmdArchiveExport(args []string) {
 
 func cmdArchiveApply(args []string) {
 	if len(args) < 2 {
-		fmt.Println("usage: arizuko archive apply <instance> <archive.tar> [--force]")
+		fmt.Println("usage: arizuko archive apply <instance> <archive.tar> [--force] [--stopped]")
 		os.Exit(1)
 	}
 	instance := args[0]
 	file := args[1]
 	force := false
+	stopped := false
 	for _, a := range args[2:] {
-		if a == "--force" || a == "-f" {
+		switch a {
+		case "--force", "-f":
 			force = true
+		case "--stopped":
+			stopped = true
 		}
 	}
 	dataDir := mustInstanceDir(instance)
@@ -162,16 +162,83 @@ func cmdArchiveApply(args []string) {
 	}
 	defer closeStores(stores)
 
+	ctx := context.Background()
+	// Resolve the run-slot claim BEFORE opening the archive: a restore that
+	// cannot guard the filesystem step must not half-apply the config
+	// subsystems first (spec 5/8).
+	var hold holdFn
+	if stopped {
+		fmt.Fprintln(os.Stderr, "--stopped: skipping the run-slot hold; you asserted no agent is running")
+	} else {
+		hold, err = runedHolder(ctx, dataDir)
+		if err != nil {
+			die("Failed: cannot claim the folders' run slots: %v\n"+
+				"A restore overwrites a folder's tree while an agent may be writing it. Either:\n"+
+				"  - run this with the instance UP and RUNED_URL reachable from here\n"+
+				"    (set RUNED_URL, and RUNED_TOKEN if runed verifies bearers), or\n"+
+				"  - stop the instance and re-run with --stopped.", err)
+		}
+	}
+
 	data, err := os.ReadFile(file)
 	if err != nil {
 		die("Failed: read %s: %v", file, err)
 	}
-	report, err := applyArchive(context.Background(), stores, dataDir, bytes.NewReader(data), force)
+	report, err := applyArchive(ctx, stores, dataDir, bytes.NewReader(data), force, hold)
 	if err != nil {
 		fmt.Fprint(os.Stderr, report)
 		die("Failed: archive apply: %v", err)
 	}
 	fmt.Fprint(os.Stdout, report)
+}
+
+// holdFn claims folder's runed run slot for the duration of its filesystem
+// step and returns the release. A nil holdFn means the caller asserted the
+// instance is stopped (--stopped): no live agent exists to race, so no hold
+// is needed. It is never nil merely because runed was unreachable — that is
+// fatal at the call site above.
+type holdFn func(folder string) (release func(), err error)
+
+// runedHolder builds the holdFn that claims each folder's run slot in the
+// LIVE runed (POST /v1/holds — spec 5/8) before its tree is overwritten.
+//
+// RUNED_URL is the same var routd and dashd already use to reach runed, with
+// the same in-network default; the CLI runs on the host, so an operator
+// restoring from there points it at a reachable runed. RUNED_TOKEN is the
+// bearer runed's authz wants — runs:run to claim, runs:kill to release; runed
+// in open mode (single-tenant / local-dev) needs none.
+func runedHolder(ctx context.Context, dataDir string) (holdFn, error) {
+	env, err := loadInstanceEnv(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("load .env: %w", err)
+	}
+	base := env["RUNED_URL"]
+	if base == "" {
+		base = "http://runed:8080"
+	}
+	client := runedv1.NewClient(base, env["RUNED_TOKEN"], 30*time.Second)
+
+	return func(folder string) (func(), error) {
+		out, herr := client.Hold(ctx, folder, "arizuko archive apply: filesystem restore")
+		if herr != nil {
+			return nil, fmt.Errorf("runed at %s: %w", base, herr)
+		}
+		if out.Busy {
+			return nil, fmt.Errorf("folder %q has a live run (an agent turn or another hold); "+
+				"wait for it to finish or stop the instance", folder)
+		}
+		return func() {
+			// A defer cannot return an error, so surface a failed release
+			// loudly instead of dropping it. runed's RunTTL
+			// (RUNED_RUN_TIMEOUT) is the backstop that frees the folder.
+			if rerr := client.ReleaseHold(context.Background(), out.RunID); rerr != nil {
+				fmt.Fprintf(os.Stderr,
+					"WARNING: failed to release the hold on %q (run %s): %v\n"+
+						"  the folder stays paused until runed's RUNED_RUN_TIMEOUT expires it\n",
+					folder, out.RunID, rerr)
+			}
+		}, nil
+	}, nil
 }
 
 // buildArchive writes one tar stream to w — the same subsystem set + fixed
@@ -384,7 +451,10 @@ func tarFolderTree(tw *tar.Writer, root, folder string) error {
 // regardless of error (a partial report is still useful when apply fails
 // partway through — config/messages steps proceed even when a later
 // document errors, per spec 5/8 "each has its own recovery story").
-func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir string, r io.Reader, force bool) (string, error) {
+//
+// hold claims each folder's runed run slot around its filesystem step; nil
+// skips the claim (--stopped, or a test with no live instance).
+func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir string, r io.Reader, force bool, hold holdFn) (string, error) {
 	var report strings.Builder
 	tr := tar.NewReader(r)
 	var knownFolders []string
@@ -476,7 +546,7 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 			if rerr != nil {
 				return report.String(), rerr
 			}
-			extracted, skipped, gerr := extractGroups(dataDir, knownFolders, data, force)
+			extracted, skipped, gerr := extractGroups(dataDir, knownFolders, data, force, hold)
 			if gerr != nil {
 				return report.String(), fmt.Errorf("groups.tar: %w", gerr)
 			}
@@ -579,7 +649,13 @@ func matchFolder(entryName string, knownFoldersLongestFirst []string) string {
 // the second actually writes only the allowed folders. Two passes avoid
 // extracting some of a folder's files before discovering a later entry
 // belongs to a folder that should have been skipped.
-func extractGroups(dataDir string, knownFolders []string, tarBytes []byte, force bool) (extracted, skipped int, err error) {
+//
+// hold (nil = --stopped) claims each to-be-written folder's runed run slot
+// between the two passes — after the decision, before the first byte lands —
+// and releases every one when this function returns. Holding the whole set
+// for the whole write is deliberate: pass 2 interleaves entries across
+// folders, so no folder is provably finished until the pass is.
+func extractGroups(dataDir string, knownFolders []string, tarBytes []byte, force bool, hold holdFn) (extracted, skipped int, err error) {
 	longestFirst := append([]string(nil), knownFolders...)
 	sort.Slice(longestFirst, func(i, j int) bool { return len(longestFirst[i]) > len(longestFirst[j]) })
 	resolver := &groupfolder.Resolver{GroupsDir: filepath.Join(dataDir, "groups")}
@@ -620,6 +696,19 @@ func extractGroups(dataDir string, knownFolders []string, tarBytes []byte, force
 			allowed[folder] = true
 		} else {
 			skipped++
+		}
+	}
+
+	if hold != nil {
+		for _, folder := range folderNames {
+			if !allowed[folder] {
+				continue // never written; nothing to guard
+			}
+			release, herr := hold(folder)
+			if herr != nil {
+				return 0, 0, fmt.Errorf("claim run slot for %q: %w", folder, herr)
+			}
+			defer release()
 		}
 	}
 

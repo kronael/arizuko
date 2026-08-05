@@ -36,6 +36,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]any{"ok": true}) })
 	mux.HandleFunc("POST /v1/runs", s.handleRun)
+	mux.HandleFunc("POST /v1/holds", s.handleHold)
 	mux.HandleFunc("POST /v1/runs/stop", s.handleRunStop)
 	mux.HandleFunc("GET /v1/runs/{run_id}", s.handleRunStatus)
 	mux.HandleFunc("DELETE /v1/runs/{run_id}", s.handleRunKill)
@@ -108,6 +109,38 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// transport-class error to the caller (queue shutting down etc.)
 		writeErr(w, 503, "run_failed", err.Error())
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+// handleHold claims a folder's run slot for an external, folder-exclusive job
+// (POST /v1/holds — spec 5/8) and returns the handle immediately. Gated
+// exactly like POST /v1/runs: a hold IS a run, so it takes the same runs:run
+// scope and the same folder containment — a folder-scoped holder must not
+// pause another tenant's folder. Releasing goes through the existing DELETE
+// /v1/runs/{run_id} (runs:kill), not a second route.
+func (s *Server) handleHold(w http.ResponseWriter, r *http.Request) {
+	folder, ok := s.authz(w, r, "runs:run")
+	if !ok {
+		return
+	}
+	var req runedv1.HoldRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if req.Folder == "" {
+		writeErr(w, 400, "missing_field", "folder required")
+		return
+	}
+	if !ownsFolder(folder, string(req.Folder)) {
+		writeErr(w, 403, "forbidden", "folder outside caller subtree: "+string(req.Folder))
+		return
+	}
+	out, err := s.mgr.Hold(r.Context(), req.Folder, req.Reason)
+	if err != nil {
+		writeErr(w, 503, "hold_failed", err.Error())
 		return
 	}
 	writeJSON(w, 200, out)

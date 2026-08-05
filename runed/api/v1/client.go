@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/obs"
+	"github.com/kronael/arizuko/types"
 )
 
 // Client is a thin HTTP client for runed's /v1/* surface. routd holds one
@@ -127,6 +128,75 @@ func (c *Client) StopFolder(ctx context.Context, folder string) (StopRunResponse
 		return out, fmt.Errorf("decode stop response: %w", err)
 	}
 	return out, nil
+}
+
+// Hold posts to POST /v1/holds — claim folder's run slot for a
+// folder-exclusive external job — and returns as soon as the slot is claimed
+// (NOT at a turn boundary). Release the returned RunID with ReleaseHold.
+// out.Busy=true means the folder had a live run and nothing was claimed.
+//
+// The bearer needs runs:run to claim and runs:kill to release.
+func (c *Client) Hold(ctx context.Context, folder, reason string) (HoldOutcome, error) {
+	var out HoldOutcome
+	body, err := json.Marshal(HoldRequest{Folder: types.Folder(folder), Reason: reason})
+	if err != nil {
+		return out, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/holds", bytes.NewReader(body))
+	if err != nil {
+		return out, err
+	}
+	tok, err := c.bearer(ctx)
+	if err != nil {
+		return out, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+tok)
+	obs.InjectRequest(ctx, httpReq)
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		var e Err
+		_ = json.Unmarshal(raw, &e)
+		return out, &APIError{Status: resp.StatusCode, Code: e.Error, Msg: e.Message}
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return out, fmt.Errorf("decode hold outcome: %w", err)
+	}
+	return out, nil
+}
+
+// ReleaseHold frees a hold's run slot. It is literally DELETE
+// /v1/runs/{run_id}, the existing kill route — a hold IS a run, and Kill
+// already dispatches by the spawn's recorded kind, so releasing needs no
+// route of its own. Idempotent: releasing an already-expired hold is a 200.
+func (c *Client) ReleaseHold(ctx context.Context, runID string) error {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		c.BaseURL+"/v1/runs/"+url.PathEscape(runID), nil)
+	if err != nil {
+		return err
+	}
+	tok, err := c.bearer(ctx)
+	if err != nil {
+		return err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		var e Err
+		_ = json.Unmarshal(raw, &e)
+		return &APIError{Status: resp.StatusCode, Code: e.Error, Msg: e.Message}
+	}
+	return nil
 }
 
 // RecentSessions GETs /v1/sessions/recent?folder=&n= — the n newest

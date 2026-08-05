@@ -133,7 +133,7 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	// route_tokens/invites are ALLOWED to restore (Finding 3's
 	// proven-empty-target case); TestArchive_Apply_ForceRestoresTokensOntoEmptyTarget
 	// covers the off-by-default (no --force) half in isolation.
-	applyReport, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(archiveBuf.Bytes()), true)
+	applyReport, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(archiveBuf.Bytes()), true, nil)
 	if err != nil {
 		t.Fatalf("applyArchive: %v\nreport so far:\n%s", err, applyReport)
 	}
@@ -224,7 +224,7 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	// --- Re-apply the SAME archive a second time: messages must stay
 	// idempotent (INSERT OR IGNORE) and config apply must succeed against
 	// the now-matching checksum (no --force needed the second time).
-	if _, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(archiveBuf.Bytes()), false); err != nil {
+	if _, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(archiveBuf.Bytes()), false, nil); err != nil {
 		t.Fatalf("second applyArchive (idempotent re-run): %v", err)
 	}
 	dstRoutd.DB().QueryRow("SELECT COUNT(*) FROM messages").Scan(&n)
@@ -331,7 +331,7 @@ func TestArchive_Apply_RefusesNewerFormatVersion(t *testing.T) {
 		t.Fatal("test setup: format_version: 1 not found in archive.yaml entry (tar packs it uncompressed, so a literal replace should work)")
 	}
 	dstDataDir, dstStores := openInstance(t)
-	_, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(patched), false)
+	_, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(patched), false, nil)
 	if err == nil {
 		t.Fatal("expected an error for a newer format_version")
 	}
@@ -383,7 +383,7 @@ func TestArchive_Apply_SkipsNonEmptyFolderUnlessForce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	extracted, skipped, err := extractGroups(dstDataDir, []string{"atlas"}, groupsTar.Bytes(), false)
+	extracted, skipped, err := extractGroups(dstDataDir, []string{"atlas"}, groupsTar.Bytes(), false, nil)
 	if err != nil {
 		t.Fatalf("extractGroups (no force): %v", err)
 	}
@@ -395,7 +395,7 @@ func TestArchive_Apply_SkipsNonEmptyFolderUnlessForce(t *testing.T) {
 	}
 
 	// A second, identical no-force re-run: still refuses.
-	extracted, skipped, err = extractGroups(dstDataDir, []string{"atlas"}, groupsTar.Bytes(), false)
+	extracted, skipped, err = extractGroups(dstDataDir, []string{"atlas"}, groupsTar.Bytes(), false, nil)
 	if err != nil {
 		t.Fatalf("extractGroups (no force, 2nd run): %v", err)
 	}
@@ -437,7 +437,7 @@ func TestArchive_Apply_ForceOverwritesNonEmptyFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(buf.Bytes()), true)
+	report, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(buf.Bytes()), true, nil)
 	if err != nil {
 		t.Fatalf("applyArchive: %v", err)
 	}
@@ -494,7 +494,11 @@ func TestCLI_ArchiveExportApply_RealFiles(t *testing.T) {
 	if err := os.Rename(filepath.Join(dstDataDir, "store"), filepath.Join(dstInstDir, "store")); err != nil {
 		t.Fatal(err)
 	}
-	cmdArchiveApply([]string{"dstinst", archiveFile, "--force"})
+	// --stopped is REQUIRED here, and that is the point: this instance has no
+	// running runed, so apply refuses to touch a folder's tree unless the
+	// operator asserts no agent is live (spec 5/8). Dropping the flag makes
+	// this call die — the guarantee, not an inconvenience.
+	cmdArchiveApply([]string{"dstinst", archiveFile, "--force", "--stopped"})
 
 	dstSt, err := store.OpenRoutd(filepath.Join(dstInstDir, "store"))
 	if err != nil {

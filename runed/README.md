@@ -15,6 +15,9 @@ in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
 ## Responsibilities
 
 - Serve `POST /v1/runs` (the routd↔runed contract): claim, spawn, return.
+- Serve `POST /v1/holds`: claim a folder's run slot for an external,
+  folder-exclusive job (a filesystem restore, a vacuum, a migration) so
+  no agent turn can start in that folder until it is released.
 - Per-spawn Docker lifecycle: `docker run --rm`, egress allowlist,
   steer via `docker kill --signal=SIGUSR1`, kill via stop→kill→`rm -f`.
 - Enforce `RUNED_RUN_TIMEOUT` per run; hourly GC of expired spawns/tokens.
@@ -35,6 +38,8 @@ exposes zero resource paths (emitted only for aggregator uniformity).
 - Binary: `runed/cmd/runed/main.go`
 - Listen: `:8080` (`LISTEN_ADDR` default). Surface (`server.go`):
   - `POST /v1/runs` — start a run (scope `runs:run`)
+  - `POST /v1/holds` — claim a folder's run slot, returns the handle
+    immediately (`runs:run`); release with `DELETE /v1/runs/{run_id}`
   - `POST /v1/runs/stop` — operator kill by folder (`runs:kill`)
   - `GET /v1/runs/{run_id}` — status; `DELETE /v1/runs/{run_id}` — kill (`runs:kill`)
   - `GET /v1/sessions` — session history (scope `sessions:read`, folder-bound)

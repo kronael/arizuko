@@ -3573,61 +3573,74 @@ leak or a live-link wipe shipping in `cmd/arizuko/archive.go`.
   `ArchiveInviteRow` already establish. Needs sign-off before landing (spec
   correction + new archive document), not attempted here.
 
-## Z4 — archive apply's filesystem restore has no live run-slot claim; wiring one is unspecified cross-daemon protocol (2026-08-04, proposal)
+## Z4 — archive apply's filesystem restore has no live run-slot claim (2026-08-04, RESOLVED 2026-08-05 — fedfa065 + 22f22b39)
 
-Spec 5/8 §"Filesystem restore claims the folder's run slot" specifies
-`groups.tar` extraction should claim the folder's `runed` spawn slot
-(`kind='backup'`) so no live agent turn can start mid-extraction. The
-CLAIM MECHANISM shipped (`397bc16f`): `Manager.executors map[string]Runtime`,
-`RegisterExecutor`, and `Run`'s per-kind dispatch are all real and generic
-today (`runed/manager.go`). Two things do NOT exist and were out of this
-pass's scope (findings 3-5 were the explicit ask, this is a different spec
-section):
+Spec 5/8 §"Filesystem restore claims the folder's run slot" specified
+`groups.tar` extraction should claim the folder's `runed` spawn slot so no
+live agent turn can start mid-extraction. `397bc16f` shipped the CLAIM
+MECHANISM (`spawns.kind`, `Manager.RegisterExecutor`, `Run`'s per-kind
+dispatch) but nothing used it: no executor, and no wire contract for an
+offline CLI to reach a live `runed`.
 
-1. **No `kind='backup'` executor.** Nothing implements the `Runtime`
-   interface's `Run`/`Kill` to extract a tar entry instead of spawning
-   Docker, and nothing calls `RegisterExecutor("backup", ...)`.
-2. **No wire contract for an offline CLI to reach a live `runed`.**
-   `arizuko archive apply` (`cmd/arizuko/archive.go`) is an OFFLINE tool —
-   like `arizuko apply`/`export` before it, it opens `routd.db`/`onbod.db`
-   directly via `store.OpenRoutd`/`OpenOnbod`, never talks to a running
-   daemon. Claiming a live run-slot needs an HTTP call into a LIVE `runed`
-   (`runed/api/v1.Client.Run`, the exact contract routd already uses) with
-   `Kind: "backup"` — but `RunRequest` (the PINNED wire type, `runed/api/v1/
-  types.go`) has no field telling the backup executor WHAT to restore
-   (a tar path, an archive-relative folder entry, a staging dir to swap in).
-   Inventing that shape now, under this pass's time budget, would be a new
-   cross-daemon contract this spec names but does not pin down — exactly the
-   kind of thing CLAUDE.md's "redesigns need sign-off" rule reserves for a
-   recorded proposal, not inline code.
+**Resolved as a GENERIC folder hold, not a restore verb** (operator
+direction). The proposal's shape — a `kind='backup'` executor that extracts
+the tar itself, plus a `RunRequest` field naming WHAT to restore — was
+rejected: it would have put the restore's payload semantics into the
+cross-daemon contract, so the next folder-exclusive job needs a second
+design. What shipped instead:
 
-**What `archive apply` does instead, today:** `extractGroups` (`cmd/arizuko/
-archive.go`) refuses a folder's filesystem step outright when the target tree
-is non-empty, unless `--force` (matching spec 5/8 "Restoring onto a populated
-instance" for the flag semantics), but performs NO live-turn exclusion check
-either way — an empty/missing target (the primary DR case the spec itself
-calls "what a real DR restore wants") has no live agent to race in the first
-place; a non-empty target under `--force` is the operator's own call, same as
-today's `SetupGroup`/`arizuko repair` filesystem-prep path, which also has no
-run-slot awareness.
+- `KindHold` + `POST /v1/holds` (`runed/hold.go`, `fedfa065`). runed does
+  no work for the caller; it just holds the folder. `Manager.Hold` goes
+  through the same `admit()` claim-or-reject step an agent turn does —
+  extracted from `Run`, not copied — so it inherits per-folder exclusion,
+  the busy→routd-requeues backpressure, the RunTTL wedge protection, and
+  `spawns` visibility. No lease table, no pause flag, no lock column.
+- Holds get their own endpoint rather than a `kind` on `POST /v1/runs`
+  because the response semantics differ: `RunOutcome`'s pinned contract is
+  "returned when the run completes", and a hold hands back a handle while
+  the run is still open. Release reuses the existing
+  `DELETE /v1/runs/{run_id}` — a hold IS a run, and `Kill` already
+  dispatches by kind. Gate is `POST /v1/runs`' gate unchanged (`runs:run` +
+  folder containment; `runs:kill` to release).
+- `arizuko archive apply` claims each to-be-written folder between
+  `extractGroups`' two passes and releases in a defer (`22f22b39`). An
+  unreachable `runed` is FATAL — it dies naming both remedies rather than
+  proceeding unguarded. `--stopped` is the operator asserting the instance
+  is down, the apply-side counterpart of export's `--quiesced`.
 
-- **Severity:** low today (no live conflict is possible against the DR/empty-
-  target case this ships for; a `--force` restore onto a genuinely live,
-  populated folder has a real but narrow race window — extraction isn't
-  atomic — same class of risk operators already accept running `arizuko
-  repair`/`SetupGroup` against a live folder)
-- **Scope:** `runed` (a `kind='backup'` executor), `runed/api/v1` (a
-  `RunRequest` field naming what to restore), `cmd/arizuko/archive.go` (the
-  HTTP call to claim the slot before extracting)
-- **Affected:** `archive apply` onto a folder with a live, running agent
-- **Source:** `runed/manager.go` (`RegisterExecutor`/executors map, confirmed
-  no caller), `runed/api/v1/types.go` (`RunRequest`, confirmed no restore-
-  source field), `cmd/arizuko/archive.go` (`extractGroups`), verified
-  2026-08-04
-- **Fix:** needs sign-off — the `RunRequest` extension + the backup executor
-  + the CLI's live-runed HTTP call are one coherent design, not three
-  independent patches. Propose in `specs/5/P-runed.md` per this spec's own
-  note that the mechanism's long-term home is there, not here.
+**RunTTL needed no new work**: `397bc16f` had already moved the arming to
+the shared dispatch site (`spawn()` wraps ctx with
+`context.WithTimeout(ctx, m.runTTL)`), so a containerless kind gets wedge
+protection by honoring ordinary ctx cancellation. Verified rather than
+assumed — `TestHoldExpiresOnRunTTL` asserts the slot is REUSABLE after an
+abandoned hold expires, not merely that the row went terminal.
+
+Two races found by the tests and fixed at the cause, both in `fedfa065`:
+the hold executor now creates its release signal on first touch by either
+`Run` or `Kill` (an immediate release used to close a channel nobody had
+created, wedging the folder until RunTTL), and `StartSpawn` is guarded on
+`state='queued'` (a DELETE landing between claim and start flipped
+`'killed'` back to `'running'`, resurrecting a terminal row — reachable for
+ANY kind, only easy to hit via a hold).
+
+19 tests: 13 in `runed/hold_test.go`, 6 in `cmd/arizuko/archive_hold_test.go`
+(two of which drive the CLI's holdFn against a REAL `runed` Server).
+52 ok / 0 fail, unchanged from baseline.
+
+- **Not done, left open:** `dashd/runed_page.go` hardcodes "Stop the agent
+  currently working for %s" in its kill-confirm text — misleading for a
+  hold. Spec 5/8 already names it; `dashd` was outside this pass's
+  territory. One-line fix: read `kind`, vary the label.
+- **Not verifiable live:** per Z1 all three instances run a 2026-07-30
+  image at routd migration 19 of 29, so `runed` migration 0004
+  (`spawns.kind`) and the `/v1/holds` route are not deployed anywhere. The
+  end-to-end CLI→HTTP→Manager path is proven in-process against the real
+  `runed.Server`; it has NOT been exercised against a running instance.
+- **Deploy note:** `runed` publishes no host port, so `arizuko archive
+  apply` on the host needs `RUNED_URL` pointed somewhere reachable (or must
+  run inside the compose network). Without that an operator's only path is
+  `--stopped`. Whether to publish the port is an operator decision, not
+  taken here.
 
 ## Z5 — `network_rules`' seed migration uses `CURRENT_TIMESTAMP`, making two fresh instances' checksums permanently unequal (2026-08-04, open)
 

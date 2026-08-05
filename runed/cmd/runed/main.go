@@ -74,6 +74,9 @@ func main() {
 		Instance:      cfg.Name,
 		MaxConcurrent: cfg.MaxContainers,
 	})
+	// POST /v1/holds: let an external process (arizuko archive apply, and any
+	// future folder-exclusive job) claim a folder's run slot (spec 5/8).
+	mgr.RegisterExecutor(runed.KindHold, runed.NewHoldRuntime())
 
 	// hourly GC of expired spawns + tokens.
 	go func() {

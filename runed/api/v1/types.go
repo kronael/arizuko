@@ -29,7 +29,7 @@ type RunRequest struct {
 	Model            string         `json:"model"`            // group override; empty = instance default
 	ContainerConfig  map[string]any `json:"container_config"` // opaque GroupConfig forwarded from groups.container_config
 	Isolated         bool           `json:"isolated"`         // timed-isolated:* runs: one-off container, no session persist
-	// Kind selects the post-claim executor ('agent' | 'backup' | ..., spec
+	// Kind selects the post-claim executor ('agent' | 'hold' | ..., spec
 	// 5/8 "Filesystem restore claims the folder's run slot"). Empty = 'agent'
 	// (the column default), so every existing caller is unaffected. A
 	// non-agent kind carries no MessageBatch and must never be steered into
@@ -106,6 +106,39 @@ type RunStatus struct {
 	CreatedAt string `json:"created_at"`
 	StartedAt string `json:"started_at"`
 	EndedAt   string `json:"ended_at"`
+}
+
+// HoldRequest is the body of POST /v1/holds: claim Folder's run slot for an
+// external, folder-exclusive job — a filesystem restore, a vacuum, a
+// migration (spec 5/8 "Filesystem restore claims the folder's run slot").
+// While the hold stands no agent turn can start in that folder; routd's
+// dispatch gets Busy and re-feeds from its own queue.
+//
+// Reason is recorded on the spawn row (spawns.topic) so an operator reading
+// dashd's runed page sees WHY the folder is held. No new state: a hold is a
+// spawns row like any other run.
+type HoldRequest struct {
+	Folder types.Folder `json:"folder"`
+	Reason string       `json:"reason"`
+}
+
+// HoldOutcome is POST /v1/holds' response, returned as soon as the slot is
+// claimed. That is why holds are their own endpoint rather than a Kind on
+// POST /v1/runs: RunOutcome's pinned contract is "returned when the run
+// completes (the turn boundary)", and a hold's whole point is to hand the
+// caller a handle while the run is still open.
+//
+// RunID is that handle — release with DELETE /v1/runs/{run_id}, the existing
+// kill route, which dispatches by the spawn's recorded kind. Busy=true means
+// the folder already had a live run (an agent turn or another hold) and
+// NOTHING was claimed; RunID is empty and the caller must not proceed.
+//
+// A holder that dies without releasing does not wedge the folder: runed's
+// RunTTL (RUNED_RUN_TIMEOUT) expires the hold, the same ceiling that bounds
+// an agent turn.
+type HoldOutcome struct {
+	RunID string `json:"run_id"`
+	Busy  bool   `json:"busy"`
 }
 
 // StopRunRequest is the body of POST /v1/runs/stop: the operator-kill path

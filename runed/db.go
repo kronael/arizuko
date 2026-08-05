@@ -201,8 +201,15 @@ func (d *DB) CreateSpawn(s Spawn) error {
 }
 
 // StartSpawn flips a spawn to state=running with its resolved session_id.
+// Guarded on state='queued' — the only state a fresh claim is in. Without
+// it a DELETE landing in the window between CreateSpawn (the claim) and
+// here would be undone: 'killed' flipped back to 'running', a terminal row
+// resurrected, and the folder held until RunTTL. Reachable for any kind,
+// but only a hold makes it easy to hit — Manager.Hold hands the caller a
+// releasable handle while the run's goroutine is still starting.
 func (d *DB) StartSpawn(runID, sessionID string) error {
-	_, err := d.db.Exec(`UPDATE spawns SET state='running', session_id=?, started_at=? WHERE run_id=?`,
+	_, err := d.db.Exec(`UPDATE spawns SET state='running', session_id=?, started_at=?
+		WHERE run_id=? AND state='queued'`,
 		sessionID, nowTS(), runID)
 	return err
 }

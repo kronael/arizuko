@@ -38,9 +38,12 @@ repoint those four sites to `store.OpenRoutd`/`store.OpenOnbod`
 owner-DB map. Tracked in `BUGS.md` Y1.
 
 Everything below the config manifest — the archive container, message
-history, secret-blob transfer, group filesystem trees, and the
-backup-as-a-run mechanism in `runed` — is a **new design**, zero code
-today. It supersedes the `config_meta`/counter CAS design and the
+history, secret-blob transfer, group filesystem trees — was a **new
+design**. The run-slot mechanism in `runed` has since SHIPPED end to end
+(`spawns.kind` + per-kind executors in `397bc16f`; `KindHold` +
+`POST /v1/holds` + the `archive apply` caller after it); see "Filesystem
+restore claims the folder's run slot". It supersedes the
+`config_meta`/counter CAS design and the
 cross-DB "mixed-success/exit 3/rerun-skips" atomicity model this spec
 previously specified (both flagged unbuildable-as-specced in BUGS.md Y1,
 2026-08-02); read this file, not that history, as current.
@@ -90,7 +93,11 @@ Two new archive verbs (unbuilt — CLI names, not yet in `cmd/arizuko/`):
 - `arizuko archive export <instance> [file] [--quiesced]` — full backup:
   config + secret values + message history + group filesystem trees, as
   one tar file.
-- `arizuko archive apply <instance> <archive> [--force]` — full restore.
+- `arizuko archive apply <instance> <archive> [--force] [--stopped]` —
+  full restore. `--stopped` asserts the instance is down; without it the
+  filesystem step claims each folder's run slot in a live `runed` and
+  refuses to proceed if it cannot (see "Filesystem restore claims the
+  folder's run slot").
 
 **Rebuild scope is the load-bearing decision for config.** Per resource,
 DELETE+INSERT is scoped to the folders the manifest mentions (`DELETE …
@@ -682,6 +689,10 @@ starting _during_ that folder's extraction, and the answer is: **don't
 build a new lock. A filesystem restore runs as a run in the folder,
 claiming the folder's existing spawn slot.**
 
+Shipped as a GENERIC hold, not a restore verb: `kind='hold'` +
+`POST /v1/holds`. The restore is its first caller, not its definition —
+see "What else the hold serves" at the end of this section.
+
 Verified against the code, not assumed: `runed.Manager.Run`
 (`runed/manager.go:92`) is already a claim-or-reject executor. The
 admission decision and spawn-row creation are one atomic critical section
@@ -712,93 +723,90 @@ instead of building them:
 - **Visibility.** It appears in `spawns`, so `dashd`'s runed page and the
   operator already see it (`dashd/runed_page.go:54-90`).
 
-**This requires real, scoped code changes in `runed` — it is not free
-today.** Naming them precisely so "claim the slot" isn't hand-waved:
+**What shipped in `runed`**, in two commits, so "claim the slot" isn't
+hand-waved:
 
-- **`spawns.kind TEXT NOT NULL DEFAULT 'agent'`** — a new migration
-  (`runed/migrations/000N-spawn-kind.sql`), the same idiom
-  `route_tokens.kind` shipped for pairing
-  (`routd/migrations/0026-route-token-kind.sql`: `'route'`/`'pair'`,
-  kind-scoped resolution both directions). `Spawn`/`RunRequest`/`RunSpec`
-  gain a `Kind` field alongside the existing `Isolated`/`Elevated`
-  precedent (`runed/api/v1/types.go:31,36`) — not a new pattern, the same
-  one. Verified no breakage to existing readers: `CreateSpawn`'s `INSERT`
-  uses an explicit column list (`runed/db.go:185-187`), and every direct
-  `spawns` reader outside `runed` itself (`dashd/runed_page.go`'s two
-  queries) also uses explicit column lists — adding a column changes
-  neither. `routd` never reads `spawns` directly (confirmed by grep: only
-  `runed/manager.go`, `runed/db.go`, `dashd/runed_page.go` reference the
-  table); it talks to `runed` over the `RunRequest`/`RunOutcome` JSON
-  contract, so it needs no change to keep working with an implicit
-  `kind='agent'`.
-- **`Manager.Run`'s post-claim step becomes a dispatch by `kind`, not a
-  hardcoded container spawn.** Everything up to and including the claim
-  (breaker check, `m.mu.Lock()`, `GetActiveSpawn`, claim/steer/busy,
-  `manager.go:96-159`) is unchanged. What changes is what runs after: today
-  `spawn()` unconditionally calls `m.runtime.Run(ctx, RunSpec{...})`
-  (`manager.go:186`); it becomes a lookup into a `map[kind]Executor`,
-  where `Executor` is literally the existing `Runtime` interface
-  (`Run(ctx, spec) RunResult`, `Kill(containerName) error` —
-  `runed/runtime.go:68-74`) — no new interface. `kind='agent'`'s executor
-  is today's `container.DockerRunner`-backed `Runtime`, unchanged;
-  `kind='backup'`'s executor is a new, small implementation of the same
-  two methods that extracts `groups.tar`'s entry for the folder instead
-  of spawning Docker. `Kill`/`StopFolder` need the same lookup-by-kind (a
-  spawn row's recorded `kind` selects which executor's `Kill` to call) —
-  currently both call `m.runtime.Kill` unconditionally
-  (`manager.go:277,306`).
-- **`kind='agent'` scoping is not just the breaker's failure counter — four
-  sites need it, verified against the code.** `GetFailures`/`IncrFailures`/
-  `ResetFailures` (`manager.go:98-100,283-291`) are keyed on folder with no
-  kind awareness today:
-  1. `endRun`'s breaker update — a failed backup would otherwise count
-     against the agent and could stop it spawning; must skip entirely for
-     non-agent kinds. `spawns.state`/`outcome`/`exit_code` still record the
-     backup's own success/failure (visibility unaffected), only the
-     breaker's interpretation changes.
-  2. The reset-on-new-inbound at `Run`'s top (`manager.go:98`) — a backup
-     request is not an agent inbound and must not reset the agent's
-     failure streak either.
-  3. The global concurrency cap (`manager.go:132`, `ActiveCount` vs
-     `maxRun`) — `MaxConcurrent` bounds container/host resource usage,
-     which a containerless kind doesn't consume; counting a backup here
-     could let it starve real agent spawns or get wrongly capacity-capped
-     by unrelated agent load. A non-agent kind's serialization comes
-     entirely from the per-folder run-slot claim, not this cap.
-  4. Session-log bookkeeping (`manager.go:167`, `RecordSession`/
-     `SetSpawnSessionLogID`/`EndSession`) — `session_log` is agent-session
-     history; a backup run has no agent session and gets no row, the same
-     treatment `Isolated` runs already get.
-- **The busy-branch steer attempt must skip non-agent kinds.** Today, when
-  `active != nil`, `Run` unconditionally tries `steer(req.MessageBatch)`
-  if a steer callback is registered (`manager.go:112-118`) — correct for a
-  second agent message arriving while the first is mid-turn, wrong for a
-  backup request, which carries no message and must never be steered into
-  a live agent's running container. This is a real bug if the kind
-  dispatch is built without it, not a hypothetical: it would inject an
-  empty batch into whatever turn is live.
-- **Wedge protection needs the deadline moved up one level to actually be
-  uniform across kinds.** Today `RunTTL` is armed _inside_ the container
-  Runtime ("the Runtime honors `RunTTL` from within the run path... so no
-  detached manager timer races container creation" —
-  `manager.go`'s `spawn()` doc comment) — each executor would otherwise
-  need to reimplement it. Arming a `context.WithTimeout(ctx, m.runTTL)`
-  at the shared dispatch site in `spawn()`, wrapping whichever executor
-  runs, makes "wedge protection already exists" true for `kind='backup'`
-  and every future kind, not just `kind='agent'`.
-- **`dashd`'s runed page** hardcodes "Stop the agent currently working for
-  %s" in its kill-confirm text (`dashd/runed_page.go`) — misleading for a
-  non-agent kind. Small, independent fix: read `kind` and vary the label
-  (or at minimum say "run" instead of "agent").
+- **`spawns.kind TEXT NOT NULL DEFAULT 'agent'`** (`397bc16f`,
+  `runed/migrations/0004-spawn-kind.sql`) — the same idiom
+  `route_tokens.kind` shipped for pairing. `Spawn`/`RunRequest`/`RunSpec`
+  carry a `Kind` alongside the existing `Isolated`/`Elevated` precedent.
+  Every pre-existing row is an agent run; the column DEFAULT covers them,
+  and `routd` needed no change (it never reads `spawns`, only the
+  `RunRequest`/`RunOutcome` JSON contract).
+- **`Manager.Run`'s post-claim step dispatches by `kind`** (`397bc16f`) —
+  a lookup into `map[kind]Runtime`, where the executor IS the existing
+  `Runtime` interface, no new interface. `Kill`/`StopFolder` do the same
+  lookup off the spawn's recorded `kind`.
+- **`KindHold` and its executor** (`runed/hold.go`) — the containerless
+  kind. Its `Run` blocks until released or until `ctx` dies; its `Kill`
+  is the release. It registers no steer callback, which is what makes an
+  agent turn arriving mid-hold fall through to `Busy`.
+- **`POST /v1/holds` + `Manager.Hold`** — the wire contract an external
+  process needs. `admit()` was EXTRACTED from `Run`, not copied: one
+  claim-or-reject implementation, two callers. `Run` executes inline and
+  returns a turn-boundary outcome; `Hold` executes detached and returns
+  the handle immediately. That difference in response semantics is why
+  holds get their own endpoint rather than a `kind` on `POST /v1/runs` —
+  `RunOutcome`'s pinned contract is "returned when the run completes".
+  Release reuses `DELETE /v1/runs/{run_id}`; a hold IS a run, and `Kill`
+  already dispatches by kind, so it needs no route of its own. The gate is
+  `POST /v1/runs`' gate unchanged: `runs:run` plus folder containment — a
+  folder-scoped caller must not pause another tenant's folder. Releasing
+  additionally needs `runs:kill`, the scope that route already demands.
+- **`kind='agent'` scoping at four sites** (`397bc16f`), so a non-agent run
+  cannot harm the agent: `endRun`'s breaker update, the reset-on-new-inbound
+  at admission, the `MaxConcurrent` container cap (`ActiveAgentCount`, since
+  a containerless kind consumes no container), and `session_log`
+  bookkeeping (a hold has no agent session, the treatment `Isolated` runs
+  already get). `spawns.state`/`outcome`/`exit_code` still record a hold's
+  own success or failure — only the breaker's interpretation changes.
+- **The busy-branch steer attempt skips non-agent kinds** (`397bc16f`) —
+  otherwise a hold request would inject an empty batch into whatever turn
+  is live. A real bug, not a hypothetical.
+- **Wedge protection is armed at the shared dispatch site** (`397bc16f`):
+  `spawn()` wraps `ctx` with `context.WithTimeout(ctx, m.runTTL)` before
+  calling whichever executor runs, so every kind gets the RunTTL ceiling by
+  honoring ordinary `ctx` cancellation instead of reimplementing a timer.
+  This made "wedge protection already exists" TRUE for a containerless
+  kind rather than merely claimed: an abandoned hold expires as
+  `outcome=error` and the folder frees itself.
+- **Two races fixed at the cause**, both surfaced by tests rather than
+  reasoning. `Hold` hands back a releasable handle while the run's
+  goroutine is still starting, so (a) the hold executor creates its release
+  signal on first touch by EITHER `Run` or `Kill` — an immediate release
+  used to close a channel nobody had created and wedge the folder until
+  RunTTL — and (b) `StartSpawn` is guarded on `state='queued'`, because a
+  `DELETE` landing between the claim and the start flipped `'killed'` back
+  to `'running'`, resurrecting a terminal row. (b) is reachable for any
+  kind; only a hold makes it easy to hit.
+
+**`dashd`'s runed page** hardcodes "Stop the agent currently working for
+%s" in its kill-confirm text (`dashd/runed_page.go`) — misleading for a
+hold. Small, independent fix, still open: read `kind` and vary the label.
+
+#### What else the hold serves
+
+The reason to build this generically rather than as a restore verb: the
+next folder-exclusive job costs an executor, not a design. Three are
+already visible. A **`vacuum`** — SQLite maintenance or media/log pruning
+under `groups/<folder>/` — needs the same "no turn may write here right
+now" guarantee and nothing else. A **skill sync** that rewrites
+`groups/<folder>/skills/` (the auto-migrate path, which today races a live
+agent exactly the way a restore does) is the same shape. A **per-folder
+migration** that rewrites on-disk state ahead of a version bump is the
+third. Each of these either takes a hold over HTTP if it runs out of
+process (the restore's path), or registers its own `kind` + executor if it
+runs inside `runed` and wants the work itself dispatched — the same admit
+step either way, with exclusion, backpressure, TTL and visibility already
+paid for. What none of them needs is a second lock.
 
 The payoff, stated because it's the actual reason to do this instead of a
-bespoke lock: any future folder-exclusive job — a skill sync, a vacuum, a
-migration — becomes a new `kind` with an executor, not a new mechanism
-with its own locking. This is the fourth application of the same
-principle in this spec: pairing's token-and-edge into one transaction
-(`route_tokens.kind`), config rollback via the export renderer, and now
-backup onto the run slot — don't add coordination beside an existing
-serialization point, move onto it.
+bespoke lock: any future folder-exclusive job becomes a new `kind` with an
+executor, not a new mechanism with its own locking. This is the fourth
+application of the same principle in this spec: pairing's token-and-edge
+into one transaction (`route_tokens.kind`), config rollback via the export
+renderer, and now the hold onto the run slot — don't add coordination
+beside an existing serialization point, move onto it.
 
 An earlier per-folder lease/TTL design and a per-folder "pause new
 dispatch" flag were both considered and rejected in favor of this. Neither
@@ -808,6 +816,26 @@ _only_ by `dashd`'s admin page for cross-group sibling visibility
 (spec 6/F), never consulted by any dispatch or admission path — the
 `routd/db.go:329` comment calling it "ambient turn admission" is stale
 prose, not evidence of behavior.
+
+#### The CLI side: `archive apply` takes the hold
+
+`arizuko archive apply` claims each to-be-written folder's run slot
+between `extractGroups`' two passes — after the extract-or-skip decision,
+before the first byte lands — and releases every one when the filesystem
+step returns. Only folders actually written are held; pausing a folder
+whose tree is left alone would be gratuitous denial of service. The whole
+set is held for the whole write because pass 2 interleaves entries across
+folders, so no folder is provably finished until the pass is.
+
+An unreachable `runed` is FATAL. Proceeding unguarded is the exact race
+this section exists to prevent, so apply resolves the hold BEFORE opening
+the archive — a restore that cannot guard the filesystem step must not
+half-apply the config subsystems first — and dies naming both remedies:
+bring the instance up with `RUNED_URL` reachable, or stop it and pass
+`--stopped`. `--stopped` is the operator asserting no agent is running,
+the apply-side counterpart of export's `--quiesced`, and the only way to
+skip the claim. `RUNED_URL` is the var `routd` and `dashd` already use;
+`RUNED_TOKEN` is the bearer, unnecessary when `runed` runs in open mode.
 
 ### The missing-group rule
 
