@@ -16,7 +16,9 @@ import (
 // topology — spec 5/5) wrapped as a *store.Store, with the SECRETS_KEY keyring
 // set so CLI-written secrets seal under the SAME key routd decrypts with at read
 // time. The host-admin CLI writes here directly (filesystem access), no token
-// plumbing — same discipline it used for messages.db before the split.
+// plumbing — same discipline it used for messages.db before the split. AsCLI
+// attributes the audit row to the invoking operator: the CLI has no X-User-*
+// header to learn a sub from.
 func openStoreWithKey(dataDir string) (*store.Store, error) {
 	s, err := store.OpenRoutd(filepath.Join(dataDir, "store"))
 	if err != nil {
@@ -28,7 +30,7 @@ func openStoreWithKey(dataDir string) (*store.Store, error) {
 			s.SetSecretKeys(kr...)
 		}
 	}
-	return s, nil
+	return s.AsCLI(os.Getenv("USER")), nil
 }
 
 // cmdSecret manages folder-scoped secrets (operator-only). User secrets
@@ -103,9 +105,10 @@ func runSecretSet(s *store.Store, scope store.SecretScope, scopeID, key, value s
 	if !keyValid(key) {
 		return fmt.Errorf("key must match ^[A-Z][A-Z0-9_]*$")
 	}
-	// Audit-free: routd.db (the secrets owner now) has no audit_log table — same
-	// discipline as routd's POST /v1/secrets endpoint.
-	if err := s.PutSecretRow(scope, scopeID, key, value); err != nil {
+	// Audited: routd.db HAS had audit_log since routd migration 0016, and routd's
+	// POST /v1/secrets writes through this same SetSecret. The row records the
+	// scope/id/key and whether it sealed — NEVER the value (store/secrets.go).
+	if err := s.SetSecret(scope, scopeID, key, value); err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "set %s/%s/%s\n", scope, scopeID, key)
@@ -130,7 +133,7 @@ func runSecretList(s *store.Store, scope store.SecretScope, scopeID string, w io
 }
 
 func runSecretDelete(s *store.Store, scope store.SecretScope, scopeID, key string, w io.Writer) error {
-	if err := s.DeleteSecretRow(scope, scopeID, key); err != nil {
+	if err := s.DeleteSecret(scope, scopeID, key); err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "deleted %s/%s/%s\n", scope, scopeID, key)

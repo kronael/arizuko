@@ -161,11 +161,16 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	if scope == ScopeFolder {
 		folder = scopeID
 	}
+	// The row names the secret and whether it sealed. It MUST NOT carry the value:
+	// an audit trail an operator reads is not a place to put the thing the trail
+	// exists to protect.
+	actor, actorSub, surface := s.auditIdentity()
 	if err := audit.EmitInTx(ctx, tx, audit.Event{
 		Category: audit.CategorySecret,
 		Action:   "secret.set",
-		Actor:    "system",
-		Surface:  audit.SurfaceGateway,
+		Actor:    actor,
+		ActorSub: actorSub,
+		Surface:  surface,
 		Resource: fmt.Sprintf("secrets/%s/%s/%s", scope, scopeID, key),
 		Scope:    string(scope),
 		Folder:   folder,
@@ -304,11 +309,13 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 	if scope == ScopeFolder {
 		folder = scopeID
 	}
+	actor, actorSub, surface := s.auditIdentity()
 	if err := audit.EmitInTx(ctx, tx, audit.Event{
 		Category: audit.CategorySecret,
 		Action:   "secret.delete",
-		Actor:    "system",
-		Surface:  audit.SurfaceGateway,
+		Actor:    actor,
+		ActorSub: actorSub,
+		Surface:  surface,
 		Resource: fmt.Sprintf("secrets/%s/%s/%s", scope, scopeID, key),
 		Scope:    string(scope),
 		Folder:   folder,
