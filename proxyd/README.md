@@ -13,7 +13,7 @@ headers with a service bearer (`service:proxyd`) verifiable by backends.
 
 - Authenticate: `Authorization: Bearer <jwt>` (HS256 or ES256) → `refresh_token` cookie → redirect `/auth/login`.
 - Stamp `X-User-Sub`, `X-User-Name`, `X-User-Groups` + `Authorization: Bearer service:proxyd`.
-- Route by DB-backed prefix table (runtime mutate via `/v1/routes`).
+- Route by DB-backed prefix table (runtime mutate via `/v1/proxyd_routes`).
 - Rewrite `X-Forwarded-For` from `TRUSTED_PROXIES` CIDRs only.
 - Derive each world's host (`<world>.<HOSTING_DOMAIN>`) and 302 it to
   `/pub/<world>/`; `WEB_VHOST_ALIASES` overrides labels ≠ world name
@@ -45,21 +45,25 @@ the derived-host `302 → /pub/<world>/` redirect.
 
 See `specs/5/7-proxyd-standalone.md` for the field semantics.
 
-## Runtime route mutation (`/v1/routes`)
+## Runtime route mutation (`/v1/proxyd_routes`)
 
 Operators can add, change, or remove routes at runtime via the
 operator-only REST surface. Five endpoints, plus matching MCP tools
-(`routes.list`, `routes.get`, `routes.create`, `routes.update`,
-`routes.delete`) surfaced through webd's `/mcp` bridge. Both faces call
-the same handler in `proxyd/resource.go`; the registry lives in
-`resreg/` (spec 5/5).
+(`proxyd_routes.list`, `proxyd_routes.get`, `proxyd_routes.create`,
+`proxyd_routes.update`, `proxyd_routes.delete`) surfaced through webd's
+`/mcp` bridge. Both faces call the same handler in
+`proxyd/resource.go`; the registry lives in `resreg/` (spec 5/7).
+
+The name is `proxyd_routes`, never `routes` — that one is routd's
+message-routing table. A resource's name IS its wire identity, so the
+two must not collide (root `CLAUDE.md`).
 
 ```
-GET    /v1/routes
-GET    /v1/routes/{path}       # path urlencoded, e.g. /v1/routes/%2Fslack%2F
-POST   /v1/routes              # body: {path, backend, auth, gated_by?, preserve_headers?, strip_prefix?}
-PATCH  /v1/routes/{path}       # body: any subset of the create fields
-DELETE /v1/routes/{path}       # idempotent (204 either way)
+GET    /v1/proxyd_routes
+GET    /v1/proxyd_routes/{path}       # path urlencoded, e.g. /v1/proxyd_routes/%2Fslack%2F
+POST   /v1/proxyd_routes              # body: {path, backend, auth, gated_by?, preserve_headers?, strip_prefix?}
+PATCH  /v1/proxyd_routes/{path}       # body: any subset of the create fields
+DELETE /v1/proxyd_routes/{path}       # idempotent (204 either way)
 ```
 
 **Precedence**: routes persist to `proxyd_routes` in routd.db (proxyd
@@ -102,7 +106,7 @@ Endpoints:
 - `/priv/*` — auth-gated private files (vited)
 - `/dav/*` — WebDAV (auth-gated, group-scoped, write-blocked)
 - `/chat/<token>/`, `/hook/<token>` — route-token surfaces
-- `/v1/routes` — operator REST + MCP resource (runtime route mutation)
+- `/v1/proxyd_routes` — operator REST + MCP resource (runtime route mutation)
 - JSON-declared routes (e.g. `/dash/`, `/api/`; from `<name>-routes.json` + the core slice)
 
 ## Dependencies
@@ -145,7 +149,7 @@ Spec: `specs/5/O-observability.md`.
 
 - `main.go` — config, path routing, auth gate, identity stamping, vhost derivation
 - `routes.go` — Route struct, LoadRoutes, MatchRoute
-- `resource.go` — `/v1/routes` REST + MCP resource, DB-backed route CRUD
+- `resource.go` — `/v1/proxyd_routes` REST + MCP resource, DB-backed route CRUD
 
 ## Related docs
 
