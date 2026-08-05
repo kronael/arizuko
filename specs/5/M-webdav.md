@@ -12,8 +12,9 @@ JWT cookie / Bearer token.
 
 URLs: `https://<host>/dav/<group>/...`.
 
-Config: `WEBDAV_ENABLED` (default `true` since 2026-04-27),
-`WEBDAV_URL` (auto-set to `http://davd:8080` by compose generation).
+Config: `WEBDAV_ENABLED` (default `true` since 2026-04-27) — the only
+env var. Compose hardcodes the `/dav/` route's backend as
+`http://davd:8080`; there is no backend-URL variable.
 
 ## What's shipped
 

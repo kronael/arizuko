@@ -56,7 +56,7 @@ until scanned.
 ## Configuration
 
 - `WHATSAPP_AUTH_DIR` (default `$DATA_DIR/store/whatsapp-auth`)
-- `ROUTER_URL`, `CHANNEL_SECRET` (or `WHAPD_CHANNEL_SECRET` override), `LISTEN_ADDR`, `LISTEN_URL`
+- `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME`, `LISTEN_ADDR`, `LISTEN_URL`
 - `ASSISTANT_NAME`, `DATA_DIR`
 
 ## Health signal

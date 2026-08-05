@@ -29,8 +29,9 @@ arizuko-standard `wget` healthcheck (`dufs` is distroless).
 ## Configuration
 
 None — the binary is invoked with `--port 8080 /data` from compose.
-The volume mount and the `WEBDAV_ENABLED`/`DAV_ADDR` toggle live in
-the `compose/` generator.
+The volume mount and the `WEBDAV_ENABLED` toggle live in the `compose/`
+generator, which also hardcodes the `/dav/` route's backend as
+`http://davd:8080`. There is no backend-URL env var.
 
 ## Health signal
 

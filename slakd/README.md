@@ -109,7 +109,9 @@ pane reads fail, prompts/title staging returns 404.
 SLACK_BOT_TOKEN=xoxb-...      required (Bot User OAuth Token)
 SLACK_SIGNING_SECRET=...      required (Slack App → Basic Information)
 ROUTER_URL=http://routd:8080  required
-CHANNEL_SECRET=...            (or SLAKD_CHANNEL_SECRET) for chanlib.Auth
+AUTHD_URL=http://authd:8080   required (JWKS + service-token exchange)
+AUTHD_SERVICE_KEY=...         required (exchanged for service:slakd)
+AUTHD_SERVICE_NAME=slakd      exchange principal — the DAEMON, not CHANNEL_NAME
 LISTEN_ADDR=:8080             internal HTTP listener
 LISTEN_URL=http://slakd:8080  URL the router uses to reach slakd
 ASSISTANT_NAME=...            shown in pane title (<name> — chat); omit → "chat"
@@ -123,9 +125,9 @@ SLAKD_WATCHDOG_SECONDS=60     watchdog re-check interval
 SLAKD_STALE_FAIL_LIMIT=5      consecutive auth.test failures (while stale) before os.Exit(1) restart
 ```
 
-`SLAKD_CHANNEL_SECRET` takes precedence over `CHANNEL_SECRET` on the
-adapter side. Must equal `CHANNEL_SECRET` until routd gains per-adapter
-registration auth (not yet implemented; a different value will cause 401).
+`AUTHD_SERVICE_NAME` must be the daemon name (`slakd`), not `CHANNEL_NAME`
+(`slack`) — authd seeds and grants `service:<daemon>`, so a mismatch 401s
+every outbound call. Multi-account variants share the base principal.
 
 ## Operator runbook (per-workspace install)
 
@@ -187,7 +189,7 @@ guard ultimately became. A single inbound message — or a single passing
 | Surface         | Verifier                                       | Failure mode                                  |
 | --------------- | ---------------------------------------------- | --------------------------------------------- |
 | `/slack/events` | `X-Slack-Signature` HMAC (signing secret)      | proxyd re-marshals body → HMAC breaks → 401   |
-| `/send`, etc.   | `chanlib.Auth` (`CHANNEL_SECRET` bearer)       | router compromise → no further isolation      |
+| `/send`, etc.   | `chanlib.Auth` (`service:routd` ES256 token)   | router compromise → no further isolation      |
 | `/files/<id>`   | `chanlib.Auth` (same bearer) + opaque cache id | id is hex of sha256 prefix; not enumerable    |
 | upstream fetch  | `Authorization: Bearer $SLACK_BOT_TOKEN`       | `url_private` URLs unauthorized without token |
 

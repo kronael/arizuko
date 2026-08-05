@@ -58,7 +58,7 @@ alternatives.
 - `LINKEDIN_OAUTH_BASE` (default `https://www.linkedin.com`)
 - `LINKEDIN_POLL_INTERVAL` (default `300s`)
 - `LINKEDIN_AUTO_PUBLISH` (default `false` — gate for new posts/reshares)
-- `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR`, `LISTEN_URL`, `DATA_DIR`
+- `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME`, `LISTEN_ADDR`, `LISTEN_URL`, `DATA_DIR`
 
 OAuth scopes required: `r_liteprofile`, `w_member_social`. Reshares
 require the same `w_member_social` scope as posts. Company-page
@@ -73,7 +73,7 @@ Standard adapter surface (via `chanlib.NewAdapterMux`):
   token/refresh failure or subsequent refresh failure). Refresh-on-401
   retry is automatic on every API call via `lc.do(...)`.
 - `POST /dispatch` — outbound verb dispatch (authenticated via
-  `CHANNEL_SECRET`).
+  `chanlib.Auth`: routd's `service:routd` ES256 token).
 - `GET /caps` — capability list.
 
 ## Files

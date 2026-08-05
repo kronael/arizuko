@@ -72,7 +72,8 @@ no per-chat history surface; the gateway falls back to its local cache.
 
 - `TELEGRAM_BOT_TOKEN` — Telegram Bot API token (required)
 - `ROUTER_URL` — routd URL (required)
-- `CHANNEL_SECRET` — auth secret for router communication
+- `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME` — exchanged for a
+  `service:teled` ES256 token presented on every routd call
 - `LISTEN_ADDR` — HTTP listen address (default `:9001`)
 - `LISTEN_URL` — public URL for `/files/` proxy (default `http://telegram:9001`)
 - `CHANNEL_NAME` — adapter instance name (default `telegram`)

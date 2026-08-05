@@ -167,7 +167,8 @@ allow-scopes computed by `UserScopes(sub)` from the `acl` table
 surfaces as `**` in this list; see "Operator" below.
 `webd.requireFolder` checks `X-User-Groups` on folder-specific endpoints.
 
-WebDAV requires `DAV_ADDR`; the dufs container mounts `groups/` read-only.
+WebDAV is gated by `WEBDAV_ENABLED`; compose points the `/dav/` route at
+`http://davd:8080` and the dufs container mounts `groups/` read-only.
 proxyd derives each world's host as `<world>.<HOSTING_DOMAIN>` and 302s it
 to `/pub/<world>/` (no host-map file; `WEB_VHOST_ALIASES` overrides labels
 that differ from the world name). Full protocol: `specs/5/V-web-vhosts.md`.
@@ -370,8 +371,10 @@ servers. Full protocol: `specs/5/34-channel-protocol.md`.
   capabilities; returns session token
 - **Health**: `GET /health` every 30s; 3 failures = auto-deregister; outbound
   queues in `HTTPChannel.outbox`
-- **Auth**: `CHANNEL_SECRET` for registration; session token for
-  channel→router; shared secret for router→channel
+- **Auth**: an ES256 `service:<daemon>` token exchanged from
+  `AUTHD_SERVICE_KEY` at authd, verified against authd's JWKS
+  (`chanlib.Auth`). Both directions use it; there is no shared symmetric
+  secret.
 - **Typing**: `/typing` handlers route through `TypingRefresher`
   (`chanlib.TypingRefresher` / `whapd/src/typing.ts`) — re-sends presence on
   short interval with hard TTL
@@ -424,7 +427,7 @@ each daemon re-sequences its own `migrations/` from `0001`.
   `pane_sessions`, `installed_packages`.
 - **`runed.db`** (`runed/migrations/`): `spawns`, `session_log`,
   `spawn_logs`, `mcp_tokens`, `circuit_breaker`.
-- **`authd.db`** (`authd/migrations/`): `signing_keys`, `auth_users`,
+- **`auth.db`** (`authd/migrations/`): `signing_keys`, `auth_users`,
   `oauth_identities`, `refresh_tokens`.
 - **`onbod.db`** (`onbod/migrations/`): `onboarding`, `onboarding_gates`,
   `invites`.
@@ -462,10 +465,10 @@ each daemon re-sequences its own `migrations/` from `0001`.
 | `spawn_logs`         | id (PK), run_id, ts, kind, line (runed.db)                                                                                                                                                                                                                                                 |
 | `mcp_tokens`         | jti (PK), run_id, parent_jti, folder, scope, issued_at, expires_at (runed.db)                                                                                                                                                                                                              |
 | `circuit_breaker`    | folder (PK), failures, last_failure — per-folder consecutive-failure count, survives restarts (runed.db)                                                                                                                                                                                   |
-| `auth_users`         | user_id (PK), name, created_at (authd.db)                                                                                                                                                                                                                                                  |
-| `oauth_identities`   | user_id + provider (unique), provider_sub, linked_at (authd.db)                                                                                                                                                                                                                            |
-| `refresh_tokens`     | token_hash (PK), family_id, sub, scope, aud, issued_at, expires_at, used_at, revoked_at (authd.db)                                                                                                                                                                                         |
-| `signing_keys`       | kid (PK), priv_pem, pub_pem, active, created_at, retired_at (authd.db)                                                                                                                                                                                                                     |
+| `auth_users`         | user_id (PK), name, created_at (auth.db)                                                                                                                                                                                                                                                   |
+| `oauth_identities`   | user_id + provider (unique), provider_sub, linked_at (auth.db)                                                                                                                                                                                                                             |
+| `refresh_tokens`     | token_hash (PK), family_id, sub, scope, aud, issued_at, expires_at, used_at, revoked_at (auth.db)                                                                                                                                                                                          |
+| `signing_keys`       | kid (PK), priv_pem, pub_pem, active, created_at, retired_at (auth.db)                                                                                                                                                                                                                      |
 | `onboarding`         | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at (onbod.db)                                                                                                                                                                                                  |
 | `onboarding_gates`   | gate (PK), limit_per_day, enabled (onbod.db)                                                                                                                                                                                                                                               |
 | `invites`            | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count (onbod.db)                                                                                                                                                                                             |
@@ -557,7 +560,7 @@ delivery paths:
   [`5/15`](specs/5/15-surrogate-oauth.md)) runs the OAuth dance and writes
   access + refresh tokens into the same `secrets` row; the broker refreshes
   near-expiry tokens at call time (`ConnectorSecrets`).
-- **Infra / platform anchors** (`CHANNEL_SECRET`, `SECRETS_KEY`, bot
+- **Infra / platform anchors** (`AUTHD_SERVICE_KEY`, `SECRETS_KEY`, bot
   credentials) — instance-wide, host `.env` only, never in the `secrets`
   table.
 

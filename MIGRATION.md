@@ -51,23 +51,23 @@ capability comes from its `acl` rows. Audit operator (`**`) grants.
 
 **New**:
 
-| Var                                         | Purpose                                                  |
-| ------------------------------------------- | -------------------------------------------------------- |
-| `API_PORT`                                  | Channel registration API (default 8080)                  |
-| `CHANNEL_SECRET`                            | Bearer token for `/v1/channels/register`                 |
-| `AUTH_BASE_URL`                             | Explicit OAuth redirect base (was derived from WEB_HOST) |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth                                             |
+| Var                                         | Purpose                                                                          |
+| ------------------------------------------- | -------------------------------------------------------------------------------- |
+| `API_PORT`                                  | Channel registration API (default 8080)                                          |
+| `AUTHD_URL` + `AUTHD_SERVICE_KEY`           | Exchanged for the ES256 `service:<daemon>` token every adapter presents to routd |
+| `AUTH_BASE_URL`                             | Explicit OAuth redirect base (was derived from WEB_HOST)                         |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth                                                                     |
 
 **Removed**:
 
-| Var                                                        | Notes                                                   |
-| ---------------------------------------------------------- | ------------------------------------------------------- |
-| `ASSISTANT_HAS_OWN_NUMBER`                                 | WhatsApp-specific, dropped                              |
-| `VITE_PORT`                                                | Use `WEB_PORT`; `VITE_PORT_INTERNAL` for internal       |
-| `WEB_PUBLIC`                                               | Replaced by `/pub/` convention in proxyd                |
-| `WEBDAV_ENABLED` / `WEBDAV_URL`                            | Replaced by `DAV_ADDR` → dufs container                 |
-| `FILE_TRANSFER_ENABLED` / `FILE_DENY_GLOBS` / `FILE_MAX_*` | File command surface not ported                         |
-| `TWITTER_*`, `FACEBOOK_*`                                  | Not ported (mastd/bskyd/reditd are separate Go daemons) |
+| Var                                                        | Notes                                                                                 |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `ASSISTANT_HAS_OWN_NUMBER`                                 | WhatsApp-specific, dropped                                                            |
+| `VITE_PORT`                                                | Use `WEB_PORT`; `VITE_PORT_INTERNAL` for internal                                     |
+| `WEB_PUBLIC`                                               | Replaced by `/pub/` convention in proxyd                                              |
+| `WEBDAV_URL`                                               | Backend URL is hardcoded (`http://davd:8080`); `WEBDAV_ENABLED` still gates the route |
+| `FILE_TRANSFER_ENABLED` / `FILE_DENY_GLOBS` / `FILE_MAX_*` | File command surface not ported                                                       |
+| `TWITTER_*`, `FACEBOOK_*`                                  | Not ported (mastd/bskyd/reditd are separate Go daemons)                               |
 
 **Behavior**:
 
@@ -105,7 +105,7 @@ Returns `{"ok": true, "token": "..."}` — rotates on re-registration.
 
 `id` optional. Router stamps `messages.source` with the adapter name.
 
-**Outbound** (`POST <url>/send`, `Bearer <CHANNEL_SECRET>`):
+**Outbound** (`POST <url>/send`, `Bearer <service:routd ES256 token>`):
 
 ```json
 { "chat_jid": "telegram:12345", "content": "hello", "format": "markdown" }

@@ -50,7 +50,7 @@ API.
 - `REDDIT_POLL_INTERVAL` (default `5m`)
 - `CHANNEL_NAME` (default `reddit`)
 - `MEDIA_MAX_FILE_BYTES` (default `20971520` / 20 MiB)
-- `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR` (default `:9006`), `LISTEN_URL` (default `http://reditd:9006`), `DATA_DIR` (default `/srv/data/reditd`)
+- `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME`, `LISTEN_ADDR` (default `:9006`), `LISTEN_URL` (default `http://reditd:9006`), `DATA_DIR` (default `/srv/data/reditd`)
 
 ## Limitations
 

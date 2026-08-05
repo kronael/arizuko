@@ -56,8 +56,8 @@ Cookies are atomically rotated to `cookies.json.bak` on every save.
 | `TWITTER_2FA_SECRET`    | TOTP secret for 2FA accounts                                   |
 | `TWITTER_POLL_INTERVAL` | inbound polling cadence in seconds (default 90)                |
 | `ROUTER_URL`            | routd router URL                                               |
-| `CHANNEL_SECRET`        | shared HMAC secret                                             |
-| `TWITD_CHANNEL_SECRET`  | optional per-adapter override of `CHANNEL_SECRET`              |
+| `AUTHD_URL`             | authd base URL — exchanged for the `service:twitd` ES256 token |
+| `AUTHD_SERVICE_KEY`     | bootstrap key for that exchange                                |
 | `LISTEN_ADDR`           | HTTP listen, default `:8080`                                   |
 | `LISTEN_URL`            | URL the router uses to call back (default `http://twitd:8080`) |
 

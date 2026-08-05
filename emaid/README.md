@@ -56,7 +56,7 @@ References/In-Reply-To headers.
 - `EMAIL_UNVERIFIED_SUBJECT_PREFIX` — `true` prefixes `[UNVERIFIED]` on untrusted subjects; default `false` (signal in Verb only)
 - `EMAIL_VERIFY_DKIM` — tier-3 independent DKIM verification (pre-wired, not yet implemented)
 - `CHANNEL_NAME` (default `email`)
-- `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR` (default `:8080`), `LISTEN_URL` (default `http://email:9003`), `DATA_DIR` (default `/srv/data/emaid`), `MEDIA_MAX_FILE_BYTES` (default 20 MiB)
+- `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME`, `LISTEN_ADDR` (default `:8080`), `LISTEN_URL` (default `http://email:9003`), `DATA_DIR` (default `/srv/data/emaid`), `MEDIA_MAX_FILE_BYTES` (default 20 MiB)
 
 ## Health signal
 
