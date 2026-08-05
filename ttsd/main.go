@@ -26,16 +26,14 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/obs"
 )
 
 func main() {
+	defer obs.Setup("ttsd", os.Getenv("ARIZUKO_INSTANCE"))()
+
 	addr := chanlib.EnvOr("TTSD_ADDR", ":8880")
 	backend := chanlib.EnvOr("TTS_BACKEND_URL", "http://kokoro:8880")
-	logLevel := chanlib.EnvOr("LOG_LEVEL", "info")
-
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: parseLevel(logLevel),
-	})))
 
 	beURL, err := url.Parse(backend)
 	if err != nil {
@@ -114,17 +112,4 @@ func backendUp(client *http.Client, backend string) bool {
 	}
 	resp.Body.Close()
 	return resp.StatusCode < 500
-}
-
-func parseLevel(s string) slog.Level {
-	switch strings.ToLower(s) {
-	case "debug":
-		return slog.LevelDebug
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
 }
