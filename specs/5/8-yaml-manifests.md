@@ -10,46 +10,46 @@ depends: specs/5/16-mcp-rest-unification.md, specs/5/17-openapi-mcp.md, specs/5/
 > transport dump/import — `pg_dump` / `pg_restore` for the cold tier — not
 > a continuously-synced source of truth. No DB→YAML sync, no startup-apply,
 > no SIGHUP-reload. A dump never claims to be live, so "drift" is a
-> non-concept. `specs/9/3-git-as-truth.md`'s continuously-synced
-> cold-tier-config is superseded; committing an `export` dump to git is fine
-> (9/3 itself is unedited — read its `agents.toml` references through this
-> lens).
+> non-concept. This supersedes the git-as-truth model (a continuously-synced
+> cold-tier `agents.toml`, formerly `specs/9/3`, deleted with the corpus
+> minimization in `819d43cd`); committing an `export` dump to git is fine.
 
 > **DECISION (2026-08-04, operator).** Import must transfer _everything_:
-> cold-tier config, `groups/<folder>/` filesystem trees, message history,
-> and encrypted secret blobs — a full instance backup/restore, not only
-> config. This redesigns the CAS mechanism (content hash, not a counter),
-> the atomicity model (per-subsystem transactions + cross-subsystem
-> pre-image rollback, not a cross-DB all-or-nothing), and adds the archive
-> as a superset artifact around the existing manifest. None of this is
-> built yet — see "Status" below for what ships first.
+> cold-tier config, `groups/<folder>/` trees, message history, and encrypted
+> secret blobs — a full instance backup/restore, not only config. That is
+> why the CAS is a content hash and not a counter, why atomicity is
+> per-subsystem and not cross-DB all-or-nothing, and why the archive is a
+> superset artifact wrapped around the manifest.
 
-## Status: engine shipped, archive not designed until now
+## Status
 
-The resreg engine and the YAML config-manifest format ship
-(`resreg/engine.go`, `resreg/resources/*.go`, 13 registered resources).
-The CLI now reaches a production instance: `arizuko apply`/`plan`/
-`export`/`get` open the owner DBs through `openSubsystemStores`
-(`cmd/arizuko/apply.go:50`), which calls `store.OpenRoutd`/`store.OpenOnbod`
-and errors rather than falling back — they no longer touch the frozen
-pre-split `messages.db`. BUGS Y1 closed.
+Shipped: the resreg engine, the YAML config manifest, and the full-instance
+archive, end to end.
 
-The frozen `messages.db` still sits at `store=74` against 80 files in
-`store/migrations/`, so any `store.Open` on it would migrate **and** run
-the hash-at-rest backfills. The only remaining caller is
-`tests/dashd-playwright/seed/main.go:55`, and `dashd/main.go:354` refuses
-the path outright — reachable only from a test seeder, never a daemon.
+- Config verbs reach a production instance through `openSubsystemStores`
+  (`cmd/arizuko/apply.go:50`), which opens the owner DBs and errors rather
+  than falling back to the frozen pre-split `messages.db`.
+- Content-hash CAS: `resreg.Checksum` (`resreg/engine.go:576`), recomputed
+  in-tx by `resreg.Apply` (`resreg/engine.go:609`).
+- Row-level exclusion: `Resource.RowFilter` (`resreg/resreg.go:233`),
+  honored by scan, delete and checksum alike.
+- Archive primitives `resreg/archive.go` (`654ff3ed`), CLI
+  `cmd/arizuko/archive.go` (`8aac77a8`), run-slot hold `runed/hold.go` +
+  `POST /v1/holds` (`43cf6d7a`).
+- `Resource.Retarget` (`resreg/engine.go:383`).
 
-Everything below the config manifest — the archive container, message
-history, secret-blob transfer, group filesystem trees — was a **new
-design**. The run-slot mechanism in `runed` has since SHIPPED end to end
-(`spawns.kind` + per-kind executors in `397bc16f`; `KindHold` +
-`POST /v1/holds` + the `archive apply` caller after it); see "Filesystem
-restore claims the folder's run slot". It supersedes the
-`config_meta`/counter CAS design and the
-cross-DB "mixed-success/exit 3/rerun-skips" atomicity model this spec
-previously specified (both flagged unbuildable-as-specced in BUGS.md Y1,
-2026-08-02); read this file, not that history, as current.
+Not built, each in its own section below:
+
+1. **The missing-group rule** — no cross-document referential preflight runs
+   before a restore.
+2. **Cross-subsystem pre-image rollback** — a later subsystem's failure
+   leaves an earlier one committed.
+3. **Path-retarget wiring** — `Retarget` has no non-test caller.
+4. **Pending onboarding admissions in the archive** — `onboarding` is now a
+   resreg resource but `SkipApplyRebuild` and value-less, so admissions do
+   not travel (BUGS.md Z3).
+5. **`dashd`'s kill-confirm label** — still says "Stop the agent currently
+   working for %s" (`dashd/runed_page.go:77`), wrong for a hold.
 
 ## Why
 
@@ -58,49 +58,39 @@ manifest carries an instance's cold-tier config: ACL, routes, secrets
 metadata, scheduled tasks, proxyd routes, web routes, network rules, group
 registration. Operators additionally need to move a _whole instance_ —
 config plus the data that makes it useful: what agents said, what they
-remember, what credentials they hold. That's the archive.
+remember, what credentials they hold. That is the archive.
 
-## Two artifacts, one mechanism — not two specs
+## Two artifacts, one mechanism
 
 The archive is a **superset that contains the config manifest**, not a
-bigger manifest. Concretely: `arizuko archive export` calls the exact same
-`resreg.Export`/`EmitYAML` renderer `arizuko export` calls, and writes its
-output as one of the archive's several documents. One renderer, two sinks
-— manifest alone, or manifest inside an archive.
+bigger manifest: `archive export` calls the same `resreg.Export`/`EmitYAML`
+renderer `arizuko export` calls and writes the output as one of the
+archive's documents. One renderer, two sinks.
 
-This spec stays one file because the two share the load-bearing mechanism
-(content-hash CAS, per-subsystem transactions, the canonical renderer) at
-the config layer, and because the archive literally embeds the manifest —
-a reader of "archive" must read "manifest" regardless of file boundaries.
-One piece does NOT belong here: the `runed` admission/execution change
-that lets a filesystem restore claim a folder's run slot (below,
-"Filesystem restore claims the folder's run slot") is general execution-
-plane machinery whose natural long-term home is
-[`5/P-runed.md`](P-runed.md) — any future folder-exclusive job (skill
-sync, vacuum, migration) is another consumer of it, not another archive
-feature. It's specified here because the need originates here; move the
-prose to `5/P` when it ships, don't duplicate it there now.
+One piece does not belong here: the `runed` admission change that lets a
+filesystem restore claim a folder's run slot is general execution-plane
+machinery whose long-term home is [`5/P-runed.md`](P-runed.md) — any future
+folder-exclusive job (skill sync, vacuum, migration) is another consumer of
+it, not another archive feature. It is specified here because the need
+originated here; move the prose to `5/P`, don't duplicate it.
 
 ## Surface
 
-Four config verbs, unchanged, all in `cmd/arizuko/apply.go`:
+Four config verbs, all in `cmd/arizuko/apply.go`:
 
 - `arizuko export <instance> [file]` — dump cold-tier config to YAML.
-- `arizuko apply <instance> <file> [--force]` — restore config: validate,
-  rebuild.
+- `arizuko apply <instance> <file> [--force]` — validate, rebuild.
 - `arizuko get <instance> <resource>` — a scoped `export` of live state.
 - `arizuko plan <instance> <file>` — non-mutating diff vs live state.
 
-Two new archive verbs (unbuilt — CLI names, not yet in `cmd/arizuko/`):
+Two archive verbs, in `cmd/arizuko/archive.go`:
 
-- `arizuko archive export <instance> [file] [--quiesced]` — full backup:
-  config + secret values + message history + group filesystem trees, as
-  one tar file.
-- `arizuko archive apply <instance> <archive> [--force] [--stopped]` —
-  full restore. `--stopped` asserts the instance is down; without it the
+- `arizuko archive export <instance> [file] [--quiesced]` — config + secret
+  values + message history + group filesystem trees, as one tar file.
+- `arizuko archive apply <instance> <archive> [--force] [--stopped]` — full
+  restore. `--stopped` asserts the instance is down; without it the
   filesystem step claims each folder's run slot in a live `runed` and
-  refuses to proceed if it cannot (see "Filesystem restore claims the
-  folder's run slot").
+  refuses to proceed if it cannot.
 
 **Rebuild scope is the load-bearing decision for config.** Per resource,
 DELETE+INSERT is scoped to the folders the manifest mentions (`DELETE …
@@ -109,856 +99,642 @@ within a mentioned scope**; groups absent from the manifest are untouched.
 Instance-global resources rebuild wholesale. This is why `--prune` /
 `state: absent` were cut — absence within a named scope already means
 "remove". The archive's non-config subsystems (messages, secrets, group
-trees) do not rebuild this way at all — see "The full-instance archive".
+trees) do not rebuild this way at all.
 
 Manifest files compose additively: `apply manifest/` reads every `*.yaml`,
 merges rows by PK, applies the union. **File names are informational** —
 content, not name, decides what a file holds. Duplicate PKs across files
 with differing payloads are a parse-time error; identical payloads
-deduplicate. No `include:` directives — flat composition only, so merging
-is associative and errors reproducible.
+deduplicate. No `include:` directives — flat composition only, so merging is
+associative and errors reproducible.
 
 Document schema: group folder is the top-level key with owned resources
 nested flat beneath it; instance-global resources (`proxyd_routes`,
 `onboarding_gates`, `network_rules`) are top-level resource-kind keys with
-no group wrapper. There are **no daemon section keys** — the apply tool
-resolves each resource name to its owning DB at dispatch, so a future
-daemon split leaves manifests valid.
+no group wrapper. There are **no daemon section keys** — apply resolves each
+resource name to its owning DB at dispatch, so a future daemon split leaves
+manifests valid.
 
-**Multi-document YAML, one `---` document per subsystem** (a subsystem =
-one owner DB's config projection — `routd`, `onbod`). Exported to a
-directory it is one file each (`routd.yaml`, `onbod.yaml`); to a single
-path they concatenate as `---`-separated documents; `apply` accepts either
-because they are the same documents. No `--single` flag, no second
-format.
+**Multi-document YAML, one `---` document per subsystem** (a subsystem = one
+owner DB's config projection — `routd`, `onbod`). Exported to a directory it
+is one file each; to a single path they concatenate as `---`-separated
+documents; `apply` accepts either because they are the same documents. No
+`--single` flag, no second format.
 
 ## Three transports, one row schema
 
 REST, MCP, and YAML are three transports over the **same row schema**,
-defined once as `resreg.Resource` and reused by all three. Only the **row
-fields** belong to the resource; verb, identity, batching, and version are
-transport envelopes. YAML's envelope is: DROP+INSERT for the verb, YAML
-nesting for identity, many-rows-one-tx for batching, a content hash for
-CAS (below).
+defined once as `resreg.Resource`. Only the **row fields** belong to the
+resource; verb, identity, batching, and version are transport envelopes.
+YAML's envelope is: DROP+INSERT for the verb, YAML nesting for identity,
+many-rows-one-tx for batching, a content hash for CAS.
 
 `5/17` owns the transport half (`Name`, `Endpoints`, `MCPDoc`, `Gate`,
 `Handler`, `Store`). **This spec is authoritative for the row-schema half**
-the engine adds — `RowType`, `Table`, `PKFields`, `Scope`, `Hooks`,
-`SkipApplyRebuild` (`resreg/resreg.go:204`).
+the engine adds — `RowType`, `Table`, `PKFields`, `Scope`, `RowFilter`,
+`Hooks`, `SkipApplyRebuild` (`resreg/resreg.go:233,240`).
 
 The archive's non-config documents (secrets-with-values, message history,
 group filesystem trees) do NOT ride this mechanism — they carry data no
-`resreg.Resource` addresses (unbounded event rows, encrypted blob values,
-filesystem trees). Forcing them through the row-schema engine would bloat
-one mechanism to serve two very different shapes (bounded declarative
-config vs. unbounded immutable log vs. a directory tree); see "The
-full-instance archive" for what each actually is.
+`resreg.Resource` addresses. Forcing them through the row-schema engine
+would bloat one mechanism to serve three very different shapes: bounded
+declarative config, an unbounded immutable log, and a directory tree.
 
 ## Content-hash CAS, not a counter
 
 **DECISION (2026-08-04, operator): the CAS check is a content hash of the
-canonical row projection, not a per-DB counter.** Deletes the entire
+canonical row projection, not a per-DB counter.** This deleted the
 `config_meta` table design, `resreg.ConfigVersion`, and the "every writer
 advances the version" rule this spec previously specified.
 
-Mechanism: each subsystem's manifest-visible rows are canonically
-serialized — the SAME `resreg.Export`/`EmitYAML` renderer that produces
-the manifest, minus the CAS field itself — and hashed. `export` stamps the
-result as `checksum: sha256:<hex>` in the document; `apply` recomputes the
-hash from the **live DB**, in the same transaction that will write, and
-refuses on mismatch unless `--force`.
+`export` stamps `checksum: sha256:<hex>`; `apply` recomputes it from the
+**live DB, in the same transaction that will write**, and refuses on
+mismatch unless `--force`. The hashed bytes are the SAME
+`Export`/`EmitYAML` output the manifest is made of, minus the checksum field.
 
-This is a different value from the existing `ManifestDigest`
-(`cmd/arizuko/apply.go`'s `sha256.Sum256(data)`, the raw YAML _file_
-bytes, used only for the audit row's forensic correlation) — do not
-conflate them. The checksum hashes the canonical DB-side projection; the
-digest hashes whatever bytes the operator handed `apply`, edits included.
+Why a hash, not a counter:
 
-Why a hash over a counter:
-
-- It answers the actual question — "is the DB still what I exported
-  from?" — directly, instead of via a proxy that can be forgotten. A
-  counter requires **every** writer (resreg-shared and any direct-SQL
-  path) to remember to bump it in the same tx; a hash requires nothing
-  from writers because it's computed fresh at read time.
-- It catches a manual `sqlite3` edit. A counter doesn't move unless the
-  editor knows to bump it.
-- It's per-owner-DB for free, with no home-finding problem. `config_meta`
-  never existed in any split owner DB (BUGS.md Y1 point 2, verified
-  2026-08-02 against all three live instances) — building it now would be
-  new schema with no other consumer. A hash needs no table at all.
-- It makes the `secrets`-excluded-from-the-counter carve-out
-  unnecessary: a rotated blob was excluded from the OLD counter because
-  routine rotation shouldn't invalidate a pending apply. A hash is
-  computed over the manifest projection, and `secrets` values are already
-  outside that projection (`SkipApplyRebuild`, "Secret safety" below) — so
-  rotation never touches the hash in the first place. Nothing to carve
+- It answers the actual question — "is the DB still what I exported from?" —
+  directly. A counter needs **every** writer (resreg-shared and any
+  direct-SQL path) to remember to bump it in the same tx; a hash needs
+  nothing from writers, and catches a manual `sqlite3` edit that no counter
+  would move.
+- `config_meta` never existed in any split owner DB (verified 2026-08-02
+  against all three live instances, BUGS.md Y1) — building it would have
+  been new schema with no other consumer. A hash needs no table at all.
+- It makes the `secrets`-excluded-from-the-counter carve-out unnecessary:
+  `secrets` values are already outside the manifest projection
+  (`SkipApplyRebuild`), so rotation never touches the hash. Nothing to carve
   out.
 
-Determinism is already proven: "Round-trip honesty" (below) requires two
-consecutive exports of an unchanged DB to be byte-identical. The hash
-reuses that guarantee; it needs no new determinism work.
+**Do not conflate the checksum with `ManifestDigest`**
+(`cmd/arizuko/apply.go:99` — a `sha256` of the raw YAML _file_ bytes, used
+only for the audit row's forensic correlation). The checksum hashes the
+canonical DB-side projection; the digest hashes whatever bytes the operator
+handed `apply`, edits included.
 
-**Reused by the pre-image rollback mechanism** (next section) as the
-pre-image _and_ the trigger for whether a re-apply is a no-op — a stale
-hash with an unchanged projection reads as "already applied," not as a
-conflict.
+Determinism comes for free from "Round-trip honesty" (below): two
+consecutive exports of an unchanged DB are byte-identical.
 
 ## Cross-subsystem apply: per-subsystem transaction, pre-image rollback
 
 **DECISION (2026-08-04, operator, superseding this spec's prior
-mixed-success/exit-3/rerun-skip design — see BUGS.md Y1 "Recommended
-answers," now stale).**
+mixed-success / exit-3 / rerun-skip design).**
 
 Within one subsystem there is nothing to compensate: one subsystem = one
-owner DB = one SQLite `BEGIN IMMEDIATE … COMMIT`. CAS check, scoped
-DELETE+INSERT, secrets/tokens UPSERT (see below), commit or rollback —
-native SQLite transaction semantics, no extra machinery.
+owner DB = one SQLite `BEGIN IMMEDIATE … COMMIT` (`resreg/engine.go:609`) —
+CAS recheck, scoped DELETE+INSERT, commit or rollback, native semantics, no
+extra machinery.
 
-Across subsystems (`routd`, `onbod` — the only two owner DBs with
-`resreg` resources today, per `5/16`'s owner-DB map): before writing,
-`apply` exports the **current** state of every subsystem it is about to
-touch into a rollback set — the same `resreg.Export`/`EmitYAML` call the
-CAS hash already uses, so this reuses the renderer as the pre-image
-producer instead of inventing a second backup format. It then applies
-each subsystem in turn. If a later subsystem's transaction fails after an
-earlier one committed, the already-committed subsystem(s) are restored by
-re-applying their pre-images (the SAME `apply` codepath, fed the exported
-snapshot instead of the operator's manifest).
+Across subsystems (`routd`, `onbod` — the only two owner DBs with `resreg`
+resources today, per `5/16`'s owner-DB map): before writing, `apply` exports
+the **current** state of every subsystem it will touch into a rollback set —
+the same `Export`/`EmitYAML` call the CAS hash already makes, reusing the
+renderer as the pre-image producer instead of inventing a second backup
+format. If a later subsystem's transaction fails after an earlier one
+committed, the committed subsystem is restored by re-applying its pre-image
+through the SAME `apply` codepath, fed the snapshot instead of the
+operator's manifest. **Not built** (Status, item 2).
 
-**Load-bearing constraint: the rollback restores the manifest
-projection, not the database.** A whole-DB restore (a raw file swap) would
-discard messages that arrived, and memory a turn wrote, during the apply
-window — live traffic the apply never touched. Because `resreg.Export`'s
-projection is exactly the config rows (the cold-tier resource set), and
-because a subsystem's config transaction is scoped-DELETE+INSERT (never a
-table truncate), re-applying a pre-image touches only what the forward
-apply touched. This is what makes rollback safe _here_, and it is exactly
-why rollback does NOT extend to message history or filesystem trees below
-— they are not "the manifest projection," so this rollback mechanism has
-no opinion about them; each has its own recovery story (idempotent
-append; best-effort, stated as such).
+**Load-bearing constraint: the rollback restores the manifest projection,
+not the database.** A whole-DB file swap would discard messages that arrived
+and memory a turn wrote during the apply window — live traffic the apply
+never touched. Because `Export`'s projection is exactly the config rows, and
+because a subsystem's transaction is scoped-DELETE+INSERT (never a table
+truncate), re-applying a pre-image touches only what the forward apply
+touched. That is what makes rollback safe _here_, and exactly why it does
+NOT extend to message history or filesystem trees: they are not the manifest
+projection, so this mechanism has no opinion about them, and each has its
+own recovery story (idempotent append; best-effort, stated as such).
 
-This deletes the old design's premises along with it: no preflight-all-
-owners pass, no deterministic commit order beyond catalog order, no exit
-code 3, no "rerun skips the applied owner." A failed cross-subsystem apply
-ends with every subsystem back at its pre-apply content hash; a clean
-re-run is just `apply` again.
+This deletes the old design's premises with it: no preflight-all-owners
+pass, no commit order beyond catalog order, no exit code 3, no "rerun skips
+the applied owner". A failed cross-subsystem apply ends with every subsystem
+back at its pre-apply content hash; a clean re-run is just `apply` again.
 
-**CRITICAL, found by cross-check against `31-identity-pairing.md`, fixed
-here before any code lands: `acl_membership` pairing edges must be
-excluded from the projection this rollback restores, or rollback
-resurrects a revoked identity link.** Verified against the code:
-`acl_membership` is an ordinary `resreg` resource with no `Scope` and no
-`SkipApplyRebuild` (`resreg/resources/membership.go`), so it rebuilds
-wholesale — `DeleteAll` + full re-`Insert` — exactly like any other
-global config table (`resreg/engine.go`'s `Apply` loop), and `Export`
-scans the whole table with no filter. The pre-image this section takes is
-built from that same `Export`. Walk the failure: a caller `unpair`s
-(`ACLMembershipEndpoints`' DELETE, scoped to `added_by='pairing'`)
-between the pre-image snapshot and a later subsystem's failure; rollback
-re-applies the pre-image via the same DELETE+INSERT `apply` codepath,
-which re-inserts the edge the caller just revoked — silently handing back
-authority they deliberately gave up, with no error and no record. **Rule:
-`added_by='pairing'` rows are never part of any manifest-visible
-projection for this resource** — not in the content hash, not in
-CAS-scoped DELETE+INSERT, not in the pre-image/rollback set. They are
-explicit runtime consent state (an identity's own choice, made and undone
-through `issue_pairing_link`/`unpair`, spec `31-identity-pairing.md`), the
-same class of thing `SkipApplyRebuild` already carves out for
-secrets/tokens, not declarative operator intent — the resource's own doc
-comment already draws this line for the config-manifest path ("Adding an
-edge stays a consented redemption or a manifest apply — there is no add
-face here"); this decision extends the same reasoning to the archive
-path. Mechanism, not yet built: `resreg` has no row-level exclusion
-predicate today (`ScanAll`/`DeleteAll` operate on the whole table); the
-engine needs one — a `WHERE`-fragment field alongside `Scope`, honored by
-both — before `acl_membership` can safely register in an archived
-subsystem's resource set. **Blocking precondition on this section
-shipping**, tracked in `BUGS.md`; role-membership rows (`added_by` unset)
-are unaffected and still round-trip normally.
+**Pairing edges must never be part of the projection this rollback
+restores.** Found by cross-check against
+[`31-identity-pairing.md`](31-identity-pairing.md): a caller `unpair`s
+between the pre-image snapshot and a later subsystem's failure, and the
+rollback re-inserts the edge they just revoked — silently handing back
+authority they deliberately gave up, with no error and no record.
+`added_by='pairing'` rows are explicit runtime consent state, made and
+undone through `issue_pairing_link`/`unpair` — the same class
+`SkipApplyRebuild` already carves out for secrets and tokens, not
+declarative operator intent. **Rule: they belong to no manifest-visible
+projection** — not the content hash, not the scoped DELETE+INSERT, not the
+pre-image. Shipped as `Resource.RowFilter` (`resreg/resreg.go:233`), a
+WHERE-fragment honored by scan, delete and checksum alike, set on
+`acl_membership` (`resreg/resources/membership.go:79`). Role-membership rows
+(`added_by` unset) round-trip normally.
 
-## Path-retargeting apply (open door, not built)
+## Path retargeting: primitive shipped, no caller
 
-**Apply's data model already supports "export folder X, apply as folder
-Y" — confirmed 2026-08-04, not yet wired to any caller.** `resreg.Apply`
-consumes already-decoded `map[string]any` of typed rows, never a file path,
-and derives its DELETE+INSERT scope from the rows' OWN `Scope.Field` value
-(`manifestScopes`) — never from a reference back to wherever the rows came
-from. A caller can therefore retarget a batch of rows to a new folder
-before calling `Apply`, with zero change to `Apply` itself.
-`resreg.Resource.Retarget(rows, newFolder)` is the engine-owned building
-block for the one mechanically-safe case: it rewrites ONLY the declared
-`ScopeSpec.Field` column, for the three resources that have one (`groups`,
-`web_routes`, `network_rules` — verified against `resreg/resources/*.go`,
-2026-08-04; every other resource has no `Scope` at all).
+**Apply's data model supports "export folder X, apply as folder Y".**
+`resreg.Apply` consumes already-decoded typed rows, never a file path, and
+derives its DELETE+INSERT scope from the rows' OWN `Scope.Field` value
+(`manifestScopes`, `resreg/engine.go:339`) — never from a reference back to
+where the rows came from. So a caller can retarget rows before calling
+`Apply`, with zero change to `Apply` itself.
 
-Two future consumers of this door, named so the next agent doesn't
-re-derive it: `5/28`'s seed-once package group, and cross-instance folder
-migration. Prototype spawn was the third until `4a9a49c7` deleted it
-(with `4/26`) precisely because copy-register-route behind one verb
-duplicated export→apply — see `5/5` §"Tier 3 — Session". A new consumer
-belongs here as a recipe over the two verbs, never as its own mechanism.
+`Resource.Retarget` (`resreg/engine.go:383`) is the engine-owned building
+block, and it rewrites ONLY the declared `ScopeSpec.Field` column, for the
+three resources that have one (`groups`, `web_routes`, `network_rules`).
+**It refuses everything else rather than guessing**: `routes` has no
+`Scope.Field` (a spawned child's route must be DERIVED from its own JID,
+never copied from the parent's verbatim), `acl.scope` is a glob,
+`scheduled_tasks.chat_jid` and `secrets.scope_id` are polymorphic;
+`route_tokens`/`invites` are moot (`SkipApplyRebuild`, never rebuilt).
 
-**The rewrite is partial and per-resource, never global — verified against
-the schema, not assumed.** Two findings:
+**Named gap:** a resource WITH a declared `Scope.Field` can still embed the
+folder elsewhere. `web_routes.redirect_to` points into the folder's own
+`/pub|priv/<folder>/` web root; `Retarget` rewrites only `folder`, so a
+caller must rewrite `redirect_to` itself.
 
-1. Retargeting is NOT a blanket "rewrite every folder reference." `routes`
-   has no `Scope.Field` (`target`/`match` are path fragments, and a spawned
-   child's route must be DERIVED from its own JID —
-   `match := "room=" + core.JidRoom(childJID)` — never copied from the
-   parent's own routes verbatim), so `Retarget` refuses it
-   (`HasScope() == false`) rather than guessing. Same refusal for `acl`
-   (`scope` is a glob, no declared `Scope`), `scheduled_tasks.chat_jid` and
-   `secrets.scope_id` (both polymorphic: folder OR something else, by a
-   separate discriminator column) — `route_tokens.owner_folder` and
-   `invites.target_glob` are moot (`SkipApplyRebuild`, never rebuilt by
-   `Apply` regardless of retargeting).
-2. Even a resource WITH a declared `Scope.Field` can embed the folder
-   elsewhere in row content the column doesn't cover: `web_routes.
-redirect_to` points into the folder's own `/pub|priv/<folder>/` web root
-   (its own MCPDoc says so) — `Retarget` only rewrites `folder`, so a
-   caller retargeting `web_routes` rows must ALSO rewrite `redirect_to`
-   itself. Named gap, not covered by the generic helper.
-
-No prototype/`register_group`/package-seed/migration wiring ships in this
-pass — only the `Retarget` primitive and this note.
+No caller ships (Status, item 3). Two future consumers, named so the next
+agent doesn't re-derive them: `5/28`'s seed-once package group, and
+cross-instance folder migration. Prototype spawn was the third until
+`4a9a49c7` deleted it (with `4/26`) precisely because copy-register-route
+behind one verb duplicated export→apply — see `5/5` §"Tier 3 — Session". A
+new consumer belongs here as a recipe over the two verbs, never as its own
+mechanism.
 
 ## Consistency levels — an archive is a smear, and must say so
 
-A full-instance archive taken from a running system is not a snapshot; it
-is a smear across time, from four concrete sources:
+A full-instance archive taken from a running system is not a snapshot; it is
+a smear across time, from four concrete sources:
 
 1. **No cross-DB transaction.** `routd.db`, `onbod.db`, `auth.db`,
-   `runed.db` are separate SQLite files (`store.OpenRoutd`/`OpenOnbod`,
-   `authd/db.go`, `runed/db.go`) — export reads them in sequence, so a
-   write landing between two reads appears in one document and not
+   `runed.db` are separate SQLite files — export reads them in sequence, so
+   a write landing between two reads appears in one document and not
    another. `5/31`'s minimality pass sidestepped exactly this seam for
    pairing by putting the token in `route_tokens` so token and edge share
    one transaction (`routd/migrations/0026-route-token-kind.sql`); an
-   archive spanning DBs cannot do the same trick — there's no single
-   transaction to put everything in.
-2. **DB vs. filesystem.** The `groups` row and `groups/<folder>/` are
-   separate substrates (`container.SetupGroup`, `container/runner.go:964`,
-   writes the tree; the row lives in `routd.db`). An agent writing
-   `MEMORY.md` mid-export can yield a config row pointing at a
-   half-written tree.
-3. **Live turns.** Messages, tool-call audit rows, and memory are written
-   over seconds by an in-flight turn; export mid-turn captures half a
-   turn.
+   archive spanning DBs has no single transaction to put everything in.
+2. **DB vs. filesystem.** The `groups` row lives in `routd.db`;
+   `groups/<folder>/` is written by `container.SetupGroup`
+   (`container/runner.go:964`). An agent writing `MEMORY.md` mid-export can
+   yield a config row pointing at a half-written tree.
+3. **Live turns.** Messages, tool-call audit rows and memory are written
+   over seconds by an in-flight turn; export mid-turn captures half a turn.
 4. **`SECRETS_KEY` is deliberately absent** from the archive (below) — a
    correctness constraint, not a consistency one, but it compounds:
    ciphertext travels, the key that makes it meaningful does not.
 
-Verified empirically against this codebase (not assumed): `VACUUM INTO`
-and, more directly, a single explicit read transaction (`BeginTx(ctx,
-&sql.TxOptions{ReadOnly: true})`) both give a consistent MVCC snapshot
-under WAL while a concurrent connection commits new rows — confirmed with
-`modernc.org/sqlite` (the driver this codebase uses, `store/store.go:13`,
-`go.mod`), inserting into two tables from a second connection mid-read-tx
-and confirming the read transaction's later `SELECT`s neither saw the new
-rows nor changed the count already read. This is the same primitive
-`VACUUM INTO` uses internally; the row-level export path doesn't need a
-file-level copy, only the cheaper form — one `BEGIN` wrapping the several
-`ScanAll` calls `resreg.Export` already makes, which is not how `Export`
-works today (each `ScanAll` is presently its own implicit autocommit read
-— a real gap the archive work should close: wrap `Export`'s whole loop,
-plus the messages/secrets reads for that subsystem, in one explicit read
-transaction per owner DB).
+Verified empirically against this codebase, not assumed: a single explicit
+read transaction (`BeginTx(ctx, &sql.TxOptions{ReadOnly: true})`) gives a
+consistent MVCC snapshot under WAL while a concurrent connection commits new
+rows — confirmed with `modernc.org/sqlite` (`store/store.go:14`) by
+inserting into two tables from a second connection mid-read-tx and
+confirming the read transaction's later `SELECT`s neither saw the new rows
+nor changed the count already read. That is the same primitive `VACUUM INTO`
+uses internally, so the row-level export path needs only the cheaper form.
+`resreg.ExportSnapshot` (`resreg/archive.go:67`) wraps `Export`'s whole loop
+in one such transaction; plain `resreg.Export` (`resreg/engine.go:736`)
+still runs each `ScanAll` as its own implicit autocommit read.
 
-Three levels, and the archive must **declare which one produced it**
-rather than imply an image it doesn't have:
+Three levels, and the archive must **declare which one produced it** rather
+than imply an image it doesn't have:
 
-- **`live`** (default). Per-subsystem — each document internally
-  consistent via its own one read transaction — the archive as a whole
-  not. No downtime. For cold-tier config this is nearly indistinguishable
-  from a true snapshot because config changes are human-paced; for
-  messages and filesystem trees the smear is real but bounded to the
-  export's wall-clock duration.
-- **`quiesced`** (`--quiesced` flag). The operator has already stopped the
-  instance (`systemctl stop arizuko_<instance>`) before running `archive
-export`; the flag only stamps `consistency: quiesced` in the archive's
-  metadata — the tool does not stop/start services itself. Trivially
-  consistent, costs downtime, the only level that is honestly
-  point-in-time. What a real DR restore wants.
-- **Pre-flight validation at restore** (always, regardless of export
-  level): before any subsystem's transaction opens, `apply` checks
-  referential integrity across the archive's documents (the missing-group
-  rule, below) and refuses the whole restore rather than importing a
-  half-wired instance. This is orthogonal to the smear question — it
-  catches gross errors (a route naming an absent group), not staleness.
+- **`live`** (default). Per-subsystem consistent — each document has its own
+  read transaction — the archive as a whole not. No downtime. For cold-tier
+  config this is nearly indistinguishable from a true snapshot because
+  config changes are human-paced; for messages and filesystem trees the
+  smear is real but bounded to the export's wall-clock duration.
+- **`quiesced`** (`--quiesced`). The operator has already stopped the
+  instance before running `archive export`; the flag only stamps
+  `consistency: quiesced` in the metadata — the tool does not stop or start
+  services itself. Trivially consistent, costs downtime, the only level that
+  is honestly point-in-time. What a real DR restore wants.
+- **Pre-flight validation at restore** (always, regardless of export level):
+  before any subsystem's transaction opens, `apply` checks referential
+  integrity across the archive's documents (the missing-group rule, below)
+  and refuses the whole restore rather than importing a half-wired instance.
+  Orthogonal to the smear question — it catches gross errors, not staleness.
+  **Not built** (Status, item 1).
 
-`archive.yaml` (the archive's top-level index, alongside the subsystem
-documents) records `consistency: live|quiesced` and, per subsystem, the
-read transaction's start timestamp. `archive apply` reads this and is
-free to refuse a `live` archive for a use case that demands a true
-point-in-time image (that policy is an operator call, not specified here
-— the archive just tells the truth about what it is).
+`archive.yaml` (the archive's top-level index) records
+`consistency: live|quiesced` and, per subsystem, the read transaction's
+start timestamp. `archive apply` reads this and is free to refuse a `live`
+archive for a use case that demands a true point-in-time image — that policy
+is an operator call, not specified here; the archive just tells the truth
+about what it is.
 
-The general principle, already proven twice in this codebase: co-locate
-what must be atomic (token + edge in one table, one subsystem's config in
-one transaction); where you cannot, name the seam and validate at the far
-end rather than pretending it isn't there.
+The general principle, already proven twice in this codebase: co-locate what
+must be atomic (token + edge in one table, one subsystem's config in one
+transaction); where you cannot, name the seam and validate at the far end
+rather than pretending it isn't there.
 
 ## The full-instance archive
 
 ### Shape
 
 **One transport shape: a single tar file — not a directory the tool also
-accepts as input.** The multi-document YAML decision (above) is about a
-single subsystem's document structure; it doesn't extend to "the archive
-as a whole is a directory or a tar, pick one at call time" — that would
-be two entry points into `archive apply` (walk a directory vs. untar to
-a temp dir) for one artifact, for a convenience ( `ls`-without-extracting)
-`tar tf` already gives for free. `archive export` always writes one
-`.tar`; `archive apply` always reads one. Contents:
+accepts as input.** Accepting both would be two entry points into `archive
+apply` (walk a directory vs. untar to a temp dir) for one artifact, buying a
+convenience (`ls` without extracting) that `tar tf` already gives for free.
+Contents, written by `buildArchive` (`cmd/arizuko/archive.go:248`):
 
 ```
 archive.yaml             # format_version, consistency level, per-subsystem snapshot timestamps
 routd.yaml               # config manifest document (this spec's existing mechanism)
-onbod.yaml                # config manifest document
-routd.secrets.yaml       # secret + route-token/invite VALUES (see below) — separate
-                          # from routd.yaml so a plain `export` reader is never handed one
+onbod.yaml               # config manifest document
+routd.secrets.yaml       # secret + route-token/invite VALUES — separate from routd.yaml
+                         # so a plain `export` reader is never handed one
 routd.messages.jl        # message history, JSONL (repo convention: .jl, not .jsonl)
 groups.tar               # groups/<folder>/ trees, one entry per folder
 ```
 
-`routd.yaml`/`onbod.yaml` are byte-identical to what `arizuko export`
-would produce standalone — literally the same function call, written to a
-different path. Everything else is new. `groups.tar` stays a
-tar-inside-the-tar rather than flattened entries, because it carries
-filesystem trees with their own structure/permissions — a different
-shape from its sibling YAML/JSONL documents, not a format this spec
-otherwise uses.
+`routd.yaml`/`onbod.yaml` are byte-identical to what `arizuko export` would
+produce standalone — literally the same function call, written to a
+different path. `groups.tar` stays a tar-inside-the-tar rather than
+flattened entries because it carries filesystem trees with their own
+structure and permissions — a different shape from its sibling YAML/JSONL
+documents.
 
-Not archived, and why: `auth.db` (identities, refresh tokens, signing
-keys) and `runed.db` (spawn/session execution history) are outside the
-operator's stated scope ("config + group filesystem trees + message
-history + encrypted secret blobs") and outside it for a reason, not by
-oversight — `auth.db` is authentication infrastructure whose signing keys
-rotate and whose refresh tokens shouldn't be revived stale; `runed.db` is
-purely hot-tier execution history (`9/2`: "operational state... SQLite
-only, rebuildable"), with no cold config content and no data an operator
-would want back verbatim. Restoring either onto a running instance would
-be actively wrong, not merely out of scope.
+Not archived, and why: `auth.db` (identities, refresh tokens, signing keys)
+and `runed.db` (spawn/session execution history) are outside the operator's
+stated scope for a reason, not by oversight — `auth.db` is authentication
+infrastructure whose signing keys rotate and whose refresh tokens shouldn't
+be revived stale; `runed.db` is purely hot-tier execution history (`9/2`:
+"operational state... rebuildable"), with no cold config content and nothing
+an operator would want back verbatim. Restoring either onto a running
+instance would be actively wrong, not merely out of scope.
 
 ### Message history
 
 **Full, always — no time window, no opt-in flag, no `--since`.** The
-operator's own framing ("message history" as part of "everything," "a
-full instance backup/restore") settles this; a partial-by-default archive
-would silently fail the one property the operator asked for. Incremental
-export is a different tool with a different contract (a resumable
-cursor, a retention policy) — out of scope here, not a flag away from
-this one.
+operator's own framing ("a full instance backup/restore") settles this; a
+partial-by-default archive would silently fail the one property asked for.
+Incremental export is a different tool with a different contract (a
+resumable cursor, a retention policy), not a flag away from this one.
 
-Format: JSONL (`.jl`), not YAML. `messages` is unbounded and event-shaped
-(`9/2`: "no cold tier... warm for the content, hot for queue position and
-delivery state") — the row-schema engine's `Export` loads a resource's
-rows fully into memory as a `[]RowType` and builds a `yaml.Node` tree
-(`resreg/engine.go`), a shape built for tens-to-hundreds of small
-config rows, not hundreds of thousands of messages. Reusing it here would
-bloat one mechanism to serve two very different cardinalities; a
-streaming JSONL writer (one `SELECT`, one row per line) is the right tool
-and needs none of the row-schema engine's CAS/diff/rollback machinery,
-because none of it applies to an append-only table.
+**Format: JSONL, not YAML** (`ExportMessagesJSONL` / `ImportMessagesJSONL`,
+`resreg/archive.go:136,183`). `messages` is unbounded and event-shaped; the
+row-schema engine loads a resource's rows fully into a `[]RowType` and
+builds a `yaml.Node` tree — a shape built for tens-to-hundreds of small
+config rows, not hundreds of thousands of messages. JSONL also needs none of
+the engine's CAS/diff/rollback machinery, none of which applies to an
+append-only table.
 
-**Import semantics: idempotent bulk append, not rebuild.** `messages.id`
-is the PK; import is `INSERT OR IGNORE` (or equivalent) keyed on it, so
-re-running the same archive twice, or restoring onto a target that
-already has some of the same history, is a no-op on already-present
-rows. No CAS, no rollback — the "manifest
-projection, not the database" boundary above states plainly that rollback
-covers config only; messages were never in that projection, so this
-isn't a gap in the rollback design, it's outside its stated scope. Import
-runs in batches (not one giant transaction spanning the whole history) so
-a multi-hour transfer doesn't hold `routd.db`'s write lock for its
-duration — a real concern specifically when restoring onto a populated,
-live instance (below).
+**Import semantics: idempotent bulk append, not rebuild.** `INSERT OR
+IGNORE` keyed on `messages.id`, so re-running the same archive, or restoring
+onto a target that already has some of the same history, is a no-op on
+already-present rows. It runs in batches rather than one transaction
+spanning the whole history, so a multi-hour transfer doesn't hold
+`routd.db`'s write lock for its duration.
 
-**`turn_id`/`chat_jid` continuity:** both are plain `TEXT` columns on
-`messages` (`routd/migrations/0001-initial-schema.sql:27-46`), carried
-verbatim by the bulk import — no rewriting, no cross-reference to resolve,
-because nothing else in `routd.db` FK-references them (`chat_jid` has no
-declared FK to `chats.jid`).
+**No FTS rebuild step, by construction.** `messages_fts` is
+trigger-maintained (`messages_fts_ai`,
+`routd/migrations/0001-initial-schema.sql:60`), and
+`AFTER INSERT ON messages` fires on any ordinary SQL `INSERT` regardless of
+what produced the row values. Only a raw page-level copy (`VACUUM INTO`, a
+file `cp`) would skip it, and this spec already rejects that as a transport.
+An `ATTACH`+`INSERT…SELECT` between two live DBs would trigger FTS equally
+but loses as an _archive format_: an archive must be a durable, portable
+artifact readable on a different host months later with the source DB gone,
+and `ATTACH` needs both DBs mounted simultaneously and produces nothing you
+can store or diff.
 
-**FTS index rebuild: none needed, by construction — and JSONL is the
-right transport, not a normal-tables copy.** `messages_fts` is a
-trigger-maintained shadow. Corrected citation, verified against the code
-this pass: `store/migrations/0070-messages-fts.sql` is the legacy
-frozen `messages.db`'s copy of this trigger — dead once the CLI is
-repointed to `routd.db` (Phase 2 below). The live trigger the archive
-actually imports against is `routd/migrations/0001-initial-schema.sql:56-68`,
-which is byte-for-byte the same `messages_fts_ai`/`_au`/`_ad` logic,
-just folded into routd's own initial schema instead of a numbered
-migration (routd restarted migration numbering at the split).
-
-Codex proposed importing message history by copying rows "through the
-normal tables" instead of a JSONL lane, arguing that lets the existing
-FTS triggers populate for free. Checked against `pollOnce`/the trigger
-definitions: **the spec's original claim holds, but the codex framing is
-a false dichotomy, not a live disagreement.** `AFTER INSERT ON messages`
-fires on any ordinary SQL `INSERT` regardless of what produced the row
-values — a JSONL-decode-then-`INSERT`, and an `ATTACH`-and-`INSERT...
-SELECT` between two live SQLite files, are both "through the normal
-messages table" from the trigger's point of view; the only import shape
-that would skip it is a raw page-level copy (`VACUUM INTO`, a file `cp`),
-which this spec already rejects as a transport ("Consistency levels,"
-above — cheaper to take one explicit read tx than a file-level copy). So
-"normal tables" was never actually on the table as
-an alternative to JSONL for the FTS question — it's an alternative to
-JSONL only as an _archive format_, and loses there: an archive must be a
-durable, portable artifact readable on a different host, months later,
-with the source DB gone — `ATTACH`+`INSERT SELECT` needs both DBs
-mounted simultaneously and produces nothing you can store or diff.
-JSONL is the artifact; the row-schema/YAML engine is the wrong fit for
-the same cardinality reason already stated (loading hundreds of
-thousands of rows into a `yaml.Node` tree). JSONL also matches the
-line-oriented batching "Import semantics" (above) already requires
-(read N lines, one `INSERT` batch, commit, repeat) more directly than a
-table-to-table bulk copy would. No separate "rebuild the index" step
-either way, no new code — the existing trigger does the work on every
-import path this spec considered.
+`turn_id`/`chat_jid` are plain `TEXT` columns carried verbatim — nothing
+else in `routd.db` FK-references them.
 
 `chats` rows (hot tier — `sticky_group`, `sticky_topic`, `is_group`) are
-deliberately **not** part of this artifact — rebuildable operational
-state (`9/2`), not history.
+deliberately **not** part of this artifact: rebuildable operational state
+(`9/2`), not history.
 
-**One exception, load-bearing, not optional: `agent_cursor`.** Verified
-against the live dispatch path, not assumed: `routd/loop.go`'s
-`pollOnce` (lines 491-518) reads every message after the global min
-cursor, groups by chat, and — unless that chat's own `agent_cursor`
-already covers the batch (the `last.Timestamp <= cursor` skip at line 506) — enqueues the chat for a turn. `GetAgentCursor`/`SetAgentCursor`
-(`routd/db.go:614-625`) read/write `chats.agent_cursor` directly; a chat
-with no `chats` row reads back `""` (the `sql.NullString` zero value),
-which sorts before every real RFC3339 timestamp. So importing message
-history without also setting `agent_cursor` makes the restored
-instance's poller treat the entire imported history as unseen and
-dispatch a turn — the agent answering every historical message — for
-every restored chat. Message import therefore ends with one `INSERT ...
-ON CONFLICT(jid) DO UPDATE SET agent_cursor=excluded.agent_cursor` per
-imported `chat_jid`, setting it to `MAX(messages.timestamp)` over the
-rows just written for that chat. This is **derived from the imported
-messages, not carried from the archive** — there is no `chats.yaml`
-document, and the archive still ships no `chats` row content beyond
-this one derived column.
+**One exception, load-bearing: `agent_cursor`.** Verified against the live
+dispatch path, not assumed: `pollOnce` (`routd/loop.go:491`) reads every
+message after the global min cursor, groups by chat, and enqueues a turn
+unless that chat's own `agent_cursor` already covers the batch; a chat with
+no `chats` row reads back `""` (`GetAgentCursor`, `routd/db.go:513`), which
+sorts before every real RFC3339 timestamp. So importing history without also
+setting `agent_cursor` makes the restored poller treat the entire imported
+history as unseen and dispatch a turn — the agent answering every historical
+message — for every restored chat. Import therefore ends by upserting each
+touched chat's cursor to `MAX(timestamp)` over the rows just written
+(`DeriveAgentCursors`, `resreg/archive.go:260`). This is **derived from the
+imported messages, not carried from the archive** — there is no `chats.yaml`
+document, and the archive ships no `chats` content beyond this one derived
+column.
 
-**Decided, not merely deferred: pending onboarding admissions must be
-archived state, not rederived from the cursor.** A route-missed message
-can queue a pending admission (`routd/loop.go`'s `routeMiss` →
-`onbod.InsertOnboarding`, a row in onbod's own `onboarding` table) and
-`routeMiss` unconditionally `advance`s the cursor past it regardless of
-whether the insert succeeded — a deliberate fail-forward the live system
-already relies on ("a re-fed miss would replay forever"). Setting
-`agent_cursor` past that message on import (above) reproduces the exact
-same fail-forward on a restored instance: the imported message is marked
-seen, so it is never re-offered to `routeMiss`, so a pending admission
-that isn't independently in the archive is gone for good — the person is
-neither in the queue nor going to message again on their own. Rederiving
-by _not_ advancing the cursor for such chats was considered and rejected:
-the archive carries no "was this a route-miss" flag on a message row, and
-even if it did, replaying it against the target's own (possibly
-different) routing rules is nondeterministic — not a real reconstruction.
-**Decision: archive it.** `onboarding` is presently NOT a `resreg`
-resource (unlike its sibling `onboarding_gates`, created by the same
-migration, `onbod/migrations/0001-onboarding.sql`) — CLAUDE.md's "every
-cold-tier management entity is a resreg resource" already calls this a
-review-blocker independent of archiving. Once registered the same way
-`onboarding_gates` is, it rides this spec's existing mechanism for free
-(one more table in `onbod.yaml`, no special-casing) — small, bounded,
-PK-keyed, exactly the shape config documents already handle. **Blocking
-precondition, same as the `acl_membership` one above**, tracked in
-`BUGS.md`, not built in `onbod/` by this pass (out of this spec's
-territory this pass — the registration is `resreg/resources/`, the
-handler wiring is `onbod/`).
+**Pending onboarding admissions should be archived state, not rederived from
+the cursor — and are not, yet.** A route-missed message can queue a pending
+admission (`routd/loop.go`'s `routeMiss` → `onbod.InsertOnboarding`) and
+`routeMiss` unconditionally advances the cursor past it whether or not the
+insert succeeded — a deliberate fail-forward the live system relies on (a
+re-fed miss would replay forever). Setting `agent_cursor` on import
+reproduces that fail-forward on a restored instance: the message is marked
+seen, so it is never re-offered to `routeMiss`, so a pending admission not
+independently in the archive is gone for good — the person is neither in the
+queue nor going to message again. Rederiving by _not_ advancing the cursor
+was considered and rejected: the archive carries no "was this a route-miss"
+flag, and replaying against the target's own (possibly different) routing
+rules is nondeterministic, not a reconstruction.
+
+**This spec's earlier prescription — "register `onboarding` the same way
+`onboarding_gates` is and it rides this mechanism for free" — was wrong**
+(BUGS.md Z3, verified against the code): `onboarding.token` was a live
+PLAINTEXT bearer and the table has no folder scope, so a naive registration
+would have exported the bearer into `arizuko export` YAML AND nulled every
+live setup link on any wholesale rebuild. It now IS registered, after a
+hash-at-rest migration, with the bearer column omitted from `RowType`
+outright and `SkipApplyRebuild: true`
+(`resreg/resources/onboarding.go:95`) — which means it deliberately does not
+ride the config lane. Carrying admissions needs an archive-only
+value-carrying document plus its own UPSERT lane, the shape
+`ArchiveRouteTokenRow` (`resreg/archive.go:316`) already establishes.
+**Not built** (Status, item 4).
 
 ### Secret and token values
 
 **DECISION (2026-08-04, operator): encrypted secret blobs travel as-is.
-`SECRETS_KEY` never enters the archive. Import fails loud if the key on
-the target cannot decrypt.**
+`SECRETS_KEY` never enters the archive. Import fails loud if the key on the
+target cannot decrypt.**
 
 The stored form is already a plain string — `"v2:" + base64(nonce ||
-ciphertext)` (`store/secrets.go:21,35`; the column is `secrets.value`,
-renamed from `enc_value` — lineage comment `routd/migrations/0008-secrets.sql:5`)
-— trivially a YAML scalar, no new encoding needed. `routd.secrets.yaml`
-carries a row shape identical to the existing `SecretsRow`
-(`resreg/resources/secrets.go`) plus the `Value` field the config
-manifest deliberately omits ("Secret safety," below, unchanged for plain
-`export`).
+ciphertext)` (`store/secrets.go:21,35`) — trivially a YAML scalar, no new
+encoding needed. `routd.secrets.yaml` carries the `SecretsRow` shape plus
+the `Value` field the config manifest deliberately omits ("Secret safety"
+below, unchanged for plain `export`).
 
 Import is **UPSERT by `(scope_kind, scope_id, key)`, copying the column
-verbatim, never DELETE+INSERT** — `secrets` keeps `SkipApplyRebuild =
-true` even inside the archive path; a rebuild would wipe live blobs.
-`route_tokens`/`invites` hash-at-rest values UPSERT the same way, for the
-same reason "Tokens in manifests" (below) already forbids rebuilding
-credential material from an operator-edited manifest. Ordinary config
-`apply` is unaffected; only `archive apply` touches these columns.
+verbatim, never DELETE+INSERT** — `secrets` keeps `SkipApplyRebuild`
+(`resreg/resources/secrets.go:55`) even inside the archive path; a rebuild
+would wipe live blobs. `route_tokens`/`invites` hash-at-rest values UPSERT
+the same way, for the same reason "Tokens in manifests" (below) forbids
+rebuilding credential material from an operator-edited manifest. Ordinary
+config `apply` is unaffected; only `archive apply` touches these columns.
 
-**DECISION (cross-check pass, this revision): two corrections to the
-token half of this lane, both verified against the code, not assumed.**
+**`route_tokens` archives `kind='route'` only — pairing tokens are excluded
+entirely** (`RowFilter`, `resreg/resources/route_tokens.go:135`). Two
+independent reasons, either sufficient alone: (a) `route_tokens.owner_folder`
+is `TEXT NOT NULL` today
+(`routd/migrations/0001-initial-schema.sql:144`), but `5/31`'s
+onboarding→pairing fold plans making it nullable for greeting-originated
+links, and a `NULL` fails the generic scan into
+`RouteTokensRow.OwnerFolder string` the moment that migration lands;
+(b) pairing links are 10-minute single-use credentials, so archiving them has
+no DR value and reviving one is actively harmful.
 
-1. **`route_tokens` archives `kind='route'` only — pairing tokens
-   (`kind='pair'`) are excluded entirely.** Two independent reasons, either
-   sufficient alone: (a) `route_tokens.owner_folder` is `TEXT NOT NULL`
-   today (`routd/migrations/0001-initial-schema.sql:144`), but the
-   onboarding→pairing fold this spec's `31-identity-pairing.md` depends on
-   (`specs/5/31`, commit `709ea647`) plans making it nullable for
-   greeting-originated pairing links — the generic exporter scans every
-   row into `RouteTokensRow.OwnerFolder string` (`resreg/resources/route_tokens.go:15`,
-   `resreg/engine.go` `ScanAll`), and a `NULL` there fails the scan the
-   moment that migration lands. (b) Independent of (a): pairing links are
-   10-minute, single-use credentials — archiving them has no DR value, and
-   reviving one (below) is actively harmful. `archive export` filters the
-   `route_tokens` document to `kind='route'`; `archive apply`'s UPSERT
-   lane never writes a `kind='pair'` row.
-2. **The UPSERT lane can revive a revoked or consumed credential — this
-   was under-specified above.** `route_tokens` revocation and `invites`
-   revocation are both a literal `DELETE` (`routd/tokens.go`
-   `RevokeRouteTokens`, `routd/route_tokens_resource.go`
-   `revokeRouteTokenTx`, `onbod/invites_resource.go`'s invite DELETE) —
-   the row is gone from the live table, not flagged. The blob/hash itself
-   never leaks (archives hold hashes/ciphertext, not bearers), but
-   restoring a row whose bearer link still sits in someone's chat
-   scrollback makes that link valid again — a real access-control
-   regression, not a data-integrity one, so "UPSERT never deletes, hence
-   safe" (this section's original framing) was answering the wrong
-   question. **Fix: `route_tokens`/`invites` restore is OFF by default.**
-   `archive apply` skips these two documents' UPSERT step and reports what
-   it skipped, unless `--force` — the same override "Restoring onto a
-   populated instance" (below) already uses for the filesystem step, not a
-   third flag for a third concept — AND even with `--force` it refuses
-   unless the target's `route_tokens`/`invites` tables are already empty
-   (a proven-empty target, i.e. genuine DR onto a fresh instance, not a
-   merge or re-run that could clobber post-export revocations). `secrets`
-   is unaffected by this gate: a secret has no revoke-by-delete lifecycle
-   comparable to a redeemable link, and its own per-row keyring validation
-   (below) is the correctness gate for it.
+**The UPSERT lane can revive a revoked or consumed credential.**
+`route_tokens` and `invites` revocation are both a literal `DELETE` — the row
+is gone from the live table, not flagged. The bearer itself never leaks
+(archives hold hashes and ciphertext), but restoring a row whose bearer link
+still sits in someone's chat scrollback makes that link valid again: an
+access-control regression, so "UPSERT never deletes, hence safe" answered the
+wrong question. **Fix: `route_tokens`/`invites` restore is OFF by default.**
+`archive apply` skips these two documents' UPSERT step and reports what it
+skipped, unless `--force` — the same override the filesystem step uses, not a
+third flag for a third concept — AND even with `--force` refuses unless the
+target's `route_tokens`/`invites` tables are already empty (a proven-empty
+target: genuine DR onto a fresh instance, not a merge or a re-run that could
+clobber post-export revocations). `secrets` is exempt: it has no
+revoke-by-delete lifecycle comparable to a redeemable link, and its own
+per-row keyring validation is its correctness gate.
 
-**Fails loud, validating every row, using existing code, not new
-crypto — and no new exported decrypt surface.** `store.open()`
-(`store/secrets.go:41`) already tries every key in the configured
-keyring and returns an error if none authenticate — AES-GCM's tag check
-makes this a wrong-key detector for free. One DB can hold blobs sealed
-under different retired keys (a rotation mid-history), so a single probe
-row proves nothing about the rest: **`archive apply` validates every row
-in `routd.secrets.yaml` before writing any of them**, and refuses the
-whole secrets step (not the whole archive — config and messages proceed
-independently) on the first failure, naming the failing `(scope_kind,
-scope_id, key)` without echoing the value. `store.open` stays
-package-private — the CLI never gains a decrypt capability. The
-validate-and-import path is one method living in `store/` (same package
-as `secrets.go`) that calls the private `open()` per row internally and
-discards the plaintext; its exported surface is "validate and import a
-batch," never "decrypt and return."
+**Fails loud, validating every row, with existing code and no new exported
+decrypt surface.** `store.open()` (`store/secrets.go:41`) already tries every
+key in the configured keyring and errors if none authenticate — AES-GCM's tag
+check is a wrong-key detector for free. One DB can hold blobs sealed under
+different retired keys (a rotation mid-history), so a single probe row proves
+nothing about the rest: `ValidateAndImportSecrets` (`store/secrets.go:426`)
+validates every row before writing any of them, and refuses the whole secrets
+step — not the whole archive; config and messages proceed independently — on
+the first failure, naming the failing `(scope_kind, scope_id, key)` without
+echoing the value. `store.open` stays package-private, so the CLI never gains
+a decrypt capability: the exported surface is "validate and import a batch",
+never "decrypt and return".
 
 ### Group filesystem trees
 
 `groups/<folder>/` holds `PERSONA.md`, `skills/`, `.claude/` (session
 state), `MEMORY.md`, `.diary/`, `media/`, prototype content — everything
-`container.SetupGroup` (`container/runner.go:964`) writes when
-provisioning a group, plus everything the agent writes at runtime.
+`container.SetupGroup` (`container/runner.go:964`) writes when provisioning
+a group, plus everything the agent writes at runtime.
 
-**Carried: the whole tree, verbatim, as `groups.tar`.** **Regenerated:
+**Carried: the whole tree, verbatim, as `groups.tar`. Regenerated:
 nothing**, for a folder the archive actually has a tar entry for.
-`SetupGroup`'s job — `mkdir`, prototype copy, `.claude/skills` seeding,
-`chownR` — is fresh-provisioning behavior; a restored folder with real
-archived content is not fresh, and re-running that scaffold over it would
-silently overwrite `MEMORY.md`/`PERSONA.md`/skills with prototype
-defaults. `archive apply` skips the scaffold step for any folder present
-in `groups.tar` and extracts the tar in its place. **`onbod`'s
-`SetupGroup` stays the only provisioning code path** (root `CLAUDE.md`:
-"no parallel second path") — the existing "Apply is a restore, so
-filesystem prep follows the commit" section's rule (call `SetupGroup` for
-groups rows "lacking a complete on-disk dir") is unchanged and remains
-the fallback for a manifest-only apply, or for a folder the config
-manifest names but the archive's `groups.tar` doesn't cover (a narrower
-or older archive). Tar extraction is layered strictly _after_ that rule,
-never instead of it.
+`SetupGroup`'s job — `mkdir`, prototype copy, skills seeding, `chownR` — is
+fresh-provisioning behavior; a restored folder with real archived content is
+not fresh, and re-running that scaffold over it would silently overwrite
+`MEMORY.md`/`PERSONA.md`/skills with prototype defaults. `extractGroups`
+(`cmd/arizuko/archive.go:658`) skips the scaffold for any folder present in
+`groups.tar` and extracts the tar in its place. **`SetupGroup` stays the only
+provisioning code path** (root `CLAUDE.md`: "no parallel second path") — the
+"Apply is a restore" rule below is unchanged and remains the fallback for a
+manifest-only apply, or for a folder the config manifest names but
+`groups.tar` doesn't cover. Tar extraction is layered strictly _after_ that
+rule, never instead of it.
 
-Ordering, extending the existing "filesystem prep follows the commit"
-rule: config subsystem commits first (so every `groups` row exists), then
-filesystem restore proceeds per folder — which is also where the run-slot
-claim below applies, since extraction touches a live agent's own working
+Ordering: the config subsystem commits first (so every `groups` row exists),
+then filesystem restore proceeds per folder — which is also where the
+run-slot claim applies, since extraction touches a live agent's own working
 directory.
 
 ### Filesystem restore claims the folder's run slot
 
-Extracting a tar is not atomic, and a live agent can hold
-`groups/<folder>/` open — writing `MEMORY.md` mid-restore is a real
-collision, not a hypothetical. The question is how to keep a turn from
-starting _during_ that folder's extraction, and the answer is: **don't
-build a new lock. A filesystem restore runs as a run in the folder,
-claiming the folder's existing spawn slot.**
+Extracting a tar is not atomic, and a live agent can hold `groups/<folder>/`
+open — writing `MEMORY.md` mid-restore is a real collision, not a
+hypothetical. **DECISION: don't build a new lock. A filesystem restore runs
+as a run in the folder, claiming the folder's existing spawn slot.** Shipped
+as a GENERIC hold — `kind='hold'` + `POST /v1/holds` (`runed/hold.go`,
+`runed/migrations/0004-spawn-kind.sql`, the same idiom `route_tokens.kind`
+shipped for pairing). The restore is its first caller, not its definition.
 
-Shipped as a GENERIC hold, not a restore verb: `kind='hold'` +
-`POST /v1/holds`. The restore is its first caller, not its definition —
-see "What else the hold serves" at the end of this section.
+`runed.Manager` was already a claim-or-reject executor: the admission
+decision and spawn-row creation are one atomic critical section under `m.mu`
+with `GetActiveSpawn(folder)` as the exclusion (`admit`,
+`runed/manager.go:221`) — the exact mechanism behind "one live spawn per
+folder". Claiming that slot inherits four properties instead of building
+them:
 
-Verified against the code, not assumed: `runed.Manager.Run`
-(`runed/manager.go:92`) is already a claim-or-reject executor. The
-admission decision and spawn-row creation are one atomic critical section
-under `m.mu`, with `m.db.GetActiveSpawn(folder)` as the exclusion
-(`manager.go:109`) — two spawns for one folder are impossible by
-construction, verified: this is the exact mechanism `spawns` documents as
-"per-folder serialization (one live spawn per folder)"
-(`manager.go:24`). `spawns.container_name` is `TEXT NOT NULL`
-(`runed/migrations/0001-initial-schema.sql:22`) but carries no `CHECK` —
-`''` is a valid non-null value, so a containerless run needs no schema
-relaxation.
-
-Claiming that slot for a filesystem restore inherits four properties
-instead of building them:
-
-- **Exclusion.** No agent turn can start while the restore holds the
-  folder — same mechanism that already stops two agent turns from
-  overlapping.
-- **Backpressure.** A message arriving mid-restore finds `GetActiveSpawn`
-  non-nil and `m.steerFns[folder]` nil (a containerless run registers no
-  steer callback), so `Run` returns `Busy: true` and routd re-feeds from
-  its own DB-backed dispatch queue (`manager.go:112-125`) — nothing lost,
-  no new queueing logic.
-- **Wedge protection.** The existing `RunTTL` kill-deadline
-  (`manager.go`'s `spawn()`, "enforce runTTL as a kill-deadline") already
-  kills a run that overstays — the entire reason a separate lease/TTL
-  mechanism was floated and rejected.
+- **Exclusion.** No agent turn can start while the restore holds the folder —
+  the same mechanism that already stops two agent turns from overlapping.
+- **Backpressure.** A message arriving mid-restore finds the slot taken and
+  no steer callback registered (a containerless run registers none), so `Run`
+  returns `Busy` and routd re-feeds from its own DB-backed dispatch queue —
+  nothing lost, no new queueing logic.
+- **Wedge protection.** `spawn` (`runed/manager.go:298`) wraps `ctx` with the
+  `RunTTL` kill-deadline before calling whichever executor runs, so every
+  kind gets the ceiling by honoring ordinary `ctx` cancellation instead of
+  reimplementing a timer: an abandoned hold expires as `outcome=error` and
+  the folder frees itself. This is what made "wedge protection already
+  exists" true for a containerless kind rather than merely claimed, and it is
+  why a separate lease/TTL mechanism was rejected.
 - **Visibility.** It appears in `spawns`, so `dashd`'s runed page and the
-  operator already see it (`dashd/runed_page.go:54-90`).
+  operator already see it.
 
-**What shipped in `runed`**, in two commits, so "claim the slot" isn't
-hand-waved:
+Two design points worth keeping, because each was nearly decided the other
+way. **Holds get their own endpoint rather than a `kind` on `POST /v1/runs`**:
+`RunOutcome`'s pinned contract is "returned when the run completes", and
+`Hold` (`runed/manager.go:182`) executes detached and returns a handle
+immediately while `Run` (`:147`) executes inline to a turn boundary. `admit`
+was EXTRACTED from `Run`, not copied — one claim-or-reject implementation,
+two callers. **Release reuses `DELETE /v1/runs/{run_id}`** — a hold IS a run
+and `Kill` already dispatches by kind, so it needs no route of its own. The
+gate is `POST /v1/runs`' gate unchanged (`runs:run` plus folder containment;
+a folder-scoped caller must not pause another tenant's folder); release
+additionally needs `runs:kill`, which that route already demands.
 
-- **`spawns.kind TEXT NOT NULL DEFAULT 'agent'`** (`397bc16f`,
-  `runed/migrations/0004-spawn-kind.sql`) — the same idiom
-  `route_tokens.kind` shipped for pairing. `Spawn`/`RunRequest`/`RunSpec`
-  carry a `Kind` alongside the existing `Isolated`/`Elevated` precedent.
-  Every pre-existing row is an agent run; the column DEFAULT covers them,
-  and `routd` needed no change (it never reads `spawns`, only the
-  `RunRequest`/`RunOutcome` JSON contract).
-- **`Manager.Run`'s post-claim step dispatches by `kind`** (`397bc16f`) —
-  a lookup into `map[kind]Runtime`, where the executor IS the existing
-  `Runtime` interface, no new interface. `Kill`/`StopFolder` do the same
-  lookup off the spawn's recorded `kind`.
-- **`KindHold` and its executor** (`runed/hold.go`) — the containerless
-  kind. Its `Run` blocks until released or until `ctx` dies; its `Kill`
-  is the release. It registers no steer callback, which is what makes an
-  agent turn arriving mid-hold fall through to `Busy`.
-- **`POST /v1/holds` + `Manager.Hold`** — the wire contract an external
-  process needs. `admit()` was EXTRACTED from `Run`, not copied: one
-  claim-or-reject implementation, two callers. `Run` executes inline and
-  returns a turn-boundary outcome; `Hold` executes detached and returns
-  the handle immediately. That difference in response semantics is why
-  holds get their own endpoint rather than a `kind` on `POST /v1/runs` —
-  `RunOutcome`'s pinned contract is "returned when the run completes".
-  Release reuses `DELETE /v1/runs/{run_id}`; a hold IS a run, and `Kill`
-  already dispatches by kind, so it needs no route of its own. The gate is
-  `POST /v1/runs`' gate unchanged: `runs:run` plus folder containment — a
-  folder-scoped caller must not pause another tenant's folder. Releasing
-  additionally needs `runs:kill`, the scope that route already demands.
-- **`kind='agent'` scoping at four sites** (`397bc16f`), so a non-agent run
-  cannot harm the agent: `endRun`'s breaker update, the reset-on-new-inbound
-  at admission, the `MaxConcurrent` container cap (`ActiveAgentCount`, since
-  a containerless kind consumes no container), and `session_log`
-  bookkeeping (a hold has no agent session, the treatment `Isolated` runs
-  already get). `spawns.state`/`outcome`/`exit_code` still record a hold's
-  own success or failure — only the breaker's interpretation changes.
-- **The busy-branch steer attempt skips non-agent kinds** (`397bc16f`) —
-  otherwise a hold request would inject an empty batch into whatever turn
-  is live. A real bug, not a hypothetical.
-- **Wedge protection is armed at the shared dispatch site** (`397bc16f`):
-  `spawn()` wraps `ctx` with `context.WithTimeout(ctx, m.runTTL)` before
-  calling whichever executor runs, so every kind gets the RunTTL ceiling by
-  honoring ordinary `ctx` cancellation instead of reimplementing a timer.
-  This made "wedge protection already exists" TRUE for a containerless
-  kind rather than merely claimed: an abandoned hold expires as
-  `outcome=error` and the folder frees itself.
-- **Two races fixed at the cause**, both surfaced by tests rather than
-  reasoning. `Hold` hands back a releasable handle while the run's
-  goroutine is still starting, so (a) the hold executor creates its release
-  signal on first touch by EITHER `Run` or `Kill` — an immediate release
-  used to close a channel nobody had created and wedge the folder until
-  RunTTL — and (b) `StartSpawn` is guarded on `state='queued'`, because a
-  `DELETE` landing between the claim and the start flipped `'killed'` back
-  to `'running'`, resurrecting a terminal row. (b) is reachable for any
-  kind; only a hold makes it easy to hit.
+Non-agent kinds are scoped out of four agent-only sites — the breaker update,
+the reset-on-new-inbound at admission, the `MaxConcurrent` container cap (a
+containerless kind consumes no container), and `session_log` bookkeeping —
+and the busy-branch steer attempt skips them, otherwise a hold request would
+inject an empty batch into whatever turn is live. `spawns.state`/`outcome`/
+`exit_code` still record a hold's own success or failure; only the breaker's
+interpretation changes.
 
-**`dashd`'s runed page** hardcodes "Stop the agent currently working for
-%s" in its kill-confirm text (`dashd/runed_page.go`) — misleading for a
-hold. Small, independent fix, still open: read `kind` and vary the label.
+An earlier per-folder lease/TTL design and a per-folder "pause new dispatch"
+flag were both considered and rejected in favor of this. Neither is built.
+`groups.open` (`store/groups.go:238`) was checked as a candidate "pause
+admission" lever and rejected as a red herring: it is read _only_ by
+`dashd`'s admin page for cross-group sibling visibility (spec 6/F), never
+consulted by any dispatch or admission path — the `routd/db.go:228` comment
+calling it "ambient turn admission" is stale prose, not evidence of behavior.
+
+Still open: `dashd`'s runed page hardcodes "Stop the agent currently working
+for %s" in its kill-confirm text (`dashd/runed_page.go:77`) — misleading for
+a hold. Read `kind` and vary the label.
 
 #### What else the hold serves
 
-The reason to build this generically rather than as a restore verb: the
-next folder-exclusive job costs an executor, not a design. Three are
-already visible. A **`vacuum`** — SQLite maintenance or media/log pruning
-under `groups/<folder>/` — needs the same "no turn may write here right
-now" guarantee and nothing else. A **skill sync** that rewrites
+The reason to build this generically rather than as a restore verb: the next
+folder-exclusive job costs an executor, not a design. Three are already
+visible. A **vacuum** — SQLite maintenance or media/log pruning under
+`groups/<folder>/` — needs the same "no turn may write here right now"
+guarantee and nothing else. A **skill sync** rewriting
 `groups/<folder>/skills/` (the auto-migrate path, which today races a live
 agent exactly the way a restore does) is the same shape. A **per-folder
-migration** that rewrites on-disk state ahead of a version bump is the
-third. Each of these either takes a hold over HTTP if it runs out of
-process (the restore's path), or registers its own `kind` + executor if it
-runs inside `runed` and wants the work itself dispatched — the same admit
-step either way, with exclusion, backpressure, TTL and visibility already
-paid for. What none of them needs is a second lock.
+migration** rewriting on-disk state ahead of a version bump is the third.
+Each either takes a hold over HTTP if it runs out of process (the restore's
+path), or registers its own `kind` + executor if it runs inside `runed` — the
+same admit step either way, with exclusion, backpressure, TTL and visibility
+already paid for. What none of them needs is a second lock.
 
-The payoff, stated because it's the actual reason to do this instead of a
-bespoke lock: any future folder-exclusive job becomes a new `kind` with an
-executor, not a new mechanism with its own locking. This is the fourth
-application of the same principle in this spec: pairing's token-and-edge
-into one transaction (`route_tokens.kind`), config rollback via the export
-renderer, and now the hold onto the run slot — don't add coordination
-beside an existing serialization point, move onto it.
-
-An earlier per-folder lease/TTL design and a per-folder "pause new
-dispatch" flag were both considered and rejected in favor of this. Neither
-is built. `groups.open` (`store/groups.go:238-260`) was checked as a
-candidate "pause admission" lever and rejected as a red herring: it's read
-_only_ by `dashd`'s admin page for cross-group sibling visibility
-(spec 6/F), never consulted by any dispatch or admission path — the
-`routd/db.go:228` comment calling it "ambient turn admission" is stale
-prose, not evidence of behavior.
+This is the fourth application of one principle in this spec: pairing's
+token-and-edge in one transaction (`route_tokens.kind`), config rollback via
+the export renderer, and now the hold onto the run slot — **don't add
+coordination beside an existing serialization point, move onto it.**
 
 #### The CLI side: `archive apply` takes the hold
 
-`arizuko archive apply` claims each to-be-written folder's run slot
-between `extractGroups`' two passes — after the extract-or-skip decision,
-before the first byte lands — and releases every one when the filesystem
-step returns. Only folders actually written are held; pausing a folder
-whose tree is left alone would be gratuitous denial of service. The whole
-set is held for the whole write because pass 2 interleaves entries across
-folders, so no folder is provably finished until the pass is.
+`arizuko archive apply` claims each to-be-written folder's run slot between
+`extractGroups`' two passes — after the extract-or-skip decision, before the
+first byte lands — and releases every one when the filesystem step returns.
+Only folders actually written are held; pausing a folder whose tree is left
+alone would be gratuitous denial of service. The whole set is held for the
+whole write because pass 2 interleaves entries across folders, so no folder
+is provably finished until the pass is.
 
-An unreachable `runed` is FATAL. Proceeding unguarded is the exact race
-this section exists to prevent, so apply resolves the hold BEFORE opening
-the archive — a restore that cannot guard the filesystem step must not
-half-apply the config subsystems first — and dies naming both remedies:
-bring the instance up with `RUNED_URL` reachable, or stop it and pass
-`--stopped`. `--stopped` is the operator asserting no agent is running,
-the apply-side counterpart of export's `--quiesced`, and the only way to
-skip the claim. `RUNED_URL` is the var `routd` and `dashd` already use;
-`RUNED_TOKEN` is the bearer, unnecessary when `runed` runs in open mode.
+**An unreachable `runed` is FATAL.** Proceeding unguarded is the exact race
+this section exists to prevent, so apply resolves the hold BEFORE opening the
+archive — a restore that cannot guard the filesystem step must not half-apply
+the config subsystems first — and dies naming both remedies: bring the
+instance up with `RUNED_URL` reachable, or stop it and pass `--stopped`.
+`--stopped` is the operator asserting no agent is running, the apply-side
+counterpart of export's `--quiesced`, and the only way to skip the claim.
 
 ### The missing-group rule
 
-**One rule: a manifest apply refuses, before writing anything, if any
-row — in any subsystem document, through any reference shape (a declared
-FK, a `Resource.Scope`, or a per-resource `Hooks.ValidateRow` check) —
-names a folder that is not a `groups` row somewhere in the same subsystem
-document or already live in the target DB.**
+**One rule: a manifest apply refuses, before writing anything, if any row —
+in any subsystem document, through any reference shape (a declared FK, a
+`Resource.Scope`, or a per-resource `Hooks.ValidateRow` check) — names a
+folder that is not a `groups` row somewhere in the same subsystem document or
+already live in the target DB.** **Not built** (Status, item 1).
 
 This closes a real gap, not a hypothetical one. Two folder references are
 already real SQLite FKs and self-enforce today (`web_routes.folder`,
 `route_tokens.owner_folder`, both `REFERENCES groups(folder) ON DELETE
-CASCADE` — `routd/migrations/0001-initial-schema.sql:133,141`): apply's
-own transaction would fail on a dangling reference for these two,
-noisily, mid-write. But several folder-shaped references in this schema
-are deliberately string-typed with no FK ("FK posture," below —
-`acl.scope` glob, `routes.target` fragment, `scheduled_tasks.chat_jid`,
-`secrets.scope_id`) precisely because they aren't column-equal to a
-folder or are polymorphic — and SQLite catches none of those. Today an
-operator's typo in one of those fields creates a silently orphaned row
-instead of a validation error; a real DR restore that got a folder name
-wrong somewhere would find out only much later, by absence, not at apply
-time.
+CASCADE` — `routd/migrations/0001-initial-schema.sql:137,144`): apply's own
+transaction would fail on a dangling reference for those two, noisily,
+mid-write. But several folder-shaped references in this schema are
+deliberately string-typed with no FK ("FK posture", below) precisely because
+they aren't column-equal to a folder or are polymorphic — and SQLite catches
+none of those. Today an operator's typo in one of those fields creates a
+silently orphaned row instead of a validation error; a real DR restore that
+got a folder name wrong would find out only much later, by absence.
 
 The check reuses the existing scope machinery rather than inventing a
 parallel validator: for resources carrying a declared `Scope`,
-`manifestScopes` (`resreg/engine.go:339`) already extracts every folder
-the manifest touches for that resource — the same set already used to
-pick scoped-DELETE targets. For string-typed references `Scope` cannot
-capture (globs, fragments — the set "FK posture" (below) enumerates:
-`acl.scope`, `routes.target`, `scheduled_tasks.chat_jid`,
-`secrets.scope_id`), the check is a per-resource `Hooks.ValidateRow`
-— the existing, documented extension point for "validation beyond types"
-(`resreg/engine.go:34-60`'s `Hooks` doc comment), not new mechanism.
+`manifestScopes` (`resreg/engine.go:339`) already extracts every folder the
+manifest touches — the same set already used to pick scoped-DELETE targets.
+For string-typed references `Scope` cannot capture, the check is a
+per-resource `Hooks.ValidateRow` (`resreg/engine.go:55`), the existing
+documented extension point for "validation beyond types", not new mechanism.
 
 This does not touch or reopen "Group removal semantics" below (a manifest
-_silently omitting_ a group that already exists is a different, already-
-decided case) — this rule is specifically about a reference to a folder
-that was never a group at all.
+_silently omitting_ a group that already exists is a different,
+already-decided case) — this rule is specifically about a reference to a
+folder that was never a group at all.
 
 ### Restoring onto a populated instance
 
-Config apply was never dangerous here — it's CAS-checked, scoped, and its
-blast radius is exactly the rows the manifest mentions. The archive's
-non-config subsystems have four different risk profiles, and a populated
-target is where they diverge:
+Config apply was never dangerous here — CAS-checked, scoped, blast radius
+exactly the rows the manifest mentions. The archive's non-config subsystems
+diverge:
 
-- **Config:** unchanged risk. CAS'd DELETE+INSERT, blast radius exactly
-  the manifest's rows.
-- **Secrets:** UPSERT, always on — a secret has no revoke-by-delete
-  lifecycle a revival could reactivate; per-row keyring validation
-  ("Secret and token values," above) is its correctness gate.
-- **`route_tokens`(`kind='route'`)/`invites`: revival risk, gated
-  off by default.** Both are `SkipApplyRebuild` DELETE-to-revoke
-  credentials, verified against the code (above) — restoring a
-  deliberately-revoked row makes a still-circulating link valid again.
-  Skipped unless `--force`, and even then refused unless the target's
-  table is already empty (a proven-empty DR target). Pairing tokens
-  (`kind='pair'`) are never archived at all (above).
+- **Secrets:** UPSERT, always on. A secret has no revoke-by-delete lifecycle
+  a revival could reactivate; per-row keyring validation is its gate.
+- **`route_tokens`(`kind='route'`)/`invites`: revival risk, gated off by
+  default.** Skipped unless `--force`, and even then refused unless the
+  target's table is already empty. Pairing tokens are never archived at all.
 - **Message history:** safe by construction — `INSERT OR IGNORE` never
-  overwrites or deletes an existing row. Restoring an archive twice, or
-  onto an instance that already has some of the same history, converges
-  to the union.
+  overwrites or deletes an existing row. Restoring an archive twice, or onto
+  an instance that already has some of the same history, converges to the
+  union.
 - **Filesystem trees: the actual danger.** Extracting `groups.tar` onto a
-  folder that already has a non-empty `groups/<folder>/` tree overwrites
-  live content — whatever the current agent has written since the archive
-  was taken. **Rule: `archive apply` refuses a folder's filesystem step
-  (skips it, reports it, the folder's config/messages steps proceed
-  regardless) when the target tree is non-empty, unless `--force`** — the
-  same flag `apply --force` already uses to mean "override a built-in
-  safety refusal," not a second flag for a second concept. A genuinely
-  fresh/empty instance (the DR use case) needs no flag, because there's
-  nothing to clobber; a populated target (re-running an old archive,
+  folder that already has a non-empty tree overwrites live content — whatever
+  the current agent has written since the archive was taken. **Rule: `archive
+apply` refuses a folder's filesystem step (skips it, reports it; that
+  folder's config and messages steps proceed regardless) when the target tree
+  is non-empty, unless `--force`** — the same flag `apply --force` already
+  means "override a built-in safety refusal", not a second flag for a second
+  concept. A genuinely fresh instance (the DR case) needs no flag, because
+  there is nothing to clobber; a populated target (re-running an old archive,
   merging instances) requires the operator to say so explicitly. The
-  per-folder run-slot claim above still applies regardless of `--force` —
-  it's about _not corrupting a tar mid-extraction while a turn is live_,
-  a different hazard than _overwriting the tree's prior contents on
-  purpose_.
+  per-folder run-slot claim applies regardless of `--force` — not corrupting
+  a tar mid-extraction while a turn is live is a different hazard from
+  overwriting the tree's prior contents on purpose.
 
 ### Cross-instance portability
 
 **JIDs and folder paths travel verbatim — nothing is rewritten.**
 `messages.chat_jid`, `route_tokens.jid`, `scheduled_tasks.chat_jid` stay
-bound to the _source_ instance's channel credentials (a specific
-WhatsApp number, a specific Telegram bot token); a restored chat won't
-resume routing until the same external account is reconnected on the
-target. No FK enforces these, so nothing breaks on import — it's an
-operational fact, not a data bug, and there is no correct rewrite target
-without operator input. Same reasoning covers `WEB_HOST` (never embedded
-in a row — read from the environment at call sites, so there's nothing
-to rewrite) and already-issued token/pairing URLs (the `WEB_HOST` a
-recipient already has is baked in at mint time, not stored, so the URL
-breaks on restore even though the token row itself imports fine).
-`SECRETS_KEY` never travels (above), for the same class of reason:
-cross-instance secrets restore needs the operator to carry the key
+bound to the _source_ instance's channel credentials (a specific WhatsApp
+number, a specific Telegram bot token); a restored chat won't resume routing
+until the same external account is reconnected on the target. No FK enforces
+these, so nothing breaks on import — it's an operational fact, not a data
+bug, and there is no correct rewrite target without operator input. Same
+reasoning covers `WEB_HOST` (never embedded in a row — read from the
+environment at call sites, so there is nothing to rewrite) and already-issued
+token/pairing URLs (the `WEB_HOST` a recipient already has is baked in at
+mint time, not stored, so the URL breaks on restore even though the token row
+itself imports fine). `SECRETS_KEY` never travels, for the same class of
+reason: cross-instance secrets restore needs the operator to carry the key
 out-of-band.
 
 **Refuse an older target binary; don't try to translate for it.**
-`archive.yaml` stamps `format_version: N` — a small integer bumped only
-when an archive document's shape changes, independent of `arizuko`'s
-release tags. `archive apply` refuses outright when the archive's
-`format_version` exceeds the target binary's compiled-in
-`resreg.ArchiveFormatVersion`: failing loud beats silently ignoring
-fields an older binary doesn't know about.
+`archive.yaml` stamps `format_version: N` — a small integer bumped only when
+an archive document's shape changes, independent of `arizuko`'s release tags.
+`archive apply` refuses outright when it exceeds the target binary's
+compiled-in `resreg.ArchiveFormatVersion` (`resreg/archive.go:25`): failing
+loud beats silently ignoring fields an older binary doesn't know about.
 
 ## Apply is a restore, so filesystem prep follows the commit
 
 Group filesystem state (skills, `.claude/`, prototype) is **eventually
-consistent with the DB** — filesystem ops cannot join a SQLite tx. After
-the config tx commits, `apply` calls `container.SetupGroup(folder)` for
-every group row lacking a complete on-disk dir. A failed `SetupGroup`
-surfaces as an apply error, never swallowed: a row without its dir makes
-routing `docker run` against a missing path and exit 125. `arizuko repair`
-re-runs the prep alone, idempotently. Direct `mkdir` of a group is
-forbidden (CLAUDE.md). For `archive apply`, this rule is unchanged and
-stays the fallback; a folder the archive actually has a `groups.tar`
-entry for skips the scaffold and extracts the tar instead ("Group
-filesystem trees," above).
+consistent with the DB** — filesystem ops cannot join a SQLite tx. After the
+config tx commits, `apply` calls `container.SetupGroup(folder)` for every
+group row lacking a complete on-disk dir. A failed `SetupGroup` surfaces as
+an apply error, never swallowed: a row without its dir makes routing `docker
+run` against a missing path and exit 125. `arizuko repair` re-runs the prep
+alone, idempotently. Direct `mkdir` of a group is forbidden (CLAUDE.md). For
+`archive apply` this rule is unchanged and stays the fallback; a folder with
+a `groups.tar` entry skips the scaffold and extracts the tar instead.
 
-Removing a group from the manifest deletes its row but **not** its
-directory; `arizuko group purge <folder>` does full removal.
+Removing a group from the manifest deletes its row but **not** its directory;
+`arizuko group purge <folder>` does full removal.
 
 ## Group removal semantics
 
@@ -969,64 +745,56 @@ Cleared in the DELETE tx — live refs that would silently misroute if left
 dangling: `chats.sticky_group`, `chat_reply_state.engaged_folder`,
 `group_watchers` (either side), `router_state` cached pointers.
 
-Left intact, keeping the orphaned folder string for forensics:
-`messages`, `audit_log`, `cost_log`, `secret_use_log`, `task_run_logs`.
+Left intact, keeping the orphaned folder string for forensics: `messages`,
+`audit_log`, `cost_log`, `secret_use_log`, `task_run_logs`.
 
-Full erasure is `arizuko group purge <folder>` — intentionally imperative
-and destructive in a way YAML apply is not. `plan` warns on group removal,
-naming the routing rows cleared and the history rows stranded.
+Full erasure is `arizuko group purge <folder>` — intentionally imperative and
+destructive in a way YAML apply is not. `plan` warns on group removal, naming
+the routing rows cleared and the history rows stranded.
 
 ## Tokens in manifests
 
 **DECISION: a resource whose PK is a system-generated secret must never be
 rebuilt from a manifest.** A full rebuild would wipe live tokens; preserving
 them would need either secret values in YAML or a name-indirection layer —
-both disproportionate. Tokens stay imperative (`arizuko invite …`,
-`arizuko token …`); their mutations still write an audit row. Under the
-content-hash CAS (above) they need no counter bump either — the hash is
-recomputed fresh from live rows at the next export/apply, not advanced
-incrementally, so a token mutation between two config applies is simply
-reflected the next time either side reads the DB.
+both disproportionate. Tokens stay imperative (`arizuko invite …`, `arizuko
+token …`); their mutations still write an audit row. Under the content-hash
+CAS they need no counter bump either — the hash is recomputed fresh from live
+rows, so a token mutation between two config applies is simply reflected the
+next time either side reads the DB.
 
-`archive apply` does not reopen this: its secrets/tokens UPSERT lane
-("Secret and token values," above) is a _different_ codepath from config
-`apply`'s DELETE+INSERT, added specifically because it never rebuilds —
-it only ever adds or matches an existing row by PK. Ordinary `arizuko
-apply` on a hand-edited manifest is completely unaffected by the archive
-work and still never touches these columns.
+Enforced by `SkipApplyRebuild` on `secrets`
+(`resreg/resources/secrets.go:55`), `route_tokens`
+(`resreg/resources/route_tokens.go:128`), `invites`
+(`resreg/resources/invites.go:60`) and `onboarding`
+(`resreg/resources/onboarding.go:95`).
 
-<!-- VERIFIED 2026-08-02: the code only half-honours this. `route_tokens`
-     sets SkipApplyRebuild (resreg/resources/route_tokens.go:111), but
-     `invites` does NOT (resreg/resources/invites.go:36-44) — it carries a
-     RowType with no skip, so Apply's loop (resreg/engine.go:523) would
-     DELETE+INSERT live invite tokens, and Export emits the raw bearer.
-     Inert only because the CLI still targets the frozen messages.db.
-     `invites` needs SkipApplyRebuild before any export/apply ships.
-     Also tracked as a 5/20 blocker. -->
+`archive apply` does not reopen this: its secrets/tokens UPSERT lane is a
+_different_ codepath from config `apply`'s DELETE+INSERT, added specifically
+because it never rebuilds — it only ever adds or matches an existing row by
+PK. Ordinary `arizuko apply` on a hand-edited manifest still never touches
+these columns.
 
 Deferred: v2 encrypted token export (operator-supplied key, `token:
-'enc:AES-GCM:<b64>'`) for the _config_ manifest specifically — superseded
-in spirit by the archive's as-is UPSERT lane above, which now covers this
-need for the full-backup case; the config-manifest-only path stays
-metadata-only.
+'enc:AES-GCM:<b64>'`) for the _config_ manifest specifically — superseded in
+spirit by the archive's as-is UPSERT lane, which covers this need for the
+full-backup case; the config-manifest-only path stays metadata-only.
 
 ## Config vs runtime tables
 
-Two table classes by **documentation discipline** — no prefixes, no
-separate files, just a rule about which class owns which table. Config
-tables are operator-authored cold-tier intent; runtime tables are
-system-generated record. The canonical membership list is the set of
-registered resources (`resreg/resources/*.go`), not a table here.
+Two table classes by **documentation discipline** — no prefixes, no separate
+files, just a rule about which class owns which table. Config tables are
+operator-authored cold-tier intent; runtime tables are system-generated
+record. The canonical membership list is the set of registered resources
+(`resreg/resources/*.go`), not a table here.
 
 Rules that must be upheld:
 
 1. `apply` writes only config tables. **One named exception:** removing a
-   `groups` row clears that group's routing side-channels in the same tx
-   (above).
+   `groups` row clears that group's routing side-channels in the same tx.
 2. Runtime tables are never bulk-DELETEd — only by explicit retention/purge.
-   The archive's message-history import is additive-only (`INSERT OR
-IGNORE`), so it doesn't violate this rule; it was never a DELETE+INSERT
-   consumer of the resreg engine to begin with.
+   The archive's message import is additive-only (`INSERT OR IGNORE`), so it
+   doesn't violate this; it was never a DELETE+INSERT consumer of the engine.
 3. Cross-class JOINs are expected (dashd, reporting). The split is a
    write-discipline boundary, not a query boundary.
 4. No new table joins the config class without a `resreg.Resource`. A table
@@ -1035,8 +803,8 @@ IGNORE`), so it doesn't violate this rule; it was never a DELETE+INSERT
    indexed read is cheaper than any cache invalidation, and an in-memory
    config cache creates a stale-read window that makes apply semantics
    undefined. The one allowed cache is
-   `sync.Map[backendURL]*httputil.ReverseProxy` — it caches connections,
-   not config rows; the row that picked the URL is re-read per request.
+   `sync.Map[backendURL]*httputil.ReverseProxy` — it caches connections, not
+   config rows; the row that picked the URL is re-read per request.
    (Shipped: proxyd's `routesResource` mutex+snapshot is gone —
    `proxyd/resource.go:5`.)
 
@@ -1046,33 +814,32 @@ snapshot isolation during the tx.
 
 ## Round-trip honesty
 
-`get`/`export` must emit a fragment that re-applies to a no-op — exact
-shape `apply` accepts, no extra or omitted fields, no reordering.
+`get`/`export` must emit a fragment that re-applies to a no-op — exact shape
+`apply` accepts, no extra or omitted fields, no reordering.
 
 **Canonical key order is mandatory** (Go map iteration is
 non-deterministic): group folders lexicographically, then global resource
 keys lexicographically; within a group, catalog order; within a list, rows
-sorted by PK. Two consecutive exports must be byte-identical on an
-unchanged DB or file hashing and git diffs break — and the content-hash
-CAS above depends on exactly this guarantee holding.
+sorted by PK. Two consecutive exports must be byte-identical on an unchanged
+DB or file hashing and git diffs break — and the content-hash CAS above
+depends on exactly this guarantee holding.
 
 ## Secret safety
 
-Secret blobs never appear in the **config manifest's** YAML (metadata
-only), `plan` output (shown as set/unset), error payloads, or audit rows.
-`secrets` carries `SkipApplyRebuild` (`resreg/resources/secrets.go:54`) so
-config `apply` validates and diffs the metadata but never DELETE+INSERTs
-— a rebuild would wipe the imperatively-set blob. Setting one outside the
-archive path is a separate operator command, `arizuko secret set`. Trust
-boundary unchanged from [`9/2` "Entity notes worth keeping"](../9/2-data-model.md#entity-notes-worth-keeping).
+Secret blobs never appear in the **config manifest's** YAML (metadata only),
+`plan` output (shown as set/unset), error payloads, or audit rows. `secrets`
+carries `SkipApplyRebuild` (`resreg/resources/secrets.go:55`) so config
+`apply` validates and diffs the metadata but never DELETE+INSERTs — a rebuild
+would wipe the imperatively-set blob. Setting one outside the archive path is
+a separate operator command, `arizuko secret set`. Trust boundary unchanged
+from [`9/2` "Entity notes worth keeping"](../9/2-data-model.md#entity-notes-worth-keeping).
 
-This guarantee is specifically about `arizuko export`/`apply`/`get`/`plan`
-— the config manifest. `archive export`/`apply` is a **different,
-narrower-audience artifact** (`routd.secrets.yaml`, above) that exists
-precisely to carry the value, under the as-is/UPSERT rule decided for it.
-An operator who only ever runs the config verbs never produces or
-consumes a file containing a secret value; only `archive` does, and it
-says so in its own filename.
+This guarantee is specifically about `arizuko export`/`apply`/`get`/`plan` —
+the config manifest. `archive export`/`apply` is a **different,
+narrower-audience artifact** (`routd.secrets.yaml`) that exists precisely to
+carry the value, under the as-is/UPSERT rule decided for it. An operator who
+only ever runs the config verbs never produces or consumes a file containing
+a secret value; only `archive` does, and it says so in its own filename.
 
 Folder-scoped secrets infer the folder from group nesting and declare only
 `key:`; user-scoped ones add an explicit `user:` — the same
@@ -1086,80 +853,73 @@ table-shaped cold-tier rows (operator intent). Markdown carries prose
 `PRODUCT.md`) — agent context living in the group directory, never manifest
 rows, never referenced from YAML, never content-hashed in the DB. The
 archive's message history is neither — an unbounded immutable event log —
-which is exactly why it gets its own JSONL lane instead of being forced
-into one side of this rule.
+which is exactly why it gets its own JSONL lane instead of being forced into
+one side of this rule.
 
 ## Status is not in the manifest
 
 A dump carries cold-tier config rows only; live state is read by `arizuko
-get`. Dumps never carry `status:` / `applied_at:` / `last_error:` — the
-same spec/status boundary `kubectl` draws. `archive.yaml` is the one
-exception by design — it exists specifically to record the archive's own
-consistency level and snapshot timestamps ("Consistency levels," above),
-because an archive that doesn't say how live it is cannot be restored
-responsibly.
+get`. Dumps never carry `status:` / `applied_at:` / `last_error:` — the same
+spec/status boundary `kubectl` draws. `archive.yaml` is the one exception by
+design: it exists specifically to record the archive's own consistency level
+and snapshot timestamps, because an archive that doesn't say how live it is
+cannot be restored responsibly.
 
 ## FK posture
 
-**FKs are ON globally** (`store/store.go` sets `PRAGMA foreign_keys=ON`).
+**FKs are ON globally** — the pragma rides the DSN, because
+`modernc.org/sqlite` defaults them off per connection (`store/store.go:96`).
 Three FKs are declared and self-enforce, all CASCADE: `task_run_logs →
-scheduled_tasks` (0011), `web_routes.folder → groups` (0068),
-`route_tokens.owner_folder → groups` (0069).
+scheduled_tasks` (`routd/migrations/0009-tasks.sql:25`), `web_routes.folder →
+groups` and `route_tokens.owner_folder → groups`
+(`routd/migrations/0001-initial-schema.sql:137,144`).
 
-Everything else cross-table is **intentionally string-typed — no FK**,
-so SQLite catches none of it. That gap is exactly what "The missing-group
-rule" (above) closes for archive/manifest restore; the string-typed set
-it must validate: `acl.principal`/`acl.scope`/`acl_membership`
-(polymorphic), `secrets.scope_id` (polymorphic by `scope_kind`),
-`scheduled_tasks.chat_jid`, `routes.target` (not column-equal to a
-folder), `network_rules.folder=''` (instance-global rows a FK would
-reject). `messages`/`audit_log`/`cost_log` reference folders too but are
-left dangling on group delete, deliberately, for forensics — see "Group
-removal semantics" for the routing-state tables that DO get cleared
-instead.
+Everything else cross-table is **intentionally string-typed — no FK**, so
+SQLite catches none of it. That gap is exactly what "The missing-group rule"
+closes for archive/manifest restore; the string-typed set it must validate:
+`acl.principal`/`acl.scope`/`acl_membership` (polymorphic),
+`secrets.scope_id` (polymorphic by `scope_kind`), `scheduled_tasks.chat_jid`,
+`routes.target` (not column-equal to a folder), `network_rules.folder=''`
+(instance-global rows a FK would reject). `messages`/`audit_log`/`cost_log`
+reference folders too but are left dangling on group delete, deliberately,
+for forensics — see "Group removal semantics" for the routing-state tables
+that DO get cleared instead.
 
-Implementation constraint: standard Go idioms only — `reflect`, struct
-tags, `database/sql`, `gopkg.in/yaml.v3`, `encoding/json`. No DSLs, no
-codegen, no third-party ORMs.
+Implementation constraint: standard Go idioms only — `reflect`, struct tags,
+`database/sql`, `gopkg.in/yaml.v3`, `encoding/json`. No DSLs, no codegen, no
+third-party ORMs.
 
 ## Cross-refs
 
 - [`17-openapi-mcp.md`](17-openapi-mcp.md) — the transport half of
-  `resreg.Resource` (REST + MCP faces this tool talks to), and, as of
-  this pass, sole owner of OpenAPI emission (moved out of this spec —
-  redundant with root `CLAUDE.md` "Discoverability" and 17's own
-  handler/declaration-drift caveat).
+  `resreg.Resource` (REST + MCP faces this tool talks to), and sole owner of
+  OpenAPI emission.
 - [`16-mcp-rest-unification.md`](16-mcp-rest-unification.md) — the owner-DB
-  map the CLI must be repointed to (Phase 2 below). Its `config_meta`
-  references are stale against this spec's content-hash CAS — needs a
-  follow-up edit so the two specs agree; flag for operator sign-off
-  before that edit ships, per root `CLAUDE.md`'s "redesigns need
-  sign-off" rule.
-- [`P-runed.md`](P-runed.md) — owns the run/spawn admission model this
-  spec's filesystem-restore mechanism extends with a `kind` dispatch; that
-  prose's long-term home once built.
+  map. Its `config_meta` references are stale against this spec's
+  content-hash CAS — needs a follow-up edit so the two specs agree; flag for
+  operator sign-off before that edit ships, per root `CLAUDE.md`'s "redesigns
+  need sign-off" rule.
+- [`P-runed.md`](P-runed.md) — owns the run/spawn admission model the
+  filesystem-restore hold extends with a `kind` dispatch; that prose's
+  long-term home.
 - [`../9/2-data-model.md`](../9/2-data-model.md) — cold/warm/hot tier
-  boundary; grounds why messages and secrets get different archive
-  treatment than config.
-- `../9/3-git-as-truth.md` — **reframed, not
-  adopted** (see lead DECISION); unedited.
-- `../9/4-data-ingestion-curation-eventing.md`
-  — Q2/Q5 open; extend the resource set when they resolve.
+  boundary; grounds why messages and secrets get different archive treatment
+  than config.
 - [`5-worlds-agents-sessions.md`](5-worlds-agents-sessions.md) — Phase C
   secret layering composes with the `secrets` resource.
 - [`31-identity-pairing.md`](31-identity-pairing.md) — precedent for
-  "co-locate what must be atomic" (`route_tokens.kind`), cited above as
-  the principle this spec keeps reapplying; also two blocking
-  preconditions this spec now depends on (`acl_membership`
-  `added_by='pairing'` exclusion, `route_tokens` `kind='route'`-only
-  archival) and one forward risk (`owner_folder` going nullable per the
-  onboarding→pairing fold, `709ea647`) — all above, tracked in `BUGS.md`.
+  "co-locate what must be atomic" (`route_tokens.kind`); source of the
+  `added_by='pairing'` exclusion and the `kind='route'`-only archival rule
+  above, plus one forward risk (`owner_folder` going nullable per the
+  onboarding→pairing fold, `709ea647`).
 
 ## Pointers
 
 - Engine: `resreg/engine.go`, `resreg/openapi.go`, `resreg/README.md`
 - Resource declarations: `resreg/resources/*.go`
+- Archive primitives: `resreg/archive.go`, `store/secrets.go`
+  (`ExportSecretRows`/`ValidateAndImportSecrets`)
 - Config CLI: `cmd/arizuko/apply.go`
-- Archive CLI (unbuilt): `cmd/arizuko/archive.go`
-- Run admission (unbuilt `kind` dispatch): `runed/manager.go`,
-  `runed/runtime.go`, `runed/api/v1/types.go`
+- Archive CLI: `cmd/arizuko/archive.go`
+- Run admission + hold: `runed/manager.go`, `runed/hold.go`,
+  `runed/api/v1/types.go`
