@@ -97,7 +97,7 @@ func (s *Store) PatchTask(id, status, nextRun string) error {
 }
 
 // RemoveTask deletes one task WITHOUT emitting an audit_log row — the audit-free
-// twin of DeleteTask for an audit_log-less DB (routd.db). Backs cancel_task.
+// twin of DeleteTask.
 func (s *Store) RemoveTask(id string) error {
 	_, err := s.db.Exec(`DELETE FROM scheduled_tasks WHERE id = ?`, id)
 	return err

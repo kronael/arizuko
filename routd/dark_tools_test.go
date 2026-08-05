@@ -79,7 +79,7 @@ func callToolArray(t *testing.T, sock, name string, args map[string]any) ([]any,
 
 // seedTask seeds one task into routd's OWN routd.db — routd OWNS scheduled_tasks
 // (migration 0009), so reads/writes go there, not a sibling messages.db. Uses
-// the audit-free PutTaskRow (routd.db has no audit_log table).
+// the audit-free PutTaskRow: this is test seeding, not an act to record.
 func seedTask(t *testing.T, d *DB, id, owner, jid, prompt string) {
 	t.Helper()
 	if err := store.New(d.SQL()).PutTaskRow(core.Task{

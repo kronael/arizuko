@@ -55,9 +55,10 @@ func (s *Store) PutGroup(g core.Group) error {
 }
 
 // PutGroupRow upserts a group identity row WITHOUT emitting an audit_log row —
-// the audit-free twin of PutGroup for an audit_log-less DB (routd.db, which OWNS
-// groups in the split topology — spec 5/5). Mirrors PutGroup's column set so the
-// host-admin CLI writes the same shape dashd/onbod write.
+// the audit-free twin of PutGroup, for the CLI `group add`, which records the
+// act itself with auditCLI; a second row would double-count one creation.
+// Mirrors PutGroup's column set so the host-admin CLI writes the same shape
+// dashd/onbod write.
 func (s *Store) PutGroupRow(g core.Group) error {
 	cfgJSON, _ := json.Marshal(g.Config)
 	product := g.Product
@@ -82,8 +83,8 @@ func (s *Store) PutGroupRow(g core.Group) error {
 }
 
 // DeleteGroupRow removes a group without an audit row — the audit-free twin of
-// DeleteGroup, for callers writing to routd.db (which has no audit_log table),
-// mirroring PutGroupRow. The CLI `group rm` uses it post-split.
+// DeleteGroup, mirroring PutGroupRow. Its one caller, the CLI `group rm`,
+// records the act itself with auditCLI.
 func (s *Store) DeleteGroupRow(folder string) error {
 	_, err := s.db.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
 	return err
