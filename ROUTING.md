@@ -193,10 +193,11 @@ folder, `verb=mention` → trigger turn.
 
 ### Autoviv (auto-create groups from routing)
 
-A tier-1 agent with operator grant can call `register_group` when an
-unrouted JID arrives, atomically creating a child folder + high-prio
-route. No core mechanism — just routes + MCP composing. See
-`template/web/pub/concepts/autoviv.html`.
+An agent holding `mcp:register_group` — scoped to the subtree it may
+create under — can call it when an unrouted JID arrives, atomically
+creating a child folder + high-prio route. The grant is delegated, never
+implied by where the agent sits. No core mechanism — just routes + MCP
+composing. See `template/web/pub/arizuko/concepts/autoviv.html`.
 
 ### Example: Discord guild mention-only
 
@@ -558,7 +559,7 @@ A concrete walkthrough from user message to agent reply.
 
 ```
 Instance: krons
-Groups: atlas (root), atlas/content (tier 2), atlas/social (tier 2)
+Groups: atlas (world), atlas/content, atlas/social
 Routes (in routes table):
   seq=0  match='platform=telegram'  target=atlas
 

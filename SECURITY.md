@@ -70,14 +70,12 @@ _target_ folder — the tenant whose turns fire, or whose task is
 cancelled — so their shared handler (agent MCP tool + operator REST
 `/v1/routes`, `/v1/tasks`) binds every target to the caller's folder
 before mutating. Containment is an injected per-face predicate: the agent
-socket applies the tier model (`auth.AuthorizeStructural`), the operator
-REST face own-or-descendant folder containment (`ownsFolder`,
-tier-independent). A folder-scoped REST operator is thus confined to its
-own subtree — it cannot re-target or cancel another tenant's routes or
-tasks. A prior gap, where the REST task fold baked the agent tier cap into
-the handler (looser than folder containment — a top-level operator could
-delete any tenant's task), was closed by decoupling containment into that
-per-face predicate (`0d25b687`).
+socket resolves the target against the caller's `acl` rows
+(`db.Authorize(sub, folder, "mcp:"+tool, params)` — the grant's scope
+glob IS its containment), the operator REST face applies own-or-descendant
+folder containment (`ownsFolder`). A folder-scoped REST operator is thus
+confined to its own subtree — it cannot re-target or cancel another
+tenant's routes or tasks.
 
 ## Boundaries
 
@@ -94,7 +92,7 @@ per-face predicate (`0d25b687`).
 | Chat identity relay | proxyd stamps `X-Folder` and proves channel via ES256 `service:proxyd` bearer; webd verifies via `auth.ProxydTransit`                                                                                                                                                                                                                         | `proxyd/main.go`, `webd/server.go` (`auth.ProxydTransit`)                                                |
 | Authn               | GitHub / Google / Discord / Telegram OAuth → JWT (1h) + refresh (30d)                                                                                                                                                                                                                                                                         | `auth/web.go`, `auth/oauth.go`                                                                           |
 | Login throttle      | 5 POST `/auth/login` per IP per 15min, in-memory                                                                                                                                                                                                                                                                                              | `auth/web.go`                                                                                            |
-| Authz               | Unified `acl` + `acl_membership` → `auth.Authorize`; `grants.CheckAction` for per-tool param gating                                                                                                                                                                                                                                           | `auth/authorize.go`, `grants/`                                                                           |
+| Authz               | Unified `acl` + `acl_membership` → `auth.Authorize`; a row's `params` predicates do per-tool arg gating; `auth.Delegate` bounds re-delegation to a subset of rows held WITH GRANT OPTION                                                                                                                                                      | `auth/authorize.go`, `auth/delegate.go`, `auth/acl.go`                                                   |
 | Channel ingress     | ES256 service token (`AUTHD_SERVICE_KEY`); adapter exchanges key for `service:<daemon>` JWT on startup, presents bearer on every routd call; docker-network only                                                                                                                                                                              | `chanlib/run.go`, `chanlib/chanlib.go` (`bearer`)                                                        |
 | Slack webhook       | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew                                                                                                                                                                                                               | `slakd/bot.go` (verify), `template/services/slakd-routes.json` (route), `slakd/README.md` § Threat model |
 | Email sender auth   | DMARC via pinned `Authentication-Results` authserv-id + operator allowlist; fail → `verb=untrusted`, never promoted to `mention`                                                                                                                                                                                                              | `emaid/imap.go`, spec 10/17                                                                              |
@@ -239,9 +237,11 @@ which runs on both the internal network and the project default bridge.
 - Default seed: `anthropic.com`, `api.anthropic.com`. Operators add
   rules via `arizuko network <instance> allow <folder> <target>`.
 - Unknown source IP or unmatched host → connection closed silently.
-- Egress wildcard (`"*"`) is appended only for tier ≤ 1 agents.
-  Tier-2 agents are not granted the wildcard; they are subject to the
-  per-folder allowlist like any other tier.
+- Egress wildcard (`"*"`) is appended only when the folder holds the
+  `egress` grant, or the turn is an elevated `/root` turn
+  (`routd/dispatch.go` → `RunRequest.Egress` → `container.Input.EgressOpen`).
+  Without that grant a folder stays on the per-folder allowlist, whatever
+  its depth — `role:member`, the default, does not carry it.
 
 Caveats:
 

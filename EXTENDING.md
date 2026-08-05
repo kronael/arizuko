@@ -412,15 +412,16 @@ The public doc site at `/pub/` is plain HTML copied verbatim from
 conventions (breadcrumbs, prose container, `hub.css` + `hub.js`) and
 the site layout (products / components / reference / howto / security)
 live in `template/web/CLAUDE.md`. Operator-facing positioning page:
-`template/web/pub/security/index.html`.
+`template/web/pub/arizuko/security/index.html`.
 
 ## Inspect tools
 
 Read-only MCP introspection family, registered in `ipc/inspect.go`:
 `inspect_messages`, `inspect_routing`, `inspect_tasks`,
 `inspect_session`, `inspect_identity`. Delegate to `store.*` accessors; no destructive
-operations (those stay in `control_*`). Tier 0 sees all instances; tier
-≥1 is scoped to its own folder subtree. Extend by adding a handler to
+operations (those stay in `control_*`). A `/root`-elevated turn
+(`auth.Identity.IsRoot`) sees every folder; an ordinary turn is scoped to
+its own folder subtree. Extend by adding a handler to
 `registerInspect` and wiring a fn into `ipc.StoreFns`.
 
 `find_messages` (registered in `ipc/ipc.go`, backed by
@@ -524,20 +525,31 @@ Adding one:
 
 Skill body shape: see `ant/skills/oracle/SKILL.md` as the reference.
 
-## Permission tiers
+## Permissions
 
-Folder-depth model. Tier = `min(folder.split("/").length, 3)`, except
-`root` = 0. Path is identity; depth picks the tier slot.
+Capability comes from `acl` rows, never from where a folder sits. A path
+is a routing target, JID prefix, container home, and web vhost — depth
+means nothing to authorization.
 
-| Tier | Depth | Example             |
-| ---- | ----- | ------------------- |
-| 0    | 0     | `root`              |
-| 1    | 1     | `atlas`             |
-| 2    | 2     | `atlas/support`     |
-| 3+   | 3+    | `atlas/support/web` |
+Every folder is bound to `role:member` at create, carrying the messaging
+verbs. Everything beyond that (`register_group`, `routes`, `network_*`,
+`schedule_*`, `observe_*`, `invite_*`, token mint, `acl`) is an explicit
+row someone delegated. `role:operator` holds `*` on `**` WITH GRANT
+OPTION and roots every chain; a principal may delegate onward only rows
+it holds, and only those it holds WITH GRANT OPTION — so authority
+strictly decreases (`auth.Delegate`). Root is a grant the operator
+invokes with `/root`, not a folder.
 
-Suggested human labels per depth (`world / org / branch / unit /
-thread`) live in `ant/CLAUDE.md` — advisory only, the system reads
-paths, not labels. No inheritance, no escalation, no custom tiers.
+To gate a new action: pick an action name (`mcp:<tool>` for MCP tools),
+bind it at registration through the injected `Gate` — `auth.Authorize`
+for the operator REST face, `db.Authorize(sub, folder, "mcp:"+tool,
+params)` on the agent socket — and seed a row if it should be on by
+default. Never add a second check inside the handler. A grant's scope
+glob IS its containment: `mcp:register_group` scoped `acme/**` registers
+under `acme` and nowhere else.
+
 `escalate_group` sends a message to the parent; it does not grant
-permissions. See `specs/4/11-auth.md` and `specs/4/19-action-grants.md`.
+permissions. See [`specs/5/33-paths-roles.md`](specs/5/33-paths-roles.md)
+(the model), [`specs/5/32-acl-unified.md`](specs/5/32-acl-unified.md)
+(the row + evaluator), and `specs/4/19-action-grants.md` (the `params`
+rule grammar).

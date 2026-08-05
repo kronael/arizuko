@@ -26,8 +26,9 @@ checklist because new impl is exactly where they get violated.
 - **Auth is uniform middleware.** authn (who) + authz `(action,
 required-scopes, target-resolver)` bound at registration as an injected
   `Gate` — resreg owns no auth policy. Operator REST uses the default
-  `auth.Authorize` (scope/ACL, no tier); the agent MCP socket injects
-  `db.Authorize(sub, folder, "mcp:"+tool, params)` (tier-default grants).
+  `auth.Authorize` (scope/ACL); the agent MCP socket injects
+  `db.Authorize(sub, folder, "mcp:"+tool, params)` (granted `acl` rows —
+  the row's scope glob IS the containment; no depth-derived default).
   A handler resolving a `jid`/`folder`/`run_id` param binds it to the
   caller's folder under whichever gate is mounted.
 - **Per-daemon `audit_log`; correlation IDs flow across (APM).**

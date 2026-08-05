@@ -106,18 +106,19 @@ covered in each adapter's own `*_test.go`.
 
 ## 5. Grants / ACL
 
-| Feature                                  | exists | tested                                                                       | ref                            |
-| ---------------------------------------- | ------ | ---------------------------------------------------------------------------- | ------------------------------ |
-| ACL CRUD (add/resolve/remove)            | yes    | yes — `TestFeature_Grants/crud`, `grants/grants_test.go`, `auth/acl_test.go` | `store/acl.go`                 |
-| Allow/deny effect (deny wins)            | yes    | yes — `TestFeature_Grants/allow-deny-effect`                                 | `grants/grants.go:CheckAction` |
-| Param glob matching                      | yes    | yes — `TestFeature_Grants/param-glob`                                        | `grants/grants.go`             |
-| Malformed-rule denies (no silent widen)  | yes    | yes — `TestFeature_Grants/malformed-rule-denies`                             | `grants/grants.go:ParseRule`   |
-| Tier derivation (0=`*`, deep=reply-only) | yes    | yes — `TestFeature_Grants/tier-derivation`, `auth/policy_tier_gate_test.go`  | `grants/grants.go:DeriveRules` |
-| REST acl:write scope gate                | yes    | yes — `TestFeature_Grants/rest-acl-scope-gate`, `routd/acl_endpoint_test.go` | `routd/server.go:handleACLAdd` |
-| Scope-widening prevention                | yes    | yes — tier-derivation + malformed-rule tests                                 | specs/5/32                     |
-| Role membership / cycle prevention       | yes    | partial — `auth/acl_test.go`                                                 | specs/5/32                     |
-| Operator (`**`) resolution               | yes    | partial — `auth/authorize_test.go`                                           | ARCHITECTURE.md                |
-| ACL overlay / per-spawn cache            | yes    | partial — `routd/acl_overlay_test.go`                                        | specs/5/32                     |
+| Feature                                 | exists | tested                                                                | ref                              |
+| --------------------------------------- | ------ | --------------------------------------------------------------------- | -------------------------------- |
+| ACL CRUD (add/resolve/remove)           | yes    | yes — `auth/acl_test.go`, `routd/acl_endpoint_test.go`                | `store/acl.go`                   |
+| Allow/deny effect (deny wins)           | yes    | yes — `TestAuthorize_DenyWinsSameTriple`                              | `auth/authorize.go`              |
+| Param glob matching                     | yes    | yes — `TestAuthorize_ParamGlob`                                       | `auth/acl.go:matchPattern`       |
+| No fallback (missing grant denies loud) | yes    | yes — `TestAuthorizeWith_NoTierFallback`, `TestAuthorize_EmptyDenies` | `auth/authorize.go`              |
+| Action lattice (`*` ⊃ admin ⊃ interact) | yes    | yes — `TestAuthorize_ActionLattice*` (3 cases)                        | `auth/authorize.go:actionCovers` |
+| Delegation bounded by subset-of-held    | yes    | yes — `TestDelegate`, `auth/delegate_test.go`                         | `auth/delegate.go`               |
+| REST acl:write scope gate               | yes    | yes — `routd/acl_endpoint_test.go`                                    | `routd/acl_resource.go`          |
+| Scope-widening prevention               | yes    | yes — no-fallback + delegate subset tests                             | specs/5/33                       |
+| Role membership / cycle prevention      | yes    | partial — `auth/acl_test.go`                                          | specs/5/32                       |
+| Operator (`**`) resolution              | yes    | partial — `auth/authorize_test.go`                                    | ARCHITECTURE.md                  |
+| ACL overlay / per-spawn cache           | yes    | partial — `routd/acl_overlay_test.go`                                 | specs/5/32                       |
 
 ## 6. Scheduled tasks
 

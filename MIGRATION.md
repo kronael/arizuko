@@ -33,15 +33,19 @@ does not exist — the socket is wired automatically.
 - Grants: kanipi exposed `get_grants` / `set_grants` MCP tools backed by
   per-folder rule blobs. arizuko replaced both with a single unified ACL
   (`acl` + `acl_membership` tables); `list_acl(folder)` is the read tool,
-  writes go through CLI / dashd. Tier ≤ 1 gates the inspection tool.
+  writes go through CLI / dashd. `mcp:list_acl` is a granted action like
+  any other — a folder holds it or it isn't advertised.
 
 ## Root
 
 kanipi: root = literal `folder === 'root'`.
-arizuko: no default root — a top-level folder (no `/`) is tier 1. Root (tier 0,
-cross-group `*`) is a transient operator `/root` elevation, never a folder.
+arizuko: no default root. A top-level folder is a world — an ordinary
+tenant with no extra authority. Root is a grant (`role:operator`, `*` on
+`**`) the operator invokes as a transient `/root` elevation, never a
+folder anyone occupies.
 
-A folder named `main` / `boss` is tier-1 in both. Audit operator (`**`) grants.
+A folder named `main` / `boss` carries no implied power in arizuko —
+capability comes from its `acl` rows. Audit operator (`**`) grants.
 
 ## Configuration
 

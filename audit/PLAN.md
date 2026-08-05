@@ -145,7 +145,7 @@ authn:
 
 authz:
   authz.deny             any policy decision that refused the call
-  authz.allow.sensitive  optional — only logged for tier-0 ACLs (operator scope)
+  authz.allow.sensitive  optional — only logged for operator-scope ACLs (`*` on `**`)
   acl.add                acl row inserted
   acl.remove             acl row deleted
   membership.add         acl_membership row inserted (role nesting)
@@ -237,7 +237,7 @@ will drift; the function name is the anchor).
 | authn     | invite.revoke       | `store.RevokeInvite`                                                                       | `invites/<token-hash>`  | operator     | revocation trail                                         |
 | authn     | link_code.mint      | `store.MintLinkCode`                                                                       | `link_codes/<code>`     | user         | identity linking                                         |
 | authn     | link_code.consume   | `store.ConsumeLinkCode`                                                                    | `link_codes/<code>`     | user         | identity linking                                         |
-| authz     | authz.deny          | `auth.AuthorizeStructural` failure; `resreg.audit … denied`; `ipc.emitAuthzDenied`         | n/a                     | any          | every refused call (CloudTrail `errorCode=AccessDenied`) |
+| authz     | authz.deny          | `auth.Authorize` failure; `resreg.audit … denied`; `ipc.emitAuthzDenied`                   | n/a                     | any          | every refused call (CloudTrail `errorCode=AccessDenied`) |
 | authz     | acl.add             | `store.AddACLRow`                                                                          | `acl/<row>`             | operator     | every grant change                                       |
 | authz     | acl.remove          | `store.RemoveACLRow`                                                                       | `acl/<row>`             | operator     | grant change                                             |
 | authz     | membership.add      | `store.AddMembership`                                                                      | `acl_membership/<row>`  | operator     | role nesting change                                      |

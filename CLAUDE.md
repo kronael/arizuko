@@ -77,10 +77,12 @@ them on each request.
   middleware layers every daemon applies identically. The authz gate is
   INJECTED per surface — `resreg` carries no auth policy of its own — and
   binds `(action, required-scopes, target-resolver)` at route/tool
-  registration. Operator REST uses the default `auth.Authorize` (scope/ACL,
-  no tier); the agent MCP socket (routd) injects
-  `db.Authorize(sub, folder, "mcp:"+tool, params)` — the tier-default-grants
-  path. Same handler, same folder-containment discipline, two identity
+  registration. Operator REST uses the default `auth.Authorize` (scope/ACL);
+  the agent MCP socket (routd) injects
+  `db.Authorize(sub, folder, "mcp:"+tool, params)` — the granted-row path,
+  where the row's scope glob IS the containment
+  (`specs/5/33-paths-roles.md`). Same handler, same folder-containment
+  discipline, two identity
   sources (socket-folder vs JWT-folder) and two injected gates — never a
   second hand-rolled check inside the handler. A handler that resolves a
   `jid`/`folder`/`run_id` param MUST bind it to the caller's folder. Drift =
@@ -182,12 +184,12 @@ model outgrows a row in the root table.
   and `/hook/<token>` surfaces; spec `specs/5/W-webhook-routes.md`.
 - **EXTENDING.md** — channels, actions, routing, mounts, skills,
   tasks, diary, autocall extension points.
-- **GRANTS.md** — pointer to `specs/5/32-acl-unified.md` (canonical) + the operator concepts page.
+- **GRANTS.md** — pointer to `specs/5/33-paths-roles.md` (the model) + `specs/5/32-acl-unified.md` (the row + evaluator) + the operator concepts page.
 - **CHANGELOG.md** — what shipped, dated.
 
 Keep `EXTENDING.md` current as extension points evolve (channels,
 actions, routing, mounts, skills, tasks, diary; skill scopes;
-permission tiers).
+permissions).
 
 ### Updating the web docs
 
@@ -319,7 +321,7 @@ arizuko's primitives scale with need. `solo/inbox` and
 `corp/eng/sre/oncall/launch-q3` run the same code. Every primitive
 has a one-line setup AND a deep-config path: group hierarchy
 (arbitrary depth), topic kinds (default thread or `task`/`meeting`),
-grants (tier defaults or per-folder rules), channels (env-var
+grants (the seeded `role:member` floor or per-folder rules), channels (env-var
 trivial, dashd UI managed), secrets (folder-scoped by default,
 user-scoped when needed). Don't force structure where it isn't
 needed; don't fight it where it is.

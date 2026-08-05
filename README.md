@@ -176,7 +176,7 @@ Documents can be mounted or written into a group's workspace; agents can read th
 
 - **Container isolation**: each group runs in a separate Docker container on a separate network. Sibling groups never share a context window.
 - **Egress isolation**: `crackbox` enforces default-deny on agent outbound traffic via per-source-IP allowlists. Credential/placeholder swap at the boundary (`egred` HTTPS-MITM, `specs/8/Z-egred-mitm.md`) is planned, not shipped.
-- **ACL**: `auth.Authorize` — one `acl` table, deny-wins, tier defaults in code. MCP tools gated per-action per-principal.
+- **ACL**: `auth.Authorize` — one `acl` table, deny-wins, no fallback. Capability comes from granted rows, never from a folder's depth; `role:member` is the seeded default and everything above it is delegated. MCP tools gated per-action per-principal.
 - **Secret injection**: folder secrets are AES-256-GCM encrypted at rest; injected into the container at spawn time, never written to disk in plaintext.
 - **Identity relay**: `proxyd` stamps `X-User-*` headers, proving the channel with a `service:proxyd` ES256 bearer (verified via `auth.ProxydTransit`); backends trust the headers only when that proof holds. Client-supplied `X-User-*` headers are stripped.
 
@@ -185,7 +185,7 @@ Full threat model in [SECURITY.md](SECURITY.md).
 ## What's planned
 
 - End-user agent provisioning — POST a definition, get a tenant + chat token ([spec](specs/5/5-worlds-agents-sessions.md))
-- Removing tiers — capability from delegated roles/grants, not folder depth ([spec](specs/5/33-paths-roles.md), in progress)
+- Renaming `group`/`folder` → `path` across code, DB, and MCP tool names ([spec](specs/5/33-paths-roles.md) decision 9, not started)
 
 ## Build & test
 

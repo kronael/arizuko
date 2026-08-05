@@ -10,7 +10,7 @@ New integrations are added via the extension points described in
 
 - **Core daemons / libraries** define the system shape: `routd` (router
   plane), `runed` (execution plane), `authd` (auth authority), plus
-  store, ipc, auth, grants, proxyd, webd, dashd, timed, onbod, vited,
+  store, ipc, auth, proxyd, webd, dashd, timed, onbod, vited,
   davd, the container runner, chanlib/chanreg. The package graph below
   is core.
 - **Integrations** are pluggable: per-platform channel adapters
@@ -41,7 +41,6 @@ routd/    conversation/routing plane (sole message appender, token verifier)
   ├── chanreg       channel registry, HTTP channel egress (Deliverer)
   ├── router        message formatting, routing rules
   ├── ipc           per-turn agent MCP socket (ServeMCP, hosted in-process)
-  ├── grants        DeriveRules → MCP manifest filter
   └── diary, groupfolder
   routd.db: messages, routes, chats, secrets, acl, cost, tasks, sessions, pane
 
@@ -57,11 +56,10 @@ authd/    auth authority (sole ES256 signer, JWKS publisher, OAuth provider)
 
 timed/    scheduler: claims due scheduled_tasks, federates fires over routd
 onbod/    onboarding state machine + admission queue (onbod.db)
-dashd/    operator dashboard (HTMX read views + TIER 1 routes/groups/secrets CRUD)
+dashd/    operator dashboard (HTMX read views + routes/groups/secrets CRUD)
 webd/     web chat channel adapter (HTTP/SSE, registers as "web")
 vited/    Vite dev server / static origin behind proxyd
 proxyd/   reverse proxy: auth, vhost routing, slink rate limiting
-grants/   CheckAction, MatchingRules, DeriveRules
 chanlib/  RouterClient, InboundMsg, auth middleware, URLCache (CDN-id
           proxy cache for discd/mastd/reditd), fsutil (CopyDirNoSymlinks,
           CopyFile), env helpers (EnvOr/EnvInt/EnvDur), ShortHash — shared
@@ -125,7 +123,7 @@ Channel adapter → POST /v1/messages (routd) → PutMessage (sole appender)
   → on route miss or #observe, fires turn if chat_reply_state.engaged_until active
   → enrichAttachments: download media → Whisper for voice
   → router.FormatMessages (XML batch, errored rows tagged errored="true")
-    + grants.DeriveRules → run request
+    + acl lookup → typed ShareReadOnly/Egress/WebPublish on the run request
   → routd stands up the per-turn MCP socket in-process (ipc.ServeMCP)
   → routd → runed: POST /v1/runs (dispatch the turn)
     → runed: steer into a live spawn (SIGUSR1 + IPC) OR new docker run --rm
@@ -257,21 +255,20 @@ Two management surfaces, one handler, an injected gate per surface:
   twin — an operator doesn't `reply` to a chat.
 
 `resreg` carries no auth policy — the authz gate is INJECTED per surface.
-Operator REST uses the default `auth.Authorize` (scope/ACL, no tier); the
+Operator REST uses the default `auth.Authorize` (scope/ACL); the
 agent MCP socket injects `db.Authorize(sub, folder, "mcp:"+tool, params)`
-(the tier-default-grants path). Same folder-containment discipline, two
+over the folder's granted `acl` rows. Same folder-containment discipline, two
 identity sources (agent socket scope vs human JWT folder), two gates. Which
-tools a tier even sees is filtered by `grants.MatchingRules` at the agent
-socket, not by resreg.
+tools a caller even sees is `auth.EffectiveActions` over those same rows at
+the agent socket, not resreg.
 
-For the tier-structural resources (`routes`, `scheduled_tasks`) whose
-_target_ folder is what a mutation acts on, per-target containment is a
-routd-internal per-face predicate (`containFn`) closed into the shared
-handler rather than the `Gate`: the agent face uses the tier model
-(`auth.AuthorizeStructural`), the REST face uses own-or-descendant folder
-containment (`ownsFolder`, tier-independent). Decoupling it from the
-handler's former baked tier cap closed a cross-tenant task-management leak
-on the REST fold (`0d25b687`). `web_routes` and `acl` need no such seam —
+For the resources (`routes`, `scheduled_tasks`) whose _target_ folder is
+what a mutation acts on, per-target containment is a routd-internal
+per-face predicate (`containFn`) closed into the shared handler rather
+than the `Gate`: the agent face re-runs `auth.Authorize` with the ACTUAL
+target as the scope, so a delegated row scoped to a subtree covers exactly
+that subtree; the REST face uses own-or-descendant folder containment
+(`ownsFolder`). `web_routes` and `acl` need no such seam —
 the caller acts on its own folder's row / scope, so their containment stays
 in the injected `Gate`.
 
@@ -326,7 +323,7 @@ Durable rules the package layout obeys.
   downward imports only, no cycles, no library importing a daemon.
   Layer 0 (zero arizuko-internal deps): `types/`, `obs/`, `core/`.
   Layer 1 (depend on 0): `audit/`, `auth/`. Layer 2 (depend on 0+1):
-  `resreg/`, `chanlib/`, `grants/`. Layer 3: daemons, importing layers
+  `resreg/`, `chanlib/`. Layer 3: daemons, importing layers
   0–2 plus other daemons' `api/v1/` packages. Cross-library imports
   inside one layer are fine.
 
@@ -577,12 +574,13 @@ cursor advances (partial work preserved).
 
 MCP server on a unix socket (`mark3labs/mcp-go`), hosted in-process by
 routd (`ipc.ServeMCP`, called from `routd.ServeTurnMCP`). One per turn
-at `ipc/<folder>/gated.sock`. Tool visibility is filtered by
-`grants.MatchingRules` for the caller's group; each call is authorized by
-the agent gate `db.Authorize(sub, folder, "mcp:"+tool, params)` (the
-tier-default-grants path routd injects), not the plain operator
-`auth.Authorize`. `list_acl` inspects the effective ACL rows for the
-caller's principal set.
+at `ipc/<folder>/gated.sock`. Tool visibility is `auth.EffectiveActions`
+over the caller's `acl` rows — does it hold the action at ANY scope; each
+call is then authorized by the agent gate
+`db.Authorize(sub, folder, "mcp:"+tool, params)` routd injects, not the
+plain operator `auth.Authorize`. One row set feeds both, so the tool list
+and the per-call gate agree by construction. `list_acl` inspects the
+effective ACL rows for the caller's principal set.
 
 socat bridges the host socket into the container; the agent configures
 the `arizuko` MCP server in `settings.json` with `socat UNIX-CONNECT`.
@@ -625,22 +623,33 @@ a row via `PutMessage` and calls `EnqueueMessageCheck`.
 ## Routing
 
 Route table, route types, topic routing, reply routing, sticky routing,
-full flow examples: `ROUTING.md`. The autoviv pattern (tier-1 agent calls
-`register_group` to auto-create per-channel children when unrouted JIDs
-arrive) is `template/web/pub/concepts/autoviv.html` — no new mechanism,
-just routes + MCP + operator grant composing.
+full flow examples: `ROUTING.md`. The autoviv pattern (an agent holding
+`mcp:register_group` calls it to auto-create per-channel children when
+unrouted JIDs arrive) is
+`template/web/pub/arizuko/concepts/autoviv.html` — no new mechanism, just
+routes + MCP + a delegated grant composing.
 
-## Grants Engine (grants package)
+## Authorization (auth package)
 
-Rule format: `[!]action[(param=glob,...)]`. Last-match-wins; no match = deny.
+One row, one evaluator: `acl(principal, action, scope, params, predicate,
+effect, grant_option)` → `auth.Authorize`. Deny wins; no matching allow
+row = deny, loud. Nothing derives capability from a folder's depth.
 
-- `CheckAction(rules, action, params)` — allow/deny
-- `MatchingRules(rules, action)` — rules matching an action
-- `DeriveRules(store, folder, tier, worldFolder)` — tier-0 `*`, tier-1
-  platform send + management, tier-2 send only, deeper `send_reply` only
+- `auth.Authorize(caller, action, target, params)` — the single per-call
+  gate (`auth/authorize.go`)
+- `auth.EffectiveActions(store, caller)` — the visibility view behind
+  `tools/list`: does the caller hold this action at ANY scope
+- `auth.Delegate` — grant onward, bounded to a subset of rows the granter
+  holds WITH GRANT OPTION (`auth/delegate.go`)
 
-Rules derived at spawn and injected into `start.json`. The MCP manifest is
-filtered by grants.
+Rule grammar inside a row's `params` is `[!]action[(param=glob,...)]`.
+Seeded roles: `role:member` (the messaging floor, bound to every folder at
+create) and `role:operator` (`*` on `**`, WITH GRANT OPTION). Container
+capabilities are resolved from `acl` at dispatch and shipped as typed
+booleans (`ShareReadOnly`/`Egress`/`WebPublish`) on the run request —
+runed and container consume a decision, not a rule bundle. Model:
+[`specs/5/33-paths-roles.md`](specs/5/33-paths-roles.md); row + evaluator:
+[`specs/5/32-acl-unified.md`](specs/5/32-acl-unified.md).
 
 ## Operator
 
@@ -648,7 +657,7 @@ filtered by grants.
 `role:operator` principal in the unified ACL. Any sub joined via
 `acl_membership(<sub>, role:operator)` inherits the seeded row
 `acl(role:operator, *, **, allow)` and matches every authorization check.
-`auth.Authorize` handles tier-0 visibility uniformly; there is no
+`auth.Authorize` handles operator visibility uniformly; there is no
 `groups.is_operator` column, no `router_state['operator_jid']` sentinel,
 and no nil-default routing target.
 
@@ -747,7 +756,7 @@ routd picks the message up via normal poll. See `timed/README.md`.
 
 ## Operator Dashboard (dashd/)
 
-HTMX portal over routd's data plus a TIER 1 write surface (routes
+HTMX portal over routd's data plus a write surface (routes
 editor, groups CRUD, per-user secrets) requiring authenticated access.
 Spec: `specs/3/d-dashboards.md`. See `dashd/README.md`.
 
@@ -887,8 +896,9 @@ hints `like(emoji='👎')`). Read-only introspection lives in the
 `inspect_routing`, `inspect_tasks`, `inspect_session`,
 `inspect_identity`. `find_messages` is FTS5 full-text search over
 message content (bm25 ranking + snippet; phrase / OR / NOT / prefix /
-NEAR; spec 5/C). Tier 0 sees all instances; tier ≥1 is scoped to its
-own folder subtree. Full tool table in `ant/skills/self/SKILL.md`.
+NEAR; spec 5/C). A `/root`-elevated turn sees every folder; an ordinary
+turn is scoped to its own folder subtree. Full tool table in
+`ant/skills/self/SKILL.md`.
 
 ## Container mount layout (v0.45.11+)
 
@@ -896,17 +906,17 @@ Platform mounts follow FHS canonical locations; per-group web slots
 live under `~` in the agent's home. Full spec:
 `specs/5/V-web-vhosts.md`.
 
-| Container         | Host                           | Mode                     |
-| ----------------- | ------------------------------ | ------------------------ |
-| `/opt/arizuko`    | `<repo>`                       | RO                       |
-| `/var/lib/www`    | `<data>/web/pub/`              | RO whole tree, tier 0-2  |
-| `/run/ipc`        | `<data>/ipc/<folder>/`         | RW                       |
-| `/var/lib/share`  | `<data>/groups/<world>/share/` | RW always (RO via grant) |
-| `/var/lib/groups` | `<data>/groups/`               | RW, tier 0 only          |
-| `/mnt/<name>`     | operator extras                | varies                   |
-| `/home/node/`     | `<data>/groups/<folder>/`      | RW (group home)          |
-| `~/public_html`   | `<data>/web/pub/<folder>/`     | RW (per-group slot)      |
-| `~/private_html`  | `<data>/web/priv/<folder>/`    | RW (per-group slot)      |
+| Container         | Host                           | Mode                                   |
+| ----------------- | ------------------------------ | -------------------------------------- |
+| `/opt/arizuko`    | `<repo>`                       | RO                                     |
+| `/var/lib/www`    | `<data>/web/pub/`              | RO whole tree, `web:publish` grant     |
+| `/run/ipc`        | `<data>/ipc/<folder>/`         | RW                                     |
+| `/var/lib/share`  | `<data>/groups/<world>/share/` | RW always (RO via grant)               |
+| `/var/lib/groups` | `<data>/groups/`               | RW, elevated `/root` turn only         |
+| `/mnt/<name>`     | operator extras                | varies                                 |
+| `/home/node/`     | `<data>/groups/<folder>/`      | RW (group home)                        |
+| `~/public_html`   | `<data>/web/pub/<folder>/`     | RW per-group slot, `web:publish` grant |
+| `~/private_html`  | `<data>/web/priv/<folder>/`    | RW per-group slot, `web:publish` grant |
 
 The `~/public_html` and `~/private_html` slots are bind-mount VIEWS
 into the canonical web tree — writes appear simultaneously at the
