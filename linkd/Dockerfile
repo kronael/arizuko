@@ -1,6 +1,6 @@
 # Standalone linkd build. The canonical image is the root arizuko:latest
 # which bundles all daemons; this file exists for isolated builds/testing.
-FROM golang:1.25-alpine AS build
+FROM golang:1.27rc2-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY third_party ./third_party
