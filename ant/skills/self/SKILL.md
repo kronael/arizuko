@@ -1,7 +1,7 @@
 ---
 name: self
 description: >
-  Deep introspection of this agent — identity (who/where/tier),
+  Deep introspection of this agent — identity (who/where/grants),
   workspace layout, MCP tool catalog, skill seeding, migration version,
   chat links and webhooks. Directory of focused per-topic files; this
   SKILL.md is the index. USE for "who are you", "what version", "what's
@@ -33,7 +33,7 @@ directly) — don't load the whole `self/` directory into context. The
 
 | Question                                       | File                |
 | ---------------------------------------------- | ------------------- |
-| Who am I, what's my tier, env vars             | `identity.md`       |
+| Who am I, what may I do, env vars              | `identity.md`       |
 | Where do I write things, persistence           | `storage.md`        |
 | Platform mount table, `~/` vs `/var/lib/...`   | `workspace.md`      |
 | What MCP tools, mcpc usage                     | `mcp.md`            |

@@ -7,12 +7,12 @@ Platform mounts use FHS canonical locations (v0.45.11+). Your home
 | --------------------- | -------------------------------------------------------------- | ------------------------------------------- |
 | `/opt/arizuko`        | arizuko source (canonical skills, changelog, migrations)       | read-only, all groups                       |
 | `~/` (`/home/node`)   | home + cwd — group files, .claude/, diary, media               | read-write                                  |
-| `~/public_html/`      | public web slot, projects to `<data>/web/pub/<folder>/`        | read-write                                  |
-| `~/private_html/`     | OAuth web slot, projects to `<data>/web/priv/<folder>/`        | read-write                                  |
-| `/var/lib/www`        | unified public web tree (RO browse of every group's `web/pub`) | read-only (tier 0 read-write)               |
+| `~/public_html/`      | public web slot, projects to `<data>/web/pub/<folder>/`        | read-write, needs `web:publish`             |
+| `~/private_html/`     | OAuth web slot, projects to `<data>/web/priv/<folder>/`        | read-write, needs `web:publish`             |
+| `/var/lib/www`        | unified public web tree (RO browse of every group's `web/pub`) | read-only, needs `web:publish`              |
 | `/var/lib/share`      | shared group memory                                            | RO/RW per grant                             |
 | `/run/ipc`            | gateway↔agent IPC (input/, gated.sock MCP server)              | read-write                                  |
-| `/var/lib/groups`     | all group dirs (elevated `/root` turn only)                    | read-write, tier 0 only                     |
+| `/var/lib/groups`     | all group dirs (elevated `/root` turn only)                    | read-write, elevated turn only              |
 | `/mnt/<name>`         | operator-configured extra mounts                               | varies                                      |
 | `~/.claude`           | agent memory: skills, CLAUDE.md, sessions                      | read-write                                  |
 
@@ -36,13 +36,13 @@ SAME file (the second JWT-rewrites to `/pub/<X>`).
 
 ## Elevated `/root` turn only
 
-Available only when an operator raised this turn with `/root` (tier 0);
-a normal spawn has no `/var/lib/groups` mount.
+Available only when an operator raised this turn with `/root`; a normal
+spawn has no `/var/lib/groups` mount.
 
 ```bash
 ls /opt/arizuko/
 cat /opt/arizuko/CHANGELOG.md
 git -C /opt/arizuko log --oneline -10
-ls /var/lib/groups/                # all groups visible (tier 0)
-ls /var/lib/www/                   # whole public tree, RW for tier 0
+ls /var/lib/groups/                # all groups visible (elevated only)
+ls /var/lib/www/                   # whole public tree, read-only
 ```

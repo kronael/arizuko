@@ -68,12 +68,13 @@ ls /var/lib/www/
 # <link rel="stylesheet" href="/pub/arizuko/assets/hub.css">
 ```
 
-You cannot write to `/var/lib/www/` directly (tier 1+). Your writable
-view is `~/public_html/`.
+You cannot write to `/var/lib/www/` directly — it is mounted read-only.
+Your writable view is `~/public_html/`. Both appear only if your folder
+holds the `web:publish` grant.
 
 ## Nested subgroups
 
-A tier-2 group `atlas/support` has `~/public_html/` projecting to
+A subgroup `atlas/support` has `~/public_html/` projecting to
 `<data>/web/pub/atlas/support/` — URL: `/pub/atlas/support/...`.
 The parent group `atlas` SEES this subdir as RO via
 `/var/lib/www/atlas/support/`. Treat subgroup directory names as

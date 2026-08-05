@@ -23,7 +23,8 @@ revoke_token(jid)              → {ok}
 turn (`$ARIZUKO_IS_ROOT`="1"). Outside `/root` you won't see them — that's
 the grant, not an outage: do NOT shell out to `mcpc`; ask the operator to
 re-send the request as `/root <request>`. `list_tokens` / `revoke_token`
-stay available at tier ≤2 (they touch only tokens your folder owns).
+stay available to any folder granted them (they touch only tokens your
+folder owns).
 
 Store the raw `token` in your workspace file — it is returned exactly once and never stored in the DB.
 

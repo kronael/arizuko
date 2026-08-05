@@ -1,16 +1,16 @@
 ---
 name: infra
 description: >
-  Tier 0 only (elevated `/root` turn) — set the instance hosting domain +
+  Elevated `/root` turn only — set the instance hosting domain +
   wildcard DNS so per-world hostnames resolve, verify reachability. USE for
-  instance-level web setup. NOT below tier 0 (no permission), NOT for app code
-  deploy (use web).
+  instance-level web setup. NOT for an ordinary turn (no permission), NOT for
+  app code deploy (use web).
 user-invocable: true
 ---
 
 # Infra
 
-Tier 0 only (elevated `/root` turn). Per-world hostnames are **derived**, not assigned: world `W`
+Elevated `/root` turn only. Per-world hostnames are **derived**, not assigned: world `W`
 is served at `W.<HOSTING_DOMAIN>`, which proxyd 302s to `/pub/W/`. There
 is no host-mapping file to edit — the host is the deterministic
 composition of the world folder and `HOSTING_DOMAIN`.

@@ -2,6 +2,12 @@
 
 Live in your session — callable directly, no skill invocation needed.
 
+A tool appears in your list only if your folder holds `mcp:<tool>`. The
+messaging verbs come from `role:member`, which every folder gets at
+create; everything else is a grant an operator or an ancestor delegated
+to you. Nothing is implied by how deep your folder sits. If a tool you
+expect is missing, you were not granted it — ask, don't work around it.
+
 ## Messaging
 
 | Tool             | Description                                                               |
@@ -35,7 +41,7 @@ Live in your session — callable directly, no skill invocation needed.
 | Tool             | Description                                                               |
 | ---------------- | ------------------------------------------------------------------------- |
 | `register_group` | Register new agent group                                                  |
-| `refresh_groups` | Reload registered groups list (tier ≤ 2)                                  |
+| `refresh_groups` | Reload registered groups list                                  |
 | `delegate_group` | Forward a message to a child group for processing                         |
 | `escalate_group` | Escalate a task to the parent group                                       |
 | `list_routes`    | List all routes visible to this group                                     |
@@ -52,7 +58,7 @@ Live in your session — callable directly, no skill invocation needed.
 | `set_observe_window` | Override this group's ambient observe-window caps (messages and/or chars). Pass -1 to clear. |
 | `observe_group`      | Subscribe this folder to receive another folder's inbound messages as `<observed>` context. Use to let a parent monitor a child or aggregate context. Not for routing takeover. |
 | `unobserve_group`    | Cancel an observe_group subscription.                                          |
-| `set_group_open`     | Toggle this group's visibility to siblings (tier 0-1 only).                   |
+| `set_group_open`     | Toggle this group's visibility to siblings. Needs `mcp:set_group_open`.                   |
 | `fork_topic`         | Branch a topic from another's current state. Child gets a fresh session; the parent's session jsonl is copied so the child resumes natively. |
 
 ## Route tokens
@@ -63,9 +69,9 @@ Live in your session — callable directly, no skill invocation needed.
 | `issue_webhook`   | Mint a route token for inbound webhook at `/hook/<token>`. Returns {token, url, jid} once. Use to register GitHub, Linear, Stripe, etc. as event sources. |
 | `list_tokens`     | List route tokens (chat links + webhooks) owned by your folder. Raw tokens not returned. |
 | `revoke_token`    | Revoke a route token by JID. Takes effect immediately (URL returns 404). Caller must own the token. |
-| `invite_create`   | Issue an invite token granting access to a path glob. Recipient accepts via `/invite/<token>`. Tier 0-2 only. |
+| `invite_create`   | Issue an invite token granting access to a path glob. Recipient accepts via `/invite/<token>`. Needs `mcp:invite_create`. |
 | `invite_list`     | List invites issued under your folder (self-filtered). Raw tokens not returned. |
-| `invite_revoke`   | Revoke an invite by token. Caller must own the invite (tier 0-2). |
+| `invite_revoke`   | Revoke an invite by token. Caller must own the invite. Needs `mcp:invite_revoke`. |
 
 ## Web routing
 
@@ -106,8 +112,8 @@ redirects/auth on top.
 | `inspect_session`  | Current session_id + recent `session_log` entries                           |
 | `inspect_identity` | Resolve a platform sender sub to its canonical identity and all claimed subs. Use to recognize a user across channels. |
 | `list_acl`         | List ACL rules visible to this group.                                       |
-| `add_acl`          | Grant a principal access to a folder `scope` (acl row; `scope='**'` grants operator role). Write-face of REST `POST /v1/acl`. Tier 0-1, within your authority. |
-| `remove_acl`       | Revoke a principal's access to a `scope`. Write-face of REST `DELETE /v1/acl`. Tier 0-1, within your authority. |
+| `add_acl`          | Grant a principal access to a folder `scope` (acl row; `scope='**'` grants operator role). Write-face of REST `POST /v1/acl`. You may grant only rows you hold WITH GRANT OPTION. |
+| `remove_acl`       | Revoke a principal's access to a `scope`. Write-face of REST `DELETE /v1/acl`. Only within your granted scope. |
 | `reset_session`    | Clear this group's session and start fresh                                  |
 | `log_external_cost`| Record a non-Anthropic LLM call against the folder's daily budget (e.g. after `/oracle`). Pass provider, model, token counts, cost_usd. |
 

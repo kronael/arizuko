@@ -137,18 +137,18 @@ send a PDF → posts text only, link to file
 
 ---
 
-## 05 — Worlds, Groups, Tiers
+## 05 — Worlds, Groups, Grants
 
-**TLDR:** Each user gets an isolated world. Groups nest inside it; deeper = fewer permissions.
+**TLDR:** Each user gets an isolated world. Groups nest inside it; what each one may do is granted, not inherited from its depth.
 
 A **world** is your top-level workspace — your own files, diary, memory, skills, and web space. Worlds are isolated from each other: no cross-reads, no shared state. Inside a world, you can nest **groups** (also called rooms): subspaces for specific projects or channels.
 
-Every group sits on a tier. Tier 1 is your world root — full send + management tools. Tier 2 sub-groups can send but not manage routing. Tier 3+ reply in-thread and can still attach files via `send_file`. The agent knows its own tier and only exposes tools appropriate to it. Groups are the unit of ACLs, sessions, and web URLs.
+Nesting organises files and URLs; it does not set permissions. Every group starts with `role:member` — the messaging verbs, send and reply and attach. Anything past that (managing routes, scheduling, opening egress, publishing to the web, issuing invites) is granted to that specific group by you or by a group that already holds it. A deeply nested group can hold more than its parent, and a top-level one can hold almost nothing. The agent only sees the tools its group was granted. Groups are the unit of ACLs, sessions, and web URLs.
 
 ```
-myworld/              tier 1 — your world root
-myworld/project-a/    tier 2 — a sub-group
-myworld/project-a/notes/   tier 3 — nested further, reply-only
+myworld/              your world root
+myworld/project-a/    a sub-group
+myworld/project-a/notes/   nested further
 ```
 
 ---
@@ -179,9 +179,9 @@ agent  Found 3 matches across diary and facts. Migration moved
 
 ## 07 — What the Agent Knows at the Start of Every Reply
 
-**TLDR:** Autocalls inject fresh facts — current time, world, tier, session — at prompt build. No stale clocks.
+**TLDR:** Autocalls inject fresh facts — current time, world, folder, session — at prompt build. No stale clocks.
 
-Before the agent reads your message, the gateway prepends an `<autocalls>` block with facts resolved at that exact moment: current UTC time, instance name, group folder, tier, session id. The agent treats these as ground truth — no "let me check the date" round-trips.
+Before the agent reads your message, the gateway prepends an `<autocalls>` block with facts resolved at that exact moment: current UTC time, instance name, group folder, session id. The agent treats these as ground truth — no "let me check the date" round-trips.
 
 On top of that, the last 14 days of diary and any user-specific notes are always in context. So "continue what we discussed yesterday" just works.
 
@@ -190,7 +190,6 @@ On top of that, the last 14 days of diary and any user-specific notes are always
   now: 2026-04-24T09:12:03Z
   instance: demo
   folder: myworld
-  tier: 1
   session: s7f3a
 </autocalls>
 ```

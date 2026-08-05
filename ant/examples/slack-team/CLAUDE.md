@@ -34,7 +34,7 @@ Per-channel rules:
 - NEVER echo Alice's preferences into Bob's reply. Memory is
   user-isolated; cross-leak is a trust break.
 
-## Autoviv (when running as the tier-1 world agent)
+## Autoviv (when running as the world agent, granted `mcp:register_group`)
 
 When a message arrives from a Slack channel JID that maps to THIS
 folder (catch-all route in place) AND the operator (holder of `**`
