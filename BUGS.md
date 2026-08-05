@@ -3211,7 +3211,7 @@ change and the tree was busy when it was decided.
 > raw JWT subject (`user:google:g-1`) into `StateIntent.LinkFrom`, which
 > `dispatch` wrote into `auth_users.user_id` — a column `5/1` pins as bare. So
 > linking forked a new account instead of attaching to one, and the next mint
-> double-prefixed to `user:user:google:g-1`. Fixed first, in `b2d70368`; no
+> double-prefixed to `user:user:google:g-1`. Fixed first, in `beecf595`; no
 > test covered the link path at all.
 >
 > **What resolution costs:** the subject no longer says which credential was
@@ -3220,7 +3220,7 @@ change and the tree was busy when it was decided.
 > `refresh_tokens` stores only the canonical sub and the claim would vanish on
 > the first refresh.
 >
-> - **Fixed:** `b2d70368` (link prefix), `53049d70` (resolution + tests)
+> - **Fixed:** `beecf595` (link prefix + resolution + tests)
 > - **Deployed:** no
 > - **Follow-up (not done):** propagate the login identity past authd —
 >   proxyd would need an `X-User-Login` header for `resreg`'s audit actor to
@@ -3428,7 +3428,7 @@ per CLAUDE.md's bug-triage protocol (don't fix on discovery).
 
 ## Z3 — `onboarding` (onbod) still not a resreg resource; archiving it as speced would leak a live plaintext bearer (2026-08-04, fixed)
 
-- **Status:** fixed `c9860e3e` (hash at rest) + `c140ef78` (registration), 2026-08-05.
+- **Status:** fixed `461661fe` (hash at rest, then registration), 2026-08-05.
 
 Closed exactly as the entry's own **Fix** line prescribed, in that order.
 `store/migrations/0080` + `onbod/migrations/0004` replace `onboarding.token`
@@ -3523,7 +3523,7 @@ third helper — but it reads wrong at an onboarding call site.
   with the BLOB form deriving from it, and rename the ~55 call sites. Purely
   mechanical, but a repo-wide rename — recorded rather than shipped inside a
   bearer-hashing change.
-- **Status:** fixed 2026-08-05 (`71db5b8e`) — `store/token_ref.go` owns the
+- **Status:** fixed 2026-08-05 (`7ac3401e`) — `store/token_ref.go` owns the
   scheme. `TokenRefBytes` is the only `sha256` call; `TokenRef` is a hex
   wrapper over it, so the encodings cannot drift. 25 files, 63 call sites
   (57 `TokenRef` + 7 `TokenRefBytes`, of which one is the `resreg/archive.go`
@@ -3592,7 +3592,7 @@ leak or a live-link wipe shipping in `cmd/arizuko/archive.go`.
   `ArchiveInviteRow` already establish. Needs sign-off before landing (spec
   correction + new archive document), not attempted here.
 
-## Z4 — archive apply's filesystem restore has no live run-slot claim (2026-08-04, RESOLVED 2026-08-05 — fedfa065 + 22f22b39)
+## Z4 — archive apply's filesystem restore has no live run-slot claim (2026-08-04, RESOLVED 2026-08-05 — 43cf6d7a)
 
 Spec 5/8 §"Filesystem restore claims the folder's run slot" specified
 `groups.tar` extraction should claim the folder's `runed` spawn slot so no
@@ -3608,7 +3608,7 @@ rejected: it would have put the restore's payload semantics into the
 cross-daemon contract, so the next folder-exclusive job needs a second
 design. What shipped instead:
 
-- `KindHold` + `POST /v1/holds` (`runed/hold.go`, `fedfa065`). runed does
+- `KindHold` + `POST /v1/holds` (`runed/hold.go`, `43cf6d7a`). runed does
   no work for the caller; it just holds the folder. `Manager.Hold` goes
   through the same `admit()` claim-or-reject step an agent turn does —
   extracted from `Run`, not copied — so it inherits per-folder exclusion,
@@ -3622,7 +3622,7 @@ design. What shipped instead:
   dispatches by kind. Gate is `POST /v1/runs`' gate unchanged (`runs:run` +
   folder containment; `runs:kill` to release).
 - `arizuko archive apply` claims each to-be-written folder between
-  `extractGroups`' two passes and releases in a defer (`22f22b39`). An
+  `extractGroups`' two passes and releases in a defer (`43cf6d7a`). An
   unreachable `runed` is FATAL — it dies naming both remedies rather than
   proceeding unguarded. `--stopped` is the operator asserting the instance
   is down, the apply-side counterpart of export's `--quiesced`.
@@ -3634,7 +3634,7 @@ protection by honoring ordinary ctx cancellation. Verified rather than
 assumed — `TestHoldExpiresOnRunTTL` asserts the slot is REUSABLE after an
 abandoned hold expires, not merely that the row went terminal.
 
-Two races found by the tests and fixed at the cause, both in `fedfa065`:
+Two races found by the tests and fixed at the cause, both in `43cf6d7a`:
 the hold executor now creates its release signal on first touch by either
 `Run` or `Kill` (an immediate release used to close a channel nobody had
 created, wedging the folder until RunTTL), and `StartSpawn` is guarded on
@@ -3850,7 +3850,7 @@ actor would need to come from the invoking operator or stay `system` deliberatel
 - **Scope:** cmd/arizuko route CLI, onbod invite-accept
 - **Affected:** all instances — `arizuko route add|rm`, onbod invite acceptance
 - **Source:** cmd/arizuko/route.go:16; onbod/main.go:1147; routd/migrations/0016-audit-log.sql
-- **Status:** fixed 2026-08-05 (`015b0e6d`). Both sites were defects — the
+- **Status:** fixed 2026-08-05 (`7ac3401e`). Both sites were defects — the
   predicted "onbod is legitimately audit-free" verdict did NOT hold.
   - `cmd/arizuko/route.go` — **defect**. Audit-free writers used purely on the
     false premise; now `AddRoute` / `DeleteRoute`. `DeleteRoute` did not exist
@@ -3903,7 +3903,7 @@ its own verdict — a secret's audit row must not carry the value.
   possibly `cmd/arizuko/secret.go`
 - **Affected:** all instances — `arizuko grant|ungrant`, `arizuko packages apply`
 - **Source:** cmd/arizuko/main.go:518,526,532,547,553; cmd/arizuko/packages.go:200
-- **Status:** fixed 2026-08-05 (`5c8abc3e`, `ddc53d59`, `84ea34d5`). All three
+- **Status:** fixed 2026-08-05 (`877ea615`, `f445b639`, `703f6e75`). All three
   sites were defects; none was legitimately audit-free.
   - `main.go` grant/ungrant — **defect**, the mechanical swap the entry
     predicted: `AddACLRow`/`RemoveACLRow` for a scoped grant,
@@ -4525,7 +4525,7 @@ run*, which is the state that code operates on.
   `PutACLRow`/`PutMembership`. Do not change the writers — `DeleteGroupRow`'s
   caller audits, and the test seeds.
 
-## F19 — Q4 and Q5 record fix commits that are not in HEAD's history (2026-08-05, open)
+## F19 — Q4 and Q5 record fix commits that are not in HEAD's history (2026-08-05, fixed)
 
 The Status lines of two closed entries cite SHAs that
 `git merge-base --is-ancestor … HEAD` rejects: Q4 cites `015b0e6d`, Q5 cites
@@ -4536,12 +4536,33 @@ per bundle"), `703f6e75` ("audit arizuko secret set and delete") — so the work
 shipped and only the citation is wrong, presumably recorded before a rebase.
 
 This matters because those Status lines are the audit trail for an audit-trail
-fix: `git show 5c8abc3e` fails, so the recorded evidence cannot be checked.
+fix, and the recorded evidence cannot be checked by anyone else. (The entry
+predicted `git show 5c8abc3e` would fail; it does not — see Status. The objects
+survive in the shared object DB, reachable from no ref, which is what makes the
+citation look verifiable while being unreachable for every other checkout.)
 
 - **Severity:** low (record accuracy)
 - **Scope:** BUGS.md Q4/Q5 Status lines
 - **Affected:** anyone verifying the closed entries
 - **Source:** BUGS.md Q4, Q5
-- **Status:** open
-- **Fix:** repoint to the ancestor SHAs above. Worth a habit: verify a SHA is an
-  ancestor of HEAD before recording it as the fix.
+- **Status:** fixed 2026-08-05. The entry named four dead SHAs; a sweep of every
+  backticked SHA in this file found **eleven**, all worktree-local commits whose
+  diffs were reconciled into differently-hashed ancestors. Repointed after
+  verifying each mapping by content (`git log -S` on a line the dead commit
+  added), not by subject — four of the eleven had no ancestor with a matching
+  subject at all, because reconciliation collapsed pairs into one commit:
+  - `015b0e6d` (Q4 route+invite audit) and `71db5b8e` (Z3c bearer-hash) →
+    `7ac3401e`, which carries both `AsCLI` and `TokenRefBytes`.
+  - `5c8abc3e` → `877ea615`, `ddc53d59` → `f445b639`, `84ea34d5` → `703f6e75`
+    (Q5's three; subjects match and content confirms).
+  - `c9860e3e` (hash at rest) and `c140ef78` (registration) → `461661fe`, which
+    adds both `store/migrations/0080-…` and `resreg/resources/onboarding.go`.
+  - `b2d70368` (link prefix) and `53049d70` (alias resolution) → `beecf595`,
+    which carries `bearerSub`.
+  - `fedfa065` (POST /v1/holds) and `22f22b39` (archive hold) → `43cf6d7a`,
+    which adds both `runed/hold.go` and `cmd/arizuko/archive_hold_test.go`.
+
+  The habit the entry asked for: `git merge-base --is-ancestor <sha> HEAD`
+  before recording a SHA. `git cat-file -t` is NOT enough — all eleven still
+  resolve to commit objects in the shared object DB, so `git show` succeeds on a
+  SHA no one else can reach. The check is reachability, not existence.
