@@ -86,9 +86,10 @@ func TestListTools_FacadeToolHiddenWithoutGrant(t *testing.T) {
 // TestListTools_AllFacadeFamiliesVisible: one representative tool from each migrated
 // facade resource surfaces when granted, proving the registry walk covers every
 // family (routes/web_routes/scheduled_tasks/acl/network_rules + groups' register_group
-// — the last 5/16 fold, which needed MCPNames on the groups registration to appear).
+// — the last 5/16 fold, which needed MCPNames on the groups registration to appear —
+// and installed_packages' list_packages, spec 5/28's read-only face).
 func TestListTools_AllFacadeFamiliesVisible(t *testing.T) {
-	want := []string{"add_route", "set_web_route", "schedule_task", "add_acl", "network_allow", "register_group"}
+	want := []string{"add_route", "set_web_route", "schedule_task", "add_acl", "network_allow", "register_group", "list_packages"}
 	tools := ListTools("atlas", func(string) bool { return true })
 	for _, name := range want {
 		if findTool(tools, name) == nil {
