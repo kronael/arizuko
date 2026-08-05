@@ -107,6 +107,14 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 		VALUES(?,'main/','cli','2026-01-01T00:00:00Z',5,2)`, store.InviteRef("inv-tok"))
 	exec(`INSERT INTO onboarding_gates(gate, limit_per_day, enabled) VALUES('*',10,1)`)
 
+	// proxyd_routes + audit_log: routd OWNS both (migrations 0015/0016) → copied to
+	// routd.db. These moved here when routd's boot-time legacy copiers were deleted;
+	// migrate-split is now the ONLY path that carries them off the monolith.
+	exec(`INSERT INTO proxyd_routes(path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to)
+		VALUES('/panel/','http://up','user','','[]',0,'')`)
+	exec(`INSERT INTO audit_log(id, created_at, category, action, actor, outcome)
+		VALUES(4242,'2026-01-01T00:00:00Z','authz','acl.add','system','ok')`)
+
 	if err := s.Close(); err != nil {
 		t.Fatalf("store.Close: %v", err)
 	}
@@ -163,6 +171,9 @@ func TestMigrateSplit(t *testing.T) {
 		"scheduled_tasks": 1, "task_run_logs": 1,
 		// pane_sessions: routd OWNS it now → copied (1 row).
 		"pane_sessions": 1,
+		// proxyd_routes + audit_log: routd OWNS both → copied (1 row each). routd.Open
+		// no longer backfills them, so a miss here means the rows are stranded.
+		"proxyd_routes": 1, "audit_log": 1,
 	} {
 		if got := count(t, r, tbl); got != want {
 			t.Errorf("routd.%s: got %d rows, want %d", tbl, got, want)
