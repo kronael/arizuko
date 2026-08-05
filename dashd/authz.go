@@ -13,7 +13,7 @@ import (
 )
 
 // callerGroups parses the proxyd-signed X-User-Groups header into the list of
-// folders the caller holds an allow-grant on (store.UserScopes output). JSON
+// folders the caller holds an allow-grant on (auth.UserScopes output). JSON
 // array is canonical; a comma-separated fallback covers non-JSON encoders.
 // This is the SAME extraction requireAdmin folds into auth.Authorize.
 func callerGroups(r *http.Request) []string {
@@ -35,8 +35,8 @@ func callerGroups(r *http.Request) []string {
 
 // callerScope returns the caller's allowed folders and whether the caller is an
 // operator (`**` in the set → sees everything). Source of truth is the same the
-// write gate trusts: the proxyd-signed X-User-Groups header (= store.UserScopes
-// at sign time), with a store.UserScopes(sub) fallback when the header is absent
+// write gate trusts: the proxyd-signed X-User-Groups header (= auth.UserScopes
+// at sign time), with an auth.UserScopes(sub) fallback when the header is absent
 // (server-to-server callers, tests that seed only the ACL). ALL read handlers
 // route their scope decision through this one helper — no per-handler
 // re-derivation.
@@ -44,7 +44,7 @@ func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
 	allowed = callerGroups(r)
 	if len(allowed) == 0 {
 		if sub := strings.TrimSpace(r.Header.Get("X-User-Sub")); sub != "" && d.adminDB() != nil {
-			allowed = store.New(d.adminDB()).UserScopes(strings.TrimPrefix(sub, "user:"))
+			allowed = auth.UserScopes(store.New(d.adminDB()), strings.TrimPrefix(sub, "user:"))
 		}
 	}
 	if slices.Contains(allowed, "**") {

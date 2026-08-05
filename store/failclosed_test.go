@@ -76,7 +76,4 @@ func TestACLLists_FailClosedOnQueryError(t *testing.T) {
 	if got := s.ACLWildcardRows(); len(got) != 0 {
 		t.Errorf("ACLWildcardRows on broken table = %+v, want empty", got)
 	}
-	if got := s.UserScopes("google:alice"); len(got) != 0 {
-		t.Errorf("UserScopes on broken table = %+v, want empty", got)
-	}
 }

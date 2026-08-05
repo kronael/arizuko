@@ -193,39 +193,9 @@ func (s *Store) ACLRowsFor(principals []string) []core.ACLRow {
 	return out
 }
 
-// UserScopes returns the distinct allow-scopes the sub has access to,
-// after expanding membership transitively. Used for building JWT group
-// claims and webdav landing. Equivalent of the legacy UserGroups()
-// pattern list, sourced from the unified acl/acl_membership tables.
-func (s *Store) UserScopes(sub string) []string {
-	if sub == "" {
-		return nil
-	}
-	principals := append([]string{sub}, s.Ancestors(sub)...)
-	if len(principals) == 0 {
-		return nil
-	}
-	args := make([]any, 0, len(principals))
-	for _, p := range principals {
-		args = append(args, p)
-	}
-	rows, err := s.db.Query(
-		`SELECT DISTINCT scope FROM acl
-		 WHERE effect='allow' AND principal IN (`+sqlPH(len(principals))+`)
-		 ORDER BY scope`, args...)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var sc string
-		if err := rows.Scan(&sc); err == nil && sc != "" {
-			out = append(out, sc)
-		}
-	}
-	return out
-}
+// UserScopes lives in auth (auth.UserScopes) — it is a projection of the rows
+// auth.Authorize evaluates, not a query of its own. Reading `acl` here with a
+// second SQL statement is what let it miss wildcard-principal grants.
 
 // ListACLByScope returns all acl rows whose scope exactly matches scope.
 func (s *Store) ListACLByScope(scope string) []core.ACLRow {

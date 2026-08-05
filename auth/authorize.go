@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/kronael/arizuko/store"
@@ -116,6 +117,45 @@ func EffectiveActions(s *store.Store, caller Caller) func(action string) bool {
 		}
 		return held[action]
 	}
+}
+
+// UserScopes lists the distinct allow-scope patterns `sub` holds. It is the
+// source of the X-User-Groups header proxyd stamps and of authd's login-time
+// scope snapshot.
+//
+// It reads the SAME rows Authorize evaluates — expanded principals plus
+// wildcard-principal rows — rather than its own SQL, so it cannot drift from
+// the gate about WHICH rows exist. It previously lived in store/ as a raw
+// `principal IN (...)` query, which silently missed every wildcard-principal
+// grant (`google:*`).
+//
+// It is a LISTING, and it can never be the decision. A []string carries no
+// action and cannot represent a deny row, so a scope appearing here means only
+// "some allow row grants it, at some action". Anything gating access MUST call
+// Authorize, which reads action, predicate, params and deny-wins; a caller that
+// treats this result as a verdict has built a second, weaker evaluator.
+func UserScopes(s *store.Store, sub string) []string {
+	if s == nil || sub == "" {
+		return nil
+	}
+	expanded := expandPrincipals(s, Caller{Principal: sub})
+	rows := s.ACLRowsFor(expanded)
+	for _, r := range s.ACLWildcardRows() {
+		if anyPrincipalMatches(r.Principal, expanded) {
+			rows = append(rows, r)
+		}
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, r := range rows {
+		if r.Effect == "deny" || r.Scope == "" || seen[r.Scope] {
+			continue
+		}
+		seen[r.Scope] = true
+		out = append(out, r.Scope)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // expandPrincipals: caller.Principal + caller.Extra plus the transitive

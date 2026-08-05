@@ -621,53 +621,6 @@ func TestChatIsGroup_PreservesOtherCols(t *testing.T) {
 	}
 }
 
-func TestUserScopesNoRows(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	got := s.UserScopes("nobody")
-	if len(got) != 0 {
-		t.Fatalf("expected empty slice, got %v", got)
-	}
-}
-
-func TestUserScopesOperatorViaMembership(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	s.CreateAuthUser("op", "op", "Operator")
-	if err := s.AddACLRow(core.ACLRow{
-		Principal: "role:operator", Action: "*", Scope: "**", Effect: "allow",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AddMembership("op", "role:operator", "test"); err != nil {
-		t.Fatal(err)
-	}
-	got := s.UserScopes("op")
-	if len(got) != 1 || got[0] != "**" {
-		t.Fatalf("expected [**], got %v", got)
-	}
-}
-
-func TestUserScopesSpecificFolders(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	s.CreateAuthUser("u1", "u1", "User One")
-	for _, scope := range []string{"alpha", "beta"} {
-		if err := s.AddACLRow(core.ACLRow{
-			Principal: "u1", Action: "admin", Scope: scope, Effect: "allow",
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got := s.UserScopes("u1")
-	if len(got) != 2 || got[0] != "alpha" || got[1] != "beta" {
-		t.Fatalf("expected [alpha beta], got %v", got)
-	}
-}
-
 func TestPutMessage_DefaultsStatusToSent(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()

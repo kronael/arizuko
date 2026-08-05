@@ -30,7 +30,7 @@ func (a *admin) requireOperator(w http.ResponseWriter, r *http.Request) bool {
 }
 
 // callerGroups parses the proxyd-signed X-User-Groups header (JSON array of the
-// folders the caller holds an allow-grant on, store.UserScopes output at sign
+// folders the caller holds an allow-grant on, auth.UserScopes output at sign
 // time). Operator = `**` in the set.
 func callerGroups(r *http.Request) []string {
 	hdr := r.Header.Get("X-User-Groups")

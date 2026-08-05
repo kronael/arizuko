@@ -1,17 +1,10 @@
 ---
-status: partial
+status: shipped
 depends: [5/17-openapi-mcp, 5/E-routd]
 supersedes-in-part: [4/19-action-grants.md]
 ---
 
 # Unified ACL — one primitive, three principals
-
-> **Status (2026-08-05).** Partial. `auth.Authorize` is not the only reader of
-> the table: `store.UserScopes` (`store/acl.go:200`) answers folder visibility
-> for dashd and onbod with raw SQL that ignores the `action` column, deny-wins
-> precedence, and wildcard principals. On the dashd/onbod read surfaces its
-> result is the terminal 200/403 decision, so it is a second authz-adjacent
-> decision path beside the one gate this spec makes canonical. BUGS `F5`.
 
 Authorization is one row and one question:
 
@@ -166,6 +159,20 @@ F)` row grants the audience.
 view for `tools/list` — does the caller hold this action at ANY scope. Deny rows
 are scope-specific and do not hide a tool; the per-call `Authorize` still
 enforces them.
+
+`auth.UserScopes` is the other projection: the distinct allow-scope patterns a
+sub holds, stamped into `X-User-Groups` and into authd's login-time snapshot.
+Both projections load the same rows `Authorize` does — expanded principals plus
+wildcard-principal rows — so none of the three can disagree about which rows
+exist. `UserScopes` lived in `store/` as its own `principal IN (...)` query
+until 2026-08-05 and silently missed every `google:*`-style grant.
+
+**A projection is never a verdict.** A `[]string` carries no action and cannot
+express a deny, so a scope in that list means only "some allow row grants it, at
+some action". Anything gating access calls `Authorize`. This is not a style
+preference: it is why the list may not be tightened to "look like" a decision —
+tests pin that a scope with both an allow and a deny row still lists, and that
+`Authorize` denies it anyway.
 
 ## Bootstrap
 

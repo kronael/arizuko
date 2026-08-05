@@ -171,8 +171,9 @@ func (d *DB) ListACL(principal string) []core.ACLRow {
 
 // UserScopes returns the distinct allow-scopes a sub has, expanding membership
 // transitively. Backs GET /v1/users/{sub}/scopes (authd snapshots it at login).
+// A listing, never a verdict — see auth.UserScopes.
 func (d *DB) UserScopes(sub string) []string {
-	return d.aclEval().UserScopes(sub)
+	return auth.UserScopes(d.aclEval(), sub)
 }
 
 // AddACLRow inserts one acl row.
