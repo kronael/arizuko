@@ -7,6 +7,55 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## R3 — a killed run still launches its container, on a folder that now reads free (2026-08-05, FIXED)
+
+`Z4`/`43cf6d7a` guarded `DB.StartSpawn` on `state='queued'` so a `DELETE`
+landing between `admit`'s `CreateSpawn` and the start can no longer resurrect
+a `killed` row. The row is now right — but `Manager.spawn` discarded the
+result (`_ = m.db.StartSpawn(runID, sessionID)`, `runed/manager.go:312`) and
+called `exec.Run` unconditionally ~20 lines later, so the LAUNCH was never
+gated.
+
+That guard made the failure worse, not better. Before it, the un-`WHERE`d
+`StartSpawn` flipped `killed`→`running`: DB-wrong, but it accidentally kept
+`ActiveSpawnForFolder` (which counts only `queued`/`running`) reporting the
+folder busy, so nothing else could claim it. After it, the row correctly
+stays `killed`, the folder reads **free**, and the just-killed run's container
+still comes up — a concurrent `POST /v1/runs` for that folder is admitted and
+**two containers share one folder's mount**, breaking the exclusivity
+invariant `hold.go` is built on. `spawn()` also returned `Outcome: ok` for the
+killed run, so routd advanced its cursor past a batch nothing had processed.
+
+Reproduced through `Manager.spawn` before fixing: claim via `admit`,
+`Kill` it, then `spawn()` — `ActiveRunID` returns `""` while the fake
+executor fires and the call returns `{Outcome: ok}`. No existing test covered
+it: `TestSerializationNoConcurrentDoubleSpawn` races concurrent `Run()` calls
+only, and `TestKillSpawnDoesNotOverwriteTerminal` stops at the DB layer.
+
+- **Severity:** high (folder-exclusivity, the invariant holds/restores depend on)
+- **Scope:** runed run lifecycle — claim→launch gating
+- **Affected:** every kind; `KindAgent` is the one that spawns a real container
+- **Source:** `runed/manager.go:312`, `runed/db.go:210` (as of `ff119ed6`)
+- **Status:** fixed 2026-08-05 — `f64cc46c`
+- **Fix:** `StartSpawn` returns `(started bool, err error)` off `RowsAffected`;
+  `spawn()` takes the claim as its FIRST act and returns
+  `RunOutcome{Busy: true}` when it did not fire. `Busy` — not a new
+  discriminator — because routd's existing handling is already exactly right
+  for "nothing ran": cursor un-advanced, batch re-fed next poll, not charged
+  to the circuit breaker (`routd/dispatch.go:278`). It terminates: the killed
+  row is terminal, so the next poll's admission succeeds. No audit row —
+  `runed` owns no `audit_log`, and the kill is already recorded as
+  `spawns.state='killed'`; the prevented launch surfaces as `slog.Warn`. No
+  `EndSpawn`/`endRun` — returning first is what keeps an aborted launch from
+  opening a `session_log` row nothing closes, from clearing a real failure
+  streak, and from deleting a steer callback that by then belongs to the
+  folder's NEXT run.
+- **Live status:** the missing gate is in the tree, but per `Z1` all three
+  instances run a 2026-07-30 image, which predates `43cf6d7a` — so the
+  free-folder variant is NOT live yet. It becomes live the moment `Z1`'s
+  stale-image gap is closed, which makes this a redeploy blocker rather
+  than an active incident. A redeploy is required for the fix to reach them.
+
 ## C1 — package names can traverse outside `services/` (2026-07-28, open)
 
 `arizuko packages <instance> add|remove <name>` joins the unvalidated name
