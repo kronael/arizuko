@@ -42,7 +42,7 @@ social verbs but no pins (email, linkd). Plumbing:
 | Verb      | slakd | teled  | discd | mastd | bskyd | reditd | whapd  | emaid |
 | --------- | ----- | ------ | ----- | ----- | ----- | ------ | ------ | ----- |
 | edit      | ✓     | ✓ ≤48h | ✓     | ✓     | ✗     | ✓      | ✓ ~15m | ✗     |
-| delete    | ✓ own | ✓ own  | ✓ own | ✓     | ✓     | ✗      | ✓      | ✗     |
+| delete    | ✓ own | ✓ own  | ✓ own | ✓     | ✓     | ✓ own  | ✓      | ✗     |
 | pin/unpin | ✓     | ✓      | ✓     | ✗     | ✗     | ✗      | ✗      | ✗     |
 | unpin_all | ✓     | ✓      | ✗     | ✗     | ✗     | ✗      | ✗      | ✗     |
 
@@ -50,16 +50,30 @@ Slack `pins.add`/`pins.remove`, unpin-all iterating `pins.list`; Discord
 `ChannelMessagePin`/`Unpin` with no bulk primitive; Telegram
 `pinChatMessage`/`unpinChatMessage`/`unpinAllChatMessages`.
 
-Reddit `delete` is `✗` despite a working `Delete()` — reditd's cap map
-omits `"delete": true`, so `HasCap` gates it off. Logged as a bug;
-advertising the cap is a behavior change, not a spec edit.
-
 ## Authorization + audit
 
 One evaluator over ACL rows ([`32-acl-unified.md`](32-acl-unified.md),
 `auth/authorize.go:25`) — the per-tier grant defaults and the
-`grantslib` package this spec originally referenced are gone. Audit
-category `social`, action `pin`/`unpin`, resource `<jid>/<targetID>`.
+`grantslib` package this spec originally referenced are gone.
+
+Every message action writes one `audit_log` row
+(`routd/social_audit.go`). Category **`agent`**, not the `social` this
+spec once named: the category enum is closed (`audit/log.go`) and has no
+`social` member, and `audit/PLAN.md` scopes `mutation` to registry-
+resource CRUD — the operator's config-change trail — while `agent` is
+the per-turn band these belong to. Action `message.<verb>`, resource
+`<jid>/<targetID>`, actor `folder:<folder>`, surface `mcp` on the socket
+and `rest` on the twin; `unpin_all` is `message.unpin` with
+`{"all":true}` in `params_summary`, matching the one-mechanism-one-route
+decision above. Both faces call the one renderer, so they cannot drift
+into recording different things.
+
+The row is the only durable trace these verbs leave: they append no
+`messages` row, so the "the row IS the record" reason `audit/PLAN.md`
+§ SKIP gives for not auditing `reply`/`send` does not reach them — an
+edited or deleted platform message would otherwise vanish with nothing
+recording that it happened. The edit row names the message, never the
+new content.
 
 ## Out of scope
 

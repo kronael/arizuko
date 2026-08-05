@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
@@ -477,8 +478,9 @@ func (s *Server) handleSendVoice(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// openTurn fetches the turn context and rejects a closed turn — the guard the
-// relay handlers run before touching the Deliverer. (0, nil) errResp on success.
+// openTurn fetches the turn context and rejects a closed turn — the guard every
+// handler runs before touching the Deliverer, so a late frame cannot mutate a
+// platform message after the run is no longer live. (0, nil) errResp on success.
 func (s *Server) openTurn(turnID string) (TurnContext, int, any) {
 	tc, ok := s.db.GetTurnContext(turnID)
 	if !ok {
@@ -525,7 +527,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLike(w http.ResponseWriter, r *http.Request) {
-	s.mutate(w, r, "POST /v1/turns/like", func(req apiv1.ReactionRequest) error {
+	s.mutate(w, r, "POST /v1/turns/like", "message.like", func(req apiv1.ReactionRequest) error {
 		if s.deliver == nil {
 			return nil
 		}
@@ -539,22 +541,29 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.idem(w, r, "POST /v1/turns/edit", false, func(body []byte) (int, any, *core.Message) {
-		if status, errResp := s.guardOpen(turnID); errResp != nil {
+		tc, status, errResp := s.openTurn(turnID)
+		if errResp != nil {
 			return status, errResp, nil
 		}
 		var req apiv1.EditRequest
 		json.Unmarshal(body, &req)
+		var err error
 		if s.deliver != nil {
-			if err := s.deliver.Edit(req.JID, req.PlatformID, req.Content); err != nil {
-				return 422, apiv1.Err{Error: "unsupported", Message: err.Error()}, nil
-			}
+			err = s.deliver.Edit(req.JID, req.PlatformID, req.Content)
+		}
+		// No params: the new content is chat data, and the trail an operator
+		// reads is not a copy of the conversation.
+		s.auditSocial("message.edit", tc.Folder, turnID, req.JID, req.PlatformID,
+			audit.SurfaceREST, nil, err)
+		if err != nil {
+			return 422, apiv1.Err{Error: "unsupported", Message: err.Error()}, nil
 		}
 		return 200, apiv1.OK{OK: true}, nil
 	})
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
-	s.target(w, r, "POST /v1/turns/delete", func(req apiv1.TargetRequest) error {
+	s.target(w, r, "POST /v1/turns/delete", "message.delete", func(req apiv1.TargetRequest) error {
 		if s.deliver == nil {
 			return nil
 		}
@@ -563,7 +572,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePin(w http.ResponseWriter, r *http.Request) {
-	s.target(w, r, "POST /v1/turns/pin", func(req apiv1.TargetRequest) error {
+	s.target(w, r, "POST /v1/turns/pin", "message.pin", func(req apiv1.TargetRequest) error {
 		if s.deliver == nil {
 			return nil
 		}
@@ -572,7 +581,7 @@ func (s *Server) handlePin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUnpin(w http.ResponseWriter, r *http.Request) {
-	s.target(w, r, "POST /v1/turns/unpin", func(req apiv1.TargetRequest) error {
+	s.target(w, r, "POST /v1/turns/unpin", "message.unpin", func(req apiv1.TargetRequest) error {
 		if s.deliver == nil {
 			return nil
 		}
@@ -580,51 +589,49 @@ func (s *Server) handleUnpin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// guardOpen returns a 409 turn_done error for a closed turn (run-response
-// returned), else (0, nil). The mutation tools (like/edit/delete/pin/unpin) run
-// it so a late frame doesn't mutate a platform message after the run is no longer
-// live.
-func (s *Server) guardOpen(turnID string) (int, any) {
-	tc, ok := s.db.GetTurnContext(turnID)
-	if !ok {
-		return 409, apiv1.Err{Error: "unknown_turn", Message: "no turn context for turn_id"}
-	}
-	if s.callbackClosed(tc) {
-		return 409, apiv1.Err{Error: "turn_done", Message: "turn already terminal"}
-	}
-	return 0, nil
-}
-
-func (s *Server) mutate(w http.ResponseWriter, r *http.Request, endpoint string, fn func(apiv1.ReactionRequest) error) {
+// mutate and target run one message action: guard the turn, deliver, record.
+// openTurn is the same 409 guard the relay handlers use — it also hands back the
+// turn context, which is where the audit row's folder comes from. action is the
+// audit_log action (routd/social_audit.go); the platform mutation and its row
+// are one step, so a verb cannot reach the surface without one.
+func (s *Server) mutate(w http.ResponseWriter, r *http.Request, endpoint, action string, fn func(apiv1.ReactionRequest) error) {
 	turnID := r.PathValue("turn_id")
 	if !s.authzTurn(w, r, turnID, scopeSend...) {
 		return
 	}
 	s.idem(w, r, endpoint, false, func(body []byte) (int, any, *core.Message) {
-		if status, errResp := s.guardOpen(turnID); errResp != nil {
+		tc, status, errResp := s.openTurn(turnID)
+		if errResp != nil {
 			return status, errResp, nil
 		}
 		var req apiv1.ReactionRequest
 		json.Unmarshal(body, &req)
-		if err := fn(req); err != nil {
+		err := fn(req)
+		s.auditSocial(action, tc.Folder, turnID, req.JID, req.PlatformID,
+			audit.SurfaceREST, reactionParams(req.Reaction), err)
+		if err != nil {
 			return 422, apiv1.Err{Error: "unsupported", Message: err.Error()}, nil
 		}
 		return 200, apiv1.OK{OK: true}, nil
 	})
 }
 
-func (s *Server) target(w http.ResponseWriter, r *http.Request, endpoint string, fn func(apiv1.TargetRequest) error) {
+func (s *Server) target(w http.ResponseWriter, r *http.Request, endpoint, action string, fn func(apiv1.TargetRequest) error) {
 	turnID := r.PathValue("turn_id")
 	if !s.authzTurn(w, r, turnID, scopeSend...) {
 		return
 	}
 	s.idem(w, r, endpoint, false, func(body []byte) (int, any, *core.Message) {
-		if status, errResp := s.guardOpen(turnID); errResp != nil {
+		tc, status, errResp := s.openTurn(turnID)
+		if errResp != nil {
 			return status, errResp, nil
 		}
 		var req apiv1.TargetRequest
 		json.Unmarshal(body, &req)
-		if err := fn(req); err != nil {
+		err := fn(req)
+		s.auditSocial(action, tc.Folder, turnID, req.JID, req.PlatformID,
+			audit.SurfaceREST, unpinParams(req.All), err)
+		if err != nil {
 			return 422, apiv1.Err{Error: "unsupported", Message: err.Error()}, nil
 		}
 		return 200, apiv1.OK{OK: true}, nil

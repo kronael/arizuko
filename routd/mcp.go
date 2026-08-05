@@ -57,15 +57,29 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			return s.mcpSendVoice(t.turnID, jid, text, voice, folder, threadID)
 		},
 		Like: func(jid, target, reaction string) error {
-			return s.deliver.React(jid, target, reaction)
+			return s.socialTool(t, "message.like", jid, target, reactionParams(reaction),
+				func() error { return s.deliver.React(jid, target, reaction) })
 		},
-		Dislike: func(jid, target string) error { return s.deliver.Dislike(jid, target) },
-		Delete:  func(jid, target string) error { return s.deliver.Delete(jid, target) },
+		Dislike: func(jid, target string) error {
+			return s.socialTool(t, "message.dislike", jid, target, nil,
+				func() error { return s.deliver.Dislike(jid, target) })
+		},
+		Delete: func(jid, target string) error {
+			return s.socialTool(t, "message.delete", jid, target, nil,
+				func() error { return s.deliver.Delete(jid, target) })
+		},
 		Edit: func(jid, target, content string) error {
-			return s.deliver.Edit(jid, target, content)
+			return s.socialTool(t, "message.edit", jid, target, nil,
+				func() error { return s.deliver.Edit(jid, target, content) })
 		},
-		Pin:   func(jid, target string) error { return s.deliver.Pin(jid, target) },
-		Unpin: func(jid, target string, all bool) error { return s.deliver.Unpin(jid, target, all) },
+		Pin: func(jid, target string) error {
+			return s.socialTool(t, "message.pin", jid, target, nil,
+				func() error { return s.deliver.Pin(jid, target) })
+		},
+		Unpin: func(jid, target string, all bool) error {
+			return s.socialTool(t, "message.unpin", jid, target, unpinParams(all),
+				func() error { return s.deliver.Unpin(jid, target, all) })
+		},
 		Post: func(jid, content string, media []string) (string, error) {
 			return s.deliver.Post(jid, content, media)
 		},
@@ -542,7 +556,7 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	// Per-call row-ACL: the canonical in-container agent principal is folder:<path>,
 	// so ipc's authorizeCall runs auth.Authorize against the folder's role:member floor
 	// + delegated rows. A no-match denies (loud).
-	callerSub := "folder:" + t.folder
+	callerSub := turnPrincipal(t.folder)
 	visible := s.turnVisible(callerSub, t.elevated)
 	// spec 5/16: mount the agent's management tools via resreg (shared handler +
 	// tx/audit) with the agent's injected Gate (auth.Authorize on the target) +
