@@ -436,7 +436,14 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// cannot collide with an OAuth sub, which is always "<provider>:<id>", so it
 	// is not the vector; rejecting it would only break adapters that never
 	// qualified their senders.
-	if s.reg != nil && sub != "" && strings.Contains(m.Sender, ":") {
+	// "anon:" is exempt for the same reason a bare sender is: it is not an
+	// identity. Route tokens (5/W) mint anon:<hash> for public chat, it can
+	// never be an OAuth sub ("anon" is no provider) and it holds no grant, so
+	// IsOperator → Authorize can never match it. webd DOES hold a registry
+	// entry (it owns "web:"), so without this the guard rejected webd's own
+	// route-token senders — it took the whole web-chat surface down on krons
+	// the first time 3cb63410 reached a deployed instance (2026-08-05).
+	if s.reg != nil && sub != "" && strings.Contains(m.Sender, ":") && !strings.HasPrefix(m.Sender, "anon:") {
 		if entry := s.reg.ByPrincipal(sub); entry != nil && !entry.OwnsScheme(m.Sender) {
 			writeErr(w, 400, "sender_scheme_mismatch",
 				"adapter may not assert sender "+m.Sender)
