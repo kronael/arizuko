@@ -1,10 +1,17 @@
 ---
-status: shipped
+status: partial
 depends: [5/17-openapi-mcp, 5/E-routd]
 supersedes-in-part: [4/19-action-grants.md]
 ---
 
 # Unified ACL — one primitive, three principals
+
+> **Status (2026-08-05).** Partial. `auth.Authorize` is not the only reader of
+> the table: `store.UserScopes` (`store/acl.go:200`) answers folder visibility
+> for dashd and onbod with raw SQL that ignores the `action` column, deny-wins
+> precedence, and wildcard principals. On the dashd/onbod read surfaces its
+> result is the terminal 200/403 decision, so it is a second authz-adjacent
+> decision path beside the one gate this spec makes canonical. BUGS `F5`.
 
 Authorization is one row and one question:
 

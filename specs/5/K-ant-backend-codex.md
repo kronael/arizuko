@@ -1,8 +1,15 @@
 ---
-status: shipped
+status: partial
 ---
 
 # Ant backend abstraction — Codex as second harness
+
+> **Status (2026-08-05).** Partial. `capabilities()` has no runtime call site
+> (only tests), so the graceful-degradation contract below is unimplemented;
+> `setModelLive` is `false` in `claude.ts` and `true` in `codex.ts`,
+> contradicting the claim that both backends satisfy every field today;
+> `claude.ts` has no dedicated test file; and `ARIZUKO_BACKEND`, the switch that
+> selects a backend, is documented nowhere outside this spec. BUGS `F6`.
 
 A `Backend` interface inside the in-container agent (`ant/src/backend/`)
 lets the runtime drive different agentic harnesses underneath.

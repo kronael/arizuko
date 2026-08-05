@@ -1,8 +1,16 @@
 ---
-status: shipped
+status: partial
 ---
 
 # Web access: `/priv` is a grant decision, not a second ACL
+
+> **Status (2026-08-05).** Partial. The inheritance claim below describes a
+> mechanism `auth.MatchGroups` does not have: it matches segment-for-segment and
+> requires equal depth, so a grant on `atlas` does **not** cover `atlas/search`
+> — only `atlas/**` or `**` do. The promised reach exists, but each caller
+> reinvents it separately (dashd loops over prefixes, proxyd truncates the path
+> to its first segment before matching), which is the drift this spec set out to
+> prevent. BUGS `F4`.
 
 Sibling of [`5/V`](V-web-vhosts.md) (vhosts + slots — **ownership**) and
 [`5/32`](32-acl-unified.md) (the `Authorize` gate — **access**).

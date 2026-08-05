@@ -48,8 +48,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 ### Changed
 
 - **Build requires Go 1.27 (`toolchain go1.27rc2`) — BREAKING for builders.**
-  `go.mod` declares `go 1.27` and pins the release candidate; both Dockerfiles
-  build `FROM golang:1.27rc2-alpine` (neither `1.27-alpine` nor `1.27rc-alpine`
+  `go.mod` declares `go 1.27` and pins the release candidate; all five Go
+  Dockerfiles (root, `crackbox`, `anteval`, `ttsd`, `linkd`) build
+  `FROM golang:1.27rc2-alpine` (neither `1.27-alpine` nor `1.27rc-alpine`
   exists yet). With `GOTOOLCHAIN=auto` — Go's default — any Go 1.21+ fetches the
   toolchain on first build and nothing else changes; `GOTOOLCHAIN=local` and
   offline builds must install `go1.27rc2` by hand. Forced along the way:

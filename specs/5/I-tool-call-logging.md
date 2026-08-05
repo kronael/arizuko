@@ -1,9 +1,14 @@
 ---
-status: shipped
+status: partial
 depends: [17-openapi-mcp]
 ---
 
 # specs/5/I — per-tool-call logging
+
+> **Status (2026-08-05).** Partial. Layer A is not "every daemon": `runed`
+> declares no `audit_log` table in its migrations and emits no audit rows at
+> all, so its state-changing `POST /v1/runs` and `POST /v1/holds` — spawning a
+> container and claiming a folder's run slot — leave no trail. BUGS `F7`.
 
 > **Shipped 2026-06-14.** Layer A: `audit_log` (params_summary,
 > duration_ms, turn_id, surface, redaction) emitted in-tx via

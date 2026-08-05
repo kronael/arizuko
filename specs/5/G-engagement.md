@@ -1,10 +1,15 @@
 ---
-status: shipped
+status: partial
 depends: [B-route-mode-ingestion, F-topic-lineage, L-mention-promotion]
 relates-to: [3/Y-thread-routing, 5/Y-output-styles-per-surface]
 ---
 
 # specs/5/G — engagement: stay in the conversation after a mention
+
+> **Status (2026-08-05).** Partial. `concepts/engagement.html` tells operators
+> the TTL defaults to 20m; routd defaults it to 30m in both places it is set.
+> No dashd surface shows or clears engagement windows, so the operator can
+> neither see who is engaged nor end it. BUGS `F12`.
 
 ## What this solves
 

@@ -1,9 +1,13 @@
 ---
-status: shipped
+status: partial
 depends: [E-routd, P-runed, G-engagement]
 ---
 
 # Proactive interjection
+
+> **Status (2026-08-05).** Partial. Two acceptance criteria below have no test:
+> #3 (a silent outcome still arms the cooldown) and #6 (a proactive turn does
+> not bump engagement, so the next message routes normally). BUGS `F10`.
 
 Let the agent speak unprompted when it's useful. arizuko is
 mention-reactive: in channels where the bot lurks, valuable

@@ -1,10 +1,17 @@
 ---
-status: shipped
+status: partial
 depends:
   [1-auth-standalone, 5/E-routd, 8-yaml-manifests, specs/5/32-acl-unified]
 ---
 
 # specs/5/17 — one handler, two faces: MCP for the agent, REST for humans
+
+> **Status (2026-08-05).** Partial. The operator-facing aggregator has drifted
+> from the code it describes: `reference/openapi.html` states that `secrets` is
+> excluded from routd's document to keep encrypted blobs off a read surface,
+> but routd includes it (write-only verbs); and the aggregator table lists six
+> daemons while eight mount `/openapi.json` — `authd` and `runed` are missing.
+> BUGS `F8`.
 
 > **DECISION.** Every cold-tier management resource is authored **once** as
 > one in-process `resreg.Resource` — logic, tx, audit, and arg-derivation in

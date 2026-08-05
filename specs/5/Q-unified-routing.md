@@ -33,9 +33,9 @@ and fails them after 24h (`routd/loop.go:359`). The in-memory `chanreg`
 outbox stays, but only to drain on adapter reconnect — the DB row is the
 durable record.
 
-**`send_message` and `send_file` stay separate tools** (different
+**`send` and `send_file` stay separate tools** (different
 intents, different descriptions, per the tool-naming rule) but funnel
-through one internal `internalSend` (`ipc/ipc.go:665`) behind the MCP
+through one internal `internalSend` (`ipc/ipc.go:668`) behind the MCP
 wall, so persistence and routing cannot diverge. They did diverge:
 `send_file` was not recording outbound rows at all until this
 consolidation. One renderer, many sinks.

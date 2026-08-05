@@ -1,8 +1,12 @@
 ---
-status: shipped
+status: partial
 ---
 
 # Live tasklist status — harness-driven, one edited message per turn
+
+> **Status (2026-08-05).** Partial. No operator-facing web doc exists, and
+> `routd/README.md` does not mention `submit_status` although routd owns the
+> handler and the delivery path. BUGS `F14`.
 
 Progress reporting moves from an LLM-invoked skill to a **harness hook on
 the structured tasklist**, delivered as **one message edited in place** per

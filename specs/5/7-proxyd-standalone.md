@@ -1,9 +1,15 @@
 ---
-status: shipped
+status: partial
 shipped: phase-1 (per-daemon route declarations) in v0.35.0; phase-3 (runtime route resource + MCP) in v0.36.0
 ---
 
 # proxyd: standalone authenticating gateway
+
+> **Status (2026-08-05).** Partial. The resource is registered as
+> `proxyd_routes`, so the wire surface is `/v1/proxyd_routes` and the derived
+> MCP tools are `proxyd_routes.*` — but `proxyd/README.md` and the operator
+> component page still document `/v1/routes` and `routes.*`, which is
+> `routd`'s name. There is also no dashd view for `proxyd_routes`. BUGS `F11`.
 
 `proxyd` is a generic, config-driven authenticating reverse proxy —
 droppable in front of any HTTP service stack, arizuko or otherwise. Same

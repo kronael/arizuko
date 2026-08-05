@@ -1,8 +1,13 @@
 ---
-status: shipped
+status: partial
 ---
 
 # authd — central authority daemon + offline-verify library
+
+> **Status (2026-08-05).** Partial. authd's dashd cockpit tile is declared
+> `Built:false`, so the sole signer has no operator surface; and nothing lets an
+> operator revoke another user's refresh-token family — `revokeFamily` fires
+> only from reuse detection and from the user's own `/auth/logout`. BUGS `F15`.
 
 **DECISION.** Token authority is centralized in one `authd` daemon — the **sole
 signer**. It holds the ES256 private key, publishes public JWKs at `/v1/keys`,

@@ -1,10 +1,15 @@
 ---
-status: shipped
+status: partial
 depends:
   [32-acl-unified, 18-onboarding-model, 1-auth-standalone, W-webhook-routes]
 ---
 
 # specs/5/31 — identity pairing (channel identity → verified account)
+
+> **Status (2026-08-05).** Partial. The pairing primitive ships, but the
+> "Onboarding — the fold" section below is unbuilt: onbod still runs the
+> synchronous `linkJID`/`token_ref` gate and no `IssuePairingLink` call site
+> exists. Tracked as BUGS `P1b` (PROPOSED — redesign, needs sign-off).
 
 ## Problem
 

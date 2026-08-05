@@ -1,8 +1,15 @@
 ---
-status: shipped
+status: partial
 ---
 
 # specs/5/28 — arizuko packages
+
+> **Status (2026-08-05).** Partial. `installed_packages` carries no resreg
+> registration, so it has neither a REST nor an MCP face and every mutation is
+> CLI-only (BUGS `F1`). `applyPackageRoutes` writes proxyd routes with no audit
+> row, while `applyPackageGrants` beside it in the same install path audits per
+> grant (BUGS `F2`). The "Composition" section below is unbuilt — no reader for
+> `products.toml` exists (BUGS `F3`).
 
 Source-first package manager: a package is a **git source** (GitHub URL,
 resolved to an immutable revision) that ships a **manifest** plus any subset of

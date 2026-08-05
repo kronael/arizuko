@@ -1,11 +1,16 @@
 ---
-status: shipped
+status: partial
 shipped: 2026-05-18
 depends: [Q-unified-routing, S-jid-format, 17-openapi-mcp, 32-acl-unified]
 supersedes: [specs/1/W-slink.md]
 ---
 
 # specs/5/W — route tokens (unified chat + webhook surface)
+
+> **Status (2026-08-05).** Partial. The daemon boundary below is not the one
+> built: webd opens `routd.db` directly and resolves tokens in-process, so the
+> `POST /v1/route_tokens/resolve` endpoint this spec makes the contract has no
+> production caller — only a contract test. BUGS `F13`.
 
 ## What this solves
 
@@ -153,8 +158,8 @@ ACL gate in `routd/route_tokens_resource.go` and `routd/tokens_http.go`.
 | ------ | ---------------------------------------------------- | ------------------------------- |
 | Issue  | `issue_chat_link(jid_suffix?, context?)`             | `POST /v1/route_tokens/chat`    |
 | Issue  | `issue_webhook(source_label, jid_suffix?, context?)` | `POST /v1/route_tokens/hook`    |
-| List   | `list_route_tokens()`                                | `GET /v1/route_tokens`          |
-| Revoke | `revoke_route_token(jid)`                            | `DELETE /v1/route_tokens/{jid}` |
+| List   | `list_tokens()`                                      | `GET /v1/route_tokens`          |
+| Revoke | `revoke_token(jid)`                                  | `DELETE /v1/route_tokens/{jid}` |
 
 `issue_chat_link` and `issue_webhook` are distinct tools (distinct
 intents, distinct descriptions) sharing one internal writer.

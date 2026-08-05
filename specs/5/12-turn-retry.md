@@ -1,8 +1,13 @@
 ---
-status: shipped
+status: partial
 ---
 
 # Turn retry on failed completion
+
+> **Status (2026-08-05).** Partial. Code, tests and `routd/README.md` are in
+> place; the operator-facing web doc is not — neither the behaviour nor
+> `MAX_TURN_RETRY` appears under `template/web/pub/`, so the only public trace
+> is a changelog line. BUGS `F14`.
 
 A turn that dies mid-execution (SIGKILL/OOM, `RUNED_RUN_TIMEOUT`) never
 reaches `submit_turn` or `reply`. The user sees silence, the guard
