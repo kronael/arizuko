@@ -367,7 +367,9 @@ func TestParseTrustedProxies_IPv6(t *testing.T) {
 	}
 }
 
-// /priv/<folder>/ requires the caller to hold a grant covering the folder.
+// /priv/<folder>/ requires the caller to hold a grant covering the folder that
+// OWNS the slot. Folders are multi-segment, so the owner cannot be read off the
+// first path segment — that bug 403'd a deep folder on its own private page.
 func TestPriv_FolderScopedGrant(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
@@ -394,6 +396,22 @@ func TestPriv_FolderScopedGrant(t *testing.T) {
 		{"wrong folder", "/priv/atlas/file.html", []string{"research"}, 403},
 		{"no groups", "/priv/atlas/file.html", []string{}, 403},
 		{"bare priv no folder", "/priv", []string{}, 200},
+
+		// The segment-one truncation denied all four of these.
+		{"deep folder reads its own slot", "/priv/atlas/search/page.html",
+			[]string{"atlas/search"}, 200},
+		{"deep folder, nested file", "/priv/atlas/search/docs/a.html",
+			[]string{"atlas/search"}, 200},
+		{"subtree glob", "/priv/atlas/search/page.html", []string{"atlas/**"}, 200},
+		{"direct-children glob", "/priv/atlas/search/page.html", []string{"atlas/*"}, 200},
+
+		// ...and it must still deny sideways and upward.
+		{"deep grant cannot read the parent's file", "/priv/atlas/file.html",
+			[]string{"atlas/search"}, 403},
+		{"sibling folder", "/priv/atlas/search/page.html",
+			[]string{"atlas/other"}, 403},
+		{"tenant name is not a string prefix", "/priv/atlasx/file.html",
+			[]string{"atlas"}, 403},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

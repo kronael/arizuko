@@ -105,7 +105,7 @@ arizuko group myagent add slack:T1234/C5678 alice</code></pre>
       <pre><code>arizuko group myagent add slack:T1234/C1111 eng
 arizuko group myagent add slack:T1234/C2222 eng/frontend
 arizuko acl myagent add alice@example.com "eng/**" "**"</code></pre>
-      <p>Nested folders inherit from parents; ACL rows grant actions per folder. See <a href="grants.html">grants</a> and <a href="scopes.html">scopes</a>.</p>
+      <p>Nesting a folder grants nothing on its own &mdash; the reach is whatever the glob says. <code>eng/**</code> covers <code>eng</code> and everything under it; a bare <code>eng</code> covers that one folder. See <a href="grants.html">grants</a> and <a href="scopes.html">scopes</a>.</p>
 
       <h3>Internet</h3>
       <pre><code>arizuko token myagent create --jid web:support</code></pre>
@@ -132,7 +132,7 @@ arizuko acl myagent add alice@example.com "eng/**" "**"</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/scaling.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
       </div>
     </main>
 

@@ -1,16 +1,8 @@
 ---
-status: partial
+status: shipped
 ---
 
 # Web access: `/priv` is a grant decision, not a second ACL
-
-> **Status (2026-08-05).** Partial. The inheritance claim below describes a
-> mechanism `auth.MatchGroups` does not have: it matches segment-for-segment and
-> requires equal depth, so a grant on `atlas` does **not** cover `atlas/search`
-> — only `atlas/**` or `**` do. The promised reach exists, but each caller
-> reinvents it separately (dashd loops over prefixes, proxyd truncates the path
-> to its first segment before matching), which is the drift this spec set out to
-> prevent. BUGS `F4`.
 
 Sibling of [`5/V`](V-web-vhosts.md) (vhosts + slots — **ownership**) and
 [`5/32`](32-acl-unified.md) (the `Authorize` gate — **access**).
@@ -53,12 +45,11 @@ agent supplies**. Ownership is agent-local; access is platform-resolved.
 **`/pub` stays dumb.** Public is public — no per-request grant lookup on the hot
 public path.
 
-## Shipped (2026-06-15)
+## Shipped (2026-06-15, corrected 2026-08-05)
 
-One edit, `proxyd/main.go:589` — the `/priv/*` branch. After auth stamps
-`X-User-Groups`, extract `<folder>` from the first path segment and call
-`auth.MatchGroups(gs, folder)` (`proxyd/main.go:601`), the same containment
-helper the WebDAV handler uses; 403 on no match, proxy to vited otherwise.
+The `/priv/*` branch in `proxyd/main.go`. After auth stamps `X-User-Groups`,
+call `auth.MatchSlot(gs, slotPath)` on the whole path after `/priv/`; 403 on no
+match, proxy to vited otherwise.
 
 Resolved along the way:
 
@@ -66,8 +57,24 @@ Resolved along the way:
   listing surface to scope separately.
 - **Grant verb** — none added. Any grant covering the folder (`interact`,
   `admin`, `*`) passes; the existing scope vocabulary suffices.
-- **Inheritance** — a grant on `atlas` covers `atlas/search` via segment
-  traversal. Intended, not incidental.
+- **Inheritance — NO.** The original text claimed a grant on `atlas` covers
+  `atlas/search` "via segment traversal". It does not, and must not: `5/33`
+  decision 8 makes the scope glob the containment, so `atlas` is one folder and
+  `atlas/**` is the subtree. This spec's claim was the outlier that let two
+  callers grow private prefix walks (BUGS `F4`).
+
+  A **slot path** is still not a folder, and that is the part the first
+  implementation got wrong. It cut the URL at segment one, so `atlas/search`
+  — a real, multi-segment folder — was 403'd on its own private page, while a
+  scope of `atlas/*` reached nothing. `auth.MatchSlot` resolves the owner by
+  testing every path prefix against `MatchGroups`. That is `5/V` **filesystem**
+  containment, not grant inheritance: `container/runner.go` bind-mounts
+  `web/priv/<folder>`, so folder `atlas`'s `~/private_html` physically holds
+  `atlas/search`'s slot and every byte under it. Denying over HTTP what the
+  parent's own mount already hands it would be theater — and would break the
+  ordinary case of `atlas` publishing `~/private_html/reports/q3.html`.
+  Folder decisions elsewhere use `MatchGroups` and never cross a segment the
+  glob did not ask for.
 
 ## What this is not
 

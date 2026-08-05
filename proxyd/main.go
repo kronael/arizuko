@@ -585,12 +585,15 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	// agents publish to ~/private_html/, bind-mounted from web/priv/.
 	// No path rewrite — vite cwd is <data>/web/, so /priv/X resolves
 	// to web/priv/X naturally. Spec 5/10: after auth, the caller must hold
-	// a grant covering the target folder (MatchGroups on X-User-Groups).
+	// a grant covering the folder that owns the slot (auth.MatchSlot on
+	// X-User-Groups). This used to cut the path at its FIRST segment and call
+	// MatchGroups on that, which is wrong in both directions: a folder is
+	// multi-segment, so `atlas/search` could not read its own /priv slot, while
+	// a scope of `atlas/*` — direct children only — read nothing at all.
 	if r.URL.Path == "/priv" || strings.HasPrefix(r.URL.Path, "/priv/") {
 		s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
-			rest := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/priv"), "/")
-			folder, _, _ := strings.Cut(rest, "/")
-			if folder != "" {
+			slotPath := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/priv"), "/")
+			if slotPath != "" {
 				var gs []string
 				if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
 					if err := json.Unmarshal([]byte(hdr), &gs); err != nil {
@@ -598,9 +601,9 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 				}
-				if !auth.MatchGroups(gs, folder) {
+				if !auth.MatchSlot(gs, slotPath) {
 					slog.Warn("priv forbidden", "sub", r.Header.Get("X-User-Sub"),
-						"folder", folder, "path", r.URL.Path)
+						"slot_path", slotPath, "path", r.URL.Path)
 					http.Error(w, "Forbidden", http.StatusForbidden)
 					return
 				}
@@ -844,7 +847,7 @@ func (s *server) groupsForSub(sub string) []string {
 	if s.stRoutd == nil {
 		return nil
 	}
-	return s.stRoutd.UserScopes(strings.TrimPrefix(sub, "user:"))
+	return auth.UserScopes(s.stRoutd, strings.TrimPrefix(sub, "user:"))
 }
 
 // tryAuth returns an identity-stamped request if the caller has a valid
