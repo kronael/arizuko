@@ -162,9 +162,12 @@ fallthrough in `ROUTING.md` "HTTP Routing (proxyd)"):
 **Auth** in `requireAuth`: `Authorization: Bearer <jwt>` → `refresh_token`
 cookie → redirect to `/auth/login`. `authd` is the OAuth provider and
 mints the ES256 JWT; its claims include `groups` — a JSON array of
-allow-scopes computed by `UserScopes(sub)` from the `acl` table
+allow-scopes computed by `auth.UserScopes(sub)` from the `acl` table
 (transitively expanded via `acl_membership`). Operator membership
-surfaces as `**` in this list; see "Operator" below.
+surfaces as `**` in this list; see "Operator" below. That list is a
+projection of the rows `auth.Authorize` evaluates, never a verdict of its
+own: it cannot carry an action or a `deny`, so it scopes a view and the
+gate stays `Authorize`.
 `webd.requireFolder` checks `X-User-Groups` on folder-specific endpoints.
 
 WebDAV is gated by `WEBDAV_ENABLED`; compose points the `/dav/` route at

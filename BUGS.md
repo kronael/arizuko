@@ -4090,7 +4090,7 @@ bolt-ons, require explicit `atlas/**` rows, migrate existing rows) is also a
 semantics change.
 
 - **Severity:** medium (spec misdescribes the gate; three matching behaviours in tree)
-- **Scope:** auth.MatchGroups semantics; dashd + proxyd subtree reach
+- **Scope:** auth.MatchGroups semantics; dashd + proxyd (`/priv` and `/dav`) subtree reach
 - **Affected:** all instances — `/priv` and dashd folder visibility
 - **Source:** specs/5/10-web-access.md; auth/acl.go matchSegments; dashd/authz.go:56-80; proxyd/main.go:589-610
 - **Status:** FIXED (`6409b14a` + follow-up). Signed off; shipped as
@@ -4121,9 +4121,18 @@ semantics change.
   never grant inheritance. Pure widening over the old behaviour, and no live
   principal holds a deep enough grant to notice.
 
+  A FOURTH site turned up while fixing the third, in the same file: proxyd's
+  WebDAV gate (`davRoute`) did the identical segment-one cut. dufs serves
+  `<data>/groups` as `/data`, so `/dav/<folder>/<file>` walks a tree that nests
+  exactly like the web slots — and folder `atlas`'s container home IS
+  `groups/atlas`, which holds `groups/atlas/search`. Same question, same
+  `auth.MatchSlot` answer. Fixing `/priv` and leaving its twin two hundred lines
+  down would have been the drift this bug is about.
+
   Coverage: `auth/acl_test.go` 14 → 41 cases, plus `MatchSlot` and the
-  malformed-glob case; `dashd` predicate rewritten; `proxyd` +7 cases. Each
-  mechanism was broken one at a time and only its own test failed.
+  malformed-glob case; `dashd` predicate rewritten; `proxyd` +7 `/priv` cases
+  and +8 `/dav` cases. Each mechanism was broken one at a time and only its own
+  test failed.
 - **Found:** specs/5 frontmatter audit; `5/10` demoted to `partial`, now shipped.
 
 ## F5 — `store.UserScopes` decides folder visibility without action or deny (2026-08-05, PARTIALLY FIXED 2026-08-05)

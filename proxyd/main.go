@@ -759,10 +759,14 @@ func (s *server) davRoute(rp *httputil.ReverseProxy, w http.ResponseWriter, r *h
 		return
 	}
 
-	group, _, _ := strings.Cut(rest, "/")
-	if !auth.MatchGroups(gs, group) {
+	// Same question, same answer as /priv: dufs serves <data>/groups as /data,
+	// so /dav/<folder>/<file> walks a tree that nests exactly like the web
+	// slots — groups/atlas holds groups/atlas/search, and folder atlas's
+	// container home IS groups/atlas. Cutting at the first segment 403'd a
+	// multi-segment folder on its own files.
+	if !auth.MatchSlot(gs, rest) {
 		slog.Warn("dav forbidden", "sub", r.Header.Get("X-User-Sub"),
-			"group", group, "path", r.URL.Path)
+			"slot_path", rest, "path", r.URL.Path)
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}

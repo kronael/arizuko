@@ -1775,6 +1775,41 @@ func TestProxydDavAuthFlow_CrossGroupDenied(t *testing.T) {
 	}
 }
 
+// /dav/ walks <data>/groups, which nests exactly like the web slots, so its
+// gate is auth.MatchSlot for the same reason /priv's is. Cutting at the first
+// path segment 403'd a multi-segment folder on its own files.
+func TestProxydDavAuthFlow_SlotContainment(t *testing.T) {
+	cases := []struct {
+		name   string
+		path   string
+		groups []string
+		want   int
+	}{
+		{"own folder", "/dav/team-a/notes.md", []string{"team-a"}, 200},
+		{"parent holds the child's dir", "/dav/team-a/sub/notes.md", []string{"team-a"}, 200},
+		{"deep folder reads its own files", "/dav/team-a/sub/notes.md", []string{"team-a/sub"}, 200},
+		{"subtree glob", "/dav/team-a/sub/notes.md", []string{"team-a/**"}, 200},
+		{"operator", "/dav/team-a/sub/notes.md", []string{"**"}, 200},
+		{"deep grant cannot read the parent's file", "/dav/team-a/notes.md", []string{"team-a/sub"}, 403},
+		{"cross-tenant", "/dav/team-b/notes.md", []string{"team-a"}, 403},
+		{"name is not a string prefix", "/dav/team-ax/notes.md", []string{"team-a"}, 403},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, up := testDavFullServer(t, nil, "testsecret")
+			defer up.Close()
+			tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", tc.groups)
+			req := httptest.NewRequest("GET", tc.path, nil)
+			req.Header.Set("Authorization", "Bearer "+tok)
+			w := httptest.NewRecorder()
+			s.route(w, req)
+			if w.Code != tc.want {
+				t.Errorf("%s: status = %d, want %d", tc.path, w.Code, tc.want)
+			}
+		})
+	}
+}
+
 // davES256Server builds the /dav/* server plus an authd key, and returns a
 // signer for ES256 access tokens — the branch that resolves groups from the acl
 // table via UserScopes instead of from JWT claims.

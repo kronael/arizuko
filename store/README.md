@@ -24,7 +24,7 @@ Primary methods (by domain):
 - Sessions: `GetSession`, `SetSession`, `RecordSession`, `EndSession`, `RecentSessions`
 - Sticky: `SetStickyGroup`, `GetStickyGroup`, `SetStickyTopic`, `GetStickyTopic`
 - Auth: `CreateAuthUser` — one row per sub in `user_profiles`. Account linking lives in authd (`auth.db`'s `auth_users` + `oauth_identities`), not here.
-- ACL (spec 6/9): `AddACLRow`, `RemoveACLRow`, `ListACL`, `ListACLByScope`, `ACLRowsFor`, `ACLWildcardRows`, `UserScopes`
+- ACL (spec 6/9): `AddACLRow`, `RemoveACLRow`, `ListACL`, `ListACLByScope`, `ACLRowsFor`, `ACLWildcardRows` (scope listing is `auth.UserScopes` — a projection of these, not a second query)
 - Membership: `AddMembership`, `RemoveMembership`, `Members`, `Ancestors` — roles + JID→sub claims (`acl_membership` table)
 - Tasks: `CreateTask`, `GetTask`, `ListTasks`, `UpdateTask`, `DeleteTask`, `TaskRunLogs`
 - Secrets: `SetSecret`, `GetSecret`, `ListSecrets`, `DeleteSecret`,
