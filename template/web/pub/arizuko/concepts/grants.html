@@ -65,7 +65,7 @@
     </ul>
 
     <h2>the action lattice</h2>
-    <p>Actions imply each other. If you have <code>*</code>, you have <code>admin</code>; if you have <code>admin</code>, you have <code>interact</code> and every <code>mcp:&lt;tool&gt;</code>. So a single <code>admin</code> row on a folder covers every tool call inside it &mdash; you do not list them one by one. One matching <code>deny</code> stops the check, even when other rows would allow it. The full principal shapes, action set, and tier defaults are tabulated in <a href="../reference/grants.html">reference / grants</a>; here we stay with the four words and some real rows.</p>
+    <p>Actions imply each other. If you have <code>*</code>, you have <code>admin</code>; if you have <code>admin</code>, you have <code>interact</code> and every <code>mcp:&lt;tool&gt;</code>. So a single <code>admin</code> row on a folder covers every tool call inside it &mdash; you do not list them one by one. One matching <code>deny</code> stops the check, even when other rows would allow it. The full principal shapes, the action lattice, and the two seeded roles are tabulated in <a href="../reference/grants.html">reference / grants</a>; here we stay with the four words and some real rows.</p>
 
     <h2>three rows, three real patterns</h2>
     <p>Each row below is something you would actually insert.</p>
@@ -102,7 +102,7 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
     <p>That edge <em>is</em> the claim. The next Discord message from her expands to include the canonical sub; any grants on <code>google:114alice</code> apply automatically. No <code>acl</code> row gets rewritten, no migration runs &mdash; the channel-side id keeps working as before.</p>
 
     <h2>where the check runs</h2>
-    <p>Every gate asks the same question &mdash; may this principal do this action on this scope? A message wanting into a folder hits a gate once; a tool call leaving that folder hits one again. The two faces share the handler and the folder-containment rule, but not the check. An operator&rsquo;s REST call runs <code>auth.Authorize</code> against the <code>acl</code> rows &mdash; scope match, no tier. An agent&rsquo;s MCP call runs <code>db.Authorize</code> against its folder&rsquo;s tier-default grants (the <code>mcp:&lt;tool&gt;</code> action). So the operator answers to its ACL scopes, the agent to its tier. The full call signature and the spawn-time tier composition live in <a href="../reference/grants.html">reference / grants</a>.</p>
+    <p>Every gate asks the same question &mdash; may this principal do this action on this scope? A message wanting into a folder hits a gate once; a tool call leaving that folder hits one again. The two faces share the handler, the folder-containment rule, and the check itself. An operator&rsquo;s REST call and an agent&rsquo;s MCP call both land in <code>auth.Authorize</code>, over the same <code>acl</code> rows; what differs is only where the principal came from &mdash; a JWT subject on one side, the socket&rsquo;s folder on the other. There is no second mechanism for agents and no default derived from where a folder sits. The full call signature lives in <a href="../reference/grants.html">reference / grants</a>.</p>
 
     <h2>don't do this</h2>
     <ul>
@@ -121,7 +121,7 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/grants.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-05">2026-07-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-02">2026-08-02</time>
       </div>
     </main>
 

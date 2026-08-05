@@ -89,7 +89,7 @@
           <tr><td><code>/chatid</code></td><td>anyone with interact</td><td>Replies with the <code>chat_jid</code> of the current chat. Useful when writing route rules.</td></tr>
           <tr><td><code>/stop</code></td><td>anyone with interact</td><td>Kills the current agent container for this chat. Next message spawns a fresh one.</td></tr>
           <tr><td><code>/status</code></td><td>root only</td><td>Channel count, group count, active containers, errored chats, active tasks.</td></tr>
-          <tr><td><code>/root &lt;msg&gt;</code></td><td>tier &le; 1</td><td>Delegate <code>&lt;msg&gt;</code> to the root group of the current folder hierarchy. Replies route back here.</td></tr>
+          <tr><td><code>/root &lt;msg&gt;</code></td><td>operator only</td><td>Re-run <code>&lt;msg&gt;</code> in this same chat as a one-shot elevated turn &mdash; every grant check passes for that message only. Replies land here.</td></tr>
           <tr><td><code>/invite [N]</code></td><td>root only</td><td>Mint an invite link; <code>N</code> = max uses (default 1).</td></tr>
           <tr><td><code>/gate list|add|rm|enable|disable</code></td><td>root only</td><td>Manage rate-limit gates.</td></tr>
         </tbody>
@@ -154,7 +154,7 @@
           <tr>
             <td><code>register_group</code></td>
             <td>parent creates child</td>
-            <td>Create a new sub-folder on the fly. Common in autoviv setups (<a href="../concepts/autoviv.html">autoviv</a>) &mdash; tier-1 agent calls this on first message from a new channel.</td>
+            <td>Create a new sub-folder on the fly. Common in autoviv setups (<a href="../concepts/autoviv.html">autoviv</a>) &mdash; the world agent calls this on the first message from a new channel.</td>
           </tr>
           <tr>
             <td><code>inject_message</code></td>
@@ -169,11 +169,11 @@
         </tbody>
       </table>
       <p>
-        These are tier-gated. <code>register_group</code> needs
-        tier &le; 1; <code>delegate_group</code> and
-        <code>escalate_group</code> follow the folder hierarchy
-        rules (parent can delegate to known children; child can
-        escalate to its parent). See
+        Each needs its own grant. <code>register_group</code>,
+        <code>delegate_group</code> and <code>escalate_group</code>
+        are not in the default role, so an agent holds them only
+        where one was delegated &mdash; and the grant's scope glob
+        decides which folders it may name. See
         <a href="../concepts/grants.html">grants</a> for the
         permission model.
       </p>
@@ -247,7 +247,7 @@ hook:&lt;folder&gt;/&lt;source&gt;     # webhook ingest at folder (via /hook/&lt
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/talking-to-agents.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-29">2026-07-29</time>
       </div>
     </main>
 

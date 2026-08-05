@@ -123,7 +123,7 @@
         <tr><td><code>groupFolder</code></td><td>string</td><td>yes</td><td>target folder</td></tr>
       </table>
       <p class="meta"><strong>Returns:</strong> <code>ok</code> on success, error string otherwise.</p>
-      <p class="meta"><strong>Registered:</strong> <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1047"><code>ipc/ipc.go:1047</code></a>. <strong>Authorization:</strong> <code>auth.AuthorizeStructural(id, "reset_session", &hellip;)</code> &mdash; <a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go#L25"><code>auth/policy.go:25</code></a>.</p>
+      <p class="meta"><strong>Registered:</strong> <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1047"><code>ipc/ipc.go:1047</code></a>. <strong>Authorization:</strong> the caller must hold <code>mcp:reset_session</code>, re-checked with the <code>groupFolder</code> argument as the scope &mdash; <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a>.</p>
     </div>
 
     <div class="tablecard">
@@ -173,7 +173,7 @@ LIMIT 100</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/topics.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

@@ -96,7 +96,7 @@
 
     <h2>who can mint for which folder</h2>
 
-    <p>Resolved by the unified <a href="../concepts/grants.html">grants</a> tier: lower tier means broader mint reach (tier 0 any folder, tier 1 self and descendants, tier 2 self only, the per-tier table in <a href="../reference/tokens.html">reference / tokens</a>). Tier 1 at <code>acme</code> can mint <code>hook:acme/eng/github</code> on behalf of the <code>acme/eng</code> child &mdash; and the row's <code>owner_folder</code> stays at <code>acme</code>, the issuer, not the JID target. Revocation follows <code>owner_folder</code>, so <code>acme</code> retains control of the tokens it minted.</p>
+    <p>Resolved by <a href="../concepts/grants.html">grants</a>, like everything else. Minting a public endpoint is not in the default role, so a plain folder cannot do it at all &mdash; it takes <code>/root</code> or a delegated <code>mcp:issue_*</code> row, and the row's scope glob decides which folders the token may point at (the table in <a href="../reference/tokens.html">reference / tokens</a>). An agent at <code>acme</code> holding that grant over <code>acme/**</code> can mint <code>hook:acme/eng/github</code> on behalf of the <code>acme/eng</code> child &mdash; and the row's <code>owner_folder</code> stays at <code>acme</code>, the issuer, not the JID target. Revocation follows <code>owner_folder</code>, so <code>acme</code> retains control of the tokens it minted.</p>
 
     <h2>revocation</h2>
 
@@ -125,7 +125,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-12">2026-07-12</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-13">2026-07-13</time>
       </div>
     </main>
 

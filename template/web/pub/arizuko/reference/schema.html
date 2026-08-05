@@ -294,7 +294,7 @@
 
     <div class="tablecard">
       <h3><code>groups</code></h3>
-      <p>The folder hierarchy. Path <em>is</em> identity (tier from depth via <a href="https://github.com/kronael/arizuko/blob/main/auth/identity.go#L16"><code>auth.Resolve</code></a>). Created in 0020 by renaming the older <code>registered_groups</code> table and rekeying by folder.</p>
+      <p>The folder hierarchy. A path is a routing target, a JID prefix, a container home and a web vhost &mdash; it carries no authority of its own; that lives in <code>acl</code>. Created in 0020 by renaming the older <code>registered_groups</code> table and rekeying by folder.</p>
       <table>
         <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
         <tr><td><code>folder</code></td><td>TEXT PK</td><td>NOT NULL</td><td></td><td>folder path (e.g. <code>atlas/support</code>)</td></tr>
@@ -436,7 +436,7 @@
 
     <h2>5. Secrets</h2>
 
-    <p class="meta">Per-folder MCP rule overlays (formerly the <code>grant_rules</code> table, dropped in 0053) now live in <code>acl</code> as <code>(principal=folder:&lt;f&gt;, action=mcp:&lt;tool&gt;, scope=&lt;f&gt;, params, effect)</code> rows. Tier defaults are still derived in code by <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go"><code>grants.DeriveRules</code></a> (used as a fall-back for <code>mcp:*</code> actions with no <code>acl</code> match).</p>
+    <p class="meta">Per-folder MCP rule overlays (formerly the <code>grant_rules</code> table, dropped in 0053) now live in <code>acl</code> as <code>(principal=folder:&lt;f&gt;, action=mcp:&lt;tool&gt;, scope=&lt;f&gt;, params, effect)</code> rows. There is no fall-back: an <code>mcp:*</code> action with no matching <code>acl</code> row is denied.</p>
 
     <div class="tablecard">
       <h3><code>secrets</code></h3>
@@ -695,7 +695,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-13">2026-07-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-04">2026-08-04</time>
       </div>
     </main>
 

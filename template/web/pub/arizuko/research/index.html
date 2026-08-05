@@ -179,37 +179,38 @@
 
       <h3>Tenancy Model</h3>
       <p>
-        Each folder is a tenant. Authority is scoped by path depth:
+        Each folder is a tenant. A folder path is a routing target, a JID prefix, a
+        container home and a web vhost — it carries no authority. Authority is a row
+        in the <code>acl</code> table:
       </p>
       <table>
         <tr>
-          <th>Tier</th>
-          <th>Folder Path</th>
+          <th>Principal</th>
+          <th>Holds</th>
           <th>Authority</th>
-          <th>Tools Available</th>
         </tr>
         <tr>
-          <td>0</td>
-          <td><code>root</code></td>
-          <td>Unrestricted</td>
-          <td>All MCP tools, migrations, vhost management</td>
+          <td><code>role:member</code></td>
+          <td>The twelve messaging verbs</td>
+          <td>Bound to every folder at creation. Reply, send, post, like, edit and the rest — nothing more.</td>
         </tr>
         <tr>
-          <td>1</td>
-          <td><code>world/</code></td>
-          <td>World-scoped</td>
-          <td>Routing, group creation, token issuance, observe</td>
+          <td><code>role:operator</code></td>
+          <td><code>*</code> on <code>**</code>, WITH GRANT OPTION</td>
+          <td>The root of every delegation chain. Held by a person, invoked with <code>/root</code>.</td>
         </tr>
         <tr>
-          <td>2</td>
-          <td><code>world/team/</code></td>
-          <td>Send-only</td>
-          <td>Reply, like, send_file, observe (read-only)</td>
+          <td><code>folder:world/team</code></td>
+          <td>Whatever was delegated to it</td>
+          <td>Routing, group creation, token issuance, egress — each an explicit row, each bounded by its own scope glob.</td>
         </tr>
       </table>
       <p>
-        Folder depth determines tier. <code>gated</code> enforces grants at tool-call time.
-        No privilege escalation — agents can only delegate to children or escalate to parent.
+        <code>routd</code> evaluates every tool call against those rows, deny-wins, with no
+        fallback: an action with no matching allow row is refused. Delegation is bounded by
+        subset-of-held — a principal may pass on only rows it holds, and only those it holds
+        with the grant option — so authority strictly decreases down every chain and no agent
+        can escalate past its granter.
       </p>
 
       <h3>Execution Model</h3>

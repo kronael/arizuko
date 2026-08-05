@@ -494,7 +494,7 @@ Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <co
 <li><strong>Crash recovery</strong> — Between SQLite write and git commit, what's the recovery protocol? Idempotent reapply on restart?</li>
 <li><strong>Fork lifecycle</strong> — Does forked branch get its own container? Same DB? Separate cache? Spec the lifecycle.</li>
 <li><strong>Operator UX</strong> — <code>arizuko log</code>, <code>arizuko diff</code>, <code>arizuko revert</code> wrappers — what's the surface?</li>
-<li><strong>dashd tier-1 write</strong> — Currently edits SQLite directly. Under GitOps: commit → apply, or commit-immediate-apply? Pick a default.</li>
+<li><strong>dashd admin write</strong> — Currently edits SQLite directly. Under GitOps: commit → apply, or commit-immediate-apply? Pick a default.</li>
 <li><strong>Tracing granularity vs audit granularity</strong> — Commit-per-turn loses sub-turn lineage; sidecar restores it; is sidecar enough or do we need per-event commits on a side branch?</li>
 <li><strong>Is "GitOps" the right term?</strong> Too K8s-coded? Substitute "git-native"? Sharper positioning vs Argo CD ("Argo CD for AI agent fleets") or against it?</li>
 </ol>

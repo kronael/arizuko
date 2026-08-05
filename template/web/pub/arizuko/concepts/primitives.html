@@ -99,9 +99,9 @@
           (<code>corp/eng/sre</code>, any depth). See
           <a href="ant.html">the ant</a>.</li>
         <li><span class="name">Authorization</span> &mdash; one question: may
-          this principal do this action here? Defaults live in code per tier;
-          the operator overrides with rows in the <code>acl</code> table. See
-          <a href="grants.html">grants</a> and <a href="scopes.html">scopes</a>.</li>
+          this principal do this action here? Every answer comes from rows in
+          the <code>acl</code> table &mdash; nothing is inferred from the path.
+          See <a href="grants.html">grants</a> and <a href="scopes.html">scopes</a>.</li>
         <li><span class="name">Turn</span> &mdash; the bounded reaction. One
           ephemeral Docker container runs the agent loop for a single turn,
           then exits. Every side effect is one tool call through the auth gate,
@@ -117,7 +117,7 @@
 
       <h2>Identity &mdash; the coordinate system</h2>
       <p>Identity isn&rsquo;t a step in the pipeline; it&rsquo;s the coordinate
-        system the six steps are addressed in. Subs, JIDs, folders, tiers,
+        system the six steps are addressed in. Subs, JIDs, folders, roles,
         scopes. Routing resolves to a folder, authorization keys on a
         principal, a turn runs as <code>agent:&lt;folder&gt;</code>, state is
         partitioned by folder &mdash; every primitive refers to identity, none
@@ -193,7 +193,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/primitives.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-10">2026-06-10</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

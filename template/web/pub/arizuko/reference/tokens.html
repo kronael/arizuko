@@ -89,15 +89,15 @@ POST /v1/route_tokens/hook
 { "source_label": "github", "jid_suffix": "main",    // jid_suffix optional
   "context": "push events; summarize daily" }        // optional</code></pre>
 
-    <p><code>owner_folder</code> is bound from session context (the agent's folder or the caller's grants) and is never a parameter. Tier scope (lower = wider reach):</p>
+    <p><code>owner_folder</code> is bound from session context (the agent's folder or the caller's grants) and is never a parameter. How far a mint reaches depends on which face you came in through:</p>
 
     <table>
-      <tr><th>Tier</th><th>Mint scope</th></tr>
-      <tr><td>0</td><td>Any folder.</td></tr>
-      <tr><td>1</td><td>Self and descendants. Issued on behalf of a descendant: <code>owner_folder</code> stays at the issuer.</td></tr>
-      <tr><td>2</td><td>Self only.</td></tr>
-      <tr><td>3+</td><td>No mint.</td></tr>
+      <tr><th>Caller</th><th>Mint scope</th></tr>
+      <tr><td>Agent (MCP)</td><td>Whatever the caller's <code>mcp:issue_*</code> grant covers, checked against <code>target_folder</code>. Minting a public endpoint is not in <code>role:member</code>, so a plain folder cannot mint at all &mdash; it takes <code>/root</code> or a delegated grant.</td></tr>
+      <tr><td>Operator (REST)</td><td><code>target_folder</code> must equal or descend from <code>owner_folder</code>, which is already bound to the caller's own subtree.</td></tr>
     </table>
+
+    <p>Issued on behalf of a descendant, <code>owner_folder</code> stays at the issuer. Both faces run the same <code>auth.Authorize</code> over the same <code>acl</code> rows &mdash; see <a href="grants.html">grants</a>.</p>
 
     <h3 id="mint-response">Mint response</h3>
     <pre><code>{
@@ -198,7 +198,7 @@ arizuko token &lt;instance&gt; revoke &lt;jid&gt; [&lt;owner_folder&gt;]</code><
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-12">2026-07-12</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-13">2026-07-13</time>
       </div>
     </main>
 

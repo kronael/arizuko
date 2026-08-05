@@ -69,8 +69,8 @@
     <h2>one container per turn</h2>
     <p>The container is short-lived. <code>runed</code> starts it when a message arrives, the agent reads the prompt, replies, and the container exits. Nothing important lives inside the container &mdash; only inside the mounted folder. The next turn gets a fresh container with the same folder.</p>
 
-    <h2>tier is path depth</h2>
-    <p>A deeper folder gets fewer default permissions. The tier is just the slash count in the path, capped at 3: <code>main</code> is tier 0, <code>solo/inbox</code> is tier 1, <code>corp/eng/sre/oncall</code> is tier 3. <code>grants.DeriveRules</code> reads the folder path and that tier to decide which MCP tools the ant can call. A tier-1 ant in a public-facing room gets <code>send</code>, <code>send_file</code>, <code>reply</code>; a tier-0 root ant gets everything. Same agent shape at every depth &mdash; only the defaults shrink.</p>
+    <h2>capability is a grant, not a folder</h2>
+    <p>How deep a folder sits says nothing about what its ant may do. <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code> start with exactly the same power: the <code>role:member</code> role every folder is bound to at creation, which carries the messaging verbs and nothing else. Everything past that &mdash; registering groups, editing routes, opening egress, scheduling &mdash; is a row somebody explicitly handed over, scoped to a subtree. An ant with no row for a tool doesn't just fail the call; it never sees the tool. Same agent shape everywhere, and the only thing that varies is the grants.</p>
 
     <h2>how the agent talks back</h2>
     <p>The agent calls MCP tools (like <code>send</code> or <code>find_messages</code>) over a unix socket. <code>routd</code> hosts one socket per group in-process at <code>ipc/&lt;folder&gt;/gated.sock</code> on the host; <code>runed</code> mounts it into the container at <code>/run/ipc/gated.sock</code>. Inside the container, Claude Code is wired up to that path via its <code>mcpServers</code> config. Every tool call is a JSON-RPC message over that socket, and <code>routd</code> runs the same grant check on it that it runs when a human calls the matching REST endpoint &mdash; one gate, agent or operator.</p>
@@ -93,7 +93,7 @@
     <ul>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/12/b-ant-standalone.md">specs/12/b-ant-standalone.md</a> &mdash; standalone CLI, container runtime, skill curation.</li>
       <li><a href="../concepts/tokens.html">route tokens</a> &mdash; how to reach an ant from a browser or webhook.</li>
-      <li><a href="../concepts/grants.html">grants</a> &mdash; how tier turns into per-tool permissions.</li>
+      <li><a href="../concepts/grants.html">grants</a> &mdash; how an <code>acl</code> row turns into a per-tool permission.</li>
       <li><a href="../concepts/jid.html">jid</a> &mdash; the addresses the agent uses to send messages back out.</li>
     </ul>
 
@@ -103,7 +103,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/ant.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

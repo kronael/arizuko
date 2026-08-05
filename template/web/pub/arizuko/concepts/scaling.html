@@ -57,7 +57,7 @@
 
       <h2>Multi-tenant by primitive</h2>
       <p>Every primitive &mdash; <a href="grants.html">grants</a>, <a href="routing.html">routes</a>, <a href="secrets.html">secrets</a>, <a href="tasks.html">scheduled work</a> &mdash; stores its state in SQLite rows. Adding a tenant means inserting rows into those tables and creating a folder under <code>groups/</code>. The daemon graph stays fixed: one <code>routd</code>, one <code>authd</code>, one adapter per platform, N containers (one per active group). Ten users or ten thousand users, the architecture is the same.</p>
-      <p>Folder hierarchies have no fixed depth. <code>solo/inbox</code> is a tier-1 folder (one slash). <code>corp/eng/sre/oncall</code> is tier-3 (three slashes). The tier number sets default <a href="grants.html">grant</a> permissions &mdash; deeper folders get tighter defaults &mdash; but the code path is identical. A solo user's chat and a support team's shared inbox run through the same <code>routd</code>, same <code>runed</code>, same container image.</p>
+      <p>Folder hierarchies have no fixed depth, and depth buys nothing. <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code> get the same starting <a href="grants.html">grants</a> and run the identical code path; what either may do beyond the messaging floor is whatever was delegated to it. A solo user's chat and a support team's shared inbox run through the same <code>routd</code>, same <code>runed</code>, same container image.</p>
 
       <h2>The growth arc</h2>
       <p>Most deployments follow four stages. Each is a configuration change, not a rebuild.</p>
@@ -115,8 +115,8 @@ arizuko acl myagent add alice@example.com "eng/**" "**"</code></pre>
       <p>Tenants share a single SQLite WAL file, a single set of daemons, a single container image. Isolation comes from three things:</p>
       <ul>
         <li><strong>Folder containment.</strong> A group's agent runs in a container whose home is <code>groups/&lt;folder&gt;/</code>. It cannot see sibling folders' files. <a href="scopes.html">Scopes</a> explains the rules.</li>
-        <li><strong>Grant resolution.</strong> Every MCP call checks <code>(caller, action, target)</code> against the ACL. A tier-2 agent can <code>send</code> but not <code>register_group</code>. <a href="grants.html">Grants</a> explains the DSL.</li>
-        <li><strong>Egress sandbox.</strong> Public-facing agents run through <code>crackbox</code>, which limits outbound network to an allowlist. Sensitive deployments sandbox all tiers.</li>
+        <li><strong>Grant resolution.</strong> Every MCP call checks <code>(caller, action, target)</code> against the ACL. A folder holding only the default role can <code>send</code> but not <code>register_group</code>. <a href="grants.html">Grants</a> explains the rows.</li>
+        <li><strong>Egress sandbox.</strong> Public-facing agents run through <code>crackbox</code>, which limits outbound network to an allowlist. Sensitive deployments sandbox every folder.</li>
       </ul>
       <p>Cross-tenant read is structurally impossible: the container mount, the grant gate, and the egress proxy all bind to the folder. A bug in one group's skill doesn't leak into another group's context.</p>
 
@@ -132,7 +132,7 @@ arizuko acl myagent add alice@example.com "eng/**" "**"</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/scaling.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-14">2026-06-14</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

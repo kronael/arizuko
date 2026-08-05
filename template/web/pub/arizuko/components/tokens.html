@@ -85,7 +85,7 @@ POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no repl
     <p>Issuance is handled in routd &mdash; both the MCP tools (<code>issue_chat_link</code>, <code>issue_webhook</code>) and the REST endpoints (<code>POST /v1/route_tokens/chat</code>, <code>POST /v1/route_tokens/hook</code>) call one internal <code>insertRouteToken</code> writer. webd never writes the table; routd never reads the <code>/chat/</code> or <code>/hook/</code> URLs.</p>
 
     <h2>Mint authorization</h2>
-    <p>The <a href="../concepts/grants.html">grants</a> tier of the caller bounds which folders they can mint for. Tier 0 through 2 mint for their own folder and its descendants; tier 3 and above cannot mint at all (<code>authorizeMint</code> in <code>ipc/ipc.go</code>). The row's <code>owner_folder</code> records the issuer's folder, not the JID target &mdash; revocation requires admin on <code>owner_folder</code>.</p>
+    <p>The caller's <a href="../concepts/grants.html">grants</a> bound which folders they can mint for. Minting a public endpoint is not in the default role, so a plain folder cannot mint at all; it takes <code>/root</code> or a delegated <code>mcp:issue_*</code> row, whose scope glob then decides the reachable folders. Over REST the target must equal or descend from <code>owner_folder</code>. The row's <code>owner_folder</code> records the issuer's folder, not the JID target &mdash; revocation requires admin on <code>owner_folder</code>.</p>
 
     <h2>Rate limits</h2>
     <p>Per-token in-memory bucket in webd. The bucket ceiling is chosen by JID prefix: <code>web:</code> uses a smaller bucket sized for human typing; <code>hook:</code> uses a larger bucket sized for machine bursts. Body cap is 1 MiB. Excess returns 429.</p>
@@ -115,7 +115,7 @@ POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no repl
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

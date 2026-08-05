@@ -73,9 +73,9 @@ Authorization: Bearer &lt;ES256 service:proxyd token&gt;</code></pre>
     <p>The destination: every security configuration (secrets, allowlists, grants, routes, invites) is reachable two ways, sharing one handler per resource.</p>
     <ul>
       <li><strong>Outside the box (REST).</strong> Federated per-daemon <code>/v1/&lt;resource&gt;</code>, OAuth-gated through proxyd. Each daemon owns its tables and exposes them; <code>dashd</code> aggregates the UI on top.</li>
-      <li><strong>Inside the agent (MCP).</strong> The same operations registered as MCP tools on the per-group unix socket, tier-gated. Tier 0 = operator-only, tier 1+ = inner-group, lower tiers = guest.</li>
+      <li><strong>Inside the agent (MCP).</strong> The same operations registered as MCP tools on the per-group unix socket, gated on the same <code>acl</code> rows. Both faces call <code>auth.Authorize</code>; only the identity source differs &mdash; a JWT subject for REST, the socket's folder for MCP.</li>
     </ul>
-    <p>Operations spawning new state, mutating ACLs, or reading audit data are operator-only (tier 0). Operations scoped to a group's own files, members, and tasks are inner-group (tier 1+). The per-daemon ownership table is in <a href="https://github.com/kronael/arizuko/blob/main/specs/5/5-uniform-mcp-rest.md"><code>specs/5/5-uniform-mcp-rest.md</code></a>.</p>
+    <p>Nothing is granted by position in the folder tree. A folder starts with the messaging verbs and nothing else; operations that spawn new state, mutate ACLs, or read audit data require a row somebody delegated, and that row's scope glob is the boundary it may act inside. An action with no matching row is refused &mdash; there is no fallback that quietly grants it. The per-daemon ownership table is in <a href="https://github.com/kronael/arizuko/blob/main/specs/5/17-openapi-mcp.md"><code>specs/5/17-openapi-mcp.md</code></a>.</p>
     <p class="status">Status: shipped and uniform. Each daemon exposes its resources over both surfaces from one hand-written handler &mdash; REST (<code>/v1/&lt;resource&gt;</code>, OAuth-gated through proxyd) and MCP (per-group unix socket). The MCP <code>tools/list</code> a session sees is filtered by grants: a tool registers only when the folder is granted its scope, so an agent sees exactly what it may call. External REST tools (<code>[[ext]]</code>) join the same surface, gated on <code>ext:&lt;service&gt;:&lt;operation&gt;</code>.</p>
 
     <h2>7. What we don't do</h2>
@@ -98,7 +98,7 @@ Authorization: Bearer &lt;ES256 service:proxyd token&gt;</code></pre>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/1-auth-standalone.md"><code>specs/5/1-auth-standalone.md</code></a> &mdash; auth as a library: mint, verify, downscope, MCP tool surface</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/ipc/SECURITY.md"><code>ipc/SECURITY.md</code></a> &mdash; MCP unix socket, <code>SO_PEERCRED</code> peer-uid check, per-group mount isolation</li>
     </ul>
-    <p class="docs-footer">updated <time class="docs-updated" datetime="2026-07-13">2026-07-13</time></p>
+    <p class="docs-footer">updated <time class="docs-updated" datetime="2026-08-04">2026-08-04</time></p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

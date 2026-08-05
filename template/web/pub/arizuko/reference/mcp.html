@@ -39,10 +39,10 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; MCP tools</p>
 <h1>MCP tools reference</h1>
 
-    <p class="lede">Every Model Context Protocol tool the arizuko platform registers on a per-group unix socket. Generated from <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go"><code>ipc/ipc.go</code></a> and <a href="https://github.com/kronael/arizuko/blob/main/ipc/inspect.go"><code>ipc/inspect.go</code></a>. The tool set a given session sees is filtered by <code>grants.MatchingRules</code> against the group's rule list &mdash; tools whose name doesn't match any rule are not registered. A handful of tools also gate registration on tier (e.g. <code>list_acl</code> is tier 0&ndash;1; <code>get_web_presence</code> is tier 0&ndash;1).</p>
+    <p class="lede">Every Model Context Protocol tool the arizuko platform registers on a per-group unix socket. Generated from <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go"><code>ipc/ipc.go</code></a> and <a href="https://github.com/kronael/arizuko/blob/main/ipc/inspect.go"><code>ipc/inspect.go</code></a>. The tool set a given session sees is filtered by what the caller holds in <code>acl</code> &mdash; a tool the caller holds nowhere is never registered.</p>
 
     <div class="callout">
-      <strong>Tier shorthand.</strong> Tier 0 = operator (single user; rules <code>["*"]</code>). Tier 1 = inner group (full platform-scoped send + group ops). Tier 2 = guest (basic send + folder-scoped routes). Tier 3+ = stranger (reply/send_file/like/edit only). Defaults live in <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L143"><code>grants/grants.go DeriveRules</code></a>. Many tools also do inline <code>auth.Authorize</code> checks past the grant filter.
+      <strong>Every tool is a grant.</strong> Calling <code>&lt;tool&gt;</code> requires an <code>acl</code> row covering the action <code>mcp:&lt;tool&gt;</code>, checked by <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth.Authorize</code></a> against the target as scope. The seeded <code>role:member</code> role &mdash; which every folder gets at creation &mdash; covers the twelve messaging verbs; read tools and <code>set_work</code> need no grant at all. Everything else is a row somebody delegated. What <code>tools/list</code> advertises is <code>auth.EffectiveActions</code> over those same rows, so the list and the per-call gate can't disagree. See <a href="grants.html">grants</a>.
     </div>
 
     <h2>Contents</h2>
@@ -68,7 +68,7 @@
 
     <h2 id="messages">messages</h2>
 
-    <h3 id="post"><code>post</code> <span class="tier">tier 0&ndash;2</span></h3>
+    <h3 id="post"><code>post</code></h3>
     <p>Create a new top-level post on a platform (mastodon toot, bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (<code>reply</code>), direct messages (<code>send</code>), or file delivery (<code>send_file</code>).</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1052"><code>ipc/ipc.go:1052</code></a> &middot; Grant action: <code>post(jid=...)</code> &middot; REST twin: <code>POST /v1/turns/{turn_id}/post</code>.</p>
     <table class="params">
@@ -83,7 +83,7 @@
 
     <h3 id="reply"><code>reply</code></h3>
     <p>The default way to respond &mdash; use for virtually every answer to the user. Delivers a message threaded to the conversation (quote/reply UI on the platform; on Slack it lands in the thread, not the channel root). Omit <code>replyToId</code> to thread to the current conversation automatically, or pass it to target a specific earlier message. Only reach for <code>send</code> when you deliberately need a fresh top-level message that is NOT a reply.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L928"><code>ipc/ipc.go:928</code></a> &middot; Grant action: <code>reply(jid=...)</code> &middot; In <code>basicSendActions</code> at every tier &ge; 1.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L928"><code>ipc/ipc.go:928</code></a> &middot; Grant action: <code>reply(jid=...)</code> &middot; In <code>role:member</code>, granted to every folder at create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -96,7 +96,7 @@
 
     <h3 id="send"><code>send</code></h3>
     <p>Deliver a fresh top-level message that is NOT a reply to the current conversation. Use ONLY when you explicitly need that &mdash; a proactive/unprompted notification, or a message to a different chat. For responding to the user (the normal case) use <code>reply</code>, which threads. Not for threaded replies (<code>reply</code>) or file delivery (<code>send_file</code> &mdash; its <code>caption</code> replaces this call).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L900"><code>ipc/ipc.go:900</code></a> &middot; Grant action: <code>send(jid=...)</code> &middot; In <code>basicSendActions</code> at every tier &ge; 1.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L900"><code>ipc/ipc.go:900</code></a> &middot; Grant action: <code>send(jid=...)</code> &middot; In <code>role:member</code>, granted to every folder at create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -263,7 +263,7 @@
 
     <h3 id="fetch_history"><code>fetch_history</code></h3>
     <p>Pull authoritative conversation history from the channel adapter and cache it. Use to reconstruct context before replying, especially on first contact or after a <code>reset_session</code>. Falls back to local cache if the adapter is down. Not for DB/routing audits (<code>inspect_messages</code>) or single-thread slices (<code>get_thread</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2536"><code>ipc/ipc.go:2536</code></a> &middot; Registered only when <code>gated.FetchPlatformHistory != nil</code>. Tier &gt; 0 callers must have the JID routed to their folder.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2536"><code>ipc/ipc.go:2536</code></a> &middot; Registered only when <code>gated.FetchPlatformHistory != nil</code>. An ordinary caller must have the JID routed to its folder; an elevated <code>/root</code> turn is unrestricted.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -303,7 +303,7 @@
 
     <h3 id="find_messages"><code>find_messages</code></h3>
     <p>Full-text search over local <code>messages.db</code> using SQLite FTS5. <code>query</code> takes FTS5 syntax &mdash; a bare token, a <code>"quoted phrase"</code>, <code>a OR b</code>, <code>a NOT b</code>, <code>prefix*</code>, or <code>NEAR(a b, 5)</code>. Use to find a past message by what it said. Not for whole-chat scroll (<code>inspect_messages</code>), single-thread slices (<code>get_thread</code>), or platform-truth fallback (<code>fetch_history</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2422"><code>ipc/ipc.go:2422</code></a> &middot; Registered only when <code>db.FindMessages != nil</code>. Tier &gt; 0 callers see only rows whose <code>chat_jid</code> is routed to their folder (post-fetch ACL via <code>db.JIDRoutedToFolder</code>); tier 0 bypasses. Backed by the <code>messages_fts</code> shadow table (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0070-messages-fts.sql"><code>migration 0070</code></a>).</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2422"><code>ipc/ipc.go:2422</code></a> &middot; Registered only when <code>db.FindMessages != nil</code>. An ordinary caller sees only rows whose <code>chat_jid</code> is routed to its folder (post-fetch ACL via <code>db.JIDRoutedToFolder</code>); an elevated <code>/root</code> turn bypasses the filter. Backed by the <code>messages_fts</code> shadow table (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0070-messages-fts.sql"><code>migration 0070</code></a>).</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -354,9 +354,9 @@
 
     <h2 id="groups">groups &amp; delegation</h2>
 
-    <h3 id="delegate_group"><code>delegate_group</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="delegate_group"><code>delegate_group</code></h3>
     <p>Hand a prompt down to a specific child group for async execution; the child runs in its own session and workspace. Depth capped at 1.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1792"><code>ipc/ipc.go:1792</code></a> &middot; Grant action: <code>delegate_group</code> (in <code>tier1FixedActions</code>) &middot; <code>auth.Authorize</code> on the target folder.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1792"><code>ipc/ipc.go:1792</code></a> &middot; Grant action: <code>delegate_group</code> (delegated, not a default) &middot; <code>auth.Authorize</code> on the target folder.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -368,9 +368,9 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"queued": true}</code>; enqueues a message-check for the target.</p>
 
-    <h3 id="escalate_group"><code>escalate_group</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="escalate_group"><code>escalate_group</code></h3>
     <p>Hand a prompt up to this group's parent folder; the parent responds back through this child. Use when the request exceeds this group's authority or needs operator review. Depth capped at 1.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1724"><code>ipc/ipc.go:1724</code></a> &middot; Grant action: <code>escalate_group</code> (in <code>tier1FixedActions</code>) &middot; Wraps the prompt in <code>&lt;escalation_origin/&gt;</code> with reply_to provenance.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1724"><code>ipc/ipc.go:1724</code></a> &middot; Grant action: <code>escalate_group</code> (delegated, not a default) &middot; Wraps the prompt in <code>&lt;escalation_origin/&gt;</code> with reply_to provenance.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -381,14 +381,14 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"queued": true, "parent": "&lt;folder&gt;"}</code>.</p>
 
-    <h3 id="refresh_groups"><code>refresh_groups</code> <span class="tier">tier 0&ndash;2</span></h3>
+    <h3 id="refresh_groups"><code>refresh_groups</code></h3>
     <p>Return folder/name/parent for every registered group. Use to discover delegation targets or audit the group tree.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1774"><code>ipc/ipc.go:1774</code></a> &middot; Registration gated on <code>id.Tier &le; 2</code>; bypasses the grant-rule filter.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1774"><code>ipc/ipc.go:1774</code></a> &middot; Registration gated on holding <code>mcp:refresh_groups</code>.</p>
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON array of <code>{folder, name, parent?}</code>.</p>
 
-    <h3 id="register_group"><code>register_group</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="register_group"><code>register_group</code></h3>
     <p>Create a child agent group and route a JID to it. This is the only way a group comes into existence &mdash; nothing auto-creates one, and delegating to a folder that does not exist fails with an error naming this tool.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1657"><code>ipc/ipc.go:1657</code></a> &middot; Grant action: <code>register_group</code> (in <code>tier1FixedActions</code>) &middot; Holding the grant, scoped to cover the child folder, is the whole authority to create.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1657"><code>ipc/ipc.go:1657</code></a> &middot; Grant action: <code>register_group</code> (delegated, not a default) &middot; Holding the grant, scoped to cover the child folder, is the whole authority to create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -400,9 +400,9 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"registered": true, "folder": "&lt;f&gt;", "jid": "&lt;jid&gt;"}</code>; <code>SetupGroup</code> seeds skills/settings/tasks.</p>
 
-    <h3 id="set_group_open"><code>set_group_open</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="set_group_open"><code>set_group_open</code></h3>
     <p>Toggle this group's visibility to sibling folders. When <code>open=true</code>, sibling folders' ambient messages surface in this group's <code>&lt;observed&gt;</code> block (and this group's messages surface to open siblings). Default: open. Use to seal off a sensitive folder from cross-folder ambient context. Spec: 7/F. Concept: <a href="../concepts/scopes.html">scopes</a>.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1531"><code>ipc/ipc.go:1531</code></a> &middot; Grant action: <code>set_group_open</code> &middot; <code>auth.AuthorizeStructural</code> on the calling folder.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1531"><code>ipc/ipc.go:1531</code></a> &middot; Grant action: <code>set_group_open</code> &middot; <code>auth.Authorize</code> re-run with the calling folder as the scope.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -446,7 +446,7 @@
 
     <h3 id="fork_topic"><code>fork_topic</code></h3>
     <p>Branch a topic from another&rsquo;s current state. The gateway copies the parent&rsquo;s Claude Code session file to a fresh <code>session_id</code>, so the child resumes natively with the parent&rsquo;s history already in its session &mdash; no prompt-injection block. Use when starting a focused side-conversation that needs the parent&rsquo;s recent state but should not pollute it. Pass <code>force=true</code> to overwrite an existing child. Spec: 7/F.</p>
-    <p class="meta">Source: <code>ipc/ipc.go</code> &middot; Grant action: <code>fork_topic</code> &middot; <code>auth.AuthorizeStructural</code> on caller&rsquo;s folder.</p>
+    <p class="meta">Source: <code>ipc/ipc.go</code> &middot; Grant action: <code>fork_topic</code> &middot; <code>auth.Authorize</code> re-run with the caller&rsquo;s folder as the scope.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -516,9 +516,9 @@
     </table>
     <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>.</p>
 
-    <h3 id="set_work"><code>set_work</code> <span class="tier">tier 0&ndash;2</span></h3>
+    <h3 id="set_work"><code>set_work</code></h3>
     <p>Overwrite this group's <code>work.md</code> with a fresh snapshot of current work, blockers, and next steps. Use at turn end to checkpoint state. This replaces the file &mdash; read with <code>get_work</code> first if merging.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2627"><code>ipc/ipc.go:2627</code></a> &middot; Registration gated on <code>id.Tier &le; 2</code>. Atomic rename via <code>.tmp</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2627"><code>ipc/ipc.go:2627</code></a> &middot; Always registered &mdash; no grant needed. Atomic rename via <code>.tmp</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -529,9 +529,9 @@
 
     <h2 id="scheduling">scheduling</h2>
 
-    <h3 id="cancel_task"><code>cancel_task</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="cancel_task"><code>cancel_task</code></h3>
     <p>Permanently delete a scheduled task. Use when the task is no longer wanted. Not for temporary suspension (<code>pause_task</code>) &mdash; this cannot be undone.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2117"><code>ipc/ipc.go:2117</code></a> &middot; Grant action: <code>cancel_task</code> (in <code>tier1FixedActions</code>) &middot; <code>auth.Authorize</code> on the task's owner folder. REST twin: <code>DELETE /v1/scheduled_tasks</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2117"><code>ipc/ipc.go:2117</code></a> &middot; Grant action: <code>cancel_task</code> (delegated, not a default) &middot; <code>auth.Authorize</code> on the task's owner folder. REST twin: <code>DELETE /v1/scheduled_tasks</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -540,14 +540,14 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true}</code>.</p>
 
-    <h3 id="list_tasks"><code>list_tasks</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="list_tasks"><code>list_tasks</code></h3>
     <p>Return scheduled tasks visible to this group. Use for a plain task dump; prefer <code>inspect_tasks</code> when you also want task_run_logs or per-task history.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2143"><code>ipc/ipc.go:2143</code></a> &middot; Grant action: <code>list_tasks</code> (in <code>tier1FixedActions</code>). REST twin: <code>GET /v1/scheduled_tasks</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2143"><code>ipc/ipc.go:2143</code></a> &middot; Grant action: <code>list_tasks</code> (delegated, not a default). REST twin: <code>GET /v1/scheduled_tasks</code>.</p>
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON array of <code>core.Task</code>.</p>
 
-    <h3 id="pause_task"><code>pause_task</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="pause_task"><code>pause_task</code></h3>
     <p>Mark a scheduled task paused so it stops firing but is preserved. Use when suspending a task temporarily.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2111"><code>ipc/ipc.go:2111</code></a> &middot; Grant action: <code>pause_task</code> (in <code>tier1FixedActions</code>) &middot; <code>auth.Authorize</code> on task owner. REST twin: <code>POST /v1/scheduled_tasks/pause</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2111"><code>ipc/ipc.go:2111</code></a> &middot; Grant action: <code>pause_task</code> (delegated, not a default) &middot; <code>auth.Authorize</code> on task owner. REST twin: <code>POST /v1/scheduled_tasks/pause</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -556,9 +556,9 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true}</code>.</p>
 
-    <h3 id="resume_task"><code>resume_task</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="resume_task"><code>resume_task</code></h3>
     <p>Re-activate a paused task so it resumes firing on its schedule. Use to undo <code>pause_task</code>. No effect on already-active or cancelled tasks.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2114"><code>ipc/ipc.go:2114</code></a> &middot; Grant action: <code>resume_task</code> (in <code>tier1FixedActions</code>). REST twin: <code>POST /v1/scheduled_tasks/resume</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2114"><code>ipc/ipc.go:2114</code></a> &middot; Grant action: <code>resume_task</code> (delegated, not a default). REST twin: <code>POST /v1/scheduled_tasks/resume</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -567,9 +567,9 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true}</code>.</p>
 
-    <h3 id="schedule_task"><code>schedule_task</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="schedule_task"><code>schedule_task</code></h3>
     <p>Create a scheduled prompt that fires against a target chat. <code>cron</code> accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 one-shot timestamp.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2024"><code>ipc/ipc.go:2024</code></a> &middot; Grant action: <code>schedule_task</code> (in <code>tier1FixedActions</code>) &middot; Deduplicates against existing active tasks with same <code>(folder, cron, prompt)</code>. REST twin: <code>POST /v1/scheduled_tasks</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2024"><code>ipc/ipc.go:2024</code></a> &middot; Grant action: <code>schedule_task</code> (delegated, not a default) &middot; Deduplicates against existing active tasks with same <code>(folder, cron, prompt)</code>. REST twin: <code>POST /v1/scheduled_tasks</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -583,9 +583,9 @@
 
     <h2 id="routing">routing</h2>
 
-    <h3 id="add_route"><code>add_route</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="add_route"><code>add_route</code></h3>
     <p>Append one routing rule. Preferred over <code>set_routes</code> for everything except full rewrites.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1889"><code>ipc/ipc.go:1889</code></a> &middot; Grant action: <code>add_route</code> (in <code>tier1FixedActions</code>) &middot; <code>auth.Authorize</code> with <code>RouteTarget</code>. REST twin: <code>POST /v1/routes</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1889"><code>ipc/ipc.go:1889</code></a> &middot; Grant action: <code>add_route</code> (delegated, not a default) &middot; <code>auth.Authorize</code> with <code>RouteTarget</code>. REST twin: <code>POST /v1/routes</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -594,9 +594,9 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"id": &lt;routeId&gt;}</code>.</p>
 
-    <h3 id="delete_route"><code>delete_route</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="delete_route"><code>delete_route</code></h3>
     <p>Remove one routing rule by id. Use after <code>list_routes</code>/<code>inspect_routing</code> to surgically drop a rule. Cannot delete the caller's own default route (<code>seq=0</code>, target=own folder).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1919"><code>ipc/ipc.go:1919</code></a> &middot; Grant action: <code>delete_route</code> (in <code>tier1FixedActions</code>). REST twin: <code>DELETE /v1/routes/{id}</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1919"><code>ipc/ipc.go:1919</code></a> &middot; Grant action: <code>delete_route</code> (delegated, not a default). REST twin: <code>DELETE /v1/routes/{id}</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -605,14 +605,14 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"deleted": true, "id": &lt;id&gt;}</code>.</p>
 
-    <h3 id="list_routes"><code>list_routes</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="list_routes"><code>list_routes</code></h3>
     <p>Return the routing table rows this group can see. Use for a raw route dump; prefer <code>inspect_routing</code> when you also want JID&rarr;folder resolution or errored-chat context.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1829"><code>ipc/ipc.go:1829</code></a> &middot; Grant action: <code>list_routes</code> (in <code>tier1FixedActions</code>) &middot; granted by default at tier 1. REST twin: <code>GET /v1/routes</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1829"><code>ipc/ipc.go:1829</code></a> &middot; Grant action: <code>list_routes</code> (delegated, not a default). REST twin: <code>GET /v1/routes</code>.</p>
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON <code>{"routes": [...]}</code>.</p>
 
-    <h3 id="set_routes"><code>set_routes</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="set_routes"><code>set_routes</code></h3>
     <p>Bulk-overwrite the full routing table for this folder subtree. Use only for wholesale reconfiguration; prefer <code>add_route</code>/<code>delete_route</code> for targeted edits.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1837"><code>ipc/ipc.go:1837</code></a> &middot; Grant action: <code>set_routes</code> (in <code>tier1FixedActions</code>) &middot; Rejects targets outside the caller's folder subtree; refuses to drop the caller's <code>seq=0</code> self-default. REST twin: <code>PUT /v1/routes</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1837"><code>ipc/ipc.go:1837</code></a> &middot; Grant action: <code>set_routes</code> (delegated, not a default) &middot; Rejects targets outside the caller's folder subtree; refuses to drop the caller's <code>seq=0</code> self-default. REST twin: <code>PUT /v1/routes</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -622,11 +622,11 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"updated": true, "count": &lt;n&gt;}</code>.</p>
 
     <h2 id="egress">egress</h2>
-    <p>Manage the egress allowlist crackbox enforces. The proxy is default-deny &mdash; a folder only reaches hosts it (or an ancestor) has been allowed. Rules cascade down the tree: a rule at a parent folder opens the host for every descendant. All three gate on <code>auth.AuthorizeStructural</code>: tier 0 (root) is unrestricted; tier 1 is confined to its own folder and descendants; tier 2+ cannot manage egress. Backed by the <code>network_rules</code> table. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/5-uniform-mcp-rest.md">5/5</a> (<code>egress_allowlist</code>). Agent-only by design &mdash; there is no REST twin, and <code>network_rules</code> isn&rsquo;t mounted at <code>/v1/network_rules</code> or listed in routd&rsquo;s <code>/openapi.json</code>.</p>
+    <p>Manage the egress allowlist crackbox enforces. The proxy is default-deny &mdash; a folder only reaches hosts it (or an ancestor) has been allowed. Rules cascade down the tree: a rule at a parent folder opens the host for every descendant. All three require the matching <code>mcp:network_*</code> grant, re-checked with the <code>folder</code> argument as the scope &mdash; so you can only manage egress inside the subtree your grant covers. No grant, no egress management. Backed by the <code>network_rules</code> table. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/16-mcp-rest-unification.md">5/16</a> (<code>network_rules</code>). Agent-only by design &mdash; there is no REST twin, and <code>network_rules</code> isn&rsquo;t mounted at <code>/v1/network_rules</code> or listed in routd&rsquo;s <code>/openapi.json</code>.</p>
 
-    <h3 id="network_allow"><code>network_allow</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="network_allow"><code>network_allow</code></h3>
     <p>Append an allowlist rule so <code>folder</code> and every descendant can reach <code>host</code>. Use when an agent needs a host the default-deny proxy blocks &mdash; a vendor API, say. <code>host</code> is a bare hostname (no scheme, no path), e.g. <code>example.com</code>. The rule cascades to all children.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1950"><code>ipc/ipc.go:1950</code></a> &middot; Grant action: <code>network_allow</code> &middot; <code>auth.AuthorizeStructural</code> on <code>folder</code>; <code>host</code> validated by <code>validHostname</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1950"><code>ipc/ipc.go:1950</code></a> &middot; Grant action: <code>network_allow</code> &middot; <code>auth.Authorize</code> re-run with the <code>folder</code> argument as the scope; <code>host</code> validated by <code>validHostname</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -636,9 +636,9 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"allowed": true, "folder": "&lt;f&gt;", "host": "&lt;host&gt;"}</code>.</p>
 
-    <h3 id="network_deny"><code>network_deny</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="network_deny"><code>network_deny</code></h3>
     <p>Remove an allowlist rule set on <code>folder</code> itself, closing access to <code>host</code>. Only drops a rule owned by this folder &mdash; a host inherited from an ancestor must be removed at that ancestor, not here.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1976"><code>ipc/ipc.go:1976</code></a> &middot; Grant action: <code>network_deny</code> &middot; <code>auth.AuthorizeStructural</code> on <code>folder</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1976"><code>ipc/ipc.go:1976</code></a> &middot; Grant action: <code>network_deny</code> &middot; <code>auth.Authorize</code> re-run with the <code>folder</code> argument as the scope.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -648,9 +648,9 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"denied": true, "folder": "&lt;f&gt;", "host": "&lt;host&gt;"}</code>.</p>
 
-    <h3 id="network_list"><code>network_list</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="network_list"><code>network_list</code></h3>
     <p>Read the egress allowlist for <code>folder</code>. <code>resolved</code> is every host the folder can reach &mdash; its own rules, those inherited from ancestors, and the instance base. <code>own</code> is only the rules set on <code>folder</code> itself. Use to see why a host is reachable (own rule vs inherited) before adding or removing one.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2001"><code>ipc/ipc.go:2001</code></a> &middot; Grant action: <code>network_list</code> &middot; <code>auth.AuthorizeStructural</code> on <code>folder</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2001"><code>ipc/ipc.go:2001</code></a> &middot; Grant action: <code>network_list</code> &middot; <code>auth.Authorize</code> re-run with the <code>folder</code> argument as the scope.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -661,9 +661,9 @@
 
     <h2 id="grants-tools">acl</h2>
 
-    <h3 id="list_acl"><code>list_acl</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="list_acl"><code>list_acl</code></h3>
     <p>Audit the unified <code>acl</code> rows whose <code>scope</code> equals the target folder. Subsumes the pre-v0.38.0 <code>get_grants</code>/<code>set_grants</code> surface; writes now happen via <code>arizuko grant</code> or the dashd UI, not over MCP.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2157"><code>ipc/ipc.go:2157</code></a> &middot; Registration gated on <code>id.Tier &le; 1</code>; bypasses the rule filter. Authorization: <code>auth.AuthorizeStructural</code> on the target folder.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2157"><code>ipc/ipc.go:2157</code></a> &middot; Registration gated on holding <code>mcp:list_acl</code>. Authorization: <code>auth.Authorize</code> re-run with the target folder as the scope.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -672,9 +672,9 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"folder": "&lt;f&gt;", "acl": [{principal, action, scope, effect, params, predicate}, ...]}</code>.</p>
 
-    <h3 id="add_acl"><code>add_acl</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="add_acl"><code>add_acl</code></h3>
     <p>Grant a principal access to a folder scope (writes an <code>acl</code> row). <code>scope='**'</code> confers the operator role. You can only grant within your own authority. Not for routes (<code>add_route</code>) or invites (<code>invite_create</code>). REST twin: <code>POST /v1/acl</code>.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2353"><code>ipc/ipc.go:2353</code></a> &middot; Grant action: <code>add_acl</code> &middot; <code>auth.AuthorizeStructural</code> on <code>scope</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2353"><code>ipc/ipc.go:2353</code></a> &middot; Grant action: <code>add_acl</code> &middot; <code>auth.Authorize</code> re-run with the <code>scope</code> argument as the scope &mdash; you can only write rows inside a subtree you were granted.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -686,9 +686,9 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "principal": "&lt;p&gt;", "scope": "&lt;s&gt;"}</code>.</p>
 
-    <h3 id="remove_acl"><code>remove_acl</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="remove_acl"><code>remove_acl</code></h3>
     <p>Revoke a principal's access to a folder scope (drops the <code>acl</code> row). <code>scope='**'</code> revokes the operator role. You can only revoke within your own authority. REST twin: <code>DELETE /v1/acl</code>.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2382"><code>ipc/ipc.go:2382</code></a> &middot; Grant action: <code>remove_acl</code> &middot; <code>auth.AuthorizeStructural</code> on <code>scope</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2382"><code>ipc/ipc.go:2382</code></a> &middot; Grant action: <code>remove_acl</code> &middot; <code>auth.Authorize</code> re-run with the <code>scope</code> argument as the scope &mdash; you can only write rows inside a subtree you were granted.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -702,7 +702,7 @@
 
     <h2 id="invites">invites</h2>
 
-    <h3 id="invite_create"><code>invite_create</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="invite_create"><code>invite_create</code></h3>
     <p>Issue an invite token granting access to a path glob. The recipient accepts via <code>/invite/&lt;token&gt;</code> and gets an <code>acl(admin, target_glob)</code> row. The agent's authority must cover <code>target_glob</code> &mdash; you can't issue access you don't have.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2187"><code>ipc/ipc.go:2187</code></a> &middot; Grant action: <code>invite_create</code> &middot; Issued by <code>agent:&lt;folder&gt;</code>.</p>
     <table class="params">
@@ -715,14 +715,14 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{token, target_glob, max_uses, expires_at?, accept_url?}</code>.</p>
 
-    <h3 id="invite_list"><code>invite_list</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="invite_list"><code>invite_list</code></h3>
     <p>List the invite tokens this agent has issued — token, target glob, expiry, use count. Read-only; shows only this folder's invites. Use to audit outstanding invites before revoking. REST twin: <code>GET /v1/invites</code>.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2296"><code>ipc/ipc.go:2296</code></a> &middot; Grant action: <code>invite_list</code> &middot; Scoped to <code>issued_by="agent:&lt;folder&gt;"</code>; no caller-supplied folder arg.</p>
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON <code>{"invites": [{token, target_glob, max_uses, used_count, expires_at?}, ...]}</code>.</p>
 
-    <h3 id="invite_revoke"><code>invite_revoke</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <h3 id="invite_revoke"><code>invite_revoke</code></h3>
     <p>Revoke an invite token you issued so it can no longer be redeemed. You may only revoke tokens issued by your own folder. Use <code>invite_list</code> to find your tokens. REST twin: <code>DELETE /v1/invites/{token}</code>.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2323"><code>ipc/ipc.go:2323</code></a> &middot; Grant action: <code>invite_revoke</code> &middot; <code>auth.AuthorizeStructural</code> on caller's folder; ownership enforced in routd closure.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2323"><code>ipc/ipc.go:2323</code></a> &middot; Grant action: <code>invite_revoke</code> &middot; <code>auth.Authorize</code> re-run with the caller's folder as the scope; ownership enforced in routd closure.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -745,8 +745,8 @@
     </table>
     <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>, or error if not found / not owned.</p>
 
-    <h3 id="get_web_presence"><code>get_web_presence</code> <span class="tier">tier 0&ndash;1</span></h3>
-    <p>Report a folder's public web presence: derived canonical hostname, public/private base URLs, and the <code>/pub/&lt;folder&gt;/</code> path that works even without <code>HOSTING_DOMAIN</code>. Read-only. Tier-1+ may only query own folder or descendants; tier-0 any. REST twin: <code>GET /v1/web_presence?folder=&lt;f&gt;</code>.</p>
+    <h3 id="get_web_presence"><code>get_web_presence</code></h3>
+    <p>Report a folder's public web presence: derived canonical hostname, public/private base URLs, and the <code>/pub/&lt;folder&gt;/</code> path that works even without <code>HOSTING_DOMAIN</code>. Read-only. You may query any folder your <code>mcp:get_web_presence</code> grant covers. REST twin: <code>GET /v1/web_presence?folder=&lt;f&gt;</code>.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2883"><code>ipc/ipc.go:2883</code></a> &middot; Grant action: <code>get_web_presence</code> &middot; Computed by <code>ipc.WebPresenceFor</code> from <code>WEB_HOST</code>, <code>HOSTING_DOMAIN</code>, <code>WEB_VHOST_ALIASES</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -864,13 +864,13 @@ base = "https://api.cloudflare.com/client/v4"
 
     <h2 id="notes">notes &amp; gotchas</h2>
     <ul>
-      <li><strong>Registration is filtered by grants.</strong> <code>registerRaw</code> consults <code>grants.MatchingRules(rules, name)</code>; if no rule matches the tool name, the tool is never added to <code>tools/list</code>. The matched rules are appended to the tool description as <code>grants: [...]</code> so the agent sees what it has been granted.</li>
-      <li><strong>Tier-gated registration on top of grants.</strong> <code>refresh_groups</code> (tier &le; 2), <code>set_work</code> (tier &le; 2), and <code>list_acl</code> (tier &le; 1) wrap the <code>AddTool</code> call in a tier check &mdash; even at tier 0 with rules <code>["*"]</code>, tier-bracketing trumps glob match.</li>
-      <li><strong>Inline auth.Authorize past the grant filter.</strong> Most JID-targeted tools call <code>authorizeJID</code> after the grant check: a tier &ge; 1 caller cannot dispatch to a JID whose <code>DefaultFolderForJID</code> resolves outside the caller's folder subtree, even when grants would otherwise permit it.</li>
+      <li><strong>Registration is filtered by grants.</strong> <code>registerRaw</code> consults <code>db.Visible</code> &mdash; <code>auth.EffectiveActions</code> over the caller's <code>acl</code> rows, asking whether the caller holds <code>mcp:&lt;name&gt;</code> at any scope. Hold it nowhere and the tool is never added to <code>tools/list</code>. The call-time check still runs, so a tool that shows can still refuse a particular target.</li>
+      <li><strong>Some tools need no grant.</strong> The <code>inspect_*</code> reads and <code>set_work</code> are registered unconditionally &mdash; they're the agent's view of its own folder, and gating them would only blind it. An elevated <code>/root</code> turn skips the visibility filter entirely and sees everything.</li>
+      <li><strong>Route ownership is checked on top of the grant.</strong> Most JID-targeted tools call <code>authorizeJID</code> after the grant check: a caller cannot dispatch to a JID whose <code>DefaultFolderForJID</code> resolves outside its own folder subtree, even when the grant would otherwise permit it. That's why <code>role:member</code> can carry the messaging verbs at scope <code>**</code> without letting a folder message the whole instance. A <code>/root</code> turn bypasses it.</li>
       <li><strong>The secret broker is live.</strong> A connector or <code>[[ext]]</code> REST tool that needs a capability token has it resolved on the host at call time for the triggering user (their own key overrides the folder default), so the token never enters the container. Registration itself is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>.</li>
       <li><strong>Optional registration paths.</strong> Several tools are nil-guarded on the backing store function and silently absent if not wired: <code>inspect_routing</code>, <code>inspect_tasks</code>, <code>inspect_session</code>, <code>inspect_identity</code>, <code>inspect_messages</code>, <code>find_messages</code> (requires <code>db.FindMessages</code>), <code>get_thread</code>, <code>fetch_history</code>, all <code>*_task</code> tools (require <code>db.GetTask</code>).</li>
       <li><strong>Cold-tier resources are a separate surface.</strong> Groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks and the like are not per-group MCP tools &mdash; they are CRUD resources driven by the <code>resreg</code> engine and reachable over REST, MCP, YAML manifests, and <code>/openapi.json</code> from one struct. The registry lives in <code>routd</code>. See <a href="openapi.html">OpenAPI</a>.</li>
-      <li><strong>Route tools are granted at tier 1.</strong> <code>tier1FixedActions</code> lists <code>list_routes</code>, <code>set_routes</code>, <code>add_route</code>, <code>delete_route</code> &mdash; the names match the registered tools, so tier-1 callers get them by default. See <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L160"><code>grants/grants.go:160</code></a>.</li>
+      <li><strong>Route tools are delegated, never default.</strong> <code>list_routes</code>, <code>set_routes</code>, <code>add_route</code> and <code>delete_route</code> are not in <code>role:member</code>, so a fresh folder holds none of them. Someone with the grant and a grant option has to hand them over, scoped to a subtree. See <a href="grants.html">grants</a>.</li>
     </ul>
 
       <nav class="docs-pager" aria-label="Pager">
@@ -879,7 +879,7 @@ base = "https://api.cloudflare.com/client/v4"
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-06">2026-07-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-04">2026-08-04</time>
       </div>
     </main>
 

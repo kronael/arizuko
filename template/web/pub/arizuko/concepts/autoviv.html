@@ -57,13 +57,13 @@
     <h2>the recipe</h2>
     <p>Three primitives, composed:</p>
     <ol>
-      <li><strong>Catch-all routes to a tier-1 agent.</strong> Two rows at low priority send every message from a platform into one folder, the tier-1 &ldquo;world&rdquo; agent (call it <code>atlas</code>):
+      <li><strong>Catch-all routes to a world agent.</strong> Two rows at low priority send every message from a platform into one folder, the &ldquo;world&rdquo; agent (call it <code>atlas</code>):
         <pre><code>seq  match                                          target
 100  chat_jid=slack:*/channel/* verb=mention        atlas
 200  chat_jid=slack:*/channel/*                     atlas#observe</code></pre>
         The <code>#observe</code> row stores every channel message so the agent has context. The mention row fires a turn when someone calls <code>@atlas</code>.
       </li>
-      <li><strong>The tier-1 agent notices an unrouted channel.</strong> When <code>atlas</code> runs a turn, it sees the inbound message&rsquo;s <code>chat_jid</code>. If no specific child folder is wired to that JID and the sender holds operator grant, it calls the MCP tool <code>register_group</code> with the JID and a sanitized folder name.</li>
+      <li><strong>The world agent notices an unrouted channel.</strong> When <code>atlas</code> runs a turn, it sees the inbound message&rsquo;s <code>chat_jid</code>. If no specific child folder is wired to that JID and the sender holds operator grant, it calls the MCP tool <code>register_group</code> with the JID and a sanitized folder name.</li>
       <li><strong><code>register_group</code> does the rest.</strong> <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1309"><code>ipc/ipc.go:1309</code></a> &rarr; <code>routd</code> writes the group row, seeds the folder with skills and settings (<code>SetupGroup</code>), and inserts a high-priority route <code>room=&lt;jid-room&gt; &rarr; &lt;folder&gt;</code> in one step. The next message in that channel lands in <code>atlas/eng-support</code> instead of <code>atlas</code>.</li>
     </ol>
 
@@ -77,10 +77,10 @@
     </ul>
 
     <h2>why no special env var or daemon</h2>
-    <p>Autoviv is not a feature; it is the absence of a feature. The pieces already exist: <a href="../concepts/routing.html">glob route matching</a>, the <code>register_group</code> MCP tool, group seeding via <code>SetupGroup</code>, the <a href="../reference/grants.html">operator grant</a>. An operator who wants per-channel folders writes a catch-all route and a paragraph in the tier-1 agent&rsquo;s CLAUDE.md. An operator who prefers to register each channel by hand omits both. Same code path either way.</p>
+    <p>Autoviv is not a feature; it is the absence of a feature. The pieces already exist: <a href="../concepts/routing.html">glob route matching</a>, the <code>register_group</code> MCP tool, group seeding via <code>SetupGroup</code>, the <a href="../reference/grants.html">operator grant</a>. An operator who wants per-channel folders writes a catch-all route and a paragraph in the world agent&rsquo;s CLAUDE.md. An operator who prefers to register each channel by hand omits both. Same code path either way.</p>
 
-    <h2>what your tier-1 agent needs to know</h2>
-    <p>Paste a paragraph like this into the tier-1 agent&rsquo;s <code>CLAUDE.md</code> or PERSONA.md:</p>
+    <h2>what your world agent needs to know</h2>
+    <p>Paste a paragraph like this into the world agent&rsquo;s <code>CLAUDE.md</code> or PERSONA.md:</p>
     <pre><code>When you receive a message from a Slack channel JID
 (slack:*/channel/*) that does not yet have its own folder,
 and the sender holds operator grant, call register_group
@@ -93,18 +93,18 @@ senders &mdash; ask the operator instead.</code></pre>
     <p>Tune it: auto-register channels matching a pattern, ask the operator first, only register on explicit request. The agent is making the policy decision; the platform just runs the call.</p>
 
     <h2>web slots</h2>
-    <p>Groups at tier 2 and below get two writable web slots bind-mounted into the container: <code>~/public_html/</code> and <code>~/private_html/</code> (Apache <code>mod_userdir</code> convention). The agent writes a file into <code>~/public_html/</code> and <code>vited</code> serves it at <code>/pub/&lt;folder&gt;/</code> &mdash; one path segment per folder, no per-group subdomain. <code>~/private_html/</code> serves at <code>/priv/&lt;folder&gt;/</code> behind an OAuth/JWT gate. An autoviv&rsquo;d child <code>atlas/eng-support</code> serves at <code>/pub/atlas/eng-support/</code>; it shares the instance hostname with every other folder.</p>
+    <p>A group holding the <code>web:publish</code> grant gets two writable web slots bind-mounted into the container: <code>~/public_html/</code> and <code>~/private_html/</code> (Apache <code>mod_userdir</code> convention). The agent writes a file into <code>~/public_html/</code> and <code>vited</code> serves it at <code>/pub/&lt;folder&gt;/</code> &mdash; one path segment per folder, no per-group subdomain. <code>~/private_html/</code> serves at <code>/priv/&lt;folder&gt;/</code> behind an OAuth/JWT gate. An autoviv&rsquo;d child <code>atlas/eng-support</code> serves at <code>/pub/atlas/eng-support/</code>; it shares the instance hostname with every other folder.</p>
 
     <h2>limits</h2>
     <ul>
-      <li><strong>Operator grant required.</strong> <code>register_group</code> goes through the structural gate: a tier-1 caller may only create direct children of its own folder. <code>atlas</code> can register <code>atlas/eng-support</code>, not <code>main/foo</code>; top-level folders need tier-0.</li>
+      <li><strong>A delegated grant is required.</strong> <code>register_group</code> is not in the default role, so <code>atlas</code> has to be handed <code>mcp:register_group</code> explicitly. The row's scope glob is the whole containment rule: granted <code>atlas/**</code>, it can register <code>atlas/eng-support</code> and anything else under <code>atlas</code>, but not <code>other/foo</code>. Widening its reach means editing that glob, not moving the folder.</li>
       <li><strong>Idempotency is partial.</strong> Re-registering the same folder is safe, but the route insert is unconditional &mdash; calling <code>register_group</code> twice with the same JID writes a duplicate route row. Have the agent check <code>list_routes</code> first.</li>
       <li><strong>Folder seeding is best-effort.</strong> If <code>SetupGroup</code> fails, the group + route are still written and <code>routd</code> logs a warning. Inspect <code>groups/&lt;folder&gt;/</code> if the new agent acts blank.</li>
     </ul>
-    <p>Full <code>register_group</code> signature and the tier rules: <a href="../reference/mcp.html#register_group">reference / mcp</a>, <a href="../reference/grants.html">reference / grants</a>.</p>
+    <p>Full <code>register_group</code> signature and the grant it needs: <a href="../reference/mcp.html#register_group">reference / mcp</a>, <a href="../reference/grants.html">reference / grants</a>.</p>
 
     <h2>go deeper</h2>
-    <p>Route tables, glob matching, and <code>#observe</code> mode: <a href="../concepts/routing.html">routing</a>. Operator grant and tier rules: <a href="../reference/grants.html">grants reference</a>. Full <code>register_group</code> signature and other MCP tools: <a href="../reference/mcp.html#register_group">mcp reference</a>.</p>
+    <p>Route tables, glob matching, and <code>#observe</code> mode: <a href="../concepts/routing.html">routing</a>. Grants, roles and delegation: <a href="../reference/grants.html">grants reference</a>. Full <code>register_group</code> signature and other MCP tools: <a href="../reference/mcp.html#register_group">mcp reference</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="onboarding.html">&larr; Onboarding</a>
@@ -112,7 +112,7 @@ senders &mdash; ask the operator instead.</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/autoviv.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-04">2026-08-04</time>
       </div>
     </main>
 

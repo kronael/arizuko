@@ -159,7 +159,7 @@ match='verb=' is the negation: only verb-less (default 'message') rows</code></p
 
     <h2>6. Globs in grant rules</h2>
 
-    <p>The same <code>jid=&lt;glob&gt;</code> syntax appears in grant rules (<a href="../reference/grants.html">grants reference</a>). The matcher there is <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L73"><code>grants.matchGlob</code></a> with <code>isValueDelim</code> stopping <code>*</code> at <code>,</code> or <code>)</code> &mdash; not at <code>/</code>. That's a deliberate difference: grant param globs span the whole JID, route globs are segment-aware.</p>
+    <p>The same <code>jid=&lt;glob&gt;</code> syntax appears in an <code>acl</code> row's <code>params</code> column (<a href="grants.html">grants reference</a>). The matcher there is <code>segGlob</code> in <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a>, where <code>*</code> runs to the end of the value &mdash; it does not stop at <code>/</code>. That's a deliberate difference: param globs span the whole JID, route globs are segment-aware.</p>
 
     <pre><code>send(jid=telegram:group/*)     # rule: only telegram groups (grants matcher: * spans /)
 match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * doesn't cross /)</code></pre>
@@ -221,7 +221,7 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/jid.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-05">2026-07-05</time>
       </div>
     </main>
 

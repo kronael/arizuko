@@ -61,7 +61,7 @@
       <h2>Protocol surface</h2>
       <div class="tablecard">
         <h3><a href="mcp.html">MCP tools</a></h3>
-        <p>Every tool on the per-group MCP unix socket plus <code>submit_turn</code>, grouped by concern (messages, social actions, history with <code>find_messages</code> full-text search, groups, sessions, scheduling, routing, grants, invites, web, identity, system). Params, return shape, tier badge, registration site.</p>
+        <p>Every tool on the per-group MCP unix socket plus <code>submit_turn</code>, grouped by concern (messages, social actions, history with <code>find_messages</code> full-text search, groups, sessions, scheduling, routing, grants, invites, web, identity, system). Params, return shape, the grant each one needs, registration site.</p>
       </div>
       <div class="tablecard">
         <h3><a href="schema.html">SQLite schema</a></h3>
@@ -79,11 +79,11 @@
       </div>
       <div class="tablecard">
         <h3><a href="grants.html">Grants</a></h3>
-        <p>Grant rule grammar, tier defaults, the tool-by-tool tier and containment table, unified <code>acl</code> + <code>acl_membership</code> semantics. The authoritative answer to "can this user do this thing in this folder?" Narrative twin: <a href="../concepts/grants.html">concepts &rsaquo; authorization</a>.</p>
+        <p>The <code>acl</code> row, the action lattice, evaluation order, the two seeded roles, delegation by subset-of-held, and how a scope glob does containment. The authoritative answer to "can this user do this thing in this folder?" Narrative twin: <a href="../concepts/grants.html">concepts &rsaquo; authorization</a>.</p>
       </div>
       <div class="tablecard">
         <h3><a href="tokens.html">Route tokens</a></h3>
-        <p>The <code>route_tokens</code> table and the two URL prefixes that read it: <code>/chat/&lt;token&gt;/</code> for browser chat, <code>/hook/&lt;token&gt;</code> for webhook ingest. Schema, mint surface, tier scope, payload shapes, SSE events, rate limits. Narrative twin: <a href="../concepts/tokens.html">concepts &rsaquo; tokens</a>.</p>
+        <p>The <code>route_tokens</code> table and the two URL prefixes that read it: <code>/chat/&lt;token&gt;/</code> for browser chat, <code>/hook/&lt;token&gt;</code> for webhook ingest. Schema, mint surface, who may mint, payload shapes, SSE events, rate limits. Narrative twin: <a href="../concepts/tokens.html">concepts &rsaquo; tokens</a>.</p>
       </div>
       <div class="tablecard">
         <h3><a href="topics.html">Topics</a></h3>
@@ -108,7 +108,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-29">2026-07-29</time>
       </div>
     </main>
 
