@@ -2556,7 +2556,7 @@ hides it. sloth carries exactly this shape —
   sorting after `role:` so the ordering is deterministic; falsified against the
   unfiltered query.
 
-## S1 — retired `CHANNEL_SECRET` still documented as the live adapter credential (2026-08-02, open)
+## S1 — retired `CHANNEL_SECRET` still documented as the live adapter credential (2026-08-02, fixed; helm split to S1b)
 
 `CHANNEL_SECRET` is gone from the code — `chanlib.RouterClient.svcToken` carries
 a `service:<daemon>` ES256 JWT on every authenticated routd call, and five call
@@ -2581,6 +2581,66 @@ concern, not a spec one.
   `template/web/pub/arizuko/legacy/products/{reality,slack-team}/setup.html`
 - **Fix:** replace with `AUTHD_SERVICE_KEY` (the one surviving symmetric
   bootstrap secret) and describe the ES256 exchange; redeploy `/pub`.
+- **Status:** docs fixed 2026-08-05; **helm split out to S1b, needs sign-off**.
+  - `CLAUDE.md` + `security/index.html` — the two live pages the entry named
+    were already done in `d81cc2d2` (2026-08-04).
+  - The sweep the entry did not do found the var alive on **17 more live
+    pages**, including the one an operator is likeliest to follow:
+    `reference/env.html` documented `CHANNEL_SECRET` as "Required in
+    production" plus TEN per-daemon `<DAEMON>_CHANNEL_SECRET` overrides, all
+    dead (`grep -rn '_CHANNEL_SECRET' --include='*.go'` → 0). Those eleven
+    `env-entry` blocks are deleted, not reworded — there is no surviving var to
+    redirect them to, and `AUTHD_SERVICE_KEY` already had its own entry.
+  - The wording fix is not a rename. The pages described a **symmetric HMAC**
+    ("routd verifies inbound HMACs, the adapter verifies outbound HMACs"). Both
+    directions are ES256 bearers verified against authd's JWKS: routd requires a
+    `service:` subject, and the adapter's `chanlib.authGate` (`chanlib/auth.go:67`)
+    requires exactly `service:routd`. Symmetric, but no shared secret exists to
+    verify — so the sentence had to be rewritten, not have a token swapped.
+  - `howto/index.html` and `reference/cli.html` claimed `arizuko create`
+    generates a `CHANNEL_SECRET` into `.env`. It writes `AUTH_SECRET` and
+    `SECRETS_KEY` (`cmd/arizuko/main.go:270-284`) and never wrote this one.
+  - `template/web/pub/arizuko/legacy/**` deliberately untouched (~60 hits). The
+    changelog page calls it "the previous docs are preserved at /legacy/" — an
+    archive that also documents `gated` and `emaid`. Editing one var inside a
+    snapshot of a retired topology makes it neither the old docs nor the new.
+  - NOT deployed: `template/web/pub/` is source-of-truth, the `/pub` deploy is
+    the operator's step (`template/web/CLAUDE.md`).
+
+## S1b — the helm chart deploys the deleted `gated` daemon (2026-08-05, PROPOSED — redesign, needs sign-off)
+
+Split out of S1, whose fix ("wire `AUTHD_SERVICE_KEY` instead of the dead
+`CHANNEL_SECRET`") cannot be applied to `deploy/helm` as a config change. The
+chart is pre-split and cannot deploy arizuko at all:
+
+- `templates/gated.yaml` runs `command: ["gated"]`. `gated` was deleted in
+  v0.50.0 (`45e4ab0d` + `24d57a3e`); it is not in the Makefile's `DAEMONS` and
+  there is no `gated/` directory.
+- `_helpers.tpl:89-97` points every adapter's `ROUTER_URL` at
+  `<release>-gated:8080`, so the whole chart's routing target does not exist.
+- There is no `authd`, `routd`, or `runed` template, and **zero** occurrences of
+  `AUTHD_URL` / `AUTHD_SERVICE_KEY` / `AUTHD_SERVICE_NAME` anywhere in the chart.
+
+That last point is why this is not S1's one-line swap. Wiring
+`AUTHD_SERVICE_KEY` into `adapters.yaml` would inject a credential with no
+`authd` to exchange it at and no `routd` to present it to — every adapter would
+still `os.Exit(1)` on the required-env check (`chanlib/run.go:51-55`), but the
+chart would now *look* current. That is worse than the honest breakage.
+
+- **Severity:** medium (k8s install path is dead; no runtime effect on the three
+  compose instances)
+- **Scope:** deploy/helm, and `template/web/pub/arizuko/howto/kubernetes.html`
+  which documents it (left at `CHANNEL_SECRET` on purpose — the page and the
+  chart must move together)
+- **Affected:** anyone installing via helm
+- **Source:** deploy/helm/arizuko/templates/gated.yaml:57;
+  deploy/helm/arizuko/templates/_helpers.tpl:89-97;
+  deploy/helm/arizuko/values.yaml:119; deploy/helm/arizuko/templates/secret.yaml:13;
+  deploy/helm/arizuko/templates/adapters.yaml:68-75
+- **Status:** PROPOSED — redesign, needs sign-off. The real fix is a split-topology
+  chart (authd/routd/runed deployments + services, repoint `routerService`, add
+  the `AUTHD_*` env, drop `gated.yaml` and `secrets.channelSecret`), or deleting
+  the chart if helm is not a supported install path. Do not half-wire it.
 
 ## O2 — two adapters down on platform credentials, not code (2026-08-02, open)
 
@@ -4005,7 +4065,7 @@ only the operator role or an explicit `**`-scoped delegation reads it.
 - **Leaves `5/28` at `partial`:** F2 (unaudited route install) and F3
   (`products.toml` composition unbuilt) are untouched by this.
 
-## F2 — package route installs write no audit row (2026-08-05, open)
+## F2 — package route installs write no audit row (2026-08-05, fixed)
 
 `applyPackageRoutes` (`cmd/arizuko/packages.go:230-253`) installs a package's
 public routes through `st.PutProxydRoute` (`store/proxyd_routes.go:51-79`),
@@ -4031,11 +4091,37 @@ package path has no such covering row.
 - **Scope:** package install route apply
 - **Affected:** all instances — `arizuko packages add` for any package shipping `*-routes.json`
 - **Source:** cmd/arizuko/packages.go:230-253,448,453; store/proxyd_routes.go:51-79
-- **Status:** open
-- **Fix:** the same swap Q5 made for grants — an audited `PutProxydRoute` twin
-  emitting via `EmitInTx` inside the existing tx, stamped `package:<name>` the
-  way `AddACLRow` now carries `granted_by`, plus the falsifiable per-writer test
-  shape `route_audit_test.go` established.
+- **Status:** fixed 2026-08-05 (`06c98611`). Three departures from the entry's
+  own Fix line, each deliberate:
+  - **Amended in place, no audited twin.** `AddACLRow`/`PutACLRow` came in pairs
+    because the bare form had real audit-free callers. `PutProxydRoute` and
+    `DeleteProxydRoute` have exactly ONE production caller each — package install
+    and package remove — and both need the row, so a twin would be a dead second
+    path. Both moved onto the existing `runAudited` + `auditIdentity()` seam;
+    `packageACLStore` became `packageStore` and now serves the route writers too,
+    without which the rows land as anonymous `system`/gateway traffic.
+  - **Delete audited in the same commit.** `packages remove` was silent too, so
+    fixing only install would have inverted the asymmetry rather than closed it.
+    A trail that shows routes opening but never closing reads as "still live" for
+    a route that is gone — worse than silence, because it looks complete.
+    `deleted` in ParamsSummary separates a real withdrawal from a no-op.
+  - **No `package:<name>` stamp.** `granted_by` worked for grants because `acl`
+    HAS a grantor column the audit row merely surfaces. `proxyd_routes` has none;
+    adding one is a routd migration for provenance alone, and there is nothing to
+    disambiguate — every `proxyd_route.set` IS a package install, since that is
+    the only caller, and `installed_packages` already maps path to package.
+    ParamsSummary carries what the path cannot say instead: backend, auth,
+    gated_by, redirect_to.
+  - **Strengthens the case, found while fixing:** proxyd's own
+    `/v1/proxyd_routes` resource already audits this mutation (resreg emits via
+    `EmitInTx` in the handler's tx, `proxyd/resource.go:212`). The CLI was not
+    following a different discipline — it was the only silent writer left, the
+    same shape `703f6e75` found for secrets.
+  - **Falsifiable:** restoring the pre-fix bodies leaves both mutations
+    byte-identical (`store.TestPutDeleteProxydRoute` and
+    `TestPackagesInstallRoutesHotApply` stay green) and fails exactly the three
+    new tests in `cmd/arizuko/packages_route_audit_test.go` with "rows = 0,
+    want 2". Verified, not asserted.
 
 ## F3 — `5/28`'s composition section is written as shipped and is unbuilt (2026-08-05, open)
 
@@ -4498,7 +4584,7 @@ was eleven and the spec wrong; both halves of that were incorrect.
 - **Fix:** one word. Or drop the count — a number in a comment beside the list
   it counts will drift again.
 
-## F18 — two live copies of the false "routd.db has no audit_log" claim survive (2026-08-05, open)
+## F18 — two live copies of the false "routd.db has no audit_log" claim survive (2026-08-05, fixed)
 
 Q2, Q4 and Q5 retired this claim across dashd, `cmd/arizuko` and onbod. Two
 copies remain, both justifying an audit-free writer with a premise that has been
@@ -4520,10 +4606,31 @@ run*, which is the state that code operates on.
 - **Scope:** stale justification comments
 - **Affected:** future readers choosing an audit-free writer
 - **Source:** store/groups.go:85; routd/dark_tools_test.go:82
-- **Status:** open
 - **Fix:** strike the parenthetical from both, as Q5 did for
   `PutACLRow`/`PutMembership`. Do not change the writers — `DeleteGroupRow`'s
   caller audits, and the test seeds.
+- **Status:** fixed 2026-08-05 (`d35cab4d`). The entry found two copies; a sweep
+  of the non-migration tree found **four**, and the two it missed sit in the same
+  two files as the two it named:
+  - `store/groups.go:58` (`PutGroupRow`) — "an audit_log-less DB (routd.db …)",
+    three lines above the `DeleteGroupRow` copy the entry did name.
+  - `store/tasks.go:100` (`RemoveTask`) — same claim, in the very file the entry
+    cites as stating the real reason correctly (`PutTaskRow`, :53-55).
+  Verified false per context rather than assumed from the pattern: all four
+  describe writers acting on routd.db AFTER its migrations run, and
+  `routd/migrations/0016-audit-log.sql` creates the table. The two the entry
+  cleared (`migrate_split.go:166` = routd.db BEFORE migrating,
+  `resreg/engine.go:553` = the engine's own isolation-test schema) were re-checked
+  and left untouched.
+  Comment-only as prescribed; each now states a reason checkable at the call
+  site — `group add`/`group rm` (`cmd/arizuko/main.go:409,440`) emit `auditCLI`,
+  so a second row would double-count one act, and test seeding is not an act.
+- **Found while fixing, not filed as its own entry:** `RemoveTask`'s comment was
+  stale twice — it also claims to back `cancel_task`, which deletes through
+  `routd/scheduled_tasks_resource.go`'s own `deleteTaskTx` (resreg-audited).
+  `RemoveTask` has ZERO production callers. Left in place: dead code is a
+  separate concern from a false comment, and `877ea615` deleting
+  `RemoveACLRowBare` is the precedent for removing it under its own verdict.
 
 ## F19 — Q4 and Q5 record fix commits that are not in HEAD's history (2026-08-05, fixed)
 
