@@ -46,9 +46,9 @@ func callerGroups(r *http.Request) []string {
 // with approve/deny/reprompt action forms. Reads onbod's OWNED onboarding
 // table directly (store.New(a.db)); the action forms POST to the dash mutation
 // shims (handleDashApprove/Deny/Reprompt), which call the SAME store writers
-// the /v1 handlers use — one writer per resource, no parallel path. The token
-// column is never read or rendered (a live onboarding token is a bearer
-// credential; spec 6/7).
+// the /v1 handlers use — one writer per resource, no parallel path. There is
+// nothing credential-shaped left to render: since Z3 the table holds only
+// token_ref (hex(sha256)), and ListOnboarding never selects even that.
 func (a *admin) handleDash(w http.ResponseWriter, r *http.Request) {
 	if !a.requireOperator(w, r) {
 		return

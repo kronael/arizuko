@@ -3426,7 +3426,96 @@ per CLAUDE.md's bug-triage protocol (don't fix on discovery).
   is probably right, since any future `[]string`-typed field with `omitempty`
   hits the identical trap.
 
-## Z3 — `onboarding` (onbod) still not a resreg resource; archiving it as speced would leak a live plaintext bearer (2026-08-04, open)
+## Z3 — `onboarding` (onbod) still not a resreg resource; archiving it as speced would leak a live plaintext bearer (2026-08-04, fixed)
+
+- **Status:** fixed `c9860e3e` (hash at rest) + `c140ef78` (registration), 2026-08-05.
+
+Closed exactly as the entry's own **Fix** line prescribed, in that order.
+`store/migrations/0080` + `onbod/migrations/0004` replace `onboarding.token`
+with `token_ref` = `hex(sha256(token))`, indexed, `jid` still the PK.
+`store.BackfillOnboardingTokenRefs` (Go — SQLite has no `sha256()`) hashes
+every existing plaintext token FORWARD from `onboarding_legacy`, so links
+already sitting in users' chats keep resolving; a NULL token stays NULL rather
+than hashing `""` into one ref shared by every consumed row. Redemption still
+takes the RAW token and hashes internally (`handleTokenLanding`,
+`jidForToken`, `claimByToken`), mirroring `GetInvite`/`ConsumeInvite` after I1.
+
+Verified against `.backup` COPIES of all three live `onbod.db` through the
+real `openOwnedDB` path — krons 15→15 rows (12 live tokens→12 refs), sloth
+21→21 (18→18), marinade 8→8 (7→7), `onboarding_legacy` dropped in each, and a
+sampled pre-migration token from each instance still redeems to its JID.
+
+The registration then landed with both hazards this entry raised closed:
+`OnboardingRow` OMITS `token_ref` outright (not `yaml:"-"`), and
+`SkipApplyRebuild: true` stops any apply from DELETE+INSERTing the table from
+a RowType lacking the column — which is what would have nulled every live
+setup link. No separate archive-only document was needed: with the bearer
+hashed, `token_ref` is a verifier like `route_tokens.token_hash`, so if
+`archive` wants to carry admissions forward it can follow
+`ArchiveRouteTokenRow` without a new secrecy story. **Spec 5/8's text still
+needs the correction this entry asked for** — it says "register it the same
+way `onboarding_gates` is", which remains wrong; the table needed a
+hash-at-rest migration first.
+
+Not chased (still open): O1's stranded `pending` rows. sloth and marinade each
+carry one, confirmed live — `pending` is absent from `knownStatuses`, so
+`warnStrandedRows` logs them every tick and nothing advances them.
+
+## Z3b — `migrate-split` bootstraps the FINAL onbod schema but records no migration rows, so a reshaping migration re-runs against it and fails (2026-08-05, open)
+
+Found while closing Z3, **not introduced by it — `invites` already has this
+bug at `961e5b68`** and it is the reason `onbod/migrations/0001` had to give
+up its `CREATE INDEX ... ON onboarding(token)`.
+
+`migrateSplit` (`cmd/arizuko/migrate_split.go:306`) execs `onbodSchema` —
+which deliberately mirrors the tables' FINAL shape so the copy has somewhere
+to land — but never inserts `migrations(service='onbod', version=N)` rows.
+`db_utils.Migrate` keys off `MAX(version)`, so on the next onbod boot it sees
+0 and re-runs the whole chain over already-final tables. `IF NOT EXISTS`
+CREATEs make that harmless, which is what the file's comment assumes; a
+migration that RESHAPES does not:
+
+```
+$ sqlite3 x.db "CREATE TABLE invites (ref TEXT PRIMARY KEY, ...);"   # onbodSchema
+$ sqlite3 x.db "ALTER TABLE invites RENAME TO invites_legacy; CREATE TABLE invites (ref ...);"  # 0003
+$ sqlite3 x.db "SELECT token, ... FROM invites_legacy;"              # BackfillInviteRefs
+Error: in prepare, no such column: token
+```
+
+onbod then refuses to boot. Reachable only on a monolith→split conversion, so
+no live instance is exposed today (all three are long since split) — but the
+next reshaping migration silently arms it again for anyone converting.
+
+- **Severity:** medium (blocks a fresh monolith→split conversion; no live
+  instance affected)
+- **Scope:** `cmd/arizuko/migrate_split.go`, `store/invites.go`,
+  `store/onboarding.go`
+- **Affected:** `BackfillInviteRefs` (live at base), `BackfillOnboardingTokenRefs`
+- **Source:** reproduced on a scratch DB 2026-08-05; `db_utils/migrate.go:24-28`
+  is the `MAX(version)` read
+- **Fix:** have `migrateSplit` record the versions `onbodSchema` already
+  satisfies, so the chain starts from the shape it actually bootstrapped
+  instead of replaying it. Cross-cutting (changes what a bootstrapped DB
+  claims about itself) — wants sign-off, not an inline patch.
+
+## Z3c — `store.InviteRef` and `store.HashRouteToken` are one scheme under two names (2026-08-05, proposal)
+
+Both are `sha256` over the raw bearer; they differ ONLY in output encoding —
+`InviteRef` hex-encodes for a TEXT column, `HashRouteToken` keeps the 32 raw
+bytes for a BLOB. `resreg/archive.go:314` already notes the equivalence in
+prose ("hex-encoded … matching invites' Ref"). `onboarding` now makes three
+tables on the same scheme, and Z3 reused `InviteRef` rather than adding a
+third helper — but it reads wrong at an onboarding call site.
+
+- **Severity:** low (naming/clarity; no behavior at risk)
+- **Scope:** `store/invites.go`, `store/route_tokens.go` + 5 call-site files
+  outside store/onbod (`dashd/invites.go`, `ipc/ipc.go`, `tests/`, `cmd/`)
+- **Fix:** promote the digest to one generically-named helper (`store.TokenRef`)
+  with the BLOB form deriving from it, and rename the ~55 call sites. Purely
+  mechanical, but a repo-wide rename — recorded rather than shipped inside a
+  bearer-hashing change.
+
+### Z3 — the original finding (2026-08-04)
 
 Spec 5/8 §"Decided, not merely deferred: pending onboarding admissions must be
 archived state" calls registering `onboarding` "a Blocking precondition, same

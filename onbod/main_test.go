@@ -59,7 +59,7 @@ func testDB(t *testing.T) *sql.DB {
 	_, err = db.Exec(`
 		CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER, match TEXT, target TEXT, observe_window_messages INTEGER, observe_window_chars INTEGER, added_by TEXT, added_via TEXT);
 		CREATE TABLE groups (folder TEXT PRIMARY KEY, parent TEXT, name TEXT, added_at TEXT, slink_token TEXT, product TEXT);
-		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, prompted_at TEXT, created TEXT, token TEXT, token_expires TEXT, user_sub TEXT, gate TEXT, queued_at TEXT, admitted_at TEXT);
+		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, prompted_at TEXT, created TEXT, token_ref TEXT, token_expires TEXT, user_sub TEXT, gate TEXT, queued_at TEXT, admitted_at TEXT);
 		CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, is_from_me INTEGER, is_bot_message INTEGER, source TEXT NOT NULL DEFAULT '');
 		CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT, created_at TEXT, context_mode TEXT);
 		CREATE TABLE acl (principal TEXT NOT NULL, action TEXT NOT NULL, scope TEXT NOT NULL, effect TEXT NOT NULL DEFAULT 'allow', params TEXT NOT NULL DEFAULT '', predicate TEXT NOT NULL DEFAULT '', granted_by TEXT, granted_at TEXT NOT NULL, grant_option INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (principal, action, scope, params, predicate, effect));
@@ -85,7 +85,7 @@ func TestPromptUnpromptedSetsToken(t *testing.T) {
 
 	var token sql.NullString
 	var prompted sql.NullString
-	db.QueryRow(`SELECT token, prompted_at FROM onboarding WHERE jid = 'telegram:1'`).Scan(&token, &prompted)
+	db.QueryRow(`SELECT token_ref, prompted_at FROM onboarding WHERE jid = 'telegram:1'`).Scan(&token, &prompted)
 	if !token.Valid || token.String == "" {
 		t.Error("expected token to be set")
 	}
@@ -99,8 +99,9 @@ func TestPromptUnpromptedSetsToken(t *testing.T) {
 
 func TestTokenLandingValid(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', 'abc123', '2099-01-01T00:00:00Z', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
+		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
+		store.InviteRef("abc123"))
 
 	cfg := config{authBaseURL: "https://example.com"}
 	req := httptest.NewRequest("GET", "/onboard?token=abc123", nil)
@@ -118,12 +119,12 @@ func TestTokenLandingValid(t *testing.T) {
 	// The single-shot is the user_sub claim in handleDashboard, not here.
 	var status string
 	var token sql.NullString
-	db.QueryRow(`SELECT status, token FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &token)
+	db.QueryRow(`SELECT status, token_ref FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &token)
 	if status != "awaiting_message" {
 		t.Errorf("want status=awaiting_message after presentation, got %s", status)
 	}
-	if !token.Valid || token.String != "abc123" {
-		t.Errorf("want token=abc123 still set, got %q (valid=%v)", token.String, token.Valid)
+	if !token.Valid || token.String != store.InviteRef("abc123") {
+		t.Errorf("want token_ref for abc123 still set, got %q (valid=%v)", token.String, token.Valid)
 	}
 
 	// onboard_jid cookie should be set so OAuth round-trip can identify JID.
@@ -140,8 +141,9 @@ func TestTokenLandingValid(t *testing.T) {
 
 func TestTokenLandingExpired(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', 'abc123', '2020-01-01T00:00:00Z', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
+		VALUES ('telegram:1', 'awaiting_message', ?, '2020-01-01T00:00:00Z', '2026-01-01')`,
+		store.InviteRef("abc123"))
 
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/onboard?token=abc123", nil)
@@ -539,8 +541,9 @@ func TestLinkJID(t *testing.T) {
 // is idempotent. The single-shot is at identity-bind in handleDashboard.
 func TestHandleTokenLanding_AllowsReplay(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', 'tok-replay', '2099-01-01T00:00:00Z', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
+		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
+		store.InviteRef("tok-replay"))
 
 	cfg := config{authBaseURL: "https://example.com"}
 
@@ -558,12 +561,12 @@ func TestHandleTokenLanding_AllowsReplay(t *testing.T) {
 
 	var status string
 	var token sql.NullString
-	db.QueryRow(`SELECT status, token FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &token)
+	db.QueryRow(`SELECT status, token_ref FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &token)
 	if status != "awaiting_message" {
 		t.Errorf("want awaiting_message after replay, got %s", status)
 	}
-	if !token.Valid || token.String != "tok-replay" {
-		t.Errorf("want token preserved across replays, got %q", token.String)
+	if !token.Valid || token.String != store.InviteRef("tok-replay") {
+		t.Errorf("want token_ref preserved across replays, got %q", token.String)
 	}
 }
 
@@ -572,8 +575,9 @@ func TestHandleTokenLanding_AllowsReplay(t *testing.T) {
 // onboarding row beyond cookies.
 func TestHandleTokenLanding_DoesNotConsumeOnGet(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', 'tok-once', '2099-01-01T00:00:00Z', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
+		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
+		store.InviteRef("tok-once"))
 
 	cfg := config{authBaseURL: "https://example.com"}
 	req := httptest.NewRequest("GET", "/onboard?token=tok-once", nil)
@@ -582,7 +586,7 @@ func TestHandleTokenLanding_DoesNotConsumeOnGet(t *testing.T) {
 
 	var status string
 	var token, userSub sql.NullString
-	db.QueryRow(`SELECT status, token, user_sub FROM onboarding WHERE jid = 'telegram:1'`).
+	db.QueryRow(`SELECT status, token_ref, user_sub FROM onboarding WHERE jid = 'telegram:1'`).
 		Scan(&status, &token, &userSub)
 	if status != "awaiting_message" {
 		t.Errorf("status changed by GET: %s", status)
@@ -602,8 +606,9 @@ func TestHandleTokenLanding_DoesNotConsumeOnGet(t *testing.T) {
 func TestClaimByTokenSingleWinner(t *testing.T) {
 	db := testDB(t)
 	db.SetMaxOpenConns(1)
-	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', 'race-tok', '2099-01-01T00:00:00Z', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
+		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
+		store.InviteRef("race-tok"))
 
 	jidA, okA := claimByToken(db, "race-tok", "github:alice")
 	jidB, okB := claimByToken(db, "race-tok", "github:bob")
@@ -627,7 +632,7 @@ func TestClaimByTokenSingleWinner(t *testing.T) {
 
 	var status string
 	var sub, token sql.NullString
-	db.QueryRow(`SELECT status, user_sub, token FROM onboarding WHERE jid='telegram:1'`).
+	db.QueryRow(`SELECT status, user_sub, token_ref FROM onboarding WHERE jid='telegram:1'`).
 		Scan(&status, &sub, &token)
 	if status != "token_used" {
 		t.Errorf("want status=token_used, got %s", status)
@@ -649,7 +654,7 @@ func TestClaimByTokenSingleWinner(t *testing.T) {
 // to a different account (errLinkRefused), so a second lander cannot rebind it.
 func TestClaimByTokenRefusesClaimed(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, user_sub, created)
+	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, user_sub, created)
 		VALUES ('telegram:1', 'token_used', NULL, '2099-01-01T00:00:00Z', 'github:alice', '2026-01-01')`)
 
 	if _, ok := claimByToken(db, "spent-tok", "github:bob"); ok {
@@ -1754,7 +1759,7 @@ func TestStateMachineMigrated(t *testing.T) {
 	// 1) prompt → token set
 	promptUnprompted(db, cfg)
 	var tok sql.NullString
-	db.QueryRow(`SELECT token FROM onboarding WHERE jid = 'telegram:7'`).Scan(&tok)
+	db.QueryRow(`SELECT token_ref FROM onboarding WHERE jid = 'telegram:7'`).Scan(&tok)
 	if !tok.Valid || tok.String == "" {
 		t.Fatal("prompt did not set token")
 	}
@@ -1893,7 +1898,7 @@ func TestSendReplyHandlesNon2xx(t *testing.T) {
 	// Should not panic even when router returns 500.
 	promptUnprompted(db, cfg)
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM onboarding WHERE jid='t:1' AND token IS NOT NULL`).Scan(&n)
+	db.QueryRow(`SELECT COUNT(*) FROM onboarding WHERE jid='t:1' AND token_ref IS NOT NULL`).Scan(&n)
 	if n != 1 {
 		t.Errorf("token should still be persisted after send failure, got %d", n)
 	}
@@ -1912,8 +1917,9 @@ func TestSendReplyHandlesTransportError(t *testing.T) {
 // and consumer is redirected to /onboard (not /auth/login).
 func TestTokenLandingAuthenticatedRedirectsToDashboard(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
-		VALUES ('telegram:7', 'awaiting_message', 'tok', '2099-01-01T00:00:00Z', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
+		VALUES ('telegram:7', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
+		store.InviteRef("tok"))
 
 	cfg := config{authBaseURL: "https://ex.com"}
 	req := httptest.NewRequest("GET", "/onboard?token=tok", nil)
@@ -2241,8 +2247,9 @@ func TestCSRFRejectedWhenFormMissing(t *testing.T) {
 // the bind, the same token presented at /onboard?token=X must fail.
 func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', 'tok-bind', '2099-01-01T00:00:00Z', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
+		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
+		store.InviteRef("tok-bind"))
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
@@ -2254,9 +2261,9 @@ func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
 	w1 := httptest.NewRecorder()
 	handleOnboard(w1, req1, db, db, cfg)
 	var token sql.NullString
-	db.QueryRow(`SELECT token FROM onboarding WHERE jid='telegram:1'`).Scan(&token)
-	if !token.Valid || token.String != "tok-bind" {
-		t.Fatalf("token cleared by GET: %+v", token)
+	db.QueryRow(`SELECT token_ref FROM onboarding WHERE jid='telegram:1'`).Scan(&token)
+	if !token.Valid || token.String != store.InviteRef("tok-bind") {
+		t.Fatalf("token_ref cleared by GET: %+v", token)
 	}
 
 	// 2) Post-OAuth dashboard hit with cookie + X-User-Sub binds identity.
@@ -2268,7 +2275,7 @@ func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
 
 	var status string
 	var tokenAfter, userSubAfter sql.NullString
-	db.QueryRow(`SELECT status, token, user_sub FROM onboarding WHERE jid='telegram:1'`).
+	db.QueryRow(`SELECT status, token_ref, user_sub FROM onboarding WHERE jid='telegram:1'`).
 		Scan(&status, &tokenAfter, &userSubAfter)
 	if !userSubAfter.Valid || userSubAfter.String != "github:alice" {
 		t.Errorf("user_sub not bound: %+v", userSubAfter)
@@ -2291,7 +2298,7 @@ func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
 func TestPromptUnprompted_DoesNotResetClaimedRow(t *testing.T) {
 	db := testDB(t)
 	stale := time.Now().Add(-31 * time.Minute).Format(time.RFC3339)
-	db.Exec(`INSERT INTO onboarding (jid, status, token, user_sub, prompted_at, created)
+	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, user_sub, prompted_at, created)
 		VALUES ('telegram:1', 'token_used', NULL, 'github:alice', ?, '2026-01-01')`, stale)
 
 	cfg := config{authBaseURL: "https://example.com"}
@@ -2299,7 +2306,7 @@ func TestPromptUnprompted_DoesNotResetClaimedRow(t *testing.T) {
 
 	var status string
 	var token sql.NullString
-	db.QueryRow(`SELECT status, token FROM onboarding WHERE jid='telegram:1'`).
+	db.QueryRow(`SELECT status, token_ref FROM onboarding WHERE jid='telegram:1'`).
 		Scan(&status, &token)
 	if status != "token_used" {
 		t.Errorf("claimed row was reset: status=%s", status)
@@ -2315,7 +2322,7 @@ func TestPromptUnprompted_DoesNotResetClaimedRow(t *testing.T) {
 func TestPromptUnprompted_DoesNotResetWithinCoolDown(t *testing.T) {
 	db := testDB(t)
 	fresh := time.Now().Add(-5 * time.Minute).Format(time.RFC3339)
-	db.Exec(`INSERT INTO onboarding (jid, status, token, prompted_at, created)
+	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, prompted_at, created)
 		VALUES ('telegram:1', 'token_used', NULL, ?, '2026-01-01')`, fresh)
 
 	cfg := config{authBaseURL: "https://example.com"}
@@ -2323,7 +2330,7 @@ func TestPromptUnprompted_DoesNotResetWithinCoolDown(t *testing.T) {
 
 	var status string
 	var token sql.NullString
-	db.QueryRow(`SELECT status, token FROM onboarding WHERE jid='telegram:1'`).
+	db.QueryRow(`SELECT status, token_ref FROM onboarding WHERE jid='telegram:1'`).
 		Scan(&status, &token)
 	if status != "token_used" {
 		t.Errorf("row reset within cool-down: status=%s", status)
@@ -2420,8 +2427,9 @@ func TestAdminFolders_HonoursSubtreeGrant(t *testing.T) {
 // by doing the first half only, then replaying.
 func TestTokenLanding_EdgeSurvivesCrashBeforeConsume(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created, token)
-		VALUES ('telegram:77', 'awaiting_message', '2026-01-01', 'tok-77')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, created, token_ref)
+		VALUES ('telegram:77', 'awaiting_message', '2026-01-01', ?)`,
+		store.InviteRef("tok-77"))
 
 	// First half of the landing: resolve, write the edge, then "crash".
 	jid, ok := jidForToken(db, "tok-77")

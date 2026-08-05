@@ -32,10 +32,15 @@ func openOwnedDB(ownDSN string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	// SQLite has no sha256(), so migration 0003 (invites hash-at-rest) only
-	// reshapes the table; this carries any pre-existing plaintext rows forward
-	// and drops the renamed-out-of-the-way invites_legacy (store/invites.go).
+	// SQLite has no sha256(), so migrations 0003 (invites) and 0004
+	// (onboarding) only reshape their tables; these carry any pre-existing
+	// plaintext rows forward and drop the renamed-out-of-the-way
+	// invites_legacy / onboarding_legacy (store/invites.go, store/onboarding.go).
 	if err := store.BackfillInviteRefs(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := store.BackfillOnboardingTokenRefs(db); err != nil {
 		db.Close()
 		return nil, err
 	}

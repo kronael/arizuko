@@ -17,8 +17,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
+
+// tokenFromLink pulls the raw bearer out of an outbound "…/onboard?token=<raw>"
+// prompt. Since Z3 the DB holds only hex(sha256(token)), so a test that needs
+// the redeemable value must read it where the user does: the sent link.
+func tokenFromLink(t *testing.T, body string) string {
+	t.Helper()
+	_, after, ok := strings.Cut(body, "/onboard?token=")
+	if !ok {
+		t.Fatalf("no onboard link in outbound body: %q", body)
+	}
+	tok, _, _ := strings.Cut(after, `"`)
+	return strings.TrimSpace(tok)
+}
 
 // newOnbodServer wires the real mux against a migrated DB and a fake
 // gated /v1/outbound endpoint. Returns server + a recorder of outbound calls.
@@ -92,13 +106,23 @@ func TestOnboardingFlow(t *testing.T) {
 		t.Errorf("outbound body missing jid: %q", reqs[0].Body)
 	}
 
-	var token, tokenExpires string
+	// The raw token exists ONLY in the link that just went out (Z3) — the DB
+	// keeps hex(sha256) in token_ref — so recover it from the outbound body,
+	// exactly as the user's chat client would.
+	token := tokenFromLink(t, string(reqs[0].Body))
+	var tokenRef, tokenExpires string
 	if err := inst.DB.QueryRow(
-		`SELECT token, token_expires FROM onboarding WHERE jid = ?`, jid).Scan(&token, &tokenExpires); err != nil {
-		t.Fatalf("read token: %v", err)
+		`SELECT token_ref, token_expires FROM onboarding WHERE jid = ?`, jid).Scan(&tokenRef, &tokenExpires); err != nil {
+		t.Fatalf("read token_ref: %v", err)
 	}
 	if len(token) != 64 {
 		t.Fatalf("want 64-char token, got %d", len(token))
+	}
+	if tokenRef != store.InviteRef(token) {
+		t.Fatalf("token_ref = %q, want InviteRef(sent token)", tokenRef)
+	}
+	if tokenRef == token {
+		t.Fatal("token stored in the clear — token_ref must be the hash, not the bearer")
 	}
 	// token_expires must be RFC3339 — SQL string comparison in
 	// handleTokenLanding ('token_expires > now') breaks if writer uses

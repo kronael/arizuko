@@ -159,16 +159,20 @@ func Migrate(db *sql.DB) error {
 	return migrate(db)
 }
 
-// migrate applies store's embedded SQL migrations, then carries forward any
-// pre-I1 plaintext invite rows into the hash-at-rest shape
-// (BackfillInviteRefs) — SQLite has no sha256(), so that step can't be pure
-// SQL. Every opener (Open, OpenMem, the exported Migrate) routes through this
-// one function so none can skip it.
+// migrate applies store's embedded SQL migrations, then carries forward the
+// rows whose tokens must be hashed at rest — pre-I1 plaintext invites
+// (BackfillInviteRefs) and pre-Z3 plaintext onboarding tokens
+// (BackfillOnboardingTokenRefs). SQLite has no sha256(), so neither step can
+// be pure SQL. Every opener (Open, OpenMem, the exported Migrate) routes
+// through this one function so none can skip them.
 func migrate(db *sql.DB) error {
 	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
 		return err
 	}
-	return BackfillInviteRefs(db)
+	if err := BackfillInviteRefs(db); err != nil {
+		return err
+	}
+	return BackfillOnboardingTokenRefs(db)
 }
 
 // New wraps an already-open *sql.DB as a *Store. Caller owns the db lifetime

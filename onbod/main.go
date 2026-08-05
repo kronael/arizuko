@@ -147,7 +147,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("onbod", []string{"onboarding_gates", "invites"}))
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("onbod", []string{"onboarding", "onboarding_gates", "invites"}))
 	mux.HandleFunc("GET /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
 		handleOnboard(w, r, xdb, obdb, cfg)
 	}))
@@ -164,13 +164,9 @@ func main() {
 	// Verified against authd's JWKS (ks); nil ks (AUTHD_URL unset / monolith) =
 	// open, like routd's nil-verifier local-dev path.
 	adm := &admin{db: obdb, ks: ks}
-	mux.HandleFunc("POST /v1/onboarding", adm.handleOnboardingInsert)
-	mux.HandleFunc("GET /v1/onboarding", adm.handleOnboardingList)
-	mux.HandleFunc("POST /v1/onboarding/{jid}/approve", adm.handleOnboardingApprove)
-	mux.HandleFunc("DELETE /v1/onboarding/{jid}", adm.handleOnboardingDeny)
-	mux.HandleFunc("POST /v1/onboarding/{jid}/reprompt", adm.handleOnboardingReprompt)
-	adm.mountInvites(mux) // /v1/invites via the shared resreg handler (spec 5/16)
-	adm.mountGates(mux)   // /v1/gates via the shared resreg handler (spec 5/16)
+	adm.mountOnboarding(mux) // /v1/onboarding via the shared resreg handler (spec 5/16)
+	adm.mountInvites(mux)    // /v1/invites via the shared resreg handler (spec 5/16)
+	adm.mountGates(mux)      // /v1/gates via the shared resreg handler (spec 5/16)
 
 	// Operator dashboard (spec 6/7): the proxyd transit proof (stripUnsigned)
 	// admits the proxyd-stamped end-user identity; handleDash then gates on
@@ -400,14 +396,16 @@ func promptUnprompted(db *sql.DB, cfg config) {
 	expires := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
 	base := strings.TrimRight(cfg.authBaseURL, "/")
 	for _, jid := range pending {
+		// The raw token goes out in the link and is never stored — only
+		// store.InviteRef(token) = hex(sha256) lands in token_ref (Z3).
 		token := core.GenHexToken()
 		// Claim-per-row: the UPDATE re-checks prompted_at IS NULL so two
 		// overlapping ticks can't both win the same jid. Only the tick whose
 		// UPDATE affected a row sends the link (else the other tick already did).
 		res, err := db.Exec(
-			`UPDATE onboarding SET token = ?, token_expires = ?, prompted_at = ?
+			`UPDATE onboarding SET token_ref = ?, token_expires = ?, prompted_at = ?
 			 WHERE jid = ? AND prompted_at IS NULL`,
-			token, expires, now, jid)
+			store.InviteRef(token), expires, now, jid)
 		if err != nil {
 			slog.Error("promptUnprompted claim", "jid", jid, "err", err)
 			continue
@@ -450,13 +448,16 @@ func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg
 func handleTokenLanding(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, token string) {
 	now := time.Now().Format(time.RFC3339)
 	var jid string
+	// The URL carries the RAW token; only its hash is stored (Z3), so hash
+	// what was presented and look that up. A token that resolves to no row
+	// falls through to the refusal page below — never a silent no-op.
 	err := obdb.QueryRow(
 		`SELECT jid FROM onboarding
-		 WHERE token = ?
+		 WHERE token_ref = ?
 		   AND status IN ('awaiting_message', 'token_used')
 		   AND user_sub IS NULL
 		   AND (token_expires IS NULL OR token_expires > ?)`,
-		token, now).Scan(&jid)
+		store.InviteRef(token), now).Scan(&jid)
 	if err != nil {
 		slog.Warn("onboard token invalid",
 			"token_hash", chanlib.ShortHash(token), "remote", r.RemoteAddr)
@@ -510,15 +511,18 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB
 // jidForToken resolves a live token to its JID WITHOUT consuming it. The
 // consume is a separate step that runs only after the membership edge is
 // durable — see the crash-ordering note on handleTokenLanding.
+// Both take the RAW token — what a redemption request presents — and hash it
+// internally, mirroring store.GetInvite/ConsumeInvite after I1.
 func jidForToken(obdb *sql.DB, token string) (string, bool) {
 	var jid string
-	// Keyed on the token alone: the token is the secret and is NULLed only by
-	// the consume step, so its presence IS "unclaimed". user_sub cannot be the
-	// guard here — linkJID sets it while approving, which would make a
-	// crash-replay look already-claimed and strand the still-live token.
+	// Keyed on the token's ref alone: the token is the secret and its ref is
+	// NULLed only by the consume step, so its presence IS "unclaimed".
+	// user_sub cannot be the guard here — linkJID sets it while approving,
+	// which would make a crash-replay look already-claimed and strand the
+	// still-live token.
 	err := obdb.QueryRow(
-		`SELECT jid FROM onboarding WHERE token = ?`,
-		token).Scan(&jid)
+		`SELECT jid FROM onboarding WHERE token_ref = ?`,
+		store.InviteRef(token)).Scan(&jid)
 	if err == sql.ErrNoRows {
 		return "", false
 	}
@@ -534,15 +538,15 @@ func jidForToken(obdb *sql.DB, token string) (string, bool) {
 // edge, so nothing is lost.
 func claimByToken(obdb *sql.DB, token, userSub string) (string, bool) {
 	var jid string
-	// Keyed on the token alone, for the same reason as jidForToken: linkJID has
-	// already set user_sub by this point. Atomicity is preserved because
-	// exactly one UPDATE can null a given token and RETURN its row.
+	// Keyed on the token's ref alone, for the same reason as jidForToken:
+	// linkJID has already set user_sub by this point. Atomicity is preserved
+	// because exactly one UPDATE can null a given token_ref and RETURN its row.
 	err := obdb.QueryRow(
 		`UPDATE onboarding
-		 SET user_sub = ?, status = 'token_used', token = NULL
-		 WHERE token = ?
+		 SET user_sub = ?, status = 'token_used', token_ref = NULL
+		 WHERE token_ref = ?
 		 RETURNING jid`,
-		userSub, token).Scan(&jid)
+		userSub, store.InviteRef(token)).Scan(&jid)
 	if err == sql.ErrNoRows {
 		return "", false
 	}
@@ -556,7 +560,7 @@ func claimByToken(obdb *sql.DB, token, userSub string) (string, bool) {
 func claimOnboarding(obdb *sql.DB, jid, userSub string) bool {
 	res, err := obdb.Exec(
 		`UPDATE onboarding
-		 SET user_sub = ?, status = 'token_used', token = NULL
+		 SET user_sub = ?, status = 'token_used', token_ref = NULL
 		 WHERE jid = ? AND user_sub IS NULL`,
 		userSub, jid)
 	if err != nil {

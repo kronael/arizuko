@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS onboarding (
   queued_at     TEXT,
   admitted_at   TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_onboarding_token ON onboarding(token);
+-- No index on token here: 0004 replaces the column with token_ref and creates
+-- idx_onboarding_token_ref. Indexing `token` at this point would also break
+-- `arizuko migrate-split`, which bootstraps the FINAL (token_ref) shape without
+-- recording migration rows, so this file re-runs against it on the next boot.
 
 CREATE TABLE IF NOT EXISTS invites (
   token         TEXT PRIMARY KEY,
