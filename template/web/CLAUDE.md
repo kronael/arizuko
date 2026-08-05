@@ -7,25 +7,37 @@ No build step — plain HTML + one CSS file + one JS file.
 
 ## Deploy to live krons (operational procedure)
 
-The canonical command in root CLAUDE.md is
-`sudo rsync -a --delete template/web/pub/ /srv/data/arizuko_krons/web/pub/arizuko/`.
+This file is the ONLY deploy procedure — root CLAUDE.md points here and
+carries no command of its own, because a second copy drifted into a
+destructive one.
+
+The source is `template/web/pub/arizuko/`, NOT `template/web/pub/`. The
+webroot is `/pub/`; `/pub/arizuko/` is one site under it. Syncing the
+parent copies `arizuko/` and `assets/` INTO `arizuko/` — that is where
+the stray `/pub/arizuko/arizuko/` on live came from — and with a
+`--delete` flag it removes every live content directory instead.
+
 The local permission policy blocks `rsync`, and the live target
-contains files that must not be deleted, so the actual workflow is:
+contains files that must not be deleted, so the workflow is:
 
 ```bash
 # 1. Copy contents in (no sudo — target is owned by onvos)
-cp -r template/web/pub/. /srv/data/arizuko_krons/web/pub/arizuko/
+cp -r template/web/pub/arizuko/. /srv/data/arizuko_krons/web/pub/arizuko/
 
 # 2. Diff to find stale files left over (cp doesn't delete)
-(cd template/web/pub && find . -type f | sort > /tmp/src.list)
+(cd template/web/pub/arizuko && find . -type f | sort > /tmp/src.list)
 (cd /srv/data/arizuko_krons/web/pub/arizuko && find . -type f | sort > /tmp/dst.list)
 diff /tmp/src.list /tmp/dst.list | grep '^>' | head -40
 
-# 3. Delete only verified-stale doc subtrees (sudo — files owned by mivu/root).
+# 3. Delete only verified-stale files (sudo — files owned by mivu/root).
 #    PRESERVE: ./CLAUDE.md, ./.nomigrate, ./*.bak-krons, ./skills-export/**
-#    DELETE candidates: ./cookbooks/, ./docs/, ./blog/, ./*.bak-<date>-style
-sudo rm -rf /srv/data/arizuko_krons/web/pub/arizuko/<stale-dirs...>
+#    Print the list FIRST and read every line. Never expand a glob or a
+#    <placeholder> straight into a delete — a wrong path here wipes the site.
+sudo find /srv/data/arizuko_krons/web/pub/arizuko -name '*.bak-*-style' -print
 sudo find /srv/data/arizuko_krons/web/pub/arizuko -name '*.bak-*-style' -delete
+# Stale subtrees (./cookbooks/, ./docs/, ./blog/, ./arizuko/): list them,
+# confirm each against step 2's diff, then remove by explicit named path —
+# one command per directory, never a wildcard.
 
 # 4. Verify live
 for p in / /components/ /concepts/ /reference/ /howto/ /products/; do

@@ -214,14 +214,11 @@ Workflow:
 3. Sync to running instances (krons hosts the canonical site at
    `https://krons.fiu.wtf/pub/arizuko/`):
 
-   ```bash
-   sudo rsync -a --delete template/web/pub/arizuko/ /srv/data/arizuko_krons/web/pub/arizuko/
-   ```
-
-   The source is `template/web/pub/**arizuko/**`, not `template/web/pub/`.
-   The webroot is `/pub/`; `/pub/arizuko/` is one site under it, so syncing
-   the parent nests a second copy and `--delete` removes every live content
-   directory. Always `--dry-run` first and read the `*deleting` lines.
+   Follow `template/web/CLAUDE.md` §"Deploy to live krons" — it is the
+   only deploy procedure. Do NOT invent an rsync here: the live target
+   holds instance state and other sites' files, so the procedure copies,
+   diffs, then deletes by explicit named path. A `--delete` sync of the
+   wrong source removes every live content directory.
 
 4. Verify live: `curl -s https://krons.fiu.wtf/pub/arizuko/concepts/routing.html | head`.
 
