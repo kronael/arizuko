@@ -29,10 +29,12 @@ type Store struct {
 	secretKeys [][32]byte
 
 	// auditSub is the operator this Store's audited writers attribute their
-	// audit_log rows to. Empty = the daemon acting on its own, recorded as
-	// "system" over the gateway surface — right for background work, wrong for
-	// a request a human made. Set via AsUser.
-	auditSub string
+	// audit_log rows to, and auditSurface the surface they arrived over. Empty
+	// auditSub = the daemon acting on its own, recorded as "system" over the
+	// gateway surface — right for background work, wrong for a request a human
+	// made. Set via AsUser (REST) or AsCLI (CLI).
+	auditSub     string
+	auditSurface string
 }
 
 // AsUser returns a shallow copy of s whose audited writers attribute their
@@ -42,6 +44,18 @@ type Store struct {
 func (s *Store) AsUser(sub string) *Store {
 	cp := *s
 	cp.auditSub = sub
+	cp.auditSurface = audit.SurfaceREST
+	return &cp
+}
+
+// AsCLI is AsUser for the `arizuko` binary: same seam, but the CLI has no
+// X-User-* header, so the operator is the invoking OS user and the surface is
+// "cli". `cli:<osUser>` is the actor form LogCLIAudit already writes — recording
+// a CLI mutation as a REST one would be a lie the audit trail cannot detect.
+func (s *Store) AsCLI(osUser string) *Store {
+	cp := *s
+	cp.auditSub = osUser
+	cp.auditSurface = audit.SurfaceCLI
 	return &cp
 }
 
@@ -49,10 +63,14 @@ func (s *Store) AsUser(sub string) *Store {
 // writers stamp. One renderer, so the anonymous and operator-attributed forms
 // cannot drift apart.
 func (s *Store) auditIdentity() (actor, actorSub, surface string) {
-	if s.auditSub == "" {
+	switch {
+	case s.auditSub == "":
 		return "system", "", audit.SurfaceGateway
+	case s.auditSurface == audit.SurfaceCLI:
+		return "cli:" + s.auditSub, s.auditSub, audit.SurfaceCLI
+	default:
+		return "user:" + s.auditSub, s.auditSub, audit.SurfaceREST
 	}
-	return "user:" + s.auditSub, s.auditSub, audit.SurfaceREST
 }
 
 // SetSecretKeys derives a 32-byte AES key from each raw value via SHA-256.

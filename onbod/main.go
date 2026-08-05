@@ -397,7 +397,7 @@ func promptUnprompted(db *sql.DB, cfg config) {
 	base := strings.TrimRight(cfg.authBaseURL, "/")
 	for _, jid := range pending {
 		// The raw token goes out in the link and is never stored — only
-		// store.InviteRef(token) = hex(sha256) lands in token_ref (Z3).
+		// store.TokenRef(token) = hex(sha256) lands in token_ref (Z3).
 		token := core.GenHexToken()
 		// Claim-per-row: the UPDATE re-checks prompted_at IS NULL so two
 		// overlapping ticks can't both win the same jid. Only the tick whose
@@ -405,7 +405,7 @@ func promptUnprompted(db *sql.DB, cfg config) {
 		res, err := db.Exec(
 			`UPDATE onboarding SET token_ref = ?, token_expires = ?, prompted_at = ?
 			 WHERE jid = ? AND prompted_at IS NULL`,
-			store.InviteRef(token), expires, now, jid)
+			store.TokenRef(token), expires, now, jid)
 		if err != nil {
 			slog.Error("promptUnprompted claim", "jid", jid, "err", err)
 			continue
@@ -457,7 +457,7 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB
 		   AND status IN ('awaiting_message', 'token_used')
 		   AND user_sub IS NULL
 		   AND (token_expires IS NULL OR token_expires > ?)`,
-		store.InviteRef(token), now).Scan(&jid)
+		store.TokenRef(token), now).Scan(&jid)
 	if err != nil {
 		slog.Warn("onboard token invalid",
 			"token_hash", chanlib.ShortHash(token), "remote", r.RemoteAddr)
@@ -522,7 +522,7 @@ func jidForToken(obdb *sql.DB, token string) (string, bool) {
 	// still-live token.
 	err := obdb.QueryRow(
 		`SELECT jid FROM onboarding WHERE token_ref = ?`,
-		store.InviteRef(token)).Scan(&jid)
+		store.TokenRef(token)).Scan(&jid)
 	if err == sql.ErrNoRows {
 		return "", false
 	}
@@ -546,7 +546,7 @@ func claimByToken(obdb *sql.DB, token, userSub string) (string, bool) {
 		 SET user_sub = ?, status = 'token_used', token_ref = NULL
 		 WHERE token_ref = ?
 		 RETURNING jid`,
-		userSub, store.InviteRef(token)).Scan(&jid)
+		userSub, store.TokenRef(token)).Scan(&jid)
 	if err == sql.ErrNoRows {
 		return "", false
 	}
@@ -1143,8 +1143,11 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 	// admin row is routd-OWNED: in the monolith (db == obdb) ConsumeInvite writes
 	// invites + acl in one atomic tx on the shared messages.db. In the split
 	// (db != obdb) ConsumeInviteNoGrant touches only onbod.db's invites; the acl
-	// grant is written separately to routd.db (db here = xdb) via the audit-free
-	// PutACLRow — same FS-direct discipline as dashd's routd.db writers.
+	// grant is written separately to routd.db (db here = xdb) via the AUDITED
+	// AddACLRow. audit.Init pointing at obdb does not force the audit-free twin
+	// here: AddACLRow emits with audit.EmitInTx, which writes the tx's own DB —
+	// routd.db, which has had audit_log since routd migration 0016 — so the grant
+	// and its audit row commit together.
 	st := store.New(obdb)
 	split := db != obdb
 
@@ -1183,14 +1186,15 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 	// ConsumeInvite's in-tx insert — non-subgroup invites (no trailing slash)
 	// grant admin on the target folder; subgroup invites defer to create_world.
 	if split && !strings.HasSuffix(target, "/") {
-		if perr := store.New(db).PutACLRow(core.ACLRow{
+		if perr := store.New(db).AddACLRow(core.ACLRow{
 			Principal: userSub, Action: "admin", Scope: target,
 			Effect: "allow", GrantedBy: "invite",
 		}); perr != nil {
 			// The grant (routd.db) failed AFTER the consume (onbod.db) — separate
 			// DBs, no shared tx. Roll back the consume so the invite isn't burned
 			// without a grant (silent permanent lockout), and surface the failure
-			// instead of redirecting as success.
+			// instead of redirecting as success. AddACLRow rolls its own tx back on
+			// an audit-insert failure, so a failed grant leaves no acl row behind.
 			slog.Error("invite acl grant failed; rolling back consume",
 				"user", userSub, "scope", target, "err", perr)
 			if rerr := st.RestoreInvite(token); rerr != nil {

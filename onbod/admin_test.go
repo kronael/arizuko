@@ -97,8 +97,8 @@ func TestAdminInviteCreateListDelete(t *testing.T) {
 	if created.Token == "" || created.TargetGlob != "main/" || created.MaxUses != 3 {
 		t.Fatalf("create returned wrong invite: %+v", created)
 	}
-	if created.Ref != store.InviteRef(created.Token) {
-		t.Fatalf("create ref = %q, want InviteRef(token)", created.Ref)
+	if created.Ref != store.TokenRef(created.Token) {
+		t.Fatalf("create ref = %q, want TokenRef(token)", created.Ref)
 	}
 
 	// list identifies the invite by ref and NEVER by the bearer — neither as a

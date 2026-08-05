@@ -139,9 +139,7 @@ func TestRouteAddRejectsEmptyTarget(t *testing.T) {
 }
 
 // TestRouteLandsInRoutdDB proves the CLI route path writes into routd.db (which
-// owns routes in the split topology and has NO audit_log table), leaving
-// messages.db untouched. The audit-free PutRouteRow/DeleteRouteRow are required
-// here — the audited AddRoute/DeleteRoute would roll back against routd.db.
+// owns routes in the split topology), leaving messages.db untouched.
 func TestRouteLandsInRoutdDB(t *testing.T) {
 	dir := setupSplitStore(t)
 

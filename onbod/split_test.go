@@ -93,7 +93,7 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 	// raw token (I1: onbod.db stores only the hash — a raw-token lookup would
 	// find nothing against the post-I1 schema).
 	var used int
-	obdb.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.InviteRef(token)).Scan(&used)
+	obdb.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.TokenRef(token)).Scan(&used)
 	if used != 1 {
 		t.Errorf("want used_count=1 in onbod.db, got %d", used)
 	}
@@ -186,7 +186,7 @@ func TestSplitInviteGrantFailureRollsBack(t *testing.T) {
 
 	// The consume must be rolled back: used_count back to 0, invite not burned.
 	var used int
-	obdb.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.InviteRef(token)).Scan(&used)
+	obdb.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.TokenRef(token)).Scan(&used)
 	if used != 0 {
 		t.Errorf("invite burned without grant: used_count=%d want 0 (RestoreInvite)", used)
 	}
@@ -201,4 +201,54 @@ func postOnboardSplit(xdb, obdb *sql.DB, sub string, vals url.Values) *httptest.
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, xdb, config{})
 	return w
+}
+
+// The invite-accept acl grant must be audited. It writes to routd.db (xdb)
+// while onbod's own audit.Init points at onbod.db (obdb) — but AddACLRow emits
+// with audit.EmitInTx, which writes the TRANSACTION's DB, so the audit row lands
+// in xdb beside the grant. That cross-DB shape is what the audit-free choice was
+// justified by; it was never a reason.
+//
+// Falsifiable: swap the AddACLRow back to the audit-free PutACLRow and the grant
+// still lands (TestSplitInviteGrantLandsInRoutd stays green) while this case
+// fails, finding no acl.add row.
+func TestSplitInviteGrantAudited(t *testing.T) {
+	xdb := testDB(t)
+	obdb := testDB(t)
+
+	xdb.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
+		VALUES ('github:bob', 'bob', 'Bob', '2026-01-01')`)
+	xdb.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
+
+	token := createInvite(t, obdb, "alice", "telegram:1", 1)
+
+	req := httptest.NewRequest("GET", "/invite/"+token, nil)
+	req.SetPathValue("token", token)
+	req.Header.Set("X-User-Sub", "github:bob")
+	w := httptest.NewRecorder()
+	handleInvite(w, req, xdb, obdb, config{authBaseURL: "https://example.com"})
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	var actor, folder string
+	if err := xdb.QueryRow(
+		`SELECT COALESCE(actor, ''), COALESCE(folder, '') FROM audit_log
+		 WHERE action = 'acl.add' ORDER BY id DESC LIMIT 1`).Scan(&actor, &folder); err != nil {
+		t.Fatalf("invite grant left no acl.add row in routd.db: %v", err)
+	}
+	// GrantedBy stands in as the actor for callers that never set AsUser.
+	if actor != "invite" {
+		t.Errorf("acl.add actor = %q, want invite", actor)
+	}
+	if folder != "alice" {
+		t.Errorf("acl.add folder = %q, want alice", folder)
+	}
+
+	// The audit row belongs with the grant, in routd.db — not onbod.db.
+	var inOnbod int
+	obdb.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action = 'acl.add'`).Scan(&inOnbod)
+	if inOnbod != 0 {
+		t.Errorf("acl.add audit row landed in onbod.db (%d rows); want it in routd.db", inOnbod)
+	}
 }

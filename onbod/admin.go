@@ -52,7 +52,7 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 
 // inviteJSON is the READ shape for an invite row. It has no token field at all:
 // the bearer is shown once at creation and never again, so a list response
-// cannot leak it however the handler is later edited. `ref` (store.InviteRef)
+// cannot leak it however the handler is later edited. `ref` (store.TokenRef)
 // identifies the row for DELETE /v1/invites/{ref} without being redeemable.
 type inviteJSON struct {
 	Ref         string `json:"ref"`

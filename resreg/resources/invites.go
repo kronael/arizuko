@@ -16,7 +16,7 @@ import (
 // ScanAll outright, breaking `arizuko export`/`get`/`plan` on onbod for any
 // instance holding one).
 //
-// `ref` (store.InviteRef = hex(sha256(token))) IS the DB primary key (I1) —
+// `ref` (store.TokenRef = hex(sha256(token))) IS the DB primary key (I1) —
 // the raw bearer is never persisted, so there is no token field to leak here
 // even by omission-bug. `yaml:"-"` keeps ref out of `arizuko export` (it's
 // runtime-minted, not manifest state, like route_tokens' token_hash); `json:"ref"`

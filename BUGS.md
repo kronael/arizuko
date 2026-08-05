@@ -3507,7 +3507,7 @@ next reshaping migration silently arms it again for anyone converting.
   silently re-arming this. **No fleet migration:** conversion-only path, all
   instances are long since split.
 
-## Z3c — `store.InviteRef` and `store.HashRouteToken` are one scheme under two names (2026-08-05, proposal)
+## Z3c — `store.InviteRef` and `store.HashRouteToken` are one scheme under two names (2026-08-05, fixed)
 
 Both are `sha256` over the raw bearer; they differ ONLY in output encoding —
 `InviteRef` hex-encodes for a TEXT column, `HashRouteToken` keeps the 32 raw
@@ -3523,6 +3523,16 @@ third helper — but it reads wrong at an onboarding call site.
   with the BLOB form deriving from it, and rename the ~55 call sites. Purely
   mechanical, but a repo-wide rename — recorded rather than shipped inside a
   bearer-hashing change.
+- **Status:** fixed 2026-08-05 (`71db5b8e`) — `store/token_ref.go` owns the
+  scheme. `TokenRefBytes` is the only `sha256` call; `TokenRef` is a hex
+  wrapper over it, so the encodings cannot drift. 25 files, 63 call sites
+  (57 `TokenRef` + 7 `TokenRefBytes`, of which one is the `resreg/archive.go`
+  prose that first noted the equivalence). Blast radius was 21 code files, not
+  the 5 recorded above — `ipc/ipc.go`, `onbod/` (10), `resreg/` (3), `dashd/`,
+  `cmd/`, `tests/`, `webd/`. `ErrInviteRefUnknown` + `BackfillInviteRefs` keep
+  their names (invites-specific, not the shared scheme). No stored value or
+  column type touched; `store/token_ref_test.go` pins byte-identical output
+  against pre-rename vectors.
 
 ### Z3 — the original finding (2026-08-04)
 
@@ -3821,7 +3831,7 @@ routd.db; `store.Migrate` should stay only where the frozen schema is the subjec
   `splitAdminDash` now also calls `audit.Init` as dashd's main does, so handlers
   emitting through the package sink are actually observable in tests.
 
-## Q4 — the same false "routd.db has no audit_log" justification survives in cmd/arizuko and onbod (2026-08-05, open)
+## Q4 — the same false "routd.db has no audit_log" justification survives in cmd/arizuko and onbod (2026-08-05, fixed)
 
 Q2 retired the claim in dashd, but two more sites still carry it. `cmd/arizuko/route.go:16`
 states "routd.db has no audit_log table, so we use PutRouteRow / DeleteRouteRow (the
@@ -3840,4 +3850,57 @@ actor would need to come from the invoking operator or stay `system` deliberatel
 - **Scope:** cmd/arizuko route CLI, onbod invite-accept
 - **Affected:** all instances — `arizuko route add|rm`, onbod invite acceptance
 - **Source:** cmd/arizuko/route.go:16; onbod/main.go:1147; routd/migrations/0016-audit-log.sql
+- **Status:** fixed 2026-08-05 (`015b0e6d`). Both sites were defects — the
+  predicted "onbod is legitimately audit-free" verdict did NOT hold.
+  - `cmd/arizuko/route.go` — **defect**. Audit-free writers used purely on the
+    false premise; now `AddRoute` / `DeleteRoute`. `DeleteRoute` did not exist
+    (only `AddRoute` had an audited form) so it was added as the twin: reads
+    `target` before the DELETE (it is the audit row's folder), emits via
+    `EmitInTx`, records nothing when the delete matched nothing. A third copy of
+    the false claim was in `route_test.go`'s own comment, asserting the audited
+    writers "would roll back against routd.db" — removed.
+  - `onbod/main.go` — **defect, not a comment fix**. The proposed cross-DB
+    justification (`audit.Init`→onbod.db vs grant→routd.db) does not apply:
+    `AddACLRow` emits with `audit.EmitInTx`, which writes the TRANSACTION's DB,
+    not the `Init`-configured one, so grant + audit row commit together in
+    routd.db. The `group create`/`delete` precedent cited for it is not
+    audit-free either — `81521b18` gave both an `EmitInTx` row
+    (`dashd/groups_admin.go:150,474`).
+  - **Actor:** `AsUser` could not be reused as-is — it renders `surface=rest`,
+    and stamping a CLI mutation REST is a lie the trail cannot detect. The
+    existing `auditIdentity` seam gained the surface instead of a second
+    mechanism: `AsCLI` → `cli:<osUser>` / `SurfaceCLI` (the actor form
+    `LogCLIAudit` already established). `AsUser` output is unchanged, so dashd's
+    rows do not move.
+  - **Falsifiable:** reverting each writer one at a time fails only its audit
+    case (no row found / `actor=system`) while `TestRouteLandsInRoutdDB` and
+    `TestSplitInviteGrantLandsInRoutd` stay green.
+
+## Q5 — `arizuko grant`/`ungrant` and `arizuko packages` carry the same false audit_log claim (2026-08-05, open)
+
+Found while fixing Q4, not fixed with it (separate concern, and outside that
+brief). `cmd/arizuko/main.go:518` states "runGrant writes acl rows audit-free
+(routd.db has no audit_log table — same discipline as routd's own grant
+endpoint)" — the identical claim Q2 and Q4 already retired. `arizuko grant` /
+`ungrant` therefore mutate `acl` and `acl_membership` with no audit row, while
+the same grant through dashd (`81521b18`) and MCP is recorded.
+
+The Q4 fix makes this strictly mechanical now: `AddACLRow` / `RemoveACLRow`
+exist and audit into routd.db, and `AsCLI` supplies the operator, so these are
+one-line swaps plus the same falsifiable test shape as `route_audit_test.go`.
+
+`cmd/arizuko/packages.go:200` applies a whole grant bundle through `PutACLRow`
+in a loop — same swap, but it wants a verdict of its own first: a package apply
+may deserve ONE audit row for the bundle rather than N for the rows.
+
+Not checked here: `arizuko secret` (`PutSecretRow`, `cmd/arizuko/secret.go:108`)
+carries the same audit-free shape and the audited `SetSecret` exists. Give it
+its own verdict — a secret's audit row must not carry the value.
+
+- **Severity:** medium (operator grant mutations invisible to the audit trail;
+  same class as Q2/Q4, and grants are the higher-privilege surface)
+- **Scope:** `cmd/arizuko/main.go` (runGrant/runUngrant), `cmd/arizuko/packages.go`,
+  possibly `cmd/arizuko/secret.go`
+- **Affected:** all instances — `arizuko grant|ungrant`, `arizuko packages apply`
+- **Source:** cmd/arizuko/main.go:518,526,532,547,553; cmd/arizuko/packages.go:200
 - **Status:** open

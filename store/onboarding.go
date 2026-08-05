@@ -29,10 +29,7 @@ func (s *Store) InsertOnboarding(jid string) error {
 // (Open/OpenMem/Migrate all route through it) and onbod's openOwnedDB — every
 // opener that runs the onboarding migrations also runs this.
 //
-// InviteRef is the hash: hex(sha256(token)), the one full-digest bearer-handle
-// scheme this repo has (route_tokens' HashRouteToken is the identical digest,
-// differing only in that it stays raw bytes for a BLOB column). A third helper
-// for the same job would be drift, so onboarding reuses this one.
+// The hash is store.TokenRef, the one bearer-handle scheme in this repo.
 func BackfillOnboardingTokenRefs(db *sql.DB) error {
 	var exists int
 	err := db.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='onboarding_legacy'`).Scan(&exists)
@@ -80,7 +77,7 @@ func BackfillOnboardingTokenRefs(db *sql.DB) error {
 		// and hashing "" would mint a resolvable ref for every such row.
 		var ref sql.NullString
 		if r.token.Valid && r.token.String != "" {
-			ref = sql.NullString{String: InviteRef(r.token.String), Valid: true}
+			ref = sql.NullString{String: TokenRef(r.token.String), Valid: true}
 		}
 		if _, err := tx.Exec(
 			`INSERT INTO onboarding (jid, status, prompted_at, created, token_ref,

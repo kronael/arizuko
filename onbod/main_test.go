@@ -101,7 +101,7 @@ func TestTokenLandingValid(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
 		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.InviteRef("abc123"))
+		store.TokenRef("abc123"))
 
 	cfg := config{authBaseURL: "https://example.com"}
 	req := httptest.NewRequest("GET", "/onboard?token=abc123", nil)
@@ -123,7 +123,7 @@ func TestTokenLandingValid(t *testing.T) {
 	if status != "awaiting_message" {
 		t.Errorf("want status=awaiting_message after presentation, got %s", status)
 	}
-	if !token.Valid || token.String != store.InviteRef("abc123") {
+	if !token.Valid || token.String != store.TokenRef("abc123") {
 		t.Errorf("want token_ref for abc123 still set, got %q (valid=%v)", token.String, token.Valid)
 	}
 
@@ -143,7 +143,7 @@ func TestTokenLandingExpired(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
 		VALUES ('telegram:1', 'awaiting_message', ?, '2020-01-01T00:00:00Z', '2026-01-01')`,
-		store.InviteRef("abc123"))
+		store.TokenRef("abc123"))
 
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/onboard?token=abc123", nil)
@@ -543,7 +543,7 @@ func TestHandleTokenLanding_AllowsReplay(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
 		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.InviteRef("tok-replay"))
+		store.TokenRef("tok-replay"))
 
 	cfg := config{authBaseURL: "https://example.com"}
 
@@ -565,7 +565,7 @@ func TestHandleTokenLanding_AllowsReplay(t *testing.T) {
 	if status != "awaiting_message" {
 		t.Errorf("want awaiting_message after replay, got %s", status)
 	}
-	if !token.Valid || token.String != store.InviteRef("tok-replay") {
+	if !token.Valid || token.String != store.TokenRef("tok-replay") {
 		t.Errorf("want token_ref preserved across replays, got %q", token.String)
 	}
 }
@@ -577,7 +577,7 @@ func TestHandleTokenLanding_DoesNotConsumeOnGet(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
 		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.InviteRef("tok-once"))
+		store.TokenRef("tok-once"))
 
 	cfg := config{authBaseURL: "https://example.com"}
 	req := httptest.NewRequest("GET", "/onboard?token=tok-once", nil)
@@ -608,7 +608,7 @@ func TestClaimByTokenSingleWinner(t *testing.T) {
 	db.SetMaxOpenConns(1)
 	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
 		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.InviteRef("race-tok"))
+		store.TokenRef("race-tok"))
 
 	jidA, okA := claimByToken(db, "race-tok", "github:alice")
 	jidB, okB := claimByToken(db, "race-tok", "github:bob")
@@ -1129,7 +1129,7 @@ func TestInviteCreation(t *testing.T) {
 	var glob, issuedBy string
 	var maxUses, used int
 	db.QueryRow(`SELECT target_glob, issued_by_sub, max_uses, used_count FROM invites WHERE ref = ?`,
-		store.InviteRef(token)).Scan(&glob, &issuedBy, &maxUses, &used)
+		store.TokenRef(token)).Scan(&glob, &issuedBy, &maxUses, &used)
 	if glob != "alice" {
 		t.Errorf("want target_glob=alice, got %q", glob)
 	}
@@ -1186,7 +1186,7 @@ func TestInviteConsume(t *testing.T) {
 
 	// used_count should be incremented
 	var used int
-	db.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.InviteRef(token)).Scan(&used)
+	db.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.TokenRef(token)).Scan(&used)
 	if used != 1 {
 		t.Errorf("want used_count=1, got %d", used)
 	}
@@ -1196,7 +1196,7 @@ func TestInviteExpired(t *testing.T) {
 	db := testDB(t)
 	past := "2020-01-01T00:00:00Z"
 	db.Exec(`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, max_uses, expires_at)
-		VALUES (?, 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, ?)`, store.InviteRef("expired-tok"), past)
+		VALUES (?, 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, ?)`, store.TokenRef("expired-tok"), past)
 
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/invite/expired-tok", nil)
@@ -1217,7 +1217,7 @@ func TestInviteExpired(t *testing.T) {
 func TestInviteMaxUses(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, used_count, max_uses)
-		VALUES (?, 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, 1)`, store.InviteRef("used-tok"))
+		VALUES (?, 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1, 1)`, store.TokenRef("used-tok"))
 
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/invite/used-tok", nil)
@@ -1238,7 +1238,7 @@ func TestInviteMaxUses(t *testing.T) {
 func TestInviteAuthRequired(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, max_uses)
-		VALUES (?, 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1)`, store.InviteRef("auth-tok"))
+		VALUES (?, 'alice', 'telegram:1', '2026-01-01T00:00:00Z', 1)`, store.TokenRef("auth-tok"))
 
 	cfg := config{authBaseURL: "https://example.com", secureCookie: true}
 	req := httptest.NewRequest("GET", "/invite/auth-tok", nil)
@@ -1802,7 +1802,7 @@ func TestStateMachineMigrated(t *testing.T) {
 func TestInviteSetsCookieFlagsHTTPS(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, max_uses)
-		VALUES (?, 'alice', 'x', '2026-01-01T00:00:00Z', 1)`, store.InviteRef("tok"))
+		VALUES (?, 'alice', 'x', '2026-01-01T00:00:00Z', 1)`, store.TokenRef("tok"))
 	cfg := config{authBaseURL: "https://example.com", secureCookie: true}
 	req := httptest.NewRequest("GET", "/invite/tok", nil)
 	req.SetPathValue("token", "tok")
@@ -1919,7 +1919,7 @@ func TestTokenLandingAuthenticatedRedirectsToDashboard(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
 		VALUES ('telegram:7', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.InviteRef("tok"))
+		store.TokenRef("tok"))
 
 	cfg := config{authBaseURL: "https://ex.com"}
 	req := httptest.NewRequest("GET", "/onboard?token=tok", nil)
@@ -2249,7 +2249,7 @@ func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
 		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.InviteRef("tok-bind"))
+		store.TokenRef("tok-bind"))
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
@@ -2262,7 +2262,7 @@ func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
 	handleOnboard(w1, req1, db, db, cfg)
 	var token sql.NullString
 	db.QueryRow(`SELECT token_ref FROM onboarding WHERE jid='telegram:1'`).Scan(&token)
-	if !token.Valid || token.String != store.InviteRef("tok-bind") {
+	if !token.Valid || token.String != store.TokenRef("tok-bind") {
 		t.Fatalf("token_ref cleared by GET: %+v", token)
 	}
 
@@ -2429,7 +2429,7 @@ func TestTokenLanding_EdgeSurvivesCrashBeforeConsume(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created, token_ref)
 		VALUES ('telegram:77', 'awaiting_message', '2026-01-01', ?)`,
-		store.InviteRef("tok-77"))
+		store.TokenRef("tok-77"))
 
 	// First half of the landing: resolve, write the edge, then "crash".
 	jid, ok := jidForToken(db, "tok-77")

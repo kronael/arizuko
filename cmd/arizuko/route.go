@@ -12,17 +12,18 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// cmdRoute manages the route table (operator-only). Routes live alongside acl
-// in routd.db (split topology) or messages.db (monolith), so it reuses
-// mustOpenACL's dual-path opener. Audit-free writes: routd.db has no audit_log
-// table, so we use PutRouteRow / DeleteRouteRow (the audit-free twins) — same
-// discipline as `arizuko grant` and `arizuko secret`.
+// cmdRoute manages the route table (operator-only). Routes live in routd.db,
+// so it reuses mustOpenACL's opener. Writes go through the AUDITED AddRoute /
+// DeleteRoute: routd.db HAS had audit_log since routd migration 0016, so the
+// route and its audit row commit together, matching what the same mutation
+// already records through dashd and MCP. AsCLI attributes the row to the
+// invoking operator — the CLI has no X-User-* header to learn a sub from.
 func cmdRoute(args []string) {
 	need(args, 2, "arizuko route <instance> <list|add|rm> ...")
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
-	s := mustOpenACL(dataDir)
+	s := mustOpenACL(dataDir).AsCLI(os.Getenv("USER"))
 	defer s.Close()
 
 	switch action {
@@ -97,7 +98,7 @@ func runRouteAdd(s *store.Store, seq int, match, target string, w io.Writer) err
 	if match == "*" {
 		match = ""
 	}
-	id, err := s.PutRouteRow(core.Route{Seq: seq, Match: match, Target: target})
+	id, err := s.AddRoute(core.Route{Seq: seq, Match: match, Target: target})
 	if err != nil {
 		return err
 	}
@@ -106,7 +107,7 @@ func runRouteAdd(s *store.Store, seq int, match, target string, w io.Writer) err
 }
 
 func runRouteRm(s *store.Store, id int64, w io.Writer) error {
-	n, err := s.DeleteRouteRow(id)
+	n, err := s.DeleteRoute(id)
 	if err != nil {
 		return err
 	}

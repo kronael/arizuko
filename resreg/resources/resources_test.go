@@ -739,7 +739,7 @@ func TestFacadeMCP_RegistrySingleSource(t *testing.T) {
 	}
 }
 
-// seedInvite inserts one live invite row (keyed by ref = InviteRef(token), I1)
+// seedInvite inserts one live invite row (keyed by ref = TokenRef(token), I1)
 // and returns the WOULD-BE bearer — never itself persisted — so callers can
 // assert it never appears anywhere it shouldn't. expires_at is set non-NULL
 // because InvitesRow scans it into a plain string with no COALESCE hook, so a
@@ -751,7 +751,7 @@ func seedInvite(t *testing.T, db *sql.DB) string {
 	if _, err := db.Exec(
 		`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		store.InviteRef(token), "atlas/**", "agent:atlas", now.Format(time.RFC3339),
+		store.TokenRef(token), "atlas/**", "agent:atlas", now.Format(time.RFC3339),
 		now.Add(24*time.Hour).Format(time.RFC3339), 3, 0,
 	); err != nil {
 		t.Fatal(err)
@@ -790,7 +790,7 @@ func TestApply_NeverRebuildsInvites(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM invites WHERE ref = ?`, store.InviteRef(token)).Scan(&n); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM invites WHERE ref = ?`, store.TokenRef(token)).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 1 {

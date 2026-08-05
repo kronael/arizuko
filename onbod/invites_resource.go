@@ -118,7 +118,7 @@ func (a *admin) invitesHandler(ctx context.Context, x resreg.Execution) (any, er
 // (trailing slash = subworld-create mode, which skips folder validation);
 // issued_by_sub defaults to "onbod"; max_uses floors at 1; expires_at is optional
 // RFC3339. The token is server-generated (core.GenHexToken), same as the store;
-// only its hash (store.InviteRef) is persisted (I1) — the raw token is returned
+// only its hash (store.TokenRef) is persisted (I1) — the raw token is returned
 // here for the caller to hand back exactly once.
 func createInviteTx(ctx context.Context, tx *sql.Tx, args resreg.Args) (*store.Invite, string, error) {
 	targetGlob := argString(args, "target_glob")
@@ -146,7 +146,7 @@ func createInviteTx(ctx context.Context, tx *sql.Tx, args resreg.Args) (*store.I
 		expiresAt = &t
 	}
 	token := core.GenHexToken()
-	ref := store.InviteRef(token)
+	ref := store.TokenRef(token)
 	now := time.Now().UTC()
 	var expStr sql.NullString
 	if expiresAt != nil {

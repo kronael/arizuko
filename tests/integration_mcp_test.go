@@ -270,8 +270,8 @@ func TestMCP_InviteTools(t *testing.T) {
 		if err != nil || len(invs) != 1 {
 			t.Fatalf("invite not persisted: invs=%+v err=%v", invs, err)
 		}
-		if invs[0].Ref != store.InviteRef(token) {
-			t.Fatalf("persisted ref %q != InviteRef(created token)", invs[0].Ref)
+		if invs[0].Ref != store.TokenRef(token) {
+			t.Fatalf("persisted ref %q != TokenRef(created token)", invs[0].Ref)
 		}
 	})
 
@@ -279,7 +279,7 @@ func TestMCP_InviteTools(t *testing.T) {
 	// create and is not readable back on any surface.
 	t.Run("invite_list", func(t *testing.T) {
 		res := h.call(t, "invite_list", nil)
-		if !contentContains(res, store.InviteRef(token)) {
+		if !contentContains(res, store.TokenRef(token)) {
 			t.Fatalf("invite_list missing created invite ref: %v", res.Content)
 		}
 		if contentContains(res, token) {
@@ -288,7 +288,7 @@ func TestMCP_InviteTools(t *testing.T) {
 	})
 
 	t.Run("invite_revoke", func(t *testing.T) {
-		h.call(t, "invite_revoke", map[string]any{"ref": store.InviteRef(token)})
+		h.call(t, "invite_revoke", map[string]any{"ref": store.TokenRef(token)})
 		invs, _ := h.S.ListInvites("agent:hq")
 		if len(invs) != 0 {
 			t.Fatalf("invite still present after revoke: %+v", invs)

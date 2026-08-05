@@ -23,7 +23,7 @@ func seedPairingToken(t *testing.T, st *store.Store, jid, folder string, created
 	raw := store.GenRouteToken()
 	if _, err := st.DB().Exec(
 		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind) VALUES (?, ?, ?, ?, ?)`,
-		store.HashRouteToken(raw), jid, folder, created.Format(time.RFC3339Nano), store.RouteTokenKindPair,
+		store.TokenRefBytes(raw), jid, folder, created.Format(time.RFC3339Nano), store.RouteTokenKindPair,
 	); err != nil {
 		t.Fatalf("seed pairing token: %v", err)
 	}

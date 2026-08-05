@@ -109,10 +109,11 @@ func (s *Store) RemoveACLRow(row core.ACLRow) error {
 }
 
 // PutACLRow inserts an acl row idempotently WITHOUT emitting an audit_log row —
-// the audit-free twin of AddACLRow for the FS-mounted daemons that write acl into
-// routd.db directly (onbod invite-accept, dashd grants admin, the CLI) and don't
-// carry an audit context. routd itself uses the audited AddACLRow. Same INSERT OR
-// IGNORE on the (principal, action, scope, params, predicate, effect) key.
+// the audit-free twin of AddACLRow, for a caller with no audit context of its
+// own. Writing acl into routd.db is NOT such a case: AddACLRow emits with
+// audit.EmitInTx, which lands in the tx's own DB, and routd.db has had audit_log
+// since routd migration 0016. Same INSERT OR IGNORE on the (principal, action,
+// scope, params, predicate, effect) key.
 func (s *Store) PutACLRow(row core.ACLRow) error {
 	if row.Effect == "" {
 		row.Effect = "allow"

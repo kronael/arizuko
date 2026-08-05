@@ -2,7 +2,6 @@ package store
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"fmt"
@@ -57,14 +56,6 @@ func GenRouteToken() string {
 	return base64.RawURLEncoding.EncodeToString(b[:])
 }
 
-// HashRouteToken returns the sha256 hash that is persisted for a raw route
-// token (the raw token is never stored). Exported so FS-mounted writers like
-// dashd hash with the identical scheme instead of duplicating it.
-func HashRouteToken(raw string) []byte {
-	sum := sha256.Sum256([]byte(raw))
-	return sum[:]
-}
-
 // RouteTokenJIDKind returns "chat" for web: jids, "hook" for hook: jids, ""
 // otherwise.
 func RouteTokenJIDKind(jid string) string {
@@ -99,7 +90,7 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		_, err := tx.Exec(
 			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind) VALUES (?, ?, ?, ?, ?, ?)`,
-			HashRouteToken(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano), nilIfEmpty(t.Context), RouteTokenKindRoute,
+			TokenRefBytes(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano), nilIfEmpty(t.Context), RouteTokenKindRoute,
 		)
 		return audit.Event{
 			Category: audit.CategoryChannel,
@@ -129,7 +120,7 @@ func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 	var createdAt string
 	err := s.db.QueryRow(
 		`SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE token_hash = ? AND kind = ?`,
-		HashRouteToken(rawToken), RouteTokenKindRoute,
+		TokenRefBytes(rawToken), RouteTokenKindRoute,
 	).Scan(&t.JID, &t.OwnerFolder, &createdAt, &t.Context)
 	if err != nil {
 		return RouteToken{}, false

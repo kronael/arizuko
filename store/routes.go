@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -90,11 +91,61 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 	return id, nil
 }
 
+// DeleteRoute removes a route by id and records it, the audited twin of
+// DeleteRouteRow. Returns rows affected (0 → not found, and no audit row: a
+// delete that matched nothing is not a mutation). Mirrors AddRoute — the route
+// and its audit row commit together, so an audit row cannot outlive a rolled
+// back delete.
+func (s *Store) DeleteRoute(id int64) (int64, error) {
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	// Read the target before deleting: it is the audit row's Folder, and after
+	// the DELETE there is nothing left to resolve it from.
+	var target string
+	if err := tx.QueryRowContext(ctx, `SELECT target FROM routes WHERE id = ?`, id).Scan(&target); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM routes WHERE id = ?`, id)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	actor, actorSub, surface := s.auditIdentity()
+	if err := audit.EmitInTx(ctx, tx, audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "route.delete",
+		Actor:    actor,
+		ActorSub: actorSub,
+		Surface:  surface,
+		Resource: fmt.Sprintf("routes/%d", id),
+		Folder:   core.ParseRouteTarget(target).Folder,
+		Outcome:  audit.OutcomeOK,
+	}); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // PutRouteRow inserts a route idempotently WITHOUT emitting an audit_log row —
-// the audit-free twin of AddRoute for an audit_log-less DB (routd.db, which OWNS
-// routes in the split topology — spec 5/5). Mirrors AddRoute's full column set
-// (incl. observe_window_messages/observe_window_chars) so dashd-created routes
-// carry every column; callers that own messages.db keep using audited AddRoute.
+// the audit-free twin of AddRoute, for a caller with no audit context of its
+// own. Mirrors AddRoute's full column set (incl. observe_window_messages/
+// observe_window_chars) so no column is silently dropped.
 func (s *Store) PutRouteRow(r core.Route) (int64, error) {
 	if matchesWebJID(r.Match) {
 		return 0, ErrWebJIDRouted
@@ -111,10 +162,10 @@ func (s *Store) PutRouteRow(r core.Route) (int64, error) {
 	return res.LastInsertId()
 }
 
-// UpdateRouteRow updates a route by id WITHOUT emitting an audit_log row — the
-// audit-free twin for routd.db. Mirrors AddRoute's full column set so the
-// observe-window columns are not silently dropped on edit. Returns the number of
-// rows affected (0 → not found).
+// UpdateRouteRow updates a route by id WITHOUT emitting an audit_log row, for a
+// caller that emits its own (dashd's handler does). Mirrors AddRoute's full
+// column set so the observe-window columns are not silently dropped on edit.
+// Returns the number of rows affected (0 → not found).
 func (s *Store) UpdateRouteRow(id int64, r core.Route) (int64, error) {
 	if matchesWebJID(r.Match) {
 		return 0, ErrWebJIDRouted
@@ -133,9 +184,8 @@ func (s *Store) UpdateRouteRow(id int64, r core.Route) (int64, error) {
 }
 
 // DeleteRouteRow removes a route by id WITHOUT emitting an audit_log row — the
-// audit-free twin of DeleteRoute for an audit_log-less DB (routd.db, which OWNS
-// routes in the split topology — spec 5/5). Returns rows affected (0 → not
-// found). Mirrors the audit-free discipline of PutRouteRow.
+// audit-free twin of DeleteRoute, for a caller with no audit context of its own.
+// Returns rows affected (0 → not found).
 func (s *Store) DeleteRouteRow(id int64) (int64, error) {
 	res, err := s.db.Exec(`DELETE FROM routes WHERE id = ?`, id)
 	if err != nil {

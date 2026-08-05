@@ -118,8 +118,8 @@ func TestOnboardingFlow(t *testing.T) {
 	if len(token) != 64 {
 		t.Fatalf("want 64-char token, got %d", len(token))
 	}
-	if tokenRef != store.InviteRef(token) {
-		t.Fatalf("token_ref = %q, want InviteRef(sent token)", tokenRef)
+	if tokenRef != store.TokenRef(token) {
+		t.Fatalf("token_ref = %q, want TokenRef(sent token)", tokenRef)
 	}
 	if tokenRef == token {
 		t.Fatal("token stored in the clear — token_ref must be the hash, not the bearer")

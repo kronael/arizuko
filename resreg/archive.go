@@ -311,8 +311,8 @@ type ArchiveRouteTokenRow struct {
 
 // ExportRouteTokens reads every kind='route' row (jid delivery bearers —
 // never kind='pair' pairing links) with its token_hash verifier, hex-encoded
-// (Go's encoding/hex, lowercase — matching invites' Ref = hex(sha256(token))
-// convention) for YAML transport.
+// for YAML transport — which is exactly store.TokenRef, since token_hash is
+// store.TokenRefBytes of the same digest.
 func ExportRouteTokens(ctx context.Context, db *sql.DB) ([]ArchiveRouteTokenRow, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT token_hash, jid, owner_folder, created_at, COALESCE(context,'')

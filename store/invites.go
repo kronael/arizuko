@@ -2,9 +2,7 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -37,17 +35,6 @@ var ErrInviteUnavailable = errors.New("invite unavailable")
 var ErrInviteRefUnknown = errors.New("invite ref not found")
 
 const inviteCols = `ref, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count`
-
-// InviteRef is an invite's non-secret handle: hex(sha256(token)). The token is
-// a bearer — whoever holds it redeems the grant — so it is shown exactly once
-// at creation and every other surface (including the DB itself, since I1) carries
-// the ref instead. Full digest, never truncated: a prefix could collide and
-// revoke the wrong invite. ref IS the invites table's primary key (I1), so this
-// is also the hash CreateInvite/ConsumeInvite/GetInvite key rows by.
-func InviteRef(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
-}
 
 // BackfillInviteRefs carries rows from a freshly-migrated invites_legacy table
 // (the pre-I1 plaintext `token TEXT PRIMARY KEY` shape) into the hash-at-rest
@@ -101,7 +88,7 @@ func BackfillInviteRefs(db *sql.DB) error {
 	for _, r := range legacy {
 		if _, err := tx.Exec(
 			`INSERT INTO invites (`+inviteCols+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			InviteRef(r.token), r.targetGlob, r.issuedBySub, r.issuedAt,
+			TokenRef(r.token), r.targetGlob, r.issuedBySub, r.issuedAt,
 			r.expiresAt, r.maxUses, r.usedCount); err != nil {
 			return fmt.Errorf("carry invite forward: %w", err)
 		}
@@ -134,7 +121,7 @@ func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expire
 		maxUses = 1
 	}
 	token := core.GenHexToken()
-	ref := InviteRef(token)
+	ref := TokenRef(token)
 	now := time.Now().UTC()
 	var expStr sql.NullString
 	if expiresAt != nil {
@@ -192,7 +179,7 @@ func scanInvite(row rowScanner) (*Invite, error) {
 // GetInvite resolves the raw bearer token presented at redemption to its row.
 func (s *Store) GetInvite(token string) (*Invite, error) {
 	return scanInvite(s.db.QueryRow(
-		`SELECT `+inviteCols+` FROM invites WHERE ref = ?`, InviteRef(token)))
+		`SELECT `+inviteCols+` FROM invites WHERE ref = ?`, TokenRef(token)))
 }
 
 func (s *Store) ListInvites(forIssuer string) ([]Invite, error) {
@@ -219,7 +206,7 @@ func (s *Store) ListInvites(forIssuer string) ([]Invite, error) {
 	return out, rows.Err()
 }
 
-// RevokeInviteByRef deletes the invite identified by ref (InviteRef) — ref IS
+// RevokeInviteByRef deletes the invite identified by ref (TokenRef) — ref IS
 // the primary key (I1), so this is a direct delete, no resolve step. Unknown
 // ref → ErrInviteRefUnknown, so a caller cannot mistake a no-op for a
 // revocation.
@@ -258,7 +245,8 @@ func (s *Store) ConsumeInvite(token, userSub string) (*Invite, error) {
 
 // ConsumeInviteNoGrant is the split twin: same atomic used_count increment +
 // audit, but it does NOT write the acl grant — acl is routd-OWNED in the split,
-// so the caller writes that row to routd.db separately (audit-free PutACLRow).
+// so the caller writes that row to routd.db separately (AddACLRow, which audits
+// into routd.db's own audit_log).
 func (s *Store) ConsumeInviteNoGrant(token, userSub string) (*Invite, error) {
 	return s.consumeInvite(token, userSub, false)
 }
@@ -270,7 +258,7 @@ func (s *Store) ConsumeInviteNoGrant(token, userSub string) (*Invite, error) {
 func (s *Store) RestoreInvite(token string) error {
 	_, err := s.db.Exec(
 		`UPDATE invites SET used_count = used_count - 1 WHERE ref = ? AND used_count > 0`,
-		InviteRef(token))
+		TokenRef(token))
 	return err
 }
 
@@ -278,7 +266,7 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 	if userSub == "" {
 		return nil, errors.New("user_sub required")
 	}
-	ref := InviteRef(token)
+	ref := TokenRef(token)
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err

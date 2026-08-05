@@ -106,7 +106,7 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 	// messages.db is opened via store.Open above, which already runs the I1
 	// hash-at-rest migration — invites is ref-shaped here, not token-shaped.
 	exec(`INSERT INTO invites(ref, target_glob, issued_by_sub, issued_at, max_uses, used_count)
-		VALUES(?,'main/','cli','2026-01-01T00:00:00Z',5,2)`, store.InviteRef("inv-tok"))
+		VALUES(?,'main/','cli','2026-01-01T00:00:00Z',5,2)`, store.TokenRef("inv-tok"))
 	exec(`INSERT INTO onboarding_gates(gate, limit_per_day, enabled) VALUES('*',10,1)`)
 
 	// proxyd_routes + audit_log: routd OWNS both (migrations 0015/0016) → copied to
@@ -326,7 +326,7 @@ func TestMigrateSplit(t *testing.T) {
 	var invGlob string
 	var invMax, invUsed int
 	if err := odb.QueryRow(
-		`SELECT target_glob, max_uses, used_count FROM invites WHERE ref=?`, store.InviteRef("inv-tok")).
+		`SELECT target_glob, max_uses, used_count FROM invites WHERE ref=?`, store.TokenRef("inv-tok")).
 		Scan(&invGlob, &invMax, &invUsed); err != nil {
 		t.Fatalf("read onbod.invites: %v", err)
 	}
@@ -686,7 +686,7 @@ func TestMigrateSplitSkipsOnbodReplay(t *testing.T) {
 	}
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM invites WHERE ref=?`,
-		store.InviteRef("inv-tok")).Scan(&n); err != nil {
+		store.TokenRef("inv-tok")).Scan(&n); err != nil {
 		t.Fatalf("read invites: %v", err)
 	}
 	if n != 1 {

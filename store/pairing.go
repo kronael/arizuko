@@ -92,7 +92,7 @@ func (s *Store) RedeemPairing(rawToken, parentSub string) (string, error) {
 		return "", err
 	}
 	if _, err := tx.Exec(
-		`DELETE FROM route_tokens WHERE token_hash = ?`, HashRouteToken(rawToken),
+		`DELETE FROM route_tokens WHERE token_hash = ?`, TokenRefBytes(rawToken),
 	); err != nil {
 		return "", fmt.Errorf("consume pairing token: %w", err)
 	}
@@ -127,7 +127,7 @@ func pairingJID(q rowQuerier, rawToken string) (string, error) {
 	var jid, createdAt string
 	err := q.QueryRow(
 		`SELECT jid, created_at FROM route_tokens WHERE token_hash = ? AND kind = ?`,
-		HashRouteToken(rawToken), RouteTokenKindPair,
+		TokenRefBytes(rawToken), RouteTokenKindPair,
 	).Scan(&jid, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrPairingUnavailable

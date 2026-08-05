@@ -137,7 +137,7 @@ type ModelUsage struct {
 }
 
 // InviteInfo mirrors store.Invite for the ipc layer (ipc must not import store).
-// Ref is the non-secret handle (store.InviteRef) every read surface uses; Token
+// Ref is the non-secret handle (store.TokenRef) every read surface uses; Token
 // is the live bearer and is populated ONLY on the create path.
 type InviteInfo struct {
 	Ref         string     `json:"ref"`

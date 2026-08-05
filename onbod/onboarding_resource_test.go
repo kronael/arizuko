@@ -41,7 +41,7 @@ func TestOnboardingListLeaksNoToken(t *testing.T) {
 	raw := "live-onboard-tok"
 	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
 		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.InviteRef(raw))
+		store.TokenRef(raw))
 
 	a := &admin{db: db}
 	mux := http.NewServeMux()
@@ -56,7 +56,7 @@ func TestOnboardingListLeaksNoToken(t *testing.T) {
 	if strings.Contains(body, raw) {
 		t.Error("REST list leaked the raw bearer")
 	}
-	if strings.Contains(body, store.InviteRef(raw)) {
+	if strings.Contains(body, store.TokenRef(raw)) {
 		t.Error("REST list leaked token_ref")
 	}
 	if strings.Contains(body, "token_ref") {
@@ -142,7 +142,7 @@ func TestPreMigrationRowStillRedeems(t *testing.T) {
 		`SELECT token_ref, token_expires FROM onboarding WHERE jid='telegram:legacy'`).Scan(&ref, &expires); err != nil {
 		t.Fatalf("read migrated row: %v", err)
 	}
-	if ref != store.InviteRef("pre-migration-tok") {
+	if ref != store.TokenRef("pre-migration-tok") {
 		t.Errorf("token_ref = %q, want the hash of the original token", ref)
 	}
 	if expires != "2099-01-01T00:00:00Z" {
@@ -207,7 +207,7 @@ func TestUnknownTokenRefusesLoudly(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
 		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.InviteRef("the-real-one"))
+		store.TokenRef("the-real-one"))
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/onboard?token=not-the-real-one", nil)
@@ -232,7 +232,7 @@ func TestUnknownTokenRefusesLoudly(t *testing.T) {
 // is a verifier, not a second bearer.
 func TestStoredRefIsNotItselfRedeemable(t *testing.T) {
 	db := testDB(t)
-	ref := store.InviteRef("real-tok")
+	ref := store.TokenRef("real-tok")
 	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
 		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`, ref)
 

@@ -19,8 +19,8 @@ func TestInviteCRUD(t *testing.T) {
 	if len(token) != 64 {
 		t.Errorf("token len = %d, want 64", len(token))
 	}
-	if inv.Ref != InviteRef(token) {
-		t.Errorf("Ref = %q, want InviteRef(token)", inv.Ref)
+	if inv.Ref != TokenRef(token) {
+		t.Errorf("Ref = %q, want TokenRef(token)", inv.Ref)
 	}
 	if inv.TargetGlob != "alice/" || inv.IssuedBySub != "github:alice" || inv.MaxUses != 3 || inv.UsedCount != 0 {
 		t.Errorf("CreateInvite returned wrong values: %+v", inv)
@@ -285,7 +285,7 @@ func TestBackfillInviteRefsCarriesLegacyRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInvite after backfill: %v", err)
 	}
-	if got.Ref != InviteRef("plaintext-tok") || got.TargetGlob != "alice" || got.UsedCount != 1 || got.MaxUses != 3 {
+	if got.Ref != TokenRef("plaintext-tok") || got.TargetGlob != "alice" || got.UsedCount != 1 || got.MaxUses != 3 {
 		t.Errorf("carried row wrong: %+v", got)
 	}
 

@@ -137,7 +137,7 @@ func TestHandleInviteCreateAndList(t *testing.T) {
 	if strings.Contains(body, token) {
 		t.Errorf("invite bearer rendered on the list page: %q", body)
 	}
-	if !strings.Contains(body, store.InviteRef(token)) {
+	if !strings.Contains(body, store.TokenRef(token)) {
 		t.Errorf("invite ref missing from the list page: %q", body)
 	}
 }
@@ -180,7 +180,7 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 	const token = "tok-abcdef0123456789abcdef0123456789"
 	if _, err := db.Exec(
 		`INSERT INTO invites (ref, target_glob, issued_by_sub, issued_at, max_uses, used_count)
-		 VALUES (?, 'carol', 'github:operator', datetime('now'), 1, 0)`, store.InviteRef(token),
+		 VALUES (?, 'carol', 'github:operator', datetime('now'), 1, 0)`, store.TokenRef(token),
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 	req0.Header.Set("X-User-Sub", "github:operator")
 	w0 := httptest.NewRecorder()
 	mux.ServeHTTP(w0, req0)
-	ref := store.InviteRef(token)
+	ref := store.TokenRef(token)
 	list := w0.Body.String()
 	if !strings.Contains(list, `action="/dash/invites/`+ref+`/revoke"`) {
 		t.Errorf("revoke form does not use the opaque ref: %q", list)

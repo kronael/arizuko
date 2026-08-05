@@ -2,7 +2,7 @@
 -- read access to the DB (every daemon, per BUGS A1) could redeem any pending
 -- invite. route_tokens (0059) already does this correctly: the raw token is
 -- returned once at issue and only its hash is persisted, looked up by hash.
--- Follow it exactly, but key by `ref` (store.InviteRef = hex(sha256(token)))
+-- Follow it exactly, but key by `ref` (store.TokenRef = hex(sha256(token)))
 -- rather than a second raw hash column — ref is ALREADY the non-secret handle
 -- every read surface hands out (205533dc), so it doubles as the hash-at-rest
 -- primary key instead of adding a second identity value.
