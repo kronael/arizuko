@@ -45,7 +45,7 @@ func runedDB(t *testing.T) *sql.DB {
 func TestRunedNilStore(t *testing.T) {
 	db := routdDB(t) // routd.db only — dbRuned left nil
 	defer db.Close()
-	d := &dash{db: db, dbRoutd: db}
+	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -73,7 +73,7 @@ func TestRunedActiveRuns(t *testing.T) {
 	}
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbRoutd: db, dbRuned: rdb}
+	d := &dash{dbRoutd: db, dbRuned: rdb}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -117,7 +117,7 @@ func TestRunedRecentRuns(t *testing.T) {
 	}
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbRoutd: db, dbRuned: rdb}
+	d := &dash{dbRoutd: db, dbRuned: rdb}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -146,7 +146,7 @@ func TestRunedKillNoURL(t *testing.T) {
 	defer rdb.Close()
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbRoutd: db, dbRuned: rdb} // runedURL == ""
+	d := &dash{dbRoutd: db, dbRuned: rdb} // runedURL == ""
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -179,7 +179,7 @@ func TestRunedKillProxies(t *testing.T) {
 	defer rdb.Close()
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbRoutd: db, dbRuned: rdb, runedURL: upstream.URL}
+	d := &dash{dbRoutd: db, dbRuned: rdb, runedURL: upstream.URL}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -203,7 +203,7 @@ func TestRunedKillProxies(t *testing.T) {
 func TestRunedNonOperatorForbidden(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbRoutd: db}
+	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -222,7 +222,7 @@ func TestRunedKillNonOperatorForbidden(t *testing.T) {
 	defer rdb.Close()
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbRoutd: db, dbRuned: rdb}
+	d := &dash{dbRoutd: db, dbRuned: rdb}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 

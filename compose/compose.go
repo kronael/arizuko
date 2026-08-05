@@ -1042,7 +1042,7 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 		// DASH_PORT override pins internal listen to :8080 (healthcheck target)
 		// even when .env sets DASH_PORT for host-side publish.
 		environment: map[string]string{
-			"DB_PATH":   containerDataMount + "/store/messages.db",
+			"DB_PATH":   containerDataMount + "/store/routd.db",
 			"DASH_PORT": fmt.Sprintf("%d", core.DefaultAPIPort),
 		},
 	}

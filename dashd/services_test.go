@@ -17,7 +17,7 @@ import (
 func TestServicesOperator(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbRoutd: db}
+	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -74,7 +74,7 @@ func TestShouldLink(t *testing.T) {
 func TestServicesNonOperatorForbidden(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbRoutd: db}
+	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 

@@ -136,13 +136,16 @@ func main() {
 	dataDir := os.Getenv("DATA_DIR")
 	groupsDir := filepath.Join(dataDir, "groups")
 
-	dsn := os.Getenv("DB_PATH")
-	if dsn == "" {
-		if dataDir == "" {
-			slog.Error("DB_PATH or DATA_DIR env required")
-			os.Exit(1)
-		}
-		dsn = filepath.Join(dataDir, "store", "messages.db")
+	// DB_PATH points at routd.db: routd OWNS every table dashd reads or writes
+	// (messages/chats/cost_log/user_profiles/acl/groups/routes/route_tokens/
+	// secrets/scheduled_tasks/audit_log/chat_sessions). dashd is FS-mounted, so
+	// it drives them directly (split write-discipline). The pre-split
+	// messages.db is retired — no daemon opens it. Its sibling DBs (onbod/runed)
+	// resolve off this path's directory.
+	dsn, err := resolveDSN(os.Getenv("DB_PATH"), dataDir)
+	if err != nil {
+		slog.Error("resolve db path", "err", err)
+		os.Exit(1)
 	}
 
 	port := os.Getenv("DASH_PORT")
@@ -161,12 +164,12 @@ func main() {
 		accentOverride = v
 	}
 
-	db, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
+	dbRoutd, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
 	if err != nil {
 		slog.Error("open db", "err", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer dbRoutd.Close()
 
 	slog.Info("dashd started", "db", dsn, "port", port)
 
@@ -208,24 +211,9 @@ func main() {
 		slog.Warn("AUTHD_URL unset in dashd — identity verification disabled, dashd open (local dev)")
 	}
 
-	// routd OWNS acl/groups/routes/route_tokens/secrets in the split topology
-	// (spec 5/5); dashd mounts the data dir, so it points its admin SQL straight
-	// at routd.db (no token plumbing — same FS-access discipline as messages.db).
-	var dbRoutd *sql.DB
-	if routdPath := filepath.Join(filepath.Dir(dsn), "routd.db"); routdPath != dsn {
-		if s, err := sql.Open("sqlite", routdPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)"); err == nil {
-			dbRoutd = s
-			defer dbRoutd.Close()
-		} else {
-			slog.Warn("open routd.db for admin tables", "path", routdPath, "err", err)
-		}
-	}
-
-	// audit_log lives in routd.db (its owner, routd migration 0016) — not the
-	// frozen messages.db. dashd's admin mutations already target routd.db, so the
-	// audit sink + the /dash/audit/ reader share that handle. nil dbRoutd (routd.db
-	// unavailable) → audit.Init(nil) makes Emit a no-op (audit/log.go), which is a
-	// clean degradation, not a write to the wrong DB.
+	// audit_log lives in routd.db (its owner, routd migration 0016), which is the
+	// handle opened above — so the audit sink, the /dash/audit/ reader, and every
+	// admin mutation share one connection.
 	audit.Init(dbRoutd, os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
@@ -295,7 +283,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: strings.TrimRight(os.Getenv("RUNED_URL"), "/"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
+	d := &dash{dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: strings.TrimRight(os.Getenv("RUNED_URL"), "/"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
 	d.registerRoutes(mux)
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
@@ -318,12 +306,10 @@ func main() {
 }
 
 type dash struct {
-	db      *sql.DB
-	dbRW    *sql.DB // alias of db for write paths; nil in some tests (read-only paths)
-	dbRoutd *sql.DB // routd.db handle. routd OWNS acl/groups/routes/route_tokens/
-	// secrets AND the live messages/sessions/cost_log/user_profiles tables in the
-	// split topology (spec 5/5); dashd reads+writes those tables here. The legacy
-	// messages.db twin (db/dbRW) is frozen at cutover — read it for nothing routd owns.
+	dbRoutd *sql.DB // routd.db handle — dashd's ONLY message/config store. routd OWNS
+	// acl/groups/routes/route_tokens/secrets/chat_sessions/audit_log AND the live
+	// messages/chats/sessions/cost_log/user_profiles tables (spec 5/5); dashd
+	// reads+writes them here. nil in read-only tests.
 	dbOnbod *sql.DB // onbod.db handle. onbod OWNS invites/onboarding_gates in the
 	// split topology (spec 5/5); dashd's invites page reads+writes them here.
 	dbRuned *sql.DB // runed.db handle. runed OWNS spawns in the split topology;
@@ -352,6 +338,24 @@ type dash struct {
 // read+write. routd OWNS those tables in the split topology, so dashd points its
 // admin SQL straight at routd.db (dbRoutd).
 func (d *dash) adminDB() *sql.DB { return d.dbRoutd }
+
+// resolveDSN picks dashd's SQLite path: DB_PATH when set, else
+// <DATA_DIR>/store/routd.db. It REFUSES messages.db — the pre-split monolith is
+// retired and no daemon opens it, so a stale DB_PATH left over from an old
+// deployment must fail loudly at boot rather than silently serve frozen data
+// (dashd rendered stale usage/chat/activity that way for months).
+func resolveDSN(dbPath, dataDir string) (string, error) {
+	if dbPath == "" {
+		if dataDir == "" {
+			return "", errors.New("DB_PATH or DATA_DIR env required")
+		}
+		dbPath = filepath.Join(dataDir, "store", "routd.db")
+	}
+	if filepath.Base(dbPath) == "messages.db" {
+		return "", fmt.Errorf("DB_PATH=%s is the retired pre-split monolith; point it at routd.db", dbPath)
+	}
+	return dbPath, nil
+}
 
 // secretsDB returns the handle the /dash/me/secrets read+delete paths use — the
 // same routd.db handle, since routd OWNS the secrets table. (List returns no
@@ -1075,9 +1079,8 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		lastActive                  string
 	}
 	usageMap := map[string]usageKey{}
-	if len(folders) > 0 {
-		s := store.New(d.db)
-		if summaries, err := s.GroupUsageBulk(folders); err != nil {
+	if len(folders) > 0 && d.adminDB() != nil {
+		if summaries, err := d.groupUsageBulk(folders); err != nil {
 			slog.Warn("groups: usage query", "err", err)
 		} else {
 			for _, u := range summaries {

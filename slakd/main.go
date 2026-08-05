@@ -75,9 +75,9 @@ type config struct {
 	StaleSeconds   int64
 	WatchdogEvery  time.Duration
 	StaleFailLimit int
-	// StoreDir is the directory containing messages.db (the parent of the
-	// db file). Empty disables pane-session persistence. Derived from
-	// DB_PATH (preferred) or DATA_DIR/store.
+	// StoreDir is the instance store directory (the parent of the DB files).
+	// Empty disables pane-session persistence. Derived from DB_PATH
+	// (preferred — only its directory is used) or DATA_DIR/store.
 	StoreDir string
 }
 
@@ -99,9 +99,10 @@ func loadConfig() config {
 	}
 }
 
-// storeDirFromEnv resolves the dir containing messages.db from DB_PATH
-// (preferred — explicit) or DATA_DIR/store (compose default). Returns
-// "" when neither is set; pane persistence becomes a no-op.
+// storeDirFromEnv resolves the instance store dir from DB_PATH (preferred —
+// explicit; only the directory is taken, the file itself is never opened) or
+// DATA_DIR/store (compose default). Returns "" when neither is set; pane
+// persistence becomes a no-op.
 func storeDirFromEnv() string {
 	if p := chanlib.EnvOr("DB_PATH", ""); p != "" {
 		return filepath.Dir(p)

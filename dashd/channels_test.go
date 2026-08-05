@@ -2,7 +2,7 @@ package main
 
 // Spec 8/15 — dashd /dash/channels/whatsapp/pair surface. Operator-only
 // (** super-grant). Non-admin gets 403; admin POST proxies to whapd and
-// writes an audit row.
+// emits an audit_log event.
 
 import (
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -62,6 +63,9 @@ func TestDash_WhatsappPairStart_AdminProxiesAndAudits(t *testing.T) {
 	t.Setenv("WHAPD_URL", mockWhapd.URL)
 
 	srv, inst, _ := newRWDashServer(t)
+	// audit.Emit writes through the process-global sink main() wires to routd.db.
+	audit.Init(inst.DB, "test")
+	t.Cleanup(func() { audit.Init(nil, "") })
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
@@ -87,12 +91,14 @@ func TestDash_WhatsappPairStart_AdminProxiesAndAudits(t *testing.T) {
 		t.Errorf("body missing code: %q", body)
 	}
 
-	// Audit row landed in messages with the operator sub + phone.
+	// The event landed in audit_log (routd.db's sink) with the operator sub +
+	// phone — not as a synthetic `messages` row in the retired monolith.
 	var auditCount int
 	row := inst.DB.QueryRow(
-		`SELECT COUNT(*) FROM messages
-		  WHERE chat_jid='arizuko:admin/whapd' AND verb='admin.pair'
-		    AND content LIKE 'operator alice@x started pairing for +420735544891%'`)
+		`SELECT COUNT(*) FROM audit_log
+		  WHERE category='channel' AND action='channel.pair.start'
+		    AND actor_sub='alice@x'
+		    AND params_summary LIKE '%+420735544891%'`)
 	if err := row.Scan(&auditCount); err != nil {
 		t.Fatal(err)
 	}

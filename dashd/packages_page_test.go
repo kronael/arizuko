@@ -25,7 +25,7 @@ func packagesDB(t *testing.T) *sql.DB {
 
 func packagesGet(t *testing.T, db *sql.DB) string {
 	t.Helper()
-	d := &dash{db: db, dbRoutd: db}
+	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/packages/", nil))

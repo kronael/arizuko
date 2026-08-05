@@ -42,7 +42,7 @@ func meSecretsTestDB(t *testing.T) *dash {
 		t.Fatalf("schema: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return &dash{db: db, dbRW: db, dbRoutd: db}
+	return &dash{dbRoutd: db}
 }
 
 func newMux(d *dash) *http.ServeMux {
@@ -141,7 +141,7 @@ func TestMeSecrets_Update(t *testing.T) {
 	}
 
 	var got string
-	if err := d.dbRW.QueryRow(
+	if err := d.dbRoutd.QueryRow(
 		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id='github:alice' AND key='GITHUB_TOKEN'`,
 	).Scan(&got); err != nil {
 		t.Fatal(err)
@@ -180,7 +180,7 @@ func TestMeSecrets_Delete(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 	var n int
-	d.dbRW.QueryRow(`SELECT COUNT(*) FROM secrets WHERE scope_id='github:alice'`).Scan(&n)
+	d.dbRoutd.QueryRow(`SELECT COUNT(*) FROM secrets WHERE scope_id='github:alice'`).Scan(&n)
 	if n != 0 {
 		t.Errorf("rows after delete = %d, want 0", n)
 	}
@@ -217,7 +217,7 @@ func TestMeSecrets_CrossUser_CannotReadOthers(t *testing.T) {
 
 	// Alice's value is unchanged
 	var got string
-	d.dbRW.QueryRow(
+	d.dbRoutd.QueryRow(
 		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id='github:alice' AND key='PRIVATE'`,
 	).Scan(&got)
 	if got != "alice" {

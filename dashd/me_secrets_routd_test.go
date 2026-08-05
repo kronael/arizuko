@@ -21,37 +21,30 @@ const secretsSchema = `CREATE TABLE secrets (
 	PRIMARY KEY (scope_kind, scope_id, key)
 );`
 
-// splitSecretsDash wires a dash with DISTINCT messages.db (dbRW) and routd.db
-// (dbRoutd) handles, each with its own secrets table, so a write can be proven to
-// land in routd.db and NOT in messages.db.
-func splitSecretsDash(t *testing.T) (*dash, *sql.DB, *sql.DB) {
+// splitSecretsDash wires a dash on routd.db — the only store dashd opens — with
+// the secrets table and the audit_log sink routd owns (migration 0016), so a
+// sealed write can be proven to land there.
+func splitSecretsDash(t *testing.T) (*dash, *sql.DB) {
 	t.Helper()
-	msg, err := sql.Open("sqlite", "file:dash_msg?mode=memory&cache=shared")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := msg.Exec(secretsSchema + `CREATE TABLE audit_log (
-		id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT, category TEXT, action TEXT,
-		actor TEXT, actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT,
-		params_summary TEXT, outcome TEXT, error_msg TEXT, duration_ms INTEGER,
-		turn_id TEXT, folder TEXT, instance TEXT, request_id TEXT, source_ip TEXT);`); err != nil {
-		t.Fatalf("messages.db schema: %v", err)
-	}
 	routd, err := sql.Open("sqlite", "file:dash_routd?mode=memory&cache=shared")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := routd.Exec(secretsSchema); err != nil {
+	if _, err := routd.Exec(secretsSchema + `CREATE TABLE audit_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT, category TEXT, action TEXT,
+		actor TEXT, actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT,
+		params_summary TEXT, outcome TEXT, error_msg TEXT, duration_ms INTEGER,
+		turn_id TEXT, folder TEXT, instance TEXT, request_id TEXT, source_ip TEXT);`); err != nil {
 		t.Fatalf("routd.db schema: %v", err)
 	}
-	t.Cleanup(func() { msg.Close(); routd.Close() })
-	return &dash{db: msg, dbRW: msg, dbRoutd: routd}, msg, routd
+	t.Cleanup(func() { routd.Close() })
+	return &dash{dbRoutd: routd}, routd
 }
 
 // TestMeSecrets_WriteTargetsRoutdDB proves /dash/me/secrets POST writes the row
-// into routd.db (dbRoutd) and NOT messages.db (dbRW) in the split topology.
+// into routd.db, the owner of the secrets table in the split topology.
 func TestMeSecrets_WriteTargetsRoutdDB(t *testing.T) {
-	d, msg, routd := splitSecretsDash(t)
+	d, routd := splitSecretsDash(t)
 	mux := newMux(d)
 
 	req := httptest.NewRequest("POST", "/dash/me/secrets",
@@ -68,16 +61,11 @@ func TestMeSecrets_WriteTargetsRoutdDB(t *testing.T) {
 	if n != 1 {
 		t.Errorf("routd.db secret rows = %d, want 1", n)
 	}
-	n = -1
-	msg.QueryRow(`SELECT COUNT(*) FROM secrets WHERE key='GITHUB_TOKEN'`).Scan(&n)
-	if n != 0 {
-		t.Errorf("messages.db secret rows = %d, want 0 (dashd must not write the monolith)", n)
-	}
 }
 
 // TestMeSecrets_DeleteTargetsRoutdDB proves the delete path also hits routd.db.
 func TestMeSecrets_DeleteTargetsRoutdDB(t *testing.T) {
-	d, _, routd := splitSecretsDash(t)
+	d, routd := splitSecretsDash(t)
 	mux := newMux(d)
 
 	post := httptest.NewRequest("POST", "/dash/me/secrets",

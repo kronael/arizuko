@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
-
-	"github.com/kronael/arizuko/store"
+	"strings"
+	"time"
 )
 
 // handleUsage renders GET /dash/usage/ — the instance-wide usage cockpit:
@@ -33,14 +33,9 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var summaries []store.GroupUsageSummary
-	if len(folders) > 0 && d.db != nil {
-		// cost_log has DIVERGENT schemas: messages.db (store 0049: ts/cents/
-		// input_tok) vs routd.db (routd 0001: recorded_at/cost_cents/input_tokens).
-		// GroupUsageBulk's SQL matches the store schema, so usage still reads the
-		// frozen messages.db copy — repointing needs a query rewrite, not a handle
-		// swap (BUGS.md: usage cost stale post-split).
-		summaries, err = store.New(d.db).GroupUsageBulk(folders)
+	var summaries []groupUsage
+	if len(folders) > 0 && d.adminDB() != nil {
+		summaries, err = d.groupUsageBulk(folders)
 		if err != nil {
 			slog.Warn("usage page: bulk", "err", err)
 			fmt.Fprint(w, htmlBanner("err", "usage query error: "+err.Error()))
@@ -82,9 +77,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, htmlTable(
 		[]string{"Group", "Msgs", "Tokens/7d", "$/7d", "Last active"}, groupRows))
 
-	// 7-day daily message volume from messages.db (human messages only).
-	// Left on messages.db alongside GroupUsageBulk so the whole usage page reads
-	// one store consistently until the cost_log schema reconciliation lands.
+	// 7-day daily message volume (human messages only).
 	fmt.Fprint(w, `<h2>7-day volume</h2>`)
 	fmt.Fprint(w, d.usageVolumeTable())
 
@@ -109,12 +102,105 @@ func (d *dash) usageFolders() ([]string, error) {
 	return folders, rows.Err()
 }
 
-// usageVolumeTable renders the 7-day daily human-message count from messages.db.
+// groupUsage holds aggregated usage stats for a single folder.
+type groupUsage struct {
+	Folder     string
+	Tokens7d   int    // input_tokens + output_tokens over the last 7 days
+	Cents7d    int    // cost_cents over the last 7 days
+	MsgCount   int    // all-time message count (routed_to = folder)
+	LastActive string // RFC3339 timestamp of the latest message, or ""
+}
+
+// groupUsageBulk returns one groupUsage per folder, joining routd.db's cost_log
+// (7d window) and messages (all-time count + last active) in Go. Both tables are
+// routd-owned: cost_log is keyed (folder, turn_id, model) with recorded_at /
+// input_tokens / output_tokens / cost_cents — the pre-split store schema used
+// ts / input_tok / cents, which is why this could never be a handle swap.
+func (d *dash) groupUsageBulk(folders []string) ([]groupUsage, error) {
+	if len(folders) == 0 {
+		return nil, nil
+	}
+	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
+	ph := make([]string, len(folders))
+	args := make([]any, len(folders))
+	for i, f := range folders {
+		ph[i] = "?"
+		args[i] = f
+	}
+	in := strings.Join(ph, ",")
+
+	type cost struct{ tokens, cents int }
+	costMap := map[string]cost{}
+	costRows, err := d.adminDB().Query(
+		`SELECT folder,
+		        COALESCE(SUM(input_tokens+output_tokens),0),
+		        COALESCE(SUM(cost_cents),0)
+		 FROM cost_log
+		 WHERE folder IN (`+in+`) AND recorded_at >= ?
+		 GROUP BY folder`,
+		append(args, cutoff)...)
+	if err != nil {
+		return nil, err
+	}
+	defer costRows.Close()
+	for costRows.Next() {
+		var folder string
+		var tok, cents int
+		if err := costRows.Scan(&folder, &tok, &cents); err != nil {
+			return nil, err
+		}
+		costMap[folder] = cost{tok, cents}
+	}
+	if err := costRows.Err(); err != nil {
+		return nil, err
+	}
+
+	type msg struct {
+		cnt    int
+		lastTS string
+	}
+	msgMap := map[string]msg{}
+	msgRows, err := d.adminDB().Query(
+		`SELECT routed_to, COUNT(*), COALESCE(MAX(timestamp),'')
+		 FROM messages
+		 WHERE routed_to IN (`+in+`)
+		 GROUP BY routed_to`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer msgRows.Close()
+	for msgRows.Next() {
+		var folder, lastTS string
+		var cnt int
+		if err := msgRows.Scan(&folder, &cnt, &lastTS); err != nil {
+			return nil, err
+		}
+		msgMap[folder] = msg{cnt, lastTS}
+	}
+	if err := msgRows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]groupUsage, len(folders))
+	for i, f := range folders {
+		c, m := costMap[f], msgMap[f]
+		out[i] = groupUsage{
+			Folder:     f,
+			Tokens7d:   c.tokens,
+			Cents7d:    c.cents,
+			MsgCount:   m.cnt,
+			LastActive: m.lastTS,
+		}
+	}
+	return out, nil
+}
+
+// usageVolumeTable renders the 7-day daily human-message count from routd.db.
 func (d *dash) usageVolumeTable() string {
-	if d.db == nil {
+	if d.adminDB() == nil {
 		return htmlBanner("err", "messages store unavailable")
 	}
-	rows, err := d.db.Query(
+	rows, err := d.adminDB().Query(
 		`SELECT DATE(timestamp) AS day, COUNT(*) AS cnt
 		 FROM messages
 		 WHERE is_bot_message=0 AND timestamp >= datetime('now', '-7 days')

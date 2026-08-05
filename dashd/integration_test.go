@@ -25,7 +25,7 @@ func newDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: inst.DB, dbRoutd: inst.DB, dbOnbod: inst.DB, dbPath: "memory", groupsDir: groupsDir}
+	d := &dash{dbRoutd: inst.DB, dbOnbod: inst.DB, dbPath: "memory", groupsDir: groupsDir}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	srv := httptest.NewServer(mux)
@@ -139,11 +139,23 @@ func TestGroupListUsage(t *testing.T) {
 		`INSERT INTO groups (folder, added_at) VALUES (?, ?)`, folder, now); err != nil {
 		t.Fatal(err)
 	}
-	// Insert a cost_log row (today, 500 input + 200 output = 700 tokens, 15 cents).
+	// The groups page reads routd.db's cost_log (recorded_at / input_tokens /
+	// output_tokens / cost_cents). testutils.NewInstance migrates the pre-split
+	// STORE schema, whose cost_log is the divergent ts / input_tok / cents shape,
+	// so swap the table for routd's before seeding.
+	if _, err := inst.DB.Exec(`DROP TABLE cost_log;
+		CREATE TABLE cost_log (
+		  folder TEXT NOT NULL, turn_id TEXT NOT NULL, model TEXT NOT NULL,
+		  input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+		  cost_cents INTEGER NOT NULL DEFAULT 0, recorded_at TEXT NOT NULL,
+		  PRIMARY KEY (folder, turn_id, model))`); err != nil {
+		t.Fatal(err)
+	}
+	// One row today: 500 input + 200 output = 700 tokens, 15 cents.
 	if _, err := inst.DB.Exec(
-		`INSERT INTO cost_log (ts, folder, user_sub, model, input_tok, cache_read, cache_write, output_tok, cents)
-		 VALUES (?, ?, '', 'm', 500, 0, 0, 200, 15)`,
-		now, folder); err != nil {
+		`INSERT INTO cost_log (folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at)
+		 VALUES (?, 't1', 'm', 500, 200, 15, ?)`,
+		folder, now); err != nil {
 		t.Fatal(err)
 	}
 	// Insert 3 messages routed to this folder.

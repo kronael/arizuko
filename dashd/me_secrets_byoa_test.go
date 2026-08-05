@@ -33,7 +33,7 @@ func TestMeSecrets_SealsAtRest(t *testing.T) {
 	}
 
 	var raw string
-	if err := d.dbRW.QueryRow(
+	if err := d.dbRoutd.QueryRow(
 		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id='github:alice' AND key='GITHUB_TOKEN'`,
 	).Scan(&raw); err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestMeSecrets_UpdateSealsAtRest(t *testing.T) {
 	}
 
 	var raw string
-	d.dbRW.QueryRow(
+	d.dbRoutd.QueryRow(
 		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id='github:alice' AND key='TOKEN'`,
 	).Scan(&raw)
 	if !strings.HasPrefix(raw, "v2:") || strings.Contains(raw, "v2-secret") {
@@ -91,7 +91,7 @@ func TestMeSecrets_AuditOmitsValue(t *testing.T) {
 
 	var params string
 	// audit.Emit is async-free here (direct insert); the row exists after the call.
-	d.dbRW.QueryRow(
+	d.dbRoutd.QueryRow(
 		`SELECT COALESCE(params_summary,'') FROM audit_log WHERE action='secret.set' ORDER BY id DESC LIMIT 1`,
 	).Scan(&params)
 	if strings.Contains(params, "super-secret-val") {

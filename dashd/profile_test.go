@@ -23,7 +23,7 @@ func profileTestDB(t *testing.T) *dash {
 	t.Cleanup(func() { db.Close() })
 	// user_profiles is routd-owned (routd/migrations 0011 + 0025); dashd reads it via
 	// adminDB() (routd.db). Wire dbRoutd so the profile read resolves.
-	return &dash{db: db, dbRoutd: db}
+	return &dash{dbRoutd: db}
 }
 
 func seedAuthUser(t *testing.T, d *dash, sub, name string) {

@@ -19,7 +19,7 @@ import (
 func chatTestDash(t *testing.T) (*testutils.Inst, *http.ServeMux) {
 	t.Helper()
 	inst := testutils.NewInstance(t)
-	d := &dash{db: inst.DB, dbRW: inst.DB, dbRoutd: inst.DB, dbOnbod: inst.DB, groupsDir: t.TempDir()}
+	d := &dash{dbRoutd: inst.DB, dbOnbod: inst.DB, groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	return inst, mux
@@ -146,16 +146,23 @@ func TestHandleChatGroup_grantedMember(t *testing.T) {
 	}
 }
 
-// seedChatSession creates chat_sessions (idempotent) and inserts one row. The
-// process-global sync.Once in ensureChatSessionsTable creates the table in only
-// the first test's DB, so tests seed the table directly.
-func seedChatSession(t *testing.T, inst *testutils.Inst, folder, token, label, createdAt string) {
+// createChatSessions declares chat_sessions in the test instance DB. routd owns
+// the table (migration 0029), but testutils.NewInstance migrates the pre-split
+// STORE schema, which never had it — so dashd tests that touch the chat portal
+// create it here.
+func createChatSessions(t *testing.T, inst *testutils.Inst) {
 	t.Helper()
 	if _, err := inst.DB.Exec(`CREATE TABLE IF NOT EXISTS chat_sessions (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, folder TEXT NOT NULL,
 		token TEXT NOT NULL UNIQUE, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)`); err != nil {
 		t.Fatalf("create chat_sessions: %v", err)
 	}
+}
+
+// seedChatSession creates chat_sessions (idempotent) and inserts one row.
+func seedChatSession(t *testing.T, inst *testutils.Inst, folder, token, label, createdAt string) {
+	t.Helper()
+	createChatSessions(t, inst)
 	if _, err := inst.DB.Exec(
 		`INSERT INTO chat_sessions (folder, token, label, created_at) VALUES (?,?,?,?)`,
 		folder, token, label, createdAt); err != nil {
@@ -303,6 +310,7 @@ func TestHandleChatPortal_scoped(t *testing.T) {
 
 func TestHandleChatNew_recordsSession(t *testing.T) {
 	inst, mux := chatTestDash(t)
+	createChatSessions(t, inst)
 	folder := "alice"
 	addGroup(t, inst, folder)
 	if err := inst.Store.AddACLRow(core.ACLRow{
@@ -370,9 +378,11 @@ func TestHandleChatNew_creates(t *testing.T) {
 	}
 }
 
-// TestHandleChatNew_nilDB: with d.db == nil (no messages.db) handleChatNew must
-// still redirect 303 — the chat_sessions INSERT is best-effort.
-func TestHandleChatNew_nilDB(t *testing.T) {
+// TestHandleChatNew_missingChatSessions: with routd.db carrying only the admin
+// schema (no chat_sessions), handleChatNew must still redirect 303 — recording
+// the raw token for a continue link is best-effort, never the mint's success
+// condition.
+func TestHandleChatNew_missingChatSessions(t *testing.T) {
 	// Build a routd-only DB with the admin schema (acl + route_tokens).
 	routd, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -391,7 +401,7 @@ func TestHandleChatNew_nilDB(t *testing.T) {
 		 VALUES ('op@x', 'admin', '**', 'allow', '')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: nil, dbRW: nil, dbRoutd: routd, groupsDir: t.TempDir()}
+	d := &dash{dbRoutd: routd, groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -403,7 +413,7 @@ func TestHandleChatNew_nilDB(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusSeeOther {
-		t.Fatalf("nil db: status = %d, want 303; body = %q", w.Code, w.Body.String())
+		t.Fatalf("missing chat_sessions: status = %d, want 303; body = %q", w.Code, w.Body.String())
 	}
 	loc := w.Header().Get("Location")
 	if !strings.HasPrefix(loc, "/chat/") {

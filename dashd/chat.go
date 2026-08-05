@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -22,28 +21,11 @@ import (
 // A "session" is a web: route token (jid web:<folder>); the widget keys its
 // SSE stream and history off the token. Tokens are stored HASHED in routd.db,
 // so the portal cannot reconstruct a continue link from route_tokens alone.
-// The chat_sessions table (messages.db) records the RAW token at mint time so
-// the portal can offer "continue" links — the same one-shot exposure as the
-// widget's own bootstrap, just persisted for the operator who minted it.
-
-// ensureChatSessionsTable creates chat_sessions in messages.db. Idempotent
-// (CREATE TABLE IF NOT EXISTS is a cheap metadata no-op once the table exists,
-// so it runs per-call rather than holding cross-DB state in a sync.Once);
-// errors are returned for the caller to log + swallow (a missing table degrades
-// the portal to "no continue links", never a 500).
-func ensureChatSessionsTable(db *sql.DB) error {
-	if db == nil {
-		return nil
-	}
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS chat_sessions (
-		id         INTEGER PRIMARY KEY AUTOINCREMENT,
-		folder     TEXT NOT NULL,
-		token      TEXT NOT NULL UNIQUE,
-		label      TEXT NOT NULL DEFAULT '',
-		created_at TEXT NOT NULL
-	)`)
-	return err
-}
+// The chat_sessions table records the RAW token at mint time so the portal can
+// offer "continue" links — the same one-shot exposure as the widget's own
+// bootstrap, just persisted for the operator who minted it. routd declares it
+// (migration 0029) and dashd is its only writer, via the FS-mounted routd.db
+// handle alongside the route_tokens row it shadows.
 
 // chatSession is one row of chat_sessions joined with its derived title.
 type chatSession struct {
@@ -132,11 +114,7 @@ func (d *dash) visibleFolders(allowed []string, operator bool) []string {
 // the search query (?q matches title/folder) and group (?group). Best-effort:
 // a missing table or DB returns an empty list.
 func (d *dash) loadChatSessions(folders []string, q, groupFilter string) []chatSession {
-	if d.db == nil || len(folders) == 0 {
-		return nil
-	}
-	if err := ensureChatSessionsTable(d.db); err != nil {
-		slog.Warn("chat: ensure sessions table", "err", err)
+	if d.adminDB() == nil || len(folders) == 0 {
 		return nil
 	}
 
@@ -149,7 +127,7 @@ func (d *dash) loadChatSessions(folders []string, q, groupFilter string) []chatS
 		ph[i] = "?"
 		args[i] = f
 	}
-	rows, err := d.db.Query(
+	rows, err := d.adminDB().Query(
 		`SELECT folder, token, label, created_at FROM chat_sessions
 		 WHERE folder IN (`+strings.Join(ph, ",")+`)
 		 ORDER BY created_at DESC LIMIT 200`, args...)
@@ -179,8 +157,7 @@ func (d *dash) loadChatSessions(folders []string, q, groupFilter string) []chatS
 
 // sessionTitle derives a conversation title: the explicit label, else the
 // first user message in the folder's web chat at/after the session start, else
-// a dated fallback. The message lives in routd.db (adminDB), the session row in
-// messages.db — joined here in Go.
+// a dated fallback.
 func (d *dash) sessionTitle(s chatSession) string {
 	if s.label != "" {
 		return s.label
@@ -383,13 +360,10 @@ func (d *dash) writeFolderConversations(w http.ResponseWriter, folder string, ad
 // in routd.db. Empty on any error (continue links simply won't render).
 func (d *dash) folderSessionTokens(folder string) map[string]string {
 	out := map[string]string{}
-	if d.db == nil {
+	if d.adminDB() == nil {
 		return out
 	}
-	if err := ensureChatSessionsTable(d.db); err != nil {
-		return out
-	}
-	rows, err := d.db.Query(
+	rows, err := d.adminDB().Query(
 		`SELECT token, created_at FROM chat_sessions WHERE folder = ? ORDER BY created_at DESC LIMIT 200`,
 		folder)
 	if err != nil {
@@ -449,15 +423,11 @@ func (d *dash) handleChatNew(w http.ResponseWriter, r *http.Request) {
 	}
 	// Record the raw token so the portal can offer a continue link. Best-effort:
 	// a failed insert costs the continue link, not the session.
-	if err := ensureChatSessionsTable(d.db); err != nil {
-		slog.Warn("chat: ensure sessions table", "err", err)
-	} else if d.db != nil {
-		label := strings.TrimSpace(r.FormValue("label"))
-		if _, err := d.db.Exec(
-			`INSERT OR IGNORE INTO chat_sessions (folder, token, label, created_at) VALUES (?, ?, ?, ?)`,
-			folder, raw, label, now); err != nil {
-			slog.Warn("chat: record session", "folder", folder, "err", err)
-		}
+	label := strings.TrimSpace(r.FormValue("label"))
+	if _, err := d.adminDB().Exec(
+		`INSERT OR IGNORE INTO chat_sessions (folder, token, label, created_at) VALUES (?, ?, ?, ?)`,
+		folder, raw, label, now); err != nil {
+		slog.Warn("chat: record session", "folder", folder, "err", err)
 	}
 	http.Redirect(w, r, "/chat/"+raw+"/", http.StatusSeeOther)
 }

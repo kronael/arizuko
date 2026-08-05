@@ -6,18 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/audit"
 )
 
 // Spec 8/15. Operator-only re-pair surface — dashd renders the page, proxies
 // POST to whapd /v1/pair/start presenting its service:dashd ES256 token (whapd
-// verifies it; HMAC retire step 5), writes an audit row to messages.
+// verifies it; HMAC retire step 5), and emits an audit_log event.
 
 const whapdDefaultURL = "http://whapd:8080"
 
@@ -247,22 +246,19 @@ func renderPairStatus(st pairStatus) string {
 	return out
 }
 
+// auditPairStart records an operator-initiated WhatsApp re-pair. It used to
+// fake an audit row by INSERTing a synthetic `messages` row into the pre-split
+// monolith — a write no reader ever saw once messages moved to routd.db. dashd
+// has a real audit sink (audit.Init on routd.db), so the event goes there.
 func (d *dash) auditPairStart(sub, phone string) {
-	if d.dbRW == nil {
-		return
-	}
-	_, err := d.dbRW.Exec(`
-		INSERT INTO messages (id, chat_jid, sender, content, timestamp, verb,
-		                     is_from_me, is_bot_message)
-		VALUES (?, ?, ?, ?, ?, ?, 0, 0)`,
-		core.MsgID("pair"),
-		"arizuko:admin/whapd",
-		"whapd:pair",
-		fmt.Sprintf("operator %s started pairing for %s", sub, phone),
-		time.Now().UTC().Format(time.RFC3339Nano),
-		"admin.pair",
-	)
-	if err != nil {
-		slog.Warn("pair audit write failed", "err", err)
-	}
+	audit.Emit(context.Background(), audit.Event{
+		Category:      audit.CategoryChannel,
+		Action:        "channel.pair.start",
+		Actor:         sub,
+		ActorSub:      sub,
+		Surface:       audit.SurfaceREST,
+		Resource:      "channels/whatsapp",
+		Outcome:       audit.OutcomeOK,
+		ParamsSummary: map[string]any{"phone": phone},
+	})
 }

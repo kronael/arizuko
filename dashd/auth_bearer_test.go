@@ -38,7 +38,7 @@ func proxydBearerKS(t *testing.T) (*auth.KeySet, string) {
 // the end-user identity reaches the handler.
 func guardedDash(t *testing.T, ks *auth.KeySet) *dash {
 	t.Helper()
-	d, _, _ := splitAdminDash(t, "github:alice")
+	d, _ := splitAdminDash(t, "github:alice")
 	d.ks = ks
 	return d
 }

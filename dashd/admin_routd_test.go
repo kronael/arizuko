@@ -58,21 +58,14 @@ CREATE TABLE user_profiles (
   name TEXT NOT NULL, created_at TEXT NOT NULL);
 `
 
-// splitAdminDash wires a dash with DISTINCT messages.db (db/dbRW) and routd.db
-// (dbRoutd) handles, each carrying the admin schema. The admin ACL row that the
-// requireAdmin gate consults is seeded into routd.db ONLY — so a passing write
-// also proves the gate's read path reads routd.db, not messages.db.
-func splitAdminDash(t *testing.T, adminSub string) (*dash, *sql.DB, *sql.DB) {
+// splitAdminDash wires a dash on routd.db, the ONLY store dashd opens. The admin
+// ACL row the requireAdmin gate consults is seeded there, so a passing write also
+// proves the gate's read path reads routd.db. dashd no longer carries a
+// messages.db handle at all — the monolith is unreachable by construction, which
+// is why these tests assert on routd.db alone.
+func splitAdminDash(t *testing.T, adminSub string) (*dash, *sql.DB) {
 	t.Helper()
 	name := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
-	msg, err := sql.Open("sqlite",
-		"file:admin_msg_"+name+"?mode=memory&cache=shared")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := msg.Exec(adminSchema); err != nil {
-		t.Fatalf("messages.db schema: %v", err)
-	}
 	routd, err := sql.Open("sqlite",
 		"file:admin_routd_"+name+"?mode=memory&cache=shared")
 	if err != nil {
@@ -87,8 +80,8 @@ func splitAdminDash(t *testing.T, adminSub string) (*dash, *sql.DB, *sql.DB) {
 		 VALUES (?, 'admin', '**', 'allow', '')`, adminSub); err != nil {
 		t.Fatalf("seed admin grant: %v", err)
 	}
-	t.Cleanup(func() { msg.Close(); routd.Close() })
-	return &dash{db: msg, dbRW: msg, dbRoutd: routd, groupsDir: t.TempDir()}, msg, routd
+	t.Cleanup(func() { routd.Close() })
+	return &dash{dbRoutd: routd, groupsDir: t.TempDir()}, routd
 }
 
 func adminReq(method, path, body, sub string) *http.Request {
@@ -112,7 +105,7 @@ func count(t *testing.T, db *sql.DB, q string, args ...any) int {
 // TestGrantAdd_TargetsRoutdDB: POST .../grants inserts the acl row into routd.db,
 // not messages.db. The gate also reading routd.db proves the admin-UI read path.
 func TestGrantAdd_TargetsRoutdDB(t *testing.T) {
-	d, msg, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	mux := newMux(d)
 
 	form := url.Values{
@@ -127,15 +120,12 @@ func TestGrantAdd_TargetsRoutdDB(t *testing.T) {
 	if n := count(t, routd, `SELECT COUNT(*) FROM acl WHERE principal='bob@x' AND action='send'`); n != 1 {
 		t.Errorf("routd.db acl rows = %d, want 1", n)
 	}
-	if n := count(t, msg, `SELECT COUNT(*) FROM acl WHERE principal='bob@x'`); n != 0 {
-		t.Errorf("messages.db acl rows = %d, want 0 (must not write the monolith)", n)
-	}
 }
 
 // TestGrantList_ReadsRoutdDB: the grants page renders a row seeded into routd.db
 // (proves the admin-UI READ reflects the live routd.db table).
 func TestGrantList_ReadsRoutdDB(t *testing.T) {
-	d, _, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	if _, err := routd.Exec(
 		`INSERT INTO acl (principal, action, scope, effect, granted_at)
 		 VALUES ('carol@x', 'reply', 'team', 'allow', '')`); err != nil {
@@ -154,12 +144,9 @@ func TestGrantList_ReadsRoutdDB(t *testing.T) {
 
 // TestGroupDelete_TargetsRoutdDB: deleting a group removes the row from routd.db.
 func TestGroupDelete_TargetsRoutdDB(t *testing.T) {
-	d, msg, routd := splitAdminDash(t, "alice@x")
-	// Seed the same folder in BOTH DBs; only routd's row should be deleted.
-	for _, db := range []*sql.DB{msg, routd} {
-		if _, err := db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('team', '')`); err != nil {
-			t.Fatal(err)
-		}
+	d, routd := splitAdminDash(t, "alice@x")
+	if _, err := routd.Exec(`INSERT INTO groups (folder, added_at) VALUES ('team', '')`); err != nil {
+		t.Fatal(err)
 	}
 	mux := newMux(d)
 	w := httptest.NewRecorder()
@@ -170,14 +157,11 @@ func TestGroupDelete_TargetsRoutdDB(t *testing.T) {
 	if n := count(t, routd, `SELECT COUNT(*) FROM groups WHERE folder='team'`); n != 0 {
 		t.Errorf("routd.db group rows = %d, want 0", n)
 	}
-	if n := count(t, msg, `SELECT COUNT(*) FROM groups WHERE folder='team'`); n != 1 {
-		t.Errorf("messages.db group rows = %d, want 1 (must not touch the monolith)", n)
-	}
 }
 
 // TestGroupList_ReadsRoutdDB: the groups page lists a folder seeded into routd.db.
 func TestGroupList_ReadsRoutdDB(t *testing.T) {
-	d, _, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	if _, err := routd.Exec(`INSERT INTO groups (folder, added_at) VALUES ('liveteam', '')`); err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +178,7 @@ func TestGroupList_ReadsRoutdDB(t *testing.T) {
 
 // TestRouteCreate_TargetsRoutdDB: POST .../routes inserts into routd.db.
 func TestRouteCreate_TargetsRoutdDB(t *testing.T) {
-	d, msg, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	mux := newMux(d)
 
 	form := url.Values{"seq": {"5"}, "match": {"room=42"}, "target": {"team"}}.Encode()
@@ -206,14 +190,11 @@ func TestRouteCreate_TargetsRoutdDB(t *testing.T) {
 	if n := count(t, routd, `SELECT COUNT(*) FROM routes WHERE match='room=42' AND target='team'`); n != 1 {
 		t.Errorf("routd.db route rows = %d, want 1", n)
 	}
-	if n := count(t, msg, `SELECT COUNT(*) FROM routes WHERE match='room=42'`); n != 0 {
-		t.Errorf("messages.db route rows = %d, want 0", n)
-	}
 }
 
 // TestRouteList_ReadsRoutdDB: the routes page renders a row seeded into routd.db.
 func TestRouteList_ReadsRoutdDB(t *testing.T) {
-	d, _, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	if _, err := routd.Exec(
 		`INSERT INTO routes (seq, match, target) VALUES (9, 'liveroute=1', 'team')`); err != nil {
 		t.Fatal(err)
@@ -231,7 +212,7 @@ func TestRouteList_ReadsRoutdDB(t *testing.T) {
 
 // TestRouteDelete_TargetsRoutdDB: deleting a route removes it from routd.db.
 func TestRouteDelete_TargetsRoutdDB(t *testing.T) {
-	d, _, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	var id int64
 	if err := routd.QueryRow(
 		`INSERT INTO routes (seq, match, target) VALUES (1, 'm=1', 'team') RETURNING id`).Scan(&id); err != nil {
@@ -251,7 +232,7 @@ func TestRouteDelete_TargetsRoutdDB(t *testing.T) {
 // TestRouteTokenIssue_TargetsRoutdDB: issuing a route token writes route_tokens
 // into routd.db and the issued token appears in the page.
 func TestRouteTokenIssue_TargetsRoutdDB(t *testing.T) {
-	d, msg, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	mux := newMux(d)
 
 	form := url.Values{"kind": {"chat"}}.Encode()
@@ -262,9 +243,6 @@ func TestRouteTokenIssue_TargetsRoutdDB(t *testing.T) {
 	}
 	if n := count(t, routd, `SELECT COUNT(*) FROM route_tokens WHERE jid='web:team' AND owner_folder='team'`); n != 1 {
 		t.Errorf("routd.db route_token rows = %d, want 1", n)
-	}
-	if n := count(t, msg, `SELECT COUNT(*) FROM route_tokens`); n != 0 {
-		t.Errorf("messages.db route_token rows = %d, want 0", n)
 	}
 
 	// Context form field (spec 5/W § link context) lands on the row; the
@@ -287,7 +265,7 @@ func TestRouteTokenIssue_TargetsRoutdDB(t *testing.T) {
 // TestTaskCreate_TargetsRoutdDB: creating a scheduled task inserts the row into
 // routd.db, not messages.db (routd OWNS scheduled_tasks in the split topology).
 func TestTaskCreate_TargetsRoutdDB(t *testing.T) {
-	d, msg, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	mux := newMux(d)
 
 	form := url.Values{
@@ -302,21 +280,15 @@ func TestTaskCreate_TargetsRoutdDB(t *testing.T) {
 	if n := count(t, routd, `SELECT COUNT(*) FROM scheduled_tasks WHERE owner='team' AND prompt='do the thing'`); n != 1 {
 		t.Errorf("routd.db scheduled_tasks rows = %d, want 1", n)
 	}
-	if n := count(t, msg, `SELECT COUNT(*) FROM scheduled_tasks WHERE owner='team'`); n != 0 {
-		t.Errorf("messages.db scheduled_tasks rows = %d, want 0 (must not write the monolith)", n)
-	}
 }
 
 // TestTaskAction_TargetsRoutdDB: pausing a task updates its status in routd.db.
 func TestTaskAction_TargetsRoutdDB(t *testing.T) {
-	d, msg, routd := splitAdminDash(t, "alice@x")
-	// Seed the same task id in BOTH DBs; only routd's row should flip to paused.
-	for _, db := range []*sql.DB{msg, routd} {
-		if _, err := db.Exec(
-			`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, status, created_at)
-			 VALUES ('t-1', 'team', 'web:team', 'p', 'active', '')`); err != nil {
-			t.Fatal(err)
-		}
+	d, routd := splitAdminDash(t, "alice@x")
+	if _, err := routd.Exec(
+		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, status, created_at)
+		 VALUES ('t-1', 'team', 'web:team', 'p', 'active', '')`); err != nil {
+		t.Fatal(err)
 	}
 	mux := newMux(d)
 	w := httptest.NewRecorder()
@@ -327,14 +299,11 @@ func TestTaskAction_TargetsRoutdDB(t *testing.T) {
 	if got := statusOf(t, routd, "t-1"); got != "paused" {
 		t.Errorf("routd.db task status = %q, want paused", got)
 	}
-	if got := statusOf(t, msg, "t-1"); got != "active" {
-		t.Errorf("messages.db task status = %q, want active (must not touch the monolith)", got)
-	}
 }
 
 // TestTaskList_ReadsRoutdDB: the tasks list renders a task seeded into routd.db.
 func TestTaskList_ReadsRoutdDB(t *testing.T) {
-	d, _, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	if _, err := routd.Exec(
 		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, status, created_at)
 		 VALUES ('t-live', 'liveowner', 'web:team', 'p', 'active', '')`); err != nil {
@@ -362,7 +331,7 @@ func statusOf(t *testing.T, db *sql.DB, id string) string {
 
 // TestRouteTokenRevoke_TargetsRoutdDB: revoking a token deletes it from routd.db.
 func TestRouteTokenRevoke_TargetsRoutdDB(t *testing.T) {
-	d, _, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	if _, err := routd.Exec(
 		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at)
 		 VALUES (x'00', 'web:team', 'team', '')`); err != nil {
@@ -382,16 +351,10 @@ func TestRouteTokenRevoke_TargetsRoutdDB(t *testing.T) {
 // TestActivity_ReadsRoutdDB: the activity feed renders a messages row seeded into
 // routd.db (where routd is the sole live appender), not the stale messages.db twin.
 func TestActivity_ReadsRoutdDB(t *testing.T) {
-	d, msg, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	if _, err := routd.Exec(
 		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, source, verb)
 		 VALUES ('m-live', 'web:team', 'u', 'live body', '2026-06-14T00:00:00Z', 'web', 'message')`); err != nil {
-		t.Fatal(err)
-	}
-	// A divergent row in the dead messages.db must NOT surface.
-	if _, err := msg.Exec(
-		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, source, verb)
-		 VALUES ('m-stale', 'web:team', 'u', 'stale body', '2026-06-14T00:00:01Z', 'web', 'message')`); err != nil {
 		t.Fatal(err)
 	}
 	mux := newMux(d)
@@ -404,25 +367,15 @@ func TestActivity_ReadsRoutdDB(t *testing.T) {
 	if !strings.Contains(body, "live body") {
 		t.Errorf("activity missing routd.db row: %s", body)
 	}
-	if strings.Contains(body, "stale body") {
-		t.Errorf("activity rendered a stale messages.db row (must read routd.db only)")
-	}
 }
 
 // TestErroredCount_ReadsRoutdDB: the status banner's errored-chat count comes from
 // routd.db's messages.errored flags, not the frozen messages.db twin.
 func TestErroredCount_ReadsRoutdDB(t *testing.T) {
-	d, msg, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	if _, err := routd.Exec(
 		`INSERT INTO messages (id, chat_jid, content, timestamp, errored)
 		 VALUES ('e-live', 'web:liveerr', 'x', '2026-06-14T00:00:00Z', 1)`); err != nil {
-		t.Fatal(err)
-	}
-	// Two distinct errored chats in the dead messages.db must not be counted.
-	if _, err := msg.Exec(
-		`INSERT INTO messages (id, chat_jid, content, timestamp, errored) VALUES
-		 ('e-a', 'web:stalea', 'x', '2026-06-10T00:00:00Z', 1),
-		 ('e-b', 'web:staleb', 'x', '2026-06-10T00:00:01Z', 1)`); err != nil {
 		t.Fatal(err)
 	}
 	if n := d.countVisibleErroredChats(nil, true); n != 1 {
@@ -433,15 +386,10 @@ func TestErroredCount_ReadsRoutdDB(t *testing.T) {
 // TestProfile_ReadsRoutdDB: the profile name resolves from user_profiles in routd.db
 // (routd owns it post-split per routd/migrations 0011 + 0025), not messages.db.
 func TestProfile_ReadsRoutdDB(t *testing.T) {
-	d, msg, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	if _, err := routd.Exec(
 		`INSERT INTO user_profiles (sub, username, name, created_at)
 		 VALUES ('google:bob', 'bob', 'Bob Live', '')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := msg.Exec(
-		`INSERT INTO user_profiles (sub, username, name, created_at)
-		 VALUES ('google:bob', 'bob', 'Bob Stale', '')`); err != nil {
 		t.Fatal(err)
 	}
 	mux := newMux(d)

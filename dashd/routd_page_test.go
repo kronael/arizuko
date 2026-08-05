@@ -46,7 +46,7 @@ func routdDB(t *testing.T) *sql.DB {
 func TestRoutdEmpty(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbRoutd: db}
+	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -91,7 +91,7 @@ func TestRoutdErroredRows(t *testing.T) {
 		 VALUES ('p1','web:alice','2026-06-16T10:01:00Z',1,'pending')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db, dbRoutd: db}
+	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -128,7 +128,7 @@ func TestRoutdRetryClears(t *testing.T) {
 		 ('m2','web:bob','2026-06-16T10:00:00Z',1)`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db, dbRW: db, dbRoutd: db}
+	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -156,7 +156,7 @@ func TestRoutdRetryClears(t *testing.T) {
 func TestRoutdRetryNonOperatorForbidden(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbRW: db, dbRoutd: db}
+	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -175,7 +175,7 @@ func TestRoutdRetryNonOperatorForbidden(t *testing.T) {
 func TestRoutdNonOperatorForbidden(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbRoutd: db}
+	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 

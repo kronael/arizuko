@@ -35,7 +35,7 @@ func TestEncodeJID_roundTrip(t *testing.T) {
 // row, not a "/"-collision twin. Under the old encode/decode, revoking
 // hook:team/a--b decoded to hook:team/a/b and deleted the wrong token.
 func TestRouteTokenRevoke_dashDashLabelExact(t *testing.T) {
-	d, _, routd := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	for _, jid := range []string{"hook:team/a--b", "hook:team/a/b"} {
 		if _, err := routd.Exec(
 			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at)

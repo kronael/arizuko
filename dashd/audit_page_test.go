@@ -46,7 +46,7 @@ func seedAudit(t *testing.T, db *sql.DB, category, action, actor, folder, outcom
 func auditGet(t *testing.T, db *sql.DB, url string) string {
 	t.Helper()
 	// audit_log is read through adminDB (dbRoutd) now; point both at the seeded DB.
-	d := &dash{db: db, dbRoutd: db}
+	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", url, nil))
@@ -141,7 +141,7 @@ func TestAuditPagination(t *testing.T) {
 // identity comes from the asOperator ["**"] header, so no dbRoutd ACL lookup is
 // needed — dbRoutd nil exercises the unavailable path cleanly.
 func TestAuditNilDB(t *testing.T) {
-	d := &dash{db: nil, dbRoutd: nil}
+	d := &dash{dbRoutd: nil}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/audit/", nil))
@@ -191,7 +191,7 @@ func TestAuditFolderFilter(t *testing.T) {
 func TestAuditNonOperatorForbidden(t *testing.T) {
 	db := auditDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbRoutd: db}
+	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/audit/", nil)

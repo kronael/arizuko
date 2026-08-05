@@ -11,7 +11,7 @@ import (
 // visible rows. A scoped caller's task must render even when 500 other-owner
 // tasks sort ahead of it (owner order); the old plain LIMIT 500 cut it off.
 func TestWriteTaskRows_visibleBeyondLimit(t *testing.T) {
-	d, _, routd := splitAdminDash(t, "op@x")
+	d, routd := splitAdminDash(t, "op@x")
 	tx, err := routd.Begin()
 	if err != nil {
 		t.Fatal(err)
