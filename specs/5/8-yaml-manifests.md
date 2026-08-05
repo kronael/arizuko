@@ -27,15 +27,18 @@ depends: specs/5/16-mcp-rest-unification.md, specs/5/17-openapi-mcp.md, specs/5/
 ## Status: engine shipped, archive not designed until now
 
 The resreg engine and the YAML config-manifest format ship
-(`resreg/engine.go`, `resreg/resources/*.go`, 13 registered resources). The
-CLI does **not** reach a production instance: `arizuko apply`/`plan`/
-`export`/`get` all call `store.Open(dataDir+"/store")`
-(`cmd/arizuko/apply.go:45,94,128,204`), which opens the frozen pre-split
-`messages.db` (`store/store.go:51`) — not `routd.db` / `onbod.db`. Verified
-2026-08-04, unchanged since the last check. **Concrete first step:**
-repoint those four sites to `store.OpenRoutd`/`store.OpenOnbod`
-(`store/store.go:76,103`) per [`5/16`](16-mcp-rest-unification.md)'s
-owner-DB map. Tracked in `BUGS.md` Y1.
+(`resreg/engine.go`, `resreg/resources/*.go`, 13 registered resources).
+The CLI now reaches a production instance: `arizuko apply`/`plan`/
+`export`/`get` open the owner DBs through `openSubsystemStores`
+(`cmd/arizuko/apply.go:50`), which calls `store.OpenRoutd`/`store.OpenOnbod`
+and errors rather than falling back — they no longer touch the frozen
+pre-split `messages.db`. BUGS Y1 closed.
+
+The frozen `messages.db` still sits at `store=74` against 80 files in
+`store/migrations/`, so any `store.Open` on it would migrate **and** run
+the hash-at-rest backfills. The only remaining caller is
+`tests/dashd-playwright/seed/main.go:55`, and `dashd/main.go:354` refuses
+the path outright — reachable only from a test seeder, never a daemon.
 
 Everything below the config manifest — the archive container, message
 history, secret-blob transfer, group filesystem trees — was a **new
