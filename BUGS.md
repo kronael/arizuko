@@ -3951,7 +3951,7 @@ its own verdict — a secret's audit row must not carry the value.
     `PutACLRow`/`PutMembership` stay (test seeding; the `role:member` seed at
     group creation, the 4r migration backfill) with the missing-table
     justification struck from their comments.
-## F1 — `installed_packages` is a management table with no resreg resource (2026-08-05, PROPOSED — redesign, needs sign-off)
+## ✅ FIXED 2026-08-05 — F1 — `installed_packages` is a management table with no resreg resource (2026-08-05, fixed)
 
 Every cold-tier management entity is required to register a resreg `Resource`,
 so one handler wears a REST face for operators and a derived MCP face for
@@ -3970,13 +3970,40 @@ copy, grant apply, route apply) that does not fit the CRUD convention resreg
 emits, so the resource shape has to be designed — probably a narrow
 `list`/`get` face plus explicit install/remove actions, not a table CRUD.
 
+Signed off and shipped as a READ-ONLY resource — the entry's own instinct
+("probably a narrow `list`/`get` face") was right, and the "plus explicit
+install/remove actions" half was dropped on inspection. Install writes host
+files (compose fragments under `<datadir>/services/`, skills under
+`<datadir>/skills/`), shells out to `git clone`, applies acl + `proxyd_routes`
+rows, and needs `arizuko generate` + a compose restart afterwards. Putting that
+behind a routd handler means either a second implementation of a ~200-line
+pipeline (the drift CLAUDE.md forbids) or a write that does less than the CLI
+while looking like it did the same thing. Remove is worse: the record is what
+`packages remove` reads to find the identities to reverse, so a `DELETE` orphans
+the routes, grants and files it named. The lifecycle stays CLI-owned; the
+resource publishes the read both faces were missing.
+
+Containment turned out not to be folder containment at all: the table has no
+folder column and the record names cross-folder identities, so there is no
+per-folder slice to hand a tenant. Both faces bind the same instance-wide target
+(`**`) and run `auth.Authorize` on it — a folder-scoped grant does not match, so
+only the operator role or an explicit `**`-scoped delegation reads it.
+
 - **Severity:** medium (agent/operator surfaces disagree; documented review-blocker)
 - **Scope:** packages lifecycle vs resreg
 - **Affected:** all instances — `arizuko packages`
 - **Source:** resreg/resources/ (no packages resource); dashd/packages_page.go:8-25; cmd/arizuko/packages.go; routd/packages_store.go; CLAUDE.md:71-73
-- **Status:** PROPOSED — redesign, needs sign-off. Do not register a CRUD
-  resource for it without agreeing the action shape first.
+- **Status:** fixed — not deployed
 - **Found:** specs/5 frontmatter audit; `5/28` demoted to `partial`.
+- **Fix:** `308a2f05` — `resreg/resources/installed_packages.go` (catalog decl:
+  RowType → OpenAPI schema, two GET Endpoints, `list_packages`/`get_package`)
+  + `routd/packages_resource.go` (one handler, REST gate + agent gate, both on
+  `**`) + `routd.OpenAPIResources` (so a test can assert doc and mux agree) +
+  `store/migrations/0081` (the shared schema library never mirrored routd's
+  0020, so `resreg.Export(routd)` could not scan the resource). 11 tests, each
+  falsified by breaking exactly the mechanism it covers.
+- **Leaves `5/28` at `partial`:** F2 (unaudited route install) and F3
+  (`products.toml` composition unbuilt) are untouched by this.
 
 ## F2 — package route installs write no audit row (2026-08-05, open)
 
