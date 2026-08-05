@@ -51,7 +51,7 @@ them on each request.
   Spec: `specs/5/17-openapi-mcp.md`. Cost is N+M hand-rolled
   handlers; gain is one shape across the platform — agent and human
   see the same actions and the same folder-containment discipline, each
-  checked by its own injected gate (agent tier-grants vs operator
+  checked by its own injected gate (agent `acl` grant rows vs operator
   scope/ACL — see "Auth is a uniform middleware").
 - **A resource's name IS its wire identity, globally unique**: the
   resreg `Name` becomes the `/v1/<name>` REST path AND the MCP tool

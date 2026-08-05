@@ -329,7 +329,7 @@ Durable rules the package layout obeys.
   inside one layer are fine.
 
 - **`types/` shared-IDs package.** Top-level `types/` holds the
-  cross-boundary IDs (`UserSub`, `Folder`, `Tier`, `Scope`) as pure
+  cross-boundary IDs (`UserSub`, `Folder`, `Scope`) as pure
   named types — no behavior, no methods, zero arizuko-internal imports.
   It exists to break import cycles between each `<daemon>/api/v1/` and
   `core/`. Richer semantics (JID parsing, hierarchy, scope evaluation)
@@ -591,8 +591,8 @@ routd binds the socket before runed spawns the container and removes it
 when the run returns; runed sets `Input.ExternalMCP=true` and only
 mounts the ipc dir.
 
-Identity resolved from the socket path (folder, tier); authorization runs
-the injected agent gate (`db.Authorize` with `mcp:`+tier), never a
+Identity resolved from the socket path (folder); authorization runs
+the injected agent gate (`db.Authorize` with `mcp:`+tool name), never a
 second hand-rolled check.
 
 ## Queue (queue package)
@@ -861,7 +861,7 @@ three properties: **XML-shaped**, **never persisted to `messages`**,
 today:
 
 - `<autocalls>` — zero-arg facts (`now`, `instance`, `folder`,
-  `tier`, `session`); `routd/prompt.go`
+  `session`); `routd/prompt.go`
 - `<persona name=…>` — `PERSONA.md` frontmatter `summary:` re-anchor;
   `routd/prompt.go`
 - `<previous_session/>` — last session id/timing on a fresh session;

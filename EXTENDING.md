@@ -56,7 +56,7 @@ Rules:
 
 - Result is ≤ 1 line of text. Empty string = skip the line.
 - No args, no I/O, no locks. Must resolve in microseconds.
-- Derives from `autocallCtx` (instance, folder, session, tier, now).
+- Derives from `autocallCtx` (instance, folder, session, now).
 - If any of these don't hold, use an MCP tool instead.
 
 Add an entry to the `autocalls` registry slice in `routd/prompt.go`:

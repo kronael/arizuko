@@ -36,7 +36,7 @@ What's isolated per group:
   through `crackbox` against the per-folder allowlist
   (`container/egress.go`, `crackbox/`).
 - **DB view** — the MCP socket at `ipc/<folder>/gated.sock` carries
-  the group's identity (`SO_PEERCRED` + socket-path tier); every
+  the group's identity (`SO_PEERCRED` + socket-path folder); every
   tool call resolves through `auth.Authorize` against that folder,
   not the caller's claim (`ipc/ipc.go`, `auth/middleware.go`).
 - **Secrets** — AES-256-GCM encrypted at rest. Operator anchors
@@ -128,7 +128,7 @@ weakening the token axis (a stolen JWT doesn't reveal tokens; a leaked
 token doesn't impersonate users). A third, non-credential axis — the
 token's optional `context` (issuer-authored processing instructions,
 rendered to the agent as `<link-context>`) — is set only at mint time
-by an authorized issuer (tier-capped MCP, scoped REST, dashd admin,
+by an authorized issuer (grant-gated MCP, scoped REST, dashd admin,
 CLI); the public URL cannot alter it.
 
 ### Pairing: consent is the boundary
