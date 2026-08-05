@@ -188,7 +188,7 @@ func applyPackageGrants(rdb *routd.DB, name, dir string) []string {
 	if err != nil {
 		die("Failed: read source %s: %v", dir, err)
 	}
-	st := packageACLStore(rdb)
+	st := packageStore(rdb)
 	var recorded []string
 	for _, e := range entries {
 		n := e.Name()
@@ -216,10 +216,10 @@ func applyPackageGrants(rdb *routd.DB, name, dir string) []string {
 	return recorded
 }
 
-// packageACLStore wraps routd.db for the package grant writers, attributed to the
-// operator who ran the CLI — a package brings the grants, but a person chose to
-// install it, and that is who the trail must name.
-func packageACLStore(rdb *routd.DB) *store.Store {
+// packageStore wraps routd.db for the package install/remove writers, attributed
+// to the operator who ran the CLI — a package brings the grants and the routes,
+// but a person chose to install it, and that is who the trail must name.
+func packageStore(rdb *routd.DB) *store.Store {
 	return store.New(rdb.SQL()).AsCLI(os.Getenv("USER"))
 }
 
@@ -227,8 +227,12 @@ func packageACLStore(rdb *routd.DB) *store.Store {
 // assets into routd.db's proxyd_routes table. proxyd reads that table live per
 // request, so the route takes effect WITHOUT a restart — the 5/27 C2 fix
 // (spec 5/28 P2). Returns the applied route paths for the record.
+//
+// Audited per route by PutProxydRoute (BUGS.md F2), the half of this install
+// path that applyPackageGrants already covered for grants. The route is the
+// larger blast radius of the two: it opens a public URL onto a backend.
 func applyPackageRoutes(rdb *routd.DB, dir string, files []string) []string {
-	st := store.New(rdb.SQL())
+	st := packageStore(rdb)
 	var paths []string
 	for _, n := range files {
 		if !strings.HasSuffix(n, "-routes.json") {
@@ -537,7 +541,7 @@ func cmdPackages(args []string) {
 			// is ever routed at a sidecar mid-teardown, THEN drop the fragment
 			// files. Bring-up health-gating is compose's (healthcheck +
 			// depends_on) — the CLI can't reach docker-internal backends.
-			st := packageACLStore(rdb)
+			st := packageStore(rdb)
 			if paths := rec.Manifest["proxyd_route"]; len(paths) > 0 && hasTable(rdb, "proxyd_routes") {
 				for _, p := range paths {
 					if _, err := st.DeleteProxydRoute(p); err != nil {
