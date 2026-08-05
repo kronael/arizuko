@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"database/sql"
 	"path/filepath"
+	"sort"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
@@ -151,4 +154,54 @@ func TestSecretLandsInRoutdDB(t *testing.T) {
 		"SELECT COUNT(*) FROM secrets WHERE key='GITHUB_TOKEN'"); n != 0 {
 		t.Errorf("routd.db secret rows after delete = %d, want 0", n)
 	}
+}
+
+// TestGroupListReadsRoutdDB proves `arizuko group list` reads the group set out
+// of routd.db — the DB every other `group` verb already WRITES via mustOpenACL.
+// The read used to go through store.Open, so it printed the frozen messages.db
+// group set and silently disagreed with the writes beside it (BUGS.md Q1).
+func TestGroupListReadsRoutdDB(t *testing.T) {
+	dir := setupSplitStore(t)
+
+	rs, err := store.OpenRoutd(dir)
+	if err != nil {
+		t.Fatalf("OpenRoutd: %v", err)
+	}
+	if err := rs.PutGroupRow(core.Group{Folder: "live/eng", AddedAt: time.Now()}); err != nil {
+		t.Fatalf("PutGroupRow: %v", err)
+	}
+	rs.Close()
+
+	// A group only the retired monolith knows about must NOT appear.
+	ms, err := store.Open(dir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := ms.PutGroupRow(core.Group{Folder: "stale/monolith", AddedAt: time.Now()}); err != nil {
+		t.Fatalf("seed monolith group: %v", err)
+	}
+	ms.Close()
+
+	// The read `group list` performs, on the handle mustOpenACL returns.
+	ls, err := store.OpenRoutd(dir)
+	if err != nil {
+		t.Fatalf("OpenRoutd: %v", err)
+	}
+	defer ls.Close()
+	got := ls.AllGroups()
+	if _, ok := got["live/eng"]; !ok {
+		t.Errorf("group list missed routd.db group live/eng; got %v", keysOf(got))
+	}
+	if _, ok := got["stale/monolith"]; ok {
+		t.Errorf("group list surfaced the frozen messages.db group set: %v", keysOf(got))
+	}
+}
+
+func keysOf(m map[string]core.Group) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

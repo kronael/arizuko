@@ -23,6 +23,44 @@ func seedUser(t *testing.T, db *DB, sub string, capCents int) {
 	}
 }
 
+// TestBudgetGate_HonorsOperatorSetCaps proves the `arizuko budget set` write
+// path reaches enforcement: the caps are written through the SAME DB.SetFolderCap
+// / DB.SetUserCap the CLI verb calls, and budgetGate must then refuse the turn.
+// The verb used to write these caps into the frozen messages.db, so an operator
+// capped a folder and nothing changed (BUGS.md Q1).
+func TestBudgetGate_HonorsOperatorSetCaps(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	loop.costCapsEnabled = true
+	_ = db.PutGroup(core.Group{Folder: "team"})
+	s := store.New(db.SQL())
+	if err := s.CreateAuthUser("google:bob", "bob", "Bob"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	// Exactly what `arizuko budget set folder team --daily 40` does.
+	if err := db.SetFolderCap("team", 40); err != nil {
+		t.Fatalf("SetFolderCap: %v", err)
+	}
+	if err := db.PutCost("team", "t-prior", "", "m", 0, 0, 40); err != nil {
+		t.Fatal(err)
+	}
+	if msg := loop.budgetGate("team", ""); !strings.Contains(msg, "channel spent 40 of 40") {
+		t.Errorf("operator folder cap not enforced: budgetGate = %q", msg)
+	}
+
+	// And `arizuko budget set user google:bob --daily 10`.
+	_ = db.PutGroup(core.Group{Folder: "wide"})
+	if err := db.SetUserCap("google:bob", 10); err != nil {
+		t.Fatalf("SetUserCap: %v", err)
+	}
+	if err := db.PutCost("wide", "t-prior2", "google:bob", "m", 0, 0, 10); err != nil {
+		t.Fatal(err)
+	}
+	if msg := loop.budgetGate("wide", "google:bob"); !strings.Contains(msg, "you spent 10 of 10") {
+		t.Errorf("operator user cap not enforced: budgetGate = %q", msg)
+	}
+}
+
 // TestBudgetGate_UserCapBindsLower: a user cap below the folder cap binds first.
 // Mirrors gateway_test.TestBudgetGate_UserCapBindsLower.
 func TestBudgetGate_UserCapBindsLower(t *testing.T) {

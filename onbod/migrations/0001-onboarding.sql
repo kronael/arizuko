@@ -11,8 +11,10 @@
 --   invites          — store 0032 (rewrite of 0028 invitations).
 --   onboarding_gates — store 0029.
 -- IF NOT EXISTS: `arizuko migrate-split` pre-creates these tables in onbod.db
--- (onbodSchema) without recording a migrations row, so this migration re-runs on
--- the next onbod boot. Idempotent CREATEs make that a no-op.
+-- (onbodSchema). It now stamps the migrations rows that bootstrap satisfies, so
+-- this file is skipped on the next onbod boot — but a DB bootstrapped by an
+-- older binary carries no such row and still replays it, so the idempotent
+-- CREATEs stay.
 CREATE TABLE IF NOT EXISTS onboarding (
   jid           TEXT PRIMARY KEY,
   status        TEXT NOT NULL,
@@ -26,9 +28,8 @@ CREATE TABLE IF NOT EXISTS onboarding (
   admitted_at   TEXT
 );
 -- No index on token here: 0004 replaces the column with token_ref and creates
--- idx_onboarding_token_ref. Indexing `token` at this point would also break
--- `arizuko migrate-split`, which bootstraps the FINAL (token_ref) shape without
--- recording migration rows, so this file re-runs against it on the next boot.
+-- idx_onboarding_token_ref. An index on a column this chain drops two
+-- migrations later buys nothing.
 
 CREATE TABLE IF NOT EXISTS invites (
   token         TEXT PRIMARY KEY,

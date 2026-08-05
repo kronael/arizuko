@@ -5,25 +5,24 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"text/tabwriter"
 
-	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/routd"
 )
 
 // cmdBudget manages per-folder and per-user cost caps + reports spend.
-// Spec 5/34. The pre-spawn gate in gateway/ refuses to spawn when today's
-// spend exceeds the lower of (folder cap, user cap). Caps stored on
-// `groups.cost_cap_cents_per_day` and `user_profiles.cost_cap_cents_per_day`.
+// Spec 5/34. routd's pre-spawn budgetGate refuses to spawn when today's spend
+// exceeds the lower of (folder cap, user cap), reading caps from
+// `groups.cost_cap_cents_per_day` / `user_profiles.cost_cap_cents_per_day` and
+// spend from `cost_log` — all in ROUTD.DB. The verb goes through *routd.DB so
+// it writes and reads the exact rows the gate enforces from; opening the
+// frozen messages.db here made `budget set` a silent no-op (BUGS.md Q1).
 func cmdBudget(args []string) {
 	need(args, 2, "arizuko budget <instance> <set|show> ...")
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
-	s, err := store.Open(filepath.Join(dataDir, "store"))
-	if err != nil {
-		die("Failed: open db: %v", err)
-	}
+	s := mustOpenRoutd(dataDir)
 	defer s.Close()
 
 	switch action {
@@ -66,7 +65,7 @@ func parseBudgetSet(args []string) (scope, target string, daily int, err error) 
 	return fs.Arg(0), fs.Arg(1), daily, nil
 }
 
-func runBudgetSet(s *store.Store, scope, target string, daily int, w io.Writer) error {
+func runBudgetSet(s *routd.DB, scope, target string, daily int, w io.Writer) error {
 	switch scope {
 	case "folder":
 		if err := s.SetFolderCap(target, daily); err != nil {
@@ -87,7 +86,7 @@ func runBudgetSet(s *store.Store, scope, target string, daily int, w io.Writer) 
 	return nil
 }
 
-func runBudgetShow(s *store.Store, scope, target string, w io.Writer) error {
+func runBudgetShow(s *routd.DB, scope, target string, w io.Writer) error {
 	var cap, spent int
 	var err error
 	switch scope {

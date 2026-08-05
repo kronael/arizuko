@@ -92,6 +92,13 @@ func (d *DB) UserCap(userSub string) (int, error) {
 	return d.userStore().UserCap(userSub)
 }
 
+// SetUserCap writes the per-day cap for one user_sub. 0 = uncapped. The
+// operator write half of UserCap, so `arizuko budget set user` lands on the
+// row budgetGate reads.
+func (d *DB) SetUserCap(userSub string, cents int) error {
+	return d.userStore().SetUserCap(userSub, cents)
+}
+
 // FolderSecrets resolves the folder-scoped secret set for `folder`,
 // DECRYPTING `v2:` values via the SECRETS_KEY keyring (deepest-wins
 // folder-ancestry precedence). SECRETS_KEY unset / read error → empty map (the

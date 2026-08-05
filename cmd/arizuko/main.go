@@ -288,24 +288,24 @@ func cmdCreate(args []string) {
 	}
 
 	storeDir := filepath.Join(dataDir, "store")
-	s, err := store.Open(storeDir)
-	if err != nil {
-		die("Failed: open db: %v", err)
-	}
-	defer s.Close()
+	// groups + scheduled_tasks live in routd.db, so the default group is seeded
+	// there and a new instance is born WITHOUT a messages.db. Seeding the frozen
+	// monolith instead left `main` in a DB no daemon opens (BUGS.md Q1).
+	rdb := mustOpenRoutd(dataDir)
+	defer rdb.Close()
 	// Daemons run as uid 1000 (compose `user: '1000:1000'`) but `sudo arizuko
 	// create` makes the tree root-owned, so uid 1000 can't open the SQLite DBs
 	// under store/ (SQLITE_CANTOPEN). chown store/ — and only store/ — to 1000
 	// so every daemon's DB is writable; the data-dir root and .env stay
 	// root-owned (matches the working krons layout).
 	chownStore(storeDir)
-	if err := s.PutGroup(core.Group{Folder: "main", AddedAt: time.Now(), Product: product}); err != nil {
+	if err := rdb.PutGroup(core.Group{Folder: "main", AddedAt: time.Now(), Product: product}); err != nil {
 		die("Failed: add default group: %v", err)
 	}
 	if err := container.SetupGroup(cfg, "main", productDir); err != nil {
 		slog.Warn("failed to setup group dir", "folder", "main", "err", err)
 	}
-	if err := s.SeedDefaultTasks("main", "main"); err != nil {
+	if err := store.New(rdb.SQL()).SeedDefaultTasks("main", "main"); err != nil {
 		slog.Warn("failed to seed default tasks", "folder", "main", "err", err)
 	}
 	fmt.Printf("created instance %s at %s\n", name, dataDir)
@@ -357,10 +357,11 @@ func cmdGroup(args []string) {
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
-	s, err := store.Open(filepath.Join(dataDir, "store"))
-	if err != nil {
-		die("Failed: open db: %v", err)
-	}
+	// groups/routes/scheduled_tasks/acl live in routd.db post-split, and so does
+	// audit_log (routd migration 0016) — one routd.db handle serves every action
+	// here, reads included. `list` used to read the frozen messages.db and print
+	// the pre-split group set, disagreeing with the writes beside it (BUGS.md Q1).
+	s := mustOpenACL(dataDir)
 	defer s.Close()
 
 	switch action {
@@ -397,16 +398,10 @@ func cmdGroup(args []string) {
 		if err := container.SetupGroup(cfg, folder, productDir); err != nil {
 			die("Failed: setup group dir: %v", err)
 		}
-		// groups/routes/scheduled_tasks live in routd.db post-split. Use the
-		// routd.db-preferring handle + audit-free writers (PutGroupRow/PutRouteRow):
-		// routd.db has no audit_log table, so the audited PutGroup/AddRoute would
-		// roll back — same discipline as dashd's group-create + `arizuko grant`.
-		gs := mustOpenACL(dataDir)
-		defer gs.Close()
-		if err := gs.SeedDefaultTasks(folder, folder); err != nil {
+		if err := s.SeedDefaultTasks(folder, folder); err != nil {
 			slog.Warn("failed to seed default tasks", "folder", folder, "err", err)
 		}
-		if err := gs.PutGroupRow(core.Group{Folder: folder, AddedAt: time.Now()}); err != nil {
+		if err := s.PutGroupRow(core.Group{Folder: folder, AddedAt: time.Now()}); err != nil {
 			die("Failed: add group: %v", err)
 		}
 		auditCLI(s, "group add", []string{jid, folder})
@@ -415,21 +410,21 @@ func cmdGroup(args []string) {
 		// observe row. Non-mention messages accumulate as context
 		// without firing the agent.
 		if strings.HasPrefix(jid, "discord:") && !strings.HasPrefix(jid, "discord:dm/") {
-			if _, err := gs.PutRouteRow(core.Route{
+			if _, err := s.PutRouteRow(core.Route{
 				Seq:    -1,
 				Match:  "room=" + core.JidRoom(jid) + " verb=mention",
 				Target: folder,
 			}); err != nil {
 				die("Failed: add route: %v", err)
 			}
-			if _, err := gs.PutRouteRow(core.Route{
+			if _, err := s.PutRouteRow(core.Route{
 				Seq:    0,
 				Match:  "room=" + core.JidRoom(jid),
 				Target: folder + "#observe",
 			}); err != nil {
 				die("Failed: add route: %v", err)
 			}
-		} else if _, err := gs.PutRouteRow(core.Route{
+		} else if _, err := s.PutRouteRow(core.Route{
 			Seq: 0, Match: "room=" + core.JidRoom(jid), Target: folder,
 		}); err != nil {
 			die("Failed: add route: %v", err)
@@ -439,11 +434,7 @@ func cmdGroup(args []string) {
 	case "rm":
 		need(args, 3, "arizuko group <instance> rm <folder>")
 		folder := args[2]
-		// groups live in routd.db post-split — use the routd.db-preferring handle
-		// + audit-free DeleteGroupRow (routd.db has no audit_log), matching `add`.
-		gs := mustOpenACL(dataDir)
-		defer gs.Close()
-		if err := gs.DeleteGroupRow(folder); err != nil {
+		if err := s.DeleteGroupRow(folder); err != nil {
 			die("Failed: remove group: %v", err)
 		}
 		auditCLI(s, "group rm", []string{folder})
@@ -451,17 +442,13 @@ func cmdGroup(args []string) {
 
 	case "grant":
 		need(args, 4, "arizuko group <instance> grant <sub> <pattern>")
-		acl := mustOpenACL(dataDir)
-		defer acl.Close()
-		if err := runGrant(acl, args[2], args[3], os.Stdout); err != nil {
+		if err := runGrant(s, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: grant: %v", err)
 		}
 
 	case "ungrant":
 		need(args, 4, "arizuko group <instance> ungrant <sub> <pattern>")
-		acl := mustOpenACL(dataDir)
-		defer acl.Close()
-		if err := runUngrant(acl, args[2], args[3], os.Stdout); err != nil {
+		if err := runUngrant(s, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: ungrant: %v", err)
 		}
 
@@ -470,17 +457,13 @@ func cmdGroup(args []string) {
 		if len(args) >= 3 {
 			sub = args[2]
 		}
-		acl := mustOpenACL(dataDir)
-		defer acl.Close()
-		if err := runGrants(acl, sub, os.Stdout); err != nil {
+		if err := runGrants(s, sub, os.Stdout); err != nil {
 			die("Failed: grants: %v", err)
 		}
 
 	case "thread-replies":
 		need(args, 4, "arizuko group <instance> thread-replies <folder> <on|off|default>")
 		folder, val := args[2], args[3]
-		gs := mustOpenACL(dataDir)
-		defer gs.Close()
 		var on *bool
 		switch val {
 		case "on":
@@ -494,7 +477,7 @@ func cmdGroup(args []string) {
 		default:
 			die("Failed: expected on|off|default, got %q", val)
 		}
-		if err := gs.SetThreadReplies(folder, on); err != nil {
+		if err := s.SetThreadReplies(folder, on); err != nil {
 			die("Failed: set thread-replies: %v", err)
 		}
 		label := val

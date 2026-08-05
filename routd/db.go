@@ -1029,6 +1029,15 @@ func (d *DB) FolderCap(folder string) (int, error) {
 	return cents, err
 }
 
+// SetFolderCap writes the per-day spend cap on the groups row for folder.
+// Zero = uncapped. The operator write half of FolderCap, so `arizuko budget
+// set folder` lands on the row budgetGate reads.
+func (d *DB) SetFolderCap(folder string, cents int) error {
+	_, err := d.db.Exec(
+		"UPDATE groups SET cost_cap_cents_per_day = ? WHERE folder=?", cents, folder)
+	return err
+}
+
 // SpendTodayFolder sums cost_log.cost_cents for a folder since the UTC start of
 // today — the pre-spawn budget gate's spend view.
 func (d *DB) SpendTodayFolder(folder string) (int, error) {

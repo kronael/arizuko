@@ -3461,7 +3461,7 @@ Not chased (still open): O1's stranded `pending` rows. sloth and marinade each
 carry one, confirmed live — `pending` is absent from `knownStatuses`, so
 `warnStrandedRows` logs them every tick and nothing advances them.
 
-## Z3b — `migrate-split` bootstraps the FINAL onbod schema but records no migration rows, so a reshaping migration re-runs against it and fails (2026-08-05, open)
+## Z3b — `migrate-split` bootstraps the FINAL onbod schema but records no migration rows, so a reshaping migration re-runs against it and fails (2026-08-05, fixed)
 
 Found while closing Z3, **not introduced by it — `invites` already has this
 bug at `961e5b68`** and it is the reason `onbod/migrations/0001` had to give
@@ -3491,12 +3491,21 @@ next reshaping migration silently arms it again for anyone converting.
 - **Scope:** `cmd/arizuko/migrate_split.go`, `store/invites.go`,
   `store/onboarding.go`
 - **Affected:** `BackfillInviteRefs` (live at base), `BackfillOnboardingTokenRefs`
-- **Source:** reproduced on a scratch DB 2026-08-05; `db_utils/migrate.go:24-28`
+- **Source:** reproduced on a scratch DB 2026-08-05; `db_utils/db_utils.go:24-28`
   is the `MAX(version)` read
-- **Fix:** have `migrateSplit` record the versions `onbodSchema` already
-  satisfies, so the chain starts from the shape it actually bootstrapped
-  instead of replaying it. Cross-cutting (changes what a bootstrapped DB
-  claims about itself) — wants sign-off, not an inline patch.
+- **Status:** fixed 2026-08-05 (a6649e24)
+- **Fix:** `migrateSplit` stamps `migrations` rows 1..`onbodBootstrapVersion`
+  (=4) for service `onbod` right after the bootstrap, so `Migrate` resumes after
+  them. Claiming FEWER is not an option — `Migrate` demands contiguous versions
+  (`ver != cur+1` → "migration gap"), so a short claim still replays the
+  reshaping ones. Claiming 4 required `onbodSchema` to genuinely embody 0002,
+  which was missing its four `audit_log` indexes; they are added. Rows are
+  written only when onbod has recorded none of its own, so a DB onbod migrated
+  itself keeps its version rather than being claimed past a migration it never
+  applied. `TestOnbodSchemaMatchesMigrations` diffs the bootstrap DDL against the
+  migration chain's shape, so a new onbod migration fails the build instead of
+  silently re-arming this. **No fleet migration:** conversion-only path, all
+  instances are long since split.
 
 ## Z3c — `store.InviteRef` and `store.HashRouteToken` are one scheme under two names (2026-08-05, proposal)
 
@@ -3699,7 +3708,7 @@ the same "seed a default row" problem, not a property of seeding itself.
   Needs sign-off (schema + a content-hash semantics change), not attempted
   here.
 
-## Q1 — three `arizuko` CLI verbs still open the frozen messages.db (2026-08-05, open)
+## Q1 — three `arizuko` CLI verbs still open the frozen messages.db (2026-08-05, fixed)
 
 With dashd repointed (`3c2b7ad7`) and routd's legacy copiers deleted (`e5e75bd5`), no
 DAEMON opens the pre-split monolith. Three CLI verbs still do, via `store.Open` — the
@@ -3732,7 +3741,20 @@ budget swap changes an operator-facing surface, so it wants its own tests.
 - **Scope:** cmd/arizuko target-DB routing
 - **Affected:** all instances — `arizuko group list`, `arizuko budget`, `arizuko create`
 - **Source:** cmd/arizuko/main.go:291,360; cmd/arizuko/budget.go:23; store/store.go:51
-- **Status:** open
+- **Status:** fixed 2026-08-05 (7a8f4c2b budget, 29e3fb8e group list, eedae3bf create)
+- **Fix:** `budget` now takes `*routd.DB` (`mustOpenRoutd`), so it calls the SAME
+  cap readers `budgetGate` calls and the wrong-DB bug is unrepresentable at the
+  type level; routd gained the two missing write halves (`SetUserCap` delegating
+  to store beside `UserCap`, `SetFolderCap` beside its native `FolderCap`). This
+  also fixed `budget show`'s spend, which summed the frozen `ts`/`cents` and
+  would have errored on routd.db's `cost_cents`/`recorded_at`. `cmdGroup` now
+  uses ONE routd.db handle for every action, so `list` agrees with the writes
+  beside it and the three duplicate per-case handles collapse (`auditCLI`'s rows
+  move to routd.db, where `audit_log` actually lives). `create` seeds the default
+  `main` group + tasks into routd.db and makes no messages.db — it was putting
+  them in a DB no daemon opens, so a fresh instance had no `main` group at all.
+  A `store.Open(` grep now leaves only the playwright seed; `migrate-split` reads
+  messages.db by read-only `ATTACH`, not `store.Open`.
 
 ## Q2 — dashd's audit-free writers outlived their reason, so admin mutations are unaudited (2026-08-05, open)
 

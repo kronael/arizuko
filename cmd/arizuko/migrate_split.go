@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed"
@@ -257,7 +258,28 @@ CREATE TABLE IF NOT EXISTS audit_log (
   instance        TEXT,
   request_id      TEXT,
   source_ip       TEXT
-);`
+);
+CREATE INDEX IF NOT EXISTS audit_log_created_at ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS audit_log_actor_sub  ON audit_log(actor_sub) WHERE actor_sub IS NOT NULL;
+CREATE INDEX IF NOT EXISTS audit_log_folder     ON audit_log(folder)    WHERE folder    IS NOT NULL;
+CREATE INDEX IF NOT EXISTS audit_log_cat_act    ON audit_log(category, action);`
+
+// onbodBootstrapVersion is the onbod migration version onbodSchema above
+// embodies IN FULL — every object migrations 0001..0004 would create is already
+// in that DDL. migrateSplit stamps exactly these rows into `migrations` so
+// onbod's next boot resumes AFTER them instead of replaying the chain over
+// already-final tables (BUGS.md Z3b): 0003/0004 RESHAPE (RENAME + CREATE), so a
+// replay renamed the bootstrapped `invites` to `invites_legacy` and left
+// BackfillInviteRefs reading a `token` column that no longer exists — onbod
+// then refused to boot.
+//
+// Claiming too FEW is not an option (Migrate demands contiguous versions, so a
+// short claim still replays the reshaping ones); claiming too MANY silently
+// SKIPS a migration. So this number and onbodSchema move together: adding an
+// onbod migration means either extending onbodSchema and bumping this, or
+// touching neither (an unclaimed migration runs normally, which is correct).
+// TestOnbodSchemaMatchesMigrations pins the two to each other.
+const onbodBootstrapVersion = 4
 
 // orphanTables stay in messages.db post-cutover: no daemon reads them. Every
 // table a daemon still needs moved to routd.db / onbod.db / runed.db or is
@@ -273,6 +295,37 @@ CREATE TABLE IF NOT EXISTS audit_log (
 // history. Disposing of it is the operator's call, separately.
 var orphanTables = []string{
 	"router_state", "config_meta", "cli_audit", "ipc_audit", "auth_sessions",
+}
+
+// recordOnbodBootstrap stamps `migrations` rows 1..onbodBootstrapVersion for
+// service "onbod", declaring what the onbodSchema bootstrap just created. Rows
+// are written ONLY when onbod has recorded none of its own: a DB onbod already
+// migrated owns its own version, and overwriting it could claim past a
+// migration that DB has genuinely not applied. The table DDL matches
+// db_utils.Migrate's, which creates it the same way on onbod's next boot.
+func recordOnbodBootstrap(db *sql.DB) error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS migrations (
+		service TEXT NOT NULL, version INTEGER NOT NULL, applied_at TEXT NOT NULL,
+		PRIMARY KEY (service, version))`); err != nil {
+		return fmt.Errorf("create migrations table: %w", err)
+	}
+	var n int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM migrations WHERE service='onbod'").Scan(&n); err != nil {
+		return fmt.Errorf("read onbod migration rows: %w", err)
+	}
+	if n > 0 {
+		return nil
+	}
+	now := time.Now().Format(time.RFC3339)
+	for v := 1; v <= onbodBootstrapVersion; v++ {
+		if _, err := db.Exec(
+			"INSERT INTO migrations (service, version, applied_at) VALUES (?,?,?)",
+			"onbod", v, now); err != nil {
+			return fmt.Errorf("record onbod migration %d: %w", v, err)
+		}
+	}
+	return nil
 }
 
 func migrateSplit(storeDir string, dryRun bool) error {
@@ -305,6 +358,9 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	if !dryRun {
 		if _, err := odb.Exec(onbodSchema); err != nil {
 			return fmt.Errorf("onbod.db schema: %w", err)
+		}
+		if err := recordOnbodBootstrap(odb); err != nil {
+			return fmt.Errorf("onbod.db bootstrap version: %w", err)
 		}
 	}
 
