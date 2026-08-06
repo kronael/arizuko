@@ -1,28 +1,8 @@
 ---
-status: partial
+status: shipped
 ---
 
 # authd — central authority daemon + offline-verify library
-
-> **Status (2026-08-06).** Partial — the admin API is built, the dashboard that
-> consumes it is not. `GET /v1/signing_keys`, `GET /v1/sessions` and
-> `DELETE /v1/sessions/{family_id}` ship as read-only-plus-revoke resreg
-> resources (§ `/v1/*` wire surface), which closes the three gaps this block
-> used to list: key metadata, session listing, and the admin revoke that
-> `revokeFamily` could not reach. `serviceGrants` has had a `service:dashd`
-> entry since `fd697e99`; the claim that it did not was stale.
->
-> What remains is DoD item 6. `dashd/services.go:33` still declares the authd
-> tile `Built:false`, and it must: item 6 asks for view AND control, and there
-> is no `/dash/authd/` page. `service:dashd` is deliberately NOT granted
-> `sessions:read` / `sessions:write` / `signing_keys:read` yet — granting the
-> token authority's kill verb to a daemon with no caller for it is authority
-> without a user, and WHICH principal holds it is the one part of BUGS `F15a`'s
-> "who may revoke whose session" that the API cannot answer for the operator.
-> The two decisions it CAN answer are answered below.
->
-> `RevokeAllNow` still has no caller, and that is now a stated deferral rather
-> than an open item — see § JWK rotation mechanics. BUGS `F15`, `F15a`.
 
 **DECISION.** Token authority is centralized in one `authd` daemon — the **sole
 signer**. It holds the ES256 private key, publishes public JWKs at `/v1/keys`,
@@ -259,6 +239,14 @@ not a convention: a user token's scope list holds folder globs and
 nor an operator's own `**` satisfies one. Read and write are separate scopes so
 a dashboard that renders the session table cannot end a session.
 
+The sole holder of all three is `service:dashd`, whose `/dash/authd/` page is
+`requireOperator`-gated (§ Operator surface) — so operator-only is enforced
+twice, by two mechanisms, neither of them a check the handler invented. They
+were withheld until that page existed: granting the token authority's kill verb
+to a daemon with no caller for it is authority without a user.
+`authd/service_dashd_test.go` bounds the grant by name **and by count**, so an
+eighth scope of any name fails there before it ships.
+
 `signing_keys` and `sessions` additionally **refuse** a folder-claimed caller
 (`instanceWideGate`). `audit_log` has a `folder` column, so a folder-bound
 caller is pinned to its subtree and served; these two tables have none — a key
@@ -288,6 +276,59 @@ rebuild `signing_keys` would rebuild the trust root from a text file; one that
 could rebuild `refresh_tokens` would be a session-forgery tool. Credential-tier
 placement is unchanged — the signing key stays authd's alone, and neither
 endpoint moves it.
+
+`/dash/authd/` is the cold tier's **operator view**, not a fourth tier: it holds
+no state, owns no table and adds no verb — it renders the two reads and calls
+the one mutation. That is why it is a plain dashd page rather than a resource of
+its own.
+
+## Operator surface — `/dash/authd/`
+
+`dashd/authd_page.go`. The cockpit these endpoints exist to feed, reached from
+`/dash/services/` (per-daemon pages are deliberately absent from `navLinks`; the
+hub is their only nav path, and `dashd/services_test.go` pins the tile's `Built`
+flag to the mounted route in both directions).
+
+It reads authd over **HTTP, never `auth.db`**. dashd is not FS-mounted on it and
+must not become so — authd is the sole signer, so the DB file is the trust
+boundary and a second process holding it is a second thing that has to be right
+about `signing_keys`. HTTP is also what applies the scope gate and puts the
+revoke's audit row in the mutation's own transaction. The transport is
+`bearerCall` against `AUTHD_URL`, which `backendURL` derives from the compose
+service name (`http://authd:8080`) — identity is configured, not derived.
+
+Three sections, and the third is a link:
+
+- **Signing keys** — the rotation made legible. Which `kid` signs now, what a
+  rotation retired and when, and when a retiring key's already-issued passes
+  stop being accepted (`serves_until`, rendered as time _remaining_ — a future
+  deadline through `relativeTS` reads as "now", which mid-rotation is the exact
+  wrong thing to tell an operator).
+- **Who is signed in** — one row per refresh-token family, with the sign-out
+  control. Behind the standard danger-zone confirm, and the confirm states the
+  **delay**: revoking stops the renewal, and the pass already in that browser
+  lives out its own ~15 min TTL (§ Revocation = short-TTL only). An operator
+  told "signed out" who then watched the person keep clicking would reasonably
+  conclude the button was broken. A family that is already revoked or expired
+  gets no button, because authd answers `404` for one that is not live.
+- **What authd wrote down** — a link to `/dash/audit/`, not a second table.
+  `5/I` already federates authd's `audit_log` there; a table here would be a
+  second renderer of the same rows.
+
+**No fleet-wide logout button, stated on the page.** Retiring the active key
+logs out everyone, and it has no wire face on purpose (§ JWK rotation
+mechanics). The page says so in place of offering it — an operator who wants
+"log everyone out", finds only per-login buttons and no explanation will
+otherwise click all of them.
+
+**Never renders key material or a token value**, and the guarantee is
+structural rather than a filter: the page renders the parsed
+`SigningKeysRow`/`SessionsRow` projections, which declare no such field, and
+never authd's raw body.
+`dashd/authd_page_test.go` `TestAuthdPage_NeverRendersKeyMaterialOrTokenValues`
+plants a PEM and a token in the upstream answer and asserts both are absent —
+after asserting the legitimate rows rendered, so an empty page cannot satisfy
+it.
 
 **No MCP face on either.** `MCPDoc` is what mints an agent tool and neither
 declares one. Agents are folder-scoped; keys are instance-global and sessions
@@ -339,6 +380,14 @@ an operator can now see which kid is signing and when a retired one stops
 verifying — which is the half that did not need a new authority to build.
 `authd/authd_test.go` and `authd/scenario_test.go` keep the lever itself
 covered.
+
+`/dash/authd/` **names the deferral rather than hiding it**: it explains that
+signing everyone out means retiring the key, and that there is no button for it
+here. A deferral an operator cannot see reads as a missing feature, and the
+remedy they reach for instead — clicking every per-login sign-out — is both
+slower and not the same thing.
+`TestAuthdPage_ExplainsTheFleetWideLeverHasNoButton` fails if a rotation control
+ever appears on the page, so the deferral cannot lapse silently.
 
 ## TTLs
 

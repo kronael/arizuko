@@ -5856,7 +5856,7 @@ It keeps `status: shipped`.
   Every definition-of-done item was re-checked against the call paths first, not
   taken from the audit. NOT deployed: `template/web/pub/` is source-of-truth.
 
-## F15 — authd has no cockpit tile and no operator token revocation (2026-08-05, open)
+## ✅ FIXED 2026-08-06 F15 — authd has no cockpit tile and no operator token revocation (2026-08-05, FIXED)
 
 Two item-6 gaps on the daemon that signs every token in the system:
 
@@ -5877,20 +5877,35 @@ it.
 - **Scope:** dashd cockpit + authd admin surface
 - **Affected:** all instances
 - **Source:** dashd/services.go:33; authd/store.go:256; authd/server.go:285,300; authd/oauth.go:409-413
-- **Status:** PARTIAL 2026-08-06 — the endpoint shipped, the tile has not
-- **Fix:** two concerns, two changes, and the one that matters is done.
+- **Status:** FIXED 2026-08-06 — both halves shipped; `5/1` flipped to `shipped`
+- **Fix:** two concerns, two changes, both done.
   `DELETE /v1/sessions/{family_id}` (`authd/sessions_resource.go`) is the
   authorized revoke, gated on a `sessions:write` scope no human bearer can hold
   and auditing into `auth.db` inside its own transaction. Its authz decision was
   taken rather than defaulted: read and write are separate scopes, and a
   folder-claimed caller is refused outright because `refresh_tokens` has no
   folder column to contain one by.
-- **What is left, and why it was not taken here.** The tile still needs a
-  `/dash/authd/` page, and `service:dashd` is deliberately NOT granted the new
-  scopes yet. Granting the token authority's kill verb to a daemon that has no
-  caller for it is authority without a user; WHICH principal holds it is the
-  operator's call, and it is the one part of "who may revoke whose session" an
-  API cannot answer on its own.
+  The tile flipped with `dashd/authd_page.go` — signing-key lifecycle, the
+  refresh-token families behind each login, a per-login sign-out behind the
+  danger-zone confirm, and a link to `/dash/audit/` rather than a second copy of
+  the log.
+- **The residue this entry held open is now decided.** WHICH principal holds the
+  kill verb: `service:dashd`, and only because the caller now exists —
+  "authority without a user" was the whole objection, and building the user is
+  what answers it rather than arguing it away. `signing_keys:read`,
+  `sessions:read` and `sessions:write` join the grant, each bounded by a
+  projection with no credential column, and
+  `authd/service_dashd_test.go` holds the ceiling at seven by name AND by count
+  with `tokens:mint` newly blacklisted — the one scope that would turn "can end
+  a session" into "can be anyone".
+- **Not built, deliberately:** a fleet-wide logout button. That means retiring
+  the active key, which `5/1` defers along with `POST /v1/keys/rotate`. The page
+  explains the lever and says there is no button for it, and
+  `TestAuthdPage_ExplainsTheFleetWideLeverHasNoButton` fails if one appears.
+- **Found while falsifying:** nothing tied a tile's `Built` flag to whether its
+  route is mounted, in either direction — so an unflipped tile silently hides a
+  shipped page (the per-daemon cockpits are not in `navLinks`; the hub is their
+  only nav path). Closed by `TestServicesBuiltFlagMatchesMountedRoutes`.
 
 ### F15a — authd has no admin API at all, so the tile has nothing to render (2026-08-06, PROPOSED — needs sign-off)
 
