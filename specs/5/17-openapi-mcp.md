@@ -1,34 +1,10 @@
 ---
-status: partial
+status: shipped
 depends:
   [1-auth-standalone, 5/E-routd, 8-yaml-manifests, specs/5/32-acl-unified]
 ---
 
 # specs/5/17 — one handler, two faces: MCP for the agent, REST for humans
-
-> **Status (2026-08-06).** Partial on ONE item, and it is not code.
->
-> The mechanism, the emitter, and the guards are done. `scheduled_tasks`
-> (BUGS `F21`), then `acl` + `groups` + `network_rules` (BUGS `F27`), all now
-> declare one `Endpoints` slice that mounting AND emission read, with
-> agent-only actions marked `MCPOnly`; the mount-time overrides that let a
-> declaration and a mux disagree are gone, `groups` is advertised honestly, and
-> `GET /v1/acl` no longer ships as an endpoint that 404s. The guard is
-> class-wide instead of per-resource: `TestRoutdMux_ServesEveryDeclaredEndpoint`
-> probes the mux routd really builds for every routd resource, and
-> `TestOpenAPI_EveryAdvertisedPathIsMounted` walks the emitted document with no
-> hand-maintained list at all.
->
-> `operationId` is settled as the emitted `<action>_<name>` (BUGS `F28`) — see
-> §"Resource name = wire identity", which no longer claims a single composed
-> wire string. The `/v1/tasks` path is now an explicit acceptance carve-out
-> rather than an open question.
->
-> **Unmet, definition-of-done item 5 (Online):** `reference/openapi.html` still
-> describes the `scheduled_tasks` gap `F21` closed and says routd advertises
-> "six" resources (now eight, with `groups`) — BUGS `F26`. `template/web/pub/`
-> is another agent's lane this session, so it is filed, not edited. That page
-> is the only thing between this spec and `shipped`.
 
 > **DECISION.** Every cold-tier management resource is authored **once** as
 > one in-process `resreg.Resource` — logic, tx, audit, and arg-derivation in

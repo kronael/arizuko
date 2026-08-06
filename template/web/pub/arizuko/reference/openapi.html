@@ -54,7 +54,7 @@
         <tr>
           <td><code>routd</code></td>
           <td><code>https://&lt;host&gt;/openapi.json</code> via proxyd, or <code>http://routd:8080/openapi.json</code> intra-container</td>
-          <td>routes, web_routes, acl, secrets <span class="dim">(write-only)</span>, route_tokens, installed_packages <span class="dim">(read-only)</span></td>
+          <td>routes, web_routes, acl, secrets <span class="dim">(write-only)</span>, route_tokens, installed_packages <span class="dim">(read-only)</span>, scheduled_tasks <span class="dim">(at <code>/v1/tasks</code>)</span>, groups <span class="dim">(read-only)</span></td>
         </tr>
         <tr>
           <td><code>proxyd</code></td>
@@ -64,7 +64,7 @@
         <tr>
           <td><code>onbod</code></td>
           <td><code>http://onbod:8080/openapi.json</code></td>
-          <td>onboarding_gates</td>
+          <td>onboarding, onboarding_gates, invites</td>
         </tr>
         <tr>
           <td><code>webd</code></td>
@@ -79,7 +79,7 @@
         <tr>
           <td><code>timed</code></td>
           <td><code>http://timed:8080/openapi.json</code></td>
-          <td><span class="dim">none &mdash; reads <code>scheduled_tasks</code>; routd owns the table</span></td>
+          <td><span class="dim">none &mdash; routd owns <code>scheduled_tasks</code>; timed drives the fire loop as a client of it</span></td>
         </tr>
         <tr>
           <td><code>authd</code></td>
@@ -96,14 +96,18 @@
 
     <p>Daemons that own no resources still emit a valid OpenAPI document so external tooling can introspect them uniformly. The schemas + paths blocks are empty but <code>info</code>, <code>servers</code>, and the standard <code>components/responses</code> (400, 401, 403, 404, 409, 500) are present.</p>
 
-    <p>routd's own <code>/openapi.json</code> lists only the resources it actually mounts over REST, so the doc can't advertise an endpoint that would 404. Two of the six are narrower than full CRUD, and deliberately so:</p>
+    <p>routd's own <code>/openapi.json</code> lists the eight resources above &mdash; fifteen paths &mdash; and only those, because it advertises only what it actually mounts. An endpoint in the document is an endpoint you can call; there is no separate list to forget to update. Four of the eight are narrower than full CRUD, and deliberately so:</p>
 
     <ul>
       <li><code>secrets</code> is <strong>write-only</strong> &mdash; it declares a create and a key-delete and no read op at all, so a sealed value cannot leak through a convention <code>GET</code>.</li>
       <li><code>installed_packages</code> is <strong>read-only</strong> &mdash; two <code>GET</code>s and nothing else. Installing a package writes host files and restarts sidecars; that pipeline is the <code>arizuko packages</code> CLI, and a REST create would be a second path that drifts from it.</li>
+      <li><code>groups</code> is <strong>read-only</strong> &mdash; one <code>GET /v1/groups</code>. The agent gets a <code>register_group</code> tool, but creating a group also writes a route and a git-init'd directory on disk, so that stays dashd's job and no daemon serves <code>POST /v1/groups</code>.</li>
+      <li><code>scheduled_tasks</code> declares list, read, update and delete, but not schedule, pause or resume &mdash; those three are agent tools with no operator endpoint behind them (see the <a href="mcp.html#scheduling">MCP reference</a>). An operator pauses a task by <code>PATCH</code>ing its status, or from the dashboard.</li>
     </ul>
 
-    <p>Four more resources live in the same registry and drive the <code>arizuko export</code>/<code>apply</code> YAML surface (see <a href="cli.html">CLI reference</a>) without appearing in routd's REST doc. <code>network_rules</code> is agent-MCP-only by design; <code>groups</code> and <code>acl_membership</code> are dashd-FS-managed rather than routd-REST-managed. <code>scheduled_tasks</code> is the odd one out: routd does mount a REST face for it (<a href="mcp.html#scheduling">MCP reference</a> lists the REST twins), but at <code>/v1/tasks</code> rather than <code>/v1/scheduled_tasks</code>, and it isn&rsquo;t in the advertised list &mdash; so those endpoints work but no generated client will find them. A known gap, not a missing feature.</p>
+    <div class="callout"><strong>One path is not <code>/v1/&lt;name&gt;</code>:</strong> <code>scheduled_tasks</code> is served at <code>/v1/tasks</code>. <code>timed</code> already calls <code>GET /v1/tasks</code> and its fire loop shares the prefix (<code>/v1/tasks/due</code>, <code>/v1/tasks/runlog</code>, <code>/v1/tasks/{id}/reschedule</code>), all from a separate container that restarts on its own schedule &mdash; renaming half of a live control surface is the drift, not the fix. So this one is a deliberate exception, written down here so nobody files it as a bug. The name is still the identity everywhere else: the MCP tool prefix, the <code>operationId</code>, and the <code>resource=</code> column in the audit log all read <code>scheduled_tasks</code>. A new resource does not get the exception &mdash; it is served at <code>/v1/&lt;name&gt;</code>.</div>
+
+    <p>Three more resources live in the same registry and drive the <code>arizuko export</code>/<code>apply</code> YAML surface (see <a href="cli.html">CLI reference</a>) without appearing in routd's REST document. <code>network_rules</code> is agent-MCP-only by design, so it has no REST face to advertise; <code>acl_membership</code> is dashd-FS-managed; <code>proxyd_routes</code> lives in routd's database but is served by proxyd, which advertises it in its own document.</p>
 
     <h2>How it works</h2>
 
@@ -111,7 +115,7 @@
 
     <ul>
       <li>One <code>components.schemas.&lt;Name&gt;</code> per <code>RowType</code>. Property name from the <code>json:</code> tag; type inferred from the Go kind (<code>string</code>, <code>integer</code>, <code>boolean</code>, array, object). <code>omitempty</code> removes the field from <code>required</code>.</li>
-      <li>One operation per declared <code>Endpoint</code> &mdash; its real mounted verb and path. That is what lets a resource be write-only or read-only, or carry a custom verb like <code>POST /v1/scheduled_tasks/pause</code>, and still be described honestly.</li>
+      <li>One operation per declared <code>Endpoint</code> &mdash; its real mounted verb and path. That is what lets a resource be write-only or read-only, or carry a custom verb like <code>POST /v1/route_tokens/chat</code>, and still be described honestly.</li>
       <li>A resource that declares no <code>Endpoints</code> falls back to the five-operation CRUD convention: <code>GET /v1/&lt;name&gt;</code> (list), <code>GET /v1/&lt;name&gt;/{pk}</code> (read one), <code>POST /v1/&lt;name&gt;</code> (create), <code>PATCH /v1/&lt;name&gt;/{pk}</code> (update), <code>DELETE /v1/&lt;name&gt;/{pk}</code> (delete). Composite PKs collapse to one URL parameter; the description flags the encoding so clients know to URL-encode separators.</li>
       <li>Standard error responses (400, 401, 403, 404, 409, 500) defined once in <code>components.responses</code> and <code>$ref</code>-d from every operation.</li>
       <li>One <code>servers[]</code> entry from <code>baseURL</code>.</li>
