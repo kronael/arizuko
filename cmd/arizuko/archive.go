@@ -15,22 +15,12 @@ package main
 // Never neither — an unguarded restore is the exact race the hold exists to
 // prevent, so an unreachable runed is fatal, not a warning.
 //
-// NOT built in this pass, by explicit scope decision — recorded in BUGS.md,
-// not silently skipped:
-//   - "The missing-group rule" preflight and the cross-subsystem pre-image
-//     rollback: separate spec sections, not among the findings this pass
-//     was asked to verify, not built here.
-//   - `onboarding` (onbod) is NOT registered as a resreg resource despite
-//     the spec's "register it the same way onboarding_gates is" — verified
-//     against the code first: unlike onboarding_gates, onboarding.token is
-//     a live PLAINTEXT bearer (onbod/dash.go: "a live onboarding token is a
-//     bearer, never read or rendered"), and the table has no folder scope,
-//     so a naive registration would (a) write that bearer straight into
-//     `arizuko export`/`get` YAML — the exact class of bug Y2 just fixed
-//     for invites — and (b) wipe every live token on any wholesale
-//     DeleteAll+InsertAll rebuild. Pending onboarding admissions are
-//     therefore NOT part of this archive. Logged in BUGS.md rather than
-//     attempted under time pressure.
+// The config documents ride applyDocs (apply.go), the same two-phase path
+// `arizuko apply` uses: buffer every config document, run the missing-group
+// preflight across the whole set, then one transaction per subsystem with a
+// pre-image rollback if a later one fails. Buffering is what makes both
+// possible — a streamed one-at-a-time apply would have committed routd before
+// it had even read onbod.yaml.
 
 import (
 	"archive/tar"
@@ -460,6 +450,38 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 	var knownFolders []string
 	sawMeta := false
 
+	// The config documents are BUFFERED, not applied as they stream past.
+	// Two spec rules need the whole set in hand before the first tx opens:
+	// the missing-group preflight ("refuses the whole restore rather than
+	// importing a half-wired instance") and the cross-subsystem pre-image
+	// rollback, which must snapshot every subsystem it will touch. Streaming
+	// them one-at-a-time could do neither — routd would already be committed
+	// by the time onbod's document was read. Config is bounded declarative
+	// config (spec 5/8 §"Three transports"), so buffering it costs nothing;
+	// the unbounded documents (messages) stay streamed.
+	var configDocs []parsedDoc
+	configApplied := false
+	// flushConfig commits the buffered config subsystems exactly once, before
+	// anything that depends on them (groups.tar's folder matching needs the
+	// groups rows) and at EOF.
+	flushConfig := func() error {
+		if configApplied {
+			return nil
+		}
+		configApplied = true
+		if len(configDocs) == 0 {
+			return nil
+		}
+		if bad := preflightFolders(stores, configDocs); len(bad) > 0 {
+			return fmt.Errorf("archive references folders that are not groups: %w", errors.Join(bad...))
+		}
+		lines, err := applyDocs(ctx, stores, configDocs, force, "archive-apply", "")
+		for _, l := range lines {
+			fmt.Fprintf(&report, "%s\n", l)
+		}
+		return err
+	}
+
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
@@ -467,6 +489,15 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 		}
 		if err != nil {
 			return report.String(), fmt.Errorf("read tar: %w", err)
+		}
+		// Everything past the config documents depends on config having
+		// committed, so the first non-config entry closes the config phase.
+		switch hdr.Name {
+		case archiveMetaEntry, archiveRoutdEntry, archiveOnbodEntry:
+		default:
+			if ferr := flushConfig(); ferr != nil {
+				return report.String(), ferr
+			}
 		}
 		switch hdr.Name {
 		case archiveMetaEntry:
@@ -490,31 +521,25 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 			if !sawMeta {
 				return report.String(), fmt.Errorf("%s arrived before %s — refusing (format_version unchecked)", hdr.Name, archiveMetaEntry)
 			}
-			subsystem := resreg.SubsystemRoutd
-			if hdr.Name == archiveOnbodEntry {
-				subsystem = resreg.SubsystemOnbod
+			if configApplied {
+				return report.String(), fmt.Errorf("%s arrived after the config phase had already committed", hdr.Name)
 			}
 			data, rerr := io.ReadAll(tr)
 			if rerr != nil {
 				return report.String(), rerr
 			}
-			manifest, checksum, perr := resreg.ParseYAML(data)
+			parsed, perr := parseDocs(hdr.Name, data)
 			if perr != nil {
 				return report.String(), fmt.Errorf("%s: %w", hdr.Name, perr)
 			}
-			if subsystem == resreg.SubsystemRoutd {
-				if rows, ok := manifest["groups"].([]resources.GroupsRow); ok {
+			for _, d := range parsed {
+				if rows, ok := d.manifest[resreg.GroupsResource].([]resources.GroupsRow); ok {
 					for _, g := range rows {
 						knownFolders = append(knownFolders, g.Folder)
 					}
 				}
 			}
-			newSum, aerr := resreg.Apply(ctx, stores[subsystem].DB(), subsystem, checksum, force, manifest,
-				&resreg.ApplyOpts{Actor: "archive-apply"})
-			if aerr != nil {
-				return report.String(), fmt.Errorf("apply %s: %w", subsystem, aerr)
-			}
-			fmt.Fprintf(&report, "%s: applied (checksum -> %s)\n", subsystem, newSum)
+			configDocs = append(configDocs, parsed...)
 
 		case archiveSecretsEntry:
 			data, rerr := io.ReadAll(tr)
@@ -562,6 +587,11 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 			// entry is not fatal.
 			io.Copy(io.Discard, tr) //nolint:errcheck // draining an ignored entry; nothing actionable
 		}
+	}
+	// A config-only archive never hits a non-config entry, so EOF is where its
+	// config phase commits.
+	if err := flushConfig(); err != nil {
+		return report.String(), err
 	}
 	return report.String(), nil
 }

@@ -80,36 +80,37 @@ type parsedDoc struct {
 	manifest  map[string]any
 }
 
-// parseDocs splits and parses every document of a manifest file, dying on the
-// first parse or subsystem-resolution error. Empty documents (a trailing
-// `---`) carry nothing and are dropped.
-func parseDocs(file string, data []byte) []parsedDoc {
+// parseDocs splits and parses every document of a manifest file. Empty
+// documents (a trailing `---`) carry nothing and are dropped. Returns an
+// error rather than dying — `archive apply` composes the same helper and must
+// unwind its own tar reader, not os.Exit out of it.
+func parseDocs(file string, data []byte) ([]parsedDoc, error) {
 	docs, err := resreg.SplitDocuments(data)
 	if err != nil {
-		die("Failed: split %s: %v", file, err)
+		return nil, fmt.Errorf("split %s: %w", file, err)
 	}
 	var out []parsedDoc
 	for _, doc := range docs {
 		manifest, checksum, perr := resreg.ParseYAML(doc)
 		if perr != nil {
-			die("Failed: parse %s: %v", file, perr)
+			return nil, fmt.Errorf("parse %s: %w", file, perr)
 		}
 		if len(manifest) == 0 {
 			continue
 		}
 		subsystem, serr := resreg.SubsystemOf(manifest)
 		if serr != nil {
-			die("Failed: %v", serr)
+			return nil, serr
 		}
 		out = append(out, parsedDoc{subsystem: subsystem, checksum: checksum, manifest: manifest})
 	}
-	return out
+	return out, nil
 }
 
 // preflightFolders is the missing-group rule's CLI half: every folder-scoped
 // row across EVERY document must name a group that the document set declares
 // or the target DB already has. Returns the offending references; the caller
-// decides whether that is a refusal (apply) or a report (plan).
+// decides whether that is a refusal (apply, archive apply) or a report (plan).
 //
 // `groups` lives in exactly one owner DB and the resource declaration says
 // which — identity is configured, never derived (root CLAUDE.md), so this
@@ -117,11 +118,11 @@ func parseDocs(file string, data []byte) []parsedDoc {
 func preflightFolders(stores map[string]*store.Store, docs []parsedDoc) []error {
 	g := resreg.Lookup(resreg.GroupsResource)
 	if g == nil {
-		die("Failed: %s resource is not registered", resreg.GroupsResource)
+		return []error{fmt.Errorf("%s resource is not registered", resreg.GroupsResource)}
 	}
 	owner, ok := stores[g.DB]
 	if !ok {
-		die("Failed: %s has no configured owner subsystem %q", resreg.GroupsResource, g.DB)
+		return []error{fmt.Errorf("%s has no configured owner subsystem %q", resreg.GroupsResource, g.DB)}
 	}
 	manifests := make([]map[string]any, 0, len(docs))
 	for _, d := range docs {
@@ -129,7 +130,7 @@ func preflightFolders(stores map[string]*store.Store, docs []parsedDoc) []error 
 	}
 	known, err := resreg.KnownFolders(owner.DB(), manifests...)
 	if err != nil {
-		die("Failed: read known folders: %v", err)
+		return []error{fmt.Errorf("read known folders: %w", err)}
 	}
 	var out []error
 	for _, d := range docs {
@@ -138,6 +139,90 @@ func preflightFolders(stores map[string]*store.Store, docs []parsedDoc) []error 
 		}
 	}
 	return out
+}
+
+// committed records one subsystem whose transaction already went through, so
+// a LATER subsystem's failure can put it back (spec 5/8 §"Cross-subsystem
+// apply: per-subsystem transaction, pre-image rollback").
+//
+// pre is the subsystem's config projection as it stood BEFORE the forward
+// apply — produced by the same Export/EmitYAML renderer the CAS hash uses, so
+// there is no second backup format. postSum is the checksum the forward apply
+// left behind, used as the rollback's own CAS token: if anything else moved
+// the config in between, the rollback refuses instead of overwriting it.
+type committed struct {
+	subsystem string
+	pre       map[string]any
+	postSum   string
+	scopes    []string
+}
+
+// applyDocs applies every document, one transaction per subsystem, and puts
+// every already-committed subsystem back to its pre-apply projection if a
+// later one fails. Returns one report line per applied subsystem.
+//
+// The pre-images are captured for ALL subsystems up front, before the first
+// transaction opens: capturing lazily would read subsystem 2's state after
+// subsystem 1 had already committed, which is still a valid pre-image for
+// subsystem 2 but makes the ordering a silent correctness dependency instead
+// of an obvious one.
+//
+// The rollback restores the manifest PROJECTION, not the database: a whole-DB
+// swap would discard messages that arrived and memory a turn wrote during the
+// apply window. Message history and filesystem trees are outside the
+// projection and have their own recovery stories.
+func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parsedDoc, force bool, actor, digest string) ([]string, error) {
+	pre := map[string]map[string]any{}
+	for _, d := range docs {
+		st, ok := stores[d.subsystem]
+		if !ok {
+			return nil, fmt.Errorf("no store for subsystem %q", d.subsystem)
+		}
+		snapshot, _, _, err := resreg.ExportSnapshot(ctx, st.DB(), d.subsystem)
+		if err != nil {
+			return nil, fmt.Errorf("pre-image %s: %w", d.subsystem, err)
+		}
+		pre[d.subsystem] = snapshot
+	}
+
+	var report []string
+	var done []committed
+	for _, d := range docs {
+		st := stores[d.subsystem]
+		newSum, aerr := resreg.Apply(ctx, st.DB(), d.subsystem, d.checksum, force, d.manifest,
+			&resreg.ApplyOpts{Actor: actor, ManifestDigest: digest})
+		if aerr != nil {
+			if rerr := rollback(ctx, stores, done, actor); rerr != nil {
+				return report, fmt.Errorf("apply %s: %w; ROLLBACK ALSO FAILED, the instance is half-applied: %v",
+					d.subsystem, aerr, rerr)
+			}
+			return report, fmt.Errorf("apply %s: %w", d.subsystem, aerr)
+		}
+		done = append(done, committed{
+			subsystem: d.subsystem,
+			pre:       pre[d.subsystem],
+			postSum:   newSum,
+			scopes:    resreg.ManifestScopes(d.subsystem, d.manifest),
+		})
+		report = append(report, fmt.Sprintf("%s: applied (checksum %s -> %s)", d.subsystem, d.checksum, newSum))
+	}
+	return report, nil
+}
+
+// rollback re-applies each committed subsystem's pre-image through the SAME
+// resreg.Apply codepath, newest first. PruneScopes carries the forward
+// manifest's own scopes so a folder the forward apply CREATED — one the
+// pre-image never mentions, and therefore would not prune — does not survive.
+func rollback(ctx context.Context, stores map[string]*store.Store, done []committed, actor string) error {
+	var errs []error
+	for i := len(done) - 1; i >= 0; i-- {
+		c := done[i]
+		if _, err := resreg.Apply(ctx, stores[c.subsystem].DB(), c.subsystem, c.postSum, false, c.pre,
+			&resreg.ApplyOpts{Actor: actor + " (rollback)", PruneScopes: c.scopes}); err != nil {
+			errs = append(errs, fmt.Errorf("restore %s: %w", c.subsystem, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func cmdApply(args []string) {
@@ -163,7 +248,10 @@ func cmdApply(args []string) {
 	if err != nil {
 		die("Failed: read %s: %v", file, err)
 	}
-	docs := parseDocs(file, data)
+	docs, perr := parseDocs(file, data)
+	if perr != nil {
+		die("Failed: %v", perr)
+	}
 	// The missing-group rule runs across ALL documents before the first tx
 	// opens — a half-wired instance is worse than a refused restore. --force
 	// does NOT override it: force means "the DB moved under my export", not
@@ -174,31 +262,29 @@ func cmdApply(args []string) {
 		}
 		die("Failed: %s references folders that are not groups; add the groups rows or fix the names", file)
 	}
-	digest := sha256.Sum256(data)
-	digestHex := hex.EncodeToString(digest[:])
+	// Plan first (non-mutating) so the operator sees the delta the apply
+	// commits — spec 5/8 §"Apply lifecycle" step 5 (print plan + ok).
 	for _, d := range docs {
-		manifest, checksum, subsystem := d.manifest, d.checksum, d.subsystem
-		st := stores[subsystem]
-		// Plan first (non-mutating) so the operator sees the delta the apply
-		// commits — spec 5/8 §"Apply lifecycle" step 5 (print plan + ok).
-		if deltas, perr := resreg.Plan(st.DB(), subsystem, manifest); perr == nil {
-			fmt.Printf("--- %s ---\n", subsystem)
+		if deltas, dperr := resreg.Plan(stores[d.subsystem].DB(), d.subsystem, d.manifest); dperr == nil {
+			fmt.Printf("--- %s ---\n", d.subsystem)
 			printPlan(deltas)
 		}
-		// Apply writes its own single audit_log summary row in-tx (actor +
-		// manifest digest + per-resource counts + final checksum), spec 5/8
-		// §"CAS implementation" (3). No separate auditCLI — one row per apply.
-		opts := &resreg.ApplyOpts{Actor: os.Getenv("USER"), ManifestDigest: digestHex}
-		newSum, aerr := resreg.Apply(context.Background(), st.DB(), subsystem, checksum, force, manifest, opts)
-		if aerr != nil {
-			if errors.Is(aerr, resreg.ErrChecksumMismatch) {
-				fmt.Fprintf(os.Stderr, "%s: checksum mismatch (manifest=%s db=%s). "+
-					"Re-export and re-apply, or use --force.\n", subsystem, checksum, newSum)
-				os.Exit(2)
-			}
-			die("Failed: apply %s: %v", subsystem, aerr)
+	}
+	digest := sha256.Sum256(data)
+	// Apply writes its own single audit_log summary row in-tx (actor +
+	// manifest digest + per-resource counts + final checksum), spec 5/8
+	// §"CAS implementation" (3). No separate auditCLI — one row per apply.
+	report, aerr := applyDocs(context.Background(), stores, docs, force,
+		os.Getenv("USER"), hex.EncodeToString(digest[:]))
+	for _, line := range report {
+		fmt.Printf("applied %s — %s\n", file, line)
+	}
+	if aerr != nil {
+		if errors.Is(aerr, resreg.ErrChecksumMismatch) {
+			fmt.Fprintf(os.Stderr, "%v\nRe-export and re-apply, or use --force.\n", aerr)
+			os.Exit(2)
 		}
-		fmt.Printf("applied %s (%s); checksum: %s -> %s\n", file, subsystem, checksum, newSum)
+		die("Failed: %v", aerr)
 	}
 }
 
@@ -266,7 +352,10 @@ func cmdPlan(args []string) {
 	if err != nil {
 		die("Failed: read %s: %v", file, err)
 	}
-	docs := parseDocs(file, data)
+	docs, perr := parseDocs(file, data)
+	if perr != nil {
+		die("Failed: %v", perr)
+	}
 	// plan never mutates, so it REPORTS the missing-group refusal apply would
 	// raise instead of exiting on it — the operator sees the delta and the
 	// blocker in one run.

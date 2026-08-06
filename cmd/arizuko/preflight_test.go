@@ -60,7 +60,10 @@ func TestPreflightFolders_RefusesUnknownFolderAcrossDocuments(t *testing.T) {
 	}
 
 	yaml := strings.Replace(twoDocManifest, "%s", "corp/ghost", 1)
-	docs := parseDocs(filepath.Join(dataDir, "m.yaml"), []byte(yaml))
+	docs, perr := parseDocs(filepath.Join(dataDir, "m.yaml"), []byte(yaml))
+	if perr != nil {
+		t.Fatalf("parseDocs: %v", perr)
+	}
 	if len(docs) != 2 {
 		t.Fatalf("parsed %d documents, want 2 — the cross-document case is what this tests", len(docs))
 	}
@@ -87,7 +90,10 @@ func TestPreflightFolders_AcceptsFolderDeclaredInAnotherDocument(t *testing.T) {
 	dataDir, stores := openInstance(t)
 
 	yaml := strings.Replace(twoDocManifest, "%s", "corp/eng", 1)
-	docs := parseDocs(filepath.Join(dataDir, "m.yaml"), []byte(yaml))
+	docs, perr := parseDocs(filepath.Join(dataDir, "m.yaml"), []byte(yaml))
+	if perr != nil {
+		t.Fatalf("parseDocs: %v", perr)
+	}
 	if len(docs) != 2 {
 		t.Fatalf("parsed %d documents, want 2", len(docs))
 	}
@@ -121,7 +127,10 @@ func TestPreflightFolders_ExportRoundTripPasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("emit: %v", err)
 	}
-	docs := parseDocs(filepath.Join(dataDir, "export.yaml"), out)
+	docs, perr := parseDocs(filepath.Join(dataDir, "export.yaml"), out)
+	if perr != nil {
+		t.Fatalf("parseDocs: %v", perr)
+	}
 	if bad := preflightFolders(stores, docs); len(bad) > 0 {
 		t.Fatalf("a fresh instance's own export must round-trip: %v", bad)
 	}

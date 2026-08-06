@@ -637,6 +637,40 @@ func ValidateFolderRefs(subsystem string, manifest map[string]any, known map[str
 type ApplyOpts struct {
 	Actor          string // who ran the apply (CLI sub, "system", …)
 	ManifestDigest string // sha256 of the manifest bytes, for forensic correlation
+
+	// PruneScopes names extra scope values every scoped resource DELETEs
+	// before inserting, on top of the ones its own rows mention. Exists for
+	// the cross-subsystem rollback (spec 5/8 §"Cross-subsystem apply"): a
+	// forward apply that CREATED rows under a folder the pre-image never
+	// mentioned leaves nothing for the pre-image's own scopes to prune, so
+	// those rows would survive a rollback that is supposed to be total. Sound
+	// only because a pre-image is a COMPLETE subsystem projection — pruning a
+	// scope and re-inserting the pre-image restores that scope exactly.
+	// Ignored by resources with no ScopeSpec (they rebuild wholesale anyway).
+	PruneScopes []string
+}
+
+// ManifestScopes returns every scope value a manifest's rows mention across
+// subsystem's scoped resources, sorted and deduplicated. The rollback feeds
+// this back as ApplyOpts.PruneScopes; nothing else needs it, which is why the
+// per-resource manifestScopes stays unexported.
+func ManifestScopes(subsystem string, manifest map[string]any) []string {
+	seen := map[string]bool{}
+	for _, r := range BySubsystem(subsystem) {
+		rows, mentioned := manifest[r.Name]
+		if !mentioned || !r.HasScope() {
+			continue
+		}
+		for _, s := range r.manifestScopes(rows) {
+			seen[s] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for s := range seen {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // lockTable is a table guaranteed present in every owner DB — audit_log
@@ -735,7 +769,13 @@ func Apply(ctx context.Context, db *sql.DB, subsystem string, wantChecksum strin
 		}
 		scopes := r.manifestScopes(rows)
 		if r.HasScope() && len(scopes) > 0 {
-			// Scoped resource with rows: prune only the mentioned scopes.
+			// Scoped resource with rows: prune the mentioned scopes, plus any
+			// the caller named explicitly (rollback — see ApplyOpts.PruneScopes).
+			// An empty row list still falls to DeleteAll below, which already
+			// covers every scope.
+			if opts != nil {
+				scopes = mergeScopes(scopes, opts.PruneScopes)
+			}
 			for _, scope := range scopes {
 				if err := r.DeleteScope(ctx, tx, scope); err != nil {
 					return current, err
@@ -765,6 +805,26 @@ func Apply(ctx context.Context, db *sql.DB, subsystem string, wantChecksum strin
 		return current, fmt.Errorf("commit: %w", err)
 	}
 	return newChecksum, nil
+}
+
+// mergeScopes returns the sorted union of two scope lists.
+func mergeScopes(a, b []string) []string {
+	if len(b) == 0 {
+		return a
+	}
+	seen := map[string]bool{}
+	for _, s := range a {
+		seen[s] = true
+	}
+	for _, s := range b {
+		seen[s] = true
+	}
+	out := make([]string, 0, len(seen))
+	for s := range seen {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // applyCounts diffs the manifest against the pre-tx live DB for every
