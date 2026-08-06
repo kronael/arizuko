@@ -7,6 +7,98 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F31 — `/dash/engagement/` cannot be built: dashd has no HTTP edge to routd, and no scope to use one (2026-08-06, PROPOSED — needs sign-off)
+
+Attempted while closing `5/G`'s definition-of-done item 6. `F12a` shipped the
+read API the page needs — `GET /v1/engagement` returns `engaged_until`, and the
+no-`jid` form lists live windows — so the API is no longer the blocker. The
+transport is.
+
+**Exactly one blocker, and it is a decision.**
+`serviceGrants["service:dashd"]` is `{"runs:kill"}` (`authd/http.go`);
+`GET /v1/engagement` requires `routes:read` or `routes:read:own_group`
+(`routd/reads_http.go:22`), so routd answers 403. The entry's own comment says
+"runs:kill is the whole ceiling — anything wider would let the operator UI act
+beyond what it proxies", which makes widening it a sign-off, not a config edit.
+
+Checked and DISPROVED as a second blocker: "dashd has no routd client".
+It has no `ROUTER_URL` in `compose/compose.go`'s dashd env list and no routd
+HTTP call today — but it needs neither, because `backendURL(envKey, service)`
+(`dashd/main.go:316`) already derives a sibling's base URL from the compose
+service name on the fixed `:8080`, precisely so a missing compose var cannot
+break it again (`F23`). `backendURL("ROUTER_URL", "routd")` is the whole
+transport, one line beside the existing `runedURL`/`proxydURL`.
+
+Checked and DISPROVED as a third blocker: a service token carries an EMPTY
+folder claim (`MintForSubject(principal, "service", nil, …, "")`,
+`authd/http.go:164`), and `listEngagement` treats an empty claim as list-all
+(`routd/engagement_http.go:57`), so dashd would read every tenant's windows.
+That is NOT a leak for this page, because the page is operator-only the way
+`/dash/proactive/` is (`requireOperator`, `dashd/authz.go:95`) and an operator
+holds a `**` row already. It WOULD become one the moment the page is offered to
+a folder-scoped viewer, because routd authorizes the bearer, not the
+`X-User-*` headers dashd forwards — proxyd's `trustedForwarders` pattern has no
+routd equivalent.
+
+The obvious shortcut is to render the page from `d.dbRoutd`, which is what
+`/dash/proactive/` does. That is the open "dashd reads SQLite directly" entry
+(2026-06-16), and it does not survive the page growing a disengage button —
+`POST /v1/engagement` is the only writer that keeps the audit row in routd's
+own transaction.
+
+- **Severity:** medium (blocks `5/G` item 6; `5/G` stays partial)
+- **Scope:** dashd ↔ routd transport + authd serviceGrants (spec 5/G)
+- **Affected:** all instances — no operator can see or end an engagement window
+- **Source:** authd/http.go:26-62,164; routd/reads_http.go:22; routd/engagement_http.go:25,57; dashd/main.go:286,316; dashd/authz.go:95
+- **Status:** PROPOSED — needs sign-off on widening `service:dashd`
+- **Fix:** if the ceiling may move, this is small and entirely inside existing
+  seams: add `routes:read` to `serviceGrants["service:dashd"]` (plus
+  `routes:write` only if the page gets a disengage control), add
+  `routdURL: backendURL("ROUTER_URL", "routd")` beside the two that are there,
+  a client in the shape of `proxydCall`, then an operator-only view listing
+  jid / topic / folder / deadline. If the ceiling may NOT move, say so — the
+  honest alternative is the FS read plus a written-down exception, and then the
+  disengage control cannot ship at all, because `POST /v1/engagement` is the
+  only writer that keeps the audit row in routd's own transaction.
+- **Blocks:** `specs/5/G` definition-of-done item 6.
+
+## F32 — timed's `/openapi.json` advertises four operations timed does not serve (2026-08-06, open)
+
+`timed/split.go:72` emits its document with
+`resreg.OpenAPIHandler("timed", []string{"scheduled_tasks"})`, which renders
+routd's `ScheduledTasksEndpoints` in full: `GET /v1/tasks`, and
+`GET`/`PATCH`/`DELETE /v1/tasks/{taskId}`. timed's mux, three lines above,
+mounts exactly `GET /health`, `GET /openapi.json` and `GET /dash/timed/`. Every
+advertised path 404s.
+
+Verified by running the emitter, not by reading the declaration:
+`resreg.OpenAPI("timed", "/", []string{"scheduled_tasks"})` returns 2 paths /
+4 operations.
+
+This is the `F21`/`F27` bug class one daemon over. The routd guards that close
+it — `TestRoutdMux_ServesEveryDeclaredEndpoint` and
+`TestOpenAPI_EveryAdvertisedPathIsMounted` — are both in package `routd` and
+probe the mux routd builds, so nothing checks any other daemon. `resreg`
+cannot catch it either: `OpenAPIHandler(daemon, resources)` takes a name list
+with no reference to what the caller mounts.
+
+timed is a CLIENT of those endpoints (`timed/dash.go:82`, `timed/split.go:205,
+219,230` call routd across the container boundary), which is presumably how the
+name got into the list. A client is not a server.
+
+- **Severity:** low (a generated client aimed at timed 404s; no runtime effect
+  on arizuko itself)
+- **Scope:** timed + the resreg OpenAPI mount contract (spec 5/17)
+- **Affected:** all instances
+- **Source:** timed/split.go:68-73 vs resreg/openapi.go:527; resreg/resources/scheduled_tasks.go:48-51
+- **Status:** open
+- **Fix:** the one-token fix is `[]string{}` — timed owns no resource, matching
+  webd/dashd/authd/runed, and its row on `reference/openapi.html` already says
+  "none". The better fix is the one that generalises: give the guard a home
+  outside package `routd` so every daemon's advertised paths are checked
+  against the mux it builds. Not done inline — picking between them changes
+  what `OpenAPIHandler`'s signature has to know.
+
 ## F29 — runed's and authd's audit rows are reachable only with sqlite3 (2026-08-06, PROPOSED — needs sign-off)
 
 Spec `5/I` says each daemon owns its own `audit_log`, and two daemons now do.
@@ -340,7 +432,7 @@ convention cannot drift again silently while the question is open.
   `TestOpenAPI_ScheduledTasksAdvertised` keeps pinning the emitted form (its
   comment now cites the decision rather than an open bug).
 
-## F26 — `reference/openapi.html` still documents the `scheduled_tasks` gap that `F21` closed (2026-08-06, open)
+## ✅ FIXED 2026-08-06 F26 — `reference/openapi.html` still documents the `scheduled_tasks` gap that `F21` closed (2026-08-06, FIXED)
 
 `template/web/pub/arizuko/reference/openapi.html:99` says routd advertises "six"
 resources and `:106` says `scheduled_tasks` "isn't in the advertised list — so
@@ -356,8 +448,24 @@ the same session. Not edited to avoid a concurrent-write collision.
 - **Scope:** web docs (spec 5/17)
 - **Affected:** readers of `/pub/arizuko/reference/openapi.html`
 - **Source:** template/web/pub/arizuko/reference/openapi.html:99,106 vs routd/server.go OpenAPIResources
-- **Status:** open
-- **Fix:** six → **eight** (`F27` added `groups` after `F21` added
+- **Status:** FIXED 2026-08-06. The count was derived from the emitter rather
+  than copied: `resreg.OpenAPI("routd", "/", routd.OpenAPIResources)` emits
+  **8 resources over 15 paths** — routes, web_routes, acl, secrets,
+  route_tokens, installed_packages, scheduled_tasks, groups. The page now says
+  eight, lists all eight in the daemon table, describes the four that are
+  narrower than CRUD (secrets write-only, installed_packages read-only, groups
+  read-only, scheduled_tasks minus the three `MCPOnly` verbs), and carries the
+  `/v1/tasks` carve-out as a callout so no future reader files it as drift.
+  The trailing paragraph went four → three resources (`network_rules`,
+  `acl_membership`, `proxyd_routes`) since `groups` and `scheduled_tasks` left
+  it. Two adjacent falsehoods found while verifying and fixed in the same pass:
+  the onbod row listed one of its three advertised resources, and the
+  `Endpoint` example cited `POST /v1/scheduled_tasks/pause`, a path nothing
+  serves — now `POST /v1/route_tokens/chat`, which is real.
+  **Not** fixed: `timed`'s row, which is true as written (timed owns no
+  resource) but whose document advertises four operations timed does not
+  serve — filed as `F32`.
+- **Was:** six → **eight** (`F27` added `groups` after `F21` added
   `scheduled_tasks` — the current list is routes, web_routes, acl, secrets,
   route_tokens, installed_packages, scheduled_tasks, groups). Replace the
   `scheduled_tasks` gap paragraph with the real shape — REST at `/v1/tasks`
@@ -366,8 +474,8 @@ the same session. Not edited to avoid a concurrent-write collision.
   omits. `groups` is the same shape mirrored: its `register` action is
   `MCPOnly`, so only `GET /v1/groups` is advertised. Then deploy and verify
   `/pub/...` 200.
-- **Blocks:** `specs/5/17` — this is now its ONLY unmet definition-of-done
-  item; the spec stays `partial` until this page ships.
+- **Blocks:** `specs/5/17` — this was its ONLY unmet definition-of-done item.
+  Unblocked; the spec is now `shipped`.
 
 ## F30 — `5/28` composition's lock is instance-keyed; its subject is group-scoped (2026-08-06, proposed)
 
@@ -5067,7 +5175,7 @@ Separately, `dashd/services.go:33` declares the proxyd tile `Built:false` and no
   `components/dashd.html`, which also carries the dead `5/5-uniform-mcp-rest`
   link and omits five shipped control planes.
 
-## F12 — the engagement TTL in the operator docs is not routd's default (2026-08-05, open)
+## ✅ FIXED 2026-08-06 F12 — the engagement TTL in the operator docs is not routd's default (2026-08-05, FIXED)
 
 `template/web/pub/arizuko/concepts/engagement.html:65` tells operators the TTL
 defaults to `20m`. routd defaults it to 30m in both places it sets one:
@@ -5086,10 +5194,27 @@ neither see who is engaged nor end it.
 - **Scope:** web docs vs routd default; dashd surface
 - **Affected:** all instances
 - **Source:** template/web/pub/arizuko/concepts/engagement.html:65; routd/cmd/routd/main.go:203; routd/server.go:144-145; core/config.go:248
-- **Status:** open
-- **Fix:** correct the doc to 30m (mechanical). The dashd view is a separate
-  feature. Consider deleting the dead `core/config.go` default so the two
-  numbers cannot disagree again.
+- **Status:** FIXED 2026-08-06 — cause fix, not just the number.
+- **Fix:** the dead `core.Config.EngagementTTL` field is DELETED. It had zero
+  readers repo-wide (`go build ./...` proves it) yet carried the 20m that every
+  wrong page cited, and `env.html` named it as the reader. Its 30m twin was
+  also spelled twice, so both now read one `routd.DefaultEngagementTTL`
+  (`routd/server.go`), used by `cmd/routd`'s `durOr` fallback and by
+  `NewServer`'s zero-branch. Three pages corrected to 30m:
+  `concepts/engagement.html` (also dropped `now − last_activity < TTL`, which
+  describes a `last_reply_at` column the spec explicitly does not have — the
+  column stores the deadline), `reference/env.html` (default, plus a "Read by"
+  pointing at the deleted `core/config.go:217`), and a claim on both that the
+  window is extended by "each user or bot message" — only bot outbounds bump it
+  (`routd/turns.go:226`, `ipc/ipc.go:636`; `routd/loop.go` only reads).
+  `routd/README.md:154` already said 30m and was left alone.
+  Guarded by `TestDefaultEngagementTTL` (`routd/engagement_http_test.go`),
+  which writes `30*time.Minute` out as a literal so bumping the constant fails
+  it and the docs get revisited. Proved falsifiable twice against the whole
+  `routd` package: making the zero-branch unconditional, and setting the
+  constant back to 20m — each failed that test and no other.
+- **Split off:** the "no dashd surface shows or clears engagement windows"
+  half of this entry is NOT closed; it is `F31`.
 
 ### F12a — the dashd engagement view needs API that does not exist (2026-08-06, FIXED 2026-08-06 — shape (a))
 

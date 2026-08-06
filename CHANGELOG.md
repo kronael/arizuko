@@ -88,6 +88,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   token (empty folder claim) sees the whole fleet; a tenant sees its own
   subtree and never an unclaimed window.
 
+  The docs now match: `concepts/engagement.html` documents all three faces and
+  says 30 minutes, which is what routd has always run. It said 20, and so did
+  `reference/env.html`, because `core.Config` carried an `EngagementTTL` field
+  with a 20m default that **nothing anywhere read** — `env.html` even named it
+  as the reader. The field is deleted and `routd.DefaultEngagementTTL` is the
+  only place the number is written. Also corrected: a claim on both pages that
+  your own messages extend the window. They don't; only the bot's replies do.
+
+- **`reference/openapi.html` described a gap that had been closed.** The page
+  said routd advertises six resources and that `scheduled_tasks` was missing
+  from the document — "those endpoints work but no generated client will find
+  them". Both stopped being true when the `MCPOnly` fold shipped. routd
+  advertises **eight** resources over fifteen paths, `scheduled_tasks` among
+  them, and the page now explains why that one is served at `/v1/tasks`
+  instead of `/v1/scheduled_tasks`: `timed` calls it from another container on
+  its own restart schedule, so it is a deliberate exception, written down so
+  nobody re-files it. Two neighbouring errors went with it — onbod's row listed
+  one of its three resources, and an example cited a path nothing serves.
+
 ### Changed
 
 - **routd's `/openapi.json` no longer advertises an endpoint that 404s, and
