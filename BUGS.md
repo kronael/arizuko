@@ -933,7 +933,7 @@ genuine generalization of `--product <one>`; only its lock is wrong.
 
 </details>
 
-## F37 — `task_run_logs` holds orphan rows on all three live instances (2026-08-06, open)
+## F38 — `task_run_logs` holds orphan rows on all three live instances (2026-08-06, open)
 
 Found while proving migration `0031` caused no FK damage: `PRAGMA
 foreign_key_check` on a `.backup` copy of each live `routd.db` reports violations
