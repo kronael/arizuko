@@ -19,6 +19,28 @@ and delivers the result via the `submit_turn` JSON-RPC method back to
 The shipping runtime uses `@anthropic-ai/claude-agent-sdk` 0.3.153.
 MCP servers are assembled in `src/mcp-servers.ts`:
 
+### Choosing the harness — `ARIZUKO_BACKEND`
+
+ant does not implement an agent loop; it wraps one. `ARIZUKO_BACKEND`
+picks which (`src/backend/index.ts`), read from the container env runed
+sets at spawn:
+
+| Value              | Harness                                                          |
+| ------------------ | ---------------------------------------------------------------- |
+| `claude` (default) | Claude Code via `@anthropic-ai/claude-agent-sdk` (`backend/claude.ts`) |
+| `codex`            | OpenAI `codex app-server`, JSON-RPC over stdio (`backend/codex.ts`) |
+
+Unset means `claude`. **Any other value is fatal at startup** — never a
+silent fallback. Selection is per-spawn, so different folders can run
+different harnesses. The MCP surface above the backend
+(`send`/`reply`/`inspect_*`/`submit_turn`) is identical either way.
+
+The seam a backend must satisfy is `name()`, `spawn(cfg)`,
+`session.events()`, `session.close()` — the only members the runtime
+calls. `Caps` and the remaining `Session` methods currently have no
+consumer; see spec `5/K` § "`Caps` has no consumer" before building
+against them.
+
 - **`arizuko` core server** — socat bridge to `/run/ipc/gated.sock`,
   `alwaysLoad: true` so `send`/`reply`/`inspect_*`/`send_file` stay
   eager every turn.

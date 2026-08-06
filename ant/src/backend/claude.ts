@@ -403,7 +403,12 @@ export function claudeResultStatus(
 // normalize maps one SDK message onto a Backend Event. Messages that carry no
 // normalized category (partial deltas, internal status) are dropped — the
 // runtime never needed them. raw always preserves the full SDK message.
-function normalize(message: unknown): Event | null {
+//
+// Exported for claude.test.ts: this is spec 5/K's "load-bearing part", and it
+// is the only way to test it here — codex.test.ts drives its mapping through a
+// fake app-server, but the claude path runs inside the SDK's query(), which
+// needs real credentials.
+export function normalize(message: unknown): Event | null {
   const m = message as { type?: string; subtype?: string; session_id?: string };
   const raw = message as Record<string, unknown>;
 

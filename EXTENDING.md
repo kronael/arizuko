@@ -31,6 +31,7 @@ extension points. See
 | Web routes    | `store/web_routes.go`                  | Agent          | MCP tools (`set_web_route` / `del_web_route`) |
 | Public pages  | `template/web/pub/`                    | Operator       | Plain HTML, copied into `<data-dir>/web/pub/` |
 | Output styles | `ant/output-styles/`                   | Channel author | `<channel>-<surface>.md`; picked per-session  |
+| Agent harness | `ant/src/backend/`                     | Developer      | `ARIZUKO_BACKEND` env var selects per spawn   |
 
 ## Adding an output-style file
 
@@ -524,6 +525,28 @@ Adding one:
    broadcast fires on next spawn.
 
 Skill body shape: see `ant/skills/oracle/SKILL.md` as the reference.
+
+## Swapping the agent harness
+
+ant wraps an agentic harness; it never is one. Which harness a spawn
+runs is the `ARIZUKO_BACKEND` env var, read once at container start
+(`ant/src/backend/index.ts`): `claude` (default, the Claude Code SDK) or
+`codex` (OpenAI `codex app-server` over JSON-RPC). **An unrecognized
+value is fatal** — no silent fallback to claude. Selection is per-spawn,
+so folders can differ. Full table in `ant/README.md`; rationale in spec
+[`5/K`](specs/5/K-ant-backend-codex.md).
+
+Adding a third harness means implementing `Backend` in
+`ant/src/backend/<name>.ts` and adding a `case` to `selectBackend`. The
+runtime calls exactly four members — `name()`, `spawn(cfg)`,
+`session.events()`, `session.close()` — and each backend owns its own
+mid-turn steering natively (claude: a `PostToolUse` hook draining
+`/run/ipc/input`; codex: `turn/steer`). `Caps` and the other `Session`
+methods have no consumer today; read `5/K` § "`Caps` has no consumer"
+before implementing against them. Candidate harnesses must have a
+documented wire protocol, structured tool-use, and native MCP-client
+support — a harness missing those would force a translation layer, which
+`5/K` rules out.
 
 ## Permissions
 

@@ -4,12 +4,15 @@ status: partial
 
 # Ant backend abstraction — Codex as second harness
 
-> **Status (2026-08-05).** Partial. `capabilities()` has no runtime call site
-> (only tests), so the graceful-degradation contract below is unimplemented;
-> `setModelLive` is `false` in `claude.ts` and `true` in `codex.ts`,
-> contradicting the claim that both backends satisfy every field today;
-> `claude.ts` has no dedicated test file; and `ARIZUKO_BACKEND`, the switch that
-> selects a backend, is documented nowhere outside this spec. BUGS `F6`.
+> **Status (2026-08-06).** Partial. `claude.ts` now has `claude.test.ts`
+> (normalize covered row-by-row against the mapping table below) and
+> `ARIZUKO_BACKEND` is documented in `ant/README.md` + `EXTENDING.md`. The
+> graceful-degradation contract was **not** built: on inspection it describes a
+> fallback from a live-steering path the runtime does not have, and the
+> "degraded" behavior it names is what the runtime already does
+> unconditionally — see § `Caps` below, rewritten to match the code. That
+> leaves `Caps` and four `Session` methods with no consumer; whether to wire or
+> delete them is a contract change awaiting sign-off (BUGS `F6`).
 
 A `Backend` interface inside the in-container agent (`ant/src/backend/`)
 lets the runtime drive different agentic harnesses underneath.
@@ -28,7 +31,9 @@ Two seams make the agent layer replaceable:
 - **Inner — the `Backend`.** This spec. An in-process TypeScript
   interface whose self-documentation is the type
   (`ant/src/backend/types.ts` — `Backend`/`Session`/`Event`/`Caps`/
-  `SessionConfig`). It swaps the harness under a fixed ant.
+  `SessionConfig`). It swaps the harness under a fixed ant. A type is
+  only self-documenting while every member has a caller: `Caps` and four
+  `Session` methods currently have none (§ "`Caps` has no consumer").
 
 ## Core principle: ant wraps harnesses, never is one
 
@@ -54,17 +59,57 @@ Consequences (each rules out a real temptation):
 
 ## Where the seam sits
 
-The runtime (`ant/src/index.ts`) does exactly four things the `Backend`
-abstracts: spawn a session, feed user turns (initial + IPC-steered),
-consume the harness event stream, and report the turn on the terminating
-event. Everything else — IPC drain, progress nudges, transcript
-archiving, secret sanitizing, MCP-server assembly, system-prompt build —
-is harness-agnostic and stays above the seam.
+The runtime (`ant/src/index.ts`) uses exactly four members of the seam:
+`name()`, `spawn(cfg)`, `session.events()`, `session.close()`. It spawns
+a session, consumes the event stream, reports the turn on the
+terminating event, closes, and — if another batch arrived over IPC —
+spawns again with `resume` + `resumeAt`. Everything else — IPC drain,
+progress nudges, transcript archiving, secret sanitizing, MCP-server
+assembly, system-prompt build — is harness-agnostic and stays above the
+seam.
 
-`caps()` declares what a backend honors; the runtime degrades gracefully
-on `false` (no live interrupt → close+respawn). Weaker harnesses are
-allowed but must report honestly — **never silently faked**. Both claude
-and codex satisfy every field today.
+Mid-turn steering does NOT cross the seam. Each backend wires it
+natively, inside itself: claude registers a `PostToolUse` hook that
+drains `/run/ipc/input` into the live query as `<user-steering>`
+(`claude.ts createIpcDrainHook`); codex maps it to `turn/steer`. That is
+this spec's own "each backend speaks one harness natively" applied to
+steering, and it is why the runtime needs no steering call of its own.
+
+## `Caps` has no consumer, and cannot get a useful one
+
+`Caps` declares eight fields. Nothing in `ant/src` reads any of them —
+`capabilities()`'s only call sites are tests. This is not an unfinished
+wiring job; the graceful-degradation contract that motivated `Caps`
+cannot be built as stated:
+
+- Four of the fields gate `Session` methods — `interrupt`,
+  `sendUserMessage`, `setModel`, `setPermissionMode` — that the runtime
+  **never calls**. There is no call site to degrade.
+- The spec's own worked example, "no live interrupt → close+respawn", is
+  the runtime's unconditional behavior: `runQuery` always ends in
+  `session.close()`, and continuation is always a fresh `spawn()` with
+  `resume`/`resumeAt`. The degraded path is the only path, so a
+  capability check would gate nothing.
+- Wiring the undegraded path — call `sendUserMessage` when
+  `multiTurn` — would add a **third** way to steer a live session beside
+  the native per-backend hook and the respawn loop. Root `CLAUDE.md`:
+  never add a parallel second path; two paths drift.
+- `streaming` and `toolUse` have no branch to gate: a backend that
+  cannot stream cannot implement `events()` at all.
+- The two branches the runtime genuinely makes — resume-id validation
+  and MCP rendering — key on `backend.name()`, because they are about
+  one harness's id format and config format, not about a capability.
+
+`setModelLive` is the field that proves it: `claude.ts` reports `false`,
+`codex.ts` reports `true`, and nothing has ever behaved differently,
+because the model is fixed per spawn via `SessionConfig.model`. Both
+values are pinned by tests so the divergence stays a recorded fact.
+
+The open decision — delete `Caps` and the four unused `Session` methods,
+or build the live-steering path they describe — is a contract change and
+needs sign-off. Tracked in BUGS `F6`. Until then the honest reading is:
+**the seam is `name` + `spawn` + `events` + `close`**, and a new backend
+satisfies it by implementing those.
 
 ## Event normalization — the load-bearing part
 
