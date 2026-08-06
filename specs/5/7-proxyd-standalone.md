@@ -1,19 +1,9 @@
 ---
-status: partial
-shipped: phase-1 (per-daemon route declarations) in v0.35.0; phase-3 (runtime route resource + MCP) in v0.36.0
+status: shipped
+shipped: phase-1 (per-daemon route declarations) in v0.35.0; phase-3 (runtime route resource + MCP) in v0.36.0; dashd surface + operator docs 2026-08-06
 ---
 
 # proxyd: standalone authenticating gateway
-
-> **Status (2026-08-06).** Partial. The resource is registered as
-> `proxyd_routes`, so the wire surface is `/v1/proxyd_routes` and the derived
-> MCP tools are `proxyd_routes.*`. The dashd surface now exists —
-> `/dash/proxyd/` views, adds and deletes routes through that REST face, and
-> the cockpit tile is `Built:true` (definition-of-done item 6, closed
-> 2026-08-06). Two items remain: the operator component page still documents
-> `/v1/routes` and `routes.*`, which is `routd`'s name (item 5 — BUGS `F11`),
-> and no migration file / `MIGRATION_VERSION` bump has shipped for it
-> (item 7).
 
 `proxyd` is a generic, config-driven authenticating reverse proxy —
 droppable in front of any HTTP service stack, arizuko or otherwise. Same
@@ -117,10 +107,17 @@ The route table is a resreg resource named `proxyd_routes` — **never
 - REST: `/v1/proxyd_routes` on proxyd (`proxyd/resource.go`).
 - MCP: webd forwards to proxyd's REST face (`webd/routes_mcp.go`) — the
   cross-daemon forwarder shape of [`17-openapi-mcp.md`](17-openapi-mcp.md),
-  `Store: nil`, so proxyd writes the single audit row.
+  `Store: nil`, so proxyd writes the single audit row. **Operator-only, and
+  not on the agent socket**: `registerRoutesMCP` returns early for
+  non-operators, and `ipc.addFacadeTools` skips every resource without
+  `MCPNames` — `proxyd_routes` among them. The in-container agent never lists
+  these tools.
 - Operator: `/dash/proxyd/` (`dashd/proxyd_page.go`) calls the same REST face.
   No dashd SQL against `proxyd_routes` and no dashd `audit.Emit` — proxyd
   writes the one row, in the mutation's own tx, naming the forwarded operator.
+- Docs: `template/web/pub/arizuko/components/proxyd.html` (operator page),
+  `proxyd/README.md` (package), `reference/openapi.html` (the `proxyd_routes`
+  row).
 
 **Forwarder allowlist.** proxyd trusts stamped `X-User-*` only on an ES256
 service bearer whose sub is in `trustedForwarders` (`proxyd/resource.go`):
