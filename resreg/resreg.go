@@ -37,6 +37,7 @@ import (
 	"maps"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,10 +91,61 @@ type Caller struct {
 	Claims map[string]string
 }
 
+// ScopeClaimKey is where a caller-builder parks the verified bearer's scope
+// list so the injected Gate can read it. A Gate receives only the Execution,
+// and a caller-builder can only fail 401 — so a daemon that authorizes on
+// token SCOPE rather than on ACL rows (runed and authd own no acl table) has
+// to carry the scope across that seam to answer 403. Encoded space-delimited,
+// the OAuth 2.0 §3.3 form.
+const ScopeClaimKey = "scope"
+
+// ScopeClaims builds the Claims map carrying scope. Paired with Caller.Scopes
+// so the encoding has one owner instead of one copy per daemon.
+func ScopeClaims(scope []string) map[string]string {
+	if len(scope) == 0 {
+		return nil
+	}
+	return map[string]string{ScopeClaimKey: strings.Join(scope, " ")}
+}
+
+// Scopes decodes what ScopeClaims encoded. Empty when the builder set none —
+// which a Gate must read as "no scope proven", never as "unrestricted".
+func (c Caller) Scopes() []string { return strings.Fields(c.Claims[ScopeClaimKey]) }
+
 // Args is the JSON-decoded argument map an adapter passes in. URL-path
 // values (e.g. {path}) are merged into Args under their parameter name
 // before the handler sees them, so the handler reads one source.
 type Args map[string]any
+
+// Str reads a string arg. Absent or wrong-typed → "".
+//
+// Deliberately NOT named String: a map type with a String() method becomes a
+// fmt.Stringer, and every %v of an Args — in a slog line, in a wrapped error —
+// would silently render one key instead of the map.
+func (a Args) Str(key string) string {
+	s, _ := a[key].(string)
+	return s
+}
+
+// Int reads a numeric arg. The two surfaces deliver numbers differently: MCP
+// decodes to float64, and REST query params arrive as strings straight off
+// url.Values (decodeRESTArgs), so `?limit=50` is "50" and not 50. Both must
+// land on the same number or a filter silently ignores itself on one face.
+// Absent, unparseable or wrong-typed → 0.
+func (a Args) Int(key string) int64 {
+	switch v := a[key].(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case string:
+		n, _ := strconv.ParseInt(v, 10, 64)
+		return n
+	}
+	return 0
+}
 
 // Execution carries everything a handler needs to act + emit audit.
 // The adapter constructs it once per request; handlers honour Tx for
