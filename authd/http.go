@@ -112,12 +112,62 @@ var serviceGrants = map[string][]string{
 	// it. dashd is the only holder, and its /dash/audit/ page is
 	// requireOperator-gated.
 	//
-	// The ceiling is exactly these four. dashd proxies and reads; it does not
+	// signing_keys:read, sessions:read and sessions:write are the /dash/authd/
+	// page (spec 5/1 DoD item 6). They are the three the spec named as
+	// deliberately WITHHELD — "granting the token authority's kill verb to a
+	// daemon with no caller for it is authority without a user" — so what
+	// changed is that the caller exists, not that the reasoning softened. Each
+	// is bounded by the resource it names, and the bound is a projection rather
+	// than a promise:
+	//
+	//   - signing_keys:read reaches SigningKeysRow — kid, alg, active,
+	//     created_at, retired_at. `priv_pem` and `pub_pem` appear in no SELECT
+	//     list, no Row struct and no db: tag, and the query is a constant with
+	//     no argument that could add a column, so this scope cannot be pointed
+	//     at key material by any caller. It reads the ROTATION, never the key.
+	//   - sessions:read reaches SessionsRow, which carries no credential column
+	//     at all: authd persists only a sha256 of a refresh token, and
+	//     token_hash is unnamed in the projection and in the query. The
+	//     strongest fact this scope yields is that a login exists.
+	//   - sessions:write reaches exactly DELETE /v1/sessions/{family_id}, one
+	//     UPDATE that sets revoked_at. It cannot mint, cannot rotate a key, and
+	//     cannot delete a row — the tombstone IS the reuse-detection evidence,
+	//     so the record of a session survives its revocation.
+	//
+	// sessions:write is the sharpest of the three: it is a kill verb on the
+	// token authority. It is taken on the two conditions the routes:write
+	// sign-off established and BUGS F15a left open. The audit row lands inside
+	// the mutation's OWN transaction — resreg.invoke opens it, the handler
+	// revokes in it, the event is emitted into it, and a failed audit write
+	// rolls the revoke back — so an unrecorded revoke is not expressible. And
+	// the row is READABLE, because 5/I federated authd's audit_log into
+	// /dash/audit/; F15a's objection was that a revoke recorded only in auth.db
+	// is invisible on the page that exists to show it, which was true when it
+	// was written and is not now.
+	//
+	// The blast radius is bounded the same way the reads are: a leaked dashd
+	// key buys the ability to END sessions, never to create or extend one.
+	// Signing stays authd's alone, and the fleet-wide lever — retiring the
+	// active key — has no wire face at all, deliberately (spec 5/1 § JWK
+	// rotation mechanics), so no scope reaches it and /dash/authd/ ships the
+	// per-login control with the fleet-wide one stated as out-of-band.
+	//
+	// All three are unreachable by a human bearer for the same mechanical
+	// reason audit:read is: a user token's scope list holds folder globs and
+	// auth.scopeMatches rejects a held value without a colon. On top of that,
+	// signing_keys and sessions REFUSE a folder-claimed caller outright
+	// (instanceWideGate) — neither table has a folder column to narrow by, so
+	// serving one everything would be the recorded cross-tenant list-all leak.
+	//
+	// The ceiling is exactly these seven. dashd proxies and reads; it does not
 	// originate work (runs:run), speak as a channel (messages:write), or read
 	// credentials (secrets:read, grants:read). authd/service_dashd_test.go pins
-	// both halves — the four that must be here and the count, so a fifth
+	// both halves — the seven that must be here and the count, so an eighth
 	// scope of any name fails there before it ships.
-	"service:dashd": {"runs:kill", "routes:read", "routes:write", "audit:read"},
+	"service:dashd": {
+		"runs:kill", "routes:read", "routes:write", "audit:read",
+		"signing_keys:read", "sessions:read", "sessions:write",
+	},
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is

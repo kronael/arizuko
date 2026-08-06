@@ -184,12 +184,24 @@ func engagementTopicCell(topic string) string {
 
 // routdCall performs an authenticated call against routd's /v1 face with the
 // service:dashd bearer. body nil → no request body.
+func (d *dash) routdCall(ctx context.Context, method, path string, body any) ([]byte, int, error) {
+	return d.bearerCall(ctx, d.routdURL, method, path, body)
+}
+
+// bearerCall performs an authenticated call against a sibling daemon's /v1 face
+// with the service:dashd bearer. base is the daemon's URL; body nil → no
+// request body.
 //
 // It deliberately does NOT forward X-User-Sub/-Groups the way proxydCall does:
-// proxyd authorizes the FORWARDED operator identity, routd authorizes the
-// BEARER. Sending them would suggest routd narrows the answer per viewer, and
-// it does not — the operator gate on the handler is the whole containment.
-func (d *dash) routdCall(ctx context.Context, method, path string, body any) ([]byte, int, error) {
+// proxyd authorizes the FORWARDED operator identity, routd and authd authorize
+// the BEARER. Sending them would suggest the backend narrows the answer per
+// viewer, and it does not — the operator gate on the handler is the whole
+// containment.
+//
+// One helper for both callers rather than a per-daemon copy: the credential and
+// the header discipline are the thing that must not drift, and a second body
+// would be a second place to forget the X-User-* rule.
+func (d *dash) bearerCall(ctx context.Context, base, method, path string, body any) ([]byte, int, error) {
 	var rdr io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
@@ -198,7 +210,7 @@ func (d *dash) routdCall(ctx context.Context, method, path string, body any) ([]
 		}
 		rdr = bytes.NewReader(buf)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, d.routdURL+path, rdr)
+	req, err := http.NewRequestWithContext(ctx, method, base+path, rdr)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -25,7 +25,7 @@ func TestEveryServiceGrantIsNonEmpty(t *testing.T) {
 }
 
 // dashd proxies the operator UI's actions rather than writing other daemons'
-// tables, and reads what it renders. Four scopes, each pinned as NECESSARY:
+// tables, and reads what it renders. Seven scopes, each pinned as NECESSARY:
 //
 //   - runs:kill — POST /v1/runs/stop (runed/server.go), the /dash/runed/ kill
 //     button. The whapd pair endpoints are not scope-gated and proxyd authorizes
@@ -51,13 +51,44 @@ func TestEveryServiceGrantIsNonEmpty(t *testing.T) {
 //     (audit.redactRE) and scrubbed from history (authd migration 0007), and
 //     audit.Query names audit_log and no other table — signing_keys and
 //     refresh_tokens are not reachable through it.
+//   - signing_keys:read — GET /v1/signing_keys, the key table on /dash/authd/
+//     (spec 5/1 DoD item 6). What it reaches is SigningKeysRow, and the
+//     omission is the bound: priv_pem and pub_pem are in no SELECT list, no Row
+//     struct and no db: tag, and selectSigningKeys is a CONSTANT statement with
+//     no argument that could add a column. The scope reads the rotation, never
+//     the key.
+//   - sessions:read — GET /v1/sessions, the login table on the same page. There
+//     is no credential to withhold: authd persists only a sha256 of a refresh
+//     token (insertRefresh) and token_hash is unnamed in both the projection
+//     and the query, so the strongest fact this scope yields is that a login
+//     exists.
+//   - sessions:write — DELETE /v1/sessions/{family_id}, that page's sign-out
+//     control. This is the sharp one: a KILL VERB ON THE TOKEN AUTHORITY. Spec
+//     5/1 withheld it on a stated ground — "granting the token authority's kill
+//     verb to a daemon with no caller for it is authority without a user" — so
+//     what earns it is that the caller now exists, not that the ground moved.
+//     The two conditions routes:write's sign-off established both hold: the
+//     audit row is written inside the mutation's OWN transaction (resreg.invoke
+//     opens it, revokeSession revokes in it, a failed audit write rolls the
+//     revoke back — TestSessionsRevokeKillsTheFamilyAndAudits), and the row is
+//     READABLE, since 5/I federated authd's audit_log into /dash/audit/ —
+//     which is exactly the objection BUGS F15a raised and left open.
 //
-// audit:read is also unreachable by any human bearer, so it cannot widen a USER
-// session even if one were somehow minted with it: a user token's scope list
-// holds folder globs, and auth.scopeMatches rejects a held value with no colon.
+// The kill verb's blast radius is bounded by what the endpoint can do, not by
+// intent: it sets revoked_at and nothing else. It cannot mint, cannot rotate a
+// key, and cannot delete a row — the tombstone IS the reuse-detection evidence.
+// A leaked dashd key therefore buys the ability to END sessions, never to make
+// or extend one. The fleet-wide lever (retiring the active key) has no wire
+// face at all, deliberately, so no scope reaches it.
+//
+// All four colon-scopes are also unreachable by any human bearer, so none can
+// widen a USER session even if one were somehow minted with it: a user token's
+// scope list holds folder globs, and auth.scopeMatches rejects a held value
+// with no colon. signing_keys and sessions additionally REFUSE a folder-claimed
+// caller (instanceWideGate), neither table having a folder column to narrow by.
 //
 // The upper bound is the half that matters, so it is asserted TWICE and neither
-// half was weakened to let routes:write in.
+// half was weakened to let the three new ones in.
 //
 //   - By NAME, for the message: each listed scope names a distinct way the
 //     ceiling could stop being "proxies and reads" — originating work
@@ -67,15 +98,25 @@ func TestEveryServiceGrantIsNonEmpty(t *testing.T) {
 //     widest read (ListRouteTokens) never selects the token value.
 //   - By COUNT, which is the stronger bound and closes the gap that letting
 //     routes:write off the named list would otherwise open: the grant is exactly
-//     these four, so a FIFTH scope of ANY name — including one nobody thought
-//     to blacklist — fails here before it ships. This bound has now caught two
-//     additions (routes:write, audit:read) and forced each to state its case.
+//     these seven, so an EIGHTH scope of ANY name — including one nobody thought
+//     to blacklist — fails here before it ships. This bound has now caught five
+//     additions (routes:write, audit:read, and the three /dash/authd/ scopes)
+//     and forced each to state its case.
+//
+// tokens:mint is blacklisted by name from here on. It is the one scope that
+// would turn "can end a session" into "can BE anyone" — IssuerMint mints a user
+// token bounded by the TARGET's grants, not the caller's — and no dashd page
+// has ever needed it. It is on the named list precisely because the count bound
+// alone would have let it in as a swap for one of the seven.
 func TestServiceDashdIsScopedToWhatItProxiesAndReads(t *testing.T) {
 	g := serviceGrants["service:dashd"]
 	if len(g) == 0 {
 		t.Fatal("service:dashd has no grant — /dash/runed/'s kill button 403s")
 	}
-	want := []string{"runs:kill", "routes:read", "routes:write", "audit:read"}
+	want := []string{
+		"runs:kill", "routes:read", "routes:write", "audit:read",
+		"signing_keys:read", "sessions:read", "sessions:write",
+	}
 	for _, needed := range want {
 		if !slices.Contains(g, needed) {
 			t.Errorf("service:dashd grant missing %q, got %v", needed, g)
@@ -87,7 +128,7 @@ func TestServiceDashdIsScopedToWhatItProxiesAndReads(t *testing.T) {
 			len(g), g, want)
 	}
 	for _, tooWide := range []string{
-		"*", "runs:run", "messages:write", "grants:read", "secrets:read",
+		"*", "runs:run", "messages:write", "grants:read", "secrets:read", "tokens:mint",
 	} {
 		if slices.Contains(g, tooWide) {
 			t.Errorf("service:dashd holds %q — the operator UI proxies and reads, "+

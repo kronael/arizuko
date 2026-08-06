@@ -517,6 +517,8 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/routd/retry", g(d.handleRoutdRetry))
 	mux.HandleFunc("GET /dash/runed/", g(d.handleRuned))
 	mux.HandleFunc("POST /dash/runed/kill", g(d.handleRunedKill))
+	mux.HandleFunc("GET /dash/authd/", g(d.handleAuthd))
+	mux.HandleFunc("POST /dash/authd/revoke", g(d.handleAuthdRevoke))
 
 	// proxyd control plane — the reverse-proxy route table. proxyd owns it, so
 	// every handler here is an HTTP call to proxyd's /v1/proxyd_routes.
