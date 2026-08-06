@@ -68,7 +68,7 @@ data entities defined here, and `9/3` moves the cold tier into git.
 | [Z-message-actions.md](Z-message-actions.md)                     | shipped | Agent-initiated edit, delete, pin, unpin on messages it sent.                                                                                   |
 | [Y-output-styles-per-surface.md](Y-output-styles-per-surface.md) | shipped | Output style selected per surface from the JID, falling back to the bare channel name.                                                          |
 | [6-proactive-interjection.md](6-proactive-interjection.md)       | partial | Lurk mode: silence-driven turns behind a cooldown and a quiet-turn veto; the agent may emit nothing.                                            |
-| [12-turn-retry.md](12-turn-retry.md)                             | partial | Reschedule a turn that died mid-execution without delivering a reply.                                                                           |
+| [12-turn-retry.md](12-turn-retry.md)                             | shipped | Reschedule a turn that died mid-execution without delivering a reply.                                                                           |
 
 ## Runtime — the turn and the container
 
@@ -79,7 +79,7 @@ data entities defined here, and `9/3` moves the cold tier into git.
 | [2-agent-pipeline.md](2-agent-pipeline.md)               | shipped | Orchestration (route tokens) versus workflows (the in-container Agent tool).                                                        |
 | [K-ant-backend-codex.md](K-ant-backend-codex.md)         | partial | A `Backend` interface inside `ant/` so a second harness (Codex) can drive a turn.                                                   |
 | [4-autocalls.md](4-autocalls.md)                         | shipped | Inject facts inline when schema cost exceeds content cost. Four autocalls, no tools.                                                |
-| [24-live-tasklist-status.md](24-live-tasklist-status.md) | partial | A `TodoWrite` hook renders the agent's task list into one message edited in place.                                                  |
+| [24-live-tasklist-status.md](24-live-tasklist-status.md) | shipped | A `TodoWrite` hook renders the agent's task list into one message edited in place.                                                  |
 | [I-tool-call-logging.md](I-tool-call-logging.md)         | partial | Per-tool-call logging on both surfaces; the `audit_log` table is the source of truth.                                               |
 | [O-observability.md](O-observability.md)                 | shipped | Three opt-in substrates: slog+OTLP logs, spans, and 15 Prometheus metric families.                                                  |
 | [9-agent-capability-eval.md](9-agent-capability-eval.md) | shipped | `anteval` — a black-box capability gate driving real tasks through the public surfaces.                                             |
