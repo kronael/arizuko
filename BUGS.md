@@ -7,6 +7,114 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F43 — routd hands the agent a scheme-less pairing URL (2026-08-06, open)
+
+`routd/cmd/routd/main.go` reads `webHost := os.Getenv("WEB_HOST")` raw, and
+`issue_pair` returns `s.webHost + "/pair/" + raw`. All three live instances set
+a BARE hostname:
+
+```
+krons     WEB_HOST=krons.fiu.wtf         AUTH_BASE_URL=https://krons.fiu.wtf
+sloth     WEB_HOST=sloth.quantblue.tech  AUTH_BASE_URL=https://sloth.quantblue.tech
+marinade  WEB_HOST=fab.krons.cx          AUTH_BASE_URL=https://fab.krons.cx
+```
+
+So `issue_pairing_link` hands the agent `krons.fiu.wtf/pair/<tok>` — no scheme.
+Same for `issue_chat_link`/`issue_webhook` (`route_tokens_resource.go`'s
+`s.webHost + urlPrefix + raw`) and every other `s.webHost` consumer. Telegram
+auto-links a bare domain; WhatsApp and most clients do not, and a user who
+copies it into a browser gets a relative-path resolve.
+
+Found while folding onbod's greeting onto pairing (`5/31`). onbod does NOT hit
+this — it builds the link from `cfg.authBaseURL`, which carries the scheme —
+so this is routd's agent-facing surface only, and the fold neither caused nor
+widened it.
+
+Not fixed here: the honest fix is deciding whether `WEB_HOST` is a host or a
+URL and normalising at ONE place (a `core.Config` accessor), not prefixing
+`https://` at each of the ~6 call sites, and `core.Config.WebHost` has other
+readers. Cross-cutting → proposal, not an inline patch.
+
+## F42 — spec 5/18 step 8: a chat-onboarded stranger with no world still cannot make one (2026-08-06, PROPOSED — needs sign-off)
+
+`5/18`'s last unshipped step, and the only item holding that spec at `partial`.
+A caller who pairs from a chat, passes the gate, and administers no world lands
+on `renderNoWorld`: "ask an admin for an invite". The username picker
+(`renderUsernamePicker` → `handleCreateWorld`) renders only behind a
+`pending_target` cookie, which ONLY invite redemption sets. So the admission
+queue admits you and then sends you away — `5/18`'s own words: "`approved`
+grants nothing: nothing reads it as a precondition".
+
+It is unbuilt because it is undecided, not because it is hard. The coherent
+shape is one condition: **`status='approved'` unlocks the username picker for a
+caller with no worlds**, making the gate verdict load-bearing for the first
+time and giving the queue a purpose. Roughly `handleDashboard`'s `groupCount ==
+0` branch gaining an `onboarding.status='approved'` lookup beside the
+`pending_target` cookie check, plus `handleCreateWorld` accepting that as an
+alternative authority for a top-level folder.
+
+**Why it needs sign-off: it is a security posture change.** With no gates
+configured, `admitJID` approves every paired identity. Under the proposal that
+means anyone who messages the bot on an `ONBOARDING_PLATFORMS` platform can
+provision a top-level tenant. `arizuko create` seeds no gates. So the default
+posture would flip from "invite-only world creation" to "open signup", and the
+throttle would be a `onboarding_gates` row the operator has to know to add.
+Alternatives, all cheap, all different postures:
+
+1. `approved` unlocks the picker (above) — open by default.
+2. `approved` unlocks it only when at least one gate is configured — closed by
+   default, opt-in by configuring a gate.
+3. Leave the dead end and delete the queue instead — if admission entitles
+   nothing, `gate`/`queued_at`/`admitted_at`/`admitFromQueue` are ~150 lines
+   with no consumer. `5/18` already asks whether `gate` survives at all.
+
+`5/18` § "Open, blocking" Q1's survivor is exactly this question ("whether a
+stranger who chose no world may create one (today: only via an invite)"). The
+spec stays `partial` naming this item until it is answered.
+
+## F41 — the re-greet cooldown is a rate, not a cap (2026-08-06, open)
+
+Shipped with the `5/31` fold and named in the spec rather than hidden. A chat
+that (a) keeps messaging, (b) still routes nowhere, and (c) never redeems its
+pairing link is offered a fresh one every `store.PairingTTL` (10 min) — 144/day
+in the worst case. Before the fold it was greeted exactly once, ever, which was
+the permanent lockout `P1b` blocker 2 existed to remove; the trade is a live
+link the user can always get for a message the user cannot switch off.
+
+Two bounds already hold and are what make this a rate rather than a flood: the
+re-arm sits in `store.InsertOnboarding`, which only routd's route-MISS branch
+calls, so a since-routed chat and a silent chat are BOTH never greeted again
+(this is what stopped the timer-only design from re-greeting three live krons
+group chats every ten minutes — see `5/31`).
+
+Open question, not a defect with an obvious fix: should the Nth greeting back
+off? A `prompt_count` column and a widening interval is the obvious shape, and
+it is a new column plus a policy constant for a case nobody has hit yet. Left
+as a rate until an instance reports it.
+
+## F40 — `onboarding.token_ref` / `token_expires` are inert after the fold (2026-08-06, open)
+
+The `5/31` fold left them written by nothing: `promptUnprompted` mints into
+`route_tokens` now, and `handleTokenLanding`/`jidForToken`/`claimByToken` are
+deleted. `store.RepromptOnboarding` still clears `token_ref` (harmless), and
+`store.ListOnboarding` still SELECTs `token_expires` into
+`OnboardingRow.TokenExpires`, which is always empty.
+
+Not dropped in the same commit, deliberately: the columns are `resreg`'s
+`OnboardingRow` shape (`resreg/resources/onboarding.go`), so dropping them
+changes onbod's emitted `openapi.json`, and both that file and `store/` were
+being edited by other agents in the same session. A schema change racing two
+other lanes is how a merge silently loses a column.
+
+Fix: onbod migration 0005 rebuilding `onboarding` without `token_ref`,
+`token_expires`, `idx_onboarding_token_ref`; drop the two fields from
+`store.OnboardingRow` + `ListOnboarding`'s SELECT and from
+`resreg/resources/onboarding.go`'s `RowType`; drop `token_ref=NULL` from
+`RepromptOnboarding`. `store.BackfillOnboardingTokenRefs` goes with them — it
+exists to carry plaintext tokens forward into a column that would no longer
+exist. Live row counts: krons 15, sloth 21, marinade 8; zero rows anywhere hold
+a live (unexpired) token.
+
 ## F39 — `SCREENS.md`'s page hierarchy is missing ten shipped dashd pages (2026-08-06, open)
 
 Found while shipping `/dash/authd/`. `SCREENS.md` is the dashd page inventory —
@@ -3554,7 +3662,56 @@ shipped the extraction: `route_tokens kind='pair'`, `issue_pairing_link`,
 `GET/POST /pair/<token>`, `unpair`. Token and edge are both in routd.db, so the
 cross-DB ownership problem this entry raised does not arise.
 
-## P1b — fold onbod's greeting onto pairing (2026-08-04, PROPOSED — redesign, needs sign-off; UNBLOCKED 2026-08-06)
+## ✅ FIXED 2026-08-06 — P1b — fold onbod's greeting onto pairing (2026-08-04, SHIPPED 2026-08-06)
+
+**Shipped 2026-08-06.** All four blockers closed; `5/31` is `shipped`. onbod's
+greeting now mints a PAIRING link and writes no `acl_membership` edge of its
+own. The second writer this entry existed to remove is gone, and every edge —
+greeting-sourced or agent-minted — is `RedeemPairing`'s, stamped `pairing`, so
+`unpair` reaches all of them.
+
+- **Blocker 1 — no `IssuePairingLink` call site.** The mint moved to
+  `store.IssuePairingLink(ctx, rowExecer, jid, ownerFolder)`, satisfied by both
+  `*sql.Tx` (routd's resreg mutation tx) and `*sql.DB` (onbod's `xdb`).
+  `issueRouteTokenTx` lost its `kind` parameter and mints delivery bearers only.
+  onbod's resolver is the constant `""` — `InsertOnboarding` only fires from the
+  route-MISS branch, so "routes nowhere" is proved by the row's existence.
+- **Blocker 2 — `owner_folder NOT NULL`.** `routd/migrations/0032` +
+  `store/migrations/0083` rebuild the table nullable. Rehearsed against seeded
+  `.backup` copies of all three live instances: every row byte-identical, index
+  and `ON DELETE CASCADE` restored, FK still rejecting an unknown folder, and
+  the pre-migration `NOT NULL` rejection reproduced first so the rehearsal
+  proves something.
+- **Blocker 3 — no poll observer.** `observePairings` on the existing tick
+  scans `onboarding WHERE status='awaiting_message' AND user_sub IS NULL`
+  against `acl_membership WHERE added_by='pairing'`, and runs `admitJID` — the
+  admission half of the deleted `linkJID`, minus the edge write. A no-gate-match
+  is now terminal `status='refused'` + an `onboarding.refuse` audit row + a chat
+  message, replacing the 403 the browser can no longer show.
+- **Blocker 4 — reaching the picker.** Already shipped (`df99e158`), unchanged.
+  The observer deliberately writes no `routes` row: the world choice is a form a
+  human fills in, and the fold added no second path to it.
+
+**The lockout half shipped too, with a corrected trigger.** `5/31`'s designed
+cooldown (a plain `prompted_at < now-PairingTTL` in the poll query) is NOT
+bounded, and the live DBs proved it before any of it shipped: krons holds 12
+`awaiting_message` rows with dead links, and THREE of them route today, carrying
+212 / 773 / 1172 messages since their last greeting. A timer-only cooldown
+greets those three active, already-onboarded group chats every ten minutes
+forever. So the re-arm lives in `store.InsertOnboarding` instead — routd calls
+it once per route MISS, which is the "user messaged again" the spec's own prose
+named — and `promptUnprompted` keeps its unchanged `prompted_at IS NULL` claim.
+A since-routed or silent chat is never re-greeted. The residual rate is `F41`.
+
+Two things the falsifiability pass turned up, both fixed here: a mint test that
+passed for the wrong reason (an unseeded FK, not the guard under test), and
+`RepromptOnboarding` leaving `user_sub` set — which after the fold re-greets a
+chat the observer can then never admit, a fresh instance of the `O1` stall. It
+is now a full row reset.
+
+### The original entry (2026-08-04)
+
+
 
 **Update 2026-08-06 — blocker 4 is resolved and shipped (`df99e158`).** Option 1
 was chosen: webd's pair success page carries the user on to `/onboard`

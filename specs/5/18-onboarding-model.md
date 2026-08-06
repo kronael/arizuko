@@ -73,7 +73,8 @@ Eight steps, each with exactly one trigger: **listen** (adapter presence grants
 nothing) → **miss** (`routd/loop.go:529` `routeMiss`, unless an `#observe`
 catch-all consumes it) → **record** (routd federates `POST /v1/onboarding {jid}`
 to onbod, idempotent on the JID PK) → **greet** (onbod replies in-channel with a
-single-use 24h link that proves the bearer can read the chat and names no folder)
+single-use `PairingTTL` pairing link that proves the bearer can read the chat
+and names no folder)
 → **authenticate** (proxyd OAuth; **seam: the identity axis**) → **choose**
 (onbod shows the proven JID and the worlds the caller holds routing authority
 over; empty set is a terminal page — **never auto-pick**) → **route** (one
@@ -113,15 +114,20 @@ Engagement (`5/G`) then overrides per `(jid, topic)`, so sender rows gate who
 _opens_ a conversation, not who speaks inside one. Firing never consults the
 ACL; do not add a second check in the loop.
 
-## As-built — steps 1–5 ship, 6–8 do not
+## As-built — steps 1–7 ship, 8 does not
 
-- **1–5 as specified.** onbod's poll tick claims each unprompted row with an
-  atomic `UPDATE … WHERE prompted_at IS NULL` (`promptUnprompted`,
-  `onbod/main.go:384`), mints the token, and sends the link via routd's
-  `/v1/outbound` under a `service:onbod` bearer. The landing sets an
-  `onboard_jid` cookie and bounces to `/auth/login`; `X-User-Sub` survives only
-  when `auth.ProxydTransit` holds; `claimOnboarding` + `linkJID`
-  (`onbod/main.go:560`, `:845`) write the `acl_membership` edge.
+- **1–5 as specified, and step 5 is now the whole identity axis.** onbod's poll
+  tick claims each unprompted row with an atomic
+  `UPDATE … WHERE prompted_at IS NULL` (`promptUnprompted`), mints a **pairing**
+  token through `store.IssuePairingLink`, and sends `/pair/<token>` via routd's
+  `/v1/outbound` under a `service:onbod` bearer. Redemption is webd's
+  `POST /pair/{token}` → `store.RedeemPairing`, which writes the
+  `acl_membership` edge in routd's own transaction; its success page carries the
+  user to `/onboard`. onbod's second writer into that table is gone, along with
+  its own token, its landing handler and the `onboard_jid` cookie
+  (`5/31` § "Onboarding — the fold"). Admission moved off the browser: a poll
+  observer (`observePairings` → `admitJID`) evaluates gates over the committed
+  edge and queues, approves, or refuses **to the chat**.
 - ~~**6 — no picker.**~~ **SHIPPED** (`d9e57288`). `firstAdminFolder` became
   `adminFolders` — the same `auth.Authorize`-per-group evaluator, returning the
   whole set — and `renderWorldPicker` posts to the existing `handleAddRoute`.
@@ -146,10 +152,19 @@ ACL; do not add a second check in the loop.
   the columns as a precondition. Still NULL-writing: `store.AddRoute`/
   `PutRouteRow` (dashd, CLI) and resreg's manifest `Apply`, which rebuilds
   `routes` wholesale.
-- **8 — dead end.** A caller with no world is told to find an invite. The
-  username picker renders only behind a `pending_target` cookie, which only
-  invite redemption sets. Chat-initiated onboarding cannot produce a world on
-  its own: the gate queue admits you, then sends you away.
+- **8 — dead end. STILL UNSHIPPED, and it is the one item holding this spec at
+  `partial`.** A caller with no world is told to find an invite
+  (`renderNoWorld`). The username picker renders only behind a `pending_target`
+  cookie, which only invite redemption sets. Chat-initiated onboarding cannot
+  produce a world on its own: the gate queue admits you, then sends you away.
+
+  It is not built because it is not decided. Closing it means answering Open-
+  blocking Q1's survivor — _may a stranger who chose no world create one?_ —
+  and the only coherent answer makes `approved` the precondition, which is a
+  security posture change: with no gates configured `linkJID`'s successor
+  approves everyone, so "approved unlocks a top-level world" would let any
+  stranger who messages the bot provision a tenant. That is the operator's call,
+  not the platform's. Proposed in BUGS `F42`; it needs sign-off, not code.
 
 `handleAddRoute` is the binding: `MatchGroups(folders, target)` **and**
 `userOwnsMatch(sub, match)`, one check per axis of step 7's rule. Step 6's picker
@@ -157,13 +172,16 @@ posts to it, so the browser reaches it; the sole-world branch skips the form (on
 world is not a choice) but not the authority — its target comes from
 `adminFolders` and its match from `unroutedJID`, both membership-derived.
 
-Loud-vs-silent audit of the failure branches: insert failure, an already-paired
-JID, and a no-gate-match all surface (chat notice / `errLinkRefused` → 403). A
+Loud-vs-silent audit of the failure branches: insert failure and an
+already-paired JID surface in the browser (chat notice / `ErrPairingConflict` →
+409); a no-gate-match is now a terminal `status='refused'` **delivered to the
+chat**, because it is discovered on a tick after the browser page is gone. A
 route-table read failure is logged, treated as a miss, and the cursor advances —
 the message is dropped. A row in an unknown status is logged every poll and
-never advances (BUGS O1). An expired token cannot be re-requested from the chat.
-Operator "deny" deletes the row, so the JID re-onboards on its next message —
-deny is a reset, not a block.
+never advances (BUGS O1), and `token_used` joined that set: no writer produces
+it any more. An expired link **can** now be re-requested from the chat — the
+next route miss past `PairingTTL` re-arms the greeting (`5/31`); the operator
+reprompt button survives as the bypass for a chat that has gone quiet.
 
 ## What the shipped schema cannot express
 
@@ -216,19 +234,19 @@ user_sub IS NULL` was unreachable because both writers set `user_sub` in the
 
 They are not one mechanism:
 
-| token                     | carries           | lifetime        | at rest   | verdict                                          |
-| ------------------------- | ----------------- | --------------- | --------- | ------------------------------------------------ |
-| `onboarding.token`        | a **JID proof**   | single-use, 24h | plaintext | belongs to the identity axis — fold into pairing |
-| `invites.token`           | a **grant**       | `max_uses`, TTL | plaintext | survives; it is authorization delivery           |
-| `route_tokens.token_hash` | a **destination** | permanent       | `sha256`  | survives; no identity, no authz (`5/W`)          |
+| token                     | carries           | lifetime        | at rest   | verdict                                    |
+| ------------------------- | ----------------- | --------------- | --------- | ------------------------------------------ |
+| `onboarding.token`        | a **JID proof**   | single-use, 24h | plaintext | GONE — folded into `route_tokens` (`5/31`) |
+| `invites.token`           | a **grant**       | `max_uses`, TTL | plaintext | survives; it is authorization delivery     |
+| `route_tokens.token_hash` | a **destination** | permanent       | `sha256`  | survives; no identity, no authz (`5/W`)    |
 
-`onboarding.token` does not earn separate existence: it is a pairing nonce
-proving "the bearer reads this chat". Strip it and the remaining row is
-`(jid, prompted_at, user_sub)` plus throttles, and this spec's flow is
-unchanged. **Not a unilateral deletion** — if pairing instead reuses `invites`,
-note that an invite carries a _scope_ and an onboarding token carries a _JID_;
-they must not be merged by making `target_glob` nullable. Whoever ships first
-names the survivor.
+`onboarding.token` did not earn separate existence: it was a pairing nonce
+proving "the bearer reads this chat". **Stripped** — `route_tokens` is the
+survivor (`5/31`), the remaining row is `(jid, prompted_at, user_sub)` plus
+throttles, and this spec's flow is unchanged. The `token_ref`/`token_expires`
+columns are inert and drop in a follow-up (BUGS `F40`). `invites` was rejected
+as the carrier: an invite carries a _scope_ and an onboarding token carries a
+_JID_, and merging them would have meant a nullable `target_glob`.
 
 ## Operator surface — three findings
 
@@ -247,19 +265,20 @@ names the survivor.
 ## Open, blocking
 
 1. ~~**`5/5`** — whether `onboarding.token` folds into the pairing carrier~~
-   — designed in [`5/31`](31-identity-pairing.md) § "Onboarding — the fold,
-   designed": `token`/`token_expires` fold into `route_tokens`, `prompted_at`
-   survives as a cooldown, redemption moves to `/pair/{token}`, admission
-   (gates/queue) is observed by a poll. Still open from `5/5`: whether
-   `gate` survives as a stranger throttle; whether a stranger who chose no
-   world may create one (today: only via an invite).
+   — **SHIPPED** per [`5/31`](31-identity-pairing.md) § "Onboarding — the
+   fold": `token_ref`/`token_expires` folded into `route_tokens`, `prompted_at`
+   survives as a cooldown re-armed by the inbound miss, redemption moved to
+   `/pair/{token}`, admission (gates/queue/refusal) is observed by a poll.
+   Still open from `5/5`: whether `gate` survives as a stranger throttle.
 2. ~~replace the auto-pick with the picker, render a form for the existing
    `handleAddRoute`~~ — **SHIPPED** (`d9e57288`). ~~step 7's missing
-   attribution~~ — **SHIPPED** (`120d5461`). Still open here: register
-   `onboarding` as a resreg resource; stamp the remaining `routes` writers
+   attribution~~ — **SHIPPED** (`120d5461`). ~~register `onboarding` as a
+   resreg resource~~ — **SHIPPED** (`Z3`). Still open here: **step 8's dead
+   end** (the one item holding this spec at `partial` — decision, not code;
+   BUGS `F42`), and stamping the remaining `routes` writers
    (`store.AddRoute`/`PutRouteRow`, resreg `Apply`) so `added_by IS NULL` means
-   only "pre-attribution"; and step 8's dead end. The derivable-`status`
-   deletion was closed as NOT derivable (`P3b`).
+   only "pre-attribution". The derivable-`status` deletion was closed as NOT
+   derivable (`P3b`).
 
 ## Consolidates
 

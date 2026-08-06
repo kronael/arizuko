@@ -1,22 +1,10 @@
 ---
-status: partial
+status: shipped
 depends:
   [32-acl-unified, 18-onboarding-model, 1-auth-standalone, W-webhook-routes]
 ---
 
 # specs/5/31 — identity pairing (channel identity → verified account)
-
-> **Status (2026-08-06).** Partial. The pairing primitive ships, and the fold is
-> no longer blocked — but it is still **unbuilt**: onbod runs the synchronous
-> `linkJID`/`token_ref` gate and no `IssuePairingLink` call site exists. Tracked
-> as BUGS `P1b` (PROPOSED — redesign, needs sign-off).
->
-> **Step 6's block is resolved (decided + shipped).** The fold was designed
-> against a pre-picker onbod and `5/18` step 6 landed underneath it
-> (`d9e57288`, 2026-08-04), leaving redemption with no way to reach the picker.
-> Option 1 was chosen: webd's pair success page carries the user on to
-> `/onboard`. See "What step 6 broke" at the end of that section. The fold's
-> other three blockers are designed below and remain unimplemented.
 
 ## Problem
 
@@ -66,18 +54,22 @@ arise.
 
 ## Shipped surface
 
-| step                                                                                    | where                                                                                             |
-| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| mint `issue_pairing_link(jid)`, agent MCP only                                          | `routd/route_tokens_resource.go:159`, declared `MCPOnly` at `resreg/resources/route_tokens.go:36` |
-| gate: the JID must route to the caller's folder, and that folder becomes `owner_folder` | `routd/route_tokens_resource.go:245` `pairingTargetFolder`                                        |
-| `GET /pair/{token}` — side-effect-free confirm page                                     | `webd/pair.go:35`, mounted `webd/server.go:145`                                                   |
-| `POST /pair/{token}` — redeem in one routd transaction                                  | `webd/pair.go:60` → `store.RedeemPairing`                                                         |
-| anonymous visitor bounced through OAuth and back                                        | `compose/compose.go:338` (`/pair/` is `Auth: "user"`) → `authd/oauth.go:135` `consumeReturn`      |
-| success page carries the user on to `/onboard`, which routes the JID                    | `webd/pair.go` `pairContinueURL`                                                                  |
-| unpair                                                                                  | `routd/membership_resource.go:57`, `resreg/resources/membership.go`                               |
+| step                                                                                | where                                                                                                   |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| one minter, both callers                                                            | `store.IssuePairingLink` (`store/pairing.go`), taking a `rowExecer`                                     |
+| mint `issue_pairing_link(jid)`, agent MCP only                                      | `routd/route_tokens_resource.go` `issue_pair`, declared `MCPOnly` at `resreg/resources/route_tokens.go` |
+| mint from onbod's greeting, `owner_folder` NULL                                     | `promptUnprompted` (`onbod/main.go`); `routd/migrations/0032` relaxed the column                        |
+| admission observes the edge on the poll tick                                        | `observePairings` -> `admitJID` (`onbod/main.go`)                                                       |
+| agent gate: the JID must route to the caller's folder, which becomes `owner_folder` | `routd/route_tokens_resource.go` `pairingTargetFolder`                                                  |
+| `GET /pair/{token}` — side-effect-free confirm page                                 | `webd/pair.go`, mounted `webd/server.go`                                                                |
+| `POST /pair/{token}` — redeem in one routd transaction                              | `webd/pair.go` -> `store.RedeemPairing`                                                                 |
+| anonymous visitor bounced through OAuth and back                                    | `compose/compose.go` (`/pair/` is `Auth: "user"`) -> `authd/oauth.go` `consumeReturn`                   |
+| success page carries the user on to `/onboard`, which routes the JID                | `webd/pair.go` `pairContinueURL`                                                                        |
+| unpair                                                                              | `routd/membership_resource.go`, `resreg/resources/membership.go`                                        |
 
 `webd` serves the browser half because it already opens `routd.db`, so
-redemption is local. onbod is not in the path at all.
+redemption is local. onbod is not in the redemption path at all — it mints and
+it observes, and both go through `routd.db` directly.
 
 `GET` must stay side-effect-free: chat platforms unfurl links, and an unfurl bot
 must not spend a pairing.
@@ -144,17 +136,28 @@ Unredeemed tokens are not separately revocable — they expire in ten minutes, a
 minting again is the same operation. Listing outstanding pairings is not an
 ability anyone needs; enumerating ten-minute bearer attempts is surface.
 
-## Onboarding — the fold, designed
+## Onboarding — the fold, shipped
 
 Pairing's core has no dependency on onbod, `ONBOARDING_ENABLED`,
 `ONBOARDING_PLATFORMS`, or route-miss handling, and none of this touches that.
 What follows finishes the reverse direction: onbod's greeting stops running a
-second write path into `acl_membership` and starts consuming the pairing link
-this spec already ships. `BUGS.md` P1b investigated a straight swap and
-correctly stopped at three blockers, each an addition, not a deletion — this
-design closes all three. It also closes `5/18`'s Open-blocking Q1 ("whether
-`onboarding.token` folds into the pairing carrier"); `5/18`'s own verdict on
-the three token mechanisms was already "fold it" — this is that fold.
+second write path into `acl_membership` and consumes the pairing link this spec
+already shipped. `BUGS.md` P1b investigated a straight swap and correctly
+stopped at three blockers, each an addition, not a deletion. It also closes
+`5/18`'s Open-blocking Q1 ("whether `onboarding.token` folds into the pairing
+carrier"); `5/18`'s own verdict on the three token mechanisms was already
+"fold it".
+
+As-built map:
+
+| the fold                       | where                                                               |
+| ------------------------------ | ------------------------------------------------------------------- |
+| one pairing minter, two shapes | `store.IssuePairingLink` (`store/pairing.go`), `rowExecer`          |
+| onbod's greeting mints one     | `promptUnprompted` (`onbod/main.go`), `ownerFolder = ""`            |
+| `owner_folder` NULLable        | `routd/migrations/0032` + `store/migrations/0083`                   |
+| admission observes the edge    | `observePairings` → `admitJID` (`onbod/main.go`), on the tick       |
+| refusal reaches the chat       | `admitJID`'s `status='refused'` + `sendReply` + `onboarding.refuse` |
+| the greeting stops locking out | `store.InsertOnboarding`'s re-arm (below)                           |
 
 Today the two writers are distinguishable and it costs something: onbod stamps
 `acl_membership.added_by='linkJID'`, so an edge onboarding created is **not**
@@ -233,27 +236,58 @@ rate limit; the only escape today is `RepromptOnboarding`
 anyone to. `5/18` names the same gap directly: "an expired token cannot be
 re-requested from the chat."
 
-Delete `onboarding.token_ref`, `token_expires`, and `idx_onboarding_token_ref`
-in a follow-up onbod migration (the plaintext `token` column and
-`idx_onboarding_token` were already replaced by the hash-at-rest migration,
-`onbod/migrations/0004`) — `5/18`'s own verdict on the three token
-mechanisms already says a second timer duplicating `route_tokens`'
-`created_at` + `PairingTTL` shouldn't exist. `prompted_at` is **not**
-deleted — `5/18` keeps it explicitly ("the remaining row is `(jid,
-prompted_at, user_sub)` plus throttles") — but its meaning changes from
-_ever_ to _last_. The claim query becomes
+`onboarding.token_ref`, `token_expires` and `idx_onboarding_token_ref` are
+inert after the fold — nothing writes them — and a follow-up onbod migration
+drops them (BUGS `F40`). `prompted_at` is **not** deleted — `5/18` keeps it
+explicitly ("the remaining row is `(jid, prompted_at, user_sub)` plus
+throttles") — but its meaning changes from _ever_ to _last_.
+
+**The cooldown's trigger is the inbound MISS, not a timer.** The design here
+first read: claim on
+`status='awaiting_message' AND (prompted_at IS NULL OR prompted_at < now-PairingTTL)`.
+That is not bounded, and the live instances say so. Its own prose named the
+right trigger — "a user who **messages again** after their old link has
+silently expired gets a fresh one" — but the SQL expressed only elapsed time,
+and the poll scans every row, not the ones anyone is waiting on. On krons,
+twelve rows sit at `awaiting_message` with long-dead links; **three of them
+route today** and carry 212, 773 and 1172 messages since their last greeting.
+A timer-only cooldown greets those three actively-used, already-onboarded group
+chats every ten minutes, forever.
+
+So the re-arm lives in `store.InsertOnboarding`, which routd calls from the
+route-**MISS** branch (`routd/loop.go`) — once per inbound message no route
+table claimed:
 
 ```sql
-WHERE status = 'awaiting_message' AND (prompted_at IS NULL OR prompted_at < ?)
+INSERT INTO onboarding (jid, status, created) VALUES (?, 'awaiting_message', ?)
+ON CONFLICT(jid) DO UPDATE SET prompted_at = NULL
+WHERE onboarding.status = 'awaiting_message'
+  AND onboarding.prompted_at IS NOT NULL
+  AND onboarding.prompted_at < ?   -- now - PairingTTL
 ```
 
-bound to `now - store.PairingTTL`. One constant now governs two things that
-used to be unrelated numbers: how long a link stays redeemable, and how long
-before the greeter will hand out another one. A user who messages again after
-their old link has silently expired gets a fresh one at the next poll tick
-(`cfg.pollInterval`, default 10s, `onbod/main.go:270`) — no operator action,
-ever. `RepromptOnboarding`, `handleDashReprompt`, and the dashboard's
-reprompt button are dead once this ships; the cooldown is the reprompt.
+`promptUnprompted` keeps its unchanged `prompted_at IS NULL` claim. Two bounds
+fall out, and neither is a new mechanism: the caller must have MISSED, so a
+since-routed chat is never greeted again and a silent chat is never greeted
+again; and the last greeting must be older than `PairingTTL`, so at most one
+live link exists at a time. One constant still governs two things that used to
+be unrelated numbers — how long a link stays redeemable, and how long before
+the greeter hands out another.
+
+Residual, and named rather than hidden: a chat that keeps talking, still routes
+nowhere, and never redeems is offered a fresh link every `PairingTTL`. That is
+the posture `ONBOARDING_PLATFORMS` opts into — the bot says nothing else in
+that chat — but it is a rate, not a one-shot, and `F41` tracks whether the
+constant should be larger for the Nth greeting.
+
+`RepromptOnboarding`, `handleDashReprompt` and the dashboard button **survive**,
+against this spec's earlier "dead once this ships". The cooldown is the routine
+reprompt; the button is the operator's bypass for a chat that is not messaging
+again on its own, and it is still the only way to re-greet one. It became a
+FULL row reset (`user_sub`/`gate`/`queued_at`/`admitted_at` cleared too): the
+observer only advances a row with `user_sub IS NULL`, so leaving the old verdict
+behind would re-greet the chat and then never admit it — the `O1` stall shape,
+freshly minted.
 
 ## Admission observes; redemption does not refuse
 
@@ -270,7 +304,7 @@ every pairing that resolves to a live token and a fresh identity succeeds,
 unconditionally, at the browser. Gate evaluation moves entirely to after that
 write, over data the write already committed.
 
-**How admission observes the edge — decided: poll, not a hook.** A hook would
+**How admission observes the edge — poll, not a hook.** A hook would
 live in webd's `handlePairPost` (`webd/pair.go:60`, the only place redemption
 happens) calling onbod synchronously once `RedeemPairing` succeeds. That is
 new cross-daemon surface in both directions: webd has no relationship to
@@ -295,8 +329,8 @@ Latency is bounded by `cfg.pollInterval` — 10s by default, the same tick
 `admitFromQueue`'s existing 60-second admission-from-queue cadence
 (`onbod/main.go:208`) that nobody has treated as too slow.
 
-**What happens to `errLinkRefused`'s loud 403 — decided: it moves to chat,
-verbatim, and does not disappear.** The refusal is now discovered on a poll
+**What happened to `errLinkRefused`'s loud 403: it moved to chat and did not
+disappear.** The refusal is now discovered on a poll
 tick, after the browser page that used to show it is long gone — the fix
 cannot be "keep the 403"; the fail-loud rule (root `CLAUDE.md`) says surface
 it to the user, not that it must be HTTP. It reaches them the way the
@@ -313,14 +347,13 @@ inside `RedeemPairing`, and still shown in the browser the user is looking at
 
 > **This paragraph is where the design broke; kept for the record.** It read:
 > "`handleDashboard`'s auto-route-on-claim (`firstAdminFolder` + `INSERT OR
-IGNORE INTO routes`, today at `onbod/main.go:585`) … moves into the same
-> observer … so an existing admin pairing a new channel keeps getting it
-> auto-routed, exactly as today. Elevating it to a real step with a picker is
-> `5/18` steps 6–8, still unshipped, still out of this scope." Every pointer in
-> it is now false: `firstAdminFolder` does not exist, `onbod/main.go:585` is
-> `linkJID`, and steps 6–7 shipped. See "What step 6 broke" below.
+IGNORE INTO routes`) … moves into the same observer … so an existing admin
+> pairing a new channel keeps getting it auto-routed, exactly as today." Every
+> pointer in it went false: `firstAdminFolder` became `adminFolders`, and steps
+> 6–7 shipped. The observer must NOT route — the picker does, in a browser. See
+> "What step 6 broke" below.
 
-Both required flows hold under this design. (a) A new user messages an
+Both flows hold. (a) A new user messages an
 unrouted chat: route-miss inserts the onboarding row (unchanged) →
 `promptUnprompted` mints a `kind='pair'` token with `ownerFolder=NULL` and
 sends `/pair/<token>` → the user completes OAuth and consent on webd
@@ -332,18 +365,18 @@ existing user pairs a second channel: entirely the shipped agent-mint path,
 untouched — the observer's `user_sub IS NULL` scan only ever matches rows
 `InsertOnboarding` created, so an agent-minted pairing is invisible to it.
 
-| onboarding today                                                                           | after the fold                                     |
-| ------------------------------------------------------------------------------------------ | -------------------------------------------------- |
-| `status`: `awaiting_message → token_used → {queued, approved}`                             | `awaiting_message → {queued, approved, refused}`   |
-| `token`, `token_expires`, `idx_onboarding_token`                                           | deleted — `route_tokens` carries the link          |
-| `prompted_at`: set once, `IS NULL` guard                                                   | reset on every send, cooldown guard (`PairingTTL`) |
-| link: `authBaseURL + "/onboard?token=" + token`                                            | `webHost + "/pair/" + IssuePairingLink(...)`       |
-| redemption: `handleTokenLanding`/`jidForToken`/`claimByToken`/`onboard_jid` cookie (onbod) | `GET`/`POST /pair/{token}` (webd, unchanged)       |
-| edge write + admission: `linkJID`, one call                                                | edge: `RedeemPairing`. admission: poll observer    |
-| refusal: `errLinkRefused` → 403 in browser                                                 | `status='refused'` → chat message                  |
-| `RepromptOnboarding`, `handleDashReprompt`, reprompt button                                | deleted — cooldown is the reprompt                 |
+| onboarding today                                                                           | after the fold                                    |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------- |
+| `status`: `awaiting_message → token_used → {queued, approved}`                             | `awaiting_message → {queued, approved, refused}`  |
+| `token_ref`, `token_expires`, `idx_onboarding_token_ref`                                   | inert; dropped in a follow-up (`F40`)             |
+| `prompted_at`: set once, permanent lockout                                                 | re-armed by an inbound miss past `PairingTTL`     |
+| link: `authBaseURL + "/onboard?token=" + token`                                            | `webHost + "/pair/" + IssuePairingLink(...)`      |
+| redemption: `handleTokenLanding`/`jidForToken`/`claimByToken`/`onboard_jid` cookie (onbod) | `GET`/`POST /pair/{token}` (webd, unchanged)      |
+| edge write + admission: `linkJID`, one call                                                | edge: `RedeemPairing`. admission: poll observer   |
+| refusal: `errLinkRefused` → 403 in browser                                                 | `status='refused'` → chat message                 |
+| `RepromptOnboarding`, `handleDashReprompt`, reprompt button                                | kept as the operator bypass; now a full row reset |
 
-### What step 6 broke — resolved, the fold is merely unbuilt
+### What step 6 broke — resolved
 
 The fold above was designed while onbod auto-picked a world on claim. `5/18`
 step 6 shipped one day later (`d9e57288`, 2026-08-04) and replaced that with a
@@ -356,13 +389,11 @@ auto-pick**".
 
 Pairing does not route a JID; it only writes the edge. So the greeted user's
 chat is still silent after redemption — which is the exact problem `5/18`
-opens with — until step 6 runs. Today they reach it because
-`handleTokenLanding` sets `auth_return=/onboard` (`onbod/main.go:474`) and
-redirects there. Under the fold the return target is webd's `/pair/{token}`,
-whose success page is terminal (`webd/pair.go:87`: "Linked … Your next message
-from that chat carries your account's access"), and **nothing carries the user
-to `/onboard`**. Flow (a) above confirms this by omission: it ends at
-"queued / approved / the refusal" and never routes the JID at all.
+opens with — until step 6 runs. The pre-fold flow reached it because
+`handleTokenLanding` set `auth_return=/onboard` and redirected there. Under the
+fold the return target is webd's `/pair/{token}`, whose success page was
+terminal ("Linked … Your next message from that chat carries your account's
+access"), and **nothing carried the user to `/onboard`**.
 
 The poll observer cannot stand in. It can queue, approve, refuse and message
 the chat, but the multi-world case is a form a human fills in; a tick has no
@@ -392,10 +423,13 @@ during OAuth — so by the time the success page renders it is already spent on
 cookie two meanings; carrying a new parameter would be a parallel mechanism.
 Neither is needed when the destination is constant.
 
-Inert until the rest of the fold lands: `pairingTargetFolder` refuses a JID that
-routes nowhere, so every pairing mintable today lands on a routed chat, where
-`/onboard` simply shows the user their worlds. Options 2 and 3 stay rejected.
-The fold's remaining work is blockers 1–3 above, tracked in BUGS `P1b`.
+Options 2 and 3 stay rejected. The route through the picker is the ONLY route:
+the fold added no second path to it, and `observePairings` deliberately writes
+no `routes` row — the world choice is a form a human fills in, and a tick has no
+browser. An agent-minted pairing still lands on a routed chat
+(`pairingTargetFolder` refuses a JID that routes nowhere), where `/onboard`
+simply shows the user their worlds; a greeting-minted one lands unrouted, which
+is exactly the case step 6 exists for.
 
 ## Not in scope
 
