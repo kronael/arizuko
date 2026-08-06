@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 // meSecretsKeyringDB is meSecretsTestDB with a SECRETS_KEY keyring so writes
@@ -75,13 +77,20 @@ func TestMeSecrets_UpdateSealsAtRest(t *testing.T) {
 }
 
 // TestMeSecrets_AuditOmitsValue: the audit_log row for a secret write must NOT
-// carry the plaintext value (audit_log is at rest).
+// carry the plaintext value (audit_log is at rest). audit.Emit writes through
+// package state, so the sink MUST be wired and the row asserted to exist —
+// without both, this read finds an empty table and "no leak" is vacuously true
+// (it was, until 2026-08-06: the test passed with the value planted straight
+// into the emitted event).
 func TestMeSecrets_AuditOmitsValue(t *testing.T) {
+	const canary = "super-secret-val"
 	d := meSecretsTestDB(t)
+	audit.Init(d.dbRoutd, "test")
+	t.Cleanup(func() { audit.Init(nil, "") })
 	mux := newMux(d)
 
 	req := httptest.NewRequest("POST", "/dash/me/secrets",
-		strings.NewReader(`{"key":"SECRET_KEY","value":"super-secret-val"}`))
+		strings.NewReader(`{"key":"SECRET_KEY","value":"`+canary+`"}`))
 	req.Header.Set("X-User-Sub", "github:alice")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -89,13 +98,12 @@ func TestMeSecrets_AuditOmitsValue(t *testing.T) {
 		t.Fatalf("POST = %d body=%q", w.Code, w.Body.String())
 	}
 
-	var params string
-	// audit.Emit is async-free here (direct insert); the row exists after the call.
-	d.dbRoutd.QueryRow(
-		`SELECT COALESCE(params_summary,'') FROM audit_log WHERE action='secret.set' ORDER BY id DESC LIMIT 1`,
-	).Scan(&params)
-	if strings.Contains(params, "super-secret-val") {
-		t.Errorf("audit_log leaked the secret value: %q", params)
+	rows, dump := auditDump(t, d.dbRoutd)
+	if rows != 1 || !strings.Contains(dump, "secret.set") {
+		t.Fatalf("want one secret.set audit row, got %d:\n%s", rows, dump)
+	}
+	if strings.Contains(dump, canary) {
+		t.Errorf("audit_log leaked the secret value:\n%s", dump)
 	}
 }
 
