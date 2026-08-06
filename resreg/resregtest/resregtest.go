@@ -93,10 +93,15 @@ func AdvertisedOps(t TB, daemon string, resources []string) []Op {
 }
 
 // pattern returns the mux pattern that serves verb+path, or "" for the 404
-// fallback.
+// fallback. The pattern is rendered through the emitter's OWN path rule
+// (resreg.OpenAPIPathKey) so both sides of the comparison speak one syntax:
+// a mux `{path...}` documents as `{path}` because OpenAPI has no multi-segment
+// template, and reimplementing that here would make the guard disagree with the
+// document it guards. Every other difference — path, verb, param name, a
+// missing mount, a catch-all — survives the rendering and still fails.
 func pattern(mux *http.ServeMux, verb, path string) string {
 	_, p := mux.Handler(httptest.NewRequest(verb, concretePath(path), nil))
-	return p
+	return resreg.OpenAPIPathKey(p)
 }
 
 // AssertServesWhatItAdvertises is the class guard: every operation the

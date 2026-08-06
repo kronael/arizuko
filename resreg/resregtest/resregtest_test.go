@@ -133,6 +133,52 @@ func TestAssertServesWhatItAdvertises_CatchesCatchAllMasking(t *testing.T) {
 	}
 }
 
+// TestAssertServesWhatItAdvertises_AcceptsMultiSegmentWildcard pins the one
+// difference the guard must NOT report. proxyd's route keys contain slashes, so
+// it mounts `/v1/proxyd_routes/{path...}`; OpenAPI 3.1 has no multi-segment
+// template syntax, so the emitter documents that as `{path}`. The document
+// cannot express the arity, which makes the difference translation and not
+// drift — and the guard read it as three advertised endpoints that 404.
+func TestAssertServesWhatItAdvertises_AcceptsMultiSegmentWildcard(t *testing.T) {
+	ops := AdvertisedOps(t, "probe", []string{"proxyd_routes"})
+	var patterns, wildcards []string
+	for _, op := range ops {
+		p := op.Method + " " + op.Path
+		if strings.Contains(op.Path, "{path}") {
+			p = op.Method + " " + strings.Replace(op.Path, "{path}", "{path...}", 1)
+			wildcards = append(wildcards, p)
+		}
+		patterns = append(patterns, p)
+	}
+	if len(wildcards) == 0 {
+		t.Fatal("proxyd_routes renders no {path} operation — this test has nothing to exercise")
+	}
+	rec := &recorder{}
+	AssertServesWhatItAdvertises(rec, "probe", []string{"proxyd_routes"}, muxServing(patterns...))
+	if len(rec.errs) != 0 {
+		t.Fatalf("a legitimate {path...} mount was reported as drift: %v", rec.errs)
+	}
+}
+
+// TestAssertServesWhatItAdvertises_WildcardRenderingStillCatchesDrift is the
+// control for the test above: rendering the mux pattern through the emitter's
+// path rule must not soften anything else. The same wildcard mounts, moved one
+// path segment over, still fail.
+func TestAssertServesWhatItAdvertises_WildcardRenderingStillCatchesDrift(t *testing.T) {
+	ops := AdvertisedOps(t, "probe", []string{"proxyd_routes"})
+	var patterns []string
+	for _, op := range ops {
+		patterns = append(patterns,
+			op.Method+" /elsewhere"+strings.Replace(op.Path, "{path}", "{path...}", 1))
+	}
+	rec := &recorder{}
+	AssertServesWhatItAdvertises(rec, "probe", []string{"proxyd_routes"}, muxServing(patterns...))
+	if len(rec.errs) != len(ops) {
+		t.Fatalf("guard reported %d failures for %d re-pathed wildcard operations — "+
+			"the {path...} rendering must not excuse a wrong path", len(rec.errs), len(ops))
+	}
+}
+
 // TestAssertServesNoneOf_CatchesForeignMount is the ownership half: a daemon
 // mounting a resource it does not own. This is the check the deleted
 // daemonOwnership map claimed to perform and structurally could not, because it

@@ -291,21 +291,39 @@ func endpointOp(r *Resource, e Endpoint, schemaRef map[string]any, hasPathParam 
 // in the key (OpenAPI has no catch-all syntax) plus one string path parameter.
 func openAPIPath(p string) (string, []any) {
 	var params []any
-	segs := strings.Split(p, "/")
-	for i, seg := range segs {
+	for _, seg := range strings.Split(p, "/") {
 		if !strings.HasPrefix(seg, "{") || !strings.HasSuffix(seg, "}") {
 			continue
 		}
-		name := strings.TrimSuffix(strings.Trim(seg, "{}"), "...")
-		segs[i] = "{" + name + "}"
 		params = append(params, map[string]any{
-			"name":     name,
+			"name":     strings.TrimSuffix(strings.Trim(seg, "{}"), "..."),
 			"in":       "path",
 			"required": true,
 			"schema":   map[string]any{"type": "string"},
 		})
 	}
-	return strings.Join(segs, "/"), params
+	return OpenAPIPathKey(p), params
+}
+
+// OpenAPIPathKey renders a stdlib-mux path as its OpenAPI path key. The one
+// rule it encodes: OpenAPI 3.1 has no multi-segment template syntax, so the
+// wildcard `{path...}` documents as `{path}` — the document CANNOT express the
+// arity, which is why losing it is translation and not drift.
+//
+// Exported because resreg/resregtest compares an advertised path against the
+// mux pattern serving it, and must apply the SAME rule. A second copy of it
+// there would make the doc-vs-mux guard disagree with the document it guards:
+// proxyd mounts `/v1/proxyd_routes/{path...}` (its route keys contain slashes)
+// and the guard read that as an advertised endpoint that 404s.
+func OpenAPIPathKey(p string) string {
+	segs := strings.Split(p, "/")
+	for i, seg := range segs {
+		if !strings.HasPrefix(seg, "{") || !strings.HasSuffix(seg, "}") {
+			continue
+		}
+		segs[i] = "{" + strings.TrimSuffix(strings.Trim(seg, "{}"), "...") + "}"
+	}
+	return strings.Join(segs, "/")
 }
 
 // conventionPaths is the PK-CRUD fallback for engine-managed resources that
