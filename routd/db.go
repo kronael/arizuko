@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
@@ -671,15 +673,55 @@ func (d *DB) SetRoutes(folder string, routes []core.Route) (int, error) {
 // ErrNotFound signals an absent row to the HTTP layer (404).
 var ErrNotFound = errors.New("not found")
 
+// engagementUpsert is the ONE statement that moves an engagement window. Both
+// SetEngagement and SetEngagementAudited execute it, so the audited and
+// un-audited entrypoints cannot drift into writing different rows.
+const engagementUpsert = `INSERT INTO chat_reply_state(jid, topic, last_reply_id, engaged_until, engaged_folder)
+	VALUES(?,?,'',?,?)
+	ON CONFLICT(jid, topic) DO UPDATE SET engaged_until=excluded.engaged_until, engaged_folder=excluded.engaged_folder`
+
+func engagementArgs(jid, topic, folder string, ttl time.Duration) []any {
+	return []any{jid, topic, time.Now().Add(ttl).UTC().Format(time.RFC3339Nano), folder}
+}
+
 // SetEngagement claims an engagement window for (jid, topic) by folder
 // until now+ttl.
+//
+// Un-audited on purpose: its callers are the PER-TURN claim sites (dispatch in
+// turns.go, the agent's engage/disengage tools via mcp.go), which fire on every
+// conversational turn and are already recorded — the agent's tools through the
+// ipc_audit + audit-system.jl wrapper every `granted` tool passes, dispatch by
+// the turn itself. An audit_log row per turn would bury the operator trail in
+// the noise it exists to make findable. Operator-originated writes take
+// SetEngagementAudited instead.
 func (d *DB) SetEngagement(jid, topic, folder string, ttl time.Duration) error {
-	until := time.Now().Add(ttl).UTC().Format(time.RFC3339Nano)
-	_, err := d.db.Exec(`INSERT INTO chat_reply_state(jid, topic, last_reply_id, engaged_until, engaged_folder)
-		VALUES(?,?,'',?,?)
-		ON CONFLICT(jid, topic) DO UPDATE SET engaged_until=excluded.engaged_until, engaged_folder=excluded.engaged_folder`,
-		jid, topic, until, folder)
+	_, err := d.db.Exec(engagementUpsert, engagementArgs(jid, topic, folder, ttl)...)
 	return err
+}
+
+// SetEngagementAudited is SetEngagement plus its audit_log row, both in ONE
+// transaction — the audited twin, on the store.DeleteRoute/DeleteRouteRow
+// pattern. This is the entrypoint for /v1/engagement: an operator ending
+// someone's conversation early leaves no message row and no turn behind, so
+// this row is the only durable trace that it happened.
+//
+// EmitInTx rather than Emit: an audit row that outlived a rolled-back write
+// would describe a window that never moved, and a write whose audit insert
+// failed would be exactly the unrecorded mutation this closes. Both fail
+// together, and the error reaches the caller so the handler can answer non-2xx.
+func (d *DB) SetEngagementAudited(ctx context.Context, jid, topic, folder string, ttl time.Duration, ev audit.Event) error {
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, engagementUpsert, engagementArgs(jid, topic, folder, ttl)...); err != nil {
+		return err
+	}
+	if err := audit.EmitInTx(ctx, tx, ev); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Engagement is one LIVE chat_reply_state window: which folder claims

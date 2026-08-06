@@ -1,28 +1,27 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
 // handleEngagement renders GET /dash/engagement/ — which conversations the
-// agent is currently staying in without being addressed (spec 5/G item 6,
-// BUGS F31).
+// agent is currently staying in without being addressed, and the control that
+// ends one early (spec 5/G item 6, BUGS F31).
 //
-// Read-only on purpose. A window ends by itself when its TTL runs out, and the
-// two writers that end one early — the agent's `disengage` MCP tool and
-// POST /v1/engagement — both keep the audit row inside routd's own transaction.
-// A button here would be a third writer, so this ships as a view; the grant
-// (`service:dashd`, authd/http.go) is read-only to match.
-//
-// It reads routd's /v1/engagement over HTTP rather than chat_reply_state out of
-// dbRoutd. routd owns those columns and applies the folder containment, and the
+// It reads AND writes routd's /v1/engagement over HTTP rather than
+// chat_reply_state out of dbRoutd. routd owns those columns, applies the folder
+// containment, and writes the audit row inside the mutation's own transaction —
+// none of which a direct-DB write from here would do, which is why the
 // direct-DB read is the open defect this page declines to join. Operator-only,
 // like /dash/proactive/.
 func (d *dash) handleEngagement(w http.ResponseWriter, r *http.Request) {
@@ -36,11 +35,78 @@ func (d *dash) handleEngagement(w http.ResponseWriter, r *http.Request) {
 		`Once it has replied in a conversation it keeps listening there for a while, `+
 		`so you can carry on talking without naming it every time. `+
 		`Each row below is a conversation where that is switched on right now, and when it wears off.</p>`)
-	fmt.Fprint(w, `<p class="dim">Nothing here needs clearing: a window ends on its own when the time runs out. `+
-		`To end one sooner, ask the agent in that chat to disengage.</p>`)
+	fmt.Fprint(w, `<p class="dim">Most of the time nothing here needs clearing &mdash; a window ends on its own `+
+		`when the time runs out. Use <strong>disengage</strong> when the agent is replying in a chat `+
+		`it should stay out of: it stops there straight away and needs to be named again before it speaks.</p>`)
+
+	switch strings.TrimSpace(r.URL.Query().Get("msg")) {
+	case "disengaged":
+		fmt.Fprint(w, htmlBanner("ok", "disengaged — the agent has stopped listening in that conversation"))
+	}
+	if e := strings.TrimSpace(r.URL.Query().Get("err")); e != "" {
+		fmt.Fprint(w, htmlBanner("err", e))
+	}
 
 	d.renderEngagementWindows(w, r)
 	pageClose(w, r)
+}
+
+// handleEngagementDisengage handles POST /dash/engagement/disengage — end one
+// window now, through routd's POST /v1/engagement with ttl_seconds=0.
+//
+// Operator-only and same-origin, like every other dashd write. It sends the
+// window's OWNING folder back, not an empty one, so the cleared row keeps
+// naming who held it; routd re-checks that folder against the caller and writes
+// the audit row, so nothing here is trusted as the containment.
+func (d *dash) handleEngagementDisengage(w http.ResponseWriter, r *http.Request) {
+	if !d.requireOperator(w, r) {
+		return
+	}
+	if !requireSameOrigin(w, r) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	jid := strings.TrimSpace(r.FormValue("jid"))
+	if jid == "" {
+		http.Error(w, "jid required", http.StatusBadRequest)
+		return
+	}
+	if d.routdURL == "" {
+		engagementRedirect(w, r, "", "ROUTER_URL not configured")
+		return
+	}
+	// ttl_seconds 0 IS the disengage path (routd handleEngagementSet): a
+	// non-positive TTL writes a past deadline, which is what "not live" means.
+	body, status, err := d.routdCall(r.Context(), http.MethodPost, "/v1/engagement",
+		apiv1.EngagementRequest{
+			JID:        jid,
+			Topic:      r.FormValue("topic"),
+			Folder:     r.FormValue("folder"),
+			TTLSeconds: 0,
+		})
+	if err != nil {
+		slog.Warn("engagement disengage: routd call", "jid", jid, "err", err)
+		engagementRedirect(w, r, "", "could not reach routd: "+err.Error())
+		return
+	}
+	if status < 200 || status >= 300 {
+		slog.Warn("engagement disengage: routd status", "jid", jid, "status", status)
+		engagementRedirect(w, r, "", upstreamErr("routd", status, body))
+		return
+	}
+	slog.Info("engagement disengaged", "jid", jid, "topic", r.FormValue("topic"))
+	engagementRedirect(w, r, "disengaged", "")
+}
+
+func engagementRedirect(w http.ResponseWriter, r *http.Request, msg, errMsg string) {
+	dest := "/dash/engagement/?msg=" + msg
+	if errMsg != "" {
+		dest = "/dash/engagement/?err=" + url.QueryEscape(errMsg)
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
 }
 
 // renderEngagementWindows writes the live-window table from routd's
@@ -81,10 +147,29 @@ func (d *dash) renderEngagementWindows(w http.ResponseWriter, r *http.Request) {
 			engagementTopicCell(e.Topic),
 			folderLink(e.Folder),
 			fmt.Sprintf(`<abbr title="%s">%s</abbr>`, esc(e.EngagedUntil), esc(remainingTS(e.EngagedUntil))),
+			engagementDisengageCell(e),
 		})
 	}
-	fmt.Fprint(w, htmlTable([]string{"Chat", "Thread", "Group", "Wears off in"}, rows,
+	fmt.Fprint(w, htmlTable([]string{"Chat", "Thread", "Group", "Wears off in", ""}, rows,
 		"No conversation is engaged right now."))
+}
+
+// engagementDisengageCell renders the force-disengage control for one window.
+//
+// Behind a confirm, like every other dashd danger-zone action: this is visible
+// to whoever is in that chat — the agent goes quiet mid-conversation — so it is
+// not a bare button. The confirm names the chat, because the rows differ only by
+// a jid an operator is not going to recognise from muscle memory.
+func engagementDisengageCell(e apiv1.EngagedChat) string {
+	return fmt.Sprintf(
+		`<form method="post" action="/dash/engagement/disengage" class="form-inline"`+
+			` onsubmit="return confirm('Disengage %s? The agent stops listening there right away `+
+			`and will not reply again until someone names it.')">`+
+			`<input type="hidden" name="jid" value="%s">`+
+			`<input type="hidden" name="topic" value="%s">`+
+			`<input type="hidden" name="folder" value="%s">`+
+			`<button class="btn-danger btn-sm" type="submit">disengage</button></form>`,
+		esc(e.JID), esc(e.JID), esc(e.Topic), esc(e.Folder))
 }
 
 // engagementTopicCell names the scope a window covers. An empty topic is the
@@ -97,17 +182,28 @@ func engagementTopicCell(topic string) string {
 	return `<code>` + esc(topic) + `</code>`
 }
 
-// routdGet performs an authenticated GET against routd's /v1 face with the
-// service:dashd bearer.
+// routdCall performs an authenticated call against routd's /v1 face with the
+// service:dashd bearer. body nil → no request body.
 //
 // It deliberately does NOT forward X-User-Sub/-Groups the way proxydCall does:
 // proxyd authorizes the FORWARDED operator identity, routd authorizes the
 // BEARER. Sending them would suggest routd narrows the answer per viewer, and
 // it does not — the operator gate on the handler is the whole containment.
-func (d *dash) routdGet(ctx context.Context, path string) ([]byte, int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.routdURL+path, nil)
+func (d *dash) routdCall(ctx context.Context, method, path string, body any) ([]byte, int, error) {
+	var rdr io.Reader
+	if body != nil {
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return nil, 0, err
+		}
+		rdr = bytes.NewReader(buf)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, d.routdURL+path, rdr)
 	if err != nil {
 		return nil, 0, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	if d.svc != nil {
 		tok, terr := d.svc(ctx)
@@ -123,4 +219,8 @@ func (d *dash) routdGet(ctx context.Context, path string) ([]byte, int, error) {
 	defer resp.Body.Close()
 	buf, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	return buf, resp.StatusCode, err
+}
+
+func (d *dash) routdGet(ctx context.Context, path string) ([]byte, int, error) {
+	return d.routdCall(ctx, http.MethodGet, path, nil)
 }

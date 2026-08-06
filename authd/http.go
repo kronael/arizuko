@@ -76,10 +76,24 @@ var serviceGrants = map[string][]string{
 	// read is ListRouteTokens, which selects jid/owner_folder/created_at/context and
 	// never the token value (store/route_tokens.go:137), and route_tokens/resolve is
 	// a reverse lookup that needs the token already in hand.
-	// Deliberately NOT routes:write: /dash/engagement/ is a view. A disengage
-	// control would need it, and would then also owe an audit row in routd's own
-	// transaction — that is a separate decision, so the ceiling stays read-only.
-	"service:dashd": {"runs:kill", "routes:read"},
+	// routes:write is the WRITE half, added for /dash/engagement/'s force-disengage
+	// control (spec 5/G item 6). It reaches exactly one thing dashd asks for —
+	// POST /v1/engagement with ttl_seconds=0 — and the two conditions the read
+	// half's sign-off named as owed are both met: routd writes the audit_log row
+	// inside the mutation's own transaction (DB.SetEngagementAudited), and the
+	// write path contains on the window's CLAIMING folder, the same predicate the
+	// list read applies, so this scope can never reach a window the read half
+	// could not already show. Everything else routes:write covers (routes,
+	// web_routes, groups) dashd ALREADY writes directly through its FS mount on
+	// routd.db, so like routes:read this is a subset of reach it holds, not new
+	// authority — what it buys is one mutation moving OFF the direct-DB path.
+	//
+	// The ceiling is exactly these three. dashd proxies and reads; it does not
+	// originate work (runs:run), speak as a channel (messages:write), or read
+	// credentials (secrets:read, grants:read). authd/service_dashd_test.go pins
+	// both halves — the three that must be here and the count, so a fourth
+	// scope of any name fails there before it ships.
+	"service:dashd": {"runs:kill", "routes:read", "routes:write"},
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is

@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
@@ -76,7 +77,7 @@ func (s *Server) listEngagement(w http.ResponseWriter, folder string) {
 }
 
 func (s *Server) handleEngagementSet(w http.ResponseWriter, r *http.Request) {
-	_, folder, ok := s.authz(w, r, scopeRoutesWrite...)
+	sub, folder, ok := s.authz(w, r, scopeRoutesWrite...)
 	if !ok {
 		return
 	}
@@ -97,15 +98,64 @@ func (s *Server) handleEngagementSet(w http.ResponseWriter, r *http.Request) {
 		denyCrossFolder(w, req.Folder)
 		return
 	}
+	// A LIVE window belongs to the folder that CLAIMED it, and that owner is what
+	// the write is contained on — the same predicate the list read applies per
+	// row, so the write face can never reach a window the read face would not
+	// show. The two checks above are not that: ownsJID resolves the jid's ROUTE
+	// TARGET, so a folder that is merely a route target for the chat could
+	// otherwise clear a window claimed by a sibling it cannot see, and ownsFolder
+	// only bounds the folder the caller is asking to write.
+	if cur, live := s.db.Engagement(req.JID, req.Topic); live && !ownsFolder(folder, cur.Folder) {
+		denyCrossFolder(w, req.JID)
+		return
+	}
 	// TTLSeconds<=0 is the disengage path: SetEngagement with a zero/past
 	// deadline clears the live window (Engaged checks until > now).
 	ttl := time.Duration(req.TTLSeconds) * time.Second
 	if ttl <= 0 {
 		ttl = -time.Second
 	}
-	if err := s.db.SetEngagement(req.JID, req.Topic, req.Folder, ttl); err != nil {
+	if err := s.db.SetEngagementAudited(r.Context(), req.JID, req.Topic, req.Folder, ttl,
+		engagementEvent(sub, req)); err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
 	}
 	writeJSON(w, 200, apiv1.OK{OK: true})
+}
+
+// engagementEvent renders the audit_log row for one /v1/engagement write.
+//
+// Two actions, not one with a flag: an operator reading the trail is looking for
+// who ENDED a conversation the bot was in, and `engagement.clear` is the term
+// they grep for. Category `mutation` — this is an operator-originated change to
+// a routd table, the "what changed" trail, not the per-turn `agent` band the
+// engage/disengage tools write to.
+func engagementEvent(sub string, req apiv1.EngagementRequest) audit.Event {
+	action := "engagement.set"
+	if req.TTLSeconds <= 0 {
+		action = "engagement.clear"
+	}
+	resource := "engagement/" + req.JID
+	if req.Topic != "" {
+		resource += "/" + req.Topic
+	}
+	actor := sub
+	if actor == "" {
+		actor = "system" // unverified local-dev: authz returns an empty sub
+	}
+	return audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   action,
+		Actor:    actor,
+		ActorSub: sub,
+		Surface:  audit.SurfaceREST,
+		Resource: resource,
+		Folder:   req.Folder,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"jid":         req.JID,
+			"topic":       req.Topic,
+			"ttl_seconds": req.TTLSeconds,
+		},
+	}
 }

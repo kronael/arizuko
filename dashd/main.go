@@ -392,11 +392,12 @@ type dash struct {
 	// OWNS proxyd_routes, so dashd goes over HTTP rather than into the table —
 	// that is also what makes proxyd write the audit row in the mutation's tx.
 	proxydURL string
-	// routdURL is routd's /v1 face, read by /dash/engagement/. routd OWNS the
-	// engagement columns, so dashd asks over HTTP rather than reading
-	// chat_reply_state out of dbRoutd — the direct-DB read is the recorded defect
-	// class this page declines to join. backendURL defaults it to the compose
-	// service name, so it is empty only in tests ("" → the page says so).
+	// routdURL is routd's /v1 face, read AND written by /dash/engagement/. routd
+	// OWNS the engagement columns, so dashd asks over HTTP rather than touching
+	// chat_reply_state in dbRoutd — that is also what puts the containment check
+	// and the audit row on the mutation's own transaction. backendURL defaults it
+	// to the compose service name, so it is empty only in tests ("" → the page
+	// says so, and disengage refuses rather than silently doing nothing).
 	routdURL string
 	// secretKeyring is the SECRETS_KEY material handed to secretStore so user-secret
 	// writes seal at rest under the same key routd reads with. Empty → plaintext.
@@ -506,6 +507,7 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/usage/", g(d.handleUsage))
 	mux.HandleFunc("GET /dash/proactive/", g(d.handleProactive))
 	mux.HandleFunc("GET /dash/engagement/", g(d.handleEngagement))
+	mux.HandleFunc("POST /dash/engagement/disengage", g(d.handleEngagementDisengage))
 	mux.HandleFunc("GET /dash/routd/", g(d.handleRoutd))
 	mux.HandleFunc("POST /dash/routd/retry", g(d.handleRoutdRetry))
 	mux.HandleFunc("GET /dash/runed/", g(d.handleRuned))
