@@ -78,8 +78,19 @@ arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
     <p>Queued users see their position on <code>/onboard</code>, which auto-refreshes every 30 seconds. Operators approve manually through <a href="../components/dashd.html">dashd</a> or by adjusting gate config.</p>
     <p><strong>A refusal is spoken, not swallowed.</strong> If gates are configured and none of them matches the account, the chat gets told so, in the chat &mdash; not a browser error on a page the person has already closed. Configure no gates at all and everyone who pairs is approved.</p>
 
+    <h2>what an approval buys</h2>
+    <p>Being approved lets you make your own workspace. You pick a username, and that name becomes a top-level world you administer &mdash; no invite, no admin to ask. That is the point of the queue: without it, an approval was a status that entitled you to nothing and the next screen still told you to go find an invite.</p>
+    <p><strong>It only works on an instance that has at least one gate configured.</strong> That reads like a technicality and it is the opposite &mdash; it is the switch between two very different instances. Remember the line above: configure no gates and everyone who pairs is approved. So if an approval alone opened workspace creation, then on a fresh instance <em>anyone who messaged the bot</em> could help themselves to a tenant. Requiring a gate means nothing changes until you say it changes.</p>
+    <p>So the two setups are:</p>
+    <ul>
+      <li><strong>No gates</strong> &mdash; the default, and what every existing instance already does. Workspaces come from invites only. People can still pair chats and be approved; approval just does not buy a workspace.</li>
+      <li><strong>One or more gates</strong> &mdash; self-serve signup, fenced by the gate. The gate decides <em>who</em> may queue (your GitHub org, your Google domain, or a catch-all) and its daily limit decides <em>how fast</em> they get in.</li>
+    </ul>
+    <p>A gate you have switched off does not count. It has to be enabled &mdash; the same rule that decides who gets queued decides whether approvals are worth anything, so the two can never disagree.</p>
+    <p>The check that matters happens when the workspace is written, not when the page is drawn. Hiding a button is not a lock, so guessing the address gets you the same refusal as never seeing the button.</p>
+
     <h2>SetupGroup writes a group</h2>
-    <p>Once a user is approved (via invite or queue), <code>onbod</code> calls <code>container.SetupGroup(cfg, folder, seedDir)</code>. That function is the only correct way to create a group &mdash; never <code>mkdir</code> a folder under <code>groups/</code> by hand.</p>
+    <p>Once a user is entitled to a workspace (via invite, or via an approval under a gate), <code>onbod</code> calls <code>container.SetupGroup(cfg, folder, seedDir)</code>. That function is the only correct way to create a group &mdash; never <code>mkdir</code> a folder under <code>groups/</code> by hand.</p>
     <p>It creates the group directory plus <code>logs/</code>, copies <code>seedDir</code> in when one is given (the CLI passes a product template; onboarding passes none), then runs <code>seedGroupDir</code>:</p>
     <ul>
       <li><code>.claude/skills/</code> &mdash; every directory under <code>ant/skills/</code> with a valid name is copied in. See <a href="../concepts/skills.html">skills</a>.</li>

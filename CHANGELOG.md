@@ -16,6 +16,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **Passing the admission queue can now get you a workspace, where the operator
+  configured a gate (spec `5/18` step 8; BUGS `F42`).** The queue would admit
+  you and then send you away: the "pick a username" page rendered only for
+  someone arriving from an invite, so `approved` was a status nothing read.
+  It is now the second authority for creating a first, top-level workspace —
+  but only on an instance with at least one enabled onboarding gate. That
+  condition is deliberate and it preserves every existing deployment's
+  behaviour: with no gate configured, admission approves everyone who messages
+  the bot, so unlocking on `approved` alone would have turned invite-only
+  signup into open signup everywhere. Configuring a gate is the operator's
+  opt-in, and the gate's daily limit paces it. Refusal stays where it belongs —
+  on the write, not on a hidden form.
+
 - **A chat that greets you can now hand you a link that still works (specs
   `5/31`, `5/18`; BUGS `P1b`).** onbod's greeting used to mint an onboarding
   token of its own, carry the JID across OAuth in an unsigned cookie, and write

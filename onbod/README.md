@@ -24,6 +24,11 @@ limits throttle admission. onbod also creates a user world via
 - Match users to gates (github-org, google-domain, catch-all); enforce per-gate
   daily limits.
 - Promote queued users to `approved` via `admitFromQueue` loop (~60s).
+- Let an `approved` caller who administers no world create a top-level one
+  (`mayCreateFirstWorld`, spec `5/18` step 8) — **only while at least one
+  enabled gate exists.** With no gate, `admitJID` approves every paired
+  identity, so the gate is what keeps world creation invite-only by default;
+  configuring one is the operator's opt-in to self-serve signup.
 
 **onbod writes no `acl_membership` edge.** Identity pairing
 (`specs/5/31-identity-pairing.md`) owns that write, in routd's transaction,
@@ -58,8 +63,9 @@ and invite redemption (FS-mounted, no federation).
   open: `onbod/db.go`
 - Listen: `$ONBOD_LISTEN_ADDR` (default `:8080`)
 - Public surface (transit-verified via authd JWKS):
-  - `GET /onboard` — world picker (spec 5/18 step 6), dashboard, or queue
-    position. Carries no `?token=`: redemption is webd's `/pair/{token}`.
+  - `GET /onboard` — world picker (spec 5/18 step 6), username picker (step 8),
+    dashboard, or queue position. Carries no `?token=`: redemption is webd's
+    `/pair/{token}`.
   - `POST /onboard` — CSRF-protected form actions (create_world, add_route from
     the world picker; delete_route is dispatched but no page renders a form)
   - `GET /invite/{token}` — invite redemption

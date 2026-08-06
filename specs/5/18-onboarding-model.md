@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends:
   [
     B-route-mode-ingestion,
@@ -114,7 +114,7 @@ Engagement (`5/G`) then overrides per `(jid, topic)`, so sender rows gate who
 _opens_ a conversation, not who speaks inside one. Firing never consults the
 ACL; do not add a second check in the loop.
 
-## As-built — steps 1–7 ship, 8 does not
+## As-built — all eight steps ship
 
 - **1–5 as specified, and step 5 is now the whole identity axis.** onbod's poll
   tick claims each unprompted row with an atomic
@@ -152,19 +152,40 @@ ACL; do not add a second check in the loop.
   the columns as a precondition. Still NULL-writing: `store.AddRoute`/
   `PutRouteRow` (dashd, CLI) and resreg's manifest `Apply`, which rebuilds
   `routes` wholesale.
-- **8 — dead end. STILL UNSHIPPED, and it is the one item holding this spec at
-  `partial`.** A caller with no world is told to find an invite
-  (`renderNoWorld`). The username picker renders only behind a `pending_target`
-  cookie, which only invite redemption sets. Chat-initiated onboarding cannot
-  produce a world on its own: the gate queue admits you, then sends you away.
+- ~~**8 — dead end.**~~ **SHIPPED** (`c28160bd`), and it made `approved` mean
+  something for the first time. `mayCreateFirstWorld` is the second authority
+  beside the invite's `pending_target` cookie, and it is a **conjunction**: an
+  `onboarding` row in `status='approved'` **and** at least one enabled
+  `onboarding_gates` row.
 
-  It is not built because it is not decided. Closing it means answering Open-
-  blocking Q1's survivor — _may a stranger who chose no world create one?_ —
-  and the only coherent answer makes `approved` the precondition, which is a
-  security posture change: with no gates configured `linkJID`'s successor
-  approves everyone, so "approved unlocks a top-level world" would let any
-  stranger who messages the bot provision a tenant. That is the operator's call,
-  not the platform's. Proposed in BUGS `F42`; it needs sign-off, not code.
+  The gate half is the whole decision, not a detail. `admitJID` approves EVERY
+  paired identity when `loadGates` is empty, and `arizuko create` seeds no
+  gates, so `approved` on its own would have flipped every existing deployment
+  from invite-only world creation to open signup — a posture change the platform
+  does not get to make for the operator. Requiring a gate keeps today's
+  behaviour exactly where none is configured and makes the queue verdict
+  load-bearing only where the operator opted in by configuring one. The
+  admission queue thereby acquires the purpose it never had: the gate selects
+  who may queue, `limit_per_day` paces the drain, and the resulting `approved`
+  is what buys a world.
+
+  Two properties the implementation holds deliberately:
+  - **The gate count reads `loadGates`, not `COUNT(*) FROM onboarding_gates`.**
+    One reader, so the `enabled=1` rows that make `admitJID` selective are
+    exactly the rows that make its verdict grant something. Counting the table
+    would unlock the picker on a DISABLED gate while admission stayed
+    indiscriminate — two predicates for one question, drifting.
+  - **It is a precondition on the WRITE.** `handleCreateWorld` calls it;
+    `handleDashboard` calls the SAME function only to choose what to render. A
+    caller who guesses the POST is refused there, so the picker is a
+    convenience and never the authorization — the same split step 6's world
+    picker has against `handleAddRoute`.
+
+  Containment is structural rather than checked: `parent` derives from the
+  cookie alone and the approved branch runs only when the cookie is absent, so
+  an approved admission can name no subtree but the root. (The cookie's own
+  parent is NOT bound to the caller's authority — a pre-existing hole on the
+  invite path, filed as BUGS `F50`.)
 
 `handleAddRoute` is the binding: `MatchGroups(folders, target)` **and**
 `userOwnsMatch(sub, match)`, one check per axis of step 7's rule. Step 6's picker
@@ -201,13 +222,17 @@ into world W by user U":
   facts. The act's record lives on the `routes` row it writes
   (`added_by`/`added_via`, step 7), which is where the target already is.
 
-So `approved` grants nothing: nothing reads it as a precondition, and the one
-gate (a negative `status='queued'` short-circuit on `/onboard`) runs **after**
-the auto-route write. A queued caller's JID is already routed.
+`approved` used to grant nothing — nothing read it as a precondition. Step 8
+(`c28160bd`) gave it exactly one meaning, and the limits above bound what that
+meaning can be: it entitles a caller to create a **top-level** world, because
+the row names no target it could be scoped to. It is an entitlement on the
+identity axis, spent once at the root; it is not, and cannot become, "approved
+FOR world W".
 
-**Consequence:** the row must shrink to its pairing half and stop pretending to
-be an approval record. The approval that matters is the authority check at step
-7, evaluated against the target — not a status column.
+**Consequence:** the row is a pairing record plus one instance-global
+entitlement, and it must not grow a second. Any approval that names a location
+is the authority check at step 7, evaluated against the target — not a status
+column.
 
 ## States to delete
 
@@ -269,16 +294,44 @@ _JID_, and merging them would have meant a nullable `target_glob`.
    fold": `token_ref`/`token_expires` folded into `route_tokens`, `prompted_at`
    survives as a cooldown re-armed by the inbound miss, redemption moved to
    `/pair/{token}`, admission (gates/queue/refusal) is observed by a poll.
-   Still open from `5/5`: whether `gate` survives as a stranger throttle.
+
+   ~~Whether a stranger who chose no world may create one~~ — **ANSWERED
+   2026-08-06: yes, but only under a configured gate** (`c28160bd`, BUGS
+   `F42`). `status='approved'` unlocks the username picker for a caller with no
+   worlds **iff** at least one enabled `onboarding_gates` row exists; see
+   As-built step 8 for the mechanism.
+
+   The rejected alternative is worth keeping, because it is the better
+   mechanism and only the default posture disqualified it. **Option 1 —
+   `approved` unlocks the picker unconditionally** — is one condition instead
+   of two and needs no gate to be coherent. It was rejected because with no
+   gates configured `admitJID` approves every paired identity and `arizuko
+create` seeds none, so shipping it would have turned every existing
+   deployment into open signup: anyone who messages the bot on an
+   `ONBOARDING_PLATFORMS` platform could provision a top-level tenant. That is
+   a product decision belonging to the operator, and a platform default is the
+   wrong place to make it. **Option 1 remains available as an operator-facing
+   change** — an explicit `ONBOARDING_OPEN_SIGNUP`-style opt-in that satisfies
+   the gate half — if the posture is ever revisited. Option 3 (delete the queue
+   outright) is now foreclosed on this axis: `gate` has a consumer.
+
+   The consequence to accept: with zero gates the queue still approves
+   everyone and those approvals still buy nothing, and an operator's explicit
+   `store.ApproveOnboarding` fast-path is likewise inert until a gate exists.
+   That is the closed default working as intended, not a gap — but it means
+   "why did approving them do nothing?" has a real answer an operator can hit.
+   Still open from `5/5`: whether `gate` survives as a stranger throttle now
+   that it also functions as this switch.
+
 2. ~~replace the auto-pick with the picker, render a form for the existing
    `handleAddRoute`~~ — **SHIPPED** (`d9e57288`). ~~step 7's missing
    attribution~~ — **SHIPPED** (`120d5461`). ~~register `onboarding` as a
-   resreg resource~~ — **SHIPPED** (`Z3`). Still open here: **step 8's dead
-   end** (the one item holding this spec at `partial` — decision, not code;
-   BUGS `F42`), and stamping the remaining `routes` writers
-   (`store.AddRoute`/`PutRouteRow`, resreg `Apply`) so `added_by IS NULL` means
-   only "pre-attribution". The derivable-`status` deletion was closed as NOT
-   derivable (`P3b`).
+   resreg resource~~ — **SHIPPED** (`Z3`). ~~step 8's dead end~~ —
+   **ANSWERED**, see Q1. Still open here: stamping the remaining `routes`
+   writers (`store.AddRoute`/`PutRouteRow`, resreg `Apply`) so `added_by IS
+NULL` means only "pre-attribution", and binding the invite cookie's parent to
+   the caller's authority (BUGS `F50`). The derivable-`status` deletion was
+   closed as NOT derivable (`P3b`).
 
 ## Consolidates
 
