@@ -104,7 +104,7 @@
 
     <h2>revocation</h2>
 
-    <p>One <code>DELETE</code> on the row. The next request to the URL returns 401 immediately &mdash; no grace period, no cache to wait out. An agent in folder A cannot delete a token whose <code>owner_folder = B</code>; the ACL gate at <code>revoke_route_token</code> requires admin on <code>owner_folder</code>.</p>
+    <p>One <code>DELETE</code> on the row. The next request to the URL returns 404 immediately &mdash; no grace period, no cache to wait out, because every request resolves the token against the table rather than trusting a cached copy. An agent in folder A cannot delete a token whose <code>owner_folder = B</code>; the ACL gate at <code>revoke_token</code> requires admin on <code>owner_folder</code>.</p>
 
     <h2>the bearer model</h2>
 

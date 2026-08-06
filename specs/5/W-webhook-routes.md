@@ -1,16 +1,11 @@
 ---
-status: partial
+status: shipped
 shipped: 2026-05-18
 depends: [Q-unified-routing, S-jid-format, 17-openapi-mcp, 32-acl-unified]
 supersedes: [specs/1/W-slink.md]
 ---
 
 # specs/5/W — route tokens (unified chat + webhook surface)
-
-> **Status (2026-08-05).** Partial. The daemon boundary below is not the one
-> built: webd opens `routd.db` directly and resolves tokens in-process, so the
-> `POST /v1/route_tokens/resolve` endpoint this spec makes the contract has no
-> production caller — only a contract test. BUGS `F13`.
 
 ## What this solves
 
@@ -166,11 +161,49 @@ intents, distinct descriptions) sharing one internal writer.
 `owner_folder` is bound from session context on the MCP face, never a
 parameter. List never returns a raw token.
 
-**webd does not own `route_tokens` and does not open `routd.db`** —
-cross-daemon direct DB reads are barred. It resolves a URL token through
-`POST /v1/route_tokens/resolve` (service-token auth) and gets back
-`{jid, owner_folder}`; routd does the hashing and the lookup, webd never
-sees the hash or the table.
+Those four are the MANAGEMENT face — mint, list, revoke. Token DELIVERY
+is a separate concern with no REST face at all; see § Resolution.
+
+## Resolution (who reads the table)
+
+routd owns and migrates `route_tokens` in `routd.db`. Two daemons READ it
+directly, in-process, on the request path:
+
+- `proxyd` `dispatchRouteToken` — resolves the URL token to stamp
+  `X-Folder` / `X-Group-Name` / `X-Chat-Token` before forwarding.
+- `webd` `lookupRouteToken` — resolves it for the row the handler needs
+  (JID + `context`).
+
+**There is no HTTP resolve hop, by design.** Both are FS-mounted on
+`store/` (compose `webdService` / `proxydService` `dataSubdirs`), and
+split write-discipline lets an FS-mounted daemon read the owner's DB
+directly; only NON-mounted daemons must go through the owner's HTTP API.
+
+This spec previously specified the opposite — a `POST
+/v1/route_tokens/resolve` call, with webd never opening `routd.db`. That
+endpoint was built and shipped, and had zero production callers for its
+whole life. It is deleted (BUGS `F13`). Recorded so it does not come back:
+
+- **It bought no containment.** `handleTokenResolve` took a raw token and
+  no folder, and applied no folder check — the same shape as the direct
+  read. It added only a `routes:read` scope check on webd's own service
+  token, which authenticates the daemon, not the tenant. Resolution is a
+  reverse lookup on a secret the caller already holds; there is no
+  caller-supplied folder to contain it to.
+- **The folder is never caller-supplied.** Both readers derive it from
+  the resolved row (`groupfolder.JidFolder(row.JID)`). The one surface
+  where a caller names a folder beside a token — `/chat/stream?group=` —
+  binds it to proxyd's token-derived `X-Folder` stamp
+  (`handleRouteTokenStream`), tested adversarially by
+  `TestRouteTokenStream_FolderMismatchForbidden`.
+- **It added a failure mode.** A per-request HTTP hop on the hot path
+  fails every `/chat/` and `/hook/` request whenever routd is briefly
+  unreachable, for no gain. Pinned by `TestRouteToken_ResolvedInProcess`.
+
+`RouteTokensEndpoints` is therefore exhaustive for `/v1/route_tokens`:
+routd serves no path there the resource does not declare, so the mux and
+`/openapi.json` cannot disagree
+(`TestRouteTokens_NoHandRolledResolve`).
 
 ## Authorization
 

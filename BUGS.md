@@ -5593,7 +5593,7 @@ the unclaimed window`; disabling containment entirely: `contains
     slack:c/bob-1 — cross-folder leak` ×3. It also asserts a root token sees
     all 5 seeded rows, so it cannot pass on an empty result.
 
-## F13 — webd resolves route tokens in-process, and the endpoint `5/W` specifies is dead (2026-08-05, open)
+## ✅ FIXED 2026-08-06 F13 — webd resolves route tokens in-process, and the endpoint `5/W` specifies is dead (2026-08-05, FIXED)
 
 `specs/5/W-webhook-routes.md:164-167` states, in bold, that **webd does not open
 `routd.db`** because cross-daemon direct DB reads are barred, and that it
@@ -5616,10 +5616,35 @@ model to anyone reading either the spec or the endpoint.
 - **Scope:** webd ↔ routd route-token resolution
 - **Affected:** all instances — `/chat/<token>/` and `/hook/<token>`
 - **Source:** webd/main.go:64; webd/route_token.go:55-58; routd/tokens_http.go:31; routd/contract_test.go:314; specs/5/W-webhook-routes.md:164-167
-- **Status:** open
-- **Fix:** pick one direction and delete the other path — do not leave both.
-  Note the FS-mounted write-discipline rule already permits webd's direct read
-  if webd is mounted, which would make deleting the endpoint the smaller change.
+- **Status:** FIXED 2026-08-06 — the code was the truth; the endpoint is deleted
+  and `5/W` now describes the direct read. `5/W` is `shipped`.
+- **Both keep-the-endpoint objections were checked and both failed.**
+  - Not an MCP tool: `deriveMCPTools` walks `Resource.Endpoints`, and resolve
+    was never declared there — 0 of 61 tools in `ipc.ListTools` match
+    `resolve`, and `route_tokens` derives exactly its five declared tools. No
+    `ant/`, `dashd/`, or `template/` path reached it either.
+  - No containment lost: `handleTokenResolve` took a raw token and NO folder,
+    and applied no folder check — the same shape as `LookupRouteToken`. It
+    added only a `routes:read` scope check on webd's own service token, which
+    authenticates the daemon, not the tenant. The HTTP path enforced strictly
+    less than nothing extra.
+  It was also absent from `/openapi.json` (never an `Endpoint`), so this was
+  the INVERSE of the advertised-but-unmounted class: mounted but undocumented.
+  Deleting it makes mux and doc agree.
+- **Shipped:** `routd/tokens_http.go` (mount + `handleTokenResolve` gone),
+  `routd/api/v1/types.go` (`ResolveRequest`/`ResolveResponse` gone),
+  `specs/5/W` § Resolution (names both readers, records why the hop is
+  refused), `routd/README.md`, `webd/README.md`, and the two web-doc pages.
+- **Tests:** `TestRouteTokens_NoHandRolledResolve` (re-mounting the path fails
+  it and nothing else), `TestRouteToken_ResolvedInProcess` (router client on a
+  closed port; making resolution depend on routd reachability fails it and
+  nothing else), `TestRouteTokenStream_FolderMismatchForbidden` (deleting the
+  `X-Folder == group` bind fails it and nothing else — while the pre-existing
+  `TestSlinkStream_SlinkSigOK` still PASSES, since it sends only the honest
+  folder; that is the vacuous-guard shape this repo keeps hitting).
+  Getting the second test to isolate required pinning `routerURL` in webd's two
+  fixtures: both built `config{}` with it empty, so every fixture server looked
+  like one whose routd is unreachable.
 
 ## ✅ FIXED 2026-08-06 F14 — `5/12` and `5/24` never reached the operator web docs (2026-08-05, FIXED)
 

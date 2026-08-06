@@ -360,7 +360,7 @@
       </table>
       <p class="meta"><strong>Indexes:</strong> <code>route_tokens_jid</code> on <code>jid</code>.</p>
       <p class="meta"><strong>Writers:</strong> routd (<code>insertRouteToken</code>, called from both MCP <code>issue_chat_link</code>/<code>issue_webhook</code> and REST <code>POST /v1/route_tokens/*</code>).</p>
-      <p class="meta"><strong>Readers:</strong> webd (hash + lookup on every <code>/chat/*</code> and <code>/hook/*</code> request); routd (list, revoke).</p>
+      <p class="meta"><strong>Readers:</strong> proxyd and webd (each hashes + looks the token up in-process on every <code>/chat/*</code> and <code>/hook/*</code> request &mdash; both are mounted on the store, so there is no HTTP hop); routd (list, revoke).</p>
     </div>
 
     <div class="tablecard">
@@ -695,7 +695,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-04">2026-08-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
       </div>
     </main>
 

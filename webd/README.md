@@ -98,6 +98,11 @@ Planned per `specs/5/17-openapi-mcp.md`:
   route-token IS the capability (looked up in `route_tokens`, resolved to
   folder via proxyd's `X-Chat-Token` + `X-Folder` stamps verified via
   `chatTransit`).
+- That lookup is **in-process and deliberately not an HTTP call to
+  routd**: webd is FS-mounted on `store/`, so split write-discipline
+  permits the direct read, and a per-request hop would only add a failure
+  mode. Spec 5/W § Resolution records why the reverse — the deleted
+  `POST /v1/route_tokens/resolve` — bought no containment.
 
 ## Future work
 
