@@ -35,7 +35,72 @@ URL and normalising at ONE place (a `core.Config` accessor), not prefixing
 `https://` at each of the ~6 call sites, and `core.Config.WebHost` has other
 readers. Cross-cutting → proposal, not an inline patch.
 
-## F42 — spec 5/18 step 8: a chat-onboarded stranger with no world still cannot make one (2026-08-06, PROPOSED — needs sign-off)
+## ✅ FIXED 2026-08-06 — F42 — spec 5/18 step 8: a chat-onboarded stranger with no world still cannot make one (2026-08-06)
+
+**Resolved with option 2** (`c28160bd`): `status='approved'` unlocks the
+username picker for a caller with no worlds **only when at least one enabled
+`onboarding_gates` row exists**. `mayCreateFirstWorld` is the predicate; it is
+the precondition on the WRITE (`handleCreateWorld`), with `handleDashboard`
+calling the same function purely to decide what to render.
+
+Both premises the option-1 rejection rested on were verified against the code
+before building: `admitJID` (`onbod/main.go:529`) approves every paired identity
+when `loadGates` returns empty, and no production path seeds a gate — the DDL
+creates the table empty and the only INSERTs are the explicit operator CRUD in
+`gates_resource.go` / `store/onboarding.go`. So option 1 would have flipped every
+existing deployment to open signup. Option 2 preserves today's posture exactly
+where no gate exists and remains reversible: option 1 is still available as an
+operator-facing change if the posture is ever revisited.
+
+The gate condition reads `loadGates` rather than counting the table, so the
+`enabled=1` rows that make `admitJID` selective are exactly the rows that make
+its verdict grant something. Recorded in `5/18` § "Open, blocking" Q1.
+
+- **Severity:** medium
+- **Scope:** onboarding / admission
+- **Affected:** onbod
+- **Source:** `onbod/main.go` `handleDashboard` + `handleCreateWorld`
+- **Status:** resolved-not-yet-removed
+- **Fix:** `c28160bd`
+
+## F50 — a forged `pending_target` cookie creates a world in any subtree (2026-08-06, open)
+
+Found while building `F42`'s fix, which is why it is filed rather than patched:
+it is pre-existing and on the OTHER authority (the invite cookie), not the one
+step 8 added. `handleCreateWorld` checks only that `pending_target` is non-empty
+and then uses it verbatim as the parent folder — nothing binds it to the
+caller's authority. `HttpOnly` stops JS from writing the cookie; it does not
+stop the caller, who owns the browser.
+
+Verified by probe, not inferred. An authenticated `github:mallory` holding no
+grant anywhere, posting `create_world` with `Cookie: pending_target=victim/`:
+
+```
+status=303   folder created = "victim/pwned"   acl scope = "victim/pwned/**"
+```
+
+So any authenticated caller writes a group inside any existing tenant's subtree
+and takes `admin` over it. Reachable by anyone who can complete OAuth; on an
+instance with open OAuth (`GOOGLE_ALLOWED_EMAILS=*@…`, `GITHUB_ALLOWED_ORG`)
+that is anyone in the allowed set.
+
+`F42`'s approved-admission path does NOT widen this: `parent` still derives from
+the cookie alone, and the approved branch runs only when the cookie is absent,
+so it can only ever create at the root (tested).
+
+The honest fix is the same binding step 7 already applies to routes —
+`auth.MatchGroups(userFolders(sub), parent)` (or `auth.Authorize(… "admin",
+parent)`) before `createWorldTx` — so the cookie becomes a hint and the grant
+becomes the authority. It is a real refusal added to the shipped invite flow
+(an invite whose `target_glob` does not evaluate to authority over the parent
+would start failing), so it wants sign-off rather than an inline patch.
+
+- **Severity:** high
+- **Scope:** onboarding / folder containment
+- **Affected:** onbod (all instances)
+- **Source:** `onbod/main.go` `handleCreateWorld` — `parent := strings.TrimSuffix(pendingTarget, "/")`
+- **Status:** open
+- **Fix:**
 
 `5/18`'s last unshipped step, and the only item holding that spec at `partial`.
 A caller who pairs from a chat, passes the gate, and administers no world lands
