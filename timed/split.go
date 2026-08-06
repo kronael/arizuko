@@ -22,6 +22,33 @@ import (
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
+// timedOpenAPIResources names the resources timed's /openapi.json advertises.
+// It is EMPTY, and that is the whole content of the declaration: timed owns no
+// resource. It is a CLIENT of routd's scheduled_tasks — dash.go and the fire
+// loop below call /v1/tasks across the container boundary — and a client is not
+// a server. Naming it here emitted GET /v1/tasks plus GET/PATCH/DELETE
+// /v1/tasks/{taskId} into timed's own document, four operations that 404 on
+// timed's port because routd is the only daemon that mounts them (BUGS F32,
+// the F21/F27 class one daemon over).
+//
+// newTimedMux is the mux this list is checked against; keep them together so a
+// resource added here without a mount fails split_openapi_test.go.
+var timedOpenAPIResources = []string{}
+
+// newTimedMux builds timed's HTTP surface. Extracted from runSplit's goroutine
+// so a test can read the ROUTING TABLE timed actually builds rather than a
+// restatement of it — the F32 guard has to compare the emitted document against
+// the real mux, and an inline mux inside a goroutine is unreachable.
+func newTimedMux(dash *dashServer) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("timed", timedOpenAPIResources))
+	mux.HandleFunc("GET /dash/timed/", dash.handleDash)
+	return mux
+}
+
 // runSplit is timed's federated main loop: it exchanges AUTHD_SERVICE_KEY for a
 // service:timed token (mirroring runed's boot-exchange), then ticks the
 // federated fire loop. It opens NO messages.db. AUTHD_URL/AUTHD_SERVICE_KEY are
@@ -65,13 +92,7 @@ func runSplit(routerURL, tz string) {
 	dash := &dashServer{r: r, ks: ks}
 
 	go func() {
-		mux := http.NewServeMux()
-		mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = w.Write([]byte("ok"))
-		})
-		mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("timed", []string{"scheduled_tasks"}))
-		mux.HandleFunc("GET /dash/timed/", dash.handleDash)
-		if err := http.ListenAndServe(":8080", mux); err != nil {
+		if err := http.ListenAndServe(":8080", newTimedMux(dash)); err != nil {
 			slog.Error("health server", "err", err)
 		}
 	}()

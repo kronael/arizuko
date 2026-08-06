@@ -541,7 +541,11 @@ func TestApply_WritesOneAuditRow(t *testing.T) {
 // directly; what this table still buys is the cross-daemon half — no daemon
 // advertises another's paths.
 var daemonOwnership = map[string][]string{
-	"timed": {"scheduled_tasks"},
+	// timed owns NOTHING. It is a client of routd's scheduled_tasks, not a server
+	// of it; claiming the resource here advertised four operations that 404 on
+	// timed's port (BUGS F32). The authoritative check is timed's own
+	// TestTimedOpenAPI_AdvertisesOnlyWhatItMounts, which reads the real mux.
+	"timed": {},
 	"routd": {
 		"routes", "web_routes", "acl", "secrets", "route_tokens",
 		"installed_packages", "scheduled_tasks", "groups",
