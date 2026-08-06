@@ -6,22 +6,26 @@ relates-to: [3/Y-thread-routing, 5/Y-output-styles-per-surface]
 
 # specs/5/G — engagement: stay in the conversation after a mention
 
-> **Status (2026-08-06).** Partial. The **API** is no longer the blocker: BUGS
-> `F12a` is resolved as shape (a) — the read surface below now returns
-> `engaged_until` and lists live windows, so both halves of an operator view are
-> reachable over `/v1`. Engagement stays hot-tier and hand-rolled by design; it
-> did NOT become a resreg resource (see §"The read surface").
+> **Status (2026-08-06).** Partial on ONE definition-of-done item: **6, the
+> dashd surface**. Everything else holds.
 >
-> Three items outside this spec's code keep it `partial`, all in another lane:
+> The API is done (BUGS `F12a`, shape (a) — the read surface below returns
+> `engaged_until` and lists live windows). Engagement stays hot-tier and
+> hand-rolled by design; it did NOT become a resreg resource (see §"The read
+> surface"). The web docs are done (BUGS `F12`): `concepts/engagement.html` now
+> carries the real 30m default and documents all three `/v1/engagement` faces,
+> `reference/env.html` matches, and the `core.Config.EngagementTTL` field whose
+> unread 20m seeded both is deleted — `routd.DefaultEngagementTTL` is now the
+> only place the number is written.
 >
-> 1. **No dashd surface** shows or clears engagement windows — definition-of-done
->    item 6. The API it needs now exists.
-> 2. **`serviceGrants` has no `service:dashd` entry** (`authd/http.go`), so
->    dashd's token is minted with empty scope and cannot call the surface at all.
->    Same root cause as BUGS `F15a`; authd is not this spec's package.
-> 3. **`concepts/engagement.html` says the TTL defaults to 20m**; routd defaults
->    it to 30m in both places it is set — BUGS `F12`, definition-of-done item 5.
->    `template/web/pub/` is another agent's lane this session.
+> **Unmet, item 6:** no dashd page shows or clears engagement windows. It is
+> blocked on one decision, not on code — `serviceGrants["service:dashd"]` is
+> `{"runs:kill"}` and the read needs `routes:read`, and that ceiling is
+> deliberately tight (`authd/http.go`). BUGS `F31` carries the two exits and the
+> ~1-line-plus-a-page fix once the ceiling moves. Two things previously filed as
+> blockers here are disproved there: dashd needs no compose wiring
+> (`backendURL` derives the URL), and the empty-folder service claim is not a
+> leak for an operator-only page.
 
 ## What this solves
 
@@ -190,9 +194,13 @@ topic. If the agent skips it, corrections happen inline.
 
 ## Config
 
-`ENGAGEMENT_TTL` (`core/config.go:248` defaults 20m,
-`routd/cmd/routd/main.go:203` defaults 30m — the two disagree; routd's
-value is the live one).
+`ENGAGEMENT_TTL`, defaulting to `routd.DefaultEngagementTTL` (30m). One
+constant, read by `cmd/routd`'s env fallback and re-applied by `NewServer` on a
+zero, because it was previously spelled in three places — including a
+`core.Config` field nothing read, whose 20m was the number three doc pages
+quoted (BUGS `F12`). That field is deleted; `TestDefaultEngagementTTL` pins the
+survivor as a written-out literal so a change here forces the docs to be
+revisited.
 
 ## What this is NOT
 

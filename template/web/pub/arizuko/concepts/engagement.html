@@ -62,11 +62,11 @@
     <p>A <code>(jid, topic)</code> pair is either <strong>engaged</strong> or <strong>idle</strong>.</p>
     <ul>
       <li><strong>Idle &rarr; engaged</strong>: a mention, a reply to a bot message, or an explicit <code>engage()</code> call. The bot replies, and the timer starts.</li>
-      <li><strong>Engaged &rarr; engaged</strong>: every inbound while <code>now &minus; last_activity &lt; ENGAGEMENT_TTL</code> fires a turn, no re-mention needed.</li>
+      <li><strong>Engaged &rarr; engaged</strong>: every inbound that arrives before the deadline fires a turn, no re-mention needed.</li>
       <li><strong>Engaged &rarr; idle</strong>: the TTL expires, or the agent calls <code>disengage()</code> when it&rsquo;s done helping.</li>
       <li><strong>Idle stays idle</strong>: after disengage, the next inbound needs a fresh mention.</li>
     </ul>
-    <p>The TTL is sliding — reset by any outbound reply from the bot while engaged. So a long back-and-forth never times out mid-conversation; a quiet 20 minutes does. The window is configured via <code>ENGAGEMENT_TTL</code> (default: <code>20m</code>).</p>
+    <p>The column stores the deadline itself, not the time of the last message, so a read is a plain comparison against the clock. Each bot reply pushes the deadline out again &mdash; a long back-and-forth never times out mid-conversation, but a quiet 30 minutes ends it. Your own messages don&rsquo;t extend it; only the bot&rsquo;s replies do. The window is configured via <code>ENGAGEMENT_TTL</code> (default: <code>30m</code>).</p>
 
     <h2>thread by default on Slack channels</h2>
     <p>The bot&rsquo;s reply to a channel mention opens a Slack thread off the user&rsquo;s message. The engagement window then attaches to that thread. Subsequent thread replies engage automatically and live in-thread, so the main channel stays uncluttered.</p>
@@ -94,6 +94,23 @@
     <p>Both args are required &mdash; the agent passes the jid it intends to act on.</p>
 
     <div class="note"><strong>Note:</strong> engagement overrides the entire route table. When a <code>(chat, topic)</code> is engaged, <code>routd</code> delivers to the engaged folder and fires a turn regardless of what the route table says &mdash; including <code>#observe</code> targets, trigger routes pointing elsewhere, or no matching route at all. The bot is mid-conversation; the route table is irrelevant until the TTL expires or <code>disengage()</code> is called.</div>
+
+    <h2>seeing who is engaged</h2>
+    <p>Engagement is invisible from the outside &mdash; the bot answering a message that carried no @mention is the only clue you get. <code>routd</code> answers the question directly:</p>
+    <pre><code># one conversation: which folder holds it, and until when
+curl -H "Authorization: Bearer $TOKEN" \
+  'https://&lt;host&gt;/v1/engagement?jid=slack:T01/C02&amp;topic='
+
+# every window that is live right now, soonest to expire last
+curl -H "Authorization: Bearer $TOKEN" https://&lt;host&gt;/v1/engagement
+
+# end one early: any ttl_seconds of zero or less clears the window
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -d '{"jid":"slack:T01/C02","topic":"","folder":"sales","ttl_seconds":0}' \
+  https://&lt;host&gt;/v1/engagement</code></pre>
+    <p>The single-conversation read also returns <code>last_reply_id</code>, the message the next reply threads under. That one outlives the window, so an idle conversation still reports it while <code>engaged_until</code> comes back empty.</p>
+    <p>You see the windows your token's folder owns, and no others. A token with no folder at all &mdash; a root or service token &mdash; sees every window on the instance; that is the only way to get the full list, and it is deliberate rather than a side-effect of how deep your folder sits.</p>
+    <div class="callout"><strong>Not in <code>openapi.json</code>:</strong> these three are hand-written, not generated from the resource registry like <a href="../reference/openapi.html">the cold-tier tables</a>. Engagement is live conversation state, not operator configuration, and it shares a seam with the <code>engage</code>/<code>disengage</code> agent tools above &mdash; registering it would create a second path into the same rows. There is also no dashboard page for it yet.</div>
 
     <h2>go deeper</h2>
     <p>The mention check, observe-wins ordering, and TTL math live in <a href="https://github.com/kronael/arizuko/blob/main/specs/5/G-engagement.md">specs/5/G</a>. The fork primitive used by the corrective pattern: <a href="../concepts/topics.html">topics</a>. Routing modes that interact with engagement: <a href="../concepts/routing.html#modes">routing modes</a>.</p>
