@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## F31 — `/dash/engagement/` cannot be built: dashd has no HTTP edge to routd, and no scope to use one (2026-08-06, PROPOSED — needs sign-off)
+## ✅ FIXED 2026-08-06 F31 — `/dash/engagement/` cannot be built: dashd has no HTTP edge to routd, and no scope to use one (2026-08-06, FIXED)
 
 Attempted while closing `5/G`'s definition-of-done item 6. `F12a` shipped the
 read API the page needs — `GET /v1/engagement` returns `engaged_until`, and the
@@ -50,19 +50,35 @@ own transaction.
 - **Scope:** dashd ↔ routd transport + authd serviceGrants (spec 5/G)
 - **Affected:** all instances — no operator can see or end an engagement window
 - **Source:** authd/http.go:26-62,164; routd/reads_http.go:22; routd/engagement_http.go:25,57; dashd/main.go:286,316; dashd/authz.go:95
-- **Status:** PROPOSED — needs sign-off on widening `service:dashd`
-- **Fix:** if the ceiling may move, this is small and entirely inside existing
-  seams: add `routes:read` to `serviceGrants["service:dashd"]` (plus
-  `routes:write` only if the page gets a disengage control), add
-  `routdURL: backendURL("ROUTER_URL", "routd")` beside the two that are there,
-  a client in the shape of `proxydCall`, then an operator-only view listing
-  jid / topic / folder / deadline. If the ceiling may NOT move, say so — the
-  honest alternative is the FS read plus a written-down exception, and then the
-  disengage control cannot ship at all, because `POST /v1/engagement` is the
-  only writer that keeps the audit row in routd's own transaction.
-- **Blocks:** `specs/5/G` definition-of-done item 6.
+- **Status:** FIXED 2026-08-06 — ceiling signed off for the READ half only.
+- **Sign-off given:** `serviceGrants["service:dashd"]` is now
+  `{"runs:kill", "routes:read"}`. Checked before taking it, since the entry's own
+  comment called `runs:kill` the whole ceiling: `routes:read` reaches routes,
+  web_routes, groups, routing-resolve, errored-chats, engagement, and route-token
+  metadata. None of that is new reach — dashd is FS-mounted on routd.db
+  (`dash.dbRoutd`) and `dashd/route_tokens.go` already reads that last table
+  straight out of SQLite — so the scope is a strict SUBSET of what dashd holds,
+  and what it buys is moving one page off the direct-DB read. It leaks no secret:
+  `ListRouteTokens` selects jid/owner_folder/created_at/context and never the
+  token value (`store/route_tokens.go:137`), and `/v1/route_tokens/resolve` is a
+  reverse lookup needing the token already in hand.
+- **Shipped:** `dashd/engagement_page.go` — `GET /dash/engagement/`, operator-only,
+  listing chat / thread / group / time-left. Reads routd's list face over HTTP
+  (`routdGet`, service bearer, X-User-* deliberately NOT forwarded: routd
+  authorizes the bearer, unlike proxyd). `routdURL: backendURL("ROUTER_URL",
+  "routd")` beside the existing two, confirming F31's own disproof that compose
+  wiring was needed. `remainingTS` is new next to `relativeTS`, which measures
+  `time.Since` and renders every future deadline as "now".
+  `proxydUpstreamErr` was generalized to `upstreamErr(daemon, …)` rather than
+  copied — one renderer, two sinks.
+- **NOT shipped — the write half.** No disengage control, and `routes:write` is
+  pinned as too-wide in `authd/service_dashd_test.go`. A window expires on its own;
+  both early writers keep the audit row inside routd's transaction, so a dashboard
+  button is a third writer and a separate sign-off. `5/G` DoD item 6 asks for
+  "view AND control", so it stays half-met and `5/G` stays `partial`.
+- **Blocks:** `specs/5/G` definition-of-done item 6 — half closed.
 
-## F32 — timed's `/openapi.json` advertises four operations timed does not serve (2026-08-06, open)
+## ✅ FIXED 2026-08-06 F32 — timed's `/openapi.json` advertises four operations timed does not serve (2026-08-06, FIXED)
 
 `timed/split.go:72` emits its document with
 `resreg.OpenAPIHandler("timed", []string{"scheduled_tasks"})`, which renders
@@ -91,13 +107,81 @@ name got into the list. A client is not a server.
 - **Scope:** timed + the resreg OpenAPI mount contract (spec 5/17)
 - **Affected:** all instances
 - **Source:** timed/split.go:68-73 vs resreg/openapi.go:527; resreg/resources/scheduled_tasks.go:48-51
-- **Status:** open
-- **Fix:** the one-token fix is `[]string{}` — timed owns no resource, matching
-  webd/dashd/authd/runed, and its row on `reference/openapi.html` already says
-  "none". The better fix is the one that generalises: give the guard a home
-  outside package `routd` so every daemon's advertised paths are checked
-  against the mux it builds. Not done inline — picking between them changes
-  what `OpenAPIHandler`'s signature has to know.
+- **Status:** FIXED 2026-08-06 — small fix taken; the generic guard was
+  measured and rejected as disproportionate.
+- **Decision: the one-token fix, plus a real guard local to timed.** The
+  generic option was priced before being dropped. Of the seven
+  `OpenAPIHandler` callers, four (webd/authd/dashd/runed) pass `[]string{}` and
+  cannot drift — an empty advertised set has nothing to mount. routd is already
+  guarded in-package. That leaves onbod and proxyd, and BOTH were checked by
+  running the emitter and reading their mounts: onbod advertises 8 paths and
+  mounts all 8, proxyd advertises 2 and mounts both, and neither can drift,
+  because each passes `resreg.RegisterREST` the SAME `resources.XEndpoints`
+  slice the doc is emitted from (`onbod/onboarding_resource.go:28`,
+  `proxyd/resource.go:309`). So the class had exactly one live instance, timed —
+  which drifted precisely because it never calls `RegisterREST` at all.
+  A daemon-generic guard would have to reach each daemon's mux; onbod's and
+  timed's are built inline inside `main`/`runSplit`, so "generic" would still
+  mean per-daemon refactors — two of them, to catch a class with one member and
+  no way to recur in the other two. That is disproportionate, and changing
+  `OpenAPIHandler` to derive the advertised set from the mux is a cross-cutting
+  contract change, which `CLAUDE.md` requires be signed off rather than shipped
+  inline. Filed as `F33`.
+- **Fix:** `timed/split.go` — the list is now `timedOpenAPIResources`, empty,
+  with the reason written where the next person will edit it. The mux moved out
+  of `runSplit`'s goroutine into `newTimedMux` so a test can read the ROUTING
+  TABLE timed actually builds, not a restatement of it.
+- **Guard:** `timed/split_openapi_test.go`, deriving BOTH sides — advertised set
+  from `resreg.OpenAPI`, served set from `newTimedMux`. Deliberately NOT the
+  `daemonOwnership` copy shape, which computes expectation and actual from the
+  same hand-maintained table: that test passed unchanged while this bug was live,
+  proving it vacuous here. Half 1 checks every advertised path resolves (the
+  class guard, and vacuous today since the list is empty); half 2 is the anchor —
+  it asserts the emitter really does produce scheduled_tasks' operations, then
+  that timed's mux serves none of them and advertises none of them. Proved
+  falsifiable: restoring `[]string{"scheduled_tasks"}` failed this test with all
+  five operations named, and no other package in the tree failed.
+
+## F33 — `OpenAPIHandler` takes an advertised set with no reference to the mux (2026-08-06, PROPOSED — needs sign-off)
+
+The cause under `F21`/`F27`/`F32`, left standing after `F32` took the small fix.
+`resreg.OpenAPIHandler(daemon, resources)` (`resreg/openapi.go:527`) accepts a
+list of resource NAMES. Nothing connects that list to the routes the caller
+mounts, so "advertised" and "served" are two independent declarations that agree
+only by care. Three of them have disagreed so far.
+
+The cause fix makes the disagreement impossible rather than detectable: pass the
+mux — `OpenAPIHandler(daemon, mux)` — and emit only the endpoints that mux
+actually resolves. There is no second list to drift. Mount ORDER is not an
+obstacle: `/openapi.json` is mounted before the resources it documents, but the
+handler already computes lazily and caches on first REQUEST, by which time the
+mux is complete. (A mount-time check would read the slice before the routes
+exist — the trap that made `daemonOwnership` vacuous.)
+
+Not shipped inline because it changes a cross-cutting contract across seven call
+sites, which `CLAUDE.md` says is a sign-off, and because it is not free: routd's
+`OpenAPIResources` is a CURATED list, deliberately narrower than what is mounted
+in places (`acl`'s list, `secrets`' read face, `network_rules`), and those
+carve-outs are expressed today as `MCPOnly` endpoint declarations. Deriving from
+the mux means proving every carve-out is expressible as "not mounted", which is
+a real audit, not a signature change.
+
+Second, smaller half: `daemonOwnership` (`resreg/resources/resources_test.go:543`)
+should go. It is a hand-maintained COPY of what each daemon advertises, and
+`TestOpenAPI_PerDaemonOwnership` computes both the expected and the actual path
+set from that same copy — so it cannot fail for the thing it names. Demonstrated
+during `F32`: the table said timed owned nothing while timed advertised
+`scheduled_tasks`, and the test passed. It had already drifted three resources in
+each direction (found during `F27`). Whatever replaces it must read the daemon,
+not a restatement of it.
+
+- **Severity:** low (no runtime effect; it is the recurrence risk that has now
+  cost three entries)
+- **Scope:** `resreg` OpenAPI mount contract (spec 5/17, 5/8) + every daemon main
+- **Affected:** all instances
+- **Source:** resreg/openapi.go:527; routd/server.go:256; resreg/resources/resources_test.go:529-581; timed/split.go
+- **Status:** PROPOSED — needs sign-off before touching seven call sites
+- **Blocks:** nothing; `F32`'s guard covers the one daemon that could drift today.
 
 ## F29 — runed's and authd's audit rows are reachable only with sqlite3 (2026-08-06, PROPOSED — needs sign-off)
 
