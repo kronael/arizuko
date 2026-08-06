@@ -36,6 +36,7 @@ those tables directly via the `store` package; it never migrates.
 - **Invites** (3): `GET|POST /dash/invites/`, `POST /dash/invites/{ref}/revoke` — operator-only (`**`). (`invites.go`)
 - **WhatsApp re-pair** (3): `GET /dash/channels/whatsapp/pair`, `GET /dash/channels/whatsapp/pair/status`, `POST /dash/channels/whatsapp/pair/start` — operator-only (`**`), proxies to whapd with service:dashd bearer. (`channels.go`)
 - **Proactive view** (1): `GET /dash/proactive/` — operator-only (`**`) read-only view of spec 5/6: per-group `mode:` / quiet hours / parse error, parsed through the shared `proactive.Parse` routd's scanner gates on, plus per-chat last-fired from routd's `chat_proactive`. No control — `mode:` stays operator-edited in the group's `CLAUDE.md` (single source, no DB/file drift) and the cooldown is mandatory by spec. A banner names `PROACTIVE_ENABLED`; dashd cannot read routd's env, so it states the rule rather than a live value. (`proactive_page.go`)
+- **Engagement view** (1): `GET /dash/engagement/` — operator-only (`**`) read-only view of spec 5/G: every live engagement window (chat, thread, group, time left), i.e. the conversations the agent keeps answering in without being addressed. Reads routd's `GET /v1/engagement` list face over HTTP with the service:dashd bearer (`routes:read`), NOT `chat_reply_state` out of `dbRoutd` — routd owns those columns and applies the containment. No control: a window expires at TTL, and both early writers (`disengage`, `POST /v1/engagement`) keep the audit row in routd's own transaction, so a button here would be a third writer. Operator-only is load-bearing — dashd's service token has an empty folder claim, which routd reads as list-all. (`engagement_page.go`)
 - **proxyd control plane** (3): `GET|POST /dash/proxyd/`, `POST /dash/proxyd/delete` — operator-only (`**`) view + create + delete of proxyd's reverse-proxy route table. proxyd OWNS `proxyd_routes`, so all three go over HTTP to its `/v1/proxyd_routes` with the service:dashd bearer and the caller's `X-User-*` forwarded; proxyd writes the single audit row in the mutation's own transaction. (`proxyd_page.go`)
 
 ## Auth
@@ -81,7 +82,8 @@ Read surfaces (`/dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups
 - `HOST_APP_DIR` — app source path for enumerating stock skills in groups settings
 - `WHAPD_URL` — whapd base URL for re-pair proxy (default `http://whapd:8080`)
 - `PROXYD_URL` — proxyd base URL for the `/dash/proxyd/` control plane (default `http://proxyd:8080`, matching webd)
-- `RUNED_URL` — runed base URL for the `/dash/runed/` kill proxy (default `http://runed:8080`). Compose emits neither this nor `PROXYD_URL`; both resolve through `backendURL`, which names the compose service on the fixed in-container `:8080`. Set either only to override.
+- `RUNED_URL` — runed base URL for the `/dash/runed/` kill proxy (default `http://runed:8080`).
+- `ROUTER_URL` — routd base URL for the `/dash/engagement/` view (default `http://routd:8080`). Compose emits none of these three; all resolve through `backendURL`, which names the compose service on the fixed in-container `:8080`. Set one only to override.
 
 ## Health signal
 

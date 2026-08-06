@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -110,6 +111,32 @@ func relativeTS(ts string) string {
 			switch {
 			case d < time.Minute:
 				return "now"
+			case d < time.Hour:
+				return fmt.Sprintf("%dm", int(d.Minutes()))
+			case d < 24*time.Hour:
+				return fmt.Sprintf("%dh", int(d.Hours()))
+			default:
+				return fmt.Sprintf("%dd", int(d.Hours()/24))
+			}
+		}
+	}
+	return shortTS(ts)
+}
+
+// remainingTS is relativeTS for a FUTURE deadline: "12m", "2h", "3d" of time
+// left. It exists because relativeTS measures time.Since, so every not-yet-
+// reached deadline lands in its `d < time.Minute` arm and renders "now" — an
+// engagement window with 28 minutes left would read as expiring this second.
+// A deadline already passed renders "expired" rather than a negative span.
+func remainingTS(ts string) string {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02 15:04:05"} {
+		if t, err := time.Parse(layout, ts); err == nil {
+			d := time.Until(t)
+			switch {
+			case d <= 0:
+				return "expired"
+			case d < time.Minute:
+				return "under a minute"
 			case d < time.Hour:
 				return fmt.Sprintf("%dm", int(d.Minutes()))
 			case d < 24*time.Hour:
@@ -283,7 +310,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	d := &dash{dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: backendURL("RUNED_URL", "runed"), proxydURL: backendURL("PROXYD_URL", "proxyd"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
+	d := &dash{dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: backendURL("RUNED_URL", "runed"), proxydURL: backendURL("PROXYD_URL", "proxyd"), routdURL: backendURL("ROUTER_URL", "routd"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
 	d.registerRoutes(mux)
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
@@ -317,6 +344,35 @@ func backendURL(envKey, service string) string {
 	return strings.TrimRight(chanlib.EnvOr(envKey, "http://"+service+":8080"), "/")
 }
 
+// upstreamMessage pulls the operator-readable half out of a sibling daemon's
+// error body. routd and proxyd both answer apiv1.Err — {"error":"<code>",
+// "message":"<prose>"} — so `message` is preferred and `error` is the fallback
+// for a body carrying only the code. A body that is not that shape is returned
+// raw rather than swallowed, because a bare status number tells an operator
+// nothing about which precondition failed.
+func upstreamMessage(body []byte) string {
+	var e struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &e) == nil {
+		if e.Message != "" {
+			return e.Message
+		}
+		if e.Error != "" {
+			return e.Error
+		}
+	}
+	return strings.TrimSpace(string(body))
+}
+
+// upstreamErr renders a non-2xx from a sibling daemon as one operator-readable
+// sentence. One renderer for every daemon dashd calls; proxydUpstreamErr wraps
+// it to add the 403 grant hint that is proxyd's alone.
+func upstreamErr(daemon string, status int, body []byte) string {
+	return fmt.Sprintf("%s said %d: %s", daemon, status, upstreamMessage(body))
+}
+
 type dash struct {
 	dbRoutd *sql.DB // routd.db handle — dashd's ONLY message/config store. routd OWNS
 	// acl/groups/routes/route_tokens/secrets/chat_sessions/audit_log AND the live
@@ -336,6 +392,12 @@ type dash struct {
 	// OWNS proxyd_routes, so dashd goes over HTTP rather than into the table —
 	// that is also what makes proxyd write the audit row in the mutation's tx.
 	proxydURL string
+	// routdURL is routd's /v1 face, read by /dash/engagement/. routd OWNS the
+	// engagement columns, so dashd asks over HTTP rather than reading
+	// chat_reply_state out of dbRoutd — the direct-DB read is the recorded defect
+	// class this page declines to join. backendURL defaults it to the compose
+	// service name, so it is empty only in tests ("" → the page says so).
+	routdURL string
 	// secretKeyring is the SECRETS_KEY material handed to secretStore so user-secret
 	// writes seal at rest under the same key routd reads with. Empty → plaintext.
 	secretKeyring [][]byte
@@ -443,6 +505,7 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/audit/", g(d.handleAudit))
 	mux.HandleFunc("GET /dash/usage/", g(d.handleUsage))
 	mux.HandleFunc("GET /dash/proactive/", g(d.handleProactive))
+	mux.HandleFunc("GET /dash/engagement/", g(d.handleEngagement))
 	mux.HandleFunc("GET /dash/routd/", g(d.handleRoutd))
 	mux.HandleFunc("POST /dash/routd/retry", g(d.handleRoutdRetry))
 	mux.HandleFunc("GET /dash/runed/", g(d.handleRuned))
@@ -567,6 +630,7 @@ var navLinks = []struct {
 	{"/dash/audit/", "audit", true},
 	{"/dash/usage/", "usage", true},
 	{"/dash/proactive/", "proactive", true},
+	{"/dash/engagement/", "engagement", true},
 	{"/dash/memory/", "memory", false},
 }
 

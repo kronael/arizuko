@@ -6,26 +6,26 @@ relates-to: [3/Y-thread-routing, 5/Y-output-styles-per-surface]
 
 # specs/5/G — engagement: stay in the conversation after a mention
 
-> **Status (2026-08-06).** Partial on ONE definition-of-done item: **6, the
-> dashd surface**. Everything else holds.
+> **Status (2026-08-06).** The design below is all built. What is left is the
+> tail of `specs/CLAUDE.md`'s definition of done, items 5-7 — none of it new
+> design, and item 6 is the one real decision.
 >
-> The API is done (BUGS `F12a`, shape (a) — the read surface below returns
-> `engaged_until` and lists live windows). Engagement stays hot-tier and
-> hand-rolled by design; it did NOT become a resreg resource (see §"The read
-> surface"). The web docs are done (BUGS `F12`): `concepts/engagement.html` now
-> carries the real 30m default and documents all three `/v1/engagement` faces,
-> `reference/env.html` matches, and the `core.Config.EngagementTTL` field whose
-> unread 20m seeded both is deleted — `routd.DefaultEngagementTTL` is now the
-> only place the number is written.
+> Item 6 (dashboard) is now HALF met: `/dash/engagement/` ships as a VIEW
+> (§"The operator surface"), which closed BUGS `F31`. The DoD asks for "view
+> AND control". The control is deliberately not built: it needs `routes:write`
+> in `serviceGrants["service:dashd"]`, and widening a write ceiling is a
+> sign-off, not an implementation detail — the read half was signed off, the
+> write half was not. `authd/service_dashd_test.go` pins `routes:write` as
+> too-wide so the grant cannot drift there by accident.
 >
-> **Unmet, item 6:** no dashd page shows or clears engagement windows. It is
-> blocked on one decision, not on code — `serviceGrants["service:dashd"]` is
-> `{"runs:kill"}` and the read needs `routes:read`, and that ceiling is
-> deliberately tight (`authd/http.go`). BUGS `F31` carries the two exits and the
-> ~1-line-plus-a-page fix once the ceiling moves. Two things previously filed as
-> blockers here are disproved there: dashd needs no compose wiring
-> (`backendURL` derives the URL), and the empty-folder service claim is not a
-> leak for an operator-only page.
+> Item 5 (online) has its content — `concepts/engagement.html` documents the
+> TTL, all three `/v1/engagement` faces and now the dashboard page — but the
+> `/pub` deploy + 200 check has not run. Item 7 (migration + broadcast) has no
+> migration file and no `MIGRATION_VERSION` bump, so no live agent has been told.
+>
+> Items 1-4 hold: code + tests are green, the spec and `specs/5/index.md` row
+> are current, `routd/README.md` + `dashd/README.md` + `ROUTING.md` carry it,
+> and the hot-tier placement is stated in §"The read surface".
 
 ## What this solves
 
@@ -70,7 +70,7 @@ deliberately split:
 
 Audit invariant: every `BumpEngagement` call site is guarded by
 `!strings.HasPrefix(triggerSender, "timed-")` and by a non-empty
-platform reply id (`ipc/ipc.go:627`) — a scheduled broadcast or a failed
+platform reply id (`ipc/ipc.go:630`) — a scheduled broadcast or a failed
 send must not open an engagement window the user didn't ask for.
 
 Why not bump inside `MarkMessageDelivered`: its signature is
@@ -80,7 +80,7 @@ a never-delivered row.
 
 ## Engagement is claimed at DISPATCH, not at ingress
 
-`routd/server.go:485`: the owning folder is unresolved at ingress —
+`routd/server.go:530`: the owning folder is unresolved at ingress —
 route resolution runs after the row is stored. A pre-`PutMessage` claim
 with an empty folder makes `Engaged` return `("", true)` and misroute.
 routd defers the claim to dispatch, where the resolved folder is known.
@@ -89,7 +89,7 @@ routd defers the claim to dispatch, where the resolved folder is known.
 `PutMessage`, for transactional tidiness. The split made that
 impossible; the code comment records the reason.)
 
-**Reaction topic inheritance** (`routd/server.go:475`). Reactions arrive
+**Reaction topic inheritance** (`routd/server.go:516`). Reactions arrive
 with an empty `Topic` and a `ReplyTo` pointing at the reacted-to message,
 so routd sets `Topic = TopicByID(ReplyTo)` before promotion. Without it,
 a reaction on a threaded message lands in the main engagement scope.
@@ -181,6 +181,33 @@ reports true for an empty target and would expose windows no folder has
 claimed. Guarded content-level in `TestEngagementList_NoCrossFolderLeak`: the
 assertion reads the raw response BODY, so a jid arriving through any field
 fails it.
+
+## The operator surface
+
+`/dash/engagement/` (`dashd/engagement_page.go`) lists the live windows —
+chat, thread, group, time left. It reads the list face above over HTTP with the
+`service:dashd` bearer; it does NOT read `chat_reply_state` out of `dbRoutd`,
+which dashd has mounted. routd owns those columns and applies the containment,
+and the direct-DB read is dashd's own recorded defect class.
+
+**It is a VIEW, and the grant matches.** `serviceGrants["service:dashd"]`
+(`authd/http.go`) carries `routes:read` and deliberately not `routes:write`: a
+window ends on its own at TTL, and the two writers that end one early
+(`disengage`, `POST /v1/engagement`) both keep the audit row inside routd's
+transaction. A dashboard button would be a third writer, so it is not offered
+until that is decided.
+
+`routes:read` is not a widening of what dashd can see — dashd is FS-mounted on
+routd.db and already reads routes, groups and route tokens from the table, so
+the scope is a strict subset of the reach it holds. It exposes no secret: its
+widest read, `ListRouteTokens`, selects jid/owner_folder/created_at/context and
+never the token value.
+
+**Operator-only, and that is load-bearing.** dashd's service token carries an
+EMPTY folder claim, which is exactly the list-all key above — so the page shows
+every tenant's windows. routd authorizes that bearer, not the `X-User-*` headers
+dashd forwards (there is no routd equivalent of proxyd's `trustedForwarders`),
+so offering this page to a folder-scoped viewer would not narrow it.
 
 ## Corrective exchanges fork to a side thread
 

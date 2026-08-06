@@ -63,11 +63,23 @@ var serviceGrants = map[string][]string{
 	// tables: POST /v1/runs/stop (runed, gated runs:kill — server.go), the whapd
 	// pair endpoints (no scope gate), and /v1/proxyd_routes (proxyd authorizes the
 	// FORWARDED operator identity, not a service scope; dashd's bearer only proves
-	// transit, see proxyd trustedForwarders). So runs:kill is the whole ceiling —
-	// anything wider would let the operator UI act beyond what it proxies.
+	// transit, see proxyd trustedForwarders).
 	// Missing entry → empty scope → the kill button 403s; same shape as the four
 	// cases above, and it shipped that way (BUGS F15a).
-	"service:dashd": {"runs:kill"},
+	//
+	// routes:read is the READ half, added for /dash/engagement/ (spec 5/G item 6,
+	// BUGS F31). It is not a widening of what dashd can SEE: dashd is FS-mounted on
+	// routd.db (dash.dbRoutd, dashd/main.go) and already reads routes, groups and
+	// route_tokens straight out of the table, so this scope is a strict subset of
+	// reach it holds — what it buys is moving one page OFF the direct-DB read that
+	// is its own recorded defect. Nor does it leak a secret: routes:read's widest
+	// read is ListRouteTokens, which selects jid/owner_folder/created_at/context and
+	// never the token value (store/route_tokens.go:137), and route_tokens/resolve is
+	// a reverse lookup that needs the token already in hand.
+	// Deliberately NOT routes:write: /dash/engagement/ is a view. A disengage
+	// control would need it, and would then also owe an audit row in routd's own
+	// transaction — that is a separate decision, so the ceiling stays read-only.
+	"service:dashd": {"runs:kill", "routes:read"},
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is

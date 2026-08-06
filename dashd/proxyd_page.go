@@ -76,20 +76,15 @@ func (d *dash) proxydCall(ctx context.Context, r *http.Request, method, path str
 	return buf, resp.StatusCode, err
 }
 
-// proxydUpstreamErr renders a non-2xx from proxyd as one operator-readable
-// sentence. proxyd answers {"error":"..."}; fall back to the raw body.
+// proxydUpstreamErr is upstreamErr plus the one thing that is proxyd's alone: a
+// 403 here means the OPERATOR's grant is short, not dashd's, because proxyd
+// authorizes the forwarded identity rather than dashd's bearer.
 func proxydUpstreamErr(status int, body []byte) string {
-	var e struct {
-		Error string `json:"error"`
-	}
-	msg := strings.TrimSpace(string(body))
-	if json.Unmarshal(body, &e) == nil && e.Error != "" {
-		msg = e.Error
-	}
 	if status == http.StatusForbidden {
-		return fmt.Sprintf("proxyd refused (403 %s) — your account needs an operator grant covering the proxyd_routes actions", msg)
+		return fmt.Sprintf("proxyd refused (403 %s) — your account needs an operator grant covering the proxyd_routes actions",
+			upstreamMessage(body))
 	}
-	return fmt.Sprintf("proxyd said %d: %s", status, msg)
+	return upstreamErr("proxyd", status, body)
 }
 
 // handleProxyd renders GET /dash/proxyd/ — the reverse-proxy cockpit: every URL
