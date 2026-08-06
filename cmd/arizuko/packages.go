@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -325,6 +326,68 @@ func dirtyAssets(svcDir string, rec routd.InstalledPackage) []string {
 	return dirty
 }
 
+// reapplyResult reports what one reapplyPackage call did.
+type reapplyResult struct {
+	Revision string   // revision resolved from the source this run
+	Dirty    []string // locally edited assets; non-empty means nothing was written
+	Changed  bool     // an asset's content or the resolved revision actually moved
+}
+
+// reapplyPackage re-fetches rec.Source and rewrites every file asset the record
+// owns, drops the ones the new revision no longer ships, and updates the record.
+// It writes NOTHING and returns Dirty when an asset diverged locally — spec
+// 5/28's no-blind-overwrite rule. `upgrade` (one package, dirty is fatal) and
+// `sync` (every package, dirty is reported and skipped) are the two callers, so
+// there is ONE updater rather than a second one beside it.
+//
+// Only the compose_fragment half of the manifest is replaced: the route, grant
+// and skill identities install recorded are re-applied by neither verb, so
+// overwriting them would strand rows `remove` is supposed to delete.
+func reapplyPackage(svcDir string, rdb *routd.DB, rec routd.InstalledPackage) reapplyResult {
+	if dirty := dirtyAssets(svcDir, rec); len(dirty) > 0 {
+		return reapplyResult{Dirty: dirty}
+	}
+	dir, revision, cleanup := fetchSource(rec.Source)
+	defer cleanup()
+	newFiles, newHashes := readFragmentAssets(dir)
+	if len(newFiles) == 0 {
+		die("Failed: no compose fragment in source %s", rec.Source)
+	}
+	for _, n := range newFiles {
+		b, err := os.ReadFile(filepath.Join(dir, n))
+		if err != nil {
+			die("Failed: read %s: %v", n, err)
+		}
+		if err := writeFileAtomic(filepath.Join(svcDir, n), b); err != nil {
+			die("Failed: apply %s: %v", n, err)
+		}
+	}
+	for k := range rec.AssetHashes {
+		if _, present := newHashes[k]; present {
+			continue
+		}
+		if fn, isFile := strings.CutPrefix(k, "file:"); isFile {
+			if err := os.Remove(filepath.Join(svcDir, fn)); err != nil && !os.IsNotExist(err) {
+				die("Failed: drop %s: %v", fn, err)
+			}
+		}
+	}
+	if rec.Revision == revision && maps.Equal(rec.AssetHashes, newHashes) {
+		return reapplyResult{Revision: revision}
+	}
+	if rec.Manifest == nil {
+		rec.Manifest = map[string][]string{}
+	}
+	rec.Manifest["compose_fragment"] = newFiles
+	rec.Revision = revision
+	rec.AssetHashes = newHashes
+	rec.InstalledAt = time.Now().UTC().Format(time.RFC3339)
+	if err := rdb.PutInstalledPackage(rec); err != nil {
+		die("Failed: record %s: %v", rec.Name, err)
+	}
+	return reapplyResult{Revision: revision, Changed: true}
+}
+
 // listFragments returns the `<name>.yml` service fragments in dir.
 func listFragments(dir string) []string {
 	entries, _ := os.ReadDir(dir)
@@ -342,7 +405,7 @@ func listFragments(dir string) []string {
 // bundled catalog into <dataDir>/services/. `arizuko generate` includes every
 // fragment it finds there.
 func cmdPackages(args []string) {
-	usage := "arizuko packages <instance> list | add <name> | install <source-dir> | upgrade <name> | remove <name>"
+	usage := "arizuko packages <instance> list | add <name> | install <source-dir> | upgrade <name> | sync | remove <name>"
 	need(args, 2, usage)
 	dataDir := mustInstanceDir(args[0])
 	tmplDir := packageTemplates(dataDir)
@@ -492,44 +555,51 @@ func cmdPackages(args []string) {
 		if !ok {
 			die("Failed: %s is not installed", name)
 		}
-		if dirty := dirtyAssets(svcDir, rec); len(dirty) > 0 {
+		res := reapplyPackage(svcDir, rdb, rec)
+		if len(res.Dirty) > 0 {
 			die("Failed: %s has locally edited asset(s): %s\n"+
 				"  upgrade refuses to overwrite them (spec 5/28). Resolve first — take-theirs:\n"+
 				"  delete the file(s) then upgrade; keep-mine: file the diff upstream + fork.",
-				name, strings.Join(dirty, ", "))
+				name, strings.Join(res.Dirty, ", "))
 		}
-		dir, revision, cleanup := fetchSource(rec.Source)
-		defer cleanup()
-		newFiles, newHashes := readFragmentAssets(dir)
-		if len(newFiles) == 0 {
-			die("Failed: no compose fragment in source %s", rec.Source)
+		if !res.Changed {
+			fmt.Printf("%s already at %s — nothing to do\n", name, res.Revision)
+			return
 		}
-		for _, n := range newFiles {
-			b, err := os.ReadFile(filepath.Join(dir, n))
-			if err != nil {
-				die("Failed: read %s: %v", n, err)
+		fmt.Printf("upgraded %s@%s — run `arizuko generate %s` to apply\n", name, res.Revision, args[0])
+	case "sync":
+		// Spec 5/28: re-apply every installed package's fragment from its recorded
+		// source. Idempotent — an unchanged package prints "unchanged" and writes
+		// nothing — and it is `upgrade` over the whole record set, NOT a second
+		// updater: both go through reapplyPackage, so dirty-refusal is identical.
+		// A dirty package is reported and SKIPPED rather than fatal, so one
+		// hand-edited fragment cannot block the rest of the instance from syncing.
+		rdb := mustOpenRoutd(dataDir)
+		defer rdb.Close()
+		recs, err := rdb.InstalledPackages()
+		if err != nil {
+			die("Failed: list installed packages: %v", err)
+		}
+		if len(recs) == 0 {
+			fmt.Println("no installed packages — nothing to sync")
+			return
+		}
+		var updated, skipped int
+		for _, rec := range recs {
+			res := reapplyPackage(svcDir, rdb, rec)
+			switch {
+			case len(res.Dirty) > 0:
+				skipped++
+				fmt.Printf("%-12s SKIPPED — locally edited: %s\n", rec.Name, strings.Join(res.Dirty, ", "))
+			case res.Changed:
+				updated++
+				fmt.Printf("%-12s updated to %s\n", rec.Name, res.Revision)
+			default:
+				fmt.Printf("%-12s unchanged (%s)\n", rec.Name, res.Revision)
 			}
-			if err := writeFileAtomic(filepath.Join(svcDir, n), b); err != nil {
-				die("Failed: upgrade %s: %v", n, err)
-			}
 		}
-		// Delete assets the old record owned that the new source dropped.
-		for k := range rec.AssetHashes {
-			if _, present := newHashes[k]; present {
-				continue
-			}
-			if fn, isFile := strings.CutPrefix(k, "file:"); isFile {
-				_ = os.Remove(filepath.Join(svcDir, fn))
-			}
-		}
-		rec.Revision = revision
-		rec.Manifest = map[string][]string{"compose_fragment": newFiles}
-		rec.AssetHashes = newHashes
-		rec.InstalledAt = time.Now().UTC().Format(time.RFC3339)
-		if err := rdb.PutInstalledPackage(rec); err != nil {
-			die("Failed: record upgrade: %v", err)
-		}
-		fmt.Printf("upgraded %s@%s (%d file(s)) — run `arizuko generate %s` to apply\n", name, revision, len(newFiles), args[0])
+		fmt.Printf("synced %d package(s): %d updated, %d skipped — run `arizuko generate %s` to apply\n",
+			len(recs), updated, skipped, args[0])
 	case "remove":
 		need(args, 3, usage)
 		name := args[2]

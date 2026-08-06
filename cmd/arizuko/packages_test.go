@@ -178,6 +178,185 @@ func TestPackagesUpgradeClean(t *testing.T) {
 	}
 }
 
+// seedPkg writes a one-fragment package source dir and installs it, returning
+// the source dir so a test can move it to a new revision.
+func seedPkg(t *testing.T, base, dataDir, inst, name, body string) string {
+	t.Helper()
+	src := filepath.Join(base, name)
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, name+".yml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmdPackages([]string{inst, "install", src})
+	return src
+}
+
+func mustRec(t *testing.T, dataDir, name string) routd.InstalledPackage {
+	t.Helper()
+	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rdb.Close()
+	rec, ok, err := rdb.InstalledPackage(routd.InstanceWide, name)
+	if err != nil || !ok {
+		t.Fatalf("record %s missing: ok=%v err=%v", name, ok, err)
+	}
+	return rec
+}
+
+// TestPackagesUpgradePreservesNonFileManifest: upgrade re-applies only the
+// compose_fragment assets, so the skill / route / grant identities install
+// recorded SURVIVE it. Without this, `remove` after an `upgrade` strands
+// exactly the rows and dirs it is supposed to delete.
+func TestPackagesUpgradePreservesNonFileManifest(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	dataDir := filepath.Join(base, "arizuko_mf")
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(base, "mf")
+	if err := os.MkdirAll(filepath.Join(src, "skills", "mfskill"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "mf.yml"), []byte("services:\n  mf:\n    image: v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "skills", "mfskill", "SKILL.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmdPackages([]string{"mf", "install", src})
+	if got := mustRec(t, dataDir, "mf").Manifest["skill"]; len(got) != 1 {
+		t.Fatalf("install did not record the skill: %v", got)
+	}
+
+	if err := os.WriteFile(filepath.Join(src, "mf.yml"), []byte("services:\n  mf:\n    image: v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmdPackages([]string{"mf", "upgrade", "mf"})
+
+	rec := mustRec(t, dataDir, "mf")
+	if got := rec.Manifest["skill"]; len(got) != 1 || got[0] != "mfskill" {
+		t.Fatalf("upgrade dropped the skill identity: %+v", rec.Manifest)
+	}
+	if got := rec.Manifest["compose_fragment"]; len(got) != 1 || got[0] != "mf.yml" {
+		t.Fatalf("upgrade lost the fragment identity: %+v", rec.Manifest)
+	}
+}
+
+// TestPackagesSyncReapplies: sync re-applies every installed package from its
+// recorded source in one pass — the blend table's "on upstream update" verb.
+func TestPackagesSyncReapplies(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	dataDir := filepath.Join(base, "arizuko_sy")
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srcA := seedPkg(t, base, dataDir, "sy", "alpha", "services:\n  alpha:\n    image: v1\n")
+	srcB := seedPkg(t, base, dataDir, "sy", "beta", "services:\n  beta:\n    image: v1\n")
+
+	if err := os.WriteFile(filepath.Join(srcA, "alpha.yml"), []byte("services:\n  alpha:\n    image: v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcB, "beta.yml"), []byte("services:\n  beta:\n    image: v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmdPackages([]string{"sy", "sync"})
+
+	for _, n := range []string{"alpha", "beta"} {
+		b, err := os.ReadFile(filepath.Join(dataDir, "services", n+".yml"))
+		if err != nil || !strings.Contains(string(b), "v2") {
+			t.Fatalf("sync did not re-apply %s: %s (err %v)", n, b, err)
+		}
+		if got := mustRec(t, dataDir, n).AssetHashes["file:"+n+".yml"]; got != sha256hex(b) {
+			t.Fatalf("sync left %s record hash stale", n)
+		}
+	}
+}
+
+// TestPackagesSyncIdempotent: re-applying an unchanged source reports
+// Changed=false and leaves the record untouched. Asserted against a sentinel
+// InstalledAt rather than two wall-clock reads — RFC3339 is second-granular, so
+// comparing two same-second syncs would pass even if the record WERE rewritten.
+func TestPackagesSyncIdempotent(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	dataDir := filepath.Join(base, "arizuko_si")
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seedPkg(t, base, dataDir, "si", "gamma", "services:\n  gamma:\n    image: v1\n")
+
+	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rdb.Close()
+	svcDir := filepath.Join(dataDir, "services")
+
+	rec, _, err := rdb.InstalledPackage(routd.InstanceWide, "gamma")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sentinel = "1999-01-01T00:00:00Z"
+	rec.InstalledAt = sentinel
+	if err := rdb.PutInstalledPackage(rec); err != nil {
+		t.Fatal(err)
+	}
+
+	res := reapplyPackage(svcDir, rdb, rec)
+	if res.Changed {
+		t.Fatal("re-applying an unchanged source reported Changed")
+	}
+	after, _, err := rdb.InstalledPackage(routd.InstanceWide, "gamma")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.InstalledAt != sentinel {
+		t.Fatalf("sync rewrote an unchanged record: InstalledAt %q -> %q", sentinel, after.InstalledAt)
+	}
+}
+
+// TestPackagesSyncSkipsDirty: a locally edited fragment is reported and skipped,
+// never clobbered — and one dirty package does not stop the rest of the
+// instance from syncing.
+func TestPackagesSyncSkipsDirty(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	dataDir := filepath.Join(base, "arizuko_sd")
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srcD := seedPkg(t, base, dataDir, "sd", "delta", "services:\n  delta:\n    image: v1\n")
+	srcE := seedPkg(t, base, dataDir, "sd", "eps", "services:\n  eps:\n    image: v1\n")
+
+	// Operator hand-edits delta's installed fragment; both sources move on.
+	edited := "services:\n  delta:\n    image: MINE\n"
+	if err := os.WriteFile(filepath.Join(dataDir, "services", "delta.yml"), []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcD, "delta.yml"), []byte("services:\n  delta:\n    image: v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcE, "eps.yml"), []byte("services:\n  eps:\n    image: v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmdPackages([]string{"sd", "sync"})
+
+	b, err := os.ReadFile(filepath.Join(dataDir, "services", "delta.yml"))
+	if err != nil || string(b) != edited {
+		t.Fatalf("sync clobbered a locally edited fragment: %s (err %v)", b, err)
+	}
+	e, err := os.ReadFile(filepath.Join(dataDir, "services", "eps.yml"))
+	if err != nil || !strings.Contains(string(e), "v2") {
+		t.Fatalf("a dirty package blocked the rest of the sync: %s (err %v)", e, err)
+	}
+}
+
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
 	for _, args := range [][]string{
