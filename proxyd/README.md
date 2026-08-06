@@ -54,6 +54,16 @@ operator-only REST surface. Five endpoints, plus matching MCP tools
 `/mcp` bridge. Both faces call the same handler in
 `proxyd/resource.go`; the registry lives in `resreg/` (spec 5/7).
 
+The operator page is `/dash/proxyd/` (dashd), which calls these same
+endpoints — no third path, and no dashd SQL against `proxyd_routes`.
+
+**Forwarder allowlist.** The stamped `X-User-*` identity is trusted only
+on an ES256 service bearer whose subject is in `trustedForwarders`
+(`proxyd/resource.go`): `service:webd` (agent MCP tools) and
+`service:dashd` (the operator page). It is an allowlist, not "any service
+token" — any other valid authd token reaching proxyd directly is 401, or
+it could forge operator `X-User-Groups`.
+
 The name is `proxyd_routes`, never `routes` — that one is routd's
 message-routing table. A resource's name IS its wire identity, so the
 two must not collide (root `CLAUDE.md`).

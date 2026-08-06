@@ -318,17 +318,25 @@ func routesResourceDecl(rr *routesResource) resreg.Resource {
 	}
 }
 
-// callerWebd is the sole legitimate forwarder to proxyd's /v1/proxyd_routes resource:
-// webd's MCP route tools translate to this REST API and present webd's own
-// service:webd ES256 bearer as the transit proof for the X-User-* it forwards.
-const callerWebd = "service:webd"
+// trustedForwarders are the only principals whose stamped X-User-* headers
+// proxyd accepts on /v1/proxyd_routes. Both translate an already-authenticated
+// end user onto this REST API and present their own ES256 service bearer as the
+// transit proof: webd for the agent MCP route tools, dashd for the operator
+// page at /dash/proxyd/. The list is an ALLOWLIST, never "any service token" —
+// see channelTrusted.
+const (
+	callerWebd  = "service:webd"
+	callerDashd = "service:dashd"
+)
+
+var trustedForwarders = []string{callerWebd, callerDashd}
 
 // channelTrusted reports whether r's stamped X-User-* headers can be trusted: a
-// present X-User-Sub plus a valid authd ES256 bearer minted FOR webd (the sole
-// forwarder). The sub pin is load-bearing — VerifyHTTP alone would admit ANY
-// valid authd token reaching proxyd directly, letting it forge X-User-*. With ks
-// nil (local dev, AUTHD_URL unset) the gate is open, matching every other
-// daemon's no-verifier path.
+// present X-User-Sub plus a valid authd ES256 bearer minted for one of the
+// trustedForwarders. The sub pin is load-bearing — VerifyHTTP alone would admit
+// ANY valid authd token reaching proxyd directly, letting it forge X-User-*.
+// With ks nil (local dev, AUTHD_URL unset) the gate is open, matching every
+// other daemon's no-verifier path.
 func channelTrusted(r *http.Request, ks *auth.KeySet) bool {
 	if r.Header.Get("X-User-Sub") == "" {
 		return false
@@ -337,11 +345,11 @@ func channelTrusted(r *http.Request, ks *auth.KeySet) bool {
 		return true // local dev: no JWKS to verify against
 	}
 	sub, err := auth.VerifyHTTP(r, ks)
-	return err == nil && sub.Typ == "service" && sub.Sub == callerWebd
+	return err == nil && sub.Typ == "service" && slices.Contains(trustedForwarders, sub.Sub)
 }
 
 // callerFromHTTP builds a resreg.Caller from the caller's identity headers.
-// The channel is proven by webd's service:webd ES256 bearer; on that proof the
+// The channel is proven by a trustedForwarders ES256 bearer; on that proof the
 // stamped X-User-* headers are trusted as the IDENTITY (never the bearer's own
 // sub). Operator detection (the `**` marker in X-User-Groups) is recorded into
 // Claims["operator"]="1" so ACL row predicates can match `predicate=operator=1`.
