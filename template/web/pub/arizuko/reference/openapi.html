@@ -84,7 +84,7 @@
         <tr>
           <td><code>authd</code></td>
           <td><code>http://authd:8080/openapi.json</code></td>
-          <td><code>audit</code> <span class="dim">(read-only) &mdash; its own audit trail; the token endpoints are hand-rolled and carry no row schema</span></td>
+          <td><code>audit</code>, <code>signing_keys</code> <span class="dim">(read-only)</span>, <code>sessions</code> <span class="dim">(read + revoke) &mdash; its own audit trail, signing-key metadata, and refresh-token families; the token endpoints themselves are hand-rolled and carry no row schema</span></td>
         </tr>
         <tr>
           <td><code>runed</code></td>
@@ -103,6 +103,7 @@
       <li><code>installed_packages</code> is <strong>read-only</strong> &mdash; two <code>GET</code>s and nothing else. Installing a package writes host files and restarts sidecars; that pipeline is the <code>arizuko packages</code> CLI, and a REST create would be a second path that drifts from it.</li>
       <li><code>groups</code> is <strong>read-only</strong> &mdash; one <code>GET /v1/groups</code>. The agent gets a <code>register_group</code> tool, but creating a group also writes a route and a git-init'd directory on disk, so that stays dashd's job and no daemon serves <code>POST /v1/groups</code>.</li>
       <li><code>audit</code> is <strong>read-only</strong>, and more strictly so than the rest &mdash; one <code>GET /v1/audit</code>, no read-one. The log is append-only and each row is written inside the transaction of the act it records, so a create or delete would let a caller forge or erase the record of something that did or did not happen. There is no <code>/v1/audit/{id}</code> because <code>id</code> is a per-database counter: the same number names a different row on each daemon. This is also the one resource three daemons serve &mdash; routd, runed and authd each own a table and each publish theirs, so <code>/v1/audit</code> always means "this daemon's log".</li>
+      <li><code>signing_keys</code> and <code>sessions</code> are <strong>authd's, and narrower than they look</strong>. <code>signing_keys</code> is one <code>GET</code> and nothing else: rotation rebuilds the running signer's in-memory key set, so a write straight at the table would leave the daemon disagreeing with its own database. <code>sessions</code> adds exactly one mutation, <code>DELETE /v1/sessions/{family_id}</code>, the operator revoke. Neither schema carries a private column &mdash; the key PEMs and the token hash are named in no query, no row struct and no document, so the strongest thing either can say is that a key or a session exists. Neither has an MCP face either: agents are scoped to a folder, and a signing key is instance-wide while a session is keyed by account, so there is no boundary that could contain an agent's reach over them.</li>
       <li><code>scheduled_tasks</code> declares list, read, update and delete, but not schedule, pause or resume &mdash; those three are agent tools with no operator endpoint behind them (see the <a href="mcp.html#scheduling">MCP reference</a>). An operator pauses a task by <code>PATCH</code>ing its status, or from the dashboard.</li>
     </ul>
 

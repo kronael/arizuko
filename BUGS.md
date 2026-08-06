@@ -5832,10 +5832,20 @@ it.
 - **Scope:** dashd cockpit + authd admin surface
 - **Affected:** all instances
 - **Source:** dashd/services.go:33; authd/store.go:256; authd/server.go:285,300; authd/oauth.go:409-413
-- **Status:** open
-- **Fix:** two concerns, two changes — the cockpit tile, and an authorized
-  revoke endpoint. The endpoint is the one that matters; it needs its own authz
-  decision (who may revoke whose session) rather than defaulting to operator.
+- **Status:** PARTIAL 2026-08-06 — the endpoint shipped, the tile has not
+- **Fix:** two concerns, two changes, and the one that matters is done.
+  `DELETE /v1/sessions/{family_id}` (`authd/sessions_resource.go`) is the
+  authorized revoke, gated on a `sessions:write` scope no human bearer can hold
+  and auditing into `auth.db` inside its own transaction. Its authz decision was
+  taken rather than defaulted: read and write are separate scopes, and a
+  folder-claimed caller is refused outright because `refresh_tokens` has no
+  folder column to contain one by.
+- **What is left, and why it was not taken here.** The tile still needs a
+  `/dash/authd/` page, and `service:dashd` is deliberately NOT granted the new
+  scopes yet. Granting the token authority's kill verb to a daemon that has no
+  caller for it is authority without a user; WHICH principal holds it is the
+  operator's call, and it is the one part of "who may revoke whose session" an
+  API cannot answer on its own.
 
 ### F15a — authd has no admin API at all, so the tile has nothing to render (2026-08-06, PROPOSED — needs sign-off)
 
@@ -5884,10 +5894,23 @@ already names:
 - **Scope:** authd admin API + serviceGrants + audit sink + dashd cockpit
 - **Affected:** all instances
 - **Source:** authd/http.go:26-62,110,121-129,155; authd/store.go:40,226,256; authd/server.go:107,285,300; authd/oauth.go:413; authd/migrations/0003-audit-log.sql; dashd/main.go:213-215; dashd/services.go:33
-- **Status:** PROPOSED — needs sign-off
-- **Fix:** decide (i) who may revoke whose session, (ii) which DB the row
-  lands in, (iii) resreg resource vs hand-rolled. Then the endpoints, the
-  `service:dashd` grant, and only then `Built:true`.
+- **Status:** RESOLVED 2026-08-06 for the API; the tile is tracked back in `F15`
+- **Fix:** all three decisions taken, and two of them were answered by work
+  that landed after this entry was written.
+  (ii) **Which DB the row lands in** — `auth.db`, because `5/I` federated
+  authd's `audit_log` into `/dash/audit/`. The objection ("invisible on the page
+  that exists to show it") was true when written and is not now.
+  (iii) **resreg resource, not hand-rolled** — `signing_keys` and `sessions` are
+  registered in `resreg/resources/`, so `/openapi.json` advertises them and the
+  revoke gets its audit row inside `resreg.invoke`'s transaction for free.
+  (i) **Who may revoke** — a literal `sessions:write` scope, unreachable by any
+  human bearer by the same mechanism as `audit:read`, split from `sessions:read`
+  so a rendering dashboard cannot kill. The residue — which service principal
+  holds it — waits on the page, and is tracked in `F15`.
+- **Note — two of this entry's findings were already stale.** `serviceGrants`
+  HAS had a `service:dashd` entry since `fd697e99`, and authd's `/openapi.json`
+  no longer declares zero resources (`audit` landed with `5/I`). Both were true
+  when filed.
 
 ## F16 — the tier-drift sweep never scanned the web docs, and root docs still drift (2026-08-05, open)
 

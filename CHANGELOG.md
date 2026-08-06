@@ -47,6 +47,36 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
   `onbod` is the fourth owner and still has no endpoint (BUGS `F35`).
 
+- **authd can be asked which key is signing and who is logged in (spec `5/1`,
+  BUGS `F15`).** The daemon that signs every token in the system published
+  nothing an operator could inspect. `GET /v1/keys` serves the JWK Set, which
+  carries what a verifier needs and nothing about a key's life — so "did the
+  rotation take" meant `sqlite3` on the box — and `FROM refresh_tokens` had
+  exactly one reader in the tree, keyed by token hash, so "who has a live
+  session" had no answer at all.
+
+  Three endpoints, registered as `resreg` resources so they appear on
+  `openapi.json` like everything else. `GET /v1/signing_keys` gives kid,
+  algorithm, created/retired timestamps and when a retired key stops verifying.
+  `GET /v1/sessions` gives one row per login lineage — who, what scope, when it
+  started, how many times it rotated, whether it is active, revoked or expired.
+  `DELETE /v1/sessions/{family_id}` ends one: the incident-response verb, when a
+  session must die and its holder cannot or will not do it. `/auth/logout`
+  already covered the self-service half; this is what was missing.
+
+  Neither read can leak what it reads over. The private PEM and the token hash
+  are named in no query, no response struct and no schema, so the strongest
+  thing either surface can say is that a key or a session exists. Read and kill
+  are separate scopes, so a dashboard that renders the session table cannot end
+  a session, and both refuse a folder-scoped caller outright — neither table has
+  a folder column, so there is nothing that could contain one, and answering
+  "everything" or silently "nothing" are both worse than saying no. The revoke
+  writes its audit row inside its own transaction, into the log `/dash/audit/`
+  has federated since `5/I` — which is what made this endpoint buildable.
+
+  The `/dash/authd/` page that consumes all this does not exist yet, so the
+  cockpit tile stays greyed and `service:dashd` holds none of the new scopes.
+
 - **`/dash/proactive/` — see which groups may speak first (spec `5/6`).**
   Proactive interjection shipped its mechanism and its operator page months
   before an operator could see any of it: `mode:` meant opening every group's
@@ -74,6 +104,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   authd's own `audit_log` rows are reachable only with `sqlite3` today.
 
 ### Fixed
+
+- **A refresh-token family killed for reuse could keep a live successor (BUGS
+  `F36`).** Presenting a refresh token twice is the signal that one of them was
+  stolen, and authd's answer is to revoke the whole rotation lineage. The revoke
+  and the successor's insert were unordered, so the kill could commit against
+  the rows that existed at that instant and the successor could land a moment
+  later, unrevoked, good for another thirty days. The alarm fired, was recorded,
+  and the credential it exists to destroy walked away.
+
+  The claim and the successor now happen in one transaction, so nothing can land
+  between them — SQLite has a single writer, so a competing revoke either
+  commits first or waits and takes the successor with it. The claim also refuses
+  a lineage that is already dead, which closes the same hole against `/auth/logout`:
+  a revoke that commits _before_ the transaction opens is not an interleave the
+  transaction can see. The grants re-snapshot moved ahead of the claim to make
+  the transaction possible — a network call cannot sit inside a write lock —
+  and that has its own benefit: a grants outage no longer spends the refresh
+  token, so a brief blip stops logging people out.
+
+  Reproduced on demand before it was fixed rather than waited for: parking one
+  redeem mid-rotation and running a competing one through it failed ten times
+  out of ten, and passes ten out of ten now.
 
 - **`/dash/runed/`'s kill button answered 503 in every deploy.** dashd read
   `RUNED_URL` with a bare `os.Getenv`, and compose emits neither `RUNED_URL`

@@ -4,18 +4,25 @@ status: partial
 
 # authd — central authority daemon + offline-verify library
 
-> **Status (2026-08-06).** Partial. authd's dashd cockpit tile is declared
-> `Built:false`, so the sole signer has no operator surface; and nothing lets an
-> operator revoke another user's refresh-token family — `revokeFamily` fires
-> only from reuse detection and from the user's own `/auth/logout`. The tile
-> cannot honestly flip: authd publishes **no** admin API to render or drive.
-> There is no signing-key metadata endpoint (the JWK Set drops `active` /
-> `created_at` / `retired_at`), no session or refresh listing (one query reads
-> `refresh_tokens`, keyed by `token_hash`), `RevokeAllNow` has zero
-> callers, and `serviceGrants` has no `service:dashd` entry. Building it needs
-> three decisions — who may revoke whose session, which DB the audit row lands
-> in (authd audits into `auth.db`; `/dash/audit/` reads `routd.db`), and resreg
-> resource vs hand-rolled. Proposal in BUGS `F15a`, awaiting sign-off. BUGS `F15`.
+> **Status (2026-08-06).** Partial — the admin API is built, the dashboard that
+> consumes it is not. `GET /v1/signing_keys`, `GET /v1/sessions` and
+> `DELETE /v1/sessions/{family_id}` ship as read-only-plus-revoke resreg
+> resources (§ `/v1/*` wire surface), which closes the three gaps this block
+> used to list: key metadata, session listing, and the admin revoke that
+> `revokeFamily` could not reach. `serviceGrants` has had a `service:dashd`
+> entry since `fd697e99`; the claim that it did not was stale.
+>
+> What remains is DoD item 6. `dashd/services.go:33` still declares the authd
+> tile `Built:false`, and it must: item 6 asks for view AND control, and there
+> is no `/dash/authd/` page. `service:dashd` is deliberately NOT granted
+> `sessions:read` / `sessions:write` / `signing_keys:read` yet — granting the
+> token authority's kill verb to a daemon with no caller for it is authority
+> without a user, and WHICH principal holds it is the one part of BUGS `F15a`'s
+> "who may revoke whose session" that the API cannot answer for the operator.
+> The two decisions it CAN answer are answered below.
+>
+> `RevokeAllNow` still has no caller, and that is now a stated deferral rather
+> than an open item — see § JWK rotation mechanics. BUGS `F15`, `F15a`.
 
 **DECISION.** Token authority is centralized in one `authd` daemon — the **sole
 signer**. It holds the ES256 private key, publishes public JWKs at `/v1/keys`,
@@ -92,6 +99,27 @@ per-token revocation. Three cases cover everything:
 issues a successor; the consumed row is tombstoned (`used_at`), not deleted.
 Presenting an already-used token is a theft signal: authd revokes the entire
 `family_id` chain and returns 401.
+
+**The claim and the successor's insert are ONE transaction**
+(`authd/store.go` `claimAndRotateRefresh`). Not an implementation detail: while
+they were two statements, a family kill could commit between them, so a lineage
+revoked for reuse kept a live successor for the full 30-day TTL — the reuse
+alarm fired and the credential it exists to kill survived (BUGS `F36`). SQLite
+has a single writer, so inside one transaction that interleave is not
+expressible: a competing revoke either commits first, or waits for the commit
+and revokes the successor too. The grants re-snapshot below therefore runs
+BEFORE the claim — a remote call cannot sit inside a write lock.
+
+The compare-and-set guards on `used_at IS NULL` **and** `revoked_at IS NULL`.
+The second conjunct is not redundant: a revoke that commits before the
+transaction opens is not an interleave the transaction can see, so a logout
+landing between a refresh's lookup and its claim would otherwise mint a
+successor into the family the user had just killed.
+
+**Exactly one unused row per family**, always — `issueRefresh` starts a family
+with one, and each rotation spends one while inserting one. That invariant is
+what makes a session listable by a plain `WHERE used_at IS NULL` rather than a
+window function, and `authd/sessions_resource_test.go` pins it.
 
 ## auth.db
 
@@ -196,10 +224,77 @@ Routes: `authd/http.go:93-98`. OAuth routes: `authd/oauth.go:53-70`.
   successor in the body, no cookie. If both are present the cookie wins. Re-runs
   the grants snapshot so a refreshed token reflects current grants.
 - **`GET /v1/identities/{sub}`** — the advisory cross-channel identity read.
+- **`GET /v1/signing_keys`** — signing-key **metadata**: kid, `alg`, `active`,
+  `created_at`, `retired_at`, and the derived `serves_until`
+  (`retired_at + maxAccessTTL`) plus a `status` of active / retiring / retired.
+  This is the lifecycle `/v1/keys` drops — the JWK Set carries only what a
+  verifier needs, so "did the rotation take" had no answer outside sqlite3.
+  Never key material: `priv_pem` and `pub_pem` are named in no SELECT list, no
+  `Row` struct and no `db:` tag, so the engine's own projection of the table is
+  the safe column set too.
+- **`GET /v1/sessions`** — one row per refresh-token **family**, the unit a
+  login actually is: `family_id`, `sub`, `scope`, lifecycle timestamps, a
+  rotation count, and a status of active / revoked / expired. `token_hash` is
+  never selected, and no raw token exists to omit (only the hash is persisted).
+  The family's current row is the one with `used_at IS NULL`, of which there is
+  exactly one by construction — see § Sessions.
+- **`DELETE /v1/sessions/{family_id}`** — **operator revoke** of one lineage:
+  the incident-response verb, when a session must die and its holder cannot or
+  will not do it. `POST /auth/logout` remains the self-service half and always
+  existed; this is what did not. Rows are tombstoned (`revoked_at`), never
+  deleted — the tombstone is the reuse-detection evidence. A `family_id` that
+  matches no LIVE family is `404`, so a mistyped id during an incident is never
+  reported as a kill.
 - **`POST /v1/keys/rotate`** — **deferred, unbuilt** along with the `authd
 rotate-key` CLI. The rotation _mechanism_ below is the only emergency-revoke
   lever; until the endpoint lands, short-TTL expiry plus a redeploy with a fresh
   key rotates it.
+
+**Authorization on the three operator reads.** Each injects a literal
+`resource:verb` scope — `signing_keys:read`, `sessions:read`, `sessions:write` —
+through the same gate builder `audit:read` uses (`authd/audit_resource.go`
+`scopeGate`). Such a scope is unreachable by any human bearer as a _mechanism_,
+not a convention: a user token's scope list holds folder globs and
+`auth.scopeMatches` rejects every held value without a colon, so neither `acme/**`
+nor an operator's own `**` satisfies one. Read and write are separate scopes so
+a dashboard that renders the session table cannot end a session.
+
+`signing_keys` and `sessions` additionally **refuse** a folder-claimed caller
+(`instanceWideGate`). `audit_log` has a `folder` column, so a folder-bound
+caller is pinned to its subtree and served; these two tables have none — a key
+is instance-global and a session is keyed by `sub` — so there is no predicate
+that could contain one. Serving it everything is the recorded cross-tenant
+list-all leak, and silently serving nothing would be a magical fallback, so the
+answer is `403`, stated.
+
+**Where the revoke's audit row lands** — BUGS `F15a` listed this as undecided:
+`auth.db`, written by `resreg.invoke` **inside the revoke's own transaction**,
+and visible because [`5/I`](I-audit-trail.md) federated authd's `audit_log` into
+`/dash/audit/`. The objection at the time — "a revoke recorded only in auth.db
+is invisible on the page that exists to show it" — was true when written and is
+not now, which is what unblocked the endpoint. Taking resreg's standard
+`delete` action is what buys the row: `invoke` opens the transaction, hands it
+to the handler, emits the event into the same one, and rolls the mutation back
+if the audit write fails.
+
+**Tier placement.** Both are **cold-tier** management surfaces — operator-driven
+reads plus one operator mutation, not per-turn agent work — so root `CLAUDE.md`'s
+"every cold-tier management entity is a resreg resource" applies and is why they
+are registered rather than hand-rolled. But they are the cold tier's _evidence_
+half, not its _config_ half, and the distinction is enforced: `Resource.DB` is
+empty on both (as on `audit`), so `BySubsystem` never returns them and
+`arizuko export` / `plan` / `apply` never touch them. A manifest that could
+rebuild `signing_keys` would rebuild the trust root from a text file; one that
+could rebuild `refresh_tokens` would be a session-forgery tool. Credential-tier
+placement is unchanged — the signing key stays authd's alone, and neither
+endpoint moves it.
+
+**No MCP face on either.** `MCPDoc` is what mints an agent tool and neither
+declares one. Agents are folder-scoped; keys are instance-global and sessions
+key on `sub`, so there is no containment predicate to bind a tool to — and a
+tool whose gate would have to be "operator only, trust us" is a declaration, not
+a face. This is the narrow exception to "one handler, two faces", taken for the
+same reason `route_tokens`' `resolve` is REST-only.
 
 ### Login-time scope snapshot
 
@@ -233,6 +328,17 @@ other daemons, which lack the key.
   (`authd/server.go:108`), so the serve check is false immediately and the kid
   drops now. Every token it signed fails within one JWKS cache TTL. The single
   lever that invalidates everything at once.
+
+**`RevokeAllNow` has no caller, deliberately.** It is a Go-level lever with no
+wire face, and giving it one is not a missing endpoint — it is the same change
+as `POST /v1/keys/rotate`, which this spec defers on purpose. One HTTP call that
+logs out an entire fleet is an operation you want deliberate and out-of-band,
+and rotation is manual-only today (see the UNVERIFIED note below on scheduled
+rotation). `GET /v1/signing_keys` is the read that makes the lever _legible_ —
+an operator can now see which kid is signing and when a retired one stops
+verifying — which is the half that did not need a new authority to build.
+`authd/authd_test.go` and `authd/scenario_test.go` keep the lever itself
+covered.
 
 ## TTLs
 

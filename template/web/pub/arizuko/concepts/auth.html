@@ -93,6 +93,20 @@ local:alice</code></pre>
     </ol>
     <div class="callout"><strong>Two boundaries, one signer.</strong> <code>authd</code> holds the only ES256 private key. It signs the JWT the browser carries (browser&hairsp;&harr;&hairsp;proxyd) and the <code>service:proxyd</code> transit bearer proxyd attaches for backends (proxyd&hairsp;&harr;&hairsp;backend). Both are verified the same way &mdash; ES256 against <code>authd</code>&rsquo;s public JWKS &mdash; so there is no separate shared HMAC secret to keep in sync. The <code>X-User-*</code> headers carry no signature of their own; the transit bearer is what makes them trustworthy.</div>
 
+    <h2>reuse &mdash; the same refresh token presented twice</h2>
+    <p>A refresh token is single-use. Present it, and <code>authd</code> spends it and hands back a successor; the spent row is kept, marked, never deleted. That mark is the whole detection mechanism: if the same token turns up a second time, one of the two holders is not you, and <code>authd</code> cannot tell which. So it kills the entire chain &mdash; every token that descended from that login &mdash; and both holders are logged out. Losing your session is the cheap outcome; leaving a stolen one alive is not.</p>
+    <p>Spending the token and creating its successor happen in one database write. That matters more than it sounds: while they were two writes, a kill triggered by the second holder could land in the gap between them, revoke everything that existed at that instant, and then watch the successor appear a moment later &mdash; unrevoked, and good for another thirty days. The alarm fired and the credential it was about survived it. One write, and there is no gap to land in.</p>
+    <p>The same applies to logging out. Clicking log out kills the chain, and a refresh already in flight cannot outrun it: the spend step refuses a chain that is already dead, rather than only checking whether the token itself was used.</p>
+
+    <h2>seeing sessions, and ending one</h2>
+    <p>An operator can ask <code>authd</code> two questions it used to answer only through a database shell.</p>
+    <ul>
+      <li><strong>Which key is signing?</strong> <code>GET /v1/signing_keys</code> lists each key's id, when it was created, when it was retired, and when a retired key stops verifying the tokens it already signed. The public JWKS at <code>/v1/keys</code> carries none of that &mdash; it holds what a verifier needs and nothing more &mdash; so "did the rotation actually take" had no answer. This one is metadata only; no private key is reachable through it by any argument.</li>
+      <li><strong>Who is logged in?</strong> <code>GET /v1/sessions</code> lists one row per login: the account, the scope it was granted, when it started, how many times it has rotated since, and whether it is active, revoked or expired. Token values never appear &mdash; only a hash is stored, and not even the hash is served.</li>
+    </ul>
+    <p><code>DELETE /v1/sessions/{family_id}</code> ends one. This is the verb for when a session must die and the person holding it cannot or will not do it &mdash; a lost laptop, a departure, a phone that will not come back. Logging out was always available to the person themselves; this is the half that was missing. The revoke is written to <code>authd</code>'s audit log inside the same transaction as the revoke itself, so it shows up in <a href="audit.html">the audit trail</a> next to everything else.</p>
+    <p>Reading the list and ending a session are separate permissions, so a dashboard that shows you who is logged in does not thereby gain the ability to log them out. Both are operator-level and neither can be reached by an ordinary user's token, whatever they are granted &mdash; a user's permissions are folder paths, and a folder path can never satisfy a permission of this shape.</p>
+
     <h2>collision &mdash; logged in as A, OAuth as B</h2>
     <p>You are logged in as <code>google:114alice</code> and you click "Link GitHub." The callback gets a fresh sub <code>github:48291744</code>. Three cases the code handles cleanly:</p>
     <ul>

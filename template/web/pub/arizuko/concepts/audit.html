@@ -85,7 +85,7 @@
       <tr><th>Daemon</th><th>Table lives in</th><th>Records</th></tr>
       <tr><td><code>routd</code></td><td><code>routd.db</code></td><td>routes, groups, grants, secrets, tasks, tokens &mdash; the bulk of it</td></tr>
       <tr><td><code>runed</code></td><td><code>runed.db</code></td><td>who claimed a folder&rsquo;s run slot (<code>run.hold</code>) and who killed a run (<code>run.kill</code>)</td></tr>
-      <tr><td><code>authd</code></td><td><code>auth.db</code></td><td>identity and token events</td></tr>
+      <tr><td><code>authd</code></td><td><code>auth.db</code></td><td>identity and token events &mdash; logins, and who ended whose session (<code>sessions:delete</code>)</td></tr>
     </table>
 
     <p>This is the same rule that keeps each daemon migrating only its own schema. The cost used to be that no single view spanned them; the dashboard now does the spanning for you, by asking each daemon rather than by merging their files.</p>

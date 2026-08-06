@@ -46,6 +46,16 @@ DB-ownership rule).
     spec `5/I`). Operator-only in effect: `audit:read` is a resource:verb scope
     and a user token carries folder globs, so no human bearer can satisfy it.
     `service:dashd` is the sole holder and `/dash/audit/` is operator-gated.
+  - `GET /v1/signing_keys` — signing-key METADATA (bearer-gated,
+    `signing_keys:read`; spec `5/1`). kid, algorithm, `active`, `created_at`,
+    `retired_at` and the derived `serves_until` — the lifecycle the JWK Set
+    drops. Never key material: `priv_pem`/`pub_pem` appear in no SELECT list.
+  - `GET /v1/sessions` — refresh-token FAMILIES (bearer-gated, `sessions:read`).
+    One row per login lineage; `token_hash` is never selected.
+  - `DELETE /v1/sessions/{family_id}` — operator revoke of one family
+    (bearer-gated, `sessions:write`). The incident-response verb;
+    `POST /auth/logout` remains the self-service one. Writes its `audit_log`
+    row inside the revoke's own transaction.
   - `GET /auth/*` — OAuth login/callback/logout (mounted only when `AUTH_BASE_URL` set)
   - `GET /openapi.json`, `GET /health`
 
@@ -80,8 +90,9 @@ DB-ownership rule).
 ## Observability
 
 slog → journald (always on). OTLP export when `OTEL_EXPORTER_OTLP_ENDPOINT` set
-(spec `specs/5/O-observability.md`). Audit events written to `auth.db` audit_log (`daemon.start`, `login`) and
-served read-only at `GET /v1/audit`. `params_summary` has exactly one writer,
+(spec `specs/5/O-observability.md`). Audit events written to `auth.db` audit_log (`daemon.start`, `login`, and
+`sessions:delete` for an operator revoke) and served read-only at
+`GET /v1/audit`, which `/dash/audit/` federates. `params_summary` has exactly one writer,
 `daemon.start`; its DSN field is redacted at the writer (`audit.redactRE`) and
 scrubbed from history by migration `0007`.
 
@@ -92,7 +103,11 @@ scrubbed from history by migration `0007`.
 - `http.go` — `/v1/*` handlers + mux
 - `store.go` — key + refresh-token persistence
 - `oauth.go` — OAuth provider dance → ES256 mint
-- `audit_resource.go` — the `GET /v1/audit` resreg mount + its scope gate
+- `audit_resource.go` — the `GET /v1/audit` resreg mount, plus `scopeGate` /
+  `instanceWideGate`, the two gate builders every authd resource injects
+- `signing_keys_resource.go` — `GET /v1/signing_keys`; its constant SELECT list
+  is what keeps key material off the wire
+- `sessions_resource.go` — `GET /v1/sessions` + the operator revoke
 - `grants.go` — HTTP grants fetcher (login-time scope snapshot)
 
 ## Status
