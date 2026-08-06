@@ -1,11 +1,18 @@
 package routd
 
 // Single-source guard for the spec 5/16 + 5/17 fold: each folded routd resource
-// mounts the canonical resources.<X>Endpoints — the SAME slice the resreg
-// registry emits into /openapi.json — so the mounted REST faces, the derived
-// MCP tools, and the published doc can never drift.
+// mounts the endpoint set the resreg registry publishes under that resource's
+// own Name — the SAME slice the registry emits into /openapi.json — so the
+// mounted REST faces, the derived MCP tools, and the published doc can never
+// drift.
 //
-// Reading the CONSTRUCTOR is not enough: a post-construction
+// The expectation is resolved BY the mounted Name, never by a hand-written
+// pairing. A pairing table checks a resource against the slice the table says it
+// should have, so a resource whose Name drifts off its wire identity keeps
+// comparing clean — the shape proxyd shipped on 2026-07-01, its live resource
+// reading Name: "routes" while its catalog and OpenAPI said proxyd_routes.
+//
+// Reading the CONSTRUCTOR is not enough either: a post-construction
 // `res.Endpoints = ...` in a mount function is invisible to it. That is how BUGS
 // F21 stayed green while scheduled_tasks served /v1/tasks against a declaration
 // saying /v1/scheduled_tasks, and how F27's two survivors (mountACL trimming
@@ -28,31 +35,25 @@ import (
 	"github.com/kronael/arizuko/resreg/resregtest"
 )
 
-// routdResource pairs one constructed resource with the canonical endpoint slice
-// it must carry.
-type routdResource struct {
-	name string
-	got  []resreg.Endpoint
-	want []resreg.Endpoint
-}
-
-// routdResources enumerates EVERY resreg.Resource routd constructs. It is the
-// guard's only hand-maintained input; TestRoutdResources_CoverAdvertised pins
-// that it covers everything routd advertises, so an advertised resource cannot
-// slip past the mux probe below.
-func routdResources(s *Server) []routdResource {
-	return []routdResource{
-		{"routes", s.routesResource(nil).Endpoints, resources.RoutesEndpoints},
-		{"web_routes", s.webRoutesResource().Endpoints, resources.WebRoutesEndpoints},
-		{"scheduled_tasks", s.scheduledTasksResource(nil, false).Endpoints, resources.ScheduledTasksEndpoints},
-		{"acl", s.aclResource().Endpoints, resources.ACLEndpoints},
-		{"acl_membership", s.membershipResource(nil).Endpoints, resources.ACLMembershipEndpoints},
-		{"network_rules", s.networkRulesResource().Endpoints, resources.NetworkRulesEndpoints},
-		{"route_tokens", s.routeTokensResource().Endpoints, resources.RouteTokensEndpoints},
-		{"groups", s.groupsResource(nil).Endpoints, resources.GroupsAgentEndpoints},
-		{"secrets", s.secretsResource().Endpoints, resources.SecretsEndpoints},
-		{"installed_packages", s.installedPackagesResource().Endpoints, resources.InstalledPackagesEndpoints},
-		{"audit", s.auditResource().Endpoints, resources.AuditEndpoints},
+// routdResources enumerates EVERY resreg.Resource routd constructs — the
+// guard's only hand-maintained input, and it names no endpoint slice: the
+// expectation is looked up in the REGISTRY by each resource's own Name, so
+// there is no second place to keep a resource's canonical shape.
+// TestRoutdResources_CoverAdvertised pins that this list covers everything
+// routd advertises, so an advertised resource cannot slip past the mux probe.
+func routdResources(s *Server) []resreg.Resource {
+	return []resreg.Resource{
+		s.routesResource(nil),
+		s.webRoutesResource(),
+		s.scheduledTasksResource(nil, false),
+		s.aclResource(),
+		s.membershipResource(nil),
+		s.networkRulesResource(),
+		s.routeTokensResource(),
+		s.groupsResource(nil),
+		s.secretsResource(),
+		s.installedPackagesResource(),
+		s.auditResource(),
 	}
 }
 
@@ -66,11 +67,26 @@ func testServer(t *testing.T) *Server {
 	return NewServer(db, nil, &recDeliverer{}, fakeVerifier{}, 0, "")
 }
 
+// TestResourceEndpoints_SingleSource is spec 5/16's "shared-identity test":
+// every resource routd MOUNTS carries a Name that is a registered wire identity,
+// and the endpoint set the registry publishes under that name. Resolving the
+// expectation through mounted.Name rather than a hand-written pairing is what
+// makes it catch the 2026-07-01 shape, where proxyd's live resource drifted to
+// Name: "routes" while its catalog and OpenAPI still said proxyd_routes — a
+// pairing table would have compared the drifted resource against the slice the
+// table said it should have, and agreed.
 func TestResourceEndpoints_SingleSource(t *testing.T) {
-	for _, r := range routdResources(testServer(t)) {
-		if !reflect.DeepEqual(r.got, r.want) {
-			t.Errorf("%s: constructed Endpoints != the canonical resources slice\n got %v\nwant %v",
-				r.name, r.got, r.want)
+	for _, got := range routdResources(testServer(t)) {
+		reg := resreg.Lookup(got.Name)
+		if reg == nil {
+			t.Errorf("routd mounts a resource named %q that the registry does not know — "+
+				"its name is its wire identity (/v1/%s and the MCP tool prefix), so an "+
+				"unregistered one is served but absent from every catalog", got.Name, got.Name)
+			continue
+		}
+		if !reflect.DeepEqual(got.Endpoints, reg.Endpoints) {
+			t.Errorf("%s: mounted Endpoints != the registry's for that name\n got %v\nwant %v",
+				got.Name, got.Endpoints, reg.Endpoints)
 		}
 	}
 }
@@ -82,7 +98,7 @@ func TestResourceEndpoints_SingleSource(t *testing.T) {
 func TestRoutdResources_CoverAdvertised(t *testing.T) {
 	covered := make([]string, 0, len(routdResources(testServer(t))))
 	for _, r := range routdResources(testServer(t)) {
-		covered = append(covered, r.name)
+		covered = append(covered, r.Name)
 	}
 	for _, name := range OpenAPIResources {
 		if !slices.Contains(covered, name) {
@@ -120,11 +136,11 @@ func TestRoutdMux_ServesEveryDeclaredEndpoint(t *testing.T) {
 
 	rest := 0
 	for _, r := range routdResources(srv) {
-		for _, e := range r.want {
+		for _, e := range r.Endpoints {
 			if e.MCPOnly {
 				if e.Verb != "" || e.Path != "" {
 					t.Errorf("%s: MCPOnly action %q declares %q %q — MCPOnly endpoints carry no REST face",
-						r.name, e.Action, e.Verb, e.Path)
+						r.Name, e.Action, e.Verb, e.Path)
 				}
 				continue
 			}
@@ -132,12 +148,12 @@ func TestRoutdMux_ServesEveryDeclaredEndpoint(t *testing.T) {
 			want := e.Verb + " " + e.Path
 			h, pattern := mux.Handler(httptest.NewRequest(e.Verb, concretePath(e.Path), nil))
 			if h == nil {
-				t.Errorf("%s: %s: mux returned no handler", r.name, want)
+				t.Errorf("%s: %s: mux returned no handler", r.Name, want)
 				continue
 			}
 			if pattern != want {
 				t.Errorf("%s: %s: routd's mux serves pattern %q, want %q — its mount function is not mounting the canonical Endpoints slice",
-					r.name, want, pattern, want)
+					r.Name, want, pattern, want)
 			}
 		}
 	}
