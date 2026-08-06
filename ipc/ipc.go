@@ -248,7 +248,12 @@ type StoreFns struct {
 	// registerRaw/granted tool is advertised (the call-time Authorize still gates).
 	Visible func(name string) bool
 
-	// LogIPCAudit persists one ipc_audit row. Nil = no-op.
+	// LogIPCAudit persists one audit_log row (surface=mcp, action=mcp.tool.invoke)
+	// via audit.EmitDB — the name is legacy, the destination is not. The ipc_audit
+	// table is retired and unwritten. This comment claimed otherwise and cost a
+	// review (BUGS F34): an agent read it, concluded MCP tool calls were invisible
+	// to /dash/audit/, and proposed a cross-cutting move that was already done.
+	// Nil = no-op.
 	LogIPCAudit func(folder, sub, tool, params, outcome string) error
 }
 

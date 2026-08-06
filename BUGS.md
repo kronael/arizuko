@@ -161,7 +161,7 @@ name got into the list. A client is not a server.
   falsifiable: restoring `[]string{"scheduled_tasks"}` failed this test with all
   five operations named, and no other package in the tree failed.
 
-## F34 — "who ended this engagement" has two answers in two tables (2026-08-06, PROPOSED — needs sign-off)
+## F34 — "who ended this engagement" has two answers in two tables (2026-08-06, PROPOSED — needs sign-off, DISPROVED)
 
 Found while shipping `5/G`'s disengage control, which fixed the REST half only.
 
@@ -205,6 +205,14 @@ contract change over every ipc tool and therefore a sign-off, not an inline fix.
   the cause fix is the `granted` wrapper, which needs sign-off
 - **Blocks:** nothing. `5/G` is shipped — its DoD asks that the dashboard
   mutation be audited, and it is.
+
+- **DISPROVED 2026-08-06.** `store.LogIPCAudit` already writes `audit_log`
+  via `audit.EmitDB` (`surface=mcp`, `action=mcp.tool.invoke`); only the
+  function NAME is legacy. Live krons: 50 `mcp/set_web_route` + 7
+  `mcp/delegate_group` rows, and the `ipc_audit` table no longer exists there.
+  The premise came from a stale field comment at `ipc/ipc.go:251` saying
+  "persists one ipc_audit row" — a claim, not evidence. Comment corrected.
+  No code move needed; `disengage` is audited like its ~45 neighbours.
 
 ## F33 — `OpenAPIHandler` takes an advertised set with no reference to the mux (2026-08-06, PROPOSED — needs sign-off)
 
