@@ -96,17 +96,20 @@ func (d *dash) renderActiveRuns(w http.ResponseWriter) {
 		"No active runs."))
 }
 
-// killConfirm is the browser confirm() text for killing one active run. A run
-// slot is not always an agent turn: a 'hold' is an EXTERNAL process (an archive
-// restore, a vacuum) that claimed the folder to itself, and killing it aborts
-// that job mid-flight rather than dropping a reply. Spec 5/8, Status item 5.
+// killConfirm is the kill button's confirm text for one run, varying by
+// spawns.kind: a hold is an external job holding the folder open (a restore,
+// a vacuum), not an agent turn, so the agent wording is simply false for it
+// (spec 5/8 "Filesystem restore claims the folder's run slot"). Returns a
+// JS single-quoted string literal — hence the escaped apostrophe.
 func killConfirm(kind, folder string) string {
 	if kind == runed.KindHold {
-		return fmt.Sprintf("Release the hold on %s? The external job that claimed "+
-			"this folder (an archive restore, a vacuum) will be aborted part-way.", esc(folder))
+		return fmt.Sprintf(
+			"Release the hold on %s? The job holding this folder — a restore, "+
+				"a vacuum — will be cut off mid-write.", esc(folder))
 	}
-	return fmt.Sprintf("Stop the agent currently working for %s? "+
-		"Any reply it hasn\\'t sent yet will be lost.", esc(folder))
+	return fmt.Sprintf(
+		`Stop the agent currently working for %s? Any reply it hasn\'t sent yet will be lost.`,
+		esc(folder))
 }
 
 // renderRecentRuns writes the recently-finished runs table.

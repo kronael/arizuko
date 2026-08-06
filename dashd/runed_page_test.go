@@ -100,17 +100,18 @@ func TestRunedActiveRuns(t *testing.T) {
 	}
 }
 
-// TestRunedKillConfirmPerKind: the kill confirm text must match what the run
-// slot actually holds. A 'hold' is an external job (archive restore, vacuum)
-// that claimed the folder — killing it aborts that job, it does not drop an
-// agent's reply. Spec 5/8, Status item 5.
-func TestRunedKillConfirmPerKind(t *testing.T) {
+// TestRunedActiveKillConfirmVariesByKind: a hold is an external job holding
+// the folder (a restore, a vacuum), not an agent turn, so its kill-confirm
+// must not claim an agent is working or that a reply will be lost. Pins spec
+// 5/8 "Filesystem restore claims the folder's run slot" — the label was
+// hardcoded to the agent wording for every kind.
+func TestRunedActiveKillConfirmVariesByKind(t *testing.T) {
 	rdb := runedDB(t)
 	defer rdb.Close()
 	if _, err := rdb.Exec(
-		`INSERT INTO spawns (run_id, folder, state, created_at, kind) VALUES
-		 ('run-agent0000000','corp/eng','running','2026-06-16T10:00:00Z','agent'),
-		 ('run-hold00000000','solo/inbox','running','2026-06-16T10:01:00Z','hold')`); err != nil {
+		`INSERT INTO spawns (run_id, folder, state, created_at, started_at, kind) VALUES
+		 ('run-agent0000','corp/eng','running','2026-06-16T10:00:00Z','2026-06-16T10:00:05Z','agent'),
+		 ('run-hold00000','solo/inbox','running','2026-06-16T10:01:00Z','2026-06-16T10:01:05Z','hold')`); err != nil {
 		t.Fatal(err)
 	}
 	db := routdDB(t)
@@ -122,18 +123,30 @@ func TestRunedKillConfirmPerKind(t *testing.T) {
 	req := asOperator(httptest.NewRequest("GET", "/dash/runed/", nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
 	body := w.Body.String()
-	if strings.Contains(body, "active runs error") {
-		t.Fatalf("query failed — fixture schema drifted from runed migrations: %s", body)
+
+	// Both rows rendered, so neither assertion below is vacuously true on an
+	// empty table.
+	if !strings.Contains(body, "corp/eng") || !strings.Contains(body, "solo/inbox") {
+		t.Fatalf("both active runs must render: %s", body)
 	}
-	if !strings.Contains(body, "Stop the agent currently working for corp/eng") {
-		t.Errorf("agent run lost its agent-worded confirm: %s", body)
+	agentIdx := strings.Index(body, "Stop the agent currently working for corp/eng?")
+	if agentIdx < 0 {
+		t.Errorf("agent run must keep the agent wording: %s", body)
 	}
-	if !strings.Contains(body, "Release the hold on solo/inbox") {
-		t.Errorf("hold run must not be described as an agent turn: %s", body)
+	holdIdx := strings.Index(body, "Release the hold on solo/inbox?")
+	if holdIdx < 0 {
+		t.Errorf("hold run must get the hold wording: %s", body)
 	}
+	// The agent wording must never be applied to the hold's folder.
 	if strings.Contains(body, "Stop the agent currently working for solo/inbox") {
-		t.Errorf("hold run described as an agent turn: %s", body)
+		t.Errorf("hold run got the agent wording: %s", body)
+	}
+	if strings.Contains(body, "Release the hold on corp/eng") {
+		t.Errorf("agent run got the hold wording: %s", body)
 	}
 }
 
