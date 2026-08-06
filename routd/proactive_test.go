@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/proactive"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
@@ -28,7 +29,7 @@ func defaultProactiveCfg() ProactiveConfig {
 }
 
 // lurk is a non-misconfigured eligible group with no quiet hours.
-var lurk = proactiveMode{mode: "lurk"}
+var lurk = proactive.Mode{Name: "lurk"}
 
 // seedQuestion lays down `n` inbound messages on a chat ending in a
 // question, the newest at now-gap. The bot has not spoken since. Ids are
@@ -130,8 +131,8 @@ func TestProactiveQuietHoursVeto(t *testing.T) {
 	db, _ := OpenMem()
 	defer db.Close()
 	seedQuestion(t, db, "slack:T/C/U", now, 5*time.Minute, 3)
-	mode := proactiveMode{mode: "lurk", quietHours: []quietWindow{
-		{startMin: 22 * 60, endMin: 8 * 60, loc: loc},
+	mode := proactive.Mode{Name: "lurk", QuietHours: []proactive.Window{
+		{StartMin: 22 * 60, EndMin: 8 * 60, Loc: loc},
 	}}
 	if r := evalProactive(db, defaultProactiveCfg(), mode, "slack:T/C/U", now); r.fired || r.check != "QuietHours" {
 		t.Fatalf("want skip QuietHours, got %+v", r)
@@ -231,19 +232,19 @@ func TestProactiveRunningTurnSkips(t *testing.T) {
 func TestParseProactiveModeAbsent(t *testing.T) {
 	dir := t.TempDir()
 	writeClaudeMD(t, dir, "---\nsummary: hi\n---\n# body\n")
-	m := parseProactiveMode(filepath.Join(dir, "CLAUDE.md"))
-	if m.mode != "silent" || m.misconfigured {
+	m := proactive.Parse(filepath.Join(dir, "CLAUDE.md"))
+	if m.Name != "silent" || m.Misconfigured {
 		t.Fatalf("absent block: want silent !misconfigured, got %+v", m)
 	}
-	if m.eligible() {
+	if m.Eligible() {
 		t.Fatal("silent must not be eligible")
 	}
 }
 
 // TestParseProactiveModeNoFrontmatter / missing file → silent default.
 func TestParseProactiveModeNoFile(t *testing.T) {
-	m := parseProactiveMode(filepath.Join(t.TempDir(), "absent.md"))
-	if m.mode != "silent" || m.misconfigured {
+	m := proactive.Parse(filepath.Join(t.TempDir(), "absent.md"))
+	if m.Name != "silent" || m.Misconfigured {
 		t.Fatalf("missing file: want silent, got %+v", m)
 	}
 }
@@ -252,12 +253,12 @@ func TestParseProactiveModeNoFile(t *testing.T) {
 func TestParseProactiveModeLurk(t *testing.T) {
 	dir := t.TempDir()
 	writeClaudeMD(t, dir, "---\nproactive:\n  mode: lurk\n  quiet_hours: ['22:00-08:00 Europe/Prague']\n---\n# body\n")
-	m := parseProactiveMode(filepath.Join(dir, "CLAUDE.md"))
-	if !m.eligible() {
+	m := proactive.Parse(filepath.Join(dir, "CLAUDE.md"))
+	if !m.Eligible() {
 		t.Fatalf("want eligible lurk, got %+v", m)
 	}
-	if len(m.quietHours) != 1 {
-		t.Fatalf("want 1 quiet window, got %d", len(m.quietHours))
+	if len(m.QuietHours) != 1 {
+		t.Fatalf("want 1 quiet window, got %d", len(m.QuietHours))
 	}
 }
 
@@ -273,11 +274,11 @@ func TestParseProactiveModeMalformed(t *testing.T) {
 	for name, body := range cases {
 		dir := t.TempDir()
 		writeClaudeMD(t, dir, body)
-		m := parseProactiveMode(filepath.Join(dir, "CLAUDE.md"))
-		if !m.misconfigured {
+		m := proactive.Parse(filepath.Join(dir, "CLAUDE.md"))
+		if !m.Misconfigured {
 			t.Fatalf("%s: want misconfigured, got %+v", name, m)
 		}
-		if m.eligible() {
+		if m.Eligible() {
 			t.Fatalf("%s: misconfigured must not be eligible", name)
 		}
 	}
@@ -296,7 +297,7 @@ func TestModeCacheReparsesOnMtime(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := newModeCache(root)
-	if c.get("demo").mode != "silent" {
+	if c.get("demo").Name != "silent" {
 		t.Fatal("want silent first read")
 	}
 	// rewrite to lurk with a bumped mtime.
@@ -305,7 +306,7 @@ func TestModeCacheReparsesOnMtime(t *testing.T) {
 	}
 	future := time.Now().Add(2 * time.Second)
 	_ = os.Chtimes(path, future, future)
-	if !c.get("demo").eligible() {
+	if !c.get("demo").Eligible() {
 		t.Fatal("want lurk after mtime change")
 	}
 }

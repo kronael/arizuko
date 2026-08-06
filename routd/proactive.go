@@ -5,12 +5,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/kronael/arizuko/proactive"
 )
 
 // Proactive interjection. routd's orchestration loop drives a silence-triggered
@@ -69,115 +68,6 @@ func intEnv(v string, def int) int {
 	return def
 }
 
-// proactiveMode is a group's parsed CLAUDE.md `proactive:` block.
-// misconfigured marks a present-but-invalid block (logged config error,
-// fires nothing — strict, not magical). absent block → mode "silent",
-// misconfigured false.
-type proactiveMode struct {
-	mode          string // "silent" (default) | "lurk"
-	quietHours    []quietWindow
-	misconfigured bool
-	err           string
-}
-
-func (m proactiveMode) eligible() bool { return m.mode == "lurk" && !m.misconfigured }
-
-// quietWindow is one parsed `HH:MM-HH:MM <IANA tz>` entry; a window may
-// cross midnight.
-type quietWindow struct {
-	startMin int // minutes since 00:00, local to loc
-	endMin   int
-	loc      *time.Location
-}
-
-func (q quietWindow) contains(t time.Time) bool {
-	lt := t.In(q.loc)
-	m := lt.Hour()*60 + lt.Minute()
-	if q.startMin <= q.endMin {
-		return m >= q.startMin && m < q.endMin
-	}
-	// crosses midnight: [start,24h) ∪ [0,end)
-	return m >= q.startMin || m < q.endMin
-}
-
-var frontmatterRE = regexp.MustCompile(`(?s)^---\s*\n(.*?)\n---\s*\n`)
-var quietHourRE = regexp.MustCompile(`^(\d{2}):(\d{2})-(\d{2}):(\d{2})\s+(\S+)$`)
-
-// parseProactiveMode parses a group's CLAUDE.md `proactive:` frontmatter.
-// Absent file or absent block → silent (default off). A present-but-invalid
-// block (unknown mode, unparseable quiet_hours, bad tz) → misconfigured
-// (logged error, fires nothing) — never silently coerced to silent.
-func parseProactiveMode(path string) proactiveMode {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return proactiveMode{mode: "silent"}
-	}
-	fm := frontmatterRE.FindSubmatch(data)
-	if fm == nil {
-		return proactiveMode{mode: "silent"}
-	}
-	var meta struct {
-		Proactive *struct {
-			Mode       string   `yaml:"mode"`
-			QuietHours []string `yaml:"quiet_hours"`
-		} `yaml:"proactive"`
-	}
-	if err := yaml.Unmarshal(fm[1], &meta); err != nil {
-		return proactiveMode{misconfigured: true, err: "frontmatter yaml: " + err.Error()}
-	}
-	if meta.Proactive == nil {
-		return proactiveMode{mode: "silent"} // absent block → default off
-	}
-	mode := strings.TrimSpace(meta.Proactive.Mode)
-	if mode == "" {
-		mode = "silent"
-	}
-	if mode != "silent" && mode != "lurk" {
-		return proactiveMode{misconfigured: true, err: "unknown mode " + mode}
-	}
-	var windows []quietWindow
-	for _, raw := range meta.Proactive.QuietHours {
-		w, perr := parseQuietWindow(raw)
-		if perr != nil {
-			return proactiveMode{misconfigured: true, err: "quiet_hours " + raw + ": " + perr.Error()}
-		}
-		windows = append(windows, w)
-	}
-	return proactiveMode{mode: mode, quietHours: windows}
-}
-
-func parseQuietWindow(raw string) (quietWindow, error) {
-	m := quietHourRE.FindStringSubmatch(strings.TrimSpace(raw))
-	if m == nil {
-		return quietWindow{}, fmt.Errorf("want HH:MM-HH:MM <tz>")
-	}
-	sh, sm := atoiOr(m[1]), atoiOr(m[2])
-	eh, em := atoiOr(m[3]), atoiOr(m[4])
-	if sh > 23 || eh > 23 || sm > 59 || em > 59 {
-		return quietWindow{}, fmt.Errorf("hour/minute out of range")
-	}
-	loc, err := time.LoadLocation(m[5])
-	if err != nil {
-		return quietWindow{}, fmt.Errorf("bad tz %q", m[5])
-	}
-	return quietWindow{startMin: sh*60 + sm, endMin: eh*60 + em, loc: loc}, nil
-}
-
-func atoiOr(s string) int {
-	var n int
-	fmt.Sscanf(s, "%d", &n)
-	return n
-}
-
-func (m proactiveMode) inQuietHours(t time.Time) bool {
-	for _, w := range m.quietHours {
-		if w.contains(t) {
-			return true
-		}
-	}
-	return false
-}
-
 // modeCache caches per-group proactive modes parsed from CLAUDE.md. routd's
 // loop never re-parses per tick — entries are invalidated by mtime change.
 type modeCache struct {
@@ -187,7 +77,7 @@ type modeCache struct {
 }
 
 type modeCacheEntry struct {
-	mode  proactiveMode
+	mode  proactive.Mode
 	mtime time.Time
 }
 
@@ -197,7 +87,7 @@ func newModeCache(groupsDir string) *modeCache {
 
 // get returns the group's proactive mode, parsing CLAUDE.md only when the
 // file's mtime changed since the cached entry (or on first read).
-func (c *modeCache) get(folder string) proactiveMode {
+func (c *modeCache) get(folder string) proactive.Mode {
 	path := filepath.Join(c.groupsDir, folder, "CLAUDE.md")
 	var mtime time.Time
 	if fi, err := os.Stat(path); err == nil {
@@ -208,7 +98,7 @@ func (c *modeCache) get(folder string) proactiveMode {
 	if e, ok := c.entries[folder]; ok && e.mtime.Equal(mtime) {
 		return e.mode
 	}
-	m := parseProactiveMode(path)
+	m := proactive.Parse(path)
 	c.entries[folder] = modeCacheEntry{mode: m, mtime: mtime}
 	return m
 }
@@ -224,7 +114,7 @@ type proactiveResult struct {
 // evalProactive runs the ordered checks for one chat against the loop's view of
 // routd.db. It does NOT mutate state — the caller fires (the atomic tx) only on
 // fired=true. now is injected for deterministic tests.
-func evalProactive(db *DB, cfg ProactiveConfig, mode proactiveMode, jid string, now time.Time) proactiveResult {
+func evalProactive(db *DB, cfg ProactiveConfig, mode proactive.Mode, jid string, now time.Time) proactiveResult {
 	// A chat with a live turn is skipped (the per-folder queue serializes).
 	if db.ChatHasRunningTurn(jid) {
 		return proactiveResult{check: "RunningTurn"}
@@ -243,7 +133,7 @@ func evalProactive(db *DB, cfg ProactiveConfig, mode proactiveMode, jid string, 
 		return proactiveResult{check: "Cooldown"}
 	}
 	// 3. Hard vetoes, then ≥1 positive signal.
-	if mode.inQuietHours(now) {
+	if mode.InQuietHours(now) {
 		return proactiveResult{check: "QuietHours"}
 	}
 	if db.BotSpokeSince(jid, now.Add(-cfg.BotQuiet)) {
@@ -298,11 +188,11 @@ func (l *Loop) scanProactive(now time.Time) {
 			continue
 		}
 		mode := l.modes.get(folder)
-		if mode.misconfigured {
-			slog.Error("proactive config error", "folder", folder, "jid", jid, "err", mode.err)
+		if mode.Misconfigured {
+			slog.Error("proactive config error", "folder", folder, "jid", jid, "err", mode.Err)
 			continue
 		}
-		if !mode.eligible() {
+		if !mode.Eligible() {
 			continue
 		}
 		res := evalProactive(l.db, l.proactive, mode, jid, now)
