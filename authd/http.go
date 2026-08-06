@@ -156,6 +156,8 @@ func (s *server) mux() *http.ServeMux {
 	m.HandleFunc("GET /v1/identities/{sub}", s.handleIdentity)
 	m.HandleFunc("GET /health", s.handleHealth)
 	s.mountAudit(m)
+	s.mountSigningKeys(m)
+	s.mountSessions(m)
 	return m
 }
 

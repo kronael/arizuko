@@ -50,11 +50,18 @@ func (s *server) auditResource() resreg.Resource {
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
 			return "", nil, nil
 		},
-		Gate:    s.auditGate,
+		Gate:    scopeGate("audit", "read"),
 		Handler: s.auditHandler,
-		Store:   store.New(s.a.db),
+		Store:   s.auditStore(),
 	}
 }
+
+// auditStore is the non-forwarder marker every authd resource passes as Store.
+// resreg.invoke treats a nil Store as a forwarder and SKIPS authorization
+// entirely, so it must be non-nil even on read-only resources; none of them
+// mutates, so no transaction is ever opened on it. One helper because the
+// reason is the same three times and is easy to get wrong once.
+func (s *server) auditStore() *store.Store { return store.New(s.a.db) }
 
 // mountAudit wires GET /v1/audit onto authd's mux.
 func (s *server) mountAudit(m *http.ServeMux) {
@@ -77,26 +84,55 @@ func (s *server) auditCaller(r *http.Request) (resreg.Caller, error) {
 	}, nil
 }
 
-// auditGate is the operator-only check, expressed the way authd already
-// expresses one: a literal resource:verb scope, matching handleIdentity's
-// identity:read.
+// scopeGate is the operator-only check every authd resource injects, expressed
+// the way authd already expresses one: a literal resource:verb scope, matching
+// handleIdentity's identity:read.
 //
-// `audit:read` is unreachable by any human bearer, and that is the mechanism
+// Such a scope is unreachable by any human bearer, and that is the mechanism
 // rather than a convention. A user token's scope list holds FOLDER GLOBS
 // (routd's UserScopes → oauth.issueSession), and auth.scopeMatches rejects
 // every held value without a colon — so `acme/**` fails, and so does an
-// operator's own `**`. The single holder is service:dashd, whose /dash/audit/
-// page is requireOperator-gated. Operator-only is therefore enforced twice,
-// and neither check is this handler's own invention.
+// operator's own `**`. The single holder of `audit:read` is service:dashd,
+// whose /dash/audit/ page is requireOperator-gated. Operator-only is therefore
+// enforced twice, and neither check is a handler's own invention.
 //
 // Note there is no local-dev open branch here, unlike runed's gate: authd
 // always has a key set (it holds the signing keys), so there is no
 // verifier-absent state to fall through.
-func (s *server) auditGate(x resreg.Execution, _ string, _ map[string]string) error {
-	if !auth.HasScope(x.Caller.Scopes(), "audit", "read") {
-		return resreg.Errorf(http.StatusForbidden, "missing scope audit:read")
+func scopeGate(resource, verb string) func(resreg.Execution, string, map[string]string) error {
+	return func(x resreg.Execution, _ string, _ map[string]string) error {
+		if !auth.HasScope(x.Caller.Scopes(), resource, verb) {
+			return resreg.Errorf(http.StatusForbidden, "missing scope %s:%s", resource, verb)
+		}
+		return nil
 	}
-	return nil
+}
+
+// instanceWideGate is scopeGate plus a refusal of any folder-claimed caller.
+//
+// It guards the two resources that have NOTHING to narrow by. audit_log has a
+// `folder` column, so a folder-claimed caller is pinned to its subtree and
+// served (auditHandler). signing_keys and refresh_tokens have no such column:
+// a key is instance-global and a session is keyed by `sub`, so there is no
+// predicate that could contain a folder-scoped caller. Serving them everything
+// is the recorded cross-tenant list-all leak; silently returning nothing would
+// be the "strict, not magical" violation. So the answer is 403, stated.
+//
+// This is defence in depth, not the primary control — a bearer holding
+// `sessions:write` at all has already proven it is not a human token. It costs
+// one comparison and removes the need to reason about the interaction.
+func instanceWideGate(resource, verb string) func(resreg.Execution, string, map[string]string) error {
+	scoped := scopeGate(resource, verb)
+	return func(x resreg.Execution, scope string, params map[string]string) error {
+		if err := scoped(x, scope, params); err != nil {
+			return err
+		}
+		if x.Caller.Folder != "" {
+			return resreg.Errorf(http.StatusForbidden,
+				"%s is instance-wide and cannot be narrowed to folder %q", resource, x.Caller.Folder)
+		}
+		return nil
+	}
 }
 
 // auditHandler serves the read off auth.db through audit.Query — the same
