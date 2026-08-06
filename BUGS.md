@@ -4544,7 +4544,7 @@ folders appear for existing users — a live authorization-behaviour change.
   `requireOperator` only tests for `**`, it does no per-folder visibility.
 - **Found:** specs/5 frontmatter audit; `5/32` demoted to `partial`, now shipped.
 
-## F6 — `5/K`'s backend contract claims more than `ant/` implements (2026-08-05, open — 3 of 4 fixed)
+## ✅ FIXED 2026-08-06 F6 — `5/K`'s backend contract claims more than `ant/` implements (2026-08-05, RESOLVED BY DELETION)
 
 Four statements in `specs/5/K-ant-backend-codex.md` are not backed by the code:
 
@@ -4567,8 +4567,16 @@ Four statements in `specs/5/K-ant-backend-codex.md` are not backed by the code:
 - **Scope:** ant backend abstraction
 - **Affected:** all instances running ant
 - **Source:** ant/src/backend/claude.ts:443; ant/src/backend/codex.ts:323; ant/src/index.ts:444-445; ant/src/backend/index.ts:1,14,25; specs/5/K-ant-backend-codex.md:57-60
-- **Status:** open — items 2, 3 and 4 fixed in `cd6ebc0b`; item 1 is a
-  **proposal awaiting sign-off** (below).
+- **Status:** RESOLVED 2026-08-06 — the operator chose deletion over wiring.
+  `13c9d12d` removed the whole `Backend`/`Caps`/`Session` seam, `codex.ts`
+  and `ARIZUKO_BACKEND`; `8e2e563f` deleted `5/K`. Every item is moot: there
+  is no `capabilities()` to wire (1), no second backend to disagree with (2),
+  and no selector to document (4). Item 3's fix survives — `claude.test.ts`
+  moved to `ant/src/claude.test.ts` and still covers `normalize()`
+  row-by-row, verified falsifiable by mutation.
+  Root cause the audit missed: `ARIZUKO_BACKEND` was unreachable, not merely
+  undocumented — `container/runner.go` `buildArgs` never emitted it into the
+  container, so codex could never have been selected in production.
 - **Fix (2, 3, 4):** `cd6ebc0b`. The spec no longer claims both backends
   satisfy every field; `setModelLive` is now pinned by a test on BOTH sides
   (`claude.test.ts` false, `codex.test.ts` true) so the divergence is a
@@ -4578,7 +4586,7 @@ Four statements in `specs/5/K-ant-backend-codex.md` are not backed by the code:
   `ant/README.md` + `EXTENDING.md`. (`reference/env.html` is another agent's
   lane this round and is NOT done.)
 
-### F6.1 — PROPOSAL (needs sign-off): delete `Caps` and four dead `Session` methods
+### ✅ F6.1 — SIGNED OFF + SHIPPED 2026-08-06: delete `Caps` and four dead `Session` methods
 
 The audit called item 1 "wire or drop `capabilities()`". It cannot be wired as
 specced, and the reason generalizes past `capabilities()`:
@@ -4605,15 +4613,20 @@ specced, and the reason generalizes past `capabilities()`:
 and `turn/interrupt` implementations stay — they are reachable from inside the
 backend, which is where steering belongs.
 
-**Not shipped:** this is a contract change (`5/K` § "Where the seam sits", the
-`types.ts` interface, `codex.test.ts`), so it needs sign-off first per root
-`CLAUDE.md` "Redesigns need sign-off". `5/K` stays `partial` until then, and
-its § "`Caps` has no consumer" records the finding so nobody builds against
-`Caps` in the meantime.
+**Shipped 2026-08-06 — and the operator went further than the proposal.** Not
+just `Caps` and the four methods: the entire in-process seam is gone, `codex.ts`
+with it. The proposal's own reasoning generalized one step past where it
+stopped — if the runtime only ever calls `spawn`/`events`/`close` on a single
+implementation, the interface is not a seam, it is a one-implementation
+indirection.
 
-**Counter-option** if the answer is "wire it": that means first designing a
-live-steering call path in the runtime, which duplicates the two that work
-today — argue that case before the deletion is rejected.
+Harness independence was never lost, because it never lived here. It lives at
+the **process boundary**: the MCP tool surface + `submit_turn` on the unix
+socket `routd` serves in-process, which ant already speaks every turn as a
+socat client. A TypeScript interface compiled into ant was a second, weaker
+copy of a genericity the wire protocol already provides — the parallel second
+path root `CLAUDE.md` forbids. The durable idea moved to `5/P` § "ant wraps a
+harness, it never is one"; `5/K` is deleted.
 
 ## ✅ FIXED 2026-08-06 F7 — runed has no `audit_log` table at all (2026-08-05, FIXED)
 

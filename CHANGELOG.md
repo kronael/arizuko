@@ -82,6 +82,30 @@ travel to runed as typed booleans, not a grant language.`ARIZUKO_TIER`dropped
 
 ### Removed
 
+- **The codex backend and ant's `Backend` seam — a second harness that could
+  never run.** ant carried a `Backend`/`Caps`/`Session` interface with two
+  implementations (`backend/claude.ts`, `backend/codex.ts`) selected by an
+  `ARIZUKO_BACKEND` env var, documented in `ant/README.md`, `EXTENDING.md` and
+  spec `5/K`. **It was unreachable:** `ant/src/index.ts` read the var, but
+  `container/runner.go` `buildArgs` never emitted it into the container — it
+  passes only `TZ`, `ARIZUKO_MODEL`, `ARIZUKO_QUERY_TIMEOUT_MS`, the proxy vars
+  and `HOME`. No instance set it either. The codex backend has never executed a
+  turn in production and had no path to. `Caps` and four `Session` methods
+  (`interrupt`, `sendUserMessage`, `setModel`, `setPermissionMode`) had no call
+  site outside tests (`BUGS.md` `F6`/`F6.1`).
+
+  Harness independence is not lost, because it never lived in that interface.
+  It lives at the **process boundary** — the agent MCP tool surface plus
+  `submit_turn`, served on the per-turn unix socket `routd` hosts in-process,
+  which ant already speaks every turn as an ordinary socat client. Anything
+  that speaks that protocol replaces ant wholesale, in any language, with no
+  arizuko code change. An in-process TypeScript interface was a second, weaker
+  copy of genericity the wire protocol already provides. ant now drives Claude
+  Code directly (`ant/src/claude.ts`); `5/K`'s one durable idea — _ant wraps a
+  harness, it never is one_ — moved into `5/P` § "The container model", and
+  `5/K` is deleted. The `~/.codex` container mount stays: it serves the
+  `oracle` skill, which is unrelated and live.
+
 - **`identities` / `identity_claims` and `arizuko identity` — a model nothing
   read.** The advisory cross-channel identity tables (spec `5/9`) had a read
   surface and a CLI writer that never met: `GET /v1/identities/{sub}` was
