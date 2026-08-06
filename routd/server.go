@@ -139,10 +139,18 @@ type Server struct {
 	onDeregister func(name string)
 }
 
+// DefaultEngagementTTL is the stay-in-conversation window (spec 5/G) when
+// ENGAGEMENT_TTL is unset. Sole owner of the number: cmd/routd passes it to
+// NewServer and NewServer re-applies it on a zero, so the operator docs have
+// one value to cite. It used to be spelled three times — twice here and once
+// in the deleted core.Config field, whose 20m seeded three wrong doc pages
+// (BUGS F12).
+const DefaultEngagementTTL = 30 * time.Minute
+
 // NewServer wires the HTTP server. loop may be nil for pure REST tests.
 func NewServer(db *DB, loop *Loop, deliver Deliverer, verify Verifier, engagementTTL time.Duration, webHost string) *Server {
 	if engagementTTL == 0 {
-		engagementTTL = 30 * time.Minute
+		engagementTTL = DefaultEngagementTTL
 	}
 	return &Server{db: db, loop: loop, deliver: deliver, verify: verify, engagementT: engagementTTL, webHost: webHost}
 }

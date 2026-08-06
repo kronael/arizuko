@@ -180,3 +180,31 @@ func TestEngagementList_NoCrossFolderLeak(t *testing.T) {
 			len(all.Engaged), all.Engaged)
 	}
 }
+
+// TestDefaultEngagementTTL pins the number three operator doc pages cite
+// (reference/env.html, concepts/engagement.html, routd/README.md). It had
+// drifted to 20m on all three because a dead core.Config field carried that
+// value while routd ran 30m (BUGS F12); the literal below is written out
+// rather than compared against the constant, so bumping the constant fails
+// here and the docs get revisited.
+func TestDefaultEngagementTTL(t *testing.T) {
+	if DefaultEngagementTTL != 30*time.Minute {
+		t.Errorf("DefaultEngagementTTL = %v, want 30m — update the env.html/engagement.html/README defaults too",
+			DefaultEngagementTTL)
+	}
+
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	// A zero TTL means "unset" and must fall to the default...
+	if got := NewServer(db, nil, &recDeliverer{}, nil, 0, "").engagementT; got != 30*time.Minute {
+		t.Errorf("NewServer(ttl=0).engagementT = %v, want 30m", got)
+	}
+	// ...but an explicit ENGAGEMENT_TTL must survive, or the env var is dead.
+	if got := NewServer(db, nil, &recDeliverer{}, nil, 90*time.Second, "").engagementT; got != 90*time.Second {
+		t.Errorf("NewServer(ttl=90s).engagementT = %v, want 90s — explicit ENGAGEMENT_TTL ignored", got)
+	}
+}

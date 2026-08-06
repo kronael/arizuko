@@ -123,11 +123,9 @@ type Config struct {
 	// the gate entirely (escape hatch for operators).
 	CostCapsEnabled bool
 
-	// EngagementTTL is the stay-in-conversation window (spec 5/G).
-	// On a bot outbound or inbound verb=mention, engaged_until is set
-	// to now+TTL. Engaged (jid, topic) pairs fall through the routing
-	// miss branch to whichever folder most recently spoke there.
-	EngagementTTL time.Duration
+	// ENGAGEMENT_TTL belongs to routd alone (routd.DefaultEngagementTTL) and
+	// must not gain a field here: a second default nothing reads is what the
+	// operator docs quoted for months (BUGS F12).
 
 	// MaxTurnRetry is the maximum number of retry attempts when a turn
 	// fails without delivering a reply (SIGKILL/OOM/timeout). Default 3.
@@ -244,8 +242,6 @@ func LoadConfig() (*Config, error) {
 		EgressAdminSecret:   envOr("CRACKBOX_ADMIN_SECRET", ""),
 
 		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
-
-		EngagementTTL: envDur("ENGAGEMENT_TTL", 20*time.Minute),
 
 		MaxTurnRetry: envInt("MAX_TURN_RETRY", 3),
 

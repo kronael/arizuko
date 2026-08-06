@@ -200,7 +200,7 @@ func main() {
 	})
 
 	loop.SetOnbodClient(onbod)
-	srv := routd.NewServer(db, loop, deliver, verify, durOr("ENGAGEMENT_TTL", 30*time.Minute), webHost)
+	srv := routd.NewServer(db, loop, deliver, verify, durOr("ENGAGEMENT_TTL", routd.DefaultEngagementTTL), webHost)
 	srv.SetIdentityResolver(identity)
 	// session_log run history federated from runed (runed OWNS it — spec 5/P):
 	// reuse routd's existing runed client, no new auth wiring. nil client →
