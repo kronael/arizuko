@@ -134,52 +134,10 @@ func main() {
 		}
 	}
 
-	mux := http.NewServeMux()
-	// stripUnsigned keeps X-User-Sub only when the request PROVES it transited
-	// proxyd — a valid authd ES256 service:proxyd transit bearer. The bearer is a
-	// transit proof ONLY: onbod's /onboard reads X-User-Sub as the OAuth'd end-user
-	// (matchGate's github:/google: checks), so we must NOT stamp the bearer's own
-	// service:proxyd subject over it. An unproven X-User-Sub is stripped (a request
-	// bypassing proxyd cannot forge identity); the public flow then redirects to
-	// /auth/login. No verifier (local dev, AUTHD_URL unset) → pass through.
-	stripUnsigned := stripUnsignedGuard(ks)
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("onbod", []string{"onboarding", "onboarding_gates", "invites"}))
-	mux.HandleFunc("GET /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
-		handleOnboard(w, r, xdb, obdb, cfg)
-	}))
-	mux.HandleFunc("POST /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardPost(w, r, xdb, cfg)
-	}))
-	mux.HandleFunc("GET /invite/{token}", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
-		handleInvite(w, r, xdb, obdb, cfg)
-	}))
-
-	// Bearer-gated admin surface (spec 5/5 § Daemon ownership). onbod OWNS
-	// invites + onboarding_gates; the writers (dashd, CLI, routd's /invite +
-	// /gate) reach them here instead of writing the DB directly in the split.
-	// Verified against authd's JWKS (ks); nil ks (AUTHD_URL unset / monolith) =
-	// open, like routd's nil-verifier local-dev path.
-	adm := &admin{db: obdb, ks: ks}
-	adm.mountOnboarding(mux) // /v1/onboarding via the shared resreg handler (spec 5/16)
-	adm.mountInvites(mux)    // /v1/invites via the shared resreg handler (spec 5/16)
-	adm.mountGates(mux)      // /v1/gates via the shared resreg handler (spec 5/16)
-
-	// Operator dashboard (spec 6/7): the proxyd transit proof (stripUnsigned)
-	// admits the proxyd-stamped end-user identity; handleDash then gates on
-	// operator (`**` in X-User-Groups). Distinct from the /v1 bearer gate.
-	mux.HandleFunc("GET /dash/onbod/", stripUnsigned(adm.handleDash))
-	mux.HandleFunc("POST /dash/onbod/approve/{jid}", stripUnsigned(adm.handleDashApprove))
-	mux.HandleFunc("POST /dash/onbod/deny/{jid}", stripUnsigned(adm.handleDashDeny))
-	mux.HandleFunc("POST /dash/onbod/reprompt/{jid}", stripUnsigned(adm.handleDashReprompt))
-	if obs.MetricsEnabled() {
-		mux.Handle("GET /metrics", obs.MetricsHandler())
+	srv := &http.Server{
+		Addr:    cfg.listenAddr,
+		Handler: obs.HTTPMiddleware("onbod")(newOnbodMux(xdb, obdb, cfg, ks)),
 	}
-
-	srv := &http.Server{Addr: cfg.listenAddr, Handler: obs.HTTPMiddleware("onbod")(mux)}
 	go func() {
 		slog.Info("onbod listening", "addr", cfg.listenAddr)
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
@@ -211,6 +169,67 @@ func main() {
 			return
 		}
 	}
+}
+
+// onbodOpenAPIResources names the resources onbod's /openapi.json advertises.
+// onbod OWNS all three (spec 5/5 § Daemon ownership); newOnbodMux mounts them
+// through the shared resreg handler.
+//
+// newOnbodMux is the routing table this list is checked against; keep them
+// together so a resource added here without a mount fails openapi_test.go
+// (BUGS F40).
+var onbodOpenAPIResources = []string{"onboarding", "onboarding_gates", "invites"}
+
+// newOnbodMux builds onbod's HTTP surface. Extracted from main so a test can
+// read the ROUTING TABLE onbod actually builds rather than a restatement of it —
+// the doc-vs-mux guard has to compare the emitted document against the real
+// mux, and a mux built inline in main is unreachable.
+func newOnbodMux(xdb, obdb *sql.DB, cfg config, ks *auth.KeySet) *http.ServeMux {
+	mux := http.NewServeMux()
+	// stripUnsigned keeps X-User-Sub only when the request PROVES it transited
+	// proxyd — a valid authd ES256 service:proxyd transit bearer. The bearer is a
+	// transit proof ONLY: onbod's /onboard reads X-User-Sub as the OAuth'd end-user
+	// (matchGate's github:/google: checks), so we must NOT stamp the bearer's own
+	// service:proxyd subject over it. An unproven X-User-Sub is stripped (a request
+	// bypassing proxyd cannot forge identity); the public flow then redirects to
+	// /auth/login. No verifier (local dev, AUTHD_URL unset) → pass through.
+	stripUnsigned := stripUnsignedGuard(ks)
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("onbod", onbodOpenAPIResources))
+	mux.HandleFunc("GET /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
+		handleOnboard(w, r, xdb, obdb, cfg)
+	}))
+	mux.HandleFunc("POST /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
+		handleOnboardPost(w, r, xdb, cfg)
+	}))
+	mux.HandleFunc("GET /invite/{token}", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
+		handleInvite(w, r, xdb, obdb, cfg)
+	}))
+
+	// Bearer-gated admin surface (spec 5/5 § Daemon ownership). onbod OWNS
+	// invites + onboarding_gates; the writers (dashd, CLI, routd's /invite +
+	// /gate) reach them here instead of writing the DB directly in the split.
+	// Verified against authd's JWKS (ks); nil ks (AUTHD_URL unset / monolith) =
+	// open, like routd's nil-verifier local-dev path.
+	adm := &admin{db: obdb, ks: ks}
+	adm.mountOnboarding(mux) // /v1/onboarding via the shared resreg handler (spec 5/16)
+	adm.mountInvites(mux)    // /v1/invites via the shared resreg handler (spec 5/16)
+	adm.mountGates(mux)      // /v1/gates via the shared resreg handler (spec 5/16)
+
+	// Operator dashboard (spec 6/7): the proxyd transit proof (stripUnsigned)
+	// admits the proxyd-stamped end-user identity; handleDash then gates on
+	// operator (`**` in X-User-Groups). Distinct from the /v1 bearer gate.
+	mux.HandleFunc("GET /dash/onbod/", stripUnsigned(adm.handleDash))
+	mux.HandleFunc("POST /dash/onbod/approve/{jid}", stripUnsigned(adm.handleDashApprove))
+	mux.HandleFunc("POST /dash/onbod/deny/{jid}", stripUnsigned(adm.handleDashDeny))
+	mux.HandleFunc("POST /dash/onbod/reprompt/{jid}", stripUnsigned(adm.handleDashReprompt))
+	if obs.MetricsEnabled() {
+		mux.Handle("GET /metrics", obs.MetricsHandler())
+	}
+	return mux
 }
 
 // stripUnsignedGuard is the lenient identity gate for onbod's public surface.
