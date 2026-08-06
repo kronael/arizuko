@@ -41,7 +41,7 @@ func openSecondDB(t *testing.T) (*sql.DB, error) {
 func newServer(t *testing.T, a *Authd) (*server, *httptest.Server) {
 	t.Helper()
 	srv := &server{a: a, serviceSecrets: map[string]string{"boot-timed": "service:timed"}}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	t.Cleanup(ts.Close)
 	return srv, ts
 }

@@ -320,7 +320,7 @@ func TestServiceTokenRejectsOversizedBody(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a, serviceSecrets: map[string]string{"boot": "service:timed"}}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	huge := `{"key":"` + strings.Repeat("a", maxBodyBytes+1024) + `"}`
@@ -339,7 +339,7 @@ func TestRefreshRejectsOversizedBody(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	huge := `{"refresh_token":"` + strings.Repeat("a", maxBodyBytes+1024) + `"}`

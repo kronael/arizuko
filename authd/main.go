@@ -14,10 +14,8 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
-	"github.com/kronael/arizuko/resreg"
 	_ "modernc.org/sqlite"
 )
 
@@ -102,24 +100,15 @@ func main() {
 
 	slog.Info("authd started", "db", dsn, "addr", listenAddr, "serving_keys", len(a.PublicKeys()))
 
-	mux := srv.mux()
-	// OAuth /auth/* (spec 5/1): authd is the OAuth provider, minting ES256.
-	// Mounted only when provider config is present (AUTH_BASE_URL + a client id).
-	if cfg, cerr := core.LoadConfig(); cerr == nil {
-		srv.secureCookies = strings.HasPrefix(auth.AuthBaseURL(cfg), "https://")
-		srv.registerOAuth(mux, cfg)
-	} else {
+	// cfg carries the OAuth provider config into mux(); nil means /auth/* stays
+	// unmounted and human login 404s while health stays green, so the load
+	// failure is surfaced here rather than swallowed.
+	cfg, cerr := core.LoadConfig()
+	if cerr != nil {
 		slog.Error("oauth /auth/* not mounted: config load failed; human login will 404 while health stays green", "err", cerr)
+		cfg = nil
 	}
-	// authd's token endpoints are hand-rolled and carry no resreg RowType, so
-	// they stay out of the doc; these three are the resources it registers, and
-	// advertising them is what makes the reads discoverable (BUGS F29, F15).
-	mux.HandleFunc("GET /openapi.json",
-		resreg.OpenAPIHandler("authd", []string{"audit", "signing_keys", "sessions"}))
-	if obs.MetricsEnabled() {
-		mux.Handle("GET /metrics", obs.MetricsHandler())
-	}
-	httpd := &http.Server{Addr: listenAddr, Handler: obs.HTTPMiddleware("authd")(mux)}
+	httpd := &http.Server{Addr: listenAddr, Handler: obs.HTTPMiddleware("authd")(srv.mux(cfg))}
 
 	go func() {
 		if err := httpd.ListenAndServe(); err != nil && err != http.ErrServerClosed {

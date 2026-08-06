@@ -58,7 +58,7 @@ func TestTokensDownscopeRoundTrip(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	parent := callerToken(t, a, "user:1", []string{"tasks:read", "tasks:write"}, "atlas/main")
@@ -99,7 +99,7 @@ func TestTokensDownscopeOverBroadRejected(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	parent := callerToken(t, a, "user:1", []string{"tasks:read"}, "")
@@ -119,7 +119,7 @@ func TestTokensDownscopeFolderEscapeRejected(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	parent := callerToken(t, a, "user:1", []string{"tasks:read"}, "atlas/main")
@@ -136,7 +136,7 @@ func TestTokensUnauthenticatedRejected(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	resp, _ := postTokens(t, ts.URL, "", map[string]any{"typ": "downscoped", "scope": []string{"tasks:read"}})
@@ -155,7 +155,7 @@ func TestTokensRejectsGlobalWildcard(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	parent := callerToken(t, a, "user:1", []string{"tasks:read"}, "")
@@ -173,7 +173,7 @@ func TestTokensIssuerMintFailsClosedWithoutGrants(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a} // grants == nil
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	// Caller holds tokens:mint and targets a DIFFERENT sub → issuer mode.
@@ -195,7 +195,7 @@ func TestTokensIssuerMintWithinTargetGrants(t *testing.T) {
 	srv := &server{a: a, grants: fakeGrants{
 		"new": {Scope: []string{"tasks:read", "tasks:write"}, Folder: "atlas/main"},
 	}}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	minter := callerToken(t, a, "service:onbod", []string{"tokens:mint"}, "")
@@ -228,7 +228,7 @@ func TestTokensIssuerMintBeyondTargetGrantsRejected(t *testing.T) {
 	srv := &server{a: a, grants: fakeGrants{
 		"new": {Scope: []string{"tasks:read"}, Folder: "atlas/main"},
 	}}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	minter := callerToken(t, a, "service:onbod", []string{"tokens:mint"}, "")
@@ -246,7 +246,7 @@ func TestTokensIssuerMintNoGrantsRejected(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a, grants: fakeGrants{}} // every sub → ErrNoGrants
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	minter := callerToken(t, a, "service:onbod", []string{"tokens:mint"}, "")
@@ -267,7 +267,7 @@ func TestTokensDownscopeForcesCallerSubNoImpersonation(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	// Caller is a service principal that also happens to hold tokens:mint; the

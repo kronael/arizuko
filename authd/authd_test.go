@@ -229,7 +229,7 @@ func TestServiceTokenEndpoint(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a, serviceSecrets: map[string]string{"boot-secret-timed": "service:timed"}}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	resp, out := postSvcToken(t, ts.URL, "timed", "boot-secret-timed")
@@ -262,7 +262,7 @@ func TestServiceTokenSecretMustBeInHeaderNotBody(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a, serviceSecrets: map[string]string{"boot-secret-timed": "service:timed"}}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	// Secret only in the body (old shape) + no Authorization header → rejected.
@@ -281,7 +281,7 @@ func TestServiceTokenBadSecretRejected(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a, serviceSecrets: map[string]string{"boot": "service:timed"}}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	resp, _ := postSvcToken(t, ts.URL, "timed", "wrong")
@@ -297,7 +297,7 @@ func TestServiceTokenWrongDaemonRejected(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a, serviceSecrets: map[string]string{"boot": "service:timed"}}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	resp, _ := postSvcToken(t, ts.URL, "onbod", "boot") // boot is timed's secret
@@ -333,7 +333,7 @@ func TestKeysEndpointServesJWKS(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	// FetchKeys (RemoteKeySet) hits /v1/keys and a token from the active key
@@ -352,7 +352,7 @@ func TestRefreshEndpointRotates(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	r0, _ := a.IssueRefresh("user:1", []string{"a:read"}, "")

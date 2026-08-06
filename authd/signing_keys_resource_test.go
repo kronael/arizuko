@@ -2,12 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 )
 
@@ -75,13 +75,29 @@ func TestSigningKeysNeverServeKeyMaterial(t *testing.T) {
 // SessionsRow appears here whether or not any handler ever fills it — which is
 // exactly how a private column would reach the wire without a handler test
 // noticing.
+//
+// The document is FETCHED from the running mount, not re-emitted from a copy of
+// the resource list. The copy is what made this test a closed loop: it emitted
+// from `[]string{"audit", "signing_keys", "sessions"}` and asserted against that
+// emission, so it would keep passing after authd's real list changed underneath
+// it (BUGS F40).
 func TestAuthdOpenAPIAdvertisesReadsWithoutSecrets(t *testing.T) {
-	// The same resource list main.go passes to OpenAPIHandler.
-	doc, err := resreg.OpenAPI("authd", "/", []string{"audit", "signing_keys", "sessions"})
+	_, a := auditTestAuthd(t)
+	_, ts := newServer(t, a)
+
+	resp, err := http.Get(ts.URL + "/openapi.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := string(doc)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /openapi.json = %d, want 200", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
 	for _, path := range []string{"/v1/signing_keys", "/v1/sessions", "/v1/sessions/{family_id}"} {
 		if !strings.Contains(body, path) {
 			t.Errorf("openapi.json does not advertise %s — it is mounted but undiscoverable", path)

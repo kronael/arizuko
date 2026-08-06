@@ -41,7 +41,7 @@ func TestIdentityEndpoint_Resolves(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 	seedIdentity(t, a, "idn-alice", "alice", "tg:42", "discord:7")
 
@@ -76,7 +76,7 @@ func TestIdentityEndpoint_Unclaimed(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	tok, _ := a.MintForSubject("service:routd", "service", nil, serviceGrants["service:routd"], "")
@@ -100,7 +100,7 @@ func TestIdentityEndpoint_RequiresScope(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 	seedIdentity(t, a, "idn-alice", "alice", "tg:42")
 
@@ -117,7 +117,7 @@ func TestIdentityEndpoint_RequiresBearer(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	resp := doGet(t, ts.URL+"/v1/identities/tg:42", "")

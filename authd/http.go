@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
+	"github.com/kronael/arizuko/resreg"
 )
 
 // maxBodyBytes caps request bodies on the token endpoints. Both carry only a
@@ -195,7 +197,26 @@ type server struct {
 	secureCookies  bool              // mark refresh cookies Secure (https deployment)
 }
 
-func (s *server) mux() *http.ServeMux {
+// authdOpenAPIResources names the resources authd's /openapi.json advertises.
+// authd's token endpoints are hand-rolled and carry no resreg RowType, so they
+// stay out of the doc; these three are the resources it registers, and
+// advertising them is what makes the reads discoverable (BUGS F29, F15).
+//
+// mux is the routing table this list is checked against; keep them together so
+// a resource added here without a mount fails openapi_test.go. The list had a
+// hand-copy in signing_keys_resource_test.go — a closed loop that emitted from
+// the copy and asserted against it, proving nothing (BUGS F40).
+var authdOpenAPIResources = []string{"audit", "signing_keys", "sessions"}
+
+// mux builds authd's COMPLETE served surface — including /openapi.json,
+// /auth/* and /metrics, which main used to register afterwards. A constructor
+// that stops short of the real surface is the blind spot the doc-vs-mux guard
+// exists to close: an /openapi.json mounted outside it forces every test to
+// re-supply the resource list by hand (BUGS F40).
+//
+// cfg nil (config load failed, or a test with no provider) leaves /auth/*
+// unmounted, exactly as the old `cerr == nil` branch did.
+func (s *server) mux(cfg *core.Config) *http.ServeMux {
 	m := http.NewServeMux()
 	// /v1/keys is public and mounts before any auth — backends fetch it to
 	// verify offline.
@@ -208,6 +229,16 @@ func (s *server) mux() *http.ServeMux {
 	s.mountAudit(m)
 	s.mountSigningKeys(m)
 	s.mountSessions(m)
+	// OAuth /auth/* (spec 5/1): authd is the OAuth provider, minting ES256.
+	// Mounted only when provider config is present (AUTH_BASE_URL + a client id).
+	if cfg != nil {
+		s.secureCookies = strings.HasPrefix(auth.AuthBaseURL(cfg), "https://")
+		s.registerOAuth(m, cfg)
+	}
+	m.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("authd", authdOpenAPIResources))
+	if obs.MetricsEnabled() {
+		m.Handle("GET /metrics", obs.MetricsHandler())
+	}
 	return m
 }
 

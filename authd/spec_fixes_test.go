@@ -87,7 +87,7 @@ func TestIssuerMintForcesUserTyp(t *testing.T) {
 	srv := &server{a: a, grants: fakeGrants{
 		"svc": {Scope: []string{"messages:write"}},
 	}}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	minter := callerToken(t, a, "service:onbod", []string{"tokens:mint"}, "")
@@ -231,7 +231,7 @@ func TestRefreshFromCookieOnly(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	r0, _ := a.IssueRefresh("user:1", []string{"tasks:read"}, "")
@@ -280,7 +280,7 @@ func TestKeysCacheControlMaxAge(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a}
-	ts := httptest.NewServer(srv.mux())
+	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	resp, err := http.Get(ts.URL + "/v1/keys")
