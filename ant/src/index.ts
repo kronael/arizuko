@@ -3,8 +3,8 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus } from './mcp.js';
-import { loadAgentMcpServers } from './mcp-servers.js';
-import { Backend, Session, SessionConfig, selectBackend, renderMcpServers } from './backend/index.js';
+import { loadAgentMcpServers, injectMcpEnv } from './mcp-servers.js';
+import { ClaudeSession, SessionConfig, spawnSession } from './claude.js';
 
 // A resumable Claude Code session id is a UUID. arizuko's lineage placeholders
 // (sess-<nano>, fork hex) are not, and `claude --resume` rejects them — so they
@@ -20,19 +20,17 @@ export function transcriptPath(sessionId: string): string {
 
 // resolveResumeSession maps a stored session id to what `--resume` should get,
 // returning undefined ("start fresh") when the id is not resumable:
-//  - a claude id that is not a UUID is an arizuko lineage placeholder
+//  - an id that is not a UUID is an arizuko lineage placeholder
 //    (sess-<nano> / fork hex) — `claude --resume` rejects it;
 //  - a UUID whose transcript is absent on disk (never persisted, or pruned by
 //    Claude Code retention) — resuming it returns "No conversation found" →
 //    error_during_execution + silent context loss (BUGS: stale chat-bound
 //    session). Start fresh silently instead of burning a turn on the resume miss.
-// Non-claude backends carry their own id format — passed through untouched.
 export function resolveResumeSession(
-  backendName: string,
   sessionId: string | undefined,
   hasTranscript: (id: string) => boolean,
 ): string | undefined {
-  if (backendName !== 'claude' || !sessionId) return sessionId;
+  if (!sessionId) return sessionId;
   if (!UUID_RE.test(sessionId)) {
     log(`session id ${sessionId} is not a resumable UUID (arizuko placeholder) — starting fresh`);
     return undefined;
@@ -269,11 +267,9 @@ function checkIpcMessage(): string | null {
   return messages.length > 0 ? messages.join('\n') : null;
 }
 
-// buildSessionConfig assembles the backend-neutral SessionConfig from the
-// container input + the active backend's MCP rendering. extraDirs and the
-// assembled MCP server map carry the same values the pre-seam runtime used.
+// buildSessionConfig assembles one turn's SessionConfig from the container
+// input: extra mounted dirs, the assembled MCP server map, the system prompt.
 function buildSessionConfig(
-  backend: Backend,
   prompt: string,
   sessionId: string | undefined,
   containerInput: ContainerInput,
@@ -304,16 +300,13 @@ function buildSessionConfig(
     systemPrompt: buildSystemPrompt(containerInput),
     addDirs: extraDirs,
     env: sdkEnv,
-    mcpServers: backend.name() === 'claude'
-      ? renderMcpServers(agentMcpServers, sdkEnv)
-      : agentMcpServers,
+    mcpServers: injectMcpEnv(agentMcpServers, sdkEnv),
     assistantName: containerInput.assistantName,
     turnID,
   };
 }
 
 async function runQuery(
-  backend: Backend,
   prompt: string,
   sessionId: string | undefined,
   containerInput: ContainerInput,
@@ -321,8 +314,8 @@ async function runQuery(
   turnID: string,
   resumeAt?: string,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; sessionError: boolean }> {
-  const cfg = buildSessionConfig(backend, prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
-  const session: Session = await backend.spawn(cfg);
+  const cfg = buildSessionConfig(prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
+  const session: ClaudeSession = spawnSession(cfg, drainIpcInput);
 
   let ipcPolling = true;
   let closedDuringQuery = false;
@@ -441,15 +434,10 @@ async function main(): Promise<void> {
       sdkEnv[key] = value;
     }
 
-    // ARIZUKO_BACKEND picks the harness; default "claude", unknown = fatal.
-    const backend = selectBackend(process.env.ARIZUKO_BACKEND, drainIpcInput);
-    log(`Backend: ${backend.name()}`);
-
     // Resolve the resume target: a lineage placeholder (non-UUID) or a UUID whose
     // transcript is gone (pruned / never persisted) both start fresh silently,
     // never surfacing error_during_execution as a delivered result.
     let sessionId = resolveResumeSession(
-      backend.name(),
       containerInput.sessionId,
       id => fs.existsSync(transcriptPath(id)),
     );
@@ -478,7 +466,7 @@ async function main(): Promise<void> {
         log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
         const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
-        const queryResult = await runQuery(backend, prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
+        const queryResult = await runQuery(prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
         if (queryResult.sessionError && sessionId) {
           log(`Session error on resume, retrying with fresh session (was: ${sessionId})`);
           sessionId = undefined;

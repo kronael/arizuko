@@ -1,9 +1,10 @@
-// Claude backend — wraps the @anthropic-ai/claude-agent-sdk query() path.
-// First implementation of the Backend interface (spec 5/K). Behavior is
-// identical to the pre-seam runtime: same query options, same hooks, same
-// MessageStream steering, same event normalization. The seam is invisible
-// above it — the agent's tools, submit_turn payload, and the gated MCP socket
-// are untouched.
+// Drives Claude Code via @anthropic-ai/claude-agent-sdk query() — the harness
+// ant wraps. ant never implements an agent loop itself: model calls, tool
+// execution, retries and session state all live in the harness; this module
+// only spawns it, normalizes its event stream, and hands the turn back to
+// index.ts, which reports it once over submit_turn. The replaceable seam is
+// the MCP socket at the process boundary, not an interface in this file
+// (spec 5/P § "The container model").
 
 import fs from 'fs';
 import path from 'path';
@@ -13,11 +14,57 @@ import {
   PreCompactHookInput,
   PreToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
-import { injectMcpEnv } from '../mcp-servers.js';
-import { createToolLogPreHook, createToolLogPostHook } from '../tool-log.js';
-import { createTodoStatusHook } from '../todo-status.js';
-import { Backend, Caps, Event, Session, SessionConfig } from './types.js';
-import type { ModelUsage } from '../mcp.js';
+import { createToolLogPreHook, createToolLogPostHook } from './tool-log.js';
+import { createTodoStatusHook } from './todo-status.js';
+import type { ModelUsage } from './mcp.js';
+
+// EventType is the category index.ts switches on. One per SDK message shape
+// normalize() recognises — nothing else reaches the runtime.
+export type EventType =
+  | 'system_init'   // session ready (SDK system/init)
+  | 'assistant'     // assistant text
+  | 'tool_result'   // a tool returned
+  | 'result'        // turn-terminating result
+  | 'rate_limit';   // the harness reported a rate-limit
+
+// Event is one normalized SDK message. `raw` preserves the SDK payload verbatim
+// so callers keep full fidelity (thinking blocks, tool-use shapes, usage stats).
+export interface Event {
+  type: EventType;
+  raw: Record<string, unknown>; // SDK payload, verbatim
+  text?: string;                // best-effort extracted assistant text
+  final?: boolean;              // true on the turn-terminating event
+  // sessionId is set on system_init events: the harness's session id.
+  sessionId?: string;
+  // status is set on result events: how the turn ended.
+  status?: 'success' | 'error';
+  // models is per-model token/cost accounting, set on result events when the
+  // harness reports it. Snake_case to match the submit_turn payload (5/34).
+  models?: Record<string, ModelUsage>;
+  // timedOut marks a result synthesised after the query-timeout deadline
+  // (graceful summary, not a normal completion). routd logs a WARN.
+  timedOut?: boolean;
+}
+
+// SessionConfig is what index.ts hands spawnSession for one turn.
+export interface SessionConfig {
+  prompt: string;                 // the initial user turn
+  model?: string;
+  cwd?: string;
+  resume?: string;                // session id to resume
+  resumeAt?: string;              // resume at a specific point
+  systemPrompt?: string | { type: 'preset'; preset: 'claude_code' };
+  addDirs?: string[];
+  env?: Record<string, string | undefined>;
+  // mcpServers is the assembled MCP server map (injectMcpEnv output), rendered
+  // into the harness's native MCP-client config.
+  mcpServers?: Record<string, import('./mcp-servers.js').McpServerConfig>;
+  // assistantName threads through to the PreCompact archival hook.
+  assistantName?: string;
+  // turnID is the arizuko turn id, threaded to the TodoWrite status hook so it
+  // keys the live-edited ⏳ message (spec 5/24). Empty → the hook no-ops.
+  turnID?: string;
+}
 
 const HOME = '/home/node';
 const MAX_QUEUE = 100;
@@ -231,8 +278,8 @@ function extractModelUsage(modelUsage: unknown): Record<string, ModelUsage> | un
 }
 
 // ClaudeSession wraps one query() call and normalizes its NDJSON-style SDK
-// messages into the Backend Event stream. raw preserves the full SDK message.
-class ClaudeSession implements Session {
+// messages into an Event stream. raw preserves the full SDK message.
+export class ClaudeSession {
   private stream = new MessageStream();
   private abortController = new AbortController();
   private timeoutTimer: ReturnType<typeof setTimeout>;
@@ -249,23 +296,6 @@ class ClaudeSession implements Session {
       this.abortController.abort();
       this.stream.end();
     }, QUERY_TIMEOUT_MS);
-  }
-
-  sendUserMessage(text: string): void {
-    this.stream.push(text);
-  }
-
-  interrupt(): void {
-    this.abortController.abort();
-    this.stream.end();
-  }
-
-  setModel(_model: string): void {
-    // The model is fixed per query() call; live switching is not wired.
-  }
-
-  setPermissionMode(_mode: string): void {
-    // permissionMode is fixed per query() call (bypassPermissions).
   }
 
   async close(): Promise<void> {
@@ -400,14 +430,13 @@ export function claudeResultStatus(
   return result?.trim() === 'Not logged in · Please run /login' ? 'error' : 'success';
 }
 
-// normalize maps one SDK message onto a Backend Event. Messages that carry no
+// normalize maps one SDK message onto an Event. Messages that carry no
 // normalized category (partial deltas, internal status) are dropped — the
 // runtime never needed them. raw always preserves the full SDK message.
 //
-// Exported for claude.test.ts: this is spec 5/K's "load-bearing part", and it
-// is the only way to test it here — codex.test.ts drives its mapping through a
-// fake app-server, but the claude path runs inside the SDK's query(), which
-// needs real credentials.
+// Exported for claude.test.ts: this mapping is the load-bearing part, and a
+// direct test is the only way to cover it — the surrounding path runs inside
+// the SDK's query(), which needs real credentials.
 export function normalize(message: unknown): Event | null {
   const m = message as { type?: string; subtype?: string; session_id?: string };
   const raw = message as Record<string, unknown>;
@@ -433,37 +462,8 @@ export function normalize(message: unknown): Event | null {
   return null;
 }
 
-export class ClaudeBackend implements Backend {
-  constructor(private drain: DrainIpcInput) {}
-
-  name(): string {
-    return 'claude';
-  }
-
-  capabilities(): Caps {
-    return {
-      streaming: true,
-      interrupt: true,
-      multiTurn: true,
-      setModelLive: false,
-      permissionPrompt: true,
-      toolUse: true,
-      sessionResume: true,
-      mcpClient: true,
-    };
-  }
-
-  async spawn(cfg: SessionConfig): Promise<Session> {
-    return new ClaudeSession(cfg, this.drain);
-  }
-}
-
-// renderMcpServers is the claude path's MCP rendering: injectMcpEnv folds
-// secrets and the gated socat server into the assembled map. Exported so the
-// runtime builds the same map it always did before calling spawn().
-export function renderMcpServers(
-  servers: Record<string, import('../mcp-servers.js').McpServerConfig>,
-  secrets: Record<string, string | undefined>,
-): Record<string, import('../mcp-servers.js').McpServerConfig> {
-  return injectMcpEnv(servers, secrets);
+// spawnSession starts one harness session. drain is the runtime's IPC-input
+// reader, which the PostToolUse steering hook pulls mid-turn messages from.
+export function spawnSession(cfg: SessionConfig, drain: DrainIpcInput): ClaudeSession {
+  return new ClaudeSession(cfg, drain);
 }

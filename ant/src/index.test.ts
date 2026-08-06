@@ -7,40 +7,36 @@
 import { test, expect } from 'bun:test';
 import path from 'path';
 import { resolveResumeSession, isSessionError, transcriptPath } from './index.js';
-import { claudeResultStatus } from './backend/claude.js';
+import { claudeResultStatus } from './claude.js';
 
 const UUID = 'b6c2b287-0000-4000-8000-000000000000';
 const never = () => false;
 const always = () => true;
 
 test('resolveResumeSession: UUID with a transcript on disk resumes it', () => {
-  expect(resolveResumeSession('claude', UUID, always)).toBe(UUID);
+  expect(resolveResumeSession(UUID, always)).toBe(UUID);
 });
 
 test('resolveResumeSession: UUID with NO transcript starts fresh (no --resume)', () => {
   // The pruned/never-persisted case — must not be passed to --resume, which
   // would return "No conversation found" → error_during_execution.
-  expect(resolveResumeSession('claude', UUID, never)).toBeUndefined();
+  expect(resolveResumeSession(UUID, never)).toBeUndefined();
 });
 
 test('resolveResumeSession: non-UUID placeholder starts fresh even if a file exists', () => {
-  expect(resolveResumeSession('claude', 'sess-123abc', always)).toBeUndefined();
+  expect(resolveResumeSession('sess-123abc', always)).toBeUndefined();
 });
 
 test('resolveResumeSession: undefined session id stays undefined', () => {
-  expect(resolveResumeSession('claude', undefined, always)).toBeUndefined();
+  expect(resolveResumeSession(undefined, always)).toBeUndefined();
 });
 
-test('resolveResumeSession: non-claude backend passes its own id through untouched', () => {
-  // Other backends own their id format — no UUID/transcript second-guessing.
-  expect(resolveResumeSession('codex', 'codex-thread-xyz', never)).toBe('codex-thread-xyz');
-});
-
-test('resolveResumeSession: the transcript check is only consulted for a claude UUID', () => {
+test('resolveResumeSession: a non-UUID short-circuits before the disk check', () => {
+  // The UUID shape is the cheap guard; a lineage placeholder must never cost a
+  // stat call, and must never be resumed regardless of what is on disk.
   let calls = 0;
   const counting = () => { calls++; return true; };
-  resolveResumeSession('codex', UUID, counting);
-  resolveResumeSession('claude', 'sess-placeholder', counting);
+  expect(resolveResumeSession('sess-placeholder', counting)).toBeUndefined();
   expect(calls).toBe(0);
 });
 

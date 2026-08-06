@@ -1,18 +1,14 @@
-// Claude backend — the default harness, driving every production turn, and
-// until now covered only indirectly (BUGS F6.3). codex.test.ts drives its
-// mapping end-to-end through a fake app-server; the claude path runs inside the
-// SDK's query(), which needs real credentials, so the equivalent coverage is a
-// direct test of normalize() — spec 5/K's "load-bearing part" — plus the two
-// values the runtime reads off it.
+// The Claude Code harness drives every production turn, and its event mapping
+// was covered only indirectly (BUGS F6.3). The surrounding path runs inside the
+// SDK's query(), which needs real credentials, so the coverage is a direct test
+// of normalize() — the load-bearing part.
 
 import { test, expect } from 'bun:test';
-import { ClaudeBackend, normalize } from './claude.js';
+import { normalize } from './claude.js';
 
-const noDrain = () => [];
-
-// Spec 5/K "Event normalization" — the claude column of the mapping table, one
-// case per row. The runtime switches on Event.type alone (ant/src/index.ts
-// runQuery), so a wrong mapping here silently drops a whole class of message.
+// One case per SDK message shape normalize recognises. The runtime switches on
+// Event.type alone (ant/src/index.ts runQuery), so a wrong mapping here
+// silently drops a whole class of message.
 test('normalize maps system/init to system_init and carries the session id', () => {
   const ev = normalize({ type: 'system', subtype: 'init', session_id: 'abc-123' });
   expect(ev).not.toBeNull();
@@ -86,15 +82,4 @@ test('normalize routes the not-logged-in result through claudeResultStatus', () 
   expect(ev!.status).toBe('error');
   // Still delivered as text, so the operator sees WHY the turn failed.
   expect(ev!.text).toBe('Not logged in · Please run /login');
-});
-
-test('claude backend identifies itself and reports setModelLive false', () => {
-  const b = new ClaudeBackend(noDrain);
-  expect(b.name()).toBe('claude');
-  // The one Caps field the two backends disagree on — codex.test.ts asserts
-  // true. Pinned on both sides so the divergence is a recorded fact rather
-  // than the spec's (wrong) claim that both satisfy every field. Nothing in
-  // ant/src reads it: the model is fixed per spawn via SessionConfig.model,
-  // and ClaudeSession.setModel is a documented no-op.
-  expect(b.capabilities().setModelLive).toBe(false);
 });
