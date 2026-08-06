@@ -16,6 +16,38 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **A chat that greets you can now hand you a link that still works (specs
+  `5/31`, `5/18`; BUGS `P1b`).** onbod's greeting used to mint an onboarding
+  token of its own, carry the JID across OAuth in an unsigned cookie, and write
+  its own `acl_membership` edge — a second, differently-stamped writer into the
+  table identity pairing already owned, which meant `unpair` could not reach the
+  edges onboarding created. The greeting now sends a pairing link
+  (`/pair/<token>`), and redemption is the same `store.RedeemPairing` an agent's
+  `issue_pairing_link` uses: one writer, one stamp, every claim revocable.
+
+  Both callers mint through one function. `store.IssuePairingLink` takes the
+  executor as an argument, so routd mints inside resreg's mutation transaction
+  and onbod on the routd.db handle it already writes routes through — no shared
+  Go closure across a process boundary, and no second hashing scheme to drift.
+  `route_tokens.owner_folder` is NULLable to make it possible: a greeting goes
+  out before any human, and therefore any folder, is known, and inventing a
+  placeholder group would be the platform manufacturing operator data.
+
+  Admission stopped riding the browser. `RedeemPairing` writes the edge and
+  nothing else; a poll observer on onbod's existing tick finds the committed
+  edge and queues, approves, or refuses. A refusal used to be a 403 on a page
+  that no longer exists by then, so it travels to the chat instead, with its own
+  `onboarding.refuse` audit row — the outcome is still told to the person it
+  happened to.
+
+  **A dead link can be replaced from the chat.** Greeting once per JID, ever,
+  was a permanent lockout: the primary key blocked a fresh row, and the only
+  escape was an operator button most deployments route nobody to. A route miss
+  past `PairingTTL` now re-arms the greeting — the miss is the trigger, so a
+  chat that has since been routed, or has gone silent, is never greeted again.
+  On krons that distinction is not theoretical: three of the twelve stale
+  `awaiting_message` rows belong to active group chats that route today.
+
 - **The audit trail is readable everywhere it is written (spec `5/I`, BUGS
   `F29`).** Four daemons keep their own `audit_log`, and until now only routd's
   could be read: `/dash/audit/` opened `routd.db` directly, so an operator who

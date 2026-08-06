@@ -57,7 +57,7 @@
 
     <h1>onboarding</h1>
 
-    <p class="lede">Routing, engagement, and topics all assume a group already exists. Onboarding is how one comes to be. When a new user arrives, the <code>onbod</code> daemon decides whether they get in, which group they land in, and how their identity binds to one canonical sub. The principle to hold: a group is never created by hand &mdash; it is always the output of an admission. Three entry paths feed it: invite tokens, the admission queue, and the second-JID auto-link.</p>
+    <p class="lede">Routing, engagement, and topics all assume a group already exists. Onboarding is how one comes to be. When a new user arrives, the <code>onbod</code> daemon decides whether they get in, which group they land in, and how their identity binds to one canonical sub. The principle to hold: a group is never created by hand &mdash; it is always the output of an admission. Three entry paths feed it: invite tokens, the admission queue, and pairing a second chat to an account that already has a world.</p>
 
     <h2>invite tokens</h2>
     <p>An operator mints a token with the CLI:</p>
@@ -67,10 +67,16 @@ arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
     <p>The token is a row in the <code>invites</code> table (owned by <code>onbod</code>). <code>target_glob</code> picks which group the redeemer lands in &mdash; for example <code>corp/eng/*</code> or a specific folder. <code>--max-uses</code> defaults to 1; <code>--expires</code> is a Go duration like <code>72h</code>. Omit it and the token never expires.</p>
     <p>The recipient opens the link, picks an OAuth provider (GitHub, Google, Discord, Telegram widget &mdash; whichever the instance has configured), and <code>onbod</code> writes an <code>auth_users</code> row keyed by the returned <strong>sub</strong>. See <a href="../concepts/auth.html">auth</a> for what a sub is and how linking works.</p>
 
+    <h2>the greeting is a pairing link</h2>
+    <p>When <code>ONBOARDING_ENABLED=1</code>, a chat that messages the instance and matches no route gets a reply: one link, good for ten minutes, that proves whoever clicks it can read that chat. It is the same link an agent mints with <code>issue_pairing_link</code> &mdash; onboarding does not have a login of its own. Clicking it signs the person in, shows them exactly which chat account they are about to attach to their name, and asks. Nothing is written until they say yes.</p>
+    <p>What that click does is bind an identity, and only that. It does not decide where the chat&rsquo;s messages go &mdash; that is the next screen, and it is a choice, not a guess. See <a href="routing.html">routing</a>.</p>
+    <p><strong>A dead link is not a dead end.</strong> Ten minutes is short on purpose: the protection is the confirm page, not the clock. Send another message in the same chat and the next greeting brings a fresh link. Two things stop that becoming noise &mdash; the chat has to actually speak again, and the previous link has to have expired first. A chat that has since been routed, or has gone quiet, is never greeted twice.</p>
+
     <h2>admission queue</h2>
-    <p>When <code>ONBOARDING_ENABLED=1</code>, a new JID that hits the instance without an invite doesn&rsquo;t go straight into a group. <code>onbod</code> sends an auth link via <code>routd</code>&rsquo;s outbound API and writes the user into the queue.</p>
+    <p>Pairing says who you are. The queue says whether this instance takes you. They are separate on purpose, and they happen at different moments: the binding is instant, the verdict lands within about ten seconds.</p>
     <p>The queue is gated by <code>ONBOARDING_GATES</code> &mdash; a list of rules like <code>github-org=kronael</code>, <code>google-domain=example.com</code>, or a catch-all. Each gate carries an optional daily limit. The <code>admitFromQueue</code> loop runs roughly every 60 seconds, counts admissions in the current day, and promotes queued users to <code>approved</code> until the gate&rsquo;s limit is hit.</p>
     <p>Queued users see their position on <code>/onboard</code>, which auto-refreshes every 30 seconds. Operators approve manually through <a href="../components/dashd.html">dashd</a> or by adjusting gate config.</p>
+    <p><strong>A refusal is spoken, not swallowed.</strong> If gates are configured and none of them matches the account, the chat gets told so, in the chat &mdash; not a browser error on a page the person has already closed. Configure no gates at all and everyone who pairs is approved.</p>
 
     <h2>SetupGroup writes a group</h2>
     <p>Once a user is approved (via invite or queue), <code>onbod</code> calls <code>container.SetupGroup(cfg, folder, seedDir)</code>. That function is the only correct way to create a group &mdash; never <code>mkdir</code> a folder under <code>groups/</code> by hand.</p>
@@ -83,14 +89,15 @@ arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
     </ul>
     <p>Skipping <code>SetupGroup</code> produces a folder the agent can&rsquo;t use: no skills, no settings, wrong ownership. Everything onbod does for a brand-new user funnels through this one call.</p>
 
-    <h2>second-JID auto-link</h2>
-    <p>A user who already has a world and shows up on a second platform &mdash; same human, new JID &mdash; doesn&rsquo;t re-onboard. <code>onbod</code> detects the existing canonical sub via the OAuth callback and links the new JID to the existing world. No queue, no new group.</p>
+    <h2>a second chat, same person</h2>
+    <p>Someone who already has a world and turns up on another platform &mdash; same human, new chat &mdash; does not re-onboard. They pair the new chat to the account they already have, and it inherits everything that account holds. No queue, no new group.</p>
+    <p>Every one of these bindings is undoable. One verb removes it, <code>unpair</code>, and it reaches all of them &mdash; the ones an agent minted and the ones a greeting did &mdash; because a single piece of code writes them all. Access disappears on the next thing that account tries to do, not on some later restart.</p>
 
     <h2>limits and lifetime</h2>
     <p>Invite tokens enforce <code>max_uses</code> at redemption: the <code>UsedCount</code> column increments, and <code>RevokeInvite</code> marks them dead. Expired tokens (<code>expires_at &lt; now</code>) are refused with an error. Gate daily limits reset on UTC day boundaries &mdash; the queue counts admissions whose <code>queued_at</code> falls in the current day.</p>
 
     <h2>go deeper</h2>
-    <p>How identity becomes a signed header that downstream daemons trust: <a href="../concepts/auth.html">auth</a>. What skills land in a freshly-seeded group: <a href="../concepts/skills.html">skills</a>. Full token model, planned <code>/v1/invites</code> REST surface, and the cross-daemon flow: <a href="https://github.com/kronael/arizuko/blob/main/onbod/README.md">onbod/README.md</a>. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/1-auth-standalone.md">specs/5/1-auth-standalone.md</a>.</p>
+    <p>How identity becomes a signed header that downstream daemons trust: <a href="../concepts/auth.html">auth</a>. What skills land in a freshly-seeded group: <a href="../concepts/skills.html">skills</a>. Full token model, planned <code>/v1/invites</code> REST surface, and the cross-daemon flow: <a href="https://github.com/kronael/arizuko/blob/main/onbod/README.md">onbod/README.md</a>. Specs: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/18-onboarding-model.md">specs/5/18-onboarding-model.md</a> (where a chat lands), <a href="https://github.com/kronael/arizuko/blob/main/specs/5/31-identity-pairing.md">specs/5/31-identity-pairing.md</a> (who a chat is), <a href="https://github.com/kronael/arizuko/blob/main/specs/5/1-auth-standalone.md">specs/5/1-auth-standalone.md</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="retries.html">&larr; Retries</a>

@@ -354,12 +354,13 @@
         <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
         <tr><td><code>token_hash</code></td><td>BLOB PK</td><td>NOT NULL</td><td>sha256 of the raw token; raw token returned once at issuance</td></tr>
         <tr><td><code>jid</code></td><td>TEXT</td><td>NOT NULL</td><td><code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> or <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> &mdash; <code>&lt;folder&gt;</code> is the destination, distinct from <code>owner_folder</code></td></tr>
-        <tr><td><code>owner_folder</code></td><td>TEXT</td><td>NOT NULL</td><td>issuing folder; bounds revocation</td></tr>
-        <tr><td><code>created_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
+        <tr><td><code>owner_folder</code></td><td>TEXT</td><td>NULL</td><td>issuing folder; bounds revocation. FK &rarr; <code>groups.folder</code> ON DELETE CASCADE. NULL only for a <code>kind='pair'</code> link minted by onbod's greeting, which is sent before any folder is known (0032)</td></tr>
+        <tr><td><code>created_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339; also the <code>PairingTTL</code> clock for <code>kind='pair'</code></td></tr>
         <tr><td><code>context</code></td><td>TEXT</td><td>NULL</td><td>optional per-link processing instructions; snapshotted onto each inbound as <code>messages.link_context</code>, rendered to the agent as <code>&lt;link-context&gt;</code></td></tr>
+        <tr><td><code>kind</code></td><td>TEXT</td><td>NOT NULL DEFAULT 'route'</td><td><code>route</code> = a <code>/chat/</code> + <code>/hook/</code> delivery bearer; <code>pair</code> = an identity-pairing link. Resolution is kind-scoped both ways, so neither redeems as the other</td></tr>
       </table>
       <p class="meta"><strong>Indexes:</strong> <code>route_tokens_jid</code> on <code>jid</code>.</p>
-      <p class="meta"><strong>Writers:</strong> routd (<code>insertRouteToken</code>, called from both MCP <code>issue_chat_link</code>/<code>issue_webhook</code> and REST <code>POST /v1/route_tokens/*</code>).</p>
+      <p class="meta"><strong>Writers:</strong> routd (<code>issueRouteTokenTx</code>, called from both MCP <code>issue_chat_link</code>/<code>issue_webhook</code> and REST <code>POST /v1/route_tokens/*</code>); <code>store.IssuePairingLink</code> for <code>kind='pair'</code> &mdash; the one pairing minter, reached by routd's <code>issue_pairing_link</code> and by onbod's greeting.</p>
       <p class="meta"><strong>Readers:</strong> proxyd and webd (each hashes + looks the token up in-process on every <code>/chat/*</code> and <code>/hook/*</code> request &mdash; both are mounted on the store, so there is no HTTP hop); routd (list, revoke).</p>
     </div>
 
@@ -383,21 +384,21 @@
 
     <div class="tablecard">
       <h3><code>onboarding</code></h3>
-      <p>Admission state machine. A new sender lands here; gates and tokens flow through this row.</p>
+      <p>Admission state machine, and only that. A chat that routes nowhere lands here on its first message; the row records that it was greeted and what the gates decided. The link itself lives in <code>route_tokens</code>, and the identity binding in <code>acl_membership</code> &mdash; this row holds neither.</p>
       <table>
         <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
         <tr><td><code>jid</code></td><td>TEXT PK</td><td>NOT NULL</td><td>typed JID of the unknown sender</td></tr>
-        <tr><td><code>status</code></td><td>TEXT</td><td>NOT NULL</td><td>'awaiting_message' | 'queued' | 'approved' | etc.</td></tr>
-        <tr><td><code>prompted_at</code></td><td>TEXT</td><td>NULL</td><td>RFC3339</td></tr>
+        <tr><td><code>status</code></td><td>TEXT</td><td>NOT NULL</td><td>'awaiting_message' &rarr; 'queued' | 'approved' | 'refused'. A row in anything else is stranded &mdash; no query advances it &mdash; and is logged every poll</td></tr>
+        <tr><td><code>prompted_at</code></td><td>TEXT</td><td>NULL</td><td>RFC3339; when the last greeting went out. Cleared by a route miss older than <code>PairingTTL</code>, which is what re-arms the greeting</td></tr>
         <tr><td><code>created</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
-        <tr><td><code>token</code></td><td>TEXT</td><td>NULL</td><td>opaque admission token (0024)</td></tr>
-        <tr><td><code>token_expires</code></td><td>TEXT</td><td>NULL</td><td>RFC3339</td></tr>
+        <tr><td><code>token_ref</code></td><td>TEXT</td><td>NULL</td><td>inert. The greeting's credential is a <code>kind='pair'</code> row in <code>route_tokens</code>; dropped in a follow-up migration</td></tr>
+        <tr><td><code>token_expires</code></td><td>TEXT</td><td>NULL</td><td>inert, as above</td></tr>
         <tr><td><code>user_sub</code></td><td>TEXT</td><td>NULL</td><td>linked auth_users.sub on claim</td></tr>
         <tr><td><code>gate</code></td><td>TEXT</td><td>NULL</td><td>gate name that admitted (0027)</td></tr>
         <tr><td><code>queued_at</code></td><td>TEXT</td><td>NULL</td><td>RFC3339 (0027)</td></tr>
       </table>
-      <p class="meta"><strong>Indexes:</strong> <code>idx_onboarding_token</code> on <code>token</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/onboarding.go"><code>store/onboarding.go</code></a> (queue mgmt), <a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L235"><code>onbod/main.go:235</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L251"><code>:251</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L321"><code>:321</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L571"><code>:571</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L580"><code>:580</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L659"><code>:659</code></a>.</p>
+      <p class="meta"><strong>Indexes:</strong> <code>idx_onboarding_token_ref</code> on <code>token_ref</code> (inert with the column).</p>
+      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/onboarding.go"><code>store/onboarding.go</code></a> (row creation + the greeting re-arm, queue mgmt), <a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go"><code>onbod/main.go</code></a> (<code>promptUnprompted</code> claims, <code>admitJID</code> writes the verdict, <code>admitFromQueue</code> promotes). It writes NO <code>acl_membership</code> row &mdash; that edge belongs to <code>store.RedeemPairing</code>.</p>
       <p class="meta"><strong>Readers:</strong> onbod (queue + admission check), dashd (operator queue).</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0009-onboarding.sql">0009</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0021-onboarding-simplify.sql">0021</a> collapsed flow; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0023-drop-dead-columns.sql#L67">0023</a> dropped sender/world_name/channel; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0024-onboarding-auth.sql">0024</a> added token/user_sub; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0027-onboarding-gates.sql">0027</a> added gate/queued_at; 0042 rewrote rows to typed JID.</p>
     </div>
@@ -695,7 +696,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-06">2026-08-06</time>
       </div>
     </main>
 

@@ -4,24 +4,39 @@ Onboarding daemon: gated admission queue + OAuth link.
 
 ## Purpose
 
-Self-service onboarding. New JIDs receive a one-time link, proxyd's OAuth
-flow confirms identity (authd), onbod creates a user world via
-`container.SetupGroup`. Optional per-gate daily limits throttle admission.
+Self-service onboarding. An unrouted JID receives a one-time PAIRING link
+(`specs/5/31`), proxyd's OAuth flow confirms identity (authd), and webd's
+`/pair/{token}` writes the `acl_membership` edge; the user continues to
+`/onboard` to choose which world the chat belongs to. Optional per-gate daily
+limits throttle admission. onbod also creates a user world via
+`container.SetupGroup` on invite redemption.
 
 ## Responsibilities
 
-- Poll `awaiting_message` rows; send auth link via routd's outbound API.
-- Serve `/onboard` landing, username picker, world-creation page; redirect to `/auth/login` for OAuth.
-- Match users to gates (github-org, google-domain, catch-all); enforce per-gate daily limits.
+- Poll `awaiting_message` rows; mint a pairing link (`store.IssuePairingLink`,
+  `owner_folder` NULL) and send it via routd's outbound API
+  (`promptUnprompted`).
+- Observe redemption: each tick matches unclaimed rows against
+  `acl_membership WHERE added_by='pairing'` and runs admission over the
+  committed edge (`observePairings` → `admitJID`).
+- Serve `/onboard` landing, world picker, username picker, world-creation page;
+  redirect to `/auth/login` for OAuth.
+- Match users to gates (github-org, google-domain, catch-all); enforce per-gate
+  daily limits.
 - Promote queued users to `approved` via `admitFromQueue` loop (~60s).
-- Second-JID auto-link when a user already has a world.
 
-Onboarding writes its own JID→sub claim (`linkJID`, `added_by='linkJID'`)
-carried across the OAuth round-trip in the unsigned `onboard_jid` cookie.
-Identity pairing (`specs/5/31-identity-pairing.md`) is the general
-mechanism for the same edge and does NOT go through onbod; folding
-onbod's greeting onto a pairing link is outstanding, and until it lands a
-`linkJID` edge is out of reach of the `unpair` verb.
+**onbod writes no `acl_membership` edge.** Identity pairing
+(`specs/5/31-identity-pairing.md`) owns that write, in routd's transaction,
+stamped `added_by='pairing'` — so every edge, greeting-sourced or agent-minted,
+is reachable by `unpair`. onbod mints the link and observes the result; it is
+not in the redemption path.
+
+**Greeting cadence.** A row is greeted when `prompted_at IS NULL`. The re-arm
+lives in `store.InsertOnboarding`, which routd calls once per route MISS: a
+chat that messages again after `store.PairingTTL` gets a fresh link, while a
+since-routed or silent chat is never greeted again. The dashboard reprompt
+button is the operator's bypass for a chat that has gone quiet, and it fully
+resets the row (verdict included) so the observer can advance it.
 
 ## Tables owned
 
@@ -43,15 +58,16 @@ and invite redemption (FS-mounted, no federation).
   open: `onbod/db.go`
 - Listen: `$ONBOD_LISTEN_ADDR` (default `:8080`)
 - Public surface (transit-verified via authd JWKS):
-  - `GET /onboard` — dashboard or queue position
-  - `POST /onboard` — CSRF-protected form actions (create_world; add/delete
-    route are dispatched but no page renders a form for them)
+  - `GET /onboard` — world picker (spec 5/18 step 6), dashboard, or queue
+    position. Carries no `?token=`: redemption is webd's `/pair/{token}`.
+  - `POST /onboard` — CSRF-protected form actions (create_world, add_route from
+    the world picker; delete_route is dispatched but no page renders a form)
   - `GET /invite/{token}` — invite redemption
 - Admin surface (bearer-gated, authd JWKS; nil keyset = open):
   - `POST /v1/onboarding` — record unrouted JID (invites:write)
   - `POST /v1/invites`, `GET /v1/invites`, `DELETE /v1/invites/{ref}` (invites:read/write)
   - `GET /v1/gates`, `PUT /v1/gates/{gate}`, `DELETE /v1/gates/{gate}` (gates:read/write)
-- `GET /openapi.json` — only `onboarding_gates` resource (other endpoints hand-mounted)
+- `GET /openapi.json` — `onboarding`, `onboarding_gates`, `invites`
 - Disable: `ONBOARDING_ENABLED=0` (exits immediately)
 
 ## Dependencies
