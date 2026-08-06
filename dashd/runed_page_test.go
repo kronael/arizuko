@@ -33,7 +33,8 @@ func runedDB(t *testing.T) *sql.DB {
 		steered INTEGER NOT NULL DEFAULT 0,
 		created_at TEXT NOT NULL,
 		started_at TEXT,
-		ended_at TEXT
+		ended_at TEXT,
+		kind TEXT NOT NULL DEFAULT 'agent'
 	)`); err != nil {
 		t.Fatalf("schema: %v", err)
 	}
@@ -96,6 +97,43 @@ func TestRunedActiveRuns(t *testing.T) {
 	// run_id truncated to first 8 chars.
 	if !strings.Contains(body, "run-abcd") || strings.Contains(body, "run-abcdef0123456789") {
 		t.Errorf("run id should be truncated to 8 chars: %s", body)
+	}
+}
+
+// TestRunedKillConfirmPerKind: the kill confirm text must match what the run
+// slot actually holds. A 'hold' is an external job (archive restore, vacuum)
+// that claimed the folder — killing it aborts that job, it does not drop an
+// agent's reply. Spec 5/8, Status item 5.
+func TestRunedKillConfirmPerKind(t *testing.T) {
+	rdb := runedDB(t)
+	defer rdb.Close()
+	if _, err := rdb.Exec(
+		`INSERT INTO spawns (run_id, folder, state, created_at, kind) VALUES
+		 ('run-agent0000000','corp/eng','running','2026-06-16T10:00:00Z','agent'),
+		 ('run-hold00000000','solo/inbox','running','2026-06-16T10:01:00Z','hold')`); err != nil {
+		t.Fatal(err)
+	}
+	db := routdDB(t)
+	defer db.Close()
+	d := &dash{dbRoutd: db, dbRuned: rdb}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := asOperator(httptest.NewRequest("GET", "/dash/runed/", nil))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	body := w.Body.String()
+	if strings.Contains(body, "active runs error") {
+		t.Fatalf("query failed — fixture schema drifted from runed migrations: %s", body)
+	}
+	if !strings.Contains(body, "Stop the agent currently working for corp/eng") {
+		t.Errorf("agent run lost its agent-worded confirm: %s", body)
+	}
+	if !strings.Contains(body, "Release the hold on solo/inbox") {
+		t.Errorf("hold run must not be described as an agent turn: %s", body)
+	}
+	if strings.Contains(body, "Stop the agent currently working for solo/inbox") {
+		t.Errorf("hold run described as an agent turn: %s", body)
 	}
 }
 

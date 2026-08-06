@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/runed"
 )
 
 // handleRuned renders GET /dash/runed/ — the container-runner cockpit: live
@@ -51,7 +52,8 @@ func (d *dash) renderActiveRuns(w http.ResponseWriter) {
 	fmt.Fprint(w, `<p class="dim">queued — waiting to start. running — the agent is working now. `+
 		`exited — finished normally. error — finished with a failure. killed — stopped by an operator.</p>`)
 	rows, err := d.dbRuned.Query(
-		`SELECT run_id, folder, state, created_at, COALESCE(started_at,'')
+		`SELECT run_id, folder, state, created_at, COALESCE(started_at,''),
+		        COALESCE(kind,'agent')
 		 FROM spawns WHERE state IN ('queued','running')
 		 ORDER BY created_at DESC LIMIT 20`)
 	if err != nil {
@@ -63,8 +65,8 @@ func (d *dash) renderActiveRuns(w http.ResponseWriter) {
 
 	var tableRows [][]string
 	for rows.Next() {
-		var runID, folder, state, createdAt, startedAt string
-		if err := rows.Scan(&runID, &folder, &state, &createdAt, &startedAt); err != nil {
+		var runID, folder, state, createdAt, startedAt, kind string
+		if err := rows.Scan(&runID, &folder, &state, &createdAt, &startedAt, &kind); err != nil {
 			slog.Warn("runed page: active scan", "err", err)
 			continue
 		}
@@ -74,14 +76,15 @@ func (d *dash) renderActiveRuns(w http.ResponseWriter) {
 		}
 		kill := fmt.Sprintf(
 			`<form method="post" action="/dash/runed/kill" class="form-inline"`+
-				` onsubmit="return confirm('Stop the agent currently working for %s? Any reply it hasn\'t sent yet will be lost.')">`+
+				` onsubmit="return confirm('%s')">`+
 				`<input type="hidden" name="folder" value="%s">`+
 				`<button class="btn-danger" type="submit">kill</button></form>`,
-			esc(folder), esc(folder))
+			killConfirm(kind, folder), esc(folder))
 		tableRows = append(tableRows, []string{
 			folderLink(folder),
 			fmt.Sprintf(`<span class="status-%s">%s</span>`, runStateClass(state), esc(state)),
 			esc(age),
+			fmt.Sprintf(`<span class="dim">%s</span>`, esc(kind)),
 			`<code>` + esc(shortID(runID)) + `</code>`,
 			kill,
 		})
@@ -89,8 +92,21 @@ func (d *dash) renderActiveRuns(w http.ResponseWriter) {
 	if err := rows.Err(); err != nil {
 		slog.Warn("runed page: active rows", "err", err)
 	}
-	fmt.Fprint(w, htmlTable([]string{"Folder", "State", "Age", "Run", ""}, tableRows,
+	fmt.Fprint(w, htmlTable([]string{"Folder", "State", "Age", "Kind", "Run", ""}, tableRows,
 		"No active runs."))
+}
+
+// killConfirm is the browser confirm() text for killing one active run. A run
+// slot is not always an agent turn: a 'hold' is an EXTERNAL process (an archive
+// restore, a vacuum) that claimed the folder to itself, and killing it aborts
+// that job mid-flight rather than dropping a reply. Spec 5/8, Status item 5.
+func killConfirm(kind, folder string) string {
+	if kind == runed.KindHold {
+		return fmt.Sprintf("Release the hold on %s? The external job that claimed "+
+			"this folder (an archive restore, a vacuum) will be aborted part-way.", esc(folder))
+	}
+	return fmt.Sprintf("Stop the agent currently working for %s? "+
+		"Any reply it hasn\\'t sent yet will be lost.", esc(folder))
 }
 
 // renderRecentRuns writes the recently-finished runs table.
