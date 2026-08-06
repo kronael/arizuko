@@ -233,18 +233,6 @@ type RouteTokenRequest struct {
 	Context      string `json:"context"` // optional per-link processing instructions (spec 5/W)
 }
 
-// ResolveRequest is POST /v1/route_tokens/resolve (webd → routd).
-type ResolveRequest struct {
-	Token string `json:"token"`
-}
-
-// ResolveResponse is the 200 of /v1/route_tokens/resolve.
-type ResolveResponse struct {
-	JID         string `json:"jid"`
-	OwnerFolder string `json:"owner_folder"`
-	Context     string `json:"context,omitempty"`
-}
-
 // MessageRow is one full message row of the agent read surface
 // (/v1/messages/{inspect,thread}). It carries the columns runed needs to
 // reconstruct a core.Message for the agent's formatter — richer than

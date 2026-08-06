@@ -285,7 +285,10 @@ func TestResultRecordsOutcome(t *testing.T) {
 	}
 }
 
-// TestRouteTokenRoundTrip checks issue → resolve → revoke.
+// TestRouteTokenRoundTrip checks a REST-minted token resolves. Resolution is
+// deliberately NOT an HTTP leg: webd and proxyd are FS-mounted on routd.db and
+// call ResolveRouteToken in-process, so that is what the round trip exercises
+// (spec 5/W § Resolution).
 func TestRouteTokenRoundTrip(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -311,12 +314,9 @@ func TestRouteTokenRoundTrip(t *testing.T) {
 		t.Fatalf("issued=%+v", issued)
 	}
 
-	rrec := doJSON(t, h, "POST", "/v1/route_tokens/resolve", "",
-		apiv1.ResolveRequest{Token: issued.Token})
-	var resolved apiv1.ResolveResponse
-	json.Unmarshal(rrec.Body.Bytes(), &resolved)
-	if resolved.JID != "web:acme" || resolved.OwnerFolder != "acme" {
-		t.Fatalf("resolved=%+v", resolved)
+	jid, owner, _, err := db.ResolveRouteToken(issued.Token)
+	if err != nil || jid != "web:acme" || owner != "acme" {
+		t.Fatalf("resolve: jid=%q owner=%q err=%v", jid, owner, err)
 	}
 }
 

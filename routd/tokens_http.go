@@ -1,8 +1,9 @@
 package routd
 
 // Route-token REST operations share routeTokensHandler with MCP and inject
-// REST-specific identity, scope, and folder containment. Service-token resolve
-// has no MCP twin and remains hand-rolled.
+// REST-specific identity, scope, and folder containment. Token DELIVERY
+// (URL token -> jid) is not here and never was a live REST call: webd and
+// proxyd are FS-mounted on routd.db and resolve in-process (spec 5/W).
 
 import (
 	"encoding/json"
@@ -12,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/resreg"
-	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
 var segRe = regexp.MustCompile(`^[\w-]+$`)
@@ -23,12 +23,13 @@ func descendant(target, owner string) bool {
 	return target == owner || strings.HasPrefix(target, owner+"/")
 }
 
-// mountRouteTokens wires shared route-token CRUD and the hand-rolled resolve.
+// mountRouteTokens wires the shared route-token CRUD faces. Every path routd
+// serves under /v1/route_tokens comes from the resource declaration, so the
+// mux and /openapi.json cannot disagree (TestRouteTokens_MuxMatchesDeclaration).
 func (s *Server) mountRouteTokens(mux *http.ServeMux) {
 	res := s.routeTokensResource()
 	res.Gate = s.routeTokensRESTGate
 	resreg.RegisterREST(mux, res, s.routeTokensRESTCaller)
-	mux.HandleFunc("POST /v1/route_tokens/resolve", s.handleTokenResolve)
 }
 
 // routeTokensRESTCaller sets the token owner as Caller.Folder and passes held
@@ -102,22 +103,4 @@ func (s *Server) routeTokensRESTGate(x resreg.Execution, _ string, _ map[string]
 		return resreg.Errorf(http.StatusForbidden, "owner_folder outside caller subtree: %s", x.Caller.Folder)
 	}
 	return nil
-}
-
-func (s *Server) handleTokenResolve(w http.ResponseWriter, r *http.Request) {
-	// webd's service token resolves a URL token → jid.
-	if !s.authed(w, r, "routes:read") {
-		return
-	}
-	var req apiv1.ResolveRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "bad_request", err.Error())
-		return
-	}
-	jid, owner, context, err := s.db.ResolveRouteToken(req.Token)
-	if err != nil {
-		writeErr(w, 404, "unknown_token", "token not found")
-		return
-	}
-	writeJSON(w, 200, apiv1.ResolveResponse{JID: jid, OwnerFolder: owner, Context: context})
 }

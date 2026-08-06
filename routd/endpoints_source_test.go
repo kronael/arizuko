@@ -96,7 +96,7 @@ var pathPlaceholder = regexp.MustCompile(`\{[^}]+\}`)
 
 // concretePath substitutes every {placeholder} with a literal so the path can be
 // looked up on a real mux. "x" cannot collide with a sibling literal route
-// (/v1/tasks/due, /v1/route_tokens/resolve, …) that routd registers by hand.
+// (/v1/tasks/due, /v1/routing/resolve, …) that routd registers by hand.
 func concretePath(p string) string { return pathPlaceholder.ReplaceAllString(p, "x") }
 
 // TestRoutdMux_ServesEveryDeclaredEndpoint is the class-wide F21/F27 guard: it
@@ -186,6 +186,44 @@ func TestOpenAPI_EveryAdvertisedPathIsMounted(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatal("emitted doc advertises no operation at all — this guard would pass vacuously")
+	}
+}
+
+// TestRouteTokens_NoHandRolledResolve pins the F13 deletion from both sides:
+// the resource declares no resolve endpoint AND routd's mux serves none. Until
+// 5/W was corrected, routd hand-mounted `POST /v1/route_tokens/resolve` beside
+// the declared faces — a path with zero production callers, absent from
+// /openapi.json, kept alive only by a contract test. Token DELIVERY is not a
+// REST call: webd and proxyd are FS-mounted on routd.db and resolve in-process.
+//
+// The sibling GET assertion is the non-vacuity control: it proves the mux is
+// live and this probe method can see a mounted route, so the resolve half
+// cannot pass merely because nothing resolves.
+func TestRouteTokens_NoHandRolledResolve(t *testing.T) {
+	for _, e := range resources.RouteTokensEndpoints {
+		if strings.HasSuffix(e.Path, "/resolve") {
+			t.Fatalf("RouteTokensEndpoints declares %s %s — token delivery has no REST face (spec 5/W)", e.Verb, e.Path)
+		}
+	}
+
+	srv := testServer(t)
+	mux, ok := srv.Handler().(*http.ServeMux)
+	if !ok {
+		t.Fatalf("Server.Handler() is %T, not *http.ServeMux", srv.Handler())
+	}
+
+	if _, pattern := mux.Handler(
+		httptest.NewRequest("GET", "/v1/route_tokens", nil),
+	); pattern != "GET /v1/route_tokens" {
+		t.Fatalf("control: mux serves %q for GET /v1/route_tokens, want %q — probe cannot see mounted routes",
+			pattern, "GET /v1/route_tokens")
+	}
+
+	if _, pattern := mux.Handler(
+		httptest.NewRequest("POST", "/v1/route_tokens/resolve", nil),
+	); pattern != "" {
+		t.Errorf("routd's mux serves %q — a hand-rolled route_tokens path outside the resource declaration, so /openapi.json cannot advertise it (F13)",
+			pattern)
 	}
 }
 

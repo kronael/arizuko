@@ -24,9 +24,10 @@ type RouteTokensRow struct {
 // operator REST face (routd tokens_http.go mountRouteTokens, spec 5/16 fold).
 // issue_chat/issue_hook are custom POST verbs at /chat + /hook and revoke is a
 // jid-addressed DELETE, so the real faces diverge from the PK-CRUD convention.
-// The REST-only resolve (URL token → jid, webd) has no MCP twin and stays
-// hand-rolled. Both faces now share routeTokensHandler, so /openapi.json
-// advertises these paths.
+// Both faces share routeTokensHandler, so /openapi.json advertises these paths.
+// This list is EXHAUSTIVE for /v1/route_tokens: token DELIVERY (URL token →
+// jid) is not a REST call at all — webd and proxyd are FS-mounted on routd.db
+// and resolve in-process (spec 5/W § Resolution).
 // issue_pair is MCPOnly: the agent in the chat is the practical minter, and an
 // operator REST twin would be a second face for a caller who does not exist
 // (spec 5/31 § Rejected).

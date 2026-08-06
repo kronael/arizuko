@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,10 +11,95 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
+
+// TestRouteToken_ResolvedInProcess pins the daemon boundary spec 5/W now
+// describes: webd is FS-mounted on routd.db and resolves a URL token by DB
+// lookup, never over HTTP. The router client here points at a closed port, so
+// ANY HTTP hop to routd fails — the token surface must still serve. The spec
+// used to claim the opposite (a POST /v1/route_tokens/resolve round trip),
+// and that endpoint had zero callers; this test is why it can stay deleted.
+func TestRouteToken_ResolvedInProcess(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	seedGroup(t, st, "acme", "Acme")
+	tok := seedChatToken(t, st, "acme")
+
+	// Port 1 is closed: every routd HTTP call from this server errors out.
+	rc := chanlib.NewRouterClient("http://127.0.0.1:1")
+	rc.SetToken("test-token")
+	s := newServer(config{assistantName: "assistant"}, st, newHub(), rc, nil, nil)
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/chat/" + tok + "/config")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d body=%s — token resolution left the process", resp.StatusCode, body)
+	}
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out["folder"] != "acme" {
+		t.Fatalf("folder = %v, want acme", out["folder"])
+	}
+}
+
+// TestRouteTokenStream_FolderMismatchForbidden is the adversarial half of the
+// /chat/stream containment check. proxyd stamps X-Folder from the token it
+// resolved; the caller supplies ?group= independently, so the two must be
+// compared or a valid token for folder A streams folder B's traffic.
+//
+// The honest case (group == the token's folder) passes even with the
+// comparison deleted — TestSlinkStream_SlinkSigOK sends only that, which is
+// why the mismatch case below is the one that actually discriminates.
+func TestRouteTokenStream_FolderMismatchForbidden(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "acme", "Acme")
+	seedGroup(t, st, "victim", "Victim")
+	tok := seedChatToken(t, st, "acme")
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	get := func(group string) int {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		req, _ := http.NewRequestWithContext(ctx, "GET",
+			srv.URL+"/chat/stream?group="+group+"&topic=tt", nil)
+		for k, v := range signChatHeaders(tok, "acme") {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("do(%s): %v", group, err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	// Control: the token's own folder streams. Without this the test could
+	// pass on a surface that forbids everything.
+	if code := get("acme"); code != 200 {
+		t.Fatalf("group=acme status = %d, want 200 — the token's own folder must stream", code)
+	}
+	// Adversarial: same valid token + honest X-Folder, but a foreign ?group=.
+	if code := get("victim"); code != http.StatusForbidden {
+		t.Errorf("group=victim status = %d, want 403 — a token for acme streamed victim's folder", code)
+	}
+}
 
 // groupfolder.JidFolder — all JID prefix shapes (webd's route-token consumer).
 func TestJIDFolder(t *testing.T) {

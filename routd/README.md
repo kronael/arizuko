@@ -95,8 +95,9 @@ Endpoints (`server.go`, `channels.go`):
 - `GET /v1/web_presence` — folder vhost info (get_web_presence REST twin)
 - `POST /v1/route_tokens/{chat,hook}` — mint chat/hook route tokens
   (optional `context` = per-link processing instructions, spec 5/W)
-- `GET /v1/route_tokens`, `DELETE /v1/route_tokens/{jid}` — list/revoke
-- `POST /v1/route_tokens/resolve` — validate token
+- `GET /v1/route_tokens`, `DELETE /v1/route_tokens/{jid}` — list/revoke.
+  Token DELIVERY has no REST face: webd and proxyd are FS-mounted on
+  `routd.db` and resolve the URL token in-process (spec 5/W)
 - `DELETE /v1/acl_membership` — unpair; the caller's sub must BE the
   `parent` (spec 5/31). The agent twin is the `unpair` MCP tool, whose
   containment is the child JID's routing folder instead
