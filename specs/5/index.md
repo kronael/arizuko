@@ -77,7 +77,6 @@ data entities defined here, and `9/3` moves the cold tier into git.
 | [P-runed.md](P-runed.md)                                 | shipped | **The execution plane.** Container lifecycle and run federation. The turn is credentialed by the SO_PEERCRED socket, never a token. |
 | [A-primitives-framing.md](A-primitives-framing.md)       | shipped | Framing only, no behaviour: the pipeline primitives in route-first order, identity as coordinate system.                            |
 | [2-agent-pipeline.md](2-agent-pipeline.md)               | shipped | Orchestration (route tokens) versus workflows (the in-container Agent tool).                                                        |
-| [K-ant-backend-codex.md](K-ant-backend-codex.md)         | partial | A `Backend` interface inside `ant/` so a second harness (Codex) can drive a turn.                                                   |
 | [4-autocalls.md](4-autocalls.md)                         | shipped | Inject facts inline when schema cost exceeds content cost. Four autocalls, no tools.                                                |
 | [24-live-tasklist-status.md](24-live-tasklist-status.md) | shipped | A `TodoWrite` hook renders the agent's task list into one message edited in place.                                                  |
 | [I-tool-call-logging.md](I-tool-call-logging.md)         | partial | Per-tool-call logging on both surfaces; the `audit_log` table is the source of truth.                                               |

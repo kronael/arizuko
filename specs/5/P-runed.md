@@ -1,7 +1,7 @@
 ---
 status: shipped
 shipped: 2026-06-14
-depends: [1-auth-standalone, 17-openapi-mcp, K-ant-backend-codex]
+depends: [1-auth-standalone, 17-openapi-mcp]
 ---
 
 # runed — the execution plane
@@ -131,10 +131,35 @@ never sees the conversation.
   § Identity is configured).
 - **Egress isolation.** Register the container IP with crackbox, attach
   `--network <egress-net>`, set `HTTP(S)_PROXY`.
-- **Backend is opaque to the envelope.** Claude Code today, `codex
-app-server` second ([`K-ant-backend-codex.md`](K-ant-backend-codex.md)).
-  `runed` writes JSON to stdin and drains stdout/stderr — it must stay
-  harness-agnostic.
+- **The harness is opaque to the envelope.** `runed` writes JSON to
+  stdin and drains stdout/stderr — it must stay harness-agnostic.
+
+### ant wraps a harness, it never is one
+
+**ant does not implement an agent loop.** Model calls, tool execution,
+multi-step reasoning, retries and session state live in the external
+harness; ant spawns it, reads its event stream, and reports one turn.
+This rules out the standing temptation: calling the model API directly
+and running our own loop is not "a backend", it is becoming a harness.
+
+**The replaceable seam is the process boundary, not a language-level
+interface.** That seam is the _ant protocol_: the MCP tool surface
+(`reply`/`send`/`inspect_*`, registered on `ipc/ipc.go`'s
+`server.NewMCPServer` and therefore advertised by `tools/list`) plus
+`submit_turn`/`submit_status`, which `ipc/ipc.go` intercepts ahead of
+`HandleMessage` and so deliberately hides from `tools/list`. `routd`
+serves it in-process on the per-turn unix socket (`routd/mcp.go`
+`ServeTurnMCP`); `runed` only mounts the ipc dir. ant is a plain client
+of that socket (`socat UNIX-CONNECT`, `ant/src/mcp-servers.ts`), so a
+different harness integrates by speaking the protocol as its own
+process, in any language, with no arizuko code change.
+
+**ant is one implementation of that contract**, driving Claude Code
+directly (`ant/src/claude.ts`). There is no in-process backend
+abstraction: a one-implementation interface duplicated a genericity the
+protocol already provides, and its selection env var never reached the
+container. No spec documents the ant protocol on its own yet.
+
 - **Graceful shutdown — containers outlive the accept loop.** On
   SIGTERM/SIGINT runed stops accepting `POST /v1/runs`, **detaches**
   (does not kill) live containers so the agent can still finish against
