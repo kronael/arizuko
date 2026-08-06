@@ -155,6 +155,58 @@ once.
 - **Fix:** `reapplyPackage` replaces only the `compose_fragment` key and leaves
   every other kind intact. Regression test
   `TestPackagesUpgradePreservesNonFileManifest`.
+## F48 — `onboarding`'s resreg row has no COALESCE, so one pending admission breaks `export`/`apply` for all of onbod (2026-08-06, FIXED)
+
+- **Status:** fixed in the same commit that built spec `5/8`'s admission archive lane, because it blocked it outright.
+
+`store.InsertOnboarding` writes only `(jid, status, created)` — `user_sub`,
+`gate`, `prompted_at`, `queued_at`, `admitted_at` and `token_expires` are all
+NULL, and NULL is the NORMAL state for a row in `awaiting_message` (nobody has
+authenticated yet, so there is no `user_sub` to have). But `OnboardingRow` maps
+each to a non-pointer `string` with no `ColumnOverride.Read`, so `ScanAll`
+returns `converting NULL to string is unsupported`.
+
+`ScanAll` is what `Export` calls, `Export` is what `Checksum` hashes, and
+`Checksum` is what every config verb recomputes — so the FIRST pending
+admission on an instance makes `arizuko export`, `plan`, `apply`, `get` and
+`archive export` all fail for the whole `onbod` subsystem, not just for
+`onboarding`. Found because spec `5/8`'s admission lane could not export at
+all; it is not caused by that work.
+
+**Fix:** the `COALESCE(col,'')` read + `nilIfEmptyString` write overrides
+`groups` and `acl` already use for exactly this — the existing idiom, not a new
+one (`resreg/resources/onboarding.go`).
+
+**Worth a sweep:** the same shape (nullable column → non-pointer string field →
+no override) is mechanical to check across `resreg/resources/*.go` against each
+table's DDL, and every instance of it is the same latent whole-subsystem
+outage. Not swept here.
+
+## F49 — a re-inserted row's empty stamped field is re-stamped, so the first no-op `export | apply` moves the checksum (2026-08-06, open)
+
+Spec `5/8` §"Round-trip honesty" requires `export` to emit something that
+"re-applies to a no-op", and the content-hash CAS depends on it. It does not
+hold on the first pass for a row whose server-stamped column is NULL.
+
+`Resource.Insert` (`resreg/engine.go`) fills any `StampedFields` entry that is
+still empty with `now()`. `groups.updated_at` is nullable, has no default, and
+is in `StampedFields`. So a `groups` row with a NULL `updated_at` exports as
+`updated_at: ""`, and re-applying that unmodified manifest writes a fresh
+timestamp — the subsystem checksum moves even though the operator changed
+nothing. Measured: pass 0 `b69843c19 -> e60c49af0`, passes 1 and 2 stable. It
+self-heals after one apply, so it is a first-touch problem, not a permanent
+one.
+
+Consequences, both real: an operator's honest `export` → review → `apply` gets
+a checksum shift they did not cause; and spec `5/8`'s cross-subsystem rollback
+guarantee ("every subsystem back at its pre-apply content hash") is exact only
+once every stamped column is non-NULL.
+
+**Not fixed** — the candidate fixes are a redesign either way and need
+sign-off: exclude `StampedFields` from the `Checksum` projection (changes what
+CAS means), or stop treating an exported `""` as "unset" (needs the emitted
+form to distinguish never-set from set-to-empty). Recorded rather than
+patched, per the standing policy above.
 
 ## F39 — `SCREENS.md`'s page hierarchy is missing ten shipped dashd pages (2026-08-06, open)
 

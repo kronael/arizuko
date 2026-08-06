@@ -453,6 +453,110 @@ func CountInvites(ctx context.Context, db *sql.DB) (int, error) {
 	return n, err
 }
 
+// --- onboarding admissions (spec 5/8 "Message history", Z3) --------------
+
+// ArchiveOnboardingRow is one row of the archive's onboarding document:
+// OnboardingRow's shape (resreg/resources/onboarding.go) plus TokenRef, the
+// hash-at-rest verifier that resource deliberately omits from its RowType
+// outright so no read surface can ever render it.
+//
+// Admissions need this archive-only lane because they cannot ride the config
+// lane and cannot be rederived. `onboarding` is SkipApplyRebuild and its
+// RowType has no token_ref, so a DELETE+INSERT rebuild would null every live
+// setup link instance-wide — that flag is load-bearing and stays. And
+// rederiving is impossible: routeMiss advances agent_cursor past a
+// route-missed message whether or not the admission insert succeeded (a
+// deliberate fail-forward — a re-fed miss would replay forever), and import
+// reproduces that by setting agent_cursor, so a pending admission not
+// independently in the archive is gone for good: the person is neither in the
+// queue nor going to message again.
+//
+// TokenRef travels rather than being dropped because it is half of a matched
+// pair with TokenExpires: a row carrying a future expiry and a NULL verifier
+// is one onbod treats as having a live link that nothing can redeem. Carrying
+// a credential verifier is exactly why this document rides the same
+// off-by-default gate route_tokens and invites do.
+type ArchiveOnboardingRow struct {
+	JID          string `yaml:"jid"`
+	Status       string `yaml:"status"`
+	UserSub      string `yaml:"user_sub,omitempty"`
+	Gate         string `yaml:"gate,omitempty"`
+	Created      string `yaml:"created"`
+	PromptedAt   string `yaml:"prompted_at,omitempty"`
+	QueuedAt     string `yaml:"queued_at,omitempty"`
+	AdmittedAt   string `yaml:"admitted_at,omitempty"`
+	TokenRef     string `yaml:"token_ref,omitempty"`
+	TokenExpires string `yaml:"token_expires,omitempty"`
+}
+
+// ExportOnboarding reads every admission row with its token_ref verifier,
+// ordered by jid for deterministic output.
+func ExportOnboarding(ctx context.Context, db *sql.DB) ([]ArchiveOnboardingRow, error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT jid, status, COALESCE(user_sub,''), COALESCE(gate,''), created,
+		        COALESCE(prompted_at,''), COALESCE(queued_at,''), COALESCE(admitted_at,''),
+		        COALESCE(token_ref,''), COALESCE(token_expires,'')
+		 FROM onboarding ORDER BY jid`)
+	if err != nil {
+		return nil, fmt.Errorf("query onboarding: %w", err)
+	}
+	defer rows.Close()
+	var out []ArchiveOnboardingRow
+	for rows.Next() {
+		var r ArchiveOnboardingRow
+		if err := rows.Scan(&r.JID, &r.Status, &r.UserSub, &r.Gate, &r.Created,
+			&r.PromptedAt, &r.QueuedAt, &r.AdmittedAt, &r.TokenRef, &r.TokenExpires); err != nil {
+			return nil, fmt.Errorf("scan onboarding: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ImportOnboarding UPSERTs by jid (the PK), never DELETE+INSERT — matching
+// ImportRouteTokens/ImportInvites. INSERT OR IGNORE is the right shape: an
+// admission's history (created, prompted_at, queued_at, admitted_at) is
+// append-only in practice, and a jid already present on the target is a live
+// admission this restore must not walk backwards.
+//
+// Performs NO gating — the off-by-default / --force / proven-empty-target
+// policy is `archive apply` orchestration in cmd/arizuko, not this
+// primitive's job.
+func ImportOnboarding(ctx context.Context, db *sql.DB, rows []ArchiveOnboardingRow) (int, error) {
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	for _, r := range rows {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO onboarding
+			 (jid, status, user_sub, gate, created, prompted_at, queued_at, admitted_at, token_ref, token_expires)
+			 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+			r.JID, r.Status, nullStr(r.UserSub), nullStr(r.Gate), r.Created,
+			nullStr(r.PromptedAt), nullStr(r.QueuedAt), nullStr(r.AdmittedAt),
+			nullStr(r.TokenRef), nullStr(r.TokenExpires),
+		); err != nil {
+			return 0, fmt.Errorf("insert onboarding %s: %w", r.JID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(rows), nil
+}
+
+// CountOnboarding counts every admission row — the proven-empty-target gate's
+// third twin, alongside CountRouteTokens and CountInvites.
+func CountOnboarding(ctx context.Context, db *sql.DB) (int, error) {
+	var n int
+	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM onboarding").Scan(&n)
+	return n, err
+}
+
 // --- small helpers --------------------------------------------------------
 
 // nullStr maps an empty string to a bind-time NULL, matching the nullable

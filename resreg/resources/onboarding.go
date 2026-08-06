@@ -93,5 +93,21 @@ func init() {
 		// RowType that has no token_ref — nulling every live setup link
 		// instance-wide (Z3). Mirrors route_tokens / invites / secrets.
 		SkipApplyRebuild: true,
+		Hooks: resreg.Hooks{
+			// Every column below is nullable in onbod/migrations/0004 and NULL
+			// is the NORMAL state: store.InsertOnboarding writes only (jid,
+			// status, created), so the first pending admission on an instance
+			// made ScanAll fail outright — and with it Export, Checksum, and
+			// therefore `arizuko export`/`plan`/`apply`/`archive export` for
+			// the whole onbod subsystem (BUGS F42).
+			ColumnOverride: map[string]resreg.ColumnHook{
+				"UserSub":      {Read: "COALESCE(user_sub, '')", Write: nilIfEmptyString},
+				"Gate":         {Read: "COALESCE(gate, '')", Write: nilIfEmptyString},
+				"PromptedAt":   {Read: "COALESCE(prompted_at, '')", Write: nilIfEmptyString},
+				"QueuedAt":     {Read: "COALESCE(queued_at, '')", Write: nilIfEmptyString},
+				"AdmittedAt":   {Read: "COALESCE(admitted_at, '')", Write: nilIfEmptyString},
+				"TokenExpires": {Read: "COALESCE(token_expires, '')", Write: nilIfEmptyString},
+			},
+		},
 	})
 }

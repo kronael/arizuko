@@ -71,6 +71,14 @@ type archiveSecretsDoc struct {
 	Secrets     []store.ArchiveSecretRow      `yaml:"secrets,omitempty"`
 	RouteTokens []resreg.ArchiveRouteTokenRow `yaml:"route_tokens,omitempty"`
 	Invites     []resreg.ArchiveInviteRow     `yaml:"invites,omitempty"`
+	// Onboarding carries pending admissions WITH their token_ref verifier —
+	// the one column the onboarding resource omits from its RowType so no read
+	// surface can render it. Admissions cannot ride the config lane (that
+	// resource is SkipApplyRebuild, and rebuilding it from a token_ref-less
+	// RowType would null every live setup link) and cannot be rederived on
+	// import (agent_cursor marks the route-missed message seen, so it is never
+	// re-offered to routeMiss). Spec 5/8, BUGS Z3.
+	Onboarding []resreg.ArchiveOnboardingRow `yaml:"onboarding,omitempty"`
 }
 
 func cmdArchive(args []string) {
@@ -297,11 +305,17 @@ func buildArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 	if err != nil {
 		return "", fmt.Errorf("export route_tokens: %w", err)
 	}
+	onboardingRows, err := resreg.ExportOnboarding(ctx, onbodDB)
+	if err != nil {
+		return report.String(), err
+	}
 	inviteRows, err := resreg.ExportInvites(ctx, onbodDB)
 	if err != nil {
 		return "", fmt.Errorf("export invites: %w", err)
 	}
-	secretsBytes, err := yaml.Marshal(archiveSecretsDoc{Secrets: secretRows, RouteTokens: tokenRows, Invites: inviteRows})
+	secretsBytes, err := yaml.Marshal(archiveSecretsDoc{
+		Secrets: secretRows, RouteTokens: tokenRows, Invites: inviteRows, Onboarding: onboardingRows,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -596,12 +610,13 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 	return report.String(), nil
 }
 
-// applySecretsDoc always validates+imports secrets (Finding 5's own
-// per-row keyring check is the correctness gate — no revive risk for a
-// value with no revoke-by-delete lifecycle). route_tokens/invites are
-// gated OFF by default and, even with --force, refuse unless the target
-// table is already empty (Finding 3: "the UPSERT lane can revive a
-// revoked or consumed credential").
+// applySecretsDoc always validates+imports secrets (their own per-row keyring
+// check is the correctness gate — no revive risk for a value with no
+// revoke-by-delete lifecycle). The three documents that DO carry a credential
+// verifier — route_tokens, invites, onboarding — ride ONE gate: off by
+// default and, even with --force, refused unless the target table is already
+// empty (spec 5/8 "the UPSERT lane can revive a revoked or consumed
+// credential").
 func applySecretsDoc(ctx context.Context, stores map[string]*store.Store, doc archiveSecretsDoc, force bool, report *strings.Builder) error {
 	routdSt := stores[resreg.SubsystemRoutd]
 	onbodSt := stores[resreg.SubsystemOnbod]
@@ -612,45 +627,53 @@ func applySecretsDoc(ctx context.Context, stores map[string]*store.Store, doc ar
 	}
 	fmt.Fprintf(report, "secrets: %d rows validated + imported\n", n)
 
-	if len(doc.RouteTokens) > 0 {
-		if !force {
-			fmt.Fprintf(report, "route_tokens: skipped %d rows (revival risk — use --force onto a proven-empty target)\n", len(doc.RouteTokens))
-		} else {
-			cnt, cerr := resreg.CountRouteTokens(ctx, routdSt.DB())
-			if cerr != nil {
-				return fmt.Errorf("count route_tokens: %w", cerr)
-			}
-			if cnt > 0 {
-				fmt.Fprintf(report, "route_tokens: skipped %d rows (--force requires an EMPTY target table; found %d live rows)\n", len(doc.RouteTokens), cnt)
-			} else {
-				nn, ierr := resreg.ImportRouteTokens(ctx, routdSt.DB(), doc.RouteTokens)
-				if ierr != nil {
-					return fmt.Errorf("route_tokens: %w", ierr)
-				}
-				fmt.Fprintf(report, "route_tokens: %d rows restored (--force, target was empty)\n", nn)
-			}
-		}
+	if err := restoreGated(report, "route_tokens", len(doc.RouteTokens), force,
+		func() (int, error) { return resreg.CountRouteTokens(ctx, routdSt.DB()) },
+		func() (int, error) { return resreg.ImportRouteTokens(ctx, routdSt.DB(), doc.RouteTokens) }); err != nil {
+		return err
 	}
+	if err := restoreGated(report, "invites", len(doc.Invites), force,
+		func() (int, error) { return resreg.CountInvites(ctx, onbodSt.DB()) },
+		func() (int, error) { return resreg.ImportInvites(ctx, onbodSt.DB(), doc.Invites) }); err != nil {
+		return err
+	}
+	if err := restoreGated(report, "onboarding", len(doc.Onboarding), force,
+		func() (int, error) { return resreg.CountOnboarding(ctx, onbodSt.DB()) },
+		func() (int, error) { return resreg.ImportOnboarding(ctx, onbodSt.DB(), doc.Onboarding) }); err != nil {
+		return err
+	}
+	return nil
+}
 
-	if len(doc.Invites) > 0 {
-		if !force {
-			fmt.Fprintf(report, "invites: skipped %d rows (revival risk — use --force onto a proven-empty target)\n", len(doc.Invites))
-		} else {
-			cnt, cerr := resreg.CountInvites(ctx, onbodSt.DB())
-			if cerr != nil {
-				return fmt.Errorf("count invites: %w", cerr)
-			}
-			if cnt > 0 {
-				fmt.Fprintf(report, "invites: skipped %d rows (--force requires an EMPTY target table; found %d live rows)\n", len(doc.Invites), cnt)
-			} else {
-				nn, ierr := resreg.ImportInvites(ctx, onbodSt.DB(), doc.Invites)
-				if ierr != nil {
-					return fmt.Errorf("invites: %w", ierr)
-				}
-				fmt.Fprintf(report, "invites: %d rows restored (--force, target was empty)\n", nn)
-			}
-		}
+// restoreGated is the single implementation of the credential-revival gate
+// spec 5/8 §"Restoring onto a populated instance" states once and three
+// documents obey: skip unless --force, and even then refuse unless the target
+// table is proven empty (genuine DR onto a fresh instance, never a merge or a
+// re-run that could clobber a post-export revocation). One helper rather than
+// three copies — the third copy is where the policy would have drifted.
+func restoreGated(report *strings.Builder, name string, n int, force bool,
+	count func() (int, error), importRows func() (int, error),
+) error {
+	if n == 0 {
+		return nil
 	}
+	if !force {
+		fmt.Fprintf(report, "%s: skipped %d rows (revival risk — use --force onto a proven-empty target)\n", name, n)
+		return nil
+	}
+	live, err := count()
+	if err != nil {
+		return fmt.Errorf("count %s: %w", name, err)
+	}
+	if live > 0 {
+		fmt.Fprintf(report, "%s: skipped %d rows (--force requires an EMPTY target table; found %d live rows)\n", name, n, live)
+		return nil
+	}
+	imported, err := importRows()
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	fmt.Fprintf(report, "%s: %d rows restored (--force, target was empty)\n", name, imported)
 	return nil
 }
 
