@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends:
   [17-openapi-mcp, 5/13-ext-mcp, specs/5/32-acl-unified, 5/15-surrogate-oauth]
 supersedes:
@@ -11,11 +11,6 @@ supersedes:
 ---
 
 # specs/5/14 — credential model
-
-> **Status (2026-08-05).** Partial. `dashd/me_env.go` — three handlers that
-> create, update and delete a named credential — has zero tests, while its twin
-> `dashd/me_secrets.go` has twenty across three files. A credential write path
-> ships untested. BUGS `F9`.
 
 Three credential types that **must not share an abstraction**. Conflating them
 caused silent injection bugs and a wrong `scope_kind` split.
