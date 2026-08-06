@@ -80,7 +80,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   for — it now rides authd's signed `StateIntent.Return`. CSRF moved to
   `auth/csrf.go`, shared by webd and onbod instead of copied.
 
+- **Engagement is readable: a deadline and a list (spec `5/G`).**
+  `GET /v1/engagement?jid=` now returns `engaged_until`, and
+  `GET /v1/engagement` with no `jid` lists the live windows in the caller's
+  subtree, newest deadline first — so an operator can find engaged chats
+  instead of only looking up a jid they already knew. Only a root/service
+  token (empty folder claim) sees the whole fleet; a tenant sees its own
+  subtree and never an unclaimed window.
+
 ### Changed
+
+- **routd's `/openapi.json` no longer advertises an endpoint that 404s, and
+  now covers `groups`.** `acl` published a `GET /v1/acl` nothing served,
+  because its mount function reassigned the endpoint list after the
+  declaration was published; `groups` had to be held out of the document for
+  the same reason. Both mount-time overrides are gone — an action with no REST
+  twin is declared `MCPOnly` on the one list that mounting AND emission read
+  (`acl`'s list, `groups`' register, and `network_rules`, which declared three
+  paths no daemon served). The `operationId` convention is settled as
+  `<action>_<name>`: generators turn it into a method name, so a dot could
+  never survive to the caller.
 
 - **Build requires Go 1.27 (`toolchain go1.27rc2`) — BREAKING for builders.**
   `go.mod` declares `go 1.27` and pins the release candidate; all five Go
