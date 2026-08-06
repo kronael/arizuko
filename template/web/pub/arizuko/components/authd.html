@@ -105,6 +105,25 @@ export AUTH_BASE_URL=https://example.com
 
     <p>The <code>/auth/*</code> routes mount only when provider config is present. <code>GET /health</code> returns 200 once the signer is live with at least one serving key.</p>
 
+    <h2>Looking inside: keys and sessions</h2>
+    <p>Two questions come up the moment something goes wrong, and for a long time neither had an answer short of opening the database by hand: <em>which key is signing right now</em>, and <em>who is logged in</em>.</p>
+
+    <p>authd answers both, read-only, and ends a session on request:</p>
+
+    <ul>
+      <li><code>GET /v1/signing_keys</code> &mdash; the key&rsquo;s life story, not the key. Its id, when it was created, whether it is the one signing now, and &mdash; for a key that has been rotated out &mdash; when the passes it already signed stop being accepted. <code>/v1/keys</code>, the JWK Set, deliberately carries none of this: it holds what a verifier needs and nothing more. The private half is named in no query and no response, so no caller and no argument can reach it.</li>
+      <li><code>GET /v1/sessions</code> &mdash; one row per login. Who, what they can reach, when it started, when it last renewed itself, how many times, and whether it is active, revoked or expired. There is no token to withhold: authd stores only a hash of a refresh token, never the token.</li>
+      <li><code>DELETE /v1/sessions/{family_id}</code> &mdash; end one login. This is the incident-response verb, for when a session has to die and the person holding it cannot or will not do it; <code>/auth/logout</code> already covered the case where they do it themselves. The row is tombstoned rather than deleted, because the tombstone is the evidence that catches a stolen token being replayed.</li>
+    </ul>
+
+    <div class="callout"><strong>Note:</strong> ending a session stops the <em>renewal</em>, not the current pass. The browser can no longer get a new one and drops back to the login screen, but a page already open keeps working for up to fifteen minutes &mdash; the lifetime of one pass &mdash; and then stops. That is the whole revocation model: short lifetimes instead of a revocation list every backend has to consult.</div>
+
+    <p>Reading the list and ending a session are separate permissions, so a dashboard that shows you who is logged in does not thereby gain the ability to log them out. Neither permission is one a person can hold: they are <code>resource:verb</code> permissions, and a human&rsquo;s permissions are folder paths &mdash; even the all-folders <code>**</code> does not match one. The only holder is the dashboard daemon, and the page it serves is operator-gated, so this is enforced twice by two different mechanisms.</p>
+
+    <p>That page is <code>/dash/authd/</code> (see <a href="dashd.html">components/dashd</a>). It renders both tables and puts a sign-out button on each live login.</p>
+
+    <p><strong>Signing everyone out at once</strong> is a different operation, and there is no button for it. It means retiring the active signing key, which invalidates every pass in every browser within the hour. arizuko keeps that out-of-band &mdash; you do it by restarting authd with a fresh key &mdash; so a whole-fleet logout cannot happen on a mis-click.</p>
+
     <h2>What authd does not do</h2>
     <p>authd does not authorize. It mints and verifies, runs the OAuth dance, and rotates keys &mdash; but it never decides whether a caller may touch a particular folder. That decision is routd&rsquo;s, every time.</p>
 
@@ -114,6 +133,7 @@ export AUTH_BASE_URL=https://example.com
       <li><a href="../concepts/scopes.html">concepts/scopes</a> &mdash; what a scope is and how the grants ceiling bounds a token.</li>
       <li><a href="../reference/env.html#split">reference/env &mdash; split daemons</a> &mdash; <code>AUTHD_URL</code>, <code>AUTHD_SERVICE_KEY(S)</code>, <code>GRANTS_URL</code> and the rest of the wiring.</li>
       <li><a href="routd.html">components/routd</a> &mdash; the authorization authority authd defers to.</li>
+      <li><a href="dashd.html">components/dashd</a> &mdash; <code>/dash/authd/</code>, the operator page that reads the key and session surfaces above.</li>
       <li><code>authd/README.md</code> &mdash; mint surface, key rotation, file map.</li>
       <li><code>specs/5/1</code> &mdash; the auth plane split.</li>
     </ul>
@@ -124,8 +144,8 @@ export AUTH_BASE_URL=https://example.com
         <a rel="next" href="bskyd.html">bskyd &rarr;</a>
       </nav>
       <div class="docs-footer">
-        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/authd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/authd.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

@@ -44,8 +44,6 @@ They are on `/openapi.json` like every other resource. `sessions:read` and
 `sessions:write` are separate scopes, so a dashboard that shows the table does
 not thereby gain the ability to end a session.
 
-**Not yet wired**: the `/dash/authd/` page. The cockpit tile stays greyed until
-it exists, and `service:dashd` holds none of these scopes until it has a page
-that needs them.
+The `/dash/authd/` page that reads these landed right after, in 190.
 
 Specs: `specs/5/1-auth-standalone.md`, BUGS `F36` and `F15`.

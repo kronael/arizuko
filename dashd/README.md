@@ -20,7 +20,13 @@ those tables directly via the `store` package; it never migrates.
 
 ## Surface
 
-39 routes registered in `dash.registerRoutes` (`main.go`).
+69 routes registered in `dash.registerRoutes` (`main.go`). The bullets below
+group the ones with behaviour worth stating; the per-daemon cockpits
+(`/dash/services/`, `/dash/routd/`, `/dash/runed/`, `/dash/authd/`,
+`/dash/proxyd/`) are reached from the services hub rather than the nav, and
+`dashd/services_test.go` pins each tile's `Built` flag to whether its route is
+actually mounted — in both directions, so a shipped page cannot sit behind an
+unflipped tile.
 
 - **Public** (3): `GET /health`, `GET /openapi.json`, `GET /dash/assets/htmx.min.js` — no auth required.
 - **Portal** (1): `GET /dash/` — tile grid with status/tasks dots.
@@ -39,6 +45,7 @@ those tables directly via the `store` package; it never migrates.
 - **Engagement** (2): `GET /dash/engagement/` — operator-only (`**`) view of spec 5/G: every live engagement window (chat, thread, group, time left), i.e. the conversations the agent keeps answering in without being addressed. `POST /dash/engagement/disengage` ends one now, behind a confirm — the remedy for a runaway engagement, which otherwise had none but waiting out the TTL. Both go through routd's `/v1/engagement` over HTTP with the service:dashd bearer (`routes:read` + `routes:write`), NOT `chat_reply_state` out of `dbRoutd`: routd owns those columns, contains the write on the window's CLAIMING folder, and writes the `audit_log` row inside the mutation's own transaction (`DB.SetEngagementAudited`) — none of which a direct-DB write here would do. Operator-only is load-bearing — dashd's service token has an empty folder claim, which routd reads as list-all. (`engagement_page.go`)
 - **Audit** (2): `GET /dash/audit/` — operator-only (`**`) view of the audit trail, FEDERATED across routd, runed and authd via each daemon's `GET /v1/audit` with the service:dashd bearer (`audit:read`), NOT by opening `runed.db`/`auth.db`: dashd is FS-mounted on `routd.db` alone, and a second reader of a table whose owner publishes no contract is a recorded defect class. Merged newest-first with a Source column; the "older" cursor is composite (`routd:123,runed:45,authd:7`) because `id` is a per-DB AUTOINCREMENT. A source that fails gets a banner naming it and the survivors still render — silence would report "nothing happened in runed" when runed simply did not answer. onbod's table is the fourth owner and not yet federated (BUGS `F35`). (`audit_page.go`)
 - **proxyd control plane** (3): `GET|POST /dash/proxyd/`, `POST /dash/proxyd/delete` — operator-only (`**`) view + create + delete of proxyd's reverse-proxy route table. proxyd OWNS `proxyd_routes`, so all three go over HTTP to its `/v1/proxyd_routes` with the service:dashd bearer and the caller's `X-User-*` forwarded; proxyd writes the single audit row in the mutation's own transaction. (`proxyd_page.go`)
+- **authd control plane** (2): `GET /dash/authd/`, `POST /dash/authd/revoke` — operator-only (`**`) view of the signing-key lifecycle (which kid signs, what a rotation retired, when a retiring key's passes stop being accepted) and of the refresh-token families behind each login, plus a per-login sign-out. Both go over HTTP to authd's `/v1/signing_keys`, `/v1/sessions` and `DELETE /v1/sessions/{family_id}` with the service:dashd bearer (`signing_keys:read`, `sessions:read`, `sessions:write`), NOT by opening `auth.db`: dashd is not FS-mounted on it and must not be — authd is the sole ES256 signer, so that file is the trust boundary, and HTTP is also what puts the revoke's audit row in the mutation's own transaction. Renders projected rows, never authd's raw answer, so no key material or token value can reach the page. The audit rows are linked to `/dash/audit/`, not repeated. No fleet-wide logout: that means retiring the active key, which spec `5/1` keeps out-of-band, and the page says so rather than omitting it silently. (`authd_page.go`)
 
 ## Auth
 
@@ -48,7 +55,7 @@ Every non-public route runs through `d.guard` — verifies proxyd's ES256 servic
 - `requireSameOrigin` (`me_secrets.go`) — CSRF guard on mutations; rejects cross-origin `Origin`/`Referer`.
 - `requireAdmin` (`authz.go`) — calls `auth.Authorize(store, caller, "admin", scope, nil)` with `caller.Extra` from `X-User-Groups`. Scope is target folder or `**` for global creates. Used by write verbs.
 - `requireVisible` (`authz.go`) — gates per-folder GETs to non-operators; 403 if caller's grants don't cover the folder. Used by settings/tokens/tools read pages.
-- `requireOperator` (`authz.go`) — gates `**`-scoped surfaces (invites, whatsapp re-pair); 403 for non-operators.
+- `requireOperator` (`authz.go`) — gates `**`-scoped surfaces (invites, whatsapp re-pair, proactive, engagement, audit, and the proxyd/runed/routd/authd cockpits); 403 for non-operators. Load-bearing on every page that calls a sibling daemon: dashd presents its own service bearer with an empty folder claim, which those daemons read as list-all, so this gate is the whole containment.
 
 Read surfaces (`/dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups/`, `/dash/memory/`) filter rows via `callerScope` + `visible` — non-operators see only folders they hold grants on (direct or subtree). Operators (`**`) see everything.
 
@@ -77,7 +84,7 @@ Read surfaces (`/dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups
 - `DB_PATH` — explicit messages.db DSN; overrides `DATA_DIR/store/messages.db`
 - `DASH_PORT` — listen port (default `:8080`)
 - `ARIZUKO_INSTANCE` — instance name for audit/obs; read at startup
-- `AUTHD_URL` — authd JWKS endpoint; unset → identity verification disabled (local dev)
+- `AUTHD_URL` — authd's base URL, used twice: the JWKS endpoint (unset → identity verification disabled, local dev) and the backend for the `/dash/authd/` control plane (default `http://authd:8080` via `backendURL`)
 - `AUTHD_SERVICE_KEY` — ES256 private key for service:dashd bearer (whapd re-pair proxy); optional
 - `AUTHD_SERVICE_NAME` — service name (default `dashd`)
 - `HOST_APP_DIR` — app source path for enumerating stock skills in groups settings
@@ -105,6 +112,12 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
 - `route_tokens.go` — chat/webhook route-token list + issue + revoke.
 - `channels.go` — WhatsApp re-pair form + live status (operator-only).
 - `proxyd_page.go` — proxyd route table view + add + delete over `/v1/proxyd_routes` (operator-only).
+- `authd_page.go` — signing-key lifecycle + login sessions + per-login sign-out over authd's `/v1` (operator-only).
+- `audit_page.go` — the audit trail, federated over routd's, runed's and authd's `GET /v1/audit` (operator-only).
+- `engagement_page.go` — live engagement windows + force-disengage over routd's `/v1/engagement`; also `bearerCall`, the shared service:dashd transport (operator-only).
+- `proactive_page.go` — per-group proactive mode + per-chat cooldown, read-only (operator-only).
+- `services.go` — the daemon hub: health probes and the `Built` tile list.
+- `routd_page.go`, `runed_page.go`, `usage_page.go` — the remaining cockpits and the usage analytics view.
 - `packages_page.go` — installed-packages read view (`/dash/packages/`).
 - `invites.go` — invite list + create + revoke (operator-only).
 - `profile.go` — linked subs view + provider link buttons.

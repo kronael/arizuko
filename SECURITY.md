@@ -308,6 +308,22 @@ bounds never derive from the JWT folder claim — an absent claim is not evidenc
 of operator status — only from the authorization the caller already passed.
 Spec `specs/5/I-tool-call-logging.md`.
 
+**Seeing and ending sessions**: the same mechanism gates authd's operator
+surface. `GET /v1/signing_keys` (`signing_keys:read`), `GET /v1/sessions`
+(`sessions:read`) and `DELETE /v1/sessions/{family_id}` (`sessions:write`) are
+resource:verb scopes no human bearer can hold, held only by `service:dashd` for
+its operator-gated `/dash/authd/` page. Read and kill are separate scopes, so a
+surface that renders the session table does not thereby gain the ability to end
+a session. Both tables additionally refuse a folder-claimed caller: a signing
+key is instance-global and a session is keyed by `sub`, so there is no
+predicate that could contain one, and serving such a caller everything is the
+cross-tenant list-all leak. Neither read can carry a credential — `priv_pem`,
+`pub_pem` and `token_hash` are named in no query and no response struct, and no
+raw refresh token is persisted at all. Revoking ends the RENEWAL; the access
+token already issued lives out its own ~15 min TTL, which is the short-TTL
+model, not a gap. Logging out an entire fleet means retiring the active signing
+key and has no wire face on purpose. Spec `specs/5/1-auth-standalone.md`.
+
 **Access audit**: `proxyd` is the single ingress point for all HTTP
 traffic. It logs every request as a structured JSON line:
 

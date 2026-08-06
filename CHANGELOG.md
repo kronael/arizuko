@@ -74,8 +74,32 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   writes its audit row inside its own transaction, into the log `/dash/audit/`
   has federated since `5/I` — which is what made this endpoint buildable.
 
-  The `/dash/authd/` page that consumes all this does not exist yet, so the
-  cockpit tile stays greyed and `service:dashd` holds none of the new scopes.
+- **`/dash/authd/` — the identity cockpit, and the sign-out that ends a
+  session (spec `5/1`, BUGS `F15`).** The endpoints above now have the page
+  they were built for, which is what completes `5/1`. It shows which key signs
+  right now, what a rotation retired and when its already-issued passes stop
+  being accepted, and one row per login — who, what they can reach, when it
+  started, how often it has renewed itself. Each row carries a sign-out behind
+  the usual confirm, and the confirm states the delay rather than promising an
+  instant cut: revoking stops the renewal, and the pass already in that browser
+  lives out its own quarter-hour. An operator told "signed out" who then watched
+  the person keep clicking would reasonably conclude the button was broken.
+
+  It reads authd over HTTP and never opens `auth.db`. dashd is not mounted on
+  that file and must not be: authd is the sole signer, so the file is the trust
+  boundary, and HTTP is also what applies the scope gate and writes the
+  revoke's audit row inside the mutation's own transaction. Those rows are not
+  copied onto the page — it links to `/dash/audit/`, which has federated authd's
+  log since `5/I`.
+
+  There is no fleet-wide logout button, and the page says so instead of hiding
+  it. Signing everyone out means retiring the active key, which stays an
+  out-of-band operation on purpose; an operator who wants it, finds only
+  per-login buttons and no explanation will otherwise click all of them.
+  `service:dashd` gains the three scopes this needs — read the keys, read the
+  sessions, end one — each bounded by a projection with no credential column in
+  it, and the grant is pinned by name and by count so a fourth cannot follow
+  quietly.
 
 - **`/dash/proactive/` — see which groups may speak first (spec `5/6`).**
   Proactive interjection shipped its mechanism and its operator page months
@@ -99,9 +123,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   it (spec `5/I`).** Nothing on the docs site described `audit_log`, and
   `/dash/audit/` was not mentioned anywhere. The page covers the row-per-change
   rule, why the row rides the mutation's own transaction, the split between the
-  table and the log stream, and what is deliberately not audited. It also
-  states the gap plainly: `/dash/audit/` reads `routd.db`, and runed's and
-  authd's own `audit_log` rows are reachable only with `sqlite3` today.
+  table and the log stream, and what is deliberately not audited. It also names
+  where each daemon's rows come from: `/dash/audit/` federates routd's, runed's
+  and authd's own `audit_log` over their APIs rather than opening their database
+  files.
 
 ### Fixed
 

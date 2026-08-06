@@ -233,11 +233,17 @@ Current daemon list: `routd`, `runed`, `authd`, `proxyd`, `onbod`, `timed`,
   `unknown` is reserved for DNS failure (undeployed or local-dev name
   mismatch).
 
-#### What's missing (spec gap)
+#### Built tiles vs. the rest
 
-Per-daemon control plane pages (`/dash/routd/`, `/dash/runed/`, etc.)
-are not yet built. Tiles with `Built=false` must NOT render dead links —
-either disable the link or show "control plane: in progress" label.
+`/dash/routd/`, `/dash/runed/`, `/dash/authd/` and `/dash/proxyd/` are built;
+onbod, timed, webd and davd are not. A tile with `Built=false` must NOT render
+a dead link — it shows the name as plain text plus "(coming soon)".
+
+The flag and the route are maintained in different files, so
+`TestServicesBuiltFlagMatchesMountedRoutes` ties them together in both
+directions: `Built` without a mounted route is a link that 404s, and a mounted
+route without `Built` is a shipped page nobody can reach — the cockpits are
+deliberately absent from `navLinks`, so this hub is their only nav path.
 
 ---
 
