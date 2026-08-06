@@ -283,11 +283,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	// PROXYD_URL defaults to the compose service name, matching webd/main.go —
-	// compose writes no PROXYD_URL, so the code default is the wiring.
-	proxydURL := strings.TrimRight(chanlib.EnvOr("PROXYD_URL", "http://proxyd:8080"), "/")
-
-	d := &dash{dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: strings.TrimRight(os.Getenv("RUNED_URL"), "/"), proxydURL: proxydURL, secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
+	d := &dash{dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: backendURL("RUNED_URL", "runed"), proxydURL: backendURL("PROXYD_URL", "proxyd"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
 	d.registerRoutes(mux)
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
@@ -309,6 +305,18 @@ func main() {
 	}
 }
 
+// backendURL resolves a sibling daemon's intra-container base URL: the env
+// override when set, else the compose service name on the fixed in-container
+// port. Root CLAUDE.md pins every daemon to :8080 inside the network and the
+// DNS name to the compose service name, so the URL is derivable, not
+// configuration — compose emits neither PROXYD_URL nor RUNED_URL, and without
+// the default `/dash/runed/`'s kill button answered 503 in every deploy
+// (BUGS F23). One renderer for both, so neither can drift into a bare
+// os.Getenv that is empty in production.
+func backendURL(envKey, service string) string {
+	return strings.TrimRight(chanlib.EnvOr(envKey, "http://"+service+":8080"), "/")
+}
+
 type dash struct {
 	dbRoutd *sql.DB // routd.db handle — dashd's ONLY message/config store. routd OWNS
 	// acl/groups/routes/route_tokens/secrets/chat_sessions/audit_log AND the live
@@ -323,7 +331,7 @@ type dash struct {
 	appDir    string                                // HOST_APP_DIR; used to enumerate stock skills
 	ks        *auth.KeySet                          // authd JWKS; verifies proxyd's ES256 transit bearer (nil → local dev open)
 	svc       func(context.Context) (string, error) // service:dashd token for the whapd re-pair proxy (nil → local dev)
-	runedURL  string                                // RUNED_URL; target of the /dash/runed/kill operator-kill proxy ("" → kill disabled)
+	runedURL  string                                // runed's /v1 face; target of the /dash/runed/kill operator-kill proxy. backendURL defaults it to the compose service name, so it is empty only in tests ("" → kill 503s)
 	// proxydURL is proxyd's own /v1 face, read+written by /dash/proxyd/. proxyd
 	// OWNS proxyd_routes, so dashd goes over HTTP rather than into the table —
 	// that is also what makes proxyd write the audit row in the mutation's tx.

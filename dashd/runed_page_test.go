@@ -140,7 +140,9 @@ func TestRunedRecentRuns(t *testing.T) {
 	}
 }
 
-// TestRunedKillNoURL: with RUNED_URL unset, the kill POST is 503.
+// TestRunedKillNoURL: with no runedURL wired, the kill POST is 503. Reachable
+// only in tests — main() always fills it via backendURL (see
+// TestBackendURLDefaultsToComposeService), which is what BUGS F23 fixed.
 func TestRunedKillNoURL(t *testing.T) {
 	rdb := runedDB(t)
 	defer rdb.Close()
@@ -234,5 +236,28 @@ func TestRunedKillNonOperatorForbidden(t *testing.T) {
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", w.Code)
+	}
+}
+
+// TestBackendURLDefaultsToComposeService pins BUGS F23: compose emits neither
+// RUNED_URL nor PROXYD_URL, so with the variable unset the code default must
+// still name a reachable daemon. Before the fix runedURL was a bare
+// os.Getenv, which is "" in every deploy and made the kill button answer 503.
+func TestBackendURLDefaultsToComposeService(t *testing.T) {
+	for _, tc := range []struct {
+		name, envKey, service, env, want string
+	}{
+		{"runed unset", "RUNED_URL", "runed", "", "http://runed:8080"},
+		{"proxyd unset", "PROXYD_URL", "proxyd", "", "http://proxyd:8080"},
+		{"override wins", "RUNED_URL", "runed", "http://elsewhere:9001", "http://elsewhere:9001"},
+		{"override trailing slash trimmed", "RUNED_URL", "runed", "http://elsewhere:9001/", "http://elsewhere:9001"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.envKey, tc.env)
+			if got := backendURL(tc.envKey, tc.service); got != tc.want {
+				t.Fatalf("backendURL(%q, %q) with env %q = %q, want %q",
+					tc.envKey, tc.service, tc.env, got, tc.want)
+			}
+		})
 	}
 }

@@ -5285,7 +5285,7 @@ citation look verifiable while being unreachable for every other checkout.)
   resolve to commit objects in the shared object DB, so `git show` succeeds on a
   SHA no one else can reach. The check is reachability, not existence.
 
-## F23 — dashd's `RUNED_URL` is read but never written, so the runed kill button is dead in every deploy (2026-08-06, open)
+## ✅ FIXED 2026-08-06 F23 — dashd's `RUNED_URL` is read but never written, so the runed kill button is dead in every deploy (2026-08-06, FIXED)
 
 `dashd/main.go` reads `RUNED_URL` into `d.runedURL`, and `handleRunedKill`
 returns **503 "RUNED_URL not configured"** when it is empty
@@ -5306,11 +5306,19 @@ while wiring `/dash/proxyd/`, which avoids the same trap with a code default
 - **Scope:** compose generation vs dashd
 - **Affected:** all instances
 - **Source:** dashd/main.go (runedURL read), dashd/runed_page.go:153-156; compose/compose.go:191-194
-- **Status:** open
-- **Fix:** give `runedURL` the same code default the proxyd page uses
-  (`http://runed:8080`), which needs no compose change and no operator step —
-  the daemon DNS name is fixed by the compose service name. Adding
-  `RUNED_URL` to the allowlist as an override is optional on top.
+- **Status:** FIXED 2026-08-06
+- **Fix:** shipped as proposed, but as **one renderer rather than a second
+  copy of the proxyd expression**: `dashd/main.go`'s new `backendURL(envKey,
+service)` returns the env override when set and `http://<service>:8080`
+  otherwise, and BOTH `runedURL` and `proxydURL` now go through it. Mirroring
+  proxyd's inline `chanlib.EnvOr` would have left two places for the same rule
+  to drift; the bare `os.Getenv` that caused this bug is now gone from dashd's
+  wiring entirely. `TestBackendURLDefaultsToComposeService` pins both defaults
+  plus override-wins and trailing-slash-trim; reverting `backendURL` to
+  `os.Getenv` fails that test and only that test.
+- **Note:** this was one of two independent faults on the same button. The
+  other — `service:dashd` missing from authd's `serviceGrants`, so the bearer
+  was minted with empty scope — was fixed separately in `fd697e99`.
 ## F22 — `/dash/me/env`'s three rejection messages disagree (2026-08-06, open)
 
 `handleMeEnvCreate` rejects a capability key with
