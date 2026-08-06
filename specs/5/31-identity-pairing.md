@@ -6,10 +6,16 @@ depends:
 
 # specs/5/31 — identity pairing (channel identity → verified account)
 
-> **Status (2026-08-05).** Partial. The pairing primitive ships, but the
+> **Status (2026-08-06).** Partial. The pairing primitive ships, but the
 > "Onboarding — the fold" section below is unbuilt: onbod still runs the
 > synchronous `linkJID`/`token_ref` gate and no `IssuePairingLink` call site
 > exists. Tracked as BUGS `P1b` (PROPOSED — redesign, needs sign-off).
+>
+> **The fold's design is additionally BLOCKED, not merely unbuilt.** It was
+> written against a pre-picker onbod and `5/18` step 6 landed underneath it
+> (`d9e57288`, 2026-08-04) — see "What step 6 broke" at the end of that
+> section. Resolving it is a `5/18` decision; do not implement the fold as
+> written.
 
 ## Problem
 
@@ -225,8 +231,10 @@ rate limit; the only escape today is `RepromptOnboarding`
 anyone to. `5/18` names the same gap directly: "an expired token cannot be
 re-requested from the chat."
 
-Delete `onboarding.token`, `token_expires`, and `idx_onboarding_token` in a
-follow-up onbod migration — `5/18`'s own verdict on the three token
+Delete `onboarding.token_ref`, `token_expires`, and `idx_onboarding_token_ref`
+in a follow-up onbod migration (the plaintext `token` column and
+`idx_onboarding_token` were already replaced by the hash-at-rest migration,
+`onbod/migrations/0004`) — `5/18`'s own verdict on the three token
 mechanisms already says a second timer duplicating `route_tokens`'
 `created_at` + `PairingTTL` shouldn't exist. `prompted_at` is **not**
 deleted — `5/18` keeps it explicitly ("the remaining row is `(jid,
@@ -301,14 +309,14 @@ sent exactly once), and emits `onboarding.refuse` alongside the existing
 inside `RedeemPairing`, and still shown in the browser the user is looking at
 (`webd/pair.go:71`).
 
-**Carried forward unchanged, not redesigned:** `handleDashboard`'s
-auto-route-on-claim (`firstAdminFolder` + `INSERT OR IGNORE INTO routes`,
-today at `onbod/main.go:585`) is `5/18`'s own acknowledged wart — "the route
-write is a side effect, not an act" — not a step this fold is asked to fix.
-It moves into the same observer (same inputs: `xdb`, the now-known
-`userSub`), so an existing admin pairing a new channel keeps getting it
-auto-routed, exactly as today. Elevating it to a real step with a picker is
-`5/18` steps 6–8, still unshipped, still out of this scope.
+> **This paragraph is where the design broke; kept for the record.** It read:
+> "`handleDashboard`'s auto-route-on-claim (`firstAdminFolder` + `INSERT OR
+IGNORE INTO routes`, today at `onbod/main.go:585`) … moves into the same
+> observer … so an existing admin pairing a new channel keeps getting it
+> auto-routed, exactly as today. Elevating it to a real step with a picker is
+> `5/18` steps 6–8, still unshipped, still out of this scope." Every pointer in
+> it is now false: `firstAdminFolder` does not exist, `onbod/main.go:585` is
+> `linkJID`, and steps 6–7 shipped. See "What step 6 broke" below.
 
 Both required flows hold under this design. (a) A new user messages an
 unrouted chat: route-miss inserts the onboarding row (unchanged) →
@@ -331,6 +339,43 @@ untouched — the observer's `user_sub IS NULL` scan only ever matches rows
 | edge write + admission: `linkJID`, one call                                                | edge: `RedeemPairing`. admission: poll observer    |
 | refusal: `errLinkRefused` → 403 in browser                                                 | `status='refused'` → chat message                  |
 | `RepromptOnboarding`, `handleDashReprompt`, reprompt button                                | deleted — cooldown is the reprompt                 |
+
+### What step 6 broke — the fold is blocked, not merely unbuilt
+
+The fold above was designed while onbod auto-picked a world on claim. `5/18`
+step 6 shipped one day later (`d9e57288`, 2026-08-04) and replaced that with a
+**browser choice**: `handleDashboard` (`onbod/main.go:622`) asks
+`unroutedJID` → `adminFolders`, then renders `renderWorldPicker`
+(`:1261`, a form POSTing to `handleAddRoute`) for two or more worlds,
+`insertRoute` for exactly one, and `renderNoWorld` (`:1288`) for none. `5/18`
+is explicit that this is the point: "empty set is a terminal page — **never
+auto-pick**".
+
+Pairing does not route a JID; it only writes the edge. So the greeted user's
+chat is still silent after redemption — which is the exact problem `5/18`
+opens with — until step 6 runs. Today they reach it because
+`handleTokenLanding` sets `auth_return=/onboard` (`onbod/main.go:474`) and
+redirects there. Under the fold the return target is webd's `/pair/{token}`,
+whose success page is terminal (`webd/pair.go:87`: "Linked … Your next message
+from that chat carries your account's access"), and **nothing carries the user
+to `/onboard`**. Flow (a) above confirms this by omission: it ends at
+"queued / approved / the refusal" and never routes the JID at all.
+
+The poll observer cannot stand in. It can queue, approve, refuse and message
+the chat, but the multi-world case is a form a human fills in; a tick has no
+browser. So closing this needs one of three, and each is a `5/18` decision,
+not this spec's:
+
+1. webd's pair page redirects into onbod's `/onboard` — gives webd onboarding
+   awareness, which this spec rejects twice ("webd needs no onboarding
+   awareness at all"; the rejected webd→onbod hook);
+2. the observer chat-sends a SECOND link to `/onboard` — a two-link flow,
+   specified nowhere;
+3. the observer auto-picks — reverts step 6, the thing `5/18` shipped as the
+   fix.
+
+Until one is chosen, the fold is not implementable without presupposing an
+answer. Tracked in BUGS `P1b`.
 
 ## Not in scope
 
