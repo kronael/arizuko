@@ -4,10 +4,18 @@ status: partial
 
 # authd — central authority daemon + offline-verify library
 
-> **Status (2026-08-05).** Partial. authd's dashd cockpit tile is declared
+> **Status (2026-08-06).** Partial. authd's dashd cockpit tile is declared
 > `Built:false`, so the sole signer has no operator surface; and nothing lets an
 > operator revoke another user's refresh-token family — `revokeFamily` fires
-> only from reuse detection and from the user's own `/auth/logout`. BUGS `F15`.
+> only from reuse detection and from the user's own `/auth/logout`. The tile
+> cannot honestly flip: authd publishes **no** admin API to render or drive.
+> There is no signing-key metadata endpoint (the JWK Set drops `active` /
+> `created_at` / `retired_at`), no session or refresh listing (one query reads
+> `refresh_tokens`, keyed by `token_hash`), `RevokeAllNow` has zero
+> callers, and `serviceGrants` has no `service:dashd` entry. Building it needs
+> three decisions — who may revoke whose session, which DB the audit row lands
+> in (authd audits into `auth.db`; `/dash/audit/` reads `routd.db`), and resreg
+> resource vs hand-rolled. Proposal in BUGS `F15a`, awaiting sign-off. BUGS `F15`.
 
 **DECISION.** Token authority is centralized in one `authd` daemon — the **sole
 signer**. It holds the ES256 private key, publishes public JWKs at `/v1/keys`,

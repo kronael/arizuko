@@ -5,11 +5,15 @@ shipped: phase-1 (per-daemon route declarations) in v0.35.0; phase-3 (runtime ro
 
 # proxyd: standalone authenticating gateway
 
-> **Status (2026-08-05).** Partial. The resource is registered as
+> **Status (2026-08-06).** Partial. The resource is registered as
 > `proxyd_routes`, so the wire surface is `/v1/proxyd_routes` and the derived
-> MCP tools are `proxyd_routes.*` — but `proxyd/README.md` and the operator
-> component page still document `/v1/routes` and `routes.*`, which is
-> `routd`'s name. There is also no dashd view for `proxyd_routes`. BUGS `F11`.
+> MCP tools are `proxyd_routes.*`. The dashd surface now exists —
+> `/dash/proxyd/` views, adds and deletes routes through that REST face, and
+> the cockpit tile is `Built:true` (definition-of-done item 6, closed
+> 2026-08-06). Two items remain: the operator component page still documents
+> `/v1/routes` and `routes.*`, which is `routd`'s name (item 5 — BUGS `F11`),
+> and no migration file / `MIGRATION_VERSION` bump has shipped for it
+> (item 7).
 
 `proxyd` is a generic, config-driven authenticating reverse proxy —
 droppable in front of any HTTP service stack, arizuko or otherwise. Same
@@ -114,6 +118,16 @@ The route table is a resreg resource named `proxyd_routes` — **never
 - MCP: webd forwards to proxyd's REST face (`webd/routes_mcp.go`) — the
   cross-daemon forwarder shape of [`17-openapi-mcp.md`](17-openapi-mcp.md),
   `Store: nil`, so proxyd writes the single audit row.
+- Operator: `/dash/proxyd/` (`dashd/proxyd_page.go`) calls the same REST face.
+  No dashd SQL against `proxyd_routes` and no dashd `audit.Emit` — proxyd
+  writes the one row, in the mutation's own tx, naming the forwarded operator.
+
+**Forwarder allowlist.** proxyd trusts stamped `X-User-*` only on an ES256
+service bearer whose sub is in `trustedForwarders` (`proxyd/resource.go`):
+`service:webd` and `service:dashd`. It stays an allowlist — any other valid
+authd token reaching proxyd directly is 401, or it could forge operator
+groups. Both forwarders authenticate the end user themselves before
+translating them onto this API.
 
 Session management (`/v1/sessions` list + force-logout) needs a revocation
 list and is deferred with the auth spec's revocation work.

@@ -6,10 +6,17 @@ relates-to: [3/Y-thread-routing, 5/Y-output-styles-per-surface]
 
 # specs/5/G — engagement: stay in the conversation after a mention
 
-> **Status (2026-08-05).** Partial. `concepts/engagement.html` tells operators
+> **Status (2026-08-06).** Partial. `concepts/engagement.html` tells operators
 > the TTL defaults to 20m; routd defaults it to 30m in both places it is set.
-> No dashd surface shows or clears engagement windows, so the operator can
-> neither see who is engaged nor end it. BUGS `F12`.
+> No dashd surface shows or clears engagement windows. The **control** half is
+> buildable today (`POST /v1/engagement` with `ttl_seconds <= 0` clears the
+> window, same semantics as the `disengage` tool); the **view** half is not,
+> and is blocked on three things outside dashd — there is no list query for
+> `chat_reply_state` at any layer, `EngagementResponse` never returns
+> `engaged_until`, and `serviceGrants` has no `service:dashd` entry so dashd's
+> token is minted with empty scope. Adding them is new API surface this spec
+> does not describe: proposal + the two candidate shapes in BUGS `F12a`,
+> awaiting sign-off. BUGS `F12`.
 
 ## What this solves
 
