@@ -26,6 +26,16 @@ Spec: `specs/5/E`.
   tool visibility via `auth.EffectiveActions`; resreg-served cold-tier
   resources reuse that injected gate instead of their default operator
   gate.
+- Own the turn's live status message. `submit_status` (`mcp.go`
+  `mcpSubmitStatus`) renders one `⏳` message per turn and EDITS it in
+  place on every later call; the message id is read back from the last
+  persisted `verb="status"` row, so edit-in-place survives a routd
+  restart. `deliverStatus` (`turns.go`) is the one renderer for both the
+  ant `TodoWrite` hook and `<status>` blocks, and stamps `verb="status"`
+  so `TurnHasBotReply` excludes it — a status must never count as the
+  agent's reply. Only `chanlib.ErrUnsupported` (email/WhatsApp/Reddit)
+  falls back to a fresh send; a real edit failure surfaces. MCP-only,
+  no REST twin (spec 5/24).
 - Channel egress via the `chanreg` Deliverer (adapters register their
   egress URL + owned JID prefixes).
 
