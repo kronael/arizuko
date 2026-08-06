@@ -61,10 +61,10 @@ func TestGrantLandsInRoutdDB(t *testing.T) {
 		t.Fatalf("OpenRoutd: %v", err)
 	}
 	var out bytes.Buffer
-	if err := runGrant(s, "github:42", "main", &out); err != nil {
+	if err := runGrant(s, "github:42", "main", "", &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
 	}
-	if err := runGrant(s, "github:42", "**", &out); err != nil {
+	if err := runGrant(s, "github:42", "**", "", &out); err != nil {
 		t.Fatalf("operator grant: %v", err)
 	}
 	s.Close()
@@ -97,8 +97,8 @@ func TestUngrantRemovesFromRoutdDB(t *testing.T) {
 		t.Fatalf("OpenRoutd: %v", err)
 	}
 	var out bytes.Buffer
-	runGrant(s, "u1", "main", &out)
-	runGrant(s, "u1", "**", &out)
+	runGrant(s, "u1", "main", "", &out)
+	runGrant(s, "u1", "**", "", &out)
 	if err := runUngrant(s, "u1", "main", &out); err != nil {
 		t.Fatalf("runUngrant: %v", err)
 	}

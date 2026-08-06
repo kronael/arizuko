@@ -36,7 +36,7 @@ func TestGrantACLAudited(t *testing.T) {
 	dir := setupSplitStore(t)
 	s := grantStore(t, dir, "alice")
 	var out bytes.Buffer
-	if err := runGrant(s, "github:1", "atlas/eng", &out); err != nil {
+	if err := runGrant(s, "github:1", "atlas/eng", "", &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
 	}
 
@@ -50,7 +50,7 @@ func TestUngrantACLAudited(t *testing.T) {
 	dir := setupSplitStore(t)
 	s := grantStore(t, dir, "alice")
 	var out bytes.Buffer
-	if err := runGrant(s, "github:1", "atlas/eng", &out); err != nil {
+	if err := runGrant(s, "github:1", "atlas/eng", "", &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
 	}
 	if err := runUngrant(s, "github:1", "atlas/eng", &out); err != nil {
@@ -70,7 +70,7 @@ func TestGrantOperatorMembershipAudited(t *testing.T) {
 	dir := setupSplitStore(t)
 	s := grantStore(t, dir, "alice")
 	var out bytes.Buffer
-	if err := runGrant(s, "github:1", "**", &out); err != nil {
+	if err := runGrant(s, "github:1", "**", "", &out); err != nil {
 		t.Fatalf("runGrant **: %v", err)
 	}
 
@@ -84,7 +84,7 @@ func TestUngrantOperatorMembershipAudited(t *testing.T) {
 	dir := setupSplitStore(t)
 	s := grantStore(t, dir, "alice")
 	var out bytes.Buffer
-	if err := runGrant(s, "github:1", "**", &out); err != nil {
+	if err := runGrant(s, "github:1", "**", "", &out); err != nil {
 		t.Fatalf("runGrant **: %v", err)
 	}
 	if err := runUngrant(s, "github:1", "**", &out); err != nil {
@@ -104,10 +104,10 @@ func TestGrantAuditUnattributedUnchanged(t *testing.T) {
 	dir := setupSplitStore(t)
 	s := grantStore(t, dir, "")
 	var out bytes.Buffer
-	if err := runGrant(s, "github:1", "atlas/eng", &out); err != nil {
+	if err := runGrant(s, "github:1", "atlas/eng", "", &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
 	}
-	if err := runGrant(s, "github:2", "**", &out); err != nil {
+	if err := runGrant(s, "github:2", "**", "", &out); err != nil {
 		t.Fatalf("runGrant **: %v", err)
 	}
 

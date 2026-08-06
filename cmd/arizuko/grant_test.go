@@ -23,7 +23,7 @@ func TestGrantThenList(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
 
-	if err := runGrant(s, "github:1", "alice", &out); err != nil {
+	if err := runGrant(s, "github:1", "alice", "", &out); err != nil {
 		t.Fatalf("runGrant: %v", err)
 	}
 	if !strings.Contains(out.String(), "alice") {
@@ -43,7 +43,7 @@ func TestGrantOperatorMembership(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
 
-	if err := runGrant(s, "github:1", "**", &out); err != nil {
+	if err := runGrant(s, "github:1", "**", "", &out); err != nil {
 		t.Fatalf("operator grant: %v", err)
 	}
 	if !strings.Contains(out.String(), "role:operator") {
@@ -61,7 +61,7 @@ func TestUngrantRemoves(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
 
-	runGrant(s, "github:1", "alice", &out)
+	runGrant(s, "github:1", "alice", "", &out)
 	out.Reset()
 
 	if err := runUngrant(s, "github:1", "alice", &out); err != nil {
@@ -90,9 +90,9 @@ func TestGrantsFilterBySub(t *testing.T) {
 	s := newMem(t)
 	var sink bytes.Buffer
 
-	runGrant(s, "u1", "alpha", &sink)
-	runGrant(s, "u1", "beta", &sink)
-	runGrant(s, "u2", "gamma", &sink)
+	runGrant(s, "u1", "alpha", "", &sink)
+	runGrant(s, "u1", "beta", "", &sink)
+	runGrant(s, "u2", "gamma", "", &sink)
 
 	var out bytes.Buffer
 	if err := runGrants(s, "u1", &out); err != nil {
@@ -122,10 +122,10 @@ func TestGrantRejectsEmpty(t *testing.T) {
 	s := newMem(t)
 	var out bytes.Buffer
 
-	if err := runGrant(s, "", "alice", &out); err == nil {
+	if err := runGrant(s, "", "alice", "", &out); err == nil {
 		t.Error("expected error for empty sub")
 	}
-	if err := runGrant(s, "u1", "", &out); err == nil {
+	if err := runGrant(s, "u1", "", "", &out); err == nil {
 		t.Error("expected error for empty pattern")
 	}
 	if err := runUngrant(s, "", "alice", &out); err == nil {

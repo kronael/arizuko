@@ -443,8 +443,12 @@ func cmdGroup(args []string) {
 		fmt.Printf("removed group %s\n", folder)
 
 	case "grant":
-		need(args, 4, "arizuko group <instance> grant <sub> <pattern>")
-		if err := runGrant(s, args[2], args[3], os.Stdout); err != nil {
+		need(args, 4, "arizuko group <instance> grant <sub> <pattern> [action]")
+		gAction := ""
+		if len(args) >= 5 {
+			gAction = args[4]
+		}
+		if err := runGrant(s, args[2], args[3], gAction, os.Stdout); err != nil {
 			die("Failed: grant: %v", err)
 		}
 
@@ -522,11 +526,36 @@ func mustOpenOnbod(dataDir string) *store.Store {
 // audit row commit together, matching what the same grant already records
 // through dashd and MCP. Granting authority is the mutation an audit trail
 // exists for.
-func runGrant(s *store.Store, sub, pat string, w io.Writer) error {
+// grantableActions is the vocabulary an operator can delegate. `admin` stays the
+// default so existing muscle memory is unchanged, but it covers only `interact` and
+// `mcp:*` (auth.actionCovers) — it does NOT reach `egress` or `web:publish`. Migration
+// 0023 removed the depth-derived tiers and told operators to re-delegate those two
+// explicitly; until now no CLI could express them, so the documented recovery path
+// did not exist. A typo must not silently write an inert row, hence the allowlist.
+var grantableActions = map[string]bool{
+	"*": true, "admin": true, "interact": true,
+	"egress": true, "web:publish": true, "mcp:*": true,
+}
+
+func grantableAction(action string) bool {
+	if grantableActions[action] {
+		return true
+	}
+	// mcp:<tool> and <resource>.<verb> are open-ended by design.
+	return strings.HasPrefix(action, "mcp:") || strings.Contains(action, ".")
+}
+
+func runGrant(s *store.Store, sub, pat, action string, w io.Writer) error {
 	if sub == "" || pat == "" {
 		return errEmptyGrant
 	}
-	if pat == "**" {
+	if action == "" {
+		action = "admin"
+	}
+	if !grantableAction(action) {
+		return fmt.Errorf("unknown action %q — one of *, admin, interact, egress, web:publish, mcp:*, mcp:<tool>, <resource>.<verb>", action)
+	}
+	if pat == "**" && action == "admin" {
 		// Operator grant: add to role:operator instead of a per-folder row.
 		if err := s.AddMembership(sub, "role:operator", "arizuko grant"); err != nil {
 			return err
@@ -535,12 +564,12 @@ func runGrant(s *store.Store, sub, pat string, w io.Writer) error {
 		return nil
 	}
 	if err := s.AddACLRow(core.ACLRow{
-		Principal: sub, Action: "admin", Scope: pat,
+		Principal: sub, Action: action, Scope: pat,
 		Effect: "allow", GrantedBy: "arizuko grant",
 	}); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "granted %s admin -> %s\n", sub, pat)
+	fmt.Fprintf(w, "granted %s %s -> %s\n", sub, action, pat)
 	return nil
 }
 
