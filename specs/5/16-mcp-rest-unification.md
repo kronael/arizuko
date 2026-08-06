@@ -56,6 +56,25 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 >   (`compose/compose.go:840`) but only onbod, proxyd and webd set them, and they
 >   name `store`/`groups`/`web` — not per-owner `store/<owner>/`. "Owner is a
 >   convention, not a boundary" still holds for every other daemon.
+>
+> **The doc↔mux guard now covers every advertising daemon** (`F40`, closed).
+> `routd`, `timed`, `onbod`, `authd`, `proxyd` and `runed` each call
+> `resregtest.AssertServesWhatItAdvertises` with their real resource list and
+> their real `*http.ServeMux`, plus `AssertServesNoneOf` as the ownership
+> anchor. Every daemon but `routd` is `package main` and cannot be imported, so
+> each got a named mux constructor its own in-package test calls — `newOnbodMux`,
+> `newRunedMux`, `server.mux` in `authd` and `proxyd`. `webd` and `dashd`
+> advertise nothing and keep their doc-shape tests.
+>
+> Two things the wiring surfaced. `authd` registered `/openapi.json`, `/auth/*`
+> and `/metrics` in `main()` after `srv.mux()` returned, so a guard would have
+> probed a mux missing the mount under test; `mux()` is now the complete served
+> surface. And the assertion itself compared two syntaxes — OpenAPI 3.1 has no
+> multi-segment path template, so a stdlib `{path...}` documents as `{path}` —
+> which read `proxyd`'s three correctly-mounted item endpoints as advertised
+> paths that 404. The rule is now single-sourced as `resreg.OpenAPIPathKey`.
+>
+> **This spec stays `partial`** until steps 2, 6 and 7 land.
 
 # specs/5/16 — MCP+REST unification (finish the adoption)
 

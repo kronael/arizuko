@@ -37,7 +37,79 @@ tracked rather than swept.
   operator-visible page, and keep it there — or delete the block and point at
   `dashd/README.md`'s route list, which IS maintained, rather than keeping a
   second inventory that drifts.
-## F40 — four daemons advertise resources with no doc-vs-mux guard; wiring them needs a mux extraction each (2026-08-06, PROPOSAL — needs sign-off)
+## F41 — `runed` and `authd` both serve `GET /v1/sessions`, for different tables (2026-08-06, open)
+
+Found while picking a foreign-resource anchor for `runed`'s new doc-vs-mux
+guard: `sessions` was unusable as one, because `runed` really does serve that
+path. `runed/server.go:44` mounts `GET /v1/sessions` (hand-rolled, reads
+`session_log` — agent spawn sessions); `authd/http.go` mounts the resreg
+`sessions` resource at the same path (refresh-token families, `SessionsRow`).
+Two daemons, one wire path, two unrelated tables.
+
+Not currently reachable as a bug: the daemons listen on separate containers, and
+`runed`'s is hand-rolled rather than a resreg registration, so
+`TestResourceEndpoints_SingleSource` sees nothing. It is the exact shape the
+`Name` rule exists to prevent — "a resource's name IS its wire identity,
+globally unique" (root `CLAUDE.md`), the rule `proxyd_routes` violated in
+2026-07 — and it bites the moment either surface is federated behind one host,
+or `runed`'s spawn sessions become a resreg resource (which `5/16`'s adoption
+program would do).
+
+- **Severity:** low today, medium on federation (an aggregator or generated
+  client keying on `/v1/sessions` gets whichever daemon it was pointed at)
+- **Scope:** runed/server.go:44-45, authd sessions resource
+- **Source:** runed/server.go:44 `mux.HandleFunc("GET /v1/sessions", …)`;
+  authd/http.go `s.mountSessions(m)` → `/v1/sessions`
+- **Fix:** rename `runed`'s to its actual subject before it becomes a resource —
+  `/v1/spawn_sessions` (and `/v1/spawn_sessions/recent`), matching `runed`'s
+  `spawns`/`session_log` vocabulary. `authd` keeps `sessions`: it is the
+  registered resreg resource and the one with a REST twin, so it holds the wire
+  identity. Renaming `runed`'s touches its one federated caller (routd's recent-
+  sessions read, spec 5/P) — a cross-daemon path change, so it wants sign-off
+  rather than an inline fix.
+
+## F40 — four daemons advertise resources with no doc-vs-mux guard; wiring them needs a mux extraction each (2026-08-06, FIXED 2026-08-06)
+
+**FIXED.** All four wired; every daemon that advertises a resource now runs the
+guard against its own list and its own mux. `runed` `22eb51c2`, `authd`
+`a411cee8`, `onbod` `147a4c58`, `proxyd` `9cfe5ed2`, plus `8501aa5c` for the
+assertion bug proxyd exposed. Each extraction is behavior-preserving — same
+routes, same order, same middleware — and each guard was proven non-vacuous in
+both directions before being believed: advertising a foreign resource fails
+half 1, mounting one fails half 2, and with `proxyd` drifted the other five
+daemons' guards stayed green.
+
+Three things the wiring surfaced that the proposal did not predict:
+
+- **`authd`'s constructor was the blind spot, as suspected, and wider.** Not
+  only `/openapi.json` but `/auth/*` and `/metrics` were registered in `main()`
+  after `srv.mux()` returned. `mux()` now takes the OAuth config and builds the
+  complete served surface; `main` only decides whether that config loaded.
+- **The shared assertion had a false positive on multi-segment wildcards.**
+  OpenAPI 3.1 has no multi-segment path template, so the emitter renders a
+  stdlib `{path...}` as `{path}` — deliberate translation, since the document
+  cannot express the arity. `proxyd` is the first daemon with such a mount
+  (`/v1/proxyd_routes/{path...}`, its route keys contain slashes) and the guard
+  read three correctly-mounted endpoints as advertised paths that 404. Fixed at
+  the rule, not in the test: `resreg.OpenAPIPathKey` is now the one renderer and
+  `resregtest` renders mux patterns through it. A control test moves the same
+  wildcard mounts one segment over and requires every one to be reported, so
+  nothing else softened.
+- **`proxyd`'s catch-all behaves under the assertion.** A foreign path resolves
+  to a handler but to pattern `"/"`, never to the advertised pattern — pattern
+  equality, not handler presence, is what makes the guard meaningful on a daemon
+  that answers everything. Pinned directly by
+  `TestProxydCatchAllDoesNotSatisfyTheGuard`.
+
+The copy defect is closed too: `TestAuthdOpenAPIAdvertisesReadsWithoutSecrets`
+now GETs `/openapi.json` off the running mount instead of re-emitting from its
+own hard-copy of the list. Dropping `signing_keys` from `authd`'s real list
+fails it; the copy version could not notice.
+
+Original report follows.
+
+---
+
 
 Scoping `5/16`'s remaining "one owner + federation" half. The shape single-
 sourcing that section specifies is **already done**: every mounted resource in
