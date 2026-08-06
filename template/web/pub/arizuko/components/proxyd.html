@@ -107,7 +107,7 @@ export PROXYD_ROUTES_JSON='[{"path":"/api/","backend":"http://api:8080","auth":"
 
     <div class="callout"><strong>It is <code>proxyd_routes</code>, not <code>routes</code>.</strong> <code>routes</code> is <a href="../components/routd.html">routd</a>&rsquo;s table &mdash; the one that decides which folder an inbound <em>message</em> lands in. This one decides which backend an inbound <em>HTTP request</em> lands in. Two daemons, two tables, two names; a resource name is its address on the wire, so no two may claim the same one.</div>
 
-    <p>The same five operations reach an agent as the MCP tools <code>proxyd_routes.list</code>, <code>proxyd_routes.get</code>, <code>proxyd_routes.create</code>, <code>proxyd_routes.update</code>, and <code>proxyd_routes.delete</code>, forwarded over webd&rsquo;s <code>/mcp</code> bridge. The tool names are not written down anywhere &mdash; they are the resource name plus the action, derived from the same declaration that mounts the REST endpoints, so the two faces cannot drift apart.</p>
+    <p>The same five operations appear on webd&rsquo;s <code>/mcp</code> bridge as the tools <code>proxyd_routes.list</code>, <code>proxyd_routes.get</code>, <code>proxyd_routes.create</code>, <code>proxyd_routes.update</code>, and <code>proxyd_routes.delete</code> &mdash; for an operator pointing an MCP client at the instance. They are not on the agent socket: the ant in the container never sees them. The tool names are not written down anywhere either; they are the resource name plus the action, derived from the same declaration that mounts the REST endpoints, so the two faces cannot drift apart.</p>
 
     <p>Operators get the third face: <a href="../components/dashd.html">dashd</a> serves <code>/dash/proxyd/</code>, a page that lists the live table and takes an add or delete form. It calls the same REST endpoints over HTTP rather than touching the SQLite file, so proxyd stays the only writer and writes the one audit row, naming the operator dashd forwarded.</p>
 
@@ -135,7 +135,7 @@ export PROXYD_ROUTES_JSON='[{"path":"/api/","backend":"http://api:8080","auth":"
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/proxyd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-29">2026-07-29</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-06">2026-08-06</time>
       </div>
     </main>
 
