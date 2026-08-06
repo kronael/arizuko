@@ -227,15 +227,23 @@ func rollback(ctx context.Context, stores map[string]*store.Store, done []commit
 
 func cmdApply(args []string) {
 	if len(args) < 2 {
-		fmt.Println("usage: arizuko apply <instance> <manifest.yaml> [--force|-f]")
+		fmt.Println("usage: arizuko apply <instance> <manifest.yaml> [--force|-f] [--as-folder <folder>]")
 		os.Exit(1)
 	}
 	instance := args[0]
 	file := args[1]
 	force := false
-	for _, a := range args[2:] {
-		if a == "--force" || a == "-f" {
+	asFolder := ""
+	for i := 2; i < len(args); i++ {
+		switch args[i] {
+		case "--force", "-f":
 			force = true
+		case "--as-folder":
+			if i+1 >= len(args) {
+				die("Failed: --as-folder needs a folder")
+			}
+			i++
+			asFolder = args[i]
 		}
 	}
 	dataDir := mustInstanceDir(instance)
@@ -251,6 +259,20 @@ func cmdApply(args []string) {
 	docs, perr := parseDocs(file, data)
 	if perr != nil {
 		die("Failed: %v", perr)
+	}
+	if asFolder != "" {
+		// A retargeted manifest describes a DIFFERENT folder than the one it
+		// was exported from, so its checksum can never match this DB. Say so
+		// rather than letting the operator hit an opaque CAS rejection.
+		if !force {
+			die("Failed: --as-folder rewrites the manifest, so its checksum cannot match this instance. " +
+				"Re-run with --force once you have read the plan.")
+		}
+		src, rerr := retargetDocs(docs, asFolder)
+		if rerr != nil {
+			die("Failed: %v", rerr)
+		}
+		fmt.Printf("retargeting %s -> %s\n", src, asFolder)
 	}
 	// The missing-group rule runs across ALL documents before the first tx
 	// opens — a half-wired instance is worse than a refused restore. --force
