@@ -4544,7 +4544,7 @@ folders appear for existing users — a live authorization-behaviour change.
   `requireOperator` only tests for `**`, it does no per-folder visibility.
 - **Found:** specs/5 frontmatter audit; `5/32` demoted to `partial`, now shipped.
 
-## F6 — `5/K`'s backend contract claims more than `ant/` implements (2026-08-05, open)
+## F6 — `5/K`'s backend contract claims more than `ant/` implements (2026-08-05, open — 3 of 4 fixed)
 
 Four statements in `specs/5/K-ant-backend-codex.md` are not backed by the code:
 
@@ -4567,11 +4567,53 @@ Four statements in `specs/5/K-ant-backend-codex.md` are not backed by the code:
 - **Scope:** ant backend abstraction
 - **Affected:** all instances running ant
 - **Source:** ant/src/backend/claude.ts:443; ant/src/backend/codex.ts:323; ant/src/index.ts:444-445; ant/src/backend/index.ts:1,14,25; specs/5/K-ant-backend-codex.md:57-60
-- **Status:** open
-- **Fix:** four independent pieces — wire or drop `capabilities()`; make the
-  spec's claim match the two backends (or make `claude.ts` support it); add
-  `claude.test.ts`; document `ARIZUKO_BACKEND` in `EXTENDING.md` +
-  `reference/env.html`. Each is its own concern; do not bundle.
+- **Status:** open — items 2, 3 and 4 fixed in `cd6ebc0b`; item 1 is a
+  **proposal awaiting sign-off** (below).
+- **Fix (2, 3, 4):** `cd6ebc0b`. The spec no longer claims both backends
+  satisfy every field; `setModelLive` is now pinned by a test on BOTH sides
+  (`claude.test.ts` false, `codex.test.ts` true) so the divergence is a
+  recorded fact. `claude.test.ts` covers `normalize()` row-by-row against
+  `5/K`'s mapping table — deliberately not re-testing `claudeResultStatus`,
+  which `index.test.ts` already owns. `ARIZUKO_BACKEND` documented in
+  `ant/README.md` + `EXTENDING.md`. (`reference/env.html` is another agent's
+  lane this round and is NOT done.)
+
+### F6.1 — PROPOSAL (needs sign-off): delete `Caps` and four dead `Session` methods
+
+The audit called item 1 "wire or drop `capabilities()`". It cannot be wired as
+specced, and the reason generalizes past `capabilities()`:
+
+- `interrupt`, `sendUserMessage`, `setModel`, `setPermissionMode` have **zero
+  call sites** in `ant/src` outside the two backend implementations. Four of
+  `Caps`' eight fields exist to gate exactly those.
+- `5/K`'s worked example — *"no live interrupt → close+respawn"* — is what
+  `runQuery` does **unconditionally**. It always ends in `session.close()`;
+  continuation is always a fresh `spawn()` with `resume`/`resumeAt`. The
+  degraded path is the only path, so the capability check would gate nothing.
+- Building the undegraded half would add a **third** live-steering mechanism
+  beside the respawn loop and each backend's native wiring (claude's
+  `createIpcDrainHook` PostToolUse drain of `/run/ipc/input`; codex's
+  `turn/steer`) — the parallel second path root `CLAUDE.md` forbids.
+- `streaming` / `toolUse` have no branch to gate: a backend that cannot stream
+  cannot implement `events()`. The runtime's two real backend branches
+  (`resolveResumeSession`, MCP rendering) key on `backend.name()`, because they
+  are about one harness's id format and config format, not a capability.
+
+**Proposed:** delete `Caps`, `Backend.capabilities()`, and the four unused
+`Session` methods; the seam becomes `name()` + `spawn()` + `events()` +
+`close()`, which is what the runtime actually calls. `codex.ts`'s `turn/steer`
+and `turn/interrupt` implementations stay — they are reachable from inside the
+backend, which is where steering belongs.
+
+**Not shipped:** this is a contract change (`5/K` § "Where the seam sits", the
+`types.ts` interface, `codex.test.ts`), so it needs sign-off first per root
+`CLAUDE.md` "Redesigns need sign-off". `5/K` stays `partial` until then, and
+its § "`Caps` has no consumer" records the finding so nobody builds against
+`Caps` in the meantime.
+
+**Counter-option** if the answer is "wire it": that means first designing a
+live-steering call path in the runtime, which duplicates the two that work
+today — argue that case before the deletion is rejected.
 
 ## ✅ FIXED 2026-08-06 F7 — runed has no `audit_log` table at all (2026-08-05, FIXED)
 
