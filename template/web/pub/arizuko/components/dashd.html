@@ -116,7 +116,8 @@ export INSTANCE_NAME=demo
     <p>Admin pages (admin auth + CSRF):</p>
 
     <ul>
-      <li><code>/dash/routes/</code> &mdash; routes editor: list, create, edit, delete rules.</li>
+      <li><code>/dash/routes/</code> &mdash; routes editor: list, create, edit, delete rules. This is <a href="../components/routd.html">routd</a>&rsquo;s message-routing table &mdash; which folder an inbound message lands in.</li>
+      <li><code>/dash/proxyd/</code> &mdash; the reverse-proxy route table: which backend an inbound <em>URL</em> lands on. Lists the live rules and takes an add or delete form. Operator-only. dashd owns no SQL here &mdash; every read and write is an HTTP call to <a href="../components/proxyd.html">proxyd</a>&rsquo;s <code>/v1/proxyd_routes</code>, so proxyd stays the single writer and logs the one audit row against the operator dashd forwarded.</li>
       <li><code>/dash/groups/new</code> + <code>/dash/groups/{folder}/settings</code> &mdash; group create / settings / delete.</li>
       <li><code>/dash/me/secrets</code> &mdash; per-user capability token set, list, delete.</li>
       <li><code>/dash/me/env</code> &mdash; per-user model API keys (<code>ANTHROPIC_API_KEY</code> and the like), kept separate from capability tokens.</li>
@@ -125,13 +126,14 @@ export INSTANCE_NAME=demo
     </ul>
 
     <h2>The migration to /v1/*</h2>
-    <p>Today every page queries SQLite directly. The plan is to swap each read for a call to the sibling daemon that owns the table:</p>
+    <p>Most pages still query SQLite directly. The plan is to swap each read for a call to the sibling daemon that owns the table. <code>/dash/proxyd/</code> already works this way and is the shape the rest are heading for:</p>
 
     <ul>
       <li><code>/dash/groups/</code> &rarr; <code>routd/v1/groups</code> + <code>routd/v1/routes</code>.</li>
       <li><code>/dash/tasks/</code> &rarr; <code>timed/v1/tasks</code> (with a form POST for create).</li>
       <li><code>/dash/activity/</code> &rarr; <code>routd/v1/messages?limit=50&amp;order=desc</code>.</li>
       <li><code>/dash/profile/</code> &rarr; <code>onbod/v1/users/{sub}</code>.</li>
+      <li><code>/dash/proxyd/</code> &rarr; <code>proxyd/v1/proxyd_routes</code> &mdash; done.</li>
     </ul>
 
     <p>After the migration dashd holds an operator session token (issued by proxyd at OAuth login), forwards it as <code>Authorization: Bearer ...</code> on every <code>/v1/*</code> call, and stops touching <code>messages.db</code> at all.</p>
@@ -154,7 +156,7 @@ export INSTANCE_NAME=demo
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/dashd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-29">2026-07-29</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
       </div>
     </main>
 
