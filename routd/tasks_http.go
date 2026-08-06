@@ -12,7 +12,10 @@ import (
 // REST-specific identity, scope, and folder containment. Run-log readers remain
 // hand-rolled dashboard endpoints.
 
-// mountTasks uses {taskId} to match the shared handler's argument name.
+// mountTasks mounts resources.ScheduledTasksEndpoints verbatim — the SAME slice
+// deriveMCPTools and /openapi.json read, so the served routes, the agent tools
+// and the doc cannot drift. NEVER reintroduce an inline Endpoints literal here;
+// endpoints_source_test.go probes this mux's patterns to catch exactly that.
 func (s *Server) mountTasks(mux *http.ServeMux) {
 	// The gate checks coarse scope and folder; this checks the resolved task owner.
 	contain := func(c resreg.Caller, _ resreg.Action, target string) error {
@@ -24,12 +27,6 @@ func (s *Server) mountTasks(mux *http.ServeMux) {
 	// REST has no /root elevation; list-all rides the jwt_folder=="" claim (the
 	// handler's own branch), so pass elevated=false.
 	res := s.scheduledTasksResource(contain, false)
-	res.Endpoints = []resreg.Endpoint{
-		{Verb: "GET", Path: "/v1/tasks", Action: resreg.ActionList},
-		{Verb: "GET", Path: "/v1/tasks/{taskId}", Action: resreg.ActionGet},
-		{Verb: "PATCH", Path: "/v1/tasks/{taskId}", Action: tasksActionPatch},
-		{Verb: "DELETE", Path: "/v1/tasks/{taskId}", Action: tasksActionCancel},
-	}
 	res.Gate = s.tasksRESTGate
 	resreg.RegisterREST(mux, res, s.tasksRESTCaller)
 }

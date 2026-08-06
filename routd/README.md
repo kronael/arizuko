@@ -60,16 +60,19 @@ data arrives over HTTP (authd identity, runed session_log).
 
 `/openapi.json` advertises exactly what routd mounts over REST
 (`OpenAPIResources`, `server.go`): `routes`, `web_routes`, `acl`,
-`secrets`, `route_tokens`, `installed_packages`. `secrets` IS included
-but declares write-only endpoints (create + key-delete, no read op), so
-`enc_value` cannot leak through a convention `GET`;
-`installed_packages` declares only its two GETs. Omitted: `network_rules`
-(MCP-only), `groups` (routd serves the read twin, but the resource also
-declares a POST that dashd's SetupGroup owns — advertising it would emit
-a phantom endpoint), `acl_membership` (dashd-FS-managed), and
-`scheduled_tasks`, whose REST face routd mounts at `/v1/tasks` under an
-inline `Endpoints` override — the endpoints work but no generated client
-finds them (spec 5/17).
+`secrets`, `route_tokens`, `installed_packages`, `scheduled_tasks`.
+`secrets` IS included but declares write-only endpoints (create +
+key-delete, no read op), so `enc_value` cannot leak through a convention
+`GET`; `installed_packages` declares only its two GETs.
+`scheduled_tasks` is the one resource whose REST path is not
+`/v1/<name>` — it serves `/v1/tasks` because timed calls that prefix
+across the container boundary (`timed/dash.go`, and the fire loop's
+`/v1/tasks/due`, `/runlog`, `/{id}/reschedule`); its agent-only
+schedule/pause/resume verbs are `MCPOnly`, so the doc omits them and
+mounts nothing for them. Omitted: `network_rules` (MCP-only), `groups`
+(routd serves the read twin, but the resource also declares a POST that
+dashd's SetupGroup owns — advertising it would emit a phantom endpoint),
+`acl_membership` (dashd-FS-managed).
 `acl_membership` exposes exactly one face-pair: `unpair` (MCP) and
 `DELETE /v1/acl_membership` (REST), both scoped to `added_by='pairing'`.
 Writing that edge is not an endpoint at all — it happens only when a

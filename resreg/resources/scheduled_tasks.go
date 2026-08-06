@@ -24,16 +24,31 @@ type ScheduledTasksRow struct {
 }
 
 // ScheduledTasksEndpoints is the single owner of the scheduled_tasks endpoint
-// set that drives the agent's task tools (routd scheduled_tasks_resource.go
-// references it). schedule/pause/resume are custom POST verbs and cancel is a
-// body-addressed DELETE, so the real faces diverge from the PK-CRUD convention.
-// (The operator /v1/tasks REST CRUD is a separate mount that overrides these.)
+// set: routd's mountTasks mounts it verbatim, deriveMCPTools reads it for the
+// agent's task tools, and openapi.go emits one operation per non-MCPOnly entry.
+// One slice, three consumers — routd must never override it (BUGS F21: an inline
+// literal in mountTasks mounted /v1/tasks* while this said /v1/scheduled_tasks*,
+// so /openapi.json advertised four endpoints nothing served and hid four it did).
+//
+// The REST path is /v1/tasks, NOT /v1/<name>. timed calls GET /v1/tasks
+// (timed/dash.go) and the hand-rolled fire loop shares the prefix
+// (/v1/tasks/due, /runlog, /{id}/reschedule — timed/split.go), both across the
+// container boundary; renaming half of one control surface is the drift, not
+// the fix. The name still IS the wire identity everywhere else: the MCP tool
+// prefix and every emitted operationId carry `scheduled_tasks`.
+//
+// schedule/pause/resume are MCPOnly: the agent has a tool, the operator drives
+// them through PATCH {status} and dashd's create form, so no REST face exists.
+// RegisterREST and openapi.go both skip MCPOnly; deriveMCPTools does not.
+// get/patch are the mirror case — REST-only, no MCPDoc entry, hence no tool.
 var ScheduledTasksEndpoints = []resreg.Endpoint{
-	{Verb: "POST", Path: "/v1/scheduled_tasks", Action: resreg.Action("schedule")},
-	{Verb: "POST", Path: "/v1/scheduled_tasks/pause", Action: resreg.Action("pause")},
-	{Verb: "POST", Path: "/v1/scheduled_tasks/resume", Action: resreg.Action("resume")},
-	{Verb: "DELETE", Path: "/v1/scheduled_tasks", Action: resreg.Action("cancel")},
-	{Verb: "GET", Path: "/v1/scheduled_tasks", Action: resreg.ActionList},
+	{Action: resreg.Action("schedule"), MCPOnly: true},
+	{Action: resreg.Action("pause"), MCPOnly: true},
+	{Action: resreg.Action("resume"), MCPOnly: true},
+	{Verb: "GET", Path: "/v1/tasks", Action: resreg.ActionList},
+	{Verb: "GET", Path: "/v1/tasks/{taskId}", Action: resreg.ActionGet},
+	{Verb: "PATCH", Path: "/v1/tasks/{taskId}", Action: resreg.Action("patch")},
+	{Verb: "DELETE", Path: "/v1/tasks/{taskId}", Action: resreg.Action("cancel")},
 }
 
 // ScheduledTasksMCPNames maps each action to the flat tool name the live agent

@@ -25,12 +25,13 @@ package routd
 //     found" validation ahead of the containment decision. The cap runs before any
 //     store write and rolls the tx back on denial.
 //
-// The operator REST face (/v1/tasks CRUD) now ALSO rides this handler — the
-// 5/16 REST fold: mountTasks REST-mounts list/get/patch/cancel with a
+// The operator REST face (/v1/tasks CRUD) ALSO rides this handler — the 5/16
+// REST fold: mountTasks REST-mounts list/get/patch/cancel with a
 // tasks:read/write + JWT-folder Gate + Caller injected (verify → hasAnyScope +
-// ownsFolder), exactly as web_routes folded its REST twin. The Endpoints on the
-// resource literal below still exist only to drive deriveMCPTools (the agent
-// tools); the REST mount overrides them with the /v1/tasks CRUD verbs. The
+// ownsFolder), exactly as web_routes folded its REST twin. Both faces read ONE
+// resources.ScheduledTasksEndpoints: the REST verbs carry a Verb+Path, the
+// agent-only schedule/pause/resume carry MCPOnly, and get/patch carry no MCPDoc
+// entry. mountTasks mounts that slice verbatim — no override (BUGS F21). The
 // fire-loop endpoints (/v1/tasks/due, /runs, /{id}/reschedule, run-logs) stay
 // hand-rolled in tasks_http.go — they are timed's internal control plane, not
 // resource CRUD.
@@ -75,9 +76,9 @@ const (
 // REST-only `patch` verb has no entry (no agent tool).
 var tasksMCPNames = resources.ScheduledTasksMCPNames
 
-// scheduledTasksResource is the single renderer for the agent's five task tools.
-// Endpoints exist only to drive deriveMCPTools (Action ∩ MCPDoc) — the REST face
-// (/v1/tasks) is NOT mounted from this resource (see file header). Store is a
+// scheduledTasksResource is the single renderer for BOTH faces: deriveMCPTools
+// reads Endpoints ∩ MCPDoc for the agent's five task tools, RegisterREST mounts
+// the same slice's non-MCPOnly entries for /v1/tasks. Store is a
 // store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
 // contain is the per-face target-containment seam (auth.Authorize on the target
 // for the agent, ownsFolder for REST) closed into the handler — see containFn.

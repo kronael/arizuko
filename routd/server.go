@@ -243,8 +243,12 @@ func (s *Server) recentSessions(folder string, n int) []core.SessionRecord {
 // network_allow/deny/list. secrets declares explicit write-only Endpoints (POST
 // create + key-DELETE, no read), so OpenAPI emits exactly those — a sealed value
 // can't leak through a convention GET (spec 5/8 §"Secret safety").
+// scheduled_tasks is advertised: its four REST faces live on /v1/tasks (see
+// resources.ScheduledTasksEndpoints for why the path is not /v1/<name>) and its
+// agent-only schedule/pause/resume verbs are MCPOnly, so nothing phantom emits.
 var OpenAPIResources = []string{
 	"routes", "web_routes", "acl", "secrets", "route_tokens", "installed_packages",
+	"scheduled_tasks",
 }
 
 // Handler builds the routed mux. GET /health and /openapi.json are public;
