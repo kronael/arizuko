@@ -88,12 +88,36 @@ var serviceGrants = map[string][]string{
 	// routd.db, so like routes:read this is a subset of reach it holds, not new
 	// authority — what it buys is one mutation moving OFF the direct-DB path.
 	//
-	// The ceiling is exactly these three. dashd proxies and reads; it does not
+	// audit:read is the READ of every daemon's own audit_log, added so
+	// /dash/audit/ can federate routd's, runed's and authd's trails through
+	// their APIs (spec 5/I, BUGS F29). Before it, runed's run.hold/run.kill
+	// rows and authd's login rows were reachable only with sqlite3 on the box:
+	// an operator who killed a run could not see who did.
+	//
+	// This one is NOT a subset of reach dashd already holds — routes:read/write
+	// were, because dashd is FS-mounted on routd.db, but it is mounted on
+	// NEITHER runed.db NOR auth.db. It is therefore new authority on the token
+	// authority itself, and it was audited as such rather than assumed:
+	// authd's params_summary had exactly one writer (daemon.start's
+	// {dsn, serving_keys, service_subs}), the two counts are len() values, the
+	// DSN is now redacted at the writer (audit.redactRE) and scrubbed from
+	// history (authd migration 0007), and no signing key, refresh token or
+	// service secret is reachable — audit.Query selects from audit_log and
+	// names no other table.
+	//
+	// The scope is unreachable by any human bearer, which is what makes it
+	// operator-only rather than merely operator-intended: a user token's scope
+	// list holds FOLDER GLOBS, and auth.scopeMatches rejects any held value
+	// without a colon, so neither `acme/**` nor an operator's `**` satisfies
+	// it. dashd is the only holder, and its /dash/audit/ page is
+	// requireOperator-gated.
+	//
+	// The ceiling is exactly these four. dashd proxies and reads; it does not
 	// originate work (runs:run), speak as a channel (messages:write), or read
 	// credentials (secrets:read, grants:read). authd/service_dashd_test.go pins
-	// both halves — the three that must be here and the count, so a fourth
+	// both halves — the four that must be here and the count, so a fifth
 	// scope of any name fails there before it ships.
-	"service:dashd": {"runs:kill", "routes:read", "routes:write"},
+	"service:dashd": {"runs:kill", "routes:read", "routes:write", "audit:read"},
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is
@@ -131,6 +155,7 @@ func (s *server) mux() *http.ServeMux {
 	m.HandleFunc("POST /v1/refresh", s.handleRefresh)
 	m.HandleFunc("GET /v1/identities/{sub}", s.handleIdentity)
 	m.HandleFunc("GET /health", s.handleHealth)
+	s.mountAudit(m)
 	return m
 }
 

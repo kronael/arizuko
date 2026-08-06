@@ -25,7 +25,7 @@ func TestEveryServiceGrantIsNonEmpty(t *testing.T) {
 }
 
 // dashd proxies the operator UI's actions rather than writing other daemons'
-// tables, and reads what it renders. Three scopes, each pinned as NECESSARY:
+// tables, and reads what it renders. Four scopes, each pinned as NECESSARY:
 //
 //   - runs:kill — POST /v1/runs/stop (runed/server.go), the /dash/runed/ kill
 //     button. The whapd pair endpoints are not scope-gated and proxyd authorizes
@@ -40,6 +40,21 @@ func TestEveryServiceGrantIsNonEmpty(t *testing.T) {
 //     shipped (routd DB.SetEngagementAudited; handleEngagementSet's ownsFolder
 //     check on the live window's owner), so the scope is earned rather than
 //     merely convenient.
+//   - audit:read — GET /v1/audit on routd, runed AND authd, the three sources
+//     /dash/audit/ federates (spec 5/I, BUGS F29). Unlike the routes:* pair
+//     this is NOT a subset of reach dashd already holds: dashd is FS-mounted on
+//     routd.db but on neither runed.db nor auth.db, so it is genuinely new
+//     authority — on the token authority, no less. What earns it is that the
+//     column it reaches was audited rather than assumed. authd's params_summary
+//     had exactly one writer (daemon.start's {dsn, serving_keys, service_subs});
+//     the counts are len() values, the DSN is redacted at the writer
+//     (audit.redactRE) and scrubbed from history (authd migration 0007), and
+//     audit.Query names audit_log and no other table — signing_keys and
+//     refresh_tokens are not reachable through it.
+//
+// audit:read is also unreachable by any human bearer, so it cannot widen a USER
+// session even if one were somehow minted with it: a user token's scope list
+// holds folder globs, and auth.scopeMatches rejects a held value with no colon.
 //
 // The upper bound is the half that matters, so it is asserted TWICE and neither
 // half was weakened to let routes:write in.
@@ -52,14 +67,15 @@ func TestEveryServiceGrantIsNonEmpty(t *testing.T) {
 //     widest read (ListRouteTokens) never selects the token value.
 //   - By COUNT, which is the stronger bound and closes the gap that letting
 //     routes:write off the named list would otherwise open: the grant is exactly
-//     these three, so a FOURTH scope of ANY name — including one nobody thought
-//     to blacklist — fails here before it ships.
+//     these four, so a FIFTH scope of ANY name — including one nobody thought
+//     to blacklist — fails here before it ships. This bound has now caught two
+//     additions (routes:write, audit:read) and forced each to state its case.
 func TestServiceDashdIsScopedToWhatItProxiesAndReads(t *testing.T) {
 	g := serviceGrants["service:dashd"]
 	if len(g) == 0 {
 		t.Fatal("service:dashd has no grant — /dash/runed/'s kill button 403s")
 	}
-	want := []string{"runs:kill", "routes:read", "routes:write"}
+	want := []string{"runs:kill", "routes:read", "routes:write", "audit:read"}
 	for _, needed := range want {
 		if !slices.Contains(g, needed) {
 			t.Errorf("service:dashd grant missing %q, got %v", needed, g)

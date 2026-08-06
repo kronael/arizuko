@@ -115,10 +115,13 @@ func main() {
 
 	srv := runed.NewServer(mgr, db, verify)
 	mux := srv.Handler().(*http.ServeMux)
-	// runed owns no manifest-addressable config rows (spec 5/8 catalog):
-	// its tables are runtime (spawns / session_log / mcp_tokens). Empty
-	// list → zero paths, but still emits the doc for aggregator uniformity.
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("runed", []string{}))
+	// runed owns no manifest-addressable CONFIG rows (spec 5/8 catalog): its
+	// tables are runtime (spawns / session_log). `audit` is the exception and
+	// not a counter-example — it is not manifest-addressable either (its
+	// catalog decl carries no DB subsystem, so Export/Apply never see it), it
+	// is simply the one runtime table runed publishes a read for. Advertising
+	// it here is what makes GET /v1/audit discoverable rather than folklore.
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("runed", []string{"audit"}))
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
 	}

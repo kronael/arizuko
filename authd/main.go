@@ -111,7 +111,10 @@ func main() {
 	} else {
 		slog.Error("oauth /auth/* not mounted: config load failed; human login will 404 while health stays green", "err", cerr)
 	}
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("authd", []string{}))
+	// authd's token endpoints are hand-rolled and carry no resreg RowType, so
+	// they stay out of the doc; `audit` is the one resource it registers, and
+	// advertising it is what makes GET /v1/audit discoverable (BUGS F29).
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("authd", []string{"audit"}))
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
 	}

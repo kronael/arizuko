@@ -571,5 +571,6 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	groups := s.groupsPostBuild(t.folder, callerSub, authorize, visible, callerID)
 	membership := s.membershipPostBuild(t.folder, callerSub, authorize, visible)
 	packages := s.installedPackagesPostBuild(t.folder, callerSub, authorize, visible)
-	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, groups, membership, packages)
+	auditTools := s.auditPostBuild(t.folder, callerSub, authorize, visible)
+	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, groups, membership, packages, auditTools)
 }

@@ -51,6 +51,7 @@ func routdResources(s *Server) []routdResource {
 		{"groups", s.groupsResource(nil).Endpoints, resources.GroupsAgentEndpoints},
 		{"secrets", s.secretsResource().Endpoints, resources.SecretsEndpoints},
 		{"installed_packages", s.installedPackagesResource().Endpoints, resources.InstalledPackagesEndpoints},
+		{"audit", s.auditResource().Endpoints, resources.AuditEndpoints},
 	}
 }
 

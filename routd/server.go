@@ -255,7 +255,7 @@ func (s *Server) recentSessions(folder string, n int) []core.SessionRecord {
 // actions MCPOnly, so it has no REST face to advertise).
 var OpenAPIResources = []string{
 	"routes", "web_routes", "acl", "secrets", "route_tokens", "installed_packages",
-	"scheduled_tasks", "groups",
+	"scheduled_tasks", "groups", "audit",
 }
 
 // Handler builds the routed mux. GET /health and /openapi.json are public;
@@ -273,6 +273,7 @@ func (s *Server) Handler() http.Handler {
 	// install/upgrade/remove lifecycle writes host files and restarts sidecars,
 	// so it stays the `arizuko packages` CLI (packages_resource.go header).
 	s.mountInstalledPackages(mux)
+	s.mountAudit(mux)
 	// REST read/manage surface — the twin of routd's in-process MCP StoreFns
 	// (the agent reaches the same data over the socket, humans/tools over HTTP)
 	mux.HandleFunc("GET /v1/messages/inspect", s.handleInspectMessages)

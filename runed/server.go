@@ -42,6 +42,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/runs/{run_id}", s.handleRunKill)
 	mux.HandleFunc("GET /v1/sessions", s.handleSessions)
 	mux.HandleFunc("GET /v1/sessions/recent", s.handleRecentSessions)
+	s.mountAudit(mux)
 	return mux
 }
 
