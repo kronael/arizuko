@@ -37,6 +37,65 @@ tracked rather than swept.
   operator-visible page, and keep it there — or delete the block and point at
   `dashd/README.md`'s route list, which IS maintained, rather than keeping a
   second inventory that drifts.
+## F40 — four daemons advertise resources with no doc-vs-mux guard; wiring them needs a mux extraction each (2026-08-06, PROPOSAL — needs sign-off)
+
+Scoping `5/16`'s remaining "one owner + federation" half. The shape single-
+sourcing that section specifies is **already done**: every mounted resource in
+every daemon imports its canonical `resources.<X>Endpoints`, and
+`grep -rn "Endpoints: \[\]resreg.Endpoint{" --include=*.go . | grep -v resreg/resources/`
+returns nothing — there is no inline endpoint literal left to drift. The spec's
+line 145 ("today `routd/*_resource.go` restates `Name`/`Table`") is stale for
+`Endpoints`; `Name` is still a literal at each mount site, now guarded by
+`TestResourceEndpoints_SingleSource` resolving through `resreg.Lookup(mounted.Name)`
+(`f679d7ba`).
+
+What is NOT done is coverage. Eight daemons call `resreg.OpenAPIHandler`; six
+advertise at least one resource:
+
+| daemon | advertises | doc↔mux guard |
+| --- | --- | --- |
+| `routd` | 9 | yes |
+| `timed` | 0 | yes (anchored on a foreign resource) |
+| `onbod` | `onboarding`, `onboarding_gates`, `invites` | **no** |
+| `authd` | `audit`, `signing_keys`, `sessions` | **no** |
+| `proxyd` | `proxyd_routes` | **no** |
+| `runed` | `audit` | **no** |
+| `webd`, `dashd` | 0 | doc-shape only (`webd/openapi_test.go`) |
+
+`F21`, `F27` and `F32` were all this class, each invisible until something
+derived both sides. `resreg/resregtest` (`7fad6038`) now holds the assertion
+pair; `routd` and `timed` call it. The remaining four cannot: **only `routd` is
+an importable package.** `onbod`, `proxyd`, `authd`, `webd`, `dashd`,
+`runed/cmd/runed` and `timed` are all `package main`, so no neutral test can
+reach their muxes — the guard has to be called from inside each daemon, and each
+needs its mux reachable from a test first.
+
+- **Severity:** medium (an advertised path that 404s is invisible to every
+  operator tool and every generated client; four daemons are exposed)
+- **Scope:** onbod, authd, proxyd, runed — one mux extraction each
+- **Source:** onbod/main.go:137 (mux built inline in `main`);
+  proxyd/main.go:386 (`handler()` returns the middleware-wrapped
+  `http.Handler`, not the `*http.ServeMux` the probe needs);
+  authd/main.go:118 (`srv.mux()` exists at authd/http.go:148 but
+  `/openapi.json` is registered outside it, in `main`);
+  runed/cmd/runed/main.go:124 (same shape — registered in `main`, not in
+  `runed.Server.Handler`)
+- **Status:** PROPOSAL — four production files across four daemons is
+  cross-cutting, and `authd/http.go` has a concurrent editor. Not shipped on
+  agent authority.
+- **Fix:** per daemon, extract the mux construction (including its
+  `/openapi.json` line) into a named constructor `main` calls, exactly as
+  `newTimedMux` was extracted for `F32`; then one test calling
+  `resregtest.AssertServesWhatItAdvertises(t, "<daemon>", <itsRealList>, mux)`
+  plus `AssertServesNoneOf` as the anchor. No new list — both arguments are the
+  production values.
+- **Second instance of the copy defect, same fix:**
+  `authd/signing_keys_resource_test.go:79-80` hand-copies
+  `[]string{"audit", "signing_keys", "sessions"}` under the comment "the same
+  resource list main.go passes to OpenAPIHandler", then emits from that copy and
+  asserts against it — it never reads authd's real list or its mux. Correct
+  today; a copy by construction, which is how `daemonOwnership` drifted four
+  daemons out of date. Folds into the same extraction.
 
 ## F37 — two dispatch tests fail under whole-suite load, so the suite cannot gate a release (2026-08-06, open)
 
