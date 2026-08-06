@@ -133,6 +133,12 @@ never sees the conversation.
   `--network <egress-net>`, set `HTTP(S)_PROXY`.
 - **The harness is opaque to the envelope.** `runed` writes JSON to
   stdin and drains stdout/stderr — it must stay harness-agnostic.
+- **Graceful shutdown — containers outlive the accept loop.** On
+  SIGTERM/SIGINT runed stops accepting `POST /v1/runs`, **detaches**
+  (does not kill) live containers so the agent can still finish against
+  routd's socket, waits `RUNED_SHUTDOWN_GRACE`, then exits. Killing
+  in-flight turns to exit faster is the wrong trade — the deadline
+  injection already wraps them up.
 
 ### ant wraps a harness, it never is one
 
@@ -159,13 +165,6 @@ directly (`ant/src/claude.ts`). There is no in-process backend
 abstraction: a one-implementation interface duplicated a genericity the
 protocol already provides, and its selection env var never reached the
 container. No spec documents the ant protocol on its own yet.
-
-- **Graceful shutdown — containers outlive the accept loop.** On
-  SIGTERM/SIGINT runed stops accepting `POST /v1/runs`, **detaches**
-  (does not kill) live containers so the agent can still finish against
-  routd's socket, waits `RUNED_SHUTDOWN_GRACE`, then exits. Killing
-  in-flight turns to exit faster is the wrong trade — the deadline
-  injection already wraps them up.
 
 ## Sub-agent spawning (via routd, not a runed endpoint)
 
