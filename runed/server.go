@@ -46,25 +46,28 @@ func (s *Server) Handler() http.Handler {
 }
 
 // authz verifies the bearer token and (when a scope is required) checks the
-// token carries it. Returns the token's arz/folder claim + ok. verify==nil
-// is open (single-tenant / local-dev): ok=true, folder="" (no folder bound).
-func (s *Server) authz(w http.ResponseWriter, r *http.Request, needScope string) (folder string, ok bool) {
+// token carries it. Returns the token's subject + arz/folder claim + ok. The
+// sub is what the run-slot audit rows attribute to (runed/audit.go); every
+// caller takes it so no handler can record a kill as anonymous. verify==nil
+// is open (single-tenant / local-dev): ok=true, sub="" (audited as "system"),
+// folder="" (no folder bound).
+func (s *Server) authz(w http.ResponseWriter, r *http.Request, needScope string) (sub, folder string, ok bool) {
 	if s.verify == nil {
-		return "", true
+		return "", "", true
 	}
-	_, scope, folder, err := s.verify.Verify(r)
+	sub, scope, folder, err := s.verify.Verify(r)
 	if err != nil {
 		writeErr(w, 401, "unauthorized", err.Error())
-		return "", false
+		return "", "", false
 	}
 	if needScope != "" {
 		res, verb, _ := strings.Cut(needScope, ":")
 		if !auth.HasScope(scope, res, verb) {
 			writeErr(w, 403, "forbidden", "missing scope "+needScope)
-			return "", false
+			return "", "", false
 		}
 	}
-	return folder, true
+	return sub, folder, true
 }
 
 // ownsFolder reports whether a token scoped to tokenFolder may act on a run in
@@ -84,7 +87,7 @@ func ownsFolder(tokenFolder, target string) bool {
 // check (not a bare bearer) is the gate so a stray agent/user token that
 // reaches it cannot start arbitrary runs (spec 5/P § Auth).
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
-	folder, ok := s.authz(w, r, "runs:run")
+	_, folder, ok := s.authz(w, r, "runs:run")
 	if !ok {
 		return
 	}
@@ -121,7 +124,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 // pause another tenant's folder. Releasing goes through the existing DELETE
 // /v1/runs/{run_id} (runs:kill), not a second route.
 func (s *Server) handleHold(w http.ResponseWriter, r *http.Request) {
-	folder, ok := s.authz(w, r, "runs:run")
+	sub, folder, ok := s.authz(w, r, "runs:run")
 	if !ok {
 		return
 	}
@@ -139,6 +142,8 @@ func (s *Server) handleHold(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, err := s.mgr.Hold(r.Context(), req.Folder, req.Reason)
+	s.auditRunSlot(r.Context(), sub, actionRunHold, string(req.Folder), out.RunID,
+		holdParams(req.Reason, out.Busy), err)
 	if err != nil {
 		writeErr(w, 503, "hold_failed", err.Error())
 		return
@@ -150,7 +155,7 @@ func (s *Server) handleHold(w http.ResponseWriter, r *http.Request) {
 // live spawn and kill it. Gated on runs:kill (same scope as DELETE-by-run_id).
 // killed=false is the no-active-container case; routd renders gated's text.
 func (s *Server) handleRunStop(w http.ResponseWriter, r *http.Request) {
-	folder, ok := s.authz(w, r, "runs:kill")
+	sub, folder, ok := s.authz(w, r, "runs:kill")
 	if !ok {
 		return
 	}
@@ -168,6 +173,7 @@ func (s *Server) handleRunStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	runID, killed, err := s.mgr.StopFolder(req.Folder)
+	s.auditRunSlot(r.Context(), sub, actionRunKill, req.Folder, runID, killParams(killed), err)
 	if err != nil {
 		writeErr(w, 500, "kill_failed", err.Error())
 		return
@@ -176,7 +182,7 @@ func (s *Server) handleRunStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
-	folder, ok := s.authz(w, r, "")
+	_, folder, ok := s.authz(w, r, "")
 	if !ok {
 		return
 	}
@@ -201,29 +207,36 @@ func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRunKill(w http.ResponseWriter, r *http.Request) {
-	folder, ok := s.authz(w, r, "runs:kill")
+	sub, folder, ok := s.authz(w, r, "runs:kill")
 	if !ok {
 		return
 	}
 	runID := r.PathValue("run_id")
-	// A folder-scoped token may only kill its own subtree's runs; resolve the
-	// run's folder first. Root / service:routd (folder="") skips the lookup.
-	if folder != "" {
-		sp, err := s.db.GetSpawn(runID)
-		if err == ErrNotFound {
-			writeErr(w, 404, "unknown_run", "no such run")
-			return
-		}
-		if err != nil {
-			writeErr(w, 500, "store_error", err.Error())
-			return
-		}
-		if !ownsFolder(folder, sp.Folder) {
-			writeErr(w, 404, "unknown_run", "no such run") // don't leak other folders' runs
-			return
-		}
+	// Resolve the run first, for two reasons: a folder-scoped token may only
+	// kill its own subtree, and the audit row records WHICH folder's slot this
+	// freed. Unconditional — root / service:routd used to skip it, but then the
+	// path that drives every operator kill was the one whose row had no folder.
+	// Kills are operator intent, not per-turn traffic, so the extra SELECT
+	// costs nothing; Manager.Kill re-reads the row anyway.
+	sp, err := s.db.GetSpawn(runID)
+	if err == ErrNotFound {
+		writeErr(w, 404, "unknown_run", "no such run")
+		return
 	}
-	err := s.mgr.Kill(runID)
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	if !ownsFolder(folder, sp.Folder) {
+		writeErr(w, 404, "unknown_run", "no such run") // don't leak other folders' runs
+		return
+	}
+	// A kill only stops something when the run is still live; an already-terminal
+	// run is an idempotent no-op 200 (Manager.Kill) and leaves the spawns row
+	// untouched, so killed=false is the fact the row has to carry itself.
+	killed := sp.State == "running" || sp.State == "queued"
+	err = s.mgr.Kill(runID)
+	s.auditRunSlot(r.Context(), sub, actionRunKill, sp.Folder, runID, killParams(killed && err == nil), err)
 	if err == ErrNotFound {
 		writeErr(w, 404, "unknown_run", "no such run")
 		return
@@ -236,7 +249,7 @@ func (s *Server) handleRunKill(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
-	folder, ok := s.authz(w, r, "sessions:read")
+	_, folder, ok := s.authz(w, r, "sessions:read")
 	if !ok {
 		return
 	}
@@ -269,7 +282,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 // arz/folder claim when present; routd's service token (folder="") honors
 // the ?folder= query param.
 func (s *Server) handleRecentSessions(w http.ResponseWriter, r *http.Request) {
-	folder, ok := s.authz(w, r, "sessions:read")
+	_, folder, ok := s.authz(w, r, "sessions:read")
 	if !ok {
 		return
 	}

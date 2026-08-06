@@ -28,10 +28,11 @@ in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
 ## Tables owned
 
 `runed.db` (separate from routd's `routd.db`): `spawns`, `session_log`,
-`spawn_logs`, `mcp_tokens`, `circuit_breaker` — runtime execution state
-with no home in routd. Migrations in `runed/migrations/`. These are
-runtime tables, not manifest-addressable config, so `/openapi.json`
-exposes zero resource paths (emitted only for aggregator uniformity).
+`spawn_logs`, `mcp_tokens`, `circuit_breaker`, `audit_log` — runtime
+execution state with no home in routd. Migrations in
+`runed/migrations/`. These are runtime tables, not manifest-addressable
+config, so `/openapi.json` exposes zero resource paths (emitted only for
+aggregator uniformity).
 
 ## Entry points
 
@@ -82,10 +83,28 @@ Metrics emitted when `METRICS_ENABLED=true`:
 Spans: `container_spawn`, `cross_daemon`.
 Spec: `specs/5/O-observability.md`.
 
+### Audit trail
+
+runed writes `audit_log` rows into its OWN `runed.db` (migration `0005`);
+each daemon owns and migrates its own audit table, and correlation across
+them is `turn_id` (spec `5/I`). Two actions, category `agent`, surface
+`rest`:
+
+- `run.hold` — `POST /v1/holds` claimed (or was refused) a folder's run slot
+- `run.kill` — `DELETE /v1/runs/{run_id}` or `POST /v1/runs/stop`
+
+Both name the caller (`actor` = the bearer's JWT sub, `actor_sub` = the
+bare principal). **A turn dispatch writes no audit row**: the `spawns` row
+already carries kind/state/outcome/exit_code/timings and dashd renders it,
+so a row per turn would duplicate it at turn volume. What `spawns` never
+records is who asked — and a busy hold, or a kill that found nothing live,
+writes no `spawns` row at all. See `runed/audit.go`.
+
 ## Files
 
 - `cmd/runed/main.go` — daemon wiring, verifier/broker bootstrap, shutdown
 - `server.go` — HTTP surface + bearer/scope gate
+- `audit.go` — the run-slot audit renderer (what runed records, and why not turns)
 - `manager.go` — Manager: run lifecycle, concurrency, queue, circuit breaker
 - `runtime.go` — Runtime interface (Run, Kill); RunSpec
 - `docker.go` — dockerRuntime: spawn / steer / kill (ExternalMCP)

@@ -5,10 +5,17 @@ depends: [17-openapi-mcp]
 
 # specs/5/I — per-tool-call logging
 
-> **Status (2026-08-05).** Partial. Layer A is not "every daemon": `runed`
-> declares no `audit_log` table in its migrations and emits no audit rows at
-> all, so its state-changing `POST /v1/runs` and `POST /v1/holds` — spawning a
-> container and claiming a folder's run slot — leave no trail. BUGS `F7`.
+> **Status (2026-08-06).** Partial. `runed` now owns an `audit_log`
+> (migration `0005`) and emits on the run-slot calls — `run.hold` (POST
+> `/v1/holds`) and `run.kill` (DELETE `/v1/runs/{id}`, POST `/v1/runs/stop`) —
+> each naming the caller. Per-turn dispatch deliberately writes NO row: the
+> `spawns` row is already that record (see `runed/audit.go`; PLAN.md § SKIP).
+> Still open before this ships: **denied** runed calls are unrecorded (an
+> `authz.deny` gate, uniform across every endpoint — not a kills-only slice);
+> no operator-facing page under `template/web/pub/` describes the audit trail;
+> `dashd` renders `spawns` but no `audit_log` view, so the rows are
+> `sqlite3`-only; and Open question 1 (redaction regex, 1 KB-cap encoding)
+> is still unpinned. BUGS `F7`.
 
 > **Shipped 2026-06-14.** Layer A: `audit_log` (params_summary,
 > duration_ms, turn_id, surface, redaction) emitted in-tx via
@@ -91,6 +98,14 @@ for both layers. `audit_log` carries the same columns plus `id` and
 - **`audit_log` is per-daemon.** Each daemon owns and migrates its own DB
   and its own audit table (`5/E`, `5/P`); correlation across them is the
   `turn_id`, not a shared table.
+- **A table that is already the record is not audited twice.** Where a
+  mutation's own row carries everything an audit row would — and more —
+  the audit row is noise at the same volume. That is why `messages` is
+  skipped, and why `runed` audits who claimed or freed a folder's run
+  slot but writes nothing per turn: `spawns` holds kind, state, outcome,
+  exit code and every timestamp, and `dashd` renders it. What such a
+  table never holds is **who asked**, so the audit row's content is the
+  caller, and the calls worth one are the ones expressing intent.
 
 ## Open questions
 

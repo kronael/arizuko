@@ -199,9 +199,8 @@ channel:
   route_token.revoke     store.RevokeRouteToken
 
 agent:
-  container.spawn        container.Run launches docker container
-  container.exit         container.Run returns (with exit_code)
-  container.kill         explicit kill (timeout or operator stop)
+  run.hold               runed POST /v1/holds claims a folder's run slot
+  run.kill               runed DELETE /v1/runs/{id} or POST /v1/runs/stop
   turn.start             session_log row inserted (turn begins)
   turn.end               turn_results row inserted (turn ends with status)
   mcp.tool.invoke        MCP tool call processed (one row per state-change call)
@@ -275,9 +274,8 @@ will drift; the function name is the anchor).
 | channel   | channel.deregister  | inverse                                                                                    | `channels/<jid>`        | operator     | adapter binding                                          |
 | channel   | route_token.mint    | `store.InsertRouteToken`                                                                   | `route_tokens/<hash>`   | operator     | public chat link issuance                                |
 | channel   | route_token.revoke  | `store.RevokeRouteToken`                                                                   | `route_tokens/<hash>`   | operator     | revocation                                               |
-| agent     | container.spawn     | `container.Run` (start)                                                                    | `containers/<name>`     | gateway      | sandbox lifecycle                                        |
-| agent     | container.exit      | `container.Run` (end, exit-code in params)                                                 | `containers/<name>`     | gateway      | sandbox lifecycle                                        |
-| agent     | container.kill      | `container.StopContainerArgs` invocation                                                   | `containers/<name>`     | gateway      | sandbox lifecycle                                        |
+| agent     | run.hold            | `runed.Server.handleHold`                                                                  | `runs/<run_id>`         | operator     | who paused a folder, and why                             |
+| agent     | run.kill            | `runed.Server.handleRunKill` / `handleRunStop`                                             | `runs/<run_id>`         | operator     | who stopped a run (spawns records neither)               |
 | agent     | turn.start          | `store.LogSession`                                                                         | `sessions/<id>`         | gateway      | conversational turn boundary                             |
 | agent     | turn.end            | `store.LogTurnResult`                                                                      | `sessions/<id>`         | gateway      | conversational turn boundary                             |
 | agent     | mcp.tool.invoke     | `ipc.ServeMCP` emitSys (every state-change tool)                                           | `mcp/<tool>`            | agent        | every state-change MCP call                              |
@@ -288,7 +286,9 @@ will drift; the function name is the anchor).
 | scheduler | task.complete       | `timed/main.go` SET status IN ('active','completed')                                       | `scheduled_tasks/<id>`  | cron         | per-fire result                                          |
 | scheduler | task.error          | `timed/main.go` error path                                                                 | `scheduled_tasks/<id>`  | cron         | failed fires                                             |
 
-**Count: 53 distinct events** (covers the user's ≥40 floor).
+**Count: 60 distinct events** (covers the ≥40 floor). Counted from the
+table above, which had drifted past the stated 53 before runed's rows
+landed.
 
 ### SKIP (documented gaps)
 
@@ -299,6 +299,19 @@ will drift; the function name is the anchor).
   and the value is zero (the row itself is the record).
 - **`messages.status` updates** (sent/delivered) — same rationale.
   These are operational state on a row that's already its own log.
+- **container spawn / exit** — the planned `container.spawn` +
+  `container.exit` pair is dropped for the same reason as `messages`:
+  the `spawns` row IS the record. It carries kind, state, outcome,
+  exit_code, steered and all three timestamps, one row per turn,
+  rendered by dashd — strictly more than an audit pair would, at the
+  same volume. What `spawns` cannot answer is who ASKED, which is why
+  `run.hold` / `run.kill` (the operator-intent calls) are audited and
+  the per-turn dispatch is not. Pinned by
+  `runed.TestRunEmitsNoAuditRow`.
+- **denied runed calls** — a folder-scoped token reaching for another
+  tenant's run is `authz.deny`, applies to every runed endpoint
+  including the reads, and belongs in one uniform gate. Auditing it
+  only on kills would be an arbitrary slice. Open in `specs/5/I`.
 - **`cost_log` inserts** — already its own append-only audit-shaped
   table per [`5/34`](../specs/11/19-cost-caps.md); polling it from
   `audit_log` would double-write. Audit `mutation` references it via
@@ -418,15 +431,14 @@ will drift; the function name is the anchor).
 ```json
 {
   "category": "agent",
-  "action": "container.spawn",
-  "actor": "system",
-  "surface": "gateway",
-  "resource": "containers/arizuko-krons-atlas-support",
+  "action": "run.kill",
+  "actor": "user:google:114alice",
+  "actor_sub": "google:114alice",
+  "surface": "rest",
+  "resource": "runs/run_3f9a2c11",
   "folder": "atlas/support",
-  "turn_id": "t-abc",
   "outcome": "ok",
-  "params_summary": "{\"image\":\"arizuko-ant:v0.45.10\"}",
-  "duration_ms": 1842,
+  "params_summary": "{\"killed\":true}",
   "instance": "krons"
 }
 ```
