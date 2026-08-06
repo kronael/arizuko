@@ -234,6 +234,56 @@ the same session. Not edited to avoid a concurrent-write collision.
   Whichever way, the guard must assert the **mounted** slice, not the
   pre-override one.
 
+## F29 — `5/28` composition's lock is instance-keyed; its subject is group-scoped (2026-08-06, proposed)
+
+`F3` recorded that `5/28`'s composition section is unbuilt. Trying to build it
+shows it is **unimplementable as written**, which is a stronger claim and a
+different fix.
+
+The section makes `~/products.toml` a GROUP-home file — one ordered product mix
+per group (`specs/5/28-packages.md`, "Composition"; the sibling `~/CLAUDE.md`
+in the same paragraph is the group-dir file `5/21` seeds). But the spec also
+says, of the installed-package record, "One mechanism, not two — the lock
+composition (below) needs IS this per-instance **installed record**". That
+record is `installed_packages(name TEXT PRIMARY KEY, source, revision,
+manifest, asset_hashes, installed_at)` — no folder column, and its own
+migration comment reads "one row per package installed on this **instance**"
+(`routd/migrations/0020-installed-packages.sql`). A per-group mix cannot key
+into an instance-keyed table, so the blend table's "On upstream update" column
+(dirty-detection, clean replace) has no lock to read.
+
+The two exits are both sign-off-shaped, which is why nothing was built:
+
+- give composition its own group-scoped lock — a second package manager, which
+  `5/28` forbids in its own `/migrate` paragraph ("the merge lib … does not
+  grow into a second package manager"); or
+- refold `installed_packages` to `(folder, name)` — an owned-schema change to a
+  shipped routd table, changing what every existing row means.
+
+Three further gaps block even the seed half from being *built* rather than
+*invented* (all recorded in the spec's new "Composition's unresolved lock"):
+no `sync`/`update` verb is specified though the table's third column requires
+one; "`CLAUDE.md` appended as marked sections" names no marker convention; and
+the payload kinds miss the corpus — no product in `ant/examples/` ships
+`skills/`, `tasks.toml`, `settings.json`/`mcpServers`, `Dockerfile.ant` or
+`migrations/`, 7 of 10 ship `SOUL.md` (auto-migrated only at READ time,
+`container/runner.go:497`) which the table never names, and every product ships
+`PRODUCT.md` — also unnamed, so a table-strict blend DROPS it and regresses the
+verbatim `CopyDirNoSymlinks` seed (`container/runner.go:979`).
+
+**Checked and NOT the problem:** this is *not* a duplicate of `5/21`.
+`5/21:14-17` explicitly cedes composition to `5/28` ("supersedes this file's
+single-template narrative: a group holds an ORDERED MIX"). The N-ary layer is a
+genuine generalization of `--product <one>`; only its lock is wrong.
+
+- **Severity:** low (no runtime effect; blocks an unbuilt section)
+- **Scope:** specs/5/28 composition vs routd `installed_packages`
+- **Affected:** nobody today — no reader exists
+- **Source:** specs/5/28-packages.md "The installed-package record" + "Composition";
+  routd/migrations/0020-installed-packages.sql; container/runner.go:497,979
+- **Status:** proposed — needs a scope decision (is composition group-scoped at
+  all?) before any reader is written. Do NOT implement `products.toml` first.
+
 ## R3 — a killed run still launches its container, on a folder that now reads free (2026-08-05, FIXED)
 
 `Z4`/`43cf6d7a` guarded `DB.StartSpawn` on `state='queued'` so a `DELETE`
@@ -2648,7 +2698,7 @@ shipped the extraction: `route_tokens kind='pair'`, `issue_pairing_link`,
 `GET/POST /pair/<token>`, `unpair`. Token and edge are both in routd.db, so the
 cross-DB ownership problem this entry raised does not arise.
 
-## P1b — fold onbod's greeting onto pairing (2026-08-04, PROPOSED — redesign, needs sign-off)
+## P1b — fold onbod's greeting onto pairing (2026-08-04, PROPOSED — redesign, needs sign-off; BLOCKED on 5/18 step 6 as of 2026-08-06)
 
 The reverse direction of P1 has NOT shipped: onbod still mints
 `onboarding.token`, posts `/onboard?token=…`, carries the JID across OAuth in
@@ -2690,12 +2740,57 @@ Restamping `linkJID`'s edge to `'pairing'` is NOT a safe one-liner either: it
 would let `unpair` delete an edge while `onboarding.user_sub` still names that
 sub and the row still reads approved/queued, leaving the admission row stale.
 
+**Update 2026-08-06 — a FOURTH blocker, and it invalidates the designed fold.**
+`5/31` answered blockers 1–3 in its "Onboarding — the fold, designed" section.
+That design was written against an onbod that AUTO-PICKED a world on claim, and
+`5/18` step 6 landed underneath it (`d9e57288`, 2026-08-04) replacing the
+auto-pick with a **browser choice**: `handleDashboard` (`onbod/main.go:622`)
+asks `unroutedJID` → `adminFolders`, then renders `renderWorldPicker`
+(`onbod/main.go:1261`, a form POSTing to `handleAddRoute`) for ≥2 worlds,
+`insertRoute` for exactly one, `renderNoWorld` for none. `5/18` is explicit:
+"empty set is a terminal page — **never auto-pick**".
+
+Pairing writes the edge; it does not route the JID. So the greeted user's chat
+is STILL silent after redemption — `5/18`'s opening problem — until step 6
+runs. Today they reach it because `handleTokenLanding` sets
+`auth_return=/onboard` (`onbod/main.go:474`) and redirects there. Under the
+fold the return target is webd's `/pair/{token}`, whose success page is
+terminal (`webd/pair.go:87`), and nothing carries the user to `/onboard`.
+`5/31`'s own flow (a) confirms it by omission: it ends at "queued / approved /
+the refusal" and never routes the JID.
+
+The poll observer cannot substitute — the multi-world case is a form a human
+fills in and a tick has no browser. Closing this needs one of three, each a
+`5/18` decision: (1) webd's pair page redirects into `/onboard`, giving webd
+onboarding awareness that `5/31` rejects twice; (2) the observer chat-sends a
+SECOND link to `/onboard`, a two-link flow specified nowhere; (3) the observer
+auto-picks, reverting step 6.
+
+Verified stale pointers in `5/31`'s fold section, corrected in the same pass:
+`firstAdminFolder` no longer exists (it became `adminFolders`,
+`onbod/main.go:941`), `onbod/main.go:585` is `linkJID` not the auto-route, and
+`onboarding.token` / `idx_onboarding_token` were replaced by `token_ref` /
+`idx_onboarding_token_ref` (`onbod/migrations/0004`).
+
+Also blocked, and worth naming because it looks independent and is not:
+`promptUnprompted`'s permanent lockout (blocker 2). Swapping `WHERE prompted_at
+IS NULL` for a cooldown is a two-line change touching nothing else, but "does
+not spam the chat" is the policy this entry says is missing — an unbounded
+re-greet on a 24h timer is a spam vector, and a bounded one is the design call.
+
 - **Severity:** low today (two writers, but one has written nothing)
 - **Source:** `onbod/main.go` linkJID/handleTokenLanding/handleDashboard;
-  `specs/5/31-identity-pairing.md` §"Onboarding — extracted from, not yet
-  folded onto"
-- **Status:** proposed — needs sign-off on the chat-async admission flow
-  before any code moves
+  `specs/5/31-identity-pairing.md` §"Onboarding — the fold, designed" +
+  §"What step 6 broke"; `specs/5/18-onboarding-model.md` step 6
+- **Status:** proposed — needs sign-off on the chat-async admission flow AND on
+  where step 6's picker lives after redemption moves to webd, before any code
+  moves
+
+**Adjacent, checked and filed here rather than separately:** two stale lines in
+`5/18`, out of this entry's scope to edit — `specs/5/index.md:92` says "Steps
+1–6 ship … step 7's explicit, attributed route act does not", but `5/18` itself
+records step 7 SHIPPED (`120d5461`); and `5/18`'s schema listing still names the
+`token` column that `onbod/migrations/0004` replaced with `token_ref`.
 
 ## P2 — three identity-link mechanisms; authd owns two of them (2026-08-02, decided)
 
@@ -4399,7 +4494,7 @@ package path has no such covering row.
     new tests in `cmd/arizuko/packages_route_audit_test.go` with "rows = 0,
     want 2". Verified, not asserted.
 
-## F3 — `5/28`'s composition section is written as shipped and is unbuilt (2026-08-05, open)
+## F3 — `5/28`'s composition section is written as shipped and is unbuilt (2026-08-05, FIXED 2026-08-06)
 
 `specs/5/28-packages.md` §"Composition — blending an ordered product list"
 (lines 156-181) is in the present tense among shipped material, but
@@ -4416,9 +4511,16 @@ settled.
 - **Scope:** specs/5/28 composition
 - **Affected:** readers of 5/28
 - **Source:** specs/5/28-packages.md:156-181,216-219
-- **Status:** open
-- **Fix:** move the composition section under "Deferred", or mark it with the
-  unbuilt-section convention `5/5` and `5/8` use ("Only … below are built").
+- **Status:** FIXED 2026-08-06. Took the entry's second option — the section
+  keeps its place (the design is worth keeping) and gains the `5/5`
+  unbuilt-section marker plus a "Composition's unresolved lock" subsection
+  under Deferred; the stale status blockquote (which still listed the
+  now-closed `F2` as open) was corrected in the same pass, as was the
+  `specs/5/index.md` row.
+- **Found while fixing, filed separately as `F29`:** the section is not merely
+  unbuilt, it is unimplementable as written — its lock is instance-keyed and
+  its subject is group-scoped. An implementer taking this entry at face value
+  would have built the contradiction.
 
 ## F4 — `5/10`'s grant inheritance does not exist; two callers reinvent it (2026-08-05, FIXED 2026-08-05)
 
