@@ -171,6 +171,57 @@ func TestPair_OneParentPerIdentity(t *testing.T) {
 	}
 }
 
+// Pairing writes the edge but does not route the JID, so a terminal success page
+// leaves the chat the user just linked silent (spec 5/31 "What step 6 broke",
+// BUGS P1b blocker 4). The success page must offer the way on to /onboard, whose
+// step-6 branch does the routing — and ONLY the success page: an outcome where
+// no edge was written has nothing to continue to, and pointing a refused or
+// phished visitor at the onboarding dashboard would be its own bug.
+//
+// Falsified two ways: drop the link from the success branch and the first check
+// fails; render it from pairPage (so every outcome carries it) and the conflict
+// and unavailable checks fail.
+func TestPair_SuccessPageContinuesToOnboard(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "hq", "hq")
+	const link = `href="` + pairContinueURL + `"`
+
+	token := seedPairingToken(t, st, "telegram:user/1", "hq", time.Now())
+	csrf := csrfFromGet(t, s, token, "google:alice")
+
+	// The confirm page is a decision point, not an outcome: no way-on yet.
+	if body := pairGET(t, s, token, "google:alice").Body.String(); strings.Contains(body, link) {
+		t.Errorf("the confirm page offers the continue link before anything is linked: %s", body)
+	}
+
+	w := pairPOST(t, s, token, "google:alice", csrf)
+	if w.Code != http.StatusOK {
+		t.Fatalf("pairing: %d %s", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, link) {
+		t.Errorf("success page has no %s link, so the linked chat stays silent: %s", pairContinueURL, body)
+	}
+
+	// Conflict: someone else owns the identity, no edge written for this caller.
+	second := seedPairingToken(t, st, "telegram:user/1", "hq", time.Now())
+	w = pairPOST(t, s, second, "google:mallory", csrf)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("second parent: status %d, want 409", w.Code)
+	}
+	if body := w.Body.String(); strings.Contains(body, link) {
+		t.Errorf("the conflict page offers a continue link: %s", body)
+	}
+
+	// Unavailable token: nothing happened at all.
+	w = pairGET(t, s, store.GenRouteToken(), "google:alice")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("unknown token: status %d, want 404", w.Code)
+	}
+	if body := w.Body.String(); strings.Contains(body, link) {
+		t.Errorf("the unavailable page offers a continue link: %s", body)
+	}
+}
+
 // A role membership on the same JID does not block pairing (4e831f10).
 func TestPair_RoleMembershipDoesNotBlock(t *testing.T) {
 	s, _, st := newTestServer(t)

@@ -31,6 +31,26 @@ import (
 // pairCSRFCookie is the double-submit cookie for the confirm form.
 const pairCSRFCookie = "arz_pair_csrf"
 
+// pairContinueURL is where the success page sends the user next. Pairing writes
+// the membership edge; it does NOT route the JID, so without this the page is a
+// dead end and the chat the user just linked stays silent — spec 5/18's opening
+// problem (BUGS P1b, blocker 4).
+//
+// This is a destination, not onboarding logic: webd states no condition and
+// carries no onboarding state. /onboard decides everything from the DB — its
+// step-6 branch keys on unroutedJID/membershipJIDs, which read acl_membership
+// with no added_by filter, so an edge RedeemPairing wrote is found exactly like
+// one linkJID wrote. A user whose JID already routes (every agent-minted pairing
+// today, since pairingTargetFolder refuses an unrouted JID) just sees their
+// worlds. It is a static link and not a `?next=`-style parameter because the
+// flow's existing auth_return cookie answers a different question — where to
+// resume after OAuth — and is already spent on /pair/{token} itself by the time
+// this page renders; carrying a second one would be a parallel mechanism.
+//
+// Assumes ONBOARDING_ENABLED (true on all three live instances); with onboarding
+// off, proxyd routes no /onboard and this link 404s.
+const pairContinueURL = "/onboard"
+
 // GET /pair/{token} — resolve the token and render the confirm page. No write.
 func (s *server) handlePairGet(w http.ResponseWriter, r *http.Request) {
 	jid, ok := s.peekPairing(w, r)
@@ -87,7 +107,9 @@ pairing link.</p>`)
 		pairPage(w, http.StatusOK, "Linked", fmt.Sprintf(`
 <h1>Linked</h1>
 <p><code>%s</code> now acts as you. Your next message from that chat carries your
-account's access.</p>`, htmlEscape(jid)))
+account's access.</p>
+<p><a href="%s">Continue</a> — choose which world this chat belongs to, or see
+the ones you already have.</p>`, htmlEscape(jid), pairContinueURL))
 	}
 }
 
