@@ -75,28 +75,40 @@ func TestProxydPage_RendersRoutes(t *testing.T) {
 	if u.path != "/v1/proxyd_routes" || u.method != http.MethodGet {
 		t.Errorf("upstream call = %s %s, want GET /v1/proxyd_routes", u.method, u.path)
 	}
+	if !strings.Contains(body, "Add route") {
+		t.Errorf("missing add form")
+	}
+	// Assert against the TABLE only. The add form carries the same words in its
+	// <select> and its help text, so a whole-page Contains would pass even with
+	// the table rendering raw wire values.
+	table, _, ok := strings.Cut(body, "Add route")
+	if !ok {
+		t.Fatalf("no table section before the add form: %s", body)
+	}
 	for _, want := range []string{"/slack/", "http://slakd:8080", "/dash/", "http://dashd:8080"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("page missing %q", want)
+		if !strings.Contains(table, want) {
+			t.Errorf("route table missing %q", want)
 		}
 	}
 	// The `auth` field is spelled out, not dumped raw — the 13yo test.
-	if !strings.Contains(body, "anyone") || !strings.Contains(body, "signed-in users") {
-		t.Errorf("auth values not spelled out for a human: %s", body)
+	for _, want := range []string{"anyone", "signed-in users"} {
+		if !strings.Contains(table, want) {
+			t.Errorf("route table does not spell out %q for a human: %s", want, table)
+		}
+	}
+	if strings.Contains(table, ">public<") || strings.Contains(table, ">user<") {
+		t.Errorf("route table leaks the raw wire value: %s", table)
 	}
 	// A redirect route shows its destination, not an empty backend cell.
-	if !strings.Contains(body, "/pub/krons/lore") {
-		t.Errorf("redirect target missing: %s", body)
+	if !strings.Contains(table, "/pub/krons/lore") {
+		t.Errorf("redirect target missing: %s", table)
 	}
-	if !strings.Contains(body, `action="/dash/proxyd/delete"`) {
+	if !strings.Contains(table, `action="/dash/proxyd/delete"`) {
 		t.Errorf("missing per-route delete control")
 	}
 	// Delete is destructive: it must be behind a confirm, not a bare button.
-	if !strings.Contains(body, "onsubmit=\"return confirm(") {
-		t.Errorf("delete control has no confirm step: %s", body)
-	}
-	if !strings.Contains(body, "Add route") {
-		t.Errorf("missing add form")
+	if !strings.Contains(table, "onsubmit=\"return confirm(") {
+		t.Errorf("delete control has no confirm step: %s", table)
 	}
 }
 
