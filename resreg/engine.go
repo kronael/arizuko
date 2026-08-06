@@ -546,6 +546,89 @@ func (r *Resource) insertValues(rowVal reflect.Value) ([]any, error) {
 // is false.
 var ErrChecksumMismatch = errors.New("checksum mismatch")
 
+// --- the missing-group rule (spec 5/8 §"The missing-group rule") ---------
+
+// ErrMissingGroup is returned by ValidateFolderRefs when a manifest row
+// references a folder that is neither declared as a groups row in the
+// manifest set nor already live in the target DB.
+var ErrMissingGroup = errors.New("references a folder that is not a group")
+
+// GroupsResource names the resource whose rows DEFINE which folders exist.
+// Every other folder reference is checked against it.
+const GroupsResource = "groups"
+
+// KnownFolders returns every folder that will exist once manifests apply:
+// the groups rows the manifests themselves declare, PLUS the groups already
+// live in q. Both halves are read through the same machinery the scoped
+// DELETE uses — the groups resource's own ScopeSpec.Field column — so "what
+// is a folder" has exactly one definition here, not a second parallel one.
+//
+// Pass every document of the restore, not one: a folder-scoped row may
+// legitimately sit in a different document from the groups row that declares
+// it (spec 5/8's rule is "somewhere in the same subsystem document or already
+// live in the target DB", and an archive presents all its documents at once).
+func KnownFolders(q Querier, manifests ...map[string]any) (map[string]bool, error) {
+	g := Lookup(GroupsResource)
+	if g == nil {
+		return nil, fmt.Errorf("resreg: %s resource is not registered", GroupsResource)
+	}
+	live, err := g.ScanAll(q)
+	if err != nil {
+		return nil, fmt.Errorf("read live %s: %w", GroupsResource, err)
+	}
+	out := map[string]bool{}
+	for _, f := range g.manifestScopes(live) {
+		out[f] = true
+	}
+	for _, m := range manifests {
+		for _, f := range g.manifestScopes(m[GroupsResource]) {
+			out[f] = true
+		}
+	}
+	return out, nil
+}
+
+// ValidateFolderRefs is the missing-group rule: refuse a manifest document
+// whose rows name a folder absent from known, BEFORE any transaction opens.
+// Two FK'd references (web_routes.folder, route_tokens.owner_folder) would
+// fail SQLite's own check mid-write; the ones with no FK — network_rules,
+// whose folder='' instance-global rows a FK would reject — produce a silently
+// orphaned row instead, which is the gap this closes.
+//
+// Checks exactly the references that are DECLARATIVELY folders: a resource's
+// ScopeSpec.Field column. It does not guess which other string column holds a
+// folder, for the same reason Retarget refuses to (acl.scope is a glob,
+// routes.target is not column-equal to a folder, scheduled_tasks.chat_jid and
+// secrets.scope_id are polymorphic). A resource that CAN decide the question
+// for its own polymorphic column adds a Hooks.ValidateRow — the existing
+// extension point — rather than teaching this function per-resource shapes.
+//
+// The empty scope is exempt: network_rules carries folder='' for
+// instance-global rules, which names no group by design.
+func ValidateFolderRefs(subsystem string, manifest map[string]any, known map[string]bool) error {
+	var bad []string
+	for _, r := range BySubsystem(subsystem) {
+		if !r.HasScope() {
+			continue
+		}
+		rows, mentioned := manifest[r.Name]
+		if !mentioned {
+			continue
+		}
+		for _, folder := range r.manifestScopes(rows) {
+			if folder == "" || known[folder] {
+				continue
+			}
+			bad = append(bad, r.Name+" -> "+folder)
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	sort.Strings(bad)
+	return fmt.Errorf("%s %w: %s", subsystem, ErrMissingGroup, strings.Join(bad, ", "))
+}
+
 // ApplyOpts carries the optional audit context for an apply. When
 // non-nil, Apply writes exactly ONE audit_log row in the same tx
 // (spec 5/8 §"CAS implementation" (3): "one audit row per apply, not

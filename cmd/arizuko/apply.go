@@ -69,6 +69,77 @@ func closeStores(stores map[string]*store.Store) {
 	}
 }
 
+// parsedDoc is one manifest document after ParseYAML, kept so apply/plan can
+// make TWO passes: parse-and-validate every document, and only then open the
+// first transaction (spec 5/8 §"The missing-group rule": "refuses, before
+// writing anything"). A one-pass loop could not do it — it would already have
+// committed document 1 by the time it discovered document 2's bad reference.
+type parsedDoc struct {
+	subsystem string
+	checksum  string
+	manifest  map[string]any
+}
+
+// parseDocs splits and parses every document of a manifest file, dying on the
+// first parse or subsystem-resolution error. Empty documents (a trailing
+// `---`) carry nothing and are dropped.
+func parseDocs(file string, data []byte) []parsedDoc {
+	docs, err := resreg.SplitDocuments(data)
+	if err != nil {
+		die("Failed: split %s: %v", file, err)
+	}
+	var out []parsedDoc
+	for _, doc := range docs {
+		manifest, checksum, perr := resreg.ParseYAML(doc)
+		if perr != nil {
+			die("Failed: parse %s: %v", file, perr)
+		}
+		if len(manifest) == 0 {
+			continue
+		}
+		subsystem, serr := resreg.SubsystemOf(manifest)
+		if serr != nil {
+			die("Failed: %v", serr)
+		}
+		out = append(out, parsedDoc{subsystem: subsystem, checksum: checksum, manifest: manifest})
+	}
+	return out
+}
+
+// preflightFolders is the missing-group rule's CLI half: every folder-scoped
+// row across EVERY document must name a group that the document set declares
+// or the target DB already has. Returns the offending references; the caller
+// decides whether that is a refusal (apply) or a report (plan).
+//
+// `groups` lives in exactly one owner DB and the resource declaration says
+// which — identity is configured, never derived (root CLAUDE.md), so this
+// reads Resource.DB rather than assuming routd.
+func preflightFolders(stores map[string]*store.Store, docs []parsedDoc) []error {
+	g := resreg.Lookup(resreg.GroupsResource)
+	if g == nil {
+		die("Failed: %s resource is not registered", resreg.GroupsResource)
+	}
+	owner, ok := stores[g.DB]
+	if !ok {
+		die("Failed: %s has no configured owner subsystem %q", resreg.GroupsResource, g.DB)
+	}
+	manifests := make([]map[string]any, 0, len(docs))
+	for _, d := range docs {
+		manifests = append(manifests, d.manifest)
+	}
+	known, err := resreg.KnownFolders(owner.DB(), manifests...)
+	if err != nil {
+		die("Failed: read known folders: %v", err)
+	}
+	var out []error
+	for _, d := range docs {
+		if verr := resreg.ValidateFolderRefs(d.subsystem, d.manifest, known); verr != nil {
+			out = append(out, verr)
+		}
+	}
+	return out
+}
+
 func cmdApply(args []string) {
 	if len(args) < 2 {
 		fmt.Println("usage: arizuko apply <instance> <manifest.yaml> [--force|-f]")
@@ -92,24 +163,21 @@ func cmdApply(args []string) {
 	if err != nil {
 		die("Failed: read %s: %v", file, err)
 	}
-	docs, err := resreg.SplitDocuments(data)
-	if err != nil {
-		die("Failed: split %s: %v", file, err)
+	docs := parseDocs(file, data)
+	// The missing-group rule runs across ALL documents before the first tx
+	// opens — a half-wired instance is worse than a refused restore. --force
+	// does NOT override it: force means "the DB moved under my export", not
+	// "write rows pointing at a group that does not exist".
+	if bad := preflightFolders(stores, docs); len(bad) > 0 {
+		for _, e := range bad {
+			fmt.Fprintf(os.Stderr, "%v\n", e)
+		}
+		die("Failed: %s references folders that are not groups; add the groups rows or fix the names", file)
 	}
 	digest := sha256.Sum256(data)
 	digestHex := hex.EncodeToString(digest[:])
-	for _, doc := range docs {
-		manifest, checksum, perr := resreg.ParseYAML(doc)
-		if perr != nil {
-			die("Failed: parse %s: %v", file, perr)
-		}
-		if len(manifest) == 0 {
-			continue // an empty document (e.g. a trailing ---) carries nothing to apply
-		}
-		subsystem, serr := resreg.SubsystemOf(manifest)
-		if serr != nil {
-			die("Failed: %v", serr)
-		}
+	for _, d := range docs {
+		manifest, checksum, subsystem := d.manifest, d.checksum, d.subsystem
 		st := stores[subsystem]
 		// Plan first (non-mutating) so the operator sees the delta the apply
 		// commits — spec 5/8 §"Apply lifecycle" step 5 (print plan + ok).
@@ -198,22 +266,15 @@ func cmdPlan(args []string) {
 	if err != nil {
 		die("Failed: read %s: %v", file, err)
 	}
-	docs, err := resreg.SplitDocuments(data)
-	if err != nil {
-		die("Failed: split %s: %v", file, err)
+	docs := parseDocs(file, data)
+	// plan never mutates, so it REPORTS the missing-group refusal apply would
+	// raise instead of exiting on it — the operator sees the delta and the
+	// blocker in one run.
+	for _, e := range preflightFolders(stores, docs) {
+		fmt.Printf("%v — apply would refuse\n", e)
 	}
-	for _, doc := range docs {
-		manifest, checksum, perr := resreg.ParseYAML(doc)
-		if perr != nil {
-			die("Failed: parse %s: %v", file, perr)
-		}
-		if len(manifest) == 0 {
-			continue
-		}
-		subsystem, serr := resreg.SubsystemOf(manifest)
-		if serr != nil {
-			die("Failed: %v", serr)
-		}
+	for _, d := range docs {
+		manifest, checksum, subsystem := d.manifest, d.checksum, d.subsystem
 		st := stores[subsystem]
 		dbSum, cerr := resreg.Checksum(st.DB(), subsystem)
 		if cerr != nil {
