@@ -4,53 +4,58 @@ depends: [5/13-ext-mcp, 5/17-openapi-mcp, 5/32-acl-unified]
 moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 ---
 
-> **Status (2026-08-06).** Adoption is done. All seven agent-facing cold-tier
-> resources — `web_routes`, `routes`, `network_rules`, `scheduled_tasks`, `acl`,
-> `route_tokens`, `groups` — ride one `resreg.Resource`, and each wears its REST
-> twin on the same handler (plus onbod's `/v1/invites` + `/v1/gates`). Two
-> deliberate exceptions: `secrets` is REST-only and write-only (the encrypted
-> value must never ride the agent surface); `network_rules` is agent-only.
-> `groups`' REST twin is LIST-only — operator CREATE stays dashd's FS-managed
-> `SetupGroup`, so routd opens no second bare create door. `mcp_connectors` was
-> floated and CUT: connectors already load from `<datadir>/connectors.toml`, and
-> a resreg resource would add a second source of truth.
+> **Status (2026-08-06).** Still `partial`. Adoption is done; of what remains,
+> **federation shipped and "one owner" did not.**
 >
-> **"One owner + federation" — where it actually stands.** The SHAPE half below
-> is **done**, further than this spec's body claims: every mounted resource in
-> every daemon imports its canonical `resources.<X>Endpoints`, and no inline
-> endpoint literal survives anywhere (`grep -rn "Endpoints: []resreg.Endpoint{"`
-> outside `resreg/resources/` returns nothing). The body's "today
-> `routd/*_resource.go` restates `Name`/`Table`" is stale for `Endpoints`;
-> `Name` is still a per-mount literal, now guarded — `TestResourceEndpoints_SingleSource`
-> resolves the expected set through `resreg.Lookup(mounted.Name)`, so a name that
-> drifts off its wire identity fails instead of comparing clean against a hand-
-> written pairing (the 2026-07-01 `proxyd_routes` shape).
+> All seven agent-facing cold-tier resources — `web_routes`, `routes`,
+> `network_rules`, `scheduled_tasks`, `acl`, `route_tokens`, `groups` — ride one
+> `resreg.Resource`, and each wears its REST twin on the same handler (plus
+> onbod's `/v1/invites` + `/v1/gates`). Two deliberate exceptions: `secrets` is
+> REST-only and write-only (the encrypted value must never ride the agent
+> surface); `network_rules` is agent-only. `groups`' REST twin is LIST-only —
+> operator CREATE stays dashd's FS-managed `SetupGroup`, so routd opens no second
+> bare create door. `mcp_connectors` was floated and CUT: connectors already load
+> from `<datadir>/connectors.toml`, and a resreg resource would add a second
+> source of truth.
 >
-> The FEDERATION half is **not** what `5/I` shipped. `5/I`'s `/dash/audit/` fan-out
-> is the first working instance of this section's pattern — each owner serves its
-> own table, dashd reads over HTTP and "never opens `runed.db` or `auth.db`" — so
-> it is a **precedent, not the completion**. `audit` is not one of the seven
-> resources this spec enumerates, it federates three of four owners (onbod's table
-> is still unreachable, `F35`), and it is in fact a resource with **no single
-> owner**: its table lives in four owner DBs at once, which is why its catalog
-> decl carries `DB: ""` (`resreg/resources/audit.go:93-99`). It is evidence the
-> "one resource = one owner DB" model needed an escape hatch, which shipped.
+> **Federation, shipped 2026-08-06 by [`5/I`](I-tool-call-logging.md).** The
+> `audit` resource is ONE read-only registration (`resreg/resources/audit.go`)
+> mounted by THREE daemons over three separate SQLite files —
+> `routd/audit_resource.go`, `runed/audit_resource.go`, `authd/audit_resource.go`
+> — each serving `GET /v1/audit` through one reader, `audit.Query`
+> (`audit/query.go`). `/dash/audit/` (`dashd/audit_page.go`) fans out to all three
+> over HTTP with a composite cursor and a per-source failure banner, and it stopped
+> reading `routd.db` directly to do it. That is this spec's federation clause —
+> cross-daemon reads call the owner's face over HTTP, never a second `store.Open` —
+> working across daemon and DB-file boundaries.
 >
-> Of this section's seven ordered steps, 1/3/4 are done and 5 shipped in a
-> different form (`Resource.DB` + `SubsystemRoutd`/`SubsystemOnbod`, not a typed
-> `Owner`). Step 2 (proxyd `sub.Scope`) is **blocked on the sign-off this spec
-> itself demands** — it trades live grant revocation for a 15-minute token TTL.
-> Steps 6 and 7 (adapter mount audit, then per-owner `store/` subdirectories +
-> `writeSvc` narrowing) are the real remaining work, and step 7 is what turns
-> "owner" from a convention into a boundary. Both are untouched.
+> **It is not evidence for the owner clause, and does not close this spec.**
+> `audit_log` is the one resource deliberately replicated per owner DB; its
+> registration sets `DB: ""` precisely because "the table lives in four owner DBs
+> at once, so no single subsystem key is true" (`resreg/resources/audit.go:93`).
+> A resource that opts OUT of one-owner cannot demonstrate one-owner. The fan-out
+> is 3-of-4 besides: onbod owns an `audit_log` and writes real rows to it, and its
+> read face is unbuilt (BUGS `F35`).
 >
-> Also open: the doc↔mux guard covers `routd` and `timed` only. `onbod`, `authd`,
-> `proxyd` and `runed` each advertise resources with no such guard, and cannot get
-> one without a mux extraction apiece — every daemon but `routd` is `package main`
-> and cannot be imported, so the assertion (`resreg/resregtest`) has to be called
-> from inside each. Recorded as `BUGS.md` `F39`, proposal pending sign-off.
+> **What "one owner" still needs** — it is the two-declaration gap, not federation:
 >
-> **This spec stays `partial`** until steps 2, 6, 7 and `F39` land.
+> - The mounted handler must DERIVE `Name`/`Table` from the registry, not restate
+>   them. `Endpoints`/`RowType`/MCP metadata already single-source by import;
+>   `Name` is still a string literal at all ~11 mount sites, and the
+>   `mounted.Name == registry.Name` guard this spec names as the interim bar does
+>   not exist. `TestFoldedEndpoints_RegistrySingleSource` compares the registry to
+>   an exported var in the SAME package — it cannot see a mount.
+> - `resreg.OpenAPIHandler(daemon, resources)` takes a hand-passed name list with
+>   no reference to the mux, so advertised and served stay two independent
+>   declarations that agree only by care (BUGS `F33`, proposed, unsigned). Three
+>   drifts already came out of it: `F21`, `F27`, `F32`.
+> - Step 2 below is unshipped and still violates this spec's own "never a second
+>   `store.Open`": `proxyd/main.go:854` reads `routd.db` via
+>   `auth.UserScopes(s.stRoutd, …)` for a scope list its verified token carries.
+> - Step 7 is half-shipped: `dataMounts`/`dataSubdirs` exist
+>   (`compose/compose.go:840`) but only onbod, proxyd and webd set them, and they
+>   name `store`/`groups`/`web` — not per-owner `store/<owner>/`. "Owner is a
+>   convention, not a boundary" still holds for every other daemon.
 
 # specs/5/16 — MCP+REST unification (finish the adoption)
 
@@ -275,11 +280,13 @@ code; `Y1` decided this). `proxyd_routes` is migrated by
 table") — proxyd _serves_ it over REST/MCP and writes it directly
 (FS-mounted, split write-discipline), it does not _own_ it. Same shape as
 `timed` reading `scheduled_tasks`: **subsystem** (who serves the face) and
-**owner DB** (who migrates the table) are different axes; `resreg.Resource`
-needs a typed `Owner` field (`OwnerRoutd`/`OwnerOnbod` — logical owner, not a
-filesystem path or the serving daemon) to carry this, which it does not have
-today (`resreg/resreg.go:172-212` has no `Owner` field — `Y1`'s
-recommendation, not yet built).
+**owner DB** (who migrates the table) are different axes. `resreg.Resource`
+carries this today as `DB` (`resreg/resreg.go:274`), keyed by
+`SubsystemRoutd`/`SubsystemOnbod` (`resreg/resreg.go:66-72`) — the logical
+owner, not a filesystem path and not the serving daemon; `BySubsystem`
+(`resreg/engine.go:1141`) is what `export`/`plan`/`apply` walk. An empty `DB`
+means "no single owner", which is why `audit`, `sessions` and `signing_keys`
+set it and are therefore never round-tripped through a manifest.
 
 `authd`'s `auth.db` is a **separate owner**, outside this table: it owns
 `oauth_identities`, `refresh_tokens`, `signing_keys`, `auth_users` — none of
@@ -430,37 +437,42 @@ integrity_check` returns `ok` on each moved file, then bring the instance
 
 Each ships and reverts on its own; none blocks another except where noted.
 
-1. **webd: drop the dead `messages.db` open** (mirrors `9ff70eef7`).
-   Reversible. Verify: `go test ./webd/... -count=1` green + a boot test
-   asserting `store.Open` is never called (same pattern as
-   `proxyd/audit_sink_test.go`).
-2. **proxyd: read `sub.Scope` instead of `groupsForSub`/`UserScopes`.**
-   Reversible. **Needs explicit sign-off first** (the 15-minute revocation
-   trade-off above). Verify: a test asserting `/priv/<folder>/` access is
-   granted from JWT claims alone with `stRoutd` pointed at a DB missing the
-   caller's grant row.
+1. **webd: drop the dead `messages.db` open** (mirrors `9ff70eef7`) — **DONE**.
+   `webd/main.go:64` opens `store.OpenRoutd` and nothing else;
+   `webd/audit_sink_test.go` pins the one-store shape, citing this section.
+2. **proxyd: read `sub.Scope` instead of `groupsForSub`/`UserScopes`** — **OPEN,
+   and the last live violation of this section's "never a second `store.Open`"**.
+   `proxyd/main.go:854` still calls `auth.UserScopes(s.stRoutd, …)`, reading
+   another owner's DB for a list the verified token already carries. Reversible.
+   **Needs explicit sign-off first** (the 15-minute revocation trade-off above).
+   Verify: a test asserting `/priv/<folder>/` access is granted from JWT claims
+   alone with `stRoutd` pointed at a DB missing the caller's grant row.
 3. **Delete `auth_sessions`** (table + `store.CreateAuthSession`/
-   `AuthSession` + proxyd's dead cookie branch). NOT reversible (table
-   drop) — gated on the per-instance emptiness check. Verify:
-   `go test ./proxyd/... ./store/... -count=1` green, `grep -rn
-"auth_sessions" --include=*.go .` returns only the migration file and
-   the split-cutover copy helper's now-obsolete reference (delete that
-   too).
-4. **Rename `routd.db`'s `auth_users` → `user_profiles`.** Reversible (a
-   second rename migration) but data-loss-risky if run before step 1's
-   check — gated the same way. Verify: `grep -rn '"auth_users"\|FROM
-auth_users\|INTO auth_users' --include=*.go . | grep -v authd/` returns
-   zero hits, `go test ./... -short` green.
-5. **Add `resreg.Resource.Owner` (`OwnerRoutd`/`OwnerOnbod`).** Reversible,
-   independent of everything else. Verify: `go build ./resreg/...` + a
-   registry-validation test rejecting a `RowType`-bearing resource with no
-   `Owner`.
+   `AuthSession` + proxyd's dead cookie branch) — **DONE**,
+   `routd/migrations/0024-drop-auth-sessions.sql`, pinned by
+   `routd/migrations_0015_test.go`. The surviving hits are the frozen
+   `store/migrations/0001-initial-schema.sql` and the split-cutover copy list
+   (`cmd/arizuko/migrate_split.go:297`), both reading legacy `messages.db`.
+4. **Rename `routd.db`'s `auth_users` → `user_profiles`** — **DONE**. The only
+   `auth_users` reference left outside `authd/` is the split-cutover source
+   mapping (`cmd/arizuko/migrate_split.go:150`), which is the rename itself.
+5. **Add a typed owner to `resreg.Resource`** — **DONE** as `DB`
+   (`resreg/resreg.go:274`), keyed by `SubsystemRoutd`/`SubsystemOnbod`; empty
+   means "no single owner" and drops the resource from `BySubsystem`, i.e. out of
+   `export`/`plan`/`apply`.
 6. **Audit the 10 not-yet-traced channel adapters' file/DB access**
    (read-only investigation, zero risk). Produces the missing rows of the
    per-daemon mount table above.
 7. **Restructure `store/` into per-owner subdirectories + narrow
-   `writeSvc`/`svcDef` to named per-daemon mounts.** Reversible (revert
-   compose.go + move files back) but needs a maintenance window (daemons
+   `writeSvc`/`svcDef` to named per-daemon mounts** — **HALF DONE**. The
+   narrowing mechanism ships: `svcDef.dataSubdirs` + `dataMounts`
+   (`compose/compose.go:840-855`) replace the blanket bind for the daemons that
+   set it — today only `onbod` (`store`,`groups`,`web`), `proxyd` (`store`) and
+   `webd` (`store`). The `store/<owner>/` restructure itself is NOT done: the
+   subdir names are `store`/`groups`/`web`, so a narrowed daemon still sees every
+   owner's DB file, and `ONBOD_DB_PATH` is still flat `store/onbod.db`. Until the
+   restructure lands, "owner is a convention, not a boundary" stands. Reversible
+   (revert compose.go + move files back) but needs a maintenance window (daemons
    stopped during the file move to avoid a WAL write racing it). Depends on
    step 6 for the adapters' entries, not on steps 1-5. Verify: `docker
 inspect <container> | jq '.[0].Mounts'` matches the intended list per
