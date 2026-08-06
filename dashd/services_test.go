@@ -49,6 +49,41 @@ func TestServicesOperator(t *testing.T) {
 	}
 }
 
+// Built and the mounted route must agree in BOTH directions. The flag is hand
+// maintained and the route is registered somewhere else entirely, so nothing
+// but this test connects them:
+//
+//   - Built without a route is a tile whose link 404s.
+//   - A route without Built is a shipped page no operator can reach. That is
+//     the direction with no other guard at all — /dash/authd/ shipped with its
+//     tile still reading Built:false, and flipping it back was caught by
+//     nothing until this test existed. The hub is the ONLY nav path to a
+//     per-daemon cockpit (they are deliberately not in navLinks), so an
+//     unflipped tile hides the page completely.
+//
+// Pattern matching is by prefix because dashd registers `GET /dash/` as the
+// portal: an unmounted /dash/<daemon>/ still resolves, to that catch-all, so
+// "did it resolve" is not the question — "did it resolve to ITS OWN route" is.
+func TestServicesBuiltFlagMatchesMountedRoutes(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	mux := newMux(&dash{dbRoutd: db})
+
+	for _, s := range services {
+		_, pattern := mux.Handler(httptest.NewRequest("GET", s.Dash, nil))
+		mounted := strings.Contains(pattern, s.Dash)
+		if s.Built && !mounted {
+			t.Errorf("%s is Built but %s resolves to %q — the hub links to a 404",
+				s.Name, s.Dash, pattern)
+		}
+		if !s.Built && mounted {
+			t.Errorf("%s serves %s but its tile is Built:false — the page ships and "+
+				"the services hub, its only nav path, renders the name as plain text",
+				s.Name, s.Dash)
+		}
+	}
+}
+
 // TestShouldLink: the render decision is gated on Built alone — probe status
 // never suppresses the link (D6: an unreachable built daemon is exactly the
 // one an operator wants to click through to).
