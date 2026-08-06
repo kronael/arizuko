@@ -25,6 +25,7 @@ import (
 
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/resreg/resregtest"
 )
 
 // routdResource pairs one constructed resource with the canonical endpoint slice
@@ -150,43 +151,35 @@ func TestRoutdMux_ServesEveryDeclaredEndpoint(t *testing.T) {
 // /openapi.json promises must resolve on routd's real mux. `acl` failed this
 // before F27 — ACLEndpoints declared GET /v1/acl, mountACL trimmed it away, and
 // the doc shipped an endpoint that 404s.
+//
+// The assertion itself lives in resreg/resregtest so every daemon runs the same
+// one. It cannot live in a single cross-daemon test: routd is the only
+// importable daemon package, so each daemon calls it from its own package with
+// its own mux and its own list — both production values, never a copy.
 func TestOpenAPI_EveryAdvertisedPathIsMounted(t *testing.T) {
 	srv := testServer(t)
 	mux, ok := srv.Handler().(*http.ServeMux)
 	if !ok {
 		t.Fatalf("Server.Handler() is %T, not *http.ServeMux", srv.Handler())
 	}
-	raw, err := resreg.OpenAPI("routd", "/", OpenAPIResources)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var doc struct {
-		Paths map[string]map[string]json.RawMessage `json:"paths"`
-	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatal(err)
-	}
-
-	checked := 0
-	for path, item := range doc.Paths {
-		for key := range item {
-			// A path item mixes verb keys with a "parameters" array.
-			method := strings.ToUpper(key)
-			if !slices.Contains([]string{"GET", "POST", "PUT", "PATCH", "DELETE"}, method) {
-				continue
-			}
-			checked++
-			want := method + " " + path
-			_, pattern := mux.Handler(httptest.NewRequest(method, concretePath(path), nil))
-			if pattern != want {
-				t.Errorf("/openapi.json advertises %q but routd's mux serves pattern %q — an advertised endpoint that 404s",
-					want, pattern)
-			}
-		}
-	}
-	if checked == 0 {
+	if n := resregtest.AssertServesWhatItAdvertises(t, "routd", OpenAPIResources, mux); n == 0 {
 		t.Fatal("emitted doc advertises no operation at all — this guard would pass vacuously")
 	}
+}
+
+// TestRoutdMux_ServesNoForeignResource is the ownership half: routd must not
+// mount a resource it does not advertise owning. onbod's onboarding tables and
+// proxyd's reverse-proxy routes are the live foreign pair — `routes` and
+// `proxyd_routes` are two different tables whose names once converged, so a
+// second daemon serving either is the wire-identity collision root CLAUDE.md
+// forbids.
+func TestRoutdMux_ServesNoForeignResource(t *testing.T) {
+	srv := testServer(t)
+	mux, ok := srv.Handler().(*http.ServeMux)
+	if !ok {
+		t.Fatalf("Server.Handler() is %T, not *http.ServeMux", srv.Handler())
+	}
+	resregtest.AssertServesNoneOf(t, "routd", []string{"proxyd_routes", "onboarding", "invites"}, mux)
 }
 
 // TestRouteTokens_NoHandRolledResolve pins the F13 deletion from both sides:

@@ -21,6 +21,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -526,34 +528,28 @@ func TestApply_WritesOneAuditRow(t *testing.T) {
 	_ = audit.CategoryMutation // keep the audit import meaningful if asserts change
 }
 
-// daemonOwnership mirrors the per-daemon owned-resource lists the daemon
-// mains pass to resreg.OpenAPIHandler (spec 5/8 §"OpenAPI emission").
-// Keep in sync with timed/split.go, routd/server.go OpenAPIResources,
-// onbod/main.go, proxyd/main.go.
+// The per-daemon ownership map that used to live here is DELETED, not moved.
+// It was a hand-maintained COPY of the lists the daemon mains pass to
+// resreg.OpenAPIHandler, kept because routd imports this package and so the
+// real routd.OpenAPIResources cannot be read from here. Two independent
+// reasons it had to go, either sufficient:
 //
-// It is a COPY, not the source: routd imports this package, so the real
-// routd.OpenAPIResources cannot be read from here. It had drifted three
-// resources in each direction — claiming acl_membership + network_rules,
-// which routd advertises for neither, and missing route_tokens,
-// installed_packages and scheduled_tasks (found while fixing BUGS F27). The
-// authoritative doc↔mux check is routd's own
-// TestOpenAPI_EveryAdvertisedPathIsMounted, which reads OpenAPIResources
-// directly; what this table still buys is the cross-daemon half — no daemon
-// advertises another's paths.
-var daemonOwnership = map[string][]string{
-	// timed owns NOTHING. It is a client of routd's scheduled_tasks, not a server
-	// of it; claiming the resource here advertised four operations that 404 on
-	// timed's port (BUGS F32). The authoritative check is timed's own
-	// TestTimedOpenAPI_AdvertisesOnlyWhatItMounts, which reads the real mux.
-	"timed": {},
-	"routd": {
-		"routes", "web_routes", "acl", "secrets", "route_tokens",
-		"installed_packages", "scheduled_tasks", "groups",
-	},
-	"onbod":  {"onboarding_gates"},
-	"proxyd": {"proxyd_routes"},
-	"runed":  {},
-}
+// It could not fail. TestOpenAPI_PerDaemonOwnership computed both the
+// expectation and the actual from the same `owned` slice, so "this daemon
+// advertises no foreign path" was a tautology. Adding an invented daemon that
+// claimed routd's `routes`+`acl`, onbod's `invites` and proxyd's
+// `proxyd_routes` left it green.
+//
+// And it had drifted again, exactly as the copy shape predicts — spec 5/I's
+// audit federation did it: the map missed routd's `audit`, onbod's
+// `onboarding`+`invites`, runed's `audit`, and had no `authd` entry at all
+// while authd advertises `audit`+`signing_keys`+`sessions`.
+//
+// The replacement needs no ownership table: resreg/resregtest asserts each
+// daemon's real mux against its real emitted doc, from the daemon's OWN
+// package (every daemon but routd is `package main` and cannot be imported).
+// A daemon advertising a foreign resource mounts none of its paths and fails
+// there; a daemon MOUNTING one fails resregtest.AssertServesNoneOf.
 
 // TestOpenAPI_ProxydRoutesCarriesMCPDoc: the registered proxyd_routes
 // catalog decl carries MCPDoc, so the emitted /openapi.json annotates the
@@ -578,58 +574,54 @@ func TestOpenAPI_ProxydRoutesCarriesMCPDoc(t *testing.T) {
 	}
 }
 
-// TestOpenAPI_PerDaemonOwnership: each daemon's /openapi.json advertises
-// ONLY its owned resources — never a foreign one. Before the fix, routd
-// and runed passed nil (= all 10) and timed passed [] (= 0 owned paths).
-func TestOpenAPI_PerDaemonOwnership(t *testing.T) {
-	for daemon, owned := range daemonOwnership {
-		daemonPaths := openAPIPaths(t, daemon, owned)
-		// The doc must advertise exactly the union of its owned resources' own
-		// path sets: no foreign path, and every owned resource contributes ≥1.
-		// A path prefix need NOT equal the resource name — onboarding_gates is
-		// served at /v1/gates — so compare against each resource's real emitted
-		// paths, not a name-from-path heuristic.
-		expected := map[string]bool{}
-		for _, o := range owned {
-			if resreg.Lookup(o) == nil {
-				continue
-			}
-			own := openAPIPaths(t, daemon, []string{o})
-			if len(own) == 0 {
-				t.Errorf("%s: owned resource %q emits no path", daemon, o)
-			}
-			for p := range own {
-				expected[p] = true
-				if !daemonPaths[p] {
-					t.Errorf("%s: missing owned path %q (resource %q)", daemon, p, o)
-				}
+// TestOpenAPI_EveryEmittedPathIsWellFormed is the emitter-side half of what the
+// deleted ownership map gestured at, stated without a copy: walk the REGISTRY,
+// and for every resource declaring a REST face, assert the emitter renders at
+// least one operation and renders every one of them under a real URL path.
+//
+// The second half is not hypothetical. The emitter keys `paths` on
+// Endpoint.Path verbatim, so a resource whose Path is empty publishes its
+// operations under the "" key: a document that parses as JSON, advertises a
+// real operationId and request body, and from which no client can construct a
+// request. Nothing downstream can catch that — routd's mux guard only probes
+// paths the doc already lists, and "" resolves to the 404 fallback on every
+// mux, so an empty Path is invisible from the mounting side.
+//
+// A resource whose endpoints are all MCPOnly renders no path by design
+// (network_rules), so it is exempt — and the exemption is derived from
+// MCPOnly, not listed here.
+func TestOpenAPI_EveryEmittedPathIsWellFormed(t *testing.T) {
+	checked := 0
+	for _, r := range resreg.All() {
+		hasREST := slices.ContainsFunc(r.Endpoints, func(e resreg.Endpoint) bool { return !e.MCPOnly })
+		if !hasREST {
+			continue
+		}
+		checked++
+		out, err := resreg.OpenAPI("probe", "/", []string{r.Name})
+		if err != nil {
+			t.Fatalf("%s: OpenAPI: %v", r.Name, err)
+		}
+		var doc struct {
+			Paths map[string]json.RawMessage `json:"paths"`
+		}
+		if err := json.Unmarshal(out, &doc); err != nil {
+			t.Fatalf("%s: not JSON: %v", r.Name, err)
+		}
+		if len(doc.Paths) == 0 {
+			t.Errorf("%s declares a non-MCPOnly endpoint but the emitter renders no path — "+
+				"any daemon advertising it publishes an empty surface", r.Name)
+		}
+		for p := range doc.Paths {
+			if !strings.HasPrefix(p, "/") {
+				t.Errorf("%s emits an operation under path key %q — not a URL path, so no client "+
+					"can construct the request and no mux can serve it", r.Name, p)
 			}
 		}
-		for p := range daemonPaths {
-			if !expected[p] {
-				t.Errorf("%s advertises foreign path %q", daemon, p)
-			}
-		}
 	}
-}
-
-// openAPIPaths emits the daemon's /openapi.json for the given owned resources
-// and returns the set of path keys.
-func openAPIPaths(t *testing.T, daemon string, owned []string) map[string]bool {
-	t.Helper()
-	out, err := resreg.OpenAPI(daemon, "/", owned)
-	if err != nil {
-		t.Fatalf("%s OpenAPI: %v", daemon, err)
+	if checked == 0 {
+		t.Fatal("no registered resource declares a REST face — this guard would pass vacuously")
 	}
-	var doc map[string]any
-	if err := json.Unmarshal(out, &doc); err != nil {
-		t.Fatalf("%s: not JSON: %v", daemon, err)
-	}
-	set := map[string]bool{}
-	for p := range doc["paths"].(map[string]any) {
-		set[p] = true
-	}
-	return set
 }
 
 // TestOpenAPI_RoutesTruthful: routd's /openapi.json for routes advertises the
@@ -669,6 +661,25 @@ func TestOpenAPI_RoutesTruthful(t *testing.T) {
 	if _, ok := item["patch"]; ok {
 		t.Errorf("phantom PATCH on /v1/routes/{id}")
 	}
+}
+
+// openAPIPaths emits the daemon's /openapi.json for the given resources and
+// returns the set of path keys.
+func openAPIPaths(t *testing.T, daemon string, owned []string) map[string]bool {
+	t.Helper()
+	out, err := resreg.OpenAPI(daemon, "/", owned)
+	if err != nil {
+		t.Fatalf("%s OpenAPI: %v", daemon, err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("%s: not JSON: %v", daemon, err)
+	}
+	set := map[string]bool{}
+	for p := range doc["paths"].(map[string]any) {
+		set[p] = true
+	}
+	return set
 }
 
 // TestOpenAPI_OnboardingGatesTruthful: onbod serves the gate table at /v1/gates
