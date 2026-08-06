@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>audit trail</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="index.html">Start here</a></li>
+            <li><a href="primitives.html">Primitives</a></li>
+            <li><a href="built.html">How it&rsquo;s built</a></li>
+            <li><a href="scaling.html">Scaling</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="proactive.html">Proactive</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="progress.html">Live progress</a></li>
+            <li><a href="retries.html">Retries</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="audit.html" aria-current="page">Audit trail</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="workflows.html">Workflows</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; audit trail</p>
+<h1>audit trail</h1>
+
+    <p class="lede">Someone revoked a grant last Tuesday and nobody remembers who. An agent container was killed mid-turn and the user wants to know why. A secret changed and three people had the access to change it. The audit trail is the table that answers those questions, and this page is about what it does and does not cover.</p>
+
+    <h2>one row per thing that changed</h2>
+    <p>Every mutating call &mdash; an MCP tool the agent invoked, a REST endpoint an operator hit, a CLI command &mdash; writes one row to <code>audit_log</code>. Reads do not. Listing routes or fetching a chat produces a log line and nothing else, because the volume is enormous and the row would carry no decision worth recovering later.</p>
+
+    <p>The row is written <em>in the same database transaction as the change itself</em>. If the audit insert fails, the change rolls back. There is no window where a route moved and nothing recorded it, and no cleanup job reconciling two tables that drifted.</p>
+
+    <p>A row names who asked (<code>actor</code>, <code>actor_sub</code>), what they touched (<code>action</code>, <code>resource</code>, <code>params_summary</code>), how it went (<code>outcome</code>, <code>error_msg</code>, <code>duration_ms</code>) and where (<code>folder</code>, <code>turn_id</code>, <code>instance</code>). The full column list is in <a href="../reference/schema.html">reference/schema</a>.</p>
+
+    <h2>the log is not the table</h2>
+    <p>Every audited call also emits a structured log line, and the two are not the same thing. The log line reaches journald and, if you have wired an OTLP collector, your dashboards. It is lossy on purpose: journald rotates, levels filter, nothing waits for it.</p>
+
+    <p>So the table is the answer to &ldquo;every ACL write last quarter&rdquo; and the log is the answer to &ldquo;what is happening right now&rdquo;. When they disagree, the table is right.</p>
+
+    <h2>what the agent does inside the container</h2>
+    <p>The agent&rsquo;s own tool use &mdash; every <code>Bash</code>, <code>Edit</code>, <code>Read</code> it runs while working &mdash; is captured by harness hooks and printed as one JSON line per call, which runed lifts into the log stream. None of it reaches the database.</p>
+
+    <p>That is deliberate. Agent tool use is operational detail at enormous volume, and the parts that actually change platform state already went through MCP, where they were audited like any other call. A hook that wrote to the database would turn every keystroke of the agent&rsquo;s work into a distributed transaction.</p>
+
+    <div class="callout"><strong>Two streams, one shape.</strong> Both layers use the same field names, so <code>journalctl | grep tool=Bash</code> and <code>journalctl | grep tool=set_routes</code> return rows you can read side by side.</div>
+
+    <h2>each daemon keeps its own</h2>
+    <p>arizuko does not have one audit table. Each daemon owns its own database and its own <code>audit_log</code> inside it, and nothing writes across that line. Correlation is by <code>turn_id</code>, which travels with the work.</p>
+
+    <table>
+      <tr><th>Daemon</th><th>Table lives in</th><th>Records</th></tr>
+      <tr><td><code>routd</code></td><td><code>routd.db</code></td><td>routes, groups, grants, secrets, tasks, tokens &mdash; the bulk of it</td></tr>
+      <tr><td><code>runed</code></td><td><code>runed.db</code></td><td>who claimed a folder&rsquo;s run slot (<code>run.hold</code>) and who killed a run (<code>run.kill</code>)</td></tr>
+      <tr><td><code>authd</code></td><td><code>auth.db</code></td><td>identity and token events</td></tr>
+    </table>
+
+    <p>This is the same rule that keeps each daemon migrating only its own schema. It costs you a single query that spans all three.</p>
+
+    <h2>reading it</h2>
+    <p>The dashboard at <code>/dash/audit/</code> is the everyday view: newest first, fifty rows a page, filterable by category, actor and folder, with an <code>older</code> link that carries your filters. It is operator-only.</p>
+
+    <div class="callout"><strong>It shows routd&rsquo;s rows only.</strong> The dashboard reads <code>routd.db</code>, and neither runed nor authd exposes an endpoint to read its audit table. Their rows are real and written correctly, but today the only way to see them is <code>sqlite3</code> on the instance:
+    <pre><code>sqlite3 /srv/data/arizuko_&lt;instance&gt;/store/runed.db \
+  "SELECT created_at, action, actor, folder FROM audit_log ORDER BY id DESC LIMIT 20"</code></pre>
+    Tracked in the project&rsquo;s bug queue; the fix is a read endpoint on each daemon, not a dashboard that opens someone else&rsquo;s database file.</div>
+
+    <h2>what is deliberately not audited</h2>
+    <p>A table that already <em>is</em> the record does not get audited twice. The clearest case is a turn: <code>spawns</code> already holds its kind, state, outcome, exit code and every timestamp, and the dashboard renders it, so runed writes no extra row per turn. Chat messages are the same &mdash; the <code>messages</code> table is the record of what was said.</p>
+
+    <p>What such a table never holds is <strong>who asked</strong>. That is why runed audits the run slot and not the run: a hold stops every turn in a folder and a kill is an operator&rsquo;s decision, and both can happen without leaving a <code>spawns</code> row at all.</p>
+
+    <p>One real gap, stated plainly: a <em>denied</em> call &mdash; a folder-scoped token reaching for another tenant &mdash; is refused correctly but not yet recorded as an audit row. That belongs at the authorization gate, uniformly across every endpoint, and it is not built.</p>
+
+    <h2>go deeper</h2>
+    <p>The decision record, including the read/write split and why the row rides the mutation&rsquo;s transaction: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/I-tool-call-logging.md">specs/5/I</a>. Every column, index and writer: <a href="../reference/schema.html">reference/schema</a>. Who is allowed to do the thing being audited: <a href="grants.html">grants</a>.</p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="secrets.html">&larr; Secrets</a>
+        <a rel="next" href="skills.html">Skills &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/audit.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-06">2026-08-06</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

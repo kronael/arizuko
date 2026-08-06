@@ -122,6 +122,10 @@ export INSTANCE_NAME=demo
       <li><code>/dash/me/secrets</code> &mdash; per-user capability token set, list, delete.</li>
       <li><code>/dash/me/env</code> &mdash; per-user model API keys (<code>ANTHROPIC_API_KEY</code> and the like), kept separate from capability tokens.</li>
       <li><code>/dash/me/connections</code> &mdash; surrogate OAuth: &ldquo;Connect GitHub&rdquo; writes an access + refresh token into the same <code>secrets</code> row a pasted <code>GITHUB_TOKEN</code> would, without the user minting a PAT by hand.</li>
+      <li><code>/dash/audit/</code> &mdash; the <a href="../concepts/audit.html">audit trail</a> browser: newest first, 50 a page, filtered by category, actor or folder. Reads <code>routd.db</code>, so runed&rsquo;s and authd&rsquo;s own <code>audit_log</code> rows are not in it.</li>
+      <li><code>/dash/usage/</code> &mdash; per-folder model spend and turn counts from <code>cost_log</code>.</li>
+      <li><code>/dash/proactive/</code> &mdash; which groups may <a href="../concepts/proactive.html">speak first</a>, their quiet hours, any broken <code>proactive:</code> block, and when each chat last interjected. Read-only: <code>mode:</code> stays operator-edited in the group&rsquo;s <code>CLAUDE.md</code> so the file remains the single source.</li>
+      <li><code>/dash/services/</code>, <code>/dash/routd/</code>, <code>/dash/runed/</code> &mdash; the daemon cockpits: health tiles, errored chats with a retry, live runs with a kill.</li>
       <li><code>/dash/channels/whatsapp/pair</code> &mdash; self-service WhatsApp re-pair page. Requires the <code>**</code> operator super-grant. Calls whapd <code>/v1/pair/start</code>; the pairing code is returned once, expires in 60s, rate-limited to 5/hr. Every start writes an audit row in <code>messages</code>.</li>
     </ul>
 
@@ -156,7 +160,7 @@ export INSTANCE_NAME=demo
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/dashd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-06">2026-08-06</time>
       </div>
     </main>
 
