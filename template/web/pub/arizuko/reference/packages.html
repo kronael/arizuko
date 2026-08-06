@@ -36,8 +36,22 @@
       <h2>Commands</h2>
       <pre><code>arizuko packages &lt;instance&gt; install github.com/org/pkg   # or a local dir
 arizuko packages &lt;instance&gt; upgrade pkg                   # refuses locally-edited assets
+arizuko packages &lt;instance&gt; sync                          # re-apply every package at once
 arizuko packages &lt;instance&gt; remove  pkg                   # deletes exactly what it owns
 arizuko packages &lt;instance&gt; list</code></pre>
+
+      <p><code>sync</code> is <code>upgrade</code> for every installed package in
+      one pass — useful after pulling new revisions of several sources. It prints
+      <code>updated</code>, <code>unchanged</code> or <code>SKIPPED</code> per
+      package, and a package already at its recorded revision is left completely
+      alone, so running it twice costs nothing. A hand-edited file is skipped with
+      a note rather than stopping the run: one local edit should not block every
+      other package from syncing.</p>
+
+      <p class="note">Not the same as the catalog relink <code>generate</code>
+      does. That one turns a fragment which is still an exact copy of the bundled
+      catalog into a symlink, so catalog fixes reach you; it never looks at the
+      installed-package record. <code>sync</code> is about sources and revisions.</p>
 
       <h2>Asset kinds</h2>
       <table class="tbl">
@@ -58,6 +72,10 @@ arizuko packages &lt;instance&gt; list</code></pre>
         a <strong>locally edited (dirty) asset is refused</strong>, not overwritten.</li>
         <li><code>remove</code> deletes exactly the identities the record owns —
         routes are withdrawn before the fragment is dropped.</li>
+        <li><code>upgrade</code> and <code>sync</code> run the same updater, so
+        the refuse-a-dirty-asset rule is identical by construction. They rewrite
+        only the fragment half of the record; the routes, grants and skills it
+        owns stay recorded, so <code>remove</code> can still find them.</li>
       </ul>
 
       <p>Installed packages are listed in the operator dashboard at

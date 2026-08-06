@@ -14,7 +14,8 @@ beyond `docker` for `run` and `pair`).
 - Commands:
   - `arizuko create <name> [--product <product>]` — seed data dir from `template/env.example`; `--product` copies skills and facts from `ant/examples/<product>/` and prints the env checklist
   - `arizuko generate <instance>` — write `docker-compose.yml` + the compose-managed `.env` block. Also relinks any installed fragment that is still a byte-identical copy of the bundled catalog into a symlink there (`compose.RelinkCatalog`) — no flag, runs on every generate/deploy. A fragment that has diverged (a hand edit, even comment-only) or whose filename encodes a multi-account variant (`<kind>-<label>.yml`) is left as a real file, never touched. Requires `HOST_APP_DIR` in `.env` to be a host-resolvable path — see `compose/README.md` "Packages"
-  - `arizuko packages <inst> list | add <name> | install <source-dir> | upgrade <name> | remove <name>` — `add` links a bundled-catalog adapter fragment at the catalog (`services/<name>.yml` + optional `<name>-routes.json`, spec 5/27) rather than copying it; falls back to a copy with a warning when `HOST_APP_DIR` isn't set. `install <source-dir>` installs a package from a git URL or local dir (compose fragment, `*-routes.json` proxyd route, `*-grants.json` acl, `skills/<name>/`), recording an `installed_packages` row so `upgrade` (refuses a dirty asset) and `remove` (deletes exactly what was recorded) are exact (spec 5/28)
+  - `arizuko packages <inst> list | add <name> | install <source-dir> | upgrade <name> | sync | remove <name>` — `add` links a bundled-catalog adapter fragment at the catalog (`services/<name>.yml` + optional `<name>-routes.json`, spec 5/27) rather than copying it; falls back to a copy with a warning when `HOST_APP_DIR` isn't set. `install <source-dir>` installs a package from a git URL or local dir (compose fragment, `*-routes.json` proxyd route, `*-grants.json` acl, `skills/<name>/`), recording an `installed_packages` row so `upgrade` (refuses a dirty asset) and `remove` (deletes exactly what was recorded) are exact (spec 5/28)
+  - `arizuko packages <inst> sync` — `upgrade` over every installed package in one pass: re-applies each record's fragment from its recorded source, reports `updated` / `unchanged` / `SKIPPED`, and writes nothing for a package already at its recorded revision. A locally edited asset is reported and skipped rather than fatal, so one hand-edited fragment can't block the rest of the instance. Not to be confused with `generate`'s catalog relink above — that converts an identical copy into a symlink and never reads the installed-package record (spec 5/28)
   - `arizuko run <instance>` — generate + `docker compose up`
   - `arizuko status <instance>` — show compose services + channels
   - `arizuko pair <instance> <svc>` — `docker compose run --rm`
@@ -46,7 +47,7 @@ beyond `docker` for `run` and `pair`).
 - `apply.go` — `apply`/`plan`/`get`/`export` (YAML manifests, spec 5/8)
 - `budget.go` — `budget` spend caps
 - `network.go` — `network` egress rules
-- `packages.go` — `packages` catalog `add` (spec 5/27) + source-based `install`/`upgrade`/`remove` with the `installed_packages` record (spec 5/28)
+- `packages.go` — `packages` catalog `add` (spec 5/27) + source-based `install`/`upgrade`/`sync`/`remove` with the `installed_packages` record (spec 5/28); `reapplyPackage` is the single updater `upgrade` and `sync` share
 - `secret.go` — `secret` + `user-secret`
 - `send.go` — `send` message injection
 - `token.go` — `token` route-token management

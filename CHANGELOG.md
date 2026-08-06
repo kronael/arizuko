@@ -160,7 +160,48 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   and authd's own `audit_log` over their APIs rather than opening their database
   files.
 
+- **`arizuko packages <inst> sync` — re-apply every installed package in one
+  pass (spec `5/28`).** `upgrade` re-applied one package from its recorded
+  source; there was no way to ask "bring everything back to what its source
+  says" short of naming each package by hand. `sync` is that verb, and it is
+  deliberately `upgrade` over the whole `installed_packages` set through one
+  shared updater rather than a second one beside it — so the refuse-a-dirty-
+  asset rule is identical by construction, not by agreement. It reports
+  `updated` / `unchanged` / `SKIPPED` per package and writes nothing for a
+  package already at its recorded revision, so re-running it is free and the
+  report stays truthful.
+
+  A locally edited fragment is reported and skipped rather than fatal: with
+  `upgrade` a dirty asset stops the one package you named, but with `sync` it
+  would otherwise stop the whole instance, and one hand-edited file should not
+  block every other package from syncing.
+
+  It is not `generate`'s catalog relink. That converts a fragment which is
+  still a byte-identical copy of the bundled catalog into a symlink and never
+  reads the installed-package record — different input, different output, and
+  the two are now named apart in the spec so they stop being conflated.
+
 ### Fixed
+
+- **`packages upgrade` erased the ownership record `remove` depends on (BUGS
+  `F40`).** `install` records which proxyd routes, `acl` grants and skill dirs a
+  package owns; `upgrade` then replaced that record wholesale with just its
+  compose fragments. After any upgrade, `remove` could no longer find those
+  identities: the routes stayed live, the grants stayed granted, and the skill
+  dirs stayed on disk with nothing recording that the package had put them
+  there. Only the fragment half of the record is rewritten now.
+
+- **The dashd kill button described the wrong loss for a hold (spec `5/8`).** A
+  folder's run slot is not always an agent turn — an archive restore or a vacuum
+  claims the same slot as a `hold`. The confirm dialog said "Any reply it hasn't
+  sent yet will be lost" for those too, which describes an agent's reply rather
+  than an external job aborted part-way. The runs table now shows a Kind column
+  and words the confirm per kind.
+
+  Found alongside it: the runed-page test fixture hand-wrote a `spawns` schema
+  missing the `kind` column its migration added weeks ago, so those tests had
+  been passing against a schema the daemon does not have. Fixture corrected; the
+  wider "hand-written fixtures drift from migrations" class is BUGS `F41`.
 
 - **A refresh-token family killed for reuse could keep a live successor (BUGS
   `F36`).** Presenting a refresh token twice is the signal that one of them was
