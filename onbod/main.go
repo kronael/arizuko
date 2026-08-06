@@ -598,7 +598,7 @@ func auditAdmission(jid, userSub, action, gateKey string) {
 // step 6, and nothing else.
 func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config) {
 	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
-		handleDashboard(w, r, db, obdb, cfg, userSub, ensureCSRFToken(w, r, cfg))
+		handleDashboard(w, r, db, obdb, userSub, ensureCSRFToken(w, r, cfg))
 		return
 	}
 	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
@@ -606,7 +606,7 @@ func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg
 
 // csrf is the double-submit token GET /onboard just minted; every form this
 // renders MUST echo it, because handleOnboardPost rejects a POST without it.
-func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, userSub, csrf string) {
+func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, userSub, csrf string) {
 	var username string
 	if err := db.QueryRow(`SELECT username FROM user_profiles WHERE sub = ?`, userSub).Scan(&username); err != nil {
 		renderPage(w, "Error", template.HTML("<p>User not found.</p>"))
@@ -634,9 +634,11 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, c
 	}
 
 	// Spec 5/18 step 6 — choose. A paired JID with no route is silent, so ask
-	// where it goes before showing anything else. Keyed on that state rather
-	// than on the single-use onboard_jid cookie the claim above just cleared:
-	// a reload of this page must still reach the choice, not drop the JID.
+	// where it goes before showing anything else. Keyed on that STATE, not on
+	// how the user arrived: it is the same branch whether webd's pair success
+	// page sent them here, an invite redemption did, or they reloaded. That is
+	// also why the fold needed no hook — membershipJIDs applies no added_by
+	// filter, so the edge RedeemPairing wrote is found like any other.
 	if jid := unroutedJID(db, userSub); jid != "" {
 		switch folders := adminFolders(db, userSub); len(folders) {
 		case 0:
