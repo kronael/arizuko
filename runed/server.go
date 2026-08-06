@@ -30,8 +30,9 @@ func NewServer(mgr *Manager, db *DB, verify Verifier) *Server {
 	return &Server{mgr: mgr, db: db, verify: verify}
 }
 
-// Handler builds the routed mux. GET /health and /openapi.json are public;
-// everything else is bearer-gated.
+// Handler builds the routed mux. GET /health is public; everything else is
+// bearer-gated. /openapi.json is NOT here — the binary adds it in newRunedMux
+// (runed/cmd/runed), alongside the resource list it advertises.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]any{"ok": true}) })
