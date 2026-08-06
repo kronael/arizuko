@@ -22,9 +22,32 @@ work as coordinates and are still used live (krons runs
 `eval/eti0hsk-priv-grant-g`, `krons/public/marble`) — only the claim that
 depth _structures tenancy_ is dropped.
 
-**Only the vocabulary and invites below are built.** No `worlds` table, no
-`world_*`/`agent_*` tools; a world is still just a top-level group. Read the
-tiers as the intended shape.
+> **Status (2026-08-06) — `partial`, and specifically NOT `draft`.** The tier
+> FRAMEWORK is a design proposal awaiting sign-off; one tier-1 primitive under it
+> is shipped and load-bearing. Nothing here is left for a reader to hunt for:
+>
+> **Unbuilt — the proposal.** No `worlds` table, no `world_*`/`agent_*` tools, no
+> topic `kind`. A world is still just a top-level group; tiers 2 and 3 are
+> vocabulary only. Read them as the intended shape. Building the framework means:
+> a `worlds` row owning the roster, vhost, secrets root and grant root; the
+> migration turning each existing top-level group into a World plus one implicit
+> `root` Agent child; the `world_*`/`agent_*` resreg resources; topic `kind`; and
+> the delegated-use rule layer for guests. Resolutions 2-5 below are the decisions
+> that work blocks on.
+>
+> **Built, which is why this is not a `draft`.**
+>
+> - **Invites** — the tier-1 admission primitive (mechanism in Tier 1 below).
+>   `invites` is an onbod-owned resreg resource (`resreg/resources/invites.go`,
+>   `DB: SubsystemOnbod`) serving `/v1/invites`, with the `invite_create` /
+>   `invite_revoke` agent tools (`ipc/ipc.go:1881,1964`), the `arizuko invite` CLI
+>   verb (`cmd/arizuko/main.go:716`), and the `/dash/invites/` operator page
+>   (`dashd/invites.go`).
+> - **Design resolution 1 is enforced, not merely proposed** — a top-level
+>   `register_group` from the agent socket is refused with "worlds are CLI-only"
+>   (`routd/groups_resource.go:150`).
+> - **Secrets (Phase C)** — shipped as `5/14`'s credential model, which supersedes
+>   this spec's original §Secrets shape outright.
 
 ## Vocabulary
 
@@ -41,10 +64,11 @@ user roster, invites, the web vhost (`<world>.<domain>` → `/pub/<world>/`,
 `5/V`), world-scoped secrets, and the grant root. Its users can invite
 others; invited users are **guests**.
 
-**Invites (shipped, 2026-05).** `invites` — opaque tokens that produce a
-grant on acceptance. Schema `store/migrations/0032-invites-rewrite.sql`;
-resreg resource + `arizuko invite` CLI + `invite_create` MCP tool + dashd
-`/dash/invites/`. Two modes on `target_glob`: a trailing slash (`atlas/`) is
+**Invites (shipped, 2026-05).** `invites` — opaque bearer tokens that produce a
+grant on acceptance. onbod owns the table (`onbod/migrations/0001-onboarding.sql`,
+moved to hash-at-rest by `0003-invites-hash-at-rest.sql`: the PK is
+`ref = hex(sha256(token))` and the raw bearer is never persisted); surfaces are
+listed in the status block above. Two modes on `target_glob`: a trailing slash (`atlas/`) is
 **subgroup-create** — the recipient picks a username, `atlas/<username>` is
 created from `groups/atlas/prototype/`, and they are granted it; no trailing
 slash (`atlas/support`) is **join** — the recipient is granted the existing
@@ -126,13 +150,15 @@ used.
 
 ## Design resolutions — pending sign-off
 
-Nothing here is built; each is a decision proposed for when the tier
-framework is implemented.
+Resolution 1 is already enforced in code; 2-5 are decisions proposed for when
+the tier framework is implemented, and none of them is built.
 
-1. **World creation stays operator/CLI-only; no `world_create` agent tool.**
-   `world_invite` admits a user INTO an existing world. `onbod.createWorldTx`
-   is an operator-plane act, consistent with the anteval case requiring an
-   agent to refuse ("worlds are CLI-only") rather than claim success (`5/9`).
+1. **World creation stays operator/CLI-only; no `world_create` agent tool** —
+   **enforced today.** `world_invite` admits a user INTO an existing world.
+   `onbod.createWorldTx` is an operator-plane act, consistent with the anteval
+   case requiring an agent to refuse rather than claim success (`5/9`); the
+   refusal is live at `routd/groups_resource.go:150`, which rejects a top-level
+   `register_group` on the agent socket with "worlds are CLI-only".
 2. **World becomes a thin first-class entity; agents are its children.** A
    `worlds` row owns the roster, vhost, secrets root, and grant root; the
    top-level group stops doubling as an agent. Migration: each existing

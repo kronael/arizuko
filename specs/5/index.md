@@ -87,15 +87,15 @@ data entities defined here, and `9/3` moves the cold tier into git.
 
 ## Tenancy, onboarding, credentials
 
-| Spec                                                       | Status    | Hook                                                                                                                                                  |
-| ---------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [18-onboarding-model.md](18-onboarding-model.md)           | partial   | **The location axis**: an unrouted JID acquires a `routes` row. Steps 1–6 ship (picker `d9e57288`); step 7's explicit, attributed route act does not. |
-| [5-worlds-agents-sessions.md](5-worlds-agents-sessions.md) | partial   | World → Agent → Session, the collapsed hierarchy. Invites (shipped) + the unbuilt tier framework, guests, and delegated OAuth.                        |
-| [14-credentials.md](14-credentials.md)                     | shipped   | The credential model: env-profile versus capability versus infra.                                                                                     |
-| [13-ext-mcp.md](13-ext-mcp.md)                             | shipped   | External capability injection — service descriptors map tools to REST, auth injected from folder secrets.                                             |
-| [15-surrogate-oauth.md](15-surrogate-oauth.md)             | shipped   | "Connect X" fills the secrets table `5/13` reads; refresh happens at call time.                                                                       |
-| [25-integration-catalog.md](25-integration-catalog.md)     | draft     | The integration surface: arizuko as the gated, audited fabric an agent operates.                                                                      |
-| [26-integration-usecases.md](26-integration-usecases.md)   | reference | The use-case corpus grounding `5/25`.                                                                                                                 |
+| Spec                                                       | Status    | Hook                                                                                                                                                                                                                         |
+| ---------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [18-onboarding-model.md](18-onboarding-model.md)           | partial   | **The location axis**: an unrouted JID acquires a `routes` row. Steps 1–6 ship (picker `d9e57288`); step 7's explicit, attributed route act does not.                                                                        |
+| [5-worlds-agents-sessions.md](5-worlds-agents-sessions.md) | partial   | World → Agent → Session, the collapsed hierarchy. Shipped: invites, and the CLI-only-worlds rule enforced at `groups_resource.go:150`. Proposal awaiting sign-off: the tier framework, topic kinds, guests, delegated OAuth. |
+| [14-credentials.md](14-credentials.md)                     | shipped   | The credential model: env-profile versus capability versus infra.                                                                                                                                                            |
+| [13-ext-mcp.md](13-ext-mcp.md)                             | shipped   | External capability injection — service descriptors map tools to REST, auth injected from folder secrets.                                                                                                                    |
+| [15-surrogate-oauth.md](15-surrogate-oauth.md)             | shipped   | "Connect X" fills the secrets table `5/13` reads; refresh happens at call time.                                                                                                                                              |
+| [25-integration-catalog.md](25-integration-catalog.md)     | draft     | The integration surface: arizuko as the gated, audited fabric an agent operates.                                                                                                                                             |
+| [26-integration-usecases.md](26-integration-usecases.md)   | reference | The use-case corpus grounding `5/25`.                                                                                                                                                                                        |
 
 ## Packaging and distribution
 
