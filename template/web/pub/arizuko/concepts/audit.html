@@ -88,22 +88,34 @@
       <tr><td><code>authd</code></td><td><code>auth.db</code></td><td>identity and token events</td></tr>
     </table>
 
-    <p>This is the same rule that keeps each daemon migrating only its own schema. It costs you a single query that spans all three.</p>
+    <p>This is the same rule that keeps each daemon migrating only its own schema. The cost used to be that no single view spanned them; the dashboard now does the spanning for you, by asking each daemon rather than by merging their files.</p>
 
     <h2>reading it</h2>
     <p>The dashboard at <code>/dash/audit/</code> is the everyday view: newest first, fifty rows a page, filterable by category, actor and folder, with an <code>older</code> link that carries your filters. It is operator-only.</p>
 
-    <div class="callout"><strong>It shows routd&rsquo;s rows only.</strong> The dashboard reads <code>routd.db</code>, and neither runed nor authd exposes an endpoint to read its audit table. Their rows are real and written correctly, but today the only way to see them is <code>sqlite3</code> on the instance:
-    <pre><code>sqlite3 /srv/data/arizuko_&lt;instance&gt;/store/runed.db \
-  "SELECT created_at, action, actor, folder FROM audit_log ORDER BY id DESC LIMIT 20"</code></pre>
-    Tracked in the project&rsquo;s bug queue; the fix is a read endpoint on each daemon, not a dashboard that opens someone else&rsquo;s database file.</div>
+    <p>It shows all three trails at once. Each daemon publishes its own table at <code>GET /v1/audit</code>, and the dashboard asks all of them and merges the answers by time, with a <strong>source</strong> column telling you which daemon a row came from. So &ldquo;who killed that run&rdquo; is a question the dashboard can now answer, and you no longer need a shell on the box.</p>
+
+    <p>The dashboard asks over the network rather than opening <code>runed.db</code> and <code>auth.db</code> itself. That is the same ownership rule as everywhere else: a daemon&rsquo;s table is reached through the daemon, so there is one place that decides who may read what. If one daemon does not answer, you get a banner naming it and the other two still render &mdash; an empty section would tell you nothing happened there, which is the one thing an audit page must never say by accident.</p>
+
+    <p>Reading the log does not write to it. Only changes get a row, so refreshing the page all day adds nothing; a <em>refused</em> read does get recorded, which is the point.</p>
+
+    <div class="callout"><strong>Reading it yourself.</strong> The same data over HTTP, with an operator token:
+    <pre><code>curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://&lt;host&gt;/v1/audit?category=authz&amp;limit=50" | jq .</code></pre>
+    Filters: <code>folder</code> (that folder and everything under it), <code>category</code>, <code>actor</code> (substring), <code>limit</code> (default 50, maximum 200), and <code>before_id</code> to page backwards. An agent can ask the same question about its own folder with the <code>query_audit</code> tool.
+    <p style="margin-bottom:0">One daemon is still missing: <code>onbod</code>, which records admissions and invites, has the table but not yet the endpoint.</p></div>
 
     <h2>what is deliberately not audited</h2>
     <p>A table that already <em>is</em> the record does not get audited twice. The clearest case is a turn: <code>spawns</code> already holds its kind, state, outcome, exit code and every timestamp, and the dashboard renders it, so runed writes no extra row per turn. Chat messages are the same &mdash; the <code>messages</code> table is the record of what was said.</p>
 
     <p>What such a table never holds is <strong>who asked</strong>. That is why runed audits the run slot and not the run: a hold stops every turn in a folder and a kill is an operator&rsquo;s decision, and both can happen without leaving a <code>spawns</code> row at all.</p>
 
-    <p>One real gap, stated plainly: a <em>denied</em> call &mdash; a folder-scoped token reaching for another tenant &mdash; is refused correctly but not yet recorded as an audit row. That belongs at the authorization gate, uniformly across every endpoint, and it is not built.</p>
+    <p>One real gap, stated plainly: a <em>denied</em> call is recorded for every resource served through the registry &mdash; routes, grants, secrets, tasks, tokens, the audit read itself &mdash; but the older hand-written endpoints still refuse correctly without leaving a row. Making that uniform belongs at the authorization gate, and it is not finished.</p>
+
+    <h2>what never reaches the table</h2>
+    <p>Arguments are recorded so you can tell one call from another, but anything that looks like a credential is replaced with a marker before the row is written &mdash; passwords, tokens, secrets, cookies, API and private keys, database connection strings. The marker keeps the length (<code>&lt;redacted:64chars&gt;</code>) so you can still tell an empty value from a real key without ever storing one.</p>
+
+    <p>Redaction happens where the row is <em>written</em>, not where it is read, so there is one rule and every daemon obeys it. The matching is deliberately narrow at the edges: <code>private_key</code> is hidden, <code>serving_keys</code> &mdash; a count of how many keys a daemon is serving &mdash; is not, because over-hiding blinds the very questions this table exists to answer. A very long argument is shortened to its first 200 characters with a note saying how long it really was, and the rest of the row survives intact.</p>
 
     <h2>go deeper</h2>
     <p>The decision record, including the read/write split and why the row rides the mutation&rsquo;s transaction: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/I-tool-call-logging.md">specs/5/I</a>. Every column, index and writer: <a href="../reference/schema.html">reference/schema</a>. Who is allowed to do the thing being audited: <a href="grants.html">grants</a>.</p>

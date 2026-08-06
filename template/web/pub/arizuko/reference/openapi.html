@@ -84,24 +84,25 @@
         <tr>
           <td><code>authd</code></td>
           <td><code>http://authd:8080/openapi.json</code></td>
-          <td><span class="dim">none &mdash; issues and verifies tokens; no cold-tier table</span></td>
+          <td><code>audit</code> <span class="dim">(read-only) &mdash; its own audit trail; the token endpoints are hand-rolled and carry no row schema</span></td>
         </tr>
         <tr>
           <td><code>runed</code></td>
           <td><code>http://runed:8080/openapi.json</code></td>
-          <td><span class="dim">none &mdash; execution plane; runs and holds are hot-tier</span></td>
+          <td><code>audit</code> <span class="dim">(read-only) &mdash; its own audit trail; runs and holds stay hot-tier</span></td>
         </tr>
       </tbody>
     </table>
 
     <p>Daemons that own no resources still emit a valid OpenAPI document so external tooling can introspect them uniformly. The schemas + paths blocks are empty but <code>info</code>, <code>servers</code>, and the standard <code>components/responses</code> (400, 401, 403, 404, 409, 500) are present.</p>
 
-    <p>routd's own <code>/openapi.json</code> lists the eight resources above &mdash; fifteen paths &mdash; and only those, because it advertises only what it actually mounts. An endpoint in the document is an endpoint you can call; there is no separate list to forget to update. Four of the eight are narrower than full CRUD, and deliberately so:</p>
+    <p>routd's own <code>/openapi.json</code> lists the nine resources above &mdash; sixteen paths &mdash; and only those, because it advertises only what it actually mounts. An endpoint in the document is an endpoint you can call; there is no separate list to forget to update. Four of the eight are narrower than full CRUD, and deliberately so:</p>
 
     <ul>
       <li><code>secrets</code> is <strong>write-only</strong> &mdash; it declares a create and a key-delete and no read op at all, so a sealed value cannot leak through a convention <code>GET</code>.</li>
       <li><code>installed_packages</code> is <strong>read-only</strong> &mdash; two <code>GET</code>s and nothing else. Installing a package writes host files and restarts sidecars; that pipeline is the <code>arizuko packages</code> CLI, and a REST create would be a second path that drifts from it.</li>
       <li><code>groups</code> is <strong>read-only</strong> &mdash; one <code>GET /v1/groups</code>. The agent gets a <code>register_group</code> tool, but creating a group also writes a route and a git-init'd directory on disk, so that stays dashd's job and no daemon serves <code>POST /v1/groups</code>.</li>
+      <li><code>audit</code> is <strong>read-only</strong>, and more strictly so than the rest &mdash; one <code>GET /v1/audit</code>, no read-one. The log is append-only and each row is written inside the transaction of the act it records, so a create or delete would let a caller forge or erase the record of something that did or did not happen. There is no <code>/v1/audit/{id}</code> because <code>id</code> is a per-database counter: the same number names a different row on each daemon. This is also the one resource three daemons serve &mdash; routd, runed and authd each own a table and each publish theirs, so <code>/v1/audit</code> always means "this daemon's log".</li>
       <li><code>scheduled_tasks</code> declares list, read, update and delete, but not schedule, pause or resume &mdash; those three are agent tools with no operator endpoint behind them (see the <a href="mcp.html#scheduling">MCP reference</a>). An operator pauses a task by <code>PATCH</code>ing its status, or from the dashboard.</li>
     </ul>
 
