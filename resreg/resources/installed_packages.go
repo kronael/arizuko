@@ -12,7 +12,12 @@ import (
 // record). manifest + asset_hashes are JSON TEXT columns exposed as native Go
 // maps, so the engine keeps a raw shadow column per field and AfterScan decodes
 // it — the same trade-off ProxydRoutesRow pays for its JSON blob.
+//
+// The PK is composite (folder, name): composition blends a product mix per
+// GROUP, so the lock names which group (BUGS F30). Folder "" is instance-wide —
+// every row today — the same sentinel NetworkRulesRow uses for a global rule.
 type InstalledPackagesRow struct {
+	Folder         string              `db:"folder"       yaml:"folder"       json:"folder"`
 	Name           string              `db:"name"         yaml:"name"         json:"name"`
 	Source         string              `db:"source"       yaml:"source"       json:"source"`
 	Revision       string              `db:"revision"     yaml:"revision"     json:"revision"`
@@ -60,6 +65,13 @@ var InstalledPackagesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.ActionGet: {
 		{Name: "name", Type: "string", Required: true,
 			Description: "Installed package name, as list_packages reports it (e.g. ttsd)."},
+		// The PK is (folder, name), so name alone does not identify a row. Optional
+		// because every package installed today is instance-wide: omitting it asks
+		// for exactly the row the CLI writes.
+		{Name: "folder", Type: "string",
+			Description: "Owning folder, as list_packages reports it. Omit for an " +
+				"instance-wide package (the default, and every package the " +
+				"`arizuko packages` CLI installs)."},
 	},
 }
 
@@ -68,16 +80,18 @@ var InstalledPackagesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 // read-only out loud, because the tools an agent can see are the whole surface it
 // gets to reason about.
 var InstalledPackagesMCPDoc = map[resreg.Action]string{
-	resreg.ActionList: "List the packages installed on this instance: name, git source, " +
-		"resolved revision, install time, the identities each install owns " +
+	resreg.ActionList: "List the packages installed on this instance: owning folder, name, " +
+		"git source, resolved revision, install time, the identities each install owns " +
 		"(compose fragments, proxyd routes, acl grants, skills) and its per-asset " +
-		"content hashes. Instance-wide, so it needs a grant covering the whole " +
-		"tree. Read-only — installing, upgrading, and removing a package is the " +
+		"content hashes. An empty `folder` means the package is installed " +
+		"instance-wide. Reads across every folder, so it needs a grant covering the " +
+		"whole tree. Read-only — installing, upgrading, and removing a package is the " +
 		"`arizuko packages` CLI, because it also writes files and restarts " +
 		"sidecars. Spec 5/28.",
-	resreg.ActionGet: "Read one installed package's record by name — same fields as " +
-		"list_packages, for a single package. Absent package returns 404. " +
-		"Read-only. Spec 5/28.",
+	resreg.ActionGet: "Read one installed package's record — same fields as " +
+		"list_packages, for a single package. Keyed by `name` plus the owning " +
+		"`folder`; omit `folder` for an instance-wide package. Absent package " +
+		"returns 404. Read-only. Spec 5/28.",
 }
 
 func init() {
@@ -86,7 +100,7 @@ func init() {
 		Table:     "installed_packages",
 		DB:        resreg.SubsystemRoutd,
 		RowType:   reflect.TypeFor[InstalledPackagesRow](),
-		PKFields:  []string{"Name"},
+		PKFields:  []string{"Folder", "Name"},
 		Endpoints: InstalledPackagesEndpoints,
 		MCPDoc:    InstalledPackagesMCPDoc,
 		MCPArgs:   InstalledPackagesMCPArgs,

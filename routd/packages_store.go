@@ -18,7 +18,14 @@ import (
 // (skills / compose_fragment / proxyd_route / acl / group_seed) to the
 // identities this install owns; AssetHashes maps an asset id to the content
 // hash written, so upgrade can detect a locally-edited (dirty) asset.
+//
+// Folder is the half of the key spec 5/28's composition needs: a group blends an
+// ordered product mix, so the lock has to name WHICH group. InstanceWide ("") is
+// the sentinel for a package installed against the whole instance — every row
+// the CLI writes today, and the same convention network_rules uses for a global
+// egress rule.
 type InstalledPackage struct {
+	Folder      string
 	Name        string
 	Source      string
 	Revision    string
@@ -26,6 +33,14 @@ type InstalledPackage struct {
 	AssetHashes map[string]string
 	InstalledAt string
 }
+
+// InstanceWide is installed_packages.folder for a package that belongs to the
+// instance rather than to one group. `arizuko packages install` writes compose
+// fragments, proxyd routes and host files — none of which belong to a group — so
+// it is the only value the CLI produces.
+const InstanceWide = ""
+
+const installedPackageCols = `folder, name, source, revision, manifest, asset_hashes, installed_at`
 
 // PutInstalledPackage upserts a package's record (install and upgrade). Manifest
 // and AssetHashes serialise to JSON; nil maps become `{}` so a NULL never lands.
@@ -44,18 +59,19 @@ func (d *DB) PutInstalledPackage(p InstalledPackage) error {
 	if err != nil {
 		return err
 	}
-	_, err = d.db.Exec(`INSERT INTO installed_packages(name, source, revision, manifest, asset_hashes, installed_at)
-		VALUES(?,?,?,?,?,?)
-		ON CONFLICT(name) DO UPDATE SET source=excluded.source, revision=excluded.revision,
+	_, err = d.db.Exec(`INSERT INTO installed_packages(`+installedPackageCols+`)
+		VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(folder, name) DO UPDATE SET source=excluded.source, revision=excluded.revision,
 			manifest=excluded.manifest, asset_hashes=excluded.asset_hashes, installed_at=excluded.installed_at`,
-		p.Name, p.Source, p.Revision, string(manifest), string(hashes), p.InstalledAt)
+		p.Folder, p.Name, p.Source, p.Revision, string(manifest), string(hashes), p.InstalledAt)
 	return err
 }
 
-// InstalledPackage returns one record by name; ok=false when absent.
-func (d *DB) InstalledPackage(name string) (InstalledPackage, bool, error) {
-	p, err := scanInstalledPackage(d.db.QueryRow(`SELECT name, source, revision, manifest, asset_hashes, installed_at
-		FROM installed_packages WHERE name=?`, name))
+// InstalledPackage returns one record by its full key; ok=false when absent.
+// Pass InstanceWide for folder to reach a package installed instance-wide.
+func (d *DB) InstalledPackage(folder, name string) (InstalledPackage, bool, error) {
+	p, err := scanInstalledPackage(d.db.QueryRow(`SELECT `+installedPackageCols+`
+		FROM installed_packages WHERE folder=? AND name=?`, folder, name))
 	if errors.Is(err, sql.ErrNoRows) {
 		return InstalledPackage{}, false, nil
 	}
@@ -65,10 +81,11 @@ func (d *DB) InstalledPackage(name string) (InstalledPackage, bool, error) {
 	return p, true, nil
 }
 
-// InstalledPackages lists every record, ordered by name.
+// InstalledPackages lists every record, instance-wide rows first (folder ''
+// sorts before any group), then by name.
 func (d *DB) InstalledPackages() ([]InstalledPackage, error) {
-	rows, err := d.db.Query(`SELECT name, source, revision, manifest, asset_hashes, installed_at
-		FROM installed_packages ORDER BY name`)
+	rows, err := d.db.Query(`SELECT ` + installedPackageCols + `
+		FROM installed_packages ORDER BY folder, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -85,8 +102,8 @@ func (d *DB) InstalledPackages() ([]InstalledPackage, error) {
 }
 
 // DeleteInstalledPackage removes a record (remove). ok=false when absent.
-func (d *DB) DeleteInstalledPackage(name string) (bool, error) {
-	res, err := d.db.Exec("DELETE FROM installed_packages WHERE name=?", name)
+func (d *DB) DeleteInstalledPackage(folder, name string) (bool, error) {
+	res, err := d.db.Exec("DELETE FROM installed_packages WHERE folder=? AND name=?", folder, name)
 	if err != nil {
 		return false, err
 	}
@@ -100,7 +117,7 @@ type rowScanner interface{ Scan(...any) error }
 func scanInstalledPackage(s rowScanner) (InstalledPackage, error) {
 	var p InstalledPackage
 	var manifest, hashes string
-	if err := s.Scan(&p.Name, &p.Source, &p.Revision, &manifest, &hashes, &p.InstalledAt); err != nil {
+	if err := s.Scan(&p.Folder, &p.Name, &p.Source, &p.Revision, &manifest, &hashes, &p.InstalledAt); err != nil {
 		return InstalledPackage{}, err
 	}
 	if err := json.Unmarshal([]byte(manifest), &p.Manifest); err != nil {

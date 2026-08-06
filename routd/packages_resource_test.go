@@ -311,7 +311,7 @@ func TestInstalledPackagesREST_NoWriteFace(t *testing.T) {
 		}
 	}
 	// The record survived every attempt.
-	if _, ok, err := db.InstalledPackage("ttsd"); err != nil || !ok {
+	if _, ok, err := db.InstalledPackage(InstanceWide, "ttsd"); err != nil || !ok {
 		t.Fatalf("record gone after write attempts: ok=%v err=%v", ok, err)
 	}
 }

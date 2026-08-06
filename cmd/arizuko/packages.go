@@ -461,7 +461,10 @@ func cmdPackages(args []string) {
 		if skills := applyPackageSkills(dataDir, dir); len(skills) > 0 {
 			manifest["skill"] = skills
 		}
+		// Folder is InstanceWide: install writes compose fragments, proxyd routes
+		// and host files, none of which belong to a group (spec 5/28).
 		if err := rdb.PutInstalledPackage(routd.InstalledPackage{
+			Folder:      routd.InstanceWide,
 			Name:        name,
 			Source:      origin,
 			Revision:    revision,
@@ -482,7 +485,7 @@ func cmdPackages(args []string) {
 		mustPkgName(name)
 		rdb := mustOpenRoutd(dataDir)
 		defer rdb.Close()
-		rec, ok, err := rdb.InstalledPackage(name)
+		rec, ok, err := rdb.InstalledPackage(routd.InstanceWide, name)
 		if err != nil {
 			die("Failed: read record: %v", err)
 		}
@@ -536,7 +539,7 @@ func cmdPackages(args []string) {
 		// Prefer the installed record (spec 5/28): delete exactly what the record
 		// says this package owns, then drop the record. Fall back to the legacy
 		// `<name>.yml` deletion for a catalog `add` that left no record.
-		if rec, ok, _ := rdb.InstalledPackage(name); ok {
+		if rec, ok, _ := rdb.InstalledPackage(routd.InstanceWide, name); ok {
 			// P4 reverse order: withdraw the live route(s) FIRST, so no request
 			// is ever routed at a sidecar mid-teardown, THEN drop the fragment
 			// files. Bring-up health-gating is compose's (healthcheck +
@@ -570,7 +573,7 @@ func cmdPackages(args []string) {
 					}
 				}
 			}
-			if _, err := rdb.DeleteInstalledPackage(name); err != nil {
+			if _, err := rdb.DeleteInstalledPackage(routd.InstanceWide, name); err != nil {
 				die("Failed: drop record for %s: %v", name, err)
 			}
 			fmt.Printf("removed %s — run `arizuko generate %s` to apply\n", name, args[0])

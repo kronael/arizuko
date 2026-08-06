@@ -96,7 +96,7 @@ func TestPackagesInstallRemove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec, ok, err := rdb.InstalledPackage("teledpkg")
+	rec, ok, err := rdb.InstalledPackage(routd.InstanceWide, "teledpkg")
 	if err != nil || !ok {
 		t.Fatalf("record missing: ok=%v err=%v", ok, err)
 	}
@@ -115,7 +115,7 @@ func TestPackagesInstallRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rdb2.Close()
-	if _, ok, _ := rdb2.InstalledPackage("teledpkg"); ok {
+	if _, ok, _ := rdb2.InstalledPackage(routd.InstanceWide, "teledpkg"); ok {
 		t.Fatal("record not removed")
 	}
 }
@@ -172,7 +172,7 @@ func TestPackagesUpgradeClean(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	rec, ok, _ := rdb.InstalledPackage("up")
+	rec, ok, _ := rdb.InstalledPackage(routd.InstanceWide, "up")
 	if !ok || rec.AssetHashes["file:up.yml"] != sha256hex(b) {
 		t.Fatalf("record hash not updated on upgrade: %+v", rec)
 	}
@@ -223,7 +223,7 @@ func TestPackagesInstallGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rdb.Close()
-	rec, ok, _ := rdb.InstalledPackage("gitpkg")
+	rec, ok, _ := rdb.InstalledPackage(routd.InstanceWide, "gitpkg")
 	if !ok || rec.Revision == "local" || len(rec.Revision) < 7 || rec.Source != "file://"+repo {
 		t.Fatalf("git revision/source not recorded: %+v", rec)
 	}
@@ -274,7 +274,7 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 		rdb.Close()
 		t.Fatal("route not hot-applied to proxyd_routes")
 	}
-	rec, _, _ := rdb.InstalledPackage("routepkg")
+	rec, _, _ := rdb.InstalledPackage(routd.InstanceWide, "routepkg")
 	if len(rec.Manifest["proxyd_route"]) != 1 || rec.Manifest["proxyd_route"][0] != "/rp/" {
 		rdb.Close()
 		t.Fatalf("route path not recorded: %+v", rec)
@@ -351,7 +351,7 @@ func TestPackagesInstallGrants(t *testing.T) {
 			found = true
 		}
 	}
-	rec, _, _ := rdb.InstalledPackage("grantpkg")
+	rec, _, _ := rdb.InstalledPackage(routd.InstanceWide, "grantpkg")
 	rdb.Close()
 	if !found {
 		t.Fatal("grant not applied to acl")
@@ -405,7 +405,7 @@ func TestPackagesInstallSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec, _, _ := rdb.InstalledPackage("skillpkg")
+	rec, _, _ := rdb.InstalledPackage(routd.InstanceWide, "skillpkg")
 	rdb.Close()
 	if len(rec.Manifest["skill"]) != 1 || rec.Manifest["skill"][0] != "mytool" {
 		t.Fatalf("skill not recorded: %+v", rec)

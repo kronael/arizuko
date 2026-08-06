@@ -16,14 +16,17 @@ package routd
 // was that an agent could not SEE what an operator installed; that is what this
 // fixes. What it does not do, it does not advertise.
 //
-// CONTAINMENT: the table has no folder column — a package installs INSTANCE-WIDE
-// — so there is no per-folder slice to hand a tenant, and the record itself
-// carries cross-folder data (the acl grants an install applied, every public
-// route path it opened). Both faces therefore bind the same target, the whole
-// tree (installedPackagesScope), and run the ONE evaluator on it: a caller whose
+// CONTAINMENT: the record is keyed (folder, name) since 0031, but that key is
+// the LOCK's — it is not a per-tenant slice, and authorization did not move with
+// it. Every package the CLI installs is instance-wide (folder ""), `list` reads
+// across all folders, and the record carries cross-folder data regardless (the
+// acl grants an install applied, every public route path it opened). Both faces
+// therefore still bind the same target, the whole tree
+// (installedPackagesScope), and run the ONE evaluator on it: a caller whose
 // grant covers only its own subtree does not match `**` and is denied. Two
 // identity sources (JWT sub vs socket principal), two injected gates, one
-// decision procedure — CLAUDE.md "auth is a uniform middleware".
+// decision procedure — CLAUDE.md "auth is a uniform middleware". Narrowing this
+// to a per-folder read is composition's call (spec 5/28), not the re-key's.
 //
 // No action mutates, so resreg opens no tx and writes no audit_log mutation row;
 // denials and errors still land there (resreg.emitAudit), which is the whole
@@ -151,12 +154,20 @@ func (s *Server) installedPackagesHandler(_ context.Context, x resreg.Execution)
 		if name == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "name required")
 		}
-		rec, ok, err := s.db.InstalledPackage(name)
+		// The record is keyed (folder, name); an omitted folder asks for the
+		// instance-wide row, which is every row the CLI writes.
+		folder := strings.TrimSpace(argString(x.Args, "folder"))
+		rec, ok, err := s.db.InstalledPackage(folder, name)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		if !ok {
-			return nil, resreg.Errorf(http.StatusNotFound, "no package %q installed", name)
+			if folder == InstanceWide {
+				return nil, resreg.Errorf(http.StatusNotFound,
+					"no package %q installed instance-wide", name)
+			}
+			return nil, resreg.Errorf(http.StatusNotFound,
+				"no package %q installed at folder %q", name, folder)
 		}
 		return installedPackageRow(rec), nil
 	}
@@ -169,6 +180,7 @@ func (s *Server) installedPackagesHandler(_ context.Context, x resreg.Execution)
 // and both are json:"-".
 func installedPackageRow(p InstalledPackage) resources.InstalledPackagesRow {
 	return resources.InstalledPackagesRow{
+		Folder:      p.Folder,
 		Name:        p.Name,
 		Source:      p.Source,
 		Revision:    p.Revision,
