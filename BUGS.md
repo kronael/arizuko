@@ -38,11 +38,18 @@ order, and under whole-suite load the losers win the ordering.
 "successor must be revoked after a concurrent-reuse family kill" — which is the
 race, correctly detected.
 
-Reproduction: `go test ./... -count=1 -short` on the current tree fails it
-roughly one run in two. It passes when that test file is renamed to sort last,
-and at base `22456a4f` it passes both whole-suite runs and 40 isolated ones.
-That the trigger is test ORDER and not test CONTENT is itself the evidence: a
-race whose visibility depends on scheduling is a race, not a broken test.
+Reproduction needs BOTH the new ordering and CPU contention. It failed two of
+two whole-suite runs while a second worktree was running its own suite on the
+same machine, and passed three of three once that finished — so the honest
+statement is "reproduces under load", not a fixed rate. It also passes when the
+new test file is renamed to sort last, and at base `22456a4f` it passed both
+whole-suite runs and 40 isolated ones.
+
+Load-and-order sensitivity is the evidence, not a caveat on it: the assertion
+is a pure invariant over committed rows, so the only thing scheduling can
+change is whether the losers reach `revokeFamily` before the winner reaches
+`rotateRefresh`. A test that fails only when the timing goes one way is
+reporting a timing bug. Do not close this by re-running until it is green.
 
 **Not fixed here, and not hidden here.** Renaming the new test file would make
 the suite green and leave a live token-revocation hole, so it was left failing
