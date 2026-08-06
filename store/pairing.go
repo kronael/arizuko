@@ -12,7 +12,9 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -41,6 +43,47 @@ var ErrPairingConflict = errors.New("pairing: channel identity is linked to anot
 // has one implementation across the side-effect-free peek and the redeem tx.
 type rowQuerier interface {
 	QueryRow(query string, args ...any) *sql.Row
+}
+
+// rowExecer is satisfied by both *sql.DB and *sql.Tx, for the same reason
+// rowQuerier is: the two minters run in different shapes. routd mints inside
+// resreg.invoke's mutation tx; onbod mints on the raw routd.db handle it already
+// writes acl_membership and routes through. One function serves both by taking
+// the executor as an argument.
+type rowExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// IssuePairingLink mints a pairing token for jid and returns the raw token
+// ONCE — only sha256(raw) is stored. It is the single pairing minter: the agent
+// path (routd's issue_pairing_link) and the greeting path (onbod's poll tick)
+// both come here, so the credential cannot drift apart in hashing or storage.
+//
+// ownerFolder is resolved entirely by the CALLER — routd binds it to the folder
+// the JID already routes to, onbod passes "" because a greeting is sent before
+// any human is known and there is no folder to name. Empty stores NULL, which
+// SQLite's FK check skips; the alternative, a permanent sentinel row in
+// `groups`, is platform-manufactured operator data (spec 5/31 § Rejected).
+// Neither PeekPairing nor RedeemPairing reads owner_folder, and pair-kind rows
+// are already excluded from listing and revocation, so NULL costs nothing.
+func IssuePairingLink(ctx context.Context, x rowExecer, jid, ownerFolder string) (string, error) {
+	if jid == "" {
+		return "", fmt.Errorf("pairing: jid required")
+	}
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("pairing: generate token: %w", err)
+	}
+	raw := hex.EncodeToString(b[:])
+	if _, err := x.ExecContext(ctx,
+		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind)
+		 VALUES (?, ?, ?, ?, NULL, ?)`,
+		TokenRefBytes(raw), jid, nilIfEmpty(ownerFolder),
+		time.Now().UTC().Format(time.RFC3339Nano), RouteTokenKindPair,
+	); err != nil {
+		return "", fmt.Errorf("pairing: mint token for %s: %w", jid, err)
+	}
+	return raw, nil
 }
 
 // PeekPairing resolves a live pairing token to the channel JID it binds WITHOUT

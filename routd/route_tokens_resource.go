@@ -142,7 +142,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
 		}
 		raw, err := issueRouteTokenTx(ctx, x.Tx, jid, folder,
-			strings.TrimSpace(argString(x.Args, "context")), store.RouteTokenKindRoute)
+			strings.TrimSpace(argString(x.Args, "context")))
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -169,7 +169,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 			return nil, resreg.Errorf(http.StatusInternalServerError,
 				"cannot mint a pairing link: WEB_HOST is unset, so there is no URL to hand out")
 		}
-		raw, err := issueRouteTokenTx(ctx, x.Tx, jid, target, "", store.RouteTokenKindPair)
+		raw, err := store.IssuePairingLink(ctx, x.Tx, jid, target)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -289,14 +289,15 @@ func routeTokenJID(kind, targetFolder, sourceLabel, jidSuffix string) (jid, urlP
 	return jid, urlPrefix, nil
 }
 
-// issueRouteTokenTx mints a 32-byte hex token for jid under owner and inserts
-// sha256(token) on tx (mirrors DB.IssueRouteToken so the mutation lands in
-// resreg.invoke's tx alongside its audit_log row), returning the raw token once.
-// context is the optional per-link processing instructions; "" stores NULL.
-// kind is store.RouteTokenKindRoute for a delivery bearer or
-// store.RouteTokenKindPair for a pairing link (spec 5/31) — one minter, so the
-// two credentials cannot drift apart in hashing or storage.
-func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, context, kind string) (string, error) {
+// issueRouteTokenTx mints a 32-byte hex DELIVERY token for jid under owner and
+// inserts sha256(token) on tx (mirrors DB.IssueRouteToken so the mutation lands
+// in resreg.invoke's tx alongside its audit_log row), returning the raw token
+// once. context is the optional per-link processing instructions; "" stores
+// NULL. The pairing kind is NOT minted here — it has a second caller in another
+// process (onbod's greeting) that cannot reach this tx, so it lives in
+// store.IssuePairingLink where both callers can hold it (spec 5/31 § One mint,
+// per-caller target resolver).
+func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, context string) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -305,7 +306,7 @@ func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, context, kin
 	h := sha256.Sum256([]byte(raw))
 	_, err := tx.ExecContext(ctx,
 		`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context, kind) VALUES(?,?,?,?,?,?)`,
-		h[:], jid, owner, nowTS(), nullStr(context), kind)
+		h[:], jid, owner, nowTS(), nullStr(context), store.RouteTokenKindRoute)
 	if err != nil {
 		return "", err
 	}
