@@ -766,6 +766,15 @@ HTMX portal over routd's data plus a write surface (routes
 editor, groups CRUD, per-user secrets) requiring authenticated access.
 Spec: `specs/3/d-dashboards.md`. See `dashd/README.md`.
 
+Operator-only pages reached from `/dash/services/` are the per-daemon control
+planes: `/dash/routd/`, `/dash/runed/`, `/dash/proxyd/` and `/dash/authd/`
+(signing-key lifecycle, login sessions, per-login sign-out — spec `5/1`). Each
+goes over HTTP to the owning daemon's `/v1` with the `service:dashd` bearer
+rather than opening its DB, which is what keeps the owner the single writer and
+puts each mutation's audit row in its own transaction. dashd is FS-mounted on
+`routd.db` alone; `runed.db` and `auth.db` are reachable only through their
+daemons.
+
 ## Diary (diary package)
 
 `diary.Read(groupDir, max)` reads recent `.md` from `group/diary/`, extracts

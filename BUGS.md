@@ -7,6 +7,37 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F39 — `SCREENS.md`'s page hierarchy is missing ten shipped dashd pages (2026-08-06, open)
+
+Found while shipping `/dash/authd/`. `SCREENS.md` is the dashd page inventory —
+the document a design pass reads to know what screens exist — and its
+`### Page hierarchy` block (`SCREENS.md:64-86`) lists neither `/dash/authd/` nor
+`/dash/audit/`, `/dash/usage/`, `/dash/engagement/`, `/dash/proactive/`,
+`/dash/packages/`, `/dash/runed/`, `/dash/routd/`, `/dash/me/env` or
+`/dash/me/connections`.
+
+That is ten of the pages dashd actually serves. The inventory is not merely
+incomplete, it is the wrong shape: an audit run against it would report the
+control planes as unbuilt, which is how the now-corrected "What's missing (spec
+gap)" block came to claim per-daemon cockpits were not built at all.
+
+Fixed here, because it named this ship's own feature: the `What's missing` block
+now describes which tiles are built and points at
+`TestServicesBuiltFlagMatchesMountedRoutes`. NOT fixed here: the hierarchy list
+itself. Rewriting a ten-entry inventory is a documentation pass on a file this
+change does not otherwise touch, and the entries need per-page screen
+descriptions rather than a route list — the same reason `F16`'s web-doc drift is
+tracked rather than swept.
+
+- **Severity:** low (documentation only; no runtime effect)
+- **Scope:** `SCREENS.md`
+- **Affected:** contributors and design passes, not instances
+- **Source:** SCREENS.md:64-86, :217-218; dashd/main.go:499-603
+- **Fix:** rebuild the hierarchy from `dash.registerRoutes`, one entry per
+  operator-visible page, and keep it there — or delete the block and point at
+  `dashd/README.md`'s route list, which IS maintained, rather than keeping a
+  second inventory that drifts.
+
 ## F37 — two dispatch tests fail under whole-suite load, so the suite cannot gate a release (2026-08-06, open)
 
 Found while verifying `F36`. Two packages failed on two separate whole-suite
