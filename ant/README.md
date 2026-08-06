@@ -19,27 +19,22 @@ and delivers the result via the `submit_turn` JSON-RPC method back to
 The shipping runtime uses `@anthropic-ai/claude-agent-sdk` 0.3.153.
 MCP servers are assembled in `src/mcp-servers.ts`:
 
-### Choosing the harness — `ARIZUKO_BACKEND`
+### The harness
 
-ant does not implement an agent loop; it wraps one. `ARIZUKO_BACKEND`
-picks which (`src/backend/index.ts`), read from the container env runed
-sets at spawn:
+ant does not implement an agent loop; it wraps one. `src/claude.ts`
+drives Claude Code via `@anthropic-ai/claude-agent-sdk` — spawn the
+harness, normalize its event stream (`normalize()`), report the turn
+once over `submit_turn`. Model calls, tool execution, retries and
+session state are all the harness's, never ant's.
 
-| Value              | Harness                                                          |
-| ------------------ | ---------------------------------------------------------------- |
-| `claude` (default) | Claude Code via `@anthropic-ai/claude-agent-sdk` (`backend/claude.ts`) |
-| `codex`            | OpenAI `codex app-server`, JSON-RPC over stdio (`backend/codex.ts`) |
-
-Unset means `claude`. **Any other value is fatal at startup** — never a
-silent fallback. Selection is per-spawn, so different folders can run
-different harnesses. The MCP surface above the backend
-(`send`/`reply`/`inspect_*`/`submit_turn`) is identical either way.
-
-The seam a backend must satisfy is `name()`, `spawn(cfg)`,
-`session.events()`, `session.close()` — the only members the runtime
-calls. `Caps` and the remaining `Session` methods currently have no
-consumer; see spec `5/K` § "`Caps` has no consumer" before building
-against them.
+Harness independence lives at the **process boundary**, not in an
+interface here: the agent tool surface + `submit_turn` on the unix
+socket routd serves is a wire protocol, so a different harness replaces
+ant as its own process without touching arizuko. There is no in-process
+backend abstraction — one was tried, had a single implementation, and
+its selection env var never reached the container. Spec `5/P`
+§ "ant wraps a harness, it never is one"; extension recipe in
+`EXTENDING.md` § "Swapping the agent harness".
 
 - **`arizuko` core server** — socat bridge to `/run/ipc/gated.sock`,
   `alwaysLoad: true` so `send`/`reply`/`inspect_*`/`send_file` stay
@@ -108,7 +103,7 @@ The image is `FROM node:22-bookworm-slim`, installs `claude` CLI +
 ant/
   src/index.ts           Entrypoint (stdin → SDK → submit_turn)
   src/mcp-servers.ts     MCP server assembly (eager vs deferred)
-  src/backend/           SDK session wrappers
+  src/claude.ts          Claude Code harness driver + event normalization
   CLAUDE.md              Agent identity + runbook (seeded to groups)
   PERSONA.md             Default persona
   skills/                Stock skills (83 portable, 1 arizuko-only)

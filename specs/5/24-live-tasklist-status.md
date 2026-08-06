@@ -59,7 +59,7 @@ its manual-checklist paragraph.
 ## Code pointers
 
 - `ant/src/todo-status.ts` — render + the `TodoWrite` PostToolUse hook.
-- `ant/src/backend/claude.ts` — hook registration (`matcher: 'TodoWrite'`)
+- `ant/src/claude.ts` — hook registration (`matcher: 'TodoWrite'`)
   - the `SessionConfig.turnID` plumb.
 - `routd/mcp.go` `mcpSubmitStatus` — edit-or-send.
 - `routd/turns.go` `deliverStatus` — stamps `verb="status"`.

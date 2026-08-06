@@ -20,7 +20,7 @@ depends: [17-openapi-mcp]
 > **Shipped 2026-06-14.** Layer A: `audit_log` (params_summary,
 > duration_ms, turn_id, surface, redaction) emitted in-tx via
 > `audit.EmitInTx` across every daemon. Layer B: PreToolUse/PostToolUse
-> hooks in `ant/src/tool-log.ts`, wired via `ant/src/backend/claude.ts`,
+> hooks in `ant/src/tool-log.ts`, wired via `ant/src/claude.ts`,
 > captured by `container/runner.go` which forwards `[ant] [tool]` lines to
 > slog.
 

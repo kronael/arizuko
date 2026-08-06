@@ -31,7 +31,7 @@ extension points. See
 | Web routes    | `store/web_routes.go`                  | Agent          | MCP tools (`set_web_route` / `del_web_route`) |
 | Public pages  | `template/web/pub/`                    | Operator       | Plain HTML, copied into `<data-dir>/web/pub/` |
 | Output styles | `ant/output-styles/`                   | Channel author | `<channel>-<surface>.md`; picked per-session  |
-| Agent harness | `ant/src/backend/`                     | Developer      | `ARIZUKO_BACKEND` env var selects per spawn   |
+| Agent harness | the ant protocol (MCP socket)          | Developer      | Replace ant with a process that speaks it     |
 
 ## Adding an output-style file
 
@@ -528,25 +528,24 @@ Skill body shape: see `ant/skills/oracle/SKILL.md` as the reference.
 
 ## Swapping the agent harness
 
-ant wraps an agentic harness; it never is one. Which harness a spawn
-runs is the `ARIZUKO_BACKEND` env var, read once at container start
-(`ant/src/backend/index.ts`): `claude` (default, the Claude Code SDK) or
-`codex` (OpenAI `codex app-server` over JSON-RPC). **An unrecognized
-value is fatal** — no silent fallback to claude. Selection is per-spawn,
-so folders can differ. Full table in `ant/README.md`; rationale in spec
-[`5/K`](specs/5/K-ant-backend-codex.md).
+ant wraps an agentic harness; it never is one. The extension point is the
+**process boundary**, not an interface inside ant: `routd` serves the
+per-turn MCP socket in-process (`routd/mcp.go` `ServeTurnMCP`), and ant
+is just a client of it (`socat STDIO UNIX-CONNECT:/run/ipc/gated.sock`,
+`ant/src/mcp-servers.ts`). A different harness replaces ant wholesale by
+speaking that protocol as its own process — the agent tools it publishes
+via `tools/list`, plus the `submit_turn` method that reports the turn. No
+arizuko code change, any language.
 
-Adding a third harness means implementing `Backend` in
-`ant/src/backend/<name>.ts` and adding a `case` to `selectBackend`. The
-runtime calls exactly four members — `name()`, `spawn(cfg)`,
-`session.events()`, `session.close()` — and each backend owns its own
-mid-turn steering natively (claude: a `PostToolUse` hook draining
-`/run/ipc/input`; codex: `turn/steer`). `Caps` and the other `Session`
-methods have no consumer today; read `5/K` § "`Caps` has no consumer"
-before implementing against them. Candidate harnesses must have a
-documented wire protocol, structured tool-use, and native MCP-client
-support — a harness missing those would force a translation layer, which
-`5/K` rules out.
+What that process owes: read the JSON container input on stdin, run the
+turn against the socket, call `submit_turn` exactly once. Mid-turn
+steering is the harness's own business — ant drains `/run/ipc/input` from
+a Claude Code `PostToolUse` hook (`ant/src/claude.ts`); another harness
+maps it to whatever its protocol offers.
+
+ant itself drives Claude Code directly (`ant/src/claude.ts`); there is no
+in-process backend abstraction and no harness-selection env var. Spec
+[`5/P`](specs/5/P-runed.md) § "ant wraps a harness, it never is one".
 
 ## Permissions
 

@@ -2262,7 +2262,7 @@ protocol. The `network_rules`/egress surface was excluded (impl in flight).
 ### Spec frontmatter accuracy (flag to owner, not code bugs)
 - `5-tenant-self-service` marked shipped but Phase C (secrets resolution) incomplete,
   Phase D diverged (chats.kind→is_group). `D-docs-refs-redesign` draft but shipped.
-  `K-ant-backend-codex` draft but shipped. `33-proactive` draft but shipped-in-routd.
+  `33-proactive` draft but shipped-in-routd.
   `I`/`O` shipped but partial. `1-auth-standalone` accurately partial (schema/endpoints
   diverge materially: no encryption-at-rest, /v1/keys/rotate, unlink, account-linking).
 - Stale `specs/7/...` citations: `store/migrations/0054` (→5/B), `api/api.go:297` (→5/L),
