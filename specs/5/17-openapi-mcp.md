@@ -6,12 +6,19 @@ depends:
 
 # specs/5/17 — one handler, two faces: MCP for the agent, REST for humans
 
-> **Status (2026-08-05).** Partial. The operator-facing aggregator has drifted
-> from the code it describes: `reference/openapi.html` states that `secrets` is
-> excluded from routd's document to keep encrypted blobs off a read surface,
-> but routd includes it (write-only verbs); and the aggregator table lists six
-> daemons while eight mount `/openapi.json` — `authd` and `runed` are missing.
-> BUGS `F8`.
+> **Status (2026-08-06).** Partial. The operator docs are no longer the
+> blocker — `reference/openapi.html` now names all six of routd's advertised
+> resources, describes emission as one operation per declared `Endpoint`, and
+> documents `x-mcp-when` (BUGS `F8`, closed `016d3d0b` + `d8b0ecd4`).
+>
+> What is still unmet is the first acceptance bullet, on one resource:
+> `routd/tasks_http.go:26` overwrites `res.Endpoints` with an inline literal, so
+> `scheduled_tasks` serves REST at `/v1/tasks` rather than
+> `/v1/scheduled_tasks` and is absent from `OpenAPIResources` — the endpoints
+> work but no OpenAPI reader finds them. `endpoints_source_test.go:29` reads the
+> slice BEFORE that override, so the single-source guard passes while the
+> mounted face diverges. BUGS `F21`; the general fix is `5/16`'s "one owner +
+> federation", but the guard is wrong today.
 
 > **DECISION.** Every cold-tier management resource is authored **once** as
 > one in-process `resreg.Resource` — logic, tx, audit, and arg-derivation in

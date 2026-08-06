@@ -7,6 +7,60 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F20 — the retry-exhausted notice hardcodes "3 attempts" (2026-08-06, open)
+
+`MAX_TURN_RETRY` is configurable (`core/config.go:250`, default 3) and
+`routd/dispatch.go:313` honours it, but the message the user finally sees is a
+constant: `retryExhaustedNotice` (`routd/dispatch.go:455`) reads
+`"⚠️ Agent couldn't complete this request after 3 attempts."` Raise
+`MAX_TURN_RETRY` to 5 and a user who waited through five spawns is told there
+were three. Cosmetic, but it is the one sentence about retry any user ever
+reads, and it misreports the operator's own configuration. Found while writing
+`concepts/retries.html`, which had to document the mismatch rather than the
+behaviour.
+
+- **Severity:** low (wrong number in a user-facing string; no runtime effect)
+- **Scope:** routd turn retry (spec 5/12)
+- **Affected:** any instance with `MAX_TURN_RETRY != 3`
+- **Source:** routd/dispatch.go:455 vs routd/dispatch.go:313; core/config.go:250
+- **Status:** open
+- **Fix:** make it a format string over `l.maxTurnRetry`, and drop the
+  now-inaccurate caveat sentence from `concepts/retries.html` §"tuning it".
+
+## F21 — `scheduled_tasks`' REST face is unadvertised and its single-source guard can't see it (2026-08-06, open)
+
+`routd/tasks_http.go:26-32` builds the resource, then **replaces**
+`res.Endpoints` with an inline literal mounting `/v1/tasks*` — while the
+canonical `resources.ScheduledTasksEndpoints` declares `/v1/scheduled_tasks*`.
+So the resource named `scheduled_tasks` serves REST at `/v1/tasks`, against
+`5/17`'s "the resreg `Name` becomes the `/v1/<name>` REST path". It is also
+absent from `routd.OpenAPIResources` (`routd/server.go:246`), so the endpoints
+work but no `/openapi.json` reader or generated client finds them.
+
+The guard that should have caught this doesn't. `endpoints_source_test.go:29`
+asserts `srv.scheduledTasksResource(nil, false).Endpoints` equals
+`resources.ScheduledTasksEndpoints` — it reads the value **before** `mountTasks`
+overrides it, so the test passes while the mounted face diverges. Its own header
+claims "Reverting any of these to an inline Endpoints literal breaks this test";
+for this one resource that is false.
+
+Blocks flipping `5/17` to `shipped`: its acceptance says a cold-tier resource's
+MCP tool, `/v1/<res>` REST endpoint and OpenAPI entry all derive from one
+handler. The spec defers the general single-sourcing work to `5/16`, but this is
+a concrete instance with a test that reports it as already done.
+
+- **Severity:** medium (undiscoverable endpoints + a green test asserting the
+  opposite of what holds)
+- **Scope:** resreg / routd scheduled_tasks (specs 5/17, 5/16)
+- **Affected:** all instances; any OpenAPI-generated client
+- **Source:** routd/tasks_http.go:26-32; resreg/resources/scheduled_tasks.go:30-31; routd/server.go:246; routd/endpoints_source_test.go:29
+- **Status:** open
+- **Fix:** redesign — needs sign-off. Either move the operator CRUD onto
+  `/v1/scheduled_tasks` and add the name to `OpenAPIResources`, or make the
+  override first-class (a second declared endpoint set the test also reads).
+  Whichever way, the guard must assert the **mounted** slice, not the
+  pre-override one.
+
 ## R3 — a killed run still launches its container, on a folder that now reads free (2026-08-05, FIXED)
 
 `Z4`/`43cf6d7a` guarded `DB.StartSpawn` on `state='queued'` so a `DELETE`
@@ -4375,7 +4429,7 @@ are.
   0016 uses, then `EmitInTx` in both handlers. Note the correlation requirement
   — a spawn row is only useful joined to the turn, so it must carry `turn_id`.
 
-## F8 — the OpenAPI aggregator page misstates routd and omits two daemons (2026-08-05, open)
+## ✅ FIXED 2026-08-06 F8 — the OpenAPI aggregator page misstates routd and omits two daemons (2026-08-05, FIXED)
 
 Two errors on `template/web/pub/arizuko/reference/openapi.html`, the page
 `specs/5/17` designates as the discovery surface:
@@ -4395,9 +4449,17 @@ Two errors on `template/web/pub/arizuko/reference/openapi.html`, the page
 - **Scope:** web docs vs routd/authd/runed mounts
 - **Affected:** operators using the aggregator
 - **Source:** template/web/pub/arizuko/reference/openapi.html:55-81,89; routd/cmd/routd/main.go:268-269; authd/main.go:114; runed/cmd/runed/main.go:116
-- **Status:** open
-- **Fix:** correct line 89 to describe `secrets` as included write-only, and add
-  the two rows. Deploy via the rsync workflow and verify `/pub/…` returns 200.
+- **Status:** resolved-not-yet-removed
+- **Fix:** `016d3d0b` (secrets wording + the authd/runed rows) and `d8b0ecd4`.
+  The second pass found three more drifts on the same page that the audit had
+  not: `installed_packages` was missing from routd's row (it IS in
+  `routd.OpenAPIResources`), emission was described as a fixed five-operation
+  CRUD convention (`resreg/openapi.go:217` emits one operation per declared
+  `Endpoint`, falling back to the convention only when none are declared), and
+  `x-mcp-when` — the whole point of `5/17` — was absent. `routd/README.md:51`
+  carried the same stale `secrets`-is-excluded claim and was corrected too.
+  NOT deployed: `template/web/pub/` is source-of-truth; the rsync is the
+  operator's step.
 
 ## F9 — `dashd/me_env.go` writes credentials with zero tests (2026-08-05, open)
 
@@ -4529,7 +4591,7 @@ model to anyone reading either the spec or the endpoint.
   Note the FS-mounted write-discipline rule already permits webd's direct read
   if webd is mounted, which would make deleting the endpoint the smaller change.
 
-## F14 — `5/12` and `5/24` never reached the operator web docs (2026-08-05, open)
+## ✅ FIXED 2026-08-06 F14 — `5/12` and `5/24` never reached the operator web docs (2026-08-05, FIXED)
 
 Definition-of-done item 5 requires an operator-facing page under
 `template/web/pub/`. Two shipped specs have only a changelog line:
@@ -4557,9 +4619,13 @@ It keeps `status: shipped`.
 - **Scope:** web docs
 - **Affected:** operators
 - **Source:** specs/5/12-turn-retry.md; specs/5/24-live-tasklist-status.md; routd/README.md
-- **Status:** open
-- **Fix:** one `concepts/` page each plus the `MAX_TURN_RETRY` env row, and a
-  `submit_status` paragraph in `routd/README.md`. Deploy via rsync, verify 200.
+- **Status:** resolved-not-yet-removed
+- **Fix:** `a86a3716` (`concepts/retries.html` + `concepts/progress.html`, slotted
+  into the curriculum after `topics`, nav + tour + pagers restitched, plus the
+  `MAX_TURN_RETRY` row in `reference/env.html`), `93201091` (the `submit_status`
+  paragraph in `routd/README.md`), `97f5c365` (both specs flipped to `shipped`).
+  Every definition-of-done item was re-checked against the call paths first, not
+  taken from the audit. NOT deployed: `template/web/pub/` is source-of-truth.
 
 ## F15 — authd has no cockpit tile and no operator token revocation (2026-08-05, open)
 
