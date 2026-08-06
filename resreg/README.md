@@ -26,19 +26,36 @@ manifests — CLI/MCP only.
 `arizuko apply`/`plan`/`get`/`export` (`cmd/arizuko/apply.go`) are the
 operator CLI over the engine:
 
-- `apply <instance> <manifest.yaml> [--force]` — state-based apply
-  (DELETE+INSERT in one tx), `config_version` compare-and-swap to
-  reject stale manifests (`--force` bypasses); prints the plan delta
-  before committing.
+- `apply <instance> <manifest.yaml> [--force] [--as-folder <folder>]` —
+  state-based apply, one tx per owner DB (scoped DELETE+INSERT). The CAS
+  is `resreg.Checksum`, a content hash of the canonical export projection
+  recomputed inside the writing tx — no counter, no table, nothing for a
+  writer to remember to bump; `--force` bypasses it. Prints the plan delta
+  before committing. `--as-folder` re-scopes a single-folder manifest via
+  `Resource.Retarget` (`cmd/arizuko/retarget.go`).
 - `plan <instance> <manifest.yaml>` — non-mutating diff vs live config
   (`resreg.Plan`): per-resource add/update/unchanged/remove by PK.
 - `get <instance> <resource>` — emit one resource's live rows as a
   YAML fragment (`resreg.GetResource`) that re-applies to a no-op.
 - `export <instance> [out.yaml]` — dump the store as one
-  canonical-ordered YAML doc.
+  canonical-ordered YAML doc per subsystem.
 
-Secrets are `SkipApplyRebuild` (export/diff only, never DELETE+INSERTed)
-and excluded from the `config_version` count per spec.
+Two guards wrap every apply, in `cmd/arizuko/apply.go` rather than in the
+engine, because both span documents the engine only ever sees one at a time:
+
+- **The missing-group rule** — `KnownFolders` + `ValidateFolderRefs` refuse,
+  before the first tx opens, a manifest naming a folder that is neither a
+  `groups` row in the document set nor already live. `--force` does not
+  override it.
+- **Cross-subsystem pre-image rollback** — `routd.db` and `onbod.db` share no
+  transaction, so a failure on the second restores the first from a pre-image
+  taken with `ExportSnapshot` and replayed through `Apply` itself.
+
+Secrets, route tokens, invites and onboarding admissions are
+`SkipApplyRebuild` (export/diff only, never DELETE+INSERTed). They still
+enter the content hash, since it hashes whatever the export projection shows;
+their VALUES travel only in the archive (`resreg/archive.go`), never in a
+config manifest.
 
 ## Live REST/MCP resources
 

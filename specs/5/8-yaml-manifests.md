@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 shipped: 2026-06-14
 depends: specs/5/16-mcp-rest-unification.md, specs/5/17-openapi-mcp.md, specs/5/P-runed.md, specs/9/2-data-model.md
 ---
@@ -38,22 +38,29 @@ archive, end to end.
   `POST /v1/holds` (`43cf6d7a`).
 - `Resource.Retarget` (`resreg/engine.go:383`).
 
-Not built, each in its own section below:
+The last five gaps closed 2026-08-06, each in its own section below:
 
-1. **The missing-group rule** — no cross-document referential preflight runs
-   before a restore.
-2. **Cross-subsystem pre-image rollback** — a later subsystem's failure
-   leaves an earlier one committed.
-3. **Path-retarget wiring** — `Retarget` has no non-test caller.
-4. **Pending onboarding admissions in the archive** — `onboarding` is now a
-   resreg resource but `SkipApplyRebuild` and value-less, so admissions do
-   not travel (BUGS.md Z3).
+1. **The missing-group rule** — `resreg.KnownFolders` + `ValidateFolderRefs`
+   (`resreg/engine.go`), run across every document by `preflightFolders`
+   (`cmd/arizuko/apply.go`) before the first transaction, on both `apply` and
+   `archive apply`.
+2. **Cross-subsystem pre-image rollback** — `applyDocs`/`rollback`
+   (`cmd/arizuko/apply.go`), with `ApplyOpts.PruneScopes`.
+3. **Path-retarget wiring** — `arizuko apply --as-folder`
+   (`cmd/arizuko/retarget.go`), the first non-test caller of `Retarget`.
+4. **Pending onboarding admissions** — `ArchiveOnboardingRow` +
+   `ExportOnboarding`/`ImportOnboarding` (`resreg/archive.go`), on the shared
+   credential gate (`restoreGated`, `cmd/arizuko/archive.go`). Closes BUGS Z3.
+5. **`dashd`'s kill-confirm label** — `killConfirm`
+   (`dashd/runed_page.go`) reads `spawns.kind`.
 
-Item 5 (`dashd`'s kill-confirm label) is **done** (2026-08-06): the runs table
-renders a Kind column and `killConfirm` (`dashd/runed_page.go`) words the
-confirm per `spawns.kind` — killing a `hold` aborts an external job, it does not
-drop an agent's reply. Items 1–4 all live in `resreg/` and remain unbuilt, which
-is why this spec stays `partial`.
+Two bugs this pass found and did NOT fix, because both are redesigns:
+`F41` (an empty `StampedField` is re-stamped on re-insert, so the FIRST no-op
+`export | apply` moves the checksum — see "Round-trip honesty") and `F38`.
+`F42` WAS fixed, because it blocked item 4 outright: `onboarding`'s row had no
+`COALESCE` reads while its NULL columns are the normal state, so one pending
+admission broke `Export`/`Checksum` — and therefore every config verb — for
+the whole `onbod` subsystem.
 
 ## Why
 
@@ -178,7 +185,8 @@ canonical DB-side projection; the digest hashes whatever bytes the operator
 handed `apply`, edits included.
 
 Determinism comes for free from "Round-trip honesty" (below): two
-consecutive exports of an unchanged DB are byte-identical.
+consecutive exports of an unchanged DB are byte-identical. Note the one
+first-touch exception "Round-trip honesty" records (`F41`).
 
 ## Cross-subsystem apply: per-subsystem transaction, pre-image rollback
 
@@ -198,7 +206,31 @@ renderer as the pre-image producer instead of inventing a second backup
 format. If a later subsystem's transaction fails after an earlier one
 committed, the committed subsystem is restored by re-applying its pre-image
 through the SAME `apply` codepath, fed the snapshot instead of the
-operator's manifest. **Not built** (Status, item 2).
+operator's manifest. Shipped as `applyDocs`/`rollback`
+(`cmd/arizuko/apply.go`), which `arizuko apply` and `archive apply` both call;
+pre-images come from `resreg.ExportSnapshot` (one read transaction each) and
+are captured for every subsystem BEFORE the first write transaction opens.
+
+The rollback's own CAS token is the checksum the **forward apply** left
+behind, not `--force`: if anything else moved that subsystem's config in
+between, the rollback refuses rather than overwriting it, and the failure
+names both the original error and the failed restore. A half-applied instance
+must be loud.
+
+**`ApplyOpts.PruneScopes` is what makes the rollback total**, and the earlier
+design missed it: a forward apply that CREATES a folder leaves rows under a
+scope the pre-image never mentions, so the pre-image's own scopes — the only
+ones `Apply` would prune — do not reach them, and they survive a rollback that
+is supposed to be total. The rollback therefore passes the forward manifest's
+scopes as extra DELETE targets. Sound only because a pre-image is a COMPLETE
+subsystem projection: pruning a scope and re-inserting the pre-image restores
+that scope exactly.
+
+One honest limit, from `F41`: "back at its pre-apply content hash" is exact
+only once every server-stamped column is non-NULL. `Insert` re-stamps an empty
+`StampedField`, so a `groups` row with a NULL `updated_at` comes back with the
+right content but a new timestamp. Content restoration is unconditional; hash
+equality waits on `F41`.
 
 **Load-bearing constraint: the rollback restores the manifest projection,
 not the database.** A whole-DB file swap would discard messages that arrived
@@ -255,13 +287,29 @@ folder elsewhere. `web_routes.redirect_to` points into the folder's own
 `/pub|priv/<folder>/` web root; `Retarget` rewrites only `folder`, so a
 caller must rewrite `redirect_to` itself.
 
-No caller ships (Status, item 3). Two future consumers, named so the next
-agent doesn't re-derive them: `5/28`'s seed-once package group, and
-cross-instance folder migration. Prototype spawn was the third until
-`4a9a49c7` deleted it (with `4/26`) precisely because copy-register-route
-behind one verb duplicated export→apply — see `5/5` §"Tier 3 — Session". A
-new consumer belongs here as a recipe over the two verbs, never as its own
-mechanism.
+The caller is `arizuko apply --as-folder <folder>`
+(`cmd/arizuko/retarget.go`) — a recipe over the two existing verbs, exactly as
+this section requires, never a copy-folder mechanism of its own. Two further
+consumers, named so the next agent doesn't re-derive them: `5/28`'s seed-once
+package group, and cross-instance folder migration. Prototype spawn was the
+third until `4a9a49c7` deleted it (with `4/26`) precisely because
+copy-register-route behind one verb duplicated export→apply — see `5/5`
+§"Tier 3 — Session".
+
+Three rules the recipe carries, each inherited from `Retarget`'s own
+refuses-rather-than-guesses discipline:
+
+- **One source folder or refuse.** A manifest whose scoped rows name several
+  folders is rejected; retargeting them all onto one would merge them
+  silently.
+- **The empty scope counts as its own folder.** `network_rules`' `folder=''`
+  rows are the instance-wide egress allowlist, so retargeting them would
+  narrow an instance-wide allowlist to one folder — a privilege change, not a
+  rename.
+- **It rewrites `redirect_to` itself**, closing the named gap above.
+- **`--force` is required**, and says why: a rewritten manifest describes a
+  different folder than the one it was exported from, so its checksum can
+  never match the target.
 
 ## Consistency levels — an archive is a smear, and must say so
 
@@ -315,7 +363,12 @@ than imply an image it doesn't have:
   integrity across the archive's documents (the missing-group rule, below)
   and refuses the whole restore rather than importing a half-wired instance.
   Orthogonal to the smear question — it catches gross errors, not staleness.
-  **Not built** (Status, item 1).
+  This is why `archive apply` BUFFERS its config documents instead of applying
+  each as it streams past: a one-at-a-time pass would have committed `routd`
+  before it had even read `onbod.yaml`, so neither this check nor the
+  cross-subsystem rollback could exist. Config is bounded declarative config,
+  so buffering it costs nothing; the unbounded document (messages) stays
+  streamed.
 
 `archive.yaml` (the archive's top-level index) records
 `consistency: live|quiesced` and, per subsystem, the read transaction's
@@ -444,11 +497,25 @@ would have exported the bearer into `arizuko export` YAML AND nulled every
 live setup link on any wholesale rebuild. It now IS registered, after a
 hash-at-rest migration, with the bearer column omitted from `RowType`
 outright and `SkipApplyRebuild: true`
-(`resreg/resources/onboarding.go:95`) — which means it deliberately does not
-ride the config lane. Carrying admissions needs an archive-only
-value-carrying document plus its own UPSERT lane, the shape
-`ArchiveRouteTokenRow` (`resreg/archive.go:316`) already establishes.
-**Not built** (Status, item 4).
+(`resreg/resources/onboarding.go`) — which means it deliberately does not
+ride the config lane. **That flag is load-bearing and stays**: rebuilding the
+table from a `RowType` that has no `token_ref` would null every live setup
+link instance-wide.
+
+So admissions get the archive-only value-carrying document plus its own UPSERT
+lane, the shape `ArchiveRouteTokenRow` already establishes:
+`ArchiveOnboardingRow` + `ExportOnboarding`/`ImportOnboarding`
+(`resreg/archive.go`), carried in `routd.secrets.yaml` alongside the other
+value-bearing rows.
+
+`token_ref` travels rather than being dropped because it is half of a matched
+pair with `token_expires`: a row restored with a future expiry and a NULL
+verifier is one `onbod` treats as having a live link that nothing can redeem.
+Carrying a credential verifier is exactly why this document rides the SAME
+off-by-default, proven-empty-target gate `route_tokens` and `invites` ride
+("Restoring onto a populated instance"). Three documents, one gate —
+`restoreGated` (`cmd/arizuko/archive.go`), because a third hand-copy of that
+policy is where it would have drifted.
 
 ### Secret and token values
 
@@ -597,9 +664,10 @@ admission" lever and rejected as a red herring: it is read _only_ by
 consulted by any dispatch or admission path — the `routd/db.go:228` comment
 calling it "ambient turn admission" is stale prose, not evidence of behavior.
 
-Still open: `dashd`'s runed page hardcodes "Stop the agent currently working
-for %s" in its kill-confirm text (`dashd/runed_page.go:77`) — misleading for
-a hold. Read `kind` and vary the label.
+The kill-confirm reads `kind` and varies the label (`killConfirm`,
+`dashd/runed_page.go`): "Stop the agent currently working for X? Any reply it
+hasn't sent yet will be lost" is simply false for a hold, which has no agent
+and no pending reply.
 
 #### What else the hold serves
 
@@ -645,7 +713,7 @@ counterpart of export's `--quiesced`, and the only way to skip the claim.
 in any subsystem document, through any reference shape (a declared FK, a
 `Resource.Scope`, or a per-resource `Hooks.ValidateRow` check) — names a
 folder that is not a `groups` row somewhere in the same subsystem document or
-already live in the target DB.** **Not built** (Status, item 1).
+already live in the target DB.**
 
 This closes a real gap, not a hypothetical one. Two folder references are
 already real SQLite FKs and self-enforce today (`web_routes.folder`,
@@ -660,12 +728,39 @@ silently orphaned row instead of a validation error; a real DR restore that
 got a folder name wrong would find out only much later, by absence.
 
 The check reuses the existing scope machinery rather than inventing a
-parallel validator: for resources carrying a declared `Scope`,
-`manifestScopes` (`resreg/engine.go:339`) already extracts every folder the
-manifest touches — the same set already used to pick scoped-DELETE targets.
-For string-typed references `Scope` cannot capture, the check is a
-per-resource `Hooks.ValidateRow` (`resreg/engine.go:55`), the existing
-documented extension point for "validation beyond types", not new mechanism.
+parallel validator. `resreg.KnownFolders` reads BOTH halves of "is this a
+folder" — the manifests' own `groups` rows and the ones already live —
+through the `groups` resource's own `ScopeSpec.Field` column, so there is one
+definition and not a second. `ValidateFolderRefs` then walks every scoped
+resource's `manifestScopes` (`resreg/engine.go`), the same set already used to
+pick scoped-DELETE targets. `preflightFolders` (`cmd/arizuko/apply.go`) runs
+it across all documents before the first transaction; `apply` refuses, `plan`
+reports it. **`--force` does not override it** — force means "the DB moved
+under my export", never "write rows pointing at a group that does not exist".
+
+**The empty scope is exempt, and that exemption is load-bearing**, not a
+convenience: `routd/migrations/0005` seeds two `folder=''` instance-global
+`network_rules` rows into every instance, so without it a stock instance's own
+`export | apply` would refuse. Proven by removing it — the pre-existing
+round-trip test dies.
+
+**Scope-declared references only; it does not guess.** The earlier draft of
+this section listed `acl.principal`/`acl.scope`, `secrets.scope_id`,
+`scheduled_tasks.chat_jid` and `routes.target` as a set the rule "must
+validate". That was wrong on its own terms: those columns have no FK precisely
+BECAUSE they are globs or polymorphic, so deciding which of them is a folder
+means guessing — the exact thing `Retarget` refuses to do two sections up, for
+the same columns. `Hooks.ValidateRow` (`resreg/engine.go`) remains the named
+per-resource extension point for a resource that CAN decide the question for
+its own column; none does today, and `secrets` cannot regress in the meantime
+because `SkipApplyRebuild` means an apply never writes it.
+
+What is actually closed, then: `network_rules.folder` — scoped, string-typed,
+no FK, and the one column where a typo used to commit a silently orphaned row
+(pinned by `TestMissingGroup_NetworkRulesOrphanIsRealToday`, which asserts the
+orphan still lands when the preflight is bypassed). For the two FK'd
+references the gain is timing, not detection: refusal before any transaction
+opens instead of a noisy failure mid-write.
 
 This does not touch or reopen "Group removal semantics" below (a manifest
 _silently omitting_ a group that already exists is a different,
@@ -828,6 +923,14 @@ sorted by PK. Two consecutive exports must be byte-identical on an unchanged
 DB or file hashing and git diffs break — and the content-hash CAS above
 depends on exactly this guarantee holding.
 
+**One known first-touch violation, `F41`.** `Insert` fills any `StampedFields`
+entry that is still empty with `now()`, and `groups.updated_at` is nullable
+with no default — so a row holding NULL there exports as `updated_at: ""`, and
+re-applying that unmodified manifest writes a fresh timestamp. The checksum
+moves once, then is stable. Both candidate fixes change a settled meaning
+(drop stamped fields from the hashed projection, or stop reading an exported
+`""` as "unset"), so it is recorded for sign-off rather than patched here.
+
 ## Secret safety
 
 Secret blobs never appear in the **config manifest's** YAML (metadata only),
@@ -879,12 +982,15 @@ groups` and `route_tokens.owner_folder → groups`
 (`routd/migrations/0001-initial-schema.sql:137,144`).
 
 Everything else cross-table is **intentionally string-typed — no FK**, so
-SQLite catches none of it. That gap is exactly what "The missing-group rule"
-closes for archive/manifest restore; the string-typed set it must validate:
-`acl.principal`/`acl.scope`/`acl_membership` (polymorphic),
-`secrets.scope_id` (polymorphic by `scope_kind`), `scheduled_tasks.chat_jid`,
-`routes.target` (not column-equal to a folder), `network_rules.folder=''`
-(instance-global rows a FK would reject). `messages`/`audit_log`/`cost_log`
+SQLite catches none of it. One of those is a folder by declaration and IS
+validated by "The missing-group rule": `network_rules.folder` (whose `''`
+instance-global rows are why a FK would reject it). The rest are string-typed
+because they are globs or polymorphic — `acl.principal`/`acl.scope`/
+`acl_membership`, `secrets.scope_id` (polymorphic by `scope_kind`),
+`scheduled_tasks.chat_jid`, `routes.target` (not column-equal to a folder) —
+and the rule deliberately does NOT guess at them; see that section for why,
+and for the per-resource escape hatch if one ever becomes decidable.
+`messages`/`audit_log`/`cost_log`
 reference folders too but are left dangling on group delete, deliberately,
 for forensics — see "Group removal semantics" for the routing-state tables
 that DO get cleared instead.

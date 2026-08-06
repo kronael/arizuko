@@ -104,17 +104,20 @@ arizuko pair krons mastd login --instance mas.to</code></pre>
     <p>The cold-tier config of an instance &mdash; groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks, network rules, onboarding gates, proxyd routes &mdash; reads and writes as one YAML document. The same <code>resreg</code> engine that serves these resources over REST, MCP, and <a href="openapi.html"><code>/openapi.json</code></a> also drives <code>export</code>, <code>apply</code>, <code>plan</code>, and <code>get</code>, so the YAML shape matches the schema exactly. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/8-yaml-manifests.md"><code>specs/5/8-yaml-manifests.md</code></a>.</p>
 
     <h3 id="export"><span class="sig">arizuko export &lt;instance&gt; [output.yaml]</span></h3>
-    <p>Dump the instance's cold-tier resources as one YAML document. Keys sort deterministically &mdash; <code>config_version</code> first, then resources by name &mdash; so re-exporting an unchanged store yields byte-identical output, which makes the file diffable in git. Writes to the named file if given; otherwise to stdout (the byte-count line goes to stderr so a redirect captures only YAML).</p>
+    <p>Dump the instance's cold-tier resources as YAML &mdash; one <code>---</code> document per owning database. Keys sort deterministically (resources by name, rows by primary key), so re-exporting an unchanged store yields byte-identical output, which makes the file diffable in git. Each document ends with a <code>checksum:</code> line: a hash of the rows themselves, which is how <code>apply</code> later tells whether the store still holds what you exported. Writes to the named file if given; otherwise to stdout (the byte-count line goes to stderr so a redirect captures only YAML).</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko export krons > krons-config.yaml
 arizuko export krons krons-config.yaml</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L69"><code>cmd/arizuko/apply.go:69</code></a></p>
 
-    <h3 id="apply"><span class="sig">arizuko apply &lt;instance&gt; &lt;manifest.yaml&gt; [--force]</span></h3>
-    <p>Replace the instance's cold-tier resources with the manifest's. For each resource named in the file, the engine runs <code>DELETE FROM &lt;table&gt;</code> then re-inserts the manifest rows &mdash; all in one transaction. A resource absent from the manifest is left untouched; a resource present but empty is cleared. The manifest's <code>config_version</code> must match the store's, or <code>apply</code> exits 2 and tells you to re-export and re-apply &mdash; this is the guard against overwriting a change made since you exported. Validation runs before the DB is touched, so a malformed file changes nothing. On success the <code>config_version</code> bumps by one.</p>
+    <h3 id="apply"><span class="sig">arizuko apply &lt;instance&gt; &lt;manifest.yaml&gt; [--force] [--as-folder &lt;folder&gt;]</span></h3>
+    <p>Replace the instance's cold-tier resources with the manifest's. For each resource named in the file, the engine deletes the rows the manifest covers and re-inserts the manifest's &mdash; one transaction per database. A resource absent from the manifest is left untouched; a resource present but empty is cleared. For a resource scoped to folders, only the folders the manifest mentions are touched, so a partial manifest never disturbs a group it does not name.</p>
+    <p>Two things can stop an apply before a single row is written. If the store no longer matches the <code>checksum:</code> the manifest was exported with, <code>apply</code> exits 2 and tells you to re-export &mdash; someone changed the config since you dumped it. And if any row names a folder that is not a group (neither declared in the file nor already present), <code>apply</code> refuses and names it: a typo'd folder would otherwise leave a rule attached to nothing. <code>--force</code> overrides the first check; nothing overrides the second.</p>
+    <p>The two databases have no shared transaction, so if the second one fails after the first committed, the first is put back exactly as it was &mdash; config only. Messages and memory written while the apply was running are untouched.</p>
     <table>
       <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
-      <tr><td><code>--force</code></td><td>bool</td><td><code>false</code></td><td>Skip the <code>config_version</code> match check and apply anyway. The version still advances. Use when you intend to overwrite concurrent edits.</td></tr>
+      <tr><td><code>--force</code></td><td>bool</td><td><code>false</code></td><td>Skip the checksum check and apply anyway. Use when you mean to overwrite a change made since you exported. Does not skip the missing-folder check.</td></tr>
+      <tr><td><code>--as-folder</code></td><td>string</td><td>&mdash;</td><td>Apply a one-folder manifest under a different folder name &mdash; how you copy a group's setup to a new group, or move one between instances. The file must describe exactly one folder, or this refuses rather than merging several. Needs <code>--force</code>, because a rewritten manifest can never match the target's checksum.</td></tr>
     </table>
     <p><strong>State touched:</strong> rewrites every table named in the manifest, in one transaction. Deleting a group cascades to its <code>web_routes</code> and <code>route_tokens</code> (declared FKs, migrations 0068/0069) &mdash; the URL routes pinned to a removed group go with it.</p>
     <pre><code>arizuko export krons > krons.yaml
@@ -124,7 +127,7 @@ arizuko apply krons krons.yaml --force</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L29"><code>cmd/arizuko/apply.go:29</code></a></p>
 
     <h3 id="plan"><span class="sig">arizuko plan &lt;instance&gt; &lt;manifest.yaml&gt;</span></h3>
-    <p>Show what <code>apply</code> would change, without touching the DB. Prints one block per resource: <code>+</code> for rows the manifest adds, <code>~</code> for rows it updates, <code>-</code> for rows it removes. Secrets never mutate via <code>apply</code>, so they print as informational (<code>N set (not applied)</code>) rather than as deltas. If the manifest's <code>config_version</code> doesn't match the store's, the last line says so &mdash; that's the same mismatch <code>apply</code> would reject without <code>--force</code>.</p>
+    <p>Show what <code>apply</code> would change, without touching the DB. Prints one block per resource: <code>+</code> for rows the manifest adds, <code>~</code> for rows it updates, <code>-</code> for rows it removes. Secrets never mutate via <code>apply</code>, so they print as informational (<code>N set (not applied)</code>) rather than as deltas. A folder the manifest names but no group defines is reported here too, so you see the blocker and the diff in one run. If the manifest's <code>checksum:</code> doesn't match the store's, the last line says so &mdash; that's the same mismatch <code>apply</code> would reject without <code>--force</code>.</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko export krons > krons.yaml
 # edit krons.yaml
@@ -137,6 +140,31 @@ arizuko plan krons krons.yaml</code></pre>
     <pre><code>arizuko get krons routes
 arizuko get krons web_routes</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L196"><code>cmd/arizuko/apply.go:196</code></a></p>
+
+    <h2 id="archive" class="group-h2">Full-instance backup</h2>
+    <p>A config manifest carries what an instance is set up to do. An archive carries the instance: the same config, plus the encrypted secret values, the whole message history, the people still waiting to be let in, and every group's files &mdash; one tar you can move to another machine. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/8-yaml-manifests.md"><code>specs/5/8-yaml-manifests.md</code></a>.</p>
+    <p>One thing deliberately stays behind: <code>SECRETS_KEY</code>. The encrypted secrets travel, the key that opens them does not &mdash; you carry that yourself, out of band. Restoring onto a machine whose key cannot decrypt them fails loudly instead of importing rubbish.</p>
+
+    <h3 id="archive-export"><span class="sig">arizuko archive export &lt;instance&gt; [out.tar] [--quiesced]</span></h3>
+    <p>Write the archive. Taken from a running instance it is a smear, not a snapshot: each part is read consistently, but a message can land between two reads, so the whole is a few seconds wide rather than one instant. That is usually fine, and the archive records which it is so a restore is never guessing. Stop the instance first and pass <code>--quiesced</code> when you need a true point-in-time image &mdash; the flag only stamps the label; it does not stop anything for you.</p>
+    <p><strong>State touched:</strong> read-only.</p>
+    <pre><code>arizuko archive export krons krons-backup.tar
+arizuko archive export krons krons-backup.tar --quiesced</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/archive.go"><code>cmd/arizuko/archive.go</code></a></p>
+
+    <h3 id="archive-apply"><span class="sig">arizuko archive apply &lt;instance&gt; &lt;archive.tar&gt; [--force] [--stopped]</span></h3>
+    <p>Restore. Config goes in first, so every group exists before its files arrive; then message history is appended (re-running the same archive changes nothing already there); then each group's files are unpacked.</p>
+    <p>Unpacking a group's files while an agent is writing them would corrupt both, so the restore takes that folder's run slot first &mdash; the same slot an agent turn takes, so the two can never overlap. This means the instance must be up and <code>runed</code> reachable, or you pass <code>--stopped</code> to say it is down. An unreachable <code>runed</code> is a hard stop, never a warning: proceeding is the exact accident the slot exists to prevent.</p>
+    <p>Three parts hold credentials &mdash; chat links, invites, and pending setup links. They stay out by default, and even with <code>--force</code> go in only when the target has none of their own. Otherwise a restore would quietly re-activate a link someone had revoked, which is still sitting in a chat somewhere. A group whose files already exist is skipped for the same reason unless you pass <code>--force</code>; whatever was skipped is listed in the report.</p>
+    <table>
+      <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
+      <tr><td><code>--force</code></td><td>bool</td><td><code>false</code></td><td>Overwrite a group's existing files, and restore the credential-bearing parts onto an empty target. One flag for &quot;yes, I mean it&quot;, not one per hazard.</td></tr>
+      <tr><td><code>--stopped</code></td><td>bool</td><td><code>false</code></td><td>You assert the instance is down, so no run slot is claimed. Use this when restoring onto a machine where nothing is running.</td></tr>
+    </table>
+    <p><strong>State touched:</strong> writes config, message history, secret values, onboarding admissions, and <code>groups/&lt;folder&gt;/</code> trees.</p>
+    <pre><code>arizuko archive apply krons krons-backup.tar --stopped
+arizuko archive apply krons krons-backup.tar --force</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/archive.go"><code>cmd/arizuko/archive.go</code></a></p>
 
     <h2 id="packages" class="group-h2">Packages</h2>
     <p>A package is a git source (or local directory) that ships any subset of asset kinds &mdash; a compose fragment (<code>&lt;name&gt;.yml</code>), a proxyd route (<code>&lt;name&gt;-routes.json</code>), grants (<code>&lt;name&gt;-grants.json</code>), skills (<code>skills/&lt;name&gt;/</code>) &mdash; as one versioned unit. Install writes an installed-package record to <code>routd.db</code> (source, resolved revision, owned identities, per-asset content hash) so <code>upgrade</code> and <code>remove</code> know exactly what the package owns. Full model on the <a href="packages.html">packages reference</a>. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/28-packages.md"><code>specs/5/28</code></a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L81"><code>main.go:81</code></a>.</p>
@@ -491,7 +519,7 @@ arizuko secret krons set main OPENAI_API_KEY --value sk-xxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-29">2026-07-29</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
       </div>
     </main>
 

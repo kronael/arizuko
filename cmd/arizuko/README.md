@@ -31,10 +31,12 @@ beyond `docker` for `run` and `pair`).
   - `arizuko invite <inst> revoke <ref>`
   - `arizuko send <inst> <folder> [<message>] [--wait | --stream] [--stdin] [--from <sender>] [--topic <topic>] [--token <raw>]` — inject a message into a folder's queue (uses topic for conversation continuity). Default is **operator-direct**: no token, writes the inbound straight to the DB on `web:<folder>` (the operator already owns the DB, same authority as `create`/`grant`/`secret`); the gateway poll loop runs the agent and `--wait`/`--stream` prints its reply. Pass `--token`/`ARIZUKO_CHAT_TOKEN` to instead POST the public `/chat/<token>` endpoint as a non-operator caller.
   - `arizuko budget <inst> set folder|user <name> --daily N` / `show folder|user <name>` — per-folder or per-user daily spend cap in cents (0 = uncapped); pre-spawn gate enforces lower of (folder cap, user cap)
-  - `arizuko apply <inst> <manifest.yaml> [--force]` — restore cold-tier config from a YAML dump in one tx; CAS-checks `config_version` (spec 5/8)
-  - `arizuko plan <inst> <manifest.yaml>` — non-mutating diff of a manifest vs live config
+  - `arizuko apply <inst> <manifest.yaml> [--force] [--as-folder <folder>]` — restore cold-tier config from a YAML dump, one tx per owner DB, with a pre-image rollback if a later one fails. CAS is a content hash recomputed from the live rows, not a stored counter; `--force` skips it. Refuses (even with `--force`) if a row names a folder that is not a group. `--as-folder` re-scopes a single-folder manifest onto another folder (spec 5/8)
+  - `arizuko plan <inst> <manifest.yaml>` — non-mutating diff of a manifest vs live config; also reports a missing-group refusal `apply` would raise
   - `arizuko get <inst> <resource>` — emit one resource's live rows as a YAML fragment (round-trips to a no-op)
   - `arizuko export <inst> [out.yaml]` — dump cold-tier config to canonical-ordered YAML
+  - `arizuko archive export <inst> [out.tar] [--quiesced]` — full-instance backup: the config dump plus secret values, message history, pending onboarding admissions and every `groups/<folder>/` tree, as one tar (spec 5/8)
+  - `arizuko archive apply <inst> <archive.tar> [--force] [--stopped]` — full restore. Claims each folder's runed run slot before touching its tree, so an unreachable runed is fatal; `--stopped` asserts the instance is down instead. Credential-bearing documents (`route_tokens`, `invites`, `onboarding`) restore only with `--force` onto a proven-empty target
   - `arizuko chat <instance>` — interactive Claude Code session bound to root MCP socket
 
 ## Dependencies
@@ -44,7 +46,9 @@ beyond `docker` for `run` and `pair`).
 ## Files
 
 - `main.go` — command dispatch + `create`/`generate`/`run`/`status`/`pair`/`group`/`gate`/`invite`/`chat`
-- `apply.go` — `apply`/`plan`/`get`/`export` (YAML manifests, spec 5/8)
+- `apply.go` — `apply`/`plan`/`get`/`export` (YAML manifests, spec 5/8), the missing-group preflight, and the cross-subsystem pre-image rollback both `apply` and `archive apply` share
+- `archive.go` — `archive export`/`archive apply` (full-instance backup, spec 5/8)
+- `retarget.go` — `apply --as-folder`, the recipe over `resreg.Resource.Retarget`
 - `budget.go` — `budget` spend caps
 - `network.go` — `network` egress rules
 - `packages.go` — `packages` catalog `add` (spec 5/27) + source-based `install`/`upgrade`/`sync`/`remove` with the `installed_packages` record (spec 5/28); `reapplyPackage` is the single updater `upgrade` and `sync` share
