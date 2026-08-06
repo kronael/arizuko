@@ -70,7 +70,7 @@ func TestPickerRouteCarriesAttribution(t *testing.T) {
 		post.AddCookie(c)
 	}
 	pw := httptest.NewRecorder()
-	handleOnboardPost(pw, post, db, config{})
+	handleOnboardPost(pw, post, db, db, config{})
 	if pw.Code != http.StatusSeeOther {
 		t.Fatalf("want 303, got %d: %s", pw.Code, pw.Body.String())
 	}
@@ -297,7 +297,7 @@ func TestPickerRefusesAForeignWorldAndWritesNothing(t *testing.T) {
 	post.Header.Set("X-User-Sub", "github:alice")
 	post.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "c"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, post, db, config{})
+	handleOnboardPost(w, post, db, db, config{})
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("want 403 for a world alice does not administer, got %d: %s",

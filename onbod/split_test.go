@@ -199,7 +199,7 @@ func postOnboardSplit(xdb, obdb *sql.DB, sub string, vals url.Values) *httptest.
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, xdb, config{})
+	handleOnboardPost(w, req, xdb, obdb, config{})
 	return w
 }
 

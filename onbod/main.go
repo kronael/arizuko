@@ -205,7 +205,7 @@ func newOnbodMux(xdb, obdb *sql.DB, cfg config, ks *auth.KeySet) *http.ServeMux 
 		handleOnboard(w, r, xdb, obdb, cfg)
 	}))
 	mux.HandleFunc("POST /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardPost(w, r, xdb, cfg)
+		handleOnboardPost(w, r, xdb, obdb, cfg)
 	}))
 	mux.HandleFunc("GET /invite/{token}", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
 		handleInvite(w, r, xdb, obdb, cfg)
@@ -624,7 +624,14 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, u
 	groupCount := len(userFolders(db, userSub))
 
 	if groupCount == 0 {
+		// Two authorities, one picker: the invite's target cookie, or (spec 5/18
+		// step 8) an admission the gates approved. Both render the same form;
+		// handleCreateWorld re-checks both, so this branch is presentation only.
 		if c, err := r.Cookie("pending_target"); err == nil && c.Value != "" {
+			renderUsernamePicker(w, username, csrf)
+			return
+		}
+		if mayCreateFirstWorld(obdb, userSub) {
 			renderUsernamePicker(w, username, csrf)
 			return
 		}
@@ -677,9 +684,11 @@ func checkCSRF(r *http.Request) bool {
 }
 
 // handleOnboardPost dispatches the dashboard form actions. All three
-// (create_world / delete_route / add_route) operate on CROSS-table state
-// (user_profiles/groups/acl/routes); none touches an onbod-owned table.
-func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
+// (create_world / delete_route / add_route) write CROSS-table state
+// (user_profiles/groups/acl/routes) through db; create_world additionally READS
+// onbod's owned onboarding/onboarding_gates through obdb for its second
+// authority (spec 5/18 step 8).
+func handleOnboardPost(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config) {
 	userSub := r.Header.Get("X-User-Sub")
 	if userSub == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -691,7 +700,7 @@ func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	}
 	switch r.FormValue("action") {
 	case "create_world":
-		handleCreateWorld(w, r, db, cfg, userSub)
+		handleCreateWorld(w, r, db, obdb, cfg, userSub)
 	case "delete_route":
 		folders := userFolders(db, userSub)
 		handleDeleteRoute(w, r, db, userSub, folders)
@@ -705,12 +714,49 @@ func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 
 var usernameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{2,29}$`)
 
-func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, userSub string) {
+// mayCreateFirstWorld is spec 5/18 step 8: an admitted stranger's second
+// authority to create a world, beside the invite's `pending_target` cookie.
+// It is the WRITE precondition in handleCreateWorld; handleDashboard calls the
+// same function to decide whether to render the picker, because a form that is
+// merely hidden is not a control.
+//
+// The gate condition is what keeps the default posture closed. With no enabled
+// gate, admitJID approves EVERY paired identity, so `status='approved'` alone
+// would turn any instance that ever ran ONBOARDING_PLATFORMS into open signup —
+// and `arizuko create` seeds no gates. Requiring one makes the queue verdict
+// load-bearing exactly where an operator opted in by configuring it.
+//
+// It reads the gates through loadGates so the two cannot drift: the same
+// enabled=1 rows that make admitJID selective are the ones that make its
+// verdict grant something. Checking `COUNT(*) FROM onboarding_gates` here
+// instead would unlock the picker on a DISABLED gate while admitJID kept
+// approving everyone.
+//
+// Every failure fails closed: an unreadable DB grants nothing.
+func mayCreateFirstWorld(obdb *sql.DB, userSub string) bool {
+	if userSub == "" || len(loadGates(obdb)) == 0 {
+		return false
+	}
+	var n int
+	if err := obdb.QueryRow(
+		`SELECT COUNT(*) FROM onboarding WHERE user_sub = ? AND status = 'approved'`,
+		userSub).Scan(&n); err != nil {
+		slog.Error("approved-admission lookup", "user", userSub, "err", err)
+		return false
+	}
+	return n > 0
+}
+
+func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, userSub string) {
 	var pendingTarget string
 	if c, err := r.Cookie("pending_target"); err == nil {
 		pendingTarget = c.Value
 	}
-	if pendingTarget == "" {
+	// An approved admission authorizes a TOP-LEVEL folder and nothing else, and
+	// that is structural rather than checked: `parent` is derived from the
+	// cookie alone, and this branch only runs when the cookie is absent. So the
+	// approved row can never name someone else's subtree to be created under.
+	if pendingTarget == "" && !mayCreateFirstWorld(obdb, userSub) {
 		renderPage(w, "Invite Required",
 			template.HTML(`<p>You need an invite link to create a workspace.</p>`))
 		return
