@@ -7,7 +7,65 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## F24 — proactive interjection has no dashd surface (2026-08-06, open)
+## F29 — runed's and authd's audit rows are reachable only with sqlite3 (2026-08-06, PROPOSED — needs sign-off)
+
+Spec `5/I` says each daemon owns its own `audit_log`, and two daemons now do.
+Neither can be read by anything but a shell on the box.
+
+- **runed** writes real rows: `audit.Init(db.SQL(), …)` at
+  `runed/cmd/runed/main.go:51`, `audit.EmitDB` from `auditRunSlot`
+  (`runed/audit.go:87`), covering `run.hold` and `run.kill`. Its whole `/v1`
+  surface is `runed/server.go:37-44` — runs, holds, sessions. **No audit read
+  endpoint**, and `/openapi.json` is emitted with an empty resource list
+  (`runed/cmd/runed/main.go:121`), so the doc advertises zero paths.
+- **authd** writes rows into `auth.db` (`audit.Init` at `authd/main.go:78`,
+  `audit.Emit` at `:79` and `authd/oauth.go:356`). It mounts **no `/v1` at
+  all** — only `/auth/*` OAuth routes, `/openapi.json`, `/metrics`. Same root
+  cause as `F15a`.
+- **`/dash/audit/`** reads `routd.db` through `d.adminDB()`
+  (`dashd/audit_page.go:24,60`), so it shows routd's rows and only routd's.
+
+So the trail exists and is correct, and an operator asking "who killed that
+run" gets nothing from the dashboard. `concepts/audit.html` now says this
+plainly rather than implying full coverage, but the honest doc is not the fix.
+
+**Why this is not fixed inline.** The obvious shortcut is to open `runed.db`
+from dashd the way `/dash/runed/` already opens it for `spawns`. That would
+make the dashboard a second reader of a table whose owner exposes no contract,
+and it does not generalise to authd, whose DB dashd does not open at all. The
+fix is a read endpoint per daemon plus one federating page — new API surface on
+a spec that does not describe it, which is the sign-off case (`F12a`, `F15a`,
+same shape).
+
+Two shapes, not equivalent:
+
+- **(a) Hand-rolled `GET /v1/audit` per daemon**, matching runed's existing
+  hand-rolled handlers, with dashd fanning out and merging by `created_at`.
+  Smallest change. Leaves `audit_log` as a read surface with no resreg
+  registration.
+- **(b) Register `audit_log` as a read-only resreg resource** in each owning
+  daemon, which is what root `CLAUDE.md` asks of every operator-managed entity
+  and would put the rows in `openapi.json` and give MCP the same face for free
+  (closing `5/I`'s open question 2, the `query_audit` self-introspection tool,
+  as a side effect). More work, and it needs a read-only `Action` that does not
+  itself write an audit row per call — the read/write split in `5/I` exists
+  precisely to stop that.
+
+Either way `serviceGrants["service:dashd"]` must carry a scope that admits the
+new action; the entry itself now exists (`fd697e99`).
+
+- **Severity:** medium (a shipped audit trail that no operator surface can read)
+- **Scope:** runed + authd `/v1` + dashd audit page (spec 5/I)
+- **Affected:** all instances
+- **Source:** runed/server.go:37-44; runed/audit.go:87; runed/cmd/runed/main.go:51,121; authd/main.go:78,114-116; authd/oauth.go:356; dashd/audit_page.go:24,60
+- **Status:** PROPOSED — needs sign-off on (a) vs (b)
+- **Fix:** user picks the shape; then the read endpoint on runed and authd, then
+  `/dash/audit/` federates the three sources instead of reading one.
+- **Blocks:** `5/I` cannot go `shipped` while its rows are unreadable. Its Open
+  question 1 (redaction regex + the 1 KB-cap encoding) is also still unpinned,
+  which independently keeps that spec `partial`.
+
+## ✅ FIXED 2026-08-06 F24 — proactive interjection has no dashd surface (2026-08-06, FIXED)
 
 The last unmet definition-of-done item for spec `5/6`, and the only reason that
 spec is still `partial`. An operator can turn proactive interjection on
@@ -33,12 +91,27 @@ misconfigured-group case is the one that will actually cost someone an hour.
 - **Scope:** dashd / routd proactive (spec 5/6)
 - **Affected:** any operator who enables proactive interjection
 - **Source:** routd/proactive.go:200,126-155; routd/db.go:1267; dashd/ (absent)
-- **Status:** open
-- **Fix:** a read-only `/dash/proactive/` listing folder, mode, quiet hours,
-  parse error, and last-fired per chat. Reads only; `mode:` stays operator-edited
-  in `CLAUDE.md` (spec 5/6 decision: one source, no DB/file drift), so this is a
-  view, not a control plane — which also means it is not a resreg resource and
-  does not owe a REST twin.
+- **Status:** FIXED 2026-08-06
+- **Fix:** shipped as proposed — `dashd/proactive_page.go`, `GET
+/dash/proactive/`, operator-only, in the nav. Two tables: per-group mode +
+  quiet hours + parse error, and per-chat last-fired from `chat_proactive`.
+  Reads only, for the reason recorded above.
+- **Note — the parser is now shared, not copied.** The page needs the same
+  answer routd's scanner gates on, so `parseProactiveMode`/`proactiveMode`/
+  `quietWindow` moved out of `routd/` into a new `proactive/` package as
+  `Parse`/`Mode`/`Window` (commit `30d1bff7`). A second frontmatter reader in
+  dashd would have drifted from the one that decides whether a group fires, and
+  the drift would have surfaced as a dashboard claiming `lurk` about a group
+  routd refuses to run. `Window` gained `Raw` so the page shows the operator's
+  own quiet-hours text.
+- **Note — the page states the switch, it does not read it.** dashd cannot see
+  routd's environment, so a banner names `PROACTIVE_ENABLED` and says the
+  feature is off unless the operator opted in. A green "enabled" dot dashd
+  cannot verify would be worse than no dot.
+- **Not done here:** setting `mode:` from the dashboard. Spec `5/6` makes the
+  group's `CLAUDE.md` the single source, and the cooldown mandatory, so there
+  is no control to offer without changing the spec — see `F29`'s sibling
+  reasoning about new contracts needing sign-off.
 
 ## F25 — components/dashd.html documents the retired HMAC identity model (2026-08-06, open)
 

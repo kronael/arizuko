@@ -10,12 +10,22 @@ depends: [17-openapi-mcp]
 > `/v1/holds`) and `run.kill` (DELETE `/v1/runs/{id}`, POST `/v1/runs/stop`) —
 > each naming the caller. Per-turn dispatch deliberately writes NO row: the
 > `spawns` row is already that record (see `runed/audit.go`; PLAN.md § SKIP).
-> Still open before this ships: **denied** runed calls are unrecorded (an
-> `authz.deny` gate, uniform across every endpoint — not a kills-only slice);
-> no operator-facing page under `template/web/pub/` describes the audit trail;
-> `dashd` renders `spawns` but no `audit_log` view, so the rows are
-> `sqlite3`-only; and Open question 1 (redaction regex, 1 KB-cap encoding)
-> is still unpinned. BUGS `F7`.
+> `concepts/audit.html` now describes the trail for operators, and
+> `/dash/audit/` has browsed `audit_log` since v0.54.0.
+>
+> Two things still block `shipped`:
+>
+> 1. **runed's and authd's rows cannot be read by anything but `sqlite3`.**
+>    `/dash/audit/` reads `routd.db` (`dashd/audit_page.go:24`); runed's `/v1`
+>    is runs/holds/sessions only (`runed/server.go:37-44`) and authd mounts no
+>    `/v1` at all (`authd/main.go:114-116`). A read endpoint per daemon plus a
+>    federating page is new API surface this spec does not describe — recorded
+>    as BUGS `F29`, awaiting sign-off, not built.
+> 2. **Open question 1 is unpinned** — the redaction regex set and the
+>    encoding for `params_summary` fields that hit the 1 KB cap.
+>
+> Also open, and smaller: **denied** calls are unrecorded (an `authz.deny`
+> gate, uniform across every endpoint — not a kills-only slice). BUGS `F7`.
 
 > **Shipped 2026-06-14.** Layer A: `audit_log` (params_summary,
 > duration_ms, turn_id, surface, redaction) emitted in-tx via
