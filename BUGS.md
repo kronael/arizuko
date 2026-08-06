@@ -5091,7 +5091,7 @@ neither see who is engaged nor end it.
   feature. Consider deleting the dead `core/config.go` default so the two
   numbers cannot disagree again.
 
-### F12a — the dashd engagement view needs API that does not exist (2026-08-06, PROPOSED — needs sign-off)
+### F12a — the dashd engagement view needs API that does not exist (2026-08-06, FIXED 2026-08-06 — shape (a))
 
 Attempted while closing `5/G`'s item-6 gap. routd does have a REST pair —
 `GET /v1/engagement` (`routd/reads_http.go:198`) and `POST /v1/engagement`
@@ -5138,9 +5138,42 @@ Either way `serviceGrants["service:dashd"]` must exist first.
 - **Scope:** routd `/v1/engagement` shape + authd serviceGrants + dashd page
 - **Affected:** all instances
 - **Source:** routd/reads_http.go:198,217,243; routd/api/v1/types.go:318-321; routd/db.go:175,686; authd/http.go:26-62; ipc/ipc.go:1509-1527,1571
-- **Status:** PROPOSED — needs sign-off on (a) vs (b)
-- **Fix:** user picks the shape; then list + `engaged_until` + the
-  serviceGrants row, then the dashd page.
+- **Status:** FIXED 2026-08-06 — blockers 1 and 2 closed. Blocker 3
+  (`serviceGrants["service:dashd"]` is missing, so dashd's token is minted with
+  empty scope) is NOT re-filed here: `F15a` already owns it, in authd. `5/G`
+  stays `partial` on that plus the dashd page (item 6) and `F12`'s TTL doc
+  (item 5), none of them this spec's package.
+- **Decision: shape (a).** Engagement is HOT-TIER conversational state, not a
+  cold-tier management entity, so it does NOT become a resreg resource — the
+  same carve-out root `CLAUDE.md` already makes for the hand-authored
+  `engage`/`disengage` tools. Shape (b) would put a second path into a seam
+  those tools own, and their three-arm authorization is not something resreg's
+  `Gate` expresses. The hand-rolled pair was extended instead.
+- **Shipped** (`routd/engagement_http.go`, the engagement surface lifted out of
+  `reads_http.go` into its own file):
+  - `EngagementResponse` gained `engaged_until`. `DB.Engaged` now delegates to
+    a new row-shaped `DB.Engagement` rather than a second query, so the
+    deadline comes off the read that already ran.
+  - `DB.ListEngaged(folder, all)` + `GET /v1/engagement` with no `jid`
+    (`EngagementListResponse`) — the "who is engaged right now" read that no
+    layer could answer. Live windows only, newest deadline first.
+  - Containment: `all` keys on an EMPTY folder claim ONLY — a top-level tenant
+    has a non-empty folder, and widening on depth is the leak
+    `rest_listall_leak` records. Per row the predicate is
+    `descendant(row.engaged_folder, caller)`, NOT `ownsFolder`, which counts an
+    empty target as owned by everyone and would expose unclaimed windows.
+- **Guards** (`routd/engagement_http_test.go`), each proved falsifiable by
+  breaking its own code path and running the whole `routd` package — every
+  mutation failed its test and nothing else:
+  - `TestEngagementGet_ReturnsDeadline` — deleting the `out.EngagedUntil`
+    stamp: `live window returned no engaged_until`.
+  - `TestEngagementList_EnumeratesLiveWindows` — widening the live-window
+    filter by 24h: `list returned 3 windows, want 2`.
+  - `TestEngagementList_NoCrossFolderLeak` (content-level, asserts on the raw
+    response BODY) — swapping `descendant` for `ownsFolder`: `tenant alice sees
+the unclaimed window`; disabling containment entirely: `contains
+    slack:c/bob-1 — cross-folder leak` ×3. It also asserts a root token sees
+    all 5 seeded rows, so it cannot pass on an empty result.
 
 ## F13 — webd resolves route tokens in-process, and the endpoint `5/W` specifies is dead (2026-08-05, open)
 

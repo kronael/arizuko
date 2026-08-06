@@ -313,11 +313,28 @@ type ErroredChatsResponse struct {
 	Chats []ErroredChat `json:"chats"`
 }
 
-// EngagementResponse is GET /v1/engagement?jid&topic: the engaged folder
-// ("" when none) and the (jid,topic) thread anchor last_reply_id.
+// EngagementResponse is GET /v1/engagement?jid&topic: the engaged folder and
+// deadline (both "" when the window is not live) plus the (jid,topic) thread
+// anchor last_reply_id, which outlives the window and is reported regardless.
 type EngagementResponse struct {
-	Folder      string `json:"folder"`
-	LastReplyID string `json:"last_reply_id"`
+	Folder       string `json:"folder"`
+	EngagedUntil string `json:"engaged_until"`
+	LastReplyID  string `json:"last_reply_id"`
+}
+
+// EngagedChat is one live window in the GET /v1/engagement list.
+type EngagedChat struct {
+	JID          string `json:"jid"`
+	Topic        string `json:"topic"`
+	Folder       string `json:"folder"`
+	EngagedUntil string `json:"engaged_until"`
+}
+
+// EngagementListResponse is GET /v1/engagement with no jid: every live window
+// the caller may see, newest deadline first. Contained to the caller's subtree
+// unless the token carries an empty (root/service) folder claim.
+type EngagementListResponse struct {
+	Engaged []EngagedChat `json:"engaged"`
 }
 
 // EngagementRequest is POST /v1/engagement (engage/disengage). TTLSeconds<=0

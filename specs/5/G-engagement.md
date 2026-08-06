@@ -6,17 +6,22 @@ relates-to: [3/Y-thread-routing, 5/Y-output-styles-per-surface]
 
 # specs/5/G — engagement: stay in the conversation after a mention
 
-> **Status (2026-08-06).** Partial. `concepts/engagement.html` tells operators
-> the TTL defaults to 20m; routd defaults it to 30m in both places it is set.
-> No dashd surface shows or clears engagement windows. The **control** half is
-> buildable today (`POST /v1/engagement` with `ttl_seconds <= 0` clears the
-> window, same semantics as the `disengage` tool); the **view** half is not,
-> and is blocked on three things outside dashd — there is no list query for
-> `chat_reply_state` at any layer, `EngagementResponse` never returns
-> `engaged_until`, and `serviceGrants` has no `service:dashd` entry so dashd's
-> token is minted with empty scope. Adding them is new API surface this spec
-> does not describe: proposal + the two candidate shapes in BUGS `F12a`,
-> awaiting sign-off. BUGS `F12`.
+> **Status (2026-08-06).** Partial. The **API** is no longer the blocker: BUGS
+> `F12a` is resolved as shape (a) — the read surface below now returns
+> `engaged_until` and lists live windows, so both halves of an operator view are
+> reachable over `/v1`. Engagement stays hot-tier and hand-rolled by design; it
+> did NOT become a resreg resource (see §"The read surface").
+>
+> Three items outside this spec's code keep it `partial`, all in another lane:
+>
+> 1. **No dashd surface** shows or clears engagement windows — definition-of-done
+>    item 6. The API it needs now exists.
+> 2. **`serviceGrants` has no `service:dashd` entry** (`authd/http.go`), so
+>    dashd's token is minted with empty scope and cannot call the surface at all.
+>    Same root cause as BUGS `F15a`; authd is not this spec's package.
+> 3. **`concepts/engagement.html` says the TTL defaults to 20m**; routd defaults
+>    it to 30m in both places it is set — BUGS `F12`, definition-of-done item 5.
+>    `template/web/pub/` is another agent's lane this session.
 
 ## What this solves
 
@@ -144,6 +149,34 @@ conversations. Accept if any holds:
 3. `EngagedFolder(jid, topic) == ""` — fresh chat. Escape hatch so an
    autonomous turn can bootstrap a conversation with no pre-existing
    route. Stealing an _active_ engagement still needs arm 1 or 2.
+
+## The read surface
+
+`routd/engagement_http.go`, three faces on one pair of routes:
+
+- `GET /v1/engagement?jid=&topic=` — one pair: `folder` + `engaged_until`
+  (both empty when the window is not live) + `last_reply_id`. The anchor
+  OUTLIVES the window, so an idle pair still reports one.
+- `GET /v1/engagement` (no `jid`) — every live window the caller may see,
+  newest deadline first. `DB.ListEngaged`.
+- `POST /v1/engagement` — engage; `ttl_seconds <= 0` disengages.
+
+**Engagement is hot-tier, so it is NOT a resreg resource.** Root `CLAUDE.md`
+requires a resreg registration for every cold-tier MANAGEMENT entity; this is
+conversational state, the same carve-out that keeps `engage`/`disengage`
+hand-authored in `ipc/ipc.go` (spec [`5/17`](17-openapi-mcp.md) §"The model:
+two tiers"). Promoting the table would put a second path into a seam those
+tools already own, with a three-arm authorization resreg's `Gate` does not
+express. The hand-rolled pair is extended instead.
+
+**Containment: the list-all key is an EMPTY folder claim and nothing else.** A
+top-level tenant carries a non-empty folder however shallow, so widening on
+depth would hand it every sibling's chats. Per row, the predicate is
+`descendant(row.engaged_folder, caller)` — deliberately NOT `ownsFolder`, which
+reports true for an empty target and would expose windows no folder has
+claimed. Guarded content-level in `TestEngagementList_NoCrossFolderLeak`: the
+assertion reads the raw response BODY, so a jid arriving through any field
+fails it.
 
 ## Corrective exchanges fork to a side thread
 

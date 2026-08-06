@@ -682,20 +682,77 @@ func (d *DB) SetEngagement(jid, topic, folder string, ttl time.Duration) error {
 	return err
 }
 
-// Engaged returns (folder, true) when (jid, topic) has a live engagement.
-func (d *DB) Engaged(jid, topic string) (string, bool) {
+// Engagement is one LIVE chat_reply_state window: which folder claims
+// (jid, topic) and until when. Spec 5/G.
+type Engagement struct {
+	JID    string
+	Topic  string
+	Folder string
+	Until  time.Time
+}
+
+// Engagement returns the live window for (jid, topic). Not live: no row, a NULL
+// deadline or folder, an unparseable deadline, or a deadline already past.
+func (d *DB) Engagement(jid, topic string) (Engagement, bool) {
 	var until sql.NullString
 	var folder string
 	err := d.db.QueryRow("SELECT engaged_until, engaged_folder FROM chat_reply_state WHERE jid=? AND topic=?",
 		jid, topic).Scan(&until, &folder)
 	if err != nil || !until.Valid {
-		return "", false
+		return Engagement{}, false
 	}
 	t, perr := time.Parse(time.RFC3339Nano, until.String)
 	if perr != nil || !t.After(time.Now()) {
-		return "", false
+		return Engagement{}, false
 	}
-	return folder, true
+	return Engagement{JID: jid, Topic: topic, Folder: folder, Until: t}, true
+}
+
+// Engaged returns (folder, true) when (jid, topic) has a live engagement.
+func (d *DB) Engaged(jid, topic string) (string, bool) {
+	e, live := d.Engagement(jid, topic)
+	return e.Folder, live
+}
+
+// ListEngaged enumerates the live engagement windows visible to folder, newest
+// deadline first — the read a "who is engaged right now" view needs, which no
+// layer offered before (every chat_reply_state read was WHERE jid=? AND
+// topic=?). all widens to the whole fleet and belongs ONLY to a root/service
+// caller; the handler derives it from an EMPTY folder claim, never from depth.
+//
+// Containment is descendant(row.Folder, folder) — self-or-below — deliberately
+// NOT ownsFolder, which reports true for an empty target and so would show every
+// scoped caller the rows no folder has claimed. The window filter runs here
+// rather than in SQL because the deadline is RFC3339Nano TEXT, and the subtree
+// filter runs here so containment has ONE implementation shared with the rest of
+// routd instead of a LIKE pattern that a folder name containing _ or % would
+// silently widen.
+func (d *DB) ListEngaged(folder string, all bool) ([]Engagement, error) {
+	rows, err := d.db.Query(
+		`SELECT jid, topic, engaged_until, engaged_folder FROM chat_reply_state
+		 WHERE engaged_until IS NOT NULL AND engaged_folder IS NOT NULL
+		 ORDER BY engaged_until DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	now := time.Now()
+	out := []Engagement{}
+	for rows.Next() {
+		var jid, topic, until, owner string
+		if err := rows.Scan(&jid, &topic, &until, &owner); err != nil {
+			return nil, err
+		}
+		t, perr := time.Parse(time.RFC3339Nano, until)
+		if perr != nil || !t.After(now) {
+			continue
+		}
+		if !all && !descendant(owner, folder) {
+			continue
+		}
+		out = append(out, Engagement{JID: jid, Topic: topic, Folder: owner, Until: t})
+	}
+	return out, rows.Err()
 }
 
 // SetLastReply seeds the reply-to-bot threading anchor for (jid, topic).

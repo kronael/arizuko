@@ -12,7 +12,7 @@ import (
 )
 
 // reads_http.go is routd's REST read/manage surface (message reads + routing +
-// engagement + cost) — the REST twin of the agent's in-process MCP StoreFns
+// cost; engagement has its own file, engagement_http.go) — the REST twin of the agent's in-process MCP StoreFns
 // (routd/mcp.go), for humans / external tools. NOT turn-scoped; authz bounds
 // reads to the bearer token's folder claim.
 
@@ -193,60 +193,6 @@ func (s *Server) handleErroredChats(w http.ResponseWriter, r *http.Request) {
 			RoutedTo: c.RoutedTo, LastAt: c.LastAt.UTC().Format(time.RFC3339Nano)}
 	}
 	writeJSON(w, 200, out)
-}
-
-func (s *Server) handleEngagementGet(w http.ResponseWriter, r *http.Request) {
-	_, folder, ok := s.authz(w, r, scopeRoutesRead...)
-	if !ok {
-		return
-	}
-	jid := r.URL.Query().Get("jid")
-	if jid == "" {
-		writeErr(w, 400, "bad_request", "jid required")
-		return
-	}
-	if !s.ownsJID(folder, jid) {
-		denyCrossFolder(w, jid)
-		return
-	}
-	topic := r.URL.Query().Get("topic")
-	engaged, _ := s.db.Engaged(jid, topic)
-	writeJSON(w, 200, apiv1.EngagementResponse{Folder: engaged, LastReplyID: s.db.LastReplyID(jid, topic)})
-}
-
-func (s *Server) handleEngagementSet(w http.ResponseWriter, r *http.Request) {
-	_, folder, ok := s.authz(w, r, scopeRoutesWrite...)
-	if !ok {
-		return
-	}
-	var req apiv1.EngagementRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "bad_request", err.Error())
-		return
-	}
-	if req.JID == "" {
-		writeErr(w, 400, "bad_request", "jid required")
-		return
-	}
-	if !s.ownsJID(folder, req.JID) {
-		denyCrossFolder(w, req.JID)
-		return
-	}
-	if !ownsFolder(folder, req.Folder) {
-		denyCrossFolder(w, req.Folder)
-		return
-	}
-	// TTLSeconds<=0 is the disengage path: SetEngagement with a zero/past
-	// deadline clears the live window (Engaged checks until > now).
-	ttl := time.Duration(req.TTLSeconds) * time.Second
-	if ttl <= 0 {
-		ttl = -time.Second
-	}
-	if err := s.db.SetEngagement(req.JID, req.Topic, req.Folder, ttl); err != nil {
-		writeErr(w, 500, "store_error", err.Error())
-		return
-	}
-	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
 func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {

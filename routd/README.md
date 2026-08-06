@@ -107,7 +107,11 @@ Endpoints (`server.go`, `channels.go`):
 - `GET /v1/channels` — adapter list
 - `GET /v1/messages/{inspect,thread,find}` — message reads
 - `GET /v1/routing/{resolve,errored}` — routing info
-- `GET|POST /v1/engagement` — engagement state
+- `GET|POST /v1/engagement` — engagement state (spec 5/G). `GET` with `jid`
+  reads one pair (`folder`, `engaged_until`, `last_reply_id`); `GET` with no
+  `jid` LISTS the live windows in the caller's subtree, newest deadline first
+  — only an empty (root/service) folder claim widens it to the fleet. `POST`
+  engages; `ttl_seconds <= 0` disengages.
 - `GET /v1/sessions` — session info
 - `GET /v1/users/{sub}/scopes` — login-time scope snapshot (`grants:read`)
 - `POST /v1/acl`, `DELETE /v1/acl` — acl grant/revoke (`acl:write`)
