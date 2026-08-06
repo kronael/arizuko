@@ -28,13 +28,13 @@ depends:
 >    exception rather than silent about it. Either the bullet gains an explicit
 >    carve-out or the fleet gets a coordinated rename — an operator call.
 > 2. **`operationId` is emitted `<action>_<name>`**, not the `<name>.<action>`
->    this spec's §"Resource name = wire identity" specifies (BUGS `F25`).
+>    this spec's §"Resource name = wire identity" specifies (BUGS `F28`).
 > 3. **`reference/openapi.html` still describes the closed `scheduled_tasks`
 >    gap** (BUGS `F26`) — definition-of-done item 5.
 >
 > Adjacent and not blocking: `acl` advertises a `GET /v1/acl` nothing mounts,
 > and `acl`/`groups` carry the same mount-time `Endpoints` override `F21` had
-> (BUGS `F24`).
+> (BUGS `F27`).
 
 > **DECISION.** Every cold-tier management resource is authored **once** as
 > one in-process `resreg.Resource` — logic, tx, audit, and arg-derivation in

@@ -150,7 +150,7 @@ a concrete instance with a test that reports it as already done.
   still PASSES while the new guard fails on all five endpoints and
   `TestOpenAPI_ScheduledTasksAdvertised` names each phantom path.
 
-## F24 — `GET /v1/acl` is advertised but mounted nowhere; two more mount-time Endpoint overrides (2026-08-06, open)
+## F27 — `GET /v1/acl` is advertised but mounted nowhere; two more mount-time Endpoint overrides (2026-08-06, open)
 
 Same class as `F21`, found while fixing it, in the two resources that were left.
 `mountACL` (`routd/acl_resource.go:79`) and `mountGroups`
@@ -182,7 +182,7 @@ reason (the comment says so), which is a workaround for the override, not a fix.
   resource instead of just tasks. Then `groups` can join `OpenAPIResources`
   honestly. Verify `GET /v1/acl` really has no consumer first.
 
-## F25 — the emitted `operationId` is `<action>_<name>`; `5/17` specifies `<name>.<action>` (2026-08-06, open)
+## F28 — the emitted `operationId` is `<action>_<name>`; `5/17` specifies `<name>.<action>` (2026-08-06, open)
 
 `specs/5/17-openapi-mcp.md:192-196` §"Resource name = wire identity" states the
 `operationId` is `<name>.<action>` and calls the composed `<name>.<action>`
