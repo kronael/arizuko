@@ -6,16 +6,17 @@ depends:
 
 # specs/5/31 — identity pairing (channel identity → verified account)
 
-> **Status (2026-08-06).** Partial. The pairing primitive ships, but the
-> "Onboarding — the fold" section below is unbuilt: onbod still runs the
-> synchronous `linkJID`/`token_ref` gate and no `IssuePairingLink` call site
-> exists. Tracked as BUGS `P1b` (PROPOSED — redesign, needs sign-off).
+> **Status (2026-08-06).** Partial. The pairing primitive ships, and the fold is
+> no longer blocked — but it is still **unbuilt**: onbod runs the synchronous
+> `linkJID`/`token_ref` gate and no `IssuePairingLink` call site exists. Tracked
+> as BUGS `P1b` (PROPOSED — redesign, needs sign-off).
 >
-> **The fold's design is additionally BLOCKED, not merely unbuilt.** It was
-> written against a pre-picker onbod and `5/18` step 6 landed underneath it
-> (`d9e57288`, 2026-08-04) — see "What step 6 broke" at the end of that
-> section. Resolving it is a `5/18` decision; do not implement the fold as
-> written.
+> **Step 6's block is resolved (decided + shipped).** The fold was designed
+> against a pre-picker onbod and `5/18` step 6 landed underneath it
+> (`d9e57288`, 2026-08-04), leaving redemption with no way to reach the picker.
+> Option 1 was chosen: webd's pair success page carries the user on to
+> `/onboard`. See "What step 6 broke" at the end of that section. The fold's
+> other three blockers are designed below and remain unimplemented.
 
 ## Problem
 
@@ -72,6 +73,7 @@ arise.
 | `GET /pair/{token}` — side-effect-free confirm page                                     | `webd/pair.go:35`, mounted `webd/server.go:145`                                                   |
 | `POST /pair/{token}` — redeem in one routd transaction                                  | `webd/pair.go:60` → `store.RedeemPairing`                                                         |
 | anonymous visitor bounced through OAuth and back                                        | `compose/compose.go:338` (`/pair/` is `Auth: "user"`) → `authd/oauth.go:135` `consumeReturn`      |
+| success page carries the user on to `/onboard`, which routes the JID                    | `webd/pair.go` `pairContinueURL`                                                                  |
 | unpair                                                                                  | `routd/membership_resource.go:57`, `resreg/resources/membership.go`                               |
 
 `webd` serves the browser half because it already opens `routd.db`, so
@@ -323,7 +325,8 @@ unrouted chat: route-miss inserts the onboarding row (unchanged) →
 `promptUnprompted` mints a `kind='pair'` token with `ownerFolder=NULL` and
 sends `/pair/<token>` → the user completes OAuth and consent on webd
 (unchanged, generic — webd needs no onboarding awareness at all) →
-`RedeemPairing` writes the edge → within one poll tick the observer evaluates
+`RedeemPairing` writes the edge → the success page carries them to `/onboard`,
+whose step-6 branch routes the JID → within one poll tick the observer evaluates
 gates and the chat receives "queued" / "approved" / the refusal. (b) An
 existing user pairs a second channel: entirely the shipped agent-mint path,
 untouched — the observer's `user_sub IS NULL` scan only ever matches rows
@@ -340,7 +343,7 @@ untouched — the observer's `user_sub IS NULL` scan only ever matches rows
 | refusal: `errLinkRefused` → 403 in browser                                                 | `status='refused'` → chat message                  |
 | `RepromptOnboarding`, `handleDashReprompt`, reprompt button                                | deleted — cooldown is the reprompt                 |
 
-### What step 6 broke — the fold is blocked, not merely unbuilt
+### What step 6 broke — resolved, the fold is merely unbuilt
 
 The fold above was designed while onbod auto-picked a world on claim. `5/18`
 step 6 shipped one day later (`d9e57288`, 2026-08-04) and replaced that with a
@@ -363,19 +366,36 @@ to `/onboard`**. Flow (a) above confirms this by omission: it ends at
 
 The poll observer cannot stand in. It can queue, approve, refuse and message
 the chat, but the multi-world case is a form a human fills in; a tick has no
-browser. So closing this needs one of three, and each is a `5/18` decision,
-not this spec's:
+browser. So closing this needed one of three:
 
-1. webd's pair page redirects into onbod's `/onboard` — gives webd onboarding
-   awareness, which this spec rejects twice ("webd needs no onboarding
-   awareness at all"; the rejected webd→onbod hook);
+1. webd's pair page carries the user into onbod's `/onboard`;
 2. the observer chat-sends a SECOND link to `/onboard` — a two-link flow,
    specified nowhere;
 3. the observer auto-picks — reverts step 6, the thing `5/18` shipped as the
    fix.
 
-Until one is chosen, the fold is not implementable without presupposing an
-answer. Tracked in BUGS `P1b`.
+**Decided 2026-08-06: option 1, and it is shipped** (`webd/pair.go`
+`pairContinueURL`). It does not give webd the onboarding awareness this spec
+rejects, because webd states no condition and holds no onboarding state — it
+names a destination and stops. `/onboard` decides everything from the DB:
+step 6 keys on `unroutedJID` → `membershipJIDs`, which reads `acl_membership`
+with **no `added_by` filter**, so an edge `RedeemPairing` wrote is found exactly
+like one `linkJID` wrote. That is why the fold needs no hook and no second link:
+the picker was already generic over who wrote the edge, and only the user's
+route to it was missing.
+
+It is a static link, not a `?next=`-style parameter. The flow's existing
+`auth_return` cookie is a _pre-authentication resume_ pointer — proxyd's
+`requireAuth` writes it, authd's `consumeReturn` reads, validates and clears it
+during OAuth — so by the time the success page renders it is already spent on
+`/pair/{token}` itself. Reusing it for a post-action destination would give one
+cookie two meanings; carrying a new parameter would be a parallel mechanism.
+Neither is needed when the destination is constant.
+
+Inert until the rest of the fold lands: `pairingTargetFolder` refuses a JID that
+routes nowhere, so every pairing mintable today lands on a routed chat, where
+`/onboard` simply shows the user their worlds. Options 2 and 3 stay rejected.
+The fold's remaining work is blockers 1–3 above, tracked in BUGS `P1b`.
 
 ## Not in scope
 

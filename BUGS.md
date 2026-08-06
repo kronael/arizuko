@@ -770,7 +770,40 @@ the same session. Not edited to avoid a concurrent-write collision.
 - **Blocks:** `specs/5/17` — this was its ONLY unmet definition-of-done item.
   Unblocked; the spec is now `shipped`.
 
-## F30 — `5/28` composition's lock is instance-keyed; its subject is group-scoped (2026-08-06, proposed)
+## ✅ FIXED 2026-08-06 F30 — `5/28` composition's lock is instance-keyed; its subject is group-scoped (2026-08-06, FIXED)
+
+**Fixed `24e5f36d`** — the second exit was taken: `installed_packages` is
+re-keyed `(folder, name)` (routd migration `0031`, store `0082`), `''` meaning
+instance-wide. One lock, correctly keyed, rather than the group-scoped second
+lock `5/28` forbids in its own `/migrate` paragraph. The sentinel is house
+convention, not an invention — `network_rules` already ships `(folder, target)`
+with `''` for a global rule.
+
+Existing rows map to `''` and keep working untouched: every one is instance-wide
+by construction, since install writes compose fragments, proxyd routes and host
+files, none of which belong to a group. The CLI still writes `InstanceWide`, so
+`install`/`upgrade`/`remove` behave identically; `packages list` never read the
+DB at all (it lists fragments off the filesystem).
+
+Rehearsed on `.backup` copies of all three live `routd.db` files. **All three
+hold ZERO `installed_packages` rows**, so each was also run seeded with three
+synthetic rows — a 0-row rehearsal proves only that the DDL parses, which is the
+"matched 0 rows, looked fine" failure mode itself. Seeded result: 3 rows in, 3
+out, content byte-identical, all on the sentinel, PK `(folder, name)`,
+`integrity_check` ok. Pre-existing `task_run_logs` FK violations are unchanged in
+count before and after (see `F37`); nothing references `installed_packages`.
+
+Authorization deliberately did NOT move with the key — both faces still bind the
+whole tree, because `list` reads across folders and the record names cross-folder
+identities regardless of its own folder.
+
+**Still open, and NOT this entry:** composition itself. Its three remaining gaps
+(no `sync`/`update` verb, no `CLAUDE.md` marker convention, payload kinds that
+miss the corpus) are recorded in `5/28` §"Composition's remaining gaps". `5/28`
+stays `partial` for exactly those.
+
+<details><summary>Original entry</summary>
+
 
 `F3` recorded that `5/28`'s composition section is unbuilt. Trying to build it
 shows it is **unimplementable as written**, which is a stronger claim and a
@@ -819,6 +852,34 @@ genuine generalization of `--product <one>`; only its lock is wrong.
   routd/migrations/0020-installed-packages.sql; container/runner.go:497,979
 - **Status:** proposed — needs a scope decision (is composition group-scoped at
   all?) before any reader is written. Do NOT implement `products.toml` first.
+
+</details>
+
+## F37 — `task_run_logs` holds orphan rows on all three live instances (2026-08-06, open)
+
+Found while proving migration `0031` caused no FK damage: `PRAGMA
+foreign_key_check` on a `.backup` copy of each live `routd.db` reports violations
+on `task_run_logs` and only `task_run_logs` — krons 10, sloth 32, marinade 66.
+Identical counts before and after `0031`, so this is pre-existing and unrelated
+to the re-key; recorded here rather than fixed (record-don't-fix).
+
+The rows point at a parent that no longer exists (the FK was added by a later
+migration than the data, or a task delete did not cascade). Not currently
+harmful: routd opens `routd.db` with `_pragma=foreign_keys(on)`, and SQLite does
+not re-validate existing rows — only new writes are checked. It becomes harmful
+the moment any migration rebuilds `task_run_logs` or its parent the way `0031`
+rebuilt `installed_packages`: a rebuild under FK enforcement can fail outright or
+silently drop the orphans.
+
+The count growing with instance age (10 / 32 / 66) suggests an ongoing producer,
+not a one-off backfill.
+
+- **Severity:** low today, latent trap for the next `task_run_logs` migration
+- **Scope:** routd.db `task_run_logs`
+- **Affected:** krons (10), sloth (32), marinade (66)
+- **Source:** `PRAGMA foreign_key_check` on read-only `.backup` copies, 2026-08-06
+- **Status:** open — needs the producer identified before deciding delete-orphans
+  vs relax-the-constraint. Do NOT rebuild `task_run_logs` until then.
 
 ## R3 — a killed run still launches its container, on a folder that now reads free (2026-08-05, FIXED)
 
@@ -3234,7 +3295,42 @@ shipped the extraction: `route_tokens kind='pair'`, `issue_pairing_link`,
 `GET/POST /pair/<token>`, `unpair`. Token and edge are both in routd.db, so the
 cross-DB ownership problem this entry raised does not arise.
 
-## P1b — fold onbod's greeting onto pairing (2026-08-04, PROPOSED — redesign, needs sign-off; BLOCKED on 5/18 step 6 as of 2026-08-06)
+## P1b — fold onbod's greeting onto pairing (2026-08-04, PROPOSED — redesign, needs sign-off; UNBLOCKED 2026-08-06)
+
+**Update 2026-08-06 — blocker 4 is resolved and shipped (`df99e158`).** Option 1
+was chosen: webd's pair success page carries the user on to `/onboard`
+(`webd/pair.go` `pairContinueURL`). This does not give webd the onboarding
+awareness `5/31` rejects — webd names a destination and states no condition.
+`/onboard` needs no help: step 6 keys on `unroutedJID` → `membershipJIDs`, which
+reads `acl_membership` with **no `added_by` filter**, so an edge `RedeemPairing`
+wrote is found exactly as one `linkJID` wrote. The picker was already generic
+over who wrote the edge; only the user's route to it was missing.
+
+No new parameter carries it. The flow's `auth_return` cookie is a
+*pre-authentication resume* pointer (proxyd's `requireAuth` writes it; authd's
+`consumeReturn` reads, validates and clears it during OAuth), so it is already
+spent on `/pair/{token}` itself by the time the success page renders — a
+different question, asked at a different time. Reusing it would give one cookie
+two meanings; a `?next=` would be a parallel mechanism.
+
+Inert until the rest of the fold lands: `pairingTargetFolder` refuses an unrouted
+JID, so every pairing mintable today ends on a routed chat where `/onboard` just
+shows the user their worlds.
+
+**Blockers 1–3 remain and this entry stays PROPOSED.** The chat-async admission
+flow (`IssuePairingLink` + nullable `owner_folder` + the poll observer +
+`status='refused'`) is designed in `5/31` and unimplemented; it still needs
+sign-off before code moves.
+
+**The lockout half stays deliberately unshipped.** `promptUnprompted`'s `WHERE
+prompted_at IS NULL` is still a permanent lockout, and `5/31`'s replacement
+cooldown is bound to `store.PairingTTL` (10 min) — which is only a bounded policy
+*because* the fold's link IS a pairing token. Today's greeting link is onbod's
+own 24h `token_expires`, so a `PairingTTL` cooldown applied now would re-greet
+every 10 minutes while a live link sits unused: exactly the spam vector this
+entry exists to police. It becomes a two-line change the moment blocker 1 lands,
+and not before.
+
 
 The reverse direction of P1 has NOT shipped: onbod still mints
 `onboarding.token`, posts `/onboard?token=…`, carries the JID across OAuth in
