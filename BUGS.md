@@ -4563,6 +4563,57 @@ neither see who is engaged nor end it.
   feature. Consider deleting the dead `core/config.go` default so the two
   numbers cannot disagree again.
 
+### F12a — the dashd engagement view needs API that does not exist (2026-08-06, PROPOSED — needs sign-off)
+
+Attempted while closing `5/G`'s item-6 gap. routd does have a REST pair —
+`GET /v1/engagement` (`routd/reads_http.go:198`) and `POST /v1/engagement`
+(`:217`), mounted at `routd/server.go:272-273` — so "force-disengage over
+HTTP" is buildable today (`ttl_seconds <= 0` clears the window,
+`reads_http.go:243`, the same semantics as the `disengage` MCP tool at
+`ipc/ipc.go:1571`; neither touches an in-flight turn). The **view** half is
+not. Three blockers, none fixable inside dashd:
+
+1. **No list, at any layer.** Every `chat_reply_state` read in the tree is
+   `WHERE jid=? AND topic=?`. The only statement that is not is
+   `DELETE ... WHERE engaged_folder=?` (`routd/db.go:175`, the group-delete
+   cascade). `grep -rn "ListEngaged\|AllEngaged\|engaged_until IS NOT NULL"`
+   is empty. So "who is engaged right now" cannot be answered — not over
+   `/v1`, not through a store helper. A page can only look up a jid the
+   operator already knows.
+2. **The deadline is never returned.** `EngagementResponse` is
+   `{folder, last_reply_id}` (`routd/api/v1/types.go:318-321`);
+   `DB.Engaged` returns `(folder, bool)` (`routd/db.go:686`) and the handler
+   discards the bool. `engaged_until` — the one number the page exists to
+   show — does not cross the wire.
+3. **dashd cannot authenticate to it.** Both handlers require
+   `routes:read` / `routes:write`, and `serviceGrants` (`authd/http.go:26-62`)
+   has **no `service:dashd` entry**, so dashd's token is minted with empty
+   scope. See F15a — same root cause.
+
+Building the view therefore means new API surface on a spec that does not
+describe it, which is the sign-off case. Two shapes, and they are not
+equivalent:
+
+- **(a) Extend the hand-rolled pair** — add a list (`GET /v1/engagement` with
+  no `jid`) and put `engaged_until` in the response. Smallest change; leaves
+  engagement as the one operator-managed thing with no resreg registration.
+- **(b) Promote engagement to a resreg resource** — what root `CLAUDE.md`
+  says every cold-tier management entity must be, and it would derive the MCP
+  face for free. But `engage`/`disengage` are already hand-authored hot-tier
+  tools with a three-arm authorization (`ipc/ipc.go:1509-1527`), so this
+  creates the second path the same rule forbids unless those tools are
+  retired onto it.
+
+Either way `serviceGrants["service:dashd"]` must exist first.
+
+- **Severity:** medium (blocks the `5/G` item-6 surface; `5/G` stays partial)
+- **Scope:** routd `/v1/engagement` shape + authd serviceGrants + dashd page
+- **Affected:** all instances
+- **Source:** routd/reads_http.go:198,217,243; routd/api/v1/types.go:318-321; routd/db.go:175,686; authd/http.go:26-62; ipc/ipc.go:1509-1527,1571
+- **Status:** PROPOSED — needs sign-off on (a) vs (b)
+- **Fix:** user picks the shape; then list + `engaged_until` + the
+  serviceGrants row, then the dashd page.
+
 ## F13 — webd resolves route tokens in-process, and the endpoint `5/W` specifies is dead (2026-08-05, open)
 
 `specs/5/W-webhook-routes.md:164-167` states, in bold, that **webd does not open
@@ -4652,6 +4703,58 @@ it.
 - **Fix:** two concerns, two changes — the cockpit tile, and an authorized
   revoke endpoint. The endpoint is the one that matters; it needs its own authz
   decision (who may revoke whose session) rather than defaulting to operator.
+
+### F15a — authd has no admin API at all, so the tile has nothing to render (2026-08-06, PROPOSED — needs sign-off)
+
+Attempted while closing `5/1`'s item-6 gap. The tile cannot flip to
+`Built:true` honestly, because item 6 asks for **view AND control** and authd
+publishes neither. Verified absent, with the greps:
+
+- **No signing-key metadata.** `GET /v1/keys` (`authd/http.go:110`) serves
+  the JWK Set, and `auth.PublicJWKS` (`auth/jwks.go:196-207`) emits only
+  `{kty,crv,x,y,kid,alg,use}` — `active`, `created_at` and `retired_at` are
+  dropped in `servingKeys()` (`http.go:121-129`). The only reads of
+  `signing_keys` are in-process (`authd/store.go:40`) or direct-file from the
+  CLI (`cmd/arizuko/token.go:163`).
+- **No session/refresh listing.** `grep -rn "FROM refresh_tokens"` returns
+  exactly one line — `authd/store.go:226`, `WHERE token_hash = ?`. There is
+  no query by `sub` or by `family_id`.
+- **No operator revoke.** `revokeFamily` (`authd/store.go:256`) is unexported
+  package-`main`, reachable only from reuse detection
+  (`authd/server.go:285,300`) and the user's own cookie
+  (`authd/oauth.go:413`). `RevokeAllNow` (`authd/server.go:107`) — the
+  emergency key-revoke lever — has **zero callers** outside its definition.
+- **dashd holds no scope.** `serviceGrants` (`authd/http.go:26-62`) has no
+  `service:dashd` key, so `handleServiceToken` (`http.go:155`) mints dashd a
+  valid token with a **nil** grant slice. Same root cause as F12a. This also
+  means dashd's existing runed-kill and whapd-pair proxies carry an
+  empty-scope bearer today.
+
+Two decisions the audit did not surface, on top of the authz question F15
+already names:
+
+1. **Where does the revoke audit row land?** authd writes `audit_log` into
+   **auth.db** (`authd/migrations/0003-audit-log.sql`), and dashd's
+   `/dash/audit/` reads **routd.db** (`dashd/main.go:213-215`). An
+   operator-initiated revoke recorded only in auth.db is invisible on the
+   page that exists to show it — the one surface where that matters most.
+   Note also that today *nothing* in authd is audited except boot and login
+   (`authd/main.go:78-85`, `authd/oauth.go:356-366`): not mints, not service
+   -token exchanges, not refresh rotations.
+2. **Is it a resreg resource?** Root `CLAUDE.md` says every cold-tier
+   management entity is one. `signing_keys` and `refresh_tokens` are exactly
+   that, and authd's `/openapi.json` currently declares **zero** resources
+   (`authd/main.go:114`). Hand-rolling three endpoints instead would be the
+   drift `5/16` exists to reverse.
+
+- **Severity:** medium (no way to cut off a compromised session; `5/1` stays partial)
+- **Scope:** authd admin API + serviceGrants + audit sink + dashd cockpit
+- **Affected:** all instances
+- **Source:** authd/http.go:26-62,110,121-129,155; authd/store.go:40,226,256; authd/server.go:107,285,300; authd/oauth.go:413; authd/migrations/0003-audit-log.sql; dashd/main.go:213-215; dashd/services.go:33
+- **Status:** PROPOSED — needs sign-off
+- **Fix:** decide (i) who may revoke whose session, (ii) which DB the row
+  lands in, (iii) resreg resource vs hand-rolled. Then the endpoints, the
+  `service:dashd` grant, and only then `Built:true`.
 
 ## F16 — the tier-drift sweep never scanned the web docs, and root docs still drift (2026-08-05, open)
 
@@ -4788,3 +4891,30 @@ citation look verifiable while being unreachable for every other checkout.)
   before recording a SHA. `git cat-file -t` is NOT enough — all eleven still
   resolve to commit objects in the shared object DB, so `git show` succeeds on a
   SHA no one else can reach. The check is reachability, not existence.
+
+## F20 — dashd's `RUNED_URL` is read but never written, so the runed kill button is dead in every deploy (2026-08-06, open)
+
+`dashd/main.go` reads `RUNED_URL` into `d.runedURL`, and `handleRunedKill`
+returns **503 "RUNED_URL not configured"** when it is empty
+(`dashd/runed_page.go:153-156`). Nothing writes it: `compose/compose.go`
+never emits `RUNED_URL` (`grep -n "RUNED_URL" compose/compose.go` is empty),
+and it is absent from dashd's env allowlist at `compose/compose.go:191-194`
+(`AUTH_SECRET, DASH_PORT, WHAPD_URL, AUTHD_URL, AUTHD_SERVICE_KEY,
+SURROGATE_GITHUB_CLIENT_ID, SURROGATE_GITHUB_CLIENT_SECRET`). So unless an
+operator hand-adds it to the instance `.env`, `/dash/runed/`'s only control
+503s on every click.
+
+`TestRunedKillNoURL` covers the 503 branch, so the code is doing what it was
+written to do; nothing tests that the deploy supplies the variable. Found
+while wiring `/dash/proxyd/`, which avoids the same trap with a code default
+(`PROXYD_URL` → `http://proxyd:8080`, matching `webd/main.go:45`).
+
+- **Severity:** medium (a shipped operator control that cannot work as deployed)
+- **Scope:** compose generation vs dashd
+- **Affected:** all instances
+- **Source:** dashd/main.go (runedURL read), dashd/runed_page.go:153-156; compose/compose.go:191-194
+- **Status:** open
+- **Fix:** give `runedURL` the same code default the proxyd page uses
+  (`http://runed:8080`), which needs no compose change and no operator step —
+  the daemon DNS name is fixed by the compose service name. Adding
+  `RUNED_URL` to the allowlist as an override is optional on top.
