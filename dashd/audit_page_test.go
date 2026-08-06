@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,10 +11,18 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/kronael/arizuko/audit"
 )
 
-// auditDB builds an in-memory routd.db with just the audit_log table (audit_log
-// is owned by routd.db; dashd reads + writes it through adminDB/dbRoutd).
+// The audit page no longer reads routd.db: it fans GET /v1/audit out to routd,
+// runed and authd and merges. The fixtures follow — each fake source is a real
+// in-memory audit_log served through audit.Query, the same function the real
+// daemons serve it through, so these exercise the actual query semantics
+// (subtree folder match, id cursor, limit clamp) rather than a stub that agrees
+// with the page by construction.
+
+// auditDB builds an in-memory audit_log with the shipped column set.
 func auditDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -29,24 +39,66 @@ func auditDB(t *testing.T) *sql.DB {
 		request_id TEXT, source_ip TEXT)`); err != nil {
 		t.Fatalf("schema: %v", err)
 	}
+	t.Cleanup(func() { db.Close() })
 	return db
 }
 
-// seedAudit inserts an audit_log row with the given core fields.
-func seedAudit(t *testing.T, db *sql.DB, category, action, actor, folder, outcome string) {
+// seedAudit inserts one row at an explicit timestamp. ts is explicit because
+// the merge orders on created_at across sources; a default-now stamp would make
+// cross-source ordering a race on insert speed.
+func seedAudit(t *testing.T, db *sql.DB, ts, category, action, actor, folder, outcome string) {
 	t.Helper()
 	if _, err := db.Exec(
 		`INSERT INTO audit_log (created_at, category, action, actor, folder, outcome)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		"2026-06-16T10:00:00Z", category, action, actor, folder, outcome); err != nil {
+		 VALUES (?, ?, ?, ?, ?, ?)`, ts, category, action, actor, folder, outcome); err != nil {
 		t.Fatal(err)
+	}
+	// A seed that inserted nothing must fail the test, not pass it silently:
+	// four vacuous audit tests shipped this week because the table they
+	// asserted about was empty.
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&n); err != nil || n == 0 {
+		t.Fatalf("seedAudit wrote no row (count=%d, err=%v)", n, err)
 	}
 }
 
-func auditGet(t *testing.T, db *sql.DB, url string) string {
+// auditSourceOf serves GET /v1/audit off db through audit.Query, translating
+// the same query params the page sends.
+func auditSourceOf(t *testing.T, db *sql.DB) *httptest.Server {
 	t.Helper()
-	// audit_log is read through adminDB (dbRoutd) now; point both at the seeded DB.
-	d := &dash{dbRoutd: db}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/audit", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		var before, limit int64
+		fmt.Sscanf(q.Get("before_id"), "%d", &before)
+		fmt.Sscanf(q.Get("limit"), "%d", &limit)
+		rows, err := audit.Query(context.Background(), db, audit.Filter{
+			Folder:   q.Get("folder"),
+			Category: q.Get("category"),
+			Actor:    q.Get("actor"),
+			BeforeID: before,
+			Limit:    int(limit),
+		})
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(rows)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// auditDash builds a dash whose three sources point at the given base URLs.
+// An empty URL models an unconfigured daemon.
+func auditDash(routd, runed, authd string) *dash {
+	return &dash{routdURL: routd, runedURL: runed, authdURL: authd}
+}
+
+func auditGetOn(t *testing.T, d *dash, url string) string {
+	t.Helper()
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", url, nil))
@@ -58,140 +110,252 @@ func auditGet(t *testing.T, db *sql.DB, url string) string {
 	return w.Body.String()
 }
 
-// TestAuditEmpty: an empty audit_log renders the empty-table marker.
-func TestAuditEmpty(t *testing.T) {
-	db := auditDB(t)
-	defer db.Close()
-	body := auditGet(t, db, "/dash/audit/")
-	if !strings.Contains(body, `class="empty"`) {
-		t.Errorf("empty audit log should render the empty marker: %s", body)
+// bodyRows counts rendered <tbody> rows. Every content assertion below counts
+// first and inspects second: an assertion that a string is ABSENT passes just
+// as happily on an empty table, which is how a leak test becomes vacuous.
+func bodyRows(t *testing.T, body string) int {
+	t.Helper()
+	_, after, ok := strings.Cut(body, "<tbody>")
+	if !ok {
+		return 0
 	}
+	inner, _, ok := strings.Cut(after, "</tbody>")
+	if !ok {
+		t.Fatalf("unterminated tbody: %s", body)
+	}
+	return strings.Count(inner, "<tr>")
 }
 
-// TestAuditRows: seeded rows render their columns (action, actor, folder,
-// outcome class).
-func TestAuditRows(t *testing.T) {
-	db := auditDB(t)
-	defer db.Close()
-	seedAudit(t, db, "mutation", "routd.retry", "rest:dashd", "alice", "ok")
-	seedAudit(t, db, "grant", "grant.revoke", "github:op", "bob", "error")
+// TestAuditFederatesAllThreeSources is the point of BUGS F29: runed's and
+// authd's rows reach the operator. It counts before it inspects, so a page that
+// rendered nothing cannot pass.
+func TestAuditFederatesAllThreeSources(t *testing.T) {
+	rdb, ndb, adb := auditDB(t), auditDB(t), auditDB(t)
+	seedAudit(t, rdb, "2026-08-01T10:00:00.000Z", "mutation", "routes:create", "github:op", "alice", "ok")
+	seedAudit(t, ndb, "2026-08-01T11:00:00.000Z", "agent", "run.kill", "github:op", "alice", "ok")
+	seedAudit(t, adb, "2026-08-01T12:00:00.000Z", "authn", "login", "user:google:114", "alice", "ok")
 
-	body := auditGet(t, db, "/dash/audit/")
-	for _, want := range []string{"routd.retry", "rest:dashd", "alice", "grant.revoke", "github:op", "bob"} {
+	d := auditDash(auditSourceOf(t, rdb).URL, auditSourceOf(t, ndb).URL, auditSourceOf(t, adb).URL)
+	body := auditGetOn(t, d, "/dash/audit/")
+
+	if n := bodyRows(t, body); n != 3 {
+		t.Fatalf("rendered %d rows, want 3 (one per source): %s", n, body)
+	}
+	for _, want := range []string{"routes:create", "run.kill", "login", "routd", "runed", "authd"} {
 		if !strings.Contains(body, want) {
-			t.Errorf("missing %q in audit rows: %s", want, body)
+			t.Errorf("missing %q — federation dropped a source: %s", want, body)
 		}
 	}
-	if !strings.Contains(body, "status-ok") || !strings.Contains(body, "status-err") {
-		t.Errorf("outcome cells should be color-classed: %s", body)
+}
+
+// TestAuditMergedNewestFirst: the merge orders across sources, not within them.
+func TestAuditMergedNewestFirst(t *testing.T) {
+	rdb, ndb := auditDB(t), auditDB(t)
+	seedAudit(t, rdb, "2026-08-01T10:00:00.000Z", "mutation", "oldest-routd", "op", "f", "ok")
+	seedAudit(t, ndb, "2026-08-01T11:00:00.000Z", "agent", "middle-runed", "op", "f", "ok")
+	seedAudit(t, rdb, "2026-08-01T12:00:00.000Z", "mutation", "newest-routd", "op", "f", "ok")
+
+	d := auditDash(auditSourceOf(t, rdb).URL, auditSourceOf(t, ndb).URL, "")
+	body := auditGetOn(t, d, "/dash/audit/")
+	if n := bodyRows(t, body); n != 3 {
+		t.Fatalf("rendered %d rows, want 3: %s", n, body)
+	}
+	iNew := strings.Index(body, "newest-routd")
+	iMid := strings.Index(body, "middle-runed")
+	iOld := strings.Index(body, "oldest-routd")
+	if !(iNew < iMid && iMid < iOld) {
+		t.Errorf("interleave wrong: newest=%d middle=%d oldest=%d — a per-source merge would "+
+			"have kept routd's two adjacent: %s", iNew, iMid, iOld, body)
 	}
 }
 
-// TestAuditCategoryFilter: ?cat= limits rows to that category and the matching
-// <option> renders selected.
-func TestAuditCategoryFilter(t *testing.T) {
-	db := auditDB(t)
-	defer db.Close()
-	seedAudit(t, db, "mutation", "routd.retry", "a", "alice", "ok")
-	seedAudit(t, db, "grant", "grant.add", "b", "bob", "ok")
+// TestAuditSourceFailureIsLoud: a source that cannot be read must produce a
+// banner naming it, NOT an empty section. Rendering the survivors silently would
+// tell an operator "nothing happened in runed" when runed simply did not answer.
+func TestAuditSourceFailureIsLoud(t *testing.T) {
+	rdb := auditDB(t)
+	seedAudit(t, rdb, "2026-08-01T10:00:00.000Z", "mutation", "survivor-row", "op", "f", "ok")
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer dead.Close()
 
-	body := auditGet(t, db, "/dash/audit/?cat=grant")
+	d := auditDash(auditSourceOf(t, rdb).URL, dead.URL, "")
+	body := auditGetOn(t, d, "/dash/audit/")
+
+	if !strings.Contains(body, "audit source unavailable") || !strings.Contains(body, "runed") {
+		t.Errorf("dead source must be named in a banner: %s", body)
+	}
+	// The survivor still renders — a failing source degrades the page, not
+	// blanks it.
+	if n := bodyRows(t, body); n != 1 {
+		t.Fatalf("rendered %d rows, want the 1 surviving row: %s", n, body)
+	}
+	if !strings.Contains(body, "survivor-row") {
+		t.Errorf("surviving source dropped: %s", body)
+	}
+}
+
+// TestAuditUnconfiguredSourceIsLoud: an empty base URL is reported, not skipped
+// in silence. compose sets all three, so a blank one is a misconfiguration the
+// operator must see rather than a quietly narrower page.
+func TestAuditUnconfiguredSourceIsLoud(t *testing.T) {
+	d := auditDash("", "", "")
+	body := auditGetOn(t, d, "/dash/audit/")
+	for _, name := range []string{"routd", "runed", "authd"} {
+		if !strings.Contains(body, name+": no URL configured") {
+			t.Errorf("unconfigured %s not reported: %s", name, body)
+		}
+	}
+	if n := bodyRows(t, body); n != 0 {
+		t.Errorf("rendered %d rows with no sources: %s", n, body)
+	}
+}
+
+// TestAuditCategoryFilter: ?cat= reaches the sources and the option renders
+// selected.
+func TestAuditCategoryFilter(t *testing.T) {
+	rdb := auditDB(t)
+	seedAudit(t, rdb, "2026-08-01T10:00:00.000Z", "mutation", "routd.retry", "a", "alice", "ok")
+	seedAudit(t, rdb, "2026-08-01T11:00:00.000Z", "authz", "grant.add", "b", "bob", "ok")
+
+	d := auditDash(auditSourceOf(t, rdb).URL, "", "")
+	body := auditGetOn(t, d, "/dash/audit/?cat=authz")
+	if n := bodyRows(t, body); n != 1 {
+		t.Fatalf("rendered %d rows, want 1 authz row: %s", n, body)
+	}
 	if !strings.Contains(body, "grant.add") {
-		t.Errorf("grant row should be present: %s", body)
+		t.Errorf("authz row missing: %s", body)
 	}
 	if strings.Contains(body, "routd.retry") {
-		t.Errorf("mutation row should be filtered out: %s", body)
+		t.Errorf("mutation row leaked under ?cat=authz: %s", body)
 	}
-	if !strings.Contains(body, `value="grant" selected`) {
-		t.Errorf("category dropdown should mark grant selected: %s", body)
-	}
-}
-
-// TestAuditPagination: 51 rows trigger the "older" link with a before= cursor;
-// the cursor then limits to older rows.
-func TestAuditPagination(t *testing.T) {
-	db := auditDB(t)
-	defer db.Close()
-	for i := range 60 {
-		seedAudit(t, db, "mutation", fmt.Sprintf("act%d", i), "actor", "f", "ok")
-	}
-
-	body := auditGet(t, db, "/dash/audit/")
-	if !strings.Contains(body, "older &rarr;") {
-		t.Errorf("51+ rows should render an older link: %s", body)
-	}
-	if !strings.Contains(body, "before=") {
-		t.Errorf("older link should carry a before cursor: %s", body)
-	}
-
-	// 60 rows total; first page shows the newest 50 (ids 60..11). The 50th row
-	// on the page has id 11, so before=11 must return only ids 1..10 = 10 rows.
-	page2 := auditGet(t, db, "/dash/audit/?before=11")
-	// 10 rows is below the 51 threshold → no further "older" link.
-	if strings.Contains(page2, "older &rarr;") {
-		t.Errorf("last page should not render an older link: %s", page2)
-	}
-	if !strings.Contains(page2, "act0") {
-		t.Errorf("oldest row act0 should appear on the last page: %s", page2)
+	if !strings.Contains(body, `value="authz" selected`) {
+		t.Errorf("dropdown should mark authz selected: %s", body)
 	}
 }
 
-// TestAuditNilDB: when the audit store (adminDB/dbRoutd) is nil the page renders
-// a "not available" banner rather than panicking or returning 500. Operator
-// identity comes from the asOperator ["**"] header, so no dbRoutd ACL lookup is
-// needed — dbRoutd nil exercises the unavailable path cleanly.
-func TestAuditNilDB(t *testing.T) {
-	d := &dash{dbRoutd: nil}
-	mux := http.NewServeMux()
-	d.registerRoutes(mux)
-	req := asOperator(httptest.NewRequest("GET", "/dash/audit/", nil))
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-	if w.Code != 200 {
-		t.Fatalf("nil db: status = %d, want 200", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "unavailable") {
-		t.Errorf("nil db should render unavailable banner: %s", w.Body.String())
-	}
-}
-
-// TestAuditActorFilter: ?actor= filters rows to matching actor substring.
-// TestAuditFolderFilter: ?folder= filters rows to exact folder match.
+// TestAuditActorFilter: ?actor= is a substring match forwarded to the sources.
 func TestAuditActorFilter(t *testing.T) {
-	db := auditDB(t)
-	defer db.Close()
-	seedAudit(t, db, "mutation", "routd.retry", "alice", "grp1", "ok")
-	seedAudit(t, db, "grant", "grant.add", "bob", "grp2", "ok")
+	rdb := auditDB(t)
+	seedAudit(t, rdb, "2026-08-01T10:00:00.000Z", "mutation", "act-alice", "alice", "grp1", "ok")
+	seedAudit(t, rdb, "2026-08-01T11:00:00.000Z", "authz", "act-bob", "bob", "grp2", "ok")
 
-	body := auditGet(t, db, "/dash/audit/?actor=alice")
-	if !strings.Contains(body, "alice") {
+	d := auditDash(auditSourceOf(t, rdb).URL, "", "")
+	body := auditGetOn(t, d, "/dash/audit/?actor=alice")
+	if n := bodyRows(t, body); n != 1 {
+		t.Fatalf("rendered %d rows, want 1: %s", n, body)
+	}
+	if !strings.Contains(body, "act-alice") {
 		t.Errorf("alice row missing: %s", body)
 	}
-	if strings.Contains(body, "bob") {
+	if strings.Contains(body, "act-bob") {
 		t.Errorf("bob row leaked under ?actor=alice: %s", body)
 	}
 }
 
-func TestAuditFolderFilter(t *testing.T) {
-	db := auditDB(t)
-	defer db.Close()
-	seedAudit(t, db, "mutation", "routd.retry", "alice", "grp1", "ok")
-	seedAudit(t, db, "grant", "grant.add", "bob", "grp2", "ok")
+// TestAuditFolderFilterIsSubtree: ?folder= bounds by SUBTREE, matching how a
+// grant is written (acme/**) and how runed's ownsFolder contains a run. A
+// sibling folder sharing a name prefix but not a path segment must NOT match —
+// that is the difference between `LIKE 'grp%'` and `LIKE 'grp/%'`.
+func TestAuditFolderFilterIsSubtree(t *testing.T) {
+	rdb := auditDB(t)
+	seedAudit(t, rdb, "2026-08-01T10:00:00.000Z", "mutation", "at-parent", "op", "acme", "ok")
+	seedAudit(t, rdb, "2026-08-01T11:00:00.000Z", "mutation", "at-child", "op", "acme/support", "ok")
+	seedAudit(t, rdb, "2026-08-01T12:00:00.000Z", "mutation", "at-lookalike", "op", "acmecorp", "ok")
+	seedAudit(t, rdb, "2026-08-01T13:00:00.000Z", "mutation", "at-other", "op", "beta", "ok")
 
-	body := auditGet(t, db, "/dash/audit/?folder=grp2")
-	if !strings.Contains(body, "grp2") {
-		t.Errorf("grp2 row missing: %s", body)
+	d := auditDash(auditSourceOf(t, rdb).URL, "", "")
+	body := auditGetOn(t, d, "/dash/audit/?folder=acme")
+	if n := bodyRows(t, body); n != 2 {
+		t.Fatalf("rendered %d rows, want 2 (acme + acme/support): %s", n, body)
 	}
-	if strings.Contains(body, "grp1") {
-		t.Errorf("grp1 row leaked under ?folder=grp2: %s", body)
+	for _, want := range []string{"at-parent", "at-child"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("subtree row %q missing: %s", want, body)
+		}
+	}
+	for _, leak := range []string{"at-lookalike", "at-other"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("%q leaked under ?folder=acme: %s", leak, body)
+		}
 	}
 }
 
-// TestAuditNonOperatorForbidden: the audit page is operator-only.
+// TestAuditPaginationCompositeCursor: the cursor is per-source, so paging
+// through one busy daemon does not reset another. 60 routd rows plus 1 old
+// runed row: page 1 is the newest 50 routd rows, page 2 must contain routd's
+// remaining 10 AND the runed row, each exactly once.
+func TestAuditPaginationCompositeCursor(t *testing.T) {
+	rdb, ndb := auditDB(t), auditDB(t)
+	// Timestamps ascend with the id, which is the real shape of an append-only
+	// log: both created_at and the AUTOINCREMENT id are assigned at insert and
+	// no writer supplies created_at. audit.Query pages on id while the merge
+	// orders on created_at, and that co-monotonicity is what makes the two
+	// agree within one source.
+	for i := range 60 {
+		seedAudit(t, rdb, fmt.Sprintf("2026-08-01T00:%02d:00.000Z", i),
+			"mutation", fmt.Sprintf("routd-act%02d", i), "actor", "f", "ok")
+	}
+	seedAudit(t, ndb, "2026-07-01T00:00:00.000Z", "agent", "runed-oldest", "actor", "f", "ok")
+
+	d := auditDash(auditSourceOf(t, rdb).URL, auditSourceOf(t, ndb).URL, "")
+	page1 := auditGetOn(t, d, "/dash/audit/")
+	if n := bodyRows(t, page1); n != 50 {
+		t.Fatalf("page 1 rendered %d rows, want 50: %s", n, page1)
+	}
+	if !strings.Contains(page1, "older &rarr;") {
+		t.Fatalf("61 rows should render an older link: %s", page1)
+	}
+	// The cursor names BOTH sources; a single scalar cursor could not.
+	if !strings.Contains(page1, "routd%3A") {
+		t.Errorf("older link should carry a per-source routd cursor: %s", page1)
+	}
+
+	page2 := auditGetOn(t, d, extractOlderHref(t, page1))
+	if n := bodyRows(t, page2); n != 11 {
+		t.Fatalf("page 2 rendered %d rows, want 11 (10 routd + 1 runed): %s", n, page2)
+	}
+	if !strings.Contains(page2, "runed-oldest") {
+		t.Errorf("the runed row never surfaced — a routd-only cursor starved it: %s", page2)
+	}
+	if strings.Contains(page2, "older &rarr;") {
+		t.Errorf("last page should not offer another: %s", page2)
+	}
+}
+
+// extractOlderHref pulls the "older" link target out of a rendered page.
+func extractOlderHref(t *testing.T, body string) string {
+	t.Helper()
+	_, after, ok := strings.Cut(body, `<a class="btn" href="`)
+	if !ok {
+		t.Fatalf("no older link in body: %s", body)
+	}
+	href, _, ok := strings.Cut(after, `"`)
+	if !ok {
+		t.Fatalf("unterminated href: %s", body)
+	}
+	return strings.ReplaceAll(href, "&amp;", "&")
+}
+
+// TestAuditEmpty: reachable sources with no rows render the empty marker — and
+// no "unavailable" banner, which is the distinction that makes the banner
+// meaningful.
+func TestAuditEmpty(t *testing.T) {
+	d := auditDash(auditSourceOf(t, auditDB(t)).URL, "", "")
+	body := auditGetOn(t, d, "/dash/audit/")
+	if !strings.Contains(body, `class="empty"`) {
+		t.Errorf("empty log should render the empty marker: %s", body)
+	}
+	if strings.Contains(body, "routd: ") {
+		t.Errorf("a reachable-but-empty source must not report as unavailable: %s", body)
+	}
+}
+
+// TestAuditNonOperatorForbidden: the page is operator-only, and stays so now
+// that it holds three daemons' trails instead of one.
 func TestAuditNonOperatorForbidden(t *testing.T) {
-	db := auditDB(t)
-	defer db.Close()
-	d := &dash{dbRoutd: db}
+	d := auditDash(auditSourceOf(t, auditDB(t)).URL, "", "")
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/audit/", nil)
@@ -200,5 +364,36 @@ func TestAuditNonOperatorForbidden(t *testing.T) {
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", w.Code)
+	}
+}
+
+func TestParseAuditCursor(t *testing.T) {
+	got := parseAuditCursor("routd:123,runed:45, authd:7 ")
+	want := map[string]int64{"routd": 123, "runed": 45, "authd": 7}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("cursor[%s] = %d, want %d", k, got[k], v)
+		}
+	}
+	// Garbage is skipped, not fatal — a hand-edited URL must not 500 the page.
+	if n := len(parseAuditCursor("nonsense,routd:abc,:9,runed:0")); n != 0 {
+		t.Errorf("malformed cursor yielded %d entries, want 0", n)
+	}
+}
+
+// TestNextAuditCursorHoldsUncontributedSource: a source that contributed no row
+// to this page keeps its previous cursor. Resetting it would replay its newest
+// rows on every "older" click — an infinite page that never reaches the past.
+func TestNextAuditCursorHoldsUncontributedSource(t *testing.T) {
+	prev := map[string]int64{"routd": 100, "runed": 7}
+	got := nextAuditCursor(prev, []auditRow{
+		{Row: audit.Row{ID: 90}, Source: "routd"},
+		{Row: audit.Row{ID: 80}, Source: "routd"},
+	})
+	if !strings.Contains(got, "routd:80") {
+		t.Errorf("routd cursor should advance to its oldest rendered id (80): %s", got)
+	}
+	if !strings.Contains(got, "runed:7") {
+		t.Errorf("runed contributed nothing and must keep cursor 7: %s", got)
 	}
 }

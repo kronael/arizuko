@@ -310,7 +310,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	d := &dash{dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: backendURL("RUNED_URL", "runed"), proxydURL: backendURL("PROXYD_URL", "proxyd"), routdURL: backendURL("ROUTER_URL", "routd"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
+	d := &dash{dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: backendURL("RUNED_URL", "runed"), proxydURL: backendURL("PROXYD_URL", "proxyd"), routdURL: backendURL("ROUTER_URL", "routd"), authdURL: backendURL("AUTHD_URL", "authd"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
 	d.registerRoutes(mux)
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
@@ -399,6 +399,11 @@ type dash struct {
 	// to the compose service name, so it is empty only in tests ("" → the page
 	// says so, and disengage refuses rather than silently doing nothing).
 	routdURL string
+	// authdURL is authd's /v1 face. /dash/audit/ reads its GET /v1/audit — the
+	// login rows that record which provider identity was presented, which live
+	// in auth.db and nowhere else. dashd is NOT FS-mounted on auth.db and must
+	// not become so; HTTP is the only contract authd offers for them.
+	authdURL string
 	// secretKeyring is the SECRETS_KEY material handed to secretStore so user-secret
 	// writes seal at rest under the same key routd reads with. Empty → plaintext.
 	secretKeyring [][]byte
