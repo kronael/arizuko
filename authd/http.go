@@ -59,6 +59,15 @@ var serviceGrants = map[string][]string{
 	// this entry every form/widget submission 403s ("router unavailable" 502 to
 	// the user) — the strengths form was dead because webd had no scope.
 	"service:webd": {"messages:write"},
+	// dashd is the operator UI. It proxies rather than touching other daemons'
+	// tables: POST /v1/runs/stop (runed, gated runs:kill — server.go), the whapd
+	// pair endpoints (no scope gate), and /v1/proxyd_routes (proxyd authorizes the
+	// FORWARDED operator identity, not a service scope; dashd's bearer only proves
+	// transit, see proxyd trustedForwarders). So runs:kill is the whole ceiling —
+	// anything wider would let the operator UI act beyond what it proxies.
+	// Missing entry → empty scope → the kill button 403s; same shape as the four
+	// cases above, and it shipped that way (BUGS F15a).
+	"service:dashd": {"runs:kill"},
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is
