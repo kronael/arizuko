@@ -4,17 +4,53 @@ depends: [5/13-ext-mcp, 5/17-openapi-mcp, 5/32-acl-unified]
 moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 ---
 
-> **Status (2026-08-02).** Adoption is done; only "one owner + federation"
-> remains. All seven agent-facing cold-tier resources — `web_routes`, `routes`,
-> `network_rules`, `scheduled_tasks`, `acl`, `route_tokens`, `groups` — ride one
-> `resreg.Resource`, and each wears its REST twin on the same handler (plus
-> onbod's `/v1/invites` + `/v1/gates`). Two deliberate exceptions: `secrets` is
-> REST-only and write-only (the encrypted value must never ride the agent
-> surface); `network_rules` is agent-only. `groups`' REST twin is LIST-only —
-> operator CREATE stays dashd's FS-managed `SetupGroup`, so routd opens no second
-> bare create door. `mcp_connectors` was floated and CUT: connectors already load
-> from `<datadir>/connectors.toml`, and a resreg resource would add a second
-> source of truth.
+> **Status (2026-08-06).** Adoption is done. All seven agent-facing cold-tier
+> resources — `web_routes`, `routes`, `network_rules`, `scheduled_tasks`, `acl`,
+> `route_tokens`, `groups` — ride one `resreg.Resource`, and each wears its REST
+> twin on the same handler (plus onbod's `/v1/invites` + `/v1/gates`). Two
+> deliberate exceptions: `secrets` is REST-only and write-only (the encrypted
+> value must never ride the agent surface); `network_rules` is agent-only.
+> `groups`' REST twin is LIST-only — operator CREATE stays dashd's FS-managed
+> `SetupGroup`, so routd opens no second bare create door. `mcp_connectors` was
+> floated and CUT: connectors already load from `<datadir>/connectors.toml`, and
+> a resreg resource would add a second source of truth.
+>
+> **"One owner + federation" — where it actually stands.** The SHAPE half below
+> is **done**, further than this spec's body claims: every mounted resource in
+> every daemon imports its canonical `resources.<X>Endpoints`, and no inline
+> endpoint literal survives anywhere (`grep -rn "Endpoints: []resreg.Endpoint{"`
+> outside `resreg/resources/` returns nothing). The body's "today
+> `routd/*_resource.go` restates `Name`/`Table`" is stale for `Endpoints`;
+> `Name` is still a per-mount literal, now guarded — `TestResourceEndpoints_SingleSource`
+> resolves the expected set through `resreg.Lookup(mounted.Name)`, so a name that
+> drifts off its wire identity fails instead of comparing clean against a hand-
+> written pairing (the 2026-07-01 `proxyd_routes` shape).
+>
+> The FEDERATION half is **not** what `5/I` shipped. `5/I`'s `/dash/audit/` fan-out
+> is the first working instance of this section's pattern — each owner serves its
+> own table, dashd reads over HTTP and "never opens `runed.db` or `auth.db`" — so
+> it is a **precedent, not the completion**. `audit` is not one of the seven
+> resources this spec enumerates, it federates three of four owners (onbod's table
+> is still unreachable, `F35`), and it is in fact a resource with **no single
+> owner**: its table lives in four owner DBs at once, which is why its catalog
+> decl carries `DB: ""` (`resreg/resources/audit.go:93-99`). It is evidence the
+> "one resource = one owner DB" model needed an escape hatch, which shipped.
+>
+> Of this section's seven ordered steps, 1/3/4 are done and 5 shipped in a
+> different form (`Resource.DB` + `SubsystemRoutd`/`SubsystemOnbod`, not a typed
+> `Owner`). Step 2 (proxyd `sub.Scope`) is **blocked on the sign-off this spec
+> itself demands** — it trades live grant revocation for a 15-minute token TTL.
+> Steps 6 and 7 (adapter mount audit, then per-owner `store/` subdirectories +
+> `writeSvc` narrowing) are the real remaining work, and step 7 is what turns
+> "owner" from a convention into a boundary. Both are untouched.
+>
+> Also open: the doc↔mux guard covers `routd` and `timed` only. `onbod`, `authd`,
+> `proxyd` and `runed` each advertise resources with no such guard, and cannot get
+> one without a mux extraction apiece — every daemon but `routd` is `package main`
+> and cannot be imported, so the assertion (`resreg/resregtest`) has to be called
+> from inside each. Recorded as `BUGS.md` `F39`, proposal pending sign-off.
+>
+> **This spec stays `partial`** until steps 2, 6, 7 and `F39` land.
 
 # specs/5/16 — MCP+REST unification (finish the adoption)
 
@@ -149,11 +185,13 @@ Single-sourcing the shape does not make that divergence a **compile error**
 — `Action` is a plain `string` (`resreg/resreg.go:55`) and every handler
 `switch`es on it, so a `RowType`+`Endpoints` pair with no matching `case` in
 its `Handler` compiles fine and 404s/500s at request time. The realistic bar
-is a **shared-identity test**, already proposed in BUGS.md as the interim
-guard: `mounted.Name == registry.Name` (and, once `Handler` importing the
-registry's `Endpoints` directly instead of a hand-copied switch list becomes
-the norm, a per-action coverage assertion) per resource, run in `make test`.
-Nothing here claims compile-time enforcement; that claim is dropped.
+is a **shared-identity test**, and it now ships:
+`routd/endpoints_source_test.go`'s `TestResourceEndpoints_SingleSource` looks
+each mounted resource up by its own `Name` and compares against what the
+registry publishes under it, so an unregistered name and a drifted endpoint set
+both fail. Nothing here claims compile-time enforcement; that claim is dropped.
+The per-action coverage assertion remains unbuilt — `Handler` still switches on
+a hand-written case list.
 
 ### What "owner" enforces today, and what makes it real
 
