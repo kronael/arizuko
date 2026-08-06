@@ -6,19 +6,35 @@ depends:
 
 # specs/5/17 — one handler, two faces: MCP for the agent, REST for humans
 
-> **Status (2026-08-06).** Partial. The operator docs are no longer the
-> blocker — `reference/openapi.html` now names all six of routd's advertised
-> resources, describes emission as one operation per declared `Endpoint`, and
-> documents `x-mcp-when` (BUGS `F8`, closed `016d3d0b` + `d8b0ecd4`).
+> **Status (2026-08-06).** Partial, and close. The operator docs stopped being
+> the blocker — `reference/openapi.html` names all eight daemons' documents,
+> describes emission as one operation per declared `Endpoint`, and documents
+> `x-mcp-when` (BUGS `F8`, closed `016d3d0b` + `d8b0ecd4`).
 >
-> What is still unmet is the first acceptance bullet, on one resource:
-> `routd/tasks_http.go:26` overwrites `res.Endpoints` with an inline literal, so
-> `scheduled_tasks` serves REST at `/v1/tasks` rather than
-> `/v1/scheduled_tasks` and is absent from `OpenAPIResources` — the endpoints
-> work but no OpenAPI reader finds them. `endpoints_source_test.go:29` reads the
-> slice BEFORE that override, so the single-source guard passes while the
-> mounted face diverges. BUGS `F21`; the general fix is `5/16`'s "one owner +
-> federation", but the guard is wrong today.
+> `scheduled_tasks` is no longer a hole in the doc (BUGS `F21`, fixed): one
+> `ScheduledTasksEndpoints` now declares every real face — the four REST verbs
+> plus schedule/pause/resume as `MCPOnly` — `mountTasks` mounts it verbatim, and
+> the resource is advertised. Its guard was rewritten to probe the mounted mux
+> rather than the constructor, which is what let the drift stay green.
+>
+> Three items keep it `partial`:
+>
+> 1. **The first acceptance bullet still reads `/v1/<res>`, and
+>    `scheduled_tasks` serves `/v1/tasks`.** Deliberate: `timed` calls
+>    `GET /v1/tasks` and the fire loop shares the prefix
+>    (`/v1/tasks/due`, `/runlog`, `/{id}/reschedule`) across the container
+>    boundary, so the rename is a breaking change against a running fleet that
+>    would also split one control surface in half. The doc is truthful about the
+>    exception rather than silent about it. Either the bullet gains an explicit
+>    carve-out or the fleet gets a coordinated rename — an operator call.
+> 2. **`operationId` is emitted `<action>_<name>`**, not the `<name>.<action>`
+>    this spec's §"Resource name = wire identity" specifies (BUGS `F25`).
+> 3. **`reference/openapi.html` still describes the closed `scheduled_tasks`
+>    gap** (BUGS `F26`) — definition-of-done item 5.
+>
+> Adjacent and not blocking: `acl` advertises a `GET /v1/acl` nothing mounts,
+> and `acl`/`groups` carry the same mount-time `Endpoints` override `F21` had
+> (BUGS `F24`).
 
 > **DECISION.** Every cold-tier management resource is authored **once** as
 > one in-process `resreg.Resource` — logic, tx, audit, and arg-derivation in

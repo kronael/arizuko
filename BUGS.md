@@ -96,7 +96,7 @@ behaviour.
 - **Fix:** make it a format string over `l.maxTurnRetry`, and drop the
   now-inaccurate caveat sentence from `concepts/retries.html` §"tuning it".
 
-## F21 — `scheduled_tasks`' REST face is unadvertised and its single-source guard can't see it (2026-08-06, open)
+## F21 — `scheduled_tasks`' REST face is unadvertised and its single-source guard can't see it (2026-08-06, fixed)
 
 `routd/tasks_http.go:26-32` builds the resource, then **replaces**
 `res.Endpoints` with an inline literal mounting `/v1/tasks*` — while the
@@ -123,10 +123,114 @@ a concrete instance with a test that reports it as already done.
 - **Scope:** resreg / routd scheduled_tasks (specs 5/17, 5/16)
 - **Affected:** all instances; any OpenAPI-generated client
 - **Source:** routd/tasks_http.go:26-32; resreg/resources/scheduled_tasks.go:30-31; routd/server.go:246; routd/endpoints_source_test.go:29
+- **Status:** FIXED 2026-08-06 — took the truthful-doc path, NOT the rename.
+  `resources.ScheduledTasksEndpoints` now declares the real mounted set
+  (`GET /v1/tasks`, `GET|PATCH|DELETE /v1/tasks/{taskId}`) plus
+  schedule/pause/resume as `MCPOnly` — the existing flag `RegisterREST` and
+  `openapi.go` both skip and `deriveMCPTools` does not. `mountTasks` mounts that
+  slice verbatim (override deleted) and `scheduled_tasks` joins
+  `OpenAPIResources`. Zero wire change: the same five agent tools, the same four
+  REST routes, four previously-phantom paths gone from the doc and four
+  previously-hidden ones now in it.
+- **Why not the rename:** `/v1/tasks` has live cross-container callers.
+  `timed/dash.go:82` calls `GET /v1/tasks` for the `/dash/timed/` task table,
+  and the hand-rolled fire loop shares the prefix — `GET /v1/tasks/due`,
+  `POST /v1/tasks/runlog`, `POST /v1/tasks/{id}/reschedule`
+  (`timed/split.go:205,219,230`), the path every scheduled task on every
+  instance runs through. routd and timed restart independently, so a rename is
+  a breaking change against a running fleet; worse, it would move only the CRUD
+  half and split one control surface across two prefixes. The name stays the
+  wire identity for MCP (tool prefix + `operationId` are still
+  `scheduled_tasks.*`); only the REST path is the documented exception.
+- **Guard:** `TestMountTasks_ServesCanonicalEndpoints` probes the mux
+  `mountTasks` builds via `http.ServeMux.Handler`'s returned pattern, so it sees
+  the mounted table rather than the constructor's return value, and refuses to
+  pass vacuously when the canonical slice declares no REST endpoint. Verified
+  falsifiable: restored to the pre-fix state, the old constructor assertion
+  still PASSES while the new guard fails on all five endpoints and
+  `TestOpenAPI_ScheduledTasksAdvertised` names each phantom path.
+
+## F24 — `GET /v1/acl` is advertised but mounted nowhere; two more mount-time Endpoint overrides (2026-08-06, open)
+
+Same class as `F21`, found while fixing it, in the two resources that were left.
+`mountACL` (`routd/acl_resource.go:79`) and `mountGroups`
+(`routd/groups_http.go:18`) also assign `res.Endpoints` AFTER the constructor
+returns, so `TestResourceEndpoints_SingleSource` — which reads
+`srv.aclResource()` / `srv.groupsResource(nil)` — cannot see what they mount.
+
+For `acl` this is already a live doc defect, not just latent. `ACLEndpoints`
+(`resreg/resources/acl.go:30-34`) declares add + remove + **list**; `mountACL`
+mounts only add + remove, and no other mux registration serves `GET /v1/acl`
+(grepped: zero `.go` hits). `acl` IS in `OpenAPIResources`, so routd's
+`/openapi.json` advertises a `GET /v1/acl` that 404s — exactly the phantom the
+`OpenAPIResources` comment says the list exists to prevent. `groups` escapes
+only because it was deliberately omitted from `OpenAPIResources` for this very
+reason (the comment says so), which is a workaround for the override, not a fix.
+
+- **Severity:** medium for `acl` (an advertised endpoint that 404s), low for
+  `groups` (papered over by the omission)
+- **Scope:** resreg / routd acl + groups (specs 5/17, 5/16)
+- **Affected:** all instances; any client generated from routd's `/openapi.json`
+- **Source:** routd/acl_resource.go:79; routd/groups_http.go:18;
+  resreg/resources/acl.go:30-34; resreg/resources/groups.go:35-38;
+  routd/server.go:246
 - **Status:** open
-- **Fix:** redesign — needs sign-off. Either move the operator CRUD onto
-  `/v1/scheduled_tasks` and add the name to `OpenAPIResources`, or make the
-  override first-class (a second declared endpoint set the test also reads).
+- **Fix:** the `F21` shape — mark `list` on `ACLEndpoints` and `register` on
+  `GroupsAgentEndpoints` as `MCPOnly` (both are agent tools with no REST twin:
+  `list_acl`, `register_group`), delete both overrides, and extend
+  `TestMountTasks_ServesCanonicalEndpoints`'s mux probe to cover every mounted
+  resource instead of just tasks. Then `groups` can join `OpenAPIResources`
+  honestly. Verify `GET /v1/acl` really has no consumer first.
+
+## F25 — the emitted `operationId` is `<action>_<name>`; `5/17` specifies `<name>.<action>` (2026-08-06, open)
+
+`specs/5/17-openapi-mcp.md:192-196` §"Resource name = wire identity" states the
+`operationId` is `<name>.<action>` and calls the composed `<name>.<action>`
+string "the operator-facing contract — OpenAPI `operationId`, audit `action=`
+fields, metrics labels, permission-editor rows — so URL and handler-function
+renames don't break it". `resreg/openapi.go:264` emits
+`fmt.Sprintf("%s_%s", e.Action, r.Name)`, and the five convention-path emitters
+(`:320,325,337,342,348`) match that form, so every daemon's doc ships
+`list_routes`, `cancel_scheduled_tasks`, … — never a dotted id.
+
+One of the two is wrong and neither is obviously the loser: the emitted form is
+what any already-generated client holds, while the dotted form is what the spec
+promises and what the MCP tool names use. Found by writing
+`TestOpenAPI_ScheduledTasksAdvertised`, which now pins the EMITTED form so the
+convention cannot drift again silently while the question is open.
+
+- **Severity:** low (cosmetic in the doc; no runtime effect) but blocks `5/17`
+- **Scope:** resreg OpenAPI emission (spec 5/17)
+- **Affected:** every daemon's `/openapi.json`
+- **Source:** resreg/openapi.go:264,320,325,337,342,348 vs specs/5/17-openapi-mcp.md:192-196
+- **Status:** open
+- **Fix:** operator decision, then one edit. Changing the emitter is a wire
+  change for generated clients across six advertised resources on eight daemons;
+  changing the spec sentence costs nothing. If the emitter moves, the audit
+  `action=` field and the permission-editor rows must move with it or the
+  "one composed string everywhere" claim breaks in a new place.
+
+## F26 — `reference/openapi.html` still documents the `scheduled_tasks` gap that `F21` closed (2026-08-06, open)
+
+`template/web/pub/arizuko/reference/openapi.html:99` says routd advertises "six"
+resources and `:106` says `scheduled_tasks` "isn't in the advertised list — so
+those endpoints work but no generated client will find them. A known gap, not a
+missing feature." Both became false when `F21` shipped: `OpenAPIResources` now
+carries seven names and `/v1/tasks*` is in the doc.
+
+Filed rather than fixed because `template/web/pub/` was another agent's lane in
+the same session. Not edited to avoid a concurrent-write collision.
+
+- **Severity:** low (stale operator doc), but it is `5/17`'s definition-of-done
+  item 5 ("Online"), so it holds the spec at `partial`
+- **Scope:** web docs (spec 5/17)
+- **Affected:** readers of `/pub/arizuko/reference/openapi.html`
+- **Source:** template/web/pub/arizuko/reference/openapi.html:99,106 vs routd/server.go OpenAPIResources
+- **Status:** open
+- **Fix:** six → seven; replace the `scheduled_tasks` gap paragraph with the
+  real shape — REST at `/v1/tasks` (not `/v1/<name>`) because timed calls it
+  across the container boundary, schedule/pause/resume `MCPOnly` so the agent
+  has tools the doc correctly omits. Then deploy and verify `/pub/...` 200.
   Whichever way, the guard must assert the **mounted** slice, not the
   pre-override one.
 
