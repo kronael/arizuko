@@ -100,8 +100,11 @@ func TestOnboardingHasBothFaces(t *testing.T) {
 }
 
 // A row written before the migration (plaintext token, legacy table shape) must
-// still redeem with its original link after openOwnedDB migrates + backfills.
-func TestPreMigrationRowStillRedeems(t *testing.T) {
+// survive openOwnedDB's migrate + backfill with its facts intact. Its link is no
+// longer redeemable anywhere — the fold moved redemption to /pair/{token} (spec
+// 5/31) — but the ROW is admission state, and losing it would strand the chat
+// behind its own jid primary key.
+func TestPreMigrationRowSurvivesTheBackfill(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
 	mustMkdir(t, filepath.Dir(path))
 
@@ -155,12 +158,10 @@ func TestPreMigrationRowStillRedeems(t *testing.T) {
 		t.Error("onboarding_legacy survived the backfill")
 	}
 
-	// The original link still resolves.
-	if jid, ok := jidForToken(db, "pre-migration-tok"); !ok || jid != "telegram:legacy" {
-		t.Errorf("jidForToken(original) = %q,%v — pre-migration link broke", jid, ok)
-	}
-	if _, ok := claimByToken(db, "pre-migration-tok", "github:alice"); !ok {
-		t.Error("claimByToken(original) failed — pre-migration link broke")
+	var status string
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid='telegram:legacy'`).Scan(&status)
+	if status != "awaiting_message" {
+		t.Errorf("status = %q, want awaiting_message carried forward", status)
 	}
 }
 
@@ -196,51 +197,6 @@ func TestBackfillLeavesNullTokenNull(t *testing.T) {
 	db.QueryRow(`SELECT COUNT(*) FROM onboarding WHERE token_ref IS NULL`).Scan(&nulls)
 	if nulls != 1 {
 		t.Errorf("consumed row's token_ref = not NULL; want NULL preserved")
-	}
-	if _, ok := jidForToken(db, ""); ok {
-		t.Error("empty token resolved a row — NULL was hashed into a live ref")
-	}
-}
-
-// An unknown token must refuse visibly, not fall through silently.
-func TestUnknownTokenRefusesLoudly(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.TokenRef("the-real-one"))
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/onboard?token=not-the-real-one", nil)
-	req.Header.Set("X-User-Sub", "github:mallory")
-	handleOnboard(w, req, db, db, config{})
-
-	if !strings.Contains(w.Body.String(), "invalid") {
-		t.Errorf("unknown token did not produce a refusal page: %s", w.Body.String())
-	}
-	// It must not have bound the impostor to the waiting JID.
-	var sub, status string
-	db.QueryRow(`SELECT COALESCE(user_sub,''), status FROM onboarding WHERE jid='telegram:1'`).Scan(&sub, &status)
-	if sub != "" {
-		t.Errorf("unknown token bound user_sub=%q", sub)
-	}
-	if status != "awaiting_message" {
-		t.Errorf("unknown token moved status to %q", status)
-	}
-}
-
-// Presenting the ref instead of the raw token must not redeem: the stored value
-// is a verifier, not a second bearer.
-func TestStoredRefIsNotItselfRedeemable(t *testing.T) {
-	db := testDB(t)
-	ref := store.TokenRef("real-tok")
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`, ref)
-
-	if _, ok := jidForToken(db, ref); ok {
-		t.Error("the stored ref redeemed as if it were the bearer")
-	}
-	if jid, ok := jidForToken(db, "real-tok"); !ok || jid != "telegram:1" {
-		t.Errorf("raw token failed to resolve: %q,%v", jid, ok)
 	}
 }
 

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"errors"
+	"encoding/json"
 	"html"
 	"net/http"
 	"net/http/httptest"
@@ -60,6 +60,7 @@ func testDB(t *testing.T) *sql.DB {
 		CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER, match TEXT, target TEXT, observe_window_messages INTEGER, observe_window_chars INTEGER, added_by TEXT, added_via TEXT);
 		CREATE TABLE groups (folder TEXT PRIMARY KEY, parent TEXT, name TEXT, added_at TEXT, slink_token TEXT, product TEXT);
 		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, prompted_at TEXT, created TEXT, token_ref TEXT, token_expires TEXT, user_sub TEXT, gate TEXT, queued_at TEXT, admitted_at TEXT);
+		CREATE TABLE route_tokens (token_hash BLOB PRIMARY KEY, jid TEXT NOT NULL, owner_folder TEXT REFERENCES groups(folder) ON DELETE CASCADE, created_at TEXT NOT NULL, context TEXT, kind TEXT NOT NULL DEFAULT 'route');
 		CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, is_from_me INTEGER, is_bot_message INTEGER, source TEXT NOT NULL DEFAULT '');
 		CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT, created_at TEXT, context_mode TEXT);
 		CREATE TABLE acl (principal TEXT NOT NULL, action TEXT NOT NULL, scope TEXT NOT NULL, effect TEXT NOT NULL DEFAULT 'allow', params TEXT NOT NULL DEFAULT '', predicate TEXT NOT NULL DEFAULT '', granted_by TEXT, granted_at TEXT NOT NULL, grant_option INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (principal, action, scope, params, predicate, effect));
@@ -76,124 +77,70 @@ func testDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func TestPromptUnpromptedSetsToken(t *testing.T) {
+// The greeting's credential is a PAIRING token in route_tokens, not a second
+// onboarding token of onbod's own (spec 5/31 § the three token mechanisms).
+// owner_folder is NULL: the greeting goes out before any human — and therefore
+// any folder — is known, which is the constraint blocker 2 relaxed.
+func TestPromptUnpromptedMintsPairingTokenWithNullOwner(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
 
 	cfg := config{greeting: "Welcome!", authBaseURL: "https://example.com"}
-	promptUnprompted(db, cfg)
+	promptUnprompted(db, db, cfg)
 
-	var token sql.NullString
-	var prompted sql.NullString
-	db.QueryRow(`SELECT token_ref, prompted_at FROM onboarding WHERE jid = 'telegram:1'`).Scan(&token, &prompted)
-	if !token.Valid || token.String == "" {
-		t.Error("expected token to be set")
+	var kind string
+	var owner sql.NullString
+	if err := db.QueryRow(
+		`SELECT kind, owner_folder FROM route_tokens WHERE jid = 'telegram:1'`,
+	).Scan(&kind, &owner); err != nil {
+		t.Fatalf("no route_tokens row minted for the greeting: %v", err)
 	}
+	if kind != store.RouteTokenKindPair {
+		t.Errorf("greeting minted kind=%q, want %q", kind, store.RouteTokenKindPair)
+	}
+	if owner.Valid {
+		t.Errorf("owner_folder = %q, want NULL — no folder exists at greet time", owner.String)
+	}
+
+	var prompted sql.NullString
+	db.QueryRow(`SELECT prompted_at FROM onboarding WHERE jid = 'telegram:1'`).Scan(&prompted)
 	if !prompted.Valid {
 		t.Error("expected prompted_at to be set")
 	}
-	if len(token.String) != 64 {
-		t.Errorf("expected 64-char hex token, got %d chars", len(token.String))
+	var legacy sql.NullString
+	db.QueryRow(`SELECT token_ref FROM onboarding WHERE jid = 'telegram:1'`).Scan(&legacy)
+	if legacy.Valid {
+		t.Errorf("onboarding.token_ref = %q; the fold leaves onbod with no token of its own", legacy.String)
 	}
 }
 
-func TestTokenLandingValid(t *testing.T) {
+// The minted token is the one the chat receives, and it redeems as a pairing.
+// A greeting whose link does not resolve is the silence spec 5/18 opens with.
+func TestPromptUnpromptedLinkRedeemsAsAPairing(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.TokenRef("abc123"))
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
 
-	cfg := config{authBaseURL: "https://example.com"}
-	req := httptest.NewRequest("GET", "/onboard?token=abc123", nil)
-	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, db, cfg)
-
-	if w.Code != http.StatusSeeOther {
-		t.Errorf("want 303, got %d", w.Code)
+	var sent string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Text string }
+		json.NewDecoder(r.Body).Decode(&body)
+		sent = body.Text
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	cfg := config{
+		authBaseURL: "https://example.com", gatedURL: srv.URL,
+		svcToken: func(context.Context) (string, error) { return "t", nil },
 	}
-	if loc := w.Header().Get("Location"); loc != "/auth/login" {
-		t.Errorf("want redirect to /auth/login, got %s", loc)
+	promptUnprompted(db, db, cfg)
+
+	_, raw, found := strings.Cut(sent, "https://example.com/pair/")
+	if !found {
+		t.Fatalf("greeting carried no /pair/ link: %q", sent)
 	}
-
-	// Token presentation is idempotent — token persists, status unchanged.
-	// The single-shot is the user_sub claim in handleDashboard, not here.
-	var status string
-	var token sql.NullString
-	db.QueryRow(`SELECT status, token_ref FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &token)
-	if status != "awaiting_message" {
-		t.Errorf("want status=awaiting_message after presentation, got %s", status)
-	}
-	if !token.Valid || token.String != store.TokenRef("abc123") {
-		t.Errorf("want token_ref for abc123 still set, got %q (valid=%v)", token.String, token.Valid)
-	}
-
-	// onboard_jid cookie should be set so OAuth round-trip can identify JID.
-	var jidCookie *http.Cookie
-	for _, c := range w.Result().Cookies() {
-		if c.Name == "onboard_jid" {
-			jidCookie = c
-		}
-	}
-	if jidCookie == nil || jidCookie.Value != "telegram:1" {
-		t.Errorf("want onboard_jid=telegram:1 cookie, got %+v", jidCookie)
-	}
-}
-
-func TestTokenLandingExpired(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', ?, '2020-01-01T00:00:00Z', '2026-01-01')`,
-		store.TokenRef("abc123"))
-
-	cfg := config{}
-	req := httptest.NewRequest("GET", "/onboard?token=abc123", nil)
-	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, db, cfg)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("want 200 (error page), got %d", w.Code)
-	}
-}
-
-func TestTokenLandingInvalid(t *testing.T) {
-	db := testDB(t)
-	cfg := config{}
-	req := httptest.NewRequest("GET", "/onboard?token=nonexistent", nil)
-	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, db, cfg)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("want 200 (error page), got %d", w.Code)
-	}
-}
-
-func TestDashboardLinksJID(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token_expires, created)
-		VALUES ('telegram:1', 'token_used', '2099-01-01T00:00:00Z', '2026-01-01')`)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
-
-	cfg := config{}
-	req := httptest.NewRequest("GET", "/onboard", nil)
-	req.Header.Set("X-User-Sub", "github:alice")
-	req.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "telegram:1"})
-	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, db, cfg)
-
-	// JID should be linked
-	var userSub string
-	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:1'`).Scan(&userSub)
-	if userSub != "github:alice" {
-		t.Errorf("want user_sub=github:alice, got %q", userSub)
-	}
-
-	// Onboarding status should be approved
-	var status string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status)
-	if status != "approved" {
-		t.Errorf("want approved, got %s", status)
+	jid, err := store.New(db).PeekPairing(strings.TrimSpace(raw))
+	if err != nil || jid != "telegram:1" {
+		t.Fatalf("the link the chat received does not redeem: PeekPairing = (%q, %v)", jid, err)
 	}
 }
 
@@ -514,16 +461,20 @@ func TestUsernameValidation(t *testing.T) {
 	}
 }
 
-func TestLinkJID(t *testing.T) {
+// admitJID writes NO membership edge — that is the whole point of the fold
+// (spec 5/31): RedeemPairing owns the edge, in routd's transaction, stamped
+// 'pairing' so unpair can reach it. A second writer here is what P1b existed to
+// remove, so the absence is asserted, not just the admission verdict.
+func TestAdmitJIDApprovesAndWritesNoEdge(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'token_used', '2026-01-01')`)
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
 
-	linkJID(db, db, "telegram:1", "github:alice")
+	admitJID(db, config{}, "telegram:1", "github:alice")
 
-	var userSub string
-	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:1'`).Scan(&userSub)
-	if userSub != "github:alice" {
-		t.Errorf("want github:alice, got %q", userSub)
+	var edges int
+	db.QueryRow(`SELECT COUNT(*) FROM acl_membership WHERE child = 'telegram:1'`).Scan(&edges)
+	if edges != 0 {
+		t.Errorf("admitJID wrote %d acl_membership rows; the edge belongs to RedeemPairing alone", edges)
 	}
 
 	var status, sub string
@@ -536,177 +487,141 @@ func TestLinkJID(t *testing.T) {
 	}
 }
 
-// TestHandleTokenLanding_AllowsReplay: the user clicks the link, bails on
-// OAuth, and clicks again. Both clicks must succeed — token presentation
-// is idempotent. The single-shot is at identity-bind in handleDashboard.
-func TestHandleTokenLanding_AllowsReplay(t *testing.T) {
+// The observer is the admission trigger after the fold: it finds the edge webd's
+// redemption committed and runs admission over it. Only edges stamped
+// PairingAddedBy count — a role membership is not a pairing.
+func TestObservePairingsAdmitsAPairedJID(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.TokenRef("tok-replay"))
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
+		VALUES ('telegram:1', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
 
-	cfg := config{authBaseURL: "https://example.com"}
+	observePairings(db, db, config{})
 
-	for i := range 3 {
-		req := httptest.NewRequest("GET", "/onboard?token=tok-replay", nil)
-		w := httptest.NewRecorder()
-		handleOnboard(w, req, db, db, cfg)
-		if w.Code != http.StatusSeeOther {
-			t.Fatalf("click %d: want 303, got %d", i+1, w.Code)
-		}
-		if loc := w.Header().Get("Location"); loc != "/auth/login" {
-			t.Fatalf("click %d: want /auth/login, got %s", i+1, loc)
-		}
+	var status, sub string
+	db.QueryRow(`SELECT status, user_sub FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &sub)
+	if status != "approved" || sub != "github:alice" {
+		t.Errorf("observePairings left row at (%s, %s), want (approved, github:alice)", status, sub)
 	}
+}
+
+// An unpaired row is left exactly where it was: the observer must not invent an
+// admission for a JID nobody has claimed.
+func TestObservePairingsLeavesUnpairedRowsAlone(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+
+	observePairings(db, db, config{})
 
 	var status string
-	var token sql.NullString
-	db.QueryRow(`SELECT status, token_ref FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &token)
-	if status != "awaiting_message" {
-		t.Errorf("want awaiting_message after replay, got %s", status)
-	}
-	if !token.Valid || token.String != store.TokenRef("tok-replay") {
-		t.Errorf("want token_ref preserved across replays, got %q", token.String)
+	var sub sql.NullString
+	db.QueryRow(`SELECT status, user_sub FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &sub)
+	if status != "awaiting_message" || sub.Valid {
+		t.Errorf("unpaired row advanced to (%s, %v)", status, sub)
 	}
 }
 
-// TestHandleTokenLanding_DoesNotConsumeOnGet: explicit assertion that GET
-// of the token landing endpoint is not a state-changing operation on the
-// onboarding row beyond cookies.
-func TestHandleTokenLanding_DoesNotConsumeOnGet(t *testing.T) {
+// Dedup: user_sub is stamped by every admitJID branch, so a second tick over the
+// same edge finds nothing to do. Without it the chat gets the outcome message
+// once per poll interval.
+func TestObservePairingsAdmitsOnlyOnce(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.TokenRef("tok-once"))
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
+		VALUES ('telegram:1', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
 
-	cfg := config{authBaseURL: "https://example.com"}
-	req := httptest.NewRequest("GET", "/onboard?token=tok-once", nil)
-	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, db, cfg)
+	observePairings(db, db, config{})
+	var first string
+	db.QueryRow(`SELECT admitted_at FROM onboarding WHERE jid = 'telegram:1'`).Scan(&first)
+
+	db.Exec(`UPDATE onboarding SET admitted_at = 'SECOND-PASS' WHERE jid = 'telegram:1'`)
+	observePairings(db, db, config{})
+
+	var second string
+	db.QueryRow(`SELECT admitted_at FROM onboarding WHERE jid = 'telegram:1'`).Scan(&second)
+	if second != "SECOND-PASS" {
+		t.Errorf("second tick re-admitted the row (admitted_at %q → %q)", first, second)
+	}
+}
+
+// The observer's `user_sub IS NULL` guard, on the shape that would otherwise
+// re-message a chat every tick: awaiting_message with a verdict's user_sub still
+// on it. Nothing writes that shape today — RepromptOnboarding clears user_sub
+// precisely so it cannot — but the guard is what stands between a partial write
+// and a message every pollInterval, forever.
+func TestObservePairingsSkipsARowThatAlreadyNamesAUser(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, user_sub, created)
+		VALUES ('telegram:1', 'awaiting_message', 'github:old', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
+		VALUES ('telegram:1', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
+
+	observePairings(db, db, config{})
+
+	var status, sub string
+	db.QueryRow(`SELECT status, user_sub FROM onboarding WHERE jid='telegram:1'`).Scan(&status, &sub)
+	if status != "awaiting_message" || sub != "github:old" {
+		t.Errorf("row already naming a user was re-admitted: (%s, %s)", status, sub)
+	}
+}
+
+// Reprompt is the operator's cooldown bypass, and it must leave a row the
+// observer can still advance. Clearing the link without clearing the verdict
+// re-greets the chat and then strands it — the O1 shape, freshly minted.
+func TestRepromptLeavesAnAdmittableRow(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, user_sub, gate, admitted_at, prompted_at, created)
+		VALUES ('telegram:1', 'approved', 'github:alice', '*', '2026-01-02', '2026-01-02', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
+		VALUES ('telegram:1', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
+
+	if err := store.New(db).RepromptOnboarding("telegram:1"); err != nil {
+		t.Fatal(err)
+	}
+	observePairings(db, db, config{})
+
+	var status, sub string
+	db.QueryRow(`SELECT status, COALESCE(user_sub,'') FROM onboarding WHERE jid='telegram:1'`).
+		Scan(&status, &sub)
+	if status != "approved" || sub != "github:alice" {
+		t.Errorf("reprompted row stalled at (%s, %q); the observer could not re-admit it",
+			status, sub)
+	}
+}
+
+// Only a PAIRING edge admits. acl_membership also carries role membership and
+// manifest/CLI-applied rows; a JID that holds one of those has consented to
+// nothing, and admitting on it would stamp user_sub with whatever that row's
+// parent happens to be — `role:operator`, on the instances that have it.
+func TestObservePairingsIgnoresNonPairingEdges(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
+	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
+		VALUES ('telegram:1', 'role:operator', '2026-01-01', 'migration-0053')`)
+
+	observePairings(db, db, config{})
 
 	var status string
-	var token, userSub sql.NullString
-	db.QueryRow(`SELECT status, token_ref, user_sub FROM onboarding WHERE jid = 'telegram:1'`).
-		Scan(&status, &token, &userSub)
-	if status != "awaiting_message" {
-		t.Errorf("status changed by GET: %s", status)
-	}
-	if !token.Valid || token.String == "" {
-		t.Errorf("token cleared by GET")
-	}
-	if userSub.Valid {
-		t.Errorf("user_sub set by GET: %q", userSub.String)
+	var sub sql.NullString
+	db.QueryRow(`SELECT status, user_sub FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status, &sub)
+	if status != "awaiting_message" || sub.Valid {
+		t.Errorf("a role membership admitted the row: (%s, %v)", status, sub)
 	}
 }
 
-// Two parallel claims of the same token must produce exactly one winner: the
-// atomic UPDATE ... WHERE user_sub IS NULL RETURNING jid lets only one caller
-// bind the JID, so linkJID runs once. claimByToken is the race-safe primitive
-// handleTokenLanding gates linkJID on.
-func TestClaimByTokenSingleWinner(t *testing.T) {
+// An agent-minted pairing (spec 5/31's shipped path) has no onboarding row, so
+// the observer never sees it. The scan is over `onboarding`, not over edges.
+func TestObservePairingsIgnoresAgentMintedPairings(t *testing.T) {
 	db := testDB(t)
-	db.SetMaxOpenConns(1)
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.TokenRef("race-tok"))
+	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
+		VALUES ('telegram:9', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
 
-	jidA, okA := claimByToken(db, "race-tok", "github:alice")
-	jidB, okB := claimByToken(db, "race-tok", "github:bob")
+	observePairings(db, db, config{})
 
-	wins := 0
-	if okA {
-		wins++
-		if jidA != "telegram:1" {
-			t.Errorf("winner A returned jid %q, want telegram:1", jidA)
-		}
-	}
-	if okB {
-		wins++
-		if jidB != "telegram:1" {
-			t.Errorf("winner B returned jid %q, want telegram:1", jidB)
-		}
-	}
-	if wins != 1 {
-		t.Fatalf("want exactly 1 claim winner, got %d", wins)
-	}
-
-	var status string
-	var sub, token sql.NullString
-	db.QueryRow(`SELECT status, user_sub, token_ref FROM onboarding WHERE jid='telegram:1'`).
-		Scan(&status, &sub, &token)
-	if status != "token_used" {
-		t.Errorf("want status=token_used, got %s", status)
-	}
-	if !sub.Valid || (sub.String != "github:alice" && sub.String != "github:bob") {
-		t.Errorf("user_sub not bound to a winner: %q", sub.String)
-	}
-	if token.Valid && token.String != "" {
-		t.Errorf("token should be cleared, got %q", token.String)
-	}
-}
-
-// A consumed token is one whose token column is NULL — the consume step nulls
-// it. user_sub is no longer the marker: since the edge is written BEFORE the
-// consume (P1 crash ordering), a row with user_sub set and a live token is the
-// legitimate mid-flight state that a replay must be able to finish.
-//
-// Takeover is still refused, one layer up: linkJID rejects a JID already bound
-// to a different account (errLinkRefused), so a second lander cannot rebind it.
-func TestClaimByTokenRefusesClaimed(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, user_sub, created)
-		VALUES ('telegram:1', 'token_used', NULL, '2099-01-01T00:00:00Z', 'github:alice', '2026-01-01')`)
-
-	if _, ok := claimByToken(db, "spent-tok", "github:bob"); ok {
-		t.Fatal("claimByToken should fail once the token is consumed")
-	}
-	// And the takeover itself is refused where it matters.
-	if err := linkJID(db, db, "telegram:1", "github:alice"); err != nil {
-		t.Fatalf("owner link: %v", err)
-	}
-	if err := linkJID(db, db, "telegram:1", "github:bob"); !errors.Is(err, errLinkRefused) {
-		t.Fatalf("takeover want errLinkRefused, got %v", err)
-	}
-	var sub string
-	db.QueryRow(`SELECT user_sub FROM onboarding WHERE jid='telegram:1'`).Scan(&sub)
-	if sub != "github:alice" {
-		t.Errorf("user_sub overwritten by loser: %q", sub)
-	}
-}
-
-func TestLinkJIDIdempotent(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created)
-		VALUES ('telegram:5', 'token_used', '2026-01-01')`)
-
-	linkJID(db, db, "telegram:5", "github:alice")
-	linkJID(db, db, "telegram:5", "github:alice")
-
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM acl_membership WHERE child = 'telegram:5'`).Scan(&n)
-	if n != 1 {
-		t.Errorf("expected 1 user_jids row, got %d", n)
-	}
-}
-
-func TestLinkJIDDifferentUserRejected(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created)
-		VALUES ('telegram:6', 'token_used', '2026-01-01')`)
-
-	linkJID(db, db, "telegram:6", "github:alice")
-	linkJID(db, db, "telegram:6", "github:eve")
-
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM acl_membership WHERE child = 'telegram:6'`).Scan(&n)
-	if n != 1 {
-		t.Errorf("expected 1 user_jids row, got %d", n)
-	}
-
-	var userSub string
-	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:6'`).Scan(&userSub)
-	if userSub != "github:alice" {
-		t.Errorf("want github:alice, got %q", userSub)
+	var rows int
+	db.QueryRow(`SELECT COUNT(*) FROM onboarding`).Scan(&rows)
+	if rows != 0 {
+		t.Errorf("observer created %d onboarding rows; it must only advance existing ones", rows)
 	}
 }
 
@@ -789,55 +704,6 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 	}
 }
 
-// A user who already has a world adds a new JID via a second auth link:
-// the JID gets linked AND a route to the existing world is inserted
-// automatically. The dashboard renders normally (no username picker).
-func TestSecondJIDAutoLink(t *testing.T) {
-	db := testDB(t)
-	// Existing user with a world "alice/".
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at)
-		VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
-		VALUES ('github:alice', 'telegram:1', '2026-01-01')`)
-	// Existing route for first JID.
-	db.Exec(`INSERT INTO routes (seq, match, target) VALUES (0, 'room=1', 'alice')`)
-
-	// Second JID (discord:42) arrives, onboarding token consumed, cookie set.
-	db.Exec(`INSERT INTO onboarding (jid, status, token_expires, created)
-		VALUES ('discord:42', 'token_used', '2099-01-01T00:00:00Z', '2026-01-01')`)
-
-	cfg := config{}
-	req := httptest.NewRequest("GET", "/onboard", nil)
-	req.Header.Set("X-User-Sub", "github:alice")
-	req.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "discord:42"})
-	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, db, cfg)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("want 200 (dashboard), got %d", w.Code)
-	}
-	body := w.Body.String()
-	if strings.Contains(body, "create_world") {
-		t.Error("should not show username picker on second-JID link")
-	}
-
-	// discord:42 should be linked.
-	var userSub string
-	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'discord:42'`).Scan(&userSub)
-	if userSub != "github:alice" {
-		t.Errorf("want user_sub=github:alice for discord:42, got %q", userSub)
-	}
-	// And auto-routed to existing world.
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE match = 'room=42' AND target = 'alice'`).Scan(&n)
-	if n != 1 {
-		t.Errorf("expected 1 auto-route for second JID to alice, got %d", n)
-	}
-}
-
 // Operator (an acl "**" grant) can create a world. The world is the assertion;
 // routes are not written here at all (5/18 step 7).
 func TestCreateWorldOperatorAllowed(t *testing.T) {
@@ -914,13 +780,13 @@ func TestMatchGateNoWildcard(t *testing.T) {
 	}
 }
 
-func TestLinkJIDWithGatesQueues(t *testing.T) {
+func TestAdmitJIDWithGatesQueues(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created)
-		VALUES ('telegram:1', 'token_used', '2026-01-01')`)
+		VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
 	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 10)`)
 
-	linkJID(db, db, "telegram:1", "github:alice")
+	admitJID(db, config{}, "telegram:1", "github:alice")
 
 	var status, gateCol, queuedAt string
 	db.QueryRow(
@@ -937,19 +803,25 @@ func TestLinkJIDWithGatesQueues(t *testing.T) {
 	}
 }
 
-func TestLinkJIDWithGatesNoMatch(t *testing.T) {
+// No gate matches: terminal `refused`, not the old silent stall at token_used.
+// user_sub is stamped so the row stops matching the observer's scan and the
+// chat is told exactly once.
+func TestAdmitJIDWithGatesNoMatchIsRefusedTerminally(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created)
-		VALUES ('telegram:1', 'token_used', '2026-01-01')`)
+		VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
 	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 10)`)
 
-	linkJID(db, db, "telegram:1", "google:alice@other.com")
+	admitJID(db, config{}, "telegram:1", "google:alice@other.com")
 
-	// Status should remain token_used (no matching gate, rejected)
-	var status string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status)
-	if status != "token_used" {
-		t.Errorf("want status=token_used (rejected), got %s", status)
+	var status, sub string
+	db.QueryRow(`SELECT status, COALESCE(user_sub,'') FROM onboarding WHERE jid = 'telegram:1'`).
+		Scan(&status, &sub)
+	if status != "refused" {
+		t.Errorf("want status=refused, got %s", status)
+	}
+	if sub != "google:alice@other.com" {
+		t.Errorf("want user_sub stamped so the refusal is sent once, got %q", sub)
 	}
 }
 
@@ -1094,10 +966,10 @@ func TestQueuePositionRendering(t *testing.T) {
 func TestNoGatesLegacyBehavior(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created)
-		VALUES ('telegram:1', 'token_used', '2026-01-01')`)
+		VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
 
-	// No gates → linkJID should set approved directly
-	linkJID(db, db, "telegram:1", "github:alice")
+	// No gates → admitJID should set approved directly
+	admitJID(db, config{}, "telegram:1", "github:alice")
 
 	var status string
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status)
@@ -1433,56 +1305,6 @@ func TestCSRFRejected(t *testing.T) {
 	}
 }
 
-// Cookie-based auto-link is single-use: once claimed, the onboarding row's
-// user_sub is set and a later attacker with the cookie cannot rebind.
-func TestSecondJIDAutoLinkSingleUse(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:eve', 'eve', 'Eve', '2026-01-01')`)
-	db.Exec(`INSERT INTO groups (folder, added_at) VALUES ('eve', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:eve', 'admin', 'eve', 'allow', '2026-01-01')`)
-	// token_used row with user_sub still NULL.
-	db.Exec(`INSERT INTO onboarding (jid, status, token_expires, created)
-		VALUES ('telegram:victim', 'token_used', '2099-01-01T00:00:00Z', '2026-01-01')`)
-
-	// Alice legitimately claims the JID.
-	req := httptest.NewRequest("GET", "/onboard", nil)
-	req.Header.Set("X-User-Sub", "github:alice")
-	req.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "telegram:victim"})
-	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, db, config{})
-
-	var jidOwner string
-	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:victim'`).Scan(&jidOwner)
-	if jidOwner != "github:alice" {
-		t.Fatalf("first claim: want github:alice, got %q", jidOwner)
-	}
-
-	// Eve tries to rebind using the same cookie. Must fail: onboarding row is
-	// now claimed (user_sub != NULL), so the atomic UPDATE matches nothing.
-	req2 := httptest.NewRequest("GET", "/onboard", nil)
-	req2.Header.Set("X-User-Sub", "github:eve")
-	req2.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "telegram:victim"})
-	w2 := httptest.NewRecorder()
-	handleOnboard(w2, req2, db, db, config{})
-
-	// Ownership unchanged.
-	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:victim'`).Scan(&jidOwner)
-	if jidOwner != "github:alice" {
-		t.Errorf("after replay attempt: want github:alice, got %q", jidOwner)
-	}
-	// No route to eve's folder.
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM routes WHERE target = 'eve'`).Scan(&n)
-	if n != 0 {
-		t.Errorf("eve must not receive a route, got %d", n)
-	}
-}
-
 // Invite consume is atomic: simulated concurrent redemption cannot exceed
 // max_uses. The guard is inside the UPDATE — double-call with uses=max_uses
 // after the first returns the "used" page.
@@ -1742,9 +1564,10 @@ func TestLoadGatesEnabledFilter(t *testing.T) {
 	}
 }
 
-// End-to-end state machine on the canonical migrated schema:
-// awaiting_message → (prompt) → token set → (landing) → token_used →
-// (linkJID) → queued (gated) → (admit) → approved.
+// End-to-end state machine on the canonical migrated schema, after the fold:
+// awaiting_message → (prompt mints a pairing token in route_tokens) →
+// (RedeemPairing writes the edge) → (observer) → queued (gated) →
+// (admit) → approved. `token_used` is gone with the token it named.
 func TestStateMachineMigrated(t *testing.T) {
 	db := migratedDB(t)
 	// Seed auth user + existing world for the JID to link to.
@@ -1756,41 +1579,32 @@ func TestStateMachineMigrated(t *testing.T) {
 
 	cfg := config{authBaseURL: "https://example.com"}
 
-	// 1) prompt → token set
-	promptUnprompted(db, cfg)
-	var tok sql.NullString
-	db.QueryRow(`SELECT token_ref FROM onboarding WHERE jid = 'telegram:7'`).Scan(&tok)
-	if !tok.Valid || tok.String == "" {
-		t.Fatal("prompt did not set token")
+	// 1) prompt → a kind='pair' token exists for the jid, and the row is claimed
+	promptUnprompted(db, db, cfg)
+	var pairTokens int
+	db.QueryRow(`SELECT COUNT(*) FROM route_tokens WHERE jid = 'telegram:7' AND kind = ?`,
+		store.RouteTokenKindPair).Scan(&pairTokens)
+	if pairTokens != 1 {
+		t.Fatalf("prompt minted %d pairing tokens, want 1", pairTokens)
 	}
-
-	// 2) token landing (presentation is idempotent — status & token unchanged)
-	req := httptest.NewRequest("GET", "/onboard?token="+tok.String, nil)
-	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, db, cfg)
 	var st string
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
 	if st != "awaiting_message" {
-		t.Fatalf("presentation should not change status, got %s", st)
+		t.Fatalf("prompting must not advance status, got %s", st)
 	}
 
-	// 3) identity-bind → token_used (claim happens at user_sub binding)
-	if !claimOnboarding(db, "telegram:7", "github:alice") {
-		t.Fatal("claimOnboarding should succeed")
-	}
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
-	if st != "token_used" {
-		t.Fatalf("after claim want token_used, got %s", st)
-	}
+	// 2) redemption writes the edge — in routd's DB, by RedeemPairing, not onbod
+	db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
+		VALUES ('telegram:7', 'github:alice', '2026-01-01', ?)`, store.PairingAddedBy)
 
-	// 4) linkJID with gates active → queued
-	linkJID(db, db, "telegram:7", "github:alice")
+	// 3) the observer discovers it → queued (a gate is configured)
+	observePairings(db, db, cfg)
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
 	if st != "queued" {
-		t.Fatalf("after linkJID+gate want queued, got %s", st)
+		t.Fatalf("after observe+gate want queued, got %s", st)
 	}
 
-	// 5) admit from queue → approved
+	// 4) admit from queue → approved
 	admitFromQueue(db)
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
 	if st != "approved" {
@@ -1857,7 +1671,7 @@ func TestDashboardUnauthenticated(t *testing.T) {
 	}
 }
 
-// promptUnprompted POSTs the greeting + onboard link to routd's /v1/outbound,
+// promptUnprompted POSTs the greeting + pairing link to routd's /v1/outbound,
 // presenting the service:onbod bearer. A test HTTP server captures the wire
 // format without mocking.
 func TestPromptUnpromptedSendsGreeting(t *testing.T) {
@@ -1875,18 +1689,18 @@ func TestPromptUnpromptedSendsGreeting(t *testing.T) {
 
 	cfg := config{gatedURL: srv.URL, authBaseURL: "https://ex.com",
 		svcToken: func(context.Context) (string, error) { return "svc-jwt", nil }}
-	promptUnprompted(db, cfg)
+	promptUnprompted(db, db, cfg)
 
 	if gotAuth != "Bearer svc-jwt" {
 		t.Errorf("want Bearer service token, got %q", gotAuth)
 	}
 	if !strings.Contains(string(gotBody), "telegram:1") ||
-		!strings.Contains(string(gotBody), "/onboard?token=") {
+		!strings.Contains(string(gotBody), "/pair/") {
 		t.Errorf("unexpected outbound body: %s", gotBody)
 	}
 }
 
-// sendReply gracefully handles non-2xx — prompt still records token update.
+// sendReply gracefully handles non-2xx — the prompt still claims the row.
 func TestSendReplyHandlesNon2xx(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('t:1', 'awaiting_message', '2026-01-01')`)
@@ -1896,11 +1710,11 @@ func TestSendReplyHandlesNon2xx(t *testing.T) {
 	defer srv.Close()
 	cfg := config{gatedURL: srv.URL, authBaseURL: "https://ex.com"}
 	// Should not panic even when router returns 500.
-	promptUnprompted(db, cfg)
+	promptUnprompted(db, db, cfg)
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM onboarding WHERE jid='t:1' AND token_ref IS NOT NULL`).Scan(&n)
+	db.QueryRow(`SELECT COUNT(*) FROM onboarding WHERE jid='t:1' AND prompted_at IS NOT NULL`).Scan(&n)
 	if n != 1 {
-		t.Errorf("token should still be persisted after send failure, got %d", n)
+		t.Errorf("row should still be claimed after send failure, got %d", n)
 	}
 }
 
@@ -1910,35 +1724,7 @@ func TestSendReplyHandlesTransportError(t *testing.T) {
 	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('t:1', 'awaiting_message', '2026-01-01')`)
 	// Point at a closed port to force Do() to fail.
 	cfg := config{gatedURL: "http://127.0.0.1:1", authBaseURL: "https://ex.com"}
-	promptUnprompted(db, cfg) // must not panic
-}
-
-// handleTokenLanding: user already authenticated at landing → row gets linked
-// and consumer is redirected to /onboard (not /auth/login).
-func TestTokenLandingAuthenticatedRedirectsToDashboard(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
-		VALUES ('telegram:7', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.TokenRef("tok"))
-
-	cfg := config{authBaseURL: "https://ex.com"}
-	req := httptest.NewRequest("GET", "/onboard?token=tok", nil)
-	req.Header.Set("X-User-Sub", "github:alice")
-	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, db, cfg)
-
-	if w.Code != http.StatusSeeOther {
-		t.Fatalf("want 303, got %d", w.Code)
-	}
-	if got := w.Header().Get("Location"); got != "/onboard" {
-		t.Errorf("want redirect to /onboard, got %q", got)
-	}
-	// linkJID ran synchronously (no gates, no user rows yet — status goes approved).
-	var sub string
-	db.QueryRow(`SELECT parent FROM acl_membership WHERE child='telegram:7'`).Scan(&sub)
-	if sub != "github:alice" {
-		t.Errorf("jid not linked on authenticated landing, got %q", sub)
-	}
+	promptUnprompted(db, db, cfg) // must not panic
 }
 
 // ensureCSRFToken is idempotent: an incoming request that already carries the
@@ -2242,101 +2028,51 @@ func TestCSRFRejectedWhenFormMissing(t *testing.T) {
 	}
 }
 
-// TestHandleDashboard_ConsumesAtUserSubBind: the post-OAuth dashboard
-// visit is where the token gets cleared and user_sub gets bound. After
-// the bind, the same token presented at /onboard?token=X must fail.
-func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
+// promptUnprompted still claims strictly on `prompted_at IS NULL`. The cooldown
+// that clears prompted_at lives in InsertOnboarding, where the inbound MISS that
+// justifies a second greeting is (spec 5/31 § Deleting "greet once, ever"); a
+// plain time predicate here would re-greet every stale row every tick.
+func TestPromptUnprompted_DoesNotRegreetAPromptedRow(t *testing.T) {
 	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.TokenRef("tok-bind"))
-	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
-		VALUES ('github:alice', 'alice', 'Alice', '2026-01-01')`)
-	db.Exec(`INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES ('github:alice', 'admin', 'alice', 'allow', '2026-01-01')`)
+	stale := time.Now().UTC().Add(-31 * time.Minute).Format(time.RFC3339)
+	db.Exec(`INSERT INTO onboarding (jid, status, prompted_at, created)
+		VALUES ('telegram:1', 'awaiting_message', ?, '2026-01-01')`, stale)
 
 	cfg := config{authBaseURL: "https://example.com"}
+	promptUnprompted(db, db, cfg)
 
-	// 1) Unauthenticated GET — token persists.
-	req1 := httptest.NewRequest("GET", "/onboard?token=tok-bind", nil)
-	w1 := httptest.NewRecorder()
-	handleOnboard(w1, req1, db, db, cfg)
-	var token sql.NullString
-	db.QueryRow(`SELECT token_ref FROM onboarding WHERE jid='telegram:1'`).Scan(&token)
-	if !token.Valid || token.String != store.TokenRef("tok-bind") {
-		t.Fatalf("token_ref cleared by GET: %+v", token)
+	var minted int
+	db.QueryRow(`SELECT COUNT(*) FROM route_tokens WHERE jid = 'telegram:1'`).Scan(&minted)
+	if minted != 0 {
+		t.Errorf("re-greeted a row already prompted %s ago: %d tokens minted", "31m", minted)
 	}
-
-	// 2) Post-OAuth dashboard hit with cookie + X-User-Sub binds identity.
-	req2 := httptest.NewRequest("GET", "/onboard", nil)
-	req2.Header.Set("X-User-Sub", "github:alice")
-	req2.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "telegram:1"})
-	w2 := httptest.NewRecorder()
-	handleOnboard(w2, req2, db, db, cfg)
-
-	var status string
-	var tokenAfter, userSubAfter sql.NullString
-	db.QueryRow(`SELECT status, token_ref, user_sub FROM onboarding WHERE jid='telegram:1'`).
-		Scan(&status, &tokenAfter, &userSubAfter)
-	if !userSubAfter.Valid || userSubAfter.String != "github:alice" {
-		t.Errorf("user_sub not bound: %+v", userSubAfter)
-	}
-	if tokenAfter.Valid {
-		t.Errorf("token not cleared after bind: %q", tokenAfter.String)
-	}
-	if status != "approved" { // no gates, linkJID promotes through
-		t.Errorf("want approved after linkJID, got %s", status)
-	}
-
-	// 3) Replaying the original token after the bind must fail.
-	req3 := httptest.NewRequest("GET", "/onboard?token=tok-bind", nil)
-	w3 := httptest.NewRecorder()
-	handleOnboard(w3, req3, db, db, cfg)
-	if w3.Code != http.StatusOK {
-		t.Errorf("post-bind replay: want 200 (error page), got %d", w3.Code)
+	var prompted string
+	db.QueryRow(`SELECT prompted_at FROM onboarding WHERE jid='telegram:1'`).Scan(&prompted)
+	if prompted != stale {
+		t.Errorf("prompted_at moved: %q -> %q", stale, prompted)
 	}
 }
+
+// A row that has already been claimed by an admission verdict is not a greeting
+// candidate at all, whatever its prompted_at says.
 func TestPromptUnprompted_DoesNotResetClaimedRow(t *testing.T) {
 	db := testDB(t)
-	stale := time.Now().Add(-31 * time.Minute).Format(time.RFC3339)
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, user_sub, prompted_at, created)
-		VALUES ('telegram:1', 'token_used', NULL, 'github:alice', ?, '2026-01-01')`, stale)
+	stale := time.Now().UTC().Add(-31 * time.Minute).Format(time.RFC3339)
+	db.Exec(`INSERT INTO onboarding (jid, status, user_sub, prompted_at, created)
+		VALUES ('telegram:1', 'approved', 'github:alice', ?, '2026-01-01')`, stale)
 
 	cfg := config{authBaseURL: "https://example.com"}
-	promptUnprompted(db, cfg)
+	promptUnprompted(db, db, cfg)
 
 	var status string
-	var token sql.NullString
-	db.QueryRow(`SELECT status, token_ref FROM onboarding WHERE jid='telegram:1'`).
-		Scan(&status, &token)
-	if status != "token_used" {
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid='telegram:1'`).Scan(&status)
+	if status != "approved" {
 		t.Errorf("claimed row was reset: status=%s", status)
 	}
-	if token.Valid {
-		t.Errorf("claimed row got token re-minted: %q", token.String)
-	}
-}
-
-// TestPromptUnprompted_DoesNotResetWithinCoolDown: a row prompted < 30
-// minutes ago must not be re-prompted yet. Prevents thrashing if the
-// user clicks-and-bails repeatedly.
-func TestPromptUnprompted_DoesNotResetWithinCoolDown(t *testing.T) {
-	db := testDB(t)
-	fresh := time.Now().Add(-5 * time.Minute).Format(time.RFC3339)
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, prompted_at, created)
-		VALUES ('telegram:1', 'token_used', NULL, ?, '2026-01-01')`, fresh)
-
-	cfg := config{authBaseURL: "https://example.com"}
-	promptUnprompted(db, cfg)
-
-	var status string
-	var token sql.NullString
-	db.QueryRow(`SELECT status, token_ref FROM onboarding WHERE jid='telegram:1'`).
-		Scan(&status, &token)
-	if status != "token_used" {
-		t.Errorf("row reset within cool-down: status=%s", status)
-	}
-	if token.Valid {
-		t.Errorf("token re-minted within cool-down: %q", token.String)
+	var minted int
+	db.QueryRow(`SELECT COUNT(*) FROM route_tokens WHERE jid = 'telegram:1'`).Scan(&minted)
+	if minted != 0 {
+		t.Errorf("claimed row got a link re-minted: %d tokens", minted)
 	}
 }
 
@@ -2355,44 +2091,6 @@ func readAll(r interface{ Read(p []byte) (int, error) }) ([]byte, error) {
 			}
 			return out, err
 		}
-	}
-}
-
-// Gates configured and none matching is a dead end, not a success: the row
-// stays at token_used and no later pass revisits it. It used to warn and
-// return, so the caller redirected the user to an empty dashboard with no
-// indication anything had gone wrong.
-func TestLinkJID_NoGateMatchIsRefused(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:9', 'token_used', '2026-01-01')`)
-	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=acme', 10)`)
-
-	err := linkJID(db, db, "telegram:9", "google:nobody")
-	if err == nil {
-		t.Fatal("no matching gate must return an error the caller can surface")
-	}
-	if !errors.Is(err, errLinkRefused) {
-		t.Errorf("want errLinkRefused (403), got %v", err)
-	}
-
-	var status string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:9'`).Scan(&status)
-	if status == "queued" || status == "approved" {
-		t.Errorf("row advanced to %q despite no gate match", status)
-	}
-}
-
-// A second account may not take over a JID already linked elsewhere, and the
-// refusal reaches the caller rather than only the log.
-func TestLinkJID_AlreadyClaimedIsRefused(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:10', 'token_used', '2026-01-01')`)
-	if err := linkJID(db, db, "telegram:10", "github:alice"); err != nil {
-		t.Fatalf("first link: %v", err)
-	}
-	err := linkJID(db, db, "telegram:10", "github:mallory")
-	if !errors.Is(err, errLinkRefused) {
-		t.Errorf("takeover want errLinkRefused, got %v", err)
 	}
 }
 
@@ -2420,46 +2118,6 @@ func TestAdminFolders_HonoursSubtreeGrant(t *testing.T) {
 	}
 }
 
-// P1 crash ordering: the membership edge must be durable BEFORE the token is
-// consumed. The two writes land in different databases with no cross-DB
-// transaction, so a crash between them is possible at any point; edge-first is
-// the only order that is safe wherever it lands. This test simulates the crash
-// by doing the first half only, then replaying.
-func TestTokenLanding_EdgeSurvivesCrashBeforeConsume(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created, token_ref)
-		VALUES ('telegram:77', 'awaiting_message', '2026-01-01', ?)`,
-		store.TokenRef("tok-77"))
-
-	// First half of the landing: resolve, write the edge, then "crash".
-	jid, ok := jidForToken(db, "tok-77")
-	if !ok || jid != "telegram:77" {
-		t.Fatalf("jidForToken = %q,%v", jid, ok)
-	}
-	if err := linkJID(db, db, jid, "github:alice"); err != nil {
-		t.Fatalf("linkJID: %v", err)
-	}
-
-	// The token must still be live, so the user can simply click again.
-	if _, ok := jidForToken(db, "tok-77"); !ok {
-		t.Fatal("token was consumed before the edge was durable — the stranding order")
-	}
-
-	// Replay: the edge write is idempotent and the consume now succeeds.
-	if err := linkJID(db, db, jid, "github:alice"); err != nil {
-		t.Fatalf("replayed linkJID must be a no-op, got: %v", err)
-	}
-	if _, ok := claimByToken(db, "tok-77", "github:alice"); !ok {
-		t.Fatal("replay could not consume the token")
-	}
-
-	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM acl_membership WHERE child='telegram:77'`).Scan(&n)
-	if n != 1 {
-		t.Errorf("replay produced %d edges, want exactly 1", n)
-	}
-}
-
 // O1: a row in a status no query selects is stranded — never prompted, queued
 // or admitted, and its jid PRIMARY KEY blocks a fresh insert, so the user can
 // never onboard from that chat again. Two such rows exist in production. The
@@ -2468,7 +2126,7 @@ func TestTokenLanding_EdgeSurvivesCrashBeforeConsume(t *testing.T) {
 func TestKnownStatusesCoversEveryWriter(t *testing.T) {
 	// Every status the code writes must be one the pipeline can advance,
 	// otherwise we ship the O1 bug again with a new value.
-	for _, s := range []string{"awaiting_message", "token_used", "queued", "approved"} {
+	for _, s := range []string{"awaiting_message", "queued", "approved", "refused"} {
 		if !knownStatuses[s] {
 			t.Errorf("%q is written by the pipeline but not in knownStatuses", s)
 		}
@@ -2476,31 +2134,10 @@ func TestKnownStatusesCoversEveryWriter(t *testing.T) {
 	if knownStatuses["pending"] {
 		t.Error("'pending' is not a status any writer produces; it must read as stranded")
 	}
-}
-
-// acl_membership carries pairing edges AND role memberships, and a JID may hold
-// both — a paired user granted operator directly. The claim check must ignore
-// role parents; otherwise QueryRow can return the role row in undefined order
-// and refuse a legitimate re-pair, naming "role:operator" as the other account.
-// sloth has exactly this shape in production.
-func TestLinkJID_RoleMembershipIsNotAClaim(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:5', 'token_used', '2026-01-01')`)
-	// The paired sub must sort AFTER "role:" so the role row comes first in the
-	// (child, parent) index — that ordering is what makes the unfiltered
-	// QueryRow return the role and refuse. With a sub like "google:..." the bug
-	// hides, because the pairing row happens to come first.
-	const sub = "zoom:alice"
-	if err := linkJID(db, db, "telegram:5", sub); err != nil {
-		t.Fatalf("first pair: %v", err)
-	}
-	// The JID is also granted operator directly.
-	if _, err := db.Exec(`INSERT INTO acl_membership (child, parent, added_at, added_by)
-		VALUES ('telegram:5', 'role:operator', datetime('now'), 'cli')`); err != nil {
-		t.Fatal(err)
-	}
-	// Re-pairing to the SAME account must still succeed (idempotent replay).
-	if err := linkJID(db, db, "telegram:5", sub); err != nil {
-		t.Errorf("re-pair refused because of the role row: %v", err)
+	// token_used went with the token it named (spec 5/31 § the fold). No writer
+	// produces it, so a row still carrying it is stranded and must be shouted
+	// about — the same treatment 'pending' gets.
+	if knownStatuses["token_used"] {
+		t.Error("'token_used' has no writer after the fold; it must read as stranded")
 	}
 }

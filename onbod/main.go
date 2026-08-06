@@ -151,13 +151,15 @@ func main() {
 	tick := time.NewTicker(cfg.pollInterval)
 	defer tick.Stop()
 
-	promptUnprompted(obdb, cfg)
+	promptUnprompted(xdb, obdb, cfg)
+	observePairings(xdb, obdb, cfg)
 	admitFromQueue(obdb)
 	var admitCount int
 	for {
 		select {
 		case <-tick.C:
-			promptUnprompted(obdb, cfg)
+			promptUnprompted(xdb, obdb, cfg)
+			observePairings(xdb, obdb, cfg)
 			admitCount++
 			if admitCount*int(cfg.pollInterval.Seconds()) >= 60 {
 				admitFromQueue(obdb)
@@ -362,11 +364,16 @@ func emailDomain(sub string) string {
 // queued or admitted, and its jid PRIMARY KEY blocks a fresh insert — the user
 // can never onboard from that chat again. Two such rows exist in production
 // (BUGS O1), in a 'pending' status no code writes.
+//
+// `token_used` is gone with the token it named (spec 5/31 § the fold): nothing
+// writes it, since redemption moved to webd's /pair/{token} and the row now goes
+// straight from awaiting_message to the admission verdict. `refused` replaces
+// its silent dead-end role, loudly — see admitJID.
 var knownStatuses = map[string]bool{
 	"awaiting_message": true,
-	"token_used":       true,
 	"queued":           true,
 	"approved":         true,
+	"refused":          true,
 }
 
 // warnStrandedRows surfaces rows the state machine cannot move. It cannot
@@ -395,9 +402,22 @@ func warnStrandedRows(db *sql.DB) {
 	}
 }
 
-func promptUnprompted(db *sql.DB, cfg config) {
-	warnStrandedRows(db)
-	rows, err := db.Query(
+// promptUnprompted greets every unrouted chat that has no live link, with a
+// PAIRING link (spec 5/31 § the fold) rather than an onboarding token of its
+// own. onbod mints no second credential and writes no second acl_membership
+// edge: the link redeems at webd's /pair/{token}, whose success page carries the
+// user on to /onboard for the world choice (spec 5/18 step 6).
+//
+// The mint's owner_folder is the constant "" → NULL. It is not a route-ownership
+// check like routd's: InsertOnboarding only ever fires from the route-MISS
+// branch, so "this JID routes nowhere" is proved by the row's existence and is
+// not re-derived here.
+//
+// xdb is routd.db (route_tokens, the same handle onbod already writes routes
+// and acl_membership through); obdb owns onboarding.
+func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
+	warnStrandedRows(obdb)
+	rows, err := obdb.Query(
 		`SELECT jid FROM onboarding WHERE status = 'awaiting_message' AND prompted_at IS NULL`)
 	if err != nil {
 		slog.Error("promptUnprompted query", "err", err)
@@ -411,20 +431,25 @@ func promptUnprompted(db *sql.DB, cfg config) {
 	}
 	rows.Close()
 
-	now := time.Now().Format(time.RFC3339)
-	expires := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
+	now := time.Now().UTC().Format(time.RFC3339)
 	base := strings.TrimRight(cfg.authBaseURL, "/")
 	for _, jid := range pending {
-		// The raw token goes out in the link and is never stored — only
-		// store.TokenRef(token) = hex(sha256) lands in token_ref (Z3).
-		token := core.GenHexToken()
+		// Mint BEFORE the claim. The two writes are in different databases with
+		// no shared transaction, and this order is the one that cannot strand a
+		// user: a mint failure leaves the row unclaimed for the next tick, while
+		// a lost claim race leaves a token nobody was ever told, which expires in
+		// PairingTTL. Claiming first would stamp prompted_at with no link sent.
+		token, err := store.IssuePairingLink(context.Background(), xdb, jid, "")
+		if err != nil {
+			slog.Error("promptUnprompted mint pairing link", "jid", jid, "err", err)
+			continue
+		}
 		// Claim-per-row: the UPDATE re-checks prompted_at IS NULL so two
 		// overlapping ticks can't both win the same jid. Only the tick whose
 		// UPDATE affected a row sends the link (else the other tick already did).
-		res, err := db.Exec(
-			`UPDATE onboarding SET token_ref = ?, token_expires = ?, prompted_at = ?
-			 WHERE jid = ? AND prompted_at IS NULL`,
-			store.TokenRef(token), expires, now, jid)
+		res, err := obdb.Exec(
+			`UPDATE onboarding SET prompted_at = ? WHERE jid = ? AND prompted_at IS NULL`,
+			now, jid)
 		if err != nil {
 			slog.Error("promptUnprompted claim", "jid", jid, "err", err)
 			continue
@@ -433,14 +458,132 @@ func promptUnprompted(db *sql.DB, cfg config) {
 			continue
 		}
 
-		link := base + "/onboard?token=" + token
-		prompt := "Set up your account: " + link
+		prompt := "Set up your account: " + base + "/pair/" + token
 		if cfg.greeting != "" {
 			prompt = cfg.greeting + "\n" + prompt
 		}
 		sendReply(cfg, jid, prompt)
-		slog.Info("sent auth link", "jid", jid)
+		slog.Info("sent pairing link", "jid", jid)
 	}
+}
+
+// observePairings is the admission trigger after the fold (spec 5/31 §
+// "Admission observes; redemption does not refuse"). RedeemPairing writes the
+// edge in webd and knows nothing about gates; this tick discovers the edge and
+// runs the admission half over data that write already committed.
+//
+// A poll, not a hook: webd has no relationship to onbod — no URL, no service
+// token, no failure policy — and a hook would put routd's identity-write path
+// one round trip from onbod's uptime, while onbod already holds a direct handle
+// on routd.db and already reads acl_membership through it.
+//
+// The dedup is onboarding's existing jid primary key plus the `user_sub IS NULL`
+// guard: every admitJID branch stamps user_sub, so a row is admitted once. The
+// same guard is why an agent-minted pairing is invisible here — only rows
+// InsertOnboarding created are ever scanned.
+func observePairings(xdb, obdb *sql.DB, cfg config) {
+	rows, err := obdb.Query(
+		`SELECT jid FROM onboarding WHERE status = 'awaiting_message' AND user_sub IS NULL`)
+	if err != nil {
+		slog.Error("observePairings query", "err", err)
+		return
+	}
+	var awaiting []string
+	for rows.Next() {
+		var jid string
+		if err := rows.Scan(&jid); err != nil {
+			rows.Close()
+			slog.Error("observePairings scan", "err", err)
+			return
+		}
+		awaiting = append(awaiting, jid)
+	}
+	rows.Close()
+
+	for _, jid := range awaiting {
+		var parent string
+		err := xdb.QueryRow(
+			`SELECT parent FROM acl_membership WHERE child = ? AND added_by = ?`,
+			jid, store.PairingAddedBy).Scan(&parent)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			slog.Error("observePairings read pairing edge", "jid", jid, "err", err)
+			continue
+		}
+		admitJID(obdb, cfg, jid, parent)
+	}
+}
+
+// admitJID advances a paired JID's onboarding row: queued (a gate matched),
+// approved (no gates configured), or refused (gates configured, none matched).
+// It writes NO membership edge — RedeemPairing already did, in routd's own
+// transaction, stamped `pairing` so unpair can reach it. That split is the point
+// of the fold: a pairing can no longer fail for an admission reason at the
+// browser, and one writer owns the edge.
+//
+// The refusal used to be a 403 the user saw. It is now discovered on a tick,
+// after that page is gone, so it travels to the chat instead — the fail-loud
+// rule says surface it to the user, not that it must be HTTP.
+func admitJID(obdb *sql.DB, cfg config, jid, userSub string) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	gates := loadGates(obdb)
+
+	if len(gates) > 0 {
+		g := matchGate(gates, userSub)
+		if g == nil {
+			// Terminal. user_sub is stamped so the row stops matching and the
+			// refusal is sent exactly once.
+			if _, err := obdb.Exec(
+				`UPDATE onboarding SET status = 'refused', user_sub = ? WHERE jid = ?`,
+				userSub, jid); err != nil {
+				slog.Error("refuse jid", "jid", jid, "err", err)
+				return
+			}
+			auditAdmission(jid, userSub, "onboarding.refuse", "none")
+			slog.Warn("refused jid: no matching gate", "jid", jid, "user", userSub)
+			sendReply(cfg, jid, "This account can't be set up here: no onboarding gate matches it. Ask the operator for an invite.")
+			return
+		}
+		k := gateKey(*g)
+		if _, err := obdb.Exec(
+			`UPDATE onboarding SET status = 'queued', user_sub = ?, gate = ?, queued_at = ? WHERE jid = ?`,
+			userSub, k, now, jid); err != nil {
+			slog.Error("queue jid", "jid", jid, "err", err)
+			return
+		}
+		auditAdmission(jid, userSub, "onboarding.queue", k)
+		slog.Info("queued jid", "jid", jid, "user", userSub, "gate", k)
+		sendReply(cfg, jid, "You're in the queue. Open "+
+			strings.TrimRight(cfg.authBaseURL, "/")+"/onboard to see your position.")
+		return
+	}
+
+	if _, err := obdb.Exec(
+		`UPDATE onboarding SET status = 'approved', user_sub = ?, admitted_at = ? WHERE jid = ?`,
+		userSub, now, jid); err != nil {
+		slog.Error("approve jid", "jid", jid, "err", err)
+		return
+	}
+	auditAdmission(jid, userSub, "onboarding.approve", "none")
+	slog.Info("approved jid", "jid", jid, "user", userSub, "gate", "none")
+}
+
+func auditAdmission(jid, userSub, action, gateKey string) {
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   action,
+		Actor:    "user:" + userSub,
+		ActorSub: userSub,
+		Surface:  audit.SurfaceCron,
+		Resource: "onboarding/" + jid,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"jid":  jid,
+			"gate": gateKey,
+		},
+	})
 }
 
 // handleOnboard and the onboarding flow below take two handles: db is the
@@ -449,165 +592,21 @@ func promptUnprompted(db *sql.DB, cfg config) {
 // table DB (onboarding/invites/onboarding_gates — onbod.db in the split). In
 // the monolith obdb == db. Owned-table queries route through obdb; cross-table
 // queries stay on db.
+// /onboard carries no token of its own since the fold (spec 5/31): the greeting
+// link redeems at webd's /pair/{token}, which writes the edge and then sends the
+// user here. This page reads the edge and asks where the chat should go — it is
+// step 6, and nothing else.
 func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config) {
-	token := r.URL.Query().Get("token")
-	userSub := r.Header.Get("X-User-Sub")
-
-	if token != "" {
-		handleTokenLanding(w, r, db, obdb, cfg, token)
-		return
-	}
-	if userSub != "" {
+	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
 		handleDashboard(w, r, db, obdb, cfg, userSub, ensureCSRFToken(w, r, cfg))
 		return
 	}
 	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 }
 
-func handleTokenLanding(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, token string) {
-	now := time.Now().Format(time.RFC3339)
-	var jid string
-	// The URL carries the RAW token; only its hash is stored (Z3), so hash
-	// what was presented and look that up. A token that resolves to no row
-	// falls through to the refusal page below — never a silent no-op.
-	err := obdb.QueryRow(
-		`SELECT jid FROM onboarding
-		 WHERE token_ref = ?
-		   AND status IN ('awaiting_message', 'token_used')
-		   AND user_sub IS NULL
-		   AND (token_expires IS NULL OR token_expires > ?)`,
-		store.TokenRef(token), now).Scan(&jid)
-	if err != nil {
-		slog.Warn("onboard token invalid",
-			"token_hash", chanlib.ShortHash(token), "remote", r.RemoteAddr)
-		renderPage(w, "Invalid Link",
-			template.HTML("<p>This link is invalid, already used, or has expired.</p>"))
-		return
-	}
-	slog.Info("onboard token presented", "jid", jid, "token_hash", chanlib.ShortHash(token))
-
-	http.SetCookie(w, &http.Cookie{
-		Name: "onboard_jid", Value: jid, Path: "/",
-		MaxAge: 86400, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name: "auth_return", Value: "/onboard", Path: "/",
-		MaxAge: 86400, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
-	})
-
-	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
-		// Atomic claim by token: two parallel landings of the same token can
-		// both pass the SELECT above, but only the request whose UPDATE returns
-		// a row links the JID. The loser's RETURNING yields no row → no
-		// double-linkJID.
-		// Crash ordering: the membership edge is written BEFORE the token is
-		// consumed. The two live in different databases (edge in routd's,
-		// token in onbod's) with no cross-DB transaction, so one of them must
-		// survive a crash between the writes. Edge-first is safe wherever it
-		// crashes — AddMembership is INSERT OR IGNORE, so a replay writes the
-		// identical row and the still-live token simply gets used again.
-		// Consume-first would strand the user: token spent, no edge, no retry.
-		if jid, ok := jidForToken(obdb, token); ok {
-			if err := linkJID(db, obdb, jid, userSub); err != nil {
-				writeLinkErr(w, err)
-				return
-			}
-			if _, ok := claimByToken(obdb, token, userSub); !ok {
-				// Lost the race to a concurrent landing that wrote the same
-				// edge. Not an error.
-				slog.Info("onboarding token already claimed", "jid", jid)
-			}
-		}
-		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
-		return
-	}
-
-	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
-}
-
-// claimByToken atomically binds userSub to the onboarding row for token in one
-// statement, returning the claimed jid only when this caller won the race.
-// jidForToken resolves a live token to its JID WITHOUT consuming it. The
-// consume is a separate step that runs only after the membership edge is
-// durable — see the crash-ordering note on handleTokenLanding.
-// Both take the RAW token — what a redemption request presents — and hash it
-// internally, mirroring store.GetInvite/ConsumeInvite after I1.
-func jidForToken(obdb *sql.DB, token string) (string, bool) {
-	var jid string
-	// Keyed on the token's ref alone: the token is the secret and its ref is
-	// NULLed only by the consume step, so its presence IS "unclaimed".
-	// user_sub cannot be the guard here — linkJID sets it while approving,
-	// which would make a crash-replay look already-claimed and strand the
-	// still-live token.
-	err := obdb.QueryRow(
-		`SELECT jid FROM onboarding WHERE token_ref = ?`,
-		store.TokenRef(token)).Scan(&jid)
-	if err == sql.ErrNoRows {
-		return "", false
-	}
-	if err != nil {
-		slog.Error("resolve onboarding token", "err", err)
-		return "", false
-	}
-	return jid, true
-}
-
-// claimByToken consumes the token. Concurrent landings race here and exactly
-// one wins the UPDATE; the loser has already written the identical (idempotent)
-// edge, so nothing is lost.
-func claimByToken(obdb *sql.DB, token, userSub string) (string, bool) {
-	var jid string
-	// Keyed on the token's ref alone, for the same reason as jidForToken:
-	// linkJID has already set user_sub by this point. Atomicity is preserved
-	// because exactly one UPDATE can null a given token_ref and RETURN its row.
-	err := obdb.QueryRow(
-		`UPDATE onboarding
-		 SET user_sub = ?, status = 'token_used', token_ref = NULL
-		 WHERE token_ref = ?
-		 RETURNING jid`,
-		userSub, store.TokenRef(token)).Scan(&jid)
-	if err == sql.ErrNoRows {
-		return "", false
-	}
-	if err != nil {
-		slog.Error("claim onboarding by token", "err", err)
-		return "", false
-	}
-	return jid, true
-}
-
-func claimOnboarding(obdb *sql.DB, jid, userSub string) bool {
-	res, err := obdb.Exec(
-		`UPDATE onboarding
-		 SET user_sub = ?, status = 'token_used', token_ref = NULL
-		 WHERE jid = ? AND user_sub IS NULL`,
-		userSub, jid)
-	if err != nil {
-		slog.Error("claim onboarding", "jid", jid, "err", err)
-		return false
-	}
-	n, _ := res.RowsAffected()
-	return n == 1
-}
-
 // csrf is the double-submit token GET /onboard just minted; every form this
 // renders MUST echo it, because handleOnboardPost rejects a POST without it.
 func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, userSub, csrf string) {
-	if c, err := r.Cookie("onboard_jid"); err == nil && c.Value != "" {
-		claimed := claimOnboarding(obdb, c.Value, userSub)
-		// Single-use cookie: clear regardless of claim outcome.
-		http.SetCookie(w, &http.Cookie{
-			Name: "onboard_jid", Value: "", Path: "/",
-			MaxAge: -1, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
-		})
-		if claimed {
-			if err := linkJID(db, obdb, c.Value, userSub); err != nil {
-				writeLinkErr(w, err)
-				return
-			}
-		}
-	}
-
 	var username string
 	if err := db.QueryRow(`SELECT username FROM user_profiles WHERE sub = ?`, userSub).Scan(&username); err != nil {
 		renderPage(w, "Error", template.HTML("<p>User not found.</p>"))
@@ -863,88 +862,6 @@ func gateFromKey(key string, limit int) gate {
 	return gate{kind: kind, param: param, limitPerDay: limit}
 }
 
-// linkJID binds a platform JID to userSub (acl_membership — CROSS) then advances
-// the JID's onboarding row (queued or approved per the gates — OWNED). db is the
-// acl-membership DB; obdb owns onboarding + onboarding_gates.
-// errLinkRefused marks a user-facing refusal (already claimed, no gate match)
-// as distinct from an infrastructure failure: the caller answers 403 rather
-// than 500, but either way the user is told.
-var errLinkRefused = errors.New("link refused")
-
-func linkJID(db, obdb *sql.DB, jid, userSub string) error {
-	// Role memberships are excluded: acl_membership carries BOTH pairing edges
-	// (jid -> canonical sub) and role membership (jid -> role:operator), and a
-	// JID may legitimately hold both. Without the filter QueryRow can return
-	// the role row in undefined order and refuse a valid re-pair, naming a role
-	// as the "other account" — sloth has exactly this shape today.
-	var existingSub string
-	if err := db.QueryRow(
-		`SELECT parent FROM acl_membership WHERE child = ? AND parent NOT LIKE 'role:%'`, jid,
-	).Scan(&existingSub); err == nil && existingSub != userSub {
-		slog.Warn("jid already claimed", "jid", jid, "existing", existingSub, "attempted", userSub)
-		return fmt.Errorf("%w: %s is already linked to another account", errLinkRefused, jid)
-	}
-	now := time.Now().Format(time.RFC3339)
-	if _, err := db.Exec(
-		`INSERT OR IGNORE INTO acl_membership (child, parent, added_at, added_by)
-		 VALUES (?, ?, ?, 'linkJID')`,
-		jid, userSub, now); err != nil {
-		return fmt.Errorf("write pairing edge for %s: %w", jid, err)
-	}
-
-	gates := loadGates(obdb)
-	if len(gates) > 0 {
-		if g := matchGate(gates, userSub); g != nil {
-			k := gateKey(*g)
-			if _, err := obdb.Exec(
-				`UPDATE onboarding SET status = 'queued', user_sub = ?, gate = ?, queued_at = ? WHERE jid = ?`,
-				userSub, k, now, jid); err != nil {
-				return fmt.Errorf("queue %s: %w", jid, err)
-			}
-			audit.Emit(context.Background(), audit.Event{
-				Category: audit.CategoryMutation,
-				Action:   "onboarding.queue",
-				Actor:    "user:" + userSub,
-				ActorSub: userSub,
-				Surface:  audit.SurfaceREST,
-				Resource: "onboarding/" + jid,
-				Outcome:  audit.OutcomeOK,
-				ParamsSummary: map[string]any{
-					"jid":  jid,
-					"gate": k,
-				},
-			})
-			slog.Info("queued jid", "jid", jid, "user", userSub, "gate", k)
-			return nil
-		}
-		// Gates configured and none matched: a dead end, not a success. The row
-		// stays at token_used and no later pass revisits it, so the caller must
-		// tell the user rather than redirect them to an empty dashboard.
-		slog.Warn("no matching gate", "jid", jid, "user", userSub)
-		return fmt.Errorf("%w: no onboarding gate matches this account", errLinkRefused)
-	}
-
-	if _, err := obdb.Exec(`UPDATE onboarding SET status = 'approved', user_sub = ?, admitted_at = ? WHERE jid = ?`,
-		userSub, time.Now().UTC().Format(time.RFC3339), jid); err != nil {
-		return fmt.Errorf("approve %s: %w", jid, err)
-	}
-	audit.Emit(context.Background(), audit.Event{
-		Category: audit.CategoryMutation,
-		Action:   "onboarding.approve",
-		Actor:    "user:" + userSub,
-		ActorSub: userSub,
-		Surface:  audit.SurfaceREST,
-		Resource: "onboarding/" + jid,
-		Outcome:  audit.OutcomeOK,
-		ParamsSummary: map[string]any{
-			"jid":  jid,
-			"gate": "none",
-		},
-	})
-	slog.Info("approved jid", "jid", jid, "user", userSub, "gate", "none")
-	return nil
-}
-
 // adminFolders lists every folder the sub may administer. Spec 5/18 step 6 is
 // the caller CHOOSING which of THEIR worlds a JID lands in, so the whole set is
 // the answer — returning the first one SQLite happens to hand back picked for
@@ -1013,20 +930,6 @@ func scanFolders(db *sql.DB) ([]string, error) {
 		out = append(out, f)
 	}
 	return out, rows.Err()
-}
-
-// writeLinkErr surfaces a linkJID failure to the person who clicked the link.
-// Silently redirecting to an empty dashboard is what made the no-gate dead end
-// invisible: the row stalls, nothing revisits it, and the user is never told.
-func writeLinkErr(w http.ResponseWriter, err error) {
-	if errors.Is(err, errLinkRefused) {
-		slog.Warn("onboarding link refused", "err", err)
-		http.Error(w, err.Error(), http.StatusForbidden)
-		return
-	}
-	slog.Error("onboarding link failed", "err", err)
-	http.Error(w, "could not complete account link; try again or contact the operator",
-		http.StatusInternalServerError)
 }
 
 func renderQueuePosition(w http.ResponseWriter, db *sql.DB, gateStr, queuedAt string) {

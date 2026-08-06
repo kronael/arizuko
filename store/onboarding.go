@@ -9,11 +9,29 @@ import (
 	"github.com/kronael/arizuko/audit"
 )
 
+// InsertOnboarding records that jid is unrouted and awaiting setup. It fires
+// from routd's route-MISS branch, so it runs once per inbound message a route
+// table did not claim — never for a chat that already routes.
+//
+// That makes it the re-greet trigger too (spec 5/31 § Deleting "greet once,
+// ever"). `WHERE prompted_at IS NULL` used to be a permanent lockout: the jid
+// PRIMARY KEY blocks a fresh row, so a user whose link died could never get
+// another. Clearing prompted_at here arms the next poll tick, bounded two ways —
+// the caller must have MISSED (a routed chat never reaches this, which is why a
+// stale awaiting_message row for a since-routed chat is never greeted again),
+// and the last greeting must be older than PairingTTL, so at most one live link
+// exists at a time. A plain time cooldown in the poll query has neither bound
+// and would re-greet every stale row every ten minutes forever.
 func (s *Store) InsertOnboarding(jid string) error {
+	now := time.Now().UTC()
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO onboarding (jid, status, created)
-		 VALUES (?, 'awaiting_message', ?)`,
-		jid, time.Now().Format(time.RFC3339),
+		`INSERT INTO onboarding (jid, status, created)
+		 VALUES (?, 'awaiting_message', ?)
+		 ON CONFLICT(jid) DO UPDATE SET prompted_at = NULL
+		 WHERE onboarding.status = 'awaiting_message'
+		   AND onboarding.prompted_at IS NOT NULL
+		   AND onboarding.prompted_at < ?`,
+		jid, now.Format(time.RFC3339), now.Add(-PairingTTL).Format(time.RFC3339),
 	)
 	return err
 }
@@ -255,12 +273,22 @@ func (s *Store) DenyOnboarding(jid string) error {
 	})
 }
 
-// RepromptOnboarding resets an onboarding row's status back to awaiting_message so the
-// next poll tick re-sends the auth link.
+// RepromptOnboarding resets an onboarding row to awaiting_message so the next
+// poll tick greets it again. It is a FULL reset, admission verdict included:
+// after the fold the observer only advances a row with `user_sub IS NULL`
+// (spec 5/31), so leaving the old verdict's user_sub behind would re-greet the
+// chat and then never admit it again — a permanent stall of exactly the kind
+// BUGS O1 describes. The pairing edge is untouched; it is the user's consent,
+// not admission state, and the observer re-reads it on the next tick.
+//
+// It survives the fold as the operator's cooldown BYPASS. The cooldown in
+// InsertOnboarding is the routine reprompt; this is the button for a chat that
+// is not messaging again on its own.
 func (s *Store) RepromptOnboarding(jid string) error {
 	_, err := s.db.Exec(
 		`UPDATE onboarding
-		 SET status='awaiting_message', token_ref=NULL, prompted_at=NULL
+		 SET status='awaiting_message', token_ref=NULL, prompted_at=NULL,
+		     user_sub=NULL, gate=NULL, queued_at=NULL, admitted_at=NULL
 		 WHERE jid=?`, jid)
 	return err
 }

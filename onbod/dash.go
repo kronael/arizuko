@@ -79,6 +79,11 @@ func (a *admin) handleDash(w http.ResponseWriter, r *http.Request) {
 // actionForms renders the approve/deny/reprompt buttons for one row. Each is a
 // same-origin POST to a dash mutation shim. Deny is .btn-danger (drops the row;
 // the JID restarts onboarding on its next message). All HTML form POSTs — no JS.
+//
+// Reprompt is the operator's BYPASS of the greeting cooldown, not the only way
+// to re-greet: a chat that messages again past store.PairingTTL gets a fresh
+// link on its own (spec 5/31). It resets the row completely, admission verdict
+// included, so this row goes back to the start of the queue.
 func actionForms(jid string) string {
 	e := esc(jid)
 	return fmt.Sprintf(

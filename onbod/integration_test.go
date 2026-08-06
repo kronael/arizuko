@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,14 +22,14 @@ import (
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
-// tokenFromLink pulls the raw bearer out of an outbound "…/onboard?token=<raw>"
-// prompt. Since Z3 the DB holds only hex(sha256(token)), so a test that needs
-// the redeemable value must read it where the user does: the sent link.
+// tokenFromLink pulls the raw bearer out of an outbound "…/pair/<raw>" prompt.
+// route_tokens holds only sha256(token), so a test that needs the redeemable
+// value must read it where the user does: the sent link.
 func tokenFromLink(t *testing.T, body string) string {
 	t.Helper()
-	_, after, ok := strings.Cut(body, "/onboard?token=")
+	_, after, ok := strings.Cut(body, "/pair/")
 	if !ok {
-		t.Fatalf("no onboard link in outbound body: %q", body)
+		t.Fatalf("no pairing link in outbound body: %q", body)
 	}
 	tok, _, _ := strings.Cut(after, `"`)
 	return strings.TrimSpace(tok)
@@ -78,9 +79,10 @@ func newOnbodServer(t *testing.T) (*httptest.Server, *testutils.Inst, *testutils
 	return srv, inst, fake, cfg
 }
 
-// TestOnboardingFlow walks the full onboarding state machine:
-// awaiting_message → prompt (outbound fired) → token_used → approved +
-// group folder seeded on disk + group + user_groups + routes rows.
+// TestOnboardingFlow walks the full onboarding state machine after the fold
+// (spec 5/31): awaiting_message -> prompt (a PAIRING token, outbound fired) ->
+// RedeemPairing writes the edge -> the poll observer admits -> approved + group
+// folder seeded on disk + groups + acl + routes rows.
 func TestOnboardingFlow(t *testing.T) {
 	srv, inst, fake, cfg := newOnbodServer(t)
 
@@ -91,9 +93,9 @@ func TestOnboardingFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Trigger the poll step: promptUnprompted issues a POST to gatedURL
-	// and stamps token + prompted_at on the row.
-	promptUnprompted(inst.DB, cfg)
+	// Trigger the poll step: promptUnprompted mints the pairing token, issues a
+	// POST to gatedURL and stamps prompted_at on the row.
+	promptUnprompted(inst.DB, inst.DB, cfg)
 
 	reqs := fake.Requests()
 	if len(reqs) != 1 {
@@ -106,78 +108,76 @@ func TestOnboardingFlow(t *testing.T) {
 		t.Errorf("outbound body missing jid: %q", reqs[0].Body)
 	}
 
-	// The raw token exists ONLY in the link that just went out (Z3) — the DB
-	// keeps hex(sha256) in token_ref — so recover it from the outbound body,
-	// exactly as the user's chat client would.
+	// The raw token exists ONLY in the link that just went out — route_tokens
+	// keeps sha256(token) — so recover it from the outbound body, exactly as the
+	// user's chat client would.
 	token := tokenFromLink(t, string(reqs[0].Body))
-	var tokenRef, tokenExpires string
-	if err := inst.DB.QueryRow(
-		`SELECT token_ref, token_expires FROM onboarding WHERE jid = ?`, jid).Scan(&tokenRef, &tokenExpires); err != nil {
-		t.Fatalf("read token_ref: %v", err)
-	}
 	if len(token) != 64 {
 		t.Fatalf("want 64-char token, got %d", len(token))
 	}
-	if tokenRef != store.TokenRef(token) {
-		t.Fatalf("token_ref = %q, want TokenRef(sent token)", tokenRef)
+	st := store.New(inst.DB)
+	var stored []byte
+	if err := inst.DB.QueryRow(
+		`SELECT token_hash FROM route_tokens WHERE jid = ? AND kind = ?`,
+		jid, store.RouteTokenKindPair).Scan(&stored); err != nil {
+		t.Fatalf("read minted pairing row: %v", err)
 	}
-	if tokenRef == token {
-		t.Fatal("token stored in the clear — token_ref must be the hash, not the bearer")
+	if string(stored) == token {
+		t.Fatal("token stored in the clear — route_tokens must keep the hash, not the bearer")
 	}
-	// token_expires must be RFC3339 — SQL string comparison in
-	// handleTokenLanding ('token_expires > now') breaks if writer uses
-	// space-separated form (space < T) and reader uses RFC3339.
-	if _, err := time.Parse(time.RFC3339, tokenExpires); err != nil {
-		t.Errorf("token_expires not RFC3339: %q (%v)", tokenExpires, err)
-	}
-
-	// Consume the token. Use a client that does NOT follow redirects so
-	// we can inspect the Set-Cookie and Location headers.
-	c := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-	resp, err := c.Get(srv.URL + "/onboard?token=" + token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("token landing: status = %d", resp.StatusCode)
-	}
-	var onboardJID *http.Cookie
-	for _, ck := range resp.Cookies() {
-		if ck.Name == "onboard_jid" {
-			onboardJID = ck
-		}
-	}
-	if onboardJID == nil || onboardJID.Value != jid {
-		t.Fatalf("onboard_jid cookie not set; cookies=%v", resp.Cookies())
-	}
-	// Token presentation is idempotent — status & token unchanged. The
-	// claim happens at user_sub binding (post-OAuth dashboard hit) below.
-	var status string
-	inst.DB.QueryRow(`SELECT status FROM onboarding WHERE jid = ?`, jid).Scan(&status)
-	if status != "awaiting_message" {
-		t.Errorf("status = %q, want awaiting_message (presentation idempotent)", status)
+	// onbod mints no onboarding token of its own any more.
+	var legacy sql.NullString
+	inst.DB.QueryRow(`SELECT token_ref FROM onboarding WHERE jid = ?`, jid).Scan(&legacy)
+	if legacy.Valid {
+		t.Errorf("onboarding.token_ref = %q; the pairing link is the only credential", legacy.String)
 	}
 
-	// Seed the user_profiles row + POST create_world (fake proxyd by
-	// setting X-User-Sub; CSRF cookie + form field double-submit).
-	// Checked, not discarded: user_profiles.name is NOT NULL, so this seed
-	// silently failed for as long as it omitted the column, and every later
-	// assertion ran against a dashboard rendering "User not found" at 200.
+	// GET /pair is webd's and is side-effect-free; the redemption POST it fronts
+	// is store.RedeemPairing, which is what writes the edge.
 	sub := "github:alice"
 	if _, err := inst.DB.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES (?, ?, ?, ?)`, sub, sub, "Alice", time.Now().Format(time.RFC3339)); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
+	if peeked, err := st.PeekPairing(token); err != nil || peeked != jid {
+		t.Fatalf("PeekPairing = (%q, %v), want (%q, nil)", peeked, err, jid)
+	}
+	if paired, err := st.RedeemPairing(token, sub); err != nil || paired != jid {
+		t.Fatalf("RedeemPairing = (%q, %v)", paired, err)
+	}
+	var addedBy string
+	inst.DB.QueryRow(`SELECT added_by FROM acl_membership WHERE child = ?`, jid).Scan(&addedBy)
+	if addedBy != store.PairingAddedBy {
+		t.Errorf("edge added_by = %q, want %q — one writer, reachable by unpair",
+			addedBy, store.PairingAddedBy)
+	}
 
-	// First: GET /onboard so the dashboard handler links the JID (atomic
-	// user_sub claim on onboarding row).
+	// Admission is a poll now, not part of redemption.
+	var status string
+	inst.DB.QueryRow(`SELECT status FROM onboarding WHERE jid = ?`, jid).Scan(&status)
+	if status != "awaiting_message" {
+		t.Errorf("redemption advanced admission on its own: status=%q", status)
+	}
+	observePairings(inst.DB, inst.DB, cfg)
+
+	// Confirm onboarding row now approved and user_sub bound.
+	var gotSub, gotStatus string
+	inst.DB.QueryRow(`SELECT user_sub, status FROM onboarding WHERE jid = ?`,
+		jid).Scan(&gotSub, &gotStatus)
+	if gotSub != sub {
+		t.Errorf("onboarding.user_sub = %q, want %q", gotSub, sub)
+	}
+	if gotStatus != "approved" {
+		t.Errorf("onboarding.status = %q, want approved (no gates)", gotStatus)
+	}
+
+	c := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	// The pair success page sends the user here; /onboard is where the world
+	// choice happens (spec 5/18 step 6).
 	reqG, _ := http.NewRequest("GET", srv.URL+"/onboard", nil)
 	reqG.Header.Set("X-User-Sub", sub)
-	reqG.AddCookie(onboardJID)
 	respG, err := c.Do(reqG)
 	if err != nil {
 		t.Fatal(err)
@@ -195,17 +195,6 @@ func TestOnboardingFlow(t *testing.T) {
 	}
 	if csrf == nil {
 		t.Fatal("csrf cookie not set by dashboard GET")
-	}
-
-	// Confirm onboarding row now approved and user_sub bound.
-	var gotSub, gotStatus string
-	inst.DB.QueryRow(`SELECT user_sub, status FROM onboarding WHERE jid = ?`,
-		jid).Scan(&gotSub, &gotStatus)
-	if gotSub != sub {
-		t.Errorf("onboarding.user_sub = %q, want %q", gotSub, sub)
-	}
-	if gotStatus != "approved" {
-		t.Errorf("onboarding.status = %q, want approved (no gates)", gotStatus)
 	}
 
 	// POST create_world.
@@ -262,16 +251,16 @@ func TestOnboardingFlow(t *testing.T) {
 	if respR.StatusCode != http.StatusOK {
 		t.Fatalf("post-create landing: status=%d body=%s", respR.StatusCode, rbody)
 	}
-	var addedBy, addedVia string
+	var routeAddedBy, addedVia string
 	if err := inst.DB.QueryRow(
 		`SELECT COALESCE(added_by, ''), COALESCE(added_via, '') FROM routes
 		 WHERE target = 'alice' AND match = 'room=42'`,
-	).Scan(&addedBy, &addedVia); err != nil {
+	).Scan(&routeAddedBy, &addedVia); err != nil {
 		t.Fatalf("expected the linked jid routed after the landing: %v; page: %s", err, rbody)
 	}
-	if addedBy != sub || addedVia != routeViaSoleWorld {
+	if routeAddedBy != sub || addedVia != routeViaSoleWorld {
 		t.Errorf("route attribution = (%q, %q), want (%q, %q)",
-			addedBy, addedVia, sub, routeViaSoleWorld)
+			routeAddedBy, addedVia, sub, routeViaSoleWorld)
 	}
 
 	// SetupGroup side-effect: group folder + .claude dir exist on disk.
@@ -284,54 +273,8 @@ func TestOnboardingFlow(t *testing.T) {
 	}
 }
 
-// TestOAuthCallback: after OAuth, proxyd forwards with X-User-Sub + the
-// onboard_jid cookie from the token-landing step. The dashboard handler
-// atomically claims onboarding.user_sub and writes user_jids. Simulate
-// the cookie-bearing GET without going through OAuth itself (onbod has
-// no OAuth endpoint — auth/ does).
-func TestOAuthCallback(t *testing.T) {
-	srv, inst, _, _ := newOnbodServer(t)
-
-	jid := "discord:99"
-	sub := "google:bob@example.com"
-	// Row already past token landing (status=token_used).
-	inst.DB.Exec(`INSERT INTO onboarding (jid, status, token_expires, created)
-		VALUES (?, 'token_used', '2099-01-01T00:00:00Z', ?)`,
-		jid, time.Now().Format(time.RFC3339))
-	inst.DB.Exec(`INSERT INTO user_profiles (sub, username, created_at)
-		VALUES (?, ?, ?)`, sub, sub, time.Now().Format(time.RFC3339))
-
-	c := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-	req, _ := http.NewRequest("GET", srv.URL+"/onboard", nil)
-	req.Header.Set("X-User-Sub", sub)
-	req.AddCookie(&http.Cookie{Name: "onboard_jid", Value: jid})
-
-	resp, err := c.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("oauth-returned dashboard: status=%d", resp.StatusCode)
-	}
-
-	var gotSub string
-	inst.DB.QueryRow(`SELECT user_sub FROM onboarding WHERE jid = ?`, jid).Scan(&gotSub)
-	if gotSub != sub {
-		t.Errorf("onboarding.user_sub = %q, want %q", gotSub, sub)
-	}
-	var ujSub string
-	inst.DB.QueryRow(`SELECT parent FROM acl_membership WHERE child = ?`, jid).Scan(&ujSub)
-	if ujSub != sub {
-		t.Errorf("user_jids.user_sub = %q, want %q", ujSub, sub)
-	}
-}
-
-// TestGateRateLimit: with a wildcard gate of 2/day, linking 3 jids queues
-// all 3 and admitFromQueue approves only 2, leaving the third queued.
+// TestGateRateLimit: with a wildcard gate of 2/day, admitting 3 paired jids
+// queues all 3 and admitFromQueue approves only 2, leaving the third queued.
 func TestGateRateLimit(t *testing.T) {
 	_, inst, _, _ := newOnbodServer(t)
 
@@ -345,8 +288,8 @@ func TestGateRateLimit(t *testing.T) {
 	for i, jid := range []string{"telegram:1", "telegram:2", "telegram:3"} {
 		sub := "github:u" + string(rune('a'+i))
 		inst.DB.Exec(`INSERT INTO onboarding (jid, status, created)
-			VALUES (?, 'token_used', ?)`, jid, now)
-		linkJID(inst.DB, inst.DB, jid, sub)
+			VALUES (?, 'awaiting_message', ?)`, jid, now)
+		admitJID(inst.DB, config{}, jid, sub)
 	}
 
 	var queued int
