@@ -179,15 +179,29 @@ func upsertOAuthUser(db *sql.DB, userID, name, provider, providerSub string) err
 	return tx.Commit()
 }
 
+// execer is the write surface *sql.DB and *sql.Tx share, so the refresh INSERT
+// has ONE owner whether it runs standalone (a new family) or inside the claim
+// transaction (a rotation).
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
 // issueRefresh stores a new refresh token (raw returned to caller, only the
 // hash persisted) starting a fresh family.
 func issueRefresh(db *sql.DB, sub string, scope []string, aud string, ttl time.Duration) (string, error) {
-	return rotateRefresh(db, "", sub, scope, aud, ttl)
+	raw, err := insertRefresh(db, "", sub, scope, aud, ttl)
+	if err != nil {
+		return "", err
+	}
+	obs.RecordTokenMint("refresh")
+	return raw, nil
 }
 
-// rotateRefresh stores a successor refresh token in family fam (empty = new
-// family). Returns the raw token.
-func rotateRefresh(db *sql.DB, fam, sub string, scope []string, aud string, ttl time.Duration) (string, error) {
+// insertRefresh writes one refresh row into family fam (empty = new family) and
+// returns the raw token. It does NOT record the mint metric: on the rotation
+// path the caller must commit first, and a counter incremented by a rolled-back
+// transaction is a lie.
+func insertRefresh(x execer, fam, sub string, scope []string, aud string, ttl time.Duration) (string, error) {
 	raw, err := genRefresh()
 	if err != nil {
 		return "", err
@@ -196,14 +210,13 @@ func rotateRefresh(db *sql.DB, fam, sub string, scope []string, aud string, ttl 
 		fam = uuid.New().String()
 	}
 	exp := time.Now().Add(ttl)
-	_, err = db.Exec(
+	_, err = x.Exec(
 		`INSERT INTO refresh_tokens (token_hash, family_id, sub, scope, aud, issued_at, expires_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		hashToken(raw), fam, sub, strings.Join(scope, ","), aud, now(), exp.Format(time.RFC3339))
 	if err != nil {
 		return "", err
 	}
-	obs.RecordTokenMint("refresh")
 	return raw, nil
 }
 
@@ -237,20 +250,75 @@ func lookupRefresh(db *sql.DB, raw string) (refreshRow, bool) {
 	return r, true
 }
 
-// markRefreshUsed atomically claims a refresh token: the compare-and-set
-// `used_at IS NULL` guard means exactly one of N concurrent redeems of the same
-// token wins (rows-affected == 1). Losers see won=false and must NOT rotate —
-// a second live successor would fork the family and reuse-detection would never
-// fire. The caller revokes the family on a lost race.
-func markRefreshUsed(db *sql.DB, raw string) (won bool, err error) {
-	res, err := db.Exec(
-		`UPDATE refresh_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL`,
+// markRefreshUsed atomically claims a refresh token: the compare-and-set means
+// exactly one of N concurrent redeems of the same token wins (rows-affected ==
+// 1). Losers see won=false and must NOT rotate — a second live successor would
+// fork the family and reuse-detection would never fire. The caller revokes the
+// family on a lost race.
+//
+// The guard has TWO conjuncts and each closes a different half of BUGS F36:
+//
+//   - `used_at IS NULL` picks the single winner among concurrent redeems.
+//   - `revoked_at IS NULL` refuses a token whose family died between the
+//     caller's lookup and this statement. Without it a logout (oauth.go
+//     `logout` → revokeFamily) that commits inside that gap is simply not
+//     seen, the claim succeeds, and a successor is minted into a family the
+//     user just killed. The transaction in claimAndRotateRefresh cannot help
+//     there: a revoke that commits BEFORE the transaction opens is not an
+//     interleave, so the claim itself has to look.
+//
+// It takes an execer so the claim can run inside that transaction.
+func markRefreshUsed(x execer, raw string) (won bool, err error) {
+	res, err := x.Exec(
+		`UPDATE refresh_tokens SET used_at = ?
+		  WHERE token_hash = ? AND used_at IS NULL AND revoked_at IS NULL`,
 		now(), hashToken(raw))
 	if err != nil {
 		return false, err
 	}
 	n, err := res.RowsAffected()
 	return n == 1, err
+}
+
+// claimAndRotateRefresh claims raw and, on a win, inserts its successor in the
+// SAME transaction. This is the ordering fix for BUGS F36.
+//
+// The two statements used to be separate `db.Exec` calls with the grants
+// re-snapshot between them, so a competing redeem's `revokeFamily` — an
+// unconditional `UPDATE ... WHERE family_id = ? AND revoked_at IS NULL` —
+// could commit in the gap. It revoked the rows that existed at that moment,
+// the winner then inserted a successor with `revoked_at` NULL, and a family
+// killed for reuse walked away with a live 30-day credential.
+//
+// Inside one transaction that interleave is not expressible. SQLite has a
+// single writer, so a concurrent revoke either commits before the transaction
+// opens — and `markRefreshUsed`'s `revoked_at IS NULL` conjunct then refuses
+// the claim — or waits for the commit and revokes the successor along with the
+// rest of the family. A loser cannot even reach its revoke before the winner
+// commits: it learns it lost from this very UPDATE, whose write lock the
+// winner holds until COMMIT.
+//
+// won=false means "someone else claimed it, or the family is already dead" —
+// both are reuse from the caller's side, and both leave the DB untouched.
+func claimAndRotateRefresh(db *sql.DB, raw, fam, sub string, scope []string, aud string, ttl time.Duration) (newRaw string, won bool, err error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return "", false, err
+	}
+	defer tx.Rollback()
+	won, err = markRefreshUsed(tx, raw)
+	if err != nil || !won {
+		return "", false, err
+	}
+	newRaw, err = insertRefresh(tx, fam, sub, scope, aud, ttl)
+	if err != nil {
+		return "", false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false, err
+	}
+	obs.RecordTokenMint("refresh")
+	return newRaw, true, nil
 }
 
 func revokeFamily(db *sql.DB, fam string) error {

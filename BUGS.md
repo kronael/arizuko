@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## F36 — a refresh-token family kill can miss the successor it was racing (2026-08-06, open)
+## F36 — a refresh-token family kill can miss the successor it was racing (2026-08-06, FIXED)
 
 `Authd.Refresh` detects concurrent redeem of a one-time refresh token and
 revokes the lineage, but the revoke and the successor's insert are unordered,
@@ -65,11 +65,44 @@ the sign-off case.
 - **Scope:** authd refresh rotation (spec 5/1 § refresh reuse detection)
 - **Affected:** all instances
 - **Source:** authd/server.go:295-302,324; authd/store.go:256-261; authd/bugfix_test.go:131-168
-- **Status:** open — needs sign-off on the ordering fix
-- **Fix:** make the successor's insert and the family revoke mutually ordered
-  (one transaction, or revoke-after-insert), then keep
-  `TestRefreshRotationRaceSingleWinner` as the regression pin.
-- **Blocks:** a green `go test ./... -short` on the current tree.
+- **Status:** FIXED 2026-08-06
+- **Fix:** one transaction, as signed off. `claimAndRotateRefresh`
+  (`authd/store.go`) runs the compare-and-set and the successor's INSERT
+  together, so no `revokeFamily` can commit between them: SQLite has one
+  writer, and a loser learns it lost from the very UPDATE whose write lock the
+  winner holds until COMMIT.
+- **The remote call that looked like it forbade the transaction did not.** The
+  grants re-snapshot sat between the claim and the insert, and holding a SQLite
+  write lock across an HTTP round trip would stall every other write in
+  `auth.db` for its timeout. It moved AHEAD of the claim instead — it reads
+  `r.sub`, which `lookupRefresh` already returned, so it never depended on the
+  claim's outcome. Two side effects, both improvements: a grants outage no
+  longer burns the presented token, and the window in which two redeems both
+  pass the `used_at` check widens by one RTT, so genuinely simultaneous
+  redeems are more likely to be caught as the reuse they are.
+- **Second kill source, same hole, found while fixing this one.** `logout`
+  (`authd/oauth.go:413`) revokes the family too, and a revoke that commits
+  BEFORE the rotation's transaction opens is not an interleave — the
+  transaction cannot see it. So the claim itself now looks: the
+  compare-and-set gained a `revoked_at IS NULL` conjunct alongside `used_at IS
+NULL`. Without it a logout landing between a refresh's lookup and its claim
+  minted a successor into the family the user had just killed.
+- **Reproduced on demand before it was fixed, which the filed evidence could
+  not do.** `Authd.grants` is a `GrantsFetcher` interface and `Refresh` calls
+  it exactly once, so a fetcher that parks its first caller pins one redeem
+  mid-rotation while a competing redeem runs start to finish inside that
+  window. No sleeps and no scheduling luck: **10 of 10 failures** across five
+  runs of the two new tests at base `f7f759b0`, and 10 of 10 passes after.
+- **Each half is independently falsifiable, and the check found a vacuous
+  test.** Strip the transaction and only
+  `TestRefreshClaimRollsBackWhenSuccessorInsertFails` fails; strip the
+  `revoked_at` conjunct and only `TestRefreshAfterLogoutRevokeMintsNoSuccessor`
+  fails. The two barrier tests do NOT falsify the transaction on their own —
+  the grants reorder alone shrinks the win→insert gap to two adjacent local
+  statements, too small to steer a barrier into, and with the transaction
+  removed both still passed. That is why the transaction is pinned by a
+  timing-free test instead: a `BEFORE INSERT` trigger fails the successor's
+  INSERT, and only a real transaction rolls the claim back with it.
 
 ## F35 — onbod's `audit_log` is the fourth owner and the only one still unreadable (2026-08-06, open)
 

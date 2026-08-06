@@ -288,22 +288,24 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 	if time.Now().After(r.expires) {
 		return "", "", auth.ErrExpiredToken
 	}
-	// Atomic compare-and-set: only the goroutine that flips used_at NULL->now
-	// wins the right to rotate. A lost race means another redeem of the SAME
-	// token already won — concurrent redeem of a one-time token is reuse, so
-	// revoke the family and fail, exactly as a sequential replay would.
-	won, err := markRefreshUsed(a.db, raw)
-	if err != nil {
-		return "", "", err
-	}
-	if !won {
-		_ = revokeFamily(a.db, r.family)
-		return "", "", errReuse
-	}
 	// Re-snapshot grants on refresh so a revoked user does not keep scope up to
 	// the refresh TTL (spec 5/1 § refresh). With no fetcher wired, the stored
 	// scope is the ceiling; with one, the fresh snapshot is, and a backend
 	// outage fails CLOSED (mint nothing) rather than reusing stale scope.
+	//
+	// This runs BEFORE the claim, and the order is load-bearing for BUGS F36:
+	// the claim and the successor's INSERT have to share one transaction, and a
+	// remote HTTP call cannot sit inside it — SQLite has a single writer, so
+	// holding the write lock across a FetchGrants round trip would stall every
+	// other write in auth.db for its full timeout. Nothing here depends on the
+	// claim's outcome; it reads r.sub, which lookupRefresh already returned.
+	//
+	// Two consequences, both accepted. A grants outage no longer burns the
+	// presented token (it is refused before the claim), which is strictly
+	// kinder than spending it for nothing. And the window in which two redeems
+	// can both pass the used_at check widens from a local query to one RTT — so
+	// two genuinely simultaneous redeems are more likely to be seen as the
+	// reuse they are, and reuse is what this path exists to catch.
 	scope := r.scope
 	if a.grants != nil {
 		// r.sub is ALREADY the bare canonical sub (issueSession stores it bare,
@@ -321,9 +323,19 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 			return "", "", errGrantsUnavailable
 		}
 	}
-	newRefresh, err = rotateRefresh(a.db, r.family, r.sub, scope, r.aud, a.refreshTTL)
+	// Atomic compare-and-set plus the successor's INSERT, in ONE transaction:
+	// only the caller that flips used_at NULL->now wins the right to rotate,
+	// and no family kill can land between its win and its insert. A lost race
+	// means another redeem of the SAME token already won, or the family died
+	// under us — concurrent redeem of a one-time token is reuse, so revoke the
+	// family and fail, exactly as a sequential replay would.
+	newRefresh, won, err := claimAndRotateRefresh(a.db, raw, r.family, r.sub, scope, r.aud, a.refreshTTL)
 	if err != nil {
 		return "", "", err
+	}
+	if !won {
+		_ = revokeFamily(a.db, r.family)
+		return "", "", errReuse
 	}
 	// r.sub is the BARE canonical sub (spec 5/1 "sub prefix rule"); the user:
 	// prefix is added ONLY here at mint, so the access claim stays "user:<sub>".
