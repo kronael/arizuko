@@ -10,11 +10,10 @@ status: partial
 > `get_package` tools, each gated on the whole tree because the record is
 > instance-wide. The surface is READ-ONLY on purpose: install / upgrade / remove
 > writes host files and restarts sidecars, so a write face here would be a second
-> install path beside the CLI's.
-> Still open: `applyPackageRoutes` writes proxyd routes with no audit row, while
-> `applyPackageGrants` beside it in the same install path audits per grant (BUGS
-> `F2`); and the "Composition" section below is unbuilt — no reader for
-> `products.toml` exists (BUGS `F3`).
+> install path beside the CLI's. Route install now audits too (BUGS `F2`, closed
+> `06c98611`), so one package's lifecycle — the top half of this spec — is built.
+> Still open: "Composition" below is DEFERRED, not shipped — no reader for
+> `products.toml` exists, and its lock is unresolved (BUGS `F29`).
 
 Source-first package manager: a package is a **git source** (GitHub URL,
 resolved to an immutable revision) that ships a **manifest** plus any subset of
@@ -165,7 +164,14 @@ packaging — it does not grow into a second package manager, and
 proxyd's handler — the live table updates (not a JSON blob proxyd ignores when
 its table is non-empty). The record names what to remove; no ownership guessing.
 
-## Composition — blending an ordered product list
+## Composition — blending an ordered product list (DEFERRED, nothing below is built)
+
+**Nothing in this section exists.** No reader for `products.toml` is in tree;
+`arizuko create --product` / `group add --product` still take exactly ONE
+product and seed it by verbatim copy (`container/runner.go:979` →
+`chanlib.CopyDirNoSymlinks`). It is kept as a design record, and it is blocked
+on a contradiction with the record above rather than on effort — see
+"Composition's unresolved lock" under Deferred.
 
 A group is not limited to one product: `~/products.toml` is the ordered
 mix (`source =` per entry, resolved the same way packages are — local dir
@@ -214,6 +220,41 @@ Registry / marketplace / OCI / signing; semver dependency solving; fleet-wide
 upgrade; shared-sidecar refcounting (declared deps + reverse-remove refusal
 suffice); arbitrary agent-setup actions during install; `arizuko-package`
 GitHub-topic discovery; the sidecar per-group `MCP.json` (dropped, `5/13`).
+
+### Composition's unresolved lock
+
+The section above is not deferred for effort. **Its lock and its subject sit at
+different scopes, and this spec asserts they are the same object.** "The
+installed-package record" above says the lock composition needs IS the
+per-instance installed record — but that record is
+`installed_packages(name TEXT PRIMARY KEY, …)` with no folder column
+(`routd/migrations/0020-installed-packages.sql`, whose own comment reads "one
+row per package installed on this instance"), while `~/products.toml` is a
+GROUP-home file, one mix per group. A per-group mix cannot key into an
+instance-keyed table. Building the managed column therefore forces one of:
+
+- a second, group-scoped lock — the "second package manager" this spec forbids
+  in its own `/migrate` paragraph; or
+- refolding a shipped routd table to `(folder, name)` — an owned-schema change
+  needing sign-off.
+
+Until that is decided, three further gaps make the section unimplementable as
+written, each an invention rather than a build:
+
+- the blend table's third column names a group-scoped `sync` / `update` verb
+  that does not exist and is specified nowhere;
+- "`CLAUDE.md` appended as marked sections" names no marker convention;
+- the payload kinds do not match the corpus. No product in `ant/examples/`
+  ships `skills/`, `tasks.toml`, `settings.json`/`mcpServers`,
+  `Dockerfile.ant`, or `migrations/`; 7 of 10 ship `SOUL.md` — the legacy
+  persona name, auto-migrated only at READ time (`container/runner.go:497`) —
+  which the table never names; and every product ships `PRODUCT.md` (two also
+  ship `BRANDING.md`), also unnamed, so a table-strict blend would DROP them
+  and regress today's verbatim seed. "Tier C" beside `Dockerfile.ant` is
+  defined nowhere in the corpus.
+
+This is a merge/scope decision, not a coding task: settle whether composition
+is group-scoped at all before a reader is written.
 
 ## Code pointers
 

@@ -99,11 +99,11 @@ data entities defined here, and `9/3` moves the cold tier into git.
 
 ## Packaging and distribution
 
-| Spec                                                             | Status  | Hook                                                                                                                                                       |
-| ---------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [28-packages.md](28-packages.md)                                 | partial | **The package manager (canonical lifecycle) and composition** — one package's install/upgrade/remove, plus how a group blends an ordered LIST of products. |
-| [27-compose-native-packaging.md](27-compose-native-packaging.md) | shipped | Compose `profiles:` for optional daemons and `include:` for adapter fragments — no custom DSL.                                                             |
-| [21-products.md](21-products.md)                                 | draft   | Producer side — what a product contains and how it is authored.                                                                                            |
+| Spec                                                             | Status  | Hook                                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [28-packages.md](28-packages.md)                                 | partial | **The package manager (canonical lifecycle)** — one package's install/upgrade/remove, built. Composition (a group blending an ordered LIST of products) is DEFERRED: its lock is instance-keyed and its subject is group-scoped (`F29`). |
+| [27-compose-native-packaging.md](27-compose-native-packaging.md) | shipped | Compose `profiles:` for optional daemons and `include:` for adapter fragments — no custom DSL.                                                                                                                                           |
+| [21-products.md](21-products.md)                                 | draft   | Producer side — what a product contains and how it is authored.                                                                                                                                                                          |
 
 ## Docs, tooling, interop
 
