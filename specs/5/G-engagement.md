@@ -1,31 +1,10 @@
 ---
-status: partial
+status: shipped
 depends: [B-route-mode-ingestion, F-topic-lineage, L-mention-promotion]
 relates-to: [3/Y-thread-routing, 5/Y-output-styles-per-surface]
 ---
 
 # specs/5/G — engagement: stay in the conversation after a mention
-
-> **Status (2026-08-06).** The design below is all built. What is left is the
-> tail of `specs/CLAUDE.md`'s definition of done, items 5-7 — none of it new
-> design, and item 6 is the one real decision.
->
-> Item 6 (dashboard) is now HALF met: `/dash/engagement/` ships as a VIEW
-> (§"The operator surface"), which closed BUGS `F31`. The DoD asks for "view
-> AND control". The control is deliberately not built: it needs `routes:write`
-> in `serviceGrants["service:dashd"]`, and widening a write ceiling is a
-> sign-off, not an implementation detail — the read half was signed off, the
-> write half was not. `authd/service_dashd_test.go` pins `routes:write` as
-> too-wide so the grant cannot drift there by accident.
->
-> Item 5 (online) has its content — `concepts/engagement.html` documents the
-> TTL, all three `/v1/engagement` faces and now the dashboard page — but the
-> `/pub` deploy + 200 check has not run. Item 7 (migration + broadcast) has no
-> migration file and no `MIGRATION_VERSION` bump, so no live agent has been told.
->
-> Items 1-4 hold: code + tests are green, the spec and `specs/5/index.md` row
-> are current, `routd/README.md` + `dashd/README.md` + `ROUTING.md` carry it,
-> and the hot-tier placement is stated in §"The read surface".
 
 ## What this solves
 
@@ -185,23 +164,51 @@ fails it.
 ## The operator surface
 
 `/dash/engagement/` (`dashd/engagement_page.go`) lists the live windows —
-chat, thread, group, time left. It reads the list face above over HTTP with the
-`service:dashd` bearer; it does NOT read `chat_reply_state` out of `dbRoutd`,
-which dashd has mounted. routd owns those columns and applies the containment,
-and the direct-DB read is dashd's own recorded defect class.
+chat, thread, group, time left — and ends one on demand. Both faces go over
+HTTP with the `service:dashd` bearer through one client (`routdCall`; `routdGet`
+is its GET wrapper). Neither touches `chat_reply_state` in `dbRoutd`, which
+dashd has mounted: routd owns those columns, applies the containment, and writes
+the audit row, and the direct-DB access is dashd's own recorded defect class.
 
-**It is a VIEW, and the grant matches.** `serviceGrants["service:dashd"]`
-(`authd/http.go`) carries `routes:read` and deliberately not `routes:write`: a
-window ends on its own at TTL, and the two writers that end one early
-(`disengage`, `POST /v1/engagement`) both keep the audit row inside routd's
-transaction. A dashboard button would be a third writer, so it is not offered
-until that is decided.
+**View AND control, both through `/v1`.** `POST /dash/engagement/disengage`
+ends one window now — the remedy for a runaway engagement, which otherwise had
+none but waiting out the TTL. It posts `ttl_seconds=0` to routd's
+`POST /v1/engagement`, behind a confirm like every other dashd danger-zone
+action, and never touches `dbRoutd`.
 
-`routes:read` is not a widening of what dashd can see — dashd is FS-mounted on
-routd.db and already reads routes, groups and route tokens from the table, so
-the scope is a strict subset of the reach it holds. It exposes no secret: its
-widest read, `ListRouteTokens`, selects jid/owner_folder/created_at/context and
-never the token value.
+Going through routd is what makes the control safe rather than merely
+convenient, and it is the argument that earned `routes:write` on
+`serviceGrants["service:dashd"]` (`authd/http.go`) after the read half shipped
+without it. The write half owed two things, and both are in routd:
+
+- **The audit row rides the write's transaction.** `DB.SetEngagementAudited`
+  opens one tx for the upsert and `audit.EmitInTx`
+  (`engagement.set` / `engagement.clear`, category `mutation`). Before this,
+  `POST /v1/engagement` wrote NO audit row at all — an operator ending someone's
+  conversation appends no message and runs no turn, so nothing recorded it. The
+  un-audited `SetEngagement` survives for the per-turn claim sites (dispatch,
+  the agent's tools), which are already recorded and would otherwise bury the
+  operator trail in per-turn noise.
+- **The write contains on the CLAIMING folder.** The request's `folder` is
+  caller-supplied, so `ownsFolder(caller, req.Folder)` bounds only what the
+  caller ASKS to write, and `ownsJID` resolves the jid's ROUTE TARGET — neither
+  looks at who holds the window. A tenant naming its own folder could therefore
+  clear a sibling's window that `GET /v1/engagement` would never have shown it.
+  `handleEngagementSet` now applies `ownsFolder(caller, live.Folder)`, the same
+  predicate `ListEngaged` applies per row, so the write face can never reach
+  what the read face hides. Guarded by
+  `TestEngagementSet_NoCrossFolderWrite`, which sends the honest-looking
+  `folder` — the lying value is the attack, and asserting on an obviously
+  cross-folder one passes against the pre-existing check and proves nothing.
+
+Neither scope is a widening of what dashd can reach. dashd is FS-mounted on
+routd.db and already reads AND writes routes, groups and route tokens straight
+out of the table, so both are strict subsets of the reach it holds; what they
+buy is one page moving off the direct-DB path. `routes:read` exposes no secret
+either: its widest read, `ListRouteTokens`, selects
+jid/owner_folder/created_at/context and never the token value.
+`authd/service_dashd_test.go` pins the ceiling at exactly these three by count,
+so a fourth scope fails there whether or not anyone thought to blacklist it.
 
 **Operator-only, and that is load-bearing.** dashd's service token carries an
 EMPTY folder claim, which is exactly the list-all key above — so the page shows

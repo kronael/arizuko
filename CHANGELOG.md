@@ -80,13 +80,31 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   for — it now rides authd's signed `StateIntent.Return`. CSRF moved to
   `auth/csrf.go`, shared by webd and onbod instead of copied.
 
-- **Engagement is readable: a deadline and a list (spec `5/G`).**
+- **Engagement is readable and stoppable (spec `5/G`).**
   `GET /v1/engagement?jid=` now returns `engaged_until`, and
   `GET /v1/engagement` with no `jid` lists the live windows in the caller's
   subtree, newest deadline first — so an operator can find engaged chats
   instead of only looking up a jid they already knew. Only a root/service
   token (empty folder claim) sees the whole fleet; a tenant sees its own
   subtree and never an unclaimed window.
+
+  `/dash/engagement/` puts that list in the dashboard and gives each row a
+  **disengage** button, behind a confirm. A runaway engagement — the agent
+  replying in a chat nobody wants it in — had no operator remedy but waiting
+  out the TTL. The button goes through routd's `POST /v1/engagement`, never
+  dashd's own `routd.db` handle, which is what earns `routes:write` on the
+  `service:dashd` grant: routd applies the containment and writes the audit
+  row, and a direct-DB write would have done neither.
+
+  Two gaps closed on the way. `POST /v1/engagement` wrote **no audit row at
+  all** — an operator ending a conversation appends no message and runs no
+  turn, so there was no trace it happened; the row now rides the write's own
+  transaction (`engagement.set` / `engagement.clear`). And the write's
+  containment checked the jid's ROUTE TARGET while a live window belongs to
+  the folder that CLAIMED it — with the body's `folder` caller-supplied, a
+  tenant could clear a sibling's window that `GET /v1/engagement` would never
+  have shown it. The write now contains on the claiming folder, the same
+  predicate the list applies per row.
 
   The docs now match: `concepts/engagement.html` documents all three faces and
   says 30 minutes, which is what routd has always run. It said 20, and so did

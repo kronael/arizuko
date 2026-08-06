@@ -71,12 +71,31 @@ own transaction.
   `time.Since` and renders every future deadline as "now".
   `proxydUpstreamErr` was generalized to `upstreamErr(daemon, …)` rather than
   copied — one renderer, two sinks.
-- **NOT shipped — the write half.** No disengage control, and `routes:write` is
-  pinned as too-wide in `authd/service_dashd_test.go`. A window expires on its own;
-  both early writers keep the audit row inside routd's transaction, so a dashboard
-  button is a third writer and a separate sign-off. `5/G` DoD item 6 asks for
-  "view AND control", so it stays half-met and `5/G` stays `partial`.
-- **Blocks:** `specs/5/G` definition-of-done item 6 — half closed.
+- **Shipped 2026-08-06 — the write half, on a second sign-off.**
+  `serviceGrants["service:dashd"]` is now `{"runs:kill", "routes:read",
+  "routes:write"}` and `POST /dash/engagement/disengage` ends a window now,
+  behind a confirm, through routd's `POST /v1/engagement` (`ttl_seconds=0`) —
+  never `dbRoutd`. The two conditions this entry named as owed were both false
+  when it was written, and both are now true:
+  - `POST /v1/engagement` wrote **no audit row at all** — the claim that "both
+    early writers keep the audit row inside routd's transaction" held for
+    neither (`disengage` writes an `ipc_audit` + `audit-system.jl` row through
+    the `granted` tool wrapper, not an `audit_log` row in the write's tx; the
+    REST face wrote nothing). `DB.SetEngagementAudited` now opens one tx for the
+    upsert + `audit.EmitInTx` — `engagement.set` / `engagement.clear`, category
+    `mutation`. The un-audited `SetEngagement` stays for the per-turn claim sites
+    off one shared statement, so the two cannot drift.
+  - The write's containment checked the jid's ROUTE TARGET (`ownsJID`) and the
+    caller-supplied `req.Folder` (`ownsFolder`), never the folder HOLDING the
+    window — so a tenant naming its own folder could clear a sibling's window
+    that `GET /v1/engagement` would never have shown it. Now contained on the
+    live window's claiming folder, the same predicate `ListEngaged` uses.
+  `routes:write` was accepted on the same reasoning as `routes:read`: dashd is
+  FS-mounted on routd.db and already WRITES routes/groups directly, so the scope
+  is a subset of reach it holds and what it buys is a mutation moving off the
+  direct-DB path. `authd/service_dashd_test.go` now pins the ceiling by COUNT as
+  well as by name, so a fourth scope fails whether or not it was blacklisted.
+- **Closed:** `specs/5/G` definition-of-done item 6 — `5/G` is `shipped`.
 
 ## ✅ FIXED 2026-08-06 F32 — timed's `/openapi.json` advertises four operations timed does not serve (2026-08-06, FIXED)
 
@@ -141,6 +160,51 @@ name got into the list. A client is not a server.
   that timed's mux serves none of them and advertises none of them. Proved
   falsifiable: restoring `[]string{"scheduled_tasks"}` failed this test with all
   five operations named, and no other package in the tree failed.
+
+## F34 — "who ended this engagement" has two answers in two tables (2026-08-06, PROPOSED — needs sign-off)
+
+Found while shipping `5/G`'s disengage control, which fixed the REST half only.
+
+A `(jid, topic)` window can be ended early by two callers, and they now record it
+in two different places:
+
+- **REST** — `POST /v1/engagement` writes an `audit_log` row inside the write's
+  own transaction (`routd DB.SetEngagementAudited`, `engagement.clear`). This is
+  what `/dash/engagement/`'s button uses.
+- **MCP** — the agent's `disengage` tool writes an `ipc_audit` row plus an
+  `audit-system.jl` line, through the generic wrapper every `granted` tool passes
+  (`ipc/ipc.go:909`). No `audit_log` row, and not in the write's transaction —
+  `db.SetEngagement` is a bare Exec.
+
+So an operator asking "who stopped the bot talking in this chat" must query
+`audit_log` AND `ipc_audit` and merge two schemas, and only one of the two
+answers is transactional. `/dash/audit/` reads `audit_log`, so the agent's own
+disengages are invisible there.
+
+This is the same shape as root `CLAUDE.md`'s "one renderer, many sinks": two
+paths into one question drift. Note the older claim that both writers were
+already audited in routd's transaction — repeated in `F31`, `5/G`, the
+`serviceGrants` comment and `dashd/README.md` — was true of neither before today
+and is true of one now; those four sites are corrected.
+
+The fix is not local. `ipc_audit` predates `audit_log` and ~45 hand-rolled ipc
+tools feed it (`store/ipc_audit.go` already says new callers should prefer
+`audit.EmitInTx`), so moving `disengage` alone would make engagement the one tool
+that reports differently from its neighbours — trading a split between SURFACES
+for a split between TOOLS. The real question is whether the `granted` wrapper
+should emit `audit_log` for every state-changing tool, which is a cross-cutting
+contract change over every ipc tool and therefore a sign-off, not an inline fix.
+
+- **Severity:** low (both writes ARE recorded; the cost is that answering one
+  question takes two queries, and `/dash/audit/` shows only half)
+- **Scope:** `ipc` audit contract vs `audit_log` (specs 5/I, 5/G, 5/16)
+- **Affected:** all instances
+- **Source:** ipc/ipc.go:873-925,1571-1578; routd/db.go SetEngagement /
+  SetEngagementAudited; store/ipc_audit.go:16; dashd audit page reads audit_log
+- **Status:** PROPOSED — the narrow fix (disengage only) is worse than the gap;
+  the cause fix is the `granted` wrapper, which needs sign-off
+- **Blocks:** nothing. `5/G` is shipped — its DoD asks that the dashboard
+  mutation be audited, and it is.
 
 ## F33 — `OpenAPIHandler` takes an advertised set with no reference to the mux (2026-08-06, PROPOSED — needs sign-off)
 

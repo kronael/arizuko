@@ -111,7 +111,11 @@ Endpoints (`server.go`, `channels.go`):
   reads one pair (`folder`, `engaged_until`, `last_reply_id`); `GET` with no
   `jid` LISTS the live windows in the caller's subtree, newest deadline first
   — only an empty (root/service) folder claim widens it to the fleet. `POST`
-  engages; `ttl_seconds <= 0` disengages.
+  engages; `ttl_seconds <= 0` disengages. The write is contained on the LIVE
+  window's CLAIMING folder (the body's `folder` is caller-supplied and does not
+  widen it), so it can never reach a window the list would not show, and it
+  lands its `audit_log` row inside the write's own transaction
+  (`DB.SetEngagementAudited`) — `engagement.set` / `engagement.clear`.
 - `GET /v1/sessions` — session info
 - `GET /v1/users/{sub}/scopes` — login-time scope snapshot (`grants:read`)
 - `POST /v1/acl`, `DELETE /v1/acl` — acl grant/revoke (`acl:write`)
