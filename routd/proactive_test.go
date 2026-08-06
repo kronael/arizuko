@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
 // defaultProactiveCfg is the spec-default tuning with the kill switch on,
@@ -387,6 +389,192 @@ func TestMaybeScanProactiveDisabled(t *testing.T) {
 	if countProactiveRows(t, db, "slack:T/C/U") != 0 {
 		t.Fatal("disabled proactive fired")
 	}
+}
+
+// lurkGroup lays a lurk-mode CLAUDE.md on disk for folder and points the loop's
+// mode cache at it, with the spec-default tuning.
+func lurkGroup(t *testing.T, l *Loop, folder string) {
+	t.Helper()
+	root := t.TempDir()
+	gdir := filepath.Join(root, folder)
+	if err := os.MkdirAll(gdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeClaudeMD(t, gdir, "---\nproactive:\n  mode: lurk\n---\n")
+	l.modes = newModeCache(root)
+	l.proactive = defaultProactiveCfg()
+}
+
+// consumeSeeded advances the chat's agent cursor past the seeded inbounds. The
+// scan needs ≥90s of silence to fire at all, so by then those messages have long
+// since been dispatched and the synthetic row is the only new one. Without this
+// the same pass would also run a turn for the human sender, and THAT turn (not
+// the proactive one) would bump engagement.
+func consumeSeeded(t *testing.T, db *DB, jid string, now time.Time, gap time.Duration) {
+	t.Helper()
+	if err := db.SetAgentCursor(jid, now.Add(-gap).UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// proactiveSilentRunner is a runed whose agent considers the turn and says
+// nothing: it records a turn result (deliberate silence still reports one) and
+// returns outcome:"silent" without appending any reply.
+type proactiveSilentRunner struct {
+	srv  *Server
+	runs int
+}
+
+func (r *proactiveSilentRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+	r.runs++
+	if first, _ := r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "sess-silent", "success"); first {
+		_ = r.srv.db.SetTurnState(req.TurnID, "done")
+	}
+	return runedv1.RunOutcome{RunID: "run-silent", Outcome: runedv1.OutcomeSilent, SessionID: "sess-silent"}, nil
+}
+
+// TestProactiveSilentOutcomeArmsCooldown is acceptance #3: the agent judges
+// there is nothing to add, so no message is delivered and the run reports
+// outcome:"silent" — and the cooldown is armed anyway, because a
+// considered-but-empty turn counts.
+//
+// The cooldown is the ONLY thing standing between a silent turn and an
+// immediate re-fire: a turn that said nothing leaves no bot row, so BotQuiet
+// cannot veto, the synthetic row does not reset the silence clock, and the
+// unanswered question is still unanswered. Without it the channel would be
+// re-interjected every scan interval forever.
+func TestProactiveSilentOutcomeArmsCooldown(t *testing.T) {
+	runner := &proactiveSilentRunner{}
+	db, srv := newTypingRoutd(t, runner, nil, 0) // the runner-parameterized fixture
+	runner.srv = srv
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
+	lurkGroup(t, srv.loop, "demo")
+
+	const jid = "slack:T/C/U"
+	now := time.Now().UTC()
+	seedQuestion(t, db, jid, now, 5*time.Minute, 3)
+	consumeSeeded(t, db, jid, now, 5*time.Minute)
+
+	srv.loop.scanProactive(now)
+	if n := countProactiveRows(t, db, jid); n != 1 {
+		t.Fatalf("proactive rows after scan = %d, want 1", n)
+	}
+	had, err := srv.loop.processGroupMessages(jid)
+	if err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if runner.runs != 1 {
+		t.Fatalf("runs = %d, want 1 — the silent turn never reached runed", runner.runs)
+	}
+
+	// "no message": nothing was delivered or persisted for the user.
+	if n := countBots(t, db, jid); n != 0 {
+		t.Errorf("silent turn produced %d bot rows, want 0", n)
+	}
+	// `outcome:"silent"`: routd reports the turn as having produced no output.
+	if had {
+		t.Error("routd reported output for an outcome:silent run")
+	}
+	// The turn was still considered — the result is recorded.
+	if !db.TurnResultRecorded("demo", proactiveTurnID(t, db, jid)) {
+		t.Error("silent turn recorded no turn result")
+	}
+
+	// "cooldown still set".
+	fired := db.ProactiveLastFired(jid)
+	if fired.IsZero() {
+		t.Fatal("cooldown not armed by a silent turn")
+	}
+	later := now.Add(time.Minute)
+	if r := evalProactive(db, defaultProactiveCfg(), lurk, jid, later); r.fired || r.check != "Cooldown" {
+		t.Fatalf("re-eval after a silent turn: want skip Cooldown, got %+v", r)
+	}
+	srv.loop.scanProactive(later)
+	if n := countProactiveRows(t, db, jid); n != 1 {
+		t.Errorf("second scan re-fired after a silent turn: %d proactive rows, want 1", n)
+	}
+	if runner.runs != 1 {
+		t.Errorf("runs = %d after the second scan, want 1", runner.runs)
+	}
+}
+
+// TestProactiveTurnDoesNotBumpEngagement is acceptance #6: a proactive turn
+// must not open an engagement window, so the next user message routes exactly as
+// it would have.
+//
+// Engagement OVERRIDES the route table (loop.resolve), which is what makes the
+// claim observable: re-point the route afterwards and an engaged chat stays
+// captured by its window while a chat that only had a proactive turn follows the
+// new route. The human-triggered chat is the control — it runs the identical
+// flow on the same server and DOES record engagement, so the proactive chat's
+// assertion cannot pass merely because this fixture never engages anything.
+func TestProactiveTurnDoesNotBumpEngagement(t *testing.T) {
+	db, srv, _ := newTestRoutd(t)
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	_ = db.PutGroup(core.Group{Folder: "other"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
+	lurkGroup(t, srv.loop, "demo")
+
+	const proJID = "slack:T/CP/U"
+	const humanJID = "slack:T/CH/U"
+	now := time.Now().UTC()
+
+	// The proactive chat: scan fires the synthetic inbound, the turn runs, the
+	// agent replies through the normal callback.
+	seedQuestion(t, db, proJID, now, 5*time.Minute, 3)
+	consumeSeeded(t, db, proJID, now, 5*time.Minute)
+	srv.loop.scanProactive(now)
+	if n := countProactiveRows(t, db, proJID); n != 1 {
+		t.Fatalf("proactive rows after scan = %d, want 1", n)
+	}
+	if _, err := srv.loop.processGroupMessages(proJID); err != nil {
+		t.Fatalf("process proactive: %v", err)
+	}
+	if countBots(t, db, proJID) == 0 {
+		t.Fatal("the proactive turn delivered nothing — the engagement write site was never reached")
+	}
+
+	// The control: a human-triggered turn on another chat, same server, same
+	// folder, same runner.
+	if err := db.PutMessage(core.Message{ID: "h1", ChatJID: humanJID, Sender: "u1",
+		Content: "hey", Timestamp: now, Verb: "message"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.loop.processGroupMessages(humanJID); err != nil {
+		t.Fatalf("process human: %v", err)
+	}
+	if _, ok := db.Engaged(humanJID, ""); !ok {
+		t.Fatal("control: a human turn opened no engagement window — the assertion below would prove nothing")
+	}
+
+	if folder, ok := db.Engaged(proJID, ""); ok {
+		t.Errorf("the proactive turn opened an engagement window on %s (folder %q)", proJID, folder)
+	}
+
+	// The routing consequence, with the route re-pointed under both chats.
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "other"}})
+	next := core.Message{Sender: "u1", Content: "and now?", Timestamp: now.Add(time.Minute), Verb: "message"}
+	next.ChatJID = proJID
+	if f, ok := srv.loop.resolveGroup(proJID, next); !ok || f != "other" {
+		t.Errorf("next message after a proactive turn resolved to (%q,%v), want (other,true)", f, ok)
+	}
+	next.ChatJID = humanJID
+	if f, ok := srv.loop.resolveGroup(humanJID, next); !ok || f != "demo" {
+		t.Errorf("control: next message on the engaged chat resolved to (%q,%v), want (demo,true)", f, ok)
+	}
+}
+
+// proactiveTurnID returns the id of the chat's synthetic proactive row — the
+// turn_id the fire path handed to dispatch.
+func proactiveTurnID(t *testing.T, db *DB, jid string) string {
+	t.Helper()
+	var id string
+	if err := db.SQL().QueryRow(
+		`SELECT id FROM messages WHERE chat_jid=? AND sender='timed-proactive'`, jid).Scan(&id); err != nil {
+		t.Fatalf("no synthetic proactive row: %v", err)
+	}
+	return id
 }
 
 func writeClaudeMD(t *testing.T, dir, body string) {
