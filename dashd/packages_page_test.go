@@ -14,10 +14,14 @@ func packagesDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Must match routd migration 0031 (composite (folder, name), '' =
+	// instance-wide). A fixture carrying the old single-column PK would let this
+	// page pass against a schema production no longer has.
 	if _, err := db.Exec(`CREATE TABLE installed_packages (
-		name TEXT PRIMARY KEY, source TEXT NOT NULL, revision TEXT NOT NULL,
+		folder TEXT NOT NULL DEFAULT '', name TEXT NOT NULL,
+		source TEXT NOT NULL, revision TEXT NOT NULL,
 		manifest TEXT NOT NULL DEFAULT '{}', asset_hashes TEXT NOT NULL DEFAULT '{}',
-		installed_at TEXT NOT NULL)`); err != nil {
+		installed_at TEXT NOT NULL, PRIMARY KEY (folder, name))`); err != nil {
 		t.Fatalf("schema: %v", err)
 	}
 	return db
