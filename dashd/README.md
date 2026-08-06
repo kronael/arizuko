@@ -35,6 +35,7 @@ those tables directly via the `store` package; it never migrates.
 - **Route tokens** (3): `GET|POST /dash/tokens/{folder}/`, `POST /dash/tokens/{folder}/{jid}/revoke` — issue chat/webhook tokens, revoke. Admin-gated writes; reads scope-filtered. (`route_tokens.go`)
 - **Invites** (3): `GET|POST /dash/invites/`, `POST /dash/invites/{ref}/revoke` — operator-only (`**`). (`invites.go`)
 - **WhatsApp re-pair** (3): `GET /dash/channels/whatsapp/pair`, `GET /dash/channels/whatsapp/pair/status`, `POST /dash/channels/whatsapp/pair/start` — operator-only (`**`), proxies to whapd with service:dashd bearer. (`channels.go`)
+- **proxyd control plane** (3): `GET|POST /dash/proxyd/`, `POST /dash/proxyd/delete` — operator-only (`**`) view + create + delete of proxyd's reverse-proxy route table. proxyd OWNS `proxyd_routes`, so all three go over HTTP to its `/v1/proxyd_routes` with the service:dashd bearer and the caller's `X-User-*` forwarded; proxyd writes the single audit row in the mutation's own transaction. (`proxyd_page.go`)
 
 ## Auth
 
@@ -78,6 +79,7 @@ Read surfaces (`/dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups
 - `AUTHD_SERVICE_NAME` — service name (default `dashd`)
 - `HOST_APP_DIR` — app source path for enumerating stock skills in groups settings
 - `WHAPD_URL` — whapd base URL for re-pair proxy (default `http://whapd:8080`)
+- `PROXYD_URL` — proxyd base URL for the `/dash/proxyd/` control plane (default `http://proxyd:8080`, matching webd)
 
 ## Health signal
 
@@ -97,6 +99,7 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
 - `tasks_admin.go` — task detail + run logs + create + pause/resume.
 - `route_tokens.go` — chat/webhook route-token list + issue + revoke.
 - `channels.go` — WhatsApp re-pair form + live status (operator-only).
+- `proxyd_page.go` — proxyd route table view + add + delete over `/v1/proxyd_routes` (operator-only).
 - `packages_page.go` — installed-packages read view (`/dash/packages/`).
 - `invites.go` — invite list + create + revoke (operator-only).
 - `profile.go` — linked subs view + provider link buttons.

@@ -31,7 +31,7 @@ var services = []service{
 	{"routd", "routd", "/dash/routd/", "message router, route table, breakers", true, ""},
 	{"runed", "runed", "/dash/runed/", "agent container runs and tokens", true, ""},
 	{"authd", "authd", "/dash/authd/", "identity keys, tokens, providers", false, ""},
-	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy", false, ""},
+	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy", true, ""},
 	{"onbod", "onbod", "/dash/onbod/", "onboarding queue, gates, invites", false, ""},
 	{"timed", "timed", "/dash/timed/", "scheduled tasks and ticks", false, ""},
 	{"webd", "webd", "/dash/webd/", "web chat widget and routes", false, ""},

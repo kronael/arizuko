@@ -79,6 +79,7 @@ Identity badge always right-aligned in nav: `{name} ◆` (operator) or
 │   └── /dash/chat/{folder}/   Group chat page (sessions + new session)
 ├── /dash/tokens/{folder}/      Web route tokens (issue + revoke)
 ├── /dash/invites/              Onboarding invites (operator only)
+├── /dash/proxyd/               proxyd route table (operator only)
 ├── /dash/memory/               Agent memory file browser
 ├── /dash/profile/              Account ID + add-a-provider + secrets
 └── /dash/me/secrets            Per-user secret CRUD
@@ -1441,6 +1442,93 @@ State CSS: `exited`/`running` → `status-ok`; `error` → `status-err`;
 - No active runs: empty table
 - No recent runs: empty table
 - RUNED_URL unset: POST /kill returns 503
+
+---
+
+### /dash/proxyd/ — proxyd Control Plane
+
+**Operator only.**
+
+#### Purpose
+
+Reverse-proxy cockpit. Shows every URL prefix the instance answers, the
+backend behind it, and who may open it — with add and delete. proxyd owns
+`proxyd_routes`, so the page reads and writes over HTTP
+(`/v1/proxyd_routes`), never in SQL.
+
+#### User stories
+
+- As an operator, I want to see every public address this instance serves so
+  I can spot one that should not be open.
+- As an operator, I want to point a path at a backend without editing
+  `PROXYD_ROUTES_JSON` and redeploying.
+- As an operator, I want to withdraw an address immediately when it should
+  stop answering.
+
+#### Layout
+
+```
+crumbs: Services › proxyd
+h1: proxyd
+
+p.dim: Every web address this instance answers. …Changes take effect
+       immediately — no restart.
+
+[banner-ok:   "route added — it is serving now"]                (?msg=added)
+[banner-ok:   "route removed — that address now returns 404"]   (?msg=deleted)
+[banner-err:  "<proxyd's own reason>"]                          (?err=…)
+[banner-warn: "proxyd unreachable — PROXYD_URL is not configured for dashd"]
+
+[table: Path | Goes to | Who can open it | Notes | ]
+  <code>{path}</code>
+  <code>{backend}</code>  or  redirect → <code>{redirect_to}</code>
+  <span class="status-{warn|ok}">{anyone|signed-in users|operators only}</span>
+  {path prefix removed · set up by <code>{gated_by}</code> · keeps {headers}}
+  [delete]  (btn-danger btn-sm, JS confirm)
+
+h2: Add route
+<form method=post action=/dash/proxyd/>
+  Path:            [text /myapp/]
+  Backend:         [text http://myapp:8080]
+  Who can open it: [select: signed-in users | operators only | anyone]
+  Strip the path prefix before forwarding: [checkbox]
+  [button.btn-primary: add route]
+</form>
+p.dim: trailing-slash prefix rule + when "anyone" is correct
+```
+
+#### Data shown
+
+`GET {PROXYD_URL}/v1/proxyd_routes` → `{"routes":[…]}`. The `auth` field is
+rendered in words (`public`→anyone, `user`→signed-in users,
+`operator`→operators only); `public` reads `status-warn` because an open path
+is the one worth noticing.
+
+#### Actions
+
+- Add → `POST /dash/proxyd/` → `POST /v1/proxyd_routes` → 303 `?msg=added`
+- Delete → `POST /dash/proxyd/delete` (body: `path`) → `DELETE
+/v1/proxyd_routes/{path}` → 303 `?msg=deleted`
+
+Both forward the caller's `X-User-Sub`/`X-User-Groups` under dashd's
+`service:dashd` bearer; proxyd writes the `proxyd_routes:{create,delete}`
+audit row into routd.db inside the mutation's transaction, naming that
+operator. dashd emits no audit row of its own — one mutation, one row.
+
+`redirect_to` and `preserve_headers` are shown but not editable: proxyd's
+PATCH cannot set `redirect_to` at all, so a half-editable field would be a
+trap. Those still arrive via `PROXYD_ROUTES_JSON`.
+
+#### Edge cases / empty states
+
+- `PROXYD_URL` unset: banner-warn; add form withheld
+- proxyd unreachable / non-2xx: banner-err carrying proxyd's own reason; add
+  form withheld (a form that cannot show the current table invites a
+  duplicate path)
+- 403 from proxyd's ACL: banner names the missing operator grant
+- No routes: "No routes. proxyd is answering 404 for every address — check
+  `PROXYD_ROUTES_JSON` in the instance .env."
+- Non-operator: 403, and dashd makes no upstream call
 
 ---
 

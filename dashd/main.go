@@ -283,7 +283,11 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	d := &dash{dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: strings.TrimRight(os.Getenv("RUNED_URL"), "/"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
+	// PROXYD_URL defaults to the compose service name, matching webd/main.go —
+	// compose writes no PROXYD_URL, so the code default is the wiring.
+	proxydURL := strings.TrimRight(chanlib.EnvOr("PROXYD_URL", "http://proxyd:8080"), "/")
+
+	d := &dash{dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: strings.TrimRight(os.Getenv("RUNED_URL"), "/"), proxydURL: proxydURL, secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
 	d.registerRoutes(mux)
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
@@ -320,6 +324,10 @@ type dash struct {
 	ks        *auth.KeySet                          // authd JWKS; verifies proxyd's ES256 transit bearer (nil → local dev open)
 	svc       func(context.Context) (string, error) // service:dashd token for the whapd re-pair proxy (nil → local dev)
 	runedURL  string                                // RUNED_URL; target of the /dash/runed/kill operator-kill proxy ("" → kill disabled)
+	// proxydURL is proxyd's own /v1 face, read+written by /dash/proxyd/. proxyd
+	// OWNS proxyd_routes, so dashd goes over HTTP rather than into the table —
+	// that is also what makes proxyd write the audit row in the mutation's tx.
+	proxydURL string
 	// secretKeyring is the SECRETS_KEY material handed to secretStore so user-secret
 	// writes seal at rest under the same key routd reads with. Empty → plaintext.
 	secretKeyring [][]byte
@@ -430,6 +438,12 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/routd/retry", g(d.handleRoutdRetry))
 	mux.HandleFunc("GET /dash/runed/", g(d.handleRuned))
 	mux.HandleFunc("POST /dash/runed/kill", g(d.handleRunedKill))
+
+	// proxyd control plane — the reverse-proxy route table. proxyd owns it, so
+	// every handler here is an HTTP call to proxyd's /v1/proxyd_routes.
+	mux.HandleFunc("GET /dash/proxyd/", g(d.handleProxyd))
+	mux.HandleFunc("POST /dash/proxyd/", g(d.handleProxydRouteCreate))
+	mux.HandleFunc("POST /dash/proxyd/delete", g(d.handleProxydRouteDelete))
 	mux.HandleFunc("GET /dash/status/", g(d.handleStatus))
 	mux.HandleFunc("GET /dash/tasks/", g(d.handleTasks))
 	mux.HandleFunc("GET /dash/activity/", g(d.handleActivity))
