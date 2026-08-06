@@ -4573,7 +4573,7 @@ Four statements in `specs/5/K-ant-backend-codex.md` are not backed by the code:
   `claude.test.ts`; document `ARIZUKO_BACKEND` in `EXTENDING.md` +
   `reference/env.html`. Each is its own concern; do not bundle.
 
-## F7 — runed has no `audit_log` table at all (2026-08-05, open)
+## ✅ FIXED 2026-08-06 F7 — runed has no `audit_log` table at all (2026-08-05, FIXED)
 
 `specs/5/I`'s Layer A is "state-changing REST call writes an `audit_log` row in
 its own tx", and every other daemon that owns a DB implements it — authd, onbod
@@ -4597,10 +4597,37 @@ are.
 - **Scope:** runed audit instrumentation
 - **Affected:** all instances
 - **Source:** runed/migrations/0001-0004 (no audit_log); runed/server.go:86-115,123-147; specs/5/I-tool-call-logging.md:32
-- **Status:** open
-- **Fix:** a runed migration adding `audit_log` in the shape routd migration
-  0016 uses, then `EmitInTx` in both handlers. Note the correlation requirement
-  — a spawn row is only useful joined to the turn, so it must carry `turn_id`.
+- **Status:** resolved-not-yet-removed
+- **Fix:** `1d4f33b9`. Migration `0005` adds the table (the routd-0016 shape)
+  and `main.go` wires `audit.Init` on runed's own handle. **The report's
+  proposed fix was not taken, on two counts.**
+
+  *`POST /v1/runs` is deliberately NOT audited.* A row per turn duplicates the
+  `spawns` row, which already carries kind, state, outcome, exit_code, steered
+  and all three timestamps and is rendered by dashd — strictly more than an
+  audit row, at the same volume. That is `audit/PLAN.md` § SKIP's own rule for
+  `messages` (the row IS the record) applied to runed's record.
+  `TestRunEmitsNoAuditRow` pins it. What `spawns` cannot answer is who ASKED,
+  so the audited calls are the ones that are pure intent: `run.hold` (POST
+  `/v1/holds`) and `run.kill` (DELETE `/v1/runs/{id}`, POST `/v1/runs/stop`).
+  Both also have outcomes that write no `spawns` row at all — a busy hold, a
+  kill of an already-terminal run, a `/stop` on an idle folder — where the
+  audit row is the only trace the call happened.
+
+  *`EmitDB`, not `EmitInTx`.* Manager.Kill's mutation lands on the docker
+  daemon and Manager.Hold's detaches into a goroutine; runed's writers are
+  autocommit throughout (`runed/db.go`). There is no `*sql.Tx` to join — the
+  same reasoning as `75cc1a6b`.
+
+  The report's `turn_id` note does not apply either: neither audited call
+  carries one. A hold is external (a restore, a vacuum) and an operator kill
+  arrives by run_id or folder, not from inside a turn. The join key is
+  `resource = runs/<run_id>` → `spawns`.
+
+  Still open, tracked in `specs/5/I`'s status rather than here: **denied**
+  runed calls are unrecorded. That is `authz.deny`, it applies to every runed
+  endpoint including the reads, and it wants one uniform gate — a kills-only
+  denial row would be an arbitrary slice of it.
 
 ## ✅ FIXED 2026-08-06 F8 — the OpenAPI aggregator page misstates routd and omits two daemons (2026-08-05, FIXED)
 
