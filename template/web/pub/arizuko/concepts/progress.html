@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>live progress</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="index.html">Start here</a></li>
+            <li><a href="primitives.html">Primitives</a></li>
+            <li><a href="built.html">How it&rsquo;s built</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="progress.html">Live progress</a></li>
+            <li><a href="retries.html">Retries</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="workflows.html">Workflows</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; live progress</p>
+<h1>live progress</h1>
+
+    <p class="lede">Ask for something that takes real work and you get a checklist while you wait &mdash; one message that keeps rewriting itself, not a stream of separate &ldquo;still working&rdquo; pings. The list is the agent&rsquo;s own plan. arizuko posts it on the agent&rsquo;s behalf, so you seeing progress never depends on the model remembering to tell you.</p>
+
+    <h2>what you see</h2>
+    <p>One message lands as soon as the agent has a plan, and changes in place as the work moves:</p>
+    <pre><code>&#9203; &#9745; Read the three log files
+&#9744; Cross-check the timestamps
+&#9744; Write the summary</code></pre>
+    <p>&hellip; and a minute later, the same message, edited:</p>
+    <pre><code>&#9203; &#9745; Read the three log files
+&#9203; Cross-checking the timestamps
+&#9744; Write the summary</code></pre>
+    <p>Three marks, and that&rsquo;s the whole vocabulary:</p>
+    <ul>
+      <li><strong>&#9745;</strong> &mdash; done.</li>
+      <li><strong>&#9203;</strong> &mdash; working on it right now. If the plan supplies an in-progress phrasing (&ldquo;Cross-checking the timestamps&rdquo;), that&rsquo;s what shows; otherwise you get the plain item text.</li>
+      <li><strong>&#9744;</strong> &mdash; not started.</li>
+    </ul>
+    <p>The leading &#9203; on the first line belongs to the message, not to an item &mdash; every status message carries it so a glance tells you the agent is still going.</p>
+
+    <h2>why the agent can&rsquo;t forget</h2>
+    <p>The agent plans with the SDK&rsquo;s <code>TodoWrite</code> tool. It writes that list to organise itself, not to report to you &mdash; it would write it whether anyone were watching or not. arizuko hangs a hook on that tool: every time the list changes, the hook reads the list the agent just wrote, renders it, and sends it. Nothing ever asks the model to report progress, so there is nothing for it to skip.</p>
+    <p>That is the whole point of the design. The two earlier attempts both leaned on the model choosing to narrate &mdash; a <code>&lt;status&gt;</code> block it had to remember to emit, then a skill that told it to post updates &mdash; and models apply instructions like that unevenly. Users got either silence for ten minutes or a wall of twelve separate plan/step/done messages. Progress is bookkeeping over a list that already exists; it should not be a judgement call.</p>
+
+    <h2>one message, edited</h2>
+    <p>The first update of a turn sends a new message. Every later one edits that same message. <code>routd</code> finds which message to edit by looking up the last status row it stored for the turn &mdash; there is no in-memory table of live messages, so a <code>routd</code> restart in the middle of a long turn doesn&rsquo;t strand the checklist. It picks the message back up from the database and keeps editing.</p>
+
+    <h2>channels that can&rsquo;t edit</h2>
+    <p>Email, WhatsApp and Reddit have no edit-a-sent-message operation. On those, each update arrives as a fresh message &mdash; the fallback is deliberate and only fires when the adapter reports the operation as unsupported.</p>
+    <p>An edit that fails for a <em>real</em> reason &mdash; expired token, adapter timeout, a 500 from the platform &mdash; surfaces as an error instead. It is never quietly re-posted as a new message, because a silent duplicate looks exactly like the ping-spam this replaced.</p>
+
+    <h2>the checklist is never the answer</h2>
+    <div class="callout"><strong>Note:</strong> status messages are stamped <code>verb="status"</code> in the <code>messages</code> table and are skipped when <code>routd</code> asks &ldquo;has this turn replied yet?&rdquo;. Without that exclusion a checklist would count as the agent&rsquo;s reply and the real answer would be dropped on the floor.</div>
+    <p>So the final answer always arrives as its own message, alongside the checklist &mdash; which by then shows every box ticked.</p>
+
+    <h2>when you won&rsquo;t see one</h2>
+    <ul>
+      <li><strong>The plan has one step.</strong> A one-item checklist is noise, so it isn&rsquo;t sent. Two or more items earn a live message.</li>
+      <li><strong>The agent answers without planning.</strong> Short turns don&rsquo;t need a plan and don&rsquo;t make one.</li>
+    </ul>
+    <p>A long turn that never planned still isn&rsquo;t silent: roughly every 90 seconds the container nudges the agent for a one-line <code>&lt;status&gt;</code>, and that feeds the same one-message-edited path. It&rsquo;s the floor, not the main route.</p>
+
+    <h2>go deeper</h2>
+    <p>The design and the two decisions that carry it: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/24-live-tasklist-status.md">specs/5/24</a>. The hook that renders the list lives in <a href="https://github.com/kronael/arizuko/blob/main/ant/src/todo-status.ts"><code>ant/src/todo-status.ts</code></a>; the edit-or-send half is <code>mcpSubmitStatus</code> in <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>routd/mcp.go</code></a>. What happens when the turn dies before it can finish the list: <a href="retries.html">retries</a>.</p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="topics.html">&larr; Topics</a>
+        <a rel="next" href="retries.html">Retries &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/progress.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-06">2026-08-06</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

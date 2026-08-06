@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>retries</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="index.html">Start here</a></li>
+            <li><a href="primitives.html">Primitives</a></li>
+            <li><a href="built.html">How it&rsquo;s built</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="progress.html">Live progress</a></li>
+            <li><a href="retries.html">Retries</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="workflows.html">Workflows</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; retries</p>
+<h1>retries</h1>
+
+    <p class="lede">Every turn runs in its own throwaway container. Sometimes that container dies mid-thought &mdash; it runs out of memory, or it hits the run time limit &mdash; and nothing comes back. <code>routd</code> notices the empty-handed run and simply runs the turn again, up to three times, without telling you. You get one slightly slower reply instead of silence.</p>
+
+    <h2>the problem it fixes</h2>
+    <p>A killed container never reaches the point where it hands its answer back. From your side the bot just stops. Worse, <code>routd</code> has a guard that stops it re-feeding a turn it has already marked finished, so the message never gets another chance &mdash; the only way out was to @mention the bot again and hope. The incident that motivated this was a long research answer that got cut off and then stayed cut off.</p>
+
+    <h2>what counts as failure</h2>
+    <p>The test is <strong>&ldquo;did any bot message land?&rdquo;</strong>, not &ldquo;did the agent finish cleanly?&rdquo;. An agent that posted half an answer and then died counts as a success and is not retried &mdash; a partial reply you can read beats making you wait while the whole thing is redone. No bot message at all is the failure that triggers a retry.</p>
+
+    <h2>what you actually see</h2>
+    <p>Nothing, until it works. Each attempt waits 10 seconds and then spawns a fresh container. There is no exponential backoff: the old container is already dying and the new one starts from scratch, so there is nothing to wait for except the reaper, and a long ramp would only stretch out your silence.</p>
+    <p>If every attempt fails, one message finally arrives:</p>
+    <pre><code>&#9888; Agent couldn't complete this request after 3 attempts.</code></pre>
+    <p>The chat is also flagged as errored so an operator can find it on the dashboard. A turn that failed <em>without</em> ever being retried &mdash; because the agent had already replied &mdash; gets the plainer notice instead: <code>Failed: agent error on that message. Try rephrasing or send a different message.</code></p>
+
+    <h2>the retry knows it is a retry</h2>
+    <p>Each re-run gets a note prepended to the prompt before the agent sees it:</p>
+    <pre><code>&lt;system-note&gt;This is retry attempt 2 of 3. The previous attempt was
+killed before completing. Be conservative with resource
+usage.&lt;/system-note&gt;</code></pre>
+    <p>That last sentence is doing the work. The most common cause of a killed container is the agent doing too much at once and running out of memory, and the most useful thing it can change is to do less. Telling it nothing would just get the same crash three times.</p>
+    <p>What carries over otherwise: the same message and attachments, the same conversation history, a brand-new container.</p>
+
+    <h2>it survives a restart</h2>
+    <p>The attempt count isn&rsquo;t held in memory. Each retry bumps <code>turn_context.retry_count</code> and parks the turn in <code>state='pending_retry'</code>, and <code>routd</code>&rsquo;s crash-recovery sweep picks up <code>pending_retry</code> turns exactly as it picks up running ones. Restart <code>routd</code> mid-retry and the turn is still owed an attempt, with the right number of attempts already spent.</p>
+
+    <h2>what is never retried</h2>
+    <ul>
+      <li><strong>Turns that replied.</strong> Any bot message at all, even a partial one, counts as done.</li>
+      <li><strong>Turns the agent failed on purpose.</strong> If the agent reports its own failure and the container then exits cleanly, that is a clean run &mdash; it never enters the retry branch at all.</li>
+      <li><strong>Runs an operator killed.</strong> A deliberate kill is recorded as killed, not as an error.</li>
+    </ul>
+
+    <div class="callout"><strong>Note:</strong> a <em>network</em> failure between <code>routd</code> and <code>runed</code> is a different mechanism. There <code>routd</code> doesn&rsquo;t know whether the run happened at all, so it leaves its read cursor where it is and the next poll re-feeds the message naturally. Retries here are for the case where <code>runed</code> answered cleanly and the answer was &ldquo;the run died&rdquo;.</div>
+
+    <h2>tuning it</h2>
+    <p>One setting: <a href="../reference/env.html#MAX_TURN_RETRY"><code>MAX_TURN_RETRY</code></a>, default <code>3</code>. Set it to <code>0</code> to turn retries off entirely and get the failure notice on the first dead run.</p>
+    <p>It is deliberately instance-wide &mdash; there is no per-folder or per-skill override. How many times the runtime is willing to re-spawn a container is a property of the machine you&rsquo;re running on, not of a tenant&rsquo;s content. If one folder needs a different budget, the thing to change is that folder&rsquo;s memory limit, not its retry count.</p>
+    <p>Raising the ceiling does not change the wording of the give-up notice, which says &ldquo;after 3 attempts&rdquo; regardless.</p>
+
+    <h2>go deeper</h2>
+    <p>The decisions behind each of these &mdash; why success is a bot row and not a clean exit, why the backoff is flat: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/12-turn-retry.md">specs/5/12</a>. The turn lifecycle this hooks into is <a href="https://github.com/kronael/arizuko/blob/main/specs/5/E-routd.md">specs/5/E</a>; the container and its time limit belong to <a href="../components/runed.html">runed</a>. What you see <em>while</em> a turn is still alive: <a href="progress.html">live progress</a>.</p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="progress.html">&larr; Live progress</a>
+        <a rel="next" href="onboarding.html">Onboarding &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/retries.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-06">2026-08-06</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
