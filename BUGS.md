@@ -7,6 +7,75 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F24 — proactive interjection has no dashd surface (2026-08-06, open)
+
+The last unmet definition-of-done item for spec `5/6`, and the only reason that
+spec is still `partial`. An operator can turn proactive interjection on
+(`PROACTIVE_ENABLED`) and set a group to `mode: lurk`, but then has no way to
+see the resulting state:
+
+- **Which groups lurk** is only visible by reading each
+  `groups/<folder>/CLAUDE.md` frontmatter by hand. `routd`'s `modeCache`
+  (`routd/proactive.go:200`) already holds the parsed answer per folder.
+- **When a chat last fired** lives in `routd.db`'s `chat_proactive`
+  (`routd/db.go:1267`) and is reachable only by SQL. The 24h cooldown means
+  "why didn't it speak" is usually this row, and an operator cannot look.
+- **A misconfigured block** — unknown mode, bad `quiet_hours`, bad tz — makes
+  the group fire nothing and logs a config error (`proactive.go:126-155`). It is
+  correctly loud in the log and completely invisible in the dashboard, which is
+  where an operator would look after a group went quiet.
+
+Not urgent while the feature ships off everywhere (nothing in `template/` sets
+`PROACTIVE_ENABLED`), but it blocks calling `5/6` shipped, and the
+misconfigured-group case is the one that will actually cost someone an hour.
+
+- **Severity:** low today, medium the day an operator enables it
+- **Scope:** dashd / routd proactive (spec 5/6)
+- **Affected:** any operator who enables proactive interjection
+- **Source:** routd/proactive.go:200,126-155; routd/db.go:1267; dashd/ (absent)
+- **Status:** open
+- **Fix:** a read-only `/dash/proactive/` listing folder, mode, quiet hours,
+  parse error, and last-fired per chat. Reads only; `mode:` stays operator-edited
+  in `CLAUDE.md` (spec 5/6 decision: one source, no DB/file drift), so this is a
+  view, not a control plane — which also means it is not a resreg resource and
+  does not owe a REST twin.
+
+## F25 — components/dashd.html documents the retired HMAC identity model (2026-08-06, open)
+
+Same class as `F11`, different page, found while adding the `/dash/proxyd/` row.
+`template/web/pub/arizuko/components/dashd.html` tells operators that dashd
+verifies `auth.RequireSigned(PROXYD_HMAC_SECRET)` on every `/dash/*` request
+(line 83), that an unsigned request carries no valid `X-User-Sig` (83), and that
+they should "set `PROXYD_HMAC_SECRET` to the same value proxyd uses" (88, 98).
+None of that is real: `auth/middleware.go` exports only `ProxydTransit`, no Go
+file reads `PROXYD_HMAC_SECRET`, and proxyd deletes `X-User-Sig` on entry and on
+forward (`proxyd/main.go:92,828`). `reference/env.html` already marks the var
+retired, so the site contradicts itself.
+
+Two smaller things on the same page:
+
+- Line 65 links `specs/5/5-uniform-mcp-rest.md`, which does not exist under that
+  name — `5/5` is worlds-agents-sessions, the mechanism spec is `5/17`. (Two
+  `.go` comments cite the same dead name: `proxyd/resource.go:301` and
+  `webd/routes_mcp.go:26`.)
+- The page set omits five shipped control planes: `/dash/services/`,
+  `/dash/audit/`, `/dash/usage/`, `/dash/routd/`, `/dash/runed/`
+  (`dashd/main.go:432-439`). `/dash/proxyd/` was the sixth and is now listed.
+
+An operator following this page sets an env var nothing reads and concludes the
+auth is configured.
+
+- **Severity:** medium (documents a security mechanism that was removed)
+- **Scope:** web docs — components/dashd.html
+- **Affected:** operators reading the dashd page
+- **Source:** template/web/pub/arizuko/components/dashd.html:65,74,83,88,98; auth/middleware.go:22; proxyd/main.go:92,828
+- **Status:** open
+- **Fix:** mechanical — replace the HMAC paragraphs with the `service:proxyd`
+  transit bearer (`components/proxyd.html` now carries the correct wording to
+  copy), repoint the spec link at `5/17`, add the five missing pages. Worth a
+  sweep for the same HMAC strings across the other component pages in the same
+  pass rather than one page at a time.
+
 ## F20 — the retry-exhausted notice hardcodes "3 attempts" (2026-08-06, open)
 
 `MAX_TURN_RETRY` is configurable (`core/config.go:250`, default 3) and
@@ -4528,7 +4597,7 @@ Checked and NOT a defect: `CHANGELOG.md:967` (v0.47.0) still says the feature is
   items are not — no operator page under `template/web/pub/`, no `dashd`
   surface for mode/cooldown, no migration entry. See the spec's status block.
 
-## F11 — proxyd's route surface is documented under routd's resource name (2026-08-05, open)
+## F11 — proxyd's route surface is documented under routd's resource name (2026-08-05, FIXED 2026-08-06)
 
 The resource is `proxyd_routes` (`resreg/resources/proxyd_routes.go:90-91`,
 `proxyd/resource.go:311`), so the wire path is `/v1/proxyd_routes` and — with no
@@ -4553,9 +4622,27 @@ Separately, `dashd/services.go:33` declares the proxyd tile `Built:false` and no
 - **Scope:** proxyd docs + dashd surface
 - **Affected:** operators managing proxyd routes
 - **Source:** proxyd/README.md:16,48,52,58-62,65,105,148; template/web/pub/arizuko/components/proxyd.html:60,104,130; resreg/resources/proxyd_routes.go:90-91; dashd/services.go:33
-- **Status:** open
-- **Fix:** rename in both documents (mechanical), then decide the dashd view
-  separately — that is a feature, not a doc fix.
+- **Status:** FIXED 2026-08-06. `proxyd/README.md` had already been renamed by
+  the time this was picked up; the surviving slip there was the ACL action
+  string on line 88 (`routes.<action>` → `proxyd_routes.<action>`). The web half
+  is `c52fa771`: `components/proxyd.html` now says `/v1/proxyd_routes` and
+  `proxyd_routes.*`, and `reference/openapi.html`'s webd row no longer calls the
+  forwarded resource `routes`. The dashd half closed separately — `/dash/proxyd/`
+  shipped 2026-08-06 and is documented on `components/dashd.html`.
+
+  The rename uncovered two further errors on the same page, fixed in the same
+  commit: it described the **retired HMAC identity model** (`PROXYD_HMAC_SECRET`,
+  `auth.RequireSigned`, `auth.StripUnsigned`, `X-User-Sig` — none of which exist;
+  `auth/middleware.go` exports only `ProxydTransit`), and it linked
+  `specs/5/5-uniform-mcp-rest.md`, a file that has never existed under that name
+  (`5/5` is worlds-agents-sessions; the mechanism spec is `5/17`).
+
+  The `legacy/` twins are deliberately NOT fixed — `legacy/` is the archived
+  pre-redesign site, linked only from the changelog entry that announces it.
+
+  Not fixed, tracked as **F25**: the same HMAC drift on
+  `components/dashd.html`, which also carries the dead `5/5-uniform-mcp-rest`
+  link and omits five shipped control planes.
 
 ## F12 — the engagement TTL in the operator docs is not routd's default (2026-08-05, open)
 
