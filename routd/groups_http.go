@@ -12,13 +12,13 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// mountGroups wires only the shared read endpoint.
+// mountGroups mounts resources.GroupsAgentEndpoints verbatim: register is MCPOnly
+// there, so RegisterREST and openapi.go both skip it and only the shared read
+// endpoint is served. NEVER reintroduce an inline Endpoints literal here — the
+// trimmed copy that used to live in this function is why `groups` had to be held
+// out of OpenAPIResources (BUGS F27); endpoints_source_test.go probes this mux.
 func (s *Server) mountGroups(mux *http.ServeMux) {
-	res := s.groupsResource(s.groupsRESTAuthz)
-	res.Endpoints = []resreg.Endpoint{
-		{Verb: "GET", Path: "/v1/groups", Action: resreg.ActionList},
-	}
-	resreg.RegisterREST(mux, res, s.groupsRESTCaller)
+	resreg.RegisterREST(mux, s.groupsResource(s.groupsRESTAuthz), s.groupsRESTCaller)
 }
 
 // groupsRESTCaller sets the JWT subtree filtered by the handler. An empty folder

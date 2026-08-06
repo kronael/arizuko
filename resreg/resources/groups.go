@@ -25,15 +25,19 @@ type GroupsRow struct {
 	CostCapCentsPerDay int    `db:"cost_cap_cents_per_day" yaml:"cost_cap_cents_per_day,omitempty" json:"cost_cap_cents_per_day,omitempty"`
 }
 
-// GroupsAgentEndpoints drives the agent's group-management tools (register_group +
-// refresh_groups) via routd's groups_resource.go — the spec 5/16 agent-face fold.
-// register is a custom verb with FS side-effects (a group row, a room route, and a
-// git-init'd group dir), so routd mounts it as a FORWARDER (no engine tx); these
-// paths only drive deriveMCPTools + the facade browser. groups is dashd-FS-managed,
-// never a routd REST resource (routd/cmd/routd/main.go's OpenAPI list omits it), so
-// no daemon advertises these paths in /openapi.json.
+// GroupsAgentEndpoints is the single owner of the groups endpoint set: routd's
+// mountGroups mounts it verbatim, deriveMCPTools reads it for register_group +
+// refresh_groups, and openapi.go emits one operation per non-MCPOnly entry.
+//
+// register is MCPOnly: it is a custom verb with FS side-effects (a group row, a
+// room route, and a git-init'd group dir) that routd mounts as a FORWARDER for the
+// agent only — group CREATION stays dashd's SetupGroup, so no daemon serves
+// POST /v1/groups. It carried Verb+Path while mountGroups trimmed Endpoints to the
+// GET, which is the same override that left GET /v1/acl advertised and unmounted
+// (BUGS F27, the F21 class); `groups` was kept out of routd's OpenAPIResources to
+// paper over it. Declaring the truth here is what lets it be advertised.
 var GroupsAgentEndpoints = []resreg.Endpoint{
-	{Verb: "POST", Path: "/v1/groups", Action: resreg.Action("register")},
+	{Action: resreg.Action("register"), MCPOnly: true},
 	{Verb: "GET", Path: "/v1/groups", Action: resreg.ActionList},
 }
 

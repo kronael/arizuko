@@ -6,35 +6,29 @@ depends:
 
 # specs/5/17 — one handler, two faces: MCP for the agent, REST for humans
 
-> **Status (2026-08-06).** Partial, and close. The operator docs stopped being
-> the blocker — `reference/openapi.html` names all eight daemons' documents,
-> describes emission as one operation per declared `Endpoint`, and documents
-> `x-mcp-when` (BUGS `F8`, closed `016d3d0b` + `d8b0ecd4`).
+> **Status (2026-08-06).** Partial on ONE item, and it is not code.
 >
-> `scheduled_tasks` is no longer a hole in the doc (BUGS `F21`, fixed): one
-> `ScheduledTasksEndpoints` now declares every real face — the four REST verbs
-> plus schedule/pause/resume as `MCPOnly` — `mountTasks` mounts it verbatim, and
-> the resource is advertised. Its guard was rewritten to probe the mounted mux
-> rather than the constructor, which is what let the drift stay green.
+> The mechanism, the emitter, and the guards are done. `scheduled_tasks`
+> (BUGS `F21`), then `acl` + `groups` + `network_rules` (BUGS `F27`), all now
+> declare one `Endpoints` slice that mounting AND emission read, with
+> agent-only actions marked `MCPOnly`; the mount-time overrides that let a
+> declaration and a mux disagree are gone, `groups` is advertised honestly, and
+> `GET /v1/acl` no longer ships as an endpoint that 404s. The guard is
+> class-wide instead of per-resource: `TestRoutdMux_ServesEveryDeclaredEndpoint`
+> probes the mux routd really builds for every routd resource, and
+> `TestOpenAPI_EveryAdvertisedPathIsMounted` walks the emitted document with no
+> hand-maintained list at all.
 >
-> Three items keep it `partial`:
+> `operationId` is settled as the emitted `<action>_<name>` (BUGS `F28`) — see
+> §"Resource name = wire identity", which no longer claims a single composed
+> wire string. The `/v1/tasks` path is now an explicit acceptance carve-out
+> rather than an open question.
 >
-> 1. **The first acceptance bullet still reads `/v1/<res>`, and
->    `scheduled_tasks` serves `/v1/tasks`.** Deliberate: `timed` calls
->    `GET /v1/tasks` and the fire loop shares the prefix
->    (`/v1/tasks/due`, `/runlog`, `/{id}/reschedule`) across the container
->    boundary, so the rename is a breaking change against a running fleet that
->    would also split one control surface in half. The doc is truthful about the
->    exception rather than silent about it. Either the bullet gains an explicit
->    carve-out or the fleet gets a coordinated rename — an operator call.
-> 2. **`operationId` is emitted `<action>_<name>`**, not the `<name>.<action>`
->    this spec's §"Resource name = wire identity" specifies (BUGS `F28`).
-> 3. **`reference/openapi.html` still describes the closed `scheduled_tasks`
->    gap** (BUGS `F26`) — definition-of-done item 5.
->
-> Adjacent and not blocking: `acl` advertises a `GET /v1/acl` nothing mounts,
-> and `acl`/`groups` carry the same mount-time `Endpoints` override `F21` had
-> (BUGS `F27`).
+> **Unmet, definition-of-done item 5 (Online):** `reference/openapi.html` still
+> describes the `scheduled_tasks` gap `F21` closed and says routd advertises
+> "six" resources (now eight, with `groups`) — BUGS `F26`. `template/web/pub/`
+> is another agent's lane this session, so it is filed, not edited. That page
+> is the only thing between this spec and `shipped`.
 
 > **DECISION.** Every cold-tier management resource is authored **once** as
 > one in-process `resreg.Resource` — logic, tx, audit, and arg-derivation in
@@ -205,11 +199,38 @@ The per-daemon ownership table lives in
 
 ## Resource name = wire identity
 
-The resreg `Name` becomes `/v1/<name>` AND the OpenAPI `operationId` prefix
-(`<name>.<action>`). Two daemons NEVER share a name. The composed
-`<name>.<action>` string is the operator-facing contract — OpenAPI
-`operationId`, audit `action=` fields, metrics labels, permission-editor
-rows — so URL and handler-function renames don't break it.
+The resreg `Name` becomes `/v1/<name>` AND the name every other surface
+composes on. Two daemons NEVER share a name, so `(name, action)` identifies
+one handler platform-wide and URL or handler-function renames don't break it.
+
+**`(name, action)` is the identity; its spelling is per-surface.** There is no
+single composed string, and pretending otherwise cost this spec a wrong claim
+about its own emitter (BUGS `F28`):
+
+| Surface         | Spelling                | Example                       |
+| --------------- | ----------------------- | ----------------------------- |
+| REST path       | `/v1/<name>`            | `/v1/routes`                  |
+| OpenAPI         | `operationId`           | `list_routes`                 |
+| MCP tool        | `<name>.<action>`       | `routes.list`                 |
+| `audit_log`     | `resource=` + `action=` | `resource=routes action=list` |
+| `acl` grant row | `mcp:<tool name>`       | `mcp:add_route`               |
+
+**`operationId` is `<action>_<name>`, verb-first and underscore-joined**
+(`resreg/openapi.go` `endpointOp` + `conventionPaths`). OpenAPI 3.1 §4.8.10.1
+says tools MAY use `operationId` to identify an operation "therefore, it is
+RECOMMENDED to follow common programming naming conventions" — client
+generators turn it into a method name, and `.` is not an identifier character
+in Go, Java, Python, or TypeScript. A dotted id would be mangled by the
+generator, so the dot cannot survive to the caller anyway. Verb-first also
+matches OpenAPI's own examples (`listPets`, `showPetById`).
+
+The MCP face is where the dotted form belongs — dots ARE conventional in tool
+names — and even there it is only `deriveMCPTools`' DEFAULT: every folded
+resource overrides it via `MCPNames` to the flat name the live agent calls
+(`add_route`, `list_acl`, `schedule_task`), which is also what `acl` grant rows
+carry as `mcp:<tool>`. `audit_log` never composes at all: `resource=` and
+`action=` are separate columns, which is what keeps
+`grep 'resource=groups action=register'` returning the work from either face.
 
 `proxyd_routes` (proxyd's reverse-proxy table) and `routes` (routd's
 message-routing table) are two distinct resources with distinct names;
@@ -223,9 +244,9 @@ rolls back. Read-only handlers emit slog only. Field shape: `caller=<sub>
 resource=<name> action=<verb> surface=<mcp|rest> target=<folder>
 result=<allowed|denied|error>`.
 
-`action` is the stable correlator — one `grep 'resource=groups
-action=create'` returns the work whether it arrived via the agent's MCP
-tool, `POST /v1/groups`, or `arizuko group add`. Forwarders skip the row;
+`action` is the stable correlator — one `grep 'resource=routes action=add'`
+returns the work whether it arrived via the agent's `add_route` tool,
+`POST /v1/routes`, or `arizuko route add`. Forwarders skip the row;
 the downstream daemon writes it. Field schema:
 [`I-tool-call-logging.md`](I-tool-call-logging.md).
 
@@ -262,6 +283,16 @@ High-rate side effect of normal operation → not.**
 - A cold-tier resource is served by exactly one `resreg.Resource`; its MCP
   tool and its `/v1/<res>` REST endpoint + OpenAPI entry all derive from
   that one handler — no hand-authored `MCPTools` list.
+
+  **One carve-out on the path: `scheduled_tasks` serves `/v1/tasks`.**
+  `timed` calls `GET /v1/tasks` (`timed/dash.go:82`) and the fire loop shares
+  the prefix (`/v1/tasks/due`, `/runlog`, `/{id}/reschedule` —
+  `timed/split.go:205,219,230`), both across the container boundary, and the
+  two daemons restart independently. Renaming half of one control surface
+  against a running fleet is the drift, not the fix. The name is still the wire
+  identity everywhere else — MCP tool prefix, `operationId`, audit `resource=`.
+  A new resource does NOT get this exemption: it serves `/v1/<name>`.
+
 - `GET /openapi.json` carries `description` + `x-mcp-when` for each action
   with an `MCPDoc` entry; an action without one has no MCP tool and no
   annotation but stays reachable via REST.

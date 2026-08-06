@@ -17,13 +17,17 @@ type NetworkRulesRow struct {
 
 // NetworkRulesEndpoints is the single owner of the network_rules endpoint set
 // that drives the agent's egress tools (routd network_rules_resource.go
-// references it). allow is a POST and deny a body-addressed DELETE (host/folder
-// in the body, no {pk} path), so the real faces diverge from the composite-PK-
-// CRUD convention. network_rules is agent-MCP-only (no daemon advertises it).
+// references it).
+//
+// All three are MCPOnly: network_rules is reached ONLY through the agent's
+// network_allow/network_deny/network_list tools — no daemon mounts a REST face
+// for it and none advertises it. They carried Verb+Path that nothing served,
+// which is the F21/F27 class one step further along (declared, unmounted,
+// unadvertised); MCPOnly is how spec 5/17 says to spell "no REST twin".
 var NetworkRulesEndpoints = []resreg.Endpoint{
-	{Verb: "POST", Path: "/v1/network_rules", Action: resreg.Action("allow")},
-	{Verb: "DELETE", Path: "/v1/network_rules", Action: resreg.Action("deny")},
-	{Verb: "GET", Path: "/v1/network_rules", Action: resreg.ActionList},
+	{Action: resreg.Action("allow"), MCPOnly: true},
+	{Action: resreg.Action("deny"), MCPOnly: true},
+	{Action: resreg.ActionList, MCPOnly: true},
 }
 
 // NetworkRulesMCPNames maps each action to the flat tool name the live agent

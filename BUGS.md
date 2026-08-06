@@ -223,7 +223,7 @@ a concrete instance with a test that reports it as already done.
   still PASSES while the new guard fails on all five endpoints and
   `TestOpenAPI_ScheduledTasksAdvertised` names each phantom path.
 
-## F27 — `GET /v1/acl` is advertised but mounted nowhere; two more mount-time Endpoint overrides (2026-08-06, open)
+## F27 — `GET /v1/acl` is advertised but mounted nowhere; two more mount-time Endpoint overrides (2026-08-06, FIXED 2026-08-06)
 
 Same class as `F21`, found while fixing it, in the two resources that were left.
 `mountACL` (`routd/acl_resource.go:79`) and `mountGroups`
@@ -247,15 +247,49 @@ reason (the comment says so), which is a workaround for the override, not a fix.
 - **Source:** routd/acl_resource.go:79; routd/groups_http.go:18;
   resreg/resources/acl.go:30-34; resreg/resources/groups.go:35-38;
   routd/server.go:246
-- **Status:** open
-- **Fix:** the `F21` shape — mark `list` on `ACLEndpoints` and `register` on
-  `GroupsAgentEndpoints` as `MCPOnly` (both are agent tools with no REST twin:
-  `list_acl`, `register_group`), delete both overrides, and extend
-  `TestMountTasks_ServesCanonicalEndpoints`'s mux probe to cover every mounted
-  resource instead of just tasks. Then `groups` can join `OpenAPIResources`
-  honestly. Verify `GET /v1/acl` really has no consumer first.
+- **Status:** FIXED 2026-08-06
+- **Fix:** the `F21` shape, applied to the whole class. `list` on `ACLEndpoints`
+  and `register` on `GroupsAgentEndpoints` are now `MCPOnly`; both overrides are
+  deleted so `mountACL`/`mountGroups` mount the canonical slice verbatim; and
+  `groups` joined `OpenAPIResources` (its omission was the workaround, not a
+  fix). Consumers checked first: `grep -rn "v1/acl"` and `"v1/groups"` across
+  the tree find zero callers of either — the only hits are the declarations,
+  docs describing the POST/DELETE twins, and dashd reading `GET /v1/groups`.
+- **Third instance, found by the widened guard:** `network_rules` declared
+  POST/DELETE/GET `/v1/network_rules` that NO daemon mounts and none
+  advertises — the same class one step further along (declared, unmounted,
+  unadvertised, so invisible instead of 404ing). All three actions are now
+  `MCPOnly`, which is what its own comment already said in prose
+  ("agent-MCP-only"). Reached only via `network_allow`/`network_deny`/
+  `network_list`.
+- **Also surfaced:** `daemonOwnership` in `resreg/resources/resources_test.go`
+  claims to mirror the daemons' real `OpenAPIHandler` lists and had drifted
+  three resources in EACH direction for routd (claimed `acl_membership` +
+  `network_rules`, which routd advertises for neither; missing `route_tokens`,
+  `installed_packages`, `scheduled_tasks`). It cannot import `routd` (cycle),
+  so it is a copy by construction. Corrected, and its comment now says so and
+  points at the routd-side check that reads the real list.
+- **Guard:** the per-resource probe is now class-wide, in
+  `routd/endpoints_source_test.go`:
+  - `TestRoutdMux_ServesEveryDeclaredEndpoint` — for EVERY routd resource, every
+    non-MCPOnly canonical endpoint must resolve on the mux `Server.Handler()`
+    really builds, to a pattern byte-equal to its declaration; and an MCPOnly
+    endpoint must carry no Verb/Path. Any mount function that drops, adds, or
+    re-paths a face fails here, in whichever resource it happens.
+  - `TestOpenAPI_EveryAdvertisedPathIsMounted` — the doc side, with NO
+    hand-maintained list: every `(method, path)` in the emitted
+    `/openapi.json` must resolve on the same mux.
+  - `TestRoutdResources_CoverAdvertised` — keeps the constructor table honest:
+    every name in `OpenAPIResources` must be probed by the first guard.
+  Verified falsifiable: restoring the exact pre-fix state (list back to
+  `GET /v1/acl`, the trimming literal back in `mountACL`) fails exactly those
+  guards and nothing else in `routd` —
+  `endpoints_source_test.go:137: acl: GET /v1/acl: routd's mux serves pattern
+"", want "GET /v1/acl"` and `:181: /openapi.json advertises "GET /v1/acl" but
+  routd's mux serves pattern ""`. The pre-existing constructor-equality
+  assertion passes throughout, which is the blindness being closed.
 
-## F28 — the emitted `operationId` is `<action>_<name>`; `5/17` specifies `<name>.<action>` (2026-08-06, open)
+## F28 — the emitted `operationId` is `<action>_<name>`; `5/17` specifies `<name>.<action>` (2026-08-06, FIXED 2026-08-06 — spec moved, emitter kept)
 
 `specs/5/17-openapi-mcp.md:192-196` §"Resource name = wire identity" states the
 `operationId` is `<name>.<action>` and calls the composed `<name>.<action>`
@@ -276,12 +310,35 @@ convention cannot drift again silently while the question is open.
 - **Scope:** resreg OpenAPI emission (spec 5/17)
 - **Affected:** every daemon's `/openapi.json`
 - **Source:** resreg/openapi.go:264,320,325,337,342,348 vs specs/5/17-openapi-mcp.md:192-196
-- **Status:** open
-- **Fix:** operator decision, then one edit. Changing the emitter is a wire
-  change for generated clients across six advertised resources on eight daemons;
-  changing the spec sentence costs nothing. If the emitter moves, the audit
-  `action=` field and the permission-editor rows must move with it or the
-  "one composed string everywhere" claim breaks in a new place.
+- **Status:** FIXED 2026-08-06 — the SPEC moved; the emitter is unchanged.
+- **Decision:** `operationId` stays `<action>_<name>`. Three reasons, in order
+  of weight:
+  1. **OpenAPI's own guidance points away from a dot.** 3.1 §4.8.10.1, verbatim:
+     "Tools and libraries _MAY_ use the operationId to uniquely identify an
+     operation, therefore, it is _RECOMMENDED_ to follow common programming
+     naming conventions." Generators turn `operationId` into a client method
+     name (openapi-generator even ships `--remove-operation-id-prefix` because
+     of it), and `.` is not an identifier character in Go, Java, Python, or
+     TypeScript — a dotted id gets mangled by the generator, so the dot never
+     reaches the caller. Verb-first also matches OpenAPI's own examples
+     (`listPets`, `showPetById`).
+  2. **The dotted form was never the contract it claimed to be.** The spec
+     sentence said `<name>.<action>` is one string used by "OpenAPI
+     `operationId`, audit `action=` fields, metrics labels, permission-editor
+     rows". Checked all four: `audit_log` writes `resource=` and `action=` as
+     SEPARATE fields (`resreg/resreg.go` `emitAudit`/`buildEvent`); `acl` grant
+     rows carry `mcp:<flat tool name>` (`mcp:list_acl` — `routd/acl_resource.go`);
+     `obs/metrics.go` has no resource/action label at all. Only
+     `deriveMCPTools`' DEFAULT is dotted, and every folded resource overrides it
+     via `MCPNames` to a flat name. So one edit to the spec broke nothing.
+  3. **Changing the emitter is the expensive side** — a wire change for every
+     generated client across eight advertised resources on eight daemons — to
+     buy a form the generators would strip anyway.
+- **Shipped:** `specs/5/17` §"Resource name = wire identity" rewritten: the
+  identity is the `(name, action)` PAIR, with a table of the four per-surface
+  spellings, so no reader can infer a single composed string again.
+  `TestOpenAPI_ScheduledTasksAdvertised` keeps pinning the emitted form (its
+  comment now cites the decision rather than an open bug).
 
 ## F26 — `reference/openapi.html` still documents the `scheduled_tasks` gap that `F21` closed (2026-08-06, open)
 
@@ -300,12 +357,17 @@ the same session. Not edited to avoid a concurrent-write collision.
 - **Affected:** readers of `/pub/arizuko/reference/openapi.html`
 - **Source:** template/web/pub/arizuko/reference/openapi.html:99,106 vs routd/server.go OpenAPIResources
 - **Status:** open
-- **Fix:** six → seven; replace the `scheduled_tasks` gap paragraph with the
-  real shape — REST at `/v1/tasks` (not `/v1/<name>`) because timed calls it
-  across the container boundary, schedule/pause/resume `MCPOnly` so the agent
-  has tools the doc correctly omits. Then deploy and verify `/pub/...` 200.
-  Whichever way, the guard must assert the **mounted** slice, not the
-  pre-override one.
+- **Fix:** six → **eight** (`F27` added `groups` after `F21` added
+  `scheduled_tasks` — the current list is routes, web_routes, acl, secrets,
+  route_tokens, installed_packages, scheduled_tasks, groups). Replace the
+  `scheduled_tasks` gap paragraph with the real shape — REST at `/v1/tasks`
+  (not `/v1/<name>`) because timed calls it across the container boundary,
+  schedule/pause/resume `MCPOnly` so the agent has tools the doc correctly
+  omits. `groups` is the same shape mirrored: its `register` action is
+  `MCPOnly`, so only `GET /v1/groups` is advertised. Then deploy and verify
+  `/pub/...` 200.
+- **Blocks:** `specs/5/17` — this is now its ONLY unmet definition-of-done
+  item; the spec stays `partial` until this page ships.
 
 ## F30 — `5/28` composition's lock is instance-keyed; its subject is group-scoped (2026-08-06, proposed)
 

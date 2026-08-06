@@ -528,11 +528,24 @@ func TestApply_WritesOneAuditRow(t *testing.T) {
 
 // daemonOwnership mirrors the per-daemon owned-resource lists the daemon
 // mains pass to resreg.OpenAPIHandler (spec 5/8 §"OpenAPI emission").
-// Keep in sync with timed/main.go, routd/cmd/routd/main.go,
+// Keep in sync with timed/split.go, routd/server.go OpenAPIResources,
 // onbod/main.go, proxyd/main.go.
+//
+// It is a COPY, not the source: routd imports this package, so the real
+// routd.OpenAPIResources cannot be read from here. It had drifted three
+// resources in each direction — claiming acl_membership + network_rules,
+// which routd advertises for neither, and missing route_tokens,
+// installed_packages and scheduled_tasks (found while fixing BUGS F27). The
+// authoritative doc↔mux check is routd's own
+// TestOpenAPI_EveryAdvertisedPathIsMounted, which reads OpenAPIResources
+// directly; what this table still buys is the cross-daemon half — no daemon
+// advertises another's paths.
 var daemonOwnership = map[string][]string{
-	"timed":  {"scheduled_tasks"},
-	"routd":  {"groups", "routes", "web_routes", "acl", "acl_membership", "secrets", "network_rules"},
+	"timed": {"scheduled_tasks"},
+	"routd": {
+		"routes", "web_routes", "acl", "secrets", "route_tokens",
+		"installed_packages", "scheduled_tasks", "groups",
+	},
 	"onbod":  {"onboarding_gates"},
 	"proxyd": {"proxyd_routes"},
 	"runed":  {},

@@ -22,15 +22,19 @@ type ACLRow struct {
 	GrantedAt string `db:"granted_at" yaml:"granted_at,omitempty" json:"granted_at,omitempty"`
 }
 
-// ACLEndpoints is the single owner of the acl REST endpoint set: routd's acl
-// tools (acl_resource.go) reference it. add is a POST and remove a body-addressed
-// DELETE on the collection (principal/scope in the body, no {pk} path), so the
-// real faces diverge from the composite-PK-CRUD convention. list_acl has no REST
-// twin — mountACL trims Endpoints to add/remove for the operator face.
+// ACLEndpoints is the single owner of the acl endpoint set: routd's mountACL
+// mounts it verbatim, deriveMCPTools reads it for the agent's acl tools, and
+// openapi.go emits one operation per non-MCPOnly entry. add is a POST and remove
+// a body-addressed DELETE on the collection (principal/scope in the body, no
+// {pk} path), so the real faces diverge from the composite-PK-CRUD convention.
+//
+// list is MCPOnly: list_acl is agent-only and nothing mounts a REST twin. It
+// carried Verb+Path while mountACL trimmed Endpoints to add/remove, so routd's
+// /openapi.json advertised a GET /v1/acl that 404s (BUGS F27, the F21 class).
 var ACLEndpoints = []resreg.Endpoint{
 	{Verb: "POST", Path: "/v1/acl", Action: resreg.Action("add")},
 	{Verb: "DELETE", Path: "/v1/acl", Action: resreg.Action("remove")},
-	{Verb: "GET", Path: "/v1/acl", Action: resreg.ActionList},
+	{Action: resreg.ActionList, MCPOnly: true},
 }
 
 // ACLMCPNames maps each action to the flat tool name the live agent already calls;

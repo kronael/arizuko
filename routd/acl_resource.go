@@ -20,9 +20,10 @@ package routd
 //     predicate) and returns only rows whose scope == the queried folder.
 //
 // The REST face (/v1/acl POST=add + body-DELETE=remove) rides the SAME shared
-// handler via mountACL (below): resreg.RegisterREST on an add/remove-only copy of
-// aclResource() with a REST Caller + Gate injected. list_acl has NO REST twin —
-// it stays agent-only. The REST Gate binds the body `scope` to the caller's JWT
+// handler via mountACL (below): resreg.RegisterREST on aclResource() with a REST
+// Caller + Gate injected. list_acl has NO REST twin — it is MCPOnly in
+// resources.ACLEndpoints, which is what keeps it out of both the mux and the
+// doc. The REST Gate binds the body `scope` to the caller's JWT
 // folder (ownsFolder), so the operator/human face can no longer grant/revoke
 // outside its authority ("**" needs the empty-folder root token) — closing the
 // pre-fold hole where handleACLAdd/Remove gated on the acl:write bearer scope
@@ -71,15 +72,15 @@ func (s *Server) aclResource() resreg.Resource {
 
 // mountACL wires the /v1/acl operator/human REST face onto the SAME shared
 // aclHandler the agent's add_acl/remove_acl MCP tools use (spec 5/16 REST fold).
-// Only POST(add) + DELETE(remove) are REST-exposed — list_acl stays agent-only
-// (no REST twin). The injected aclRESTGate re-runs the MCP scope-containment, so
-// a REST caller can only grant/revoke within its own authority.
+// It mounts resources.ACLEndpoints verbatim — POST(add) + DELETE(remove); list is
+// MCPOnly there, so RegisterREST and openapi.go both skip it and list_acl stays
+// agent-only. NEVER reintroduce an inline Endpoints literal here: the trimmed
+// copy that used to live in this function is what left GET /v1/acl advertised and
+// unmounted (BUGS F27); endpoints_source_test.go probes this mux to catch it.
+// The injected aclRESTGate re-runs the MCP scope-containment, so a REST caller
+// can only grant/revoke within its own authority.
 func (s *Server) mountACL(mux *http.ServeMux) {
 	res := s.aclResource()
-	res.Endpoints = []resreg.Endpoint{
-		{Verb: "POST", Path: "/v1/acl", Action: resreg.Action("add")},
-		{Verb: "DELETE", Path: "/v1/acl", Action: resreg.Action("remove")},
-	}
 	res.Gate = s.aclRESTGate
 	resreg.RegisterREST(mux, res, s.aclRESTCaller)
 }
