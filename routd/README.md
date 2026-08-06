@@ -52,8 +52,9 @@ Spec: `specs/5/E`.
 - Slack pane: `pane_sessions`
 - Cost: `cost_log`, `auth_users` (cost-cap column only; authd owns identity)
 - Network: `network_rules`
-- Packages: `installed_packages` (installed-package record; the CLI
-  writes it directly, split write-discipline — spec 5/28)
+- Packages: `installed_packages` (installed-package record, keyed
+  (folder, name) with `''` = instance-wide; the CLI writes it directly,
+  split write-discipline — spec 5/28)
 
 Migrations: `routd/migrations/`. routd opens NO sibling DB — cross-daemon
 data arrives over HTTP (authd identity, runed session_log).

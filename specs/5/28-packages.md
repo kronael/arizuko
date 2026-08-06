@@ -4,16 +4,25 @@ status: partial
 
 # specs/5/28 — arizuko packages
 
-> **Status (2026-08-05).** Partial. `installed_packages` now registers a resreg
+> **Status (2026-08-06).** Partial. `installed_packages` registers a resreg
 > resource (BUGS `F1`, closed) wearing both faces off one handler — the operator's
 > two GETs under `/v1/installed_packages` and the agent's `list_packages` /
-> `get_package` tools, each gated on the whole tree because the record is
-> instance-wide. The surface is READ-ONLY on purpose: install / upgrade / remove
-> writes host files and restarts sidecars, so a write face here would be a second
-> install path beside the CLI's. Route install now audits too (BUGS `F2`, closed
-> `06c98611`), so one package's lifecycle — the top half of this spec — is built.
-> Still open: "Composition" below is DEFERRED, not shipped — no reader for
-> `products.toml` exists, and its lock is unresolved (BUGS `F30`).
+> `get_package` tools, each gated on the whole tree. The surface is READ-ONLY on
+> purpose: install / upgrade / remove writes host files and restarts sidecars, so
+> a write face here would be a second install path beside the CLI's. Route install
+> now audits too (BUGS `F2`, closed `06c98611`), so one package's lifecycle — the
+> top half of this spec — is built.
+>
+> The lock is now correctly keyed: migration `0031` re-keys the record on
+> `(folder, name)`, folder `''` meaning instance-wide, so a group-scoped
+> composition CAN key into it (BUGS `F30`, closed). Nothing writes a non-empty
+> folder yet.
+>
+> Still open: "Composition" below is DEFERRED. Its lock is settled but three gaps
+> remain, each an invention rather than a build — no `sync`/`update` verb, no
+> `CLAUDE.md` marker convention, and payload kinds that do not match the corpus.
+> See "Composition's remaining gaps" under Deferred. Do NOT write a
+> `products.toml` reader until they are answered.
 
 Source-first package manager: a package is a **git source** (GitHub URL,
 resolved to an immutable revision) that ships a **manifest** plus any subset of
@@ -85,13 +94,30 @@ re-touched by install/upgrade/remove, here or anywhere else.
 
 ## The installed-package record (the one new mechanism)
 
-One mechanism, not two — the lock composition (below) needs IS this
-per-instance **installed record**, one entry per installed package:
+One mechanism, not two — the lock composition (below) needs IS this **installed
+record**, one entry per installed package per install target:
 
+- the **install target**: `(folder, name)` is the key, folder `''` meaning
+  instance-wide. A package installed against the whole instance and a product
+  blended into one group are the same kind of fact, so they share one lock;
 - **source** + resolved **immutable revision**;
 - the **manifest as installed** — the exact identities this install owns (route
   paths, acl keys, skill dirs, files, fragment names);
 - a per-asset **content hash** (what was written).
+
+The folder half is what makes composition's "On upstream update" column
+specifiable at all: dirty-detection compares a recorded hash against what is on
+disk, and for a group's mix that comparison has to name the group. Everything
+`arizuko packages install` writes — compose fragments, proxyd routes, host files
+— belongs to no group, so the CLI writes `''` and the sentinel is not a special
+case anyone has to remember. `network_rules` already keys `(folder, target)` the
+same way, `''` for a global rule.
+
+Authorization did NOT move with the key. Both faces still bind the whole tree:
+`list` reads across folders and the record names cross-folder identities (the acl
+grants an install applied, every public route path it opened) whatever its own
+folder says. Narrowing the read to a tenant's own subtree is composition's
+decision, not the re-key's.
 
 This is NOT per-row provenance (that was demolished — see below). It is the lock
 that makes upgrade, remove, and dirty-detection specifiable at all. **Without it,
@@ -169,9 +195,10 @@ its table is non-empty). The record names what to remove; no ownership guessing.
 **Nothing in this section exists.** No reader for `products.toml` is in tree;
 `arizuko create --product` / `group add --product` still take exactly ONE
 product and seed it by verbatim copy (`container/runner.go:979` →
-`chanlib.CopyDirNoSymlinks`). It is kept as a design record, and it is blocked
-on a contradiction with the record above rather than on effort — see
-"Composition's unresolved lock" under Deferred.
+`chanlib.CopyDirNoSymlinks`). It is kept as a design record. The contradiction
+with the record above is resolved — the lock is keyed `(folder, name)` — but
+three gaps still block a reader; see "Composition's remaining gaps" under
+Deferred.
 
 A group is not limited to one product: `~/products.toml` is the ordered
 mix (`source =` per entry, resolved the same way packages are — local dir
@@ -221,25 +248,20 @@ upgrade; shared-sidecar refcounting (declared deps + reverse-remove refusal
 suffice); arbitrary agent-setup actions during install; `arizuko-package`
 GitHub-topic discovery; the sidecar per-group `MCP.json` (dropped, `5/13`).
 
-### Composition's unresolved lock
+### Composition's remaining gaps
 
-The section above is not deferred for effort. **Its lock and its subject sit at
-different scopes, and this spec asserts they are the same object.** "The
-installed-package record" above says the lock composition needs IS the
-per-instance installed record — but that record is
-`installed_packages(name TEXT PRIMARY KEY, …)` with no folder column
-(`routd/migrations/0020-installed-packages.sql`, whose own comment reads "one
-row per package installed on this instance"), while `~/products.toml` is a
-GROUP-home file, one mix per group. A per-group mix cannot key into an
-instance-keyed table. Building the managed column therefore forces one of:
+The section above is not deferred for effort.
 
-- a second, group-scoped lock — the "second package manager" this spec forbids
-  in its own `/migrate` paragraph; or
-- refolding a shipped routd table to `(folder, name)` — an owned-schema change
-  needing sign-off.
+**Its lock is settled** (2026-08-06). It used to assert that a GROUP-home
+`~/products.toml` keys into an instance-keyed record, which it cannot; the exit
+taken was refolding the record to `(folder, name)` rather than adding a second,
+group-scoped lock — the "second package manager" this spec forbids in its own
+`/migrate` paragraph. Migration `0031` did that, `''` = instance-wide, and every
+pre-existing row is instance-wide by construction so nothing changed meaning.
+BUGS `F30` is closed.
 
-Until that is decided, three further gaps make the section unimplementable as
-written, each an invention rather than a build:
+Three gaps still make the section unimplementable as written, each an invention
+rather than a build:
 
 - the blend table's third column names a group-scoped `sync` / `update` verb
   that does not exist and is specified nowhere;
@@ -253,13 +275,17 @@ written, each an invention rather than a build:
   and regress today's verbatim seed. "Tier C" beside `Dockerfile.ant` is
   defined nowhere in the corpus.
 
-This is a merge/scope decision, not a coding task: settle whether composition
-is group-scoped at all before a reader is written.
+The first two are design calls, not coding tasks; the third is a corpus
+mismatch, and the safe reading is that the blend table is not a whitelist —
+today's seed is a verbatim `CopyDirNoSymlinks`, so any table-strict blend that
+drops `PRODUCT.md` or `SOUL.md` is a regression, not a simplification. Settle
+all three before a reader is written.
 
 ## Code pointers
 
 - `cmd/arizuko/packages.go` — the `list`/`add`/`install`/`upgrade`/`remove` CLI
-- `routd/packages_store.go` (migration `0020`) — the installed-package record
+- `routd/packages_store.go` (migrations `0020` + `0031`) — the installed-package
+  record; `routd.InstanceWide` is the `''` folder sentinel
 - `resreg/resources/installed_packages.go` — the catalog decl (RowType →
   `/openapi.json`, read-only Endpoints, agent tool names/docs)
 - `routd/packages_resource.go` — the mounted handler; one renderer, two injected
