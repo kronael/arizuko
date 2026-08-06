@@ -16,6 +16,37 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **The audit trail is readable everywhere it is written (spec `5/I`, BUGS
+  `F29`).** Four daemons keep their own `audit_log`, and until now only routd's
+  could be read: `/dash/audit/` opened `routd.db` directly, so an operator who
+  killed a run or whose login was recorded got nothing without `sqlite3` on the
+  box. Each owner now serves its own table at `GET /v1/audit` — one read-only
+  `resreg` registration mounted by routd, runed and authd — and `/dash/audit/`
+  federates all three over those APIs, merged newest-first with a source
+  column. It asks the daemons rather than opening their database files, which
+  is the same ownership rule that keeps each daemon migrating only its own
+  schema; a source that fails gets a banner naming it, because an empty section
+  would claim nothing happened there.
+
+  Operator-only by mechanism, not convention: the gate is the `audit:read`
+  scope, and no human token can hold it — a user's scopes are folder globs, and
+  a folder glob can never satisfy a `resource:verb` scope, not even `**`.
+  On routd's agent socket the same handler appears as `query_audit`, default-
+  deny and pinned to the agent's own folder subtree, which closes this spec's
+  self-introspection question. Reading the log does not write to it; a refused
+  read still does.
+
+  Also pinned here, closing the spec's last open question: which argument names
+  get redacted (now including `dsn`, `private_key` and `service_key`, while
+  `serving_keys` — a count — stays readable), and what happens to an oversized
+  field. One long argument used to collapse a whole row to `{"_truncated":true}`
+  and take the folder and target with it; it is now truncated on its own, and
+  the rest of the row survives. authd's `daemon.start` row recorded its database
+  path in the clear — redacted at the writer now, and scrubbed from history by
+  authd migration `0007`, found by auditing that column before publishing it.
+
+  `onbod` is the fourth owner and still has no endpoint (BUGS `F35`).
+
 - **`/dash/proactive/` — see which groups may speak first (spec `5/6`).**
   Proactive interjection shipped its mechanism and its operator page months
   before an operator could see any of it: `mode:` meant opening every group's

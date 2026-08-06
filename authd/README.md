@@ -42,6 +42,10 @@ DB-ownership rule).
   - `POST /v1/service-token` — daemon service-key exchange
   - `POST /v1/refresh` — rotate refresh token
   - `GET /v1/identities/{sub}` — identity resolution (bearer-gated, `identity:read`)
+  - `GET /v1/audit` — authd's own `audit_log` (bearer-gated, `audit:read`;
+    spec `5/I`). Operator-only in effect: `audit:read` is a resource:verb scope
+    and a user token carries folder globs, so no human bearer can satisfy it.
+    `service:dashd` is the sole holder and `/dash/audit/` is operator-gated.
   - `GET /auth/*` — OAuth login/callback/logout (mounted only when `AUTH_BASE_URL` set)
   - `GET /openapi.json`, `GET /health`
 
@@ -76,7 +80,10 @@ DB-ownership rule).
 ## Observability
 
 slog → journald (always on). OTLP export when `OTEL_EXPORTER_OTLP_ENDPOINT` set
-(spec `specs/5/O-observability.md`). Audit events written to `auth.db` audit_log.
+(spec `specs/5/O-observability.md`). Audit events written to `auth.db` audit_log (`daemon.start`, `login`) and
+served read-only at `GET /v1/audit`. `params_summary` has exactly one writer,
+`daemon.start`; its DSN field is redacted at the writer (`audit.redactRE`) and
+scrubbed from history by migration `0007`.
 
 ## Files
 
@@ -85,6 +92,7 @@ slog → journald (always on). OTLP export when `OTEL_EXPORTER_OTLP_ENDPOINT` se
 - `http.go` — `/v1/*` handlers + mux
 - `store.go` — key + refresh-token persistence
 - `oauth.go` — OAuth provider dance → ES256 mint
+- `audit_resource.go` — the `GET /v1/audit` resreg mount + its scope gate
 - `grants.go` — HTTP grants fetcher (login-time scope snapshot)
 
 ## Status

@@ -486,13 +486,23 @@ Per [`5/I`](../specs/5/I-tool-call-logging.md):
 
 ## Redaction rules
 
-`params_summary` is JSON, ≤512 chars after redaction:
+`params_summary` is JSON, ≤512 bytes after redaction. Pinned in
+`audit/log.go`; spec `specs/5/I` § Decisions (read path) states the reasoning.
 
-- Keys matching `(?i)pass(word)?|token|secret|key|api_key|authorization|cookie` →
-  `<redacted:Nchars>`.
-- Values longer than 200 chars → truncated with `…<Nchars>` suffix.
-- The full JSON is dropped to `{}` if total length post-redaction
-  still exceeds 512 chars (with a `_truncated: true` field).
+- Keys matching
+  `(?i)pass(word|phrase)?|token|secret|credential|authorization|cookie|dsn|api_?key|^key$|[_-]key$`
+  → `<redacted:Nchars>`.
+  The `key` alternatives are SINGULAR and end-anchored, so `private_key` and
+  `service_key` redact while `serving_keys` — a count in authd's `daemon.start`
+  row — stays readable. An unanchored `key`, as this file first proposed, would
+  have redacted the count (and `monkey` with it). `session` is deliberately
+  absent: `session_id` is a turn identifier, not a credential.
+- Values longer than 200 RUNES → truncated with a `…<truncated:Nchars>` suffix,
+  applied per value BEFORE the whole-map cap. Rune-wise because a byte-wise cut
+  of UTF-8 yields U+FFFD. Redaction runs first, so a long secret is redacted
+  rather than truncated to its exploitable prefix.
+- The map gains `_truncated: true` if it still exceeds 512 bytes; only a map
+  with hundreds of keys reaches that now, since one fat value no longer can.
 
 ## Consolidation plan
 

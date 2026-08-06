@@ -788,9 +788,13 @@ Three substrates, clearly split:
   operations, one per owner DB. Transactional with the mutation where
   the mutation is local (`audit.EmitInTx`); where it lands on a remote —
   a platform message, the docker daemon — the row is written alongside
-  it (`audit.EmitDB`), since there is no local tx to join. Forensic
-  queries via `sqlite3`. Spec [`5/I`](specs/5/I-tool-call-logging.md) +
-  [`7/F`](specs/5/I-tool-call-logging.md).
+  it (`audit.EmitDB`), since there is no local tx to join. Each owner
+  serves its own table read-only at `GET /v1/audit` (one `resreg`
+  registration, mounted by routd/runed/authd; `audit.Query` is the single
+  reader), and `/dash/audit/` federates them over those APIs rather than
+  opening the DB files. A successful read writes no row — `list` does not
+  mutate — but denials and errors do. Spec
+  [`5/I`](specs/5/I-tool-call-logging.md).
 - **slog → journald** — operational telemetry for everything (state
   changes + reads). High-rate, lossy by design (journald rotation,
   level filtering). `journalctl -u arizuko_<inst>` is the default

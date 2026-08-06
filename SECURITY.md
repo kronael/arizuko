@@ -295,6 +295,19 @@ Single command to read all service logs for an instance:
 sudo journalctl -u arizuko_<instance> --since "1 hour ago" --no-pager
 ```
 
+**Reading the trail**: each daemon that owns an `audit_log` serves it
+read-only at `GET /v1/audit`, gated on the `audit:read` scope. That scope is
+unreachable by any human bearer — a user token's scope list carries folder
+globs and `auth.scopeMatches` rejects a held value without a colon, so neither
+`acme/**` nor an operator's own `**` satisfies it. `service:dashd` is the sole
+holder, and the page it serves (`/dash/audit/`) is operator-gated, so the trail
+is operator-only by mechanism rather than convention. On routd's agent socket
+the same handler is exposed as `query_audit`, default-deny behind an
+`mcp:query_audit` grant and pinned to the agent's own folder subtree. Folder
+bounds never derive from the JWT folder claim — an absent claim is not evidence
+of operator status — only from the authorization the caller already passed.
+Spec `specs/5/I-tool-call-logging.md`.
+
 **Access audit**: `proxyd` is the single ingress point for all HTTP
 traffic. It logs every request as a structured JSON line:
 

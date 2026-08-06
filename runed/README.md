@@ -31,7 +31,7 @@ in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
 `spawn_logs`, `mcp_tokens`, `circuit_breaker`, `audit_log` — runtime
 execution state with no home in routd. Migrations in
 `runed/migrations/`. These are runtime tables, not manifest-addressable
-config, so `/openapi.json` exposes zero resource paths (emitted only for
+config, so `/openapi.json` exposes only the `audit` read path (emitted also for
 aggregator uniformity).
 
 ## Entry points
@@ -45,6 +45,10 @@ aggregator uniformity).
   - `GET /v1/runs/{run_id}` — status; `DELETE /v1/runs/{run_id}` — kill (`runs:kill`)
   - `GET /v1/sessions` — session history (scope `sessions:read`, folder-bound)
   - `GET /v1/sessions/recent` — recent session_log rows (scope `sessions:read`, routd federation read)
+  - `GET /v1/audit` — runed's own `audit_log` (scope `audit:read`, folder-bound;
+    spec `5/I`). The only surface that answers "who killed that run" — a kill
+    leaves a `spawns` row indistinguishable from a clean stop, and a busy hold
+    leaves none. `/dash/audit/` federates it.
   - `GET /openapi.json`, `GET /health`
 
 ## Dependencies

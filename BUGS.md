@@ -7,6 +7,100 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F36 — a refresh-token family kill can miss the successor it was racing (2026-08-06, open)
+
+`Authd.Refresh` detects concurrent redeem of a one-time refresh token and
+revokes the lineage, but the revoke and the successor's insert are unordered,
+so the token the kill exists to stop can survive it.
+
+The two paths, both in `authd/server.go`:
+
+- **Loser** — `markRefreshUsed` returns `won == false` (`:299`) → `revokeFamily`
+  (`:300`), which is `UPDATE refresh_tokens SET revoked_at = ? WHERE family_id
+= ? AND revoked_at IS NULL` (`authd/store.go:256`). It revokes the rows that
+  exist **at that moment**.
+- **Winner** — wins at `:295`, then re-snapshots grants, and only at `:324`
+  calls `rotateRefresh`, which INSERTS the successor.
+
+If every loser's `revokeFamily` commits before the winner's insert, the
+successor lands with `revoked_at` NULL into a family that was just killed. It
+then refreshes normally for the full 30-day TTL. The reuse signal fired, the
+alarm was recorded, and the credential it was about stayed live — which is the
+one outcome reuse detection exists to prevent.
+
+**Why it surfaced now, and why it is not new.** Nothing in the audit-read work
+touches `Refresh`, `revokeFamily`, `rotateRefresh` or `markRefreshUsed` —
+`authd/server.go` and `authd/store.go` are untouched by commits `b87bc0ff`,
+`21ba9d0a`, `7a94eb61`. What changed is scheduling: `authd/audit_resource_test.go`
+sorts before `bugfix_test.go`, so the package's tests now run in a different
+order, and under whole-suite load the losers win the ordering.
+`TestRefreshRotationRaceSingleWinner` then fails on its second assertion —
+"successor must be revoked after a concurrent-reuse family kill" — which is the
+race, correctly detected.
+
+Reproduction: `go test ./... -count=1 -short` on the current tree fails it
+roughly one run in two. It passes when that test file is renamed to sort last,
+and at base `22456a4f` it passes both whole-suite runs and 40 isolated ones.
+That the trigger is test ORDER and not test CONTENT is itself the evidence: a
+race whose visibility depends on scheduling is a race, not a broken test.
+
+**Not fixed here, and not hidden here.** Renaming the new test file would make
+the suite green and leave a live token-revocation hole, so it was left failing
+and filed instead. The fix is an ordering one — revoke the family AFTER the
+successor exists, or do the rotate + revoke in one transaction so a loser's
+`UPDATE` cannot interleave between the winner's compare-and-set and its insert.
+Either is a correctness change to the token authority's concurrency, which is
+the sign-off case.
+
+- **Severity:** high (a revoked refresh family can keep a live successor; the
+  window is narrow and needs a genuine concurrent redeem, but that is exactly
+  the case reuse detection is for)
+- **Scope:** authd refresh rotation (spec 5/1 § refresh reuse detection)
+- **Affected:** all instances
+- **Source:** authd/server.go:295-302,324; authd/store.go:256-261; authd/bugfix_test.go:131-168
+- **Status:** open — needs sign-off on the ordering fix
+- **Fix:** make the successor's insert and the family revoke mutually ordered
+  (one transaction, or revoke-after-insert), then keep
+  `TestRefreshRotationRaceSingleWinner` as the regression pin.
+- **Blocks:** a green `go test ./... -short` on the current tree.
+
+## F35 — onbod's `audit_log` is the fourth owner and the only one still unreadable (2026-08-06, open)
+
+`F29` named three daemons; there are four. `onbod` owns an `audit_log`
+(`onbod/migrations/0002-audit-log.sql`) and writes real rows through five
+`audit.Emit` call sites (`onbod/main.go:110,885,912,1106` plus the audited
+`AddACLRow` path at `:1147`) — admission decisions, invite consumption, group
+setup. `audit.Init(obdb, ...)` at `onbod/main.go:109` points them at
+`onbod.db`, which no other daemon opens.
+
+Now that routd, runed and authd each serve `GET /v1/audit`, onbod is the one
+owner whose rows still need `sqlite3` on the box, and `/dash/audit/` federates
+three of four sources — so the page is honest about what it shows but silently
+incomplete about what exists.
+
+The work is small and already shaped: the resource is registered once
+(`resreg/resources/audit.go`), and onbod's mount would be a near-copy of
+`runed/audit_resource.go` — a Store for the non-forwarder marker, an
+`audit:read` gate, `audit.Query` over onbod's handle, plus `"audit"` in its
+`OpenAPIResources` list and a fourth entry in `dashd.auditSources`.
+
+It was NOT added with the other three because the sign-off named routd, runed
+and authd. A new `/v1` surface on a daemon the sign-off did not mention is
+exactly the change root `CLAUDE.md` says needs one, and onbod's rows carry
+admission and invite data whose params column deserves the same
+column-by-column audit authd's got before it is published.
+
+- **Severity:** low (the trail exists and is correct; only the read is missing,
+  and the three noisiest owners are now covered)
+- **Scope:** onbod `/v1` + `dashd.auditSources` (spec 5/I)
+- **Affected:** all instances
+- **Source:** onbod/migrations/0002-audit-log.sql; onbod/main.go:109,110,885,912,1106; dashd/audit_page.go auditSources
+- **Status:** open — needs sign-off on extending the `F29` shape to a fourth daemon
+- **Fix:** mount the shared `audit` resource on onbod, audit its
+  `params_summary` per call site first, then add the source to dashd.
+- **Blocks:** nothing. `5/I` is `shipped` on the three signed-off daemons and
+  records this as its remaining open question.
+
 ## ✅ FIXED 2026-08-06 F31 — `/dash/engagement/` cannot be built: dashd has no HTTP edge to routd, and no scope to use one (2026-08-06, FIXED)
 
 Attempted while closing `5/G`'s definition-of-done item 6. `F12a` shipped the
@@ -255,7 +349,7 @@ not a restatement of it.
 - **Status:** PROPOSED — needs sign-off before touching seven call sites
 - **Blocks:** nothing; `F32`'s guard covers the one daemon that could drift today.
 
-## F29 — runed's and authd's audit rows are reachable only with sqlite3 (2026-08-06, PROPOSED — needs sign-off)
+## ✅ FIXED 2026-08-06 F29 — runed's and authd's audit rows are reachable only with sqlite3 (2026-08-06, FIXED)
 
 Spec `5/I` says each daemon owns its own `audit_log`, and two daemons now do.
 Neither can be read by anything but a shell on the box.
@@ -305,13 +399,49 @@ new action; the entry itself now exists (`fd697e99`).
 - **Severity:** medium (a shipped audit trail that no operator surface can read)
 - **Scope:** runed + authd `/v1` + dashd audit page (spec 5/I)
 - **Affected:** all instances
-- **Source:** runed/server.go:37-44; runed/audit.go:87; runed/cmd/runed/main.go:51,121; authd/main.go:78,114-116; authd/oauth.go:356; dashd/audit_page.go:24,60
-- **Status:** PROPOSED — needs sign-off on (a) vs (b)
-- **Fix:** user picks the shape; then the read endpoint on runed and authd, then
-  `/dash/audit/` federates the three sources instead of reading one.
-- **Blocks:** `5/I` cannot go `shipped` while its rows are unreadable. Its Open
-  question 1 (redaction regex + the 1 KB-cap encoding) is also still unpinned,
-  which independently keeps that spec `partial`.
+- **Status:** FIXED 2026-08-06
+- **Fix:** shape **(b)** as signed off — `audit` registered ONCE as a read-only
+  resreg resource (`resreg/resources/audit.go`), mounted by routd, runed and
+  authd; `audit.Query` is the single reader; `/dash/audit/` federates the three
+  over HTTP. routd also mounts the agent face, closing `5/I` open question 2.
+  Spec `5/I` is `shipped`.
+- **Note — the write-shape objection was answered, not dodged.** (b)'s stated
+  cost was "a read-only `Action` that does not itself write an audit row per
+  call". It needed no new machinery: `Action.Mutates()` is already false for
+  `list`, so `resreg.emitAudit` returns before the insert. Denials and errors
+  still land. `runed/audit_resource_test.go` pins it — three reads leave the
+  table at one row.
+- **Note — one resource name on three daemons is not the collision the rule
+  forbids.** Root `CLAUDE.md` bars two DIFFERENT tables sharing a wire name
+  (`routes` vs `proxyd_routes`). This is ONE table shape replicated per owner
+  DB by `5/I`'s own per-daemon decision, so `/v1/audit` means "this daemon's
+  log" and dashd federates by fanning one path out rather than writing three
+  clients.
+- **Note — F29's premise was wrong about authd.** "authd mounts no `/v1` at
+  all" is false: `authd/http.go:124-135` mounts five, and `GET
+  /v1/identities/{sub}` is already a bearer-plus-scope-gated READ of `auth.db`.
+  The new endpoint reuses that gate rather than inventing a second one, so the
+  change is smaller than the entry implied.
+- **Note — the authd column was audited before it was published.** authd's
+  `params_summary` had exactly ONE writer, `daemon.start`'s
+  `{dsn, serving_keys, service_subs}`; both counts are `len()` values and the
+  `login` row sets none. No signing key, refresh token or service secret is
+  reachable — `audit.Query` names `audit_log` and no other table. The DSN (a
+  host path, not key material, but where a credential would hide) is now
+  redacted at the WRITER via `audit.redactRE` and scrubbed from history by
+  authd migration `0007`. `TestAuthdParamsSummaryHasOneWriter` fails if a new
+  emit site appears, so the audit cannot silently go stale.
+- **Note — containment never reads the folder claim to decide authority.** An
+  absent `arz/folder` is not evidence of operator status (routd stamps a folder
+  only when the sub holds exactly one scope, so a two-grant tenant is equally
+  claimless) — that is the recorded REST list-all leak. REST authorizes on the
+  `audit:read` scope, which no human bearer can hold because a user token's
+  scopes are folder globs and `auth.scopeMatches` rejects any held value
+  without a colon. The claim only NARROWS an already-authorized call.
+- **Also fixed here:** `5/I` open question 1 — the redaction set and the
+  cap encoding are pinned (`audit/log.go`), and the spec's "1 KB" was corrected
+  to the 512 bytes `audit/PLAN.md` and the code always used.
+- **Not done here:** onbod's `audit_log` — see `F35`.
 
 ## ✅ FIXED 2026-08-06 F24 — proactive interjection has no dashd surface (2026-08-06, FIXED)
 
