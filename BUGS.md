@@ -4461,7 +4461,7 @@ Two errors on `template/web/pub/arizuko/reference/openapi.html`, the page
   NOT deployed: `template/web/pub/` is source-of-truth; the rsync is the
   operator's step.
 
-## F9 — `dashd/me_env.go` writes credentials with zero tests (2026-08-05, open)
+## F9 — `dashd/me_env.go` writes credentials with zero tests (2026-08-05, fixed)
 
 `dashd/me_env.go` has four handlers, three of which write — create, update and
 delete a named credential, all reaching `PutSecretRow`. No test anywhere in
@@ -4477,12 +4477,22 @@ without them, on the credential surface.
 - **Scope:** dashd user-env credential handlers
 - **Affected:** all instances — the `/me` portal
 - **Source:** dashd/me_env.go; dashd/me_secrets_test.go, me_secrets_byoa_test.go, me_secrets_routd_test.go
-- **Status:** open
-- **Fix:** mirror the `me_secrets` test shape per handler. Include the
-  no-plaintext-in-audit assertion `TestSecretAuditNeverCarriesValue`
-  established for the CLI path.
+- **Status:** FIXED 2026-08-06 — `dashd/me_env_test.go`, nine cases mirroring
+  the `me_secrets` shape: the cross-guard on every verb, `store.validateScope`
+  through the handle the page writes with, CSRF + auth wiring, seal-at-rest,
+  caller-sub binding, and no credential value in a log line or an `audit_log`
+  column. Each verified falsifiable by breaking its path.
+- **Also found:** `TestMeSecrets_AuditOmitsValue` was VACUOUS — it never called
+  `audit.Init`, so `audit.Emit` was a no-op, `audit_log` stayed empty, and the
+  test asserted that the empty string does not contain the secret. It passed
+  with the plaintext planted straight into the emitted event. Fixed in the same
+  pass: sink wired, row existence asserted, every column read.
+- **Left open:** `/dash/me/env`'s PATCH and DELETE reject a capability key with
+  a bare `not an env-profile key`, omitting the `— use /dash/me/secrets`
+  pointer POST carries (and that `me_secrets` carries on all three verbs). Cosmetic
+  — the page only ever POSTs — but the three messages should agree. See F20.
 
-## F10 — two of `5/6`'s acceptance criteria have no test (2026-08-05, open)
+## F10 — two of `5/6`'s acceptance criteria have no test (2026-08-05, fixed)
 
 `routd/proactive_test.go` tags acceptance criteria 1, 2, 4, 5 and 7 by comment
 and never covers 3 or 6:
@@ -4506,9 +4516,17 @@ Checked and NOT a defect: `CHANGELOG.md:967` (v0.47.0) still says the feature is
 - **Scope:** routd proactive tests
 - **Affected:** any instance that enables `PROACTIVE_ENABLED`
 - **Source:** routd/proactive_test.go; routd/proactive.go:39; specs/5/6-proactive-interjection.md
-- **Status:** open
-- **Fix:** two table cases in the existing file, tagged to the criteria the way
-  the other five are.
+- **Status:** FIXED 2026-08-06 — `TestProactiveSilentOutcomeArmsCooldown` (#3)
+  and `TestProactiveTurnDoesNotBumpEngagement` (#6) in `routd/proactive_test.go`,
+  tagged to the criteria the way the other five are. Both drive the real loop
+  (scan → dispatch → re-scan), not just `evalProactive`.
+- **Re-confirmed 2026-08-06:** `CHANGELOG.md:968`'s "not yet switched on" is
+  still factually correct — `PROACTIVE_ENABLED` is read only at
+  `routd/proactive.go:39` and no template, compose fragment or `.env` sets it.
+  Left as written.
+- **Spec still `partial`:** the test gap is closed but three definition-of-done
+  items are not — no operator page under `template/web/pub/`, no `dashd`
+  surface for mode/cooldown, no migration entry. See the spec's status block.
 
 ## F11 — proxyd's route surface is documented under routd's resource name (2026-08-05, open)
 
@@ -4892,7 +4910,7 @@ citation look verifiable while being unreachable for every other checkout.)
   resolve to commit objects in the shared object DB, so `git show` succeeds on a
   SHA no one else can reach. The check is reachability, not existence.
 
-## F20 — dashd's `RUNED_URL` is read but never written, so the runed kill button is dead in every deploy (2026-08-06, open)
+## F23 — dashd's `RUNED_URL` is read but never written, so the runed kill button is dead in every deploy (2026-08-06, open)
 
 `dashd/main.go` reads `RUNED_URL` into `d.runedURL`, and `handleRunedKill`
 returns **503 "RUNED_URL not configured"** when it is empty
@@ -4918,3 +4936,30 @@ while wiring `/dash/proxyd/`, which avoids the same trap with a code default
   (`http://runed:8080`), which needs no compose change and no operator step —
   the daemon DNS name is fixed by the compose service name. Adding
   `RUNED_URL` to the allowlist as an override is optional on top.
+## F22 — `/dash/me/env`'s three rejection messages disagree (2026-08-06, open)
+
+`handleMeEnvCreate` rejects a capability key with
+
+    GITHUB_TOKEN: not an env-profile key — use /dash/me/secrets for capability keys
+
+but `handleMeEnvUpdate` (`me_env.go:208`) and `handleMeEnvDelete`
+(`me_env.go:258`) stop at `GITHUB_TOKEN: not an env-profile key` — no pointer at
+the page that does accept the key. The twin `me_secrets.go` carries
+`— use /dash/me/env` on all three verbs (`:211`, `:260`, `:316`), so the
+asymmetry is `me_env`'s alone.
+
+Cosmetic today: the page's form only ever POSTs or DELETEs a key it already
+listed, so the truncated message is unreachable from the UI. It is reachable
+from `curl` and from any future client, and one guard answering three different
+ways is how the two pages drift apart.
+
+Found writing the F9 tests: the test first asserted the pointer on all three
+verbs, which is what the spec's "Write paths" section implies, and failed.
+
+- **Severity:** low (message consistency on an unreachable-from-UI path)
+- **Scope:** dashd env-profile handlers
+- **Affected:** API callers hitting PATCH/DELETE with a capability key
+- **Source:** dashd/me_env.go:208, :258; dashd/me_secrets.go:211, :260, :316
+- **Status:** open
+- **Fix:** give both the same suffix as the POST branch. One string constant for
+  all three so a fourth verb cannot invent a fifth wording.

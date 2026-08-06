@@ -223,7 +223,7 @@ func TestMeEnv_CrossGuard(t *testing.T) {
 		}
 	}
 	// Only POST points the caller at the other page (PATCH/DELETE stop at the key
-	// name — BUGS D9); the form only ever POSTs, so that is the reachable message.
+	// name — BUGS F20); the form only ever POSTs, so that is the reachable message.
 	if w := envReq(t, mux, "POST", "/dash/me/env", "github:alice",
 		`{"key":"GITHUB_TOKEN","value":"ghp_x"}`); !strings.Contains(w.Body.String(), "/dash/me/secrets") {
 		t.Errorf("POST rejection %q does not point at /dash/me/secrets", w.Body.String())
