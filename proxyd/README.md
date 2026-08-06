@@ -85,11 +85,11 @@ and the env var is ignored. Runtime mutations are visible immediately
 (no row cache, spec 5/8) and durable across restarts.
 
 **Authorization**: operator-only surface. The ACL gate is an empty scope
-(`auth.Authorize(caller, "routes.<action>", "", nil)`) matched by an
+(`auth.Authorize(caller, "proxyd_routes.<action>", "", nil)`) matched by an
 operator ACL row like `(google:op, '*', '**')`. The `**` marker in
 X-User-Groups is recorded into `Claims["operator"]="1"` for predicate
 matching. Non-operators have no matching row and no mcp:\* tier fallback,
-so the call is denied (spec 5/5, spec 5/32 §"Operator implicit").
+so the call is denied (spec 5/17, spec 5/32 §"Operator implicit").
 
 ## WebDAV write-block
 
