@@ -25,7 +25,7 @@ func descendant(target, owner string) bool {
 
 // mountRouteTokens wires the shared route-token CRUD faces. Every path routd
 // serves under /v1/route_tokens comes from the resource declaration, so the
-// mux and /openapi.json cannot disagree (TestRouteTokens_MuxMatchesDeclaration).
+// mux and /openapi.json cannot disagree (TestRouteTokens_NoHandRolledResolve).
 func (s *Server) mountRouteTokens(mux *http.ServeMux) {
 	res := s.routeTokensResource()
 	res.Gate = s.routeTokensRESTGate

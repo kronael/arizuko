@@ -41,7 +41,9 @@ func newIntegServer(t *testing.T) *integInst {
 	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("test-token")
 
-	cfg := config{assistantName: "assistant"}
+	// routerURL mirrors production, where compose always pins ROUTER_URL —
+	// see newTestServer.
+	cfg := config{assistantName: "assistant", routerURL: mr.srv.URL}
 	return &integInst{Inst: inst, srv: newServer(cfg, st, newHub(), rc, nil, nil), mr: mr, st: st}
 }
 

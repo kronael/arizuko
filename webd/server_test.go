@@ -105,7 +105,10 @@ func newTestServer(t *testing.T) (*server, *mockRouter, *store.Store) {
 	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("test-token")
 
-	cfg := config{assistantName: "assistant"}
+	// routerURL mirrors production, where compose always pins ROUTER_URL. Left
+	// empty, every fixture server looks like one with routd unreachable, which
+	// makes "works without routd" untestable — the whole suite fails alike.
+	cfg := config{assistantName: "assistant", routerURL: mr.srv.URL}
 	return newServer(cfg, st, newHub(), rc, nil, nil), mr, st
 }
 
