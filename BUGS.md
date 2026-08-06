@@ -97,7 +97,7 @@ needs its mux reachable from a test first.
   today; a copy by construction, which is how `daemonOwnership` drifted four
   daemons out of date. Folds into the same extraction.
 
-## F37 — two dispatch tests fail under whole-suite load, so the suite cannot gate a release (2026-08-06, open)
+## F37 — three dispatch tests fail under whole-suite load, so the suite cannot gate a release (2026-08-06, open)
 
 Found while verifying `F36`. Two packages failed on two separate whole-suite
 runs and passed every isolated re-run:
@@ -111,9 +111,26 @@ runs and passed every isolated re-run:
   the package-level `FAIL`), then 20 of 20 subtests PASS isolated and
   `-count=3` clean.
 
-Neither touches `authd`, refresh rotation, signing keys or sessions; the same
+None touches `authd`, refresh rotation, signing keys or sessions; the same
 tree ran `53 ok / 0 fail` on three other whole-suite runs, including one
 immediately before and one immediately after these.
+
+**Third instance, same package, new test name (2026-08-06, base `9c944875`).**
+`tests/TestSplitFederation_InboundToTurnRoundTrip` failed one whole-suite run
+(`52 ok / 1 fail`), then passed isolated (0.098s), at `-count=3` on the package,
+and on a whole-suite re-run that came back `53 ok / 0 fail`. So the flake is not
+specific to `inbound-to-dispatch`: it is the `tests/` package's poll-then-assert
+shape, and the fix below should be applied to every such site in the package,
+not just the one named test. Disk was 89% throughout, not 100%, which weakens
+the disk-pressure confound for THIS instance without eliminating it.
+
+**A second, unrelated failure mode seen in the same session — do not confuse it
+with this bug.** One whole-suite run returned `0 ok / 61 FAIL`, every package
+`[setup failed]` with `package net is not in std
+(/home/onvos/sdk/go1.27rc2/src/net)`. The directories all exist; the next run
+was clean. That is a transient toolchain/cache race under concurrent agents, not
+a dispatch flake and not `no space left on device` — it presents as total,
+uniform failure across every package, whereas this bug is one or two packages.
 
 **A confound that must not be dropped from the record.** The host was at 100%
 disk during the first failure — a later run in the same session aborted
@@ -131,9 +148,11 @@ these two are waiting on asynchronous work with no barrier to hold.
 
 - **Severity:** medium (a suite that flakes under load cannot gate a release,
   and the two flakes were on different packages on different runs)
-- **Scope:** `tests/feat_routing_test.go`, `slakd` package tests
+- **Scope:** the `tests/` package's poll-then-assert sites (at least
+  `feat_routing_test.go` and `TestSplitFederation_InboundToTurnRoundTrip`),
+  `slakd` package tests
 - **Affected:** CI and any developer running the full suite on a busy machine
-- **Source:** tests/feat_routing_test.go:66-75 (poll-then-assert); slakd whole-package FAIL with no subtest line
+- **Source:** tests/feat_routing_test.go:66-75 (poll-then-assert); TestSplitFederation_InboundToTurnRoundTrip; slakd whole-package FAIL with no subtest line
 - **Status:** open
 - **Fix:** give `inbound-to-dispatch` the same deadline treatment for the bot
   row that it already gives the dispatch — poll `countBotRows` rather than
