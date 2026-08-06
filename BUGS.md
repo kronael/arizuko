@@ -7,6 +7,51 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F37 — two dispatch tests fail under whole-suite load, so the suite cannot gate a release (2026-08-06, open)
+
+Found while verifying `F36`. Two packages failed on two separate whole-suite
+runs and passed every isolated re-run:
+
+- `tests/TestFeature_MessageRouting/inbound-to-dispatch` — `bot rows = 0, want
+1`, with `ERROR silent turn: clean run delivered nothing` in the log. It
+  polls `dispatchedFolder` on a 5s deadline and then asserts the bot row
+  immediately; the dispatch was seen, the reply row was not yet written.
+  Passed 6 of 6 isolated, and `go test ./tests/ -count=3` clean.
+- `slakd` — one whole-suite failure, no `--- FAIL` line captured at all (only
+  the package-level `FAIL`), then 20 of 20 subtests PASS isolated and
+  `-count=3` clean.
+
+Neither touches `authd`, refresh rotation, signing keys or sessions; the same
+tree ran `53 ok / 0 fail` on three other whole-suite runs, including one
+immediately before and one immediately after these.
+
+**A confound that must not be dropped from the record.** The host was at 100%
+disk during the first failure — a later run in the same session aborted
+outright with `no space left on device` across ~40 packages — and three agents
+were running suites concurrently. So "flaky under load" is supported, but
+"flaky under *load alone*" is not: disk pressure is an equally good explanation
+and was demonstrably present. Do not close this by re-running on an idle box;
+that reproduces the pass, not the failure.
+
+This is the same shape as `F36`'s own filing — a test whose outcome depends on
+scheduling is reporting something, and the honest first step is to make the
+failure reproducible rather than to re-run until green. The difference is that
+`F36`'s invariant was over committed rows and could be forced with a barrier;
+these two are waiting on asynchronous work with no barrier to hold.
+
+- **Severity:** medium (a suite that flakes under load cannot gate a release,
+  and the two flakes were on different packages on different runs)
+- **Scope:** `tests/feat_routing_test.go`, `slakd` package tests
+- **Affected:** CI and any developer running the full suite on a busy machine
+- **Source:** tests/feat_routing_test.go:66-75 (poll-then-assert); slakd whole-package FAIL with no subtest line
+- **Status:** open
+- **Fix:** give `inbound-to-dispatch` the same deadline treatment for the bot
+  row that it already gives the dispatch — poll `countBotRows` rather than
+  reading it once the instant dispatch is observed. `slakd` needs a captured
+  failure first: run it under `-count=N` with the log kept, because a
+  package-level `FAIL` with no `--- FAIL` line is usually a panic or timeout in
+  a goroutine, not an assertion.
+
 ## F36 — a refresh-token family kill can miss the successor it was racing (2026-08-06, FIXED)
 
 `Authd.Refresh` detects concurrent redeem of a one-time refresh token and
