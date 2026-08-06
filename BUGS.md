@@ -307,7 +307,7 @@ the same session. Not edited to avoid a concurrent-write collision.
   Whichever way, the guard must assert the **mounted** slice, not the
   pre-override one.
 
-## F29 — `5/28` composition's lock is instance-keyed; its subject is group-scoped (2026-08-06, proposed)
+## F30 — `5/28` composition's lock is instance-keyed; its subject is group-scoped (2026-08-06, proposed)
 
 `F3` recorded that `5/28`'s composition section is unbuilt. Trying to build it
 shows it is **unimplementable as written**, which is a stronger claim and a

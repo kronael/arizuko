@@ -13,7 +13,7 @@ status: partial
 > install path beside the CLI's. Route install now audits too (BUGS `F2`, closed
 > `06c98611`), so one package's lifecycle — the top half of this spec — is built.
 > Still open: "Composition" below is DEFERRED, not shipped — no reader for
-> `products.toml` exists, and its lock is unresolved (BUGS `F29`).
+> `products.toml` exists, and its lock is unresolved (BUGS `F30`).
 
 Source-first package manager: a package is a **git source** (GitHub URL,
 resolved to an immutable revision) that ships a **manifest** plus any subset of
