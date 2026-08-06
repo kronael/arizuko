@@ -18,11 +18,14 @@ status: partial
 > composition CAN key into it (BUGS `F30`, closed). Nothing writes a non-empty
 > folder yet.
 >
-> Still open: "Composition" below is DEFERRED. Its lock is settled but three gaps
-> remain, each an invention rather than a build — no `sync`/`update` verb, no
-> `CLAUDE.md` marker convention, and payload kinds that do not match the corpus.
-> See "Composition's remaining gaps" under Deferred. Do NOT write a
-> `products.toml` reader until they are answered.
+> Composition's three blocking gaps are now **settled** (2026-08-06): `sync`
+> ships as a verb (below), the marked-section convention is fixed, and the blend
+> table is reconciled against the real corpus with a catch-all that cannot drop
+> a payload. A `products.toml` reader is now writable.
+>
+> Still open: the reader itself. "Composition" below remains UNBUILT — nothing
+> parses `products.toml`, and `arizuko create --product` still takes exactly one
+> product and seeds it verbatim. That is why this spec stays `partial`.
 
 Source-first package manager: a package is a **git source** (GitHub URL,
 resolved to an immutable revision) that ships a **manifest** plus any subset of
@@ -146,6 +149,26 @@ compose / restart side effects can't be transactionally rolled back (`5/8`).
 - **upgrade** — new revision authoritative; diff the new manifest against the
   recorded one: create/patch declared identities, delete the identities the new
   release drops.
+- **sync** — `upgrade` over the whole installed-record set, in one pass. Same
+  updater (`reapplyPackage`), so dirty-refusal is bit-identical; the only
+  difference is disposition: `upgrade` treats a dirty asset as fatal for the one
+  package named, `sync` reports it and SKIPS it so one hand-edited fragment
+  cannot block the rest of the instance. Idempotent — a package whose source
+  resolves to the recorded revision with the recorded hashes writes nothing and
+  reports `unchanged`, so "what changed" stays truthful. This is the verb the
+  blend table's "On upstream update" column names.
+
+  **`sync` is not `relinkCatalog`.** They were conflated during design and are
+  different mechanisms: `relinkCatalog` (`cmd/arizuko/main.go`, on every
+  generate) converts a fragment that is still a byte-identical copy of the
+  bundled catalog into a symlink, so catalog fixes reach the instance. It reads
+  the filesystem, never the installed-package record, and knows nothing about
+  sources, revisions, or hashes. It stays as it is.
+
+  Only the `compose_fragment` half of a record's manifest is re-applied. The
+  route, grant and skill identities are re-applied by neither verb, so
+  overwriting them would strand rows `remove` is supposed to delete.
+
 - **remove** — delete exactly the recorded identities via their owner handlers
   (`DELETE /v1/proxyd_routes/<path>`, drop skills/files, bring the sidecar down in
   health→route reverse order). Refuse if another installed package declares a
@@ -195,10 +218,10 @@ its table is non-empty). The record names what to remove; no ownership guessing.
 **Nothing in this section exists.** No reader for `products.toml` is in tree;
 `arizuko create --product` / `group add --product` still take exactly ONE
 product and seed it by verbatim copy (`container/runner.go:979` →
-`chanlib.CopyDirNoSymlinks`). It is kept as a design record. The contradiction
-with the record above is resolved — the lock is keyed `(folder, name)` — but
-three gaps still block a reader; see "Composition's remaining gaps" under
-Deferred.
+`chanlib.CopyDirNoSymlinks`). It is kept as a design record. Both blockers are
+now cleared — the lock is keyed `(folder, name)`, and the three design gaps are
+settled (see "Composition's remaining gaps" under Deferred) — so this section is
+implementable as written. What is missing is the reader itself.
 
 A group is not limited to one product: `~/products.toml` is the ordered
 mix (`source =` per entry, resolved the same way packages are — local dir
@@ -206,15 +229,69 @@ or a shallow git clone pinned to its resolved revision). Two providers
 share no merge base, so **blend is per PAYLOAD KIND, never a content
 merge**:
 
-| Payload                      | Blend                                      | On upstream update        |
-| ---------------------------- | ------------------------------------------ | ------------------------- |
-| `skills/`                    | union by name; LAST product wins wholesale | managed: clean replace    |
-| `PERSONA.md`                 | FIRST provider wins; later warned          | seed-once                 |
-| `CLAUDE.md`                  | appended as marked sections, in order      | seed-once                 |
-| `facts/`, `tasks.toml`       | union; filename collision = refuse         | seed-once                 |
-| `settings.json` `mcpServers` | map union; name collision = refuse         | managed                   |
-| `Dockerfile.ant` (Tier C)    | at most one in the mix                     | operator rebuilds         |
-| `migrations/NNN-*.md`        | per product                                | run above the lock's mark |
+| Payload                             | Blend                                      | On upstream update        |
+| ----------------------------------- | ------------------------------------------ | ------------------------- |
+| `skills/`                           | union by name; LAST product wins wholesale | managed: `sync`           |
+| `PERSONA.md` / `SOUL.md`            | FIRST provider wins; later warned          | seed-once                 |
+| `CLAUDE.md`                         | marked sections, in mix order              | seed-once                 |
+| `facts/`, `tasks.toml`              | union; filename collision = refuse         | seed-once                 |
+| `settings.json` `mcpServers`        | map union; name collision = refuse         | managed: `sync`           |
+| `Dockerfile.ant`                    | at most one in the mix                     | operator rebuilds         |
+| `migrations/NNN-*.md`               | per product                                | run above the lock's mark |
+| **anything else** (`PRODUCT.md`, …) | **verbatim copy; FIRST provider wins**     | seed-once                 |
+
+**The table is not a whitelist — the last row is what makes that true.** A
+payload the table does not name is copied whole, first-provider-wins, exactly as
+today's single-product seed copies it. Without that row a table-strict blend
+would DROP every product's `PRODUCT.md` (10 of 10 in `ant/examples/`) and
+`BRANDING.md` (2 of 10), which is a regression, not a simplification. Locked by
+`container/product_seed_test.go` — it asserts every corpus file survives
+`SetupGroup` byte-identical, so a future blend engine cannot quietly narrow it.
+
+`SOUL.md` is the legacy `PERSONA.md` name, renamed on read
+(`container/runner.go:497`) and only when `PERSONA.md` is absent. It therefore
+shares PERSONA's row rather than getting one of its own — and a mix where one
+product ships `PERSONA.md` and another ships `SOUL.md` is a **collision the
+blend must warn about**, because the read-time rename silently keeps the
+`PERSONA.md` one and strands the other as a dead file.
+
+### The marked-section convention
+
+`CLAUDE.md` is the one payload that concatenates rather than picking a winner,
+so it needs a machine-owned region marker.
+
+**A marked-region convention already ships** — `writeManagedEnv`
+(`compose/compose.go:474`) owns a block of the instance `.env` between
+`# --- compose-managed (do not edit) ---` and `# --- end compose-managed ---`.
+Its **semantics** are inherited here rather than re-invented, because they were
+paid for: BUGS `C6` was an unbalanced marker silently dropping every operator
+line after it, and the fix was to demand a single well-formed `[begin, end]`
+block and fail loud on anything else.
+
+Its **syntax** cannot be reused as-is: `#` starts a comment in `.env` but a
+heading in markdown, so the same bytes would render as an H1 in a file the agent
+reads as prose. Markdown's invisible comment is the HTML comment:
+
+```
+<!-- arizuko:package:<name> BEGIN -->
+…product's CLAUDE.md content…
+<!-- arizuko:package:<name> END -->
+```
+
+Rules — the first three are `writeManagedEnv`'s, the fourth is the extension
+this payload needs:
+
+- re-applying a product replaces **only** the bytes between its own markers;
+- text outside every marked region is the operator's (or the agent's) and is
+  never read, rewritten, or reordered;
+- a malformed region — a BEGIN with no END, a duplicate, an END before its
+  BEGIN — is a **hard error that refuses to rewrite the file**, never a
+  best-effort truncate. This is `C6`'s fix restated, and it is the whole reason
+  the convention is worth inheriting.
+- unlike `.env`'s single block, `CLAUDE.md` carries **N regions keyed by
+  product name**, emitted in mix order. Ordering among them is the mix's;
+  a region's identity is its name, so re-applying one product cannot disturb
+  another's.
 
 That table IS the cross-package collision rule this spec's own
 install/upgrade (above) defers to when a GROUP, not an instance, is the
@@ -260,30 +337,41 @@ group-scoped lock — the "second package manager" this spec forbids in its own
 pre-existing row is instance-wide by construction so nothing changed meaning.
 BUGS `F30` is closed.
 
-Three gaps still make the section unimplementable as written, each an invention
-rather than a build:
+**All three are settled (2026-08-06); the reader is not written.**
 
-- the blend table's third column names a group-scoped `sync` / `update` verb
-  that does not exist and is specified nowhere;
-- "`CLAUDE.md` appended as marked sections" names no marker convention;
-- the payload kinds do not match the corpus. No product in `ant/examples/`
-  ships `skills/`, `tasks.toml`, `settings.json`/`mcpServers`,
-  `Dockerfile.ant`, or `migrations/`; 7 of 10 ship `SOUL.md` — the legacy
-  persona name, auto-migrated only at READ time (`container/runner.go:497`) —
-  which the table never names; and every product ships `PRODUCT.md` (two also
-  ship `BRANDING.md`), also unnamed, so a table-strict blend would DROP them
-  and regress today's verbatim seed. "Tier C" beside `Dockerfile.ant` is
-  defined nowhere in the corpus.
+1. **The `sync` verb** — built, instance-scoped, `arizuko packages sync
+<instance>` (Lifecycle, above). It is `upgrade` over the whole record set
+   through one shared updater, not a second one. `relinkCatalog` was proposed as
+   the mechanism to build it on and is **not** it: that function converts an
+   identical fragment copy into a catalog symlink and never reads the
+   installed-package record. When a group-scoped mix lands, `sync` gains the
+   `(folder, name)` half of the key it already has in the schema; the verb does
+   not fork.
+2. **The marked-section convention** — fixed above as
+   `<!-- arizuko:package:<name> BEGIN/END -->`, inheriting the semantics of the
+   `writeManagedEnv` block that already ships (`compose/compose.go:474`)
+   including BUGS `C6`'s fail-loud-on-malformed rule. The comment syntax differs
+   because `#` is a markdown heading; the rules do not.
+3. **The corpus mismatch** — closed by the table's catch-all row: an unnamed
+   payload copies verbatim, first-wins. Verified against the tree rather than
+   recalled — `PRODUCT.md` 10/10, `SOUL.md` **6/10** (an earlier draft of this
+   spec said 7), `PERSONA.md` 3/10, `BRANDING.md` 2/10, `CLAUDE.md` 3/10, and
+   still no product ships `skills/`, `tasks.toml`, `settings.json`,
+   `Dockerfile.ant` or `migrations/`. Those counts are asserted by
+   `container/product_seed_test.go`, so the corpus cannot drift away from this
+   paragraph silently. "Tier C" is deleted — it was defined nowhere.
 
-The first two are design calls, not coding tasks; the third is a corpus
-mismatch, and the safe reading is that the blend table is not a whitelist —
-today's seed is a verbatim `CopyDirNoSymlinks`, so any table-strict blend that
-drops `PRODUCT.md` or `SOUL.md` is a regression, not a simplification. Settle
-all three before a reader is written.
+What remains is the build, not a decision: no reader parses `products.toml`, and
+no writer puts a non-empty `folder` in the installed-package record. Until both
+exist, composition is design-complete and unshipped.
 
 ## Code pointers
 
-- `cmd/arizuko/packages.go` — the `list`/`add`/`install`/`upgrade`/`remove` CLI
+- `cmd/arizuko/packages.go` — the
+  `list`/`add`/`install`/`upgrade`/`sync`/`remove` CLI; `reapplyPackage` is the
+  ONE updater `upgrade` and `sync` share
+- `cmd/arizuko/packages.go` `relinkCatalog` — copy→catalog-symlink, called from
+  `generateCompose`; NOT the `sync` verb
 - `routd/packages_store.go` (migrations `0020` + `0031`) — the installed-package
   record; `routd.InstanceWide` is the `''` folder sentinel
 - `resreg/resources/installed_packages.go` — the catalog decl (RowType →
@@ -291,7 +379,8 @@ all three before a reader is written.
 - `routd/packages_resource.go` — the mounted handler; one renderer, two injected
   gates, both bound to the instance-wide `**` target
 - `dashd/packages_page.go` — the operator's `/dash/packages/` read
-- `container/runner.go:964` `SetupGroup()` — group-seed entry point (Tier A)
+- `container/runner.go:964` `SetupGroup()` — group-seed entry point
+- `container/product_seed_test.go` — the verbatim-seed lock + corpus counts
 - `container/runner.go:1019` `seedSkills()` — skill seeding at spawn
 - `resreg/resources/proxyd_routes.go`, `routd/acl_resource.go` — the owner handlers
 - `ant/skills/self/migration.md` — the 3-way merge packages reuse for skills

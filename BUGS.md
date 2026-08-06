@@ -114,6 +114,47 @@ Fix: onbod migration 0005 rebuilding `onboarding` without `token_ref`,
 exists to carry plaintext tokens forward into a column that would no longer
 exist. Live row counts: krons 15, sloth 21, marinade 8; zero rows anywhere hold
 a live (unexpired) token.
+## F44 — dashd test fixtures hand-write schemas that drift from the real migrations (2026-08-06, open)
+
+Found while shipping `5/8` item 5. `runedDB` (`dashd/runed_page_test.go:16`)
+hand-writes a `CREATE TABLE spawns` that was missing `kind` — the column
+`runed/migrations/0004-spawn-kind.sql` added. Every runed-page test passed
+against a schema the daemon has not had for weeks, so the page could only be
+tested against a fiction; adding a `kind` read to the query turned every one of
+them red with `no such column: kind`.
+
+Patched in place for this change (the column is now in the fixture), but the
+class is unfixed: any hand-written fixture drifts silently the moment a
+migration lands, and the failure mode is a green suite testing a schema that
+does not exist. `runed.Open` already runs the embedded migrations — a fixture
+built from it cannot drift. Same question applies to `routdDB` and the other
+dashd fixtures.
+
+- **Severity:** medium — tests pass against a schema production does not have
+- **Scope:** `dashd/*_test.go` fixtures
+- **Source:** `dashd/runed_page_test.go:16` vs `runed/migrations/0004-spawn-kind.sql`
+- **Status:** open (fixture patched, class open)
+
+## F45 — `packages upgrade` dropped the non-file half of the installed record (2026-08-06, FIXED)
+
+`upgrade` replaced `Manifest` wholesale with `{"compose_fragment": …}`, so the
+`proxyd_route`, `grant` and `skill` identities `install` recorded were erased on
+every upgrade. `remove` reads exactly those keys to know what to delete, so an
+upgraded package could never be fully removed: its routes stayed live in
+`proxyd_routes`, its `acl` grants stayed granted, and its skill dirs stayed on
+disk, with no record that anything owned them.
+
+Live blast radius was limited only because `upgrade` has few callers; shipping
+`packages sync` would have run the same path over every installed package at
+once.
+
+- **Severity:** high — silent loss of the ownership record `remove` depends on
+- **Scope:** `cmd/arizuko/packages.go`
+- **Source:** the old `upgrade` case, `rec.Manifest = map[string][]string{…}`
+- **Status:** FIXED 2026-08-06 (`5c14a37a`)
+- **Fix:** `reapplyPackage` replaces only the `compose_fragment` key and leaves
+  every other kind intact. Regression test
+  `TestPackagesUpgradePreservesNonFileManifest`.
 
 ## F39 — `SCREENS.md`'s page hierarchy is missing ten shipped dashd pages (2026-08-06, open)
 
@@ -145,7 +186,7 @@ tracked rather than swept.
   operator-visible page, and keep it there — or delete the block and point at
   `dashd/README.md`'s route list, which IS maintained, rather than keeping a
   second inventory that drifts.
-## F41 — `runed` and `authd` both serve `GET /v1/sessions`, for different tables (2026-08-06, open)
+## F46 — `runed` and `authd` both serve `GET /v1/sessions`, for different tables (2026-08-06, open)
 
 Found while picking a foreign-resource anchor for `runed`'s new doc-vs-mux
 guard: `sessions` was unusable as one, because `runed` really does serve that
@@ -176,7 +217,7 @@ program would do).
   sessions read, spec 5/P) — a cross-daemon path change, so it wants sign-off
   rather than an inline fix.
 
-## F40 — four daemons advertise resources with no doc-vs-mux guard; wiring them needs a mux extraction each (2026-08-06, FIXED 2026-08-06)
+## F47 — four daemons advertise resources with no doc-vs-mux guard; wiring them needs a mux extraction each (2026-08-06, FIXED 2026-08-06)
 
 **FIXED.** All four wired; every daemon that advertises a resource now runs the
 guard against its own list and its own mux. `runed` `22eb51c2`, `authd`

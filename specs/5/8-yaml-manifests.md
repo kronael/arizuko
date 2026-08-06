@@ -48,8 +48,12 @@ Not built, each in its own section below:
 4. **Pending onboarding admissions in the archive** — `onboarding` is now a
    resreg resource but `SkipApplyRebuild` and value-less, so admissions do
    not travel (BUGS.md Z3).
-5. **`dashd`'s kill-confirm label** — still says "Stop the agent currently
-   working for %s" (`dashd/runed_page.go:77`), wrong for a hold.
+
+Item 5 (`dashd`'s kill-confirm label) is **done** (2026-08-06): the runs table
+renders a Kind column and `killConfirm` (`dashd/runed_page.go`) words the
+confirm per `spawns.kind` — killing a `hold` aborts an external job, it does not
+drop an agent's reply. Items 1–4 all live in `resreg/` and remain unbuilt, which
+is why this spec stays `partial`.
 
 ## Why
 
