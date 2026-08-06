@@ -39,7 +39,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; OpenAPI</p>
 <h1>openapi</h1>
 
-    <p class="lede">Every HTTP-serving daemon exposes its API at <code>GET /openapi.json</code>. The document is generated from <code>resreg.Resource.RowType</code> reflection &mdash; one walk over the registry produces <code>components/schemas</code> from struct fields and <code>paths./v1/&lt;name&gt;</code> for the five CRUD operations (list, read-one, create, update, delete). Drift between handler and doc is structurally impossible because both read the same struct.</p>
+    <p class="lede">Every HTTP-serving daemon exposes its API at <code>GET /openapi.json</code>. The document is generated from the resource registry &mdash; <code>components/schemas</code> comes from <code>resreg.Resource.RowType</code> reflection, and the paths come from the resource's <code>Endpoints</code>, the same slice the daemon mounts its handlers from. Doc and handler read one declaration, so they move together.</p>
 
     <h2>What you get</h2>
     <p>OpenAPI 3.1 JSON. Public &mdash; no auth gate. Cached for the process lifetime; reflection runs once per daemon. Paste a URL into any conformant tool (Swagger UI, Redoc, Stoplight Elements, an SDK generator) and the daemon's surface is browsable, callable, and codegen-ready.</p>
@@ -54,7 +54,7 @@
         <tr>
           <td><code>routd</code></td>
           <td><code>https://&lt;host&gt;/openapi.json</code> via proxyd, or <code>http://routd:8080/openapi.json</code> intra-container</td>
-          <td>routes, web_routes, acl, secrets <span class="dim">(write-only)</span>, route_tokens</td>
+          <td>routes, web_routes, acl, secrets <span class="dim">(write-only)</span>, route_tokens, installed_packages <span class="dim">(read-only)</span></td>
         </tr>
         <tr>
           <td><code>proxyd</code></td>
@@ -96,7 +96,14 @@
 
     <p>Daemons that own no resources still emit a valid OpenAPI document so external tooling can introspect them uniformly. The schemas + paths blocks are empty but <code>info</code>, <code>servers</code>, and the standard <code>components/responses</code> (400, 401, 403, 404, 409, 500) are present.</p>
 
-    <p>routd's own <code>/openapi.json</code> lists only the resources it actually mounts over REST. <code>secrets</code> is listed, but as <strong>write-only</strong>: it declares explicit create and key-delete endpoints and no read op, so a sealed value cannot leak through a convention <code>GET</code>. <code>groups</code>, <code>acl_membership</code>, <code>scheduled_tasks</code>, and <code>network_rules</code> live in the same registry and drive the <code>arizuko export</code>/<code>apply</code> YAML surface (see <a href="cli.html">CLI reference</a>), but each has a reason it's off routd's REST doc: <code>network_rules</code> is agent-MCP-only by design, and <code>groups</code>/<code>acl_membership</code> are dashd-FS-managed rather than routd-REST-managed. <code>scheduled_tasks</code> does have a REST face mounted on routd (<a href="mcp.html#scheduling">MCP reference</a> lists the REST twins) but isn&rsquo;t in this name list, so it's missing from routd's <code>/openapi.json</code> even though the endpoints work &mdash; a doc gap, not a missing feature.</p>
+    <p>routd's own <code>/openapi.json</code> lists only the resources it actually mounts over REST, so the doc can't advertise an endpoint that would 404. Two of the six are narrower than full CRUD, and deliberately so:</p>
+
+    <ul>
+      <li><code>secrets</code> is <strong>write-only</strong> &mdash; it declares a create and a key-delete and no read op at all, so a sealed value cannot leak through a convention <code>GET</code>.</li>
+      <li><code>installed_packages</code> is <strong>read-only</strong> &mdash; two <code>GET</code>s and nothing else. Installing a package writes host files and restarts sidecars; that pipeline is the <code>arizuko packages</code> CLI, and a REST create would be a second path that drifts from it.</li>
+    </ul>
+
+    <p>Four more resources live in the same registry and drive the <code>arizuko export</code>/<code>apply</code> YAML surface (see <a href="cli.html">CLI reference</a>) without appearing in routd's REST doc. <code>network_rules</code> is agent-MCP-only by design; <code>groups</code> and <code>acl_membership</code> are dashd-FS-managed rather than routd-REST-managed. <code>scheduled_tasks</code> is the odd one out: routd does mount a REST face for it (<a href="mcp.html#scheduling">MCP reference</a> lists the REST twins), but at <code>/v1/tasks</code> rather than <code>/v1/scheduled_tasks</code>, and it isn&rsquo;t in the advertised list &mdash; so those endpoints work but no generated client will find them. A known gap, not a missing feature.</p>
 
     <h2>How it works</h2>
 
@@ -104,12 +111,27 @@
 
     <ul>
       <li>One <code>components.schemas.&lt;Name&gt;</code> per <code>RowType</code>. Property name from the <code>json:</code> tag; type inferred from the Go kind (<code>string</code>, <code>integer</code>, <code>boolean</code>, array, object). <code>omitempty</code> removes the field from <code>required</code>.</li>
-      <li>Five operations per resource: <code>GET /v1/&lt;name&gt;</code> (list), <code>GET /v1/&lt;name&gt;/{pk}</code> (read one), <code>POST /v1/&lt;name&gt;</code> (create), <code>PATCH /v1/&lt;name&gt;/{pk}</code> (update), <code>DELETE /v1/&lt;name&gt;/{pk}</code> (delete). Composite PKs collapse to one URL parameter; the description flags the encoding so clients know to URL-encode separators.</li>
+      <li>One operation per declared <code>Endpoint</code> &mdash; its real mounted verb and path. That is what lets a resource be write-only or read-only, or carry a custom verb like <code>POST /v1/scheduled_tasks/pause</code>, and still be described honestly.</li>
+      <li>A resource that declares no <code>Endpoints</code> falls back to the five-operation CRUD convention: <code>GET /v1/&lt;name&gt;</code> (list), <code>GET /v1/&lt;name&gt;/{pk}</code> (read one), <code>POST /v1/&lt;name&gt;</code> (create), <code>PATCH /v1/&lt;name&gt;/{pk}</code> (update), <code>DELETE /v1/&lt;name&gt;/{pk}</code> (delete). Composite PKs collapse to one URL parameter; the description flags the encoding so clients know to URL-encode separators.</li>
       <li>Standard error responses (400, 401, 403, 404, 409, 500) defined once in <code>components.responses</code> and <code>$ref</code>-d from every operation.</li>
       <li>One <code>servers[]</code> entry from <code>baseURL</code>.</li>
     </ul>
 
-    <p>Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/8-yaml-manifests.md"><code>specs/5/8-yaml-manifests.md</code></a> &sect;"OpenAPI emission". Subsumes the former <code>specs/5/4-openapi-discoverable.md</code> (folded into this spec).</p>
+    <p>Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/17-openapi-mcp.md"><code>specs/5/17-openapi-mcp.md</code></a>, which owns OpenAPI emission (moved there from <code>5/8</code>, which keeps the row-schema half of <code>resreg.Resource</code>). Subsumes the former <code>specs/5/4-openapi-discoverable.md</code>.</p>
+
+    <h2>The MCP twin: <code>x-mcp-when</code></h2>
+
+    <p>Each of these operations has a second face. The agent reaches the very same handler as an MCP tool named <code>&lt;resource&gt;.&lt;action&gt;</code> over its per-folder unix socket, with arguments reflected from the same <code>RowType</code>. One handler, one transaction, one audit row &mdash; two ways in.</p>
+
+    <p>What ties them together in the document is <code>x-mcp-when</code>: a vendor extension carrying the one-line description of <em>when an agent should reach for this action</em>. The same line is written twice &mdash; once as the operation's <code>description</code>, so a tool that has never heard of arizuko reads a normal OpenAPI 3.1 doc, and once as <code>x-mcp-when</code>, so an agent or a tool browser can pick out the agent-facing operations mechanically, without a second hand-written tool list to keep in sync.</p>
+
+    <pre><code>curl -s https://&lt;host&gt;/openapi.json \
+  | jq '.paths | to_entries[] | .value | to_entries[]
+        | select(.value["x-mcp-when"]) | .value.operationId'</code></pre>
+
+    <p>The rule is strict on purpose: an action with no agent-facing description gets <strong>neither</strong> an MCP tool nor an <code>x-mcp-when</code> annotation. That is how an operation is made REST-only &mdash; by saying nothing, rather than by maintaining an exclusion list. The reverse also holds: the hot-tier agent actions (<code>reply</code>, <code>send</code>, <code>inspect_*</code>) are MCP-only and appear in no OpenAPI document, because there is no operator endpoint to mirror &mdash; nobody administers a chat reply.</p>
+
+    <div class="callout"><strong>Note:</strong> the document describes the <em>shape</em> of a surface, never a permission. Whether a given caller may perform an operation is decided per call by <a href="grants.html">grants</a>, and the two faces use different identity sources &mdash; a bearer token for REST, the folder-bound socket for MCP &mdash; against the same evaluator.</div>
 
     <h2>Browsing the spec</h2>
 
@@ -138,7 +160,7 @@ curl -s https://&lt;host&gt;/openapi.json | jq '.components.schemas.Routes'</cod
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/openapi.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-13">2026-07-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
       </div>
     </main>
 
