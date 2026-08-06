@@ -53,37 +53,37 @@ data entities defined here, and `9/3` moves the cold tier into git.
 
 ## Routing and messaging
 
-| Spec                                                             | Status  | Hook                                                                                                                                             |
-| ---------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [E-routd.md](E-routd.md)                                         | shipped | **The conversation state machine.** Owns routing rules, the message store, the orchestration loop, and channel ingress/egress.                   |
-| [Q-unified-routing.md](Q-unified-routing.md)                     | shipped | One message table, one decision point, uniform `prefix:identifier` addressing.                                                                   |
-| [S-jid-format.md](S-jid-format.md)                               | shipped | `<platform>:<rest>` wire form with `path.Match` globs. The proposed typed Go structs were descoped.                                              |
-| [B-route-mode-ingestion.md](B-route-mode-ingestion.md)           | shipped | Route mode as a URI fragment on `target` (`folder#observe`, `#announce`) instead of a weights table.                                             |
-| [G-engagement.md](G-engagement.md)                               | partial | A mention or bot reply engages `(jid, topic)` until TTL. Engagement commits after routing, never at ingest — the owning folder isn't known yet.  |
-| [L-mention-promotion.md](L-mention-promotion.md)                 | shipped | Reply or reaction to the bot promotes to `verb=mention` at routd ingest.                                                                         |
-| [F-topic-lineage.md](F-topic-lineage.md)                         | shipped | Topics carry `parent_topic`, `forked_at`, and a per-topic observed cursor; `fork_topic` copies the parent session.                               |
-| [W-webhook-routes.md](W-webhook-routes.md)                       | partial | One `route_tokens` table, two prefixes: `/chat/<token>/` and `/hook/<token>`. Owns token auth and URL shape.                                     |
-| [34-channel-protocol.md](34-channel-protocol.md)                 | shipped | The adapter contract: self-registration, send, health. Adapters authenticate with a `service:<daemon>` ES256 JWT.                                |
-| [R-multi-account.md](R-multi-account.md)                         | shipped | Several accounts per adapter = several compose fragments, distinguished by `CHANNEL_NAME`.                                                       |
-| [Z-message-actions.md](Z-message-actions.md)                     | shipped | Agent-initiated edit, delete, pin, unpin on messages it sent.                                                                                    |
-| [Y-output-styles-per-surface.md](Y-output-styles-per-surface.md) | shipped | Output style selected per surface from the JID, falling back to the bare channel name.                                                           |
-| [6-proactive-interjection.md](6-proactive-interjection.md)       | partial | Lurk mode: silence-driven turns behind a cooldown and a quiet-turn veto; the agent may emit nothing. Code + docs done; awaiting a dashd surface. |
-| [12-turn-retry.md](12-turn-retry.md)                             | shipped | Reschedule a turn that died mid-execution without delivering a reply.                                                                            |
+| Spec                                                             | Status  | Hook                                                                                                                                                 |
+| ---------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [E-routd.md](E-routd.md)                                         | shipped | **The conversation state machine.** Owns routing rules, the message store, the orchestration loop, and channel ingress/egress.                       |
+| [Q-unified-routing.md](Q-unified-routing.md)                     | shipped | One message table, one decision point, uniform `prefix:identifier` addressing.                                                                       |
+| [S-jid-format.md](S-jid-format.md)                               | shipped | `<platform>:<rest>` wire form with `path.Match` globs. The proposed typed Go structs were descoped.                                                  |
+| [B-route-mode-ingestion.md](B-route-mode-ingestion.md)           | shipped | Route mode as a URI fragment on `target` (`folder#observe`, `#announce`) instead of a weights table.                                                 |
+| [G-engagement.md](G-engagement.md)                               | partial | A mention or bot reply engages `(jid, topic)` until TTL. Engagement commits after routing, never at ingest — the owning folder isn't known yet.      |
+| [L-mention-promotion.md](L-mention-promotion.md)                 | shipped | Reply or reaction to the bot promotes to `verb=mention` at routd ingest.                                                                             |
+| [F-topic-lineage.md](F-topic-lineage.md)                         | shipped | Topics carry `parent_topic`, `forked_at`, and a per-topic observed cursor; `fork_topic` copies the parent session.                                   |
+| [W-webhook-routes.md](W-webhook-routes.md)                       | partial | One `route_tokens` table, two prefixes: `/chat/<token>/` and `/hook/<token>`. Owns token auth and URL shape.                                         |
+| [34-channel-protocol.md](34-channel-protocol.md)                 | shipped | The adapter contract: self-registration, send, health. Adapters authenticate with a `service:<daemon>` ES256 JWT.                                    |
+| [R-multi-account.md](R-multi-account.md)                         | shipped | Several accounts per adapter = several compose fragments, distinguished by `CHANNEL_NAME`.                                                           |
+| [Z-message-actions.md](Z-message-actions.md)                     | shipped | Agent-initiated edit, delete, pin, unpin on messages it sent.                                                                                        |
+| [Y-output-styles-per-surface.md](Y-output-styles-per-surface.md) | shipped | Output style selected per surface from the JID, falling back to the bare channel name.                                                               |
+| [6-proactive-interjection.md](6-proactive-interjection.md)       | shipped | Lurk mode: silence-driven turns behind a cooldown and a quiet-turn veto; the agent may emit nothing. Ships off — `PROACTIVE_ENABLED` defaults false. |
+| [12-turn-retry.md](12-turn-retry.md)                             | shipped | Reschedule a turn that died mid-execution without delivering a reply.                                                                                |
 
 ## Runtime — the turn and the container
 
-| Spec                                                     | Status  | Hook                                                                                                                                |
-| -------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| [P-runed.md](P-runed.md)                                 | shipped | **The execution plane.** Container lifecycle and run federation. The turn is credentialed by the SO_PEERCRED socket, never a token. |
-| [A-primitives-framing.md](A-primitives-framing.md)       | shipped | Framing only, no behaviour: the pipeline primitives in route-first order, identity as coordinate system.                            |
-| [2-agent-pipeline.md](2-agent-pipeline.md)               | shipped | Orchestration (route tokens) versus workflows (the in-container Agent tool).                                                        |
-| [4-autocalls.md](4-autocalls.md)                         | shipped | Inject facts inline when schema cost exceeds content cost. Four autocalls, no tools.                                                |
-| [24-live-tasklist-status.md](24-live-tasklist-status.md) | shipped | A `TodoWrite` hook renders the agent's task list into one message edited in place.                                                  |
-| [I-tool-call-logging.md](I-tool-call-logging.md)         | partial | Per-tool-call logging on both surfaces; the `audit_log` table is the source of truth.                                               |
-| [O-observability.md](O-observability.md)                 | shipped | Three opt-in substrates: slog+OTLP logs, spans, and 15 Prometheus metric families.                                                  |
-| [9-agent-capability-eval.md](9-agent-capability-eval.md) | shipped | `anteval` — a black-box capability gate driving real tasks through the public surfaces.                                             |
-| [23-skill-guard.md](23-skill-guard.md)                   | draft   | A PreToolUse threat-pattern scanner over skill writes.                                                                              |
-| [22-self-learning.md](22-self-learning.md)               | draft   | Pattern recognition over a group's history producing operator-reviewed proposals, never silent rewrites.                            |
+| Spec                                                     | Status  | Hook                                                                                                                                                                    |
+| -------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [P-runed.md](P-runed.md)                                 | shipped | **The execution plane.** Container lifecycle and run federation. The turn is credentialed by the SO_PEERCRED socket, never a token.                                     |
+| [A-primitives-framing.md](A-primitives-framing.md)       | shipped | Framing only, no behaviour: the pipeline primitives in route-first order, identity as coordinate system.                                                                |
+| [2-agent-pipeline.md](2-agent-pipeline.md)               | shipped | Orchestration (route tokens) versus workflows (the in-container Agent tool).                                                                                            |
+| [4-autocalls.md](4-autocalls.md)                         | shipped | Inject facts inline when schema cost exceeds content cost. Four autocalls, no tools.                                                                                    |
+| [24-live-tasklist-status.md](24-live-tasklist-status.md) | shipped | A `TodoWrite` hook renders the agent's task list into one message edited in place.                                                                                      |
+| [I-tool-call-logging.md](I-tool-call-logging.md)         | partial | Per-tool-call logging on both surfaces; the `audit_log` table is the source of truth. runed's + authd's rows are `sqlite3`-only (BUGS `F29`); redaction regex unpinned. |
+| [O-observability.md](O-observability.md)                 | shipped | Three opt-in substrates: slog+OTLP logs, spans, and 15 Prometheus metric families.                                                                                      |
+| [9-agent-capability-eval.md](9-agent-capability-eval.md) | shipped | `anteval` — a black-box capability gate driving real tasks through the public surfaces.                                                                                 |
+| [23-skill-guard.md](23-skill-guard.md)                   | draft   | A PreToolUse threat-pattern scanner over skill writes.                                                                                                                  |
+| [22-self-learning.md](22-self-learning.md)               | draft   | Pattern recognition over a group's history producing operator-reviewed proposals, never silent rewrites.                                                                |
 
 ## Tenancy, onboarding, credentials
 

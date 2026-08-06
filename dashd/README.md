@@ -35,6 +35,7 @@ those tables directly via the `store` package; it never migrates.
 - **Route tokens** (3): `GET|POST /dash/tokens/{folder}/`, `POST /dash/tokens/{folder}/{jid}/revoke` — issue chat/webhook tokens, revoke. Admin-gated writes; reads scope-filtered. (`route_tokens.go`)
 - **Invites** (3): `GET|POST /dash/invites/`, `POST /dash/invites/{ref}/revoke` — operator-only (`**`). (`invites.go`)
 - **WhatsApp re-pair** (3): `GET /dash/channels/whatsapp/pair`, `GET /dash/channels/whatsapp/pair/status`, `POST /dash/channels/whatsapp/pair/start` — operator-only (`**`), proxies to whapd with service:dashd bearer. (`channels.go`)
+- **Proactive view** (1): `GET /dash/proactive/` — operator-only (`**`) read-only view of spec 5/6: per-group `mode:` / quiet hours / parse error, parsed through the shared `proactive.Parse` routd's scanner gates on, plus per-chat last-fired from routd's `chat_proactive`. No control — `mode:` stays operator-edited in the group's `CLAUDE.md` (single source, no DB/file drift) and the cooldown is mandatory by spec. A banner names `PROACTIVE_ENABLED`; dashd cannot read routd's env, so it states the rule rather than a live value. (`proactive_page.go`)
 - **proxyd control plane** (3): `GET|POST /dash/proxyd/`, `POST /dash/proxyd/delete` — operator-only (`**`) view + create + delete of proxyd's reverse-proxy route table. proxyd OWNS `proxyd_routes`, so all three go over HTTP to its `/v1/proxyd_routes` with the service:dashd bearer and the caller's `X-User-*` forwarded; proxyd writes the single audit row in the mutation's own transaction. (`proxyd_page.go`)
 
 ## Auth
@@ -80,6 +81,7 @@ Read surfaces (`/dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups
 - `HOST_APP_DIR` — app source path for enumerating stock skills in groups settings
 - `WHAPD_URL` — whapd base URL for re-pair proxy (default `http://whapd:8080`)
 - `PROXYD_URL` — proxyd base URL for the `/dash/proxyd/` control plane (default `http://proxyd:8080`, matching webd)
+- `RUNED_URL` — runed base URL for the `/dash/runed/` kill proxy (default `http://runed:8080`). Compose emits neither this nor `PROXYD_URL`; both resolve through `backendURL`, which names the compose service on the fixed in-container `:8080`. Set either only to override.
 
 ## Health signal
 

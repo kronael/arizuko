@@ -16,6 +16,41 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **`/dash/proactive/` — see which groups may speak first (spec `5/6`).**
+  Proactive interjection shipped its mechanism and its operator page months
+  before an operator could see any of it: `mode:` meant opening every group's
+  `CLAUDE.md` by hand, the per-chat cooldown meant a `sqlite3` prompt, and a
+  broken `proactive:` block — the case that actually costs an hour — was loud
+  in the log and invisible in the dashboard. The page lists every group's mode,
+  quiet hours and parse error, plus when each chat last interjected.
+
+  Read-only on purpose. The group's `CLAUDE.md` stays the single source for
+  `mode:`, so there is nothing to keep in sync, and the 24h cooldown is
+  mandatory by spec, so there is no override to offer. Modes are parsed by the
+  same `proactive.Parse` routd's scanner gates on — a second reader in dashd
+  would have drifted into claiming `lurk` about a group routd refuses to run.
+
+  Still off everywhere: `PROACTIVE_ENABLED` defaults false and no shipped
+  template sets it. The page says so in a banner rather than faking a live
+  switch dashd cannot read.
+
+- **`concepts/audit.html` — what the audit trail records, and where to read
+  it (spec `5/I`).** Nothing on the docs site described `audit_log`, and
+  `/dash/audit/` was not mentioned anywhere. The page covers the row-per-change
+  rule, why the row rides the mutation's own transaction, the split between the
+  table and the log stream, and what is deliberately not audited. It also
+  states the gap plainly: `/dash/audit/` reads `routd.db`, and runed's and
+  authd's own `audit_log` rows are reachable only with `sqlite3` today.
+
+### Fixed
+
+- **`/dash/runed/`'s kill button answered 503 in every deploy.** dashd read
+  `RUNED_URL` with a bare `os.Getenv`, and compose emits neither `RUNED_URL`
+  nor `PROXYD_URL` — so the variable was empty everywhere and every click got
+  "RUNED_URL not configured". Both URLs now resolve through one `backendURL`
+  helper that falls back to the compose service name on the fixed in-container
+  `:8080`; the env vars still work as overrides.
+
 - **Identity pairing — a chat account can act as a real user (spec `5/31`).**
   A channel user was anonymous: `telegram:user/123` held no grants and had no
   way to acquire any, unless it happened to arrive through onboarding's

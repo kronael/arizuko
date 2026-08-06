@@ -1,30 +1,25 @@
 ---
-status: partial
+status: shipped
 depends: [E-routd, P-runed, G-engagement]
 ---
 
 # Proactive interjection
-
-> **Status (2026-08-06).** Partial — **one item left**. All seven acceptance
-> criteria are covered (#3 and #6 landed 2026-08-06, closing BUGS `F10`). The
-> operator page now exists (`concepts/proactive.html`, in the curriculum after
-> `engagement`), `reference/env.html` documents the seven `PROACTIVE_*` vars,
-> and migration `186` shipped. **Unmet: definition-of-done item 6 — no `dashd`
-> surface.** `mode:` is edited by hand in a group's `CLAUDE.md` and the
-> `chat_proactive` cooldown is readable only in SQL, so an operator has no way
-> to see which groups lurk or when a chat last fired. That is code, filed as
-> BUGS `F24`, not a docs gap.
->
-> Still off everywhere and correct to describe that way:
-> `PROACTIVE_ENABLED` (`proactive.go:39`) defaults false, nothing in
-> `template/` sets it, and the CHANGELOG's "not yet switched on" holds.
 
 Let the agent speak unprompted when it's useful. arizuko is
 mention-reactive: in channels where the bot lurks, valuable
 interventions never happen because nothing triggers a turn.
 
 Implementation: `routd/proactive.go`, `routd/db.go:1161-1300`,
-`routd/loop.go:403` `maybeScanProactive`.
+`routd/loop.go:403` `maybeScanProactive`. The `proactive:` block is parsed by
+`proactive.Parse` — a shared package rather than a routd-internal function,
+because `dashd/proactive_page.go` must show the operator the same verdict the
+scanner gates on. Operator surfaces: `GET /dash/proactive/` (read-only view)
+and `concepts/proactive.html`.
+
+**It ships off.** `PROACTIVE_ENABLED` (`proactive.go:39`) defaults false and
+nothing in `template/` sets it, so no instance does this until an operator opts
+in twice — once per instance, once per group. Shipped means the mechanism and
+both operator surfaces are complete, not that it is running anywhere.
 
 ## Decisions
 
