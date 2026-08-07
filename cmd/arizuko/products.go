@@ -7,7 +7,9 @@ package main
 // dirty-refusal — so `folder` is the only thing that differs between them.
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,15 +155,55 @@ func applyProductMix(dataDir string, rdb *routd.DB, folder string) {
 	fmt.Printf("composed %s from %d product(s)\n", folder, len(blended))
 }
 
-// cmdProducts applies a group's `products.toml` mix.
+// listProducts enumerates the bundled catalog under `<HOST_APP_DIR>/ant/examples`.
+// A directory without a readable PRODUCT.md is reported rather than skipped: the
+// manifest is what makes a directory a product, so a silent omission would read
+// as "not shipped" when the truth is "malformed".
+func listProducts(dataDir string, w io.Writer) error {
+	cfg, err := core.LoadConfigFrom(dataDir)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if cfg.HostAppDir == "" {
+		return errNoHostAppDir
+	}
+	root := filepath.Join(cfg.HostAppDir, "ant", "examples")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("read catalog: %w", err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		var m productManifest
+		if _, err := toml.DecodeFile(filepath.Join(root, e.Name(), "PRODUCT.md"), &m); err != nil {
+			fmt.Fprintf(w, "%-14s (no readable PRODUCT.md)\n", e.Name())
+			continue
+		}
+		fmt.Fprintf(w, "%-14s %-10s %s\n", m.Name, m.Brand, m.Tagline)
+	}
+	return nil
+}
+
+var errNoHostAppDir = errors.New("HOST_APP_DIR is unset in .env — it names the bundled catalog")
+
+// cmdProducts lists the bundled catalog or applies a group's `products.toml` mix.
 func cmdProducts(args []string) {
-	usage := "arizuko products <instance> apply <folder>"
-	need(args, 3, usage)
-	if args[1] != "apply" {
+	usage := "arizuko products <instance> list | apply <folder>"
+	need(args, 2, usage)
+	dataDir := mustInstanceDir(args[0])
+	switch args[1] {
+	case "list":
+		if err := listProducts(dataDir, os.Stdout); err != nil {
+			die("Failed: products list: %v", err)
+		}
+	case "apply":
+		need(args, 3, usage)
+		rdb := mustOpenRoutd(dataDir)
+		defer rdb.Close()
+		applyProductMix(dataDir, rdb, args[2])
+	default:
 		die("usage: " + usage)
 	}
-	dataDir := mustInstanceDir(args[0])
-	rdb := mustOpenRoutd(dataDir)
-	defer rdb.Close()
-	applyProductMix(dataDir, rdb, args[2])
 }

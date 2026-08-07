@@ -25,7 +25,12 @@ run; an operator running `arizuko create --product pm` finds nothing describing
 it. Content work, not a code fix: either publish the six missing pages or say
 on each page whether the product is seedable today.
 
-## F65 — every `PRODUCT.md` declares `brand` and `tagline`; nothing parses them (2026-08-07, open)
+## ✅ FIXED 2026-08-07 F65 — every `PRODUCT.md` declares `brand` and `tagline`; nothing parses them (2026-08-07, FIXED)
+
+**Fixed** by wiring, not deleting: `productManifest` gained `Brand`/`Tagline`
+and `arizuko products <inst> list` prints all three. Verified against the live
+krons catalog — 10 products, every brand and tagline rendered. Mutation-checked
+(dropping the two fields from the printf fails the new test).
 
 `productManifest` (`cmd/arizuko/main.go:29`) has `Name`, `Skills`, `Env`. All
 10 shipped manifests also set `brand` and `tagline` (e.g.

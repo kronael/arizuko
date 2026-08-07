@@ -14,6 +14,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **`arizuko products <inst> list` — see the catalog before you seed from it
+  (spec `5/21`).** One row per bundled product: its name, brand and tagline.
+  Until now the only way to learn what `--product` accepted was to mistype it
+  and read the error, and `brand`/`tagline` were declared in every
+  `PRODUCT.md` and parsed by nothing. A product directory whose manifest won't
+  parse is listed as broken rather than skipped, so a malformed manifest can't
+  quietly read as "this product doesn't ship".
+
 ### Changed
 
 - **Each daemon's database moved into a directory of its own, and its container

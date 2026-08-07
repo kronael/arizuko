@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -259,4 +260,49 @@ func treeHashes(t *testing.T, root string) map[string]string {
 		t.Fatalf("walk %s: %v", root, err)
 	}
 	return out
+}
+
+// TestProductsListReadsBrandAndTagline is 5/21's catalog verb. `brand` and
+// `tagline` are declared by every shipped PRODUCT.md, so parsing only `name`
+// dropped them silently (BUGS F65) — this asserts all three reach the output.
+func TestProductsListReadsBrandAndTagline(t *testing.T) {
+	dataDir, base := mixInstance(t, nil, nil)
+	t.Setenv("HOST_APP_DIR", base)
+	dir := filepath.Join(base, "ant", "examples", "trip")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "name = \"trip\"\nbrand = \"wanderd\"\ntagline = \"Trip planner.\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "PRODUCT.md"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	if err := listProducts(dataDir, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"trip", "wanderd", "Trip planner."} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("products list output missing %q; got %q", want, out.String())
+		}
+	}
+}
+
+// TestProductsListReportsMalformedManifest — a directory without a readable
+// PRODUCT.md is named in the output, not skipped. Silence would read as "this
+// product does not ship" when the truth is "its manifest is broken".
+func TestProductsListReportsMalformedManifest(t *testing.T) {
+	dataDir, base := mixInstance(t, nil, nil)
+	t.Setenv("HOST_APP_DIR", base)
+	if err := os.MkdirAll(filepath.Join(base, "ant", "examples", "broken"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	if err := listProducts(dataDir, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "broken") {
+		t.Errorf("malformed product omitted from listing; got %q", out.String())
+	}
 }

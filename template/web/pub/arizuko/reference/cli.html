@@ -49,7 +49,7 @@
       <ul>
         <li><a href="#lifecycle">Instance lifecycle</a> &mdash; <code>create</code>, <code>generate</code>, <code>run</code>, <code>status</code>, <code>pair</code></li>
         <li><a href="#manifest">Config manifests</a> &mdash; <code>export</code>, <code>apply</code>, <code>plan</code>, <code>get</code></li>
-        <li><a href="#packages">Packages</a> &mdash; <code>packages install|upgrade|remove|list</code>, <code>products apply</code></li>
+        <li><a href="#packages">Packages</a> &mdash; <code>packages install|upgrade|remove|list</code>, <code>products list|apply</code></li>
         <li><a href="#chat">Operator chat &amp; messaging</a> &mdash; <code>chat</code>, <code>send</code>, <code>token</code></li>
         <li><a href="#group">Groups &amp; grants</a> &mdash; <code>group list|add|rm|grant|ungrant|grants</code></li>
         <li><a href="#identity">Identities</a> &mdash; <code>identity list|link|unlink</code></li>
@@ -195,6 +195,13 @@ arizuko packages krons install ./my-local-package</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go#L331"><code>cmd/arizuko/packages.go:331</code></a></p>
 
     <p>After any of these, run <a href="#generate"><code>arizuko generate &lt;instance&gt;</code></a> to fold the fragment set into the compose file.</p>
+
+    <h3 id="products-list"><span class="sig">arizuko products &lt;instance&gt; list</span></h3>
+    <p>Print the bundled catalog under <code>$HOST_APP_DIR/ant/examples</code> &mdash; one row per product, with the <code>name</code>, <code>brand</code> and <code>tagline</code> from its <code>PRODUCT.md</code>. These are the names <a href="#create"><code>--product</code></a> accepts. A directory whose manifest won't parse is listed as broken rather than left out, so you can tell "this product doesn't ship" from "someone broke its manifest". Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/21-products.md"><code>specs/5/21</code></a>.</p>
+    <p><strong>State touched:</strong> none &mdash; reads the catalog directory.</p>
+    <pre><code>arizuko products krons list</code></pre>
+    <div class="callout"><strong>Note:</strong> the catalog you can seed from and the products published under <a href="../products/">/pub/arizuko/products/</a> are two overlapping sets, not one. A page may sell a product that has no template yet, and a template may ship before anyone writes its page.</div>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/products.go"><code>cmd/arizuko/products.go</code></a></p>
 
     <h3 id="products-apply"><span class="sig">arizuko products &lt;instance&gt; apply &lt;folder&gt;</span></h3>
     <p>Blend the ordered product mix declared in <code>groups/&lt;folder&gt;/products.toml</code> into that group. One <code>[[product]]</code> block per entry with a <code>source</code>; a relative source joins <code>HOST_APP_DIR</code> (so <code>ant/examples/trip</code> names the bundled corpus), a git URL is cloned and pinned to its revision. Each product's identity is the <code>name</code> in its <code>PRODUCT.md</code>. Blending is per payload kind &mdash; never a content merge &mdash; and a filename or <code>mcpServers</code> name collision <strong>refuses the whole apply</strong> before anything is written. Idempotent: an unchanged mix rewrites no byte and prints <code>unchanged</code>. A managed asset (a bundled skill, an <code>mcpServers</code> entry) edited since the last apply is reported and skipped, never overwritten. Full table on the <a href="packages.html#blending-several-products-into-one-group">packages reference</a>. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/28-packages.md"><code>specs/5/28</code></a>.</p>

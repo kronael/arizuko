@@ -1,5 +1,6 @@
 ---
-status: draft
+status: shipped
+shipped: 2026-08-07
 relates-to: [../5/28-packages]
 ---
 
@@ -89,10 +90,19 @@ is the deliberate case — positioning, not a seeded template
 action layer over a retrieval backend, and it ships as framing plus a setup
 recipe until connector skills land.
 
+`arizuko products <inst> list` enumerates the catalog — `name`, `brand`,
+`tagline` per `PRODUCT.md` — and names a directory whose manifest won't
+parse instead of omitting it, so a broken manifest cannot read as "not
+shipped" (`cmd/arizuko/products.go`, `listProducts`).
+
 ## Open
 
-- Skill whitelisting is not enforced; all global skills are seeded.
+- Skill whitelisting is not enforced; all global skills are seeded. The
+  `skills` list in `PRODUCT.md` stays informational until it is.
 - Third-party products (per-instance product dirs) — deferred.
 - `--product` accepting a URL or git repo — deferred; `5/20`'s source
   resolvers are the intended path.
-- `arizuko product list` to enumerate known products — easy add-on.
+
+None of the three blocks the producer side this spec defines. The first is
+stated on the surface it affects rather than hidden; the other two are
+distribution, which is `5/28`'s concern.
