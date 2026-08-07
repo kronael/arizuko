@@ -96,23 +96,23 @@
     <p>Concepts: <a href="../concepts/tasks.html">concepts/tasks</a> covers the row anatomy, context modes, and the five MCP tools agents use to manage tasks.</p>
 
     <h2>Standalone usage</h2>
-    <p>Yes. timed is a plain Go binary that needs an SQLite file with the <code>scheduled_tasks</code> and <code>task_run_logs</code> tables already migrated &mdash; routd owns + migrates <code>routd.db</code>, so spin up routd first (or copy its DB).</p>
+    <p>Yes. timed is a plain Go binary and it opens no database of its own &mdash; it reads and writes tasks over routd's HTTP API, so point it at a running routd. <code>scheduled_tasks</code> and <code>task_run_logs</code> live in <code>routd.db</code>, which routd owns and migrates.</p>
 
     <pre><code># build
 make build              # produces ./timed
 
-# run against an existing arizuko data dir
-DATA_DIR=/srv/data/myinstance TZ=Europe/Prague ./timed
+# run against a running routd
+ROUTER_URL=http://routd:8080 \
+AUTHD_URL=http://authd:8080 \
+AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2) \
+TZ=Europe/Prague ./timed</code></pre>
 
-# or point at any sqlite DSN directly
-DATABASE=/path/to/messages.db ./timed</code></pre>
-
-    <p><code>GET /health</code> on <code>:8080</code> returns 200 when <code>db.Ping()</code> succeeds. Red flag: no rows appearing in <code>task_run_logs</code> while <code>scheduled_tasks</code> has active rows past their <code>next_run</code>.</p>
+    <p><code>GET /health</code> on <code>:8080</code> always returns 200 &mdash; timed holds no database handle to check. Red flag: no rows appearing in <code>task_run_logs</code> while <code>scheduled_tasks</code> has active rows past their <code>next_run</code>.</p>
 
     <h2>Key env vars</h2>
     <ul>
-      <li><code>DATA_DIR</code> &mdash; resolves <code>&lt;DATA_DIR&gt;/store/messages.db</code> when <code>DATABASE</code> is unset.</li>
-      <li><code>DATABASE</code> &mdash; explicit SQLite DSN; wins over <code>DATA_DIR</code>.</li>
+      <li><code>ROUTER_URL</code> &mdash; required; routd's address, e.g. <code>http://routd:8080</code>.</li>
+      <li><code>AUTHD_URL</code> / <code>AUTHD_SERVICE_KEY</code> &mdash; exchanged at boot for a <code>service:timed</code> token. Unset, routd denies every call.</li>
       <li><code>TZ</code> &mdash; timezone used to evaluate cron expressions (default <code>UTC</code>).</li>
     </ul>
 
@@ -133,7 +133,7 @@ DATABASE=/path/to/messages.db ./timed</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/timed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

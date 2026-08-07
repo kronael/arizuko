@@ -99,7 +99,7 @@ export LISTEN_ADDR=:8080
 export SLACK_BOT_TOKEN=xoxb-...
 export SLACK_SIGNING_SECRET=...
 export ASSISTANT_NAME=arizuko
-export DB_PATH=/srv/app/home/store/messages.db
+export DB_PATH=/srv/app/home/store/routd/routd.db
 ./slakd</code></pre>
 
     <p>Slack-side setup: create a Slack app, enable Events API with request URL pointing at <code>/slack/events</code>, subscribe to <code>message.channels</code>, <code>message.im</code>, <code>message.groups</code>, <code>reaction_added</code>, and (for the pane) <code>assistant_thread_started</code> + <code>assistant_thread_context_changed</code>. Do <strong>not</strong> subscribe to <code>app_mention</code> &mdash; slakd detects mentions from <code>&lt;@bot_user_id&gt;</code> in the message text, and a parallel <code>app_mention</code> subscription causes duplicate processing. Scopes: <code>chat:write</code>, <code>files:write</code>, <code>reactions:write</code>, <code>im:history</code>, <code>channels:history</code>, <code>groups:history</code>, <code>assistant:write</code>.</p>
@@ -120,7 +120,7 @@ export DB_PATH=/srv/app/home/store/messages.db
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/slakd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
       </div>
     </main>
 

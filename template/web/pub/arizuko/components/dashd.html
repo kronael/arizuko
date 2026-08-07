@@ -55,12 +55,12 @@
     <h2>What it is</h2>
     <p>In plain terms, dashd is the control panel for whoever runs the instance. Open it in a browser to see groups, messages, and tasks, and to edit a few of the agent&rsquo;s files.</p>
 
-    <p>dashd is the operator dashboard: an HTMX server that renders pages over <code>messages.db</code> and a fixed set of markdown files. Reads are the default; the only write paths are <code>PUT</code> and <code>DELETE</code> on that markdown list under each group&rsquo;s folder.</p>
+    <p>dashd is the operator dashboard: an HTMX server that renders pages over the owner daemons&rsquo; databases (routd&rsquo;s, onbod&rsquo;s and runed&rsquo;s) and a fixed set of markdown files. Reads are the default; the only write paths are <code>PUT</code> and <code>DELETE</code> on that markdown list under each group&rsquo;s folder.</p>
 
     <p>Routes live at <code>/dash/*</code>. The portal at <code>/dash/</code> links to status, tasks, activity, groups, memory, and profile pages, each rendered server-side as one HTML page plus HTMX partials for live sub-views.</p>
 
     <h2>Why it exists</h2>
-    <p>Without dashd, operators inspect an arizuko instance through <code>sqlite3 messages.db</code>, <code>journalctl -u arizuko_&lt;inst&gt;</code>, and the <code>arizuko</code> CLI. That works for an engineer, but it asks a lot of anyone else, and it never gives a one-screen answer to &ldquo;what is this instance doing right now&rdquo;.</p>
+    <p>Without dashd, operators inspect an arizuko instance through <code>sqlite3 store/routd/routd.db</code>, <code>journalctl -u arizuko_&lt;inst&gt;</code>, and the <code>arizuko</code> CLI. That works for an engineer, but it asks a lot of anyone else, and it never gives a one-screen answer to &ldquo;what is this instance doing right now&rdquo;.</p>
 
     <p>dashd owns no tables of its own. It reads from tables other daemons own &mdash; <code>groups</code>, <code>routes</code>, <code>scheduled_tasks</code>, <code>messages</code>, <code>sessions</code>, <code>channels</code>, <code>auth_users</code>, written by routd, authd, timed, and onbod &mdash; and renders them. The plan in <code>specs/5/5-uniform-mcp-rest.md</code> is to move those direct reads onto the sibling daemons&rsquo; <code>/v1/*</code> APIs, leaving dashd a pure client.</p>
 
@@ -74,7 +74,7 @@
         |      stamp X-User-Sub, X-User-Groups, HMAC sig
         v
       dashd    render HTML / HTMX partial
-        |      read: messages.db (today)
+        |      read: routd.db, onbod.db, runed.db
         |      write: PUT|DELETE /dash/memory/{folder}/{rel}
         v
       filesystem: &lt;groups&gt;/&lt;folder&gt;/MEMORY.md, diary/*.md, ...</code></pre>
@@ -93,7 +93,7 @@ export INSTANCE_NAME=demo
 ./dashd
 # browse http://localhost:8080/dash/</code></pre>
 
-    <p><code>DATA_DIR</code> resolves the database at <code>$DATA_DIR/store/messages.db</code> and the groups tree at <code>$DATA_DIR/groups/</code>. Set <code>DB_PATH</code> to override the database location independently. <code>INSTANCE_NAME</code> appears in the portal header.</p>
+    <p><code>DATA_DIR</code> resolves each database at <code>$DATA_DIR/store/&lt;owner&gt;/&lt;owner&gt;.db</code> &mdash; dashd reads routd's, onbod's and runed's &mdash; and the groups tree at <code>$DATA_DIR/groups/</code>. Set <code>DB_PATH</code> to override routd's location independently. Pointing it at the retired <code>messages.db</code> is refused rather than served stale. <code>INSTANCE_NAME</code> appears in the portal header.</p>
 
     <p>Health: <code>GET /health</code> returns 200 when the database is reachable. With <code>PROXYD_HMAC_SECRET</code> set, exposing dashd directly still rejects unsigned requests &mdash; but proxyd owns TLS and the login flow, so front it with proxyd anyway.</p>
 
@@ -142,7 +142,7 @@ export INSTANCE_NAME=demo
       <li><code>/dash/proxyd/</code> &rarr; <code>proxyd/v1/proxyd_routes</code> &mdash; done.</li>
     </ul>
 
-    <p>After the migration dashd holds an operator session token (issued by proxyd at OAuth login), forwards it as <code>Authorization: Bearer ...</code> on every <code>/v1/*</code> call, and stops touching <code>messages.db</code> at all.</p>
+    <p>After the migration dashd holds an operator session token (issued by proxyd at OAuth login), forwards it as <code>Authorization: Bearer ...</code> on every <code>/v1/*</code> call, and stops opening the owner databases at all. The audit page already works this way &mdash; it fans out to routd, runed and authd over HTTP rather than reading their files.</p>
 
     <h2>What dashd does not do</h2>
     <p>dashd does not send messages, schedule tasks, mint tokens, or admit users &mdash; those belong to routd, timed, proxyd, and <a href="../components/onbod.html">onbod</a>. Writes are scoped to the surfaces listed above: memory editor and the admin pages. Everything else is a view.</p>

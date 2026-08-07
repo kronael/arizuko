@@ -219,7 +219,11 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <p>An instance is one directory. Everything the system is lives in it:</p>
       <pre><code>/srv/data/arizuko_demo/
 &#9500;&#9472;&#9472; .env                 tokens + config
-&#9500;&#9472;&#9472; store/               routd.db, runed.db, auth.db &mdash; SQLite WAL
+&#9500;&#9472;&#9472; store/               one dir per owner &mdash; SQLite WAL
+&#9474;   &#9500;&#9472;&#9472; routd/routd.db   chats, routes, grants
+&#9474;   &#9500;&#9472;&#9472; runed/runed.db   agent runs
+&#9474;   &#9500;&#9472;&#9472; authd/auth.db    logins + signing keys
+&#9474;   &#9492;&#9472;&#9472; onbod/onbod.db   onboarding
 &#9500;&#9472;&#9472; groups/
 &#9474;   &#9500;&#9472;&#9472; main/            one agent
 &#9474;   &#9474;   &#9500;&#9472;&#9472; PERSONA.md   who it is
@@ -293,7 +297,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <p class="dim" style="margin-top: 2em; font-size: 0.9em">
         MIT &middot; Go + SQLite (WAL) + Docker.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-07-14">2026-07-14</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>
