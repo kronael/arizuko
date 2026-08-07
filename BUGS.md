@@ -7,6 +7,51 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F59 — an `acl` row with a predicate can never match on the agent MCP socket, silently (2026-08-07, open)
+
+`acl.predicate` is a real, evaluated column: `auth.Authorize` skips any row whose
+predicate fails (`auth/authorize.go:62` → `predicateMatches`, line 282),
+matching comma-separated `key=glob` conjunctions against `caller.Claims`.
+
+Every HTTP/JWT gate populates Claims — `routd/acl_resource.go:105`,
+`routd/secrets_resource.go:79`, `routd/groups_http.go:39`,
+`onbod/gates_resource.go:74`, `authd/audit_resource.go:83` and others all build
+a `Caller` with a `Claims` map.
+
+The **agent MCP socket does not**. Its gate is `routd/sibling_db.go:191`:
+
+```go
+func (d *DB) Authorize(sub, folder, action string, params map[string]string) bool {
+	caller := auth.Caller{Principal: sub}
+	return auth.Authorize(d.aclEval(), caller, action, folder, params)
+}
+```
+
+No `Claims`. So on the socket `caller.Claims` is always nil, `predicateMatches`
+returns false for any non-empty predicate, and the row is skipped. The
+`ipc.Server.Authorize` signature (`ipc/ipc.go:244`) has no claims parameter
+either, so there is nowhere to thread them without a signature change.
+
+Consequence: an operator writes `POST /v1/acl` with
+`predicate=onbehalf=<sub>`, gets a 2xx, sees the row in `inspect`/`/dash`, and
+the grant is **inert on the surface it was almost certainly written for**. It
+fails closed, so this is not a privilege leak — but it is silent, which is the
+part that violates "fail loud, fail to the user".
+
+Two candidate shapes, both needing sign-off (this is an auth-model change, not a
+symptom patch):
+
+- **(a) Reject at write time.** `POST /v1/acl` refuses a predicate on a
+  `folder:`-principal row, naming the reason. Smallest, loud, no new plumbing.
+  Costs the ability to write a row that a future claims-carrying socket could
+  use.
+- **(b) Populate Claims on the socket.** Decide what a turn knows (paired guest
+  sub, run id, elevation) and thread it through `ipc.Server.Authorize`. This is
+  the prerequisite `specs/5/5` §Open 2 names for delegated guest use, so it
+  should be decided there, not here.
+
+Found while costing `specs/5/5`'s open decisions; recorded, not fixed.
+
 ## F55 — `emaid` runs an undeclared SQLite DB with an inline schema and no migrations (2026-08-07, open)
 
 `emaid/store.go:22` opens `<DATA_DIR>/emaid.db` — resolving to
