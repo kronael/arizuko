@@ -23,6 +23,15 @@ func mixInstance(t *testing.T, files map[string]map[string]string, order []strin
 			t.Fatal(err)
 		}
 	}
+	// The owner DB must EXIST before any CLI verb touches it — routd.Open now
+	// refuses to manufacture one (spec 5/16 step 7), so a fixture that only
+	// mkdir'd store/ used to get a silently-empty instance and now fails loud.
+	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rdb.Close()
+
 	mix := ""
 	for _, name := range order {
 		for rel, body := range files[name] {
