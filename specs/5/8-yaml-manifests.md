@@ -311,6 +311,17 @@ refuses-rather-than-guesses discipline:
   different folder than the one it was exported from, so its checksum can
   never match the target.
 
+**Named gap: there is no file half.** `Retarget` rewrites DB rows only, so
+"export folder X, apply as folder Y" moves the rows and leaves the folder's
+files behind. That is the one thing blocking a real consolidation:
+`5/5` R5 (2026-08-07) chose product-only vocabulary and filed its unification
+idea here — a **product** is "persona + skills + seed files copied into a new
+folder", which is this section's recipe plus files, so a product could become
+an exported manifest applied with `--as-folder` once a file half exists. Until
+then products stay a `groups` column plus CLI-applied TOML templates
+(`cmd/arizuko/products.go`) and the two shapes stay separate. Whoever builds
+the file half owns the merge; do not reopen it at `5/5`.
+
 ## Consistency levels — an archive is a smear, and must say so
 
 A full-instance archive taken from a running system is not a snapshot; it is
