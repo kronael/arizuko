@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -101,6 +102,67 @@ func TestProductSeedIsVerbatim(t *testing.T) {
 				}
 				if gotHash != wantHash {
 					t.Errorf("seed altered %s: %s != %s", rel, gotHash, wantHash)
+				}
+			}
+		})
+	}
+	if seen == 0 {
+		t.Fatal("no products found — corpus path wrong, test would pass vacuously")
+	}
+}
+
+// TestProductMixSeedsCorpusVerbatim is TestProductSeedIsVerbatim's bar applied
+// to the composition engine: every corpus file must survive a mix of ONE
+// byte-identical. CLAUDE.md is the single exception the blend table mandates —
+// it is the one payload that concatenates, so it lands inside its product's
+// marked region rather than as loose bytes; its content is still verbatim.
+// Without the table's catch-all row this drops PRODUCT.md for 10/10 products.
+func TestProductMixSeedsCorpusVerbatim(t *testing.T) {
+	products, err := os.ReadDir(examplesDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", examplesDir, err)
+	}
+	seen := 0
+	for _, p := range products {
+		if !p.IsDir() {
+			continue
+		}
+		seen++
+		t.Run(p.Name(), func(t *testing.T) {
+			seedDir := filepath.Join(examplesDir, p.Name())
+			want := walkFiles(t, seedDir)
+			if len(want) == 0 {
+				t.Fatalf("product %s has no files — corpus fixture is empty", p.Name())
+			}
+			group := filepath.Join(t.TempDir(), "group")
+			if _, err := BlendProducts(group, []Product{{Name: p.Name(), Dir: seedDir}}, nil); err != nil {
+				t.Fatalf("BlendProducts: %v", err)
+			}
+			got := walkFiles(t, group)
+			for rel, wantHash := range want {
+				if rel == "CLAUDE.md" {
+					body, rerr := os.ReadFile(filepath.Join(seedDir, "CLAUDE.md"))
+					if rerr != nil {
+						t.Fatal(rerr)
+					}
+					region := regionBegin(p.Name()) + "\n" +
+						strings.TrimRight(string(body), "\n") + "\n" + regionEnd(p.Name())
+					blended, rerr := os.ReadFile(filepath.Join(group, "CLAUDE.md"))
+					if rerr != nil {
+						t.Fatalf("blend DROPPED CLAUDE.md: %v", rerr)
+					}
+					if !strings.Contains(string(blended), region) {
+						t.Errorf("CLAUDE.md region altered the product's bytes")
+					}
+					continue
+				}
+				gotHash, ok := got[rel]
+				if !ok {
+					t.Errorf("blend DROPPED %s", rel)
+					continue
+				}
+				if gotHash != wantHash {
+					t.Errorf("blend altered %s: %s != %s", rel, gotHash, wantHash)
 				}
 			}
 		})

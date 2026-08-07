@@ -965,6 +965,39 @@ func deriveSurface(
 // seedDir is non-empty, copies it in as the starting file set. cmd/arizuko
 // passes a product template dir; dashd and onbod pass "" (empty group).
 func SetupGroup(cfg *core.Config, folder, seedDir string) error {
+	return setupGroup(cfg, folder, func(groupDir string) error {
+		if seedDir == "" {
+			return nil
+		}
+		if err := chanlib.CopyDirNoSymlinks(seedDir, groupDir); err != nil {
+			slog.Warn("setup group: copy seed dir", "folder", folder, "err", err)
+		}
+		return nil
+	})
+}
+
+// ComposeGroup is SetupGroup for an ordered product MIX (spec 5/28
+// composition): the group dir is prepared identically, then blended per payload
+// kind instead of seeded from one verbatim tree. prior carries each product's
+// last recorded AssetHashes so a locally edited managed asset is left alone.
+func ComposeGroup(
+	cfg *core.Config, folder string,
+	mix []Product, prior map[string]map[string]string,
+) ([]Blended, error) {
+	var out []Blended
+	err := setupGroup(cfg, folder, func(groupDir string) error {
+		var berr error
+		out, berr = BlendProducts(groupDir, mix, prior)
+		return berr
+	})
+	return out, err
+}
+
+// setupGroup owns the group-dir skeleton both entry points share: the dirs, the
+// per-group web slots, and the .claude/ seed. Only the middle step — how the
+// starting file set arrives — differs between a single verbatim product and a
+// blended mix, so it is the one thing the caller supplies.
+func setupGroup(cfg *core.Config, folder string, seed func(groupDir string) error) error {
 	r := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
 	groupDir, err := r.GroupPath(folder)
 	if err != nil {
@@ -976,10 +1009,8 @@ func SetupGroup(cfg *core.Config, folder, seedDir string) error {
 	if err := os.MkdirAll(filepath.Join(groupDir, "logs"), 0o755); err != nil {
 		return fmt.Errorf("mkdir logs: %w", err)
 	}
-	if seedDir != "" {
-		if err := chanlib.CopyDirNoSymlinks(seedDir, groupDir); err != nil {
-			slog.Warn("setup group: copy seed dir", "folder", folder, "err", err)
-		}
+	if err := seed(groupDir); err != nil {
+		return err
 	}
 	// Per-group web slots — bind-mounted into ~/public_html and ~/private_html
 	// at agent spawn time. Pre-create here so the dirs exist before the first

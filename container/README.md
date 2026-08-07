@@ -15,6 +15,11 @@ stdout is discarded. Also owns `SetupGroup` to create new group folders.
 - `Input`, `Output`, `Runner`, `DockerRunner`
 - `SetupGroup(cfg, folder, seedDir) error` — create a group dir, optionally
   copying `seedDir` (a product template) in as its starting files
+- `ComposeGroup(cfg, folder, mix, prior) ([]Blended, error)` — the same group
+  dir, seeded from an ordered product MIX instead of one tree (spec 5/28)
+- `BlendProducts(groupDir, mix, prior) ([]Blended, error)` — the blend itself,
+  per payload kind; `Product` names a mix entry, `Blended` reports what one
+  product owns, what changed, and what was left alone as locally edited
 - `EnsureRunning() error` — verify docker daemon
 - `CleanupOrphans(instance, image)` — stop stale `arizuko-*`
 - `SanitizeFolder(folder) string` — safe docker network/container names
@@ -70,7 +75,8 @@ Additional mounts from `group.toml` validated via `mountsec`.
 
 ## Files
 
-- `runner.go` — docker invocation, lifecycle, idle/hard-deadline timers, mount assembly, settings seeding
+- `runner.go` — docker invocation, lifecycle, idle/hard-deadline timers, mount assembly, settings seeding; `SetupGroup`/`ComposeGroup` over one `setupGroup` skeleton
+- `blend.go` — spec 5/28's composition: the blend table as code. `classify` is its left column; seed-once vs managed is per payload KIND, and a collision refuses before any byte is written
 - `runtime.go` — docker daemon checks, container cleanup, codex seed
 - `episodes.go` — recent-episode XML for prompt context
 - `network.go` — per-folder Docker network creation for egress isolation
