@@ -574,6 +574,8 @@ func cmdPackages(args []string) {
 		// updater: both go through reapplyPackage, so dirty-refusal is identical.
 		// A dirty package is reported and SKIPPED rather than fatal, so one
 		// hand-edited fragment cannot block the rest of the instance from syncing.
+		// Group-scoped records are the composition half of the same lock and go
+		// through the mix that owns them (below), not through reapplyPackage.
 		rdb := mustOpenRoutd(dataDir)
 		defer rdb.Close()
 		recs, err := rdb.InstalledPackages()
@@ -584,8 +586,30 @@ func cmdPackages(args []string) {
 			fmt.Println("no installed packages — nothing to sync")
 			return
 		}
-		var updated, skipped int
+		// A group-scoped record is a product in that group's ordered mix (spec
+		// 5/28 composition), not a compose fragment — reapplyPackage would find
+		// no `*.yml` and die. Re-apply those through the mix that owns them,
+		// once per folder, because union / last-wins are properties of the whole
+		// mix and not of one product.
+		var mixed []string
+		seen := map[string]bool{}
 		for _, rec := range recs {
+			if rec.Folder != routd.InstanceWide && !seen[rec.Folder] {
+				seen[rec.Folder] = true
+				mixed = append(mixed, rec.Folder)
+			}
+		}
+		sort.Strings(mixed)
+		for _, folder := range mixed {
+			applyProductMix(dataDir, rdb, folder)
+		}
+
+		var instanceWide, updated, skipped int
+		for _, rec := range recs {
+			if rec.Folder != routd.InstanceWide {
+				continue
+			}
+			instanceWide++
 			res := reapplyPackage(svcDir, rdb, rec)
 			switch {
 			case len(res.Dirty) > 0:
@@ -599,7 +623,7 @@ func cmdPackages(args []string) {
 			}
 		}
 		fmt.Printf("synced %d package(s): %d updated, %d skipped — run `arizuko generate %s` to apply\n",
-			len(recs), updated, skipped, args[0])
+			instanceWide, updated, skipped, args[0])
 	case "remove":
 		need(args, 3, usage)
 		name := args[2]
