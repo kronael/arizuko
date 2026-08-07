@@ -218,6 +218,32 @@ holder of a valid authd token reaching a backend directly could spoof
 └──────────────────────────────────────────────────────────┘
 ```
 
+## Agent-authored skills
+
+A skill the agent writes is executed by its next session, so `~/.claude/`
+is the one directory where the agent's writes are also its own future
+instructions. `ant/src/skillguard.ts` is a `PreToolUse` hook on
+`Write`/`Edit`/`MultiEdit`: content bound for a path under `~/.claude/` is
+scanned against 120 threat patterns ported verbatim from hermes-agent
+(`ant/src/skillguard-patterns.ts`), and a **critical** match refuses the
+write with the pattern and line named, so the agent can rewrite rather than
+retry blindly.
+
+- Lower-severity matches do not block. Only critical patterns refuse —
+  for a gate on the agent's own work, blocking legitimate writes is the
+  more expensive failure.
+- `SKILL.md` also gets a frontmatter check (`name:`, `description:` ≤ 1024
+  chars). Skill dispatch matches on those, so a skill missing either is
+  invisible rather than broken.
+- Nothing outside `~/.claude/` is scanned; the group home and both web
+  slots are data, gated by the mounts and the web tree instead.
+- **Fails open.** A scanner crash or an unrecognised tool shape allows the
+  write. This is not a containment boundary — Docker, the crackbox egress
+  allowlist and the gated MCP socket are. It raises the cost of one
+  specific move: persisting a malicious instruction into next session.
+
+Spec: [`specs/5/23-skill-guard.md`](specs/5/23-skill-guard.md).
+
 ## Network egress isolation
 
 When `CRACKBOX_ADMIN_API` is set and `crackbox:latest` is running,

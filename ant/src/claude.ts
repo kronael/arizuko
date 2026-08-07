@@ -16,6 +16,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { createToolLogPreHook, createToolLogPostHook } from './tool-log.js';
 import { createTodoStatusHook } from './todo-status.js';
+import { createSkillGuardHook } from './skillguard.js';
 import type { ModelUsage } from './mcp.js';
 
 // EventType is the category index.ts switches on. One per SDK message shape
@@ -335,6 +336,9 @@ export class ClaudeSession {
             PreCompact: [{ hooks: [createPreCompactHook(cfg.assistantName)] }],
             PreToolUse: [
               { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
+              // A skill the agent writes today runs in its next session, so this
+              // is the gate between authoring and executing (spec 5/23).
+              { matcher: 'Write|Edit|MultiEdit', hooks: [createSkillGuardHook()] },
               { hooks: [createToolLogPreHook()] },
             ],
             PostToolUse: [

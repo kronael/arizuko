@@ -1,5 +1,6 @@
 ---
-status: draft
+status: shipped
+shipped: 2026-08-07
 source: hermes-agent peel (2026-04-11)
 ---
 
@@ -30,6 +31,33 @@ arizuko's env-vs-DB split for business state applies.
 Scope: `ant/src/skillguard.ts` + tests, registered in
 `options.hooks.PreToolUse`, plus a `MIGRATION_VERSION` bump. Zero Go and
 zero schema changes.
+
+## What shipped (2026-08-07)
+
+`ant/src/skillguard.ts`, matched on `Write|Edit|MultiEdit` in
+`ant/src/claude.ts`. The table is `ant/src/skillguard-patterns.ts` — all
+120 entries **extracted from the Python by an AST walk, not retyped**, so
+"port verbatim" is mechanically true rather than a promise. No pattern used
+a Python-only regex construct, so each compiles unchanged under JS; a test
+asserts the count and that every one compiles.
+
+Two deliberate narrowings from hermes:
+
+- **Content, not directories.** hermes scans an installed skill tree
+  (file counts, symlink escape, oversized files). The hook sees the text of
+  one write, so the structural checks have nothing to run against and were
+  left out rather than faked.
+- **Trust levels collapse to one.** hermes resolves `builtin`/`trusted`/
+  `community` from a source repo. An agent writing its own skill is exactly
+  hermes' `agent-created` row — `dangerous` → refuse, everything else
+  allowed. No repo, so no trusted-repo list to make config-driven; the
+  spec's env-var/DB requirement has nothing to configure and was dropped.
+
+`caution` passes: only a **critical** finding refuses. The scanner
+fails open on a crash, and an unrecognised tool shape yields no text,
+so both failure modes allow rather than block.
+
+`MIGRATION_VERSION` 196.
 
 Deliberately NOT in scope: memory/USER.md tools (Claude Code reads
 CLAUDE.md already), a `skill_manage` MCP tool (Write/Edit suffice), a

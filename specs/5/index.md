@@ -82,7 +82,7 @@ data entities defined here, and `9/3` moves the cold tier into git.
 | [I-tool-call-logging.md](I-tool-call-logging.md)         | shipped | Per-tool-call logging on both surfaces; the `audit_log` table is the source of truth. Each owner serves it at `GET /v1/audit` (read-only resreg resource) and `/dash/audit/` federates them. |
 | [O-observability.md](O-observability.md)                 | shipped | Three opt-in substrates: slog+OTLP logs, spans, and 15 Prometheus metric families.                                                                                                           |
 | [9-agent-capability-eval.md](9-agent-capability-eval.md) | shipped | `anteval` — a black-box capability gate driving real tasks through the public surfaces.                                                                                                      |
-| [23-skill-guard.md](23-skill-guard.md)                   | draft   | A PreToolUse threat-pattern scanner over skill writes.                                                                                                                                       |
+| [23-skill-guard.md](23-skill-guard.md)                   | shipped | A PreToolUse threat-pattern scanner over skill writes.                                                                                                                                       |
 | [22-self-learning.md](22-self-learning.md)               | draft   | Pattern recognition over a group's history producing operator-reviewed proposals, never silent rewrites.                                                                                     |
 
 ## Tenancy, onboarding, credentials

@@ -16,6 +16,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **Skill-guard: what the agent writes into `~/.claude/` is scanned before it
+  lands (spec `5/23`).** A skill written today runs in the next session, so a
+  skill file is code the agent grants itself — and until now nothing looked at
+  it. A `PreToolUse` hook scans `Write`/`Edit`/`MultiEdit` content bound for
+  `~/.claude/` against 120 threat patterns (secret-interpolating shell
+  commands, credential-store reads, curl-pipe-to-shell, invisible characters
+  hiding an instruction) and refuses a critical match, naming the pattern and
+  line so the agent can rewrite. Lower-severity matches pass. The scanner fails
+  open: a guard that bricks the agent when it throws is worse than the threat
+  it was added for.
 - **`arizuko products <inst> list` — see the catalog before you seed from it
   (spec `5/21`).** One row per bundled product: its name, brand and tagline.
   Until now the only way to learn what `--product` accepted was to mistype it
