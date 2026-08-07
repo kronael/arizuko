@@ -7,6 +7,72 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F51 — dashd mounts the whole instance tree: `.env` secrets and live agent sockets (2026-08-07, open)
+
+Verified on deployed krons: `dashd`'s only volume is
+`/srv/data/arizuko_krons:/srv/app/home` — the entire instance dir. That
+includes `.env` (`AUTH_SECRET`, `SECRETS_KEY`, every platform token) and
+`ipc/`, the live per-turn agent MCP sockets.
+
+`compose/compose_test.go:552` asserts precisely that a daemon must not get the
+whole tree — for authd, webd, proxyd and onbod. dashd is exempted from
+`wantDataMounts`, so the guard passes while the widest mount in the fleet goes
+unchecked.
+
+dashd needs `store/` + `groups/` + `surrogate/`. Narrowing it is a
+`dataSubdirs` change plus adding dashd to `wantDataMounts` so the exemption
+cannot come back.
+
+- **Source:** `compose/compose.go:1039` `dashdService`; `compose/compose_test.go:521,552`
+- **Status:** open
+- **Fix:** narrow to named subdirs; remove the test exemption.
+
+## F52 — onbod's "fatal, no silent empty-DB cross-read" guard cannot fire (2026-08-07, open)
+
+`onbod/main.go:101` derives routd.db as a sibling of its own DSN and comments
+that a failure to open is fatal, specifically to prevent a silent empty-DB
+cross-read. `database/sql.Open` is lazy — it validates the driver and returns;
+it never touches the file. So the error branch is unreachable, and onbod boots
+and creates an empty `routd.db` on first query.
+
+It documents preventing exactly the failure it permits. Same class as `F34`
+(a comment naming a destination its function stopped writing to): the guard is
+a description of an intent, not a check.
+
+- **Source:** `onbod/main.go:100-101`
+- **Status:** open
+- **Fix:** `Ping()` (or a strict probe like `store.OpenRoutd`'s `acl` check) and
+  fail loud. The path derivation itself violates "identity is configured, never
+  derived" — an explicit `ROUTD_DB_PATH` fixes both.
+
+## F53 — live krons teled has no state mount, so its offset resets every recreate (2026-08-07, open)
+
+Deployed `/srv/data/arizuko_krons/services/teled.yml` carries neither a state
+mount nor `DATA_DIR`; the repo's `template/services/teled.yml` has both. teled's
+default dataDir is `/srv/app/home` (`teled/main.go:69`), unmounted for teled, so
+`teled-offset-telegram` lives in the container's ephemeral layer and is lost on
+every recreate.
+
+The deployed fragment is stale against the repo. Worth a fleet-wide fragment
+diff, not just a teled fix — `arizuko generate`'s relink only replaces fragments
+that are still identical catalog copies.
+
+- **Source:** deployed `services/teled.yml` vs `template/services/teled.yml`; `teled/main.go:69,78`
+- **Status:** open
+
+## F54 — dashd's stock-skills picker is dead in every deployed container (2026-08-07, open)
+
+`dashd/groups_admin.go:187` reads `<HOST_APP_DIR>/ant/skills`. `env/dashd.env`
+sets `HOST_APP_DIR=/home/onvos/app/arizuko`, but `dashdService` attaches no
+source mount for it — a HOST path used as a CONTAINER path. `stockSkills()`
+returns nil silently (`:184-186`), so the picker renders empty and no error
+reaches the operator.
+
+- **Source:** `dashd/groups_admin.go:184-187`; `compose/compose.go:1039`
+- **Status:** open
+- **Fix:** mount the source read-only (routd and runed already get
+  `HOST_APP_DIR:ro`), or read the skills from a path dashd actually has.
+
 ## F43 — routd hands the agent a scheme-less pairing URL (2026-08-06, open)
 
 `routd/cmd/routd/main.go` reads `webHost := os.Getenv("WEB_HOST")` raw, and
