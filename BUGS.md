@@ -7,6 +7,45 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F61 — nine code comments cite "Spec 5/34" for cost caps; 5/34 is the channel protocol (2026-08-07, open)
+
+`specs/5/34-channel-protocol.md` is the channel adapter protocol. The cost-cap
+spec is `specs/11/19-cost-caps.md` (`status: partial`). Nine production sites
+cite the wrong one:
+
+`core/config.go:121`, `store/cost_log.go:8`, `store/cost_log.go:62`,
+`ipc/ipc.go:118`, `ipc/ipc.go:122`, `ipc/ipc.go:216`, `ipc/ipc.go:958`,
+`proxyd/main.go:703`, `cmd/arizuko/budget.go:14`, plus
+`ipc/log_external_cost_test.go:9`.
+
+`ipc/ipc.go:958` is the worst of them: the bad pointer is inside an **MCP tool
+description string**, so it is shipped to the agent, not just to a reader.
+
+Harmless at runtime, but it is the comment-asserts-a-false-fact class that has
+cost this project several wrong briefs — an agent following the pointer lands
+on adapter wire types and concludes cost caps are a channel concern. Mechanical
+fix (rewrite the pointer at ten sites); no behavior change.
+
+Found while shipping `specs/5/5`, which now cites `11/19` correctly. Recorded,
+not fixed — out of that change's scope.
+
+## F60 — `routd/db.go:140` names `auth.Delegate` at `register_group`, where it is not called (2026-08-07, open)
+
+```go
+// Everything above the floor is explicit
+// delegation from a lineage ancestor (auth.Delegate at register_group / add_acl).
+```
+
+`auth.Delegate` has exactly one production call site: `routd/acl_resource.go:213`
+(`add_acl`). `register_group`'s gate is `db.Authorize` — the granted-row check —
+never `auth.Delegate` (`routd/groups_resource.go:152-155`). The `add_acl` half of
+the parenthetical is right; the `register_group` half names a function at a site
+that does not call it.
+
+Same defect class as `auth/delegate.go`'s "used at spawn" header, fixed 2026-08-07
+under `specs/5/5` R4. This one was left alone to keep that change's diff to a
+single file. One-line comment fix; no behavior change.
+
 ## F59 — an `acl` row with a predicate can never match on the agent MCP socket, silently (2026-08-07, open)
 
 `acl.predicate` is a real, evaluated column: `auth.Authorize` skips any row whose
