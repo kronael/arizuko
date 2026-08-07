@@ -567,6 +567,30 @@ func TestDataMountsAreScopedPerDaemon(t *testing.T) {
 	}
 }
 
+// routd reads and writes four paths at the DATA-DIR ROOT, none of which is a
+// subdirectory a narrowed mount could name:
+//
+//	connectors.toml   routd/connectors.go:35, routd/ext.go:132
+//	surrogate/*.toml  auth/surrogate/registry.go:65
+//	tts/              routd/cmd/routd/main.go:231
+//	audit-*.jl        audit/audit.go:302-310 (routd CREATES these)
+//
+// Every one of them degrades SILENTLY when absent — connectors.go:39 logs Info
+// and disables the connector path, registry.go:67 returns nil on ErrNotExist —
+// so a routd narrowed without them looks perfectly healthy while the broker,
+// surrogate OAuth, voice and the .jl audit stream are all off. That is why
+// routd keeps the whole tree, and this test is the reason written down: narrow
+// routd and it fails here, pointing at the four readers first.
+func TestRoutdKeepsTheWholeTreeForItsRootPathReaders(t *testing.T) {
+	dir := seed(t, "API_PORT=8080\n")
+	routd := serviceBlock(gen(t, dir), "routd")
+	if !strings.Contains(routd, "- "+dir+":"+containerDataMount+"\n") {
+		t.Errorf("routd lost the whole-tree mount; connectors.toml, surrogate/, tts/ "+
+			"and audit-*.jl all sit at the data-dir root and all fail SILENTLY when "+
+			"unmounted:\n%s", routd)
+	}
+}
+
 // The half that makes the table above non-vacuous: asserting the mounts a
 // daemon HAS says nothing about the ones it must NOT have. Ownership is only a
 // boundary if the binds a daemon is missing are pinned too — before the
