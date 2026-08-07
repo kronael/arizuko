@@ -41,6 +41,42 @@ JSON-file shape the other five adapters use (`bskyd`, `linkd`, `reditd`,
 - **Source:** `emaid/store.go:18-38`
 - **Status:** open — needs a design call, recorded not fixed
 
+## F57 — issuer-mint takes an uncapped `ttl_seconds`; the downscope sibling caps (2026-08-07, open)
+
+`POST /v1/tokens` reads a caller-supplied `ttl_seconds` (`authd/http.go:339,352`)
+and hands it to whichever mode it picks. The two modes disagree. `Downscope`
+clamps it to the parent token's remaining life (`authd/server.go:229-231`);
+`IssuerMint` applies no upper bound at all (`authd/server.go:241,250`), and
+`signMinted` substitutes `accessTTL` only when `ttl <= 0`
+(`authd/server.go:197-199`). So an issuer-mint may request any lifetime.
+
+That contradicts `maxAccessTTL`'s stated contract — *"longest access TTL ever
+minted; bounds a retired key's serving window"* (`authd/server.go:27`) — which
+the key lifecycle actually depends on: retirement keeps a key verifying for
+`retiredAt + maxAccessTTL` (`server.go:70`) and purges on the same window
+(`server.go:108`). Nothing enforces the bound at the one mint site that can
+exceed it, so the comment describes an invariant the code does not hold.
+
+Impact is a revocation hole rather than a key one. Access tokens are verified
+offline against no revocation list, and they carry a frozen `Scope` snapshot, so
+a long-TTL issuer-minted token freezes its grants for its whole life. The
+15-minute `accessTTL` bound that the `5/16` §"The hot-path exception" trade-off
+reasons about is the browser-session bound (`authd/oauth.go:332`,
+`authd/server.go:167` — both hardcode it), NOT a system-wide one. This does not
+weaken that decision; it is the reason proxyd's live `acl` read is load-bearing
+for tokens minted through this path too.
+
+Latent, not live: the issuer branch needs `tokens:mint` on the caller
+(`authd/http.go:361`) and no in-tree caller sends `ttl_seconds` to `/v1/tokens`
+(the `ttl_seconds` hits elsewhere are routd's unrelated `/v1/engagement`). Found
+while verifying the TTL figure for `5/16` step 2; not fixed there because that
+pass was a spec decision and this is an authd contract change.
+
+- **Severity:** medium (latent; privileged caller required)
+- **Scope:** authd token mint
+- **Source:** `authd/server.go:241,250,197-199,27,70,108`; `authd/http.go:339,352,361`; cf. `authd/server.go:229-231` (the capping sibling)
+- **Status:** open — needs a design call (cap at `maxAccessTTL`, or restate the comment)
+
 ## F56 — adapter `DATA_DIR` code defaults point at the instance tree root (2026-08-07, open)
 
 `linkd/main.go:71` defaults `DataDir` to `/srv/app/home` — `containerDataMount`
