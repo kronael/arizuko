@@ -1,5 +1,6 @@
 ---
-status: draft
+status: shipped
+shipped: 2026-08-07
 sources:
   - hermes-agent peel (2026-04-11)
   - hermes-agent deep read (tmp/hermes-deep.md, 2026-05-13)
@@ -8,6 +9,13 @@ sources:
 ---
 
 # Self-learning and self-improvement
+
+> **Shipped 2026-08-07 as a decision: this does not get built in phase 5.**
+> What ships is the reasoning, so nobody re-derives it. The design below stands
+> — it is a good design — and the two things blocking it are written down in
+> §"Why this is closed for phase 5" rather than left for the next reader to
+> rediscover. Nothing was built; `/learn` (`ant/skills/learn/`) remains the only
+> consolidation path, invoked by hand.
 
 Pattern recognition over a group's history that produces _proposals the
 operator reviews_ — never silent rewrites of agent state. Default off,
@@ -123,3 +131,43 @@ and the dispatch loop.
 
 Letta and agno docs are thin: tool names are documented, trigger cadence
 is not. Inferred, not verified.
+
+## Why this is closed for phase 5
+
+**1. The cold-tier invariant and the `~/proposals/` queue contradict each
+other, and the contradiction is load-bearing.** Root `CLAUDE.md` requires every
+operator-managed entity to register as a resreg `Resource`; this spec repeats
+that requirement in §"Operator gate". But `resreg/engine.go:107` panics on an
+empty `Table` — a resource IS a SQL table, and every one of the 37 registered
+resources is table-backed. A queue of files in the group workspace cannot
+satisfy the rule as written. Two resolutions exist:
+
+- make proposals a routd table and treat the file in `~/proposals/` as its
+  agent-visible rendering (one renderer, many sinks), or
+- exempt a file-backed queue from the invariant.
+
+The first is right, the second erodes the rule — but choosing changes the data
+model, so it is a design decision with an owner, not an implementation detail.
+
+**2. The spec names its own tension with the platform philosophy and does not
+settle it.** §"The decision" opens by quoting root `CLAUDE.md` — "platform
+stays mechanical, operator owns truth" — and says it "tilts against this whole
+feature." The gating model (proposals never edits; persona and skills always
+gated; no `auto-all`) is a careful answer to that tension. It is not a
+substitute for someone deciding the feature is wanted.
+
+**What is true today:** the data this would consume already exists
+(`episodes/`, `.diary/`, the message DB, `users/`), and the manual trigger
+already works. Nothing regressed by not building this; the gap is that
+consolidation happens only when a human asks for it.
+
+**To reopen:** settle (1) — proposals as a routd table is the recommendation —
+then promote to `planned`. The staging is the spec's own: the operator gate
+first (the queue plus accept/reject with the `~/.snapshots/` rollback), then the
+turn-counter nudge, then the idle curator task. Shipping the generator before
+the gate would put unreviewed proposals in a workspace with nothing to review
+them.
+
+Related: [`23-skill-guard.md`](23-skill-guard.md) shipped 2026-08-07 and covers
+the adjacent concern — bytes at write time, not patterns over history. The two
+were correctly kept separate.
