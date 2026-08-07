@@ -62,6 +62,22 @@ owning no resources, so the aggregator page
 endpoint is public and mounts BEFORE auth middleware** — schemas
 describe surface, not data — and is cached for the process lifetime.
 
+**The advertised SET comes from the daemon's mux, not from a list.**
+`OpenAPIHandler(daemon, mux)` takes the routing table; `RegisterREST`
+mounts each face as a `*restMount` stamped with its `(resource, endpoint)`,
+and `MountedResources` keeps only the registry resources that mux resolves
+to one of those. A daemon therefore cannot advertise what it does not
+mount. Each daemon used to hand over a list of resource names instead,
+which drifted three times (BUGS `F21`/`F27`/`F32`, cause closed as `F33`).
+
+Derivation checks mount IDENTITY and must never check path presence: THREE
+daemons serve `GET /v1/sessions` over three different tables (authd's
+resreg resource, runed's `session_log`, routd's `core.SessionRecord`), and
+proxyd answers every path from a `/` catch-all — a path probe would make
+those daemons publish schemas they do not own. Because the set is read at
+first REQUEST rather than at construction, `/openapi.json` may be mounted
+on the mux it documents.
+
 ## Caller and Execution
 
 Both faces decode to one surface-agnostic `Caller` and run in one

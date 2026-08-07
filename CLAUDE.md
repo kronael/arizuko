@@ -137,10 +137,18 @@ integrations via `EXTENDING.md`; the core evolves as a unit.
 
 Every HTTP-serving daemon mounts `GET /openapi.json` returning an
 OpenAPI 3.1 doc for the resources it owns. The doc is engine-generated
-from `resreg.Resource.RowType` reflection — no `huma`, no `swag`, no
-hand-rolled JSON, no codegen step. Endpoint is public; mount before
-auth middleware. Drift between handler and doc is structurally
-impossible because both read the same struct.
+— no `huma`, no `swag`, no hand-rolled JSON, no codegen step. Endpoint
+is public; mount before auth middleware.
+
+Drift is structurally impossible on both axes: schemas come from
+`resreg.Resource.RowType` reflection, so handler and doc read the same
+struct, and the advertised SET comes from the daemon's own mux
+(`resreg.OpenAPIHandler(daemon, mux)` → `MountedResources`), so a daemon
+cannot name a resource it does not mount. Never derive that set by
+probing paths — three daemons serve `GET /v1/sessions` over three
+different tables, and proxyd answers every path from a `/` catch-all;
+only the `*restMount` identity `RegisterREST` stamps tells them apart
+(BUGS `F33`).
 
 Aggregator landing: `/pub/arizuko/reference/openapi.html` lists every
 daemon's `/openapi.json` URL with a one-line description. Spec:

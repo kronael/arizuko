@@ -37,44 +37,76 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > is 3-of-4 besides: onbod owns an `audit_log` and writes real rows to it, and its
 > read face is unbuilt (BUGS `F35`).
 >
-> **What "one owner" still needs** — it is the two-declaration gap, not federation:
+> **The advertised set is now derived from the mux** (`F33`, closed 2026-08-07).
+> `resreg.OpenAPIHandler(daemon, mux)` takes the routing table and nothing else:
+> `RegisterREST` mounts each face as a `*restMount` stamped with its
+> `(resource, endpoint)`, and `resreg.MountedResources` keeps only the registry
+> resources the mux resolves to one of those. All six hand-passed name lists are
+> deleted. Advertised-vs-served is no longer two declarations agreeing by care —
+> there is one, so `F21`/`F27`/`F32` are unrepresentable rather than merely
+> tested for.
+>
+> Derivation is by mount IDENTITY, never by probing paths. Path-probing was
+> considered and is WRONG here: THREE daemons serve `GET /v1/sessions` over three
+> different tables — authd's refresh-token families (the resreg resource), runed's
+> `session_log` (`runed/server.go:44`), routd's `core.SessionRecord`
+> (`routd/server.go:286`) — so a path probe would make routd and runed publish
+> authd's `SessionsRow` schema. (`F46` files this collision as two daemons; it is
+> three.) The type assertion drops both hand-rolled mounts, and proxyd's `/`
+> catch-all with them. The one resulting doc change was `+ DELETE
+/v1/acl_membership` on routd, which routd genuinely mounts
+> (`routd/membership_resource.go`) and never advertised.
+>
+> **What "one owner" still needs** — the remaining gap is the mount `Name`, not
+> the doc:
 >
 > - The mounted handler must DERIVE `Name`/`Table` from the registry, not restate
 >   them. `Endpoints`/`RowType`/MCP metadata already single-source by import;
->   `Name` is still a string literal at all ~11 mount sites, and the
->   `mounted.Name == registry.Name` guard this spec names as the interim bar does
->   not exist. `TestFoldedEndpoints_RegistrySingleSource` compares the registry to
->   an exported var in the SAME package — it cannot see a mount.
-> - `resreg.OpenAPIHandler(daemon, resources)` takes a hand-passed name list with
->   no reference to the mux, so advertised and served stay two independent
->   declarations that agree only by care (BUGS `F33`, proposed, unsigned). Three
->   drifts already came out of it: `F21`, `F27`, `F32`.
-> - Step 2 below is unshipped and still violates this spec's own "never a second
->   `store.Open`": `proxyd/main.go:854` reads `routd.db` via
->   `auth.UserScopes(s.stRoutd, …)` for a scope list its verified token carries.
+>   `Name` is still a string literal at all ~11 mount sites. `MountedResources`
+>   now compares mounted `Name` to registry `Name` on every face, so a mistyped
+>   literal silently drops the resource from the doc instead of mislabelling it —
+>   a fail-safe, not the fix.
+> - Step 2 below is unshipped. Its violation is a cross-daemon direct-DB READ of
+>   another owner's table, NOT a duplicate handle: `proxyd` opens `routd.db`
+>   exactly once (`store.OpenRoutd`, `proxyd/main.go:991`) and reuses that handle,
+>   so "never a second `store.Open`" is not what it breaks. What it breaks is
+>   federation — `proxyd/main.go:863` reads routd's `acl` via
+>   `auth.UserScopes(s.stRoutd, …)` for a scope list its verified token already
+>   carries, instead of calling the owner's face.
 > - Step 7 is half-shipped: `dataMounts`/`dataSubdirs` exist
 >   (`compose/compose.go:840`) but only onbod, proxyd and webd set them, and they
 >   name `store`/`groups`/`web` — not per-owner `store/<owner>/`. "Owner is a
 >   convention, not a boundary" still holds for every other daemon.
 >
-> **The doc↔mux guard now covers every advertising daemon** (`F40`, closed).
-> `routd`, `timed`, `onbod`, `authd`, `proxyd` and `runed` each call
-> `resregtest.AssertServesWhatItAdvertises` with their real resource list and
-> their real `*http.ServeMux`, plus `AssertServesNoneOf` as the ownership
-> anchor. Every daemon but `routd` is `package main` and cannot be imported, so
-> each got a named mux constructor its own in-package test calls — `newOnbodMux`,
-> `newRunedMux`, `server.mux` in `authd` and `proxyd`. `webd` and `dashd`
-> advertise nothing and keep their doc-shape tests.
+> **The per-daemon guard changed shape with the cause fix** (`F40`, closed;
+> `F47`, closed). `AssertServesWhatItAdvertises` compared the document to the
+> mux — a comparison deriving the document FROM the mux makes tautological, and a
+> guard that cannot fail is worse than no guard. It is replaced by
+> `resregtest.AssertAdvertises(daemon, mux, want)`, which pins each daemon's whole
+> derived surface against a list written down in its test: mounting or unmounting
+> any REST face fails it until someone states the new surface, so the change stays
+> visible in review. The hand-written list is a test EXPECTATION, never a
+> production input — that distinction is the whole of `F33`.
+> `AssertServesNoneOf` did NOT weaken and is unchanged: nothing about deriving
+> from the mux stops two daemons mounting one resource name.
 >
-> Two things the wiring surfaced. `authd` registered `/openapi.json`, `/auth/*`
-> and `/metrics` in `main()` after `srv.mux()` returned, so a guard would have
-> probed a mux missing the mount under test; `mux()` is now the complete served
-> surface. And the assertion itself compared two syntaxes — OpenAPI 3.1 has no
-> multi-segment path template, so a stdlib `{path...}` documents as `{path}` —
-> which read `proxyd`'s three correctly-mounted item endpoints as advertised
-> paths that 404. The rule is now single-sourced as `resreg.OpenAPIPathKey`.
+> The four drift shapes are proven falsifiable in `resreg/openapi_mount_test.go`,
+> which reintroduces each one — unmounted advertise, re-path, catch-all, foreign
+> hand-rolled mount — and pins that `MountedResources` drops it while the
+> by-name rendering still shows it. That second half is the anchor: without it a
+> test passes when the emitter produces nothing.
 >
-> **This spec stays `partial`** until steps 2, 6 and 7 land.
+> Earlier wiring notes that still hold: `authd` registered `/openapi.json`,
+> `/auth/*` and `/metrics` in `main()` after `srv.mux()` returned, so a guard
+> would have probed a mux missing the mount under test; `mux()` is now the
+> complete served surface. And OpenAPI 3.1 has no multi-segment path template, so
+> a stdlib `{path...}` documents as `{path}`; the rule is single-sourced as
+> `resreg.OpenAPIPathKey`, with `resreg.ConcretePath` its inverse for probing.
+>
+> **This spec stays `partial`** until steps 2, 6 and 7 land. Step 2 needs the
+> explicit sign-off it has always needed (the 15-minute revocation trade-off),
+> step 6 is an unstarted read-only audit, step 7 needs a maintenance window for
+> the file move. None is blocked by the doc work above.
 
 # specs/5/16 — MCP+REST unification (finish the adoption)
 
@@ -460,9 +492,12 @@ Each ships and reverts on its own; none blocks another except where noted.
    `webd/main.go:64` opens `store.OpenRoutd` and nothing else;
    `webd/audit_sink_test.go` pins the one-store shape, citing this section.
 2. **proxyd: read `sub.Scope` instead of `groupsForSub`/`UserScopes`** — **OPEN,
-   and the last live violation of this section's "never a second `store.Open`"**.
-   `proxyd/main.go:854` still calls `auth.UserScopes(s.stRoutd, …)`, reading
-   another owner's DB for a list the verified token already carries. Reversible.
+   and the last live violation of this section's federation clause**.
+   `proxyd/main.go:863` still calls `auth.UserScopes(s.stRoutd, …)`, reading
+   another owner's `acl` table for a list the verified token already carries.
+   It is a cross-daemon direct-DB READ, not a duplicate handle: proxyd opens
+   `routd.db` once at `proxyd/main.go:991` and reuses it (`LookupRouteToken` at
+   line 729 is the same pattern and the same violation). Reversible.
    **Needs explicit sign-off first** (the 15-minute revocation trade-off above).
    Verify: a test asserting `/priv/<folder>/` access is granted from JWT claims
    alone with `stRoutd` pointed at a DB missing the caller's grant row.

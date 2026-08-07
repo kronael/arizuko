@@ -77,18 +77,31 @@ Spec: [`specs/5/16-mcp-rest-unification.md`](../specs/5/16-mcp-rest-unification.
 
 ## OpenAPI emission
 
-`OpenAPI(daemon, baseURL, resources)` / `OpenAPIHandler(daemon,
-resources)` (`openapi.go`) walk the registry and emit an OpenAPI 3.1
-JSON doc off the same `RowType` reflection (struct field → schema
-property). A resource that declares `Endpoints` emits **exactly those**
-real mounted verbs+paths (so the doc can't drift from `RegisterREST`);
-one with none falls back to the `/v1/<name>` PK-CRUD convention (list,
-read-one `GET /v1/<name>/{pk}`, create, update, delete). No `huma`, no
-`swag`, no codegen. Handler is public (mount before auth) and caches the blob
-for the process lifetime. Mounted at `/openapi.json` on `routd`, `runed`,
-`authd`, timed, onbod, webd, proxyd, dashd. Drift between handler and doc
-is impossible because both read the same struct. Aggregator landing:
-`/pub/arizuko/reference/openapi.html`.
+`OpenAPIHandler(daemon, mux)` (`openapi.go`) emits an OpenAPI 3.1 JSON
+doc for **whatever that mux serves**. `MountedResources(mux)` derives the
+advertised set: `RegisterREST` mounts each face as a `*restMount` stamped
+with its `(resource, endpoint)`, and only registry resources the mux
+resolves to one of those are documented. Schemas come from the same
+`RowType` reflection (struct field → schema property).
+
+A daemon passes no resource list, so it cannot advertise what it does not
+mount — the hand-passed lists were BUGS `F33`, the cause under `F21`/`F27`/
+`F32`. Identity, not path presence, is what is checked: three daemons serve
+`GET /v1/sessions` over three different tables, and proxyd answers every
+path from a `/` catch-all, so a path probe would document other daemons'
+schemas. Hand-rolled `mux.HandleFunc` mounts and catch-alls are not
+`*restMount` and drop out.
+
+The doc is built on first REQUEST, not at construction, so `/openapi.json`
+may be mounted on the mux it documents; it then caches for the process
+lifetime. Public — mount before auth. No `huma`, no `swag`, no codegen.
+Mounted on `routd`, `runed`, `authd`, timed, onbod, webd, proxyd, dashd.
+Aggregator landing: `/pub/arizuko/reference/openapi.html`.
+
+`OpenAPI(daemon, baseURL, resources)` is the underlying emitter, taking
+resources directly; tests use it with `resregtest.Mounted(...)`. A resource
+with no `Endpoints` falls back to the `/v1/<name>` PK-CRUD convention, which
+nothing mounted reaches today (every registry resource declares `Endpoints`).
 
 Per-action derivation: MCP tools are `deriveMCPTools`'d from the
 `Endpoints` whose `Action` has an `MCPDoc` entry, and each tool's args

@@ -220,6 +220,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   invited to, and an approved admission under a configured gate still creates a
   top-level workspace and only a top-level one.
 
+- **`/openapi.json` could promise endpoints the daemon serves nowhere (BUGS
+  `F33`).** Each daemon handed the generator a hand-written list of resource
+  names with no connection to the routes it actually mounted, so the two agreed
+  only by care — and three times they did not (`F21`, `F27`, `F32`). A generated
+  client aimed at those paths got a 404. The generator now takes the daemon's
+  routing table itself and documents exactly the REST faces mounted on it, so a
+  daemon cannot advertise what it does not serve. Recognition is by mount
+  identity, not by asking whether some handler answers a path: three daemons
+  serve `GET /v1/sessions` over three unrelated tables, and proxyd answers every
+  path from a catch-all, so a path check would have published the wrong schemas.
+  One endpoint changed as a result — routd now advertises `DELETE
+/v1/acl_membership` (unpair), which it has always served; the other 44
+  operations across all daemons are unchanged.
+
 - **`packages upgrade` erased the ownership record `remove` depends on (BUGS
   `F40`).** `install` records which proxyd routes, `acl` grants and skill dirs a
   package owns; `upgrade` then replaced that record wholesale with just its

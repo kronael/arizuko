@@ -306,14 +306,28 @@ tracked rather than swept.
   operator-visible page, and keep it there — or delete the block and point at
   `dashd/README.md`'s route list, which IS maintained, rather than keeping a
   second inventory that drifts.
-## F46 — `runed` and `authd` both serve `GET /v1/sessions`, for different tables (2026-08-06, open)
+## F46 — `runed`, `routd` and `authd` all serve `GET /v1/sessions`, for different tables (2026-08-06, open — CORRECTED 2026-08-07: three daemons, not two)
+
+**Correction (2026-08-07, during `F33`).** This is THREE daemons, not two.
+`routd/server.go:286` also mounts `GET /v1/sessions` (hand-rolled,
+`s.handleSessionGet`, reads `core.SessionRecord`). The original entry missed it.
+The count matters: it was the reason `F33`'s signed-off "derive the advertised
+set by probing paths" approach was rejected and rebuilt as derivation by mount
+IDENTITY. Probing would have made BOTH routd's and runed's `/openapi.json`
+publish authd's `SessionsRow` schema.
 
 Found while picking a foreign-resource anchor for `runed`'s new doc-vs-mux
 guard: `sessions` was unusable as one, because `runed` really does serve that
 path. `runed/server.go:44` mounts `GET /v1/sessions` (hand-rolled, reads
-`session_log` — agent spawn sessions); `authd/http.go` mounts the resreg
-`sessions` resource at the same path (refresh-token families, `SessionsRow`).
-Two daemons, one wire path, two unrelated tables.
+`session_log` — agent spawn sessions); `routd/server.go:286` mounts it over
+`core.SessionRecord`; `authd/http.go` mounts the resreg `sessions` resource at
+the same path (refresh-token families, `SessionsRow`). Three daemons, one wire
+path, three unrelated tables.
+
+Since `F33` the doc no longer lies about this — only authd's RegisterREST mount
+is documented, and `resreg/openapi_mount_test.go` pins that a hand-rolled mount
+at a resource's path documents nothing. The wire-identity collision itself is
+untouched and still wants the rename below.
 
 Not currently reachable as a bug: the daemons listen on separate containers, and
 `runed`'s is hand-rolled rather than a resreg registration, so
@@ -326,8 +340,9 @@ program would do).
 
 - **Severity:** low today, medium on federation (an aggregator or generated
   client keying on `/v1/sessions` gets whichever daemon it was pointed at)
-- **Scope:** runed/server.go:44-45, authd sessions resource
+- **Scope:** runed/server.go:44-45, routd/server.go:286, authd sessions resource
 - **Source:** runed/server.go:44 `mux.HandleFunc("GET /v1/sessions", …)`;
+  routd/server.go:286 `mux.HandleFunc("GET /v1/sessions", s.handleSessionGet)`;
   authd/http.go `s.mountSessions(m)` → `/v1/sessions`
 - **Fix:** rename `runed`'s to its actual subject before it becomes a resource —
   `/v1/spawn_sessions` (and `/v1/spawn_sessions/recent`), matching `runed`'s
@@ -843,7 +858,54 @@ contract change over every ipc tool and therefore a sign-off, not an inline fix.
   "persists one ipc_audit row" — a claim, not evidence. Comment corrected.
   No code move needed; `disengage` is audited like its ~45 neighbours.
 
-## F33 — `OpenAPIHandler` takes an advertised set with no reference to the mux (2026-08-06, PROPOSED — needs sign-off)
+## ✅ FIXED 2026-08-07 F33 — `OpenAPIHandler` takes an advertised set with no reference to the mux (2026-08-06, FIXED 2026-08-07)
+
+**FIXED.** `OpenAPIHandler(daemon, mux)` now takes the routing table and nothing
+else. `RegisterREST` mounts each face as a `*restMount` stamped with its
+`(resource, endpoint)`; `resreg.MountedResources(mux)` keeps only the registry
+resources the mux resolves to one of those, and the emitter renders that. All
+six hand-passed lists are deleted — `routd.OpenAPIResources`,
+`authdOpenAPIResources`, `onbodOpenAPIResources`, `proxydOpenAPIResources`,
+`runedOpenAPIResources`, `timedOpenAPIResources` — plus webd's and dashd's
+inline `[]string{}`.
+
+Derivation is by mount IDENTITY, not by probing paths. Path-probing was the
+signed-off approach and was WRONG: THREE daemons serve `GET /v1/sessions` over
+three different tables (see the `F46` correction below), so a path probe would
+have made routd and runed publish authd's `SessionsRow` schema — a new lie for
+an old one. The type assertion drops both hand-rolled mounts and proxyd's `/`
+catch-all with them.
+
+The carve-out audit F33 called for came out clean: every registry resource
+already declares `Endpoints`, and every mount reuses the registry's own slice,
+so `acl`'s list, `secrets`' read face and `network_rules` are all already
+expressed as `MCPOnly` or absent. Whole-fleet doc diff, pre vs post, was **one
+operation**: `+ DELETE /v1/acl_membership` on routd, which routd genuinely
+mounts (`routd/membership_resource.go:134`) and had never advertised. The other
+44 operations are byte-identical.
+
+Falsifiability: `resreg/openapi_mount_test.go` reintroduces each of the four
+drift shapes — unmounted advertise, re-path, catch-all, foreign hand-rolled
+mount — and pins that `MountedResources` drops it while the by-name rendering
+still shows it (the anchor, so a test cannot pass on an emitter producing
+nothing). Verified by breaking the fix: making `serves` presence-only fails all
+four and nothing else.
+
+The per-daemon guard changed shape with the cause. `AssertServesWhatItAdvertises`
+compared the doc to the mux, which deriving the doc FROM the mux makes
+tautological; it is replaced by `resregtest.AssertAdvertises(daemon, mux, want)`,
+pinning each daemon's whole derived surface against a stated list.
+`AssertServesNoneOf` is unchanged and did not weaken. Also deleted:
+`TestFoldedEndpoints_RegistrySingleSource`, which compared the registry to the
+exported var that had populated it — the vacuous guard `5/16` named.
+
+- **Second half:** already closed by `F47` — `daemonOwnership` and
+  `TestOpenAPI_PerDaemonOwnership` are gone.
+- **Fix:** resreg/resreg.go (`restMount`), resreg/openapi.go
+  (`MountedResources`/`serves`/`ConcretePath`), 9 daemon call sites,
+  resreg/resregtest.
+- **Spec:** `specs/5/16` status block updated; `5/16` stays `partial` on steps
+  2/6/7, none of which this touches.
 
 The cause under `F21`/`F27`/`F32`, left standing after `F32` took the small fix.
 `resreg.OpenAPIHandler(daemon, resources)` (`resreg/openapi.go:527`) accepts a
@@ -881,7 +943,7 @@ not a restatement of it.
 - **Scope:** `resreg` OpenAPI mount contract (spec 5/17, 5/8) + every daemon main
 - **Affected:** all instances
 - **Source:** resreg/openapi.go:527; routd/server.go:256; resreg/resources/resources_test.go:529-581; timed/split.go
-- **Status:** PROPOSED — needs sign-off before touching seven call sites
+- **Status:** FIXED 2026-08-07
 - **Blocks:** nothing; `F32`'s guard covers the one daemon that could drift today.
 
 ## ✅ FIXED 2026-08-06 F29 — runed's and authd's audit rows are reachable only with sqlite3 (2026-08-06, FIXED)
