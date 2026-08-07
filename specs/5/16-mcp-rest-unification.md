@@ -8,7 +8,12 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > done, step 2 closed as REJECTED — and the last open item, the mount-`Name`
 > gap, closed today. Adoption is done; federation shipped; step 6 was already
 > satisfied; step 7 — per-owner `store/<owner>/` mounts — shipped along with the
-> loud-failure precondition it rests on.
+> loud-failure precondition it rests on and the host-side move that makes it
+> reach a LIVE instance (`compose.MigrateStoreLayout`, called from
+> `generateCompose` beside `relinkCatalog`). Without that last piece this was an
+> outage rather than a deploy: the new mounts resolve into directories a live
+> tree does not have, and the loud-failure precondition means every owner daemon
+> refuses to boot rather than papering over it.
 >
 > **The mount `Name` now IMPORTS, and a literal cannot come back.** Every
 > resource name is spelled once, in `resreg/resources/names.go`, and all **37**
@@ -649,57 +654,65 @@ auth_sessions; SELECT COUNT(*) FROM auth_users;"`. Verified zero on krons
    no schema change, safe on all three regardless of row counts.
 3. Ship the `auth_sessions` drop + `auth_users`→`user_profiles` rename as
    routd migrations, gated on step 1's per-instance check passing.
-4. Restructure `store/` into per-owner subdirectories. **Operator procedure,
-   per instance** — the code shipped 2026-08-07; the file move did not, and a
-   daemon started before its file arrives now refuses to boot rather than
-   manufacturing an empty instance.
+4. Restructure `store/` into per-owner subdirectories. **No operator step**
+   (2026-08-07): `compose.MigrateStoreLayout` does the move, called from
+   `generateCompose` beside `relinkCatalog`, and the systemd unit already runs
+   `arizuko generate` in `ExecStartPre` — after `docker compose down`, before
+   `up`. That is the only moment the whole tree is in one process's hands with
+   no daemon holding a DB open, and it is also why a daemon cannot do this for
+   itself: the narrowing is exactly what removes the flat path from its own
+   mount. `sudo systemctl restart arizuko_<instance>` is the whole procedure.
 
    ```bash
-   I=krons                       # then sloth, then marinade
-   D=/srv/data/arizuko_$I
-   sudo systemctl stop arizuko_$I         # REQUIRED: a live WAL write racing the move corrupts
-
-   # 1. Move each owner's whole triple. The -wal is NOT optional: krons's
-   #    routd.db-wal was 5.6 MB at the time of writing, and moving the .db
-   #    alone silently discards every commit since the last checkpoint.
-   for pair in "routd routd" "runed runed" "authd auth" "onbod onbod"; do
-     set -- $pair
-     sudo -u \#1000 mkdir -p "$D/store/$1"
-     for suffix in "" "-wal" "-shm"; do
-       [ -e "$D/store/$2.db$suffix" ] && sudo mv "$D/store/$2.db$suffix" "$D/store/$1/"
-     done
-   done
-   sudo chown -R 1000:1000 "$D/store"     # daemons run as uid 1000
-
-   # 2. Prove each moved file survived.
-   for pair in "routd routd" "runed runed" "authd auth" "onbod onbod"; do
-     set -- $pair
-     sudo -u \#1000 sqlite3 "$D/store/$1/$2.db" 'PRAGMA integrity_check;'
-   done
-
-   sudo -u \#1000 arizuko generate $I     # rewrites docker-compose.yml with the narrowed mounts
-   sudo systemctl start arizuko_$I
+   I=krons                                # then sloth, then marinade
+   sudo systemctl restart arizuko_$I      # ExecStartPre: down → generate (moves) → up
+   sudo journalctl -u arizuko_$I --since "2 min ago" --no-pager | grep 'store: moved'
    ```
 
-   **Do not move these — they are traps.**
+   The move creates each `store/<owner>/`, carries each DB with its `-wal` and
+   `-shm`, chowns to uid 1000, and is idempotent — a second run moves nothing,
+   so every later restart is a no-op. A crash between two renames leaves a
+   triple split across the two directories and the next run reunites it, which
+   loses nothing because nothing opens either path in between. A file present
+   in BOTH places stops the run: one of the two holds rows, and guessing is
+   data loss. The failure is fatal on purpose — `generate` dies before writing
+   a compose whose mounts assume a move that did not happen, so the
+   compose-ahead-of-tree state is unreachable rather than merely unlikely.
+
+   Rehearsed 2026-08-07 against `sqlite3 ".backup"` copies of all three live
+   trees, each carrying a genuinely uncheckpointed `-wal` (row committed, then
+   `SIGKILL`): row counts identical before and after (krons
+   messages=21819/audit_log=91602, sloth 17473/41666, marinade 9563/68103),
+   `PRAGMA integrity_check` `ok` on every moved file, the WAL-only row present
+   afterwards, and `routd.Open`/`runed.Open`/`store.OpenRoutd`/`store.OpenOnbod`
+   plus authd's and dashd's resolved paths all opening. Runs 2 and 3 moved 0
+   files. A simulated crash mid-move was reunited by the next run with the
+   WAL-only row intact.
+
+   **What the mover deliberately does not touch — each one a real trap.**
    - `store/messages.db` stays FLAT. The frozen pre-split monolith has no
      owner and no daemon opens it (18 MB on krons; keep it, don't relocate it).
    - `store/proxyd.db` stays FLAT. 0 bytes, root-owned, referenced by no Go
      code — `Y1` decided it is not an owner. Deleting it is a separate call.
-   - **`$D/routd.db` and `$D/runed.db` — at the INSTANCE ROOT, not under
-     `store/` — are 0-byte root-owned strays** from a pre-split mistake. They
-     are NOT the databases. Moving them into `store/routd/`+`store/runed/`
-     would overwrite 38 MB and 3.3 MB of live data with nothing. The loop above
-     reads only from `$D/store/`, which is why it is written that way.
+   - **`<datadir>/routd.db` and `<datadir>/runed.db` — at the INSTANCE ROOT,
+     not under `store/` — are 0-byte root-owned strays** from a pre-split
+     mistake (confirmed still present on krons). They are NOT the databases.
+     Moving them into `store/routd/`+`store/runed/` would overwrite 38 MB and
+     3.3 MB of live data with nothing. `MigrateStoreLayout` takes the store dir
+     and joins every path from it, so the instance root is structurally out of
+     reach — and the both-exist refusal would stop it even if it were not.
    - Per-adapter dirs already under `store/` (`whatsapp-auth`, and
      `bskyd`/`emaid`/`linkd`/`reditd`/`teled` where deployed) stay where they
      are — they are private adapter state, not owner DBs.
 
    **If a daemon's profile was never enabled on this instance**, its file does
-   not exist and the daemon will now fail loud rather than create one. That is
-   the point; seed it explicitly:
-   `sudo -u \#1000 touch $D/store/<owner>/<owner>.db` (a zero-byte file is a
-   valid empty SQLite database — the daemon migrates its own schema into it).
+   not exist and the daemon will fail loud rather than create one. The mover
+   creates the DIRECTORY and never the file, on purpose — manufacturing an
+   empty database is the exact silent failure `db_utils.RequireDBFile` exists
+   to prevent, and a profile that is off has no daemon to fail. Enabling one
+   later seeds it explicitly:
+   `sudo -u \#1000 touch <datadir>/store/<owner>/<owner>.db` (a zero-byte file
+   is a valid empty SQLite database — the daemon migrates its own schema in).
 
 ### Ordered, independently-shippable steps
 
@@ -746,9 +759,25 @@ Each ships and reverts on its own; none blocks another except where noted.
    block). Guards: `TestScopedDaemonsGetNoOtherOwnersDB` pins the binds each
    daemon must NOT have — a table asserting only the mounts a daemon HAS is
    vacuous — and `TestOwnerDBEnvPathsLandInsideTheMounts` pins every emitted DB
-   path inside a mount that daemon carries. Reversible (revert the compose
-   change + move files back), but the file move needs a maintenance window:
-   procedure in "Migration path per instance" step 4. Verify: `docker inspect
+   path inside a mount that daemon carries.
+
+   **The file move is automatic** — `compose.MigrateStoreLayout`, called from
+   `generateCompose` beside `relinkCatalog`, which the systemd unit runs after
+   `compose down` and before `up` (step 4 of "Migration path per instance").
+   It is not a separate deploy step and cannot be forgotten: without it this
+   change takes the fleet down, because `OwnerDBPath` resolves into a directory
+   a live tree does not have and every owner daemon refuses to boot on a
+   missing file. The two halves ship together for the same reason they could
+   not ship apart — moving files while the binds still say `store` narrows
+   nothing, and narrowing before the move kills every daemon at boot.
+   `TestGenerateComposeMovesTheStoreLayout` pins the wiring AND the order (the
+   compose emitted by that same call names the directories the move just
+   produced); the mover's own behaviour — whole triple, idempotent,
+   crash-reunite, refuse-two-copies, and a real `routd.Open` on the moved DB —
+   is `compose/store_layout_test.go`.
+
+   Reversible: revert the compose change and move the files back.
+   Verify: `docker inspect
 <container> | jq '.[0].Mounts'` matches `wantDataMounts`; every daemon's
    `/health` stays green post-restart.
 

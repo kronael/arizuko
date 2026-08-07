@@ -14,6 +14,35 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- **Each daemon's database moved into a directory of its own, and its container
+  can no longer reach anyone else's (spec `5/16` step 7).** `store/routd.db` is
+  now `store/routd/routd.db`; likewise `store/authd/auth.db`,
+  `store/onbod/onbod.db`, `store/runed/runed.db`. That is not cosmetic — a
+  directory is what a container mount can point at, so "this table belongs to
+  routd" stopped being a rule people follow and became one the system enforces.
+  `webd` and `proxyd` are handed `store/routd/` and cannot open `auth.db` at
+  all; `authd` gets `store/authd/` and nothing else; `onbod` gets its own plus
+  the one owner directory it genuinely cross-reads; `dashd` gives up the
+  whole-instance mount it had been holding, `.env` secrets and the live agent
+  MCP sockets included. `store/messages.db`, the retired pre-split file, has no
+  owner and stays flat.
+
+  **No operator step on an existing instance.** `arizuko generate` moves the
+  tree, and the systemd unit already runs it on every restart — after the
+  containers stop, before they start, the one moment the whole tree is in one
+  process's hands. A database and its `-wal`/`-shm` move together or not at
+  all, a second run does nothing, a crash mid-move is repaired by the next run,
+  and a file found in two places stops everything rather than guessing which
+  copy holds your rows. Rehearsed against `.backup` copies of all three live
+  instances carrying uncheckpointed WALs: identical row counts, clean
+  `integrity_check`, every daemon's boot path resolving.
+
+  One layout, not two: the old flat path is gone rather than kept as a
+  fallback, and an owner daemon pointed at a file that is not there now says so
+  and stops instead of quietly creating an empty one.
+
 ### Added
 
 - **A group can now be built from several products at once, not one (spec

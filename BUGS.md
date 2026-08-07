@@ -41,6 +41,43 @@ JSON-file shape the other five adapters use (`bskyd`, `linkd`, `reditd`,
 - **Source:** `emaid/store.go:18-38`
 - **Status:** open — needs a design call, recorded not fixed
 
+## F58 — dashd's PRIMARY DB open still manufactures an empty routd.db (2026-08-07, open)
+
+`dashd/main.go:194` opens the resolved `DB_PATH` with a bare `sql.Open` and no
+existence probe, so a path that is not there is not an error — SQLite creates
+the file and every dashboard page renders empty, with nothing in the log.
+
+The `store/<owner>/` pass hardened the neighbours and left this one. The four
+owner daemons went through `db_utils.RequireDBFile` (`F52`'s fix) and dashd's
+two SIBLING opens became stat-gated with a log line (`openSiblingOwner`,
+`dashd/main.go:427`); the handle dashd actually serves from did not.
+`resolveDSN`'s messages.db refusal guards one wrong VALUE, not a wrong PATH —
+and its own comment says that class already cost "months of stale
+usage/chat/activity".
+
+Measured against a copy of live marinade with the files moved into
+`store/<owner>/` and a stale `DB_PATH` still naming the flat layout:
+
+```
+slakd (stale DB_PATH)   LOUD FAIL: unable to open database file
+dashd (stale DB_PATH)   SILENT: created an empty <store>/routd.db
+```
+
+slakd fails loudly because it goes through `store.OpenRoutd`, which probes for
+`acl`. dashd has no probe. The shipped mover makes that stale-path state
+unreachable through the supported path — `generateCompose` moves the tree and
+dies before writing a compose that assumes the new layout — but any hand-set
+`DB_PATH` still reaches it.
+
+- **Source:** `dashd/main.go:194`, vs the guarded `openSiblingOwner` at `:427`
+- **Status:** open
+- **Fix:** `store.OpenRoutdAt(dsn)` — it exists, it is documented as "dashd's
+  `DB_PATH`", and it carries the same strict `acl` probe. NOT shipped inline:
+  dashd `depends_on: [routd]` without a condition, so on a fresh instance dashd
+  can win the race to open routd.db before routd migrates it, and a strict probe
+  turns that into a crash-loop until `restart: on-failure` retries. That is
+  probably the correct behaviour and definitely needs a docker run to confirm.
+
 ## F57 — issuer-mint takes an uncapped `ttl_seconds`; the downscope sibling caps (2026-08-07, open)
 
 `POST /v1/tokens` reads a caller-supplied `ttl_seconds` (`authd/http.go:339,352`)
