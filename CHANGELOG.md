@@ -43,6 +43,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   fallback, and an owner daemon pointed at a file that is not there now says so
   and stops instead of quietly creating an empty one.
 
+- **Tenancy is settled, and settled as "no new machinery" (spec `5/5`, now
+  shipped).** Five questions that had been open for months got answered on
+  2026-08-07, and four of the five answers are decisions not to build.
+  A "world" stays what it already is — a top-level folder — rather than
+  becoming a `worlds` table, because three of the four things such a table was
+  meant to own already work somewhere else (the roster is the `acl` scope
+  glob, the vhost is derived from the hostname, world-scoped secrets fall out
+  of the folder walk) and the fourth, a per-world grant root, is a grant rule
+  rather than a table. That decision is worth more than the feature would have
+  been: the alternative renamed every live tenant's web address, socket path,
+  container home and grant scope at once, and bought vocabulary with it.
+  Onboarding keeps its instant canned greeting instead of running an agent
+  turn, and the reason is written down — a turn on the signup path is a
+  spend channel until the admission path refuses an uncapped folder.
+  A subagent keeps exactly its parent's grants. "Prototype" leaves the
+  vocabulary; **product** is the word, and it is the one with shipped code.
+  Nothing in the system changes today; what changes is that the next person to
+  ask these questions finds the answers and their cost instead of the
+  questions.
+
 ### Added
 
 - **A group can now be built from several products at once, not one (spec
