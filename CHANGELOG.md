@@ -16,6 +16,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **HITL firewall: hold a tool call until a human approves it (spec `5/19`).**
+  Mark a tool with a `hold:mcp:<tool>` rule — optionally narrowed by argument,
+  e.g. only when `host=*.prod.example.com` — and the agent's call suspends
+  instead of running. The chat gets `⏸ mcp:delete held for approval (id ab12)`
+  and an operator answers `/approve ab12` or `/reject ab12`. On approval the
+  **original agent** re-issues the call in its own next turn, so it runs with
+  that agent's container, session, grants and secrets; nothing executes out of
+  turn. The release is one-shot, and re-issuing with different arguments is
+  held again — you approve a call, not a permission. Review over REST too:
+  `GET /v1/pending_actions`. A folder with no hold rules is unchanged.
 - **Skill-guard: what the agent writes into `~/.claude/` is scanned before it
   lands (spec `5/23`).** A skill written today runs in the next session, so a
   skill file is code the agent grants itself — and until now nothing looked at

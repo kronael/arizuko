@@ -22,6 +22,7 @@ const (
 	InstalledPackagesName = "installed_packages"
 	InvitesName           = "invites"
 	NetworkRulesName      = "network_rules"
+	PendingActionsName    = "pending_actions"
 	OnboardingName        = "onboarding"
 	OnboardingGatesName   = "onboarding_gates"
 	ProxydRoutesName      = "proxyd_routes"

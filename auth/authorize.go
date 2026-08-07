@@ -340,3 +340,48 @@ func paramsMatch(paramSpec string, params map[string]string) bool {
 	}
 	return true
 }
+
+// HoldPrefix namespaces hold rules. A hold is NEVER an `effect` on a plain
+// `mcp:<tool>` row: Authorize treats every non-deny effect as ALLOW, so such a
+// row would silently GRANT the tool it meant to gate (spec 5/19 Hazard 1).
+const HoldPrefix = "hold:mcp:"
+
+// CheckHold answers "must this tool call wait for a human?" — a DIRECT scoped
+// read of `hold:mcp:`-prefixed rows, deliberately NOT routed through Authorize.
+// Authorize's action lattice has `*` cover everything and role:operator holds
+// `(*, **)`, so asking it would hold EVERY tool for the operator (spec 5/19
+// Hazard 2). Matching is exact on the action, with `hold:mcp:*` as the only
+// wildcard; scope, predicate and params reuse Authorize's own matchers, so
+// there is one predicate language, not two.
+//
+// Deny-wins is not modelled: a hold row is not an authorization, and a row
+// saying "do not hold" is just the absence of a row.
+func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[string]string) bool {
+	if s == nil || caller.Principal == "" || tool == "" {
+		return false
+	}
+	want := HoldPrefix + tool
+	expanded := expandPrincipals(s, caller)
+	rows := s.ACLRowsFor(expanded)
+	for _, r := range s.ACLWildcardRows() {
+		if anyPrincipalMatches(r.Principal, expanded) {
+			rows = append(rows, r)
+		}
+	}
+	for _, r := range rows {
+		if r.Action != want && r.Action != HoldPrefix+"*" {
+			continue
+		}
+		if !matchPattern(r.Scope, scope) {
+			continue
+		}
+		if !predicateMatches(r.Predicate, caller.Claims) {
+			continue
+		}
+		if !paramsMatch(r.Params, params) {
+			continue
+		}
+		return true
+	}
+	return false
+}

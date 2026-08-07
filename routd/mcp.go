@@ -421,6 +421,10 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		return s.db.SetEngagement(jid, topic, folder, time.Until(until))
 	}
 	return ipc.StoreFns{
+		// Spec 5/19. An elevated /root turn is the operator acting directly —
+		// holding their own call for their own approval is a deadlock, not a
+		// safeguard — so the gate is wired only for a normal folder turn.
+		CheckHold: s.holdGate(t),
 		// Task reads for inspect_tasks; the write tools (schedule/pause/resume/
 		// cancel/list) live on the scheduled_tasks resreg seam — spec 5/16.
 		ListTasks: s.db.Tasks,

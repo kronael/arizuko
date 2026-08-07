@@ -193,6 +193,13 @@ func (d *DB) Authorize(sub, folder, action string, params map[string]string) boo
 	return auth.Authorize(d.aclEval(), caller, action, folder, params)
 }
 
+// CheckHold asks whether this folder's call must wait for a human (spec 5/19).
+// Deliberately NOT routed through Authorize — see auth.CheckHold for why the
+// operator's (*, **) row would otherwise hold every tool.
+func (d *DB) CheckHold(sub, folder, tool string, params map[string]string) bool {
+	return auth.CheckHold(d.aclEval(), auth.Caller{Principal: sub}, tool, folder, params)
+}
+
 // IsOperator reports whether sub carries the operator `**` grant. Operators are
 // emergent from grants, never a role flag: the `**` grant is stored as a
 // role:operator acl_membership edge (grantACLTx), so operator status IS

@@ -248,6 +248,19 @@ type StoreFns struct {
 	// registerRaw/granted tool is advertised (the call-time Authorize still gates).
 	Visible func(name string) bool
 
+	// CheckHold answers "must this call wait for a human?" (spec 5/19). It runs at
+	// the single tools/call interception, so hot tools, resreg facade tools and
+	// timed-triggered turns are all covered — "no bypass" holds by construction
+	// rather than by remembering to add the check to each handler.
+	//
+	// It runs BEFORE authz, which is safe: approval never substitutes for
+	// authorization. A released call re-enters the normal path and every
+	// in-handler grant and JID gate still runs.
+	//
+	// Returns the pending-action id when the call was suspended. Nil CheckHold is
+	// zero overhead and today's behavior untouched.
+	CheckHold func(tool string, args map[string]any) (id string, held bool)
+
 	// LogIPCAudit persists one audit_log row (surface=mcp, action=mcp.tool.invoke)
 	// via audit.EmitDB — the name is legacy, the destination is not. The ipc_audit
 	// table is retired and unwritten. This comment claimed otherwise and cost a
@@ -375,7 +388,7 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoo
 						return
 					}
 				}
-				serveConn(ctx, c, srv, gated, folder)
+				serveConn(ctx, c, srv, gated, db, folder)
 			}(conn)
 		}
 	}()
@@ -387,7 +400,7 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoo
 	}, nil
 }
 
-func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated GatedFns, folder string) {
+func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated GatedFns, db StoreFns, folder string) {
 	r := bufio.NewReader(c)
 	var writeMu sync.Mutex
 	writeJSON := func(v any) {
@@ -445,10 +458,19 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 		if head.Method == "tools/call" {
 			var p struct {
 				Params struct {
-					Name string `json:"name"`
+					Name      string         `json:"name"`
+					Arguments map[string]any `json:"arguments"`
 				} `json:"params"`
 			}
 			_ = json.Unmarshal(raw, &p)
+			// Spec 5/19: the hold gate sits here, before the call reaches
+			// HandleMessage, so no tool can route around it.
+			if db.CheckHold != nil {
+				if id, held := db.CheckHold(p.Params.Name, p.Params.Arguments); held {
+					writeJSON(holdResponse(head.ID, id, p.Params.Name))
+					continue
+				}
+			}
 			mctx, endSpan = obs.StartSpan(ctx, "mcp_tool",
 				"tool", p.Params.Name, "folder", folder)
 		}
@@ -2298,5 +2320,24 @@ func addFacadeTools(srv *server.MCPServer, visible func(name string) bool) {
 			continue
 		}
 		resreg.MCPTools(srv, *res, stub, visible)
+	}
+}
+
+// holdResponse is what a suspended tool call returns to the agent. It is a
+// normal tool RESULT, not a JSON-RPC error: the call did not fail, it is
+// waiting, and the agent must be able to say so in chat and move on rather than
+// retry a "failure" in a loop.
+func holdResponse(id any, pendingID, tool string) map[string]any {
+	text := fmt.Sprintf(
+		"HELD for human approval (id %s). %s was not run. An operator must "+
+			"/approve %s or /reject %s. Tell the user it is waiting; do not retry — "+
+			"a retry is held again.", pendingID, tool, pendingID, pendingID)
+	return map[string]any{
+		"jsonrpc": "2.0", "id": id,
+		"result": map[string]any{
+			"content": []map[string]any{{"type": "text", "text": text}},
+			"pending": true,
+			"id":      pendingID,
+		},
 	}
 }

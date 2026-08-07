@@ -53,13 +53,28 @@
     <table>
       <tr><th>column</th><th>meaning</th></tr>
       <tr><td><code>principal</code></td><td>Who is asking. Globbed segment-wise on <code>/</code> and <code>:</code>.</td></tr>
-      <tr><td><code>action</code></td><td><code>interact</code>, <code>admin</code>, <code>mcp:&lt;tool&gt;</code>, or <code>*</code>.</td></tr>
+      <tr><td><code>action</code></td><td><code>interact</code>, <code>admin</code>, <code>mcp:&lt;tool&gt;</code>, <code>hold:mcp:&lt;tool&gt;</code>, or <code>*</code>.</td></tr>
       <tr><td><code>scope</code></td><td>Folder path or glob. <code>**</code> crosses <code>/</code>, <code>*</code> doesn't.</td></tr>
       <tr><td><code>params</code></td><td>Optional predicates over the call's arguments (<code>jid=telegram:*</code>).</td></tr>
       <tr><td><code>predicate</code></td><td>Optional condition on the caller's JWT claims (<code>discord:guild=G123</code>). Empty = none.</td></tr>
       <tr><td><code>effect</code></td><td><code>allow</code> or <code>deny</code>. Deny wins.</td></tr>
       <tr><td><code>grant_option</code></td><td><code>0</code> or <code>1</code>. <code>1</code> means the holder may re-delegate this row or a subset of it.</td></tr>
     </table>
+
+    <h3 id="hold">Holding a call for a human</h3>
+
+    <p>A <code>hold:mcp:&lt;tool&gt;</code> row does not grant or deny anything. It says the call must wait for a person. When the agent makes it, the call does not run: a <code>pending_actions</code> row is written, the chat gets a notice, and an operator answers <code>/approve &lt;id&gt;</code> or <code>/reject &lt;id&gt;</code>.</p>
+
+    <pre><code># hold every delete this folder makes
+principal = folder:atlas   action = hold:mcp:delete   scope = atlas
+
+# hold only when the argument matches — reads and staging stay inline
+principal = folder:atlas   action = hold:mcp:network_allow   scope = atlas
+params    = host=*.prod.example.com</code></pre>
+
+    <p>On approval the <strong>original agent</strong> re-issues the call in its own next turn, so it runs with that agent's container, session, grants and secrets. Nothing executes out of turn on someone else's behalf. The release is one-shot, and re-issuing with different arguments is held again &mdash; you approve a call, not a permission.</p>
+
+    <div class="callout"><strong>Why a separate action:</strong> a hold is never an <code>effect</code> on an ordinary <code>mcp:&lt;tool&gt;</code> row. The evaluator treats every non-<code>deny</code> effect as allow, so such a row would silently <em>grant</em> the tool it meant to gate. The <code>hold:</code> namespace keeps hold rules invisible to the allow/deny evaluator, and holds are matched on the exact action &mdash; otherwise an operator's <code>(*, **)</code> row would hold every tool they touch.</div>
 
     <p>Nothing in the row is derived. A path is a routing target, a JID prefix, a container home, and a web vhost &mdash; it is never an authority level, and how deep it sits means nothing here.</p>
 
@@ -229,7 +244,7 @@ grant_option: 0</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/grants.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 

@@ -466,18 +466,63 @@ func TestCmdGateFederated(t *testing.T) {
 	}
 }
 
-// TestCmdApproveReject: /approve and /reject both ack "HITL not configured".
+// TestCmdApproveReject: a non-operator cannot resolve a held call (spec 5/19 —
+// the same `**` gate /root uses). The command is still CONSUMED, so a denial
+// never leaks to the agent as a user message.
 func TestCmdApproveReject(t *testing.T) {
 	_, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
-	for _, cmd := range []string{"/approve", "/reject"} {
+	for _, cmd := range []string{"/approve a1", "/reject a1"} {
 		if !steerOne(loop, "tg:1", "demo", cmd) {
 			t.Fatalf("%s not consumed", cmd)
 		}
-		if got := lastAck(t, dl); got != "HITL not configured" {
+		want := "Permission denied: approving a held call requires an operator grant (**)."
+		if got := lastAck(t, dl); got != want {
 			t.Fatalf("%s ack=%q", cmd, got)
 		}
+	}
+}
+
+// TestCmdApproveOperatorResolves: an operator's /approve moves the row and
+// enqueues the folder, so the ORIGINAL agent re-issues the call in its own turn.
+func TestCmdApproveOperatorResolves(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	if err := db.AddMembership("u", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutPendingAction(PendingAction{
+		ID: "a1", GroupFolder: "root", Tool: "mcp:delete", ArgsHash: "h",
+		ArgsFinal: `{"target":"prod"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !steerOne(loop, "tg:1", "demo", "/approve a1 looks fine") {
+		t.Fatal("/approve not consumed")
+	}
+	row, _ := db.PendingAction("a1")
+	if row.Status != PendingApproved {
+		t.Fatalf("status = %q, want approved", row.Status)
+	}
+	if row.ReviewedBy != "u" || row.ReviewerNote != "looks fine" {
+		t.Fatalf("reviewer not recorded: %+v", row)
+	}
+}
+
+// TestCmdApproveUnknownIDFailsLoudly: approving an id that does not exist
+// reports the failure rather than acking success into the operator's chat.
+func TestCmdApproveUnknownIDFailsLoudly(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	if err := db.AddMembership("u", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
+	_ = steerOne(loop, "tg:1", "demo", "/approve nope")
+	if got := lastAck(t, dl); !strings.Contains(got, "no pending action") {
+		t.Fatalf("ack=%q, want a loud failure", got)
 	}
 }
 

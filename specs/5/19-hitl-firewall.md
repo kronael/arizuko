@@ -1,5 +1,6 @@
 ---
-status: draft
+status: shipped
+shipped: 2026-08-07
 moved-from: specs/17/4-hitl-firewall.md
 ---
 
@@ -9,7 +10,8 @@ A per-folder gate that suspends a marked tool call until an operator approves it
 in chat (or the dashboard), then lets the **original agent** run it. Built on
 existing rails: one new resource, one injected gate function, one send field.
 
-**Not built.** No `CheckHold`, no `pending_actions`.
+**Shipped 2026-08-07** — see §"What shipped" for what landed and what was
+deliberately left for the adapters.
 
 ## Shape
 
@@ -142,3 +144,51 @@ operator's go" into real `hold:mcp:<destructive-tool>` rules.
   same row.
 - `make build && make lint && go test ./... -short` green; tests in the same
   commit.
+
+## What shipped (2026-08-07)
+
+Both hazards are guarded by a test that fails when the guard is removed, which
+is the only reason to believe them:
+
+- `auth.CheckHold` (`auth/authorize.go`) matches the action EXACTLY, with
+  `hold:mcp:*` the one wildcard. `TestCheckHold_OperatorStarDoesNotHoldEverything`
+  first asserts the operator IS authorized for the tool, then that the same
+  `(*, **)` row does not hold it — routing the check through `actionCovers`
+  fails it, exactly as Hazard 2 predicts.
+- Hazard 1 is structural: `hold:` is an action namespace, so a hold rule is
+  invisible to the allow/deny evaluator and a grant row cannot read as a hold
+  (`TestCheckHold_PlainAllowRowIsNotAHold`).
+
+`ipc.StoreFns.CheckHold` fires at the one `tools/call` interception in
+`serveConn` — before `HandleMessage`, so no tool routes around it. A held call
+returns a tool RESULT, not a JSON-RPC error: the call did not fail, it is
+waiting, and the agent must be able to say so rather than retry a "failure" in
+a loop. Nil `CheckHold` is zero overhead.
+
+`routd.holdGate` consumes an approved row BEFORE testing the hold rule — that
+ordering IS the one-shot release, since the rule still matches on re-issue.
+Argument deviation misses the canonical-JSON hash and is held again, so
+edited-args enforcement needs no separate comparison. An elevated `/root` turn
+gets no gate: the operator holding their own call for their own approval is a
+deadlock, not a safeguard. A failure to RECORD the row holds anyway — failing
+open there would silently defeat the gate the operator asked for.
+
+`/approve <id>` / `/reject <id>` replace the `"HITL not configured"` stub,
+gated on `IsOperator` (the same `**` test as `/root`). Approval writes the
+resolution message and enqueues the folder — cmdRoot's `PutMessage`+`Enqueue`
+— so the agent re-issues in its own turn, its container, session, grants and
+secrets untouched.
+
+`pending_actions` is a resreg `Resource` (`resreg/resources/pending_actions.go`)
+with `list`/`approve`/`reject` and no create or delete: the gate writes the row,
+and deleting one would erase the record of a decision someone made. The table
+ships in both `routd/migrations/0033` and `store/migrations/0085`.
+
+### Deliberately not in this release
+
+Per-adapter NATIVE button rendering (teled/discd/slakd callback→inbound) and
+the dashd review page. The generic `SendRequest.Options` fold was the vehicle
+for both; without it the notice is plain text carrying the two commands, which
+is what the acceptance criterion "adapter without `buttons` → numbered text"
+already describes as correct behavior. The gate, the resource and both
+resolution paths do not depend on them.
