@@ -435,7 +435,7 @@
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0032-invites-rewrite.sql">0032</a> (replaces dropped <code>invitations</code> from 0028).</p>
     </div>
 
-    <div class="card">
+    <div class="tablecard">
       <h3><code>invite_redemptions</code></h3>
       <p>One row per redeemed <em>subgroup</em> invite &mdash; a <code>target_glob</code> ending in <code>/</code>, which admits you to create a workspace inside that tree rather than granting you an existing one. The row records which tree, because at redemption time there is nothing else to record it on: the folder does not exist yet, so no <code>acl</code> grant can be written. &ldquo;Create workspace&rdquo; reads the row to decide the parent, then deletes it, so one redemption makes exactly one workspace.</p>
       <table>
@@ -711,7 +711,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-06">2026-08-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 
