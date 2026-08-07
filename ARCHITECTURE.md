@@ -354,8 +354,22 @@ Durable rules the package layout obeys.
   Libraries own no DB, no API, no migrations — a library that writes
   rows takes the caller's `*sql.Tx` (`audit/` is the model). Cross-daemon
   data access goes through the receiving daemon's `api/v1/` (REST for
-  sync, MCP for agents) — never direct SQL across daemons. The `store/`
-  package is a shared schema library; each daemon runs its own migrations.
+  sync, MCP for agents), not direct SQL. The `store/`
+  package is a shared schema library; each daemon runs its own migrations,
+  and on disk each owner's file lives under its own `store/<owner>/`
+  subdirectory — compose binds one owner subdir per container, so ownership
+  is a mount boundary rather than a convention.
+
+  **One named exception: the hot path.** A daemon FS-mounted on another
+  owner's DB may read it directly when the read is per-request on a serving
+  path. `proxyd` is the only one that qualifies — route-token lookup and the
+  `acl` read behind `X-User-Groups`, on every inbound request — because a
+  login-time scope snapshot would leave a revoked grant working for the
+  token's lifetime, and freshness there is a security property. Any new
+  direct cross-owner read must name the per-request path it sits on or it is
+  a violation. Decided and bounded in
+  [`specs/5/16`](specs/5/16-mcp-rest-unification.md) §"The hot-path
+  exception", pinned by `proxyd/hotpath_read_test.go`.
 
 - **No backward compatibility.** Cutovers are one-shot: a migration
   ships in one release, old paths delete in that same release. No dual

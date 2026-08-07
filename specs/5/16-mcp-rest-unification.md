@@ -1,16 +1,31 @@
 ---
-status: partial
+status: shipped
 depends: [5/13-ext-mcp, 5/17-openapi-mcp, 5/32-acl-unified]
 moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 ---
 
-> **Status (2026-08-07).** Still `partial`, now on the mount-`Name` gap alone.
-> **All seven ordered steps are resolved** — six done, step 2 closed as
-> REJECTED. Adoption is done; federation shipped; step 6 was already satisfied;
-> step 7 — per-owner `store/<owner>/` mounts — shipped today, along with the
-> loud-failure precondition it rests on. What holds this spec open is no longer a
-> step but the single-source claim its own target makes: the mounted handler is
-> specified to IMPORT `Name`/`Table` from the registry and still restates them.
+> **Status (2026-08-07). SHIPPED.** All seven ordered steps are resolved — six
+> done, step 2 closed as REJECTED — and the last open item, the mount-`Name`
+> gap, closed today. Adoption is done; federation shipped; step 6 was already
+> satisfied; step 7 — per-owner `store/<owner>/` mounts — shipped along with the
+> loud-failure precondition it rests on.
+>
+> **The mount `Name` now IMPORTS, and a literal cannot come back.** Every
+> resource name is spelled once, in `resreg/resources/names.go`, and all **37**
+> `resreg.Resource` declarations read it: the **17** catalog registrations in
+> `resreg/resources/*.go` and the **20** mounted handlers across routd (11),
+> onbod (3), authd (3), runed (1), proxyd (1) and webd (1). `Table` needed no
+> change — it was never restated at a mount site; only the catalog sets it.
+>
+> The guard is `resreg/resources/name_source_test.go`'s
+> `TestResourceName_NoStringLiteral`, and it reads SOURCE rather than values,
+> because a value-level test structurally cannot see this: at runtime
+> `resources.ACLName` and `"acl"` are the same string. Proven by reintroducing
+> `Name: "acl"` at `routd/acl_resource.go` — the whole `routd` package stayed
+> green, `TestResourceEndpoints_SingleSource` included, while this guard failed
+> with the file and line. Its non-vacuity floor is derived from the registry
+> (`len(resreg.All())`), not written down, and fires on a scan that finds
+> nothing.
 >
 > All seven agent-facing cold-tier resources — `web_routes`, `routes`,
 > `network_rules`, `scheduled_tasks`, `acl`, `route_tokens`, `groups` — ride one
@@ -62,19 +77,13 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 /v1/acl_membership` on routd, which routd genuinely mounts
 > (`routd/membership_resource.go`) and never advertised.
 >
-> **What "one owner" still needs** — the remaining gap is the mount `Name`, not
-> the doc:
+> **What "one owner" needed, and now has:**
 >
-> - The mounted handler must DERIVE `Name`/`Table` from the registry, not restate
->   them. `Endpoints`/`RowType`/MCP metadata already single-source by import;
->   `Name` is still a string literal at all ~11 mount sites. `routd/acl_resource.go`
->   is the shape of the gap in one file: it imports `resources.ACLEndpoints`,
->   `ACLMCPDoc`, `ACLMCPArgs` and `ACLMCPNames` (lines 59-62) and three lines
->   earlier writes `Name: "acl"` as a literal (line 58). `MountedResources`
->   now compares mounted `Name` to registry `Name` on every face, so a mistyped
->   literal silently drops the resource from the doc instead of mislabelling it —
->   a fail-safe, not the fix. **This is the one thing keeping the spec `partial`**;
->   BUGS' "Resource identity" entry tracks it as record-only, to retire here.
+> - The mounted handler DERIVES `Name` from the registry (done — see the status
+>   header). `MountedResources` compares mounted `Name` to registry `Name` on
+>   every face, so a mistyped literal silently drops the resource from the doc
+>   instead of mislabelling it — that is a fail-safe, and it was never the fix.
+>   BUGS' "Resource identity" entry is closed here.
 > - Step 2 is **closed as REJECTED** (2026-08-07, user). `proxyd/main.go:863`
 >   reads routd's `acl` directly, and after review that read STAYS. It was never
 >   a duplicate handle — proxyd opens `routd.db` once (`store.OpenRoutd`,
@@ -161,10 +170,10 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > routd would look healthy with the broker, surrogate OAuth, voice and the `.jl`
 > audit stream all off. runed drives the spawn path.
 >
-> **This spec stays `partial` on the mount-`Name` gap alone.** The literal
-> acceptance bullet "no second daemon `store.Open`s it" was never the test — `Y1`
-> deliberately blessed proxyd's FS-mounted `routd.db` handle, so that bullet is
-> already, intentionally, not met. The operative clause is federation, and it now
+> **One acceptance bullet is deliberately not met, and never was.** `Y1`
+> blessed proxyd's FS-mounted `routd.db` handle, so the literal "no second
+> daemon `store.Open`s it" was never the test. The operative clause is
+> federation, and it now
 > carries ONE named exception rather than one unexplained violation: §"The
 > hot-path exception". An unstated exception reads as drift to the next reviewer —
 > the same failure mode as a daemon advertising an endpoint it does not mount —
@@ -293,24 +302,39 @@ is the SHAPE, consumed by:
   routd** — an FS-mounted operator tool opening the owner DBs directly (the
   split write-discipline already puts an FS-mounted CLI on the owner DBs); and
 - the owning daemon's mounted handler (routd for most, onbod for
-  `onboarding_gates`/`invites`, proxyd for `proxyd_routes`), which imports
-  `Name`/`Table`/`RowType`/`PKFields`/`Endpoints` from the registry and adds
-  `Store` + the resource's `Handler` + the injected `Gate` + per-face
-  `containFn`.
+  `onboarding_gates`/`invites`, authd for `sessions`/`signing_keys`, proxyd for
+  `proxyd_routes`, plus `audit` mounted by routd/runed/authd over three owner
+  DBs), which imports `Name` (the `names.go` constant) and
+  `Endpoints`/`MCPDoc`/`MCPArgs`/`MCPNames` from the registry and adds `Store` +
+  the resource's `Handler` + the injected `Gate` + per-face `containFn`.
+  `Table`/`RowType`/`PKFields` are the CLI's read path and no mount site sets
+  them at all — nothing to import, which is why closing this gap touched `Name`
+  only.
 
 This closes the **shape** half of the two-declaration drift (BUGS.md
-"Resource identity"): today `routd/*_resource.go` restates `Name`/`Table`
-instead of importing them from `resreg/resources/*.go`, so OpenAPI's
-`Endpoints` and the mounted handler's served routes CAN diverge silently.
-Single-sourcing the shape does not make that divergence a **compile error**
-— `Action` is a plain `string` (`resreg/resreg.go:55`) and every handler
-`switch`es on it, so a `RowType`+`Endpoints` pair with no matching `case` in
-its `Handler` compiles fine and 404s/500s at request time. The realistic bar
-is a **shared-identity test**, and it now ships:
-`routd/endpoints_source_test.go`'s `TestResourceEndpoints_SingleSource` looks
-each mounted resource up by its own `Name` and compares against what the
-registry publishes under it, so an unregistered name and a drifted endpoint set
-both fail. Nothing here claims compile-time enforcement; that claim is dropped.
+"Resource identity", now closed). Every mounted handler imports the shape;
+`Name` is a constant from `resreg/resources/names.go`, so the two declarations
+of a resource cannot disagree about its wire identity.
+
+Single-sourcing the shape does not make a HANDLER divergence a **compile
+error** — `Action` is a plain `string` (`resreg/resreg.go:55`) and every
+handler `switch`es on it, so a `RowType`+`Endpoints` pair with no matching
+`case` compiles fine and 404s/500s at request time. Nothing here claims
+compile-time enforcement; that claim is dropped. The realistic bar is three
+tests, each catching what the others cannot:
+
+- `routd/endpoints_source_test.go`'s `TestResourceEndpoints_SingleSource` looks
+  each mounted resource up by its own `Name` and compares against what the
+  registry publishes under it — an unregistered name and a drifted endpoint set
+  both fail.
+- `resreg/resources/name_source_test.go`'s `TestResourceName_NoStringLiteral`
+  reads the SOURCE of all 37 declarations and rejects a `Name` string literal.
+  This is not redundant with the one above: a literal with the CORRECT value
+  passes every value-level test in the tree, and is precisely the state from
+  which one of the two spellings later gets edited.
+- `resreg.MountedResources` derives the advertised set from the mux, so a
+  daemon cannot advertise a resource it does not mount (`F33`).
+
 The per-action coverage assertion remains unbuilt — `Handler` still switches on
 a hand-written case list.
 
@@ -783,6 +807,8 @@ distinguish "operator" from "top-level tenant".
   agent MCP tool, its `/v1/<res>` REST endpoint, and its OpenAPI entry all
   route through it — REST under the default `Gate`, the agent under the
   no-op gate plus its `containFn`.
+- Its name is spelled ONCE, in `resreg/resources/names.go`; the catalog
+  registration and the mounted handler both reference that constant.
 - `dashd` admin page for that resource has no CRUD SQL — it calls the face.
 - `ipc/ipc.go` has no bespoke handler BODY for that resource.
 - Agent and REST write the same-shape `audit_log` row for the same action.

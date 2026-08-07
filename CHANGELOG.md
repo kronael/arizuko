@@ -215,6 +215,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **A resource's name was written in two places, and that is how one of them
+  once went wrong (spec `5/16`, now shipped).** A resource's name is its
+  address: it becomes both the `/v1/<name>` URL and the prefix of the agent's
+  tool. It was declared once in the shared catalog and typed out again, as a
+  bare string, everywhere a daemon served it — 20 such sites. Two copies of one
+  identity is a bug waiting for someone to edit one of them, and in July
+  someone did: proxyd's live route table started answering as `routes` while its
+  own catalog and published API said `proxyd_routes`. Every name is now written
+  once, in `resreg/resources/names.go`, and all 37 declarations read it. Nothing
+  moved — every URL, tool and API document is byte-identical; what changed is
+  that they can no longer disagree. A test parses the source and rejects a
+  re-introduced string literal, which the previous guard could not do: at run
+  time the constant and the literal are the same text, so a copy with the right
+  value passed every check right up until the day it didn't.
+
 - **Security: any signed-in user could create a workspace inside any other
   tenant and take admin over it (BUGS `F50`; spec `5/18`).** The "create a
   workspace" page took the parent folder from a `pending_target` browser cookie

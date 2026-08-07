@@ -2290,7 +2290,31 @@ retry loop). Distinct from the stale-session fix (that class is now closed).
 - **Severity:** medium (silent stop during throttling; most-frequent signal)
 - **Status:** OPEN — verify surfaced-vs-swallowed, then a small surface-the-notice fix.
 
-## Resource identity (`Name`/`Table`) restated across the two `resreg.Resource` sites — residual drift the 5/16 single-source model retires (2026-07-13, sweep, record-only)
+## ✅ FIXED 2026-08-07 — Resource identity (`Name`/`Table`) restated across the two `resreg.Resource` sites — residual drift the 5/16 single-source model retires (2026-07-13, sweep, record-only)
+
+**Fixed 2026-08-07**, closing `5/16`'s last open item. `resreg/resources/names.go`
+is now the single spelling of every resource name, and all **37**
+`resreg.Resource` declarations reference it: the 17 catalog registrations plus
+**20** mount sites — routd (11), onbod (3), authd (3), runed (1), proxyd (1),
+webd (1). The count below said ~11 because it swept routd/onbod/proxyd only;
+authd's three, runed's `audit` and webd's forwarder were never listed, and its
+line numbers had drifted.
+
+`Table` needed no change and the entry's "and some `Table`" was wrong: no mount
+site sets `Table` at all — every `Table:` literal outside `_test.go` is in
+`resreg/resources/*.go`, which is the one place it belongs.
+
+The interim guard this entry proposed (`mounted.Name == registry.Name`) shipped
+as `TestResourceEndpoints_SingleSource` and is NOT what closed it — it cannot
+be. At runtime `resources.ACLName` and `"acl"` are the same string, so a
+correct-value literal passes it forever; verified by restoring `Name: "acl"` at
+`routd/acl_resource.go` and watching the whole `routd` package stay green. The
+closing guard is `resreg/resources/name_source_test.go`'s
+`TestResourceName_NoStringLiteral`, which parses the tree and rejects a `Name`
+string literal in any `resreg.Resource`, with a non-vacuity floor derived from
+`len(resreg.All())`.
+
+Original entry follows.
 
 Swept the code for duplications the `5/16` one-owner + single-source model renders
 useless. **Mostly already fixed:** Endpoints / RowType / MCP metadata ARE single-
