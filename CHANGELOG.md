@@ -196,6 +196,30 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **Security: any signed-in user could create a workspace inside any other
+  tenant and take admin over it (BUGS `F50`; spec `5/18`).** The "create a
+  workspace" page took the parent folder from a `pending_target` browser cookie
+  and used it as given. `HttpOnly` stops page scripts from writing that cookie;
+  it does not stop the person holding the browser. Anyone who could complete
+  sign-in could post `pending_target=<someone-else>/` and get a group under that
+  tenant's tree plus `admin` on it — on instances with an open sign-in policy
+  (`GOOGLE_ALLOWED_EMAILS=*@…`, `GITHUB_ALLOWED_ORG`), that is everyone in the
+  allowed set. **Operators should assume it was reachable and review
+  `groups`/`acl` for folders they do not recognise.**
+
+  The parent now comes from a row onbod writes when the invite is redeemed
+  (`invite_redemptions`, onbod migration 0005), inside the same transaction that
+  consumes the invite. Nothing the browser sends names a parent any more, and the
+  row is deleted on success so one invite redemption creates exactly one
+  workspace. Checking a permission instead would not have worked: a
+  "create a subgroup" invite grants nothing until the workspace is named, so the
+  person legitimately using one holds no permission to check at that moment.
+
+  Nothing to do on upgrade — the table is created by migration and both existing
+  paths keep working: redeeming an invite still lands you in the tree you were
+  invited to, and an approved admission under a configured gate still creates a
+  top-level workspace and only a top-level one.
+
 - **`packages upgrade` erased the ownership record `remove` depends on (BUGS
   `F40`).** `install` records which proxyd routes, `acl` grants and skill dirs a
   package owns; `upgrade` then replaced that record wholesale with just its

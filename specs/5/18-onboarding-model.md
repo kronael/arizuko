@@ -154,7 +154,7 @@ ACL; do not add a second check in the loop.
   `routes` wholesale.
 - ~~**8 — dead end.**~~ **SHIPPED** (`c28160bd`), and it made `approved` mean
   something for the first time. `mayCreateFirstWorld` is the second authority
-  beside the invite's `pending_target` cookie, and it is a **conjunction**: an
+  beside the invite's recorded redemption, and it is a **conjunction**: an
   `onboarding` row in `status='approved'` **and** at least one enabled
   `onboarding_gates` row.
 
@@ -181,11 +181,16 @@ ACL; do not add a second check in the loop.
     convenience and never the authorization — the same split step 6's world
     picker has against `handleAddRoute`.
 
-  Containment is structural rather than checked: `parent` derives from the
-  cookie alone and the approved branch runs only when the cookie is absent, so
-  an approved admission can name no subtree but the root. (The cookie's own
-  parent is NOT bound to the caller's authority — a pre-existing hole on the
-  invite path, filed as BUGS `F50`.)
+  Containment is structural rather than checked: only a redeemed subgroup
+  invite sets `parent`, so an approved admission can name no subtree but the
+  root. **Resolved** (BUGS `F50`, `4e63f93d`): `parent` used to derive from the
+  `pending_target` cookie, which the caller owns — `Cookie: pending_target=victim/`
+  created `victim/<name>` and took admin over it. It now derives from an
+  `invite_redemptions` row `store.consumeInvite` writes, and the cookie is gone.
+  A grant predicate could not have done this: consumeInvite grants no acl row for
+  a trailing-slash target, so the legitimate subgroup redeemer holds nothing to
+  evaluate at the moment the picker is shown. The authority had to be recorded,
+  not looked up.
 
 `handleAddRoute` is the binding: `MatchGroups(folders, target)` **and**
 `userOwnsMatch(sub, match)`, one check per axis of step 7's rule. Step 6's picker
@@ -327,11 +332,12 @@ create` seeds none, so shipping it would have turned every existing
    `handleAddRoute`~~ — **SHIPPED** (`d9e57288`). ~~step 7's missing
    attribution~~ — **SHIPPED** (`120d5461`). ~~register `onboarding` as a
    resreg resource~~ — **SHIPPED** (`Z3`). ~~step 8's dead end~~ —
-   **ANSWERED**, see Q1. Still open here: stamping the remaining `routes`
-   writers (`store.AddRoute`/`PutRouteRow`, resreg `Apply`) so `added_by IS
-NULL` means only "pre-attribution", and binding the invite cookie's parent to
-   the caller's authority (BUGS `F50`). The derivable-`status` deletion was
-   closed as NOT derivable (`P3b`).
+   **ANSWERED**, see Q1. ~~binding the invite cookie's parent to the caller's
+   authority~~ — **SHIPPED** (`4e63f93d`): the cookie is deleted and the parent
+   is derived from the recorded redemption (BUGS `F50`). Still open here:
+   stamping the remaining `routes` writers (`store.AddRoute`/`PutRouteRow`,
+   resreg `Apply`) so `added_by IS NULL` means only "pre-attribution". The
+   derivable-`status` deletion was closed as NOT derivable (`P3b`).
 
 ## Consolidates
 

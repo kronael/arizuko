@@ -63,7 +63,52 @@ its verdict grant something. Recorded in `5/18` § "Open, blocking" Q1.
 - **Status:** resolved-not-yet-removed
 - **Fix:** `c28160bd`
 
-## F50 — a forged `pending_target` cookie creates a world in any subtree (2026-08-06, open)
+## ✅ FIXED 2026-08-07 — F50 — a forged `pending_target` cookie creates a world in any subtree (2026-08-06)
+
+**Resolved with shape (A)** (`4e63f93d`): onbod migration 0005 adds
+`invite_redemptions(user_sub, target_glob, redeemed_at)`; `store.consumeInvite`
+writes one row per subgroup redemption inside its existing transaction (same DB,
+so no cross-DB rollback problem); `handleCreateWorld` DERIVES `parent` from it
+and spends it with a `DELETE` whose `RowsAffected` is the claim. The cookie is
+gone from both ends — nothing the browser sends names a parent.
+
+The `auth.MatchGroups`/`auth.Authorize` fix proposed below was **disproved
+before it was built**: `store/invites.go:294` and `onbod/main.go:1158` write the
+acl row only when the target has NO trailing slash, while `main.go:1183` set the
+cookie only when it DID. The cookie was set exactly when the acl table held
+nothing about the caller, so a predicate over `acl` would have refused every
+legitimate subgroup redeemer. The fact the predicate needs did not exist, so it
+had to be recorded. `TestRedeemedSubgroupInviteCreatesUnderItsParent` asserts
+that premise (zero acl rows at the moment the picker is shown) rather than
+assuming it.
+
+Reproduced before and after, on the folder and the acl rows rather than the
+status:
+
+```
+before   303   folders=[victim victim/pwned]        mallory holds [victim/pwned/**]
+after    200   folders=[victim]                     mallory holds []
+```
+
+Three falsification breaks, each isolating a different half: making the cookie
+an authority again reddens the two forgery tests only; letting it override the
+derived parent reddens the two precedence tests only; skipping the spend reddens
+the single-use test only. Migration rehearsed against seeded copies of krons
+(0 invites) and sloth (4 invites, 2 subgroup): version 4→5, every pre-existing
+count unchanged, redemption 0→1 on consume and 1→0 on spend, replay a no-op.
+
+`5/8`'s archive lane deliberately does NOT carry the table. It holds one
+in-flight authority between "redeemed" and "picked a username"; carrying it
+would move a live grant-in-waiting between instances, and losing it costs a new
+invite — the same exposure the 10-minute cookie already had.
+
+- **Severity:** high
+- **Scope:** onboarding / folder containment
+- **Affected:** onbod (all instances)
+- **Status:** resolved-not-yet-removed
+- **Fix:** `4e63f93d`
+
+Original report:
 
 Found while building `F42`'s fix, which is why it is filed rather than patched:
 it is pre-existing and on the OTHER authority (the invite cookie), not the one
@@ -94,48 +139,6 @@ parent)`) before `createWorldTx` — so the cookie becomes a hint and the grant
 becomes the authority. It is a real refusal added to the shipped invite flow
 (an invite whose `target_glob` does not evaluate to authority over the parent
 would start failing), so it wants sign-off rather than an inline patch.
-
-- **Severity:** high
-- **Scope:** onboarding / folder containment
-- **Affected:** onbod (all instances)
-- **Source:** `onbod/main.go` `handleCreateWorld` — `parent := strings.TrimSuffix(pendingTarget, "/")`
-- **Status:** open
-- **Fix:**
-
-`5/18`'s last unshipped step, and the only item holding that spec at `partial`.
-A caller who pairs from a chat, passes the gate, and administers no world lands
-on `renderNoWorld`: "ask an admin for an invite". The username picker
-(`renderUsernamePicker` → `handleCreateWorld`) renders only behind a
-`pending_target` cookie, which ONLY invite redemption sets. So the admission
-queue admits you and then sends you away — `5/18`'s own words: "`approved`
-grants nothing: nothing reads it as a precondition".
-
-It is unbuilt because it is undecided, not because it is hard. The coherent
-shape is one condition: **`status='approved'` unlocks the username picker for a
-caller with no worlds**, making the gate verdict load-bearing for the first
-time and giving the queue a purpose. Roughly `handleDashboard`'s `groupCount ==
-0` branch gaining an `onboarding.status='approved'` lookup beside the
-`pending_target` cookie check, plus `handleCreateWorld` accepting that as an
-alternative authority for a top-level folder.
-
-**Why it needs sign-off: it is a security posture change.** With no gates
-configured, `admitJID` approves every paired identity. Under the proposal that
-means anyone who messages the bot on an `ONBOARDING_PLATFORMS` platform can
-provision a top-level tenant. `arizuko create` seeds no gates. So the default
-posture would flip from "invite-only world creation" to "open signup", and the
-throttle would be a `onboarding_gates` row the operator has to know to add.
-Alternatives, all cheap, all different postures:
-
-1. `approved` unlocks the picker (above) — open by default.
-2. `approved` unlocks it only when at least one gate is configured — closed by
-   default, opt-in by configuring a gate.
-3. Leave the dead end and delete the queue instead — if admission entitles
-   nothing, `gate`/`queued_at`/`admitted_at`/`admitFromQueue` are ~150 lines
-   with no consumer. `5/18` already asks whether `gate` survives at all.
-
-`5/18` § "Open, blocking" Q1's survivor is exactly this question ("whether a
-stranger who chose no world may create one (today: only via an invite)"). The
-spec stays `partial` naming this item until it is answered.
 
 ## F41 — the re-greet cooldown is a rate, not a cap (2026-08-06, open)
 
