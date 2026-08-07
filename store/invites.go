@@ -289,9 +289,25 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 		}
 		return nil, err
 	}
-	// Subgroup-create invites (trailing slash) do not grant folder access yet —
-	// the acl row is added after username selection in handleCreateWorld.
-	if grantACL && !strings.HasSuffix(inv.TargetGlob, "/") {
+	// The two halves of a redemption, split on the trailing slash.
+	//
+	// Subgroup-create invites (trailing slash) grant no folder access here — the
+	// folder does not exist until the username picker names it, so there is no
+	// scope to grant admin over. What they DO carry is the parent subtree the
+	// operator invited this caller into, and that fact has to be recorded: it is
+	// the authority handleCreateWorld derives the parent folder from. It used to
+	// ride in the `pending_target` cookie, which the caller owns and could forge
+	// to name any tenant's subtree (BUGS F50). The row goes in regardless of
+	// grantACL — invite_redemptions is onbod-owned, so it lands in the same DB
+	// the invites row just moved in, split or not.
+	if strings.HasSuffix(inv.TargetGlob, "/") {
+		if _, err := tx.Exec(
+			`INSERT INTO invite_redemptions (user_sub, target_glob, redeemed_at)
+			 VALUES (?, ?, ?)`,
+			userSub, inv.TargetGlob, now); err != nil {
+			return nil, err
+		}
+	} else if grantACL {
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO acl
 			 (principal, action, scope, effect, params, predicate, granted_at, granted_by)

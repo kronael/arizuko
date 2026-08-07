@@ -197,7 +197,9 @@ func TestOnboardingFlow(t *testing.T) {
 		t.Fatal("csrf cookie not set by dashboard GET")
 	}
 
-	// POST create_world.
+	// POST create_world. The authority is a redeemed top-level invite, recorded
+	// in invite_redemptions — there is no cookie to bring along (BUGS F50).
+	seedRedemption(t, inst.DB, sub, "/")
 	form := url.Values{
 		"action":   {"create_world"},
 		"username": {"alice"},
@@ -207,7 +209,6 @@ func TestOnboardingFlow(t *testing.T) {
 	reqP.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	reqP.Header.Set("X-User-Sub", sub)
 	reqP.AddCookie(csrf)
-	reqP.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	respP, err := c.Do(reqP)
 	if err != nil {
 		t.Fatal(err)

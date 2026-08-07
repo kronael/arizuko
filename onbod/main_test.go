@@ -69,6 +69,7 @@ func testDB(t *testing.T) *sql.DB {
 		CREATE TABLE channels (name TEXT PRIMARY KEY, url TEXT, capabilities TEXT);
 		CREATE TABLE onboarding_gates (gate TEXT PRIMARY KEY, limit_per_day INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1);
 		CREATE TABLE invites (ref TEXT PRIMARY KEY, target_glob TEXT NOT NULL, issued_by_sub TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT, max_uses INTEGER NOT NULL DEFAULT 1, used_count INTEGER NOT NULL DEFAULT 0);
+		CREATE TABLE invite_redemptions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_sub TEXT NOT NULL, target_glob TEXT NOT NULL, redeemed_at TEXT NOT NULL);
 		CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), category TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL, actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT, params_summary TEXT, outcome TEXT NOT NULL, error_msg TEXT, duration_ms INTEGER, turn_id TEXT, folder TEXT, instance TEXT, request_id TEXT, source_ip TEXT);
 	`)
 	if err != nil {
@@ -149,10 +150,11 @@ func TestDashboardShowsUsernamePicker(t *testing.T) {
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:new', 'github:new', 'New User', '2026-01-01')`)
 
+	seedRedemption(t, db, "github:new", "/")
+
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/onboard", nil)
 	req.Header.Set("X-User-Sub", "github:new")
-	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
 	handleOnboard(w, req, db, db, cfg)
 
@@ -175,10 +177,11 @@ func TestUsernamePickerFormSatisfiesCSRFCheck(t *testing.T) {
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:new', 'newbie', 'New User', '2026-01-01')`)
 
+	seedRedemption(t, db, "github:new", "/")
+
 	cfg := config{}
 	get := httptest.NewRequest("GET", "/onboard", nil)
 	get.Header.Set("X-User-Sub", "github:new")
-	get.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	gw := httptest.NewRecorder()
 	handleOnboard(gw, get, db, db, cfg)
 
@@ -193,7 +196,6 @@ func TestUsernamePickerFormSatisfiesCSRFCheck(t *testing.T) {
 	post := httptest.NewRequest("POST", "/onboard", strings.NewReader(form.Encode()))
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	post.Header.Set("X-User-Sub", "github:new")
-	post.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	for _, c := range gw.Result().Cookies() {
 		post.AddCookie(c)
 	}
@@ -374,6 +376,8 @@ func TestCreateWorldValidUsername(t *testing.T) {
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:new', 'github:new', 'New User', '2026-01-01')`)
 
+	seedRedemption(t, db, "github:new", "/")
+
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"alice"}}
 	form.Set("csrf", "c")
@@ -381,7 +385,6 @@ func TestCreateWorldValidUsername(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:new")
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
-	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, db, cfg)
 
@@ -636,6 +639,8 @@ func TestCreateWorldRoutesNoJIDs(t *testing.T) {
 	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES ('github:new', 'telegram:10', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl_membership (parent, child, added_at) VALUES ('github:new', 'discord:20', '2026-01-01')`)
 
+	seedRedemption(t, db, "github:new", "/")
+
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"newworld"}}
 	form.Set("csrf", "c")
@@ -643,7 +648,6 @@ func TestCreateWorldRoutesNoJIDs(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:new")
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
-	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, db, cfg)
 
@@ -676,6 +680,8 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
 		VALUES ('github:lonely', 'github:lonely', 'Lonely', '2026-01-01')`)
 
+	seedRedemption(t, db, "github:lonely", "/")
+
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"lonely"}}
 	form.Set("csrf", "c")
@@ -683,7 +689,6 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:lonely")
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
-	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, db, cfg)
 
@@ -704,8 +709,12 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 	}
 }
 
-// Operator (an acl "**" grant) can create a world. The world is the assertion;
-// routes are not written here at all (5/18 step 7).
+// A caller holding a broad acl grant creates their world through the same
+// authority as anyone else — a redeemed invite. The "**" row is deliberately
+// present and deliberately inert: F50 removed the `pending_target` cookie that
+// used to be the only thing making this pass, and an operator's grant was never
+// the authority /onboard read. Operators create worlds through dashd or the CLI.
+// The world is the assertion; routes are not written here at all (5/18 step 7).
 func TestCreateWorldOperatorAllowed(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO user_profiles (sub, username, name, created_at)
@@ -714,6 +723,8 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
 		VALUES ('github:op', 'telegram:99', '2026-01-01')`)
 
+	seedRedemption(t, db, "github:op", "/")
+
 	cfg := config{}
 	form := url.Values{"action": {"create_world"}, "username": {"opworld"}}
 	form.Set("csrf", "c")
@@ -721,7 +732,6 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "github:op")
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
-	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, db, db, cfg)
 

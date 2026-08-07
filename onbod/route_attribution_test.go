@@ -164,6 +164,7 @@ func TestCreateWorldRouteCarriesAttribution(t *testing.T) {
 		VALUES ('github:new', 'github:new', 'New', '2026-01-01')`)
 	db.Exec(`INSERT INTO acl_membership (parent, child, added_at)
 		VALUES ('github:new', 'telegram:10', '2026-01-01')`)
+	seedRedemption(t, db, "github:new", "/")
 
 	if w := postOnboardSplit(db, db, "github:new", url.Values{
 		"action": {"create_world"}, "username": {"newworld"}, "csrf": {"c"},

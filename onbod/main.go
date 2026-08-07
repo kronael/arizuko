@@ -624,14 +624,12 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, u
 	groupCount := len(userFolders(db, userSub))
 
 	if groupCount == 0 {
-		// Two authorities, one picker: the invite's target cookie, or (spec 5/18
-		// step 8) an admission the gates approved. Both render the same form;
-		// handleCreateWorld re-checks both, so this branch is presentation only.
-		if c, err := r.Cookie("pending_target"); err == nil && c.Value != "" {
-			renderUsernamePicker(w, username, csrf)
-			return
-		}
-		if mayCreateFirstWorld(obdb, userSub) {
+		// Two authorities, one picker: a recorded subgroup-invite redemption, or
+		// (spec 5/18 step 8) an admission the gates approved. handleCreateWorld
+		// re-checks the same pair with the same two functions, so this branch is
+		// presentation only — the write is the control.
+		_, invited := latestRedemption(obdb, userSub)
+		if invited || mayCreateFirstWorld(obdb, userSub) {
 			renderUsernamePicker(w, username, csrf)
 			return
 		}
@@ -747,22 +745,70 @@ func mayCreateFirstWorld(obdb *sql.DB, userSub string) bool {
 	return n > 0
 }
 
-func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, userSub string) {
-	var pendingTarget string
-	if c, err := r.Cookie("pending_target"); err == nil {
-		pendingTarget = c.Value
+// pendingRedemption is the row store.consumeInvite wrote when this caller
+// redeemed a subgroup invite. It is the ONLY thing that can name a parent
+// folder: the request names none, so a caller can no longer ask for a world
+// inside a subtree nobody invited them into (BUGS F50).
+type pendingRedemption struct {
+	id   int64
+	glob string
+}
+
+// latestRedemption returns the caller's most recent unspent subgroup-invite
+// redemption. Most recent because a caller holding two is answering the invite
+// they just followed; each row is spent on its own, so two invites still yield
+// two worlds.
+//
+// Fails closed like mayCreateFirstWorld: an unreadable table is no authority.
+func latestRedemption(obdb *sql.DB, userSub string) (pendingRedemption, bool) {
+	if userSub == "" {
+		return pendingRedemption{}, false
 	}
-	// An approved admission authorizes a TOP-LEVEL folder and nothing else, and
-	// that is structural rather than checked: `parent` is derived from the
-	// cookie alone, and this branch only runs when the cookie is absent. So the
-	// approved row can never name someone else's subtree to be created under.
-	if pendingTarget == "" && !mayCreateFirstWorld(obdb, userSub) {
+	var p pendingRedemption
+	err := obdb.QueryRow(
+		`SELECT id, target_glob FROM invite_redemptions
+		 WHERE user_sub = ? ORDER BY id DESC LIMIT 1`, userSub).Scan(&p.id, &p.glob)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			slog.Error("invite redemption lookup", "user", userSub, "err", err)
+		}
+		return pendingRedemption{}, false
+	}
+	return p, true
+}
+
+// spendRedemption consumes the row, making a redemption single-use. RowsAffected
+// is the claim, not a report: two create_world posts that derived the same row
+// cannot both spend it, so one invite redemption is one world.
+func spendRedemption(obdb *sql.DB, p pendingRedemption) (bool, error) {
+	res, err := obdb.Exec(`DELETE FROM invite_redemptions WHERE id = ?`, p.id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, userSub string) {
+	// The parent folder is DERIVED from what the redemption recorded, never from
+	// the request. Until F50 it came from the `pending_target` cookie and was used
+	// verbatim, so `Cookie: pending_target=victim/` created victim/<name> and took
+	// admin over it for any authenticated caller holding no grant anywhere.
+	redemption, invited := latestRedemption(obdb, userSub)
+	if !invited && !mayCreateFirstWorld(obdb, userSub) {
 		renderPage(w, "Invite Required",
 			template.HTML(`<p>You need an invite link to create a workspace.</p>`))
 		return
 	}
 
-	parent := strings.TrimSuffix(pendingTarget, "/")
+	// An approved admission authorizes a TOP-LEVEL folder and nothing else, and
+	// that stays structural rather than checked: only a redemption sets parent,
+	// and its value is the operator-chosen target_glob. The two authorities
+	// cannot be combined into a deeper one.
+	var parent string
+	if invited {
+		parent = strings.TrimSuffix(redemption.glob, "/")
+	}
 
 	username := strings.TrimSpace(r.FormValue("username"))
 	if !usernameRe.MatchString(username) {
@@ -784,6 +830,23 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB,
 			template.HTML("<p>That username is already in use.</p>"+
 				`<p><a href="/onboard">Try again</a></p>`))
 		return
+	}
+
+	// Spend the authority before acting on it. The DELETE is the claim, so a
+	// replay of the same redemption — a resubmitted form, a second tab — finds
+	// nothing to derive a parent from and creates no second world.
+	if invited {
+		spent, err := spendRedemption(obdb, redemption)
+		if err != nil {
+			slog.Error("create world: spend invite redemption", "user", userSub, "err", err)
+			http.Error(w, "create world failed", http.StatusInternalServerError)
+			return
+		}
+		if !spent {
+			renderPage(w, "Invite Used",
+				template.HTML("<p>That invite has already been used to create a workspace.</p>"))
+			return
+		}
 	}
 
 	coreCfg := cfg.core
@@ -818,12 +881,6 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB,
 	if err := store.New(db).SeedDefaultTasks(folder, folder); err != nil {
 		slog.Warn("create world: seed default tasks", "folder", folder, "err", err)
 	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name: "pending_target", Value: "", Path: "/",
-		MaxAge: -1, HttpOnly: true, Secure: cfg.secureCookie,
-		SameSite: http.SameSiteLaxMode,
-	})
 
 	slog.Info("world created", "folder", folder, "parent", parent, "user", userSub)
 	// Spec 5/W: post-onboarding lands on /onboard; chat tokens are
@@ -1180,16 +1237,11 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 	slog.Info("invite accepted", "token_hash", chanlib.ShortHash(token),
 		"target_glob", target, "user", userSub)
 
-	if strings.HasSuffix(target, "/") {
-		http.SetCookie(w, &http.Cookie{
-			Name: "pending_target", Value: target, Path: "/",
-			MaxAge: 600, HttpOnly: true, Secure: cfg.secureCookie,
-			SameSite: http.SameSiteLaxMode,
-		})
-		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
-		return
-	}
-
+	// Subgroup invites carry their parent in the invite_redemptions row
+	// consumeInvite just wrote, not in a cookie the caller can rewrite (F50).
+	// /onboard reads it back to render the picker; nothing is handed to the
+	// browser to bring along.
+	//
 	// Redemption grants authority over the target and stops there. Spec 5/18
 	// step 7: it used to route EVERY JID the sub had ever paired at the target,
 	// which silently moved a returning user's already-routed chats into the

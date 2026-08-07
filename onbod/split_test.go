@@ -118,6 +118,9 @@ func TestSplitCreateWorldWritesCrossToRoutd(t *testing.T) {
 		VALUES ('github:new', 'github:new', 'New', '2026-01-01')`)
 	xdb.Exec(`INSERT INTO acl_membership (parent, child, added_at)
 		VALUES ('github:new', 'telegram:10', '2026-01-01')`)
+	// The create authority is onbod-OWNED: the redemption is read from obdb even
+	// though every write below lands in xdb.
+	seedRedemption(t, obdb, "github:new", "/")
 
 	w := postOnboardSplit(xdb, obdb, "github:new", url.Values{
 		"action": {"create_world"}, "username": {"newworld"}, "csrf": {"c"},
@@ -197,7 +200,6 @@ func postOnboardSplit(xdb, obdb *sql.DB, sub string, vals url.Values) *httptest.
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", sub)
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
-	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
 	handleOnboardPost(w, req, xdb, obdb, config{})
 	return w
