@@ -173,15 +173,6 @@ func main() {
 	}
 }
 
-// onbodOpenAPIResources names the resources onbod's /openapi.json advertises.
-// onbod OWNS all three (spec 5/5 § Daemon ownership); newOnbodMux mounts them
-// through the shared resreg handler.
-//
-// newOnbodMux is the routing table this list is checked against; keep them
-// together so a resource added here without a mount fails openapi_test.go
-// (BUGS F40).
-var onbodOpenAPIResources = []string{"onboarding", "onboarding_gates", "invites"}
-
 // newOnbodMux builds onbod's HTTP surface. Extracted from main so a test can
 // read the ROUTING TABLE onbod actually builds rather than a restatement of it —
 // the doc-vs-mux guard has to compare the emitted document against the real
@@ -200,7 +191,7 @@ func newOnbodMux(xdb, obdb *sql.DB, cfg config, ks *auth.KeySet) *http.ServeMux 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("onbod", onbodOpenAPIResources))
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("onbod", mux))
 	mux.HandleFunc("GET /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
 		handleOnboard(w, r, xdb, obdb, cfg)
 	}))

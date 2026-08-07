@@ -383,16 +383,6 @@ func (rl *rateLimiter) allow(key string) bool {
 	return true
 }
 
-// proxydOpenAPIResources names the resources proxyd's /openapi.json advertises.
-// proxyd owns the reverse-proxy route table, and its resreg Name is
-// `proxyd_routes`, never `routes` — routd's message-routing table already holds
-// that wire identity, and proxyd's live resource drifted to it once
-// (root CLAUDE.md, fixed 2026-07-01).
-//
-// mux is the routing table this list is checked against; keep them together so
-// a resource added here without a mount fails openapi_test.go (BUGS F40).
-var proxydOpenAPIResources = []string{"proxyd_routes"}
-
 // mux builds proxyd's routing table, catch-all included. Split out of handler
 // so a test can probe the real ServeMux: handler returns the middleware-wrapped
 // http.Handler, and a wrapped handler answers every path — including the ones
@@ -405,7 +395,7 @@ func (s *server) mux() *http.ServeMux {
 	// expose the Docker-internal address (http://authd:8080) to the browser.
 	mux.HandleFunc("/auth/", s.handleAuth)
 	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.ks))
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("proxyd", proxydOpenAPIResources))
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("proxyd", mux))
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
 	}

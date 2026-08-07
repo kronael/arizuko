@@ -7,6 +7,7 @@ package resreg
 
 import (
 	"encoding/json"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -31,7 +32,7 @@ func registerOAPI(t *testing.T) {
 
 func TestOpenAPI_BasicShape(t *testing.T) {
 	registerOAPI(t)
-	out, err := OpenAPI("testd", "http://localhost:9999/", nil)
+	out, err := OpenAPI("testd", "http://localhost:9999/", All())
 	if err != nil {
 		t.Fatalf("OpenAPI: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestOpenAPI_BasicShape(t *testing.T) {
 
 func TestOpenAPI_PathsCRUD(t *testing.T) {
 	registerOAPI(t)
-	out, _ := OpenAPI("testd", "/", nil)
+	out, _ := OpenAPI("testd", "/", All())
 	var doc map[string]any
 	json.Unmarshal(out, &doc)
 	paths := doc["paths"].(map[string]any)
@@ -92,7 +93,7 @@ func TestOpenAPI_PathsCRUD(t *testing.T) {
 
 func TestOpenAPI_SchemaReflection(t *testing.T) {
 	registerOAPI(t)
-	out, _ := OpenAPI("testd", "/", nil)
+	out, _ := OpenAPI("testd", "/", All())
 	var doc map[string]any
 	json.Unmarshal(out, &doc)
 	comp := doc["components"].(map[string]any)
@@ -120,7 +121,7 @@ func TestOpenAPI_SchemaReflection(t *testing.T) {
 
 func TestOpenAPI_StandardErrors(t *testing.T) {
 	registerOAPI(t)
-	out, _ := OpenAPI("testd", "/", nil)
+	out, _ := OpenAPI("testd", "/", All())
 	var doc map[string]any
 	json.Unmarshal(out, &doc)
 	comp := doc["components"].(map[string]any)
@@ -140,29 +141,36 @@ func TestOpenAPI_StandardErrors(t *testing.T) {
 	}
 }
 
+// TestOpenAPI_ResourceFilter: two resources are registered, ONE is mounted,
+// and only the mounted one is documented. Selection used to be by name, which
+// is what let a daemon document a sibling daemon's resource (BUGS F33); it is
+// now the mux, so `first` cannot appear on a daemon that never mounts it.
 func TestOpenAPI_ResourceFilter(t *testing.T) {
 	reset()
-	Register(Resource{
-		Name:     "first",
-		Table:    "first",
-		RowType:  reflect.TypeFor[oapiTestRow](),
-		PKFields: []string{"Seq"},
-	})
-	Register(Resource{
-		Name:     "second",
-		Table:    "second",
-		RowType:  reflect.TypeFor[oapiTestRow](),
-		PKFields: []string{"Seq"},
-	})
-	out, _ := OpenAPI("testd", "/", []string{"second"})
+	one := func(name string) Resource {
+		return Resource{
+			Name:      name,
+			Table:     name,
+			RowType:   reflect.TypeFor[oapiTestRow](),
+			PKFields:  []string{"Seq"},
+			Endpoints: []Endpoint{{Verb: "GET", Path: "/v1/" + name, Action: ActionList}},
+		}
+	}
+	Register(one("first"))
+	Register(one("second"))
+
+	mux := http.NewServeMux()
+	RegisterREST(mux, one("second"), nopCaller)
+
+	out, _ := OpenAPI("testd", "/", MountedResources(mux))
 	var doc map[string]any
 	json.Unmarshal(out, &doc)
 	paths := doc["paths"].(map[string]any)
 	if _, ok := paths["/v1/first"]; ok {
-		t.Errorf("filter leaked: /v1/first present")
+		t.Errorf("filter leaked: /v1/first present though nothing mounts it")
 	}
 	if _, ok := paths["/v1/second"]; !ok {
-		t.Errorf("filter excluded /v1/second")
+		t.Errorf("filter excluded the mounted /v1/second")
 	}
 }
 
@@ -178,7 +186,7 @@ func TestOpenAPI_MCPDoc(t *testing.T) {
 			ActionList:   "List rows.",
 		},
 	})
-	out, _ := OpenAPI("testd", "/", nil)
+	out, _ := OpenAPI("testd", "/", All())
 	var doc map[string]any
 	json.Unmarshal(out, &doc)
 	paths := doc["paths"].(map[string]any)
@@ -204,8 +212,8 @@ func TestOpenAPI_MCPDoc(t *testing.T) {
 
 func TestOpenAPI_Deterministic(t *testing.T) {
 	registerOAPI(t)
-	a, _ := OpenAPI("testd", "/", nil)
-	b, _ := OpenAPI("testd", "/", nil)
+	a, _ := OpenAPI("testd", "/", All())
+	b, _ := OpenAPI("testd", "/", All())
 	if string(a) != string(b) {
 		t.Errorf("non-deterministic emit")
 	}
@@ -232,7 +240,7 @@ func TestOpenAPI_EndpointsDriven(t *testing.T) {
 			Action("set"): "Rewrite the table. When to use: full reconfiguration.",
 		},
 	})
-	out, _ := OpenAPI("testd", "/", nil)
+	out, _ := OpenAPI("testd", "/", All())
 	var doc map[string]any
 	if err := json.Unmarshal(out, &doc); err != nil {
 		t.Fatalf("not JSON: %v", err)
@@ -282,7 +290,7 @@ func TestOpenAPI_EndpointsDriven(t *testing.T) {
 // on the {pk} item) — the fallback engine-managed tables rely on.
 func TestOpenAPI_ConventionFallback(t *testing.T) {
 	registerOAPI(t) // oapi_rows declares no Endpoints
-	out, _ := OpenAPI("testd", "/", nil)
+	out, _ := OpenAPI("testd", "/", All())
 	var doc map[string]any
 	json.Unmarshal(out, &doc)
 	paths := doc["paths"].(map[string]any)

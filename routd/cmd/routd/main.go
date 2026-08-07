@@ -253,7 +253,7 @@ func main() {
 	}
 	reg.StartHealthLoop(ctx)
 	mux := srv.Handler().(*http.ServeMux)
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("routd", routd.OpenAPIResources))
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("routd", mux))
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
 	}

@@ -28,6 +28,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/resreg/resregtest"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -448,7 +449,7 @@ func TestPlanApplyAgree_Secrets(t *testing.T) {
 // — NO read op (get/list) on either path. A sealed value must never surface in a
 // read (spec 5/8 §"Secret safety"); this proves the doc can't drift into one.
 func TestSecretsOpenAPIWriteOnly(t *testing.T) {
-	out, err := resreg.OpenAPI("routd", "/", []string{"secrets"})
+	out, err := resreg.OpenAPI("routd", "/", resregtest.Mounted("secrets"))
 	if err != nil {
 		t.Fatalf("OpenAPI: %v", err)
 	}
@@ -529,10 +530,11 @@ func TestApply_WritesOneAuditRow(t *testing.T) {
 }
 
 // The per-daemon ownership map that used to live here is DELETED, not moved.
-// It was a hand-maintained COPY of the lists the daemon mains pass to
+// It was a hand-maintained COPY of the lists the daemon mains passed to
 // resreg.OpenAPIHandler, kept because routd imports this package and so the
-// real routd.OpenAPIResources cannot be read from here. Two independent
-// reasons it had to go, either sufficient:
+// real list could not be read from here. (Those lists are themselves gone now —
+// BUGS F33; the handler takes the mux.) Two independent reasons it had to go,
+// either sufficient:
 //
 // It could not fail. TestOpenAPI_PerDaemonOwnership computed both the
 // expectation and the actual from the same `owned` slice, so "this daemon
@@ -556,7 +558,7 @@ func TestApply_WritesOneAuditRow(t *testing.T) {
 // REST create operation with the agent-facing when-to-use string — the
 // published doc IS the agent's REST catalog (no separate MCP tool needed).
 func TestOpenAPI_ProxydRoutesCarriesMCPDoc(t *testing.T) {
-	out, err := resreg.OpenAPI("proxyd", "/", []string{"proxyd_routes"})
+	out, err := resreg.OpenAPI("proxyd", "/", resregtest.Mounted("proxyd_routes"))
 	if err != nil {
 		t.Fatalf("OpenAPI: %v", err)
 	}
@@ -598,7 +600,7 @@ func TestOpenAPI_EveryEmittedPathIsWellFormed(t *testing.T) {
 			continue
 		}
 		checked++
-		out, err := resreg.OpenAPI("probe", "/", []string{r.Name})
+		out, err := resreg.OpenAPI("probe", "/", resregtest.Mounted(r.Name))
 		if err != nil {
 			t.Fatalf("%s: OpenAPI: %v", r.Name, err)
 		}
@@ -629,7 +631,7 @@ func TestOpenAPI_EveryEmittedPathIsWellFormed(t *testing.T) {
 // PK-convention phantoms (PATCH/DELETE on /v1/routes/{seq}) it invented before
 // the resource carried explicit Endpoints. This is the task #32 core assertion.
 func TestOpenAPI_RoutesTruthful(t *testing.T) {
-	out, err := resreg.OpenAPI("routd", "/", []string{"routes"})
+	out, err := resreg.OpenAPI("routd", "/", resregtest.Mounted("routes"))
 	if err != nil {
 		t.Fatalf("OpenAPI: %v", err)
 	}
@@ -667,7 +669,7 @@ func TestOpenAPI_RoutesTruthful(t *testing.T) {
 // returns the set of path keys.
 func openAPIPaths(t *testing.T, daemon string, owned []string) map[string]bool {
 	t.Helper()
-	out, err := resreg.OpenAPI(daemon, "/", owned)
+	out, err := resreg.OpenAPI(daemon, "/", resregtest.Mounted(owned...))
 	if err != nil {
 		t.Fatalf("%s OpenAPI: %v", daemon, err)
 	}
@@ -698,34 +700,18 @@ func TestOpenAPI_OnboardingGatesTruthful(t *testing.T) {
 	}
 }
 
-// TestFoldedEndpoints_RegistrySingleSource: the registered resource the doc
-// walks carries the SAME exported Endpoints slice routd mounts, so the doc and
-// the mount cannot drift.
-func TestFoldedEndpoints_RegistrySingleSource(t *testing.T) {
-	cases := []struct {
-		name string
-		want []resreg.Endpoint
-	}{
-		{"routes", RoutesEndpoints},
-		{"web_routes", WebRoutesEndpoints},
-		{"scheduled_tasks", ScheduledTasksEndpoints},
-		{"acl", ACLEndpoints},
-		{"network_rules", NetworkRulesEndpoints},
-		{"onboarding_gates", OnboardingGatesEndpoints},
-		{"route_tokens", RouteTokensEndpoints},
-		{"groups", GroupsAgentEndpoints},
-	}
-	for _, c := range cases {
-		got := resreg.Lookup(c.name)
-		if got == nil {
-			t.Errorf("%s not registered", c.name)
-			continue
-		}
-		if !reflect.DeepEqual(got.Endpoints, c.want) {
-			t.Errorf("%s: registered Endpoints != exported var (doc drift)", c.name)
-		}
-	}
-}
+// TestFoldedEndpoints_RegistrySingleSource is DELETED, not moved. It looked up
+// each resource in the registry and compared its Endpoints to the exported var
+// — the same var the init() block had just registered. It compared a value to
+// itself, could not fail, and above all could not see a MOUNT, which is the
+// only place doc-vs-served drift ever lived. spec 5/16 named it as the evidence
+// of that gap.
+//
+// The claim it gestured at is now carried two ways that can fail: the document
+// is DERIVED from the mux (resreg.MountedResources, BUGS F33), and each daemon
+// pins its whole derived surface against a stated list via
+// resregtest.AssertAdvertises using its REAL mux — routd/endpoints_source_test.go,
+// authd/onbod/proxyd/runed/timed openapi_test.go.
 
 // TestFacadeMCP_RegistrySingleSource: each cold-tier facade resource the registry
 // walk feeds ipc.ListTools (dashd's tool browser) carries the SAME exported

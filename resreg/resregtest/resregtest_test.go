@@ -3,6 +3,7 @@ package resregtest
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -45,7 +46,8 @@ func (r *recorder) run(fn func()) {
 	fn()
 }
 
-// muxServing builds a mux mounting exactly the given "VERB /path" patterns.
+// muxServing builds a mux mounting exactly the given "VERB /path" patterns as
+// plain handlers — the hand-rolled shape, never a RegisterREST mount.
 func muxServing(patterns ...string) *http.ServeMux {
 	mux := http.NewServeMux()
 	for _, p := range patterns {
@@ -54,128 +56,89 @@ func muxServing(patterns ...string) *http.ServeMux {
 	return mux
 }
 
-// realOps is the emitted operation set for a resource that genuinely exists, so
-// the tests below probe against real paths rather than invented ones. routes is
-// routd's and has both a collection and an item face.
+// realOps is the operation set of a resource that genuinely exists, so the
+// tests below probe real paths rather than invented ones. routes is routd's and
+// has both a collection and an item face.
 func realOps(t *testing.T) []Op {
 	t.Helper()
-	ops := AdvertisedOps(t, "probe", []string{"routes"})
+	ops := opsOf(t, "probe", byName([]string{"routes"}))
 	if len(ops) == 0 {
 		t.Fatal("routes renders no operation — the emitter is not producing anything to probe")
 	}
 	return ops
 }
 
-// TestAssertServesWhatItAdvertises_PassesWhenMounted is the control: the guard
-// must stay silent when every advertised path is on the mux. Without it, the
-// failure tests below would be satisfied by a guard that fails unconditionally.
-func TestAssertServesWhatItAdvertises_PassesWhenMounted(t *testing.T) {
-	ops := realOps(t)
-	var patterns []string
+// opStrings renders ops as the "VERB /path" strings AssertAdvertises compares.
+func opStrings(ops []Op) []string {
+	var out []string
 	for _, op := range ops {
-		patterns = append(patterns, op.Method+" "+op.Path)
+		out = append(out, op.Method+" "+op.Path)
 	}
+	return out
+}
+
+// TestAssertAdvertises_PassesOnExactSurface is the control: a mux mounting
+// exactly `routes` must match a want listing exactly its operations. Without
+// this, the failure tests below would be satisfied by an assertion that fails
+// unconditionally.
+func TestAssertAdvertises_PassesOnExactSurface(t *testing.T) {
 	rec := &recorder{}
-	n := AssertServesWhatItAdvertises(rec, "probe", []string{"routes"}, muxServing(patterns...))
-	if n != len(ops) {
-		t.Errorf("checked %d operations, want %d", n, len(ops))
-	}
+	AssertAdvertises(rec, "probe", MuxOf("routes"), opStrings(realOps(t)))
 	if len(rec.errs) != 0 {
-		t.Errorf("guard reported %d failures on a fully-mounted mux: %v", len(rec.errs), rec.errs)
+		t.Errorf("assertion reported %d failures on an exactly-matching surface: %v", len(rec.errs), rec.errs)
 	}
 }
 
-// TestAssertServesWhatItAdvertises_CatchesUnmountedPath is the F27 shape: the
-// doc advertises a path, the mux mounts nothing at it. `GET /v1/acl` shipped
-// exactly this way — declared, advertised, trimmed away at mount time.
-func TestAssertServesWhatItAdvertises_CatchesUnmountedPath(t *testing.T) {
+// TestAssertAdvertises_CatchesUnstatedMount is the review-visibility half: a
+// REST face is mounted that the expected surface does not list. This is the
+// shape that would otherwise let `DELETE /v1/acl_membership` appear silently.
+func TestAssertAdvertises_CatchesUnstatedMount(t *testing.T) {
 	rec := &recorder{}
-	AssertServesWhatItAdvertises(rec, "probe", []string{"routes"}, http.NewServeMux())
+	AssertAdvertises(rec, "probe", MuxOf("routes"), opStrings(realOps(t))[1:])
 	if len(rec.errs) == 0 {
-		t.Fatal("guard stayed silent while an empty mux served none of the advertised paths — it cannot catch F27")
-	}
-	for _, e := range rec.errs {
-		if !strings.Contains(e, "advertised endpoint that 404s") {
-			t.Errorf("failure message does not name the class: %q", e)
-		}
+		t.Fatal("assertion stayed silent while the mux served a face the expected surface omits")
 	}
 }
 
-// TestAssertServesWhatItAdvertises_CatchesRepathedMount is the F21 shape, and
-// the one a "did some handler answer?" probe is blind to: the daemon mounts the
-// resource, but at a DIFFERENT path than it advertises. scheduled_tasks served
-// /v1/tasks while its declaration said /v1/scheduled_tasks.
-func TestAssertServesWhatItAdvertises_CatchesRepathedMount(t *testing.T) {
-	ops := realOps(t)
-	var patterns []string
-	for _, op := range ops {
-		patterns = append(patterns, op.Method+" /elsewhere"+op.Path)
-	}
+// TestAssertAdvertises_CatchesVanishedMount is the other direction: the
+// expected surface lists a face nothing mounts. An endpoint quietly dropped
+// from a resource is as much a wire break as one quietly added.
+func TestAssertAdvertises_CatchesVanishedMount(t *testing.T) {
 	rec := &recorder{}
-	AssertServesWhatItAdvertises(rec, "probe", []string{"routes"}, muxServing(patterns...))
-	if len(rec.errs) != len(ops) {
-		t.Fatalf("guard reported %d failures for %d re-pathed operations — a mount at the wrong path must fail (F21)",
-			len(rec.errs), len(ops))
-	}
-}
-
-// TestAssertServesWhatItAdvertises_CatchesCatchAllMasking pins the reason the
-// guard compares the mux PATTERN byte-for-byte instead of asking "did anything
-// answer". proxyd mounts `mux.HandleFunc("/", …)`, so every probe resolves to a
-// handler; a presence-only check passes vacuously on a daemon that mounts the
-// resource nowhere.
-func TestAssertServesWhatItAdvertises_CatchesCatchAllMasking(t *testing.T) {
-	rec := &recorder{}
-	AssertServesWhatItAdvertises(rec, "probe", []string{"routes"}, muxServing("/"))
+	AssertAdvertises(rec, "probe", MuxOf("routes"),
+		append(opStrings(realOps(t)), "GET /v1/routes/never_mounted"))
 	if len(rec.errs) == 0 {
-		t.Fatal("a catch-all mux satisfied the guard — pattern equality is not being enforced, " +
-			"so this guard would pass vacuously on proxyd")
+		t.Fatal("assertion stayed silent while the expected surface named a face nothing mounts")
 	}
 }
 
-// TestAssertServesWhatItAdvertises_AcceptsMultiSegmentWildcard pins the one
-// difference the guard must NOT report. proxyd's route keys contain slashes, so
-// it mounts `/v1/proxyd_routes/{path...}`; OpenAPI 3.1 has no multi-segment
-// template syntax, so the emitter documents that as `{path}`. The document
-// cannot express the arity, which makes the difference translation and not
-// drift — and the guard read it as three advertised endpoints that 404.
-func TestAssertServesWhatItAdvertises_AcceptsMultiSegmentWildcard(t *testing.T) {
-	ops := AdvertisedOps(t, "probe", []string{"proxyd_routes"})
-	var patterns, wildcards []string
-	for _, op := range ops {
-		p := op.Method + " " + op.Path
-		if strings.Contains(op.Path, "{path}") {
-			p = op.Method + " " + strings.Replace(op.Path, "{path}", "{path...}", 1)
-			wildcards = append(wildcards, p)
-		}
-		patterns = append(patterns, p)
-	}
-	if len(wildcards) == 0 {
-		t.Fatal("proxyd_routes renders no {path} operation — this test has nothing to exercise")
-	}
+// TestAssertAdvertises_CatchAllIsNotASurface pins that proxyd's `/` catch-all
+// contributes nothing. A daemon mounting only a catch-all documents nothing, so
+// an empty want must PASS and a non-empty one must fail — the reverse would
+// mean the catch-all was being read as a mount for every registered resource.
+func TestAssertAdvertises_CatchAllIsNotASurface(t *testing.T) {
 	rec := &recorder{}
-	AssertServesWhatItAdvertises(rec, "probe", []string{"proxyd_routes"}, muxServing(patterns...))
+	AssertAdvertises(rec, "probe", muxServing("/"), nil)
 	if len(rec.errs) != 0 {
-		t.Fatalf("a legitimate {path...} mount was reported as drift: %v", rec.errs)
+		t.Errorf("a catch-all-only mux documented something: %v", rec.errs)
+	}
+
+	rec = &recorder{}
+	AssertAdvertises(rec, "probe", muxServing("/"), opStrings(realOps(t)))
+	if len(rec.errs) == 0 {
+		t.Fatal("a catch-all satisfied a non-empty expected surface — it is being read as a mount")
 	}
 }
 
-// TestAssertServesWhatItAdvertises_WildcardRenderingStillCatchesDrift is the
-// control for the test above: rendering the mux pattern through the emitter's
-// path rule must not soften anything else. The same wildcard mounts, moved one
-// path segment over, still fail.
-func TestAssertServesWhatItAdvertises_WildcardRenderingStillCatchesDrift(t *testing.T) {
-	ops := AdvertisedOps(t, "probe", []string{"proxyd_routes"})
-	var patterns []string
-	for _, op := range ops {
-		patterns = append(patterns,
-			op.Method+" /elsewhere"+strings.Replace(op.Path, "{path}", "{path...}", 1))
-	}
+// TestAssertAdvertises_HandRolledMountIsNotASurface is the collision shape at
+// the daemon level: routd and runed hand-roll GET /v1/sessions with plain
+// mux.HandleFunc over their own tables. Neither may thereby document authd's
+// sessions resource.
+func TestAssertAdvertises_HandRolledMountIsNotASurface(t *testing.T) {
 	rec := &recorder{}
-	AssertServesWhatItAdvertises(rec, "probe", []string{"proxyd_routes"}, muxServing(patterns...))
-	if len(rec.errs) != len(ops) {
-		t.Fatalf("guard reported %d failures for %d re-pathed wildcard operations — "+
-			"the {path...} rendering must not excuse a wrong path", len(rec.errs), len(ops))
+	AssertAdvertises(rec, "probe", muxServing("GET /v1/sessions"), nil)
+	if len(rec.errs) != 0 {
+		t.Errorf("a hand-rolled GET /v1/sessions documented authd's sessions resource: %v", rec.errs)
 	}
 }
 
@@ -184,15 +147,28 @@ func TestAssertServesWhatItAdvertises_WildcardRenderingStillCatchesDrift(t *test
 // daemonOwnership map claimed to perform and structurally could not, because it
 // computed both sides from the same table.
 func TestAssertServesNoneOf_CatchesForeignMount(t *testing.T) {
-	ops := realOps(t)
-	var patterns []string
-	for _, op := range ops {
-		patterns = append(patterns, op.Method+" "+op.Path)
-	}
 	rec := &recorder{}
-	AssertServesNoneOf(rec, "probe", []string{"routes"}, muxServing(patterns...))
+	AssertServesNoneOf(rec, "probe", []string{"routes"}, MuxOf("routes"))
 	if len(rec.errs) == 0 {
 		t.Fatal("guard stayed silent while the mux served every foreign path — it cannot catch a wire-identity collision")
+	}
+}
+
+// TestAssertServesNoneOf_CatchesForeignWildcardMount is the same check on the
+// one path shape the rendering has to translate: proxyd's route keys contain
+// slashes, so it mounts `/v1/proxyd_routes/{path...}` while OpenAPI 3.1, having
+// no multi-segment template, documents `{path}`. A foreign daemon mounting that
+// must still be caught — the translation must not become an excuse.
+func TestAssertServesNoneOf_CatchesForeignWildcardMount(t *testing.T) {
+	mux := MuxOf("proxyd_routes")
+	_, p := mux.Handler(httptest.NewRequest("GET", "/v1/proxyd_routes/a/b", nil))
+	if !strings.Contains(p, "...") {
+		t.Fatalf("proxyd_routes no longer mounts a multi-segment wildcard (got %q) — nothing to exercise", p)
+	}
+	rec := &recorder{}
+	AssertServesNoneOf(rec, "probe", []string{"proxyd_routes"}, mux)
+	if len(rec.errs) == 0 {
+		t.Fatal("a foreign {path...} mount was not reported — the {path} rendering is excusing a real collision")
 	}
 }
 

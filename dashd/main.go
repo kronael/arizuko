@@ -497,7 +497,7 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	// the htmx asset is a static file. Guarding any of these breaks the
 	// healthcheck or the unauthenticated doc/asset surface.
 	mux.HandleFunc("GET /health", d.handleHealth)
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("dashd", []string{}))
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("dashd", mux))
 	mux.HandleFunc("GET /dash/assets/htmx.min.js", handleHtmxAsset)
 
 	// Everything below is operator UI / mutations — every handler reads the

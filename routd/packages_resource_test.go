@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +23,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
-	"github.com/kronael/arizuko/resreg"
 )
 
 // ttsdRecord is the seeded installed-package row every test below reads back.
@@ -264,13 +262,7 @@ func TestInstalledPackagesREST_OwnSubtreeGrantDenied(t *testing.T) {
 // routd's /openapi.json must advertise it. Mounted-but-undocumented is how a
 // resource stays invisible to every operator tool.
 func TestInstalledPackagesInRoutdOpenAPI(t *testing.T) {
-	if !slices.Contains(OpenAPIResources, "installed_packages") {
-		t.Fatal("installed_packages is mounted by Handler but absent from OpenAPIResources")
-	}
-	b, err := resreg.OpenAPI("routd", "/", OpenAPIResources)
-	if err != nil {
-		t.Fatalf("OpenAPI: %v", err)
-	}
+	b := routdDoc(t)
 	var doc struct {
 		Paths map[string]map[string]any `json:"paths"`
 	}

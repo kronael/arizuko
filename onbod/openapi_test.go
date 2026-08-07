@@ -8,11 +8,9 @@ import (
 	"github.com/kronael/arizuko/resreg/resregtest"
 )
 
-// TestOnbodOpenAPI_AdvertisesOnlyWhatItMounts is the F21/F27/F32 class guard
-// applied to onbod. Both arguments are the PRODUCTION values —
-// onbodOpenAPIResources is the list the daemon hands OpenAPIHandler and
-// newOnbodMux is the routing table it serves — so the test cannot pass by
-// agreeing with a copy of itself (BUGS F40).
+// TestOnbodOpenAPI_AdvertisesOnlyWhatItMounts pins onbod's whole documented
+// surface. Since BUGS F33 the document is DERIVED from newOnbodMux, so this is
+// the truth about what onbod serves, frozen.
 //
 // nil ks is the local-dev branch of stripUnsignedGuard, which changes no
 // route; the probe never invokes a handler, it reads the pattern mux.Handler
@@ -21,13 +19,21 @@ func TestOnbodOpenAPI_AdvertisesOnlyWhatItMounts(t *testing.T) {
 	db := testDB(t)
 	mux := newOnbodMux(db, db, config{}, nil)
 
-	// Half 1 — the class guard. n == 0 would mean the emitter produced nothing
-	// and every assertion below was skipped; onbod advertises three resources.
-	if n := resregtest.AssertServesWhatItAdvertises(t, "onbod", onbodOpenAPIResources, mux); n == 0 {
-		t.Fatal("onbod advertises no operation — the guard checked nothing")
-	}
+	resregtest.AssertAdvertises(t, "onbod", mux, []string{
+		"DELETE /v1/gates/{gate}",
+		"DELETE /v1/invites/{ref}",
+		"DELETE /v1/onboarding/{jid}",
+		"GET /v1/gates",
+		"GET /v1/invites",
+		"GET /v1/onboarding",
+		"POST /v1/invites",
+		"POST /v1/onboarding",
+		"POST /v1/onboarding/{jid}/approve",
+		"POST /v1/onboarding/{jid}/reprompt",
+		"PUT /v1/gates/{gate}",
+	})
 
-	// Half 2 — the ownership anchor. proxyd owns proxyd_routes and routd owns
+	// The ownership anchor. proxyd owns proxyd_routes and routd owns
 	// scheduled_tasks; onbod must mount neither.
 	resregtest.AssertServesNoneOf(t, "onbod", []string{"proxyd_routes", "scheduled_tasks"}, mux)
 }

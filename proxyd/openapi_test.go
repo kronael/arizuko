@@ -8,23 +8,26 @@ import (
 	"github.com/kronael/arizuko/resreg/resregtest"
 )
 
-// TestProxydOpenAPI_AdvertisesOnlyWhatItMounts is the F21/F27/F32 class guard
-// applied to proxyd. Both arguments are the PRODUCTION values —
-// proxydOpenAPIResources is the list the daemon hands OpenAPIHandler and
-// server.mux is the routing table it serves — so the test cannot pass by
-// agreeing with a copy of itself (BUGS F40).
+// TestProxydOpenAPI_AdvertisesOnlyWhatItMounts pins proxyd's whole documented
+// surface. server.mux is the PRODUCTION routing table, and since BUGS F33 it is
+// the only input to the document, so what this freezes is what proxyd serves.
 func TestProxydOpenAPI_AdvertisesOnlyWhatItMounts(t *testing.T) {
 	s, up := testRouteServer(t, nil, "testsecret")
 	defer up.Close()
 	mux := s.mux()
 
-	// Half 1 — the class guard. n == 0 would mean the emitter produced nothing
-	// and every assertion below was skipped; proxyd advertises proxyd_routes.
-	if n := resregtest.AssertServesWhatItAdvertises(t, "proxyd", proxydOpenAPIResources, mux); n == 0 {
-		t.Fatal("proxyd advertises no operation — the guard checked nothing")
-	}
+	// proxyd mounts a `/` catch-all, so every path resolves to a handler. The
+	// derived set staying exactly these five is the proof the catch-all is not
+	// being read as a mount (see TestProxydCatchAllDoesNotSatisfyTheGuard).
+	resregtest.AssertAdvertises(t, "proxyd", mux, []string{
+		"DELETE /v1/proxyd_routes/{path}",
+		"GET /v1/proxyd_routes",
+		"GET /v1/proxyd_routes/{path}",
+		"PATCH /v1/proxyd_routes/{path}",
+		"POST /v1/proxyd_routes",
+	})
 
-	// Half 2 — the ownership anchor. routd owns `routes`, the wire identity
+	// The ownership anchor. routd owns `routes`, the wire identity
 	// proxyd's live resource once drifted onto (root CLAUDE.md, 2026-07-01);
 	// onbod owns onboarding. proxyd must mount neither.
 	resregtest.AssertServesNoneOf(t, "proxyd", []string{"routes", "onboarding"}, mux)

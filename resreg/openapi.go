@@ -10,57 +10,50 @@ package resreg
 // Subsumes spec 5/4 (`openapi-discoverable`): no `huma`, no `swag`, no
 // codegen — `encoding/json` + `reflect` + the existing per-resource
 // catalog. Schemas can't drift — both handler and doc read the same
-// struct. Paths can't drift either: when a resource declares its real
-// mounted faces in `Endpoints` (the same slice RegisterREST mounts), the
-// doc emits exactly those verbs+paths. A resource with no Endpoints
-// (engine-managed CRUD tables) falls back to the 5/8 PK-CRUD convention.
+// struct. Paths can't drift either, and for a stronger reason: the
+// advertised set is READ OFF THE MUX (MountedResources), so a daemon
+// documents exactly the faces RegisterREST put on its routing table and
+// has no way to name anything else. Before BUGS F33 each daemon handed
+// OpenAPIHandler a list of resource names with no reference to its mux,
+// which is the cause under every drift found: F21 (scheduled_tasks),
+// F27 (acl, groups), F32 (timed), network_rules, and the inverse case
+// of route_tokens/resolve mounted but never advertised.
 
 import (
 	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 )
 
-// OpenAPI walks the registry and emits an OpenAPI 3.1 JSON document.
+// OpenAPI emits an OpenAPI 3.1 JSON document for rs.
 //
 //   - daemon       title + identifier in `info.title`
 //   - baseURL      single entry in `servers[]` (use "/" for relative)
-//   - resources    nil = include every registered resource with a RowType;
-//     non-nil = include only the named resources (in the
-//     order given). Resources not in the registry are skipped.
+//   - rs           the resources to document, each already trimmed to the
+//     endpoints it serves. Production callers get this from
+//     MountedResources(mux) via OpenAPIHandler and never
+//     assemble it by hand — that hand-assembly WAS BUGS F33.
 //
 // The document is deterministic: components/schemas + paths keys are
 // emitted via the same map-key sort `encoding/json` applies. Resources
 // without `RowType` (forwarders, MCP-only) contribute nothing.
 //
-// A resource that declares `Endpoints` emits exactly those (one operation
-// per endpoint — its real mounted verb+path). A resource with no Endpoints
-// falls back to the PK-CRUD convention from spec 5/5 + 5/8:
-//
-//	GET    /v1/<name>                 → list (200: array<Schema>)
-//	POST   /v1/<name>                 → create (201: Schema)
-//	GET    /v1/<name>/{pk...}         → get (200: Schema)
-//	PATCH  /v1/<name>/{pk...}         → update (200: Schema)
-//	DELETE /v1/<name>/{pk...}         → delete (204)
-//
-// The PK URL segment concatenates each `pk:` field's `db:` column with
-// dashes (`/v1/routes/{seq}-{match}-{target}`). Composite PKs collapse
-// into one URL parameter named after the first PK field — descriptions
-// flag the encoding so clients know to URL-encode separators.
+// One operation per Endpoint — its real mounted verb+path.
 //
 // Standard error responses (400, 401, 403, 404, 409, 500) are referenced
 // from `components.responses` so per-path bloat stays small.
-func OpenAPI(daemon, baseURL string, resources []string) ([]byte, error) {
+func OpenAPI(daemon, baseURL string, rs []*Resource) ([]byte, error) {
 	if baseURL == "" {
 		baseURL = "/"
 	}
-	rs := selectResources(resources)
 
 	schemas := map[string]any{}
 	paths := map[string]any{}
@@ -98,26 +91,67 @@ func OpenAPI(daemon, baseURL string, resources []string) ([]byte, error) {
 	return marshalDeterministic(doc)
 }
 
-// selectResources picks resources by name (when names is non-nil) or
-// every resource (when names is nil), preserving registration order in
-// the "all" case so output stays stable across runs.
-func selectResources(names []string) []*Resource {
-	all := All()
-	if names == nil {
-		return all
+// MountedResources returns the registry resources mux ACTUALLY serves, each
+// copied down to just the endpoints RegisterREST mounted on it. This is the
+// advertised set: a daemon can no longer name what it documents, so it can no
+// longer name something it does not serve.
+//
+// Derivation is by mount IDENTITY, not by path. Asking only "does something
+// answer here?" would be a new lie in place of the old one — proxyd's `/`
+// catch-all answers every probe, and routd and runed both hand-roll a
+// GET /v1/sessions over tables that are not authd's sessions resource. Both
+// drop out here because neither is a *restMount carrying this resource+action.
+//
+// Registration order is preserved so output stays stable across runs.
+func MountedResources(mux *http.ServeMux) []*Resource {
+	if mux == nil {
+		return nil
 	}
-	byName := make(map[string]*Resource, len(all))
-	for _, r := range all {
-		byName[r.Name] = r
-	}
-	out := make([]*Resource, 0, len(names))
-	for _, n := range names {
-		if r := byName[n]; r != nil {
-			out = append(out, r)
+	var out []*Resource
+	for _, r := range All() {
+		var served []Endpoint
+		for _, e := range r.Endpoints {
+			if e.MCPOnly {
+				continue
+			}
+			if serves(mux, r.Name, e) {
+				served = append(served, e)
+			}
 		}
+		if len(served) == 0 {
+			continue
+		}
+		c := *r
+		c.Endpoints = served
+		out = append(out, &c)
 	}
 	return out
 }
+
+// serves reports whether mux routes e to the mount RegisterREST made for
+// resource. Every field is compared because each one is a drift shape seen in
+// the wild: a different Path is a re-path, a different Verb or Action is a
+// look-alike face, and a non-*restMount is a hand-rolled or catch-all mount.
+func serves(mux *http.ServeMux, resource string, e Endpoint) bool {
+	h, _ := mux.Handler(&http.Request{
+		Method: e.Verb,
+		Host:   "openapi.invalid",
+		URL:    &url.URL{Path: ConcretePath(e.Path)},
+	})
+	m, ok := h.(*restMount)
+	return ok && m.resource == resource && m.endpoint.Verb == e.Verb &&
+		m.endpoint.Path == e.Path && m.endpoint.Action == e.Action
+}
+
+// pathPlaceholder matches a stdlib-mux wildcard segment, e.g. {taskId} or
+// {path...}.
+var pathPlaceholder = regexp.MustCompile(`\{[^}]+\}`)
+
+// ConcretePath substitutes every {placeholder} in a mux pattern with a literal
+// so the pattern can be looked up as a request path. "x" cannot collide with a
+// sibling literal route (/v1/tasks/due, /v1/routing/resolve, …) that a daemon
+// registers by hand.
+func ConcretePath(p string) string { return pathPlaceholder.ReplaceAllString(p, "x") }
 
 // rowSchema reflects a RowType into an OpenAPI 3.1 schema object.
 // `json:` tags drive property names; Go kinds → JSON Schema types via
@@ -534,15 +568,21 @@ func marshalDeterministic(v any) ([]byte, error) {
 	return json.MarshalIndent(v, "", "  ")
 }
 
-// OpenAPIHandler returns an http.HandlerFunc serving the OpenAPI spec
-// for the given daemon + resources at relative baseURL "/". Lazy-builds
-// the JSON on first hit and caches it for the process lifetime;
-// reflection is one-time, steady-state requests are byte-copies.
+// OpenAPIHandler returns an http.HandlerFunc serving the OpenAPI spec for
+// whatever mux serves, at relative baseURL "/". The mux is the ONLY input
+// besides the daemon name: there is no resource list to keep in step, which is
+// what makes advertised-vs-mounted drift unrepresentable rather than merely
+// tested for (BUGS F33).
+//
+// The document is built on FIRST REQUEST, not at construction, so this may be
+// mounted on the same mux it documents — every other mount is in place by the
+// time anyone asks. It is then cached for the process lifetime; reflection and
+// route resolution are one-time, steady-state requests are byte-copies.
 //
 // Endpoint is public per spec 5/8 §"OpenAPI emission" — schemas
 // describe API surface, not data. Mount BEFORE any auth middleware so
 // `/openapi.json` is reachable without credentials.
-func OpenAPIHandler(daemon string, resources []string) http.HandlerFunc {
+func OpenAPIHandler(daemon string, mux *http.ServeMux) http.HandlerFunc {
 	var (
 		mu     sync.Mutex
 		cached []byte
@@ -550,7 +590,7 @@ func OpenAPIHandler(daemon string, resources []string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
 		if cached == nil {
-			spec, err := OpenAPI(daemon, "/", resources)
+			spec, err := OpenAPI(daemon, "/", MountedResources(mux))
 			if err != nil {
 				mu.Unlock()
 				http.Error(w, err.Error(), http.StatusInternalServerError)

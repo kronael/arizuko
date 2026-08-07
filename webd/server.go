@@ -87,7 +87,7 @@ func (s *server) handler() http.Handler {
 	// webd hosts the chat widget + MCP forwarder; routes resource is
 	// forwarded to proxyd, no owned cold-tier resources. Doc lists the
 	// public surface only.
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("webd", []string{}))
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("webd", mux))
 
 	// Route tokens (spec 5/W). Two URL prefixes share one set of
 	// handlers; kind metadata is for the agent, not a URL gate. Both

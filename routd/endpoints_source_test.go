@@ -91,6 +91,25 @@ func TestResourceEndpoints_SingleSource(t *testing.T) {
 	}
 }
 
+// routdDoc emits the /openapi.json routd actually serves: the document derived
+// from the mux Handler builds, byte-identical to what the daemon returns. Tests
+// asserting "the doc advertises X" must read THIS, never a resource list they
+// assemble themselves — a doc built from a hand-picked list proves only that
+// the emitter works on that list (BUGS F33).
+func routdDoc(t *testing.T) []byte {
+	t.Helper()
+	srv := testServer(t)
+	mux, ok := srv.Handler().(*http.ServeMux)
+	if !ok {
+		t.Fatalf("Server.Handler() is %T, not *http.ServeMux", srv.Handler())
+	}
+	raw, err := resreg.OpenAPI("routd", "/", resreg.MountedResources(mux))
+	if err != nil {
+		t.Fatalf("OpenAPI: %v", err)
+	}
+	return raw
+}
+
 // TestRoutdResources_CoverAdvertised keeps routdResources honest: every resource
 // routd's /openapi.json advertises must be probed by the mux guard below.
 // Without this, dropping a row from routdResources would silently exempt a
@@ -100,10 +119,19 @@ func TestRoutdResources_CoverAdvertised(t *testing.T) {
 	for _, r := range routdResources(testServer(t)) {
 		covered = append(covered, r.Name)
 	}
-	for _, name := range OpenAPIResources {
-		if !slices.Contains(covered, name) {
-			t.Errorf("OpenAPIResources advertises %q but routdResources does not cover it — "+
-				"its mounted endpoints are unguarded", name)
+	srv := testServer(t)
+	mux, ok := srv.Handler().(*http.ServeMux)
+	if !ok {
+		t.Fatalf("Server.Handler() is %T, not *http.ServeMux", srv.Handler())
+	}
+	advertised := resreg.MountedResources(mux)
+	if len(advertised) == 0 {
+		t.Fatal("routd's mux advertises no resource — this guard has nothing to check")
+	}
+	for _, r := range advertised {
+		if !slices.Contains(covered, r.Name) {
+			t.Errorf("routd's /openapi.json advertises %q but routdResources does not cover it — "+
+				"its mounted endpoints are unguarded", r.Name)
 		}
 	}
 }
@@ -178,9 +206,35 @@ func TestOpenAPI_EveryAdvertisedPathIsMounted(t *testing.T) {
 	if !ok {
 		t.Fatalf("Server.Handler() is %T, not *http.ServeMux", srv.Handler())
 	}
-	if n := resregtest.AssertServesWhatItAdvertises(t, "routd", OpenAPIResources, mux); n == 0 {
-		t.Fatal("emitted doc advertises no operation at all — this guard would pass vacuously")
-	}
+	// routd hand-rolls GET /v1/sessions (core.SessionRecord) and a dozen other
+	// /v1/* reads with plain mux.HandleFunc. None may appear: only a
+	// RegisterREST mount is a documented resource face (BUGS F33).
+	resregtest.AssertAdvertises(t, "routd", mux, []string{
+		"DELETE /v1/acl",
+		"DELETE /v1/acl_membership",
+		"DELETE /v1/route_tokens/{jid}",
+		"DELETE /v1/routes/{id}",
+		"DELETE /v1/secrets/{key}",
+		"DELETE /v1/tasks/{taskId}",
+		"DELETE /v1/web_routes",
+		"GET /v1/audit",
+		"GET /v1/groups",
+		"GET /v1/installed_packages",
+		"GET /v1/installed_packages/{name}",
+		"GET /v1/route_tokens",
+		"GET /v1/routes",
+		"GET /v1/tasks",
+		"GET /v1/tasks/{taskId}",
+		"GET /v1/web_routes",
+		"PATCH /v1/tasks/{taskId}",
+		"POST /v1/acl",
+		"POST /v1/route_tokens/chat",
+		"POST /v1/route_tokens/hook",
+		"POST /v1/routes",
+		"POST /v1/secrets",
+		"PUT /v1/routes",
+		"PUT /v1/web_routes",
+	})
 }
 
 // TestRoutdMux_ServesNoForeignResource is the ownership half: routd must not
@@ -242,13 +296,7 @@ func TestRouteTokens_NoHandRolledResolve(t *testing.T) {
 // MCPDoc entry. Before F21 the resource was absent from OpenAPIResources
 // entirely, so /v1/tasks* worked but no generated client could find it.
 func TestOpenAPI_ScheduledTasksAdvertised(t *testing.T) {
-	if !slices.Contains(OpenAPIResources, "scheduled_tasks") {
-		t.Fatalf("OpenAPIResources = %v, want scheduled_tasks advertised", OpenAPIResources)
-	}
-	raw, err := resreg.OpenAPI("routd", "/", OpenAPIResources)
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := routdDoc(t)
 	// A path item mixes method keys with a "parameters" array, so decode the
 	// operations lazily and only for the verb under test.
 	var doc struct {

@@ -23,23 +23,21 @@ func testServer(t *testing.T) *runed.Server {
 	return runed.NewServer(nil, db, nil)
 }
 
-// TestRunedOpenAPI_AdvertisesOnlyWhatItMounts is the F21/F27/F32 class guard
-// applied to runed. Both arguments are the PRODUCTION values —
-// runedOpenAPIResources is the list the running daemon hands OpenAPIHandler and
-// newRunedMux is the routing table it serves — so the test cannot pass by
-// agreeing with a copy of itself (BUGS F40).
-//
+// TestRunedOpenAPI_AdvertisesOnlyWhatItMounts pins runed's whole documented
+// surface. newRunedMux is the PRODUCTION routing table, and since BUGS F33 it
+// is the only input to the document, so what this freezes is what runed serves.
 func TestRunedOpenAPI_AdvertisesOnlyWhatItMounts(t *testing.T) {
 	mux := newRunedMux(testServer(t))
 
-	// Half 1 — the class guard. n == 0 would mean the emitter produced nothing
-	// and every assertion below was skipped; runed advertises `audit`, so a zero
-	// here is the vacuity the guard exists to prevent.
-	if n := resregtest.AssertServesWhatItAdvertises(t, "runed", runedOpenAPIResources, mux); n == 0 {
-		t.Fatal("runed advertises no operation — the guard checked nothing")
-	}
+	// runed hand-rolls GET /v1/sessions and GET /v1/sessions/recent over
+	// session_log. Neither may appear here: authd's `sessions` resource is a
+	// different table behind the same path, and only a RegisterREST mount of
+	// that resource documents it (BUGS F33/F46).
+	resregtest.AssertAdvertises(t, "runed", mux, []string{
+		"GET /v1/audit",
+	})
 
-	// Half 2 — the ownership anchor. proxyd owns proxyd_routes and onbod owns
+	// The ownership anchor. proxyd owns proxyd_routes and onbod owns
 	// onboarding; runed must mount neither.
 	resregtest.AssertServesNoneOf(t, "runed", []string{"proxyd_routes", "onboarding"}, mux)
 }

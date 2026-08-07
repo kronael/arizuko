@@ -197,17 +197,6 @@ type server struct {
 	secureCookies  bool              // mark refresh cookies Secure (https deployment)
 }
 
-// authdOpenAPIResources names the resources authd's /openapi.json advertises.
-// authd's token endpoints are hand-rolled and carry no resreg RowType, so they
-// stay out of the doc; these three are the resources it registers, and
-// advertising them is what makes the reads discoverable (BUGS F29, F15).
-//
-// mux is the routing table this list is checked against; keep them together so
-// a resource added here without a mount fails openapi_test.go. The list had a
-// hand-copy in signing_keys_resource_test.go — a closed loop that emitted from
-// the copy and asserted against it, proving nothing (BUGS F40).
-var authdOpenAPIResources = []string{"audit", "signing_keys", "sessions"}
-
 // mux builds authd's COMPLETE served surface — including /openapi.json,
 // /auth/* and /metrics, which main used to register afterwards. A constructor
 // that stops short of the real surface is the blind spot the doc-vs-mux guard
@@ -235,7 +224,7 @@ func (s *server) mux(cfg *core.Config) *http.ServeMux {
 		s.secureCookies = strings.HasPrefix(auth.AuthBaseURL(cfg), "https://")
 		s.registerOAuth(m, cfg)
 	}
-	m.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("authd", authdOpenAPIResources))
+	m.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("authd", m))
 	if obs.MetricsEnabled() {
 		m.Handle("GET /metrics", obs.MetricsHandler())
 	}

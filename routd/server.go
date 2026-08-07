@@ -234,30 +234,6 @@ func (s *Server) recentSessions(folder string, n int) []core.SessionRecord {
 	return s.sessions.RecentSessions(folder, n)
 }
 
-// OpenAPIResources names the resources routd's /openapi.json advertises. It sits
-// beside Handler (which mounts them) rather than in cmd/routd, so a test can
-// assert the doc matches what is actually served — it once could not, and a
-// resource mounted here but absent there was invisible to every operator tool.
-//
-// List ONLY resources routd actually serves over REST, so /openapi.json can't
-// advertise phantom 404 endpoints. Every advertised resource declares its
-// agent-only actions MCPOnly, so emission and mounting read one slice and no
-// phantom verb can appear: route_tokens' issue_pair, scheduled_tasks' schedule/
-// pause/resume, acl's list, groups' register. installed_packages declares only
-// its two GETs (spec 5/28: install/upgrade/remove is the CLI, not a row write).
-// secrets declares explicit write-only Endpoints (POST create + key-DELETE, no
-// read), so OpenAPI emits exactly those — a sealed value can't leak through a
-// convention GET (spec 5/8 §"Secret safety"). scheduled_tasks' four REST faces
-// live on /v1/tasks (see resources.ScheduledTasksEndpoints for why the path is
-// not /v1/<name>).
-//
-// Still omitted: acl_membership (dashd-FS-managed) and network_rules (all three
-// actions MCPOnly, so it has no REST face to advertise).
-var OpenAPIResources = []string{
-	"routes", "web_routes", "acl", "secrets", "route_tokens", "installed_packages",
-	"scheduled_tasks", "groups", "audit",
-}
-
 // Handler builds the routed mux. GET /health and /openapi.json are public;
 // everything else is bearer-gated by the Verifier.
 func (s *Server) Handler() http.Handler {

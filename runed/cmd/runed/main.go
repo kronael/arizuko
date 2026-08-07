@@ -26,18 +26,6 @@ import (
 	"github.com/kronael/arizuko/types"
 )
 
-// runedOpenAPIResources names the resources runed's /openapi.json advertises.
-// runed owns no manifest-addressable CONFIG rows (spec 5/8 catalog): its tables
-// are runtime (spawns / session_log). `audit` is the exception and not a
-// counter-example — it is not manifest-addressable either (its catalog decl
-// carries no DB subsystem, so Export/Apply never see it), it is simply the one
-// runtime table runed publishes a read for. Advertising it is what makes
-// GET /v1/audit discoverable rather than folklore.
-//
-// newRunedMux is the mux this list is checked against; keep them together so a
-// resource added here without a mount fails openapi_test.go.
-var runedOpenAPIResources = []string{"audit"}
-
 // newRunedMux builds runed's complete HTTP surface: the Server's routed mux
 // plus the two mounts main used to add inline. Extracted so a test can probe
 // the routing table runed actually builds — the doc-vs-mux guard has to compare
@@ -45,7 +33,7 @@ var runedOpenAPIResources = []string{"audit"}
 // unreachable (BUGS F40).
 func newRunedMux(srv *runed.Server) *http.ServeMux {
 	mux := srv.Handler().(*http.ServeMux)
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("runed", runedOpenAPIResources))
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("runed", mux))
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
 	}

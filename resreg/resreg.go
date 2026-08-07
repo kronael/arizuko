@@ -334,14 +334,40 @@ type CallerFromMCPFunc func(ctx context.Context, req mcp.CallToolRequest) (Calle
 
 // RegisterREST mounts every endpoint of r on mux. build derives the
 // surface-specific Caller from each request.
+//
+// Each face is mounted as a *restMount stamped with the (resource, endpoint)
+// it serves, so MountedResources can read a daemon's REST surface off the
+// routing table it actually built. That identity is the whole fix for BUGS
+// F33: OpenAPIHandler used to take a hand-passed name list with no reference
+// to the mux, which is what let a daemon advertise paths it mounts nowhere
+// (F21/F27/F32) and mount paths it never advertised.
 func RegisterREST(mux *http.ServeMux, r Resource, build CallerFromHTTPFunc) {
 	for _, e := range r.Endpoints {
 		if e.MCPOnly {
 			continue
 		}
-		mux.Handle(e.Verb+" "+e.Path, restHandler(r, build, e))
+		mux.Handle(e.Verb+" "+e.Path, &restMount{
+			resource: r.Name,
+			endpoint: e,
+			h:        restHandler(r, build, e),
+		})
 	}
 }
+
+// restMount is the mount identity RegisterREST stamps on every REST face. A
+// hand-rolled mux.HandleFunc is not one, which is what lets the doc tell
+// resource faces from look-alike paths: THREE daemons serve GET /v1/sessions
+// over three different tables — authd's refresh-token families (the resreg
+// resource), runed's session_log and routd's core.SessionRecord — so deriving
+// the advertised set by probing paths would make routd and runed publish
+// authd's schema (BUGS F46, filed as two daemons; it is three).
+type restMount struct {
+	resource string
+	endpoint Endpoint
+	h        http.Handler
+}
+
+func (m *restMount) ServeHTTP(w http.ResponseWriter, r *http.Request) { m.h.ServeHTTP(w, r) }
 
 func restHandler(r Resource, build CallerFromHTTPFunc, e Endpoint) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

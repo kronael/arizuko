@@ -9,14 +9,16 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/resreg/resregtest"
 )
 
-// routdOpenAPI renders the document for this one resource. Whether ROUTD's doc
-// selects it is routd's own assertion (routd.OpenAPIResources, tested there);
-// here we check the catalog decl emits a correct and read-only surface at all.
+// routdOpenAPI renders the document for this one resource, mounted through the
+// real RegisterREST. Whether ROUTD's doc carries it is routd's own assertion
+// (resregtest.AssertAdvertises against routd's mux, tested there); here we check
+// the catalog decl emits a correct and read-only surface at all.
 func routdOpenAPI(t *testing.T) map[string]any {
 	t.Helper()
-	b, err := resreg.OpenAPI("routd", "/", []string{"installed_packages"})
+	b, err := resreg.OpenAPI("routd", "/", resregtest.Mounted("installed_packages"))
 	if err != nil {
 		t.Fatalf("OpenAPI: %v", err)
 	}

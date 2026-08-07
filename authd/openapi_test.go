@@ -20,22 +20,27 @@ func testMux(t *testing.T, cfg *core.Config) *http.ServeMux {
 	return (&server{a: a}).mux(cfg)
 }
 
-// TestAuthdOpenAPI_AdvertisesOnlyWhatItMounts is the F21/F27/F32 class guard
-// applied to authd. Both arguments are the PRODUCTION values —
-// authdOpenAPIResources is the list the daemon hands OpenAPIHandler and
-// server.mux is the routing table it serves — so the test cannot pass by
-// agreeing with a copy of itself (BUGS F40).
+// TestAuthdOpenAPI_AdvertisesOnlyWhatItMounts pins authd's whole documented
+// surface. Since BUGS F33 the document is DERIVED from server.mux, so this is
+// the truth about what authd serves, frozen: mounting or unmounting a REST
+// face fails here until someone states the new surface.
+//
+// GET /v1/sessions is the one to read twice. THREE daemons serve that path —
+// runed over session_log, routd over core.SessionRecord — and only authd
+// serves it as the resreg `sessions` resource, through RegisterREST. It
+// belongs in authd's document and in no other daemon's.
 func TestAuthdOpenAPI_AdvertisesOnlyWhatItMounts(t *testing.T) {
 	mux := testMux(t, nil)
 
-	// Half 1 — the class guard. n == 0 would mean the emitter produced nothing
-	// and every assertion below was skipped; authd advertises three resources.
-	if n := resregtest.AssertServesWhatItAdvertises(t, "authd", authdOpenAPIResources, mux); n == 0 {
-		t.Fatal("authd advertises no operation — the guard checked nothing")
-	}
+	resregtest.AssertAdvertises(t, "authd", mux, []string{
+		"DELETE /v1/sessions/{family_id}",
+		"GET /v1/audit",
+		"GET /v1/sessions",
+		"GET /v1/signing_keys",
+	})
 
-	// Half 2 — the ownership anchor. proxyd owns proxyd_routes and onbod owns
-	// onboarding; authd must mount neither.
+	// The ownership anchor, and the half F33 did NOT subsume: proxyd owns
+	// proxyd_routes and onbod owns onboarding; authd must mount neither.
 	resregtest.AssertServesNoneOf(t, "authd", []string{"proxyd_routes", "onboarding"}, mux)
 }
 

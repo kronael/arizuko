@@ -14,17 +14,16 @@ import (
 // `package main`, so nothing can import it — the assertion is single-sourced in
 // resreg/resregtest and called from here with timed's real mux and real list.
 //
-// Two halves, because the first alone would be VACUOUS while
-// timedOpenAPIResources is empty — zero advertised paths means zero assertions.
-// The second half is the anchor: it renders the resource F32 wrongly named and
-// pins that timed serves none of it, and it t.Fatals if that renders nothing.
+// Two halves, because the first alone would be VACUOUS while timed mounts no
+// resource — zero advertised paths means zero assertions. The second half is
+// the anchor: it renders the resource F32 wrongly named and pins that timed
+// serves none of it, and it t.Fatals if that renders nothing.
 func TestTimedOpenAPI_AdvertisesOnlyWhatItMounts(t *testing.T) {
 	mux := newTimedMux(&dashServer{})
 
-	// Half 1 — the class guard. Everything timed advertises must resolve on the
-	// mux timed builds. Fires the moment a resource is added to the list without
-	// a matching mount.
-	resregtest.AssertServesWhatItAdvertises(t, "timed", timedOpenAPIResources, mux)
+	// Half 1 — timed mounts no resreg resource, so it must document none. Since
+	// F33 that is derived from the mux rather than asserted by an empty list.
+	resregtest.AssertAdvertises(t, "timed", mux, nil)
 
 	// Half 2 — the anchor, and the F32 regression itself. scheduled_tasks is
 	// routd's; timed only CALLS it. Emitting it here is what advertised four
