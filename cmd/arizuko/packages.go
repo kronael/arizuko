@@ -709,6 +709,32 @@ func relinkCatalog(dataDir string) {
 	}
 }
 
+// migrateStoreLayout moves an instance's owner DBs into store/<owner>/ and
+// creates the directories compose binds there, then chowns store/ to the
+// container uid — docker materialises a missing bind source as ROOT and every
+// daemon runs as uid 1000. Runs on every generate, like relinkCatalog and for
+// the same reason: systemd invokes `arizuko generate` after `compose down` and
+// before `up`, the one moment the whole tree is in one process's hands with no
+// daemon holding a DB open. A daemon could not do this for itself — the
+// narrowing is exactly what takes the flat path out of its own mount.
+//
+// A failure is fatal, and that is the point: the compose written next binds
+// store/<owner> and points DB_PATH/ONBOD_DB_PATH/ROUTD_DB_PATH/RUNED_DB_PATH
+// inside it, while every owner daemon refuses to boot on a missing file
+// (db_utils.RequireDBFile). Generating that against a tree still flat turns a
+// deploy into a fleet outage.
+func migrateStoreLayout(dataDir string) {
+	storeDir := filepath.Join(dataDir, "store")
+	moved, err := compose.MigrateStoreLayout(storeDir)
+	if err != nil {
+		die("Failed: %v", err)
+	}
+	chownStore(storeDir)
+	for _, p := range moved {
+		fmt.Printf("store: moved %s into its owner directory\n", p)
+	}
+}
+
 // writeFileAtomic writes b to path via a temp file + rename, so a failure mid
 // operation never leaves a truncated fragment behind.
 func writeFileAtomic(path string, b []byte) error {

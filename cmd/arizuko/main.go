@@ -152,6 +152,9 @@ func generateCompose(dataDir string) string {
 	// retired env var) reaches this instance on every generate/deploy — no
 	// operator step, no flag to remember (BUGS R1).
 	relinkCatalog(dataDir)
+	// Same reasoning, same place, for the store/<owner>/ layout the compose
+	// below binds: put the tree in it BEFORE writing the file that assumes it.
+	migrateStoreLayout(dataDir)
 	yml, err := compose.Generate(dataDir)
 	if err != nil {
 		die("Failed: %v", err)
