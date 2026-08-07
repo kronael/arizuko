@@ -16,6 +16,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **A group can now be built from several products at once, not one (spec
+  `5/28`).** `~/products.toml` declares an ordered mix — `[[product]]` blocks
+  with a `source` — and `arizuko products <inst> apply <folder>` blends them.
+  Blending is per PAYLOAD KIND, never a content merge, because two products
+  share no merge base: `skills/` union with the last provider winning wholesale,
+  `PERSONA.md` first-wins, `CLAUDE.md` one marked region per product so operator
+  text between regions is never touched, `facts/`/`tasks.toml`/`migrations/`
+  union and REFUSE a filename collision, `mcpServers` map-union and refuse a
+  name collision, at most one `Dockerfile.ant` — and **anything the table does
+  not name is copied whole, first provider wins**, which is what keeps every
+  product's `PRODUCT.md` and `BRANDING.md` from being dropped by a table-strict
+  blend. Identity and knowledge seed once and become the group's own state;
+  skills and `mcpServers` stay upstream-managed but a file edited since the last
+  apply is reported and skipped, never clobbered. Each product gets its own
+  `installed_packages` row under `(folder, name)` — the first non-empty folder
+  the record has ever carried — so `packages sync` re-applies group mixes
+  alongside instance packages. `arizuko create --product` is unchanged: one
+  product, verbatim.
+
 - **Passing the admission queue can now get you a workspace, where the operator
   configured a gate (spec `5/18` step 8; BUGS `F42`).** The queue would admit
   you and then send you away: the "pick a username" page rendered only for

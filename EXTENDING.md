@@ -190,11 +190,46 @@ arizuko packages krons remove  pkg                   # withdraws routes, then dr
 ```
 
 Each install records an **installed-package record** in `routd.db` (source +
-resolved revision + owned identities + per-asset content hash). That record
-drives `upgrade` (dirty-detection — never overwrites a locally edited asset),
-`remove` (deletes exactly the identities it owns), and reproducibility. A
-group seed is not a package asset — that is create-time
-`arizuko create --product` / a `5/21` product, not an instance-wide install.
+resolved revision + owned identities + per-asset content hash), keyed
+`(folder, name)` with `''` meaning instance-wide. That record drives `upgrade`
+(dirty-detection — never overwrites a locally edited asset), `remove` (deletes
+exactly the identities it owns), and reproducibility.
+
+## Blending several products into one group
+
+A group is not limited to one product. Write `groups/<folder>/products.toml`
+(the agent sees it as `~/products.toml`) with one block per product, in the
+order they blend, then apply it:
+
+```toml
+[[product]]
+source = "ant/examples/support"     # relative → joined to HOST_APP_DIR
+
+[[product]]
+source = "github.com/org/our-brand" # git → shallow-cloned, pinned to HEAD
+```
+
+```bash
+arizuko products krons apply main
+```
+
+Blending is per PAYLOAD KIND, never a content merge (two products share no
+merge base). `skills/` union by name with the last product winning wholesale;
+`PERSONA.md`/`SOUL.md` first-provider-wins; `CLAUDE.md` becomes one marked
+region per product (`<!-- arizuko:package:<name> BEGIN/END -->`) so operator
+text between regions is never touched; `facts/`, `tasks.toml` and
+`migrations/` union and REFUSE a filename collision; `.claude/settings.json`
+`mcpServers` map-union and refuse a name collision; at most one
+`Dockerfile.ant`; **anything else is copied whole, first provider wins**.
+
+Identity and knowledge seed once and become the group's own state — re-applying
+never rewrites them. Skills and `mcpServers` stay upstream-managed: re-apply
+takes a new revision, but a file edited since the last apply is reported and
+skipped, never clobbered. `arizuko packages <inst> sync` re-applies every
+group's mix alongside the instance's packages. Full table: spec `5/28`.
+
+`arizuko create --product` / `group add --product` still take exactly one
+product and copy it verbatim — a single template, not a mix.
 
 ## Adding a channel adapter
 
