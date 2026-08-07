@@ -97,14 +97,19 @@ func main() {
 	defer obdb.Close()
 	slog.Info("onbod owns split DB", "path", cfg.ownDSN)
 
-	routdPath := filepath.Join(filepath.Dir(cfg.ownDSN), "routd.db")
-	xdb, err = sql.Open("sqlite", routdPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
+	// store.OpenRoutd, not a bare sql.Open: sql.Open is lazy, so the error
+	// branch below could never fire and onbod would create an empty routd.db on
+	// first query — a cross-read against zero groups and zero acl, boot green
+	// (BUGS F52). OpenRoutd probes for the `acl` table and fails loud instead.
+	routdDir := filepath.Dir(cfg.ownDSN)
+	stRoutd, err := store.OpenRoutd(routdDir)
 	if err != nil {
-		slog.Error("open routd.db", "path", routdPath, "err", err)
+		slog.Error("open routd.db", "dir", routdDir, "err", err)
 		os.Exit(1)
 	}
-	defer xdb.Close()
-	slog.Info("onbod cross-reads routd.db", "path", routdPath)
+	defer stRoutd.Close()
+	xdb = stRoutd.DB()
+	slog.Info("onbod cross-reads routd.db", "dir", routdDir)
 
 	audit.Init(obdb, os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{

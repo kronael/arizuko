@@ -29,7 +29,7 @@ func operatorKeySet(t *testing.T) *auth.KeySet {
 func newDashAdmin(t *testing.T) *admin {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustMkdir(t, filepath.Dir(path))
+	mustSeedDB(t, path)
 	db, err := openOwnedDB(path)
 	if err != nil {
 		t.Fatalf("openOwnedDB: %v", err)

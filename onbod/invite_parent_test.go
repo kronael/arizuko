@@ -331,7 +331,9 @@ func seedRedemption(t *testing.T, db *sql.DB, sub, targetGlob string) {
 // runs the real migration chain so a table the tests above rely on cannot exist
 // only in the model.
 func TestInviteRedemptionsTableMigrates(t *testing.T) {
-	db, err := openOwnedDB(filepath.Join(t.TempDir(), "onbod.db"))
+	path := filepath.Join(t.TempDir(), "onbod.db")
+	mustSeedDB(t, path)
+	db, err := openOwnedDB(path)
 	if err != nil {
 		t.Fatalf("openOwnedDB: %v", err)
 	}

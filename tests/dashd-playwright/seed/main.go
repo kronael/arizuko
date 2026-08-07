@@ -45,7 +45,7 @@ func main() {
 	}
 
 	// routd.db — admin tables (acl, groups, routes, secrets, messages).
-	rdb, err := routd.Open(storeDir)
+	rdb, err := routd.Create(storeDir)
 	if err != nil {
 		log.Fatalf("seed: open routd.db: %v", err)
 	}

@@ -139,12 +139,12 @@ func TestMigrateSplit(t *testing.T) {
 		t.Fatalf("migrateSplit: %v", err)
 	}
 
-	rdb, err := routd.Open(storeDir)
+	rdb, err := routd.Create(storeDir)
 	if err != nil {
 		t.Fatalf("routd.Open: %v", err)
 	}
 	defer rdb.Close()
-	udb, err := runed.Open(storeDir)
+	udb, err := runed.Create(storeDir)
 	if err != nil {
 		t.Fatalf("runed.Open: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestMigrateSplit(t *testing.T) {
 	if err := migrateSplit(storeDir, false); err != nil {
 		t.Fatalf("migrateSplit (re-run): %v", err)
 	}
-	rdb2, err := routd.Open(storeDir)
+	rdb2, err := routd.Create(storeDir)
 	if err != nil {
 		t.Fatalf("routd.Open re-run: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestMigrateSplitCoalescesNullMessageCols(t *testing.T) {
 		t.Fatalf("migrateSplit: %v", err)
 	}
 
-	rdb, err := routd.Open(storeDir)
+	rdb, err := routd.Create(storeDir)
 	if err != nil {
 		t.Fatalf("routd.Open: %v", err)
 	}
@@ -775,7 +775,7 @@ func TestMigrateSplitToleratesOrphanRunLog(t *testing.T) {
 	if err := migrateSplit(storeDir, false); err != nil {
 		t.Fatalf("migrateSplit must tolerate orphan task_run_logs (got: %v)", err)
 	}
-	rdb, err := routd.Open(storeDir)
+	rdb, err := routd.Create(storeDir)
 	if err != nil {
 		t.Fatalf("routd.Open: %v", err)
 	}

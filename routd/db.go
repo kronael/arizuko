@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -53,18 +52,34 @@ func (d *DB) SetSurrogate(e *surrogate.Engine) { d.surrogate = e }
 // plaintext.
 func (d *DB) SetSecretKeys(raws ...[]byte) { d.secretKeyring = raws }
 
-// Open opens routd.db at dir/routd.db (WAL, FK on) and runs the routd migration
-// sequence. routd opens NO sibling DB — every table it needs is in routd.db
+// Open attaches to an EXISTING routd.db at dir/routd.db (WAL, FK on) and runs
+// the routd migration sequence. It never creates the file — see Create.
+// routd opens NO sibling DB — every table it needs is in routd.db
 // (acl/secrets/tasks/pane/proxyd_routes/audit_log) or federated over HTTP
 // (identity → authd, session_log → runed). See sibling_db.go. The one-time
 // monolith→split copy of proxyd_routes + audit_log belongs to
 // `arizuko migrate-split`, the sole tool that reads messages.db.
 func Open(dir string) (*DB, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	path := filepath.Join(dir, "routd.db")
+	if err := db_utils.RequireDBFile(path); err != nil {
 		return nil, err
 	}
-	dsn := filepath.Join(dir, "routd.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
-	return open(dsn)
+	return open(fileDSN(path))
+}
+
+// Create seeds dir/routd.db when absent, then migrates it. `arizuko create` and
+// the split-cutover tool only: every other caller Opens, so a wrong path fails
+// loud instead of yielding a migrated instance with zero groups and zero acl.
+func Create(dir string) (*DB, error) {
+	path := filepath.Join(dir, "routd.db")
+	if err := db_utils.CreateDBFile(path); err != nil {
+		return nil, err
+	}
+	return open(fileDSN(path))
+}
+
+func fileDSN(path string) string {
+	return path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
 }
 
 // OpenMem opens a fresh isolated in-memory routd.db for tests. The DB name

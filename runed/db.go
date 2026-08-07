@@ -10,7 +10,6 @@ import (
 	"database/sql"
 	"embed"
 	"errors"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -32,13 +31,29 @@ type DB struct {
 	db *sql.DB
 }
 
-// Open opens runed.db at dir/runed.db (WAL, FK on) and runs migrations.
+// Open attaches to an EXISTING runed.db at dir/runed.db (WAL, FK on) and runs
+// migrations. It never creates the file — see Create.
 func Open(dir string) (*DB, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	path := filepath.Join(dir, "runed.db")
+	if err := db_utils.RequireDBFile(path); err != nil {
 		return nil, err
 	}
-	dsn := filepath.Join(dir, "runed.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
-	return open(dsn)
+	return open(fileDSN(path))
+}
+
+// Create seeds dir/runed.db when absent, then migrates it. `arizuko create` and
+// the split-cutover tool only — every other caller Opens, so a wrong path fails
+// loud instead of yielding a migrated DB with no spawn history.
+func Create(dir string) (*DB, error) {
+	path := filepath.Join(dir, "runed.db")
+	if err := db_utils.CreateDBFile(path); err != nil {
+		return nil, err
+	}
+	return open(fileDSN(path))
+}
+
+func fileDSN(path string) string {
+	return path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
 }
 
 // OpenMem opens a fresh isolated in-memory runed.db for tests. The DB name

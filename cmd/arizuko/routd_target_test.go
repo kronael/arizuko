@@ -21,7 +21,7 @@ func setupSplitStore(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	// routd.Open migrates routd.db (creates acl/secrets/... tables).
-	rd, err := routd.Open(dir)
+	rd, err := routd.Create(dir)
 	if err != nil {
 		t.Fatalf("routd.Open: %v", err)
 	}

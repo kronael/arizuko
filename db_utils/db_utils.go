@@ -4,12 +4,48 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// RequireDBFile errors unless path already holds a SQLite file. Owner daemons
+// call it before sql.Open: SQLite creates a missing file silently and Migrate
+// then fills it with a complete empty schema, so a daemon pointed at the wrong
+// path — a typo'd mount, an unfinished store/<owner>/ move — boots green as a
+// fresh instance holding none of the operator's data (spec 5/16 step 7).
+// Creation is an explicit act: CreateDBFile, called by `arizuko create`.
+func RequireDBFile(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%s does not exist: an owner daemon never creates its own "+
+				"database (run `arizuko create`, or move the existing .db + -wal + -shm here)", path)
+		}
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	return nil
+}
+
+// CreateDBFile makes path's parent directory and an empty file at path when
+// absent, leaving an existing file untouched. A zero-byte file IS a valid empty
+// SQLite database, so the owner daemon's own Migrate fills in the schema on
+// first boot — this seeds the file without linking every migration set into the
+// CLI. `arizuko create` and the split-cutover tool only.
+func CreateDBFile(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
 
 // Migrate applies pending `NNNN-*.sql` migrations from fsys/dir. Versions
 // must be sequential with no gaps. Tracked in the `migrations` table

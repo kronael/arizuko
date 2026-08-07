@@ -45,7 +45,7 @@ type Inst struct {
 func NewRoutdInstance(t *testing.T) *Inst {
 	t.Helper()
 	tmp := t.TempDir()
-	rdb, err := routd.Open(filepath.Join(tmp, "store"))
+	rdb, err := routd.Create(filepath.Join(tmp, "store"))
 	if err != nil {
 		t.Fatalf("routd.Open: %v", err)
 	}

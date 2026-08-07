@@ -21,7 +21,7 @@ import (
 // A folder that exists must hold the floor, however it got there.
 func TestMigration0030BackfillsTheMemberFloor(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir)
+	db, err := Create(dir)
 	if err != nil {
 		t.Fatalf("open routd.db: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestMigration0030BackfillsTheMemberFloor(t *testing.T) {
 // a group created after 0030 never depends on a backfill running again.
 func TestNewGroupIsBornWithTheFloor(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir)
+	db, err := Create(dir)
 	if err != nil {
 		t.Fatalf("open routd.db: %v", err)
 	}

@@ -21,6 +21,7 @@ import (
 	"github.com/kronael/arizuko/compose"
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
@@ -291,6 +292,12 @@ func cmdCreate(args []string) {
 	}
 
 	storeDir := filepath.Join(dataDir, "store")
+	// Seed every owner's DB file. Owner daemons Open strictly and never create
+	// their own database (spec 5/16 step 7), so `create` is the one place that
+	// knows a NEW instance is intended. A zero-byte file is a valid empty SQLite
+	// DB — each daemon migrates its own schema into it on first boot, so the CLI
+	// needs no migration set for authd/onbod (both are package main).
+	seedOwnerDBs(storeDir)
 	// groups + scheduled_tasks live in routd.db, so the default group is seeded
 	// there and a new instance is born WITHOUT a messages.db. Seeding the frozen
 	// monolith instead left `main` in a DB no daemon opens (BUGS.md Q1).
@@ -329,6 +336,19 @@ func cmdCreate(args []string) {
 			fmt.Printf("skills: %s\n", strings.Join(manifest.Skills, ", "))
 		}
 		fmt.Printf("\nnext: populate %s/groups/main/facts/ then: arizuko run %s\n", dataDir, name)
+	}
+}
+
+// seedOwnerDBs creates an empty SQLite file for every owner daemon. Each
+// daemon migrates its own schema into it on first boot; the CLI only has to
+// make the file exist, which is why it needs no migration set for authd/onbod
+// (both are package main and unimportable).
+func seedOwnerDBs(storeDir string) {
+	for owner, file := range store.OwnerDBs {
+		path := filepath.Join(storeDir, file)
+		if err := db_utils.CreateDBFile(path); err != nil {
+			die("Failed: seed %s database at %s: %v", owner, path, err)
+		}
 	}
 }
 

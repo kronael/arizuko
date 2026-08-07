@@ -106,7 +106,7 @@ func TestOnboardingHasBothFaces(t *testing.T) {
 // behind its own jid primary key.
 func TestPreMigrationRowSurvivesTheBackfill(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustMkdir(t, filepath.Dir(path))
+	mustSeedDB(t, path)
 
 	// Migrate once to get the current schema, then put the table back into its
 	// pre-Z3 shape with a live plaintext token, exactly as a real instance
@@ -169,7 +169,7 @@ func TestPreMigrationRowSurvivesTheBackfill(t *testing.T) {
 // mint one shared handle for every consumed row).
 func TestBackfillLeavesNullTokenNull(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustMkdir(t, filepath.Dir(path))
+	mustSeedDB(t, path)
 	db, err := openOwnedDB(path)
 	if err != nil {
 		t.Fatalf("openOwnedDB: %v", err)

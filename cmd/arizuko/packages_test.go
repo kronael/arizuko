@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
@@ -72,7 +73,7 @@ func TestPackagesInstallRemove(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_t")
-	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "teledpkg")
@@ -92,7 +93,7 @@ func TestPackagesInstallRemove(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "services", "teledpkg.yml")); err != nil {
 		t.Fatalf("fragment not installed: %v", err)
 	}
-	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,7 @@ func TestPackagesInstallRemove(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "services", "teledpkg.yml")); !os.IsNotExist(err) {
 		t.Fatalf("fragment not removed: %v", err)
 	}
-	rdb2, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb2, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,7 @@ func TestPackagesUpgradeClean(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_u")
-	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "up")
@@ -167,7 +168,7 @@ func TestPackagesUpgradeClean(t *testing.T) {
 	if err != nil || !strings.Contains(string(b), "v2") {
 		t.Fatalf("upgrade did not apply new version: %s (err %v)", b, err)
 	}
-	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +196,7 @@ func seedPkg(t *testing.T, base, dataDir, inst, name, body string) string {
 
 func mustRec(t *testing.T, dataDir, name string) routd.InstalledPackage {
 	t.Helper()
-	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +216,7 @@ func TestPackagesUpgradePreservesNonFileManifest(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_mf")
-	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "mf")
@@ -253,7 +254,7 @@ func TestPackagesSyncReapplies(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_sy")
-	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
 		t.Fatal(err)
 	}
 	srcA := seedPkg(t, base, dataDir, "sy", "alpha", "services:\n  alpha:\n    image: v1\n")
@@ -286,12 +287,12 @@ func TestPackagesSyncIdempotent(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_si")
-	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
 		t.Fatal(err)
 	}
 	seedPkg(t, base, dataDir, "si", "gamma", "services:\n  gamma:\n    image: v1\n")
 
-	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +329,7 @@ func TestPackagesSyncSkipsDirty(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_sd")
-	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
 		t.Fatal(err)
 	}
 	srcD := seedPkg(t, base, dataDir, "sd", "delta", "services:\n  delta:\n    image: v1\n")
@@ -379,7 +380,7 @@ func TestPackagesInstallGit(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_g")
-	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
 		t.Fatal(err)
 	}
 	repo := filepath.Join(base, "gitpkg")
@@ -397,7 +398,7 @@ func TestPackagesInstallGit(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "services", "gitpkg.yml")); err != nil {
 		t.Fatalf("git package fragment not installed: %v", err)
 	}
-	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +418,7 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_r")
-	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "routepkg")
@@ -433,7 +434,7 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rdb0, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb0, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -445,7 +446,7 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 
 	cmdPackages([]string{"r", "install", src})
 
-	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +463,7 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 
 	cmdPackages([]string{"r", "remove", "routepkg"})
 
-	rdb2, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb2, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,10 +493,10 @@ func TestPackagesInstallGrants(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_gr")
-	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
 		t.Fatal(err)
 	}
-	rdb0, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb0, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -519,7 +520,7 @@ func TestPackagesInstallGrants(t *testing.T) {
 
 	cmdPackages([]string{"gr", "install", src})
 
-	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,7 +542,7 @@ func TestPackagesInstallGrants(t *testing.T) {
 
 	cmdPackages([]string{"gr", "remove", "grantpkg"})
 
-	rdb2, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb2, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +561,7 @@ func TestPackagesInstallSkills(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_sk")
-	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "skillpkg")
@@ -580,7 +581,7 @@ func TestPackagesInstallSkills(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "skills", "mytool", "SKILL.md")); err != nil {
 		t.Fatalf("skill not installed: %v", err)
 	}
-	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {
 		t.Fatal(err)
 	}

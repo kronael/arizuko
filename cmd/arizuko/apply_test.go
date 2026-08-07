@@ -51,7 +51,7 @@ func openInstance(t *testing.T) (string, map[string]*store.Store) {
 	}
 	// Bootstrap routd.db via routd's OWN migration sequence — the same one
 	// the daemon runs at boot.
-	rdb, err := routd.Open(storeDir)
+	rdb, err := routd.Create(storeDir)
 	if err != nil {
 		t.Fatalf("routd.Open (bootstrap): %v", err)
 	}

@@ -22,7 +22,7 @@ func TestAuditSinkWritesRoutdDB(t *testing.T) {
 
 	// routd owns + migrates routd.db; it must boot at least once before
 	// store.OpenRoutd will accept the directory (see store.OpenRoutd docs).
-	rd, err := routd.Open(dir)
+	rd, err := routd.Create(dir)
 	if err != nil {
 		t.Fatalf("routd.Open: %v", err)
 	}

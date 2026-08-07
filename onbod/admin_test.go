@@ -4,20 +4,23 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
-func mustMkdir(t *testing.T, dir string) {
+// mustSeedDB makes an empty SQLite file at path, the way `arizuko create`
+// seeds every owner DB. openOwnedDB is strict and never creates one, so a
+// fixture that skipped this would get the loud "does not exist" error.
+func mustSeedDB(t *testing.T, path string) {
 	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := db_utils.CreateDBFile(path); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -27,7 +30,7 @@ func mustMkdir(t *testing.T, dir string) {
 // migrations against it, so a store-only table (e.g. messages) must be absent.
 func TestOpenOwnedDB_SplitOpensOnbodDBNotMessages(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustMkdir(t, filepath.Dir(path))
+	mustSeedDB(t, path)
 	db, err := openOwnedDB(path)
 	if err != nil {
 		t.Fatalf("openOwnedDB: %v", err)
@@ -56,7 +59,7 @@ func TestOpenOwnedDB_SplitOpensOnbodDBNotMessages(t *testing.T) {
 // exercised end-to-end; ks=nil (open, monolith/local-dev) so no bearer needed.
 func TestAdminInviteCreateListDelete(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustMkdir(t, filepath.Dir(path))
+	mustSeedDB(t, path)
 	db, err := openOwnedDB(path)
 	if err != nil {
 		t.Fatalf("openOwnedDB: %v", err)
@@ -168,7 +171,7 @@ func TestInvitesRESTGateScopes(t *testing.T) {
 // so no bearer needed.
 func TestAdminGatePutListDelete(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustMkdir(t, filepath.Dir(path))
+	mustSeedDB(t, path)
 	db, err := openOwnedDB(path)
 	if err != nil {
 		t.Fatalf("openOwnedDB: %v", err)

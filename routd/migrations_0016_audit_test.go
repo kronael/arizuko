@@ -33,7 +33,7 @@ func TestMigration0016AuditLogIgnoresLegacy(t *testing.T) {
 	}
 	msg.Close()
 
-	d, err := Open(dir)
+	d, err := Create(dir)
 	if err != nil {
 		t.Fatalf("routd.Open: %v", err)
 	}
@@ -115,7 +115,7 @@ func auditRows(t *testing.T, d *DB, action string) int {
 // there is no sibling messages.db (a fresh install) — the table exists, empty.
 func TestMigration0016AuditLogNoLegacyDB(t *testing.T) {
 	dir := t.TempDir()
-	d, err := Open(dir)
+	d, err := Create(dir)
 	if err != nil {
 		t.Fatalf("routd.Open on fresh dir: %v", err)
 	}

@@ -334,14 +334,15 @@ func migrateSplit(storeDir string, dryRun bool) error {
 		return fmt.Errorf("messages.db not found at %s: %w", msgPath, err)
 	}
 
-	// Open destinations via their own Open so migrations run first → all
-	// target tables exist before we copy into them.
-	rdb, err := routd.Open(storeDir)
+	// Create destinations (the cutover is the one place besides `arizuko create`
+	// that legitimately makes an owner DB) so migrations run first → all target
+	// tables exist before we copy into them.
+	rdb, err := routd.Create(storeDir)
 	if err != nil {
 		return fmt.Errorf("open routd.db: %w", err)
 	}
 	defer rdb.Close()
-	udb, err := runed.Open(storeDir)
+	udb, err := runed.Create(storeDir)
 	if err != nil {
 		return fmt.Errorf("open runed.db: %w", err)
 	}

@@ -65,7 +65,7 @@ func installGrantPkg(t *testing.T, osUser string) string {
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	rdb, err := routd.Open(storeDir)
+	rdb, err := routd.Create(storeDir)
 	if err != nil {
 		t.Fatal(err)
 	}

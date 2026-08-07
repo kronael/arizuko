@@ -23,7 +23,7 @@ func TestMigration0015ProxydRoutesIgnoresLegacy(t *testing.T) {
 	}
 	msg.Close()
 
-	d, err := Open(dir)
+	d, err := Create(dir)
 	if err != nil {
 		t.Fatalf("routd.Open: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestMigration0024DropsAuthSessions(t *testing.T) {
 	}
 	msg.Close()
 
-	d, err := Open(dir)
+	d, err := Create(dir)
 	if err != nil {
 		t.Fatalf("routd.Open: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestMigration0024DropsAuthSessions(t *testing.T) {
 // no sibling messages.db (a fresh install) — the table exists, empty.
 func TestMigration0015NoLegacyDB(t *testing.T) {
 	dir := t.TempDir()
-	d, err := Open(dir)
+	d, err := Create(dir)
 	if err != nil {
 		t.Fatalf("routd.Open on fresh dir: %v", err)
 	}

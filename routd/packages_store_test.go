@@ -9,7 +9,7 @@ import (
 // absent → put → get roundtrip (incl. JSON manifest + hashes) → upsert/upgrade
 // → list → delete. This is the lock P1+ install/upgrade/remove build on.
 func TestInstalledPackageCRUD(t *testing.T) {
-	d, err := Open(t.TempDir())
+	d, err := Create(t.TempDir())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestInstalledPackageCRUD(t *testing.T) {
 // overwrites, len(list) is 1 not 3, and the per-folder gets return each other's
 // revision.
 func TestInstalledPackageFolderIsPartOfKey(t *testing.T) {
-	d, err := Open(t.TempDir())
+	d, err := Create(t.TempDir())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

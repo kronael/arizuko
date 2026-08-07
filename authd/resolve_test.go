@@ -1,9 +1,11 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/db_utils"
 )
 
 // auth.db lives under store/ (alongside routd.db/runed.db/messages.db) so a
@@ -12,16 +14,30 @@ import (
 // dir root would reintroduce the SQLITE_CANTOPEN first-boot failure.
 func TestResolveDSN_UnderStore(t *testing.T) {
 	dir := t.TempDir()
+	want := filepath.Join(dir, "store", "auth.db")
+	if err := db_utils.CreateDBFile(want); err != nil {
+		t.Fatal(err)
+	}
 	dsn, err := resolveDSN("", dir)
 	if err != nil {
 		t.Fatalf("resolveDSN: %v", err)
 	}
-	want := filepath.Join(dir, "store", "auth.db")
 	if dsn != want {
 		t.Errorf("dsn = %q, want %q", dsn, want)
 	}
-	if fi, err := os.Stat(filepath.Join(dir, "store")); err != nil || !fi.IsDir() {
-		t.Errorf("store/ not created: stat err=%v", err)
+}
+
+// authd must never create auth.db: a wrong DATA_DIR (an unmounted store/authd/,
+// an unfinished move) would otherwise migrate a fresh file, mint NEW signing
+// keys, and invalidate every live session while /health stayed green
+// (spec 5/16 step 7).
+func TestResolveDSN_MissingAuthDBFailsLoud(t *testing.T) {
+	_, err := resolveDSN("", t.TempDir())
+	if err == nil {
+		t.Fatal("resolveDSN accepted a data dir with no auth.db; it must fail loud")
+	}
+	if !strings.Contains(err.Error(), "auth.db") {
+		t.Errorf("error must name the missing file, got: %v", err)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/obs"
 	_ "modernc.org/sqlite"
 )
@@ -139,11 +140,15 @@ func resolveDSN(database, dataDir string) (string, error) {
 	if dataDir == "" {
 		return "", errMissingDB
 	}
-	storeDir := filepath.Join(dataDir, "store")
-	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+	// Strict: authd never creates auth.db. A wrong or unmounted path would
+	// otherwise migrate a fresh empty file, minting NEW signing keys and
+	// invalidating every live session while authd reports healthy
+	// (spec 5/16 step 7). `arizuko create` seeds the file.
+	dsn := filepath.Join(dataDir, "store", "auth.db")
+	if err := db_utils.RequireDBFile(dsn); err != nil {
 		return "", err
 	}
-	return filepath.Join(storeDir, "auth.db"), nil
+	return dsn, nil
 }
 
 var errMissingDB = errors.New("DATABASE or DATA_DIR env required")

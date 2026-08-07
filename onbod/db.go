@@ -20,6 +20,13 @@ const onbodServiceName = "onbod"
 // Mirrors routd.Open / runed.Open: WAL, migrations first so the tables exist
 // before any read/write.
 func openOwnedDB(ownDSN string) (*sql.DB, error) {
+	// Strict: onbod never creates onbod.db. sql.Open is lazy and SQLite creates
+	// a missing file on first query, so a wrong path would migrate a fresh empty
+	// file and drop every invite and gate while onbod reports healthy
+	// (spec 5/16 step 7, BUGS F52). `arizuko create` seeds the file.
+	if err := db_utils.RequireDBFile(ownDSN); err != nil {
+		return nil, err
+	}
 	db, err := sql.Open("sqlite", ownDSN+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
 	if err != nil {
 		return nil, err
