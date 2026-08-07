@@ -78,7 +78,8 @@ DELETE /v1/proxyd_routes/{path}       # idempotent (204 either way)
 
 **Precedence**: routes persist to `proxyd_routes` in routd.db (proxyd
 opens routd.db read/write for `proxyd_routes`/`acl`/`route_tokens`; it
-does not own or migrate it). On first
+does not own or migrate it — see "Why proxyd reads routd.db directly"
+below). On first
 boot, if the table is empty AND `PROXYD_ROUTES_JSON` is set, proxyd
 seeds the table from the env var. Thereafter the table is authoritative
 and the env var is ignored. Runtime mutations are visible immediately
@@ -90,6 +91,26 @@ operator ACL row like `(google:op, '*', '**')`. The `**` marker in
 X-User-Groups is recorded into `Claims["operator"]="1"` for predicate
 matching. Non-operators have no matching row and no mcp:\* tier fallback,
 so the call is denied (spec 5/17, spec 5/32 §"Operator implicit").
+
+## Why proxyd reads routd.db directly
+
+routd owns `acl` and `route_tokens`; the standing rule is that another daemon
+reaches an owner's rows over the owner's HTTP face. proxyd is the one named
+exception, decided 2026-08-07 (spec
+[`5/16`](../specs/5/16-mcp-rest-unification.md) §"The hot-path exception"):
+**FS-mounted on the owner's DB, and reading it on the per-request hot path.**
+
+Both of its cross-owner reads qualify — `store.LookupRouteToken` on every
+`/chat/` and `/hook/` request, `auth.UserScopes` via `groupsForSub` on every
+ES256-authenticated request. The alternative considered and rejected was not an
+HTTP hop but trusting the login-time `Scope` snapshot in the JWT, which would
+let a revoked grant keep working until the caller's next token refresh (15
+minutes, `accessTTL`). Reading `acl` per request is what makes revocation take
+effect on the next request. `proxyd/hotpath_read_test.go` pins both halves.
+
+The exception does not generalize to "FS-mounted daemons may read anything" —
+dashd is FS-mounted too, and its audit page moved to HTTP because it is not on
+a per-request path.
 
 ## WebDAV write-block
 

@@ -4,8 +4,9 @@ depends: [5/13-ext-mcp, 5/17-openapi-mcp, 5/32-acl-unified]
 moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 ---
 
-> **Status (2026-08-06).** Still `partial`. Adoption is done; of what remains,
-> **federation shipped and "one owner" did not.**
+> **Status (2026-08-07).** Still `partial`, on **step 7 alone** — the
+> `store/<owner>/` restructure. Adoption is done; federation shipped, "one
+> owner" did not. Steps 2 and 6 closed 2026-08-07 (2 rejected, 6 done).
 >
 > All seven agent-facing cold-tier resources — `web_routes`, `routes`,
 > `network_rules`, `scheduled_tasks`, `acl`, `route_tokens`, `groups` — ride one
@@ -66,17 +67,28 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 >   now compares mounted `Name` to registry `Name` on every face, so a mistyped
 >   literal silently drops the resource from the doc instead of mislabelling it —
 >   a fail-safe, not the fix.
-> - Step 2 below is unshipped. Its violation is a cross-daemon direct-DB READ of
->   another owner's table, NOT a duplicate handle: `proxyd` opens `routd.db`
->   exactly once (`store.OpenRoutd`, `proxyd/main.go:991`) and reuses that handle,
->   so "never a second `store.Open`" is not what it breaks. What it breaks is
->   federation — `proxyd/main.go:863` reads routd's `acl` via
->   `auth.UserScopes(s.stRoutd, …)` for a scope list its verified token already
->   carries, instead of calling the owner's face.
-> - Step 7 is half-shipped: `dataMounts`/`dataSubdirs` exist
->   (`compose/compose.go:840`) but only onbod, proxyd and webd set them, and they
->   name `store`/`groups`/`web` — not per-owner `store/<owner>/`. "Owner is a
->   convention, not a boundary" still holds for every other daemon.
+> - Step 2 is **closed as rejected** (2026-08-07). `proxyd/main.go:863` reads
+>   routd's `acl` directly, and after review that read STAYS. It was never a
+>   duplicate handle — proxyd opens `routd.db` once (`proxyd/main.go:991`) and
+>   reuses it — and the swap it proposed was not "call the owner over HTTP" but
+>   "trust the login-time `Scope` snapshot in the JWT", which trades per-request
+>   revocation for a 15-minute lag on the front door. The spec moved instead:
+>   §"The hot-path exception" names the carve-out (FS-mounted **and** read per
+>   request), bounds it to proxyd, and `proxyd/hotpath_read_test.go` makes the
+>   rejected design fail a test rather than pass review.
+> - Step 6 is **done** (2026-08-07). The ten adapters are traced into the mount
+>   table. It found no mount work and disproved its own premise: the ten bypass
+>   `writeSvc`, so the blanket bind was never theirs, and six already store
+>   state under `store/<name>/`. Two adapter defects fell out (`F55` `emaid`'s
+>   undeclared SQLite DB, `F56` `linkd`'s data-root `DATA_DIR` default).
+> - Step 7 is half-shipped and is now the **only** thing holding this spec
+>   `partial`: `dataMounts`/`dataSubdirs` exist (`compose/compose.go:839`) but
+>   only onbod, proxyd and webd set them, and they name `store`/`groups`/`web` —
+>   not per-owner `store/<owner>/`. "Owner is a convention, not a boundary"
+>   still holds for every other daemon. This pass settled its design (one
+>   inseparable commit; host-side mover beside `relinkCatalog`; "new instances
+>   only" rejected) and did not ship it: it moves live SQLite files on three
+>   running instances and its own Verify clause needs docker and a restart.
 >
 > **The per-daemon guard changed shape with the cause fix** (`F40`, closed;
 > `F47`, closed). `AssertServesWhatItAdvertises` compared the document to the
@@ -103,10 +115,9 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > a stdlib `{path...}` documents as `{path}`; the rule is single-sourced as
 > `resreg.OpenAPIPathKey`, with `resreg.ConcretePath` its inverse for probing.
 >
-> **This spec stays `partial`** until steps 2, 6 and 7 land. Step 2 needs the
-> explicit sign-off it has always needed (the 15-minute revocation trade-off),
-> step 6 is an unstarted read-only audit, step 7 needs a maintenance window for
-> the file move. None is blocked by the doc work above.
+> **This spec stays `partial` until step 7 lands** — one commit, one
+> maintenance window, on a host where docker and a restart are available.
+> Steps 2 and 6 are closed and nothing else is outstanding.
 
 # specs/5/16 — MCP+REST unification (finish the adoption)
 
@@ -131,7 +142,10 @@ owns the mechanism), one owner:
 - **One owner + federation**: each resource's table lives in exactly one
   daemon's DB; cross-daemon reads call the owner's face over HTTP — the owner
   resolves by compose service naming (`<DAEMON>_URL`), never a second
-  `store.Open`. This retires `messages.db` as a shared 8th DB.
+  `store.Open`. One exception, named and bounded rather than left implicit: an
+  FS-mounted daemon reading the owner's DB **on the per-request hot path**
+  (§["The hot-path exception"](#the-hot-path-exception)). This retires
+  `messages.db` as a shared 8th DB.
 
 The orthogonal sibling concern is [`5/8`](8-yaml-manifests.md) — the same tables
 as declarative YAML you `export`/`apply`. 5/16 is the runtime surface, 5/8 the
@@ -299,13 +313,42 @@ that infers access from ownership alone:
    | `routd`          | `routd/` rw only                                                                                                                                    | rw (persona/skill reads at dispatch)                                | rw (hosts the agent MCP socket, `ipc/ipc.go:319`)                   | —              |
    | `runed`          | `runed/` rw only                                                                                                                                    | rw (`SetupGroup`, persona/`CLAUDE.md` reads, `container/runner.go`) | rw (`os.MkdirAll` + bind-mount prep, `container/runner.go:555-561`) | yes (existing) |
    | `onbod`          | `onbod/` rw + `routd/` rw (cross-write: `user_profiles.username`, `onbod/main.go:784`; cross-read: groups/routes/acl for onboarding decisions)      | rw (`SetupGroup`)                                                   | —                                                                   | —              |
-   | `proxyd`         | `routd/` rw (`route_tokens`, `proxyd_routes`; no auth-table access needed after the fix below)                                                      | —                                                                   | —                                                                   | —              |
+   | `proxyd`         | `routd/` rw (`proxyd_routes`, `route_tokens`, `acl` — all three read per request; §"The hot-path exception")                                        | —                                                                   | —                                                                   | —              |
    | `dashd`          | `messages.db` (legacy, ro) + `routd/` + `onbod/` + `runed/` (broad by design — the operator console; scope to what it reads, not the whole tree)    | rw (`SetupGroup`)                                                   | —                                                                   | —              |
    | `webd`           | `routd/` rw (route resolution, history, audit sink) — after dropping its own dead `messages.db` open, see below                                     | —                                                                   | —                                                                   | —              |
    | `slakd`          | `routd/` ro (pane reads — CLAUDE.md's write-discipline line is wrong for this daemon today; fix the doc or fix the code, tracked, not decided here) | —                                                                   | —                                                                   | —              |
    | `timed`, `teled` | none                                                                                                                                                | —                                                                   | —                                                                   | —              |
 
-   The remaining channel adapters (`bskyd`/`discd`/`emaid`/`kokoro`/`linkd`/`mastd`/`reditd`/`ttsd`/`twitd`/`whapd`) are not yet grep-audited — step 6 below ("Ordered, independently-shippable steps") covers them before their mounts narrow. Emitting a narrower mount for a daemon before its access is traced is how you break a live daemon; don't skip the audit.
+   The remaining ten (`bskyd`/`discd`/`emaid`/`kokoro`/`linkd`/`mastd`/
+   `reditd`/`ttsd`/`twitd`/`whapd`) were grep-audited 2026-08-07 — step 6, done.
+   **The audit's headline is that they are outside this mechanism entirely**:
+   none goes through `writeSvc`/`svcDef`. Each is a compose fragment under
+   `template/services/<name>.yml` that `Generate` `include:`s verbatim
+   (`compose/compose.go:721-725`), so its volumes are whatever the fragment
+   declares, and none declares the blanket bind. Their rows:
+
+   | Daemon                             | `store/` access                                                                                    | `groups/`, `ipc/`, docker.sock | Volumes granted today        |
+   | ---------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------ | ---------------------------- |
+   | `emaid`                            | **own SQLite** `store/emaid/emaid.db` rw (`emaid/store.go:22`) — not in the owner-DB map           | none                           | `store/emaid` only           |
+   | `bskyd`                            | `store/bskyd/bluesky-session.json` rw (`bskyd/client.go:76,95`)                                    | none                           | `store/bskyd` only           |
+   | `linkd`                            | `store/linkd/linkd-state-<name>.json` rw, holds a refreshed OAuth token (`linkd/client.go:95,161`) | none                           | `store/linkd` only           |
+   | `reditd`                           | `store/reditd/cursors.json` rw (`reditd/client.go:78,90`)                                          | none                           | `store/reditd` only          |
+   | `twitd`                            | `store/twitter-auth/` rw — cookies + cursors (`twitd/src/twitter.ts:64-106`)                       | none                           | `store/twitter-auth` only    |
+   | `whapd`                            | `store/whatsapp-auth/` rw — Baileys session state (`whapd/src/main.ts:83`)                         | none                           | `store/whatsapp-auth` only   |
+   | `discd`, `mastd`, `ttsd`, `kokoro` | none                                                                                               | none                           | **no `volumes:` key at all** |
+
+   All ten reach routd over HTTP (`ROUTER_URL`); `ttsd` and `kokoro` do not
+   speak to routd at all and are not channel adapters. Every one of the ten
+   touches no `groups/`, no `ipc/`, no docker socket — inbound attachments go
+   to `os.MkdirTemp("")` (`chanlib/handler.go:372`), i.e. container `/tmp`, not
+   the data tree. **No adapter is over-granted**, so the narrowing this section
+   proposes has nothing to narrow for them.
+
+   Two findings the audit turned up are logged rather than fixed here (they are
+   adapter concerns, not ownership ones): `emaid`'s undeclared SQLite DB
+   (BUGS `F55`) and `linkd`'s in-code `DATA_DIR` default of `/srv/app/home`,
+   the tree root, which only `linkd.yml`'s env line keeps out of the data root
+   (BUGS `F56`).
 
 4. What breaks: any code relying on a daemon opening a DB it isn't listed for now fails at container boot (`sql.Open` on a path that doesn't exist under its mount) instead of silently succeeding — this is the point. `dashd`'s runed-view banner (`dashd/runed_page.go:38`, "runed store unavailable") already handles a missing `runed.db` gracefully, so a partial mount there degrades, doesn't crash.
 
@@ -392,19 +435,17 @@ consumer to check whether that endpoint is actually needed:
   `invites_resource.go:56`) read `x.Caller.Claims["scopes"]` — a string
   already present on the VERIFIED JWT, no DB call, no HTTP call. Zero
   dependency on routd.db already.
-- **`proxyd`'s `/priv/*` + WebDAV gate** (`auth.MatchGroups(gs, folder)`,
-  `proxyd/main.go:601,760`) needs a coarse folder list, sourced from
-  `groupsForSub` → `s.stRoutd.UserScopes(sub)` — a **direct `routd.db`
-  read**, the one genuinely live dependency. But `UserScopes` is exactly
-  `handleUserScopes`'s output, and authd **already snapshots it into every
-  minted JWT**: `issueSession`/`Refresh` call `o.snapshot` (the same grants
-  fetch) and mint `TokenClaims{Scope: scope}` (`authd/oauth.go:269-281`), so
-  `auth.Subject.Scope []string` (`auth/es256.go:123`) carries the same list
-  `groupsForSub` re-fetches from the DB **after having just verified the
-  token that already contains it**. `proxyd/main.go:847,890` (`tryAuth`'s
-  ES256 branch, `tryRefreshViaAuthd`) call `s.groupsForSub(sub.Sub)` instead
-  of reading `sub.Scope` directly — a redundant DB round-trip on data
-  already in hand.
+- **`proxyd`'s `/priv/*` + WebDAV gate** (`auth.MatchGroups`) needs a coarse
+  folder list, sourced from `groupsForSub` → `auth.UserScopes(s.stRoutd, …)`
+  (`proxyd/main.go:863`) — a **direct `routd.db` read**, the one genuinely
+  live dependency. `UserScopes` is the same query authd runs at login:
+  `issueSession`/`Refresh` call `o.snapshot` and mint
+  `TokenClaims{Scope: scope}` (`authd/oauth.go:324,332`), so
+  `auth.Subject.Scope []string` (`auth/es256.go:123`) carries a list of the
+  same shape. **The two are not interchangeable**: the token's copy is a
+  login-time snapshot, the DB read is current. That difference is the
+  security property, not an inefficiency — see §"The hot-path exception",
+  which decides the read stays.
 
 No live caller needs per-action/per-predicate evaluation it can't already
 get from its own verified token. **Do not build the fine-grained
@@ -415,13 +456,10 @@ does.
 **Concrete fixes this decision produces** (each independently shippable,
 detailed in the migration path below):
 
-1. `proxyd`: read `sub.Scope` instead of calling `groupsForSub`/`UserScopes`.
-   **Trade-off requiring explicit sign-off before shipping**: grant
-   revocation currently takes effect on proxyd's very next request (live DB
-   read); after this change it takes effect on the caller's next token
-   refresh — bounded by `accessTTL = 15 * time.Minute` (`authd/main.go:25`).
-   This is a real security-relevant latency, not a refactor; record and get
-   sign-off, don't ship it silently.
+1. `proxyd`: read `sub.Scope` instead of calling `groupsForSub`/`UserScopes` —
+   **proposed, put to the user, and REJECTED** (2026-08-07). The sign-off this
+   asked for came back the other way: the direct read stays. §"The hot-path
+   exception" records why and pins it with tests. Nothing to ship here.
 2. `auth_sessions` (`routd.db`) — **DONE** (`db1e6f3c`, 2026-08-02). The table,
    `store.CreateAuthSession`, and proxyd's cookie branch that read it are all
    deleted. The branch was dead: authd's OAuth flow writes a `refresh_tokens`
@@ -441,6 +479,61 @@ detailed in the migration path below):
    (`9ff70eef7`, today): `webd/main.go:60-65` opens `store.Open(cfg.storeDir)`
    into `st`, defers its close, and never uses it again — its own comment at
    `webd/main.go:78` says so. Same fix, same shape, its own commit.
+
+### The hot-path exception
+
+Federation's default is unchanged: a daemon that needs another owner's rows
+calls the owner's HTTP face. `dashd`'s audit fan-out follows it ([`5/I`](I-tool-call-logging.md)).
+
+**The exception, decided by the user 2026-08-07: a daemon FS-mounted on the
+owner's DB reads it directly when the read is on the per-request hot path.**
+`proxyd` is the only daemon that qualifies, and it keeps both of its direct
+`routd.db` reads:
+
+- `store.LookupRouteToken` (`proxyd/main.go:729`) on every `/chat/` and
+  `/hook/` request, and
+- `auth.UserScopes(s.stRoutd, …)` via `groupsForSub` (`proxyd/main.go:863`) on
+  every ES256-authenticated request.
+
+Three reasons, in decreasing weight:
+
+1. **Freshness is a security property, and the HTTP-free alternative loses
+   it.** The alternative was never "call routd over HTTP" — it was "trust the
+   `Scope` list authd snapshotted into the JWT at login." Reading `acl` per
+   request means a revoked grant stops working on proxyd's very next request;
+   the snapshot means it keeps working until the caller's next token refresh,
+   bounded by `accessTTL = 15 * time.Minute` (`authd/main.go:23`). Fifteen
+   minutes of a revoked grant still opening `/dav/<folder>/` is worse than one
+   local SQLite read.
+2. **This is the front door, not a control plane.** Both reads serve every
+   inbound request. An HTTP hop to routd would add latency and a failure mode
+   to authenticated proxying and to every `/chat/` link — paths that survive
+   routd being down today.
+3. **The mount already grants it.** proxyd is FS-mounted on the store
+   directory (`compose/compose.go:1087`, `dataSubdirs: []string{"store"}`), and
+   split write-discipline (root `CLAUDE.md`) gives FS-mounted daemons direct
+   access to the owner's tables. `Y1` already decided exactly this for
+   `proxyd_routes`; `acl` and `route_tokens` are the same mount and the same
+   shape.
+
+**What the exception is not.** It is not "FS-mounted daemons may read
+anything." The test is _per-request on a serving path_. `dashd` is FS-mounted
+too and its audit page is off that path, so it moved to HTTP and stays there.
+Any new direct cross-owner read must name which per-request path it sits on or
+it is a violation.
+
+Pinned by `proxyd/hotpath_read_test.go`.
+`TestGroupsForSub_RevokedGrantDeniedDespiteTokenScope` mints a token whose
+`Scope` claim still carries a grant the `acl` table no longer has, and requires
+a 403. It is the only test in the package that fails on the _merge_ variant
+(`append(sub.Scope, groupsForSub(…)...)`) — the compromise someone reaching for
+the rejected design would actually write, and one that four existing DB-lookup
+tests all pass. `TestDispatchRouteToken_UnknownTokenStampsNoFolder` is the
+route-token half: it is the only test that fails when an unresolved token
+stamps a folder derived from the URL instead of none.
+`TestProxydChatTokenStampsHeaders` already pinned the resolved case, and
+`TestProxydDavAuthFlow_DBGroupLookup` the converse of the `acl` read — a token
+with no `Scope` claim admitted on the DB grant alone.
 
 ### FK co-location invariant
 
@@ -491,16 +584,14 @@ Each ships and reverts on its own; none blocks another except where noted.
 1. **webd: drop the dead `messages.db` open** (mirrors `9ff70eef7`) — **DONE**.
    `webd/main.go:64` opens `store.OpenRoutd` and nothing else;
    `webd/audit_sink_test.go` pins the one-store shape, citing this section.
-2. **proxyd: read `sub.Scope` instead of `groupsForSub`/`UserScopes`** — **OPEN,
-   and the last live violation of this section's federation clause**.
-   `proxyd/main.go:863` still calls `auth.UserScopes(s.stRoutd, …)`, reading
-   another owner's `acl` table for a list the verified token already carries.
-   It is a cross-daemon direct-DB READ, not a duplicate handle: proxyd opens
-   `routd.db` once at `proxyd/main.go:991` and reuses it (`LookupRouteToken` at
-   line 729 is the same pattern and the same violation). Reversible.
-   **Needs explicit sign-off first** (the 15-minute revocation trade-off above).
-   Verify: a test asserting `/priv/<folder>/` access is granted from JWT claims
-   alone with `stRoutd` pointed at a DB missing the caller's grant row.
+2. **proxyd: read `sub.Scope` instead of `groupsForSub`/`UserScopes`** —
+   **CLOSED, REJECTED** (2026-08-07). The sign-off this step waited for came
+   back against it: proxyd keeps the direct `routd.db` read, because the
+   15-minute revocation lag it would buy is a worse trade than the read it
+   would save, and proxyd is FS-mounted on that store by design.
+   §"The hot-path exception" is the reasoning and the rule it generalizes to;
+   `proxyd/hotpath_read_test.go` pins it. Nothing ships for this step — the
+   spec moved to the code, not the code to the spec.
 3. **Delete `auth_sessions`** (table + `store.CreateAuthSession`/
    `AuthSession` + proxyd's dead cookie branch) — **DONE**,
    `routd/migrations/0024-drop-auth-sessions.sql`, pinned by
@@ -514,23 +605,61 @@ Each ships and reverts on its own; none blocks another except where noted.
    (`resreg/resreg.go:274`), keyed by `SubsystemRoutd`/`SubsystemOnbod`; empty
    means "no single owner" and drops the resource from `BySubsystem`, i.e. out of
    `export`/`plan`/`apply`.
-6. **Audit the 10 not-yet-traced channel adapters' file/DB access**
-   (read-only investigation, zero risk). Produces the missing rows of the
-   per-daemon mount table above.
+6. **Audit the 10 not-yet-traced channel adapters' file/DB access** — **DONE**
+   (2026-08-07), rows folded into the mount table above. It found no work: the
+   ten never go through `writeSvc`, so the blanket bind this section wants to
+   narrow was never theirs, and six of them already keep state under
+   `store/<name>/` — the very layout step 7 proposes. **It also discharged step
+   7's dependency on this step, by disproving it**: step 7 waited on this audit
+   so adapter mounts could narrow safely, and adapter mounts are not step 7's
+   to narrow.
 7. **Restructure `store/` into per-owner subdirectories + narrow
-   `writeSvc`/`svcDef` to named per-daemon mounts** — **HALF DONE**. The
-   narrowing mechanism ships: `svcDef.dataSubdirs` + `dataMounts`
-   (`compose/compose.go:840-855`) replace the blanket bind for the daemons that
-   set it — today only `onbod` (`store`,`groups`,`web`), `proxyd` (`store`) and
-   `webd` (`store`). The `store/<owner>/` restructure itself is NOT done: the
-   subdir names are `store`/`groups`/`web`, so a narrowed daemon still sees every
-   owner's DB file, and `ONBOD_DB_PATH` is still flat `store/onbod.db`. Until the
-   restructure lands, "owner is a convention, not a boundary" stands. Reversible
-   (revert compose.go + move files back) but needs a maintenance window (daemons
-   stopped during the file move to avoid a WAL write racing it). Depends on
-   step 6 for the adapters' entries, not on steps 1-5. Verify: `docker
-inspect <container> | jq '.[0].Mounts'` matches the intended list per
-   daemon; every daemon's `/health` stays green post-restart.
+   `writeSvc`/`svcDef` to named per-daemon mounts** — **STILL OPEN. This is
+   the one step keeping this spec `partial`.** The narrowing mechanism ships:
+   `svcDef.dataSubdirs` + `dataMounts` (`compose/compose.go:839-855`) replace
+   the blanket bind for the daemons that set it — today only `onbod`
+   (`store`,`groups`,`web`), `proxyd` (`store`) and `webd` (`store`). The
+   `store/<owner>/` restructure itself is NOT done: the subdir names are
+   `store`/`groups`/`web`, so a narrowed daemon still sees every owner's DB
+   file, and `ONBOD_DB_PATH` is still flat `store/onbod.db`. "Owner is a
+   convention, not a boundary" stands — `F51` is what that costs in the worst
+   case, verified on deployed krons: `dashd`'s single volume is the entire
+   instance directory, `.env` secrets and live agent `ipc/` sockets included,
+   and `compose_test.go`'s whole-tree guard exempts exactly that daemon.
+   What this pass settled about it:
+   - **The two halves are inseparable.** Moving files to `store/routd/` while
+     `dataSubdirs` still says `store` narrows nothing; narrowing to
+     `store/routd` before the files move breaks every daemon at boot
+     (`store.OpenRoutd` is strict — it errors when `acl` is absent rather than
+     running on a fresh empty file). So this is one live-data-plus-live-mount
+     change, not two shippable ones.
+   - **It cannot be self-migrating.** A daemon cannot move its own DB into the
+     new layout, because the narrowing that motivates the change is exactly
+     what removes the old flat path from its mount. The mover must hold the
+     whole tree, which means the host side.
+   - **The host-side hook already exists.** `generateCompose`
+     (`cmd/arizuko/main.go:145`) runs on every `arizuko run`, which is what the
+     systemd unit's `ExecStart` invokes on every restart, and it already
+     carries a precedent for exactly this — `relinkCatalog`, an idempotent
+     tree fixup deliberately placed there so a shipped change reaches the
+     instance with "no operator step, no flag to remember" (BUGS `R1`). An
+     idempotent `store/<owner>/` move belongs beside it, which couples the move
+     and the narrowing atomically: you cannot get one without the other.
+   - **"New instances only" is rejected, not deferred.** Seeding
+     `store/<owner>/` in `arizuko create` and leaving live instances flat forces
+     compose generation to branch on layout and `store.Open*` to probe two
+     paths — a second path that drifts, and a silent fallback for missing data.
+     Both are forbidden by root `CLAUDE.md`. One layout or none.
+   - **What it still needs**, and why it did not ship in this pass: the move
+     touches live SQLite files on three running instances, and the failure mode
+     of a partial move is every daemon dead at boot. Its own Verify clause
+     (`docker inspect <container> | jq '.[0].Mounts'`, `/health` green
+     post-restart) cannot be exercised without docker and a restart, so nobody
+     should land it who cannot run them. Do it as one commit — the mover, the
+     `dataSubdirs` change, and the `ONBOD_DB_PATH`/`DB_PATH` repoints together
+     — rehearsed against a copy of each instance's `store/` first.
+
+   No longer depends on step 6 (see above), nor on steps 1-5.
 
 ### Not done in this phase, and why
 
@@ -551,9 +680,11 @@ inspect <container> | jq '.[0].Mounts'` matches the intended list per
   CLAUDE.md write-discipline line it contradicts. Flagged, not resolved:
   either the code moves to routd's HTTP face or the doc gets corrected to
   describe what's actually FS-mounted-legitimate; not decided in this pass.
-- **The 10 not-yet-audited channel adapters' mounts.** Step 6 above is a
-  precondition, not done here — narrowing a daemon's mount before tracing
-  its actual file access is how you break a live daemon.
+- **The 10 channel adapters' mounts.** Audited (step 6, done) and found to
+  need nothing: they bypass `writeSvc` entirely, and none is over-granted.
+  The two defects the audit did find — `emaid`'s undeclared SQLite DB, `linkd`'s
+  data-root `DATA_DIR` default — are adapter bugs (`F55`, `F56`), not ownership
+  work, and are queued rather than fixed here.
 
 ## REST-face reconciliation (resolved — 2026-07-06)
 
@@ -588,7 +719,9 @@ distinguish "operator" from "top-level tenant".
 - `dashd` admin page for that resource has no CRUD SQL — it calls the face.
 - `ipc/ipc.go` has no bespoke handler BODY for that resource.
 - Agent and REST write the same-shape `audit_log` row for the same action.
-- Its table lives in one DB; no second daemon `store.Open`s it.
+- Its table lives in one DB. A second daemon reaches it over the owner's HTTP
+  face, unless it is FS-mounted on that DB and reads it per request
+  (§"The hot-path exception" — `proxyd` only).
 - `make test` green per step; `arizuko apply` round-trips the resource.
 
 ## Out of scope
