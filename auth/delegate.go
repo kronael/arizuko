@@ -4,10 +4,15 @@ package auth
 // grant onward only a SUBSET of the acl rows it HOLDS, and only those it holds
 // WITH GRANT OPTION (grant_option=1). Postgres `GRANT … WITH GRANT OPTION`.
 //
-// Used at spawn (a parent agent seeds a child's grants) and at any operator
-// `add_acl` where the writer is not already root (`role:operator`, which holds
-// `(*, **, grant_option=1)` and so delegates anything). Authority strictly
-// decreases down every delegation chain without a depth number.
+// One production call site: `add_acl` (`routd/acl_resource.go`), where the
+// writer is not already root (`role:operator` holds `(*, **, grant_option=1)`
+// and so delegates anything). Authority strictly decreases down every
+// delegation chain without a depth number.
+//
+// NOT used at spawn. A subagent shares its parent's SO_PEERCRED socket and so
+// holds the parent's grants exactly — a strict equal, not a subset. Downscoping
+// a spawn was decided against in `specs/5/5` R4 (2026-08-07); it would need a
+// second socket, which is the parallel path this codebase removes.
 
 import (
 	"fmt"
