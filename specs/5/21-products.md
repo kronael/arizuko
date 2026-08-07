@@ -45,7 +45,10 @@ products — where the operator works. Two consequences:
 
 Products live in `ant/examples/<name>/`; each folder is a prototype for the
 group workspace seeded into a new instance. `PRODUCT.md` (TOML: name,
-brand, tagline, skills list, `[[env]]` hints) is required. Optional and
+skills list, `[[env]]` hints) is required — those three are what
+`productManifest` (`cmd/arizuko/main.go:29`) parses. Every shipped
+`PRODUCT.md` also declares `brand` and `tagline`; nothing reads them
+(BUGS `F65`). Optional and
 copied verbatim into the group dir: `PERSONA.md` (the agent's identity),
 `CLAUDE.md` (the per-group runbook read every session), `facts/` (seed
 knowledge), `tasks.toml` (seed scheduled tasks). Most products ship both
@@ -76,9 +79,12 @@ Authoring a new product is **filesystem-only — no code changes**:
 the folder, then a spec at `specs/17/product-<name>.md` and a row in
 `specs/17/index.md`.
 
-The live catalog is `ant/examples/` itself; public pages render at
-`/pub/products/<name>/` when the web layer runs. **Company brain** is a
-positioning product, not a seeded template
+The seedable catalog is `ant/examples/` itself; public pages render at
+`/pub/arizuko/products/<name>/` when the web layer runs. The two sets
+overlap in four names today and are not expected to match: a page may
+sell a positioning product with no template, and a template may ship
+before its page (BUGS `F64` tracks the current split). **Company brain**
+is the deliberate case — positioning, not a seeded template
 ([`../17/8-company-brain.md`](../17/8-company-brain.md)): arizuko is the
 action layer over a retrieval backend, and it ships as framing plus a setup
 recipe until connector skills land.

@@ -7,6 +7,38 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F64 — the public product catalog and the seedable one overlap in 4 of 14 names (2026-08-07, open)
+
+`ant/examples/` seeds 10 products (aws-devops, creator, personal, pm,
+reality, slack-team, socials, strategy, support, trip).
+`template/web/pub/arizuko/products/` publishes 8 (aws-devops, company-brain,
+discord-team, marble, reality, slack-team, supermarket, trip). Only
+**aws-devops, reality, slack-team, trip** are in both.
+
+Six seedable products have no public page (creator, personal, pm, socials,
+strategy, support) and four published products have no template
+(company-brain, discord-team, marble, supermarket). Only company-brain is
+explained — `specs/17/8` makes it positioning-only by design.
+
+A visitor reading `/pub/arizuko/products/marble/` has no `--product marble` to
+run; an operator running `arizuko create --product pm` finds nothing describing
+it. Content work, not a code fix: either publish the six missing pages or say
+on each page whether the product is seedable today.
+
+## F65 — every `PRODUCT.md` declares `brand` and `tagline`; nothing parses them (2026-08-07, open)
+
+`productManifest` (`cmd/arizuko/main.go:29`) has `Name`, `Skills`, `Env`. All
+10 shipped manifests also set `brand` and `tagline` (e.g.
+`ant/examples/reality/PRODUCT.md:2-3`, `brand = "rhias"`). TOML decode drops
+unknown keys silently, so both are dead data in every product.
+
+The values look intended for `ASSISTANT_NAME` and the product page headline —
+`brand` matches live folder names (rhias, fiu, sloth). Either wire them to a
+real consumer or delete them from the manifests; leaving a field that ten files
+declare and no code reads is the same drift class as a comment naming absent
+code (F60, F61). Wiring them changes `arizuko create` behavior, so it needs
+sign-off; deleting them does not.
+
 ## F62 — the per-group web slots are never chowned, and a comment says they are (2026-08-07, open)
 
 `container/runner.go:1017` states the web slots are pre-created so they
