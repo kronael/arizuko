@@ -42,7 +42,7 @@ var SecretsEndpoints = []resreg.Endpoint{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      "secrets",
+		Name:      SecretsName,
 		Table:     "secrets",
 		DB:        resreg.SubsystemRoutd,
 		RowType:   reflect.TypeFor[SecretsRow](),

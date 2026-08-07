@@ -61,7 +61,7 @@ var installedPackagesMCPNames = resources.InstalledPackagesMCPNames
 // — a nil Store marks a forwarder, and invoke skips authorization for those.
 func (s *Server) installedPackagesResource() resreg.Resource {
 	return resreg.Resource{
-		Name:      "installed_packages",
+		Name:      resources.InstalledPackagesName,
 		Endpoints: resources.InstalledPackagesEndpoints,
 		MCPDoc:    resources.InstalledPackagesMCPDoc,
 		MCPArgs:   resources.InstalledPackagesMCPArgs,

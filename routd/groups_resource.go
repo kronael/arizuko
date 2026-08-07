@@ -47,7 +47,7 @@ const groupsActionRegister = resreg.Action("register")
 // built in groupsPostBuild — for a forwarder invoke runs Authz, never Gate.
 func (s *Server) groupsResource(authz func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error)) resreg.Resource {
 	return resreg.Resource{
-		Name:      "groups",
+		Name:      resources.GroupsName,
 		Endpoints: resources.GroupsAgentEndpoints, // single source: doc + MCP read one list
 		MCPDoc:    resources.GroupsMCPDoc,         // single source (resreg/resources)
 		MCPArgs:   resources.GroupsMCPArgs,

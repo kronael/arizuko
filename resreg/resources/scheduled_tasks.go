@@ -90,7 +90,7 @@ var ScheduledTasksMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      "scheduled_tasks",
+		Name:      ScheduledTasksName,
 		Table:     "scheduled_tasks",
 		DB:        resreg.SubsystemRoutd,
 		RowType:   reflect.TypeFor[ScheduledTasksRow](),

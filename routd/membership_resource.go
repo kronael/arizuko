@@ -38,7 +38,7 @@ import (
 // the child's routing folder for the agent, the row's parent for REST.
 func (s *Server) membershipResource(contain containFn) resreg.Resource {
 	r := resreg.Resource{
-		Name:      "acl_membership",
+		Name:      resources.ACLMembershipName,
 		Endpoints: resources.ACLMembershipEndpoints,
 		MCPDoc:    resources.ACLMembershipMCPDoc,
 		MCPArgs:   resources.ACLMembershipMCPArgs,

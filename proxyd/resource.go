@@ -308,7 +308,7 @@ func routesAuthz(_ resreg.Caller, _ resreg.Action, _ resreg.Args) (string, map[s
 // and the OpenAPI emitter never drift.
 func routesResourceDecl(rr *routesResource) resreg.Resource {
 	return resreg.Resource{
-		Name:      "proxyd_routes",
+		Name:      resources.ProxydRoutesName,
 		Endpoints: resources.ProxydRoutesEndpoints,
 		MCPDoc:    resources.ProxydRoutesMCPDoc,
 		MCPArgs:   resources.ProxydRoutesMCPArgs,

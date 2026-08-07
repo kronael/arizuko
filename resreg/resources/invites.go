@@ -47,7 +47,7 @@ var InvitesEndpoints = []resreg.Endpoint{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      "invites",
+		Name:      InvitesName,
 		Table:     "invites",
 		DB:        resreg.SubsystemOnbod,
 		RowType:   reflect.TypeOf(InvitesRow{}),

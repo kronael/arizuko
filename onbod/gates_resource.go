@@ -46,7 +46,7 @@ func (a *admin) mountGates(mux *http.ServeMux) {
 // lives in the injected Gate.
 func (a *admin) gatesResource() resreg.Resource {
 	return resreg.Resource{
-		Name:      "onboarding_gates",
+		Name:      resources.OnboardingGatesName,
 		Endpoints: resources.OnboardingGatesEndpoints,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
 			return "", nil, nil

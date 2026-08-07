@@ -95,7 +95,7 @@ type containFn func(c resreg.Caller, a resreg.Action, target string) error
 // ownsFolder for REST) closed into the handler — see containFn.
 func (s *Server) routesResource(contain containFn) resreg.Resource {
 	r := resreg.Resource{
-		Name:      "routes",
+		Name:      resources.RoutesName,
 		Endpoints: resources.RoutesEndpoints, // single source: doc + mount + MCP read one list
 		MCPDoc:    resources.RoutesMCPDoc,    // single source (resreg/resources)
 		MCPArgs:   resources.RoutesMCPArgs,

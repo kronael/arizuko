@@ -76,7 +76,7 @@ func routesForwarder(c *proxydClient, sub, name string, groups []string) resreg.
 		return json.RawMessage(raw), nil
 	}
 	return resreg.Resource{
-		Name:      "proxyd_routes",
+		Name:      resources.ProxydRoutesName,
 		Endpoints: resources.ProxydRoutesEndpoints,
 		MCPDoc:    resources.ProxydRoutesMCPDoc,
 		MCPArgs:   resources.ProxydRoutesMCPArgs,

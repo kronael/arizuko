@@ -59,7 +59,7 @@ var SigningKeysEndpoints = []resreg.Endpoint{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      "signing_keys",
+		Name:      SigningKeysName,
 		RowType:   reflect.TypeFor[SigningKeysRow](),
 		PKFields:  []string{"Kid"},
 		Endpoints: SigningKeysEndpoints,

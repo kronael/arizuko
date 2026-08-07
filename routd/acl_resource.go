@@ -55,7 +55,7 @@ var aclMCPNames = resources.ACLMCPNames
 // single-sourced in resreg/resources.
 func (s *Server) aclResource() resreg.Resource {
 	return resreg.Resource{
-		Name:      "acl",
+		Name:      resources.ACLName,
 		Endpoints: resources.ACLEndpoints, // single source: doc + REST(add/remove) read one list
 		MCPDoc:    resources.ACLMCPDoc,    // single source (resreg/resources)
 		MCPArgs:   resources.ACLMCPArgs,

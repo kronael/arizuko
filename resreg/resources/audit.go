@@ -82,7 +82,7 @@ var AuditMCPDoc = map[resreg.Action]string{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      "audit",
+		Name:      AuditName,
 		Table:     "audit_log",
 		RowType:   reflect.TypeFor[audit.Row](),
 		PKFields:  []string{"ID"},

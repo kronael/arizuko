@@ -87,7 +87,7 @@ var ProxydRoutesEndpoints = []resreg.Endpoint{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      "proxyd_routes",
+		Name:      ProxydRoutesName,
 		Table:     "proxyd_routes",
 		DB:        resreg.SubsystemRoutd,
 		RowType:   reflect.TypeFor[ProxydRoutesRow](),

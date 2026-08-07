@@ -34,7 +34,7 @@ func (a *admin) mountOnboarding(mux *http.ServeMux) {
 // Authz is a no-op; all policy lives in the injected Gate.
 func (a *admin) onboardingResource() resreg.Resource {
 	return resreg.Resource{
-		Name:      "onboarding",
+		Name:      resources.OnboardingName,
 		Endpoints: resources.OnboardingEndpoints,
 		MCPDoc:    resources.OnboardingMCPDoc,
 		MCPArgs:   resources.OnboardingMCPArgs,

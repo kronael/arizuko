@@ -114,7 +114,7 @@ var RouteTokensMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      "route_tokens",
+		Name:      RouteTokensName,
 		Table:     "route_tokens",
 		DB:        resreg.SubsystemRoutd,
 		RowType:   reflect.TypeFor[RouteTokensRow](),

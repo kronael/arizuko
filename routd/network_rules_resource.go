@@ -57,7 +57,7 @@ var networkMCPNames = resources.NetworkRulesMCPNames
 // store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
 func (s *Server) networkRulesResource() resreg.Resource {
 	return resreg.Resource{
-		Name:      "network_rules",
+		Name:      resources.NetworkRulesName,
 		Endpoints: resources.NetworkRulesEndpoints, // single source: doc + MCP read one list
 		MCPDoc:    resources.NetworkRulesMCPDoc,    // single source (resreg/resources)
 		MCPArgs:   resources.NetworkRulesMCPArgs,

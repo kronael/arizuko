@@ -96,7 +96,7 @@ var InstalledPackagesMCPDoc = map[resreg.Action]string{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      "installed_packages",
+		Name:      InstalledPackagesName,
 		Table:     "installed_packages",
 		DB:        resreg.SubsystemRoutd,
 		RowType:   reflect.TypeFor[InstalledPackagesRow](),

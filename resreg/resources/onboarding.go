@@ -79,7 +79,7 @@ var OnboardingMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      "onboarding",
+		Name:      OnboardingName,
 		Table:     "onboarding",
 		DB:        resreg.SubsystemOnbod,
 		RowType:   reflect.TypeFor[OnboardingRow](),

@@ -48,7 +48,7 @@ const auditScope = "audit:read"
 // the Gate injected below never consults an acl row.
 func (s *Server) auditResource() resreg.Resource {
 	return resreg.Resource{
-		Name:      "audit",
+		Name:      resources.AuditName,
 		Endpoints: resources.AuditEndpoints,
 		MCPDoc:    resources.AuditMCPDoc,
 		MCPArgs:   resources.AuditMCPArgs,

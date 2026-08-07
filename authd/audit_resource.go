@@ -42,7 +42,7 @@ import (
 // mutate, so no transaction is ever opened on it.
 func (s *server) auditResource() resreg.Resource {
 	return resreg.Resource{
-		Name:      "audit",
+		Name:      resources.AuditName,
 		Endpoints: resources.AuditEndpoints,
 		MCPDoc:    resources.AuditMCPDoc,
 		MCPArgs:   resources.AuditMCPArgs,

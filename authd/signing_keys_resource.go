@@ -31,7 +31,7 @@ import (
 // not mutate, so no transaction is ever opened on it.
 func (s *server) signingKeysResource() resreg.Resource {
 	return resreg.Resource{
-		Name:      "signing_keys",
+		Name:      resources.SigningKeysName,
 		Endpoints: resources.SigningKeysEndpoints,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
 			return "", nil, nil

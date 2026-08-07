@@ -37,7 +37,7 @@ func (a *admin) mountInvites(mux *http.ServeMux) {
 // Authz is a no-op; all policy lives in the injected Gate.
 func (a *admin) invitesResource() resreg.Resource {
 	return resreg.Resource{
-		Name:      "invites",
+		Name:      resources.InvitesName,
 		Endpoints: resources.InvitesEndpoints,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
 			return "", nil, nil

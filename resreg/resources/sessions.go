@@ -67,7 +67,7 @@ var SessionsEndpoints = []resreg.Endpoint{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      "sessions",
+		Name:      SessionsName,
 		RowType:   reflect.TypeFor[SessionsRow](),
 		PKFields:  []string{"FamilyID"},
 		Endpoints: SessionsEndpoints,

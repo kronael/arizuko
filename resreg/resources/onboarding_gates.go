@@ -32,7 +32,7 @@ var OnboardingGatesEndpoints = []resreg.Endpoint{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      "onboarding_gates",
+		Name:      OnboardingGatesName,
 		Table:     "onboarding_gates",
 		DB:        resreg.SubsystemOnbod,
 		RowType:   reflect.TypeFor[OnboardingGatesRow](),

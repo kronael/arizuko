@@ -77,7 +77,7 @@ var ACLMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:      "acl",
+		Name:      ACLName,
 		Table:     "acl",
 		DB:        resreg.SubsystemRoutd,
 		RowType:   reflect.TypeFor[ACLRow](),

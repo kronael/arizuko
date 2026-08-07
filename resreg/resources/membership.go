@@ -58,7 +58,7 @@ var ACLMembershipMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:          "acl_membership",
+		Name:          ACLMembershipName,
 		Table:         "acl_membership",
 		DB:            resreg.SubsystemRoutd,
 		RowType:       reflect.TypeFor[ACLMembershipRow](),

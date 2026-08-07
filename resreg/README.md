@@ -192,8 +192,17 @@ Table: [`specs/8/F-audit-stream.md`](../specs/5/I-tool-call-logging.md).
 
 ## Adding a resource
 
-1. Declare typed `Resource` literal in your daemon: `Name`,
-   `Endpoints`, `MCPDoc`, `MCPArgs`, `Authz`, `Handler`, `Store`.
+1. Declare the SHAPE once in `resreg/resources/<name>.go` — the catalog
+   registration (`Name`, `Table`, `RowType`, `PKFields`, `Endpoints`,
+   `MCPDoc`/`MCPArgs`/`MCPNames`), with its name added to the const block
+   in `resreg/resources/names.go`. Then declare the mounted `Resource`
+   literal in your daemon, IMPORTING that shape — `Name:
+resources.<X>Name`, `Endpoints: resources.<X>Endpoints`, … — and adding
+   only `Authz`, `Handler`, `Store` and the injected `Gate`.
+   A resource's `Name` is its wire identity (`/v1/<name>` + the MCP tool
+   prefix); it is spelled in `names.go` and nowhere else, so the catalog
+   and the mount cannot disagree about what the resource is called.
+   `resources/name_source_test.go` fails on a re-introduced string literal.
 2. Implement one `Handler` that switches on `x.Action`. Run mutations
    via `x.Tx` when `Store` is set.
 3. Wire from `main.go`: `resreg.RegisterREST(mux, r, build)` and

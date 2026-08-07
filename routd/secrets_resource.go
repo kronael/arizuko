@@ -53,7 +53,7 @@ func (s *Server) mountSecrets(mux *http.ServeMux) {
 // row. Authz carries the operator gate (forwarders skip Resource.Gate).
 func (s *Server) secretsResource() resreg.Resource {
 	return resreg.Resource{
-		Name:      "secrets",
+		Name:      resources.SecretsName,
 		Endpoints: resources.SecretsEndpoints, // single source: doc + REST read one list
 		Authz:     s.secretsAuthz,
 		Handler:   s.secretsHandler,

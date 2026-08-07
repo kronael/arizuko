@@ -69,7 +69,7 @@ var GroupsMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:          "groups",
+		Name:          GroupsName,
 		Table:         "groups",
 		DB:            resreg.SubsystemRoutd,
 		RowType:       reflect.TypeFor[GroupsRow](),

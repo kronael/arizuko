@@ -64,7 +64,7 @@ var NetworkRulesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:          "network_rules",
+		Name:          NetworkRulesName,
 		Table:         "network_rules",
 		DB:            resreg.SubsystemRoutd,
 		RowType:       reflect.TypeFor[NetworkRulesRow](),

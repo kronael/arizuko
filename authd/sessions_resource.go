@@ -38,7 +38,7 @@ import (
 // (resreg/resources/sessions.go).
 func (s *server) sessionsResource() resreg.Resource {
 	return resreg.Resource{
-		Name:      "sessions",
+		Name:      resources.SessionsName,
 		Endpoints: resources.SessionsEndpoints,
 		Authz: func(_ resreg.Caller, action resreg.Action, args resreg.Args) (string, map[string]string, error) {
 			return "", map[string]string{"family_id": args.Str("family_id")}, nil

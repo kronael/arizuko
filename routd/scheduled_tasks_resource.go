@@ -84,7 +84,7 @@ var tasksMCPNames = resources.ScheduledTasksMCPNames
 // for the agent, ownsFolder for REST) closed into the handler — see containFn.
 func (s *Server) scheduledTasksResource(contain containFn, elevated bool) resreg.Resource {
 	r := resreg.Resource{
-		Name:      "scheduled_tasks",
+		Name:      resources.ScheduledTasksName,
 		Endpoints: resources.ScheduledTasksEndpoints, // single source: doc + MCP read one list
 		MCPDoc:    resources.ScheduledTasksMCPDoc,    // single source (resreg/resources)
 		MCPArgs:   resources.ScheduledTasksMCPArgs,

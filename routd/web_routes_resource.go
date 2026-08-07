@@ -47,7 +47,7 @@ var webRoutesMCPNames = resources.WebRoutesMCPNames
 // store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
 func (s *Server) webRoutesResource() resreg.Resource {
 	return resreg.Resource{
-		Name:      "web_routes",
+		Name:      resources.WebRoutesName,
 		Endpoints: resources.WebRoutesEndpoints, // single source: doc + MCP read one list
 		MCPDoc:    resources.WebRoutesMCPDoc,     // single source (resreg/resources)
 		MCPArgs:   resources.WebRoutesMCPArgs,
