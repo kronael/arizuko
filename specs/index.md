@@ -31,9 +31,9 @@ credible to regulated buyers.
 separation (cold / warm / hot) and git-as-truth for the cold tier (audit,
 history, fork, distribute — native git verbs replace bespoke machinery).
 Secrets stay in SQLite; git carries only references. Its first action —
-MCP+REST unification (one mutation path) — was pulled forward to phase 5 as
-active work (`5/17` mechanism + `5/16` rollout); the remaining phase-9
-actions are the data model and git-as-truth.
+MCP+REST unification (one mutation path) — was pulled forward to phase 5
+(`5/17` mechanism + `5/16` rollout) and both have shipped; the remaining
+phase-9 actions are the data model and git-as-truth.
 
 Together: phases 5 + 8 give **enterprise-ready** (capabilities +
 trust); phase 9 gives **operationally minimal** (one storage
