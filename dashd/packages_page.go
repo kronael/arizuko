@@ -24,8 +24,11 @@ func (d *dash) handlePackages(w http.ResponseWriter, r *http.Request) {
 		pageClose(w, r)
 		return
 	}
-	rows, err := db.Query(`SELECT name, source, revision, installed_at
-		FROM installed_packages ORDER BY name`)
+	// folder '' is instance-wide, a non-empty one names the group a product was
+	// blended into (spec 5/28 composition). Without the column the two read as
+	// the same fact, and a product looks like it installed a sidecar.
+	rows, err := db.Query(`SELECT folder, name, source, revision, installed_at
+		FROM installed_packages ORDER BY folder, name`)
 	if err != nil {
 		fmt.Fprint(w, htmlBanner("err", "read installed_packages: "+esc(err.Error())))
 		pageClose(w, r)
@@ -33,21 +36,26 @@ func (d *dash) handlePackages(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	fmt.Fprint(w, `<table class="tbl"><thead><tr><th>name</th><th>source</th><th>revision</th><th>installed</th></tr></thead><tbody>`)
+	fmt.Fprint(w, `<table class="tbl"><thead><tr><th>folder</th><th>name</th><th>source</th><th>revision</th><th>installed</th></tr></thead><tbody>`)
 	n := 0
 	for rows.Next() {
-		var name, source, revision, at string
-		if err := rows.Scan(&name, &source, &revision, &at); err != nil {
+		var folder, name, source, revision, at string
+		if err := rows.Scan(&folder, &name, &source, &revision, &at); err != nil {
 			continue
 		}
 		n++
-		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td><code>%s</code></td><td>%s</td></tr>`,
-			esc(name), esc(source), esc(revision), esc(at))
+		scope := `<span class="dim">instance</span>`
+		if folder != "" {
+			scope = "<code>" + esc(folder) + "</code>"
+		}
+		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%s</td></tr>`,
+			scope, esc(name), esc(source), esc(revision), esc(at))
 	}
 	fmt.Fprint(w, `</tbody></table>`)
 	if n == 0 {
 		fmt.Fprint(w, `<p class="dim">No packages installed. Install one with `+
-			`<code>arizuko packages &lt;instance&gt; install &lt;source&gt;</code>.</p>`)
+			`<code>arizuko packages &lt;instance&gt; install &lt;source&gt;</code>, `+
+			`or blend a group's products with <code>arizuko products &lt;instance&gt; apply &lt;folder&gt;</code>.</p>`)
 	}
 	pageClose(w, r)
 }

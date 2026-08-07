@@ -65,3 +65,24 @@ func TestPackagesPageRows(t *testing.T) {
 		}
 	}
 }
+
+// TestPackagesPageShowsScope: the record is keyed (folder, name) and both kinds
+// of row live in one table — an instance-wide package and a product blended into
+// one group (spec 5/28). Without the folder column an operator reads a group's
+// product as something that installed a sidecar instance-wide.
+func TestPackagesPageShowsScope(t *testing.T) {
+	db := packagesDB(t)
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO installed_packages(folder, name, source, revision, installed_at)
+		VALUES('','slakd','github.com/org/slakd','abc123','2026-07-29T00:00:00Z'),
+		      ('atlas/support','trip','ant/examples/trip','local','2026-08-07T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	body := packagesGet(t, db)
+	if !strings.Contains(body, "<code>atlas/support</code>") {
+		t.Errorf("group-scoped product does not show its folder: %s", body)
+	}
+	if !strings.Contains(body, `<span class="dim">instance</span>`) {
+		t.Errorf("instance-wide package does not say so: %s", body)
+	}
+}
