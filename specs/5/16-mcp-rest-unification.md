@@ -4,10 +4,13 @@ depends: [5/13-ext-mcp, 5/17-openapi-mcp, 5/32-acl-unified]
 moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 ---
 
-> **Status (2026-08-07).** Still `partial`, now on **step 2 alone**. Adoption is
-> done; federation shipped; step 6 was already satisfied; step 7 — per-owner
-> `store/<owner>/` mounts — shipped today, along with the loud-failure
-> precondition it rests on.
+> **Status (2026-08-07).** Still `partial`, now on the mount-`Name` gap alone.
+> **All seven ordered steps are resolved** — six done, step 2 closed as
+> REJECTED. Adoption is done; federation shipped; step 6 was already satisfied;
+> step 7 — per-owner `store/<owner>/` mounts — shipped today, along with the
+> loud-failure precondition it rests on. What holds this spec open is no longer a
+> step but the single-source claim its own target makes: the mounted handler is
+> specified to IMPORT `Name`/`Table` from the registry and still restates them.
 >
 > All seven agent-facing cold-tier resources — `web_routes`, `routes`,
 > `network_rules`, `scheduled_tasks`, `acl`, `route_tokens`, `groups` — ride one
@@ -64,17 +67,24 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 >
 > - The mounted handler must DERIVE `Name`/`Table` from the registry, not restate
 >   them. `Endpoints`/`RowType`/MCP metadata already single-source by import;
->   `Name` is still a string literal at all ~11 mount sites. `MountedResources`
+>   `Name` is still a string literal at all ~11 mount sites. `routd/acl_resource.go`
+>   is the shape of the gap in one file: it imports `resources.ACLEndpoints`,
+>   `ACLMCPDoc`, `ACLMCPArgs` and `ACLMCPNames` (lines 59-62) and three lines
+>   earlier writes `Name: "acl"` as a literal (line 58). `MountedResources`
 >   now compares mounted `Name` to registry `Name` on every face, so a mistyped
 >   literal silently drops the resource from the doc instead of mislabelling it —
->   a fail-safe, not the fix.
-> - Step 2 below is unshipped. Its violation is a cross-daemon direct-DB READ of
->   another owner's table, NOT a duplicate handle: `proxyd` opens `routd.db`
->   exactly once (`store.OpenRoutd`, `proxyd/main.go:991`) and reuses that handle,
->   so "never a second `store.Open`" is not what it breaks. What it breaks is
->   federation — `proxyd/main.go:863` reads routd's `acl` via
->   `auth.UserScopes(s.stRoutd, …)` for a scope list its verified token already
->   carries, instead of calling the owner's face.
+>   a fail-safe, not the fix. **This is the one thing keeping the spec `partial`**;
+>   BUGS' "Resource identity" entry tracks it as record-only, to retire here.
+> - Step 2 is **closed as REJECTED** (2026-08-07, user). `proxyd/main.go:863`
+>   reads routd's `acl` directly, and after review that read STAYS. It was never
+>   a duplicate handle — proxyd opens `routd.db` once (`store.OpenRoutd`,
+>   `proxyd/main.go:991`) and reuses it — and the swap it proposed was not "call
+>   the owner over HTTP" but "trust the login-time `Scope` snapshot in the JWT",
+>   which trades per-request revocation for a 15-minute lag on the front door.
+>   The spec moved instead: §"The hot-path exception" names the carve-out
+>   (FS-mounted **and** read per request), bounds it to proxyd, and
+>   `proxyd/hotpath_read_test.go` makes the rejected design fail a test rather
+>   than pass review. Reopening it is one call site — the shape is recorded.
 > - Step 7 **shipped 2026-08-07**; see below.
 >
 > **The per-daemon guard changed shape with the cause fix** (`F40`, closed;
@@ -151,15 +161,14 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > routd would look healthy with the broker, surrogate OAuth, voice and the `.jl`
 > audit stream all off. runed drives the spawn path.
 >
-> **This spec stays `partial` on step 2 alone.** The literal acceptance bullet
-> "no second daemon `store.Open`s it" cannot be the test — `Y1` deliberately
-> blessed proxyd's FS-mounted `routd.db` handle for `proxyd_routes`, so that
-> bullet is already, intentionally, not met. The operative clause is federation:
-> a cross-daemon READ of another owner's table must call the owner's face.
-> `proxyd/main.go:863` still calls `auth.UserScopes(s.stRoutd, …)` for a scope
-> list its verified token already carries — the last live violation, and step 7
-> does not touch it either way. It needs the explicit sign-off it has always
-> needed (the 15-minute revocation trade-off).
+> **This spec stays `partial` on the mount-`Name` gap alone.** The literal
+> acceptance bullet "no second daemon `store.Open`s it" was never the test — `Y1`
+> deliberately blessed proxyd's FS-mounted `routd.db` handle, so that bullet is
+> already, intentionally, not met. The operative clause is federation, and it now
+> carries ONE named exception rather than one unexplained violation: §"The
+> hot-path exception". An unstated exception reads as drift to the next reviewer —
+> the same failure mode as a daemon advertising an endpoint it does not mount —
+> so it is written down, bounded, and pinned by a test.
 
 # specs/5/16 — MCP+REST unification (finish the adoption)
 
@@ -184,7 +193,10 @@ owns the mechanism), one owner:
 - **One owner + federation**: each resource's table lives in exactly one
   daemon's DB; cross-daemon reads call the owner's face over HTTP — the owner
   resolves by compose service naming (`<DAEMON>_URL`), never a second
-  `store.Open`. This retires `messages.db` as a shared 8th DB.
+  `store.Open`. One exception, named and bounded rather than left implicit: an
+  FS-mounted daemon reading the owner's DB **on the per-request hot path**
+  (§["The hot-path exception"](#the-hot-path-exception)). This retires
+  `messages.db` as a shared 8th DB.
 
 The orthogonal sibling concern is [`5/8`](8-yaml-manifests.md) — the same tables
 as declarative YAML you `export`/`apply`. 5/16 is the runtime surface, 5/8 the
@@ -353,7 +365,7 @@ that infers access from ownership alone:
    | `routd`                                  | whole tree — see the ROOT-PATH note below                                                                                                | `groups/`, `ipc/`, `web/`, `tts/`, `surrogate/`, `connectors.toml` |
    | `runed`                                  | whole tree (spawn path)                                                                                                                  | `groups/`, `ipc/`, docker.sock                                     |
    | `onbod`                                  | `onbod/` rw + `routd/` rw (cross-write `user_profiles.username`, `onbod/main.go`; cross-read groups/routes/acl for onboarding decisions) | `groups/` (`SetupGroup`), `web/` (per-group pub+priv slots)        |
-   | `proxyd`                                 | `routd/` rw (`route_tokens`, `proxyd_routes`, and `acl` until step 2 ships)                                                              | —                                                                  |
+   | `proxyd`                                 | `routd/` rw (`proxyd_routes`, `route_tokens`, `acl` — all three read per request; §"The hot-path exception")                             | —                                                                  |
    | `dashd`                                  | `routd/` + `onbod/` + `runed/` (the operator console; NOT `authd/` — it reads sessions over authd's HTTP face)                           | `groups/`, `surrogate/` — **not** `.env`, **not** `ipc/` (`F51`)   |
    | `webd`                                   | `routd/` rw (route resolution, history, audit sink)                                                                                      | —                                                                  |
    | `slakd`                                  | `routd/` rw (pane reads; writes panes back over routd HTTP)                                                                              | —                                                                  |
@@ -458,19 +470,22 @@ consumer to check whether that endpoint is actually needed:
   `invites_resource.go:56`) read `x.Caller.Claims["scopes"]` — a string
   already present on the VERIFIED JWT, no DB call, no HTTP call. Zero
   dependency on routd.db already.
-- **`proxyd`'s `/priv/*` + WebDAV gate** (`auth.MatchGroups(gs, folder)`,
-  `proxyd/main.go:601,760`) needs a coarse folder list, sourced from
-  `groupsForSub` → `s.stRoutd.UserScopes(sub)` — a **direct `routd.db`
-  read**, the one genuinely live dependency. But `UserScopes` is exactly
-  `handleUserScopes`'s output, and authd **already snapshots it into every
-  minted JWT**: `issueSession`/`Refresh` call `o.snapshot` (the same grants
-  fetch) and mint `TokenClaims{Scope: scope}` (`authd/oauth.go:269-281`), so
-  `auth.Subject.Scope []string` (`auth/es256.go:123`) carries the same list
-  `groupsForSub` re-fetches from the DB **after having just verified the
-  token that already contains it**. `proxyd/main.go:847,890` (`tryAuth`'s
-  ES256 branch, `tryRefreshViaAuthd`) call `s.groupsForSub(sub.Sub)` instead
-  of reading `sub.Scope` directly — a redundant DB round-trip on data
-  already in hand.
+- **`proxyd`'s `/priv/*` + WebDAV gate** (`auth.MatchSlot(gs, slotPath)`,
+  `proxyd/main.go:613,776`) needs a coarse folder list. `gs` is the
+  `X-User-Groups` header, and `setUserHeaders` fills it from `groupsForSub` →
+  `auth.UserScopes(s.stRoutd, …)` (`proxyd/main.go:863`) — a **direct `routd.db`
+  read**, the one genuinely live dependency, and the sole input to both gates.
+  But `UserScopes` is exactly `handleUserScopes`'s output, and authd **already
+  snapshots it into every minted JWT**: `issueSession` (`authd/oauth.go:332`)
+  and `Refresh` → `MintForSubject` (`authd/server.go:167`) both re-fetch grants
+  and mint `TokenClaims{Scope: scope}`, so `auth.Subject.Scope []string`
+  (`auth/es256.go:123`) carries a list of the same shape.
+  `proxyd/main.go:882,936` (`tryAuth`'s ES256 branch, `tryRefreshViaAuthd`) call
+  `s.groupsForSub(sub.Sub)` instead of reading `sub.Scope` directly.
+  **The two are not interchangeable**: the token's copy is a login-time
+  snapshot, the DB read is current. That difference is the security property,
+  not an inefficiency — see §"The hot-path exception", which decides the read
+  stays.
 
 No live caller needs per-action/per-predicate evaluation it can't already
 get from its own verified token. **Do not build the fine-grained
@@ -481,13 +496,13 @@ does.
 **Concrete fixes this decision produces** (each independently shippable,
 detailed in the migration path below):
 
-1. `proxyd`: read `sub.Scope` instead of calling `groupsForSub`/`UserScopes`.
-   **Trade-off requiring explicit sign-off before shipping**: grant
-   revocation currently takes effect on proxyd's very next request (live DB
-   read); after this change it takes effect on the caller's next token
-   refresh — bounded by `accessTTL = 15 * time.Minute` (`authd/main.go:25`).
-   This is a real security-relevant latency, not a refactor; record and get
-   sign-off, don't ship it silently.
+1. `proxyd`: read `sub.Scope` instead of calling `groupsForSub`/`UserScopes` —
+   **proposed, put to the user, and REJECTED** (2026-08-07). The sign-off this
+   asked for came back the other way: the direct read stays. The trade it
+   offered was grant revocation on proxyd's very next request (live DB read)
+   for revocation on the caller's next token refresh — bounded by
+   `accessTTL = 15 * time.Minute` (`authd/main.go:25`). §"The hot-path
+   exception" is the decision and the rule it generalizes to.
 2. `auth_sessions` (`routd.db`) — **DONE** (`db1e6f3c`, 2026-08-02). The table,
    `store.CreateAuthSession`, and proxyd's cookie branch that read it are all
    deleted. The branch was dead: authd's OAuth flow writes a `refresh_tokens`
@@ -507,6 +522,72 @@ detailed in the migration path below):
    (`9ff70eef7`, today): `webd/main.go:60-65` opens `store.Open(cfg.storeDir)`
    into `st`, defers its close, and never uses it again — its own comment at
    `webd/main.go:78` says so. Same fix, same shape, its own commit.
+
+### The hot-path exception
+
+Federation's default is unchanged: a daemon that needs another owner's rows
+calls the owner's HTTP face. `dashd`'s audit fan-out follows it ([`5/I`](I-tool-call-logging.md)).
+
+**The exception, decided by the user 2026-08-07: a daemon FS-mounted on the
+owner's DB reads it directly when the read is on the per-request hot path.**
+`proxyd` is the only daemon that qualifies, and it keeps both of its direct
+`routd.db` reads:
+
+- `store.LookupRouteToken` (`proxyd/main.go:729`) on every `/chat/` and
+  `/hook/` request, and
+- `auth.UserScopes(s.stRoutd, …)` via `groupsForSub` (`proxyd/main.go:863`) on
+  every ES256-authenticated request — the sole source of the `X-User-Groups`
+  header that gates `/priv/*` and WebDAV (`auth.MatchSlot`, lines 613 and 776).
+
+Three reasons, in decreasing weight:
+
+1. **Freshness is a security property, and the HTTP-free alternative loses
+   it.** The alternative was never "call routd over HTTP" — it was "trust the
+   `Scope` list authd snapshotted into the JWT at login." Reading `acl` per
+   request means a revoked grant stops working on proxyd's very next request;
+   the snapshot means it keeps working until the caller's next token refresh.
+   For the browser front door that bound is exactly `accessTTL = 15 *
+time.Minute` (`authd/main.go:25`), hardcoded at both mint sites
+   (`authd/oauth.go:332`, `authd/server.go:167`) — a refresh re-fetches grants,
+   so the token lifetime IS the staleness window. It is not a universal bound:
+   `POST /v1/tokens` passes `ttl_seconds` through to `IssuerMint`
+   (`authd/http.go:352`, `authd/server.go:241`) uncapped, so a service token's
+   stale scope would live as long as the token does. Fifteen minutes of a
+   revoked grant still opening `/dav/<folder>/` is already worse than one local
+   SQLite read; unbounded is worse again.
+2. **This is the front door, not a control plane.** Both reads serve every
+   inbound request. An HTTP hop to routd would add latency and a failure mode
+   to authenticated proxying and to every `/chat/` link — paths that survive
+   routd being down today.
+3. **The mount already grants it, and step 7 narrowed it to fit.** proxyd is
+   FS-mounted on `store/routd/` and nothing else (`compose/compose.go:1119`,
+   `dataSubdirs: []string{storeSub(store.OwnerRoutd)}`), and split
+   write-discipline (root `CLAUDE.md`) gives FS-mounted daemons direct access to
+   the owner's tables. `Y1` decided exactly this shape, blessing both the handle
+   — _"proxyd is that shape plus writes — permitted, since proxyd is FS-mounted
+   … and split write-discipline lets FS-mounted daemons write owned tables
+   directly"_ — and, in the same breath, this specific read: _"the table sits in
+   `routd.db` because proxyd resolves cookie → user → scopes → route from
+   … `acl` … `route_tokens` in one per-request decision. Splitting costs a
+   second DB open per request and buys nothing."_ The cost of the carve-out is
+   one cross-owner read through a mount narrowed to precisely the owner subdir
+   it reads.
+
+**What the exception is not.** It is not "FS-mounted daemons may read
+anything." The test is _per-request on a serving path_. `dashd` is FS-mounted
+too and its audit page is off that path, so it moved to HTTP and stays there.
+Any new direct cross-owner read must name which per-request path it sits on or
+it is a violation.
+
+Pinned by `proxyd/hotpath_read_test.go`.
+`TestGroupsForSub_RevokedGrantDeniedDespiteTokenScope` mints a token whose
+`Scope` claim still carries a grant the `acl` table no longer has, and requires
+a 403. It is the only test in the package that fails on the _merge_ variant
+(`append(sub.Scope, groupsForSub(…)...)`) — the compromise someone reaching for
+the rejected design would actually write, and one that four existing DB-lookup
+tests all pass. `TestDispatchRouteToken_UnknownTokenStampsNoFolder` is the
+route-token half: it is the only test that fails when an unresolved token
+stamps a folder derived from the URL instead of none.
 
 ### FK co-location invariant
 
@@ -603,16 +684,16 @@ Each ships and reverts on its own; none blocks another except where noted.
 1. **webd: drop the dead `messages.db` open** (mirrors `9ff70eef7`) — **DONE**.
    `webd/main.go:64` opens `store.OpenRoutd` and nothing else;
    `webd/audit_sink_test.go` pins the one-store shape, citing this section.
-2. **proxyd: read `sub.Scope` instead of `groupsForSub`/`UserScopes`** — **OPEN,
-   and the last live violation of this section's federation clause**.
-   `proxyd/main.go:863` still calls `auth.UserScopes(s.stRoutd, …)`, reading
-   another owner's `acl` table for a list the verified token already carries.
-   It is a cross-daemon direct-DB READ, not a duplicate handle: proxyd opens
-   `routd.db` once at `proxyd/main.go:991` and reuses it (`LookupRouteToken` at
-   line 729 is the same pattern and the same violation). Reversible.
-   **Needs explicit sign-off first** (the 15-minute revocation trade-off above).
-   Verify: a test asserting `/priv/<folder>/` access is granted from JWT claims
-   alone with `stRoutd` pointed at a DB missing the caller's grant row.
+2. **proxyd: read `sub.Scope` instead of `groupsForSub`/`UserScopes`** —
+   **CLOSED, REJECTED** (2026-08-07). The sign-off this step waited for came
+   back against it: proxyd keeps the direct `routd.db` read, because the
+   15-minute revocation lag it would buy is a worse trade than the read it
+   would save, and proxyd is FS-mounted on that store by design.
+   §"The hot-path exception" is the reasoning and the rule it generalizes to;
+   `proxyd/hotpath_read_test.go` pins it. Nothing ships for this step — the
+   spec moved to the code, not the code to the spec. Reopening is cheap and
+   deliberately so: one call site (`proxyd/main.go:863`), and the shape of the
+   change plus what it would cost is recorded here.
 3. **Delete `auth_sessions`** (table + `store.CreateAuthSession`/
    `AuthSession` + proxyd's dead cookie branch) — **DONE**,
    `routd/migrations/0024-drop-auth-sessions.sql`, pinned by
@@ -705,7 +786,9 @@ distinguish "operator" from "top-level tenant".
 - `dashd` admin page for that resource has no CRUD SQL — it calls the face.
 - `ipc/ipc.go` has no bespoke handler BODY for that resource.
 - Agent and REST write the same-shape `audit_log` row for the same action.
-- Its table lives in one DB; no second daemon `store.Open`s it.
+- Its table lives in one DB. A second daemon reaches it over the owner's HTTP
+  face, unless it is FS-mounted on that DB and reads it per request
+  (§"The hot-path exception" — `proxyd` only).
 - `make test` green per step; `arizuko apply` round-trips the resource.
 
 ## Out of scope
