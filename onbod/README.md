@@ -45,12 +45,21 @@ resets the row (verdict included) so the observer can advance it.
 
 ## Tables owned
 
-`onboarding`, `invites`, `onboarding_gates` (+ its own `audit_log`).
+`onboarding`, `invites`, `invite_redemptions`, `onboarding_gates` (+ its own
+`audit_log`).
 Split topology only: onbod OWNS these in `onbod.db` (`ONBOD_DB_PATH`,
 migrations under `onbod/migrations/`). Writers reach the owned tables
 through onbod's `/v1/*` admin surface (routd), or write `onbod.db`
 directly with the same FS-access discipline (host CLI `arizuko
 invite`/`gate`, FS-mounted dashd).
+
+`invite_redemptions` is the one owned table with no resreg resource and no
+`/v1` path, deliberately. It is not a management entity: it holds one
+in-flight authority between redeeming a subgroup invite and naming the
+workspace, written by `store.consumeInvite` and deleted by
+`handleCreateWorld`. A REST/MCP face would publish a create verb for the
+authority that decides which tenant a new folder lands in — the same
+authority BUGS `F50` was about. Spec `5/18` step 8.
 
 `auth_users`/`acl`/`groups`/`routes` are NOT onbod-owned — they live in
 `routd.db` (routd territory). onbod cross-reads them for dashboard

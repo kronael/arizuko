@@ -435,6 +435,21 @@
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0032-invites-rewrite.sql">0032</a> (replaces dropped <code>invitations</code> from 0028).</p>
     </div>
 
+    <div class="card">
+      <h3><code>invite_redemptions</code></h3>
+      <p>One row per redeemed <em>subgroup</em> invite &mdash; a <code>target_glob</code> ending in <code>/</code>, which admits you to create a workspace inside that tree rather than granting you an existing one. The row records which tree, because at redemption time there is nothing else to record it on: the folder does not exist yet, so no <code>acl</code> grant can be written. &ldquo;Create workspace&rdquo; reads the row to decide the parent, then deletes it, so one redemption makes exactly one workspace.</p>
+      <table>
+        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
+        <tr><td><code>id</code></td><td>INTEGER PK</td><td>NOT NULL</td><td>AUTOINCREMENT</td><td>row id; the spend claims it</td></tr>
+        <tr><td><code>user_sub</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>who redeemed</td></tr>
+        <tr><td><code>target_glob</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>the invite&rsquo;s tree, e.g. <code>acme/</code></td></tr>
+        <tr><td><code>redeemed_at</code></td><td>TEXT</td><td>NOT NULL</td><td></td><td>RFC3339</td></tr>
+      </table>
+      <p class="meta"><strong>Writers:</strong> <code>store.consumeInvite</code>, inside the same transaction that consumes the invite. <strong>Readers:</strong> onbod&rsquo;s create-workspace handler, which spends the row.</p>
+      <p class="meta"><strong>No <code>/v1</code> path and no MCP tool</strong>, unlike every other onbod table. This is not something an operator manages &mdash; it is an authority in flight, and a create verb for it would be a verb for choosing whose tree a new workspace lands in. See <a href="https://github.com/kronael/arizuko/blob/main/specs/5/18-onboarding-model.md">5/18</a>.</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/onbod/migrations/0005-invite-redemptions.sql">onbod 0005</a>.</p>
+    </div>
+
     <h2>5. Secrets</h2>
 
     <p class="meta">Per-folder MCP rule overlays (formerly the <code>grant_rules</code> table, dropped in 0053) now live in <code>acl</code> as <code>(principal=folder:&lt;f&gt;, action=mcp:&lt;tool&gt;, scope=&lt;f&gt;, params, effect)</code> rows. There is no fall-back: an <code>mcp:*</code> action with no matching <code>acl</code> row is denied.</p>
