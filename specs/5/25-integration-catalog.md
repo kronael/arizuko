@@ -1,5 +1,5 @@
 ---
-status: draft
+status: reference
 depends:
   [
     13-ext-mcp,
@@ -11,6 +11,14 @@ depends:
 ---
 
 # specs/5/25 — integration catalog: the surface, derived from use cases
+
+> **Terminal state: `reference` (2026-08-07).** This is an analysis doc, not a
+> deliverable — the surface it derives is implemented by the specs it names
+> (`5/13` shapes 2 and 3 ship; `openapi2mcp` is `8/A`; the OAuth wall is `5/15`;
+> the stakes axis is `5/19`, shipped 2026-08-07). Nothing here waits on a
+> decision, and there is no `specs/5` code left to write against it. Its sibling
+> corpus [`26-integration-usecases.md`](26-integration-usecases.md) carries the
+> same status for the same reason.
 
 The niche: arizuko is **not the next agent** — it is the **gated, audited
 integration fabric plus a curated service catalog** an agent operates.

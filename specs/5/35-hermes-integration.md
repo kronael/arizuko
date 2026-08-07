@@ -1,5 +1,5 @@
 ---
-status: draft
+status: reference
 depends:
   [
     ../6/1-adoption-interop,
@@ -10,6 +10,15 @@ depends:
 ---
 
 # specs/5/35 — connecting Hermes to arizuko's messaging plane
+
+> **Terminal state: `reference` (2026-08-07).** An interop analysis, not a
+> committed build: it establishes that Hermes's adapter interface and arizuko's
+> `chanlib.BotHandler` are the same verb set differently spelled, that the
+> adaptation is a mapping rather than an architecture, and what must hold before
+> Mode A reaches a non-operator tenant. Starting it is a `6/1` adoption
+> decision, not a `specs/5` task — and the two inherited gaps it names
+> (scheme-bound-but-not-namespace-bound senders; per-handler containment) are
+> tracked where they live, not here.
 
 ## What this solves
 

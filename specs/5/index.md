@@ -7,6 +7,19 @@ status: active
 The capabilities layer: cross-cutting platform specs that aren't tied to a
 single channel adapter.
 
+## Phase status (2026-08-07)
+
+49 shipped, 0 partial. Three files carry `reference` — analysis that has no
+lifecycle to finish (`25`, `26`, `35`). One carries `draft`:
+[`22-self-learning.md`](22-self-learning.md).
+
+`draft` is not unfinished work. Per the specs discipline a draft is an idea
+captured and **not approved** — implementation is blocked until an operator
+promotes it to `planned`. `22` is the only spec in this phase in that state, and
+it stays there by rule, not by neglect: shipping a proposals queue nobody
+approved is exactly the "code lands, label follows" drift this phase's audit
+existed to remove.
+
 ## Scope boundary
 
 Per-channel adapter behaviour (Slack/Telegram/Discord quirks) lives next to the
@@ -72,18 +85,18 @@ data entities defined here, and `9/3` moves the cold tier into git.
 
 ## Runtime — the turn and the container
 
-| Spec                                                     | Status  | Hook                                                                                                                                                                                         |
-| -------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [P-runed.md](P-runed.md)                                 | shipped | **The execution plane.** Container lifecycle and run federation. The turn is credentialed by the SO_PEERCRED socket, never a token.                                                          |
-| [A-primitives-framing.md](A-primitives-framing.md)       | shipped | Framing only, no behaviour: the pipeline primitives in route-first order, identity as coordinate system.                                                                                     |
-| [2-agent-pipeline.md](2-agent-pipeline.md)               | shipped | Orchestration (route tokens) versus workflows (the in-container Agent tool).                                                                                                                 |
-| [4-autocalls.md](4-autocalls.md)                         | shipped | Inject facts inline when schema cost exceeds content cost. Four autocalls, no tools.                                                                                                         |
-| [24-live-tasklist-status.md](24-live-tasklist-status.md) | shipped | A `TodoWrite` hook renders the agent's task list into one message edited in place.                                                                                                           |
-| [I-tool-call-logging.md](I-tool-call-logging.md)         | shipped | Per-tool-call logging on both surfaces; the `audit_log` table is the source of truth. Each owner serves it at `GET /v1/audit` (read-only resreg resource) and `/dash/audit/` federates them. |
-| [O-observability.md](O-observability.md)                 | shipped | Three opt-in substrates: slog+OTLP logs, spans, and 15 Prometheus metric families.                                                                                                           |
-| [9-agent-capability-eval.md](9-agent-capability-eval.md) | shipped | `anteval` — a black-box capability gate driving real tasks through the public surfaces.                                                                                                      |
-| [23-skill-guard.md](23-skill-guard.md)                   | shipped | A PreToolUse threat-pattern scanner over skill writes.                                                                                                                                       |
-| [22-self-learning.md](22-self-learning.md)               | draft   | Pattern recognition over a group's history producing operator-reviewed proposals, never silent rewrites.                                                                                     |
+| Spec                                                     | Status  | Hook                                                                                                                                                                                                  |
+| -------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [P-runed.md](P-runed.md)                                 | shipped | **The execution plane.** Container lifecycle and run federation. The turn is credentialed by the SO_PEERCRED socket, never a token.                                                                   |
+| [A-primitives-framing.md](A-primitives-framing.md)       | shipped | Framing only, no behaviour: the pipeline primitives in route-first order, identity as coordinate system.                                                                                              |
+| [2-agent-pipeline.md](2-agent-pipeline.md)               | shipped | Orchestration (route tokens) versus workflows (the in-container Agent tool).                                                                                                                          |
+| [4-autocalls.md](4-autocalls.md)                         | shipped | Inject facts inline when schema cost exceeds content cost. Four autocalls, no tools.                                                                                                                  |
+| [24-live-tasklist-status.md](24-live-tasklist-status.md) | shipped | A `TodoWrite` hook renders the agent's task list into one message edited in place.                                                                                                                    |
+| [I-tool-call-logging.md](I-tool-call-logging.md)         | shipped | Per-tool-call logging on both surfaces; the `audit_log` table is the source of truth. Each owner serves it at `GET /v1/audit` (read-only resreg resource) and `/dash/audit/` federates them.          |
+| [O-observability.md](O-observability.md)                 | shipped | Three opt-in substrates: slog+OTLP logs, spans, and 15 Prometheus metric families.                                                                                                                    |
+| [9-agent-capability-eval.md](9-agent-capability-eval.md) | shipped | `anteval` — a black-box capability gate driving real tasks through the public surfaces.                                                                                                               |
+| [23-skill-guard.md](23-skill-guard.md)                   | shipped | A PreToolUse threat-pattern scanner over skill writes.                                                                                                                                                |
+| [22-self-learning.md](22-self-learning.md)               | draft   | Pattern recognition over a group's history producing operator-reviewed proposals, never silent rewrites. **The one spec in this phase awaiting approval to start** — a draft is not begun without it. |
 
 ## Tenancy, onboarding, credentials
 
@@ -94,7 +107,7 @@ data entities defined here, and `9/3` moves the cold tier into git.
 | [14-credentials.md](14-credentials.md)                     | shipped   | The credential model: env-profile versus capability versus infra.                                                                                                                                                                                                                                         |
 | [13-ext-mcp.md](13-ext-mcp.md)                             | shipped   | External capability injection — service descriptors map tools to REST, auth injected from folder secrets.                                                                                                                                                                                                 |
 | [15-surrogate-oauth.md](15-surrogate-oauth.md)             | shipped   | "Connect X" fills the secrets table `5/13` reads; refresh happens at call time.                                                                                                                                                                                                                           |
-| [25-integration-catalog.md](25-integration-catalog.md)     | draft     | The integration surface: arizuko as the gated, audited fabric an agent operates.                                                                                                                                                                                                                          |
+| [25-integration-catalog.md](25-integration-catalog.md)     | reference | The integration surface: arizuko as the gated, audited fabric an agent operates.                                                                                                                                                                                                                          |
 | [26-integration-usecases.md](26-integration-usecases.md)   | reference | The use-case corpus grounding `5/25`.                                                                                                                                                                                                                                                                     |
 
 ## Packaging and distribution
@@ -107,11 +120,11 @@ data entities defined here, and `9/3` moves the cold tier into git.
 
 ## Docs, tooling, interop
 
-| Spec                                                 | Status  | Hook                                                                                            |
-| ---------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
-| [D-docs-refs-redesign.md](D-docs-refs-redesign.md)   | shipped | The `/pub` IA: Divio categories plus a dbt-style reference rhythm. Visual identity unchanged.   |
-| [36-go-1.27-adoption.md](36-go-1.27-adoption.md)     | shipped | Go 1.27 adopted ahead of GA on `go1.27rc2`, at the operator's direction.                        |
-| [35-hermes-integration.md](35-hermes-integration.md) | draft   | Connecting the Hermes harness to arizuko's messaging plane so it drops its own connector layer. |
+| Spec                                                 | Status    | Hook                                                                                            |
+| ---------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------- |
+| [D-docs-refs-redesign.md](D-docs-refs-redesign.md)   | shipped   | The `/pub` IA: Divio categories plus a dbt-style reference rhythm. Visual identity unchanged.   |
+| [36-go-1.27-adoption.md](36-go-1.27-adoption.md)     | shipped   | Go 1.27 adopted ahead of GA on `go1.27rc2`, at the operator's direction.                        |
+| [35-hermes-integration.md](35-hermes-integration.md) | reference | Connecting the Hermes harness to arizuko's messaging plane so it drops its own connector layer. |
 
 ## Retired
 
