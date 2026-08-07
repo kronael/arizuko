@@ -77,7 +77,7 @@ DB-ownership rule).
 
 ## Configuration
 
-- `DATABASE` / `DATA_DIR` — `auth.db` DSN (`DATA_DIR` resolves `<dir>/store/auth.db`
+- `DATABASE` / `DATA_DIR` — `auth.db` DSN (`DATA_DIR` resolves `<dir>/store/authd/auth.db`
   alongside `routd.db`/`runed.db`/`onbod.db` so one `store/` chown covers all DBs)
 - `AUTHD_SERVICE_KEY` — authd's bootstrap secret (self-mint `service:authd`)
 - `AUTHD_SERVICE_KEYS` — `principal=secret,...` map for daemon exchange

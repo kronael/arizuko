@@ -341,7 +341,11 @@ needed; don't fight it where it is.
 `/srv/data/arizuko_<name>/` per instance:
 
 - `.env` — config (daemons read from cwd)
-- `store/` — SQLite DB (`messages.db`)
+- `store/<owner>/` — each owner daemon's SQLite file plus its `-wal`/`-shm`
+  siblings (`store/routd/routd.db`, `store/runed/`, `store/authd/auth.db`,
+  `store/onbod/`). Compose binds one owner subdir per container, so ownership
+  is a mount boundary, not a convention (`specs/5/16` step 7). The retired
+  `store/messages.db` stays flat; adapters keep private `store/<name>/` dirs.
 - `groups/<folder>/` — group files, logs, diary
 - `groups/<folder>/media/<YYYYMMDD>/` — downloaded inbound attachments
 - `ipc/<folder>/` — MCP unix sockets

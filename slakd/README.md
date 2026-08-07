@@ -115,7 +115,8 @@ AUTHD_SERVICE_NAME=slakd      exchange principal — the DAEMON, not CHANNEL_NAM
 LISTEN_ADDR=:8080             internal HTTP listener
 LISTEN_URL=http://slakd:8080  URL the router uses to reach slakd
 ASSISTANT_NAME=...            shown in pane title (<name> — chat); omit → "chat"
-DB_PATH=...                   path to routd.db (preferred for pane reads)
+DB_PATH=...                   path to routd.db (preferred for pane reads;
+                              default DATA_DIR/store/routd/routd.db)
 DATA_DIR=...                  fallback (uses DATA_DIR/store); omit both → no pane support
 SLAKD_USERS_CACHE_TTL=900     users.info + conversations.info TTL (seconds)
 MEDIA_MAX_FILE_BYTES=20971520 file-proxy cap

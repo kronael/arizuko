@@ -69,43 +69,51 @@ not fixed there because that audit's scope was ownership, not adapter defaults.
 - **Source:** `linkd/main.go:71`, `linkd/client.go:95,161`; `template/services/linkd.yml:19`; cf. `teled/main.go:69` (`F53`)
 - **Status:** open
 
-## F51 — dashd mounts the whole instance tree: `.env` secrets and live agent sockets (2026-08-07, open)
+## ✅ FIXED 2026-08-07 — F51 — dashd mounts the whole instance tree: `.env` secrets and live agent sockets (2026-08-07)
 
-Verified on deployed krons: `dashd`'s only volume is
-`/srv/data/arizuko_krons:/srv/app/home` — the entire instance dir. That
-includes `.env` (`AUTH_SECRET`, `SECRETS_KEY`, every platform token) and
-`ipc/`, the live per-turn agent MCP sockets.
+Closed with spec 5/16 step 7 (`d780ee86`). `dashdService` now names
+`store/routd`, `store/onbod`, `store/runed`, `groups` and `surrogate`; the
+whole-tree bind that carried `.env` (`AUTH_SECRET`, `SECRETS_KEY`, every
+platform token) and `ipc/` (the live per-turn agent MCP sockets) is gone.
+`authd/auth.db` is deliberately NOT in the list — dashd reads sessions over
+authd's HTTP face.
 
-`compose/compose_test.go:552` asserts precisely that a daemon must not get the
-whole tree — for authd, webd, proxyd and onbod. dashd is exempted from
-`wantDataMounts`, so the guard passes while the widest mount in the fleet goes
-unchecked.
+The durable half is the exemption: dashd joined `wantDataMounts` and the
+`TestScopedDaemonsCannotReachIpcOrDotEnv` list, so the guard that forbids the
+whole tree now covers the daemon that had the widest mount in the fleet.
+Falsified by removing the `dataSubdirs` again — three tests fire, including
+the `.env`/`ipc/` one.
 
-dashd needs `store/` + `groups/` + `surrogate/`. Narrowing it is a
-`dataSubdirs` change plus adding dashd to `wantDataMounts` so the exemption
-cannot come back.
+Two new guards came with it, because a table asserting only the mounts a
+daemon HAS is vacuous: `TestScopedDaemonsGetNoOtherOwnersDB` pins the owner
+binds each daemon must NOT have, and `TestOwnerDBEnvPathsLandInsideTheMounts`
+pins every emitted DB path inside a mount that daemon carries.
 
-- **Source:** `compose/compose.go:1039` `dashdService`; `compose/compose_test.go:521,552`
-- **Status:** open
-- **Fix:** narrow to named subdirs; remove the test exemption.
+**The file move is the operator's, not shipped here** — procedure in
+`specs/5/16-mcp-rest-unification.md` "Migration path per instance" step 4.
+Until it runs on an instance, that instance's daemons refuse to boot rather
+than creating empty databases (F52's fix, same pass).
 
-## F52 — onbod's "fatal, no silent empty-DB cross-read" guard cannot fire (2026-08-07, open)
+## ✅ FIXED 2026-08-07 — F52 — onbod's "fatal, no silent empty-DB cross-read" guard cannot fire (2026-08-07)
 
-`onbod/main.go:101` derives routd.db as a sibling of its own DSN and comments
-that a failure to open is fatal, specifically to prevent a silent empty-DB
-cross-read. `database/sql.Open` is lazy — it validates the driver and returns;
-it never touches the file. So the error branch is unreachable, and onbod boots
-and creates an empty `routd.db` on first query.
+Both halves, as the entry proposed. The cross-read goes through
+`store.OpenRoutdAt`, whose `acl` probe is a real check rather than a lazy
+`sql.Open` whose error branch could never fire (`176d9448`), and the path is
+now the configured `ROUTD_DB_PATH` instead of `filepath.Dir(its own DSN)`
+(`d780ee86`) — required, because under `store/<owner>/` a sibling is not a
+sibling.
 
-It documents preventing exactly the failure it permits. Same class as `F34`
-(a comment naming a destination its function stopped writing to): the guard is
-a description of an intent, not a check.
+The bug class was wider than onbod. `routd.Open`, `runed.Open` and
+`authd.resolveDSN` had the same shape: SQLite creates a missing file silently
+and `Migrate` fills it with a complete empty schema, so any wrong path yielded
+a fully-migrated instance with zero rows that boots GREEN. All four now
+require the file to exist, and creation is one explicit act — `routd.Create` /
+`runed.Create` plus `arizuko create`'s `seedOwnerDBs`, which touches all four
+(a zero-byte file is a valid empty SQLite database, so each daemon migrates
+its own schema into it).
 
-- **Source:** `onbod/main.go:100-101`
-- **Status:** open
-- **Fix:** `Ping()` (or a strict probe like `store.OpenRoutd`'s `acl` check) and
-  fail loud. The path derivation itself violates "identity is configured, never
-  derived" — an explicit `ROUTD_DB_PATH` fixes both.
+Falsified by making `db_utils.RequireDBFile` a no-op: exactly four tests fail,
+one per owner surface, and nothing else.
 
 ## F53 — live krons teled has no state mount, so its offset resets every recreate (2026-08-07, open)
 

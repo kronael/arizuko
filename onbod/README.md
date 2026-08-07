@@ -94,6 +94,9 @@ and invite redemption (FS-mounted, no federation).
 - `ONBOARDING_ENABLED` — `0` exits immediately
 - `ONBOARDING_GREETING` — prepended to auth link message
 - `ONBOD_DB_PATH` — path to `onbod.db` (required)
+- `ROUTD_DB_PATH` — path to `routd.db` for the cross-read (required).
+  Configured, never derived: under `store/<owner>/` routd.db is not a
+  sibling of onbod.db (`specs/5/16` step 7)
 - `ONBOD_LISTEN_ADDR` — HTTP listen address (default `:8080`)
 - `ONBOARD_POLL_INTERVAL` — poll tick duration (default `10s`)
 - `ROUTER_URL` — routd's `/v1/outbound` endpoint (default `http://routd:8080`)

@@ -86,7 +86,7 @@ Fix: `sudo docker restart arizuko_teled_${INSTANCE}` (or whichever adapter).
 ### 4. Message routing (cursor state)
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
+DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 
 # Agent cursors vs latest messages + errored count. errored moved to
 # the messages table in migration 0030 — chats.errored no longer exists.
@@ -160,7 +160,7 @@ tail -30 /srv/data/arizuko_${INSTANCE}/groups/${FOLDER}/logs/$(ls -t /srv/data/a
 ### 7. Task scheduler (timed)
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
+DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 
 # Tasks and their next run
 sudo sqlite3 $DB "
@@ -251,7 +251,7 @@ work begins.
 ### 10. Schema migration version
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
+DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 # Split: each daemon owns + migrates its OWN db. routd.db is the busy one; its
 # migrations table keys on service='routd'. (runed.db/auth.db/onbod.db migrate
 # themselves under service='runed'/'authd'/'onbod'.) PRAGMA user_version stays 0.
@@ -400,7 +400,7 @@ sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
 ### 17. Skill seeding (per group)
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
+DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 SOURCE_COUNT=$(ls /home/onvos/app/arizuko/ant/skills/ | wc -l)
 # Only check groups registered in DB (skip orphan filesystem dirs like share/)
 for g in $(sudo sqlite3 $DB "SELECT folder FROM groups;  -- row existence = active; delete cascades the row (no state col)"); do
@@ -440,7 +440,7 @@ Fix: check the skill's SKILL.md frontmatter `description:` field.
 ### 19. Skill consistency (group vs source)
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
+DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 SOURCE_DIR=/home/onvos/app/arizuko/ant/skills
 for g in $(sudo sqlite3 $DB "SELECT folder FROM groups;  -- row existence = active; delete cascades the row (no state col)"); do
   missing=""
@@ -463,7 +463,7 @@ Fix: trigger `/migrate` in the affected group (each group self-migrates), or man
 ### 20. Resolve wiring
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
+DB=/srv/data/arizuko_${INSTANCE}/store/routd/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 # Check that group CLAUDE.md has the resolve instruction (seeded from ant/CLAUDE.md)
 for g in $(sudo sqlite3 $DB "SELECT folder FROM groups;  -- row existence = active; delete cascades the row (no state col)"); do
   has=$(sudo grep -c "resolve" /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/CLAUDE.md 2>/dev/null)
