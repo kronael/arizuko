@@ -52,7 +52,7 @@ type copySpec struct {
 	src     string // source table in messages.db (ATTACHed as `msg`)
 	cols    string // destination column list
 	sel     string // SELECT expression list against msg.<src>
-	transfm bool    // true → column names/shape differ (logged distinctly)
+	transfm bool   // true → column names/shape differ (logged distinctly)
 }
 
 // routdSpecs map messages.db → routd.db. Column lists were derived from the

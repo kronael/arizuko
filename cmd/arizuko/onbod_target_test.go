@@ -3,9 +3,9 @@ package main
 import (
 	"database/sql"
 	"os"
-	"path/filepath"
 	"testing"
 
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -15,7 +15,11 @@ import (
 // branch (OpenOnbod) finds the invites table.
 func bootstrapOnbodDB(t *testing.T, dir string) {
 	t.Helper()
-	db, err := sql.Open("sqlite", filepath.Join(dir, "onbod.db"))
+	path := store.OwnerDBPath(dir, store.OwnerOnbod)
+	if err := db_utils.CreateDBFile(path); err != nil {
+		t.Fatalf("seed onbod.db: %v", err)
+	}
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatalf("open onbod.db: %v", err)
 	}
@@ -47,11 +51,11 @@ func TestInviteLandsInOnbodDB(t *testing.T) {
 	}
 	s.Close()
 
-	if n := countRows(t, dir, "onbod.db",
+	if n := countRows(t, dir, store.OwnerOnbod,
 		"SELECT COUNT(*) FROM invites WHERE target_glob='main/'"); n != 1 {
 		t.Errorf("onbod.db invites = %d, want 1", n)
 	}
-	if n := countRows(t, dir, "onbod.db",
+	if n := countRows(t, dir, store.OwnerOnbod,
 		"SELECT COUNT(*) FROM onboarding_gates WHERE gate='*'"); n != 1 {
 		t.Errorf("onbod.db gates = %d, want 1", n)
 	}
@@ -95,7 +99,7 @@ func TestInviteMonolithFallsBackToMessages(t *testing.T) {
 // the same branch with a *testing.T fatal instead.
 func mustOpenOnbodDir(t *testing.T, storeDir string) *store.Store {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(storeDir, "onbod.db")); err == nil {
+	if _, err := os.Stat(store.OwnerDBPath(storeDir, store.OwnerOnbod)); err == nil {
 		s, oerr := store.OpenOnbod(storeDir)
 		if oerr != nil {
 			t.Fatalf("OpenOnbod: %v", oerr)

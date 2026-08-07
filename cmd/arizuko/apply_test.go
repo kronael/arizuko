@@ -33,6 +33,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/routd"
@@ -60,7 +61,11 @@ func openInstance(t *testing.T) (string, map[string]*store.Store) {
 	// same package) — onbod's own migration FS is package-private (package
 	// main), so this inline DDL is the established way to create its schema
 	// from outside the onbod package.
-	odb, err := sql.Open("sqlite", filepath.Join(storeDir, "onbod.db")+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
+	onbodPath := store.OwnerDBPath(storeDir, store.OwnerOnbod)
+	if err := db_utils.CreateDBFile(onbodPath); err != nil {
+		t.Fatalf("seed onbod.db: %v", err)
+	}
+	odb, err := sql.Open("sqlite", onbodPath+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
 	if err != nil {
 		t.Fatalf("open onbod.db (bootstrap): %v", err)
 	}
@@ -95,8 +100,9 @@ func routdChecksum(t *testing.T, st *store.Store) string {
 func TestOpenSubsystemStores_RealFiles(t *testing.T) {
 	dataDir, stores := openInstance(t)
 	storeDir := filepath.Join(dataDir, "store")
-	for _, name := range []string{"routd.db", "onbod.db"} {
-		if _, err := os.Stat(filepath.Join(storeDir, name)); err != nil {
+	for _, owner := range []string{store.OwnerRoutd, store.OwnerOnbod} {
+		name := store.OwnerDBPath(storeDir, owner)
+		if _, err := os.Stat(name); err != nil {
 			t.Errorf("%s does not exist on disk: %v", name, err)
 		}
 	}

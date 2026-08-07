@@ -73,7 +73,7 @@ func TestPackagesInstallRemove(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_t")
-	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
+	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "teledpkg")
@@ -147,7 +147,7 @@ func TestPackagesUpgradeClean(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_u")
-	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
+	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "up")
@@ -216,7 +216,7 @@ func TestPackagesUpgradePreservesNonFileManifest(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_mf")
-	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
+	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "mf")
@@ -254,7 +254,7 @@ func TestPackagesSyncReapplies(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_sy")
-	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
+	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
 		t.Fatal(err)
 	}
 	srcA := seedPkg(t, base, dataDir, "sy", "alpha", "services:\n  alpha:\n    image: v1\n")
@@ -287,7 +287,7 @@ func TestPackagesSyncIdempotent(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_si")
-	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
+	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
 		t.Fatal(err)
 	}
 	seedPkg(t, base, dataDir, "si", "gamma", "services:\n  gamma:\n    image: v1\n")
@@ -329,7 +329,7 @@ func TestPackagesSyncSkipsDirty(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_sd")
-	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
+	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
 		t.Fatal(err)
 	}
 	srcD := seedPkg(t, base, dataDir, "sd", "delta", "services:\n  delta:\n    image: v1\n")
@@ -380,7 +380,7 @@ func TestPackagesInstallGit(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_g")
-	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
+	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
 		t.Fatal(err)
 	}
 	repo := filepath.Join(base, "gitpkg")
@@ -418,7 +418,7 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_r")
-	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
+	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "routepkg")
@@ -493,7 +493,7 @@ func TestPackagesInstallGrants(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_gr")
-	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
+	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
 		t.Fatal(err)
 	}
 	rdb0, err := routd.Create(filepath.Join(dataDir, "store"))
@@ -561,7 +561,7 @@ func TestPackagesInstallSkills(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_sk")
-	if err := db_utils.CreateDBFile(filepath.Join(dataDir, "store", "routd.db")); err != nil {
+	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "skillpkg")

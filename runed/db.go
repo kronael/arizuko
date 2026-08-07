@@ -10,10 +10,10 @@ import (
 	"database/sql"
 	"embed"
 	"errors"
-	"path/filepath"
 	"time"
 
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -34,7 +34,7 @@ type DB struct {
 // Open attaches to an EXISTING runed.db at dir/runed.db (WAL, FK on) and runs
 // migrations. It never creates the file — see Create.
 func Open(dir string) (*DB, error) {
-	path := filepath.Join(dir, "runed.db")
+	path := store.OwnerDBPath(dir, store.OwnerRuned)
 	if err := db_utils.RequireDBFile(path); err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func Open(dir string) (*DB, error) {
 // the split-cutover tool only — every other caller Opens, so a wrong path fails
 // loud instead of yielding a migrated DB with no spawn history.
 func Create(dir string) (*DB, error) {
-	path := filepath.Join(dir, "runed.db")
+	path := store.OwnerDBPath(dir, store.OwnerRuned)
 	if err := db_utils.CreateDBFile(path); err != nil {
 		return nil, err
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/obs"
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -128,11 +129,11 @@ func main() {
 }
 
 // resolveDSN picks authd's SQLite path. An explicit DATABASE wins; otherwise
-// the DB is <DATA_DIR>/store/auth.db — under store/ alongside routd.db /
-// runed.db / messages.db so a single `store/` chown to the container uid makes
-// every daemon's DB writable on a fresh root-owned data dir. authd owns auth.db
-// and runs its own migrations; it must NOT migrate gated's messages.db
-// (CLAUDE.md DB-ownership rule).
+// the DB is <DATA_DIR>/store/authd/auth.db — its own owner subdirectory, which
+// is the only path compose binds into this container, so authd cannot reach
+// routd's or onbod's DB at all (spec 5/16 step 7). authd owns auth.db and runs
+// its own migrations; it must NOT migrate another daemon's DB (CLAUDE.md
+// DB-ownership rule).
 func resolveDSN(database, dataDir string) (string, error) {
 	if database != "" {
 		return database, nil
@@ -144,7 +145,7 @@ func resolveDSN(database, dataDir string) (string, error) {
 	// otherwise migrate a fresh empty file, minting NEW signing keys and
 	// invalidating every live session while authd reports healthy
 	// (spec 5/16 step 7). `arizuko create` seeds the file.
-	dsn := filepath.Join(dataDir, "store", "auth.db")
+	dsn := store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerAuthd)
 	if err := db_utils.RequireDBFile(dsn); err != nil {
 		return "", err
 	}

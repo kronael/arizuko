@@ -15,7 +15,7 @@ func TestOpenRefusesToManufactureAnEmptyInstance(t *testing.T) {
 	if _, err := Open(dir); err == nil {
 		t.Fatal("Open created routd.db on an empty dir; that is a green boot on an empty instance")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "routd.db")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "routd", "routd.db")); !os.IsNotExist(err) {
 		t.Errorf("Open left a routd.db behind (err=%v)", err)
 	}
 
@@ -45,7 +45,7 @@ func TestOpenNoSiblingDB(t *testing.T) {
 	defer db.Close()
 
 	// routd.db exists; messages.db must NOT (routd never opens or creates it).
-	if _, err := os.Stat(filepath.Join(dir, "routd.db")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "routd", "routd.db")); err != nil {
 		t.Fatalf("routd.db not created: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "messages.db")); !os.IsNotExist(err) {

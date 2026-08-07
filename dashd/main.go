@@ -256,30 +256,21 @@ func main() {
 
 	// onbod OWNS invites/onboarding_gates in the split topology (spec 5/5); the
 	// invites admin page writes there directly (same FS-access discipline).
-	var dbOnbod *sql.DB
-	if onbodPath := filepath.Join(filepath.Dir(dsn), "onbod.db"); onbodPath != dsn {
-		if _, statErr := os.Stat(onbodPath); statErr == nil {
-			if s, err := sql.Open("sqlite", onbodPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)"); err == nil {
-				dbOnbod = s
-				defer dbOnbod.Close()
-			} else {
-				slog.Warn("open onbod.db for invites", "path", onbodPath, "err", err)
-			}
-		}
+	// runed OWNS spawns; the /dash/runed/ runs view reads runed.db the same way.
+	//
+	// Both paths are CONFIGURED (ONBOD_DB_PATH / RUNED_DB_PATH, defaulting to
+	// this instance's own store/<owner>/ layout), never derived as a sibling of
+	// dsn: under per-owner subdirectories the siblings are not siblings, and
+	// deriving one owner's file from another's is the pattern CLAUDE.md bans.
+	// Absent = that daemon's profile is off; both views already render a
+	// "store unavailable" banner, so a nil handle degrades rather than crashes.
+	dbOnbod := openSiblingOwner("ONBOD_DB_PATH", dataDir, store.OwnerOnbod)
+	if dbOnbod != nil {
+		defer dbOnbod.Close()
 	}
-
-	// runed OWNS spawns in the split topology; the /dash/runed/ runs view reads
-	// them straight from runed.db (same FS-access discipline as routd.db/onbod.db).
-	var dbRuned *sql.DB
-	if runedPath := filepath.Join(filepath.Dir(dsn), "runed.db"); runedPath != dsn {
-		if _, statErr := os.Stat(runedPath); statErr == nil {
-			if s, err := sql.Open("sqlite", runedPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)"); err == nil {
-				dbRuned = s
-				defer dbRuned.Close()
-			} else {
-				slog.Warn("open runed.db for runs view", "path", runedPath, "err", err)
-			}
-		}
+	dbRuned := openSiblingOwner("RUNED_DB_PATH", dataDir, store.OwnerRuned)
+	if dbRuned != nil {
+		defer dbRuned.Close()
 	}
 
 	// SECRETS_KEY keyring: dashd writes user secrets into routd.db directly (it is
@@ -428,12 +419,38 @@ func (d *dash) adminDB() *sql.DB { return d.dbRoutd }
 // retired and no daemon opens it, so a stale DB_PATH left over from an old
 // deployment must fail loudly at boot rather than silently serve frozen data
 // (dashd rendered stale usage/chat/activity that way for months).
+// openSiblingOwner opens another daemon's owner DB from env, defaulting to this
+// instance's store/<owner>/ layout. A missing file means that daemon's profile
+// is off — its dashd view banners "store unavailable" — so nil is the honest
+// answer; an open FAILURE on a file that exists is loud, because that is a
+// broken mount, not an absent profile.
+func openSiblingOwner(env, dataDir, owner string) *sql.DB {
+	path := os.Getenv(env)
+	if path == "" {
+		if dataDir == "" {
+			return nil
+		}
+		path = store.OwnerDBPath(filepath.Join(dataDir, "store"), owner)
+	}
+	if _, err := os.Stat(path); err != nil {
+		slog.Info("owner DB absent; its dashd view will banner as unavailable",
+			"owner", owner, "path", path, "env", env)
+		return nil
+	}
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
+	if err != nil {
+		slog.Error("open owner DB", "owner", owner, "path", path, "err", err)
+		return nil
+	}
+	return db
+}
+
 func resolveDSN(dbPath, dataDir string) (string, error) {
 	if dbPath == "" {
 		if dataDir == "" {
 			return "", errors.New("DB_PATH or DATA_DIR env required")
 		}
-		dbPath = filepath.Join(dataDir, "store", "routd.db")
+		dbPath = store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)
 	}
 	if filepath.Base(dbPath) == "messages.db" {
 		return "", fmt.Errorf("DB_PATH=%s is the retired pre-split monolith; point it at routd.db", dbPath)

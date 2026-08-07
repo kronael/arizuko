@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/store"
+
 	"github.com/kronael/arizuko/routd"
 )
 
@@ -28,7 +30,7 @@ import (
 // for action in dir/routd.db, oldest first.
 func aclAuditRows(t *testing.T, dir, action string) [][3]string {
 	t.Helper()
-	db, err := sql.Open("sqlite", filepath.Join(dir, "routd.db"))
+	db, err := sql.Open("sqlite", store.OwnerDBPath(dir, store.OwnerRoutd))
 	if err != nil {
 		t.Fatalf("open routd.db: %v", err)
 	}

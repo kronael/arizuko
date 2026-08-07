@@ -8,13 +8,16 @@ import (
 	"github.com/kronael/arizuko/db_utils"
 )
 
-// auth.db lives under store/ (alongside routd.db/runed.db/messages.db) so a
-// single store/ chown to the container uid makes every daemon's DB writable on
-// a fresh root-owned data dir. A regression that put auth.db back at the data
-// dir root would reintroduce the SQLITE_CANTOPEN first-boot failure.
+// auth.db lives at store/authd/auth.db — its OWNER's subdirectory, the only
+// store/ path compose binds into authd's container (spec 5/16 step 7). Still
+// under store/, so a single store/ chown to the container uid makes every
+// daemon's DB writable on a fresh root-owned data dir: a regression putting
+// auth.db back at the data-dir root reintroduces the SQLITE_CANTOPEN first-boot
+// failure, and one flattening it into store/ hands authd every other owner's
+// database.
 func TestResolveDSN_UnderStore(t *testing.T) {
 	dir := t.TempDir()
-	want := filepath.Join(dir, "store", "auth.db")
+	want := filepath.Join(dir, "store", "authd", "auth.db")
 	if err := db_utils.CreateDBFile(want); err != nil {
 		t.Fatal(err)
 	}

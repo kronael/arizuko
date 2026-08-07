@@ -15,7 +15,7 @@ func TestOpenRefusesToManufactureAnEmptyDB(t *testing.T) {
 	if _, err := Open(dir); err == nil {
 		t.Fatal("Open created runed.db on an empty dir")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "runed.db")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "runed", "runed.db")); !os.IsNotExist(err) {
 		t.Errorf("Open left a runed.db behind (err=%v)", err)
 	}
 	db, err := Create(dir)

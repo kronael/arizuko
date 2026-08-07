@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"database/sql"
-	"path/filepath"
 	"testing"
 
 	"github.com/kronael/arizuko/store"
@@ -23,7 +22,7 @@ import (
 // action in dir/routd.db, or zero values when the mutation recorded nothing.
 func routeAudit(t *testing.T, dir, action string) (actor, actorSub, surface string) {
 	t.Helper()
-	db, err := sql.Open("sqlite", filepath.Join(dir, "routd.db"))
+	db, err := sql.Open("sqlite", store.OwnerDBPath(dir, store.OwnerRoutd))
 	if err != nil {
 		t.Fatalf("open routd.db: %v", err)
 	}

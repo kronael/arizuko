@@ -35,7 +35,7 @@ func TestCreateSeedsRoutdDBNotMonolith(t *testing.T) {
 	if _, ok := s.AllGroups()["main"]; !ok {
 		t.Errorf("default group `main` missing from routd.db; got %v", keysOf(s.AllGroups()))
 	}
-	if n := countRows(t, storeDir, "routd.db",
+	if n := countRows(t, storeDir, store.OwnerRoutd,
 		"SELECT COUNT(*) FROM scheduled_tasks WHERE owner='main'"); n == 0 {
 		t.Error("routd.db scheduled_tasks for `main` = 0, want the seeded defaults")
 	}

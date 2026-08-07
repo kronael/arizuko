@@ -108,7 +108,7 @@ func TestTokenLandsInRoutdDB(t *testing.T) {
 	tokenIssue(s, "", []string{"chat", "main"})
 	s.Close()
 
-	if n := countRows(t, dir, "routd.db",
+	if n := countRows(t, dir, store.OwnerRoutd,
 		"SELECT COUNT(*) FROM route_tokens WHERE jid='web:main'"); n != 1 {
 		t.Errorf("routd.db route_tokens = %d, want 1", n)
 	}
@@ -124,7 +124,7 @@ func TestTokenLandsInRoutdDB(t *testing.T) {
 	}
 	tokenRevoke(s2, []string{"web:main"})
 	s2.Close()
-	if n := countRows(t, dir, "routd.db",
+	if n := countRows(t, dir, store.OwnerRoutd,
 		"SELECT COUNT(*) FROM route_tokens WHERE jid='web:main'"); n != 0 {
 		t.Errorf("routd.db route_tokens after revoke = %d, want 0", n)
 	}

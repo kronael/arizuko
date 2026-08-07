@@ -6,14 +6,16 @@ import (
 	"testing"
 )
 
-// TestResolveDSN_DefaultsToRoutdDB: with no DB_PATH, dashd's store is routd.db —
-// the owner of every table it reads. The pre-split messages.db is retired.
+// TestResolveDSN_DefaultsToRoutdDB: with no DB_PATH, dashd's store is routd.db
+// under ITS OWNER's subdirectory — the only store/ path dashd's mount carries
+// for the tables it reads (spec 5/16 step 7). The pre-split messages.db is
+// retired and stays flat.
 func TestResolveDSN_DefaultsToRoutdDB(t *testing.T) {
 	got, err := resolveDSN("", "/srv/data/arizuko_x")
 	if err != nil {
 		t.Fatalf("resolveDSN: %v", err)
 	}
-	want := filepath.Join("/srv/data/arizuko_x", "store", "routd.db")
+	want := filepath.Join("/srv/data/arizuko_x", "store", "routd", "routd.db")
 	if got != want {
 		t.Errorf("dsn = %q, want %q", got, want)
 	}

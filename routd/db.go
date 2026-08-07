@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -60,7 +59,7 @@ func (d *DB) SetSecretKeys(raws ...[]byte) { d.secretKeyring = raws }
 // monolith→split copy of proxyd_routes + audit_log belongs to
 // `arizuko migrate-split`, the sole tool that reads messages.db.
 func Open(dir string) (*DB, error) {
-	path := filepath.Join(dir, "routd.db")
+	path := store.OwnerDBPath(dir, store.OwnerRoutd)
 	if err := db_utils.RequireDBFile(path); err != nil {
 		return nil, err
 	}
@@ -71,7 +70,7 @@ func Open(dir string) (*DB, error) {
 // the split-cutover tool only: every other caller Opens, so a wrong path fails
 // loud instead of yielding a migrated instance with zero groups and zero acl.
 func Create(dir string) (*DB, error) {
-	path := filepath.Join(dir, "routd.db")
+	path := store.OwnerDBPath(dir, store.OwnerRoutd)
 	if err := db_utils.CreateDBFile(path); err != nil {
 		return nil, err
 	}

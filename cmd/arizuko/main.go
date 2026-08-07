@@ -263,8 +263,14 @@ func cmdCreate(args []string) {
 		manifest = &m
 	}
 
-	if err := os.MkdirAll(filepath.Join(dataDir, "services"), 0o755); err != nil {
-		die("Failed: mkdir services: %v", err)
+	// services/ holds installed compose fragments. surrogate/ holds the
+	// operator's own OAuth provider TOMLs (auth/surrogate reads it, and it is a
+	// named dashd mount) — an absent bind source is created by docker as ROOT,
+	// unreadable to the uid-1000 daemons, so seed it here instead.
+	for _, sub := range []string{"services", "surrogate"} {
+		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
+			die("Failed: mkdir %s: %v", sub, err)
+		}
 	}
 
 	envFile := filepath.Join(dataDir, ".env")
@@ -339,13 +345,18 @@ func cmdCreate(args []string) {
 	}
 }
 
-// seedOwnerDBs creates an empty SQLite file for every owner daemon. Each
+// seedOwnerDBs creates store/<owner>/<owner>.db for every owner daemon. Each
 // daemon migrates its own schema into it on first boot; the CLI only has to
 // make the file exist, which is why it needs no migration set for authd/onbod
 // (both are package main and unimportable).
+//
+// The DIRECTORIES matter as much as the files: compose binds store/<owner> into
+// exactly one container, and docker creates a missing bind source as ROOT while
+// every daemon runs as uid 1000 — a subdir that isn't here before the first
+// `up` comes back unwritable.
 func seedOwnerDBs(storeDir string) {
-	for owner, file := range store.OwnerDBs {
-		path := filepath.Join(storeDir, file)
+	for owner := range store.OwnerDBs {
+		path := store.OwnerDBPath(storeDir, owner)
 		if err := db_utils.CreateDBFile(path); err != nil {
 			die("Failed: seed %s database at %s: %v", owner, path, err)
 		}

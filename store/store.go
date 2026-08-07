@@ -119,22 +119,13 @@ func Open(dir string) (*Store, error) {
 // has no acl table (routd never booted to migrate it) rather than silently
 // creating a divergent schema.
 func OpenRoutd(dir string) (*Store, error) {
-	dsn := filepath.Join(dir, "routd.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
-		return nil, err
-	}
-	var n int
-	if err := db.QueryRow(
-		"SELECT 1 FROM sqlite_master WHERE type='table' AND name='acl'").Scan(&n); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("routd.db at %s has no acl table (routd must boot to migrate it first): %w", dir, err)
-	}
-	return &Store{db: db}, nil
+	return OpenRoutdAt(OwnerDBPath(dir, OwnerRoutd))
+}
+
+// OpenRoutdAt is OpenRoutd against an explicitly configured routd.db path —
+// dashd's DB_PATH, onbod's ROUTD_DB_PATH. Same strict acl probe.
+func OpenRoutdAt(path string) (*Store, error) {
+	return openOwned(path, "routd.db", "acl", "routd")
 }
 
 // OpenOnbod opens onbod.db at dir/onbod.db (WAL, FK on) and wraps it as a
@@ -146,8 +137,21 @@ func OpenRoutd(dir string) (*Store, error) {
 // § Daemon ownership). Strict: errors if onbod.db has no invites table (onbod
 // never booted to migrate it) rather than silently creating a divergent schema.
 func OpenOnbod(dir string) (*Store, error) {
-	dsn := filepath.Join(dir, "onbod.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
-	db, err := sql.Open("sqlite", dsn)
+	return OpenOnbodAt(OwnerDBPath(dir, OwnerOnbod))
+}
+
+// OpenOnbodAt is OpenOnbod against an explicitly configured onbod.db path —
+// dashd's and onbod's ONBOD_DB_PATH. Same strict invites probe.
+func OpenOnbodAt(path string) (*Store, error) {
+	return openOwned(path, "onbod.db", "invites", "onbod")
+}
+
+// openOwned attaches read/write to another daemon's owner DB and proves it is
+// the right file by probing for a table only that daemon's migrations create.
+// The probe is what makes a wrong path loud: SQLite would otherwise open an
+// empty file happily and every read would return zero rows (spec 5/16 step 7).
+func openOwned(path, file, table, owner string) (*Store, error) {
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
 	if err != nil {
 		return nil, err
 	}
@@ -157,9 +161,10 @@ func OpenOnbod(dir string) (*Store, error) {
 	}
 	var n int
 	if err := db.QueryRow(
-		"SELECT 1 FROM sqlite_master WHERE type='table' AND name='invites'").Scan(&n); err != nil {
+		"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&n); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("onbod.db at %s has no invites table (onbod must boot to migrate it first): %w", dir, err)
+		return nil, fmt.Errorf("%s at %s has no %s table (%s must boot to migrate it first): %w",
+			file, path, table, owner, err)
 	}
 	return &Store{db: db}, nil
 }

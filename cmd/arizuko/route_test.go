@@ -153,7 +153,7 @@ func TestRouteLandsInRoutdDB(t *testing.T) {
 	}
 	s.Close()
 
-	if n := countRows(t, dir, "routd.db",
+	if n := countRows(t, dir, store.OwnerRoutd,
 		"SELECT COUNT(*) FROM routes WHERE target='main'"); n != 1 {
 		t.Errorf("routd.db routes = %d, want 1", n)
 	}
@@ -172,7 +172,7 @@ func TestRouteLandsInRoutdDB(t *testing.T) {
 		t.Fatalf("runRouteRm: %v", err)
 	}
 	s2.Close()
-	if n := countRows(t, dir, "routd.db",
+	if n := countRows(t, dir, store.OwnerRoutd,
 		"SELECT COUNT(*) FROM routes WHERE target='main'"); n != 0 {
 		t.Errorf("routd.db routes after rm = %d, want 0", n)
 	}

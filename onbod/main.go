@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -41,8 +40,13 @@ type gate struct {
 }
 
 type config struct {
-	core         *core.Config
-	ownDSN       string // ONBOD_DB_PATH: onbod.db for the OWNED tables
+	core   *core.Config
+	ownDSN string // ONBOD_DB_PATH: onbod.db for the OWNED tables
+	// routdDSN is ROUTD_DB_PATH: routd.db for the CROSS tables. Configured, not
+	// derived — under store/<owner>/ routd.db is no longer a sibling of
+	// onbod.db, and deriving one owner's file from another's was never right
+	// (CLAUDE.md "identity is configured, never derived").
+	routdDSN     string
 	listenAddr   string
 	gatedURL     string
 	pollInterval time.Duration
@@ -81,11 +85,15 @@ func main() {
 	// invite/gate store writers' in-tx audit rows land with the mutation (onbod.db
 	// owns its own audit_log; monolith reuses messages.db's).
 	// Split is the only topology: onbod owns onbod.db and cross-reads routd.db
-	// (routd OWNS the cross tables). ONBOD_DB_PATH is required — compose always
-	// emits it; onbod opens NO messages.db. A missing routd.db is a misconfigured
-	// split, so a failure to open is fatal (no silent empty-DB cross-read).
+	// (routd OWNS the cross tables). Both paths are REQUIRED env compose emits;
+	// onbod opens NO messages.db. A missing routd.db is a misconfigured split,
+	// so a failure to open is fatal (no silent empty-DB cross-read).
 	if cfg.ownDSN == "" {
 		slog.Error("ONBOD_DB_PATH required")
+		os.Exit(1)
+	}
+	if cfg.routdDSN == "" {
+		slog.Error("ROUTD_DB_PATH required")
 		os.Exit(1)
 	}
 	var obdb, xdb *sql.DB
@@ -101,15 +109,14 @@ func main() {
 	// branch below could never fire and onbod would create an empty routd.db on
 	// first query — a cross-read against zero groups and zero acl, boot green
 	// (BUGS F52). OpenRoutd probes for the `acl` table and fails loud instead.
-	routdDir := filepath.Dir(cfg.ownDSN)
-	stRoutd, err := store.OpenRoutd(routdDir)
+	stRoutd, err := store.OpenRoutdAt(cfg.routdDSN)
 	if err != nil {
-		slog.Error("open routd.db", "dir", routdDir, "err", err)
+		slog.Error("open routd.db", "path", cfg.routdDSN, "err", err)
 		os.Exit(1)
 	}
 	defer stRoutd.Close()
 	xdb = stRoutd.DB()
-	slog.Info("onbod cross-reads routd.db", "dir", routdDir)
+	slog.Info("onbod cross-reads routd.db", "path", cfg.routdDSN)
 
 	audit.Init(obdb, os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
@@ -275,6 +282,7 @@ func loadConfig() (config, error) {
 	cfg := config{
 		core:         coreCfg,
 		ownDSN:       os.Getenv("ONBOD_DB_PATH"),
+		routdDSN:     os.Getenv("ROUTD_DB_PATH"),
 		authBaseURL:  coreCfg.AuthBaseURL,
 		secureCookie: strings.HasPrefix(coreCfg.AuthBaseURL, "https://"),
 		greeting:     os.Getenv("ONBOARDING_GREETING"),

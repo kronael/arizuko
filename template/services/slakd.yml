@@ -1,20 +1,21 @@
 # slakd — Slack adapter. Bot token + signing secret arrive via env/slakd.env.
 # Webhook route: slakd-routes.json (proxyd forwards /slack/ verbatim).
-# store/ only: slakd reads pane_sessions from routd.db and writes panes back
-# over routd HTTP, so it needs no other part of the data dir.
+# store/routd/ only: slakd reads pane_sessions from routd.db and writes panes
+# back over routd HTTP, so it needs no other part of the data dir — and not the
+# other owners' databases either (spec 5/16 step 7).
 services:
   slakd:
     container_name: ${APP}_slakd_${FLAVOR}
     image: arizuko:latest
     entrypoint: ['slakd']
     volumes:
-      - '${DATA_DIR}/store:/srv/app/home/store'
+      - '${DATA_DIR}/store/routd:/srv/app/home/store/routd'
     env_file: ['../env/slakd.env']
     environment:
       ROUTER_URL: 'http://routd:8080'
       SLAKD_USERS_CACHE_TTL: '${SLAKD_USERS_CACHE_TTL:-900}'
       LISTEN_ADDR: ':8080'
       LISTEN_URL: 'http://slakd:8080'
-      DB_PATH: '/srv/app/home/store/routd.db'
+      DB_PATH: '/srv/app/home/store/routd/routd.db'
     depends_on: [routd]
     restart: on-failure

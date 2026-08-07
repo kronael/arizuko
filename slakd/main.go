@@ -37,13 +37,13 @@ func main() {
 				slog.Error("slack init failed", "err", err)
 				return nil, nil, err
 			}
-			if cfg.StoreDir != "" {
+			if cfg.RoutdDSN != "" {
 				// Pane reads hit routd.db — routd OWNS pane_sessions in the split
 				// topology (spec 5/5), and slakd writes panes there via routd HTTP
 				// (paneWrite). Reading from the same DB keeps read-after-write coherent.
-				st, err := store.OpenRoutd(cfg.StoreDir)
+				st, err := store.OpenRoutdAt(cfg.RoutdDSN)
 				if err != nil {
-					slog.Error("slack store open failed", "dir", cfg.StoreDir, "err", err)
+					slog.Error("slack store open failed", "path", cfg.RoutdDSN, "err", err)
 					return nil, nil, err
 				}
 				b.store = st
@@ -75,10 +75,11 @@ type config struct {
 	StaleSeconds   int64
 	WatchdogEvery  time.Duration
 	StaleFailLimit int
-	// StoreDir is the instance store directory (the parent of the DB files).
+	// RoutdDSN is routd.db's path: DB_PATH, else this instance's own
+	// store/<owner>/ layout under DATA_DIR.
 	// Empty disables pane-session persistence. Derived from DB_PATH
 	// (preferred — only its directory is used) or DATA_DIR/store.
-	StoreDir string
+	RoutdDSN string
 }
 
 func loadConfig() config {
@@ -92,23 +93,23 @@ func loadConfig() config {
 		AssistantName:  chanlib.EnvOr("ASSISTANT_NAME", ""),
 		MediaMaxBytes:  chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		CacheTTL:       time.Duration(chanlib.EnvInt("SLAKD_USERS_CACHE_TTL", 900)) * time.Second,
-		StoreDir:       storeDirFromEnv(),
+		RoutdDSN:       routdDSNFromEnv(),
 		StaleSeconds:   int64(chanlib.EnvInt("SLAKD_STALE_SECONDS", 300)),
 		WatchdogEvery:  time.Duration(chanlib.EnvInt("SLAKD_WATCHDOG_SECONDS", 60)) * time.Second,
 		StaleFailLimit: chanlib.EnvInt("SLAKD_STALE_FAIL_LIMIT", 5),
 	}
 }
 
-// storeDirFromEnv resolves the instance store dir from DB_PATH (preferred —
-// explicit; only the directory is taken, the file itself is never opened) or
-// DATA_DIR/store (compose default). Returns "" when neither is set; pane
+// routdDSNFromEnv resolves routd.db's path from DB_PATH (preferred — explicit,
+// and the only DB path slakd's mount carries) or this instance's own
+// store/<owner>/ layout under DATA_DIR. Returns "" when neither is set; pane
 // persistence becomes a no-op.
-func storeDirFromEnv() string {
+func routdDSNFromEnv() string {
 	if p := chanlib.EnvOr("DB_PATH", ""); p != "" {
-		return filepath.Dir(p)
+		return p
 	}
 	if d := chanlib.EnvOr("DATA_DIR", ""); d != "" {
-		return filepath.Join(d, "store")
+		return store.OwnerDBPath(filepath.Join(d, "store"), store.OwnerRoutd)
 	}
 	return ""
 }

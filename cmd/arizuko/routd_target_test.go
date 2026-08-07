@@ -35,11 +35,16 @@ func setupSplitStore(t *testing.T) string {
 	return dir
 }
 
-// countRows opens a raw handle on dir/<file> (the store dir where routd.Open /
-// store.Open placed the db files) and returns the COUNT(*) of q.
-func countRows(t *testing.T, dir, file, q string, args ...any) int {
+// countRows opens a raw handle on the named owner's DB under the store dir
+// (store/<owner>/<owner>.db) and returns the COUNT(*) of q. Pass "" as owner
+// for a flat file such as the retired messages.db.
+func countRows(t *testing.T, dir, owner, q string, args ...any) int {
 	t.Helper()
-	db, err := sql.Open("sqlite", filepath.Join(dir, file))
+	file := filepath.Join(dir, owner)
+	if _, ok := store.OwnerDBs[owner]; ok {
+		file = store.OwnerDBPath(dir, owner)
+	}
+	db, err := sql.Open("sqlite", file)
 	if err != nil {
 		t.Fatalf("open %s: %v", file, err)
 	}
@@ -69,11 +74,11 @@ func TestGrantLandsInRoutdDB(t *testing.T) {
 	}
 	s.Close()
 
-	if n := countRows(t, dir, "routd.db",
+	if n := countRows(t, dir, store.OwnerRoutd,
 		"SELECT COUNT(*) FROM acl WHERE principal='github:42'"); n != 1 {
 		t.Errorf("routd.db acl rows = %d, want 1", n)
 	}
-	if n := countRows(t, dir, "routd.db",
+	if n := countRows(t, dir, store.OwnerRoutd,
 		"SELECT COUNT(*) FROM acl_membership WHERE child='github:42' AND parent='role:operator'"); n != 1 {
 		t.Errorf("routd.db membership rows = %d, want 1", n)
 	}
@@ -107,11 +112,11 @@ func TestUngrantRemovesFromRoutdDB(t *testing.T) {
 	}
 	s.Close()
 
-	if n := countRows(t, dir, "routd.db",
+	if n := countRows(t, dir, store.OwnerRoutd,
 		"SELECT COUNT(*) FROM acl WHERE principal='u1'"); n != 0 {
 		t.Errorf("routd.db acl rows after ungrant = %d, want 0", n)
 	}
-	if n := countRows(t, dir, "routd.db",
+	if n := countRows(t, dir, store.OwnerRoutd,
 		"SELECT COUNT(*) FROM acl_membership WHERE child='u1'"); n != 0 {
 		t.Errorf("routd.db membership rows after ungrant = %d, want 0", n)
 	}
@@ -132,7 +137,7 @@ func TestSecretLandsInRoutdDB(t *testing.T) {
 	}
 	s.Close()
 
-	if n := countRows(t, dir, "routd.db",
+	if n := countRows(t, dir, store.OwnerRoutd,
 		"SELECT COUNT(*) FROM secrets WHERE scope_kind='folder' AND scope_id='main' AND key='GITHUB_TOKEN'"); n != 1 {
 		t.Errorf("routd.db secret rows = %d, want 1", n)
 	}
@@ -150,7 +155,7 @@ func TestSecretLandsInRoutdDB(t *testing.T) {
 		t.Fatalf("runSecretDelete: %v", err)
 	}
 	s2.Close()
-	if n := countRows(t, dir, "routd.db",
+	if n := countRows(t, dir, store.OwnerRoutd,
 		"SELECT COUNT(*) FROM secrets WHERE key='GITHUB_TOKEN'"); n != 0 {
 		t.Errorf("routd.db secret rows after delete = %d, want 0", n)
 	}

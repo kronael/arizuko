@@ -3,6 +3,7 @@ package compose
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -514,22 +515,34 @@ func TestAppSrcMountRoutdAndRuned(t *testing.T) {
 // widening one here means the daemon really did grow a new path, so state why
 // in the emitter comment too.
 //
-// routd/runed/dashd take the whole tree on purpose: routd reads store/ +
-// groups/ + ipc/ + web/ + tts/ + surrogate/ + connectors.toml, runed drives
-// the spawn path, and dashd is the operator console over four DBs plus the
-// groups tree.
+// routd/runed take the whole tree on purpose, and only they: routd reads
+// store/ + groups/ + ipc/ + web/ + tts/ + surrogate/ + connectors.toml AND
+// creates audit-*.jl at the data-dir root, and runed drives the spawn path
+// (groups/ + ipc/ + docker.sock). dashd was a third until it was scoped
+// (BUGS F51) — the operator console needs three owner DBs, groups/ and
+// surrogate/, not .env and the live agent sockets.
+//
+// store/ is per-owner (spec 5/16 step 7): a daemon is bound to store/<owner>
+// for each database it opens, never to store/ itself.
 var wantDataMounts = map[string][]string{
-	"authd":  {"/store:/srv/app/home/store"},
-	"webd":   {"/store:/srv/app/home/store"},
-	"proxyd": {"/store:/srv/app/home/store"},
+	"authd":  {"/store/authd:/srv/app/home/store/authd"},
+	"webd":   {"/store/routd:/srv/app/home/store/routd"},
+	"proxyd": {"/store/routd:/srv/app/home/store/routd"},
 	"onbod": {
-		"/store:/srv/app/home/store",
+		"/store/onbod:/srv/app/home/store/onbod",
+		"/store/routd:/srv/app/home/store/routd",
 		"/groups:/srv/app/home/groups",
 		"/web:/srv/app/home/web",
 	},
+	"dashd": {
+		"/store/routd:/srv/app/home/store/routd",
+		"/store/onbod:/srv/app/home/store/onbod",
+		"/store/runed:/srv/app/home/store/runed",
+		"/groups:/srv/app/home/groups",
+		"/surrogate:/srv/app/home/surrogate",
+	},
 	"routd": {":/srv/app/home"},
 	"runed": {":/srv/app/home"},
-	"dashd": {":/srv/app/home"},
 }
 
 func TestDataMountsAreScopedPerDaemon(t *testing.T) {
@@ -554,13 +567,93 @@ func TestDataMountsAreScopedPerDaemon(t *testing.T) {
 	}
 }
 
+// The half that makes the table above non-vacuous: asserting the mounts a
+// daemon HAS says nothing about the ones it must NOT have. Ownership is only a
+// boundary if the binds a daemon is missing are pinned too — before the
+// store/<owner>/ split every one of these daemons could open every other
+// owner's SQLite file through a shared store/ bind (spec 5/16 step 7).
+func TestScopedDaemonsGetNoOtherOwnersDB(t *testing.T) {
+	dir := seed(t, "API_PORT=8080\n")
+	out := gen(t, dir)
+	owners := []string{"authd", "onbod", "routd", "runed"}
+	for svc, want := range wantDataMounts {
+		if want[0] == ":/srv/app/home" {
+			continue // routd/runed: whole tree by design, asserted above
+		}
+		s := serviceBlock(out, svc)
+		// A bare store/ bind would re-hand every owner's DB in one line.
+		if strings.Contains(s, "- "+dir+"/store:"+containerDataMount+"/store\n") {
+			t.Errorf("%s mounts store/ wholesale; it must name owner subdirs:\n%s", svc, s)
+		}
+		for _, owner := range owners {
+			mount := "/store/" + owner + ":"
+			wanted := slices.Contains(want, "/store/"+owner+":"+containerDataMount+"/store/"+owner)
+			got := strings.Contains(s, "- "+dir+mount)
+			if got && !wanted {
+				t.Errorf("%s reaches %s's database; it is scoped to %v:\n%s", svc, owner, want, s)
+			}
+			if !got && wanted {
+				t.Errorf("%s lost its %s mount:\n%s", svc, owner, s)
+			}
+		}
+	}
+}
+
+// Every DB path compose writes into a daemon's env must land inside a subpath
+// that daemon actually mounts. These two drifted independently before: the env
+// said store/routd.db while the mount said store/routd/, and the daemon then
+// created a fresh empty database at the env path (spec 5/16 step 7).
+func TestOwnerDBEnvPathsLandInsideTheMounts(t *testing.T) {
+	dir := seed(t, "API_PORT=8080\n")
+	out := gen(t, dir)
+	envToSvc := map[string][]string{
+		"onbod": {"ONBOD_DB_PATH", "ROUTD_DB_PATH"},
+		"dashd": {"DB_PATH", "ONBOD_DB_PATH", "RUNED_DB_PATH"},
+	}
+	for svc, keys := range envToSvc {
+		s := serviceBlock(out, svc)
+		for _, key := range keys {
+			val := envValue(s, key)
+			if val == "" {
+				t.Errorf("%s does not set %s", svc, key)
+				continue
+			}
+			var covered bool
+			for _, w := range wantDataMounts[svc] {
+				_, container, _ := strings.Cut(w, ":")
+				if strings.HasPrefix(val, container+"/") {
+					covered = true
+				}
+			}
+			if !covered {
+				t.Errorf("%s %s=%q is outside every mount %v", svc, key, val, wantDataMounts[svc])
+			}
+		}
+	}
+}
+
+// envValue pulls one `      KEY: "value"` (or single-quoted) line out of a
+// service block.
+func envValue(svc, key string) string {
+	for _, line := range strings.Split(svc, "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(line), ": ")
+		if ok && k == key {
+			return strings.Trim(strings.TrimSpace(v), `"'`)
+		}
+	}
+	return ""
+}
+
 // A scoped daemon must not reach the instance secrets or another agent's live
 // MCP socket. Both are children of the data dir, so a whole-tree mount hands
 // them over; these are the two that cost the most if it regresses.
 func TestScopedDaemonsCannotReachIpcOrDotEnv(t *testing.T) {
 	dir := seed(t, "API_PORT=8080\n")
 	out := gen(t, dir)
-	for _, svc := range []string{"authd", "webd", "proxyd", "onbod"} {
+	// dashd is in this list because it was the exception that made the guard
+	// pointless: its whole-tree mount carried AUTH_SECRET, SECRETS_KEY and every
+	// platform token out of .env, plus every live agent socket (BUGS F51).
+	for _, svc := range []string{"authd", "webd", "proxyd", "onbod", "dashd"} {
 		s := serviceBlock(out, svc)
 		if strings.Contains(s, "/ipc:") {
 			t.Errorf("%s must not mount ipc/ (live agent MCP sockets); got:\n%s", svc, s)
