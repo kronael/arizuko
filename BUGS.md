@@ -7,6 +7,55 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F62 — the per-group web slots are never chowned, and a comment says they are (2026-08-07, open)
+
+`container/runner.go:1017` states the web slots are pre-created so they
+"inherit the container's uid via chownR in seedGroupDir". They do not.
+`seedGroupDir` calls `chownR(groupDir, …)` at `runner.go:1034` — `groupDir` is
+`cfg.GroupsDir/<folder>`. The slots live under `cfg.WebDir`, a different tree,
+and no chown ever reaches them. Same for the spawn-time `os.MkdirAll` at
+`runner.go:619` and `:627`, whose errors are also discarded.
+
+runed runs as root, so a slot created for a group registered after instance
+creation is `root:root`, while the container writes as node (uid 1000) → the
+agent's `~/public_html` is read-only to it with no error anywhere on the host
+side. The live krons slots happen to be `1000:1000` because
+`cmd/arizuko/main.go:383` chowns the data dir at `arizuko create` time — which
+covers slots that existed then, and nothing created since.
+
+This is the comment-asserts-a-false-fact class (F60, F61) with a real
+permission bug behind it. It also produces a misleading symptom: an agent that
+cannot write its web slot reports "public_html is root-owned", which is a
+plausible-but-wrong diagnosis operators then act on (see F63).
+
+Fix: chown the two slots where they are created in `SetupGroup`, and surface
+the `MkdirAll` errors instead of discarding them. One concern, no new
+mechanism — `chownR` already exists.
+
+## F63 — `web:publish` is denied with no diagnosable signal anywhere (2026-08-07, open)
+
+`routd/dispatch.go:534` resolves `webPublish := elevated || Authorize(sub,
+folder, "web:publish", nil)`. False → `container/runner.go:617` skips both bind
+mounts. Nothing is logged, the container starts normally, and `~/public_html`
+is simply absent.
+
+The agent in `rhias/nemo` on krons spent a session on this: no acl row grants
+`web:publish` to that folder (verified — zero rows in krons `acl` match
+`rhias`; the folders holding it are adshaus, eval, fiu, happy, krons). Its
+`role:member` row is present, which is the messaging floor and grants no web
+surface by design. With no signal to read, it diagnosed "root-owned
+`public_html` + detached mount" and proposed two host-root commands, both
+wrong: a `cp` into `/var/lib/www/...` writes root-owned files into a 1000:1000
+tree and bypasses the grant entirely, and `chown -R node:node
+/home/node/public_html` targets a path that only exists when the mount does,
+inside a `--rm` container.
+
+A denied capability that presents as a missing directory is indistinguishable
+from a broken mount. Fix: log the three capability decisions at spawn
+(`egress`, `share_mount`, `web:publish`) with folder + outcome, so the absence
+is attributable. Cause-level, not a symptom patch — the operator recovery path
+(`arizuko grant <sub> <folder> web:publish`) already exists and works.
+
 ## F61 — nine code comments cite "Spec 5/34" for cost caps; 5/34 is the channel protocol (2026-08-07, open)
 
 `specs/5/34-channel-protocol.md` is the channel adapter protocol. The cost-cap
