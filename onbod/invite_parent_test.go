@@ -203,6 +203,33 @@ func TestRedeemedSubgroupInviteCreatesUnderItsParent(t *testing.T) {
 	}
 }
 
+// The record beats a forgery presented alongside it. Every other attack case
+// has no honest authority to fall back on, so a handler that merely preferred
+// the row would pass them; here the caller holds a real acme/ redemption AND
+// sends elsewhere/, and only the recorded parent may be used.
+func TestRecordedParentBeatsASimultaneousForgery(t *testing.T) {
+	db := testDB(t)
+	seedProfile(t, db, "github:bob")
+	seedTenant(t, db, "acme", "github:acmeowner")
+	seedTenant(t, db, "elsewhere", "github:someone")
+	redeemInvite(t, db, createInvite(t, db, "acme/", "github:acmeowner", 1), "github:bob")
+
+	t.Setenv("DATA_DIR", t.TempDir())
+	w := postCreateWorld(db, "github:bob", "bobsteam", "elsewhere/")
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("legitimate redeemer refused: %d %s", w.Code, w.Body.String())
+	}
+	for _, f := range allFolders(t, db) {
+		if strings.HasPrefix(f, "elsewhere/") {
+			t.Errorf("the cookie won over the record: created %q", f)
+		}
+	}
+	if got := aclScopes(t, db, "github:bob"); len(got) != 1 || got[0] != "acme/bobsteam/**" {
+		t.Errorf("bob's grants = %v, want [acme/bobsteam/**]", got)
+	}
+}
+
 // One redemption is one world. The row is deleted as the claim, so a replay —
 // a resubmitted form, a second tab — derives no parent and creates nothing.
 func TestSubgroupRedemptionIsSingleUse(t *testing.T) {
