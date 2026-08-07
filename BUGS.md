@@ -7,6 +7,68 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## F55 — `emaid` runs an undeclared SQLite DB with an inline schema and no migrations (2026-08-07, open)
+
+`emaid/store.go:22` opens `<DATA_DIR>/emaid.db` — resolving to
+`store/emaid/emaid.db` — and creates its schema with an inline
+`CREATE TABLE IF NOT EXISTS` at `emaid/store.go:26-36`:
+
+```
+email_threads(thread_id PK, from_address, root_msg_id)
+email_msg_ids(msg_id PK, thread_id)
+```
+
+It is the only channel adapter that opens a database. Three things follow, none
+fatal today and all wrong by rules the tree otherwise holds:
+
+- It uses `database/sql` + `sql.Open` directly, not the `store` package, so
+  every convention `store` carries is absent — no WAL pragma, no
+  `busy_timeout`, no `foreign_keys(on)`.
+- It has no `migrations/` directory. The schema evolves by editing the
+  `CREATE TABLE IF NOT EXISTS` string, which silently does nothing against an
+  existing file — a column added there never appears on a live instance.
+- It is absent from spec `5/16`'s owner-DB map, which enumerates `routd.db`,
+  `onbod.db` and `auth.db`. A fifth owner DB exists and no spec says so.
+
+Found by the `5/16` step-6 adapter audit (2026-08-07). Not a resreg gap — these
+are adapter-internal threading rows, not an operator-managed cold-tier entity,
+so "every management entity is a resreg resource" does not obviously bite. The
+defensible fixes are (a) real migrations under the `store` package's mechanism,
+or (b) decide adapter-local state does not belong in SQLite and move it to the
+JSON-file shape the other five adapters use (`bskyd`, `linkd`, `reditd`,
+`twitd`, `whapd`). Choosing between them is a design call, not a patch.
+
+- **Source:** `emaid/store.go:18-38`
+- **Status:** open — needs a design call, recorded not fixed
+
+## F56 — adapter `DATA_DIR` code defaults point at the instance tree root (2026-08-07, open)
+
+`linkd/main.go:71` defaults `DataDir` to `/srv/app/home` — `containerDataMount`
+itself, the root of the whole instance tree — and `linkd/client.go:95,161`
+writes `<DataDir>/linkd-state-<name>.json` there. That file holds the
+**refreshed LinkedIn OAuth token**. Only `template/services/linkd.yml:19`
+(`DATA_DIR: '/srv/app/home/store/linkd'`) keeps it out of the data root; delete
+or typo that one env line and a credential file lands at the top of the tree,
+beside every daemon's database.
+
+`F53` is the same root pattern seen from the other side: teled also defaults to
+`/srv/app/home` (`teled/main.go:69`), and there the deployed fragment supplies
+no `DATA_DIR` at all, so its state goes to the container's ephemeral layer.
+One class, two symptoms — a code default that is a real, writable, wrong
+directory, load-bearing on a template line agreeing with it.
+
+`bskyd`, `reditd` and `emaid` get this wrong in the harmless direction: they
+default to `/srv/data/<name>`, a path absent from the container, so a missing
+env line fails loudly instead of landing in the data root.
+
+Fix is one line per adapter — make the code default match the fragment, the way
+the `LISTEN_ADDR=:8080` convention already requires both places to agree (root
+`CLAUDE.md`, "Daemon HTTP port"). Found by the `5/16` step-6 adapter audit;
+not fixed there because that audit's scope was ownership, not adapter defaults.
+
+- **Source:** `linkd/main.go:71`, `linkd/client.go:95,161`; `template/services/linkd.yml:19`; cf. `teled/main.go:69` (`F53`)
+- **Status:** open
+
 ## F51 — dashd mounts the whole instance tree: `.env` secrets and live agent sockets (2026-08-07, open)
 
 Verified on deployed krons: `dashd`'s only volume is
