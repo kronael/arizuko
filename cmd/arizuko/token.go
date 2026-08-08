@@ -151,8 +151,17 @@ func tokenIssueBearer(st *store.Store, dataDir string, args []string) {
 // folder-scoped user token. Split into a helper so tests can mint against a
 // fixture auth.db and verify with the public half.
 func mintBearer(storeDir, folder, sub string, scopes []string, ttl time.Duration) (string, time.Time, error) {
-	dsn := filepath.Join(storeDir, "auth.db") + "?_pragma=busy_timeout(5000)"
-	adb, err := sql.Open("sqlite", dsn)
+	// store.OwnerDBPath, never a hand-built join: 5/16 step 7 moved auth.db into
+	// store/authd/, and this kept opening the pre-move flat path. sql.Open on a
+	// missing SQLite file CREATES it, so the failure was not "no such file" but a
+	// freshly minted EMPTY auth.db at the old path plus "no such table:
+	// signing_keys" — a stray 0-byte file in the exact place the migration notes
+	// warn about, from a command that only reads.
+	path := store.OwnerDBPath(storeDir, "authd")
+	if _, err := os.Stat(path); err != nil {
+		return "", time.Time{}, fmt.Errorf("authd database not found at %s: %w", path, err)
+	}
+	adb, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		return "", time.Time{}, err
 	}
