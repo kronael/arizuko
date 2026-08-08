@@ -96,7 +96,7 @@ func TestDriveStatusSeesRedirect(t *testing.T) {
 
 type silentTarget struct{}
 
-func (silentTarget) Inject(_, _ string) (string, error)      { return "t", nil }
+func (silentTarget) Inject(_, _ string) (string, error)       { return "t", nil }
 func (silentTarget) RestMessages(string) ([]check.Msg, error) { return nil, nil }
 func (silentTarget) McpMessages(string) ([]check.Msg, error)  { return nil, nil }
 func (silentTarget) Cost(string) (int, error)                 { return 0, nil }
@@ -123,5 +123,38 @@ func TestDriveTimeout(t *testing.T) {
 	}
 	if !strings.HasPrefix(res[0].Reason, "timeout") {
 		t.Fatalf("want timeout reason, got %q", res[0].Reason)
+	}
+}
+
+// TestRequiresHint_NamesTheMissingGrantOnTimeout: the 2026-08-08 live run lost
+// four of eight cases to tools the eval folder was never granted, and every one
+// reported the same "timeout: no callback" an agent failure produces. The agent
+// had already named the exact missing grant in chat; the harness threw that away.
+func TestRequiresHint_NamesTheMissingGrantOnTimeout(t *testing.T) {
+	c := spec.Case{
+		ID: "x", Prompt: "noop", MaxWallMs: 40,
+		Requires: []string{"mcp:issue_webhook"},
+		Check:    spec.Check{Kind: "callback"},
+	}
+	res := Drive(Config{Target: silentTarget{}, Cases: []spec.Case{c}, Nonce: "R",
+		Poll: 5 * time.Millisecond})
+	if len(res) != 1 || res[0].Pass {
+		t.Fatalf("want one failing result, got %+v", res)
+	}
+	if !strings.Contains(res[0].Reason, "mcp:issue_webhook") {
+		t.Errorf("reason %q does not name the required tool — the reader cannot tell an ungranted tool from a failed agent", res[0].Reason)
+	}
+}
+
+// A case with no declared requirement must not grow a trailing hint.
+func TestRequiresHint_SilentWhenNothingDeclared(t *testing.T) {
+	c := spec.Case{ID: "y", Prompt: "noop", MaxWallMs: 40, Check: spec.Check{Kind: "callback"}}
+	res := Drive(Config{Target: silentTarget{}, Cases: []spec.Case{c}, Nonce: "R",
+		Poll: 5 * time.Millisecond})
+	if len(res) != 1 {
+		t.Fatalf("want one result, got %+v", res)
+	}
+	if strings.Contains(res[0].Reason, "case needs") {
+		t.Errorf("reason %q added a hint for a case declaring none", res[0].Reason)
 	}
 }

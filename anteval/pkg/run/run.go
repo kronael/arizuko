@@ -84,7 +84,7 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 			break
 		}
 		if time.Now().After(deadline) {
-			r.Reason = "timeout: " + reason
+			r.Reason = "timeout: " + reason + requiresHint(c)
 			break
 		}
 		time.Sleep(cfg.Poll)
@@ -179,4 +179,16 @@ func (s *sink) serve(bind string) (io.Closer, string) {
 	srv := &http.Server{Handler: mux}
 	go srv.Serve(ln)
 	return srv, "http://" + ln.Addr().String()
+}
+
+// requiresHint appends the case's declared tool requirements to a failure
+// reason. A timeout that says only "no callback" cannot distinguish an agent
+// that failed the task from an agent that was never granted the tool — and the
+// second is an operator fix, not a capability finding.
+func requiresHint(c spec.Case) string {
+	if len(c.Requires) == 0 {
+		return ""
+	}
+	return " — case needs " + strings.Join(c.Requires, ", ") +
+		"; verify the eval folder holds them before reading this as an agent failure"
 }

@@ -22,6 +22,16 @@ type Case struct {
 	Check     Check  `toml:"check"`
 	MaxTokens int    `toml:"max_tokens"` // budget: a case spending more than this fails
 	MaxWallMs int    `toml:"max_wall_ms"`
+	// Requires names the MCP tools the eval folder must hold for this case to
+	// be POSSIBLE. Without it a case fails identically whether the agent could
+	// not do the task or the operator never granted the tool — a 150s timeout
+	// reading "no callback" for both. The 2026-08-08 live run lost four of
+	// eight cases to ungranted tools while the agent had already named the
+	// exact missing grant in chat.
+	//
+	// It gates nothing: it is diagnostic, quoted back on failure so the reader
+	// knows which of the two happened.
+	Requires []string `toml:"requires"`
 }
 
 // Check is a single public-surface assertion on the observable effect.

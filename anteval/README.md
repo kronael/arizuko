@@ -33,6 +33,24 @@ Live preconditions (spec § "Live-run preconditions"): the eval folder exists
 (`arizuko group <inst> add web:eval eval`), its `MaxChildren` is raised for the
 subagent cases, and the sink URL is reachable from agent containers.
 
+**Grant the eval folder the tools its cases need, or half the run measures your
+grant table instead of the agent.** The `role:member` floor is messaging only
+(send/reply/react); `register_group`, `issue_webhook`, `issue_chat_token`,
+`add_acl` and `web_route_set` are all explicit delegations. On the 2026-08-08
+live run four of eight smoke cases failed purely because the eval folder held
+none of them — and the agent had correctly named the missing grant in chat
+while the harness reported a bare `timeout: no callback`.
+
+Each case now declares `requires = [...]`; a timeout quotes it back so the
+reader can tell an ungranted tool from a failed agent. To grant them:
+
+```bash
+for a in mcp:register_group mcp:delegate_group mcp:issue_webhook \
+         mcp:issue_chat_token mcp:add_acl mcp:remove_acl mcp:web_route_set; do
+  arizuko group <inst> grant folder:eval 'eval/**' "$a"
+done
+```
+
 Exit is non-zero if any case fails. `dash` renders a saved JSON report.
 
 ## How a case proves itself
