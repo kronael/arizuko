@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"database/sql"
 	"encoding/pem"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -69,9 +70,18 @@ func TestMintBearerNoActiveKey(t *testing.T) {
 }
 
 // seedAuthDB writes a minimal signing_keys row matching authd's schema.
+// seedAuthDB writes the fixture at the SAME path production uses —
+// store.OwnerDBPath, not a hand-built join. It used to build
+// `storeDir/auth.db`, the pre-5/16-step-7 flat path, which is where mintBearer
+// was also still looking: the test and the bug agreed, so it passed while
+// `arizuko token issue bearer` was broken on every migrated instance.
 func seedAuthDB(t *testing.T, storeDir string, key *auth.SigningKey) {
 	t.Helper()
-	adb, err := sql.Open("sqlite", filepath.Join(storeDir, "auth.db"))
+	path := store.OwnerDBPath(storeDir, "authd")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	adb, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
