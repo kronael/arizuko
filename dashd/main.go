@@ -123,6 +123,12 @@ func relativeTS(ts string) string {
 	return shortTS(ts)
 }
 
+// abbrTS is the one renderer for a timestamp cell: relative label visible, full
+// ISO form on hover (SCREENS.md principle 7).
+func abbrTS(ts string) string {
+	return `<abbr title="` + esc(ts) + `">` + esc(relativeTS(ts)) + `</abbr>`
+}
+
 // remainingTS is relativeTS for a FUTURE deadline: "12m", "2h", "3d" of time
 // left. It exists because relativeTS measures time.Since, so every not-yet-
 // reached deadline lands in its `d < time.Minute` arm and renders "now" — an
@@ -526,6 +532,8 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/services/", g(d.handleServices))
 	mux.HandleFunc("GET /dash/packages/", g(d.handlePackages))
 	mux.HandleFunc("GET /dash/audit/", g(d.handleAudit))
+	mux.HandleFunc("GET /dash/approvals/", g(d.handleApprovals))
+	mux.HandleFunc("POST /dash/approvals/{id}/resolve", g(d.handleApprovalResolve))
 	mux.HandleFunc("GET /dash/usage/", g(d.handleUsage))
 	mux.HandleFunc("GET /dash/proactive/", g(d.handleProactive))
 	mux.HandleFunc("GET /dash/engagement/", g(d.handleEngagement))
@@ -653,6 +661,7 @@ var navLinks = []struct {
 	{"/dash/services/", "services", true},
 	{"/dash/packages/", "packages", true},
 	{"/dash/invites/", "invites", true},
+	{"/dash/approvals/", "approvals", true},
 	{"/dash/audit/", "audit", true},
 	{"/dash/usage/", "usage", true},
 	{"/dash/proactive/", "proactive", true},
@@ -729,6 +738,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><htm
 <p class="dim">{{.Subtitle}}</p>
 {{if eq .GroupCount 0}}<div class="banner-warn">No groups configured. <a href="/dash/groups/new">Create your first group</a> to get started.</div>{{end}}
 {{if gt .ErroredCount 0}}<div class="banner-warn"><a href="/dash/status/">{{.ErroredCount}} errored chat{{if gt .ErroredCount 1}}s{{end}}{{if gt .FailedTasks 0}} · {{.FailedTasks}} failed task{{if gt .FailedTasks 1}}s{{end}}{{end}}</a></div>{{end}}
+{{if gt .HeldApprovals 0}}<div class="banner-warn"><a href="/dash/approvals/">{{.HeldApprovals}} tool call{{if gt .HeldApprovals 1}}s{{end}} held for your approval</a></div>{{end}}
 <div class="tiles">
 <a class="tile" href="/dash/status/"><h2>status<span class="dot {{.StatusDot}}"></span></h2><p>service health</p></a>
 <a class="tile" href="/dash/tasks/"><h2>tasks<span class="dot {{.TasksDot}}"></span></h2><p>scheduled jobs</p></a>
@@ -755,6 +765,13 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	erroredCount := d.countVisibleErroredChats(allowed, operator)
 	failedTasks := d.countVisibleFailedTasks(allowed, operator)
 
+	// Held approvals are an operator verdict (spec 5/19), so only the operator
+	// gets the nudge — non-operators cannot open the page it links to.
+	heldApprovals := 0
+	if operator {
+		heldApprovals = d.countHeldApprovals()
+	}
+
 	statusDot := "dot-ok"
 	if erroredCount > 0 {
 		statusDot = "dot-warn"
@@ -774,17 +791,18 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := portalTmpl.Execute(w, struct {
-		Head         template.HTML
-		Nav          template.HTML
-		Brand        string
-		Subtitle     string
-		Operator     bool
-		StatusDot    string
-		TasksDot     string
-		GroupCount   int
-		ErroredCount int
-		FailedTasks  int
-	}{template.HTML(dashHead(brandName)), template.HTML(dashNavFor(r)), brandName, subtitle, operator, statusDot, tasksDot, groupCount, erroredCount, failedTasks}); err != nil {
+		Head          template.HTML
+		Nav           template.HTML
+		Brand         string
+		Subtitle      string
+		Operator      bool
+		StatusDot     string
+		TasksDot      string
+		GroupCount    int
+		ErroredCount  int
+		FailedTasks   int
+		HeldApprovals int
+	}{template.HTML(dashHead(brandName)), template.HTML(dashNavFor(r)), brandName, subtitle, operator, statusDot, tasksDot, groupCount, erroredCount, failedTasks, heldApprovals}); err != nil {
 		slog.Warn("portal: template execute", "err", err)
 	}
 }

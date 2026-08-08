@@ -194,20 +194,26 @@ with `list`/`approve`/`reject` and no create or delete: the gate writes the row,
 and deleting one would erase the record of a decision someone made. The table
 ships in both `routd/migrations/0033` and `store/migrations/0085`.
 
-**The REST/MCP face is DECLARED BUT NOT MOUNTED.** The catalog registration
-above exists; no `mountPendingActions` does, so `POST
-/v1/pending_actions/{id}/approve` returns 404 and there is no MCP tool. Chat
-`/approve` is the only working resolution path today. §"Resolution" describes
-both funnelling to one handler — that is the intended end state, not the
-shipped one. Tracked as BUGS `F66`; the OpenAPI doc is unaffected because it
-derives its advertised set from the mux, so an unmounted resource is never
-advertised.
+**The REST face and the dashd review page shipped 2026-08-08** (BUGS `F66`,
+REST half). `routd/pending_actions_http.go` mounts `GET /v1/pending_actions` +
+`POST /v1/pending_actions/{id}/approve|reject` via `resreg.RegisterREST`
+(scope-gated: `pending_actions:read`/`:write`, held only by service:dashd —
+authd's ceiling test pins it). Both the chat command and the REST verdict
+funnel through `routd.resolveHoldTx`: the verdict and its resolution message
+commit in ONE transaction, into the HELD call's own chat (an approval typed in
+another chat used to trigger the wrong agent), and the loop's poll dispatches
+the committed trigger. `/dash/approvals/` (dashd `approvals_page.go`,
+operator-only) lists the held queue with per-row approve/reject + note and
+recent verdicts; the portal banners the held count.
+
+**The agent-socket MCP face stays unmounted, deliberately**: `approve` on the
+held agent's own socket would let it approve its own call. That half of `F66`
+waits for an operator-socket design.
 
 ### Deliberately not in this release
 
-Per-adapter NATIVE button rendering (teled/discd/slakd callback→inbound) and
-the dashd review page. The generic `SendRequest.Options` fold was the vehicle
-for both; without it the notice is plain text carrying the two commands, which
-is what the acceptance criterion "adapter without `buttons` → numbered text"
-already describes as correct behavior. The gate, the resource and both
-resolution paths do not depend on them.
+Per-adapter NATIVE button rendering (teled/discd/slakd callback→inbound). The
+generic `SendRequest.Options` fold was the vehicle; without it the notice is
+plain text carrying the two commands, which is what the acceptance criterion
+"adapter without `buttons` → numbered text" already describes as correct
+behavior. The gate, the resource and the resolution paths do not depend on it.

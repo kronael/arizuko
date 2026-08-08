@@ -112,6 +112,12 @@ func (d *dash) jidFolder(jid string) string {
 	if strings.HasPrefix(jid, "web:") || strings.HasPrefix(jid, "hook:") {
 		return groupfolder.JidFolder(jid)
 	}
+	// No routd.db → no routes table to resolve through. Unresolvable, not a
+	// panic: pages that render JIDs off HTTP-only data (approvals) reach here
+	// with a nil handle.
+	if d.adminDB() == nil {
+		return ""
+	}
 	return store.New(d.adminDB()).DefaultFolderForJID(jid)
 }
 

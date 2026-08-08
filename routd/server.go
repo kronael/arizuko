@@ -250,6 +250,10 @@ func (s *Server) Handler() http.Handler {
 	// so it stays the `arizuko packages` CLI (packages_resource.go header).
 	s.mountInstalledPackages(mux)
 	s.mountAudit(mux)
+	// /v1/pending_actions list + approve/reject — spec 5/19's REST resolution
+	// face (pending_actions_http.go). Verdicts funnel to the same core the chat
+	// /approve command runs.
+	s.mountPendingActions(mux)
 	// REST read/manage surface — the twin of routd's in-process MCP StoreFns
 	// (the agent reaches the same data over the socket, humans/tools over HTTP)
 	mux.HandleFunc("GET /v1/messages/inspect", s.handleInspectMessages)

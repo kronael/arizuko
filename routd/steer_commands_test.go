@@ -511,6 +511,37 @@ func TestCmdApproveOperatorResolves(t *testing.T) {
 	}
 }
 
+// TestCmdApproveTargetsHeldChat: the resolution message goes to the HELD call's
+// own chat (spec 5/19 §Resolution step 2), not the chat the /approve arrived
+// in — an approval typed elsewhere used to trigger the WRONG agent.
+func TestCmdApproveTargetsHeldChat(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	if err := db.AddMembership("u", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutPendingAction(PendingAction{
+		ID: "a1", GroupFolder: "demo", Tool: "send_file", ChatJID: "tg:held",
+		ArgsHash: "h", ArgsFinal: `{"path":"/x"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The verdict arrives in tg:other — a different chat.
+	if !steerOne(loop, "tg:other", "demo", "/approve a1") {
+		t.Fatal("/approve not consumed")
+	}
+	var n int
+	if err := db.SQL().QueryRow(
+		`SELECT COUNT(*) FROM messages WHERE chat_jid='tg:held' AND content LIKE '%send_file%'`,
+	).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("trigger rows in held chat = %d, want 1", n)
+	}
+}
+
 // TestCmdApproveUnknownIDFailsLoudly: approving an id that does not exist
 // reports the failure rather than acking success into the operator's chat.
 func TestCmdApproveUnknownIDFailsLoudly(t *testing.T) {

@@ -12,14 +12,18 @@ package routd
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // PendingAction is one suspended call.
@@ -119,11 +123,23 @@ func scanPending(sc interface{ Scan(...any) error }) (PendingAction, error) {
 	return p, err
 }
 
+// queryExecer is the *sql.DB / *sql.Tx subset the resolve path runs on, so the
+// chat command and the REST face share one implementation across their
+// different transaction scopes.
+type queryExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 // PendingAction reads one row. Expiry is applied on read: a held row past
 // expires_at reports `expired`, so no GC job has to run for the status to be
 // true.
 func (d *DB) PendingAction(id string) (PendingAction, bool) {
-	p, err := scanPending(d.db.QueryRow(
+	return pendingActionOn(d.db, id)
+}
+
+func pendingActionOn(q queryExecer, id string) (PendingAction, bool) {
+	p, err := scanPending(q.QueryRow(
 		`SELECT `+pendingCols+` FROM pending_actions WHERE id = ?`, id))
 	if err != nil {
 		return PendingAction{}, false
@@ -175,18 +191,29 @@ func applyExpiry(p PendingAction) PendingAction {
 	return p
 }
 
+// ErrPendingNotFound / ErrPendingResolved let the REST face map the two
+// verdict failures to 404/409 without string-matching the operator text.
+var (
+	ErrPendingNotFound = errors.New("not found")
+	ErrPendingResolved = errors.New("already resolved")
+)
+
 // ResolvePendingAction records a verdict. It moves only a `held` row, so a
 // second approval of the same id is a no-op rather than a re-arm.
 func (d *DB) ResolvePendingAction(id, status, reviewer, note string) (PendingAction, error) {
+	return resolvePendingActionOn(d.db, id, status, reviewer, note)
+}
+
+func resolvePendingActionOn(q queryExecer, id, status, reviewer, note string) (PendingAction, error) {
 	if status != PendingApproved && status != PendingRejected {
 		return PendingAction{}, fmt.Errorf("verdict must be approved or rejected, got %q", status)
 	}
-	cur, ok := d.PendingAction(id)
+	cur, ok := pendingActionOn(q, id)
 	if !ok {
-		return PendingAction{}, fmt.Errorf("no pending action %q", id)
+		return PendingAction{}, fmt.Errorf("no pending action %q: %w", id, ErrPendingNotFound)
 	}
 	if cur.Status != PendingHeld {
-		return PendingAction{}, fmt.Errorf("pending action %q is already %s", id, cur.Status)
+		return PendingAction{}, fmt.Errorf("pending action %q %w (%s)", id, ErrPendingResolved, cur.Status)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	// The read above is advisory — two operators can both pass it. The UPDATE's
@@ -194,7 +221,7 @@ func (d *DB) ResolvePendingAction(id, status, reviewer, note string) (PendingAct
 	// count IS the verdict: without checking it, both callers were told
 	// "approved", two resolution messages were enqueued, and the agent was asked
 	// twice to re-issue one call.
-	res, err := d.db.Exec(`
+	res, err := q.Exec(`
 		UPDATE pending_actions
 		   SET status = ?, reviewed_by = ?, reviewed_at = ?, reviewer_note = ?
 		 WHERE id = ? AND status = ?`,
@@ -207,10 +234,55 @@ func (d *DB) ResolvePendingAction(id, status, reviewer, note string) (PendingAct
 		return PendingAction{}, err
 	}
 	if n != 1 {
-		return PendingAction{}, fmt.Errorf("pending action %q was resolved by someone else", id)
+		return PendingAction{}, fmt.Errorf("pending action %q %w (by someone else)", id, ErrPendingResolved)
 	}
 	cur.Status, cur.ReviewedBy, cur.ReviewedAt, cur.ReviewerNote = status, reviewer, now, note
 	return cur, nil
+}
+
+// resolutionMessage is the approved-call trigger the agent re-issues from
+// (spec 5/19 §Resolution step 2). One renderer for both resolution faces. The
+// target is the HELD call's own chat — not the chat the verdict arrived in,
+// which routed an approval typed elsewhere to the wrong agent — falling back
+// to the bare folder (the delegate JID shape) when the call was held outside
+// any chat.
+func resolutionMessage(p PendingAction, reviewer string) core.Message {
+	target := p.ChatJID
+	if target == "" {
+		target = p.GroupFolder
+	}
+	return core.Message{
+		ID:      core.MsgID("hitl-" + p.ID),
+		ChatJID: target,
+		Sender:  reviewer,
+		Content: fmt.Sprintf(
+			"Approved held call %s: re-issue %s with exactly these arguments and "+
+				"report the result.\n%s", p.ID, p.Tool, p.ArgsFinal),
+		Timestamp: time.Now().UTC(),
+	}
+}
+
+// resolveHoldTx is the one funnel both resolution faces run — chat /approve
+// (cmdResolveHold) and REST POST /v1/pending_actions/{id}/approve|reject
+// (pendingActionsHandler), the "both funnel to one handler" spec 5/19 names.
+// The verdict and, on approval, its resolution message commit in the SAME
+// transaction: the approved row and its re-issue trigger become visible at
+// once, so the poll can never dispatch the re-issue before
+// ConsumeApprovedAction can see the approval. Returns the chat to enqueue
+// ("" when nothing to trigger).
+func resolveHoldTx(q queryExecer, id, verdict, reviewer, note string) (PendingAction, string, error) {
+	p, err := resolvePendingActionOn(q, id, verdict, reviewer, note)
+	if err != nil {
+		return PendingAction{}, "", err
+	}
+	if verdict != PendingApproved {
+		return p, "", nil
+	}
+	msg := resolutionMessage(p, reviewer)
+	if err := putMessage(q, msg); err != nil {
+		return PendingAction{}, "", fmt.Errorf("record resolution message: %w", err)
+	}
+	return p, msg.ChatJID, nil
 }
 
 // ConsumeApprovedAction is the one-shot release. It flips exactly one approved
