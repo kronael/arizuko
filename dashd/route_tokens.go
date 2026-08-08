@@ -36,7 +36,6 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	st := store.New(d.adminDB())
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Tokens — "+folder)
 
 	if r.Method == http.MethodPost {
@@ -90,7 +89,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 		tableRows = append(tableRows, []string{
 			fmt.Sprintf(`<code>%s</code>`, esc(t.JID)),
 			esc(kind),
-			`<abbr title="` + esc(iso) + `">` + relativeTS(iso) + `</abbr>`,
+			abbrTS(iso),
 			esc(t.Context),
 			revoke,
 		})

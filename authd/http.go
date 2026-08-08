@@ -161,14 +161,29 @@ var serviceGrants = map[string][]string{
 	// (instanceWideGate) — neither table has a folder column to narrow by, so
 	// serving one everything would be the recorded cross-tenant list-all leak.
 	//
-	// The ceiling is exactly these seven. dashd proxies and reads; it does not
+	// pending_actions:read and pending_actions:write are the /dash/approvals/
+	// review page (spec 5/19): the list of tool calls held for human approval
+	// and the approve/reject verdict on one. Both are bounded by what the
+	// endpoints reach. The read returns PendingActionsRow — the tool name and
+	// the arguments the AGENT chose to send, which is exactly the material an
+	// operator must see to review; no secret, token or key column exists in the
+	// table. The write reaches one guarded UPDATE on a `held` row (routd
+	// resolveHoldTx): it cannot create a hold, cannot delete the record of a
+	// decision, and routd writes the audit row inside the verdict's own
+	// transaction. Like audit:read, neither scope is reachable by a human
+	// bearer (folder-glob scope lists carry no colon), and the chat path's
+	// IsOperator gate is matched on this path by dashd's requireOperator page
+	// gate.
+	//
+	// The ceiling is exactly these nine. dashd proxies and reads; it does not
 	// originate work (runs:run), speak as a channel (messages:write), or read
 	// credentials (secrets:read, grants:read). authd/service_dashd_test.go pins
-	// both halves — the seven that must be here and the count, so an eighth
+	// both halves — the nine that must be here and the count, so a tenth
 	// scope of any name fails there before it ships.
 	"service:dashd": {
 		"runs:kill", "routes:read", "routes:write", "audit:read",
 		"signing_keys:read", "sessions:read", "sessions:write",
+		"pending_actions:read", "pending_actions:write",
 	},
 }
 

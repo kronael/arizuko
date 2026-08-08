@@ -57,7 +57,6 @@ func (d *dash) handleChatPortal(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	groupFilter := strings.TrimSpace(r.URL.Query().Get("group"))
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Chat")
 
 	folders := d.visibleFolders(allowed, operator)
@@ -298,10 +297,9 @@ func (d *dash) handleChatGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Chat — "+folder,
-		struct{ Href, Label string }{"/dash/chat/", "chat"},
-		struct{ Href, Label string }{"", folder})
+		crumb{"/dash/chat/", "chat"},
+		crumb{"", folder})
 
 	fmt.Fprint(w, htmlSection("Start a session",
 		fmt.Sprintf(`<form method="post" action="/dash/chat/%s/">`, folderPath(folder))+
@@ -454,7 +452,7 @@ func (d *dash) writeRecentWebMessages(w http.ResponseWriter, folder string) {
 			continue
 		}
 		msgRows = append(msgRows, []string{
-			fmt.Sprintf(`<abbr title="%s">%s</abbr>`, esc(ts), esc(relativeTS(ts))),
+			abbrTS(ts),
 			`<code>` + esc(sender) + `</code>`,
 			esc(content),
 		})

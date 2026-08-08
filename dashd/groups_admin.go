@@ -47,10 +47,9 @@ func (d *dash) handleGroupNewForm(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireUser(w, r); !ok {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "New group",
-		struct{ Href, Label string }{"/dash/groups/", "Groups"},
-		struct{ Href, Label string }{"", "New"},
+		crumb{"/dash/groups/", "Groups"},
+		crumb{"", "New"},
 	)
 	fmt.Fprint(w, `<p class="dim">Create a group folder. Use <code>parent/child</code> to nest.</p>
 <form method="post" action="/dash/groups/new">
@@ -253,11 +252,10 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	if !d.requireVisible(w, r, folder) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Settings — "+folder,
-		struct{ Href, Label string }{"/dash/groups/", "Groups"},
-		struct{ Href, Label string }{"", folder},
-		struct{ Href, Label string }{"", "Settings"},
+		crumb{"/dash/groups/", "Groups"},
+		crumb{"", folder},
+		crumb{"", "Settings"},
 	)
 
 	if d.adminDB() == nil {

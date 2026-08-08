@@ -105,7 +105,6 @@ func (d *dash) handleMeConnections(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) renderConnectionsPage(w http.ResponseWriter, r *http.Request, items []connectionItem) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "OAuth connections")
 	fmt.Fprint(w, `<p class="dim">Connect a provider to let the agent act as you against its API. A connection writes a scoped, auto-refreshing token — the OAuth alternative to pasting a personal access token under <a href="/dash/me/secrets">API keys</a>.</p>`)
 

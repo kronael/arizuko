@@ -35,11 +35,10 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Grants — "+folder,
-		struct{ Href, Label string }{"/dash/groups/", "Groups"},
-		struct{ Href, Label string }{"", folder},
-		struct{ Href, Label string }{"", "Grants"},
+		crumb{"/dash/groups/", "Groups"},
+		crumb{"", folder},
+		crumb{"", "Grants"},
 	)
 
 	fmt.Fprint(w, `<p><a href="/dash/groups/`+folderPath(folder)+`/settings">← Back to settings</a></p>`)
@@ -72,7 +71,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 			esc(row.Principal), esc(row.Action), esc(row.Effect),
 			esc(row.Params), esc(row.Predicate),
 		)
-		grantedAt := `<abbr title="` + esc(row.GrantedAt) + `">` + relativeTS(row.GrantedAt) + `</abbr>`
+		grantedAt := abbrTS(row.GrantedAt)
 		tableRows[i] = []string{
 			`<code>` + esc(row.Principal) + `</code>`,
 			esc(row.Action),

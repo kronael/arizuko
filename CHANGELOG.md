@@ -24,8 +24,12 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   **original agent** re-issues the call in its own next turn, so it runs with
   that agent's container, session, grants and secrets; nothing executes out of
   turn. The release is one-shot, and re-issuing with different arguments is
-  held again — you approve a call, not a permission. Review over REST too:
-  `GET /v1/pending_actions`. A folder with no hold rules is unchanged.
+  held again — you approve a call, not a permission. Review from the dashboard
+  too: `/dash/approvals/` lists every held call with its full arguments and
+  per-row approve/reject (the portal banners the count), riding the same
+  funnel over `GET /v1/pending_actions` +
+  `POST /v1/pending_actions/{id}/approve|reject`. A folder with no hold rules
+  is unchanged.
 - **Skill-guard: what the agent writes into `~/.claude/` is scanned before it
   lands (spec `5/23`).** A skill written today runs in the next session, so a
   skill file is code the agent grants itself — and until now nothing looked at

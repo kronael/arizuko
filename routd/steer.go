@@ -553,13 +553,15 @@ func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string) error 
 }
 
 // cmdResolveHold records an operator's verdict on a held tool call and, on
-// approval, enqueues the folder so the agent re-issues the call in its OWN next
-// turn (spec 5/19). There is no out-of-turn dispatcher: the agent MCP server is
-// per-turn, so a second path would have to re-implement ipc's grant and audit
-// discipline — the dual-path CLAUDE.md bans.
+// approval, enqueues the held call's chat so the agent re-issues the call in
+// its OWN next turn (spec 5/19). There is no out-of-turn dispatcher: the agent
+// MCP server is per-turn, so a second path would have to re-implement ipc's
+// grant and audit discipline — the dual-path CLAUDE.md bans.
 //
 // Gated on IsOperator, the same `**` test as /root. A button press and a typed
-// command converge here, so approvals never burn a model call.
+// command converge here, and the verdict itself funnels through resolveHoldTx
+// — the SAME core the REST face runs — so an approval always commits together
+// with the resolution message that triggers the re-issue.
 func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string) {
 	if !l.db.IsOperator(sender) {
 		l.ack(chatJID, "Permission denied: approving a held call requires an operator grant (**).")
@@ -570,8 +572,18 @@ func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string) {
 		l.ack(chatJID, "Usage: /approve <id> [note]  |  /reject <id> [note]")
 		return
 	}
-	p, err := l.db.ResolvePendingAction(id, verdict, sender, strings.TrimSpace(note))
+	tx, err := l.db.SQL().Begin()
 	if err != nil {
+		l.ack(chatJID, "Failed: "+err.Error())
+		return
+	}
+	defer tx.Rollback()
+	p, enqueueJID, err := resolveHoldTx(tx, id, verdict, sender, strings.TrimSpace(note))
+	if err != nil {
+		l.ack(chatJID, "Failed: "+err.Error())
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		l.ack(chatJID, "Failed: "+err.Error())
 		return
 	}
@@ -579,34 +591,6 @@ func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string) {
 		l.ack(chatJID, fmt.Sprintf("rejected %s (%s)", id, p.Tool))
 		return
 	}
-
-	// The resolution message IS the next-turn trigger — the PutMessage+Enqueue
-	// pattern cmdRoot uses. It carries the tool and the approved args so the
-	// agent re-issues exactly what was approved; anything else misses the hash
-	// and is held again.
-	//
-	// It goes to the HELD CALL's chat, not the chat the operator typed in. Those
-	// differ whenever an operator approves from anywhere else — and using the
-	// command's chat woke a folder that was not waiting while the folder that
-	// was stayed asleep, holding an approval it could never consume (BUGS J5).
-	target := p.ChatJID
-	if target == "" {
-		target = chatJID
-	}
-	msg := core.Message{
-		ID:      core.MsgID("hitl-" + id),
-		ChatJID: target,
-		Sender:  sender,
-		Content: fmt.Sprintf(
-			"Approved held call %s: re-issue %s with exactly these arguments and "+
-				"report the result.\n%s", id, p.Tool, p.ArgsFinal),
-		Timestamp: time.Now().UTC(),
-	}
-	if err := l.db.PutMessage(msg); err != nil {
-		slog.Warn("cmdResolveHold: put message", "jid", target, "pending", id, "err", err)
-		l.ack(chatJID, "Approved, but the agent could not be notified — re-run it manually.")
-		return
-	}
 	l.ack(chatJID, fmt.Sprintf("approved %s (%s) — the agent will re-issue it", id, p.Tool))
-	l.Enqueue(target)
+	l.Enqueue(enqueueJID)
 }

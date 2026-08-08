@@ -25,7 +25,7 @@ func TestEveryServiceGrantIsNonEmpty(t *testing.T) {
 }
 
 // dashd proxies the operator UI's actions rather than writing other daemons'
-// tables, and reads what it renders. Seven scopes, each pinned as NECESSARY:
+// tables, and reads what it renders. Nine scopes, each pinned as NECESSARY:
 //
 //   - runs:kill — POST /v1/runs/stop (runed/server.go), the /dash/runed/ kill
 //     button. The whapd pair endpoints are not scope-gated and proxyd authorizes
@@ -73,6 +73,18 @@ func TestEveryServiceGrantIsNonEmpty(t *testing.T) {
 //     revoke back — TestSessionsRevokeKillsTheFamilyAndAudits), and the row is
 //     READABLE, since 5/I federated authd's audit_log into /dash/audit/ —
 //     which is exactly the objection BUGS F15a raised and left open.
+//   - pending_actions:read — GET /v1/pending_actions on routd, the
+//     /dash/approvals/ review queue (spec 5/19). What it reaches is
+//     PendingActionsRow: the tool name and the arguments the AGENT chose to
+//     send — precisely the material an operator must see to review a held
+//     call. The table has no secret, token or key column to withhold.
+//   - pending_actions:write — POST /v1/pending_actions/{id}/approve|reject,
+//     that page's verdict controls. One guarded UPDATE on a `held` row: it
+//     cannot create a hold, cannot delete the record of a decision, and routd
+//     commits the verdict, the resolution message and the audit row in ONE
+//     transaction (resolveHoldTx inside resreg's tx). The chat path's
+//     IsOperator gate is matched here by dashd's requireOperator page gate,
+//     the same pairing audit:read rides.
 //
 // The kill verb's blast radius is bounded by what the endpoint can do, not by
 // intent: it sets revoked_at and nothing else. It cannot mint, cannot rotate a
@@ -98,10 +110,10 @@ func TestEveryServiceGrantIsNonEmpty(t *testing.T) {
 //     widest read (ListRouteTokens) never selects the token value.
 //   - By COUNT, which is the stronger bound and closes the gap that letting
 //     routes:write off the named list would otherwise open: the grant is exactly
-//     these seven, so an EIGHTH scope of ANY name — including one nobody thought
-//     to blacklist — fails here before it ships. This bound has now caught five
-//     additions (routes:write, audit:read, and the three /dash/authd/ scopes)
-//     and forced each to state its case.
+//     these nine, so a TENTH scope of ANY name — including one nobody thought
+//     to blacklist — fails here before it ships. This bound has now caught seven
+//     additions (routes:write, audit:read, the three /dash/authd/ scopes and the
+//     two pending_actions scopes) and forced each to state its case.
 //
 // tokens:mint is blacklisted by name from here on. It is the one scope that
 // would turn "can end a session" into "can BE anyone" — IssuerMint mints a user
@@ -116,6 +128,7 @@ func TestServiceDashdIsScopedToWhatItProxiesAndReads(t *testing.T) {
 	want := []string{
 		"runs:kill", "routes:read", "routes:write", "audit:read",
 		"signing_keys:read", "sessions:read", "sessions:write",
+		"pending_actions:read", "pending_actions:write",
 	}
 	for _, needed := range want {
 		if !slices.Contains(g, needed) {

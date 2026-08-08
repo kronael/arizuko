@@ -53,7 +53,7 @@ arizuko · chat · status · tasks · activity · groups · routes · memory · 
 Additional links for operator (`**` grant):
 
 ```
-services · invites
+services · packages · invites · approvals · audit · usage · proactive · engagement
 ```
 
 Identity badge always right-aligned in nav: `{name} ◆` (operator) or
@@ -1535,6 +1535,71 @@ trap. Those still arrive via `PROXYD_ROUTES_JSON`.
 - No routes: "No routes. proxyd is answering 404 for every address — check
   `PROXYD_ROUTES_JSON` in the instance .env."
 - Non-operator: 403, and dashd makes no upstream call
+
+---
+
+### /dash/approvals/ — Held-Call Review Queue
+
+**Operator only.**
+
+#### Purpose
+
+Spec 5/19's review queue: every tool call a `hold:mcp:<tool>` rule has
+suspended, with approve/reject verdicts. The chat notice is the nudge; this
+page is the queue an operator comes back to.
+
+#### User stories
+
+- As an operator, I want to see every call waiting on me — with its full
+  arguments — so I can review before anything runs.
+- As an operator, I want to approve or reject from the row, with an optional
+  note, so the verdict and its reason land in one action.
+
+#### Layout
+
+```
+h1: approvals
+p.dim: A hold rule pauses a risky tool call until a human says go. …
+
+[banner-ok: "approved — the agent will re-issue the call in its next turn"]  (?msg=approved)
+[banner-ok: "rejected — the call will not run"]                              (?msg=rejected)
+[banner-err: "<routd's own reason>"]                                         (?err=…)
+
+h2: Waiting for a verdict
+[table: Group | Tool | Arguments | Chat | Held | ]
+  {folder link}  <code>{tool}</code>  <details>{args}</details>  {chat link}  {abbr age}
+  [note input] [approve] [reject.btn-danger]   (one form, two submit buttons)
+
+h2: Recent verdicts   (omitted when none)
+[table: Group | Tool | Outcome | By | When | Note]   (newest 20)
+```
+
+#### Data shown
+
+`GET {ROUTER_URL}/v1/pending_actions` with the service:dashd bearer
+(`pending_actions:read`) — status, tool, full args JSON, chat, timestamps,
+reviewer fields. Arguments are shown in full inside a collapsed `<details>`:
+they are the material under review, never hover-only.
+
+#### Actions
+
+- Approve/Reject → `POST /dash/approvals/{id}/resolve` (verdict from the
+  pressed button, note rides along) → routd
+  `POST /v1/pending_actions/{id}/approve|reject` with the operator's sub as
+  `reviewer` → 303 back with `?msg=`. routd commits the verdict together with
+  the resolution message that makes the ORIGINAL agent re-issue the call.
+
+#### Edge cases / empty states
+
+- Nothing held: "Nothing is waiting. Held calls appear here the moment a hold
+  rule fires."
+- routd unreachable / non-2xx: banner-err with routd's reason; page ends
+- Double verdict (raced with chat `/approve`): routd answers 409; the reason
+  surfaces in the err banner
+- Non-operator: 403, and dashd makes no upstream call (dashd's bearer reads as
+  list-all — the page gate is the containment)
+- Portal shows a banner-warn "N tool calls held for your approval" linking here
+  (operators only)
 
 ---
 

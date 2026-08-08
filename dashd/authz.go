@@ -112,107 +112,76 @@ func (d *dash) jidFolder(jid string) string {
 	if strings.HasPrefix(jid, "web:") || strings.HasPrefix(jid, "hook:") {
 		return groupfolder.JidFolder(jid)
 	}
+	// No routd.db → no routes table to resolve through. Unresolvable, not a
+	// panic: pages that render JIDs off HTTP-only data (approvals) reach here
+	// with a nil handle.
+	if d.adminDB() == nil {
+		return ""
+	}
 	return store.New(d.adminDB()).DefaultFolderForJID(jid)
 }
 
-// countVisibleGroups counts groups the caller may see. Operators get the raw
-// COUNT(*); non-operators get the number of group folders that pass `visible`.
-func (d *dash) countVisibleGroups(allowed []string, operator bool) int {
+// countVisible is the one scope-filtered counter behind the portal/status
+// numbers: operators get countQ's raw COUNT(*); scoped callers get listQ's
+// single column mapped to a folder via toFolder and filtered through
+// `visible`. Three counts, one shape — the per-count copies drifted before.
+func (d *dash) countVisible(allowed []string, operator bool, countQ, listQ string, toFolder func(string) string) int {
 	if d.adminDB() == nil {
 		return 0
 	}
 	if operator {
 		var n int
-		if err := d.adminDB().QueryRow(`SELECT COUNT(*) FROM groups`).Scan(&n); err != nil {
-			slog.Warn("scope: group count", "err", err)
+		if err := d.adminDB().QueryRow(countQ).Scan(&n); err != nil {
+			slog.Warn("scope: count", "q", countQ, "err", err)
 		}
 		return n
 	}
-	rows, err := d.adminDB().Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
+	rows, err := d.adminDB().Query(listQ)
 	if err != nil {
-		slog.Warn("scope: group list", "err", err)
+		slog.Warn("scope: list", "q", listQ, "err", err)
 		return 0
 	}
 	defer rows.Close()
 	n := 0
 	for rows.Next() {
-		var f string
-		if err := rows.Scan(&f); err != nil {
+		var v string
+		if err := rows.Scan(&v); err != nil {
 			continue
 		}
-		if visible(allowed, operator, f) {
+		if visible(allowed, operator, toFolder(v)) {
 			n++
 		}
 	}
 	return n
+}
+
+func folderIdentity(f string) string { return f }
+
+// countVisibleGroups counts groups the caller may see.
+func (d *dash) countVisibleGroups(allowed []string, operator bool) int {
+	return d.countVisible(allowed, operator,
+		`SELECT COUNT(*) FROM groups`,
+		`SELECT folder FROM groups ORDER BY folder LIMIT 500`,
+		folderIdentity)
 }
 
 // countVisibleErroredChats counts distinct errored chat_jids whose
-// routing-target folder the caller may see. Operators get the raw distinct
-// count.
+// routing-target folder the caller may see.
 func (d *dash) countVisibleErroredChats(allowed []string, operator bool) int {
-	if d.adminDB() == nil {
-		return 0
-	}
-	if operator {
-		var n int
-		if err := d.adminDB().QueryRow(`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`).Scan(&n); err != nil {
-			slog.Warn("scope: errored count", "err", err)
-		}
-		return n
-	}
-	rows, err := d.adminDB().Query(`SELECT DISTINCT chat_jid FROM messages WHERE errored=1 LIMIT 1000`)
-	if err != nil {
-		slog.Warn("scope: errored list", "err", err)
-		return 0
-	}
-	defer rows.Close()
-	n := 0
-	for rows.Next() {
-		var jid string
-		if err := rows.Scan(&jid); err != nil {
-			continue
-		}
-		if visible(allowed, operator, d.jidFolder(jid)) {
-			n++
-		}
-	}
-	return n
+	return d.countVisible(allowed, operator,
+		`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`,
+		`SELECT DISTINCT chat_jid FROM messages WHERE errored=1 LIMIT 1000`,
+		d.jidFolder)
 }
 
 // countVisibleFailedTasks counts task runs that errored in the last day whose
-// owning group folder the caller may see. Operators get the raw count.
+// owning group folder the caller may see.
 func (d *dash) countVisibleFailedTasks(allowed []string, operator bool) int {
-	if d.adminDB() == nil {
-		return 0
-	}
-	if operator {
-		var n int
-		if err := d.adminDB().QueryRow(
-			`SELECT COUNT(*) FROM task_run_logs WHERE status='error' AND run_at > datetime('now','-1 day')`).Scan(&n); err != nil {
-			slog.Warn("scope: failed-task count", "err", err)
-		}
-		return n
-	}
-	rows, err := d.adminDB().Query(
+	return d.countVisible(allowed, operator,
+		`SELECT COUNT(*) FROM task_run_logs WHERE status='error' AND run_at > datetime('now','-1 day')`,
 		`SELECT t.owner FROM task_run_logs l JOIN scheduled_tasks t ON t.id = l.task_id
-		 WHERE l.status='error' AND l.run_at > datetime('now','-1 day') LIMIT 1000`)
-	if err != nil {
-		slog.Warn("scope: failed-task list", "err", err)
-		return 0
-	}
-	defer rows.Close()
-	n := 0
-	for rows.Next() {
-		var owner string
-		if err := rows.Scan(&owner); err != nil {
-			continue
-		}
-		if visible(allowed, operator, owner) {
-			n++
-		}
-	}
-	return n
+		 WHERE l.status='error' AND l.run_at > datetime('now','-1 day') LIMIT 1000`,
+		folderIdentity)
 }
 
 // requireAdmin gates a write to scope (folder or "**" for global). Uses

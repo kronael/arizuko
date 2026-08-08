@@ -22,11 +22,10 @@ func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
 	if !d.requireVisible(w, r, folder) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Tools — "+folder,
-		struct{ Href, Label string }{"/dash/groups/", "Groups"},
-		struct{ Href, Label string }{"", folder},
-		struct{ Href, Label string }{"", "Tools"},
+		crumb{"/dash/groups/", "Groups"},
+		crumb{"", folder},
+		crumb{"", "Tools"},
 	)
 
 	// Tool visibility is auth.EffectiveActions over the folder's acl rows (5/33: the

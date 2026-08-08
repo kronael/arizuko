@@ -113,7 +113,6 @@ func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Services")
 
 	statuses := make([]string, len(services))

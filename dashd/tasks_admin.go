@@ -90,10 +90,9 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Task "+id,
-		struct{ Href, Label string }{"/dash/tasks/", "tasks"},
-		struct{ Href, Label string }{"", id},
+		crumb{"/dash/tasks/", "tasks"},
+		crumb{"", id},
 	)
 
 	dot := "dot-ok"
@@ -107,8 +106,8 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		htmlDetail("Chat JID", `<code>`+esc(chatJID)+`</code>`),
 		htmlDetail("Cron", `<code>`+esc(cron.String)+`</code>`),
 		htmlDetail("Status", `<span class="dot `+dot+`"></span>`+esc(status)),
-		htmlDetail("Created", `<abbr title="`+esc(createdAt)+`">`+relativeTS(createdAt)+`</abbr>`),
-		htmlDetail("Next Run", `<abbr title="`+esc(nextRun.String)+`">`+relativeTS(nextRun.String)+`</abbr>`),
+		htmlDetail("Created", abbrTS(createdAt)),
+		htmlDetail("Next Run", abbrTS(nextRun.String)),
 		htmlDetail("Context Mode", esc(contextMode.String)),
 	)
 
@@ -156,7 +155,7 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		logRows = append(logRows, []string{
-			`<abbr title="` + esc(runAt) + `">` + relativeTS(runAt) + `</abbr>`,
+			abbrTS(runAt),
 			esc(runStatus),
 			fmt.Sprintf(`%d ms`, durMS),
 			esc(errMsg),

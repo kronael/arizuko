@@ -63,11 +63,10 @@ func (d *dash) handleWhatsappPair(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, "**"); !ok {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "WhatsApp re-pair",
-		struct{ Href, Label string }{"/dash/", "Channels"},
-		struct{ Href, Label string }{"", "WhatsApp"},
-		struct{ Href, Label string }{"", "re-pair"},
+		crumb{"/dash/", "Channels"},
+		crumb{"", "WhatsApp"},
+		crumb{"", "re-pair"},
 	)
 
 	st := d.fetchPairStatus()

@@ -214,7 +214,17 @@ Not a containment boundary — Docker, the crackbox egress allowlist and the gat
 MCP socket are, and `SECURITY.md` states this. Recorded so the residual is not
 mistaken for coverage.
 
-## F66 — `pending_actions` is registered but never mounted; the REST approve path 404s (2026-08-08, open)
+## F66 — `pending_actions` is registered but never mounted; the REST approve path 404s (2026-08-08, REST half RESOLVED 2026-08-08 — MCP half open)
+
+**Update 2026-08-08**: the REST half shipped. `routd/pending_actions_http.go`
+mounts list/approve/reject via `resreg.RegisterREST`, gated on
+`pending_actions:read`/`:write` (service:dashd is the sole holder — authd
+ceiling test), and both verdict faces funnel through `routd.resolveHoldTx`
+(verdict + resolution message in one tx, targeted at the HELD call's chat).
+`/dash/approvals/` is the operator review page. The AGENT-SOCKET MCP face
+remains deliberately unmounted: `approve` on the held agent's own socket would
+let it approve its own call; it waits for an operator-socket design. Original
+entry below for the record.
 
 `resreg/resources/pending_actions.go` registers the resource in `init()`, but no
 `mountPendingActions` exists in `routd/server.go` and it is absent from the MCP
