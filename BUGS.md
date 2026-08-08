@@ -7,6 +7,61 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L1 — a webhook payload is parked in onboarding instead of reaching its folder (2026-08-08, open)
+
+Found by the live capability eval, not by reading — every unit test in this path
+mints a token and posts a payload without onbod running beside it.
+
+The agent minted a webhook for its own folder and POSTed to it. Every step
+reported success: `issue_webhook folder=eval target=eval jid=hook:eval/etjgjnv`,
+the POST returned **204**, and a `messages` row landed on `hook:eval/etjgjnv`
+with the payload. Then nothing. Zero `"dispatch run"` lines for that JID.
+
+Where it went instead: `onbod` logged `"sent pairing link" jid=hook:eval/etjgjnv`
+and wrote an admission row — `onbod.db onboarding: hook:eval/etjgjnv |
+awaiting_message`. The payload was treated as a NEW UNKNOWN CHAT needing
+onboarding rather than as inbound for the token's owner folder.
+
+So a `/hook/<token>` endpoint accepts, acknowledges, stores, and silently parks.
+The 204 is honest about receipt and misleading about effect, and the operator's
+only clue is an onboarding row for a JID no human will ever redeem.
+
+The token itself carries the owner (`route_tokens.jid` = `hook:eval/<label>`,
+minted with `target=eval`), so the routing answer is already recorded at mint
+time — this is a missing link between the ingress and the token's owner, not
+missing information. Spec: `specs/5/W-webhook-routes.md`.
+
+Severity: high — a documented ingress surface silently drops every delivery on a
+folder that has not separately been routed. Needs a decision on where the bind
+belongs (route the hook JID by its token's owner at ingress, or exclude `hook:`
+from onbod's unknown-chat path), so it is recorded rather than patched.
+
+## L2 — a delegated child ran but never called back; cause not yet isolated (2026-08-08, open)
+
+Same live run, `child-delegate`. Unlike L1 this one is NOT root-caused, and it
+is recorded that way on purpose.
+
+What is verified from the logs: the parent registered the child
+(`"group registered" jid=web:eval/etjgjnv-child-delegate folder=eval/etjgjnv-child-delegate`)
+and delegated the task (`"send" folder=eval jid=web:eval/etjgjnv-child-delegate
+text="Task: run this exact command and report the result back here"`). So
+registration and delegation both work. The child never fired the callback.
+
+Candidate causes, none confirmed:
+- the child holds only the `role:member` floor, and the `egress` ACL row is
+  `folder:eval | egress | eval` — scope `eval` does not match
+  `eval/etjgjnv-child-delegate`, so the child's container-capability boolean is
+  false. Against this: `network_rules` has `eval|*` and `ResolveAllowlist` walks
+  ancestry, so the child may inherit the wildcard anyway. The two mechanisms
+  disagree about whether the child can reach the sink, and which one governs was
+  not established.
+- the child may never have been dispatched at all (no per-child dispatch line
+  was checked).
+
+Next step is one probe, not a guess: re-run `--case child-delegate` and check
+for a `"dispatch run"` line on the child folder plus the child's crackbox
+allowlist. Recorded now so the eval's 6/8 is not read as "two agent failures".
+
 ## J1 — settings-defined MCP servers bypass the HITL firewall (2026-08-08, proposed)
 
 The agent loads every `mcpServers` entry from `~/.claude/settings.json`
