@@ -888,3 +888,28 @@ func TestRouteTokens_PairingExcludedFromExport(t *testing.T) {
 		t.Errorf("export emitted a pairing token's jid:\n%s", out)
 	}
 }
+
+// TestSecrets_NoAgentTool: the secrets resource carries no MCPDoc, and
+// deriveMCPTools surfaces a tool only for actions that have one — so an agent
+// gets no secret verb at all. That is the design ("the agent never sets
+// secrets"), but it holds by OMISSION: adding an MCPDoc entry for a secret
+// action would silently hand every agent a credential-write tool over its own
+// socket. Nothing else fails when that happens, which is why this exists.
+//
+// The REST no-GET guards above stop a sealed value being READ; this stops it
+// being written from the agent side.
+func TestSecrets_NoAgentTool(t *testing.T) {
+	for _, r := range resreg.All() {
+		if r.Name != SecretsName {
+			continue
+		}
+		if len(r.MCPDoc) != 0 {
+			t.Errorf("secrets declares MCPDoc %v — that derives an agent-facing tool; secrets are operator-only", r.MCPDoc)
+		}
+		if len(r.MCPNames) != 0 {
+			t.Errorf("secrets declares MCPNames %v — the agent must have no secret verb", r.MCPNames)
+		}
+		return
+	}
+	t.Fatal("secrets resource not registered — this guard would pass vacuously")
+}
