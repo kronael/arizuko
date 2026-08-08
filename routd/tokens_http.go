@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/resreg"
 )
 
@@ -20,7 +21,7 @@ var segRe = regexp.MustCompile(`^[\w-]+$`)
 // descendant reports whether target equals owner or nests under it. Used by
 // ownsFolder (server.go) for JWT-folder containment.
 func descendant(target, owner string) bool {
-	return target == owner || strings.HasPrefix(target, owner+"/")
+	return groupfolder.Contains(owner, target)
 }
 
 // mountRouteTokens wires the shared route-token CRUD faces. Every path routd

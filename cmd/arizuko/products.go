@@ -177,11 +177,18 @@ func listProducts(dataDir string, w io.Writer) error {
 			continue
 		}
 		var m productManifest
+		line := ""
 		if _, err := toml.DecodeFile(filepath.Join(root, e.Name(), "PRODUCT.md"), &m); err != nil {
-			fmt.Fprintf(w, "%-14s (no readable PRODUCT.md)\n", e.Name())
-			continue
+			line = fmt.Sprintf("%-14s (no readable PRODUCT.md)\n", e.Name())
+		} else {
+			line = fmt.Sprintf("%-14s %-10s %s\n", m.Name, m.Brand, m.Tagline)
 		}
-		fmt.Fprintf(w, "%-14s %-10s %s\n", m.Name, m.Brand, m.Tagline)
+		// A dropped write means the operator sees a SHORTER catalog and cannot
+		// tell — the same silent-omission failure the malformed-manifest line
+		// exists to prevent (BUGS J13).
+		if _, err := io.WriteString(w, line); err != nil {
+			return fmt.Errorf("write catalog: %w", err)
+		}
 	}
 	return nil
 }

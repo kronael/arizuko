@@ -88,21 +88,6 @@ func StartSpan(ctx context.Context, name string, attrs ...string) (context.Conte
 	}
 }
 
-// EndOutcome ends the span on ctx with an explicit outcome string (when the
-// caller knows the outcome without an error value — e.g. "timeout"). For the
-// common error-driven case use the func returned by StartSpan instead.
-func EndOutcome(ctx context.Context, outcome string) {
-	if !tracesOn {
-		return
-	}
-	span := trace.SpanFromContext(ctx)
-	span.SetAttributes(attribute.String("outcome", outcome))
-	if outcome == "error" || outcome == "timeout" {
-		span.SetStatus(codes.Error, outcome)
-	}
-	span.End()
-}
-
 // outcomeOf maps an error to a spec 5/O outcome value.
 func outcomeOf(err error) string {
 	switch {

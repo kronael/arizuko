@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/groupfolder"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
@@ -80,7 +81,7 @@ func ownsFolder(tokenFolder, target string) bool {
 	if tokenFolder == "" || target == "" {
 		return true
 	}
-	return target == tokenFolder || strings.HasPrefix(target, tokenFolder+"/")
+	return groupfolder.Contains(tokenFolder, target)
 }
 
 // handleRun is the routd→runed contract (POST /v1/runs). Gated on the runs:run

@@ -140,10 +140,6 @@ func (d *DB) ListPendingActions(folder, status string) ([]PendingAction, error) 
 		q += ` AND group_folder = ?`
 		args = append(args, folder)
 	}
-	if status != "" {
-		q += ` AND status = ?`
-		args = append(args, status)
-	}
 	q += ` ORDER BY created_at DESC`
 	rows, err := d.db.Query(q, args...)
 	if err != nil {
@@ -156,7 +152,15 @@ func (d *DB) ListPendingActions(folder, status string) ([]PendingAction, error) 
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, applyExpiry(p))
+		// Expiry is applied BEFORE the status filter. Filtering in SQL compared
+		// the STORED status, so `status=expired` returned nothing while
+		// `status=held` returned rows this function then relabelled expired —
+		// each filter answering with the other's rows (BUGS J7).
+		p = applyExpiry(p)
+		if status != "" && p.Status != status {
+			continue
+		}
+		out = append(out, p)
 	}
 	return out, rows.Err()
 }
@@ -244,14 +248,6 @@ func (d *DB) ConsumeApprovedAction(folder, tool, argsHash string) (string, bool)
 		return "", false
 	}
 	return id, true
-}
-
-// RecordPendingOutcome writes the released call's result. Single writer: the
-// gate, at release.
-func (d *DB) RecordPendingOutcome(id, result, callErr string) error {
-	_, err := d.db.Exec(
-		`UPDATE pending_actions SET result = ?, error = ? WHERE id = ?`, id, result, callErr)
-	return err
 }
 
 // NewPendingID is short on purpose: an operator types it into chat as

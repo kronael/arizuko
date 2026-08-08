@@ -11,6 +11,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources"
@@ -171,7 +172,7 @@ func userGroups(r *http.Request) []string {
 
 func userAllowedFolder(groups []string, folder string) bool {
 	for _, f := range groups {
-		if f == "**" || f == folder || strings.HasPrefix(folder, f+"/") {
+		if f == "**" || groupfolder.Contains(f, folder) {
 			return true
 		}
 	}

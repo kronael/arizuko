@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/router"
 )
 
@@ -695,7 +696,7 @@ func (s *Store) JIDRoutedToFolder(jid, folder string) bool {
 	if target == "" {
 		return false
 	}
-	return target == folder || strings.HasPrefix(target, folder+"/")
+	return groupfolder.Contains(folder, target)
 }
 
 // JIDRoutableToFolder reports whether folder (or a descendant) is the target of
@@ -710,7 +711,7 @@ func (s *Store) JIDRoutableToFolder(jid, folder string) bool {
 			continue
 		}
 		t := core.ParseRouteTarget(r.Target).Folder
-		if t == folder || strings.HasPrefix(t, folder+"/") {
+		if groupfolder.Contains(folder, t) {
 			return true
 		}
 	}

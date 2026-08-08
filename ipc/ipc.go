@@ -20,6 +20,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/mountsec"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
@@ -2269,7 +2270,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			}
 			// a scoped grant inspects its own folder or descendants; operator any.
 			if !identity.IsRoot && target != folder &&
-				!strings.HasPrefix(target, folder+"/") {
+				!groupfolder.Contains(folder, target) {
 				return toolErr("get_web_presence: can only query own folder or descendants")
 			}
 			return toolJSON(WebPresenceFor(target, gated.WebHost, gated.HostingDomain, gated.VhostAliases))

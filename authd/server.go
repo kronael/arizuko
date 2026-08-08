@@ -10,11 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
 )
 
@@ -260,7 +260,7 @@ func folderWithin(parent, child string) bool {
 	if parent == "" {
 		return true
 	}
-	return child == parent || strings.HasPrefix(child, parent+"/")
+	return groupfolder.Contains(parent, child)
 }
 
 // IssueRefresh starts a new refresh-token family for sub.

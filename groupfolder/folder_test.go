@@ -167,3 +167,25 @@ func TestParseVhostAliases(t *testing.T) {
 		t.Errorf("empty input → %v, want empty map", m)
 	}
 }
+
+func TestContains(t *testing.T) {
+	cases := []struct {
+		parent, child string
+		want          bool
+	}{
+		{"acme", "acme", true},
+		{"acme", "acme/eng", true},
+		{"acme", "acme/eng/sre", true},
+		{"acme", "acmecorp", false},     // the "/" is what makes it containment
+		{"acme", "acmecorp/eng", false}, // …and it must hold one level down too
+		{"acme/eng", "acme", false},     // containment is not symmetric
+		{"acme", "other", false},
+		{"", "anything", false}, // empty parent contains nothing, never everything
+		{"acme", "", false},
+	}
+	for _, c := range cases {
+		if got := Contains(c.parent, c.child); got != c.want {
+			t.Errorf("Contains(%q, %q) = %v, want %v", c.parent, c.child, got, c.want)
+		}
+	}
+}

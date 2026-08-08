@@ -54,6 +54,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -125,7 +126,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		// scope covers target (minting is default-deny, so /root or an operator-delegated
 		// grant only). OPERATOR (REST): target must equal/descend from the owner folder,
 		// already bound to the caller's JWT subtree by routeTokensRESTGate.
-		if x.Surface == audit.SurfaceREST && target != folder && !strings.HasPrefix(target, folder+"/") {
+		if x.Surface == audit.SurfaceREST && !groupfolder.Contains(folder, target) {
 			return nil, resreg.Errorf(http.StatusForbidden, "target_folder must equal or descend from owner_folder")
 		}
 		suffix := strings.TrimSpace(argString(x.Args, "jid_suffix"))

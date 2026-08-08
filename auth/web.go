@@ -1,16 +1,9 @@
 package auth
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"net/url"
 	"strings"
 )
-
-func HashToken(token string) string {
-	h := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(h[:])
-}
 
 func safeReturn(v string) (string, bool) {
 	if v == "" || v[0] != '/' {

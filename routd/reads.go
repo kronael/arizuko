@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/router"
 )
 
@@ -13,7 +14,7 @@ import (
 // tools (federated via the /v1/messages, /v1/routing, /v1/engagement, /v1/cost
 // surfaces). routd owns the conversation/routing state.
 
-// Every nullable TEXT column is COALESCEd to '' so a NULL row never aborts the
+// Every nullable TEXT column is COALESCEd to ” so a NULL row never aborts the
 // scan (scanMessages reads into plain strings) — the shared store does the
 // same (store/messages.go). Without this, ONE legacy/NULL row kills routd's
 // whole poll loop, silently (cursor never advances; no turns; no breaker).
@@ -154,7 +155,7 @@ func (d *DB) JIDRoutedToFolder(jid, folder string) bool {
 	if target == "" {
 		return false
 	}
-	return target == folder || strings.HasPrefix(target, folder+"/")
+	return groupfolder.Contains(folder, target)
 }
 
 // JIDRoutableToFolder reports whether folder (or a descendant) is the target of
@@ -171,7 +172,7 @@ func (d *DB) JIDRoutableToFolder(jid, folder string) bool {
 			continue
 		}
 		t := core.ParseRouteTarget(r.Target).Folder
-		if t == folder || strings.HasPrefix(t, folder+"/") {
+		if groupfolder.Contains(folder, t) {
 			return true
 		}
 	}

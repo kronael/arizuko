@@ -687,7 +687,7 @@ func restoreGated(report *strings.Builder, name string, n int, force bool,
 func matchFolder(entryName string, knownFoldersLongestFirst []string) string {
 	name := strings.TrimSuffix(entryName, "/")
 	for _, f := range knownFoldersLongestFirst {
-		if name == f || strings.HasPrefix(name, f+"/") {
+		if groupfolder.Contains(f, name) {
 			return f
 		}
 	}

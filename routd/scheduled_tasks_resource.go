@@ -319,7 +319,7 @@ func insertTaskTx(ctx context.Context, tx *sql.Tx, t core.Task) error {
 		`INSERT INTO scheduled_tasks
 		 (id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Owner, t.ChatJID, t.Prompt, nilIfEmptyStr(t.Cron),
+		t.ID, t.Owner, t.ChatJID, t.Prompt, nullStr(t.Cron),
 		nextRun, t.Status, t.Created.Format(time.RFC3339), cm)
 	return err
 }
@@ -353,13 +353,4 @@ func patchTaskTx(ctx context.Context, tx *sql.Tx, id, status, nextRun string) er
 		return err
 	}
 	return nil
-}
-
-// nilIfEmptyStr returns nil for an empty string (SQL NULL) else the string,
-// matching store.nilIfEmpty for the nullable cron column.
-func nilIfEmptyStr(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
 }

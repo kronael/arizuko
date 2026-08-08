@@ -412,16 +412,17 @@ func (l *Loop) copyParentSession(folder, parent, childUUID string) {
 	}
 }
 
-// groupBySender splits msgs into consecutive same-sender runs, preserving
-// causal order: A,B,A yields [A],[B],[A], not [A,A],[B]. Regrouping the whole
-// slice by sender would reorder a conversation's turns.
-func groupBySender(msgs []core.Message) [][]core.Message {
+// consecutiveRuns splits msgs into consecutive same-key runs, preserving causal
+// order: A,B,A yields [A],[B],[A], not [A,A],[B]. Regrouping the whole slice by
+// key would reorder a conversation's turns — across senders for a group chat,
+// across topics for the web: per-topic dispatch.
+func consecutiveRuns(msgs []core.Message, key func(core.Message) string) [][]core.Message {
 	if len(msgs) == 0 {
 		return nil
 	}
 	var batches [][]core.Message
 	for i, m := range msgs {
-		if i == 0 || m.Sender != msgs[i-1].Sender {
+		if i == 0 || key(m) != key(msgs[i-1]) {
 			batches = append(batches, nil)
 		}
 		batches[len(batches)-1] = append(batches[len(batches)-1], m)
@@ -429,21 +430,12 @@ func groupBySender(msgs []core.Message) [][]core.Message {
 	return batches
 }
 
-// groupByTopic splits msgs into consecutive same-topic runs, preserving causal
-// order: A,B,A yields [A],[B],[A], not [A,A],[B]. Regrouping the whole backlog
-// by topic would reorder turns across topics (the web: per-topic dispatch).
+func groupBySender(msgs []core.Message) [][]core.Message {
+	return consecutiveRuns(msgs, func(m core.Message) string { return m.Sender })
+}
+
 func groupByTopic(msgs []core.Message) [][]core.Message {
-	if len(msgs) == 0 {
-		return nil
-	}
-	var batches [][]core.Message
-	for i, m := range msgs {
-		if i == 0 || m.Topic != msgs[i-1].Topic {
-			batches = append(batches, nil)
-		}
-		batches[len(batches)-1] = append(batches[len(batches)-1], m)
-	}
-	return batches
+	return consecutiveRuns(msgs, func(m core.Message) string { return m.Topic })
 }
 
 // runFailureNotice is sent to the chat when a run returns outcome:error and

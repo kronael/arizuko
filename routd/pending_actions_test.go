@@ -339,3 +339,35 @@ func TestResolvePendingAction_ConcurrentDoubleApprove(t *testing.T) {
 		t.Fatalf("ResolvePendingAction succeeded %d times for one held row, want 1", oks)
 	}
 }
+
+// TestListPendingActions_ExpiryFilteredAfterTransform is BUGS J7: filtering on
+// the STORED status made `status=expired` return nothing while `status=held`
+// returned rows the same call then relabelled expired.
+func TestListPendingActions_ExpiryFilteredAfterTransform(t *testing.T) {
+	d := memDB(t)
+	past := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	if err := d.PutPendingAction(PendingAction{
+		ID: "old", GroupFolder: "atlas", Tool: "t", ArgsHash: "h1", ExpiresAt: past,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.PutPendingAction(PendingAction{
+		ID: "live", GroupFolder: "atlas", Tool: "t", ArgsHash: "h2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	expired, err := d.ListPendingActions("atlas", PendingExpired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expired) != 1 || expired[0].ID != "old" {
+		t.Fatalf("status=expired returned %+v, want just the expired row", expired)
+	}
+	held, err := d.ListPendingActions("atlas", PendingHeld)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(held) != 1 || held[0].ID != "live" {
+		t.Fatalf("status=held returned %+v, want only the live row", held)
+	}
+}

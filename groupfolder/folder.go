@@ -7,6 +7,26 @@ import (
 	"strings"
 )
 
+// Contains reports whether `child` is `parent` or lives under it. This is the
+// FOLDER-CONTAINMENT predicate the whole system tests before letting one folder
+// reach another's rows, and it was hand-written at 15 sites — three named local
+// helpers (authd folderWithin, routd routeTargetWithin, routd descendant) plus
+// twelve inline `x == f || strings.HasPrefix(x, f+"/")` copies. Fifteen copies
+// of a security predicate is fifteen chances for one to drift.
+//
+// The "/" suffix is what makes it containment rather than a prefix test:
+// without it "acme" would contain "acmecorp".
+//
+// An empty parent contains nothing. Callers that mean "no constraint" (the
+// operator/service sentinel, a "**" scope) must say so themselves — silently
+// treating "" as "everything" here is how a missing folder becomes root.
+func Contains(parent, child string) bool {
+	if parent == "" {
+		return false
+	}
+	return child == parent || strings.HasPrefix(child, parent+"/")
+}
+
 // IsTopLevel reports whether folder is a top-level world (no "/"). It is a
 // FOLDER-SHAPE predicate only — NOT a privilege check. A top-level world is a
 // tier-1 tenant, never root: root is a transient operator elevation (/root), not

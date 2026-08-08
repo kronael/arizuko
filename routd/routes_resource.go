@@ -51,6 +51,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/router"
@@ -328,7 +329,7 @@ func addRouteTx(ctx context.Context, tx *sql.Tx, r core.Route, by, via string) (
 		`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars, added_by, added_via)
 		 VALUES(?,?,?,?,?,?,?)`,
 		r.Seq, r.Match, r.Target, nz(r.ObserveWindowMessages), nz(r.ObserveWindowChars),
-		nullIfEmpty(by), nullIfEmpty(via))
+		nullStr(by), nullStr(via))
 	if err != nil {
 		return 0, err
 	}
@@ -358,7 +359,7 @@ func setRoutesTx(ctx context.Context, tx *sql.Tx, folder string, routes []core.R
 			`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars, added_by, added_via)
 			 VALUES(?,?,?,?,?,?,?)`,
 			r.Seq, r.Match, r.Target, nz(r.ObserveWindowMessages), nz(r.ObserveWindowChars),
-			nullIfEmpty(by), nullIfEmpty(via)); err != nil {
+			nullStr(by), nullStr(via)); err != nil {
 			return err
 		}
 	}
@@ -378,17 +379,6 @@ func deleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) error {
 	return nil
 }
 
-// nullIfEmpty lands NULL rather than '' in an attribution column. `added_by IS
-// NULL` means "no actor recorded"; `added_by = ''` would be a recorded actor
-// with an empty name, and the two must not read alike (same rule as
-// audit.nullable).
-func nullIfEmpty(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
 // routeTargetWithin reports whether a route's target folder is the caller's own
 // folder or a descendant. A folder:-prefixed target is compared after stripping the
 // prefix; daemon:/builtin: targets are never "within" a folder. Moved here from ipc
@@ -400,7 +390,7 @@ func routeTargetWithin(target, owner string) bool {
 	case strings.HasPrefix(target, "daemon:"), strings.HasPrefix(target, "builtin:"):
 		return false
 	}
-	return target == owner || strings.HasPrefix(target, owner+"/")
+	return groupfolder.Contains(owner, target)
 }
 
 // isSelfDefault reports whether r is a folder's seq-0 default route (target == the

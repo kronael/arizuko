@@ -584,9 +584,18 @@ func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string) {
 	// pattern cmdRoot uses. It carries the tool and the approved args so the
 	// agent re-issues exactly what was approved; anything else misses the hash
 	// and is held again.
+	//
+	// It goes to the HELD CALL's chat, not the chat the operator typed in. Those
+	// differ whenever an operator approves from anywhere else — and using the
+	// command's chat woke a folder that was not waiting while the folder that
+	// was stayed asleep, holding an approval it could never consume (BUGS J5).
+	target := p.ChatJID
+	if target == "" {
+		target = chatJID
+	}
 	msg := core.Message{
 		ID:      core.MsgID("hitl-" + id),
-		ChatJID: chatJID,
+		ChatJID: target,
 		Sender:  sender,
 		Content: fmt.Sprintf(
 			"Approved held call %s: re-issue %s with exactly these arguments and "+
@@ -594,10 +603,10 @@ func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string) {
 		Timestamp: time.Now().UTC(),
 	}
 	if err := l.db.PutMessage(msg); err != nil {
-		slog.Warn("cmdResolveHold: put message", "jid", chatJID, "pending", id, "err", err)
+		slog.Warn("cmdResolveHold: put message", "jid", target, "pending", id, "err", err)
 		l.ack(chatJID, "Approved, but the agent could not be notified — re-run it manually.")
 		return
 	}
 	l.ack(chatJID, fmt.Sprintf("approved %s (%s) — the agent will re-issue it", id, p.Tool))
-	l.Enqueue(chatJID)
+	l.Enqueue(target)
 }

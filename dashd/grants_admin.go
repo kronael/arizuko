@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -200,7 +201,7 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	// Prevent scope widening: the submitted scope must be the folder itself
 	// or a descendant. Without this, an admin on "alice" could insert a "**" row.
-	if scope != folder && !strings.HasPrefix(scope, folder+"/") {
+	if !groupfolder.Contains(folder, scope) {
 		http.Error(w, "scope must be within folder", http.StatusBadRequest)
 		return
 	}

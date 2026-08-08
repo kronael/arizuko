@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -124,7 +125,7 @@ func scopeCovers(held, want string) bool {
 		return true
 	}
 	if base, ok := strings.CutSuffix(held, "/**"); ok {
-		return want == base || strings.HasPrefix(want, base+"/")
+		return groupfolder.Contains(base, want)
 	}
 	// held carries no recursive tail: it can only cover a concrete want. A want
 	// with its own wildcard might span beyond held, so refuse it outright.
