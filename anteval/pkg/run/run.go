@@ -22,7 +22,9 @@ import (
 // surfaces (routd REST / proxyd HTTP / MCP). Tests supply a fake.
 type Target interface {
 	check.Reader
-	Inject(chat, prompt string) (turnID string, err error)
+	// Inject posts one task. `topic` isolates the case in its own session —
+	// see runCase for why sharing the chat default topic broke a live run.
+	Inject(chat, topic, prompt string) (turnID string, err error)
 	Cost(turnID string) (int, error)
 }
 
@@ -69,7 +71,20 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 	}, s, nonce)
 	r := report.Result{ID: c.ID, Dimension: c.Dimension}
 
-	turn, err := cfg.Target.Inject(cfg.Chat, expand(c.Prompt))
+	// Each case runs in its OWN topic, so it gets its own session. Sharing the
+	// chat's default topic put every case in one conversation: on the
+	// 2026-08-08 live run case 1 answered "I can't, that tool is root-only" and
+	// cases 2-8 inherited that context, so re-running with the tools ACTUALLY
+	// GRANTED changed nothing — the agent was answering from history, not from
+	// its live tool list. The nonce already isolated each check; it has to
+	// isolate the conversation too, or the eval measures the agent's mood after
+	// case 1 rather than its capability.
+	//
+	// The topic goes in the message FIELD, not as a leading `#topic` line: steer
+	// treats `#name` as a sticky command only when it is the WHOLE message, so a
+	// `#nonce\nprompt` body would reach the agent as literal noise and set no
+	// topic at all.
+	turn, err := cfg.Target.Inject(cfg.Chat, nonce, expand(c.Prompt))
 	if err != nil {
 		r.Reason = "inject: " + err.Error()
 		r.LatencyMs = msSince(start)

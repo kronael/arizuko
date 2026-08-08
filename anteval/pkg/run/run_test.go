@@ -22,7 +22,7 @@ type agentSim struct {
 	msgs  []check.Msg
 }
 
-func (a *agentSim) Inject(_, prompt string) (string, error) {
+func (a *agentSim) Inject(_, _, prompt string) (string, error) {
 	url := cbRe.FindString(prompt)
 	if url != "" {
 		if a.token != "" {
@@ -96,7 +96,7 @@ func TestDriveStatusSeesRedirect(t *testing.T) {
 
 type silentTarget struct{}
 
-func (silentTarget) Inject(_, _ string) (string, error)       { return "t", nil }
+func (silentTarget) Inject(_, _, _ string) (string, error)    { return "t", nil }
 func (silentTarget) RestMessages(string) ([]check.Msg, error) { return nil, nil }
 func (silentTarget) McpMessages(string) ([]check.Msg, error)  { return nil, nil }
 func (silentTarget) Cost(string) (int, error)                 { return 0, nil }
@@ -157,4 +157,37 @@ func TestRequiresHint_SilentWhenNothingDeclared(t *testing.T) {
 	if strings.Contains(res[0].Reason, "case needs") {
 		t.Errorf("reason %q added a hint for a case declaring none", res[0].Reason)
 	}
+}
+
+// TestEachCaseGetsItsOwnTopic: cases must not share a conversation. On the
+// 2026-08-08 live run all eight injected into the chat's default topic, so
+// case 1's "I can't, that tool is root-only" sat in every later case's context
+// — and a re-run with the tools ACTUALLY granted scored identically, because
+// the agent was answering from history rather than its live tool list.
+func TestEachCaseGetsItsOwnTopic(t *testing.T) {
+	rec := &topicRecorder{}
+	cases := []spec.Case{
+		{ID: "a", Prompt: "x", MaxWallMs: 20, Check: spec.Check{Kind: "callback"}},
+		{ID: "b", Prompt: "x", MaxWallMs: 20, Check: spec.Check{Kind: "callback"}},
+	}
+	Drive(Config{Target: rec, Cases: cases, Nonce: "R", Poll: 5 * time.Millisecond})
+	if len(rec.topics) != 2 {
+		t.Fatalf("got %d injections, want 2", len(rec.topics))
+	}
+	if rec.topics[0] == "" || rec.topics[1] == "" {
+		t.Fatalf("a case injected with an empty topic (%q, %q) — that is the shared default session", rec.topics[0], rec.topics[1])
+	}
+	if rec.topics[0] == rec.topics[1] {
+		t.Fatalf("both cases used topic %q; each case needs its own session", rec.topics[0])
+	}
+}
+
+type topicRecorder struct {
+	silentTarget
+	topics []string
+}
+
+func (r *topicRecorder) Inject(_, topic, _ string) (string, error) {
+	r.topics = append(r.topics, topic)
+	return "t", nil
 }

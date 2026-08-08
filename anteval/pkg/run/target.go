@@ -52,9 +52,9 @@ func (t *HTTPTarget) do(method, url string, body any) (*http.Response, error) {
 // Inject posts the task as an inbound message (routd POST /v1/messages) and
 // returns the stored id. routd mints/echoes the id and routes the message to
 // the chat's agent.
-func (t *HTTPTarget) Inject(chat, prompt string) (string, error) {
+func (t *HTTPTarget) Inject(chat, topic, prompt string) (string, error) {
 	resp, err := t.do(http.MethodPost, t.API+"/v1/messages",
-		map[string]any{"chat_jid": chat, "content": prompt, "sender": "user:anteval"})
+		map[string]any{"chat_jid": chat, "topic": topic, "content": prompt, "sender": "user:anteval"})
 	if err != nil {
 		return "", err
 	}
