@@ -14,13 +14,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"log/slog"
-	"strconv"
 	"fmt"
+	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
-
 )
 
 // PendingAction is one suspended call.
@@ -190,12 +189,25 @@ func (d *DB) ResolvePendingAction(id, status, reviewer, note string) (PendingAct
 		return PendingAction{}, fmt.Errorf("pending action %q is already %s", id, cur.Status)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := d.db.Exec(`
+	// The read above is advisory — two operators can both pass it. The UPDATE's
+	// `status = held` predicate is what actually serializes them, so the row
+	// count IS the verdict: without checking it, both callers were told
+	// "approved", two resolution messages were enqueued, and the agent was asked
+	// twice to re-issue one call.
+	res, err := d.db.Exec(`
 		UPDATE pending_actions
 		   SET status = ?, reviewed_by = ?, reviewed_at = ?, reviewer_note = ?
 		 WHERE id = ? AND status = ?`,
-		status, reviewer, now, note, id, PendingHeld); err != nil {
+		status, reviewer, now, note, id, PendingHeld)
+	if err != nil {
 		return PendingAction{}, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return PendingAction{}, err
+	}
+	if n != 1 {
+		return PendingAction{}, fmt.Errorf("pending action %q was resolved by someone else", id)
 	}
 	cur.Status, cur.ReviewedBy, cur.ReviewedAt, cur.ReviewerNote = status, reviewer, now, note
 	return cur, nil

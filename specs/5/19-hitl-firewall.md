@@ -49,7 +49,16 @@ the call reach `srv.HandleMessage`. A nil `CheckHold` is zero overhead and
 today's behavior untouched.
 
 This single site covers every tool on the socket — hot tools, resreg facade
-tools, and timed-triggered turns — so "no bypass" holds by construction. Hold
+tools, and timed-triggered turns — so "no bypass" holds by construction.
+
+**"On the socket" is the exact boundary, and it is narrower than it sounds.**
+MCP servers declared in the group's `~/.claude/settings.json` are handed
+straight to the harness (`ant/src/mcp-servers.ts` `loadAgentMcpServers`, which
+strips the `arizuko` entry and passes the rest through); the agent calls those
+tools subprocess-to-subprocess without ever crossing arizuko's unix socket. A
+`hold:mcp:<tool>` rule naming one of them is INERT. Connectors registered
+through `StoreFns.Connectors` and `ExtTools` DO traverse the socket and are
+covered. Tracked as BUGS `F76`. Hold
 runs BEFORE authz, which is safe: approval never substitutes for authz. The
 released call re-enters the normal path and every in-handler grant and JID gate
 still runs. (A held call an operator approves that authz then denies is noise,

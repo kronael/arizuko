@@ -57,6 +57,14 @@ Two deliberate narrowings from hermes:
 fails open on a crash, and an unrecognised tool shape yields no text,
 so both failure modes allow rather than block.
 
+The scan is per LOGICAL line: shell line-continuations are joined first, because
+a per-physical-line scan was evaded by the oldest trick there is — `curl \` +
+newline + the payload scanned `safe` while the one-line form scanned
+`dangerous`. That closes the demonstrated evasion, NOT the class: a payload
+split across string concatenation or assembled from a variable still passes.
+The guard raises the cost of persisting a malicious instruction; it is not a
+containment boundary, and `SECURITY.md` says so.
+
 `MIGRATION_VERSION` 196.
 
 Deliberately NOT in scope: memory/USER.md tools (Claude Code reads

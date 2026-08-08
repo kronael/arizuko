@@ -308,3 +308,34 @@ func TestRetryExhaustedNotice_UsesConfiguredCount(t *testing.T) {
 		t.Fatalf("notice = %q, want the configured count", got)
 	}
 }
+
+// TestResolvePendingAction_ConcurrentDoubleApprove: the pre-UPDATE read is
+// advisory — two operators pass it together. Without checking RowsAffected both
+// were told "approved", two resolution messages were enqueued, and the agent
+// was asked twice to re-issue one call.
+func TestResolvePendingAction_ConcurrentDoubleApprove(t *testing.T) {
+	d := memDB(t)
+	if err := d.PutPendingAction(PendingAction{
+		ID: "a1", GroupFolder: "atlas", Tool: "t", ArgsHash: "h",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	oks := 0
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := d.ResolvePendingAction("a1", PendingApproved, "op", ""); err == nil {
+				mu.Lock()
+				oks++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if oks != 1 {
+		t.Fatalf("ResolvePendingAction succeeded %d times for one held row, want 1", oks)
+	}
+}

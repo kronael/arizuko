@@ -177,6 +177,43 @@ successful exit, violating the CLI's fail-loud contract.
 - **Status:** open
 - **Fix:**
 
+## F76 — a hold rule on a settings.json MCP server tool is inert (2026-08-08, open)
+
+`specs/5/19` claims the single `tools/call` interception makes "no bypass" hold
+by construction. It covers every tool **on arizuko's socket** — which is
+narrower than it reads.
+
+`ant/src/mcp-servers.ts` `loadAgentMcpServers` reads the group's
+`~/.claude/settings.json`, deletes the `arizuko` entry, and hands the remaining
+`mcpServers` to the harness. The agent calls those tools subprocess-to-
+subprocess; they never cross `ipc.serveConn`, so `CheckHold` never sees them. A
+`hold:mcp:<tool>` row naming one is silently inert — the failure mode the whole
+feature exists to prevent, wearing the shape of a working rule.
+
+Connectors registered through `StoreFns.Connectors` / `ExtTools` DO traverse the
+socket and are covered. Found by codex.
+
+Options: (a) refuse to register a hold rule for a tool arizuko does not serve,
+so the operator learns at grant time; (b) proxy settings-defined servers through
+the socket; (c) document it as the boundary and leave it. (a) is cheap and
+honest, (b) is a real design change. Spec now states the boundary either way.
+
+## F77 — skill-guard's per-line scan is evadable by splitting a payload (2026-08-08, PARTIALLY FIXED 2026-08-08)
+
+The demonstrated case is fixed: shell line-continuations are joined before
+scanning, so `curl \` + newline + payload no longer scans `safe` while the
+one-line form scans `dangerous`. Reproduced by codex and independently before
+the fix; regression test in `ant/src/skillguard.test.ts`.
+
+The CLASS remains open. A payload assembled from string concatenation, built in
+a variable, or split across a here-doc still passes a regex table that reads one
+line at a time. Closing it means AST or dataflow analysis, which
+`specs/5/23` explicitly puts out of scope.
+
+Not a containment boundary — Docker, the crackbox egress allowlist and the gated
+MCP socket are, and `SECURITY.md` states this. Recorded so the residual is not
+mistaken for coverage.
+
 ## F66 — `pending_actions` is registered but never mounted; the REST approve path 404s (2026-08-08, open)
 
 `resreg/resources/pending_actions.go` registers the resource in `init()`, but no
