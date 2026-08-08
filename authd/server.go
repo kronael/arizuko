@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -281,8 +282,14 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 		return "", "", auth.ErrInvalidToken
 	}
 	if r.used {
-		// Reuse of a spent token: revoke the lineage.
-		_ = revokeFamily(a.db, r.family)
+		// Reuse of a spent token: revoke the lineage. A failure here is the one
+		// that matters — the token is known-stolen and the family stays live —
+		// so it is logged loud rather than dropped. The caller still gets
+		// errReuse: this request is refused either way.
+		if err := revokeFamily(a.db, r.family); err != nil {
+			slog.Error("refresh-token family NOT revoked after reuse detection; a stolen token may still mint",
+				"family", r.family, "sub", r.sub, "err", err)
+		}
 		return "", "", errReuse
 	}
 	if time.Now().After(r.expires) {
@@ -334,7 +341,10 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 		return "", "", err
 	}
 	if !won {
-		_ = revokeFamily(a.db, r.family)
+		if err := revokeFamily(a.db, r.family); err != nil {
+			slog.Error("refresh-token family NOT revoked after lost rotation race; a stolen token may still mint",
+				"family", r.family, "sub", r.sub, "err", err)
+		}
 		return "", "", errReuse
 	}
 	// r.sub is the BARE canonical sub (spec 5/1 "sub prefix rule"); the user:

@@ -1,6 +1,8 @@
 package routd
 
 import (
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -257,5 +259,52 @@ func TestArgsHash_KeyCannotForgeSeparators(t *testing.T) {
 	split := ArgsHash(map[string]any{"a": nil, "b": "x"})
 	if newline == split {
 		t.Fatal("a newline in a key collided with two separate keys")
+	}
+}
+
+// TestConsumeApprovedAction_ConcurrentSingleWinner: two re-issues racing on one
+// approval. Exactly one may be released; SQLite's stale-snapshot write conflict
+// is what makes the RowsAffected guard sufficient.
+func TestConsumeApprovedAction_ConcurrentSingleWinner(t *testing.T) {
+	d := memDB(t)
+	hash := ArgsHash(map[string]any{"t": "prod"})
+	if err := d.PutPendingAction(PendingAction{
+		ID: "a1", GroupFolder: "atlas", Tool: "mcp:delete", ArgsHash: hash,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.ResolvePendingAction("a1", PendingApproved, "op", ""); err != nil {
+		t.Fatal(err)
+	}
+	const n = 16
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	wins := 0
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, ok := d.ConsumeApprovedAction("atlas", "mcp:delete", hash); ok {
+				mu.Lock()
+				wins++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if wins != 1 {
+		t.Fatalf("released %d times, want exactly 1 — one approval, one call", wins)
+	}
+}
+
+// TestRetryExhaustedNotice_UsesConfiguredCount: the notice was a literal "3"
+// while MAX_TURN_RETRY is configurable, so an operator running 2 was told the
+// agent had tried three times.
+func TestRetryExhaustedNotice_UsesConfiguredCount(t *testing.T) {
+	if got := retryExhaustedNotice(2); !strings.Contains(got, "2 attempts") {
+		t.Fatalf("notice = %q, want the configured count", got)
+	}
+	if got := retryExhaustedNotice(5); !strings.Contains(got, "5 attempts") {
+		t.Fatalf("notice = %q, want the configured count", got)
 	}
 }

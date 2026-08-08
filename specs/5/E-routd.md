@@ -210,11 +210,16 @@ operator REST twin worth deriving.
 answer vs. fresh top-level message) rather than one tool with a `mode=`
 param, per the project tool-naming rule.
 
-**Tool name ≠ path tail, in four places** (`ipc/ipc.go`): `send_file` →
-`/document`; `dislike` → `/like` with `reaction="👎"` (there is no
-`/dislike` endpoint — one code path per mechanism, both verbs visible to
-the agent); `pin_message`/`unpin_message` → `/pin`,`/unpin`;
+**Tool name ≠ path tail, in three places** (`ipc/ipc.go`): `send_file` →
+`/document`; `pin_message`/`unpin_message` → `/pin`,`/unpin`;
 `unpin_all` → `/unpin` with `all:true`.
+
+`dislike` is NOT one of them: it is its own MCP tool (`ipc/ipc.go:1375`)
+calling `gated.Dislike`, and `chanlib/handler.go:283` mounts `POST /dislike`
+on every adapter. This paragraph used to claim no such endpoint exists.
+Whether an adapter reduces dislike to a 👎 reaction is that adapter's
+internal choice (the reaction-vs-downvote rule); the platform surface is a
+real second verb.
 
 `get_thread` and `find_messages` read the DB in-process; their REST
 twins are `GET /v1/messages/thread` and `/v1/messages/find` — **not**
@@ -353,8 +358,8 @@ routd obtains its own `service:routd` token at boot
 - `routd/mcp.go` — `ServeTurnMCP`, the per-turn socket.
 - `routd/db.go`, `routd/migrations/` — schema + access.
 - `router/router.go`, `core.ParseRouteTarget` — match + target parsing.
-- `tests/standalone/routd_test.go` — the standalone-readiness bar: boots
-  on its own DB with a stub `RUNED_URL`, runs its own migrations,
-  ingests → resolves → dispatches → records, with no `core.Folder` leak
-  beyond `types.*`.
+- `routd/contract_test.go` — the standalone-readiness bar: boots on its own
+  DB with a stub `RUNED_URL`, runs its own migrations, ingests → resolves →
+  dispatches → records, with no `core.Folder` leak beyond `types.*`. (This
+  cited `tests/standalone/routd_test.go`, a path that has never existed.)
 - [`P-runed.md`](P-runed.md) — the `POST /v1/runs` peer.

@@ -1,7 +1,5 @@
 package auth
 
-import "strings"
-
 // Identity is a folder's non-elevated authz coordinate. 5/33 decision 2: the path
 // carries ZERO authorization (no tier, no world rank) — only its own name and the
 // root predicate. Authority is the caller's acl rows (auth.Authorize); containment
@@ -20,22 +18,4 @@ type Identity struct {
 // authority comes from its acl rows, never its depth (5/33: tiers dissolved).
 func Resolve(folder string) Identity {
 	return Identity{Folder: folder, IsRoot: folder == ""}
-}
-
-func WorldOf(folder string) string {
-	if before, _, ok := strings.Cut(folder, "/"); ok {
-		return before
-	}
-	return folder
-}
-
-func isInWorld(a, b string) bool {
-	return WorldOf(a) == WorldOf(b)
-}
-
-func IsDirectChild(parent, child string) bool {
-	if !strings.HasPrefix(child, parent+"/") {
-		return false
-	}
-	return !strings.Contains(child[len(parent)+1:], "/")
 }

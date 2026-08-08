@@ -200,10 +200,14 @@ var daemonKeys = map[string][]string{
 	// Channel adapters: AUTHD_URL + AUTHD_SERVICE_KEY let each exchange a
 	// service:<adapter> JWT presented on EVERY routd call — register, /v1/messages,
 	// /v1/pane (spec 5/1; no CHANNEL_SECRET remains).
-	"teled":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TELEGRAM_BOT_TOKEN"},
-	"discd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_BOT_TOKEN"},
-	"mastd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "MASTODON_ACCESS_TOKEN", "MASTODON_INSTANCE"},
-	"bskyd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"},
+	"teled": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TELEGRAM_BOT_TOKEN"},
+	"discd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_BOT_TOKEN"},
+	// mastd reads MASTODON_INSTANCE_URL and bskyd reads BLUESKY_IDENTIFIER/
+	// BLUESKY_PASSWORD, both supplied by their template/services/*.yml. The keys
+	// listed here were MASTODON_INSTANCE and BLUESKY_HANDLE/BLUESKY_APP_PASSWORD —
+	// names no Go code has ever read, so they wrote dead lines into env/*.env.
+	"mastd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "MASTODON_ACCESS_TOKEN"},
+	"bskyd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
 	"reditd":   {"AUTHD_URL", "AUTHD_SERVICE_KEY", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
 	"slakd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
 	"linkd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_REFRESH_TOKEN"},

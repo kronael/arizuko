@@ -498,7 +498,7 @@ func TestTurnRetry_ExhaustsAndNotifies(t *testing.T) {
 	db.ResetTurnForRetry("r2")
 
 	_, _ = loop.processGroupMessages("slack:T/C/U")
-	if len(dl.sends) != 1 || dl.sends[0].text != retryExhaustedNotice {
+	if len(dl.sends) != 1 || dl.sends[0].text != retryExhaustedNotice(loop.maxTurnRetry) {
 		t.Fatalf("expected retry exhausted notice, got %+v", dl.sends)
 	}
 	tc, _ := db.GetTurnContext("r2")

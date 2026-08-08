@@ -48,8 +48,9 @@ Products live in `ant/examples/<name>/`; each folder is a prototype for the
 group workspace seeded into a new instance. `PRODUCT.md` (TOML: name,
 skills list, `[[env]]` hints) is required — those three are what
 `productManifest` (`cmd/arizuko/main.go:29`) parses. Every shipped
-`PRODUCT.md` also declares `brand` and `tagline`; nothing reads them
-(BUGS `F65`). Optional and
+`PRODUCT.md` also declares `brand` and `tagline`, which
+`arizuko products <inst> list` prints (they were dead data until BUGS `F65`
+was closed). Optional and
 copied verbatim into the group dir: `PERSONA.md` (the agent's identity),
 `CLAUDE.md` (the per-group runbook read every session), `facts/` (seed
 knowledge), `tasks.toml` (seed scheduled tasks). Most products ship both

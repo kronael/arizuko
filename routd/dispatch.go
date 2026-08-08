@@ -335,7 +335,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			notice := runFailureNotice
 			// Use retry-exhausted notice only when retries were actually attempted.
 			if !hasBotReply && tc.RetryCount > 0 && tc.RetryCount >= l.maxTurnRetry {
-				notice = retryExhaustedNotice
+				notice = retryExhaustedNotice(l.maxTurnRetry)
 			}
 			_, _ = l.deliver.Send(chatJID, notice, "", topic, "", "fail-"+turnID)
 		}
@@ -450,9 +450,13 @@ func groupByTopic(msgs []core.Message) [][]core.Message {
 // produced no usable output, so the user isn't left silent.
 const runFailureNotice = "Failed: agent error on that message. Try rephrasing or send a different message."
 
-// retryExhaustedNotice is sent when all retry attempts are exhausted without
-// a reply (spec 5/12 turn-retry).
-const retryExhaustedNotice = "⚠️ Agent couldn't complete this request after 3 attempts."
+// retryExhaustedNotice is sent when all retry attempts are exhausted without a
+// reply (spec 5/12 turn-retry). The count comes from the SAME value that
+// governs the retries (MAX_TURN_RETRY); it was a literal "3" and told an
+// operator running MAX_TURN_RETRY=2 that the agent had tried three times.
+func retryExhaustedNotice(attempts int) string {
+	return fmt.Sprintf("⚠️ Agent couldn't complete this request after %d attempts.", attempts)
+}
 
 // silentTurnNotice is sent when a clean run delivered nothing — no turn result,
 // no bot reply. A malfunction (config-less spawn, 0-result run), not deliberate

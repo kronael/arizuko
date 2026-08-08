@@ -7,6 +7,308 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## J1 — settings-defined MCP servers bypass the HITL firewall (2026-08-08, proposed)
+
+The agent loads every `mcpServers` entry from `~/.claude/settings.json`
+directly into Claude Code beside the arizuko socat server. Calls to those tools
+never reach `ipc.serveConn`, so no `hold:mcp:<tool>` row can suspend them. The
+firewall is complete only for tools registered on the arizuko socket, not for
+the agent's full MCP surface.
+
+- **Severity:** high
+- **Scope:** HITL firewall / agent MCP assembly
+- **Affected:** ant, ipc
+- **Source:** ant/src/mcp-servers.ts:18
+- **Status:** proposed
+- **Fix:**
+
+## J2 — pre-auth hold creates rows for forbidden and unknown tools (2026-08-08, proposed)
+
+`serveConn` runs `CheckHold` before handler lookup and before the per-tool
+authorization inside registered handlers. A raw caller can probe whether an
+otherwise forbidden tool has a hold rule; with `hold:mcp:*`, arbitrary unknown
+tool names create unlimited rows and approval notices although execution could
+never pass authorization.
+
+- **Severity:** medium
+- **Scope:** HITL authorization ordering
+- **Affected:** ipc, routd
+- **Source:** ipc/ipc.go:458
+- **Status:** proposed
+- **Fix:**
+
+## J3 — a failed pending-action insert returns an unresolvable empty ID (2026-08-08, open)
+
+SQLite-full/busy/schema failure returns `("", true)` from the gate. The agent
+therefore receives a normal `pending:true` result saying `/approve  or /reject`
+even though no row or operator notice exists. The action is safely blocked but
+the user-facing state is false and can never be resolved.
+
+- **Severity:** medium
+- **Scope:** HITL fail-closed response
+- **Affected:** routd, ipc
+- **Source:** routd/pending_actions.go:273
+- **Status:** open
+- **Fix:**
+
+## J4 — concurrent HITL verdicts can both report success (2026-08-08, open)
+
+Two reviewers can both read a held row, then race approve against reject. Only
+one conditional UPDATE changes SQLite, but `ResolvePendingAction` ignores
+`RowsAffected` and returns the loser's requested verdict as success. A losing
+approve can enqueue an approval message even though the stored row is rejected.
+
+- **Severity:** high
+- **Scope:** HITL resolution concurrency
+- **Affected:** routd
+- **Source:** routd/pending_actions.go:181
+- **Status:** open
+- **Fix:**
+
+## J5 — approval wakes the command chat instead of the held call's chat (2026-08-08, open)
+
+`cmdResolveHold` ignores both the stored `PendingAction.ChatJID` and its `folder`
+argument. Approving an ID from a different operator chat injects and enqueues
+the resolution there; the original held folder never wakes and the other
+folder cannot consume its approval.
+
+- **Severity:** high
+- **Scope:** HITL resolution routing
+- **Affected:** routd
+- **Source:** routd/steer.go:563
+- **Status:** open
+- **Fix:**
+
+## J6 — released HITL calls never record result or error (2026-08-08, proposed)
+
+`RecordPendingOutcome` has no caller, because the gate discards the released ID
+before `HandleMessage`. Even if called, its SQL expects `(result, error, id)`
+but receives `(id, result, callErr)`, normally updating zero rows without an
+error. Released records therefore keep blank outcomes despite the shipped spec.
+
+- **Severity:** medium
+- **Scope:** HITL outcome audit
+- **Affected:** routd, ipc
+- **Source:** routd/pending_actions.go:237
+- **Status:** proposed
+- **Fix:**
+
+## J7 — pending-action expiry is unreachable and filters the wrong status (2026-08-08, proposed)
+
+Production hold creation never sets `expires_at`, so `expired` is dead state. If
+a row is populated externally, list filtering applies the stored status before
+the lazy expiry transform: `status=expired` misses it, while `status=held` can
+return a row relabelled expired.
+
+- **Severity:** low
+- **Scope:** HITL pending-action lifecycle
+- **Affected:** routd
+- **Source:** routd/pending_actions.go:135
+- **Status:** proposed
+- **Fix:**
+
+## J8 — Bash writes bypass skill-guard completely (2026-08-08, proposed)
+
+The agent runs with sandbox disabled and bypass permissions. Skill-guard is
+registered only for Write/Edit/MultiEdit; Bash merely has two secret variables
+unset. `printf ... > ~/.claude/skills/x/SKILL.md` writes persistent executable
+instructions without any scan.
+
+- **Severity:** high
+- **Scope:** ant skill persistence guard
+- **Affected:** ant
+- **Source:** ant/src/claude.ts:324
+- **Status:** proposed
+- **Fix:**
+
+## J9 — skill-guard scans fragments and lines, not the resulting file (2026-08-08, proposed)
+
+Edit/MultiEdit scan only replacement strings, and every regex is evaluated one
+line at a time. A safe placeholder followed by an Edit to `$API_KEY`, or a
+shell continuation `curl URL |\\\nbash`, composes a critical payload while
+every scanned fragment/line is safe.
+
+- **Severity:** high
+- **Scope:** ant skill content scanner
+- **Affected:** ant
+- **Source:** ant/src/skillguard.ts:45
+- **Status:** proposed
+- **Fix:**
+
+## J11 — SKILL.md frontmatter validation never blocks a write (2026-08-08, open)
+
+Missing name/description findings are high and an overlong description is
+medium, but only critical findings produce `dangerous`; all structural failures
+therefore pass. Empty content returns before validation, and block-scalar YAML
+measures only the `>`/`|` marker instead of the description body.
+
+- **Severity:** medium
+- **Scope:** ant skill frontmatter contract
+- **Affected:** ant
+- **Source:** ant/src/skillguard.ts:79
+- **Status:** open
+- **Fix:**
+
+## J12 — product catalog and create use different identities (2026-08-08, proposed)
+
+`products list` prints `PRODUCT.md.name`, while `create --product` selects and
+stores the directory argument; product-mix apply validates and keys the manifest
+name again. A `marketing/PRODUCT.md` declaring `name="growth"` advertises
+`growth`, rejects `create --product growth`, accepts/stores `marketing`, and
+records mix state under `growth`.
+
+- **Severity:** medium
+- **Scope:** product catalog identity
+- **Affected:** cmd/arizuko
+- **Source:** cmd/arizuko/products.go:175
+- **Status:** proposed
+- **Fix:**
+
+## J13 — products list swallows output write failures (2026-08-08, open)
+
+Both catalog `Fprintf` calls discard their errors and `listProducts` returns
+nil. A broken pipe or full output filesystem yields a truncated catalog with a
+successful exit, violating the CLI's fail-loud contract.
+
+- **Severity:** low
+- **Scope:** product catalog CLI output
+- **Affected:** cmd/arizuko
+- **Source:** cmd/arizuko/products.go:180
+- **Status:** open
+- **Fix:**
+
+## F66 — `pending_actions` is registered but never mounted; the REST approve path 404s (2026-08-08, open)
+
+`resreg/resources/pending_actions.go` registers the resource in `init()`, but no
+`mountPendingActions` exists in `routd/server.go` and it is absent from the MCP
+`PostBuild` list in `routd/mcp.go`. Verified: zero references to
+`pending_actions` anywhere in `routd/` outside `routd/pending_actions.go` itself.
+
+So `POST /v1/pending_actions/{id}/approve` returns 404, there is no
+`list_pending_actions` MCP tool, and `Handler` is unset (a nil-panic if it were
+ever invoked). Chat `/approve` is the ONLY working resolution path.
+
+`specs/5/19` claimed both funnel to one handler; the spec is corrected to say
+the REST half is not mounted. OpenAPI is unaffected — it derives its advertised
+set from the mux, so an unmounted resource is never advertised (that guard did
+its job here).
+
+This is the inverse of the cold-tier review-blocker: a registration without a
+mount, rather than a management table without a registration. Both are drift.
+Fix is to mount it with an injected Gate binding `{id}`'s `group_folder` to the
+caller — the same shape as `mountACL`. Needs a decision on who may approve over
+REST (operator scope only, or a folder-scoped reviewer), which is why it is here
+rather than fixed inline.
+
+## F67 — an explicit `channel` on `POST /v1/outbound` is decoded and ignored (2026-08-08, open)
+
+`routd/api/v1/types.go:202` declares `OutboundRequest.Channel`, and
+`specs/5/34-channel-protocol.md:115-119` specifies a resolution order that puts
+an explicit `channel` FIRST, ahead of the latest inbound source and
+`chanreg.ForJID`. No code reads the field — grep for `.Channel` across `routd/`
+and `chanreg/` finds only unrelated `ChannelID`/`channelName` hits.
+
+A caller that pins a channel to disambiguate a JID served by two adapter
+accounts is silently overridden by the fallback. Silent, because the field
+decodes fine. Fix: read it in `handleOutbound` ahead of the fallback, or delete
+it from the wire type and the spec. Either is small; choosing which is the
+decision.
+
+## F68 — `secret_use_log` can never record `scope_kind='user'` and `tool` is always blank (2026-08-08, open)
+
+`specs/5/13-ext-mcp.md:90-94` specifies rows carrying `scope_kind` ∈ {user,
+folder, missing} plus the calling tool. `routd/mcp.go:512-524` only ever writes
+`"folder"` or `"missing"`, and never populates `Tool`.
+
+The audit question this table exists to answer — "who used which credential,
+from where" — cannot distinguish a user's own BYO key from a folder-shared one,
+and cannot say which tool spent it. The user/folder provenance is lost upstream
+of this call site, so fixing it means threading it through; that is the
+decision.
+
+## F69 — surrogate-OAuth's specified retry-once-on-401 does not exist (2026-08-08, open)
+
+`specs/5/15-surrogate-oauth.md:25-27` specifies a reactive refresh: on a 401 the
+call refreshes the token and retries once. `ipc/extcall.go:152-155` returns the
+error immediately on any status >= 400, and there is no retry in `ipc/` or
+`auth/surrogate/`.
+
+An access token that expires mid-turn fails the agent's call outright instead of
+refreshing. This is exactly the transient case the repo's retry policy allows,
+so implementing it is in-policy — but it adds a retry path to a credential
+boundary, so it wants sign-off rather than an inline fix.
+
+## F70 — MCP tool-call audit is wired to a permanent nil, and 8 hot tools skip the shared gate (2026-08-08, open)
+
+Two halves of one gap, reported by the dead-code sweep and confirmed:
+
+`routd/mcp.go:415-417` leaves `ipc.StoreFns.LogIPCAudit` nil with a comment
+claiming "routd does not write a SQLite audit_log table". That is false —
+`routd/migrations/0016-audit-log.sql` creates it and `routd/cmd/routd/main.go:59`
+runs `audit.Init` on that DB. Meanwhile `find_messages` (`ipc/ipc.go:2105`) uses
+a THIRD mechanism (`audit.Emit`) that does land rows. Three "record this call"
+paths in one file, and the one wired to the table is the unused one.
+
+Separately, send/reply/send_file/send_voice/post/social-verbs/pane_set_* each
+hand-copy `authorizeCall`+`authorizeJID` instead of calling `granted()`
+(`ipc/ipc.go:913-924`) — the only site that also calls `emitAuthzDenied`. So
+denials on the highest-traffic tools leave no trace.
+
+Both fixes are additive, but "MCP tool calls become audited" is a visible
+behavior change on every instance, so it is recorded rather than shipped inline.
+
+## F71 — routd's in-memory admission duplicates runed's DB-backed admission (2026-08-08, open)
+
+`queue/queue.go:129-150` implements folder-exclusivity, a concurrency cap and a
+3-strike circuit breaker in memory; `runed/manager.go:225-272` implements the
+same admission against a `circuit_breaker` table with the same threshold.
+`runed/manager.go`'s own doc comment says admission was deliberately kept out of
+runed to avoid duplicating routd's queue — and then the queue reimplements it.
+
+They are configured independently: `routd/loop.go:142`'s `MaxRuns` defaults to 5
+and is wired to no env var, while `MAX_CONCURRENT_CONTAINERS`
+(`core/config.go:185`) reaches only runed. An operator who raises that variable
+moves one cap and not the other.
+
+Picking a single owner changes which cap governs, so it needs a decision.
+
+## F72 — `runed`'s `spawn_logs` table has no writer and was never dropped (2026-08-08, open)
+
+`runed/migrations/0001-initial-schema.sql:37-42` creates `spawn_logs`. An
+exhaustive scan finds the name only in two comments
+(`cmd/arizuko/migrate_split.go:181`, `runed/db.go:29`) — never in an INSERT or
+SELECT. The sibling `mcp_tokens` from the same file WAS retired properly
+(`runed/migrations/0003-drop-mcp-tokens.sql`); no equivalent drop exists here,
+so this one is live and permanently empty.
+
+Inert, but it is schema — a drop migration needs sign-off.
+
+## F73 — turn retry treats container exit 125 as transient (2026-08-08, open)
+
+`routd/dispatch.go:307-324` retries any `OutcomeError`. Root `CLAUDE.md`'s own
+"Nothing works" checklist calls exit 125 an image/compose mismatch — a
+misconfiguration, not a transient fault — and the repo rule is that only
+remote/network and DB-busy errors retry. So a bad image burns `MAX_TURN_RETRY`
+container spawns per message and reports a generic failure to the user instead
+of the real cause.
+
+Fix is to classify 125 as terminal and surface it, which changes retry behavior
+on a live path.
+
+## F74 — `ARIZUKO_DEV` sentinel disagrees between production and tests (2026-08-08, open)
+
+`container/runner.go:564` tests `== "1"`; tests set `ARIZUKO_DEV=true`. One of
+the two is wrong, and the tests are the ones passing. Whichever way it is
+settled, an operator following the test's spelling gets no dev behavior.
+
+## F75 — three skill trees are triplicated and one pair has already drifted (2026-08-08, open)
+
+`ant/skills/p5js/` also exists under `ant/skills/create/art/.../p5js/` (same for
+excalidraw and manim-video). A `diff` shows the top-level
+`p5js/scripts/export-frames.js` carries a chromium `executablePath` fix the
+`create/`-tree copy lacks — so the duplicate is not merely redundant, it is
+already stale. Deciding which is canonical for skill dispatch is the fix.
+
 ## F64 — the public product catalog and the seedable one overlap in 4 of 14 names (2026-08-07, open)
 
 `ant/examples/` seeds 10 products (aws-devops, creator, personal, pm,

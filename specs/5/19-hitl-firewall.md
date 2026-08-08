@@ -79,6 +79,7 @@ dual-path CLAUDE.md bans.
 
 1. An operator resolves via a chat `/approve <id>` / `/reject <id>` **or**
    `POST /v1/pending_actions/{id}/approve|reject`. Both funnel to one handler.
+   (The REST half is not mounted yet — see §"What shipped". Chat works.)
 2. routd injects a resolution message into `chat_jid` and enqueues the folder —
    the `PutMessage`+`Enqueue` pattern of `cmdRoot`/delegate. The message carries
    tool + `args_final` + verdict and IS the next-turn trigger; no
@@ -183,6 +184,15 @@ secrets untouched.
 with `list`/`approve`/`reject` and no create or delete: the gate writes the row,
 and deleting one would erase the record of a decision someone made. The table
 ships in both `routd/migrations/0033` and `store/migrations/0085`.
+
+**The REST/MCP face is DECLARED BUT NOT MOUNTED.** The catalog registration
+above exists; no `mountPendingActions` does, so `POST
+/v1/pending_actions/{id}/approve` returns 404 and there is no MCP tool. Chat
+`/approve` is the only working resolution path today. §"Resolution" describes
+both funnelling to one handler — that is the intended end state, not the
+shipped one. Tracked as BUGS `F66`; the OpenAPI doc is unaffected because it
+derives its advertised set from the mux, so an unmounted resource is never
+advertised.
 
 ### Deliberately not in this release
 

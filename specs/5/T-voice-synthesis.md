@@ -35,4 +35,4 @@ Agent decides when to speak (voice-first persona, or matching the
 user's modality), not the system.
 
 Code: `ttsd/`, `chanlib/handler.go:256` (`NoVoiceSender`),
-`chanreg/httpchan.go:229` (capability check). Agent migration 088.
+`chanreg/httpchan.go:229` (capability check). Agent migration 089 (`089-send-voice.md`; 088 is typed-jids).

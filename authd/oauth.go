@@ -410,7 +410,13 @@ func (o *oauth) snapshot(ctx context.Context, bareSub string) (scope []string, f
 func (o *oauth) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie("refresh_token"); err == nil && c.Value != "" {
 		if row, found := lookupRefresh(o.a.db, c.Value); found {
-			_ = revokeFamily(o.a.db, row.family)
+			// The user asked to be logged out. If the family survives, they are
+			// not — say so in the log; the cookie is cleared regardless, so the
+			// browser cannot tell the difference on its own.
+			if err := revokeFamily(o.a.db, row.family); err != nil {
+				slog.Error("logout did not revoke the refresh-token family; the session may still refresh",
+					"family", row.family, "err", err)
+			}
 		}
 	}
 	http.SetCookie(w, &http.Cookie{

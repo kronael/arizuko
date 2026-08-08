@@ -2,9 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
-	"net/http"
-	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
@@ -19,35 +16,6 @@ import (
 type admin struct {
 	db *sql.DB
 	ks *auth.KeySet // authd JWKS; nil (AUTHD_URL unset, e.g. local-dev) → open, like routd's nil verifier
-}
-
-// authed verifies the bearer token against authd's JWKS and checks the token
-// carries one of anyScope. nil ks → open (local-dev / monolith). Mirrors routd's
-// server.authed. Fails CLOSED: a verify error or missing scope is denied.
-func (a *admin) authed(w http.ResponseWriter, r *http.Request, anyScope ...string) bool {
-	if a.ks == nil {
-		return true
-	}
-	sub, err := auth.VerifyHTTP(r, a.ks)
-	if err != nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized", err.Error())
-		return false
-	}
-	if hasAnyScope(sub.Scope, anyScope...) {
-		return true
-	}
-	writeErr(w, http.StatusForbidden, "forbidden", "missing scope "+strings.Join(anyScope, " or "))
-	return false
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, map[string]string{"error": code, "message": msg})
 }
 
 // inviteJSON is the READ shape for an invite row. It has no token field at all:

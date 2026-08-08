@@ -285,9 +285,14 @@ func ExchangeGitHub(ctx context.Context, cfg *core.Config, code, verifier string
 		AccessToken string `json:"access_token"`
 		Error       string `json:"error"`
 	}
-	json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil {
+		return "", fmt.Errorf("github: decode token response: %w", err)
+	}
 	if result.Error != "" {
 		return "", fmt.Errorf("github: %s", result.Error)
+	}
+	if result.AccessToken == "" {
+		return "", fmt.Errorf("github: empty access token")
 	}
 	return result.AccessToken, nil
 }
@@ -344,7 +349,12 @@ func ExchangeDiscord(ctx context.Context, cfg *core.Config, code, verifier strin
 	var result struct {
 		AccessToken string `json:"access_token"`
 	}
-	json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil {
+		return "", fmt.Errorf("discord: decode token response: %w", err)
+	}
+	if result.AccessToken == "" {
+		return "", fmt.Errorf("discord: empty access token")
+	}
 	return result.AccessToken, nil
 }
 

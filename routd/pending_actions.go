@@ -268,7 +268,7 @@ func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool)
 		if !s.db.CheckHold("folder:"+t.folder, t.folder, tool, stringArgs(args)) {
 			return "", false
 		}
-		id := randHex(4)
+		id := NewPendingID()
 		raw, _ := json.Marshal(args)
 		if err := s.db.PutPendingAction(PendingAction{
 			ID: id, GroupFolder: t.folder, CallerAgent: "folder:" + t.folder,
