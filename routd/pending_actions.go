@@ -51,11 +51,17 @@ const (
 	PendingExpired  = "expired"
 )
 
-// ArgsHash is the canonical hash release matches on. Keys are sorted and the
-// value re-marshalled, so an agent re-issuing the same call with its map in a
-// different order still matches, while a changed VALUE does not — that is the
+// ArgsHash is the canonical hash release matches on. Keys are sorted and BOTH
+// key and value are JSON-encoded, so an agent re-issuing the same call with its
+// map in a different order still matches, while a changed VALUE does not — the
 // edited-args rule, enforced by the key rather than by a comparison someone has
 // to remember to write.
+//
+// The key is encoded, not written raw: the agent chooses the argument NAMES, so
+// a raw key containing the separators reproduces another map's serialization.
+// `{"a=\"1\"\nb": "x"}` hashed identically to `{"a":"1","b":"x"}` until this was
+// fixed — a collision an agent could steer an approval onto. JSON-encoding both
+// sides escapes the quote and the newline, so no key can forge a separator.
 func ArgsHash(args map[string]any) string {
 	keys := make([]string, 0, len(args))
 	for k := range args {
@@ -69,7 +75,11 @@ func ArgsHash(args map[string]any) string {
 			// An unmarshalable arg must not collide with a well-formed one.
 			v = []byte(fmt.Sprintf("%q", fmt.Sprint(args[k])))
 		}
-		b.WriteString(k)
+		kj, err := json.Marshal(k)
+		if err != nil {
+			kj = []byte(fmt.Sprintf("%q", k))
+		}
+		b.Write(kj)
 		b.WriteByte('=')
 		b.Write(v)
 		b.WriteByte('\n')

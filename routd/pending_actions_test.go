@@ -241,3 +241,21 @@ func TestHoldGate_NoRuleNoOverhead(t *testing.T) {
 		t.Fatal("no hold rule must mean inline execution")
 	}
 }
+
+// TestArgsHash_KeyCannotForgeSeparators: the agent chooses argument NAMES, so a
+// key containing the separators must not reproduce another map's serialization.
+// Writing the key raw made `{"a=\"1\"\nb": "x"}` hash identically to
+// `{"a":"1","b":"x"}` — an agent could steer an operator's approval onto a
+// different call. Both sides are JSON-encoded now.
+func TestArgsHash_KeyCannotForgeSeparators(t *testing.T) {
+	plain := ArgsHash(map[string]any{"a": "1", "b": "x"})
+	forged := ArgsHash(map[string]any{"a=\"1\"\nb": "x"})
+	if plain == forged {
+		t.Fatal("a crafted argument NAME forged the separator and collided")
+	}
+	newline := ArgsHash(map[string]any{"a\nb": "x"})
+	split := ArgsHash(map[string]any{"a": nil, "b": "x"})
+	if newline == split {
+		t.Fatal("a newline in a key collided with two separate keys")
+	}
+}
