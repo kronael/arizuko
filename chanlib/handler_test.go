@@ -513,3 +513,23 @@ func TestWriteBotResult_StatusByErrorClass(t *testing.T) {
 		})
 	}
 }
+
+// TestHandlerSend_BodyIsCapped: every verb caps the request body at
+// MaxAdapterJSONBody. Nothing covered that, so collapsing the ten handlers onto
+// one shared shape could have dropped the cap silently — an unauthenticated
+// POST would then stream unbounded JSON into the adapter's memory.
+func TestHandlerSend_BodyIsCapped(t *testing.T) {
+	bot := &mockBot{}
+	h := mux(bot)
+	huge := `{"chat_jid":"test:1","content":"` + strings.Repeat("a", MaxAdapterJSONBody+1024) + `"}`
+	req := httptest.NewRequest("POST", "/send", strings.NewReader(huge))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400 — an oversize body must be refused", w.Code)
+	}
+	if bot.sendReq.ChatJID != "" {
+		t.Fatalf("bot.Send saw %+v; an oversize body must never reach the adapter", bot.sendReq)
+	}
+}

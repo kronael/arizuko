@@ -325,17 +325,37 @@ func handleHistory(hp HistoryProvider) http.HandlerFunc {
 	}
 }
 
-func handleSend(bot BotHandler) http.HandlerFunc {
+// jsonVerb is the one shape the simple verb handlers share: cap the body,
+// decode, validate, call the bot, write the result. It was written out ten
+// times, and ten copies is ten chances for one to forget MaxBytesReader or to
+// answer a decode failure differently from its neighbour.
+//
+// A decode failure and a missing field answer with the SAME 400 — that was the
+// existing behavior (`Decode(&req) != nil || req.X == ""` shared one message)
+// and it is worth keeping: the caller's fix is identical either way.
+func jsonVerb[T any](msg string, valid func(T) bool, call func(T) (string, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
-		var req SendRequest
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
-			WriteErr(w, 400, "chat_jid and content required")
+		var req T
+		if json.NewDecoder(r.Body).Decode(&req) != nil || !valid(req) {
+			WriteErr(w, 400, msg)
 			return
 		}
-		id, err := bot.Send(req)
+		id, err := call(req)
 		writeBotResult(w, id, err)
 	}
+}
+
+// idless adapts a verb whose bot method returns only an error — the platform
+// gives back no id for a reaction, a delete or an edit.
+func idless[T any](f func(T) error) func(T) (string, error) {
+	return func(req T) (string, error) { return "", f(req) }
+}
+
+func handleSend(bot BotHandler) http.HandlerFunc {
+	return jsonVerb("chat_jid and content required",
+		func(req SendRequest) bool { return req.ChatJID != "" && req.Content != "" },
+		bot.Send)
 }
 
 // receiveUpload parses a multipart upload, sanitizes the filename, writes to
@@ -473,115 +493,57 @@ func writeBotResult(w http.ResponseWriter, id string, err error) {
 }
 
 func handlePost(bot BotHandler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
-		var req PostRequest
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
-			WriteErr(w, 400, "chat_jid and content required")
-			return
-		}
-		id, err := bot.Post(req)
-		writeBotResult(w, id, err)
-	}
+	return jsonVerb("chat_jid and content required",
+		func(req PostRequest) bool { return req.ChatJID != "" && req.Content != "" },
+		bot.Post)
 }
 
 func handleLike(bot BotHandler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
-		var req LikeRequest
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.TargetID == "" {
-			WriteErr(w, 400, "chat_jid and target_id required")
-			return
-		}
-		writeBotResult(w, "", bot.Like(req))
-	}
+	return jsonVerb("chat_jid and target_id required",
+		func(req LikeRequest) bool { return req.ChatJID != "" && req.TargetID != "" },
+		idless(bot.Like))
 }
 
 func handleDelete(bot BotHandler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
-		var req DeleteRequest
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.TargetID == "" {
-			WriteErr(w, 400, "chat_jid and target_id required")
-			return
-		}
-		writeBotResult(w, "", bot.Delete(req))
-	}
+	return jsonVerb("chat_jid and target_id required",
+		func(req DeleteRequest) bool { return req.ChatJID != "" && req.TargetID != "" },
+		idless(bot.Delete))
 }
 
 func handleForward(bot BotHandler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
-		var req ForwardRequest
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.SourceMsgID == "" || req.TargetJID == "" {
-			WriteErr(w, 400, "source_msg_id and target_jid required")
-			return
-		}
-		id, err := bot.Forward(req)
-		writeBotResult(w, id, err)
-	}
+	return jsonVerb("source_msg_id and target_jid required",
+		func(req ForwardRequest) bool { return req.SourceMsgID != "" && req.TargetJID != "" },
+		bot.Forward)
 }
 
 func handleQuote(bot BotHandler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
-		var req QuoteRequest
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.SourceMsgID == "" {
-			WriteErr(w, 400, "chat_jid and source_msg_id required")
-			return
-		}
-		id, err := bot.Quote(req)
-		writeBotResult(w, id, err)
-	}
+	return jsonVerb("chat_jid and source_msg_id required",
+		func(req QuoteRequest) bool { return req.ChatJID != "" && req.SourceMsgID != "" },
+		bot.Quote)
 }
 
 func handleRepost(bot BotHandler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
-		var req RepostRequest
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.SourceMsgID == "" {
-			WriteErr(w, 400, "chat_jid and source_msg_id required")
-			return
-		}
-		id, err := bot.Repost(req)
-		writeBotResult(w, id, err)
-	}
+	return jsonVerb("chat_jid and source_msg_id required",
+		func(req RepostRequest) bool { return req.ChatJID != "" && req.SourceMsgID != "" },
+		bot.Repost)
 }
 
 func handleDislike(bot BotHandler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
-		var req DislikeRequest
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.TargetID == "" {
-			WriteErr(w, 400, "chat_jid and target_id required")
-			return
-		}
-		writeBotResult(w, "", bot.Dislike(req))
-	}
+	return jsonVerb("chat_jid and target_id required",
+		func(req DislikeRequest) bool { return req.ChatJID != "" && req.TargetID != "" },
+		idless(bot.Dislike))
 }
 
 func handleEdit(bot BotHandler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
-		var req EditRequest
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.TargetID == "" || req.Content == "" {
-			WriteErr(w, 400, "chat_jid, target_id and content required")
-			return
-		}
-		writeBotResult(w, "", bot.Edit(req))
-	}
+	return jsonVerb("chat_jid, target_id and content required",
+		func(req EditRequest) bool { return req.ChatJID != "" && req.TargetID != "" && req.Content != "" },
+		idless(bot.Edit))
 }
 
 func handlePin(bot BotHandler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
-		var req PinRequest
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.TargetID == "" {
-			WriteErr(w, 400, "chat_jid and target_id required")
-			return
-		}
-		writeBotResult(w, "", bot.Pin(req))
-	}
+	return jsonVerb("chat_jid and target_id required",
+		func(req PinRequest) bool { return req.ChatJID != "" && req.TargetID != "" },
+		idless(bot.Pin))
 }
 
 func handleUnpin(bot BotHandler) http.HandlerFunc {
