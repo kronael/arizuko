@@ -1,20 +1,13 @@
 package queue
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
-	"strconv"
 	"sync"
-	"time"
 
 	"github.com/kronael/arizuko/container"
-	"github.com/kronael/arizuko/groupfolder"
 )
 
 const circuitBreakerThreshold = 3
@@ -82,10 +75,26 @@ func (q *GroupQueue) getGroup(groupJid string) *groupState {
 	return s
 }
 
-func (q *GroupQueue) SetProcessMessagesFn(fn processMessagesFn) { q.mu.Lock(); defer q.mu.Unlock(); q.processMessages = fn }
-func (q *GroupQueue) SetHasPendingFn(fn hasPendingFn)           { q.mu.Lock(); defer q.mu.Unlock(); q.hasPending = fn }
-func (q *GroupQueue) SetNotifyErrorFn(fn notifyErrorFn)         { q.mu.Lock(); defer q.mu.Unlock(); q.notifyError = fn }
-func (q *GroupQueue) SetFolderForJidFn(fn folderForJidFn)       { q.mu.Lock(); defer q.mu.Unlock(); q.folderForJid = fn }
+func (q *GroupQueue) SetProcessMessagesFn(fn processMessagesFn) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.processMessages = fn
+}
+func (q *GroupQueue) SetHasPendingFn(fn hasPendingFn) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.hasPending = fn
+}
+func (q *GroupQueue) SetNotifyErrorFn(fn notifyErrorFn) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.notifyError = fn
+}
+func (q *GroupQueue) SetFolderForJidFn(fn folderForJidFn) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.folderForJid = fn
+}
 
 // Caller must hold q.mu.
 func (q *GroupQueue) folderOf(jid string) string {
@@ -179,92 +188,6 @@ func (q *GroupQueue) SetActiveForTest(groupJid, containerName, groupFolder strin
 	q.activeCount++
 	q.signalContainer = func(string) error { return nil }
 }
-
-func (q *GroupQueue) SendMessages(groupJid string, texts []string) bool {
-	if len(texts) == 0 {
-		return false
-	}
-	q.mu.Lock()
-	s := q.getGroup(groupJid)
-	if !s.active || s.groupFolder == "" {
-		q.mu.Unlock()
-		return false
-	}
-	folder := s.groupFolder
-	cname := s.containerName
-	q.mu.Unlock()
-
-	ipcFolder := filepath.Join(q.ipcDir, folder)
-	written := 0
-	for _, text := range texts {
-		if err := writeIpcFile(ipcFolder, text); err != nil {
-			slog.Warn("steer: ipc write failed",
-				"jid", groupJid, "folder", folder, "err", err)
-			continue
-		}
-		written++
-	}
-	if written == 0 {
-		return false
-	}
-	if err := q.signalContainer(cname); err != nil {
-		// Race: ant runner exited (no input → graceful shutdown) but the
-		// docker container hasn't fully reported "exited" yet, so the
-		// queue slot still looks active. The IPC files we just wrote are
-		// orphaned — they'll be drained by the next spawn via
-		// drainIpcInput() at session start (ant/src/index.ts). Mark the
-		// slot inactive so the caller falls through to EnqueueMessageCheck
-		// and we get a fresh container right away instead of waiting for
-		// the next inbound message.
-		q.mu.Lock()
-		// Tear down only if this run still owns the active slot. If
-		// runForGroup completed concurrently it already cleared s.active and
-		// decremented activeCount — repeating that here double-decrements and
-		// can clobber a slot another JID/folder activation now holds.
-		if s.active {
-			s.active = false
-			s.containerName = ""
-			if q.activeFolders[folder] == groupJid {
-				delete(q.activeFolders, folder)
-			}
-			if q.activeCount > 0 {
-				q.activeCount--
-			}
-			if !q.shuttingDown {
-				q.drainWaitingLocked()
-			}
-		}
-		q.mu.Unlock()
-		slog.Warn("steer: signal failed, container gone — slot marked inactive, IPC file persists for next spawn",
-			"jid", groupJid, "folder", folder, "container", cname, "err", err)
-		return false
-	}
-	slog.Info("steer: sent messages into running container",
-		"jid", groupJid, "folder", folder, "count", written)
-	return true
-}
-
-func writeIpcFile(ipcFolder, text string) error {
-	inputDir := groupfolder.IpcInputDir(ipcFolder)
-	if err := os.MkdirAll(inputDir, 0o755); err != nil {
-		return err
-	}
-	ts := time.Now().UnixMilli()
-	r := rand.IntN(1679616) // 36^4
-	name := fmt.Sprintf("%d-%04s.json", ts, strconv.FormatInt(int64(r), 36))
-	fp := filepath.Join(inputDir, name)
-	tmp := fp + ".tmp"
-	payload, _ := json.Marshal(map[string]string{"type": "message", "text": text})
-	if err := os.WriteFile(tmp, payload, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, fp); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
 func (q *GroupQueue) Shutdown() {
 	q.mu.Lock()
 	defer q.mu.Unlock()

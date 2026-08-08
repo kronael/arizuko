@@ -2,9 +2,6 @@ package queue
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -114,70 +111,7 @@ func TestActiveCount_AfterConcurrentRuns(t *testing.T) {
 
 // TestWriteIpcFile_AtomicNamingFormat confirms each call produces a .json
 // file with the expected timestamp-base36 name pattern and no .tmp leftovers.
-func TestWriteIpcFile_AtomicNamingFormat(t *testing.T) {
-	dir := t.TempDir()
-	text := "hello ipc"
-
-	if err := writeIpcFile(dir, text); err != nil {
-		t.Fatalf("writeIpcFile: %v", err)
-	}
-
-	inputDir := filepath.Join(dir, "input")
-	entries, err := os.ReadDir(inputDir)
-	if err != nil {
-		t.Fatalf("readdir: %v", err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 file, got %d", len(entries))
-	}
-	name := entries[0].Name()
-	if !strings.HasSuffix(name, ".json") {
-		t.Errorf("filename %q must end in .json", name)
-	}
-	if strings.HasSuffix(name, ".tmp") {
-		t.Errorf("leftover tmp file: %s", name)
-	}
-	// Name format: <timestamp_ms>-<4_base36_chars>.json
-	parts := strings.SplitN(strings.TrimSuffix(name, ".json"), "-", 2)
-	if len(parts) != 2 || len(parts[1]) != 4 {
-		t.Errorf("unexpected filename format %q", name)
-	}
-}
-
 // TestSendMessages_SignalFailDoesNotDoubleDecrementAlreadyCleared is a
 // simplified version of the double-decrement regression: if the slot is
 // already inactive (s.active == false) when SendMessages' error branch
 // re-locks, the branch must be a no-op.
-func TestSendMessages_SignalFailBranchIsNoOpWhenAlreadyInactive(t *testing.T) {
-	ipcDir := t.TempDir()
-	q := New(1, ipcDir)
-
-	q.mu.Lock()
-	s := q.getGroup("g1")
-	s.active = true
-	s.groupFolder = "fold"
-	s.containerName = "dying"
-	q.activeCount = 1
-	q.activeFolders["fold"] = "g1"
-	q.mu.Unlock()
-
-	q.SetSignalContainerForTest(func(string) error {
-		// Simulate runForGroup completing mid-flight: clears active before
-		// the error branch re-locks.
-		q.mu.Lock()
-		s.active = false
-		s.containerName = ""
-		delete(q.activeFolders, "fold")
-		q.activeCount = 0
-		q.mu.Unlock()
-		return fmt.Errorf("container gone")
-	})
-
-	q.SendMessages("g1", []string{"msg"})
-
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if q.activeCount != 0 {
-		t.Errorf("activeCount = %d, want 0 (no double-decrement)", q.activeCount)
-	}
-}

@@ -1,11 +1,7 @@
 package queue
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -187,89 +183,6 @@ func TestShutdownBlocksEnqueue(t *testing.T) {
 // message and signals the container. Must be a no-op when no container
 // is active for the group.
 
-func TestSendMessages_EmptyInputReturnsFalse(t *testing.T) {
-	q := New(1, t.TempDir())
-	if q.SendMessages("g1", nil) {
-		t.Fatal("empty input should return false")
-	}
-	if q.SendMessages("g1", []string{}) {
-		t.Fatal("zero-length slice should return false")
-	}
-}
-
-func TestSendMessages_NoActiveContainerReturnsFalse(t *testing.T) {
-	q := New(1, t.TempDir())
-	// No RegisterProcess → active=false
-	if q.SendMessages("g1", []string{"hi"}) {
-		t.Fatal("steer should fail when no container is active")
-	}
-}
-
-func TestSendMessages_NoGroupFolderReturnsFalse(t *testing.T) {
-	q := New(1, t.TempDir())
-	// Active but groupFolder still empty (unregistered).
-	q.mu.Lock()
-	s := q.getGroup("g1")
-	s.active = true
-	q.mu.Unlock()
-
-	if q.SendMessages("g1", []string{"hi"}) {
-		t.Fatal("steer should fail with empty groupFolder")
-	}
-}
-
-func TestSendMessages_WritesOneFilePerMessage(t *testing.T) {
-	ipcDir := t.TempDir()
-	q := New(1, ipcDir)
-	q.SetSignalContainerForTest(func(string) error { return nil })
-
-	q.mu.Lock()
-	s := q.getGroup("g1")
-	s.active = true
-	s.groupFolder = "fold"
-	s.containerName = "fake-container-name-that-wont-exist"
-	q.mu.Unlock()
-
-	texts := []string{"first", "second", "third"}
-	ok := q.SendMessages("g1", texts)
-	if !ok {
-		t.Fatal("SendMessages returned false, want true")
-	}
-
-	inputDir := filepath.Join(ipcDir, "fold", "input")
-	entries, err := os.ReadDir(inputDir)
-	if err != nil {
-		t.Fatalf("read input dir: %v", err)
-	}
-	jsonFiles := 0
-	seen := map[string]bool{}
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".json") {
-			jsonFiles++
-			data, err := os.ReadFile(filepath.Join(inputDir, e.Name()))
-			if err != nil {
-				t.Fatalf("read %s: %v", e.Name(), err)
-			}
-			var payload map[string]string
-			if err := json.Unmarshal(data, &payload); err != nil {
-				t.Fatalf("unmarshal %s: %v", e.Name(), err)
-			}
-			if payload["type"] != "message" {
-				t.Errorf("type = %q, want 'message'", payload["type"])
-			}
-			seen[payload["text"]] = true
-		}
-	}
-	if jsonFiles != len(texts) {
-		t.Errorf("json files = %d, want %d", jsonFiles, len(texts))
-	}
-	for _, text := range texts {
-		if !seen[text] {
-			t.Errorf("missing file with text=%q", text)
-		}
-	}
-}
-
 // Regression: when ant's runner exits ("Input empty, exiting") between
 // gated's queue check and the SIGUSR1, kill fails. Previously the error
 // was swallowed (`_ = exec.Command(...).Run()`) and SendMessages returned
@@ -279,56 +192,6 @@ func TestSendMessages_WritesOneFilePerMessage(t *testing.T) {
 // user message disappeared, no reply, no error logged. The fix marks the
 // slot inactive and returns false so the caller falls through to
 // EnqueueMessageCheck, spawning a fresh container that drains the orphan.
-func TestSendMessages_SignalFailMarksInactive(t *testing.T) {
-	ipcDir := t.TempDir()
-	q := New(1, ipcDir)
-	q.SetSignalContainerForTest(func(string) error {
-		return fmt.Errorf("container not running")
-	})
-
-	q.mu.Lock()
-	s := q.getGroup("g1")
-	s.active = true
-	s.groupFolder = "fold"
-	s.containerName = "dying-container"
-	q.activeCount = 1
-	q.activeFolders["fold"] = "g1"
-	q.mu.Unlock()
-
-	ok := q.SendMessages("g1", []string{"hello"})
-	if ok {
-		t.Fatal("SendMessages returned true; want false when signal fails")
-	}
-
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if s.active {
-		t.Error("slot still active after signal failure")
-	}
-	if s.containerName != "" {
-		t.Errorf("containerName = %q, want empty", s.containerName)
-	}
-	if q.activeCount != 0 {
-		t.Errorf("activeCount = %d, want 0", q.activeCount)
-	}
-	if _, exists := q.activeFolders["fold"]; exists {
-		t.Error("activeFolders still has entry for fold")
-	}
-
-	// The IPC file is intentionally NOT removed — next spawn drains it
-	// via drainIpcInput() at session start.
-	entries, _ := os.ReadDir(filepath.Join(ipcDir, "fold", "input"))
-	jsonCount := 0
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".json") {
-			jsonCount++
-		}
-	}
-	if jsonCount != 1 {
-		t.Errorf("orphaned IPC files = %d, want 1 (file persists for next spawn)", jsonCount)
-	}
-}
-
 // Two JIDs that map to the same folder must serialize: only one container
 // runs at a time, the other waits and starts after the first finishes.
 // Regression: at startup, recoverPendingMessages and checkMigrationVersion
@@ -401,118 +264,8 @@ func TestEnqueueSerializesByFolder(t *testing.T) {
 // folder, then start a fresh activation for the same folder. After the hook
 // returns an error, SendMessages re-locks; the fixed code sees s.active is
 // already false and leaves the new activation's bookkeeping untouched.
-func TestSendMessages_SignalFailNoDoubleDecrement(t *testing.T) {
-	ipcDir := t.TempDir()
-	q := New(1, ipcDir)
-
-	q.mu.Lock()
-	s := q.getGroup("g1")
-	s.active = true
-	s.groupFolder = "fold"
-	s.containerName = "dying-container"
-	q.activeCount = 1
-	q.activeFolders["fold"] = "g1"
-	q.mu.Unlock()
-
-	q.SetSignalContainerForTest(func(string) error {
-		// Mimic runForGroup completing this activation, then a different JID
-		// claiming the same folder slot via drain.
-		q.mu.Lock()
-		s.active = false
-		s.containerName = ""
-		delete(q.activeFolders, "fold")
-		q.activeCount--
-		// New activation for the same folder, owned by a different JID.
-		q.activeFolders["fold"] = "g2"
-		q.activeCount++
-		q.mu.Unlock()
-		return fmt.Errorf("container not running")
-	})
-
-	if ok := q.SendMessages("g1", []string{"hello"}); ok {
-		t.Fatal("SendMessages returned true; want false when signal fails")
-	}
-
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if q.activeCount != 1 {
-		t.Errorf("activeCount = %d, want 1 (new g2 activation must survive)", q.activeCount)
-	}
-	if q.activeFolders["fold"] != "g2" {
-		t.Errorf("activeFolders[fold] = %q, want g2 (g1 teardown must not free it)", q.activeFolders["fold"])
-	}
-}
-
 // Regression: when SendMessages' signal-fail teardown frees the only slot,
 // any group parked in waitingGroups (here g2, queued because the concurrency
 // limit was hit) must be drained — exactly as runForGroup's cleanup does.
 // Without the drain, g2 starves: the steered g1 re-enqueues and retakes the
 // slot, leaving g2 stuck until an unrelated event happens to drain it.
-func TestSendMessages_SignalFailDrainsWaiting(t *testing.T) {
-	ipcDir := t.TempDir()
-	q := New(1, ipcDir)
-	q.SetFolderForJidFn(func(jid string) string {
-		switch jid {
-		case "g1":
-			return "fa"
-		case "g2":
-			return "fb"
-		}
-		return ""
-	})
-
-	var g2ran atomic.Bool
-	q.SetProcessMessagesFn(func(jid string) (bool, error) {
-		if jid == "g2" {
-			g2ran.Store(true)
-		}
-		return true, nil
-	})
-	q.SetSignalContainerForTest(func(string) error {
-		return fmt.Errorf("container not running")
-	})
-
-	// g1 holds the only slot (folder fa); g2 (folder fb) parked on the limit.
-	q.mu.Lock()
-	s := q.getGroup("g1")
-	s.active = true
-	s.groupFolder = "fa"
-	s.containerName = "dying-container"
-	q.activeCount = 1
-	q.activeFolders["fa"] = "g1"
-	q.waitingGroups = []string{"g2"}
-	q.mu.Unlock()
-
-	if ok := q.SendMessages("g1", []string{"hello"}); ok {
-		t.Fatal("SendMessages returned true; want false when signal fails")
-	}
-
-	time.Sleep(80 * time.Millisecond)
-	if !g2ran.Load() {
-		t.Fatal("g2 never drained after the freed slot — waiting group starved")
-	}
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if len(q.waitingGroups) != 0 {
-		t.Fatalf("waitingGroups = %v, want empty after drain", q.waitingGroups)
-	}
-}
-
-func TestSendMessages_NoLeftoverTmpFiles(t *testing.T) {
-	ipcDir := t.TempDir()
-	q := New(1, ipcDir)
-	q.mu.Lock()
-	s := q.getGroup("g1")
-	s.active = true
-	s.groupFolder = "fold"
-	q.mu.Unlock()
-
-	q.SendMessages("g1", []string{"msg"})
-
-	entries, _ := os.ReadDir(filepath.Join(ipcDir, "fold", "input"))
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".tmp") {
-			t.Errorf("leftover tmp file: %s", e.Name())
-		}
-	}
-}
