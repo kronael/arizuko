@@ -28,7 +28,6 @@ func (d *dash) handleEngagement(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "engagement")
 
 	fmt.Fprint(w, `<p class="dim">Normally the agent only answers when you say its name. `+
@@ -39,13 +38,9 @@ func (d *dash) handleEngagement(w http.ResponseWriter, r *http.Request) {
 		`when the time runs out. Use <strong>disengage</strong> when the agent is replying in a chat `+
 		`it should stay out of: it stops there straight away and needs to be named again before it speaks.</p>`)
 
-	switch strings.TrimSpace(r.URL.Query().Get("msg")) {
-	case "disengaged":
-		fmt.Fprint(w, htmlBanner("ok", "disengaged — the agent has stopped listening in that conversation"))
-	}
-	if e := strings.TrimSpace(r.URL.Query().Get("err")); e != "" {
-		fmt.Fprint(w, htmlBanner("err", e))
-	}
+	writeFlash(w, r, map[string]flash{
+		"disengaged": {"ok", "disengaged — the agent has stopped listening in that conversation"},
+	})
 
 	d.renderEngagementWindows(w, r)
 	pageClose(w, r)

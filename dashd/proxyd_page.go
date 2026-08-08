@@ -94,24 +94,18 @@ func (d *dash) handleProxyd(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "proxyd",
-		struct{ Href, Label string }{"/dash/services/", "Services"},
-		struct{ Href, Label string }{"", "proxyd"},
+		crumb{"/dash/services/", "Services"},
+		crumb{"", "proxyd"},
 	)
 	fmt.Fprint(w, `<p class="dim">Every web address this instance answers. `+
 		`A request whose URL starts with a <code>path</code> below is forwarded to that <code>backend</code>. `+
 		`Changes take effect immediately — no restart.</p>`)
 
-	switch strings.TrimSpace(r.URL.Query().Get("msg")) {
-	case "added":
-		fmt.Fprint(w, htmlBanner("ok", "route added — it is serving now"))
-	case "deleted":
-		fmt.Fprint(w, htmlBanner("ok", "route removed — that address now returns 404"))
-	}
-	if e := strings.TrimSpace(r.URL.Query().Get("err")); e != "" {
-		fmt.Fprint(w, htmlBanner("err", e))
-	}
+	writeFlash(w, r, map[string]flash{
+		"added":   {"ok", "route added — it is serving now"},
+		"deleted": {"ok", "route removed — that address now returns 404"},
+	})
 
 	if d.writeProxydRoutes(w, r) {
 		writeProxydAddForm(w)

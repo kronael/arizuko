@@ -89,7 +89,6 @@ func (d *dash) handleMeEnv(w http.ResponseWriter, r *http.Request) {
 
 // renderEnvPage renders the model-API-key management page.
 func (d *dash) renderEnvPage(w http.ResponseWriter, r *http.Request, items []secretItem) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Model API keys")
 	fmt.Fprint(w, `<p class="dim">Your personal model API keys — injected into your agent container at spawn. They override the platform key. Once saved, the value is hidden; replace to update.</p>`)
 

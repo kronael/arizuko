@@ -39,10 +39,9 @@ func (d *dash) handleAuthd(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "authd",
-		struct{ Href, Label string }{"/dash/services/", "Services"},
-		struct{ Href, Label string }{"", "authd"},
+		crumb{"/dash/services/", "Services"},
+		crumb{"", "authd"},
 	)
 
 	fmt.Fprint(w, `<p class="dim">When someone logs in, authd hands their browser a <strong>pass</strong> `+
@@ -50,13 +49,9 @@ func (d *dash) handleAuthd(w http.ResponseWriter, r *http.Request) {
 		`signature on that note instead of asking authd each time, which is why a pass has to be `+
 		`signed with a key only authd holds.</p>`)
 
-	switch strings.TrimSpace(r.URL.Query().Get("msg")) {
-	case "revoked":
-		fmt.Fprint(w, htmlBanner("ok", "signed out — that login can no longer renew itself"))
-	}
-	if e := strings.TrimSpace(r.URL.Query().Get("err")); e != "" {
-		fmt.Fprint(w, htmlBanner("err", e))
-	}
+	writeFlash(w, r, map[string]flash{
+		"revoked": {"ok", "signed out — that login can no longer renew itself"},
+	})
 
 	d.renderSigningKeys(w, r)
 	d.renderAuthdSessions(w, r)
@@ -305,7 +300,7 @@ func absTSCell(ts string) string {
 	if ts == "" {
 		return `<span class="dim">&mdash;</span>`
 	}
-	return fmt.Sprintf(`<abbr title="%s">%s</abbr>`, esc(ts), esc(relativeTS(ts)))
+	return abbrTS(ts)
 }
 
 // authdServesUntilCell renders when a retired key stops being accepted. An

@@ -1,11 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -22,18 +21,15 @@ func (d *dash) handleRuned(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "runed",
-		struct{ Href, Label string }{"/dash/services/", "Services"},
-		struct{ Href, Label string }{"", "runed"},
+		crumb{"/dash/services/", "Services"},
+		crumb{"", "runed"},
 	)
 
-	switch strings.TrimSpace(r.URL.Query().Get("msg")) {
-	case "killed":
-		fmt.Fprint(w, htmlBanner("ok", "kill requested — the run is being torn down"))
-	case "noop":
-		fmt.Fprint(w, htmlBanner("warn", "no active run for that folder"))
-	}
+	writeFlash(w, r, map[string]flash{
+		"killed": {"ok", "kill requested — the run is being torn down"},
+		"noop":   {"warn", "no active run for that folder"},
+	})
 
 	if d.dbRuned == nil {
 		fmt.Fprint(w, htmlBanner("warn", "runed store unavailable — runs view needs runed.db"))
@@ -141,7 +137,7 @@ func (d *dash) renderRecentRuns(w http.ResponseWriter) {
 			esc(outcome),
 			esc(exitCodeStr(exitCode)),
 			esc(durationBetween(startedAt, endedAt)),
-			fmt.Sprintf(`<abbr title="%s">%s</abbr>`, esc(endedAt), esc(relativeTS(endedAt))),
+			abbrTS(endedAt),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -200,35 +196,21 @@ func (d *dash) handleRunedKill(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/runed/?msg="+msg, http.StatusSeeOther)
 }
 
-// killFolder POSTs {folder} to runed's /v1/runs/stop with the service:dashd
-// bearer and reports whether a live spawn was found + killed.
+// killFolder POSTs {folder} to runed's /v1/runs/stop via bearerCall (the one
+// service:dashd transport) and reports whether a live spawn was found + killed.
 func (d *dash) killFolder(ctx context.Context, folder string) (bool, error) {
-	body, _ := json.Marshal(map[string]string{"folder": folder})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.runedURL+"/v1/runs/stop", bytes.NewReader(body))
+	body, status, err := d.bearerCall(ctx, d.runedURL, http.MethodPost, "/v1/runs/stop",
+		map[string]string{"folder": folder})
 	if err != nil {
 		return false, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if d.svc != nil {
-		tok, terr := d.svc(ctx)
-		if terr != nil {
-			return false, terr
-		}
-		req.Header.Set("Authorization", "Bearer "+tok)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return false, fmt.Errorf("runed %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+	if status < 200 || status >= 300 {
+		return false, errors.New(upstreamErr("runed", status, body))
 	}
 	var out struct {
 		Killed bool `json:"killed"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.Unmarshal(body, &out); err != nil {
 		return false, err
 	}
 	return out.Killed, nil

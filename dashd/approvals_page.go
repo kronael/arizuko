@@ -25,7 +25,6 @@ func (d *dash) handleApprovals(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "approvals")
 
 	fmt.Fprint(w, `<p class="dim">A hold rule pauses a risky tool call until a human says go. `+
@@ -33,15 +32,10 @@ func (d *dash) handleApprovals(w http.ResponseWriter, r *http.Request) {
 		`the agent re-issues it with the arguments shown &mdash; or reject so it never runs. `+
 		`Changing even one argument puts the call back on hold.</p>`)
 
-	switch strings.TrimSpace(r.URL.Query().Get("msg")) {
-	case "approved":
-		fmt.Fprint(w, htmlBanner("ok", "approved — the agent will re-issue the call in its next turn"))
-	case "rejected":
-		fmt.Fprint(w, htmlBanner("ok", "rejected — the call will not run"))
-	}
-	if e := strings.TrimSpace(r.URL.Query().Get("err")); e != "" {
-		fmt.Fprint(w, htmlBanner("err", e))
-	}
+	writeFlash(w, r, map[string]flash{
+		"approved": {"ok", "approved — the agent will re-issue the call in its next turn"},
+		"rejected": {"ok", "rejected — the call will not run"},
+	})
 
 	d.renderApprovals(w, r)
 	pageClose(w, r)

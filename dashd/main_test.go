@@ -768,3 +768,35 @@ func TestBrandNameAccentPropagation(t *testing.T) {
 		t.Errorf("accentOverride #ff0000 not in portal: %s", body)
 	}
 }
+
+// TestPortalHasBoostTarget: the nav carries hx-boost with hx-target="#content",
+// so the portal must render that div like every other page. Without it, every
+// boosted nav click on /dash/ aborted on htmx:targetError with the default
+// navigation already prevented — a dead nav (the tiles masked it).
+func TestPortalHasBoostTarget(t *testing.T) {
+	w := httptest.NewRecorder()
+	newMux(&dash{}).ServeHTTP(w, asOperator(httptest.NewRequest("GET", "/dash/", nil)))
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `<div id="content">`) {
+		t.Fatal("portal lacks the #content div the nav's hx-boost targets")
+	}
+}
+
+// TestPortalHtmxFragmentHasNoShell: a boosted navigation TO the portal swaps
+// into the existing #content — a full document here nested the nav inside the
+// content div of whatever page the click came from.
+func TestPortalHtmxFragmentHasNoShell(t *testing.T) {
+	req := asOperator(httptest.NewRequest("GET", "/dash/", nil))
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+	newMux(&dash{}).ServeHTTP(w, req)
+	body := w.Body.String()
+	if strings.Contains(body, "<!DOCTYPE") || strings.Contains(body, "<nav") {
+		t.Fatalf("htmx portal fragment carries the full shell: %.120s", body)
+	}
+	if !strings.Contains(body, `class="tiles"`) {
+		t.Fatal("htmx portal fragment lacks the tile grid")
+	}
+}

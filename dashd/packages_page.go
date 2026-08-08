@@ -15,7 +15,6 @@ func (d *dash) handlePackages(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "packages")
 
 	db := d.adminDB()

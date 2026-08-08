@@ -105,22 +105,21 @@ func shortTS(ts string) string {
 // relativeTS returns a human-relative label ("now", "5m", "2h", "3d") for use
 // in <abbr> display alongside the full ISO timestamp as the title.
 func relativeTS(ts string) string {
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02 15:04:05"} {
-		if t, err := time.Parse(layout, ts); err == nil {
-			d := time.Since(t)
-			switch {
-			case d < time.Minute:
-				return "now"
-			case d < time.Hour:
-				return fmt.Sprintf("%dm", int(d.Minutes()))
-			case d < 24*time.Hour:
-				return fmt.Sprintf("%dh", int(d.Hours()))
-			default:
-				return fmt.Sprintf("%dd", int(d.Hours()/24))
-			}
-		}
+	t, ok := parseTS(ts)
+	if !ok {
+		return shortTS(ts)
 	}
-	return shortTS(ts)
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
 }
 
 // abbrTS is the one renderer for a timestamp cell: relative label visible, full
@@ -135,24 +134,23 @@ func abbrTS(ts string) string {
 // engagement window with 28 minutes left would read as expiring this second.
 // A deadline already passed renders "expired" rather than a negative span.
 func remainingTS(ts string) string {
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02 15:04:05"} {
-		if t, err := time.Parse(layout, ts); err == nil {
-			d := time.Until(t)
-			switch {
-			case d <= 0:
-				return "expired"
-			case d < time.Minute:
-				return "under a minute"
-			case d < time.Hour:
-				return fmt.Sprintf("%dm", int(d.Minutes()))
-			case d < 24*time.Hour:
-				return fmt.Sprintf("%dh", int(d.Hours()))
-			default:
-				return fmt.Sprintf("%dd", int(d.Hours()/24))
-			}
-		}
+	t, ok := parseTS(ts)
+	if !ok {
+		return shortTS(ts)
 	}
-	return shortTS(ts)
+	d := time.Until(t)
+	switch {
+	case d <= 0:
+		return "expired"
+	case d < time.Minute:
+		return "under a minute"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
 }
 
 // folderPath URL-encodes a group folder for use in path segments.
@@ -732,9 +730,10 @@ func dashHead(title string) string {
 		`<style>` + css + `</style>` + theme.ThemeScript + theme.ToggleScript + navActiveScript + `</head>`
 }
 
-var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><html>{{.Head}}<body>
-<div class="page-wide">{{.Nav}}
-<h1 class="brand">{{.Brand}}</h1>
+// portalTmpl is the portal's INNER content only — the shell (head, nav,
+// #content) comes from pageShell like every other page, so boosted nav links
+// keep their swap target on the portal too.
+var portalTmpl = template.Must(template.New("portal").Parse(`<h1 class="brand">{{.Brand}}</h1>
 <p class="dim">{{.Subtitle}}</p>
 {{if eq .GroupCount 0}}<div class="banner-warn">No groups configured. <a href="/dash/groups/new">Create your first group</a> to get started.</div>{{end}}
 {{if gt .ErroredCount 0}}<div class="banner-warn"><a href="/dash/status/">{{.ErroredCount}} errored chat{{if gt .ErroredCount 1}}s{{end}}{{if gt .FailedTasks 0}} · {{.FailedTasks}} failed task{{if gt .FailedTasks 1}}s{{end}}{{end}}</a></div>{{end}}
@@ -751,8 +750,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><htm
 <a class="tile" href="/dash/profile/"><h2>profile</h2><p>linked accounts</p></a>
 {{if .Operator}}<a class="tile" href="/dash/services/"><h2>services</h2><p>daemon health</p></a>{{end}}
 {{if .Operator}}<a class="tile" href="/dash/invites/"><h2>invites</h2><p>onboarding invites</p></a>{{end}}
-</div>
-</div></body></html>`))
+</div>`))
 
 func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/dash/" {
@@ -789,10 +787,8 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 		subtitle = inst + " operator dashboard"
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	pageShell(w, r, brandName)
 	if err := portalTmpl.Execute(w, struct {
-		Head          template.HTML
-		Nav           template.HTML
 		Brand         string
 		Subtitle      string
 		Operator      bool
@@ -802,20 +798,31 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 		ErroredCount  int
 		FailedTasks   int
 		HeldApprovals int
-	}{template.HTML(dashHead(brandName)), template.HTML(dashNavFor(r)), brandName, subtitle, operator, statusDot, tasksDot, groupCount, erroredCount, failedTasks, heldApprovals}); err != nil {
+	}{brandName, subtitle, operator, statusDot, tasksDot, groupCount, erroredCount, failedTasks, heldApprovals}); err != nil {
 		slog.Warn("portal: template execute", "err", err)
 	}
+	pageClose(w, r)
 }
 
-// pageTopFor renders the page shell (or htmx partial) with path-aware nav.
-// Full load: DOCTYPE→nav→spinner→<div id="content">→crumbs→h1
-// htmx swap: bare crumbs→h1 only — htmx injects this as innerHTML of the
-// existing #content div; emitting <div id="content"> would nest it.
-func pageTopFor(w http.ResponseWriter, r *http.Request, title string, crumbs ...struct{ Href, Label string }) {
-	if !isHtmx(r) {
-		fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body><div class="page-wide">%s<div id="content">`,
-			dashHead(title), dashNavFor(r))
+// crumb is one breadcrumb segment; an empty Href renders a plain label.
+type crumb struct{ Href, Label string }
+
+// pageShell opens the page shell (Content-Type→DOCTYPE→head→nav→#content) —
+// the ONE shell renderer, portal included, so #content exists on every page
+// the nav's hx-boost targets (a page without it makes every boosted nav click
+// die on htmx:targetError). htmx swaps skip the shell: the fragment lands as
+// innerHTML of the existing #content div; emitting it again would nest it.
+func pageShell(w http.ResponseWriter, r *http.Request, title string) {
+	if isHtmx(r) {
+		return
 	}
+	fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body><div class="page-wide">%s<div id="content">`,
+		dashHead(title), dashNavFor(r))
+}
+
+// pageTopFor renders the page shell (or htmx partial) with crumbs + h1.
+func pageTopFor(w http.ResponseWriter, r *http.Request, title string, crumbs ...crumb) {
+	pageShell(w, r, title)
 	if len(crumbs) > 0 {
 		var b strings.Builder
 		b.WriteString(`<p class="crumbs">`)
@@ -846,7 +853,6 @@ func pageClose(w http.ResponseWriter, r *http.Request) {
 
 func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Status")
 
 	groupCount := d.countVisibleGroups(allowed, operator)
@@ -906,7 +912,6 @@ func pluralS(n int) string {
 
 func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Tasks")
 	fmt.Fprint(w, `<p class="dim">Scheduled jobs. Auto-refreshes every 10s.</p>`)
 	fmt.Fprint(w, `<table hx-get="/dash/tasks/x/list" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">`+
@@ -1017,8 +1022,8 @@ func (d *dash) writeTaskRows(w http.ResponseWriter, allowed []string, operator b
 			esc(prompt), esc(truncate64(prompt)),
 			esc(cron.String),
 			dot, esc(status),
-			`<abbr title="`+esc(createdAt)+`">`+relativeTS(createdAt)+`</abbr>`,
-			`<abbr title="`+esc(nextRun.String)+`">`+relativeTS(nextRun.String)+`</abbr>`,
+			abbrTS(createdAt),
+			abbrTS(nextRun.String),
 		)
 		n++
 	}
@@ -1036,7 +1041,6 @@ func (d *dash) writeTaskRows(w http.ResponseWriter, allowed []string, operator b
 
 func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Activity")
 	fmt.Fprint(w, `<p class="dim">Last 50 messages across all channels. Auto-refreshes every 10s.</p>`)
 	fmt.Fprint(w, `<table hx-get="/dash/activity/x/recent" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">`+
@@ -1167,7 +1171,6 @@ func groupFromPath(r *http.Request, suffix string) string {
 
 func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Groups")
 	fmt.Fprint(w, `<p class="dim">Group hierarchy. Expand a row to see routing rules and links.</p>`+
 		`<p><a href="/dash/groups/new">+ New group</a></p>`)
@@ -1461,7 +1464,6 @@ func (d *dash) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
 
 func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	selectedGroup := r.URL.Query().Get("group")
 
 	// Refuse to render another tenant's files: a non-operator who hand-crafts

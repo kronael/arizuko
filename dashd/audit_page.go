@@ -76,7 +76,6 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "audit")
 
 	q := r.URL.Query()
@@ -143,7 +142,7 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 			outcomeCell = fmt.Sprintf(`<abbr title="%s">%s</abbr>`, esc(row.ErrorMsg), outcomeCell)
 		}
 		tableRows = append(tableRows, []string{
-			fmt.Sprintf(`<abbr title="%s">%s</abbr>`, esc(row.CreatedAt), esc(relativeTS(row.CreatedAt))),
+			abbrTS(row.CreatedAt),
 			esc(row.Source),
 			esc(row.Category),
 			esc(row.Action),

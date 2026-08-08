@@ -23,7 +23,6 @@ func (d *dash) handleProactive(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "proactive")
 
 	if d.dbRoutd == nil {
@@ -166,7 +165,7 @@ func (d *dash) renderProactiveCooldowns(w http.ResponseWriter) {
 		}
 		tableRows = append(tableRows, []string{
 			d.chatJIDCell(jid),
-			fmt.Sprintf(`<abbr title="%s">%s</abbr>`, esc(firedAt), esc(relativeTS(firedAt))),
+			abbrTS(firedAt),
 		})
 	}
 	if err := rows.Err(); err != nil {

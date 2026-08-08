@@ -46,6 +46,22 @@ func htmlBannerRaw(class, html string) string {
 	return fmt.Sprintf(`<div class="banner-%s">%s</div>`, class, html)
 }
 
+// flash is one ?msg= banner: class + operator text.
+type flash struct{ Class, Text string }
+
+// writeFlash renders the post-redirect notices a mutating page round-trips
+// through the URL: ?msg= mapped through msgs, then ?err= (the upstream's own
+// reason) as an err banner. One renderer for every page that used to hand-roll
+// the same switch.
+func writeFlash(w http.ResponseWriter, r *http.Request, msgs map[string]flash) {
+	if m, ok := msgs[strings.TrimSpace(r.URL.Query().Get("msg"))]; ok {
+		fmt.Fprint(w, htmlBanner(m.Class, m.Text))
+	}
+	if e := strings.TrimSpace(r.URL.Query().Get("err")); e != "" {
+		fmt.Fprint(w, htmlBanner("err", e))
+	}
+}
+
 func htmlSection(title, body string) string {
 	return fmt.Sprintf(`<h2>%s</h2>%s`, esc(title), body)
 }

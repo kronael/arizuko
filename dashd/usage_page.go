@@ -16,7 +16,6 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "usage")
 
 	if d.dbRoutd == nil {
@@ -268,5 +267,5 @@ func lastActiveCell(ts string) string {
 	if ts == "" {
 		return "—"
 	}
-	return fmt.Sprintf(`<abbr title="%s">%s</abbr>`, esc(ts), esc(relativeTS(ts)))
+	return abbrTS(ts)
 }

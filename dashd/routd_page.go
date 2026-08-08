@@ -19,10 +19,9 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "routd",
-		struct{ Href, Label string }{"/dash/services/", "Services"},
-		struct{ Href, Label string }{"", "routd"},
+		crumb{"/dash/services/", "Services"},
+		crumb{"", "routd"},
 	)
 
 	if d.dbRoutd == nil {
@@ -31,9 +30,9 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if msg := strings.TrimSpace(r.URL.Query().Get("msg")); msg == "retried" {
-		fmt.Fprint(w, htmlBanner("ok", "errored messages cleared — they will be re-dispatched"))
-	}
+	writeFlash(w, r, map[string]flash{
+		"retried": {"ok", "errored messages cleared — they will be re-dispatched"},
+	})
 
 	// Stats — route + group + message totals all from routd.db (its owner).
 	routeCount, groupCount := -1, -1
@@ -89,7 +88,7 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 		tableRows = append(tableRows, []string{
 			d.chatJIDCell(chatJID),
 			fmt.Sprintf("%d", cnt),
-			fmt.Sprintf(`<abbr title="%s">%s</abbr>`, esc(lastErr), esc(relativeTS(lastErr))),
+			abbrTS(lastErr),
 			retry,
 		})
 	}

@@ -111,7 +111,6 @@ func (d *dash) handleMeSecrets(w http.ResponseWriter, r *http.Request) {
 // fires DELETE /dash/me/secrets/{key} via fetch (same-origin → passes the CSRF
 // guard) and reloads. esc() guards every interpolated key.
 func (d *dash) renderSecretsPage(w http.ResponseWriter, r *http.Request, items []secretItem) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "API keys")
 	fmt.Fprint(w, `<p class="dim">Your personal API keys. They override the group's keys when the agent runs for you. Once saved, a key's value is hidden — you can replace it but never read it back.</p>`)
 	fmt.Fprint(w, `<p><a href="/dash/me/connections">OAuth connections &rarr;</a> — connect a provider instead of pasting a token.</p>`)

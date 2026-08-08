@@ -20,7 +20,6 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Invites")
 	fmt.Fprint(w, `<p class="dim">Invite links. Each token is single-use by default; set max uses for multi-use links. `+
 		`The link is shown once when you create it — this page lists each invite by its ref, which revokes but cannot redeem.</p>`)
@@ -145,7 +144,6 @@ func (d *dash) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	if d.connBaseURL != "" {
 		link = d.connBaseURL + link
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Invite created")
 	fmt.Fprint(w, htmlBanner("ok", "Invite created for "+targetGlob+". Copy the link now — it is not shown again."))
 	fmt.Fprintf(w, `<p><code>%s</code></p>`, esc(link))
