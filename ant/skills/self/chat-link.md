@@ -18,13 +18,21 @@ list_tokens()                  → [{jid, kind, created_at, context}, ...]
 revoke_token(jid)              → {ok}
 ```
 
-**Minting is root-only.** A token is a PUBLIC unauthenticated endpoint, so
-`issue_chat_link` / `issue_webhook` exist only during an elevated `/root`
-turn (`$ARIZUKO_IS_ROOT`="1"). Outside `/root` you won't see them — that's
-the grant, not an outage: do NOT shell out to `mcpc`; ask the operator to
-re-send the request as `/root <request>`. `list_tokens` / `revoke_token`
-stay available to any folder granted them (they touch only tokens your
-folder owns).
+**Minting is default-deny, NOT root-only.** A token is a PUBLIC
+unauthenticated endpoint, so `issue_chat_link` / `issue_webhook` are absent
+from the `role:member` floor — but they are ordinary grants an operator can
+delegate to your folder (`routd/route_tokens_resource.go`: the gate is
+`db.Authorize`, "`/root` **or an operator-delegated grant**"). There is no
+tier and no depth bracket (5/33).
+
+So: **check your live tool list, don't assume.** If `issue_chat_link` is
+there, you hold the grant — use it. If it is absent, that is the grant
+working, not an outage: do NOT shell out to `mcpc`. Give the operator the
+exact fix — either `/root <request>`, or
+`arizuko group <inst> grant folder:<yours> <scope> mcp:issue_chat_link`.
+
+`list_tokens` / `revoke_token` stay available to any folder granted them
+(they touch only tokens your folder owns).
 
 Store the raw `token` in your workspace file — it is returned exactly once and never stored in the DB.
 
