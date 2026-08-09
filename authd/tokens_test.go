@@ -297,3 +297,73 @@ func (f fakeGrants) FetchGrants(_ context.Context, bareSub string) (GrantsSnapsh
 	}
 	return GrantsSnapshot{}, ErrNoGrants
 }
+
+// F57: a caller-supplied ttl_seconds on the ISSUER-MINT path is clamped to
+// maxAccessTTL. Downscope was already bounded (parent remaining life); issuer
+// mint had no ceiling at all, so a caller holding tokens:mint could name its own
+// token lifetime — and an access token verifies offline with a frozen scope
+// snapshot, so a long one is an unrevocable grant that also outlives its signing
+// key's serving window (retiredAt + maxAccessTTL).
+func TestTokensIssuerMintTTLCappedAtMaxAccessTTL(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db) // accessTTL 15m, maxAccessTTL 1h
+	srv := &server{a: a, grants: fakeGrants{
+		"new": {Scope: []string{"tasks:read"}, Folder: "atlas/main"},
+	}}
+	ts := httptest.NewServer(srv.mux(nil))
+	defer ts.Close()
+
+	minter := callerToken(t, a, "service:onbod", []string{"tokens:mint"}, "")
+	resp, out := postTokens(t, ts.URL, minter, map[string]any{
+		"typ": "user", "sub": "user:new", "scope": []string{"tasks:read"},
+		"ttl_seconds": 86400, // a day, 24× the cap
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("issuer mint status %d: %v", resp.StatusCode, out)
+	}
+	sub, err := auth.VerifyToken(out["token"].(string), a.LocalKeySet())
+	if err != nil {
+		t.Fatalf("minted token invalid: %v", err)
+	}
+	ceiling := time.Now().Add(a.maxAccessTTL + time.Minute)
+	if sub.Expires.After(ceiling) {
+		t.Fatalf("minted exp %s exceeds maxAccessTTL ceiling %s — uncapped ttl_seconds",
+			sub.Expires.UTC(), ceiling.UTC())
+	}
+	// The echoed expires_at must agree with the claim, not the request.
+	echoed, perr := time.Parse(time.RFC3339, out["expires_at"].(string))
+	if perr != nil {
+		t.Fatalf("expires_at unparseable: %v", perr)
+	}
+	if echoed.After(ceiling) {
+		t.Fatalf("echoed expires_at %s exceeds ceiling %s", echoed.UTC(), ceiling.UTC())
+	}
+}
+
+// The cap is a ceiling, not a replacement: a ttl_seconds UNDER maxAccessTTL is
+// still honoured verbatim (a 60s mint stays 60s, it does not widen to the cap).
+func TestTokensIssuerMintShortTTLHonoured(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	srv := &server{a: a, grants: fakeGrants{
+		"new": {Scope: []string{"tasks:read"}, Folder: "atlas/main"},
+	}}
+	ts := httptest.NewServer(srv.mux(nil))
+	defer ts.Close()
+
+	minter := callerToken(t, a, "service:onbod", []string{"tokens:mint"}, "")
+	resp, out := postTokens(t, ts.URL, minter, map[string]any{
+		"typ": "user", "sub": "user:new", "scope": []string{"tasks:read"},
+		"ttl_seconds": 60,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("issuer mint status %d: %v", resp.StatusCode, out)
+	}
+	sub, err := auth.VerifyToken(out["token"].(string), a.LocalKeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := time.Until(sub.Expires); got > 2*time.Minute {
+		t.Fatalf("ttl_seconds=60 minted %s of life — the cap must not widen a short ttl", got)
+	}
+}

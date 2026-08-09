@@ -803,7 +803,17 @@ dies before writing a compose that assumes the new layout — but any hand-set
   turns that into a crash-loop until `restart: on-failure` retries. That is
   probably the correct behaviour and definitely needs a docker run to confirm.
 
-## F57 — issuer-mint takes an uncapped `ttl_seconds`; the downscope sibling caps (2026-08-07, open)
+## ✅ FIXED 2026-08-09 — F57 — issuer-mint takes an uncapped `ttl_seconds`; the downscope sibling caps (2026-08-07)
+
+Capped at `maxAccessTTL`, in `signMinted` — the ONE site every mint funnels
+through (`Downscope`, `IssuerMint`, the OAuth session mint), so the field's
+stated contract now holds by construction instead of being re-checked per
+caller. Same clamp shape as `Downscope`'s parent-remaining clamp, and a ceiling
+only: a `ttl_seconds` under the cap is still honoured verbatim. Tests
+`TestTokensIssuerMintTTLCappedAtMaxAccessTTL` +
+`TestTokensIssuerMintShortTTLHonoured` (`authd/tokens_test.go`).
+
+Original report:
 
 `POST /v1/tokens` reads a caller-supplied `ttl_seconds` (`authd/http.go:339,352`)
 and hands it to whichever mode it picks. The two modes disagree. `Downscope`
@@ -837,7 +847,7 @@ pass was a spec decision and this is an authd contract change.
 - **Severity:** medium (latent; privileged caller required)
 - **Scope:** authd token mint
 - **Source:** `authd/server.go:241,250,197-199,27,70,108`; `authd/http.go:339,352,361`; cf. `authd/server.go:229-231` (the capping sibling)
-- **Status:** open — needs a design call (cap at `maxAccessTTL`, or restate the comment)
+- **Status:** fixed 2026-08-09 — capped at `maxAccessTTL` in `signMinted`
 
 ## F56 — adapter `DATA_DIR` code defaults point at the instance tree root (2026-08-07, open)
 

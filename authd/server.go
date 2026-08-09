@@ -189,7 +189,13 @@ func folderExtra(folder string) map[string]string {
 }
 
 // signMinted signs c (with a fresh jti, the given ttl, and an optional folder
-// claim) and returns the echo-back values. ttl<=0 falls back to accessTTL.
+// claim) and returns the echo-back values. ttl<=0 falls back to accessTTL, and
+// any ttl is clamped to maxAccessTTL — this is the ONE mint site, so the field's
+// contract ("longest access TTL ever minted") holds by construction. Without it
+// an issuer mint could name its own lifetime: access tokens verify offline
+// against no revocation list and freeze their scope snapshot, so an uncapped one
+// is an unbounded revocation hole, and a retired key's serving window
+// (retiredAt+maxAccessTTL) would expire while its tokens still verify.
 func (a *Authd) signMinted(c auth.TokenClaims, folder string, ttl time.Duration) (minted, error) {
 	k, err := a.activeKey()
 	if err != nil {
@@ -197,6 +203,9 @@ func (a *Authd) signMinted(c auth.TokenClaims, folder string, ttl time.Duration)
 	}
 	if ttl <= 0 {
 		ttl = a.accessTTL
+	}
+	if max := a.maxAccessTTL; max > 0 && ttl > max {
+		ttl = max
 	}
 	c.Jti = auth.NewJTI()
 	c.Extra = folderExtra(folder)
