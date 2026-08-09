@@ -175,3 +175,85 @@ describe('multiline evasion', () => {
     expect(verdictOf(scanContent(text))).toBe('safe');
   });
 });
+
+// BUGS J11: the frontmatter contract was validated and then ignored. Missing
+// name/description were `high` and an over-long description `medium`, while
+// only `critical` produced `dangerous` — so every structural failure passed.
+// Empty content returned before validation ran, and a block-scalar description
+// was measured by its `>`/`|` marker rather than its text.
+describe('structural findings block (J11)', () => {
+  type GuardOutput = {
+    hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
+  };
+  const call = async (toolName: string, toolInput: Record<string, unknown>): Promise<GuardOutput> =>
+    (await createSkillGuardHook()(
+      { tool_name: toolName, tool_input: toolInput } as never,
+      undefined as never,
+      undefined as never,
+    )) as GuardOutput;
+
+  test('a structural finding is dangerous, not caution', () => {
+    expect(verdictOf(validateFrontmatter('---\nname: x\n---\nbody'))).toBe('dangerous');
+    expect(verdictOf(validateFrontmatter('no frontmatter here'))).toBe('dangerous');
+    const long = 'a'.repeat(1025);
+    expect(verdictOf(validateFrontmatter(`---\nname: x\ndescription: ${long}\n---\n`))).toBe('dangerous');
+  });
+
+  test('a SKILL.md with no description is refused, with a reason naming it', async () => {
+    const out = await call('Write', {
+      file_path: '/home/node/.claude/skills/ghost/SKILL.md',
+      content: '---\nname: ghost\n---\nbody',
+    });
+    expect(out.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(out.hookSpecificOutput?.permissionDecisionReason).toContain('frontmatter_no_description');
+  });
+
+  test('an EMPTY SKILL.md is refused — the write used to return before validation', async () => {
+    const out = await call('Write', {
+      file_path: '/home/node/.claude/skills/ghost/SKILL.md',
+      content: '',
+    });
+    expect(out.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(out.hookSpecificOutput?.permissionDecisionReason).toContain('frontmatter_missing');
+  });
+
+  test('an empty write to a non-SKILL.md file is still a no-op', async () => {
+    expect(await call('Write', { file_path: '/home/node/.claude/settings.json', content: '' })).toEqual({});
+  });
+
+  test('an Edit fragment is not frontmatter-validated — only Write carries a whole file', async () => {
+    const out = await call('Edit', {
+      file_path: '/home/node/.claude/skills/diary/SKILL.md',
+      new_string: 'one more body paragraph',
+    });
+    expect(out).toEqual({});
+  });
+});
+
+describe('block-scalar frontmatter (J11)', () => {
+  test('a block-scalar description is read from its block, not its marker', () => {
+    const text = '---\nname: x\ndescription: >\n  Writes diary entries for the day.\n---\nbody';
+    expect(validateFrontmatter(text)).toEqual([]);
+  });
+
+  test('an EMPTY block scalar counts as no description', () => {
+    const f = validateFrontmatter('---\nname: x\ndescription: |\n---\nbody');
+    expect(f.some((x) => x.patternId === 'frontmatter_no_description')).toBe(true);
+  });
+
+  test('an over-long block-scalar description is measured by its text', () => {
+    const chunk = `  ${'a'.repeat(200)}\n`.repeat(6); // 1200 chars of prose
+    const f = validateFrontmatter(`---\nname: x\ndescription: >-\n${chunk}---\nbody`);
+    expect(f.some((x) => x.patternId === 'frontmatter_description_long')).toBe(true);
+  });
+
+  test('the block stops at the next unindented key', () => {
+    const text = '---\ndescription: >\n  short text\nname: x\n---\nbody';
+    expect(validateFrontmatter(text)).toEqual([]);
+  });
+
+  test('a block-scalar name is read the same way', () => {
+    expect(validateFrontmatter('---\nname: |\ndescription: d\n---\nbody')
+      .some((x) => x.patternId === 'frontmatter_no_name')).toBe(true);
+  });
+});

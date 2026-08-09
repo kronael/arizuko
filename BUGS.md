@@ -228,7 +228,7 @@ every scanned fragment/line is safe.
 - **Status:** proposed
 - **Fix:**
 
-## J11 — SKILL.md frontmatter validation never blocks a write (2026-08-08, open)
+## J11 — SKILL.md frontmatter validation never blocks a write (2026-08-08, FIXED 2026-08-09)
 
 Missing name/description findings are high and an overlong description is
 medium, but only critical findings produce `dangerous`; all structural failures
@@ -239,8 +239,36 @@ measures only the `>`/`|` marker instead of the description body.
 - **Scope:** ant skill frontmatter contract
 - **Affected:** ant
 - **Source:** ant/src/skillguard.ts:79
-- **Status:** open
-- **Fix:**
+- **Status:** FIXED 2026-08-09
+- **Fix:** three causes, plus a fourth found while fixing them.
+
+  1. `blockingFindings` replaces the inline `severity === 'critical'` filter:
+     any critical threat pattern OR any `structural` finding refuses. The
+     critical-only rule is a false-positive budget for 120 heuristic regexes and
+     does not reach a deterministic check — a `SKILL.md` with no `name:` is
+     broken, not suspicious. Severities are unchanged; the CATEGORY decides.
+  2. The `if (!text) return {}` early exit now only fires for a write that is
+     not a whole `SKILL.md`, so `Write` of an EMPTY one — the most complete
+     frontmatter failure there is — reaches the validator.
+  3. `scalarOf` follows a YAML block scalar (`>`, `|`, with `+`/`-` chomping
+     and indent indicators) to the indented lines below the key. Both `name:`
+     and `description:` read through it — `name:` had the same hole. An empty
+     block now reads as absent instead of as the one-character marker.
+  4. **Found while fixing (1):** `report(path, critical)` rendered the deny
+     reason from the CRITICAL findings only, so a structural refusal would have
+     denied with an empty reason. It renders `blocking` now.
+
+  A fifth interaction had to be handled to keep (1) safe: frontmatter is
+  validated on `Write` alone. An `Edit`'s `new_string` is a fragment with no
+  frontmatter in it (the `J9` gap), so with structural findings blocking, every
+  legitimate body edit would have been refused.
+
+  Tests: `structural findings block (J11)` (verdict, deny + reason text, empty
+  SKILL.md, empty non-SKILL.md still a no-op, Edit fragment not validated) and
+  `block-scalar frontmatter (J11)` (block read, empty block, over-long block,
+  block terminated by the next unindented key, block-scalar name).
+  Mutation-checked twice: reverting `blockingFindings` to critical-only fails 3
+  tests; making `scalarOf` skip the block-scalar branch fails 3 others.
 
 ## J12 — product catalog and create use different identities (2026-08-08, proposed)
 

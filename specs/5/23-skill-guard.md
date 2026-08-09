@@ -2,7 +2,7 @@
 status: defected
 shipped: 2026-08-07
 source: hermes-agent peel (2026-04-11)
-defects: [J8, J9, J11]
+defects: [J8, J9]
 ---
 
 # Skill-guard PreToolUse hook
@@ -19,7 +19,9 @@ hardcoded_secrets, invisible_unicode) as a PreToolUse hook on
 `Write`/`Edit`/`MultiEdit` when `file_path` is under `~/.claude/**`. Port
 the regex table **verbatim** — a hand-rewritten table is a new table with
 new gaps. Plus SKILL.md frontmatter validation (`name:` + `description:`
-required, description ≤ 1024 chars).
+required, description ≤ 1024 chars) — read through a YAML block scalar, so
+`description: >` is measured by the indented text below it and not by its
+marker.
 
 **Fail-open on scanner crash**, and accept the false-positive rate: for a
 write gate on agent-authored skills, blocking legitimate work is the more
@@ -54,9 +56,15 @@ Two deliberate narrowings from hermes:
   allowed. No repo, so no trusted-repo list to make config-driven; the
   spec's env-var/DB requirement has nothing to configure and was dropped.
 
-`caution` passes: only a **critical** finding refuses. The scanner
-fails open on a crash, and an unrecognised tool shape yields no text,
-so both failure modes allow rather than block.
+`caution` passes: among the 120 threat patterns, only a **critical** finding
+refuses. That is a false-positive budget for heuristics, and it does not extend
+to the frontmatter checks — a `SKILL.md` with no `name:` is broken rather than
+suspicious, so EVERY structural finding refuses whatever its severity
+(`blockingFindings`; they were `high`/`medium` and therefore inert, BUGS `J11`).
+Frontmatter is validated on `Write` only: an `Edit`'s `new_string` is a fragment
+with no frontmatter in it, and validating one would refuse every legitimate body
+edit. The scanner fails open on a crash, and an unrecognised tool shape yields no
+text, so both failure modes allow rather than block.
 
 The scan is per LOGICAL line: shell line-continuations are joined first, because
 a per-physical-line scan was evaded by the oldest trick there is — `curl \` +

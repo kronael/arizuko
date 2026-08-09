@@ -100,9 +100,39 @@ export function scanContent(text: string): Finding[] {
 
 const MAX_DESCRIPTION = 1024;
 
+// scalarOf returns a frontmatter key's VALUE, following a YAML block scalar to
+// the indented lines that carry it.
+//
+// `description: >` / `description: |` (with the optional chomping and
+// indentation indicators, `>-`, `|+`, `>2`) put the text BELOW the key, so an
+// inline capture returns the marker itself. That is one non-empty character:
+// a block-scalar description read as present even when the block was empty, and
+// its length check measured `>` rather than the prose, so no block-scalar
+// description could ever be too long (BUGS J11). One helper for both keys —
+// `name:` had the same hole.
+function scalarOf(body: string, key: string): string | null {
+  const m = new RegExp(`^${key}:[ \\t]*(.*)$`, 'm').exec(body);
+  if (!m) return null;
+  const inline = m[1].trim();
+  if (!/^[|>][+-]?\d*$/.test(inline)) return inline;
+  const out: string[] = [];
+  // slice starts at the key line's newline, so [0] is that line's empty
+  // remainder; the block is the indented run after it.
+  for (const line of body.slice(m.index + m[0].length).split('\n').slice(1)) {
+    if (line.trim() === '') continue;
+    if (!/^[ \t]/.test(line)) break;
+    out.push(line.trim());
+  }
+  return out.join(' ').trim();
+}
+
 // validateFrontmatter enforces SKILL.md's contract: `name` and `description`
 // are what skill dispatch matches on, so a skill missing either is invisible to
 // the agent that wrote it — a silent no-op, not an error it would ever see.
+//
+// Every finding here is category `structural`, which is what makes it BLOCK
+// (see verdictOf): unlike a threat regex, a SKILL.md with no `name:` is broken
+// rather than suspicious, so there is no false-positive budget to spend.
 export function validateFrontmatter(text: string): Finding[] {
   const findings: Finding[] = [];
   const fm = /^---\n([\s\S]*?)\n---/.exec(text);
@@ -117,9 +147,9 @@ export function validateFrontmatter(text: string): Finding[] {
     }];
   }
   const body = fm[1];
-  const name = /^name:\s*(.+)$/m.exec(body);
-  const description = /^description:\s*(.+)$/m.exec(body);
-  if (!name || !name[1].trim()) {
+  const name = scalarOf(body, 'name');
+  const description = scalarOf(body, 'description');
+  if (!name) {
     findings.push({
       patternId: 'frontmatter_no_name',
       severity: 'high',
@@ -129,7 +159,7 @@ export function validateFrontmatter(text: string): Finding[] {
       description: 'SKILL.md frontmatter has no `name:`',
     });
   }
-  if (!description || !description[1].trim()) {
+  if (!description) {
     findings.push({
       patternId: 'frontmatter_no_description',
       severity: 'high',
@@ -138,22 +168,38 @@ export function validateFrontmatter(text: string): Finding[] {
       match: '',
       description: 'SKILL.md frontmatter has no `description:` — dispatch matches on it',
     });
-  } else if (description[1].trim().length > MAX_DESCRIPTION) {
+  } else if (description.length > MAX_DESCRIPTION) {
     findings.push({
       patternId: 'frontmatter_description_long',
       severity: 'medium',
       category: 'structural',
       line: 1,
-      match: `${description[1].trim().length} chars`,
+      match: `${description.length} chars`,
       description: `description exceeds ${MAX_DESCRIPTION} characters`,
     });
   }
   return findings;
 }
 
+// blockingFindings is the set that refuses a write: any `critical` threat
+// pattern, plus EVERY structural finding whatever its severity.
+//
+// The critical-only rule is a false-positive budget for the 120 heuristic
+// regexes — `caution` passes because blocking legitimate work is the more
+// expensive failure on the agent's own skills. That argument does not reach the
+// frontmatter checks, which are deterministic: a SKILL.md with no `name:` is
+// invisible to dispatch, not merely suspicious. They were `high` and `medium`,
+// so every structural failure passed (BUGS J11).
+//
+// The hook reports THIS set, not the criticals — reporting criticals alone
+// would have denied a structural write with an empty reason.
+export function blockingFindings(findings: Finding[]): Finding[] {
+  return findings.filter((f) => f.severity === 'critical' || f.category === 'structural');
+}
+
 export function verdictOf(findings: Finding[]): Verdict {
   if (findings.length === 0) return 'safe';
-  return findings.some((f) => f.severity === 'critical') ? 'dangerous' : 'caution';
+  return blockingFindings(findings).length > 0 ? 'dangerous' : 'caution';
 }
 
 // isGuardedPath — the hook only governs the agent's own config tree. Everything
@@ -184,10 +230,11 @@ function report(path: string, findings: Finding[]): string {
     'Rewrite without the flagged content, or ask the operator to make the change.';
 }
 
-// createSkillGuardHook denies a write whose content scans `dangerous` (any
-// critical finding). `caution` passes: for a write gate on the agent's own
-// skills, blocking legitimate work is the more expensive failure, so the
-// false-positive budget is spent only on critical patterns.
+// createSkillGuardHook denies a write whose content scans `dangerous` — any
+// critical threat finding, or any structural one. `caution` passes: for a write
+// gate on the agent's own skills, blocking legitimate work is the more
+// expensive failure, so the false-positive budget is spent only on critical
+// patterns. See blockingFindings for why structural is not part of that budget.
 //
 // A crash in the scanner fails OPEN for the same reason — a guard that bricks
 // the agent when it throws is worse than the threat it was added for.
@@ -199,19 +246,29 @@ export function createSkillGuardHook(): HookCallback {
       const path = String(toolInput.file_path ?? '');
       if (!path || !isGuardedPath(path)) return {};
 
+      // Frontmatter is a property of the WHOLE FILE, and only Write carries
+      // one — an Edit's new_string is a fragment with no frontmatter in it, so
+      // validating one would refuse every legitimate body edit now that
+      // structural findings block. (Reading the file to validate the RESULTING
+      // text is BUGS J9, a different gap.)
+      const validatesFrontmatter = path.endsWith('SKILL.md') && pre.tool_name === 'Write';
+
       const text = writtenText(pre.tool_name, toolInput);
-      if (!text) return {};
+      // Empty text used to return here, which skipped validation entirely — so
+      // `Write` of an EMPTY SKILL.md, the most complete frontmatter failure
+      // there is, sailed through (BUGS J11).
+      if (!text && !validatesFrontmatter) return {};
 
       const findings = scanContent(text);
-      if (path.endsWith('SKILL.md')) findings.push(...validateFrontmatter(text));
-      if (verdictOf(findings) !== 'dangerous') return {};
+      if (validatesFrontmatter) findings.push(...validateFrontmatter(text));
+      const blocking = blockingFindings(findings);
+      if (blocking.length === 0) return {};
 
-      const critical = findings.filter((f) => f.severity === 'critical');
       return {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
-          permissionDecisionReason: report(path, critical),
+          permissionDecisionReason: report(path, blocking),
         },
       };
     } catch (err) {
