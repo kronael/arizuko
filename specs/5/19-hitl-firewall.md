@@ -2,7 +2,7 @@
 status: defected
 shipped: 2026-08-07
 moved-from: specs/17/4-hitl-firewall.md
-defects: [J1, J2, F66, F76]
+defects: [J1, J2, F76]
 ---
 
 # specs/5/19 — HITL firewall: hold a tool call for human approval
@@ -217,8 +217,13 @@ operator-only) lists the held queue with per-row approve/reject + note and
 recent verdicts; the portal banners the held count.
 
 **The agent-socket MCP face stays unmounted, deliberately**: `approve` on the
-held agent's own socket would let it approve its own call. That half of `F66`
-waits for an operator-socket design.
+held agent's own socket would let it approve its own call, and the only socket
+that exists is the per-turn agent one (`ServeTurnMCP`, folder principal). So
+this is an OPEN QUESTION, not a defect — `F66` was closed against this
+paragraph on 2026-08-09. Closing it needs an operator MCP socket whose identity
+is distinct from the held folder; until that exists, chat `/approve` and the
+`/dash/approvals/` REST face are the two resolution paths, and both funnel
+through `resolveHoldTx`.
 
 ### Deliberately not in this release
 

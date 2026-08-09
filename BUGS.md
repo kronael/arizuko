@@ -307,7 +307,27 @@ Not a containment boundary — Docker, the crackbox egress allowlist and the gat
 MCP socket are, and `SECURITY.md` states this. Recorded so the residual is not
 mistaken for coverage.
 
-## F66 — `pending_actions` is registered but never mounted; the REST approve path 404s (2026-08-08, REST half RESOLVED 2026-08-08 — MCP half open)
+## F66 — `pending_actions` is registered but never mounted; the REST approve path 404s (2026-08-08, CLOSED 2026-08-09 — REST half shipped, MCP half is a recorded decision)
+
+**CLOSED 2026-08-09 — the remaining half is NOT a defect.** Verified against the
+call path: `routd/server.go:263` mounts `mountPendingActions`, so the REST face
+is live; there is no `pendingActionsPostBuild` in `routd/mcp.go`'s `ServeTurnMCP`
+seam list, so the MCP face is genuinely absent. `specs/5/19` §"What shipped"
+already answers WHY, in its own words: "The agent-socket MCP face stays
+unmounted, deliberately: `approve` on the held agent's own socket would let it
+approve its own call. That half of `F66` waits for an operator-socket design."
+
+That is a shipped decision, not an omission, and building the tool would defeat
+the firewall: the only socket that exists is the per-turn agent socket
+(`ServeTurnMCP`, folder principal + `auth.Authorize` gate), so an
+`approve_pending_action` mounted there is reachable by exactly the folder whose
+call is held. The cost of closing it properly is a NEW surface — an operator MCP
+socket with an identity distinct from the held folder — which is a product
+decision (who may approve over MCP, and on what socket), so it belongs to the
+user, not to a bug fix. `F66` is removed from `5/19`'s defect list; the open
+question lives in the spec, where the decision is.
+
+*Original entry below for the record.*
 
 **Update 2026-08-08**: the REST half shipped. `routd/pending_actions_http.go`
 mounts list/approve/reject via `resreg.RegisterREST`, gated on
