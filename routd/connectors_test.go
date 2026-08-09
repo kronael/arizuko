@@ -2,6 +2,7 @@ package routd
 
 import (
 	"context"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,7 +119,7 @@ func TestFolderSecrets_DecryptsV2(t *testing.T) {
 		t.Fatalf("stored value not encrypted: %q", raw)
 	}
 
-	got := db.FolderSecrets("main/trading")
+	got := db.folderSecrets("main/trading")
 	if got["GITHUB_TOKEN"] != "ghp_plaintext42" {
 		t.Errorf("FolderSecrets decrypt = %q, want ghp_plaintext42", got["GITHUB_TOKEN"])
 	}
@@ -135,10 +136,14 @@ func TestFolderSecrets_DecryptsV2(t *testing.T) {
 	}
 }
 
-// TestFolderSecretsForUser_BYOA: a user's user-scoped key overrides the folder
-// default at spawn resolution (BYOA), decrypted; a different/empty user sees the
-// folder value. This is what dispatchRun ships to runed as RunRequest.Secrets.
-func TestFolderSecretsForUser_BYOA(t *testing.T) {
+// TestEnvProfileSecrets_OnlyUserModelCredentials pins what dispatchRun ships as
+// RunRequest.Secrets — i.e. what lands in the agent's container env (BUGS X1,
+// spec 5/13 §Trust model). Only the caller's OWN model credentials qualify. A
+// folder capability credential must not appear, nor a user's own capability
+// credential, nor a folder row for a model key restored past validateScope by
+// ValidateAndImportSecrets (seeded here with raw SQL, which is the only way that
+// row shape exists).
+func TestEnvProfileSecrets_OnlyUserModelCredentials(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -146,22 +151,42 @@ func TestFolderSecretsForUser_BYOA(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	s := seedSecretsStore(t, db, "byoa-routd-key")
 
-	// GITHUB_TOKEN: capability credential — allowed at folder scope (shared team key).
 	if err := s.PutSecretRow(store.ScopeFolder, "atlas", "GITHUB_TOKEN", "ghp_folder"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutSecretRow(store.ScopeUser, "telegram:user/7", "GITHUB_TOKEN", "ghp_user7"); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.PutSecretRow(store.ScopeUser, "telegram:user/7", "ANTHROPIC_API_KEY", "sk-user7"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SQL().Exec(
+		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
+		 VALUES ('folder', 'atlas', 'ANTHROPIC_API_KEY', 'sk-folder', '2026-08-09T00:00:00Z')`,
+	); err != nil {
+		t.Fatal(err)
+	}
 
-	if got := db.FolderSecretsForUser("atlas", "telegram:user/7")["GITHUB_TOKEN"]; got != "ghp_user7" {
-		t.Errorf("user override = %q, want ghp_user7 (user wins over folder)", got)
+	got := db.EnvProfileSecrets("telegram:user/7")
+	want := map[string]string{"ANTHROPIC_API_KEY": "sk-user7"}
+	if !maps.Equal(got, want) {
+		t.Errorf("EnvProfileSecrets = %v, want exactly %v", got, want)
 	}
-	if got := db.FolderSecretsForUser("atlas", "telegram:user/9")["GITHUB_TOKEN"]; got != "ghp_folder" {
-		t.Errorf("other user = %q, want ghp_folder (folder fallback)", got)
+	if got := db.EnvProfileSecrets("telegram:user/9"); len(got) != 0 {
+		t.Errorf("a user with no rows resolved %v, want nothing", got)
 	}
-	if got := db.FolderSecretsForUser("atlas", "")["GITHUB_TOKEN"]; got != "ghp_folder" {
-		t.Errorf("empty user = %q, want ghp_folder (folder fallback)", got)
+	if got := db.EnvProfileSecrets(""); len(got) != 0 {
+		t.Errorf("an unattributed turn resolved %v, want nothing", got)
+	}
+
+	// The same folder credential the container never sees IS still reachable by a
+	// connector that declares it — the broker is the one path (spec 5/13).
+	brokered, _, err := db.ConnectorSecrets("atlas", "telegram:user/9", []string{"GITHUB_TOKEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if brokered["GITHUB_TOKEN"] != "ghp_folder" {
+		t.Errorf("broker resolved GITHUB_TOKEN = %q, want ghp_folder", brokered["GITHUB_TOKEN"])
 	}
 }
 
@@ -179,7 +204,7 @@ func TestSecretsReadOwnDB(t *testing.T) {
 	// No secret seeded → nothing resolves (routd reads only routd.db; it opens
 	// NO sibling messages.db, so there is no cross-DB secret to leak).
 	db.SetSecretKeys([]byte("k")) // routd's read keyring
-	if got := db.FolderSecrets("main"); len(got) != 0 {
+	if got := db.folderSecrets("main"); len(got) != 0 {
 		t.Errorf("no secret seeded must resolve empty (reads routd.db), got %v", got)
 	}
 
@@ -188,7 +213,7 @@ func TestSecretsReadOwnDB(t *testing.T) {
 	if err := own.PutSecretRow(store.ScopeFolder, "main", "GITHUB_TOKEN", "ghp_own"); err != nil {
 		t.Fatalf("seed own secret: %v", err)
 	}
-	if got := db.FolderSecrets("main")["GITHUB_TOKEN"]; got != "ghp_own" {
+	if got := db.folderSecrets("main")["GITHUB_TOKEN"]; got != "ghp_own" {
 		t.Errorf("routd.db secret = %q, want ghp_own", got)
 	}
 }
@@ -263,7 +288,7 @@ func TestConnectorSecrets_GracefulWhenUnset(t *testing.T) {
 	if got, _, _ := db.ConnectorSecrets("main", "", []string{"GITHUB_TOKEN"}); len(got) != 0 {
 		t.Errorf("empty table: want empty, got %v", got)
 	}
-	if got := db.FolderSecrets("main"); len(got) != 0 {
+	if got := db.folderSecrets("main"); len(got) != 0 {
 		t.Errorf("empty table FolderSecrets: want empty, got %v", got)
 	}
 
@@ -274,7 +299,7 @@ func TestConnectorSecrets_GracefulWhenUnset(t *testing.T) {
 		t.Fatalf("PutSecretRow: %v", err)
 	}
 	db.SetSecretKeys() // clear the keyring routd uses for reads
-	got := db.FolderSecrets("main")
+	got := db.folderSecrets("main")
 	if got["GITHUB_TOKEN"] == "ghp_secret" {
 		t.Error("decrypted without a keyring (plaintext leak)")
 	}

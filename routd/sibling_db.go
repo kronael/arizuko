@@ -99,11 +99,43 @@ func (d *DB) SetUserCap(userSub string, cents int) error {
 	return d.userStore().SetUserCap(userSub, cents)
 }
 
-// FolderSecrets resolves the folder-scoped secret set for `folder`,
-// DECRYPTING `v2:` values via the SECRETS_KEY keyring (deepest-wins
-// folder-ancestry precedence). SECRETS_KEY unset / read error → empty map (the
-// caller treats absent secrets as "inject nothing").
-func (d *DB) FolderSecrets(folder string) map[string]string {
+// EnvProfileSecrets is the ONLY secret set that may enter the agent container's
+// env: the caller's OWN user-scoped model credentials (BYOA). Those four keys
+// (store.EnvProfileKeys) are spent by the Claude Code SDK subprocess, not by a
+// tool call, so they have no broker path — everything else in `secrets` is a
+// capability credential and reaches a tool solely through
+// ipc.StoreFns.ResolveConnectorSecrets (spec 5/13 §Trust model, 5/14 §Injection).
+//
+// The narrowing lives HERE, not at the dispatch call site, because the call site
+// is bypassable: an exported reader that hands back the whole decrypted folder
+// set would let the next writer of RunRequest.Secrets re-open the hole with a
+// one-liner that reads correct. This reader never asks for a folder at all, and
+// the query is SQL-scoped to scope_kind='user', so no folder row can reach the
+// container even if one is restored from an archive (ValidateAndImportSecrets
+// does not re-run validateScope). Empty userSub or read error → inject nothing.
+func (d *DB) EnvProfileSecrets(userSub string) map[string]string {
+	out := map[string]string{}
+	if userSub == "" {
+		return out
+	}
+	rows, err := d.secretStore().ListSecrets(store.ScopeUser, userSub)
+	if err != nil {
+		return out
+	}
+	for _, r := range rows {
+		if _, ok := store.EnvProfileKeys[r.Key]; ok {
+			out[r.Key] = r.Value
+		}
+	}
+	return out
+}
+
+// folderSecrets resolves the folder-scoped secret set for `folder`, DECRYPTING
+// `v2:` values via the SECRETS_KEY keyring (deepest-wins folder-ancestry
+// precedence). SECRETS_KEY unset / read error → empty map. Unexported: the only
+// consumer is the broker resolution below, and an exported bulk reader of folder
+// capability secrets is exactly what EnvProfileSecrets exists to deny.
+func (d *DB) folderSecrets(folder string) map[string]string {
 	out, err := d.secretStore().FolderSecretsResolved(folder)
 	if err != nil {
 		return map[string]string{}
@@ -111,26 +143,18 @@ func (d *DB) FolderSecrets(folder string) map[string]string {
 	return out
 }
 
-// FolderSecretsForUser is FolderSecrets with the trigger user's user-scoped
-// secrets overlaid (a user's own key shadows the folder default) — the BYOA
-// spawn-time resolution. Empty userSub or read error → the plain folder set.
-func (d *DB) FolderSecretsForUser(folder, userSub string) map[string]string {
-	out, _ := d.folderSecretsForUser(folder, userSub)
-	return out
-}
-
-// folderSecretsForUser is the one resolution body: values plus the scope each
-// key resolved from ("user" | "folder"). Spawn-time injection drops the scopes;
-// the broker keeps them, because secret_use_log must record whether a call
-// spent the caller's OWN credential or the folder default and that distinction
-// exists nowhere downstream of the overlay (spec 5/13 § Audit).
+// folderSecretsForUser is the one resolution body behind the broker: values plus
+// the scope each key resolved from ("user" | "folder"). secret_use_log must
+// record whether a call spent the caller's OWN credential or the folder default,
+// and that distinction exists nowhere downstream of the overlay (spec 5/13
+// § Audit).
 func (d *DB) folderSecretsForUser(folder, userSub string) (map[string]string, map[string]store.SecretScope) {
 	out, scopes, err := d.secretStore().FolderSecretsResolvedForUser(folder, userSub)
 	if err == nil {
 		return out, scopes
 	}
 	// Fallback path: folder scope only, so the provenance is uniform.
-	out = d.FolderSecrets(folder)
+	out = d.folderSecrets(folder)
 	scopes = make(map[string]store.SecretScope, len(out))
 	for k := range out {
 		scopes[k] = store.ScopeFolder

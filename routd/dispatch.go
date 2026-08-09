@@ -513,10 +513,13 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	// spawn to the crackbox network + honor share_mount. nil allowlist on error
 	// is fine — runed treats empty as no-extra-constraint.
 	allowlist, _ := l.db.ResolveAllowlist(folder)
-	// Resolve folder secrets with the trigger user's user-scoped overrides (BYOA):
-	// a web-chat user's own ANTHROPIC_API_KEY shadows the folder default. routd
+	// Container env carries the trigger user's OWN model credentials (BYOA) and
+	// nothing else from `secrets`: a web-chat user's ANTHROPIC_API_KEY shadows the
+	// operator anchor for their spawn. Folder capability credentials do NOT ride
+	// along — they reach a tool only through the MCP broker, per call, narrowed to
+	// the connector's declared secrets= list (spec 5/13 §Trust model). routd
 	// decrypts here (it holds SECRETS_KEY); runed injects as container env.
-	secrets := l.db.FolderSecretsForUser(folder, string(caller))
+	secrets := l.db.EnvProfileSecrets(string(caller))
 	// 5/33: mounts/egress/web are GRANTS, not tier. routd (the authz plane) resolves
 	// the three container-capability booleans from the folder's acl rows and ships
 	// them typed so runed/container consume a decision, not a rule bundle. An elevated

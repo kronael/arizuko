@@ -61,7 +61,7 @@ func TestSecretSetEndpoint(t *testing.T) {
 	}
 
 	// Read it back the way connector injection does.
-	if got := db.FolderSecrets("main/eng")["GITHUB_TOKEN"]; got != "ghp_via_http" {
+	if got := db.folderSecrets("main/eng")["GITHUB_TOKEN"]; got != "ghp_via_http" {
 		t.Errorf("FolderSecrets after POST = %q, want ghp_via_http", got)
 	}
 	// Sealed at rest (v2:), never plaintext on disk.
@@ -90,7 +90,7 @@ func TestSecretDeleteEndpoint(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("DELETE = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
-	if got := db.FolderSecrets("main"); len(got) != 0 {
+	if got := db.folderSecrets("main"); len(got) != 0 {
 		t.Errorf("secret survived delete: %v", got)
 	}
 	// Second delete → 404.
@@ -109,7 +109,7 @@ func TestSecretSetRequiresWriteScope(t *testing.T) {
 	if rec.Code != 403 {
 		t.Fatalf("POST without secrets:write = %d want 403 body=%s", rec.Code, rec.Body.String())
 	}
-	if got := db.FolderSecrets("main"); len(got) != 0 {
+	if got := db.folderSecrets("main"); len(got) != 0 {
 		t.Errorf("denied POST still wrote a secret: %v", got)
 	}
 }
@@ -126,7 +126,7 @@ func TestSecretEnvProfileKeyAtFolderRejected(t *testing.T) {
 	if rec.Code != 400 {
 		t.Fatalf("env-profile key at folder scope = %d want 400 body=%s", rec.Code, rec.Body.String())
 	}
-	if got := db.FolderSecrets("main"); len(got) != 0 {
+	if got := db.folderSecrets("main"); len(got) != 0 {
 		t.Errorf("rejected env-profile POST still wrote a secret: %v", got)
 	}
 }
@@ -147,7 +147,7 @@ func TestSecretRESTContainmentDenied(t *testing.T) {
 		Scope: "folder", ScopeID: "world/a/sub", Key: "K", Value: "v"}); rec.Code != 200 {
 		t.Fatalf("own-subtree POST = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
-	if got := db.FolderSecrets("world/a/sub")["K"]; got != "v" {
+	if got := db.folderSecrets("world/a/sub")["K"]; got != "v" {
 		t.Fatalf("own-subtree POST did not write the secret (got %q)", got)
 	}
 	// Cross-world: DENIED (403), nothing written.
@@ -155,7 +155,7 @@ func TestSecretRESTContainmentDenied(t *testing.T) {
 		Scope: "folder", ScopeID: "other/x", Key: "K", Value: "v"}); rec.Code != 403 {
 		t.Fatalf("cross-world POST = %d want 403 body=%s", rec.Code, rec.Body.String())
 	}
-	if got := db.FolderSecrets("other/x"); len(got) != 0 {
+	if got := db.folderSecrets("other/x"); len(got) != 0 {
 		t.Fatal("denied cross-world POST still wrote a secret")
 	}
 	// Cross-world DELETE is denied too (containment on both write verbs).
@@ -165,7 +165,7 @@ func TestSecretRESTContainmentDenied(t *testing.T) {
 	if rec := doDelete(t, h, "/v1/secrets/K?scope=folder&scope_id=other/x"); rec.Code != 403 {
 		t.Fatalf("cross-world DELETE = %d want 403 body=%s", rec.Code, rec.Body.String())
 	}
-	if got := db.FolderSecrets("other/x")["K"]; got != "seed" {
+	if got := db.folderSecrets("other/x")["K"]; got != "seed" {
 		t.Fatal("denied cross-world DELETE still dropped the row")
 	}
 }

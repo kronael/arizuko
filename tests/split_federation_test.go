@@ -189,11 +189,13 @@ type federation struct {
 	runedDB  *runed.DB
 	runedTS  *httptest.Server
 
-	// agent observations: the folder routd dispatched each turn to, and the
-	// status routd returned to the agent's reply callback.
+	// agent observations: the folder routd dispatched each turn to, the secret
+	// set it shipped for the container env, and the status routd returned to the
+	// agent's reply callback.
 	mu          sync.Mutex
-	ranFolders  map[string]string // turnID -> routd-dispatched folder
-	replyStatus map[string]int    // turnID -> routd reply status
+	ranFolders  map[string]string            // turnID -> routd-dispatched folder
+	ranSecrets  map[string]map[string]string // folder -> RunRequest.Secrets (container env)
+	replyStatus map[string]int               // turnID -> routd reply status
 }
 
 // bootFederation stands up authd, runed (real Manager + FakeRuntime), and
@@ -204,7 +206,11 @@ type federation struct {
 // LoopConfig before construction (e.g. the onboarding e2e enables onboarding).
 func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federation {
 	t.Helper()
-	f := &federation{ranFolders: map[string]string{}, replyStatus: map[string]int{}}
+	f := &federation{
+		ranFolders:  map[string]string{},
+		ranSecrets:  map[string]map[string]string{},
+		replyStatus: map[string]int{},
+	}
 	f.authd = newFakeAuthd(t)
 	// Grant resolution (the DB resolver authd consults): the agent identity
 	// gets the full reply grant set for its folder.
@@ -225,6 +231,7 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 	rt := runed.FakeRuntime{Fn: func(_ context.Context, spec runed.RunSpec) runed.RunResult {
 		f.mu.Lock()
 		f.ranFolders[spec.TurnID] = spec.Folder
+		f.ranSecrets[spec.Folder] = spec.Secrets
 		f.mu.Unlock()
 		replyTok := f.authd.mintUser(t, "user:agent", spec.Folder)
 		body, _ := json.Marshal(routdv1.ReplyRequest{JID: spec.ChatJID, Text: "agent says: ack " + spec.TurnID})
@@ -294,6 +301,14 @@ func (f *federation) dispatchedFolder(turnID string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.ranFolders[turnID]
+}
+
+// dispatchedSecrets is the secret map routd shipped in RunRequest.Secrets for
+// that folder's turn — verbatim what runed injects as container env.
+func (f *federation) dispatchedSecrets(folder string) map[string]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ranSecrets[folder]
 }
 
 func (f *federation) replyCode(turnID string) int {

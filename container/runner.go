@@ -255,15 +255,18 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		return Output{Error: "start: " + err.Error()}
 	}
 
-	// Container env carries the operator anchors (ANTHROPIC_API_KEY /
-	// CLAUDE_CODE_OAUTH_TOKEN — required for the Claude Code SDK to call the LLM)
-	// as the base, with the routd-resolved folder+user secrets (in.Secrets, set
-	// by runed from RunRequest.Secrets) overlaid: a web-chat user's own
-	// ANTHROPIC_API_KEY (BYOA) shadows the operator anchor for that spawn. Anchors
-	// stay as the floor so a folder without a BYOA key still reaches the LLM.
-	// (Connector secrets are still broker-resolved at tool-call time inside
-	// ipc.CallConnectorTool — spec 5/13; this env path is for the agent's own
-	// LLM calls + skills that read process.env.)
+	// Container env carries MODEL CREDENTIALS ONLY: the operator anchors from the
+	// host .env (store.EnvProfileKeys — required for the Claude Code SDK to call
+	// the LLM) as the base, with the trigger user's own env-profile keys
+	// (in.Secrets, set by runed from RunRequest.Secrets) overlaid, so a web-chat
+	// user's BYOA ANTHROPIC_API_KEY shadows the anchor for that spawn. Anchors stay
+	// as the floor so a user without a BYOA key still reaches the LLM.
+	//
+	// Capability credentials NEVER arrive here — routd narrows RunRequest.Secrets
+	// to env-profile keys (routd.DB.EnvProfileSecrets) and every other secret is
+	// broker-resolved per tool call inside ipc.CallConnectorTool, so it lives in
+	// the connector subprocess's env on the host and not in the agent's
+	// (spec 5/13 §Trust model, 5/14 §Injection).
 	in.Secrets = mergeSecrets(readSecrets(), in.Secrets)
 	in.AsstName = cfg.Name
 	payload, _ := json.Marshal(in)
@@ -736,8 +739,9 @@ func readSecrets() map[string]string {
 
 // mergeSecrets overlays override onto base (override wins per key) and returns
 // the combined env map. base is the operator anchors (floor); override is the
-// routd-resolved folder+user secrets (BYOA) — so a user's own ANTHROPIC_API_KEY
-// shadows the operator anchor, while a folder with no BYOA key keeps the anchor.
+// trigger user's own env-profile keys (BYOA) — so a user's own ANTHROPIC_API_KEY
+// shadows the operator anchor, while a user with no BYOA key keeps the anchor.
+// Both sides hold store.EnvProfileKeys only; capability credentials are brokered.
 func mergeSecrets(base, override map[string]string) map[string]string {
 	if base == nil {
 		base = make(map[string]string, len(override))

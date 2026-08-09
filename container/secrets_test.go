@@ -38,8 +38,10 @@ func TestReadSecrets_OmitsUnsetVars(t *testing.T) {
 	}
 }
 
-// mergeSecrets: override (routd-resolved BYOA) wins over base (operator anchors);
-// anchors with no override survive; nil base/override are handled.
+// mergeSecrets: override (the caller's own env-profile keys, narrowed by
+// routd.DB.EnvProfileSecrets) wins over base (operator anchors); anchors with no
+// override survive; nil base/override are handled. Both sides carry
+// store.EnvProfileKeys only — a capability credential never reaches this merge.
 func TestMergeSecrets(t *testing.T) {
 	base := map[string]string{
 		"ANTHROPIC_API_KEY":       "operator-anchor",
@@ -47,7 +49,7 @@ func TestMergeSecrets(t *testing.T) {
 	}
 	override := map[string]string{
 		"ANTHROPIC_API_KEY": "user-byoa",
-		"EXTRA_KEY":         "extra",
+		"OPENAI_API_KEY":    "user-openai",
 	}
 	got := mergeSecrets(base, override)
 	if got["ANTHROPIC_API_KEY"] != "user-byoa" {
@@ -56,8 +58,8 @@ func TestMergeSecrets(t *testing.T) {
 	if got["CLAUDE_CODE_OAUTH_TOKEN"] != "oauth" {
 		t.Errorf("anchor without override dropped: %q", got["CLAUDE_CODE_OAUTH_TOKEN"])
 	}
-	if got["EXTRA_KEY"] != "extra" {
-		t.Errorf("override-only key missing: %q", got["EXTRA_KEY"])
+	if got["OPENAI_API_KEY"] != "user-openai" {
+		t.Errorf("override-only key missing: %q", got["OPENAI_API_KEY"])
 	}
 }
 

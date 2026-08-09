@@ -32,7 +32,7 @@ type RunSpec struct {
 	Egress          bool              // 5/33 grant decision → container.Input.Egress (append "*" to allowlist)
 	WebPublish      bool              // 5/33 grant decision → container.Input.WebPublish (mount web surfaces)
 	EgressAllowlist []string          // routd-resolved crackbox allowlist → EgressConfig.AllowlistFn
-	Secrets         map[string]string // routd-resolved folder+user secrets (BYOA) → container.Input.Secrets, injected as container env
+	Secrets         map[string]string // routd-resolved user env-profile keys (BYOA model creds) → container.Input.Secrets, injected as container env; capability creds are brokered, never here
 
 	// RunTTL is the run ceiling (the brokered token's TTL). The Runtime
 	// enforces it as a kill-deadline FROM WITHIN the run path so the kill is
