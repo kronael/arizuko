@@ -415,7 +415,7 @@ so this one is live and permanently empty.
 
 Inert, but it is schema — a drop migration needs sign-off.
 
-## F73 — turn retry treats container exit 125 as transient (2026-08-08, open)
+## F73 — turn retry treats container exit 125 as transient (2026-08-08, open — BLOCKED on a contract decision)
 
 `routd/dispatch.go:307-324` retries any `OutcomeError`. Root `CLAUDE.md`'s own
 "Nothing works" checklist calls exit 125 an image/compose mismatch — a
@@ -424,8 +424,38 @@ remote/network and DB-busy errors retry. So a bad image burns `MAX_TURN_RETRY`
 container spawns per message and reports a generic failure to the user instead
 of the real cause.
 
-Fix is to classify 125 as terminal and surface it, which changes retry behavior
-on a live path.
+**The exit code never reaches routd.** Verified 2026-08-09 along the whole
+path, so the fix cannot be written where this entry implies:
+
+- `container.Output.ExitCode` is set (`container/runner.go:444`), carries the
+  125, and is even tagged `json:"-"`.
+- `runed.RunResult.ExitCode` carries it on (`runed/docker.go:120`).
+- `manager.spawn` spends it on the DB row — `EndSpawn(runID, state,
+  res.Outcome, res.ExitCode)`, `runed/manager.go:382` — and then builds
+  `runedv1.RunOutcome{RunID, Outcome, SessionID, Error}` **without it**
+  (`manager.go:395`).
+- Neither `runedv1.RunOutcome` nor `runedv1.RunStatus`
+  (`runed/api/v1/types.go:79`, `:99`) has an `ExitCode` field. `grep ExitCode`
+  over `runed/api/v1/` and non-test `routd/` returns nothing.
+
+All routd receives is `RunOutcome.Error`, the human string
+`"Container exited with code 125: <stderr tail>"`
+(`container/runner.go:461`). Classifying on that means substring-matching
+another daemon's log prose — a second classification path built on a format
+string nobody treats as a contract. Rejected.
+
+**Proposal, needs sign-off (new cross-daemon contract):** add the terminal/
+retryable discriminator to `runedv1.RunOutcome` — either `ExitCode int` (routd
+decides what is terminal) or `Terminal bool` (runed decides, routd obeys). The
+second keeps exit-code semantics inside the daemon that owns the container and
+matches how `Busy`/`BreakerOpen` already ride that struct as decisions rather
+than raw facts. Either way it is a new field on the runed→routd wire plus a
+control-flow change on the live retry path, which `CLAUDE.md`
+§"Redesigns need sign-off" puts ahead of the user, not inline.
+
+Note the neighbouring case so the fix does not miss it: a failure at
+`cmd.Start()` returns `Output{Error: "start: ..."}` with `ExitCode` 0
+(`container/runner.go:255`) — also a misconfiguration, also retried today.
 
 ## F74 — `ARIZUKO_DEV` sentinel disagrees between production and tests (2026-08-08, open)
 
@@ -478,7 +508,26 @@ declare and no code reads is the same drift class as a comment naming absent
 code (F60, F61). Wiring them changes `arizuko create` behavior, so it needs
 sign-off; deleting them does not.
 
-## F62 — the per-group web slots are never chowned, and a comment says they are (2026-08-07, open)
+## ✅ FIXED 2026-08-09 F62 — the per-group web slots are never chowned, and a comment says they are (2026-08-07, FIXED)
+
+**Fixed** in `f01d59e9`. `chownR` now returns the first `os.Lchown` failure
+instead of discarding it, and `warnChown` is the loud wrapper all four call
+sites share. `setupGroup` chowns both slots where it creates them, and an
+uncreatable slot is now fatal — left absent, the docker daemon materializes
+the bind source as root at spawn, which is the actual route to a root-owned
+`~/public_html`. The spawn-time backstop reports its `MkdirAll` failure.
+
+**One premise below is wrong:** runed does NOT run as root. `compose/compose.go:1027`
+pins it to `user: '1000:1000'` (and `compose.go:734` says so in prose). So a
+slot runed creates is already agent-owned; the failure mode is the *discarded*
+EPERM when the path already exists root-owned, plus docker auto-creating an
+absent bind source. Fix and tests target that.
+
+Tests: `TestChownR_ReportsFailure` (the discarded EPERM comes back),
+`TestSetupGroup_ChownsWebSlots` (the chown reaches both slot paths — by
+ownership where the euid can chown, by the loud failure where it cannot),
+`TestSetupGroup_WebSlotMkdirIsFatal`. Mutation-checked: dropping the slot
+chown fails the second test.
 
 `container/runner.go:1017` states the web slots are pre-created so they
 "inherit the container's uid via chownR in seedGroupDir". They do not.
@@ -503,7 +552,21 @@ Fix: chown the two slots where they are created in `SetupGroup`, and surface
 the `MkdirAll` errors instead of discarding them. One concern, no new
 mechanism — `chownR` already exists.
 
-## F63 — `web:publish` is denied with no diagnosable signal anywhere (2026-08-07, open)
+## ✅ FIXED 2026-08-09 F63 — `web:publish` is denied with no diagnosable signal anywhere (2026-08-07, FIXED)
+
+**Fixed** in `0f49e07e`, exactly as scoped: one `slog.Info` at the decision
+site in `dispatchRun` carrying folder, turn_id and all three decisions
+(`egress`, `share_readonly`, `web_publish`), so an absent web surface points
+back at its missing grant. Who is authorized is unchanged. It is a second line
+rather than a field on the existing `"dispatch run"` log because that one is
+emitted by `runTurn` *before* `dispatchRun` resolves the capabilities; folding
+them in would mean hoisting the authz resolution away from its use.
+
+Tests: `routd/capability_log_test.go` — `TestDispatchLogsDeniedWebPublish`
+(the denial is logged and names the folder) and
+`TestDispatchLogsGrantedWebPublish` (granting `web:publish` via `grantACLTx`
+flips both the `RunRequest` and the log, so the line tracks the decision and
+is not a constant). Mutation-checked: removing the line fails both.
 
 `routd/dispatch.go:534` resolves `webPublish := elevated || Authorize(sub,
 folder, "web:publish", nil)`. False → `container/runner.go:617` skips both bind
