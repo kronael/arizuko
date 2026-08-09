@@ -21,8 +21,13 @@ import (
 // containerDataMount is the container-side path where the data dir is mounted.
 const containerDataMount = "/srv/app/home"
 
-// containerSrcMount is the container-side path where HOST_APP_DIR is mounted.
-const containerSrcMount = "/srv/app/arizuko"
+// containerSrcMount is the container-side path where HOST_APP_DIR is mounted
+// under APP_SRC_DEV. bakedAppSrc is where the Dockerfile stages `ant/` into
+// arizuko:latest, and is the default source — see appSrc.
+const (
+	containerSrcMount = "/srv/app/arizuko"
+	bakedAppSrc       = "/opt/arizuko"
+)
 
 // routdURL is the in-network base URL of the canonical router. webd/onbod/timed
 // and every adapter fragment point their ROUTER_URL here.
@@ -786,17 +791,22 @@ type svcDef struct {
 	dependsOn   string
 }
 
-// appSrcVolume returns the read-only HOST_APP_DIR→containerSrcMount volume
-// spec, or "" when HOST_APP_DIR is unset (pure-REST tests run without a
-// source mount). Daemons that get this mount also need APP_SRC_DIR set to
-// containerSrcMount — routd reads ant/skills/self/MIGRATION_VERSION from it
-// (auto-migrate trigger), runed reads agent assets for spawns.
-func appSrcVolume(env map[string]string) string {
+// appSrc decides where routd and runed read `ant/` from — skills, CLAUDE.md and
+// output-styles. It returns the volume line (empty when none is needed) and the
+// APP_SRC_DIR value.
+//
+// The default is bakedAppSrc, the copy the Dockerfile stages into the image: a
+// release IS an image, so what reaches an agent must travel in one. Setting
+// APP_SRC_DEV bind-mounts HOST_APP_DIR read-only instead. That is a developer
+// loop and never a deployment — it puts an uncommitted working tree in front of
+// every live agent, and it did: krons served skills straight off the checkout,
+// so an edit reached production with no build, no tag and no restart (BUGS M1).
+func appSrc(env map[string]string) (volume, dir string) {
 	hostApp := envOr(env, "HOST_APP_DIR", "")
-	if hostApp == "" {
-		return ""
+	if envOr(env, "APP_SRC_DEV", "") == "" || hostApp == "" {
+		return "", bakedAppSrc
 	}
-	return fmt.Sprintf("%s:%s:ro", hostApp, containerSrcMount)
+	return fmt.Sprintf("%s:%s:ro", hostApp, containerSrcMount), containerSrcMount
 }
 
 // yamlQuote emits a double-quoted YAML scalar with escapes for control
@@ -967,12 +977,13 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 		ports:      []string{fmt.Sprintf("%s:%d", apiPort, core.DefaultAPIPort)},
 		dependsOn:  "authd, runed",
 	}
-	// routd reads ant/skills/self/MIGRATION_VERSION via checkMigrationVersion
-	// to enqueue /migrate; without this mount it sees the host path and the
-	// auto-migrate trigger silently never fires.
-	if vol := appSrcVolume(env); vol != "" {
+	// routd reads ant/skills/self/MIGRATION_VERSION via checkMigrationVersion to
+	// enqueue /migrate; pointed at the wrong tree the auto-migrate trigger
+	// silently never fires.
+	vol, src := appSrc(env)
+	def.environment = map[string]string{"APP_SRC_DIR": src}
+	if vol != "" {
 		def.volumes = []string{vol}
-		def.environment = map[string]string{"APP_SRC_DIR": containerSrcMount}
 	}
 	return writeSvc(def)
 }
@@ -994,10 +1005,10 @@ func runedService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString("    volumes:\n")
 	fmt.Fprintf(&b, "      - %s:%s\n", dataDir, containerDataMount)
 	b.WriteString("      - /var/run/docker.sock:/var/run/docker.sock\n")
-	runedEnv := map[string]string{"DATA_DIR": containerDataMount}
-	if vol := appSrcVolume(env); vol != "" {
+	vol, src := appSrc(env)
+	runedEnv := map[string]string{"DATA_DIR": containerDataMount, "APP_SRC_DIR": src}
+	if vol != "" {
 		fmt.Fprintf(&b, "      - %s\n", vol)
-		runedEnv["APP_SRC_DIR"] = containerSrcMount
 	}
 	b.WriteString("    extra_hosts:\n")
 	b.WriteString("      - 'host.docker.internal:host-gateway'\n")

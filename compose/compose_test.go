@@ -487,23 +487,46 @@ func TestTTSAutoEnable(t *testing.T) {
 }
 
 // routd's checkMigrationVersion reads ant/skills/self/MIGRATION_VERSION from
-// APP_SRC_DIR — without the source mount /migrate is never enqueued.
-func TestAppSrcMountRoutdAndRuned(t *testing.T) {
+// APP_SRC_DIR, and runed seeds every group's skills from it. Pointed at the
+// wrong tree, /migrate is never enqueued and agents freeze at an old version.
+//
+// The default must be the copy baked into the image, EVEN WHEN HOST_APP_DIR is
+// set — it is set on every real instance, and honouring it there is what put an
+// uncommitted working tree in front of krons' live agents (BUGS M1).
+func TestAppSrcDefaultsToTheBakedCopy(t *testing.T) {
 	out := gen(t, seed(t, "HOST_APP_DIR=/home/op/app/arizuko\n"))
+	for _, name := range []string{"routd", "runed"} {
+		s := serviceBlock(out, name)
+		if !strings.Contains(s, `APP_SRC_DIR: "/opt/arizuko"`) {
+			t.Errorf("%s must read ant/ from the image, got:\n%s", name, s)
+		}
+		if strings.Contains(s, "/srv/app/arizuko:ro") {
+			t.Errorf("%s bind-mounted the host checkout without APP_SRC_DEV, got:\n%s", name, s)
+		}
+	}
+}
+
+// The dev loop stays reachable, but only when the operator asks for it by name.
+func TestAppSrcDevMountsTheHostCheckout(t *testing.T) {
+	out := gen(t, seed(t, "HOST_APP_DIR=/home/op/app/arizuko\nAPP_SRC_DEV=1\n"))
 	for _, name := range []string{"routd", "runed"} {
 		s := serviceBlock(out, name)
 		if !strings.Contains(s, "- /home/op/app/arizuko:/srv/app/arizuko:ro\n") {
 			t.Errorf("%s missing read-only source mount, got:\n%s", name, s)
 		}
 		if !strings.Contains(s, `APP_SRC_DIR: "/srv/app/arizuko"`) {
-			t.Errorf("%s missing APP_SRC_DIR, got:\n%s", name, s)
+			t.Errorf("%s must point APP_SRC_DIR at the mount, got:\n%s", name, s)
 		}
 	}
-	out = gen(t, seed(t, "API_PORT=8080\n"))
+	// APP_SRC_DEV alone cannot mount anything — there is no path to mount.
+	out = gen(t, seed(t, "APP_SRC_DEV=1\n"))
 	for _, name := range []string{"routd", "runed"} {
 		s := serviceBlock(out, name)
-		if strings.Contains(s, "/srv/app/arizuko:ro") || strings.Contains(s, "APP_SRC_DIR") {
-			t.Errorf("%s must have no source mount without HOST_APP_DIR, got:\n%s", name, s)
+		if strings.Contains(s, "/srv/app/arizuko:ro") {
+			t.Errorf("%s mounted a source with no HOST_APP_DIR, got:\n%s", name, s)
+		}
+		if !strings.Contains(s, `APP_SRC_DIR: "/opt/arizuko"`) {
+			t.Errorf("%s must fall back to the baked copy, got:\n%s", name, s)
 		}
 	}
 }

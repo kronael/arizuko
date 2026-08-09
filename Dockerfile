@@ -34,8 +34,12 @@ COPY --from=build /emaid /usr/local/bin/emaid
 COPY --from=build /bskyd /usr/local/bin/bskyd
 COPY --from=build /mastd /usr/local/bin/mastd
 COPY --from=build /reditd /usr/local/bin/reditd
+# /opt/arizuko is the DEFAULT source runed and routd read `ant/` from: skills,
+# CLAUDE.md and the per-surface output-styles all ship in the image, so a
+# release is a build and not whatever sits in a checkout on the host.
 COPY --from=build /src/ant/skills /opt/arizuko/ant/skills
 COPY --from=build /src/ant/CLAUDE.md /opt/arizuko/ant/CLAUDE.md
+COPY --from=build /src/ant/output-styles /opt/arizuko/ant/output-styles
 COPY --from=build /src/template/services /opt/arizuko/template/services
 WORKDIR /srv/app/home
 # Each daemon exposes /health on :8080 internally. HEALTHCHECK probes it;

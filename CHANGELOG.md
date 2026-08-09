@@ -50,6 +50,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- **A release is an image: agents no longer read skills off the host checkout.**
+  `routd` and `runed` read `ant/` — skills, `CLAUDE.md` and the per-surface
+  output-styles — from `/opt/arizuko`, the copy the Dockerfile bakes in. Until
+  now compose bind-mounted `HOST_APP_DIR` and pointed `APP_SRC_DIR` at it, so
+  every group's skills came from a working tree on the host: an uncommitted
+  edit, a `git checkout` of another ref, or a stray file reached live agents
+  with no build, no tag and no restart. `MIGRATION_VERSION` now advances only
+  when an image is built and deployed, which is what the release checklist
+  always claimed. The dev loop survives as `APP_SRC_DEV=1`, which restores the
+  read-only bind — never set it on an instance.
+
 - **Agents now write ASD-STE100 Simplified Technical English (migration 199).**
   The house style set how MUCH an agent says and never said which words to pick,
   so the vocabulary drifted: metaphors, a fresh synonym every paragraph, long

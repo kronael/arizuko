@@ -359,6 +359,14 @@ needed; don't fight it where it is.
 `<daemon>/README.md`. Business state (gates, grants, onboarding) lives
 in the DB; infra toggles live in env.
 
+**A release is an image.** `ant/` — skills, `CLAUDE.md`, output-styles —
+is baked to `/opt/arizuko` by the Dockerfile, and routd + runed read it
+from there. `APP_SRC_DEV=1` swaps in a read-only bind of `HOST_APP_DIR`
+for the dev loop. NEVER set it on an instance: it puts an uncommitted
+working tree in front of every live agent, so an edit ships with no
+build, no tag and no restart. Cost: krons ran that way until 2026-08-09
+(BUGS `M1`).
+
 ## Entrypoint
 
 ```
