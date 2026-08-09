@@ -412,7 +412,7 @@ moves one cap and not the other.
 
 Picking a single owner changes which cap governs, so it needs a decision.
 
-## F72 — `runed`'s `spawn_logs` table has no writer and was never dropped (2026-08-08, open)
+## F72 — `runed`'s `spawn_logs` table has no writer and was never dropped (2026-08-08, FIXED 2026-08-09)
 
 `runed/migrations/0001-initial-schema.sql:37-42` creates `spawn_logs`. An
 exhaustive scan finds the name only in two comments
@@ -422,6 +422,38 @@ SELECT. The sibling `mcp_tokens` from the same file WAS retired properly
 so this one is live and permanently empty.
 
 Inert, but it is schema — a drop migration needs sign-off.
+
+**FIXED 2026-08-09**, sign-off given: `runed/migrations/0006-drop-spawn-logs.sql`
+on the `0003` precedent. The two naming comments and the runed table
+enumerations in `ARCHITECTURE.md` / `runed/README.md` / `specs/5/P` follow.
+`TestMigrationsDropRetiredTables` migrates a fresh DB and asserts both retired
+tables are absent while the written ones survive.
+
+## F78 — `ARCHITECTURE.md` still documents runed's deleted token broker (2026-08-09, open)
+
+Commit `42657378` deleted `runed/broker.go`, the `Broker` interface, the
+`mcp_tokens` table and `spawns.mcp_token_jti` on 2026-08-01. It amended `5/P`
+and `7/4` but not the root docs, which still describe the mechanism as live:
+
+- `ARCHITECTURE.md:50` — "per-spawn token downscope via authd (broker.go)"
+- `ARCHITECTURE.md:~296` — "a per-spawn token broker that downscopes its
+  `service:runed` token to a per-turn agent token"
+- `ARCHITECTURE.md:~130` (Message Flow) — "runed brokers a per-spawn token from
+  authd"
+- `mcp_tokens` listed as a live `runed.db` table in `ARCHITECTURE.md` (two
+  sites) and `runed/README.md`
+
+Same class as `F61`: a reader following this concludes the turn is credentialed
+by a bearer token, when the memory record is explicit that it is the
+SO_PEERCRED socket. Found while dropping `spawn_logs` from the same
+enumerations (`F72`); left alone because it is a different removal's debt.
+
+- **Severity:** low (docs-only, but it is the auth model)
+- **Scope:** root architecture docs
+- **Affected:** readers of ARCHITECTURE.md, runed/README.md
+- **Source:** ARCHITECTURE.md:50 vs commit 42657378
+- **Status:** open
+- **Fix:**
 
 ## F73 — turn retry treats container exit 125 as transient (2026-08-08, open — BLOCKED on a contract decision)
 

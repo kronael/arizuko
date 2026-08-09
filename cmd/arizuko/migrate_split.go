@@ -178,7 +178,7 @@ var routdSpecs = []copySpec{
 }
 
 // runedSpecs map messages.db → runed.db. session_log is a straight copy
-// (identical columns); spawns/spawn_logs/mcp_tokens have no pre-split source.
+// (identical columns); spawns has no pre-split source.
 var runedSpecs = []copySpec{
 	{dst: "session_log", src: "session_log",
 		cols: "id, group_folder, session_id, started_at, ended_at, result, error, message_count",

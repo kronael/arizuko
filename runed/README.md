@@ -28,7 +28,7 @@ in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
 ## Tables owned
 
 `runed.db` (separate from routd's `routd.db`): `spawns`, `session_log`,
-`spawn_logs`, `mcp_tokens`, `circuit_breaker`, `audit_log` — runtime
+`mcp_tokens`, `circuit_breaker`, `audit_log` — runtime
 execution state with no home in routd. Migrations in
 `runed/migrations/`. These are runtime tables, not manifest-addressable
 config, so `/openapi.json` exposes only the `audit` read path (emitted also for

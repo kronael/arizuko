@@ -30,7 +30,7 @@ runs, renders the prompt, hosts the socket; `runed` _runs_ the container.
 | ------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | Per-folder serialization                    | **owns** (read from `spawns`, § Run state)                                               |
 | Per-spawn container lifecycle               | **owns** (`container/`, driven by `runed/docker.go`)                                     |
-| Per-spawn runtime state + run history       | **owns** (`runed.db`: `spawns`, `spawn_logs`, `session_log`, `circuit_breaker`)          |
+| Per-spawn runtime state + run history       | **owns** (`runed.db`: `spawns`, `session_log`, `circuit_breaker`)                        |
 | Per-turn agent MCP unix socket + tool host  | **never** — `routd` (`ServeTurnMCP`, in-process); runed mounts the ipc dir               |
 | Session-id LINEAGE (`sessions`, topic fork) | **never** — `routd` (runed produces the id, routd persists it)                           |
 | Capability tokens for spawned agents        | **never** — removed 2026-08-01 (§ Capability brokering); the turn is socket-credentialed |

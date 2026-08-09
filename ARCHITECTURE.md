@@ -48,7 +48,7 @@ runed/    execution plane (the ONLY daemon wired to docker.sock + crackbox)
   ├── container     docker spawn, volume mounts, runtime
   │   └── groupfolder, mountsec
   └── auth          verify; per-spawn token downscope via authd (broker.go)
-  runed.db: spawns, session_log, spawn_logs, mcp_tokens
+  runed.db: spawns, session_log, mcp_tokens
 
 authd/    auth authority (sole ES256 signer, JWKS publisher, OAuth provider)
   └── auth          token mint/downscope, key rotation
@@ -294,7 +294,7 @@ standalone daemon owning its own DB:
   queue, circuit breaker, `MaxConcurrent` cap, run TTL, steer
   (SIGUSR1), and a per-spawn token broker that downscopes its
   `service:runed` token to a per-turn agent token. Owns `runed.db`
-  (`spawns`, `session_log`, `spawn_logs`, `mcp_tokens`). Spec
+  (`spawns`, `session_log`, `mcp_tokens`). Spec
   [`specs/5/P-runed.md`](specs/5/P-runed.md).
 - **`authd`** — auth authority. The sole ES256 token minter; serves
   JWKS so every daemon verifies offline via the `auth/` library. Acts
@@ -443,7 +443,7 @@ each daemon re-sequences its own `migrations/` from `0001`.
   `network_rules`, `web_routes`, `group_watchers`, `idempotency_keys`,
   `pane_sessions`, `installed_packages`.
 - **`runed.db`** (`runed/migrations/`): `spawns`, `session_log`,
-  `spawn_logs`, `mcp_tokens`, `circuit_breaker`.
+  `mcp_tokens`, `circuit_breaker`.
 - **`auth.db`** (`authd/migrations/`): `signing_keys`, `auth_users`,
   `oauth_identities`, `refresh_tokens`.
 - **`onbod.db`** (`onbod/migrations/`): `onboarding`, `onboarding_gates`,
@@ -479,7 +479,6 @@ each daemon re-sequences its own `migrations/` from `0001`.
 | `audit_log`          | id (PK), created_at, category, action, actor, actor_sub, resource, scope, surface, outcome, duration_ms, turn_id, folder, instance — one identical table per owner DB (routd.db mig 0016, runed.db mig 0005, auth.db mig 0003, onbod.db mig 0002); correlation across them is `turn_id`. proxyd/webd/dashd own no audit DB and write via a sibling `routd.db` handle |
 | `session_log`        | id, group_folder, session_id, started_at, ended_at, result, error, message_count (runed.db)                                                                                                                                                                                                                                                                          |
 | `spawns`             | run_id (PK), folder, topic, container_name, session_log_id, mcp_token_jti, session_id, state, outcome, exit_code, created_at (runed.db)                                                                                                                                                                                                                              |
-| `spawn_logs`         | id (PK), run_id, ts, kind, line (runed.db)                                                                                                                                                                                                                                                                                                                           |
 | `mcp_tokens`         | jti (PK), run_id, parent_jti, folder, scope, issued_at, expires_at (runed.db)                                                                                                                                                                                                                                                                                        |
 | `circuit_breaker`    | folder (PK), failures, last_failure — per-folder consecutive-failure count, survives restarts (runed.db)                                                                                                                                                                                                                                                             |
 | `auth_users`         | user_id (PK), name, created_at (auth.db)                                                                                                                                                                                                                                                                                                                             |

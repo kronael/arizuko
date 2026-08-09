@@ -26,7 +26,7 @@ const serviceName = "runed"
 var ErrNotFound = errors.New("not found")
 
 // DB owns runed.db: execution runtime state with no home in routd (spawns,
-// session_log, spawn_logs). Times are RFC3339 TEXT.
+// session_log). Times are RFC3339 TEXT.
 type DB struct {
 	db *sql.DB
 }
@@ -308,7 +308,7 @@ func (d *DB) ExpireOrphans() (int64, error) {
 	return res.RowsAffected()
 }
 
-// SweepExpired drops spawns older than retention, cascading spawn_logs.
+// SweepExpired drops spawns older than retention.
 func (d *DB) SweepExpired(retention time.Duration) error {
 	cutoff := time.Now().Add(-retention).UTC().Format(time.RFC3339)
 	_, err := d.db.Exec("DELETE FROM spawns WHERE created_at < ?", cutoff)
