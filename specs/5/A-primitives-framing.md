@@ -151,7 +151,7 @@ introduces machinery absent from the six primitives.
 | Personas / skills / memory                   | folder contents                                         | Agent (folder-data)  |
 | Workflows                                    | an enforced opening at the session boundary             | Turn + State         |
 | Grants / roles / scopes                      | views over the one `Authorize` question                 | Authorization        |
-| Secrets / egress allowlist                   | per-folder State resolved before spawn                  | State + Turn         |
+| Secrets / egress allowlist                   | per-folder State the host resolves, not container env   | State + Turn         |
 | A product                                    | a folder with persona + skills + routes                 | Agent (recomposed)   |
 | Dashboard / CLI                              | a second face over the same handlers (`5/17`)           | (surface, not prim.) |
 

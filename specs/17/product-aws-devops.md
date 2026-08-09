@@ -1,9 +1,20 @@
 ---
-status: draft
+status: defected
 brand: argus
+defects: [X2]
 ---
 
 # Product: aws-devops
+
+> **BLOCKED (2026-08-09).** This product's headline — per-operator `AWS_*` keys
+> reaching `aws`/`boto3` inside the container — rested on spawn-injected
+> capability secrets, which `X1` removed: container env now carries only the
+> caller's `store.EnvProfileKeys` (`5/14` §1). Nothing below the "What's
+> actually free today" table is buildable as written. The credential model needs
+> a broker-shaped answer (a host-side SigV4 connector, `5/13` shape 1/2) or an
+> explicit, signed-off exception. Do not ship `ant/examples/aws-devops/` — its
+> `CLAUDE.md` tells the agent to read `AWS_*` from its environment, and those
+> vars are now always empty. BUGS `X2`.
 
 _An SRE agent in your team's chat. Reads your runbooks, runs
 read-before-write against AWS, and each engineer acts with their own

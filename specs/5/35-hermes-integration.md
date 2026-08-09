@@ -73,9 +73,9 @@ FTS5 search, `5/C`) · **audit** (one `audit_log` row per state transition,
 emitted in the mutation's own transaction via `audit.EmitInTx`, `5/I` —
 not a droppable log line) · **grants** (`auth.Authorize` gates every tool
 call on `(action, scope, params)` bound to the caller's folder, `5/32`) ·
-**secrets injection** (folder- and user-scoped, resolved by routd into the
-spawn env, with connector secrets broker-resolved at tool-call time,
-`7/Y`, so they never sit in the process environment) · **tenancy** (the
+**secrets injection** (folder- and user-scoped capability credentials
+broker-resolved on the host at tool-call time, `5/13`, so they never sit
+in the agent's process environment) · **tenancy** (the
 folder coordinate is tenant, ACL, route, egress, web host, and file tree
 at once — one Hermes deployment serves many tenants without Hermes
 knowing tenancy exists) · **egress isolation** (per-folder rules through

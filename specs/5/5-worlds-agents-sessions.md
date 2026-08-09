@@ -213,11 +213,11 @@ Folder- and user-scoped secrets, independent of the hierarchy — **shipped**,
 as `5/14`'s credential model, which fully supersedes this spec's original
 §Secrets shape (`chats.kind` gate, scope model).
 `FolderSecretsResolvedForUser` (`store/secrets.go:532`) does a live folder walk
-(deepest wins) with a user overlay. **Not** built: the call-time broker
-(`5/13` shape 3) — capability credentials still inject at container spawn,
-interim, instead of a key that never lands in container env. Adoption, for
-context: `secrets` holds **one row fleet-wide** across all three live
-instances.
+(deepest wins) with a user overlay, and the call-time broker (`5/13` shape 3) is
+its only consumer: a capability credential never reaches the container env. The
+spawn injects the caller's `EnvProfileKeys` and nothing else (`5/14` §1).
+Adoption, for context: `secrets` holds **one row fleet-wide** across all three
+live instances.
 
 ## Decisions (2026-08-07)
 

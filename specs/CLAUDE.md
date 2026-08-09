@@ -53,8 +53,11 @@ Ship is complete only when ALL hold. Miss one and the surfaces drift.
    (`README`/`ARCHITECTURE`/`SECURITY`/`EXTENDING`/`GRANTS`) + the owning
    daemon's `<pkg>/README.md`.
 4. **Tiers** — placed in the hot/cold-tier model (and, for credentials,
-   the broker / spawn-inject / .env credential tiers). The tier framing
-   must name the new thing, not leave it uncategorized.
+   the three tiers of `5/14`: env-profile keys, which are the only
+   table-backed credential that reaches container env; capability
+   credentials, which are broker-only; infra credentials, which live in
+   the host `.env`). The tier framing must name the new thing, not leave
+   it uncategorized.
 5. **Online** — operator-facing web docs under `template/web/pub/`
    (`concepts/` + `reference/`); the daemon's `openapi.json` is listed on
    `reference/openapi.html`; the `CHANGELOG.md` blockquote is consistent.

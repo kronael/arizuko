@@ -1,8 +1,7 @@
 ---
-status: defected
+status: shipped
 depends:
   [17-openapi-mcp, specs/5/32-acl-unified, specs/5/5-worlds-agents-sessions]
-defects: [X1]
 ---
 
 # specs/5/13 — external capability injection
@@ -25,7 +24,7 @@ Every handler shape shares one chain:
 ```
 agent MCP call
   → gate        auth.Authorize("mcp:"+toolName) — may this folder call this tool?
-  → inject      resolve folder/user secrets → map[string]string (never logged)
+  → inject      resolve folder/user secrets ON THE HOST → map[string]string (never logged)
   → recover/timeout
   → handler     Go function | REST call | MCP subprocess
   → audit       audit_log row: folder, tool, scope, status, latency_ms
@@ -108,13 +107,18 @@ call site is the only place it is known.
 
 ## Trust model
 
-| scope                       | where             | reaches the agent?                                                                                                                                                                 |
-| --------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Operator anchors            | container env     | yes — the Claude Code CLI needs them (`.env` → `container/runner.go` `readSecrets()`; separate from the `secrets` table)                                                           |
-| Folder secrets (capability) | `secrets` table   | **target: no** (broker-only). **Interim today: yes**, spawn-injected via container env (`5/14` §Injection, BUGS X1). Realizing the target = inject only `EnvProfileKeys` at spawn. |
-| Per-user secrets            | `secrets`, broker | no                                                                                                                                                                                 |
+| scope                       | where             | reaches the agent?                                                                                                                    |
+| --------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Operator anchors            | host `.env`       | yes — the Claude Code CLI needs them (`container/runner.go` `readSecrets()`; separate from the `secrets` table)                       |
+| Per-user env-profile keys   | `secrets` table   | yes — the model credential is spent by the SDK subprocess, so it has no tool call to broker (`routd.DB.EnvProfileSecrets`, `5/14` §1) |
+| Folder secrets (capability) | `secrets` table   | **no** — broker-only, resolved per call on the host (`5/14` §2). Shipped 2026-08-09, BUGS `X1`.                                       |
+| Per-user capability secrets | `secrets`, broker | **no** — same broker path; a user's own key wins over the folder default for their calls                                              |
 
-Three escape paths the broker closes:
+The container env therefore holds exactly two things: the operator anchors, and
+the triggering user's own `store.EnvProfileKeys`. Nothing else from `secrets`
+crosses the boundary, so `env` inside the container is not a credential store.
+
+Four escape paths the broker closes:
 
 1. **Tool result echoes the token** — the broker scrubs known secret values from
    the result before returning to the agent (exact-string match on the keys
@@ -123,6 +127,9 @@ Three escape paths the broker closes:
    (`ipc/connector.go` `slog.Debug` under the connector name).
 3. **Agent steers the tool to leak** — connector registration is operator-only;
    agents cannot add connectors or REST descriptors.
+4. **Agent reads its own environment** — the spawn ships only the caller's
+   `EnvProfileKeys`, so `env` inside the container names no capability
+   credential to read, write to disk, or replay after the turn.
 
 ## Capability layer model (settled 2026-07-27)
 

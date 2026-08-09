@@ -1,5 +1,5 @@
 ---
-status: defected
+status: shipped
 depends:
   [17-openapi-mcp, 5/13-ext-mcp, specs/5/32-acl-unified, 5/15-surrogate-oauth]
 supersedes:
@@ -8,7 +8,6 @@ supersedes:
     specs/5/5 §Phase-C-secrets,
     specs/8/E §Anthropic-keys,
   ]
-defects: [X1]
 ---
 
 # specs/5/14 — credential model
@@ -27,8 +26,15 @@ caused silent injection bugs and a wrong `scope_kind` split.
   layer **rejects** these key names at `scope_kind='folder'` regardless of call
   path (`store/secrets.go:118` `validateScope`) — the enforcement point, not a
   handler convention.
-- **Injection**: at container spawn. The Claude Code CLI reads them from the
-  container env directly and cannot be broker-injected at call time.
+- **Injection**: at container spawn, and this type is the ONLY table-backed
+  credential that gets there. The Claude Code CLI spends the key from its own
+  process env, so there is no tool call to attach a broker to. `routd.DB`
+  exposes exactly one reader for it — `EnvProfileSecrets(userSub)`
+  (`routd/sibling_db.go`) — which queries `scope_kind='user'` and keeps only
+  `EnvProfileKeys`, so no folder row and no capability credential can reach
+  `RunRequest.Secrets`. The narrowing lives in that reader, not at the dispatch
+  call site, because a call-site filter leaves an exported bulk reader for the
+  next writer of `RunRequest.Secrets` to reopen the hole with.
 - **Platform fallback**: the operator's `.env` via `readSecrets()`, NOT the
   table. A user row overrides it.
 
@@ -47,10 +53,12 @@ caused silent injection bugs and a wrong `scope_kind` split.
 - **Resolution**: `FolderSecretsResolvedForUser(folder, callerSub)`
   (`store/secrets.go:449`) — folder walk (deeper wins) with a user overlay. The
   **triggering user's** key resolves; a folder default only when they have none.
-- **Injection**: today spawn-time via the container env (interim). Target:
-  call-time broker per `5/13` shape 3, so the key never lands in container env.
-  For subprocess connectors, `ConnectorSecrets` already narrows to declared keys
-  at call time.
+- **Injection**: **never into the container.** The credential reaches a tool
+  only through the call-time broker (`5/13` shape 2 and 3): `ConnectorSecrets`
+  narrows it to the keys that call declares, the value lands in the connector
+  subprocess's env or the outbound REST request **on the host**, and it is
+  scrubbed from the result. An agent that reads its whole environment finds no
+  capability credential (BUGS `X1`, closed 2026-08-09).
 
 ## 3. Infra / operator credentials
 

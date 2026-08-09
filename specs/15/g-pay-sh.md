@@ -27,8 +27,10 @@ agent's MCP config. Per-group spend is capped by a daily-limit env var.
 
 ## Open
 
-- Headless signing: confirm the CLI supports non-interactive approval; if
-  not, a thin wrapper reads the key from the injected env.
+- Headless signing: confirm the CLI supports non-interactive approval. The
+  signing key is a capability credential, so it never reaches container env
+  (`5/14` §2) — a wrapper would have to run host-side as a connector and take
+  the key from the broker.
 - Whether the daily cap belongs in env or, like other business state, in the
   DB with a dashboard surface. Env is the v1 answer; a real deployment with
   more than one paying group probably wants the DB.
