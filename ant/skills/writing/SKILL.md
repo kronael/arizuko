@@ -20,3 +20,4 @@ Copy rules for any user-facing string.
 - ALWAYS prefer plain verbs ("keep stake", "grow stake") over Latinate nouns ("retention", "expansion").
 - NEVER use jargon when a 13yo could read the plain version. ALWAYS test: would a smart non-expert understand this in one read?
 - ALWAYS finish longer prose with a de-slop pass: the `humanize` skill strips AI-isms and restores voice.
+- The language floor is ASD-STE100 Simplified Technical English — one word one meaning, no metaphor, active voice, simple tenses, max 20/25 words per sentence. It lives in `CLAUDE.md` §Response Style and applies to every string this skill produces. Do not restate it here.

@@ -50,6 +50,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- **Agents now write ASD-STE100 Simplified Technical English (migration 199).**
+  The house style set how MUCH an agent says and never said which words to pick,
+  so the vocabulary drifted: metaphors, a fresh synonym every paragraph, long
+  compound clauses. Terse and unintelligible is still unintelligible. The
+  aerospace maintenance-manual standard fixes the other axis — one word one
+  meaning, no metaphor or idiom, active voice with the actor named, simple
+  tenses, one instruction per sentence, 20 words in a step and 25 in
+  description. It bans telegraphic style, so "run the test" stays and "run test"
+  does not: length is cut by dropping whole sentences, never words inside one.
+  Two of an agent's readers fail on the same ambiguity — a non-native speaker,
+  and another agent parsing the output. The floor lives in `ant/CLAUDE.md`
+  §Response Style and holds on every surface; a group `PERSONA.md` adds voice on
+  top and never loosens it.
+
 - **Each daemon's database moved into a directory of its own, and its container
   can no longer reach anyone else's (spec `5/16` step 7).** `store/routd.db` is
   now `store/routd/routd.db`; likewise `store/authd/auth.db`,
