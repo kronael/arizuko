@@ -342,3 +342,30 @@ func parseCSV(s string) []string {
 	}
 	return out
 }
+
+// PublicBaseURL turns a configured WEB_HOST into a base URL that always carries
+// a scheme, so callers can concatenate a path onto it.
+//
+// WEB_HOST is a BARE hostname on every live instance (krons.fiu.wtf,
+// sloth.quantblue.tech, fab.krons.cx) while AUTH_BASE_URL carries the scheme.
+// Concatenating a path onto the bare value hands the user "krons.fiu.wtf/pair/x":
+// Telegram autolinks a bare domain, but WhatsApp and most clients do not, and a
+// browser resolves it as a relative path. Normalising here is the one place —
+// never a per-call-site "https://" prefix (BUGS F43).
+//
+// A value that already carries a scheme is returned unchanged (trailing "/"
+// trimmed), so an operator who sets WEB_HOST to a full URL is not double-schemed.
+// localhost/127.0.0.1 get http — no local dev instance serves TLS.
+func PublicBaseURL(webHost string) string {
+	host := strings.TrimRight(strings.TrimSpace(webHost), "/")
+	switch {
+	case host == "":
+		return ""
+	case strings.Contains(host, "://"):
+		return host
+	case strings.HasPrefix(host, "localhost"), strings.HasPrefix(host, "127.0.0.1"):
+		return "http://" + host
+	default:
+		return "https://" + host
+	}
+}

@@ -232,3 +232,24 @@ func TestSanitizeInstance(t *testing.T) {
 		}
 	}
 }
+
+// PublicBaseURL is the ONE normaliser for WEB_HOST → public base URL. Every
+// live instance sets WEB_HOST bare (krons.fiu.wtf) while AUTH_BASE_URL carries
+// the scheme, so a raw concatenation emits a scheme-less link (BUGS F43).
+func TestPublicBaseURL(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"krons.fiu.wtf", "https://krons.fiu.wtf"}, // the live shape
+		{"sloth.quantblue.tech/", "https://sloth.quantblue.tech"},
+		{" fab.krons.cx ", "https://fab.krons.cx"},
+		{"https://krons.fiu.wtf", "https://krons.fiu.wtf"}, // already a URL: no double scheme
+		{"http://krons.fiu.wtf/", "http://krons.fiu.wtf"},
+		{"localhost:8080", "http://localhost:8080"}, // no local dev instance serves TLS
+		{"127.0.0.1:8080", "http://127.0.0.1:8080"},
+		{"", ""}, // unset stays unset — callers gate on it
+		{"   ", ""},
+	} {
+		if got := PublicBaseURL(c.in); got != c.want {
+			t.Errorf("PublicBaseURL(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

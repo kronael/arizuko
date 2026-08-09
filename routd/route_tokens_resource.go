@@ -54,6 +54,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/resreg"
@@ -148,8 +149,8 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		url := ""
-		if s.webHost != "" {
-			url = s.webHost + urlPrefix + raw
+		if base := core.PublicBaseURL(s.webHost); base != "" {
+			url = base + urlPrefix + raw
 			if kind == "chat" {
 				url += "/"
 			}
@@ -166,7 +167,8 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		if err != nil {
 			return nil, err
 		}
-		if s.webHost == "" {
+		base := core.PublicBaseURL(s.webHost)
+		if base == "" {
 			return nil, resreg.Errorf(http.StatusInternalServerError,
 				"cannot mint a pairing link: WEB_HOST is unset, so there is no URL to hand out")
 		}
@@ -175,7 +177,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		slog.Info("issue_pairing_link", "folder", folder, "target", target, "jid", jid)
-		return map[string]any{"url": s.webHost + "/pair/" + raw, "jid": jid}, nil
+		return map[string]any{"url": base + "/pair/" + raw, "jid": jid}, nil
 
 	case routeTokensActionRevoke:
 		jid := strings.TrimSpace(argString(x.Args, "jid"))

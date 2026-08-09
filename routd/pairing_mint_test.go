@@ -178,3 +178,50 @@ func TestPairingMint_DefaultDeny(t *testing.T) {
 		t.Fatal("delegating the delivery mints surfaced issue_pairing_link")
 	}
 }
+
+// F43: every live instance sets WEB_HOST to a BARE hostname (krons.fiu.wtf)
+// while AUTH_BASE_URL carries the scheme, so the agent used to hand the user
+// "krons.fiu.wtf/pair/<tok>" — Telegram autolinks that, WhatsApp and most
+// clients do not, and a browser resolves it as a relative path. Both the
+// pairing mint and the chat/webhook mints must emit a scheme.
+func TestIssuedURLsCarrySchemeForBareWebHost(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := db.PutGroup(core.Group{Folder: "hq"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddRoute(core.Route{Match: "room=user/42", Target: "hq"}); err != nil {
+		t.Fatal(err)
+	}
+	grantMCPTools(t, db, "hq", "issue_pairing_link", "issue_chat_link", "issue_webhook")
+	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", "krons.fiu.wtf") // bare, as deployed
+
+	pairURL, _ := issuePairing(t, sock, "telegram:user/42")
+	if !strings.HasPrefix(pairURL, "https://krons.fiu.wtf/pair/") {
+		t.Fatalf("pairing url = %q, want an https:// prefix — a scheme-less link is not clickable", pairURL)
+	}
+
+	_, _, chatURL := issueToken(t, sock, "issue_chat_link", nil)
+	if !strings.HasPrefix(chatURL, "https://krons.fiu.wtf/chat/") {
+		t.Fatalf("chat url = %q, want an https:// prefix", chatURL)
+	}
+
+	_, _, hookURL := issueToken(t, sock, "issue_webhook", map[string]any{"source_label": "github"})
+	if !strings.HasPrefix(hookURL, "https://krons.fiu.wtf/hook/") {
+		t.Fatalf("hook url = %q, want an https:// prefix", hookURL)
+	}
+}
+
+// A WEB_HOST that already carries a scheme is not double-schemed — the
+// normaliser is idempotent, so an operator may configure either shape.
+func TestIssuedURLsNotDoubleSchemed(t *testing.T) {
+	db, sock := pairingFixture(t, "hq", "room=user/42") // fixture webHost = https://x.test
+	url, _ := issuePairing(t, sock, "telegram:user/42")
+	if !strings.HasPrefix(url, "https://x.test/pair/") || strings.Count(url, "://") != 1 {
+		t.Fatalf("url = %q, want exactly one scheme", url)
+	}
+	_ = db
+}

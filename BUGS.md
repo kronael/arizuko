@@ -972,7 +972,28 @@ reaches the operator.
 - **Fix:** mount the source read-only (routd and runed already get
   `HOST_APP_DIR:ro`), or read the skills from a path dashd actually has.
 
-## F43 — routd hands the agent a scheme-less pairing URL (2026-08-06, open)
+## ✅ FIXED 2026-08-09 — F43 — routd hands the agent a scheme-less pairing URL (2026-08-06)
+
+Normalised at ONE place, as the entry asked: `core.PublicBaseURL(webHost)` —
+bare host → `https://`, `localhost`/`127.0.0.1` → `http://`, a value that already
+carries a scheme returned unchanged (so an operator may configure either shape
+and existing `https://…` configs are untouched). `WEB_HOST` stays a HOST; the
+scheme is applied where a public URL is built.
+
+Not a new URL-building path: `cmd/arizuko/send.go` already had exactly this
+https/localhost logic inline, and now calls the shared function — one renderer,
+two sinks. `route_tokens_resource.go`'s two emit sites (issue_chat/issue_hook
+and issue_pair) call it too.
+
+`ipc.WebPresenceFor` is deliberately untouched: it already emits a scheme, and
+its `webHost` is used as a HOSTNAME (`CanonicalHost`), not a base URL — folding
+it in would be a second concern.
+
+Tests: `TestPublicBaseURL` (`core/config_test.go`),
+`TestIssuedURLsCarrySchemeForBareWebHost` + `TestIssuedURLsNotDoubleSchemed`
+(`routd/pairing_mint_test.go`), the latter pinning idempotency.
+
+Original report:
 
 `routd/cmd/routd/main.go` reads `webHost := os.Getenv("WEB_HOST")` raw, and
 `issue_pair` returns `s.webHost + "/pair/" + raw`. All three live instances set
@@ -999,6 +1020,8 @@ Not fixed here: the honest fix is deciding whether `WEB_HOST` is a host or a
 URL and normalising at ONE place (a `core.Config` accessor), not prefixing
 `https://` at each of the ~6 call sites, and `core.Config.WebHost` has other
 readers. Cross-cutting → proposal, not an inline patch.
+
+- **Status:** fixed 2026-08-09 — `core.PublicBaseURL` is that one place
 
 ## ✅ FIXED 2026-08-06 — F42 — spec 5/18 step 8: a chat-onboarded stranger with no world still cannot make one (2026-08-06)
 

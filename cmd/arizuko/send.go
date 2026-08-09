@@ -110,15 +110,11 @@ func cmdSend(args []string) {
 	if err != nil {
 		die("Failed: load .env: %v", err)
 	}
-	host := cfg["WEB_HOST"]
-	if host == "" {
+	base := core.PublicBaseURL(cfg["WEB_HOST"])
+	if base == "" {
 		die("Failed: WEB_HOST not configured for instance %q", instance)
 	}
-	scheme := "https"
-	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") {
-		scheme = "http"
-	}
-	endpoint := fmt.Sprintf("%s://%s/chat/%s", scheme, host, chatToken)
+	endpoint := fmt.Sprintf("%s/chat/%s", base, chatToken)
 
 	form := url.Values{}
 	form.Set("content", msg)
@@ -155,8 +151,7 @@ func cmdSend(args []string) {
 		return
 	}
 
-	turnURL := fmt.Sprintf("%s://%s/chat/%s/%s",
-		scheme, host, chatToken, url.PathEscape(posted.TurnID))
+	turnURL := fmt.Sprintf("%s/chat/%s/%s", base, chatToken, url.PathEscape(posted.TurnID))
 
 	if stream {
 		os.Exit(streamRound(client, turnURL+"/sse"))
