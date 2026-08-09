@@ -80,6 +80,13 @@ type resourceMeta struct {
 	columns    []string   // SELECT column list (with overrides applied)
 	colsRaw    []string   // raw column names (for INSERT/DELETE)
 	stampedIdx []int      // struct-field indices Diff ignores (server-stamped)
+	// autoStampIdx is the subset of stampedIdx Insert may FILL with now().
+	// A stamped field carrying a ColumnOverride.Write has already declared what
+	// its empty value stores — nilIfEmptyString means "empty is NULL", not
+	// "unset, invent one" — so inventing a value first would overwrite a
+	// deliberate NULL. Server-OWNED and server-INVENTED are different claims;
+	// Diff ignores both, Insert only fills the second (BUGS F49).
+	autoStampIdx []int
 }
 
 type fieldMeta struct {
@@ -158,6 +165,9 @@ func (r *Resource) initMeta() {
 			panic(fmt.Sprintf("resreg: %s StampedFields %q not found or missing db: tag", r.Name, name))
 		}
 		m.stampedIdx = append(m.stampedIdx, m.fields[i].idx)
+		if m.fields[i].writeHook == nil {
+			m.autoStampIdx = append(m.autoStampIdx, m.fields[i].idx)
+		}
 	}
 	r.meta = m
 }
@@ -253,8 +263,14 @@ func (r *Resource) Insert(ctx context.Context, tx *sql.Tx, row any) error {
 	// Diff ignores — so the engine owns both meanings and resources don't hand-copy a
 	// "stamp if empty" hook. An explicit BeforeInsert value wins: it ran above, so
 	// this only fills what's still empty.
+	//
+	// autoStampIdx, not stampedIdx: a field with a declared empty→NULL write
+	// (groups.updated_at) exports as "" when the column is NULL, and stamping
+	// that on re-insert made the FIRST `export | apply` write a fresh timestamp
+	// — moving the subsystem checksum the operator changed nothing to move
+	// (spec 5/8 §"Round-trip honesty", BUGS F49).
 	stampNow := time.Now().UTC().Format(time.RFC3339)
-	for _, idx := range r.meta.stampedIdx {
+	for _, idx := range r.meta.autoStampIdx {
 		if f := rowPtr.Elem().Field(idx); f.Kind() == reflect.String && f.String() == "" {
 			f.SetString(stampNow)
 		}
@@ -592,7 +608,7 @@ func KnownFolders(q Querier, manifests ...map[string]any) (map[string]bool, erro
 // whose rows name a folder absent from known, BEFORE any transaction opens.
 // Two FK'd references (web_routes.folder, route_tokens.owner_folder) would
 // fail SQLite's own check mid-write; the ones with no FK — network_rules,
-// whose folder='' instance-global rows a FK would reject — produce a silently
+// whose folder=” instance-global rows a FK would reject — produce a silently
 // orphaned row instead, which is the gap this closes.
 //
 // Checks exactly the references that are DECLARATIVELY folders: a resource's
@@ -603,7 +619,7 @@ func KnownFolders(q Querier, manifests ...map[string]any) (map[string]bool, erro
 // for its own polymorphic column adds a Hooks.ValidateRow — the existing
 // extension point — rather than teaching this function per-resource shapes.
 //
-// The empty scope is exempt: network_rules carries folder='' for
+// The empty scope is exempt: network_rules carries folder=” for
 // instance-global rules, which names no group by design.
 func ValidateFolderRefs(subsystem string, manifest map[string]any, known map[string]bool) error {
 	var bad []string

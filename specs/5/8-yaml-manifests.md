@@ -1,8 +1,7 @@
 ---
-status: defected
+status: shipped
 shipped: 2026-06-14
 depends: specs/5/16-mcp-rest-unification.md, specs/5/17-openapi-mcp.md, specs/5/P-runed.md, specs/9/2-data-model.md
-defects: [F44, F49]
 ---
 
 # specs/5/8 — YAML manifests + the full-instance archive
@@ -55,9 +54,9 @@ The last five gaps closed 2026-08-06, each in its own section below:
 5. **`dashd`'s kill-confirm label** — `killConfirm`
    (`dashd/runed_page.go`) reads `spawns.kind`.
 
-Two bugs this pass found and did NOT fix, because both are redesigns:
-`F41` (an empty `StampedField` is re-stamped on re-insert, so the FIRST no-op
-`export | apply` moves the checksum — see "Round-trip honesty") and `F38`.
+Two bugs this pass found and did NOT fix at the time: `F49` (an empty
+`StampedField` is re-stamped on re-insert, so the FIRST no-op `export | apply`
+moves the checksum — see "Round-trip honesty"; closed 2026-08-09) and `F38`.
 `F42` WAS fixed, because it blocked item 4 outright: `onboarding`'s row had no
 `COALESCE` reads while its NULL columns are the normal state, so one pending
 admission broke `Export`/`Checksum` — and therefore every config verb — for
@@ -186,8 +185,8 @@ canonical DB-side projection; the digest hashes whatever bytes the operator
 handed `apply`, edits included.
 
 Determinism comes for free from "Round-trip honesty" (below): two
-consecutive exports of an unchanged DB are byte-identical. Note the one
-first-touch exception "Round-trip honesty" records (`F41`).
+consecutive exports of an unchanged DB are byte-identical, with no first-touch
+exception since `F49` closed.
 
 ## Cross-subsystem apply: per-subsystem transaction, pre-image rollback
 
@@ -935,13 +934,20 @@ sorted by PK. Two consecutive exports must be byte-identical on an unchanged
 DB or file hashing and git diffs break — and the content-hash CAS above
 depends on exactly this guarantee holding.
 
-**One known first-touch violation, `F41`.** `Insert` fills any `StampedFields`
-entry that is still empty with `now()`, and `groups.updated_at` is nullable
-with no default — so a row holding NULL there exports as `updated_at: ""`, and
-re-applying that unmodified manifest writes a fresh timestamp. The checksum
-moves once, then is stable. Both candidate fixes change a settled meaning
-(drop stamped fields from the hashed projection, or stop reading an exported
-`""` as "unset"), so it is recorded for sign-off rather than patched here.
+**The first-touch violation `F49` is closed (2026-08-09).** `Insert` filled any
+`StampedFields` entry that was still empty with `now()`, and `groups.updated_at`
+is nullable with no default — so a row holding NULL there exported as
+`updated_at: ""` and re-applying that unmodified manifest wrote a fresh
+timestamp, moving the checksum once.
+
+Neither candidate fix was needed: the meanings that had to be separated were
+already both declared on the resource. `StampedFields` says server-OWNED (Diff
+ignores it); a `ColumnOverride.Write` of `nilIfEmptyString` says empty STORES as
+NULL — that is, empty is a value, not an absence. `Insert` now auto-stamps only
+the stamped fields with NO write hook (`resourceMeta.autoStampIdx`), so
+server-owned and server-INVENTED are distinct. Nothing about the hashed
+projection or the emitted form changed, and a hand-written manifest that omits
+`added_at`/`granted_at`/`created_at` still gets one.
 
 ## Secret safety
 

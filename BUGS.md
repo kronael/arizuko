@@ -1439,7 +1439,39 @@ no override) is mechanical to check across `resreg/resources/*.go` against each
 table's DDL, and every instance of it is the same latent whole-subsystem
 outage. Not swept here.
 
-## F49 — a re-inserted row's empty stamped field is re-stamped, so the first no-op `export | apply` moves the checksum (2026-08-06, open)
+## F49 — a re-inserted row's empty stamped field is re-stamped, so the first no-op `export | apply` moves the checksum (2026-08-06, FIXED 2026-08-09)
+
+**FIXED 2026-08-09, and neither recorded candidate was needed.** The entry framed
+this as a choice between two redesigns — drop `StampedFields` from the `Checksum`
+projection, or make the emitted form distinguish never-set from set-to-empty.
+Both change a settled meaning. But the two meanings that had to be separated are
+ALREADY both declared on the resource, and the engine was conflating them:
+
+- `StampedFields` says the field is server-OWNED — that is what `Diff` ignores.
+- `ColumnOverride.Write = nilIfEmptyString` says an empty value STORES as NULL —
+  that is, empty is a VALUE, not an absence.
+
+`Insert` read `""` as "unset, invent one" for every stamped field, including the
+one whose own resource had already said `""` means NULL. So the fix is to
+auto-stamp only the stamped fields with NO write hook
+(`resourceMeta.autoStampIdx`, split from `stampedIdx` at Register time).
+Server-owned and server-INVENTED are now distinct; the hashed projection, the
+emitted form and the CAS contract are all untouched.
+
+`groups.UpdatedAt` is the only field in the repo that is both stamped and
+overridden, so exactly one field changes behaviour: a NULL now round-trips as
+NULL instead of becoming `now()`. `added_at`/`granted_at`/`created_at` still
+auto-stamp for a hand-written manifest.
+
+Tests: `TestExportApplyIsNoOpForNullStampedColumn` seeds a group the way
+`RegisterGroup` writes one (added_at set, updated_at never touched), counts the
+NULL first so it cannot pass vacuously, and asserts pass ZERO moves no checksum
+and leaves the NULL a NULL. `TestApplyStillStampsAFieldWithNoWriteHook` is the
+converse — the fix narrows the stamp, it must not disable it. Mutation-checked:
+pointing `Insert` back at `stampedIdx` fails both assertions of the first.
+
+Also corrected: `specs/5/8` cited this defect as `F41` in three places. `F41` is
+the re-greet cooldown; the frontmatter had `F49` all along.
 
 Spec `5/8` §"Round-trip honesty" requires `export` to emit something that
 "re-applies to a no-op", and the content-hash CAS depends on it. It does not
