@@ -158,7 +158,7 @@ Full package graph, message flow, container lifecycle, and SQLite schema in [ARC
 | twitd   | X/Twitter          |
 | linkd   | LinkedIn           |
 
-Optional capability hooks: Whisper transcription (`WHISPER_BASE_URL`), TTS (`ttsd` + `TTS_BASE_URL`), second LLM (`OPENAI_API_KEY`/`CODEX_API_KEY` in folder secrets).
+Optional capability hooks: Whisper transcription (`WHISPER_BASE_URL`), TTS (`ttsd` + `TTS_BASE_URL`), second LLM (`OPENAI_API_KEY`/`CODEX_API_KEY` in the host `.env` or a user's own `/dash/me/env` row — these are model keys, so the store rejects them at folder scope).
 
 Full daemon and library tables in [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -177,7 +177,7 @@ Documents can be mounted or written into a group's workspace; agents can read th
 - **Container isolation**: each group runs in a separate Docker container on a separate network. Sibling groups never share a context window.
 - **Egress isolation**: `crackbox` enforces default-deny on agent outbound traffic via per-source-IP allowlists. Credential/placeholder swap at the boundary (`egred` HTTPS-MITM, `specs/8/Z-egred-mitm.md`) is planned, not shipped.
 - **ACL**: `auth.Authorize` — one `acl` table, deny-wins, no fallback. Capability comes from granted rows, never from a folder's depth; `role:member` is the seeded default and everything above it is delegated. MCP tools gated per-action per-principal.
-- **Secret injection**: folder secrets are AES-256-GCM encrypted at rest; injected into the container at spawn time, never written to disk in plaintext.
+- **Secret injection**: secrets are AES-256-GCM encrypted at rest. Only model credentials reach the container env — an API token for a tool is resolved on the host for the one call that needs it and never crosses into the agent's environment.
 - **Identity relay**: `proxyd` stamps `X-User-*` headers, proving the channel with a `service:proxyd` ES256 bearer (verified via `auth.ProxydTransit`); backends trust the headers only when that proof holds. Client-supplied `X-User-*` headers are stripped.
 
 Full threat model in [SECURITY.md](SECURITY.md).

@@ -565,15 +565,17 @@ delivery paths:
   model a spawn talks to. The operator default lives in the host `.env`
   (`container/runner.go:readSecrets()`); a user's own key (BYOA) at user
   scope in the `secrets` table overrides it. **Spawn-inject** — merged into
-  the container env at start.
+  the container env at start. This is the only table-backed credential that
+  gets there, because the key is spent by the Claude Code SDK subprocess and
+  there is no tool call to attach a broker to.
 - **Capability credentials** (per-service tokens like `GITHUB_TOKEN`) —
-  resolved from the `secrets` table by
-  `routd/dispatch.go:FolderSecretsForUser(folder, callerSub)` (user rows win
-  over folder for real user triggers; timed/system use `service:routd` →
-  folder scope). Folder-scoped rows spawn-inject into the container env;
-  user-scoped capability creds for an external-tool call are **brokered on
-  the host at call-time** (`ipc/extcall.go`) and never enter the container.
-  Grant-gated. A capability row is written either by a pasted PAT
+  **brokered on the host at call time, never in container env.** The tool
+  call resolves them through `routd/mcp.go:ResolveConnectorSecrets` →
+  `ConnectorSecrets(folder, callerSub, required)` (user rows win over folder
+  for real user triggers; timed/system use `service:routd` → folder scope),
+  narrowed to the keys that call declares, spent in the connector subprocess
+  or the outbound REST request (`ipc/extcall.go`), and scrubbed from the
+  result. Grant-gated. A capability row is written either by a pasted PAT
   (`/dash/me/secrets`) or via **surrogate OAuth** — the dashboard's
   "Connect GitHub" button (`/dash/me/connections`, `auth/surrogate/`, spec
   [`5/15`](specs/5/15-surrogate-oauth.md)) runs the OAuth dance and writes
@@ -583,10 +585,12 @@ delivery paths:
   credentials) — instance-wide, host `.env` only, never in the `secrets`
   table.
 
-Env-profile + folder-scoped rows are merged by
-`mergeSecrets(anchors, tableSecrets)` into the container env; user-scoped
-capability creds stay on the host. See `SECURITY.md § Secret injection`,
-[`5/14`](specs/5/14-credentials.md), and [`5/13`](specs/5/13-ext-mcp.md).
+`mergeSecrets(anchors, userEnvProfileKeys)` builds the container env, and
+`routd/sibling_db.go:EnvProfileSecrets(userSub)` is what supplies the second
+argument — a `scope_kind='user'` query filtered to the four model keys, so no
+folder row and no capability credential can reach the container. See
+`SECURITY.md § Secret injection`, [`5/14`](specs/5/14-credentials.md), and
+[`5/13`](specs/5/13-ext-mcp.md).
 
 Session: new session ID updates routd's `sessions` table. Error with no
 output → evict session (cursor rolled back, retry). Error with output →

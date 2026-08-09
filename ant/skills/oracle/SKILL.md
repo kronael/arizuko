@@ -46,7 +46,7 @@ Detect before calling; do NOT crash the turn:
 ```bash
 if ! codex login status >/dev/null 2>&1 \
    && [ -z "${CODEX_API_KEY:-}${OPENAI_API_KEY:-}" ]; then
-  echo "oracle unavailable — no codex login on host mount and no folder secret"
+  echo "oracle unavailable — no codex login on host mount and no env-profile key"
   exit 0
 fi
 codex exec "$prompt"

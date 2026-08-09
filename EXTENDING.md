@@ -533,15 +533,17 @@ Some integrations are **pure host-tool surfaces** — no daemon, no MCP,
 no protocol. The operator installs a CLI in the agent image (or
 mounts host state into it) and ships a skill that drives it as a
 subprocess. The agent sees an ordinary command on `PATH`; the
-skill is the discovery surface; auth flows from a host-side mount or
-folder secret. Distinct from MCP tools (in-band, schema-typed,
+skill is the discovery surface. Auth flows from a host-side mount or, for a
+model key, the host `.env` / the user's own `/dash/me/env` row — a capability
+credential cannot back one of these, because it never reaches container env
+(spec `5/14`). Distinct from MCP tools (in-band, schema-typed,
 routd-mediated) and channel adapters (out-of-band, HTTP).
 
 Currently shipping:
 
-| Capability | Binary  | Skill                        | Auth                                                                                                  |
-| ---------- | ------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `oracle`   | `codex` | `ant/skills/oracle/SKILL.md` | `HOST_CODEX_DIR` mount on the agent container **OR** `CODEX_API_KEY` / `OPENAI_API_KEY` folder secret |
+| Capability | Binary  | Skill                        | Auth                                                                                                                                      |
+| ---------- | ------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `oracle`   | `codex` | `ant/skills/oracle/SKILL.md` | `HOST_CODEX_DIR` mount on the agent container **OR** `CODEX_API_KEY` / `OPENAI_API_KEY` from the host `.env` or the user's `/dash/me/env` |
 
 Adding one:
 

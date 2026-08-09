@@ -35,10 +35,13 @@ stdout is discarded. Also owns `SetupGroup` to create new group folders.
 
 ## Env injection
 
-Container env carries operator anchors only (`ANTHROPIC_API_KEY`,
-`CLAUDE_CODE_OAUTH_TOKEN` — required for LLM calls). Folder- and
-user-scoped secrets are broker-resolved at tool-call time via
-`ipc.injectSecretsAdapter` (spec 7/Y). Agent model and query timeout
+Container env carries model credentials only: the operator anchors from the
+host `.env` (`store.EnvProfileKeys` — `ANTHROPIC_API_KEY`,
+`CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`, required for LLM
+calls), overlaid with the triggering user's own rows for those same keys
+(BYOA, `routd.DB.EnvProfileSecrets`). Capability credentials — folder- or
+user-scoped — are broker-resolved on the host at tool-call time and never
+enter the container (specs `5/13`, `5/14`). Agent model and query timeout
 are set via `ARIZUKO_MODEL` and `ARIZUKO_QUERY_TIMEOUT_MS` env vars
 (read by ant's index.ts and claude.ts at module load).
 
