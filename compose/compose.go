@@ -277,6 +277,21 @@ func envFileFor(name string) string {
 // perDaemon holds keys scoped to a single daemon (e.g. each daemon's own
 // AUTHD_SERVICE_KEY) that must NOT leak across the shared env map. Called from
 // Generate before rendering compose; failure is non-fatal.
+// containerUID is the uid every daemon and agent container runs as.
+const containerUID = 1000
+
+// mkdirOwned creates dir and hands it to uid. Chown is best-effort: it needs
+// root, and a non-root generate run on a dev box is legitimate.
+func mkdirOwned(dir string, uid int) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := os.Chown(dir, uid, uid); err != nil && os.Geteuid() == 0 {
+		return fmt.Errorf("chown %s: %w", dir, err)
+	}
+	return nil
+}
+
 func writeEnvFiles(dataDir string, env map[string]string, perDaemon map[string]map[string]string) error {
 	dir := filepath.Join(dataDir, "env")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -712,6 +727,15 @@ func Generate(dataDir string) (string, error) {
 	// Written after the services scan so service-triggered env (TTS_*) lands.
 	if werr := writeEnvFiles(dataDir, env, perDaemon); werr != nil {
 		fmt.Fprintf(os.Stderr, "compose: writeEnvFiles: %v\n", werr)
+	}
+
+	// app-src/ holds the release's ant/, staged by runed for agent containers to
+	// bind-mount (container.MaterializeAppSrc). Generation creates it because
+	// generation runs as root while runed runs as uid 1000 and the data-dir root
+	// is not writable by it — runed's mkdir failed with permission denied and no
+	// agent could migrate.
+	if derr := mkdirOwned(filepath.Join(dataDir, "app-src"), containerUID); derr != nil {
+		fmt.Fprintf(os.Stderr, "compose: app-src: %v\n", derr)
 	}
 
 	routes, err := collectProxydRoutes(servicesDir, services, env)
