@@ -7,6 +7,36 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## M1 — runed reads skills from the developer's working tree, not from a release (2026-08-09, proposal, needs sign-off)
+
+`arizuko_runed_krons` bind-mounts `/home/onvos/app/arizuko` at `/srv/app/arizuko`
+(read-only) and `APP_SRC_DIR` points at it. `seedSkills` and the `CLAUDE.md`
+merge-base refresh both read `cfg.EffectiveAppSrcDir()`, so **every group's
+skills come from an uncommitted checkout on the host**.
+
+Verified today: I edited `ant/CLAUDE.md` and bumped `MIGRATION_VERSION` to 199 in
+the repo, ran no deploy, and `docker exec arizuko_runed_krons cat
+/srv/app/arizuko/ant/skills/self/MIGRATION_VERSION` already returned `199`. A
+half-finished edit, a `git checkout` of another ref, or a stray file reaches
+production agents with no build, no tag and no restart. The image
+`arizuko:latest` carries no `/app` copy at all, so the mount is not a
+convenience — it is the only source.
+
+Cost so far: none observed. The exposure is the point.
+
+Proposal (NOT shipped — this changes what a release IS):
+
+1. Bake `ant/skills/` + `ant/CLAUDE.md` + `ant/output-styles/` into the
+   `arizuko` image at build time; `EffectiveAppSrcDir` defaults to that copy.
+2. Keep the host mount as an explicit dev-only opt-in (`APP_SRC_DIR` set by
+   hand), never a compose default.
+3. `MIGRATION_VERSION` then advances only when an image is built and deployed,
+   which is what the release checklist already claims happens.
+
+Cheaper interim if the redesign is not wanted: point `APP_SRC_DIR` at a
+read-only release checkout (a detached worktree pinned to the deployed tag)
+instead of the working tree.
+
 ## L1 — a webhook payload is parked in onboarding instead of reaching its folder (2026-08-08, open)
 
 Found by the live capability eval, not by reading — every unit test in this path
