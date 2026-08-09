@@ -53,6 +53,20 @@ spec each primitive links to — this file must not restate it.
    spec 5/X is gone (its modality half landed in 5/Y); the shipped
    surface is concepts/workflows.html and no spec owns the discipline. -->
 
+6. **The core runs standalone; the seam is REST/MCP** (user-locked
+   2026-08-09). The smallest real deployment is `routd` + `dashd` +
+   `onbod` + `timed` — routing, operator surface, admission, schedule —
+   with **no channel adapter at all**, and it is a complete system. What
+   crosses the boundary crosses it as REST or MCP: that pair is the
+   agent-to-agent and app-to-agent transport, and it is the same two
+   faces every resource already carries (`5/17`). A channel adapter is
+   ONE way to reach the seam; posting a message straight to `/v1` is
+   another; neither is privileged and neither is the system. So a
+   capability is finished when it works at the seam — platform-native
+   rendering (Telegram buttons, Slack Block Kit) is adapter sugar on top
+   and never the mechanism. Docs that open with "connect Telegram"
+   describe an adapter, not arizuko.
+
 ## Thesis
 
 arizuko is an **event→reaction engine**: something happens, an agent
