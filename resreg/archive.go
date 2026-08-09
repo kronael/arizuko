@@ -455,47 +455,43 @@ func CountInvites(ctx context.Context, db *sql.DB) (int, error) {
 
 // --- onboarding admissions (spec 5/8 "Message history", Z3) --------------
 
-// ArchiveOnboardingRow is one row of the archive's onboarding document:
-// OnboardingRow's shape (resreg/resources/onboarding.go) plus TokenRef, the
-// hash-at-rest verifier that resource deliberately omits from its RowType
-// outright so no read surface can ever render it.
+// ArchiveOnboardingRow is one row of the archive's onboarding document — the
+// same shape OnboardingRow (resreg/resources/onboarding.go) publishes. It used
+// to carry token_ref/token_expires too, the hash-at-rest verifier and its
+// expiry; onbod 0006 dropped both columns once the 5/31 fold left nothing
+// writing them (BUGS F40), so there is no longer a credential in this document.
 //
-// Admissions need this archive-only lane because they cannot ride the config
-// lane and cannot be rederived. `onboarding` is SkipApplyRebuild and its
-// RowType has no token_ref, so a DELETE+INSERT rebuild would null every live
-// setup link instance-wide — that flag is load-bearing and stays. And
-// rederiving is impossible: routeMiss advances agent_cursor past a
+// Admissions still need this archive-only lane because they cannot ride the
+// config lane and cannot be rederived. `onboarding` is SkipApplyRebuild —
+// admissions are runtime state driven by chat traffic and the gate limiter,
+// never declared in a manifest — so `arizuko apply` never writes the table at
+// all. And rederiving is impossible: routeMiss advances agent_cursor past a
 // route-missed message whether or not the admission insert succeeded (a
 // deliberate fail-forward — a re-fed miss would replay forever), and import
 // reproduces that by setting agent_cursor, so a pending admission not
 // independently in the archive is gone for good: the person is neither in the
 // queue nor going to message again.
 //
-// TokenRef travels rather than being dropped because it is half of a matched
-// pair with TokenExpires: a row carrying a future expiry and a NULL verifier
-// is one onbod treats as having a live link that nothing can redeem. Carrying
-// a credential verifier is exactly why this document rides the same
-// off-by-default gate route_tokens and invites do.
+// It keeps riding the same off-by-default gate as route_tokens and invites.
+// The reason is no longer a verifier but the verdicts: importing admission
+// decisions onto a live instance is a merge, not a restore.
 type ArchiveOnboardingRow struct {
-	JID          string `yaml:"jid"`
-	Status       string `yaml:"status"`
-	UserSub      string `yaml:"user_sub,omitempty"`
-	Gate         string `yaml:"gate,omitempty"`
-	Created      string `yaml:"created"`
-	PromptedAt   string `yaml:"prompted_at,omitempty"`
-	QueuedAt     string `yaml:"queued_at,omitempty"`
-	AdmittedAt   string `yaml:"admitted_at,omitempty"`
-	TokenRef     string `yaml:"token_ref,omitempty"`
-	TokenExpires string `yaml:"token_expires,omitempty"`
+	JID        string `yaml:"jid"`
+	Status     string `yaml:"status"`
+	UserSub    string `yaml:"user_sub,omitempty"`
+	Gate       string `yaml:"gate,omitempty"`
+	Created    string `yaml:"created"`
+	PromptedAt string `yaml:"prompted_at,omitempty"`
+	QueuedAt   string `yaml:"queued_at,omitempty"`
+	AdmittedAt string `yaml:"admitted_at,omitempty"`
 }
 
-// ExportOnboarding reads every admission row with its token_ref verifier,
-// ordered by jid for deterministic output.
+// ExportOnboarding reads every admission row, ordered by jid for deterministic
+// output.
 func ExportOnboarding(ctx context.Context, db *sql.DB) ([]ArchiveOnboardingRow, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT jid, status, COALESCE(user_sub,''), COALESCE(gate,''), created,
-		        COALESCE(prompted_at,''), COALESCE(queued_at,''), COALESCE(admitted_at,''),
-		        COALESCE(token_ref,''), COALESCE(token_expires,'')
+		        COALESCE(prompted_at,''), COALESCE(queued_at,''), COALESCE(admitted_at,'')
 		 FROM onboarding ORDER BY jid`)
 	if err != nil {
 		return nil, fmt.Errorf("query onboarding: %w", err)
@@ -505,7 +501,7 @@ func ExportOnboarding(ctx context.Context, db *sql.DB) ([]ArchiveOnboardingRow, 
 	for rows.Next() {
 		var r ArchiveOnboardingRow
 		if err := rows.Scan(&r.JID, &r.Status, &r.UserSub, &r.Gate, &r.Created,
-			&r.PromptedAt, &r.QueuedAt, &r.AdmittedAt, &r.TokenRef, &r.TokenExpires); err != nil {
+			&r.PromptedAt, &r.QueuedAt, &r.AdmittedAt); err != nil {
 			return nil, fmt.Errorf("scan onboarding: %w", err)
 		}
 		out = append(out, r)
@@ -534,11 +530,10 @@ func ImportOnboarding(ctx context.Context, db *sql.DB, rows []ArchiveOnboardingR
 	for _, r := range rows {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT OR IGNORE INTO onboarding
-			 (jid, status, user_sub, gate, created, prompted_at, queued_at, admitted_at, token_ref, token_expires)
-			 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+			 (jid, status, user_sub, gate, created, prompted_at, queued_at, admitted_at)
+			 VALUES (?,?,?,?,?,?,?,?)`,
 			r.JID, r.Status, nullStr(r.UserSub), nullStr(r.Gate), r.Created,
 			nullStr(r.PromptedAt), nullStr(r.QueuedAt), nullStr(r.AdmittedAt),
-			nullStr(r.TokenRef), nullStr(r.TokenExpires),
 		); err != nil {
 			return 0, fmt.Errorf("insert onboarding %s: %w", r.JID, err)
 		}

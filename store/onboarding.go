@@ -36,19 +36,20 @@ func (s *Store) InsertOnboarding(jid string) error {
 	return err
 }
 
-// BackfillOnboardingTokenRefs carries rows from a freshly-migrated
-// onboarding_legacy table (the pre-Z3 plaintext `token` shape) into the
-// hash-at-rest onboarding table (`token_ref`). SQLite has no sha256(), so the
-// SQL migration that produces onboarding_legacy (store 0080 / onbod 0004) only
-// reshapes the table; this Go step hashes each live token forward so the
-// /onboard?token=<raw> links already in users' chats keep resolving, then
-// drops onboarding_legacy. Idempotent: a no-op once onboarding_legacy is gone,
-// which is the state on every boot after the first. Called from store.migrate
-// (Open/OpenMem/Migrate all route through it) and onbod's openOwnedDB — every
-// opener that runs the onboarding migrations also runs this.
+// CarryOnboardingLegacy moves rows from the onboarding_legacy table that the
+// reshaping migration leaves behind (store 0080 / onbod 0004 rename the old
+// table out of the way) into the current onboarding table, then drops it.
+// Idempotent: a no-op once onboarding_legacy is gone, which is the state on
+// every boot after the first. Called from store.migrate (Open/OpenMem/Migrate
+// all route through it) and onbod's openOwnedDB — every opener that runs the
+// onboarding migrations also runs this.
 //
-// The hash is store.TokenRef, the one bearer-handle scheme in this repo.
-func BackfillOnboardingTokenRefs(db *sql.DB) error {
+// It carried the pre-Z3 plaintext `token` forward as hex(sha256) so already-sent
+// /onboard?token=<raw> links kept resolving. That stopped buying anything at the
+// 5/31 fold, which deleted every reader of the ref, and onbod 0006 drops the
+// column outright — so the token columns are no longer named here at all
+// (naming them would fail outright against the post-0006 schema, BUGS F40).
+func CarryOnboardingLegacy(db *sql.DB) error {
 	var exists int
 	err := db.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='onboarding_legacy'`).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -63,7 +64,7 @@ func BackfillOnboardingTokenRefs(db *sql.DB) error {
 	}
 	defer tx.Rollback()
 
-	rows, err := tx.Query(`SELECT jid, status, prompted_at, created, token, token_expires,
+	rows, err := tx.Query(`SELECT jid, status, prompted_at, created,
 	                              user_sub, gate, queued_at, admitted_at
 	                       FROM onboarding_legacy`)
 	if err != nil {
@@ -71,14 +72,14 @@ func BackfillOnboardingTokenRefs(db *sql.DB) error {
 	}
 	type legacyRow struct {
 		jid, status, created string
-		promptedAt, token, tokenExpires, userSub,
+		promptedAt, userSub,
 		gate, queuedAt, admittedAt sql.NullString
 	}
 	var legacy []legacyRow
 	for rows.Next() {
 		var r legacyRow
-		if err := rows.Scan(&r.jid, &r.status, &r.promptedAt, &r.created, &r.token,
-			&r.tokenExpires, &r.userSub, &r.gate, &r.queuedAt, &r.admittedAt); err != nil {
+		if err := rows.Scan(&r.jid, &r.status, &r.promptedAt, &r.created,
+			&r.userSub, &r.gate, &r.queuedAt, &r.admittedAt); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan onboarding_legacy row: %w", err)
 		}
@@ -91,17 +92,11 @@ func BackfillOnboardingTokenRefs(db *sql.DB) error {
 	rows.Close() // must close before reusing tx for the inserts below
 
 	for _, r := range legacy {
-		// A NULL/empty token stays NULL — it means "consumed or never minted",
-		// and hashing "" would mint a resolvable ref for every such row.
-		var ref sql.NullString
-		if r.token.Valid && r.token.String != "" {
-			ref = sql.NullString{String: TokenRef(r.token.String), Valid: true}
-		}
 		if _, err := tx.Exec(
-			`INSERT INTO onboarding (jid, status, prompted_at, created, token_ref,
-			                         token_expires, user_sub, gate, queued_at, admitted_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			r.jid, r.status, r.promptedAt, r.created, ref, r.tokenExpires,
+			`INSERT INTO onboarding (jid, status, prompted_at, created,
+			                         user_sub, gate, queued_at, admitted_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			r.jid, r.status, r.promptedAt, r.created,
 			r.userSub, r.gate, r.queuedAt, r.admittedAt); err != nil {
 			return fmt.Errorf("carry onboarding row forward: %w", err)
 		}
@@ -197,25 +192,25 @@ func (s *Store) EnableGate(gate string, enabled bool) error {
 
 // OnboardingRow is one row from the onboarding admission table.
 type OnboardingRow struct {
-	JID          string `json:"jid"`
-	Status       string `json:"status"`
-	UserSub      string `json:"user_sub,omitempty"`
-	Gate         string `json:"gate,omitempty"`
-	Created      string `json:"created"`
-	PromptedAt   string `json:"prompted_at,omitempty"`
-	QueuedAt     string `json:"queued_at,omitempty"`
-	AdmittedAt   string `json:"admitted_at,omitempty"`
-	TokenExpires string `json:"token_expires,omitempty"`
+	JID        string `json:"jid"`
+	Status     string `json:"status"`
+	UserSub    string `json:"user_sub,omitempty"`
+	Gate       string `json:"gate,omitempty"`
+	Created    string `json:"created"`
+	PromptedAt string `json:"prompted_at,omitempty"`
+	QueuedAt   string `json:"queued_at,omitempty"`
+	AdmittedAt string `json:"admitted_at,omitempty"`
 }
 
 // ListOnboarding returns onboarding rows, optionally filtered by status. Empty
-// statusFilter returns all rows. Ordered by created DESC. token_ref is never
-// selected: it is only a lookup key, and a read surface has no use for it
-// (the bearer it hashes lives solely in the link the user was sent; Z3).
+// statusFilter returns all rows. Ordered by created DESC. The setup link is not
+// in this projection and has no column left to be in: the bearer lives solely
+// in the link the user was sent (Z3), and token_ref/token_expires were dropped
+// by onbod 0006 once the 5/31 fold left nothing writing them (BUGS F40).
 func (s *Store) ListOnboarding(statusFilter string) ([]OnboardingRow, error) {
 	q := `SELECT jid, status, COALESCE(user_sub,''), COALESCE(gate,''),
 	             created, COALESCE(prompted_at,''), COALESCE(queued_at,''),
-	             COALESCE(admitted_at,''), COALESCE(token_expires,'')
+	             COALESCE(admitted_at,'')
 	      FROM onboarding`
 	var args []any
 	if statusFilter != "" {
@@ -232,7 +227,7 @@ func (s *Store) ListOnboarding(statusFilter string) ([]OnboardingRow, error) {
 	for rows.Next() {
 		var r OnboardingRow
 		if err := rows.Scan(&r.JID, &r.Status, &r.UserSub, &r.Gate,
-			&r.Created, &r.PromptedAt, &r.QueuedAt, &r.AdmittedAt, &r.TokenExpires); err != nil {
+			&r.Created, &r.PromptedAt, &r.QueuedAt, &r.AdmittedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -287,7 +282,7 @@ func (s *Store) DenyOnboarding(jid string) error {
 func (s *Store) RepromptOnboarding(jid string) error {
 	_, err := s.db.Exec(
 		`UPDATE onboarding
-		 SET status='awaiting_message', token_ref=NULL, prompted_at=NULL,
+		 SET status='awaiting_message', prompted_at=NULL,
 		     user_sub=NULL, gate=NULL, queued_at=NULL, admitted_at=NULL
 		 WHERE jid=?`, jid)
 	return err

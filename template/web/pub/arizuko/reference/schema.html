@@ -391,13 +391,11 @@
         <tr><td><code>status</code></td><td>TEXT</td><td>NOT NULL</td><td>'awaiting_message' &rarr; 'queued' | 'approved' | 'refused'. A row in anything else is stranded &mdash; no query advances it &mdash; and is logged every poll</td></tr>
         <tr><td><code>prompted_at</code></td><td>TEXT</td><td>NULL</td><td>RFC3339; when the last greeting went out. Cleared by a route miss older than <code>PairingTTL</code>, which is what re-arms the greeting</td></tr>
         <tr><td><code>created</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
-        <tr><td><code>token_ref</code></td><td>TEXT</td><td>NULL</td><td>inert. The greeting's credential is a <code>kind='pair'</code> row in <code>route_tokens</code>; dropped in a follow-up migration</td></tr>
-        <tr><td><code>token_expires</code></td><td>TEXT</td><td>NULL</td><td>inert, as above</td></tr>
         <tr><td><code>user_sub</code></td><td>TEXT</td><td>NULL</td><td>linked auth_users.sub on claim</td></tr>
         <tr><td><code>gate</code></td><td>TEXT</td><td>NULL</td><td>gate name that admitted (0027)</td></tr>
         <tr><td><code>queued_at</code></td><td>TEXT</td><td>NULL</td><td>RFC3339 (0027)</td></tr>
       </table>
-      <p class="meta"><strong>Indexes:</strong> <code>idx_onboarding_token_ref</code> on <code>token_ref</code> (inert with the column).</p>
+      <p class="meta">No credential column: the greeting's credential is a <code>kind='pair'</code> row in <code>route_tokens</code>. The inert <code>token_ref</code>/<code>token_expires</code> pair and its index were dropped by onbod migration 0006.</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/onboarding.go"><code>store/onboarding.go</code></a> (row creation + the greeting re-arm, queue mgmt), <a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go"><code>onbod/main.go</code></a> (<code>promptUnprompted</code> claims, <code>admitJID</code> writes the verdict, <code>admitFromQueue</code> promotes). It writes NO <code>acl_membership</code> row &mdash; that edge belongs to <code>store.RedeemPairing</code>.</p>
       <p class="meta"><strong>Readers:</strong> onbod (queue + admission check), dashd (operator queue).</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0009-onboarding.sql">0009</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0021-onboarding-simplify.sql">0021</a> collapsed flow; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0023-drop-dead-columns.sql#L67">0023</a> dropped sender/world_name/channel; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0024-onboarding-auth.sql">0024</a> added token/user_sub; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0027-onboarding-gates.sql">0027</a> added gate/queued_at; 0042 rewrote rows to typed JID.</p>
@@ -711,7 +709,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-09">2026-08-09</time>
       </div>
     </main>
 

@@ -6,30 +6,29 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// OnboardingRow mirrors the onboarding admission table (onbod/migrations/0004,
-// store/migrations/0080) MINUS its credential columns. It is the projection
-// every read surface — REST, MCP, OpenAPI, `arizuko export` — sees.
+// OnboardingRow mirrors the onboarding admission table (onbod/migrations/0006).
+// It is the projection every read surface — REST, MCP, OpenAPI, `arizuko
+// export` — sees, and since 0006 it is also the whole table: the credential
+// columns it deliberately omitted are gone from the schema too.
 //
-// token_ref is deliberately absent, not merely hidden with `yaml:"-"`: since
-// the engine derives Insert's column list purely from the `db:` tags here, a
-// field that does not exist cannot be exported, rendered, or logged by a later
-// edit. It is also the reason this resource sets SkipApplyRebuild — see below.
-// The bearer it hashes lives only in the /onboard?token=<raw> link the user was
-// sent, so there is nothing here to leak even if a projection is added
-// carelessly (Z3; same shape as route_tokens omitting token_hash).
-//
-// token_expires DOES appear: it is a timestamp, not a credential, and the
-// operator queue page needs it to show which links are still live.
+// token_ref was absent here rather than hidden with `yaml:"-"`, because the
+// engine derives Insert's column list purely from the `db:` tags, so a field
+// that does not exist cannot be exported, rendered or logged by a later edit
+// (Z3; same shape as route_tokens omitting token_hash). token_expires DID
+// appear — a timestamp, not a credential — so the operator queue could show
+// which links were still live. The 5/31 fold left nothing writing either, so
+// the column answered "never set" for every row while claiming to answer the
+// question, and onbod 0006 dropped both (BUGS F40). The live link is a
+// route_tokens row now, and that is where its lifetime is read.
 type OnboardingRow struct {
-	JID          string `db:"jid"           yaml:"jid"                     json:"jid"`
-	Status       string `db:"status"        yaml:"status"                  json:"status"`
-	UserSub      string `db:"user_sub"      yaml:"user_sub,omitempty"      json:"user_sub,omitempty"`
-	Gate         string `db:"gate"          yaml:"gate,omitempty"          json:"gate,omitempty"`
-	Created      string `db:"created"       yaml:"created"                 json:"created"`
-	PromptedAt   string `db:"prompted_at"   yaml:"prompted_at,omitempty"   json:"prompted_at,omitempty"`
-	QueuedAt     string `db:"queued_at"     yaml:"queued_at,omitempty"     json:"queued_at,omitempty"`
-	AdmittedAt   string `db:"admitted_at"   yaml:"admitted_at,omitempty"   json:"admitted_at,omitempty"`
-	TokenExpires string `db:"token_expires" yaml:"token_expires,omitempty" json:"token_expires,omitempty"`
+	JID        string `db:"jid"         yaml:"jid"                   json:"jid"`
+	Status     string `db:"status"      yaml:"status"                json:"status"`
+	UserSub    string `db:"user_sub"    yaml:"user_sub,omitempty"    json:"user_sub,omitempty"`
+	Gate       string `db:"gate"        yaml:"gate,omitempty"        json:"gate,omitempty"`
+	Created    string `db:"created"     yaml:"created"               json:"created"`
+	PromptedAt string `db:"prompted_at" yaml:"prompted_at,omitempty" json:"prompted_at,omitempty"`
+	QueuedAt   string `db:"queued_at"   yaml:"queued_at,omitempty"   json:"queued_at,omitempty"`
+	AdmittedAt string `db:"admitted_at" yaml:"admitted_at,omitempty" json:"admitted_at,omitempty"`
 }
 
 // OnboardingEndpoints mounts at the REAL served paths (onbod/main.go), not the
@@ -50,10 +49,10 @@ var OnboardingEndpoints = []resreg.Endpoint{
 // operator can drive over REST is reachable over MCP too (5/17): the two faces
 // are the same handler behind two injected gates.
 var OnboardingMCPDoc = map[resreg.Action]string{
-	resreg.ActionList:         "List pending and admitted onboarding rows — who is waiting to be let in, which gate queued them, and when their setup link expires. Filter with status= (awaiting_message, token_used, queued, approved). Never returns the setup link itself.",
+	resreg.ActionList:         "List pending and admitted onboarding rows — who is waiting to be let in, which gate queued them, and when each was greeted, queued and admitted. Filter with status= (awaiting_message, token_used, queued, approved). Never returns the setup link itself.",
 	resreg.ActionCreate:       "Record an unrouted chat jid as awaiting onboarding, so the next poll tick sends it a setup link. Idempotent — re-recording a known jid changes nothing.",
 	resreg.Action("approve"):  "Admit a queued jid immediately, bypassing its gate's daily limit. Use when someone should not wait out the queue.",
-	resreg.Action("reprompt"): "Void a jid's outstanding setup link and issue a fresh one on the next tick. Use when the link expired or never arrived.",
+	resreg.Action("reprompt"): "Reset a jid to awaiting_message so the next poll tick greets it again with a fresh setup link, bypassing the re-greet cooldown. Use when the link expired or never arrived.",
 	resreg.ActionDelete:       "Deny a jid and drop its onboarding row entirely. The jid can start over by messaging again.",
 }
 
@@ -101,12 +100,11 @@ func init() {
 			// therefore `arizuko export`/`plan`/`apply`/`archive export` for
 			// the whole onbod subsystem (BUGS F42).
 			ColumnOverride: map[string]resreg.ColumnHook{
-				"UserSub":      {Read: "COALESCE(user_sub, '')", Write: nilIfEmptyString},
-				"Gate":         {Read: "COALESCE(gate, '')", Write: nilIfEmptyString},
-				"PromptedAt":   {Read: "COALESCE(prompted_at, '')", Write: nilIfEmptyString},
-				"QueuedAt":     {Read: "COALESCE(queued_at, '')", Write: nilIfEmptyString},
-				"AdmittedAt":   {Read: "COALESCE(admitted_at, '')", Write: nilIfEmptyString},
-				"TokenExpires": {Read: "COALESCE(token_expires, '')", Write: nilIfEmptyString},
+				"UserSub":    {Read: "COALESCE(user_sub, '')", Write: nilIfEmptyString},
+				"Gate":       {Read: "COALESCE(gate, '')", Write: nilIfEmptyString},
+				"PromptedAt": {Read: "COALESCE(prompted_at, '')", Write: nilIfEmptyString},
+				"QueuedAt":   {Read: "COALESCE(queued_at, '')", Write: nilIfEmptyString},
+				"AdmittedAt": {Read: "COALESCE(admitted_at, '')", Write: nilIfEmptyString},
 			},
 		},
 	})

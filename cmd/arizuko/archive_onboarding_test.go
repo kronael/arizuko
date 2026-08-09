@@ -2,10 +2,10 @@ package main
 
 // Pending onboarding admissions in the archive (spec 5/8 §"Message history",
 // BUGS Z3). They cannot ride the config lane — `onboarding` is
-// SkipApplyRebuild and its RowType has no token_ref, so a rebuild would null
-// every live setup link — and they cannot be rederived on import, because
-// setting agent_cursor marks the route-missed message seen. So they get an
-// archive-only value-carrying document with its own UPSERT lane.
+// SkipApplyRebuild, so `arizuko apply` never writes the table — and they
+// cannot be rederived on import, because setting agent_cursor marks the
+// route-missed message seen. So they get an archive-only document with its
+// own UPSERT lane.
 
 import (
 	"bytes"
@@ -17,13 +17,12 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// seedAdmission inserts one pending admission WITH its token_ref verifier,
-// then proves it landed.
+// seedAdmission inserts one pending admission, then proves it landed.
 func seedAdmission(t *testing.T, db *sql.DB, jid string) {
 	t.Helper()
 	if _, err := db.Exec(
-		`INSERT INTO onboarding (jid, status, created, gate, token_ref, token_expires, queued_at)
-		 VALUES (?, 'queued', '2026-08-06T00:00:00Z', 'invite_required', 'refhash01', '2026-08-07T00:00:00Z', '2026-08-06T00:01:00Z')`,
+		`INSERT INTO onboarding (jid, status, created, gate, queued_at)
+		 VALUES (?, 'queued', '2026-08-06T00:00:00Z', 'invite_required', '2026-08-06T00:01:00Z')`,
 		jid); err != nil {
 		t.Fatalf("seed admission: %v", err)
 	}
@@ -34,7 +33,7 @@ func seedAdmission(t *testing.T, db *sql.DB, jid string) {
 
 // TestArchiveOnboarding_TravelsAndRestores: the whole point — an admission
 // waiting in the queue when the archive was taken is in the queue again after
-// a DR restore, verifier and all.
+// a DR restore, verdict and gate intact.
 func TestArchiveOnboarding_TravelsAndRestores(t *testing.T) {
 	ctx := context.Background()
 	srcDataDir, srcStores := openInstance(t)
@@ -63,29 +62,30 @@ func TestArchiveOnboarding_TravelsAndRestores(t *testing.T) {
 	if got := scalar(t, dstDB, `SELECT COUNT(*) FROM onboarding WHERE jid='telegram:user/12345'`); got != 1 {
 		t.Fatalf("admission not restored (count=%d)\n%s", got, report)
 	}
-	var status, ref, expires, gate string
+	var status, gate, queuedAt string
 	if err := dstDB.QueryRow(
-		`SELECT status, token_ref, token_expires, gate FROM onboarding WHERE jid='telegram:user/12345'`).
-		Scan(&status, &ref, &expires, &gate); err != nil {
+		`SELECT status, gate, COALESCE(queued_at,'') FROM onboarding WHERE jid='telegram:user/12345'`).
+		Scan(&status, &gate, &queuedAt); err != nil {
 		t.Fatal(err)
 	}
 	if status != "queued" || gate != "invite_required" {
 		t.Errorf("admission state lost: status=%q gate=%q", status, gate)
 	}
-	// token_ref and token_expires are a matched pair: a future expiry with a
-	// NULL verifier is a link onbod thinks is live and nothing can redeem.
-	if ref != "refhash01" {
-		t.Errorf("token_ref = %q, want the verifier carried verbatim", ref)
+	if queuedAt != "2026-08-06T00:01:00Z" {
+		t.Errorf("queued_at = %q, want it carried verbatim", queuedAt)
 	}
-	if expires != "2026-08-07T00:00:00Z" {
-		t.Errorf("token_expires = %q", expires)
+	// F40: the document must not carry the dropped columns. Naming them would
+	// fail the INSERT outright against onbod's post-0006 schema — which this
+	// fixture does not have, since openInstance bootstraps from onbodSchema at
+	// its pinned version 4, so the assertion is on the DOCUMENT, not the table.
+	if bytes.Contains(buf.Bytes(), []byte("token_ref:")) {
+		t.Error("the archive still carries onboarding.token_ref")
 	}
 }
 
-// TestArchiveOnboarding_SkippedWithoutForce: the document carries a credential
-// verifier, so it rides the same off-by-default gate — restoring a consumed
-// admission's verifier would revive a setup link still sitting in someone's
-// chat scrollback.
+// TestArchiveOnboarding_SkippedWithoutForce: the document carries admission
+// VERDICTS, so it rides the same off-by-default gate route_tokens and invites
+// do — importing them onto a live instance is a merge, not a restore.
 func TestArchiveOnboarding_SkippedWithoutForce(t *testing.T) {
 	ctx := context.Background()
 	srcDataDir, srcStores := openInstance(t)
@@ -141,8 +141,10 @@ func TestArchiveOnboarding_RefusesNonEmptyTarget(t *testing.T) {
 
 // TestArchiveOnboarding_ConfigApplyStillNeverTouchesIt guards the flag the
 // spec calls load-bearing: `onboarding` stays SkipApplyRebuild, so an ordinary
-// config apply that mentions it must not DELETE+INSERT the table and null
-// token_ref. Removing that flag is the failure this pins.
+// config apply must not DELETE+INSERT the table. It applies a manifest whose
+// onboarding list is EMPTY — the shape an operator hand-writing config
+// produces — because a manifest exported from the same DB would restore the
+// row identically and could not tell the flag from its absence.
 func TestArchiveOnboarding_ConfigApplyStillNeverTouchesIt(t *testing.T) {
 	_, stores := openInstance(t)
 	db := stores[resreg.SubsystemOnbod].DB()
@@ -155,6 +157,7 @@ func TestArchiveOnboarding_ConfigApplyStillNeverTouchesIt(t *testing.T) {
 	if _, ok := manifest["onboarding"]; !ok {
 		t.Fatal("fixture is vacuous: onboarding must be in the export projection")
 	}
+	manifest["onboarding"] = []any{} // the operator declared no admissions
 	sum, err := resreg.Checksum(db, resreg.SubsystemOnbod)
 	if err != nil {
 		t.Fatal(err)
@@ -162,11 +165,11 @@ func TestArchiveOnboarding_ConfigApplyStillNeverTouchesIt(t *testing.T) {
 	if _, err := resreg.Apply(context.Background(), db, resreg.SubsystemOnbod, sum, false, manifest, nil); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	var ref string
-	if err := db.QueryRow(`SELECT COALESCE(token_ref,'') FROM onboarding WHERE jid='telegram:user/12345'`).Scan(&ref); err != nil {
-		t.Fatalf("the admission row is gone entirely: %v", err)
+	var status string
+	if err := db.QueryRow(`SELECT status FROM onboarding WHERE jid='telegram:user/12345'`).Scan(&status); err != nil {
+		t.Fatalf("config apply deleted the live admission — SkipApplyRebuild is off: %v", err)
 	}
-	if ref != "refhash01" {
-		t.Errorf("config apply nulled the live setup link's verifier (token_ref=%q) — SkipApplyRebuild is off", ref)
+	if status != "queued" {
+		t.Errorf("status = %q, want queued", status)
 	}
 }

@@ -1,8 +1,10 @@
 package main
 
-// Z3 coverage: the onboarding bearer is hashed at rest and appears in NO read
-// projection, while redemption with the RAW token still works — including for a
-// row that existed before the migration.
+// Z3 coverage: the onboarding bearer never appears in a read projection. Since
+// onbod 0006 there is no column for it to appear in either — the 5/31 fold left
+// token_ref/token_expires inert and they were dropped (BUGS F40) — so what is
+// pinned here is that the projection stays token-free and that a row written
+// before the reshape still survives the migrate chain.
 
 import (
 	"net/http"
@@ -15,7 +17,6 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	"github.com/kronael/arizuko/store"
 )
 
 // The registered row type must not carry the credential column at all —
@@ -33,15 +34,15 @@ func TestOnboardingRowHasNoTokenField(t *testing.T) {
 	}
 }
 
-// GET /v1/onboarding must not echo the stored hash — nor, obviously, a bearer.
-// Asserted on the raw response bytes so a future field rename can't sneak one
-// back in under a different key.
+// GET /v1/onboarding must carry no token-shaped field at all. Asserted on the
+// raw response bytes so a future field rename cannot sneak one back in under a
+// different key, and counted first so an empty table cannot pass it vacuously.
 func TestOnboardingListLeaksNoToken(t *testing.T) {
 	db := testDB(t)
-	raw := "live-onboard-tok"
-	db.Exec(`INSERT INTO onboarding (jid, status, token_ref, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', ?, '2099-01-01T00:00:00Z', '2026-01-01')`,
-		store.TokenRef(raw))
+	if _, err := db.Exec(`INSERT INTO onboarding (jid, status, created)
+		VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`); err != nil {
+		t.Fatal(err)
+	}
 
 	a := &admin{db: db}
 	mux := http.NewServeMux()
@@ -53,49 +54,11 @@ func TestOnboardingListLeaksNoToken(t *testing.T) {
 		t.Fatalf("list status = %d, body=%s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	if strings.Contains(body, raw) {
-		t.Error("REST list leaked the raw bearer")
+	if !strings.Contains(body, "telegram:1") {
+		t.Fatalf("fixture is vacuous — the seeded row is not in the response: %s", body)
 	}
-	if strings.Contains(body, store.TokenRef(raw)) {
-		t.Error("REST list leaked token_ref")
-	}
-	if strings.Contains(body, "token_ref") {
-		t.Errorf("REST list mentions token_ref: %s", body)
-	}
-	// It must still be a useful queue view.
-	if !strings.Contains(body, "telegram:1") || !strings.Contains(body, "awaiting_message") {
-		t.Errorf("list lost its payload: %s", body)
-	}
-}
-
-// The MCP face is derived from the same declaration (an MCPDoc entry is what
-// makes an action surface as a tool), so it must be equally clean — no tool
-// takes or advertises the token.
-func TestOnboardingMCPDeclLeaksNoToken(t *testing.T) {
-	for action, desc := range resources.OnboardingMCPDoc {
-		if strings.Contains(strings.ToLower(desc), "token_ref") {
-			t.Errorf("MCPDoc[%s] describes token_ref", action)
-		}
-	}
-	for action, args := range resources.OnboardingMCPArgs {
-		for _, arg := range args {
-			if strings.Contains(arg.Name, "token") {
-				t.Errorf("MCPArgs[%s] takes arg %q", action, arg.Name)
-			}
-		}
-	}
-}
-
-// Every REST endpoint has an MCP twin (5/17): both faces, one handler. A
-// missing MCPDoc entry silently drops the action from tools/list.
-func TestOnboardingHasBothFaces(t *testing.T) {
-	for _, e := range resources.OnboardingEndpoints {
-		if _, ok := resources.OnboardingMCPDoc[e.Action]; !ok {
-			t.Errorf("%s %s (action %s) has no MCP twin", e.Verb, e.Path, e.Action)
-		}
-		if _, ok := resources.OnboardingMCPArgs[e.Action]; !ok {
-			t.Errorf("action %s has no MCP arg list", e.Action)
-		}
+	if strings.Contains(body, "token") {
+		t.Errorf("REST list carries a token-shaped field: %s", body)
 	}
 }
 
@@ -120,15 +83,16 @@ func TestPreMigrationRowSurvivesTheBackfill(t *testing.T) {
 		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT NOT NULL,
 			prompted_at TEXT, created TEXT NOT NULL, token TEXT, token_expires TEXT,
 			user_sub TEXT, gate TEXT, queued_at TEXT, admitted_at TEXT);
-		INSERT INTO onboarding (jid, status, created, token, token_expires)
-			VALUES ('telegram:legacy', 'awaiting_message', '2026-01-01', 'pre-migration-tok', '2099-01-01T00:00:00Z');
+		INSERT INTO onboarding (jid, status, created, token, token_expires, gate)
+			VALUES ('telegram:legacy', 'awaiting_message', '2026-01-01', 'pre-migration-tok', '2099-01-01T00:00:00Z', 'invite_required');
 		DELETE FROM migrations WHERE service='onbod' AND version >= 4;
 	`); err != nil {
 		t.Fatalf("stage legacy shape: %v", err)
 	}
 	db.Close()
 
-	// Re-open: 0004 reshapes, BackfillOnboardingTokenRefs hashes forward.
+	// Re-open: 0004 reshapes, 0006 drops the token columns, CarryOnboardingLegacy
+	// moves the row across and cleans up after itself.
 	db, err = openOwnedDB(path)
 	if err != nil {
 		t.Fatalf("reopen after legacy stage: %v", err)
@@ -140,63 +104,27 @@ func TestPreMigrationRowSurvivesTheBackfill(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("row count after migration = %d, want 1 (row was dropped, not carried)", n)
 	}
-	var ref, expires string
+	var status, gate string
 	if err := db.QueryRow(
-		`SELECT token_ref, token_expires FROM onboarding WHERE jid='telegram:legacy'`).Scan(&ref, &expires); err != nil {
+		`SELECT status, COALESCE(gate,'') FROM onboarding WHERE jid='telegram:legacy'`).
+		Scan(&status, &gate); err != nil {
 		t.Fatalf("read migrated row: %v", err)
 	}
-	if ref != store.TokenRef("pre-migration-tok") {
-		t.Errorf("token_ref = %q, want the hash of the original token", ref)
+	if status != "awaiting_message" || gate != "invite_required" {
+		t.Errorf("admission facts lost: status=%q gate=%q", status, gate)
 	}
-	if expires != "2099-01-01T00:00:00Z" {
-		t.Errorf("token_expires = %q, want it carried along", expires)
+	// F40: the bearer columns do not survive the chain — 0006 drops both, and
+	// the carry-forward must not name them or it would fail outright.
+	for _, col := range []string{"token", "token_ref", "token_expires"} {
+		if _, err := db.Query(`SELECT ` + col + ` FROM onboarding`); err == nil {
+			t.Errorf("column %s survived onbod 0006", col)
+		}
 	}
-	// onboarding_legacy is gone — the backfill cleaned up after itself.
+	// onboarding_legacy is gone — the carry cleaned up after itself.
 	var legacy int
 	db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='onboarding_legacy'`).Scan(&legacy)
 	if legacy != 0 {
-		t.Error("onboarding_legacy survived the backfill")
-	}
-
-	var status string
-	db.QueryRow(`SELECT status FROM onboarding WHERE jid='telegram:legacy'`).Scan(&status)
-	if status != "awaiting_message" {
-		t.Errorf("status = %q, want awaiting_message carried forward", status)
-	}
-}
-
-// A consumed row's NULL token must NOT become a resolvable ref (hashing "" would
-// mint one shared handle for every consumed row).
-func TestBackfillLeavesNullTokenNull(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "store", "onbod.db")
-	mustSeedDB(t, path)
-	db, err := openOwnedDB(path)
-	if err != nil {
-		t.Fatalf("openOwnedDB: %v", err)
-	}
-	if _, err := db.Exec(`
-		DROP TABLE onboarding;
-		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT NOT NULL,
-			prompted_at TEXT, created TEXT NOT NULL, token TEXT, token_expires TEXT,
-			user_sub TEXT, gate TEXT, queued_at TEXT, admitted_at TEXT);
-		INSERT INTO onboarding (jid, status, created, token, user_sub)
-			VALUES ('telegram:done', 'token_used', '2026-01-01', NULL, 'github:bob');
-		DELETE FROM migrations WHERE service='onbod' AND version >= 4;
-	`); err != nil {
-		t.Fatalf("stage legacy shape: %v", err)
-	}
-	db.Close()
-
-	db, err = openOwnedDB(path)
-	if err != nil {
-		t.Fatalf("reopen: %v", err)
-	}
-	defer db.Close()
-
-	var nulls int
-	db.QueryRow(`SELECT COUNT(*) FROM onboarding WHERE token_ref IS NULL`).Scan(&nulls)
-	if nulls != 1 {
-		t.Errorf("consumed row's token_ref = not NULL; want NULL preserved")
+		t.Error("onboarding_legacy survived the carry-forward")
 	}
 }
 

@@ -2,7 +2,7 @@
 status: defected
 depends:
   [32-acl-unified, 18-onboarding-model, 1-auth-standalone, W-webhook-routes]
-defects: [F40, F41]
+defects: [F41]
 ---
 
 # specs/5/31 — identity pairing (channel identity → verified account)
@@ -237,9 +237,11 @@ rate limit; the only escape today is `RepromptOnboarding`
 anyone to. `5/18` names the same gap directly: "an expired token cannot be
 re-requested from the chat."
 
-`onboarding.token_ref`, `token_expires` and `idx_onboarding_token_ref` are
-inert after the fold — nothing writes them — and a follow-up onbod migration
-drops them (BUGS `F40`). `prompted_at` is **not** deleted — `5/18` keeps it
+`onboarding.token_ref`, `token_expires` and `idx_onboarding_token_ref` went
+inert with the fold — nothing wrote them — and onbod migration `0006` dropped
+all three (BUGS `F40`, closed 2026-08-09), along with their last readers:
+`OnboardingRow.TokenExpires`, `ListOnboarding`'s SELECT, `RepromptOnboarding`'s
+`token_ref=NULL`, and the archive document's two token fields. `prompted_at` is **not** deleted — `5/18` keeps it
 explicitly ("the remaining row is `(jid, prompted_at, user_sub)` plus
 throttles") — but its meaning changes from _ever_ to _last_.
 
@@ -369,7 +371,7 @@ untouched — the observer's `user_sub IS NULL` scan only ever matches rows
 | onboarding today                                                                           | after the fold                                    |
 | ------------------------------------------------------------------------------------------ | ------------------------------------------------- |
 | `status`: `awaiting_message → token_used → {queued, approved}`                             | `awaiting_message → {queued, approved, refused}`  |
-| `token_ref`, `token_expires`, `idx_onboarding_token_ref`                                   | inert; dropped in a follow-up (`F40`)             |
+| `token_ref`, `token_expires`, `idx_onboarding_token_ref`                                   | dropped by onbod `0006` (`F40`)                   |
 | `prompted_at`: set once, permanent lockout                                                 | re-armed by an inbound miss past `PairingTTL`     |
 | link: `authBaseURL + "/onboard?token=" + token`                                            | `webHost + "/pair/" + IssuePairingLink(...)`      |
 | redemption: `handleTokenLanding`/`jidForToken`/`claimByToken`/`onboard_jid` cookie (onbod) | `GET`/`POST /pair/{token}` (webd, unchanged)      |

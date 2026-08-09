@@ -71,13 +71,13 @@ type archiveSecretsDoc struct {
 	Secrets     []store.ArchiveSecretRow      `yaml:"secrets,omitempty"`
 	RouteTokens []resreg.ArchiveRouteTokenRow `yaml:"route_tokens,omitempty"`
 	Invites     []resreg.ArchiveInviteRow     `yaml:"invites,omitempty"`
-	// Onboarding carries pending admissions WITH their token_ref verifier —
-	// the one column the onboarding resource omits from its RowType so no read
-	// surface can render it. Admissions cannot ride the config lane (that
-	// resource is SkipApplyRebuild, and rebuilding it from a token_ref-less
-	// RowType would null every live setup link) and cannot be rederived on
-	// import (agent_cursor marks the route-missed message seen, so it is never
-	// re-offered to routeMiss). Spec 5/8, BUGS Z3.
+	// Onboarding carries pending admissions. They cannot ride the config lane
+	// (that resource is SkipApplyRebuild — admissions are runtime state, never
+	// declared in a manifest — so `arizuko apply` never writes the table) and
+	// cannot be rederived on import (agent_cursor marks the route-missed
+	// message seen, so it is never re-offered to routeMiss). It used to carry
+	// the token_ref verifier too; onbod 0006 dropped that column with its
+	// expiry twin (BUGS F40). Spec 5/8, BUGS Z3.
 	Onboarding []resreg.ArchiveOnboardingRow `yaml:"onboarding,omitempty"`
 }
 

@@ -1273,7 +1273,46 @@ off? A `prompt_count` column and a widening interval is the obvious shape, and
 it is a new column plus a policy constant for a case nobody has hit yet. Left
 as a rate until an instance reports it.
 
-## F40 — `onboarding.token_ref` / `token_expires` are inert after the fold (2026-08-06, open)
+## F40 — `onboarding.token_ref` / `token_expires` are inert after the fold (2026-08-06, FIXED 2026-08-09)
+
+**FIXED 2026-08-09.** `onbod/migrations/0006-drop-onboarding-token-columns.sql`
+on the `runed/0003` precedent (`ALTER TABLE ... DROP COLUMN`): the index goes
+first, since SQLite refuses DROP COLUMN on an indexed column. onbod owns the
+table; the retired `store/migrations` chain (messages.db) is untouched, and the
+Go reads work against both shapes because they no longer name the columns.
+
+Readers retired with them: `store.OnboardingRow.TokenExpires`,
+`ListOnboarding`'s SELECT, `RepromptOnboarding`'s `token_ref=NULL`,
+`resources.OnboardingRow.TokenExpires` + its `ColumnOverride`, and the archive
+lane's `ArchiveOnboardingRow.TokenRef/TokenExpires` with their export/import
+column lists. `BackfillOnboardingTokenRefs` is now `CarryOnboardingLegacy` —
+deleting it outright would have stranded `onboarding_legacy` (0004's RENAME
+creates it on every fresh DB) and lost its rows, so what remains is the carry
+and the cleanup; the hashing is gone because the 5/31 fold deleted every reader
+of the ref.
+
+Two consequences worth recording, both comment/test-level, no behaviour change:
+the archive lane's `--force` gate and `onboarding`'s `SkipApplyRebuild` were
+each justified by "it carries a credential verifier". That reason is gone; both
+stand on their surviving one — admissions are runtime state and importing
+verdicts onto a live instance is a merge. `TestArchiveOnboarding_ConfigApplyStillNeverTouchesIt`
+had to change to stay honest: with the RowType now covering every column, an
+apply of a self-exported manifest restores the row identically and cannot tell
+`SkipApplyRebuild` from its absence, so it now applies an EMPTY onboarding list
+— the shape a hand-written config produces — and asserts the row survives.
+
+`cmd/arizuko/migrate_split.go` is deliberately UNCHANGED: `onbodSchema` is
+pinned to `onbodBootstrapVersion = 4` by `TestOnbodSchemaMatchesMigrations`, and
+0005/0006 are exactly the "unclaimed migration runs normally" case its own
+comment describes — onbod's first boot after a split applies them.
+
+Tests: `TestPreMigrationRowSurvivesTheBackfill` now runs the real chain and
+asserts `token`/`token_ref`/`token_expires` are all absent afterwards while the
+admission facts survive; `TestOnboardingListLeaksNoToken` counts the seeded row
+first, then asserts no token-shaped key in the response;
+`TestArchiveOnboarding_TravelsAndRestores` asserts the archive document carries
+no `token_ref:`. `TestBackfillLeavesNullTokenNull` was deleted — it guarded
+"an empty token must not hash to a shared ref", and there is no ref.
 
 The `5/31` fold left them written by nothing: `promptUnprompted` mints into
 `route_tokens` now, and `handleTokenLanding`/`jidForToken`/`claimByToken` are

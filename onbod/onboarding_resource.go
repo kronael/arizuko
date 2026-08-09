@@ -9,9 +9,9 @@ package main
 //
 // The Endpoints mount at the REAL served paths from resources.OnboardingEndpoints
 // — the single source the /openapi.json doc also reads, so served routes and doc
-// cannot drift. token_ref appears in NO projection here: OnboardingRow omits the
-// column outright (Z3), and this handler's list goes through store.ListOnboarding,
-// which never selects it.
+// cannot drift. No credential appears in any projection here: OnboardingRow
+// omitted token_ref outright (Z3), and onbod 0006 dropped the column with its
+// expiry twin once the 5/31 fold left nothing writing them (BUGS F40).
 
 import (
 	"context"

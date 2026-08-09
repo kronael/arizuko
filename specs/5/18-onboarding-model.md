@@ -274,7 +274,7 @@ They are not one mechanism:
 proving "the bearer reads this chat". **Stripped** — `route_tokens` is the
 survivor (`5/31`), the remaining row is `(jid, prompted_at, user_sub)` plus
 throttles, and this spec's flow is unchanged. The `token_ref`/`token_expires`
-columns are inert and drop in a follow-up (BUGS `F40`). `invites` was rejected
+columns went inert with it and were dropped by onbod `0006` (BUGS `F40`). `invites` was rejected
 as the carrier: an invite carries a _scope_ and an onboarding token carries a
 _JID_, and merging them would have meant a nullable `target_glob`.
 
