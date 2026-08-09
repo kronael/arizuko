@@ -1,7 +1,8 @@
 ---
-status: shipped
+status: defected
 depends:
   [17-openapi-mcp, specs/5/32-acl-unified, specs/5/5-worlds-agents-sessions]
+defects: [F68, X1]
 ---
 
 # specs/5/13 — external capability injection

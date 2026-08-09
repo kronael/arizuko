@@ -1,5 +1,6 @@
 ---
-status: shipped
+status: defected
+defects: [F20, F73]
 ---
 
 # Turn retry on failed completion

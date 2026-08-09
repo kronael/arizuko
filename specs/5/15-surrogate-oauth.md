@@ -1,6 +1,7 @@
 ---
-status: shipped
+status: defected
 depends: [5/13-ext-mcp, 5/14-credentials, 5/1-auth-standalone]
+defects: [F69]
 ---
 
 # specs/5/15 — surrogate OAuth

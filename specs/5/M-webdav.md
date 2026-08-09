@@ -1,6 +1,7 @@
 ---
-status: shipped
+status: defected
 shipped: 2026-05-01
+defects: [F16]
 ---
 
 # WebDAV workspace

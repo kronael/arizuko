@@ -1,6 +1,7 @@
 ---
-status: shipped
+status: defected
 depends: [17-openapi-mcp]
+defects: [F35, F70]
 ---
 
 # specs/5/I — per-tool-call logging

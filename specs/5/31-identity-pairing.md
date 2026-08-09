@@ -1,7 +1,8 @@
 ---
-status: shipped
+status: defected
 depends:
   [32-acl-unified, 18-onboarding-model, 1-auth-standalone, W-webhook-routes]
+defects: [F40, F41, F43]
 ---
 
 # specs/5/31 — identity pairing (channel identity → verified account)

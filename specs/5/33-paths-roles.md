@@ -1,5 +1,5 @@
 ---
-status: shipped
+status: defected
 depends:
   [
     5/32-acl-unified,
@@ -8,6 +8,7 @@ depends:
     5/A-primitives-framing,
   ]
 supersedes-in-part: [3/5-tool-authorization, 4/19-action-grants]
+defects: [F16]
 ---
 
 # specs/5/33 — paths, roles, and grant-option (tiers removed)

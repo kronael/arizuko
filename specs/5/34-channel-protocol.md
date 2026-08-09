@@ -1,5 +1,6 @@
 ---
-status: shipped
+status: defected
+defects: [F61, F67]
 ---
 
 # Channel adapter protocol

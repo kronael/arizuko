@@ -1,5 +1,5 @@
 ---
-status: shipped
+status: defected
 depends:
   [17-openapi-mcp, 5/13-ext-mcp, specs/5/32-acl-unified, 5/15-surrogate-oauth]
 supersedes:
@@ -8,6 +8,7 @@ supersedes:
     specs/5/5 §Phase-C-secrets,
     specs/8/E §Anthropic-keys,
   ]
+defects: [X1]
 ---
 
 # specs/5/14 — credential model
