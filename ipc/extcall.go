@@ -45,11 +45,23 @@ var pathParam = regexp.MustCompile(`\{([^}]+)\}`)
 
 // CallExtTool executes one REST-descriptor call and returns the HTTP response
 // body as text. Secret values are scrubbed from the response before return.
+//
+// refresh, when non-nil, force-refreshes the tool's credentials and returns the
+// re-resolved set. It is called AT MOST ONCE and ONLY on a 401: spec 5/15
+// specifies a reactive retry for surrogate-OAuth providers whose `expires_in`
+// is optimistic, where the proactive near-expiry refresh cannot fire because
+// the stored expires_at still looks healthy. An expired access token is the
+// transient case the repo's retry policy allows; a 401 that survives the
+// refresh is NOT transient and surfaces to the agent unchanged. The retry is
+// also skipped when the refresh returns the same values it was given — nothing
+// was renewed, so re-sending them would only spend a second 401 (the common
+// case: a pasted PAT has nothing to refresh).
 func CallExtTool(
 	ctx context.Context,
 	tool ExtTool,
 	args map[string]any,
 	secrets map[string]string,
+	refresh func(context.Context) (map[string]string, error),
 ) (*mcp.CallToolResult, error) {
 	// Copy args so we can delete consumed path params.
 	remaining := make(map[string]any, len(args))
@@ -65,7 +77,37 @@ func CallExtTool(
 		return m
 	})
 
-	rawURL := tool.BaseURL + path
+	status, text, fail := extAttempt(ctx, tool, tool.BaseURL+path, remaining, secrets)
+	if fail != nil {
+		return fail, nil
+	}
+	if status == http.StatusUnauthorized && refresh != nil {
+		if fresh, err := refresh(ctx); err == nil && !maps.Equal(fresh, secrets) {
+			secrets = fresh
+			status, text, fail = extAttempt(ctx, tool, tool.BaseURL+path, remaining, secrets)
+			if fail != nil {
+				return fail, nil
+			}
+		}
+	}
+	if status >= 400 {
+		return mcp.NewToolResultError(fmt.Sprintf("HTTP %d: %s", status, text)), nil
+	}
+	return mcp.NewToolResultText(text), nil
+}
+
+// extAttempt performs ONE request. Credentials ride the query string or the
+// JSON body for some auth methods, so the whole request is rebuilt per attempt
+// rather than reused. A non-nil result is a terminal failure (transport, encode
+// or read) already shaped for the agent; otherwise status+text are the response.
+func extAttempt(
+	ctx context.Context,
+	tool ExtTool,
+	baseURL string,
+	remaining map[string]any,
+	secrets map[string]string,
+) (int, string, *mcp.CallToolResult) {
+	rawURL := baseURL
 
 	// Build query string for GET/DELETE, or JSON body for mutating methods.
 	var body io.Reader
@@ -94,14 +136,14 @@ func CallExtTool(
 		}
 		b, err := json.Marshal(bodyMap)
 		if err != nil {
-			return mcp.NewToolResultError("marshal body: " + err.Error()), nil
+			return 0, "", mcp.NewToolResultError("marshal body: " + err.Error())
 		}
 		body = bytes.NewReader(b)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
-		return mcp.NewToolResultError("build request: " + err.Error()), nil
+		return 0, "", mcp.NewToolResultError("build request: " + err.Error())
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -138,23 +180,15 @@ func CallExtTool(
 	if err != nil {
 		// *url.Error.Error() embeds the full request URL, which for
 		// apikey-query carries the secret in RawQuery — scrub before returning.
-		return mcp.NewToolResultError(scrubSecrets("http: "+err.Error(), secrets)), nil
+		return 0, "", mcp.NewToolResultError(scrubSecrets("http: "+err.Error(), secrets))
 	}
 	defer resp.Body.Close()
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return mcp.NewToolResultError("read response: " + err.Error()), nil
+		return 0, "", mcp.NewToolResultError("read response: " + err.Error())
 	}
-
-	text := scrubSecrets(string(respBytes), secrets)
-
-	if resp.StatusCode >= 400 {
-		return mcp.NewToolResultError(
-			fmt.Sprintf("HTTP %d: %s", resp.StatusCode, text),
-		), nil
-	}
-	return mcp.NewToolResultText(text), nil
+	return resp.StatusCode, scrubSecrets(string(respBytes), secrets), nil
 }
 
 // scrubSecrets replaces every non-empty secret value in s with «redacted».

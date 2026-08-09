@@ -168,6 +168,24 @@ func (d *DB) DeleteSecret(scope store.SecretScope, scopeID, key string) error {
 // taken AFTER any surrogate refresh so a key the refresh dropped reads as
 // missing rather than as a credential that was spent.
 func (d *DB) ConnectorSecrets(folder, callerSub string, required []string) (map[string]string, map[string]store.SecretScope, error) {
+	return d.connectorSecrets(folder, callerSub, required, false)
+}
+
+// RefreshConnectorSecrets is ConnectorSecrets with the surrogate-OAuth refresh
+// FORCED rather than gated on near-expiry: the reactive half of spec 5/15,
+// called once behind a 401 from ipc.CallExtTool. Same body, same containment,
+// different refresh trigger — a provider with an optimistic `expires_in` leaves
+// expires_at looking healthy, so the proactive check would refresh nothing.
+//
+// It writes no secret_use_log row: this is a retry of the SAME call, already
+// audited by the ConnectorSecrets that opened it, and a second row would read as
+// a second use of the credential.
+func (d *DB) RefreshConnectorSecrets(folder, callerSub string, required []string) (map[string]string, error) {
+	out, _, err := d.connectorSecrets(folder, callerSub, required, true)
+	return out, err
+}
+
+func (d *DB) connectorSecrets(folder, callerSub string, required []string, force bool) (map[string]string, map[string]store.SecretScope, error) {
 	if len(required) == 0 {
 		return map[string]string{}, map[string]store.SecretScope{}, nil
 	}
@@ -180,7 +198,7 @@ func (d *DB) ConnectorSecrets(folder, callerSub string, required []string) (map[
 	}
 	var err error
 	if d.surrogate != nil && callerSub != "" {
-		err = d.refreshNearExpiry(callerSub, required, out)
+		err = d.refreshOAuth(callerSub, required, out, force)
 	}
 	scopes := make(map[string]store.SecretScope, len(required))
 	for _, k := range required {

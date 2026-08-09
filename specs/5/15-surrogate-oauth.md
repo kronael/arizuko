@@ -1,7 +1,6 @@
 ---
-status: defected
+status: shipped
 depends: [5/13-ext-mcp, 5/14-credentials, 5/1-auth-standalone]
-defects: [F69]
 ---
 
 # specs/5/15 — surrogate OAuth
@@ -25,7 +24,12 @@ written and kept fresh.
 
 **Refresh at call time, never a worker.** The broker refreshes when
 `expires_at − now < 60s`, then makes the outbound call with the new token —
-plus a reactive retry-once on a 401 for providers with sloppy `expires_in`. No
+plus a reactive retry-once on a 401 for providers with sloppy `expires_in`.
+Both halves are `DB.refreshOAuth`, one function with a `force` flag: the
+proactive call gates on the 60s window, the reactive one (behind
+`ipc.CallExtTool`'s 401, at most once, and only when the refresh actually
+renewed something) ignores expiry, since an optimistic `expires_in` is exactly
+what makes the window useless. A 401 that survives the refresh surfaces. No
 background goroutine: most users touch most providers never. A refresh failure
 (revoked refresh token) nulls `expires_at` + `refresh_val` and surfaces a
 structured "reconnect" error the agent sees — loud, not silent.

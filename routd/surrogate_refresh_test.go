@@ -130,3 +130,58 @@ func TestBroker_RefreshRejectedSignalsReconnect(t *testing.T) {
 		t.Errorf("oauth columns not nulled after revoke: exp=%v ref=%v", exp, ref)
 	}
 }
+
+// F69: the reactive half. RefreshConnectorSecrets forces the refresh regardless
+// of expires_at — a token with an hour of stated life left is exactly the case
+// the 401 retry exists for (a provider whose expires_in is optimistic), and the
+// proactive near-expiry check would refresh nothing.
+func TestBroker_ForcedRefreshIgnoresExpiry(t *testing.T) {
+	db, hits := brokerDB(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if r.Form.Get("refresh_token") != "refresh-1" {
+			t.Errorf("refresh request form = %v", r.Form)
+		}
+		_, _ = w.Write([]byte(`{"access_token":"new-access","refresh_token":"refresh-2","expires_in":3600,"scope":"repo"}`))
+	})
+	seedOAuthRow(t, db, "old-access", "refresh-1", time.Now().Add(time.Hour))
+
+	// The proactive path leaves it alone — that is the gap.
+	if got, _, err := db.ConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"}); err != nil {
+		t.Fatal(err)
+	} else if got["GITHUB_TOKEN"] != "old-access" || atomic.LoadInt32(hits) != 0 {
+		t.Fatalf("proactive path refreshed a healthy-looking token: %q hits=%d",
+			got["GITHUB_TOKEN"], atomic.LoadInt32(hits))
+	}
+
+	got, err := db.RefreshConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["GITHUB_TOKEN"] != "new-access" {
+		t.Errorf("GITHUB_TOKEN = %q, want new-access", got["GITHUB_TOKEN"])
+	}
+	if n := atomic.LoadInt32(hits); n != 1 {
+		t.Errorf("refresh hits = %d, want 1", n)
+	}
+}
+
+// A forced refresh writes NO secret_use_log row: it is a retry of a call the
+// ConnectorSecrets that opened it already audited, and a second row would read
+// as a second use of the credential.
+func TestBroker_ForcedRefreshWritesNoAuditRow(t *testing.T) {
+	db, _ := brokerDB(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"access_token":"new-access","refresh_token":"refresh-2","expires_in":3600,"scope":"repo"}`))
+	})
+	seedOAuthRow(t, db, "old-access", "refresh-1", time.Now().Add(time.Hour))
+
+	if _, err := db.RefreshConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"}); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.SQL().QueryRow(`SELECT count(*) FROM secret_use_log`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("secret_use_log rows = %d, want 0 (the retry must not double-count the use)", n)
+	}
+}

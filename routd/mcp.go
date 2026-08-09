@@ -530,6 +530,12 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			}
 			return res, err
 		},
+		// The reactive half of spec 5/15: ipc.CallExtTool calls this at most once,
+		// only on a 401, and re-sends only if the values actually changed. No
+		// secret_use_log row — see RefreshConnectorSecrets.
+		RefreshConnectorSecrets: func(folder, _ string, required []string) (map[string]string, error) {
+			return s.db.RefreshConnectorSecrets(folder, turnCallerSub(t.trigger), required)
+		},
 		// Authorize is the per-call row-ACL check (magnitude + containment in one) that
 		// ServeMCP runs when callerSub is set. nil-safe. Elevated (/root) turns allow-all
 		// — see turnAuthorize. The hand-authored ipc gates pass the ACTUAL target as the

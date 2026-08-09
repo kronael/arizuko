@@ -93,7 +93,7 @@ func TestCallExtTool_Bearer(t *testing.T) {
 		SecretKey:  "MY_TOKEN",
 	}
 	secrets := map[string]string{"MY_TOKEN": "tok123"}
-	result, err := ipc.CallExtTool(context.Background(), tool, nil, secrets)
+	result, err := ipc.CallExtTool(context.Background(), tool, nil, secrets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestCallExtTool_PathParam(t *testing.T) {
 	}
 	args := map[string]any{"zone_id": "abc123"}
 	secrets := map[string]string{"TOK": "x"}
-	_, err := ipc.CallExtTool(context.Background(), tool, args, secrets)
+	_, err := ipc.CallExtTool(context.Background(), tool, args, secrets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestCallExtTool_Scrub(t *testing.T) {
 		SecretKey:  "MY_SECRET",
 	}
 	secrets := map[string]string{"MY_SECRET": "supersecret"}
-	result, err := ipc.CallExtTool(context.Background(), tool, nil, secrets)
+	result, err := ipc.CallExtTool(context.Background(), tool, nil, secrets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestCallExtTool_ScrubsTransportError(t *testing.T) {
 		SecretKey:  "NC_KEY",
 	}
 	secrets := map[string]string{"NC_KEY": "supersecretkey"}
-	result, err := ipc.CallExtTool(context.Background(), tool, nil, secrets)
+	result, err := ipc.CallExtTool(context.Background(), tool, nil, secrets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestCallExtTool_JsonBody(t *testing.T) {
 		Header2:    "secretapikey",
 	}
 	secrets := map[string]string{"PB_API_KEY": "mykey", "PB_SECRET": "mysecret"}
-	_, err := ipc.CallExtTool(context.Background(), tool, nil, secrets)
+	_, err := ipc.CallExtTool(context.Background(), tool, nil, secrets, nil)
 	srv.Close()
 	if err != nil {
 		t.Fatal(err)
@@ -248,12 +248,139 @@ func TestCallExtTool_MissingSecret(t *testing.T) {
 		SecretKey:  "CF_API_TOKEN",
 	}
 	secrets := map[string]string{}
-	_, err := ipc.CallExtTool(context.Background(), tool, nil, secrets)
+	_, err := ipc.CallExtTool(context.Background(), tool, nil, secrets, nil)
 	srv.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if gotAuth != "" {
 		t.Errorf("expected no Authorization header when secret missing, got %q", gotAuth)
+	}
+}
+
+// extResultText returns the text of an ext-tool result and whether it is an
+// error result.
+func extResultText(t *testing.T, r *mcp.CallToolResult) (string, bool) {
+	t.Helper()
+	tc, ok := mcp.AsTextContent(r.Content[0])
+	if !ok {
+		t.Fatal("content[0] is not TextContent")
+	}
+	return tc.Text, r.IsError
+}
+
+// F69 / spec 5/15 § "Refresh at call time": on a 401 the call refreshes the
+// credential and retries ONCE. Without it, an access token that dies mid-turn
+// (a provider with an optimistic expires_in, so the proactive near-expiry
+// refresh never fires) fails the agent's call outright.
+func TestCallExtTool_RefreshesAndRetriesOnce401(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		seen = append(seen, auth)
+		if auth != "Bearer fresh" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"token expired"}`))
+			return
+		}
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	tool := ipc.ExtTool{
+		LocalName: "test_op", Method: "GET", BaseURL: srv.URL, Path: "/test",
+		AuthMethod: "bearer", SecretKey: "TOK",
+	}
+	refreshes := 0
+	refresh := func(context.Context) (map[string]string, error) {
+		refreshes++
+		return map[string]string{"TOK": "fresh"}, nil
+	}
+	result, err := ipc.CallExtTool(context.Background(), tool, nil, map[string]string{"TOK": "stale"}, refresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, isErr := extResultText(t, result)
+	if isErr {
+		t.Fatalf("call failed after refresh: %s", text)
+	}
+	if refreshes != 1 {
+		t.Fatalf("refresh called %d times, want exactly 1", refreshes)
+	}
+	if len(seen) != 2 || seen[0] != "Bearer stale" || seen[1] != "Bearer fresh" {
+		t.Fatalf("attempts = %v, want the stale token then the refreshed one", seen)
+	}
+}
+
+// The retry is ONCE, and only on 401. A 401 that survives the refresh is not
+// transient — it surfaces to the agent instead of looping.
+func TestCallExtTool_NoSecondRetryWhen401Persists(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"nope"}`))
+	}))
+	defer srv.Close()
+
+	tool := ipc.ExtTool{
+		LocalName: "test_op", Method: "GET", BaseURL: srv.URL, Path: "/test",
+		AuthMethod: "bearer", SecretKey: "TOK",
+	}
+	refresh := func(context.Context) (map[string]string, error) {
+		return map[string]string{"TOK": "fresh"}, nil
+	}
+	result, err := ipc.CallExtTool(context.Background(), tool, nil, map[string]string{"TOK": "stale"}, refresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, isErr := extResultText(t, result)
+	if !isErr || !strings.Contains(text, "HTTP 401") {
+		t.Fatalf("persistent 401 must surface, got isErr=%v text=%q", isErr, text)
+	}
+	if hits != 2 {
+		t.Fatalf("upstream hits = %d, want 2 (one attempt + exactly one retry)", hits)
+	}
+}
+
+// Non-401 failures never retry — the repo rule is that only transient errors do,
+// and a 500 or a 403 is not the expired-token case 5/15 describes. A refresh
+// that renews nothing (a pasted PAT) also does not re-send.
+func TestCallExtTool_NoRetryOnNon401OrNoOpRefresh(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		status     int
+		refreshed  map[string]string
+		refreshErr error
+	}{
+		{"500 is not an auth failure", http.StatusInternalServerError, map[string]string{"TOK": "fresh"}, nil},
+		{"403 is not an expired token", http.StatusForbidden, map[string]string{"TOK": "fresh"}, nil},
+		{"refresh renewed nothing", http.StatusUnauthorized, map[string]string{"TOK": "stale"}, nil},
+		{"refresh failed", http.StatusUnauthorized, nil, io.ErrUnexpectedEOF},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			hits := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits++
+				w.WriteHeader(c.status)
+				w.Write([]byte(`{"error":"x"}`))
+			}))
+			defer srv.Close()
+
+			tool := ipc.ExtTool{
+				LocalName: "test_op", Method: "GET", BaseURL: srv.URL, Path: "/test",
+				AuthMethod: "bearer", SecretKey: "TOK",
+			}
+			refresh := func(context.Context) (map[string]string, error) {
+				return c.refreshed, c.refreshErr
+			}
+			if _, err := ipc.CallExtTool(context.Background(), tool, nil,
+				map[string]string{"TOK": "stale"}, refresh); err != nil {
+				t.Fatal(err)
+			}
+			if hits != 1 {
+				t.Fatalf("upstream hits = %d, want 1 (no retry)", hits)
+			}
+		})
 	}
 }

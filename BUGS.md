@@ -417,7 +417,33 @@ decision.
 
 - **Status:** fixed 2026-08-09 — threaded from the resolver and the call site
 
-## F69 — surrogate-OAuth's specified retry-once-on-401 does not exist (2026-08-08, open)
+## ✅ FIXED 2026-08-09 — F69 — surrogate-OAuth's specified retry-once-on-401 does not exist (2026-08-08)
+
+Built exactly as specified, and no wider. `ipc.CallExtTool` takes a refresh hook
+and calls it AT MOST ONCE, ONLY on 401, and re-sends only when the refresh
+actually renewed something (`maps.Equal` — a pasted PAT has nothing to refresh,
+and without this guard every 401 on a PAT-backed tool would spend a second one).
+A 401 that survives the refresh surfaces: not transient, per the repo rule.
+
+The refresh mechanism is the EXISTING one amended, not a new one:
+`refreshNearExpiry` → `refreshOAuth(..., force bool)`, where `force` skips the
+near-expiry gate. That gate is precisely why the reactive path is needed — the
+providers this exists for report an optimistic `expires_in`, so `expires_at`
+still looks healthy while the token is dead. `DB.ConnectorSecrets` and the new
+`DB.RefreshConnectorSecrets` share one body.
+
+The retry writes no `secret_use_log` row: it is a retry of the same call, which
+the opening resolve already audited, and a second row would read as a second use
+of the credential.
+
+Tests (`routd/ext_test.go`, `routd/surrogate_refresh_test.go`):
+`TestCallExtTool_RefreshesAndRetriesOnce401`,
+`TestCallExtTool_NoSecondRetryWhen401Persists`,
+`TestCallExtTool_NoRetryOnNon401OrNoOpRefresh` (500 / 403 / no-op refresh /
+failed refresh), `TestBroker_ForcedRefreshIgnoresExpiry`,
+`TestBroker_ForcedRefreshWritesNoAuditRow`.
+
+Original report:
 
 `specs/5/15-surrogate-oauth.md:25-27` specifies a reactive refresh: on a 401 the
 call refreshes the token and retries once. `ipc/extcall.go:152-155` returns the
@@ -428,6 +454,8 @@ An access token that expires mid-turn fails the agent's call outright instead of
 refreshing. This is exactly the transient case the repo's retry policy allows,
 so implementing it is in-policy — but it adds a retry path to a credential
 boundary, so it wants sign-off rather than an inline fix.
+
+- **Status:** fixed 2026-08-09 — retry-once-on-401 behind a forced refresh
 
 ## F70 — MCP tool-call audit is wired to a permanent nil, and 8 hot tools skip the shared gate (2026-08-08, open)
 

@@ -242,6 +242,15 @@ type StoreFns struct {
 	// only here at the call site (spec 5/13 § Audit).
 	ResolveConnectorSecrets func(folder, tool string, required []string) (map[string]string, error)
 
+	// RefreshConnectorSecrets force-refreshes the surrogate-OAuth rows behind
+	// `required` and returns the re-resolved values — same shape as
+	// ResolveConnectorSecrets, different intent, one implementation behind both.
+	// CallExtTool calls it at most once, only on a 401 (spec 5/15 § "Refresh at
+	// call time": the reactive half, for providers whose `expires_in` is
+	// optimistic enough that the proactive near-expiry check never fires).
+	// Nil disables the retry.
+	RefreshConnectorSecrets func(folder, tool string, required []string) (map[string]string, error)
+
 	// Authorize is the SOLE per-call authz check (5/33): sub may call action (e.g.
 	// "mcp:send") with params against `folder` as the SCOPE — the caller's own folder
 	// for magnitude, or the ACTUAL target folder for a management tool's containment (a
@@ -1054,19 +1063,27 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		}
 		granted(tool.LocalName, tool.Description, opts,
 			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				needed := []string{tool.SecretKey}
+				if tool.SecretKey2 != "" {
+					needed = append(needed, tool.SecretKey2)
+				}
 				var secrets map[string]string
 				if db.ResolveConnectorSecrets != nil {
-					needed := []string{tool.SecretKey}
-					if tool.SecretKey2 != "" {
-						needed = append(needed, tool.SecretKey2)
-					}
 					var rerr error
 					secrets, rerr = db.ResolveConnectorSecrets(folder, tool.LocalName, needed)
 					if rerr != nil {
 						return mcp.NewToolResultError(rerr.Error()), nil
 					}
 				}
-				return CallExtTool(ctx, tool, req.GetArguments(), secrets)
+				// The 401 retry hook (spec 5/15). nil when the host wires no
+				// refresher, which leaves the single-attempt behaviour.
+				var refresh func(context.Context) (map[string]string, error)
+				if db.RefreshConnectorSecrets != nil {
+					refresh = func(context.Context) (map[string]string, error) {
+						return db.RefreshConnectorSecrets(folder, tool.LocalName, needed)
+					}
+				}
+				return CallExtTool(ctx, tool, req.GetArguments(), secrets, refresh)
 			})
 	}
 
