@@ -1937,7 +1937,16 @@ auth is configured.
   sweep for the same HMAC strings across the other component pages in the same
   pass rather than one page at a time.
 
-## F20 — the retry-exhausted notice hardcodes "3 attempts" (2026-08-06, open)
+## ✅ FIXED 2026-08-09 F20 — the retry-exhausted notice hardcodes "3 attempts" (2026-08-06, FIXED)
+
+**Fixed in two halves.** The code half already shipped in `634bb650`:
+`retryExhaustedNotice` is now `func(attempts int)` formatting over
+`l.maxTurnRetry`, covered by `routd/pending_actions_test.go`
+(`TestRetryExhaustedNotice_UsesConfiguredCount`, asserts 2 and 5) and
+`routd/fixes_test.go:501`. The entry was never closed, so the doc half
+outlived it: `concepts/retries.html` §"tuning it" still told the reader
+"raising the ceiling does not change the wording of the give-up notice",
+which the fix had made false. That sentence now states the true behaviour.
 
 `MAX_TURN_RETRY` is configurable (`core/config.go:250`, default 3) and
 `routd/dispatch.go:313` honours it, but the message the user finally sees is a
@@ -1953,7 +1962,7 @@ behaviour.
 - **Scope:** routd turn retry (spec 5/12)
 - **Affected:** any instance with `MAX_TURN_RETRY != 3`
 - **Source:** routd/dispatch.go:455 vs routd/dispatch.go:313; core/config.go:250
-- **Status:** open
+- **Status:** FIXED (code `634bb650`, doc 2026-08-09)
 - **Fix:** make it a format string over `l.maxTurnRetry`, and drop the
   now-inaccurate caveat sentence from `concepts/retries.html` §"tuning it".
 

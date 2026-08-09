@@ -93,7 +93,7 @@ usage.&lt;/system-note&gt;</code></pre>
     <h2>tuning it</h2>
     <p>One setting: <a href="../reference/env.html#MAX_TURN_RETRY"><code>MAX_TURN_RETRY</code></a>, default <code>3</code>. Set it to <code>0</code> to turn retries off entirely and get the failure notice on the first dead run.</p>
     <p>It is deliberately instance-wide &mdash; there is no per-folder or per-skill override. How many times the runtime is willing to re-spawn a container is a property of the machine you&rsquo;re running on, not of a tenant&rsquo;s content. If one folder needs a different budget, the thing to change is that folder&rsquo;s memory limit, not its retry count.</p>
-    <p>Raising the ceiling does not change the wording of the give-up notice, which says &ldquo;after 3 attempts&rdquo; regardless.</p>
+    <p>The give-up notice reports whatever you set: raise the ceiling to <code>5</code> and it says &ldquo;after 5 attempts&rdquo;.</p>
 
     <h2>go deeper</h2>
     <p>The decisions behind each of these &mdash; why success is a bot row and not a clean exit, why the backoff is flat: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/12-turn-retry.md">specs/5/12</a>. The turn lifecycle this hooks into is <a href="https://github.com/kronael/arizuko/blob/main/specs/5/E-routd.md">specs/5/E</a>; the container and its time limit belong to <a href="../components/runed.html">runed</a>. What you see <em>while</em> a turn is still alive: <a href="progress.html">live progress</a>.</p>
@@ -104,7 +104,7 @@ usage.&lt;/system-note&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/retries.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-06">2026-08-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 
