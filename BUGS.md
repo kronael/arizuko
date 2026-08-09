@@ -2997,7 +2997,38 @@ Fix (redesign — needs sign-off; routd turn-lifecycle + chanlib backstop):
    notice (dispatch.go:339 `runFailureNotice` covers the non-steered parent, but
    confirm it fires for the steered-follow-up case).
 
-## X1 — capability secrets leak into the agent container env (2026-07-29, proposed)
+## ✅ FIXED 2026-08-09 — X1 — capability secrets leak into the agent container env (2026-07-29, 8f64ea6b)
+
+**Shipped 2026-08-09.** `routd/dispatch.go` now resolves
+`l.db.EnvProfileSecrets(caller)` — a new reader in `routd/sibling_db.go` that
+queries `scope_kind='user'` and keeps only `store.EnvProfileKeys`. Container env
+holds two things and nothing else: the operator anchors from the host `.env`
+(`container/runner.go readSecrets()`) and the caller's own four model
+credentials. Every other row in `secrets` keeps its existing broker path
+(`ipc.StoreFns.ResolveConnectorSecrets`), which was not touched.
+
+The narrowing sits in the reader, not at the dispatch call site: the reader
+takes no folder argument at all, so there is no exported path from a folder
+capability secret to `RunRequest.Secrets` for a future caller to reopen.
+`FolderSecrets` is unexported for the same reason; `FolderSecretsForUser` had no
+other production caller and is gone.
+
+Tests: `routd.TestEnvProfileSecrets_OnlyUserModelCredentials` (folder row, user
+capability row, and an archive-shaped folder row for a model key all excluded)
+and `tests.TestFeature_Secrets/only-the-caller's-model-credentials-reach-the-container-env`
+(end-to-end through the real poll loop, asserting `RunRequest.Secrets` at the
+runed boundary). Both fail when the narrowing is removed. Specs `5/13` and
+`5/14` are `shipped`; `SECURITY.md`, `ARCHITECTURE.md`, `README.md`,
+`EXTENDING.md`, `container/README.md` and the web docs are reconciled.
+
+Blast radius at flip time was nil: the fleet held one `secrets` row
+(`marinade`, folder `atlas`, `GITHUB_TOKEN`) and `secret_use_log` was empty
+everywhere. One design consumer did break — see `X2`.
+
+Original report follows.
+
+---
+
 
 `5/13` guarantees table secrets are **broker-only** — "credentials never enter the
 container" (`specs/5/13-ext-mcp.md:8,231`). The spawn path breaks it:
@@ -3017,6 +3048,35 @@ agent's own harness needs); nothing enforces that subset at spawn.
   never in env. Reconcile `5/13`/`5/14` to state the split explicitly (env-profile
   tier vs capability/broker tier). Verify no connector relies on its key being in
   env before flipping. Found by codex tearing the ext-auth plan (2026-07-29).
+
+## X2 — the aws-devops product's credential model died with X1 (2026-08-09, proposed)
+
+`specs/17/product-aws-devops.md` sells one headline: each engineer's `AWS_*`
+keys reach `aws`/`boto3` **inside the container**, so CloudTrail attributes the
+call to that person. `X1` removed the mechanism — `AWS_ACCESS_KEY_ID` is a
+capability credential, so it is now broker-only and container env never carries
+it. Six claims in that spec and the whole flow diagram assert the removed
+behavior.
+
+This is not dead paper. `arizuko create --product aws-devops` is a shipped flag
+(`cmd/arizuko/main.go:221`) that seeds `ant/examples/aws-devops/`, whose
+`CLAUDE.md:9-12` tells the agent its env holds the triggering user's AWS keys.
+After `X1` those vars are always empty, so the product fails silently rather
+than loudly — worse than a crash.
+
+- **Severity:** medium (no live instance runs it; blast radius is the next
+  operator who passes `--product aws-devops`)
+- **Source:** specs/17/product-aws-devops.md:30,34,55,110,144,175;
+  ant/examples/aws-devops/CLAUDE.md:9-12; ant/examples/aws-devops/PRODUCT.md:8
+- **Status:** proposed — spec marked `defected`, code untouched, awaiting the
+  design decision. NOT worked around.
+- **Options (sign-off):** (a) host-side SigV4 connector — the AWS call becomes a
+  `5/13` shape 1/2 tool, the credential stays on the host, per-operator
+  attribution survives, and `registerWithSecrets` finally gets its first
+  consumer; (b) an explicit, narrow, signed-off exception letting one declared
+  key prefix into spawn env, which reopens exactly the hole `X1` closed and
+  should be refused unless (a) is proven impossible; (c) retire the product.
+  Until one is chosen, `ant/examples/aws-devops/` must not ship.
 
 ## M1 — `mcpc` socat-connect form 502s since mcpc 0.3.0 (2026-07-16, open)
 
