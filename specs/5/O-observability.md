@@ -1,7 +1,7 @@
 ---
 status: defected
 depends: [I-tool-call-logging, ../8/F-audit-stream]
-defects: [F17]
+defects: [F79]
 ---
 
 # specs/5/O — Observability

@@ -2,7 +2,7 @@
 status: defected
 shipped: 2026-06-14
 depends: [1-auth-standalone, 17-openapi-mcp]
-defects: [F71, F72]
+defects: [F71]
 ---
 
 # runed — the execution plane
