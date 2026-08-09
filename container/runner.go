@@ -529,8 +529,11 @@ func buildMounts(
 	media := filepath.Join(groupDir, "media")
 	os.MkdirAll(media, 0o755)
 
+	// The staged copy of the release's `ant/`, not HOST_APP_DIR: see
+	// MaterializeAppSrc. hp() because the path is the data dir as runed sees it
+	// and docker resolves bind sources on the host.
 	m = append(m, volumeMount{
-		Host:      cfg.HostAppDir,
+		Host:      hp(cfg, filepath.Join(cfg.ProjectRoot, AppSrcDir)),
 		Container: "/opt/arizuko",
 		RO:        true,
 	})

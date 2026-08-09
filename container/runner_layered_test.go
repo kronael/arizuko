@@ -31,10 +31,10 @@ func indexOfMount(mounts []volumeMount, container string) int {
 	return -1
 }
 
-// TestBuildMounts_FHSPaths verifies the v0.45.11 FHS rename: platform
-// mounts land at canonical paths and per-group web slots are bind-mounted
-// from the unified web tree.
-func TestBuildMounts_FHSPaths(t *testing.T) {
+// fhsConfig is the shared fixture for the mount-layout tests: a data dir with
+// the FHS directories the runner expects, and its resolver.
+func fhsConfig(t *testing.T) (*core.Config, *groupfolder.Resolver) {
+	t.Helper()
 	tmp := t.TempDir()
 	cfg := &core.Config{
 		GroupsDir:   filepath.Join(tmp, "groups"),
@@ -46,7 +46,14 @@ func TestBuildMounts_FHSPaths(t *testing.T) {
 	os.MkdirAll(cfg.GroupsDir, 0o755)
 	os.MkdirAll(cfg.IpcDir, 0o755)
 	os.MkdirAll(filepath.Join(cfg.WebDir, "pub"), 0o755)
-	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
+	return cfg, &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
+}
+
+// TestBuildMounts_FHSPaths verifies the v0.45.11 FHS rename: platform
+// mounts land at canonical paths and per-group web slots are bind-mounted
+// from the unified web tree.
+func TestBuildMounts_FHSPaths(t *testing.T) {
+	cfg, folders := fhsConfig(t)
 
 	in := Input{Folder: "atlas/support", WebPublish: true}
 	groupDir := filepath.Join(cfg.GroupsDir, in.Folder)
@@ -58,12 +65,12 @@ func TestBuildMounts_FHSPaths(t *testing.T) {
 		wantRO    bool
 		wantHost  string
 	}{
-		{"/opt/arizuko", true, cfg.HostAppDir},
-		{"/run/ipc", false, ""},                                          // host varies
-		{"/var/lib/www", true, filepath.Join(cfg.WebDir, "pub")},         // RO whole pub tree
-		{filepath.Join(containerHome, "public_html"), false, ""},         // ~/public_html bind
-		{filepath.Join(containerHome, "private_html"), false, ""},        // ~/private_html bind
-		{containerHome, false, groupDir},                                 // group home
+		{"/opt/arizuko", true, filepath.Join(cfg.ProjectRoot, AppSrcDir)},
+		{"/run/ipc", false, ""},                                   // host varies
+		{"/var/lib/www", true, filepath.Join(cfg.WebDir, "pub")},  // RO whole pub tree
+		{filepath.Join(containerHome, "public_html"), false, ""},  // ~/public_html bind
+		{filepath.Join(containerHome, "private_html"), false, ""}, // ~/private_html bind
+		{containerHome, false, groupDir},                          // group home
 	}
 	for _, c := range cases {
 		m := findMount(mounts, c.container)
@@ -107,6 +114,69 @@ func TestBuildMounts_NoLegacyWorkspace(t *testing.T) {
 				t.Errorf("folder %q: legacy /workspace/ mount %q", folder, m.Container)
 			}
 		}
+	}
+}
+
+// The agent's /opt/arizuko must be the staged release, NEVER HOST_APP_DIR.
+// Both paths existed and both were called /opt/arizuko: routd and runed read the
+// image while the agent — the only path that rewrites a live group's skills —
+// read the developer's checkout, so an uncommitted edit migrated the fleet
+// (BUGS M1). A same-path assertion alone would not catch a regression here,
+// because on a dev box the two directories hold the same bytes.
+func TestBuildMounts_AgentSrcIsStagedNotHostCheckout(t *testing.T) {
+	cfg, folders := fhsConfig(t)
+	cfg.HostAppDir = "/home/dev/checkout"
+	in := Input{Folder: "atlas/support"}
+	groupDir := filepath.Join(cfg.GroupsDir, in.Folder)
+	os.MkdirAll(groupDir, 0o755)
+
+	m := findMount(buildMounts(cfg, in, groupDir, false, folders), "/opt/arizuko")
+	if m == nil {
+		t.Fatal("no /opt/arizuko mount; an agent without it cannot migrate")
+	}
+	if m.Host == cfg.HostAppDir {
+		t.Error("agent mounts HOST_APP_DIR — an uncommitted edit reaches every live group")
+	}
+	if want := filepath.Join(cfg.ProjectRoot, AppSrcDir); m.Host != want {
+		t.Errorf("agent source = %q, want the staged copy %q", m.Host, want)
+	}
+	if !m.RO {
+		t.Error("the staged release must be read-only; an agent may not rewrite it")
+	}
+}
+
+// MaterializeAppSrc is what puts bytes at that staged path. A bind mount reads
+// the host filesystem, so a copy that silently no-ops leaves every agent with an
+// empty /opt/arizuko and no way to migrate.
+func TestMaterializeAppSrc_StagesTheImageCopy(t *testing.T) {
+	cfg, _ := fhsConfig(t)
+	src := filepath.Join(cfg.ProjectRoot, "opt-arizuko")
+	if err := os.MkdirAll(filepath.Join(src, "ant", "skills", "self"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	version := filepath.Join(src, "ant", "skills", "self", "MIGRATION_VERSION")
+	if err := os.WriteFile(version, []byte("199\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg.AppSrcDir = src
+
+	dst := MaterializeAppSrc(cfg)
+	got, err := os.ReadFile(filepath.Join(dst, "ant", "skills", "self", "MIGRATION_VERSION"))
+	if err != nil {
+		t.Fatalf("staged copy unreadable: %v", err)
+	}
+	if string(got) != "199\n" {
+		t.Errorf("staged MIGRATION_VERSION = %q, want the source's", got)
+	}
+
+	// Overwrite, not merge: the image is the only writer here.
+	if err := os.WriteFile(version, []byte("200\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	MaterializeAppSrc(cfg)
+	got, _ = os.ReadFile(filepath.Join(dst, "ant", "skills", "self", "MIGRATION_VERSION"))
+	if string(got) != "200\n" {
+		t.Errorf("restage left %q; a stale copy freezes every group's skills", got)
 	}
 }
 
