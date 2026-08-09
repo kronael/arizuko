@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,32 +11,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// testDBFile returns a file-backed SQLite DB. Needed when the handler runs
-// nested queries (outer rows iterator + inner query): with a shared
-// :memory: each new pool connection opens a *different* in-memory DB.
-func testDBFile(t *testing.T) *sql.DB {
-	t.Helper()
-	dir := t.TempDir()
-	db, err := sql.Open("sqlite", filepath.Join(dir, "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, q := range []string{
-		`CREATE TABLE groups (folder TEXT PRIMARY KEY, name TEXT, added_at TEXT, parent TEXT)`,
-		`CREATE TABLE sessions (group_folder TEXT PRIMARY KEY, session_id TEXT)`,
-		`CREATE TABLE channels (name TEXT, url TEXT)`,
-		`CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL DEFAULT '')`,
-		`CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, source TEXT NOT NULL DEFAULT '', verb TEXT, errored INTEGER NOT NULL DEFAULT 0)`,
-		`CREATE TABLE task_run_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, run_at TEXT, duration_ms INTEGER, status TEXT, result TEXT, error TEXT)`,
-		`CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER DEFAULT 0, match TEXT, target TEXT, observe_window_messages INTEGER, observe_window_chars INTEGER)`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("schema: %v", err)
-		}
-	}
-	return db
-}
-
 // --- data-path tests for row-rendering functions ---
 
 // Channels widget was removed when the channels SQL table was dropped
@@ -46,7 +19,7 @@ func testDBFile(t *testing.T) *sql.DB {
 // TestStatusWithChannels + TestStatusNoChannelsErrBanner removed.
 
 func TestTasksPartialRows(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
 		`INSERT INTO scheduled_tasks(id, owner, chat_jid, prompt, cron, next_run, status, created_at)
@@ -77,7 +50,7 @@ func TestTasksPartialRows(t *testing.T) {
 }
 
 func TestTasksPartialXSS(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
 		`INSERT INTO scheduled_tasks(id, owner, chat_jid, prompt, cron, status, created_at)
@@ -100,7 +73,7 @@ func TestTasksPartialXSS(t *testing.T) {
 }
 
 func TestActivityFullPage(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
 		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, source, verb)
@@ -125,7 +98,7 @@ func TestActivityFullPage(t *testing.T) {
 }
 
 func TestActivityPartialRows(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	// long content to exercise substr LIMIT
 	long := strings.Repeat("a", 200)
@@ -158,7 +131,7 @@ func TestActivityPartialRows(t *testing.T) {
 }
 
 func TestActivityPartialXSS(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
 		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, source, verb) VALUES('m1','<c>','<s>','<b>evil</b>','t','<src>','<v>')`); err != nil {
@@ -181,7 +154,7 @@ func TestActivityPartialXSS(t *testing.T) {
 // --- groups + routes ---
 
 func TestGroupsWithRoutes(t *testing.T) {
-	db := testDBFile(t)
+	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
 		`INSERT INTO groups(folder, added_at) VALUES('root', '')`); err != nil {
@@ -217,7 +190,7 @@ func TestGroupsWithRoutes(t *testing.T) {
 }
 
 func TestGroupsRoutesEmpty(t *testing.T) {
-	db := testDBFile(t)
+	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
 		`INSERT INTO groups(folder, added_at) VALUES('g1', '')`); err != nil {
@@ -235,7 +208,7 @@ func TestGroupsRoutesEmpty(t *testing.T) {
 }
 
 func TestWriteGroupRoutesQueryError(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	if _, err := db.Exec(`DROP TABLE routes`); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +228,7 @@ func TestWriteGroupRoutesQueryError(t *testing.T) {
 // --- memory handler with groups present ---
 
 func TestHandleMemoryDropdown(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
 		`INSERT INTO groups(folder, added_at) VALUES('alpha', '')`); err != nil {
@@ -294,7 +267,7 @@ func TestHandleMemorySelectedGroup(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(groups, folder, "MEMORY.md"), []byte("memdata"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
 		`INSERT INTO groups(folder, added_at) VALUES(?, '')`, folder); err != nil {
@@ -482,7 +455,7 @@ func TestMemoryWritePersona(t *testing.T) {
 // impersonate an operator. This is the proof the defense-in-depth gap is closed.
 func TestDashRejectsUnsignedXUserSub(t *testing.T) {
 	ks, _ := proxydBearerKS(t)
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks}
 	mux := http.NewServeMux()
@@ -506,7 +479,7 @@ func TestDashRejectsUnsignedXUserSub(t *testing.T) {
 // the stamped end-user identity passes the guard and reaches the handler (200).
 func TestDashAcceptsTransitProvenXUserSub(t *testing.T) {
 	ks, tok := proxydBearerKS(t)
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks}
 	mux := http.NewServeMux()
@@ -527,7 +500,7 @@ func TestDashAcceptsTransitProvenXUserSub(t *testing.T) {
 // /health MUST stay reachable with NO signature — the container healthcheck
 // hits it. Guarding it would mark the container unhealthy in prod.
 func TestDashHealthExemptFromGuard(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
@@ -544,12 +517,9 @@ func TestDashHealthExemptFromGuard(t *testing.T) {
 // --- portal content ---
 
 func TestPortalAllDotsOk(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
-	// channels > 0, no errored chats, no failed tasks → statusDot=ok, tasksDot=ok
-	if _, err := db.Exec(`INSERT INTO channels(name, url) VALUES('tel','http://t/')`); err != nil {
-		t.Fatal(err)
-	}
+	// no errored chats, no failed tasks → statusDot=ok, tasksDot=ok
 	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
@@ -564,9 +534,14 @@ func TestPortalAllDotsOk(t *testing.T) {
 }
 
 func TestPortalFailedTasksDot(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
-	if _, err := db.Exec(`INSERT INTO channels(name, url) VALUES('tel','http://t/')`); err != nil {
+	// task_run_logs.task_id is a real FK in routd's chain; the hand-written
+	// fixture had no constraint, so a run log for a task that never existed
+	// used to insert fine (BUGS F44).
+	if _, err := db.Exec(
+		`INSERT INTO scheduled_tasks(id, owner, chat_jid, prompt, created_at)
+		 VALUES('t','op','web:a','p','')`); err != nil {
 		t.Fatal(err)
 	}
 	for range 3 {
@@ -588,7 +563,7 @@ func TestPortalFailedTasksDot(t *testing.T) {
 }
 
 func TestPortalRejectsNonRoot(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()

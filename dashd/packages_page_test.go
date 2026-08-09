@@ -8,24 +8,7 @@ import (
 	"testing"
 )
 
-func packagesDB(t *testing.T) *sql.DB {
-	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Must match routd migration 0031 (composite (folder, name), '' =
-	// instance-wide). A fixture carrying the old single-column PK would let this
-	// page pass against a schema production no longer has.
-	if _, err := db.Exec(`CREATE TABLE installed_packages (
-		folder TEXT NOT NULL DEFAULT '', name TEXT NOT NULL,
-		source TEXT NOT NULL, revision TEXT NOT NULL,
-		manifest TEXT NOT NULL DEFAULT '{}', asset_hashes TEXT NOT NULL DEFAULT '{}',
-		installed_at TEXT NOT NULL, PRIMARY KEY (folder, name))`); err != nil {
-		t.Fatalf("schema: %v", err)
-	}
-	return db
-}
+func packagesDB(t *testing.T) *sql.DB { return routdDB(t) }
 
 func packagesGet(t *testing.T, db *sql.DB) string {
 	t.Helper()

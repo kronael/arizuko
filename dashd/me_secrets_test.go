@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,38 +10,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// meSecretsTestDB seeds the secrets table dashd reads/writes. dashd does not
-// own migrations; this fixture mirrors store/migrations/0034-secrets.sql post
-// 0047-secrets-plaintext.sql rename.
+// meSecretsTestDB is a migrated routd.db — routd owns secrets AND the audit_log
+// a sealed write lands in, so both come from its chain.
 func meSecretsTestDB(t *testing.T) *dash {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(
-		`CREATE TABLE secrets (
-			scope_kind TEXT NOT NULL,
-			scope_id   TEXT NOT NULL,
-			key        TEXT NOT NULL,
-			value      TEXT NOT NULL,
-			created_at TEXT NOT NULL,
-			PRIMARY KEY (scope_kind, scope_id, key)
-		);
-		CREATE TABLE audit_log (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			category TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL,
-			actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT,
-			params_summary TEXT, outcome TEXT NOT NULL, error_msg TEXT,
-			duration_ms INTEGER, turn_id TEXT, folder TEXT, instance TEXT,
-			request_id TEXT, source_ip TEXT
-		);`,
-	); err != nil {
-		t.Fatalf("schema: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return &dash{dbRoutd: db}
+	return &dash{dbRoutd: routdDB(t)}
 }
 
 func newMux(d *dash) *http.ServeMux {

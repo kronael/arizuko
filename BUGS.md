@@ -1334,7 +1334,44 @@ Fix: onbod migration 0005 rebuilding `onboarding` without `token_ref`,
 exists to carry plaintext tokens forward into a column that would no longer
 exist. Live row counts: krons 15, sloth 21, marinade 8; zero rows anywhere hold
 a live (unexpired) token.
-## F44 — dashd test fixtures hand-write schemas that drift from the real migrations (2026-08-06, open)
+## F44 — dashd test fixtures hand-write schemas that drift from the real migrations (2026-08-06, FIXED 2026-08-09)
+
+**FIXED 2026-08-09 — the class, not the one instance.** Every dashd fixture now
+runs the owning daemon's embedded migrations: `dashd/fixtures_test.go` holds one
+`routdDB(t)` (`routd.OpenMem`) and one `runedDB(t)` (`runed.OpenMem`), and the
+FOUR constructors that restated schemas by hand — `testDB`, `testDBFile`, the
+old `routdDB`, the old `runedDB` — plus nine per-file fixture blocks
+(`pending_actions`, `audit_log`, `secrets` ×3, `installed_packages`,
+`chat_proactive`, `user_profiles`, `cost_log`) collapse into them. `testDBFile`
+existed because a plain `:memory:` DSN gives a nested query a second, EMPTY
+database on its second pool connection; `OpenMem` is `cache=shared` under a
+per-call name, so the workaround is gone with it.
+
+The real schema found six drifts the green suite had been hiding, all in
+fixtures, none previously red:
+
+- `spawns` was missing `kind` (runed 0004) AND still carried `mcp_token_jti`
+  (dropped by runed 0003) — wrong in both directions.
+- `groups` has no `name` or `parent` column; the fixture invented both, and
+  `added_at` is NOT NULL, which the fixture let pass.
+- `messages.sender`/`.content` are NOT NULL.
+- `pending_actions.caller_agent` and `created_at` are NOT NULL.
+- `task_run_logs.task_id` is a real FK to `scheduled_tasks`; the fixture had no
+  constraint, so a run log for a task that never existed inserted fine.
+- `channels` has not existed since routd 0065. Two tests SEEDED it and two
+  DROPPED it to force a DB error — against a table dashd stopped reading long
+  ago, so `TestHandleStatusDBError` was not testing an error path at all. It now
+  drops `sessions`, which the status page really groups over.
+
+Mutation-checked: restoring the old hand-written `spawns` DDL turns
+`TestRunedActiveKillConfirmVariesByKind` red with `no such column: kind` and
+three more runed-page assertions with it.
+
+**Still hand-written, with a reason:** `invites` in `dashd/invites_test.go`,
+`onbod/main_test.go`'s fixture, and `cmd/arizuko`'s `onbodSchema`. onbod is
+`package main`, so its migration FS is unreachable from any other package —
+the same constraint `onbodSchema`/`onbodBootstrapVersion` already works around,
+and the only fixture drift this fix cannot structurally prevent.
 
 Found while shipping `5/8` item 5. `runedDB` (`dashd/runed_page_test.go:16`)
 hand-writes a `CREATE TABLE spawns` that was missing `kind` — the column

@@ -11,26 +11,12 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// oauthSecretsSchema is the secrets table with routd migration 0017's surrogate
-// columns — the shape dashd writes OAuth rows into.
-const oauthSecretsSchema = `CREATE TABLE secrets (
-	scope_kind TEXT NOT NULL, scope_id TEXT NOT NULL, key TEXT NOT NULL,
-	value BLOB NOT NULL, created_at TEXT NOT NULL,
-	provider TEXT, refresh_val BLOB, expires_at DATETIME, scope_list TEXT,
-	PRIMARY KEY (scope_kind, scope_id, key));`
-
 // connectionsDash wires a dash whose surrogate engine's github TokenURL points at
-// the given exchange handler (the mocked GitHub token endpoint).
+// the given exchange handler (the mocked GitHub token endpoint). The secrets
+// table (with routd 0017's surrogate columns) comes from routd's own chain.
 func connectionsDash(t *testing.T, exchange http.HandlerFunc) (*dash, *sql.DB) {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:conn_"+t.Name()+"?mode=memory&cache=shared")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(oauthSecretsSchema); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := routdDB(t)
 	srv := httptest.NewServer(exchange)
 	t.Cleanup(srv.Close)
 	eng := surrogate.NewEngineWith(

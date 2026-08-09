@@ -11,40 +11,25 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
+// testDBWithInvites is a migrated routd.db plus `invites`, the ONE table here
+// that routd's chain cannot supply: onbod owns it and onbod is package main, so
+// its migration FS is unreachable from outside — the same constraint
+// cmd/arizuko's onbodSchema constant works around. acl, acl_membership and
+// audit_log used to be restated here too; they are routd's and now come from
+// routd's own migrations (BUGS F44).
 func testDBWithInvites(t *testing.T) *sql.DB {
 	t.Helper()
-	db := testDB(t)
-	for _, q := range []string{
-		`CREATE TABLE IF NOT EXISTS invites (
-			ref TEXT PRIMARY KEY,
-			target_glob TEXT NOT NULL,
-			issued_by_sub TEXT NOT NULL,
-			issued_at TEXT NOT NULL,
-			expires_at TEXT,
-			max_uses INTEGER NOT NULL DEFAULT 1,
-			used_count INTEGER NOT NULL DEFAULT 0
-		)`,
-		`CREATE TABLE IF NOT EXISTS acl (
-			principal TEXT, action TEXT, scope TEXT, effect TEXT,
-			params TEXT, predicate TEXT, granted_at TEXT, granted_by TEXT,
-			grant_option INTEGER NOT NULL DEFAULT 0
-		)`,
-		`CREATE TABLE IF NOT EXISTS acl_membership (
-			child TEXT, parent TEXT, added_at TEXT, added_by TEXT
-		)`,
-		`CREATE TABLE IF NOT EXISTS audit_log (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			category TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL,
-			actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT,
-			params_summary TEXT, outcome TEXT NOT NULL, error_msg TEXT,
-			duration_ms INTEGER, turn_id TEXT, folder TEXT, instance TEXT,
-			request_id TEXT, source_ip TEXT
-		)`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("schema: %v", err)
-		}
+	db := routdDB(t)
+	if _, err := db.Exec(`CREATE TABLE invites (
+		ref TEXT PRIMARY KEY,
+		target_glob TEXT NOT NULL,
+		issued_by_sub TEXT NOT NULL,
+		issued_at TEXT NOT NULL,
+		expires_at TEXT,
+		max_uses INTEGER NOT NULL DEFAULT 1,
+		used_count INTEGER NOT NULL DEFAULT 0
+	)`); err != nil {
+		t.Fatalf("schema: %v", err)
 	}
 	return db
 }

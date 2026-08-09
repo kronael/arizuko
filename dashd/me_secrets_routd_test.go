@@ -10,39 +10,15 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// secretsSchema is the minimal secrets table dashd reads/writes (mirrors
-// store's secrets migration). Used to stand up an isolated routd.db twin.
-const secretsSchema = `CREATE TABLE secrets (
-	scope_kind TEXT NOT NULL,
-	scope_id   TEXT NOT NULL,
-	key        TEXT NOT NULL,
-	value      TEXT NOT NULL,
-	created_at TEXT NOT NULL,
-	PRIMARY KEY (scope_kind, scope_id, key)
-);`
-
-// splitSecretsDash wires a dash on routd.db — the only store dashd opens — with
-// the secrets table and the audit_log sink routd owns (migration 0016), so a
-// sealed write can be proven to land there.
+// splitSecretsDash wires a dash on routd.db — the only store dashd opens — where
+// routd's own chain supplies both `secrets` and the audit_log sink (migration
+// 0016), so a sealed write can be proven to land there.
 func splitSecretsDash(t *testing.T) (*dash, *sql.DB) {
 	t.Helper()
-	routd, err := sql.Open("sqlite", "file:dash_routd?mode=memory&cache=shared")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := routd.Exec(secretsSchema + `CREATE TABLE audit_log (
-		id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT, category TEXT, action TEXT,
-		actor TEXT, actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT,
-		params_summary TEXT, outcome TEXT, error_msg TEXT, duration_ms INTEGER,
-		turn_id TEXT, folder TEXT, instance TEXT, request_id TEXT, source_ip TEXT);`); err != nil {
-		t.Fatalf("routd.db schema: %v", err)
-	}
-	t.Cleanup(func() { routd.Close() })
-	return &dash{dbRoutd: routd}, routd
+	db := routdDB(t)
+	return &dash{dbRoutd: db}, db
 }
 
-// TestMeSecrets_WriteTargetsRoutdDB proves /dash/me/secrets POST writes the row
-// into routd.db, the owner of the secrets table in the split topology.
 func TestMeSecrets_WriteTargetsRoutdDB(t *testing.T) {
 	d, routd := splitSecretsDash(t)
 	mux := newMux(d)

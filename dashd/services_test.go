@@ -15,7 +15,7 @@ import (
 // wants to click through to diagnose. Unbuilt tiles always render the name as
 // plain text, regardless of status.
 func TestServicesOperator(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
@@ -65,7 +65,7 @@ func TestServicesOperator(t *testing.T) {
 // portal: an unmounted /dash/<daemon>/ still resolves, to that catch-all, so
 // "did it resolve" is not the question — "did it resolve to ITS OWN route" is.
 func TestServicesBuiltFlagMatchesMountedRoutes(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	mux := newMux(&dash{dbRoutd: db})
 
@@ -107,7 +107,7 @@ func TestShouldLink(t *testing.T) {
 
 // TestServicesNonOperatorForbidden: the hub is operator-only.
 func TestServicesNonOperatorForbidden(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()

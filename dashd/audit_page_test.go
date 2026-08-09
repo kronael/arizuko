@@ -22,26 +22,10 @@ import (
 // (subtree folder match, id cursor, limit clamp) rather than a stub that agrees
 // with the page by construction.
 
-// auditDB builds an in-memory audit_log with the shipped column set.
-func auditDB(t *testing.T) *sql.DB {
-	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`CREATE TABLE audit_log (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-		category TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL,
-		actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT,
-		params_summary TEXT, outcome TEXT NOT NULL, error_msg TEXT,
-		duration_ms INTEGER, turn_id TEXT, folder TEXT, instance TEXT,
-		request_id TEXT, source_ip TEXT)`); err != nil {
-		t.Fatalf("schema: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
+// auditDB is a migrated routd.db standing in for any audit_log owner: the four
+// tables are one shape, replicated per owner DB (spec 5/I), so routd's chain is
+// the honest source for all of them.
+func auditDB(t *testing.T) *sql.DB { return routdDB(t) }
 
 // seedAudit inserts one row at an explicit timestamp. ts is explicit because
 // the merge orders on created_at across sources; a default-now stamp would make

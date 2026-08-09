@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,48 +14,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func testDB(t *testing.T) *sql.DB {
-	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, q := range []string{
-		`CREATE TABLE groups (
-			folder TEXT PRIMARY KEY, name TEXT,
-			added_at TEXT, parent TEXT)`,
-		`CREATE TABLE sessions (group_folder TEXT PRIMARY KEY, session_id TEXT)`,
-		`CREATE TABLE channels (name TEXT, url TEXT)`,
-		`CREATE TABLE scheduled_tasks (
-			id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT,
-			cron TEXT, next_run TEXT, status TEXT NOT NULL DEFAULT 'active',
-			created_at TEXT NOT NULL DEFAULT '')`,
-		`CREATE TABLE messages (
-			id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT,
-			timestamp TEXT, source TEXT NOT NULL DEFAULT '', verb TEXT,
-			errored INTEGER NOT NULL DEFAULT 0)`,
-		`CREATE TABLE task_run_logs (id INTEGER PRIMARY KEY AUTOINCREMENT,
-			task_id TEXT, run_at TEXT, duration_ms INTEGER, status TEXT, result TEXT, error TEXT)`,
-		`CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT,
-			seq INTEGER DEFAULT 0, match TEXT, target TEXT,
-			observe_window_messages INTEGER, observe_window_chars INTEGER)`,
-		`CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT,
-			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			category TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL,
-			actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT,
-			params_summary TEXT, outcome TEXT NOT NULL, error_msg TEXT,
-			duration_ms INTEGER, turn_id TEXT, folder TEXT, instance TEXT,
-			request_id TEXT, source_ip TEXT)`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("schema: %v", err)
-		}
-	}
-	return db
-}
-
 func TestDashHealth(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
@@ -76,7 +35,7 @@ func TestDashHealth(t *testing.T) {
 }
 
 func TestDashPortal(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
@@ -94,7 +53,7 @@ func TestDashPortal(t *testing.T) {
 }
 
 func TestDashStatus(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db, dbPath: ":memory:"}
 	mux := http.NewServeMux()
@@ -109,7 +68,7 @@ func TestDashStatus(t *testing.T) {
 }
 
 func TestDashTasks(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()
@@ -159,7 +118,7 @@ func TestRenderMemorySectionValid(t *testing.T) {
 // dashd has no auth; proxyd fronts it. This regression guard asserts that.
 // See diary 2026-04-09.
 func TestDashNoAuthGate(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db, groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
@@ -218,8 +177,10 @@ func TestMdSummaryYAML(t *testing.T) {
 }
 
 func TestHandleStatusDBError(t *testing.T) {
-	db := testDB(t)
-	if _, err := db.Exec(`DROP TABLE channels`); err != nil {
+	db := routdDB(t)
+	// sessions is what the status page groups over; `channels` used to stand in
+	// here and had been dropped by routd 0065 for months (BUGS F44).
+	if _, err := db.Exec(`DROP TABLE sessions`); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{dbRoutd: db, dbPath: ":memory:"}
@@ -318,7 +279,7 @@ func TestRenderMemorySectionAbsolutePath(t *testing.T) {
 // URL-encoded traversal via the full handler: the query decoder turns
 // ..%2F..%2Fetc back into ../../etc, which the guard then catches.
 func TestHandleMemoryURLEncodedTraversal(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db, groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
@@ -396,9 +357,9 @@ func TestRenderMemorySectionEmptyFolder(t *testing.T) {
 // handler still returns 200 when the tables are missing, documenting the
 // silent-swallow behavior: the dots render as "err" because counts stay 0.
 func TestHandlePortalDBError(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
-	for _, tbl := range []string{"channels", "messages", "task_run_logs"} {
+	for _, tbl := range []string{"messages", "task_run_logs"} {
 		if _, err := db.Exec(`DROP TABLE ` + tbl); err != nil {
 			t.Fatal(err)
 		}
@@ -424,7 +385,7 @@ func TestHandlePortalDBError(t *testing.T) {
 
 // writeTaskRows DOES surface DB errors in the response — lock that in.
 func TestTasksPartialDBError(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(`DROP TABLE scheduled_tasks`); err != nil {
 		t.Fatal(err)
@@ -447,7 +408,7 @@ func TestTasksPartialDBError(t *testing.T) {
 
 // writeActivityRows DOES surface DB errors — lock in.
 func TestActivityPartialDBError(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(`DROP TABLE messages`); err != nil {
 		t.Fatal(err)
@@ -470,7 +431,7 @@ func TestActivityPartialDBError(t *testing.T) {
 
 // handleGroups DOES surface DB errors in the body.
 func TestHandleGroupsDBError(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(`DROP TABLE groups`); err != nil {
 		t.Fatal(err)
@@ -494,7 +455,7 @@ func TestHandleGroupsDBError(t *testing.T) {
 // handleMemory surfaces DB errors from the group-list query as an inline
 // banner, and omits the dropdown.
 func TestHandleMemoryDBError(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(`DROP TABLE groups`); err != nil {
 		t.Fatal(err)
@@ -524,7 +485,7 @@ func TestHandleMemoryDBError(t *testing.T) {
 // rejected — every request is admitted regardless.
 
 func TestDashIgnoresAuthHeader(t *testing.T) {
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
@@ -748,7 +709,7 @@ func TestBrandNameAccentPropagation(t *testing.T) {
 	brandName = "MyBot"
 	accentOverride = "#ff0000"
 
-	db := testDB(t)
+	db := routdDB(t)
 	defer db.Close()
 	d := &dash{dbRoutd: db}
 	mux := http.NewServeMux()

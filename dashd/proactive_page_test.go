@@ -12,24 +12,15 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// proactiveDB is routdDB plus chat_proactive, the cooldown table the page
-// reads (routd migration 0002).
-func proactiveDB(t *testing.T) *sql.DB {
-	t.Helper()
-	db := routdDB(t)
-	if _, err := db.Exec(
-		`CREATE TABLE chat_proactive (jid TEXT PRIMARY KEY, proactive_last_fired_at TEXT)`); err != nil {
-		t.Fatalf("schema: %v", err)
-	}
-	return db
-}
+// proactiveDB is a migrated routd.db; the page reads chat_proactive.
+func proactiveDB(t *testing.T) *sql.DB { return routdDB(t) }
 
-// seedGroup registers a group row and writes its CLAUDE.md frontmatter under
-// groupsDir. frontmatter "" writes no file at all.
 func seedGroup(t *testing.T, db *sql.DB, groupsDir, folder, frontmatter string) {
 	t.Helper()
-	if _, err := db.Exec(`INSERT INTO groups(folder, name, added_at, parent) VALUES(?,?,?,?)`,
-		folder, folder, "2026-08-06T10:00:00Z", ""); err != nil {
+	// routd's `groups` has no name/parent column — the hand-written fixture
+	// invented both, and the parent is the folder path itself (BUGS F44).
+	if _, err := db.Exec(`INSERT INTO groups(folder, added_at) VALUES(?,?)`,
+		folder, "2026-08-06T10:00:00Z"); err != nil {
 		t.Fatalf("seed group: %v", err)
 	}
 	if frontmatter == "" {

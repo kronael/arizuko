@@ -7,23 +7,11 @@ import (
 	"testing"
 )
 
+// user_profiles is routd-owned (routd/migrations 0011 + 0025); dashd reads it
+// via adminDB() (routd.db), so dbRoutd is the handle to wire.
 func profileTestDB(t *testing.T) *dash {
 	t.Helper()
-	db := testDB(t)
-	if _, err := db.Exec(
-		`CREATE TABLE user_profiles (
-			id INTEGER PRIMARY KEY,
-			sub TEXT UNIQUE NOT NULL,
-			username TEXT UNIQUE NOT NULL,
-			name TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		)`); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	// user_profiles is routd-owned (routd/migrations 0011 + 0025); dashd reads it via
-	// adminDB() (routd.db). Wire dbRoutd so the profile read resolves.
-	return &dash{dbRoutd: db}
+	return &dash{dbRoutd: routdDB(t)}
 }
 
 func seedAuthUser(t *testing.T, d *dash, sub, name string) {

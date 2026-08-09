@@ -11,36 +11,16 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// usageRoutdDB builds an in-memory routd.db with the three tables the usage page
-// reads. cost_log carries routd's column names (routd/migrations/0001:
-// recorded_at / input_tokens / output_tokens / cost_cents) — NOT the pre-split
-// store names (ts / input_tok / cents). The page used to query the store shape
-// against the frozen messages.db, so seeding routd's shape here is what proves
-// the repoint.
+// usageRoutdDB is a migrated routd.db seeded with the given group folders. The
+// page reads groups, cost_log and messages; cost_log's routd column names
+// (recorded_at / input_tokens / output_tokens / cost_cents, NOT the pre-split
+// store ts / input_tok / cents) now come from routd's own chain rather than a
+// restatement of it.
 func usageRoutdDB(t *testing.T, folders ...string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, q := range []string{
-		`CREATE TABLE groups (folder TEXT PRIMARY KEY, name TEXT, added_at TEXT, parent TEXT)`,
-		`CREATE TABLE cost_log (
-			folder TEXT NOT NULL, turn_id TEXT NOT NULL, model TEXT NOT NULL,
-			input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
-			cost_cents INTEGER NOT NULL DEFAULT 0, recorded_at TEXT NOT NULL,
-			PRIMARY KEY (folder, turn_id, model))`,
-		`CREATE TABLE messages (
-			id TEXT PRIMARY KEY, chat_jid TEXT NOT NULL,
-			is_bot_message INTEGER NOT NULL DEFAULT 0, timestamp TEXT NOT NULL,
-			routed_to TEXT)`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("schema: %v", err)
-		}
-	}
+	db := routdDB(t)
 	for _, f := range folders {
-		if _, err := db.Exec(`INSERT INTO groups (folder) VALUES (?)`, f); err != nil {
+		if _, err := db.Exec(`INSERT INTO groups (folder, added_at) VALUES (?, '')`, f); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -103,8 +83,8 @@ func TestUsageWithCost(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := routd.Exec(
-		`INSERT INTO messages (id, chat_jid, is_bot_message, timestamp, routed_to)
-		 VALUES ('m1','web:alice',0,?,'alice')`, now); err != nil {
+		`INSERT INTO messages (id, chat_jid, sender, content, is_bot_message, timestamp, routed_to)
+		 VALUES ('m1','web:alice','u1','hi',0,?,'alice')`, now); err != nil {
 		t.Fatal(err)
 	}
 

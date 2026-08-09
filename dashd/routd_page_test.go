@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,37 +8,6 @@ import (
 
 	_ "modernc.org/sqlite"
 )
-
-// routdDB builds an in-memory messages.db with the columns the routd page reads
-// (errored / status / is_bot_message) plus a minimal routes+groups schema for
-// the stat counts.
-func routdDB(t *testing.T) *sql.DB {
-	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, q := range []string{
-		`CREATE TABLE messages (
-			id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT,
-			timestamp TEXT, is_bot_message INTEGER NOT NULL DEFAULT 0,
-			status TEXT NOT NULL DEFAULT 'sent',
-			errored INTEGER NOT NULL DEFAULT 0)`,
-		`CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, match TEXT, target TEXT)`,
-		`CREATE TABLE groups (folder TEXT PRIMARY KEY, name TEXT, added_at TEXT, parent TEXT)`,
-		`CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT,
-			created_at TEXT NOT NULL DEFAULT '', category TEXT NOT NULL,
-			action TEXT NOT NULL, actor TEXT NOT NULL, actor_sub TEXT, resource TEXT,
-			scope TEXT, surface TEXT, params_summary TEXT, outcome TEXT NOT NULL,
-			error_msg TEXT, duration_ms INTEGER, turn_id TEXT, folder TEXT,
-			instance TEXT, request_id TEXT, source_ip TEXT)`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("schema: %v", err)
-		}
-	}
-	return db
-}
 
 // TestRoutdEmpty: no errored messages → the errored table renders the empty
 // marker and stats show zeros.
@@ -80,15 +48,15 @@ func TestRoutdErroredRows(t *testing.T) {
 	}
 	for _, s := range seed {
 		if _, err := db.Exec(
-			`INSERT INTO messages (id, chat_jid, timestamp, errored) VALUES (?, ?, ?, 1)`,
+			`INSERT INTO messages (id, chat_jid, sender, content, timestamp, errored) VALUES (?, ?, 'u1', 'hi', ?, 1)`,
 			s[0], s[1], "2026-06-16T10:00:00Z"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// One pending bot message — counted; one sent — not counted.
 	if _, err := db.Exec(
-		`INSERT INTO messages (id, chat_jid, timestamp, is_bot_message, status)
-		 VALUES ('p1','web:alice','2026-06-16T10:01:00Z',1,'pending')`); err != nil {
+		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_bot_message, status)
+		 VALUES ('p1','web:alice','bot','hi','2026-06-16T10:01:00Z',1,'pending')`); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{dbRoutd: db}
@@ -123,9 +91,9 @@ func TestRoutdRetryClears(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
 	if _, err := db.Exec(
-		`INSERT INTO messages (id, chat_jid, timestamp, errored) VALUES
-		 ('m1','web:alice','2026-06-16T10:00:00Z',1),
-		 ('m2','web:bob','2026-06-16T10:00:00Z',1)`); err != nil {
+		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, errored) VALUES
+		 ('m1','web:alice','u1','hi','2026-06-16T10:00:00Z',1),
+		 ('m2','web:bob','u2','hi','2026-06-16T10:00:00Z',1)`); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{dbRoutd: db}

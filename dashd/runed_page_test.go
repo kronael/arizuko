@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,36 +9,6 @@ import (
 
 	_ "modernc.org/sqlite"
 )
-
-// runedDB builds an in-memory runed.db with the spawns schema the runs view
-// reads.
-func runedDB(t *testing.T) *sql.DB {
-	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`CREATE TABLE spawns (
-		run_id TEXT PRIMARY KEY,
-		folder TEXT NOT NULL,
-		topic TEXT NOT NULL DEFAULT '',
-		container_name TEXT NOT NULL DEFAULT '',
-		session_log_id INTEGER,
-		mcp_token_jti TEXT,
-		session_id TEXT,
-		state TEXT NOT NULL DEFAULT 'queued',
-		outcome TEXT,
-		exit_code INTEGER,
-		steered INTEGER NOT NULL DEFAULT 0,
-		created_at TEXT NOT NULL,
-		started_at TEXT,
-		ended_at TEXT,
-		kind TEXT NOT NULL DEFAULT 'agent'
-	)`); err != nil {
-		t.Fatalf("schema: %v", err)
-	}
-	return db
-}
 
 // TestRunedNilStore: with no runed.db wired in, the page renders a graceful
 // "store unavailable" banner rather than erroring.
@@ -67,9 +36,9 @@ func TestRunedActiveRuns(t *testing.T) {
 	rdb := runedDB(t)
 	defer rdb.Close()
 	if _, err := rdb.Exec(
-		`INSERT INTO spawns (run_id, folder, state, created_at, started_at) VALUES
-		 ('run-abcdef0123456789','corp/eng','running','2026-06-16T10:00:00Z','2026-06-16T10:00:05Z'),
-		 ('run-queued00000000','solo/inbox','queued','2026-06-16T10:01:00Z',NULL)`); err != nil {
+		`INSERT INTO spawns (run_id, folder, container_name, state, created_at, started_at) VALUES
+		 ('run-abcdef0123456789','corp/eng','c1','running','2026-06-16T10:00:00Z','2026-06-16T10:00:05Z'),
+		 ('run-queued00000000','solo/inbox','c2','queued','2026-06-16T10:01:00Z',NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	db := routdDB(t)
@@ -109,9 +78,9 @@ func TestRunedActiveKillConfirmVariesByKind(t *testing.T) {
 	rdb := runedDB(t)
 	defer rdb.Close()
 	if _, err := rdb.Exec(
-		`INSERT INTO spawns (run_id, folder, state, created_at, started_at, kind) VALUES
-		 ('run-agent0000','corp/eng','running','2026-06-16T10:00:00Z','2026-06-16T10:00:05Z','agent'),
-		 ('run-hold00000','solo/inbox','running','2026-06-16T10:01:00Z','2026-06-16T10:01:05Z','hold')`); err != nil {
+		`INSERT INTO spawns (run_id, folder, container_name, state, created_at, started_at, kind) VALUES
+		 ('run-agent0000','corp/eng','c-agent','running','2026-06-16T10:00:00Z','2026-06-16T10:00:05Z','agent'),
+		 ('run-hold00000','solo/inbox','c-hold','running','2026-06-16T10:01:00Z','2026-06-16T10:01:05Z','hold')`); err != nil {
 		t.Fatal(err)
 	}
 	db := routdDB(t)
@@ -156,14 +125,14 @@ func TestRunedRecentRuns(t *testing.T) {
 	rdb := runedDB(t)
 	defer rdb.Close()
 	if _, err := rdb.Exec(
-		`INSERT INTO spawns (run_id, folder, state, outcome, exit_code, created_at, started_at, ended_at) VALUES
-		 ('r-ok','corp/eng','exited','completed',0,'2026-06-16T09:00:00Z','2026-06-16T09:00:00Z','2026-06-16T09:00:42Z'),
-		 ('r-err','solo/inbox','error','crash',1,'2026-06-16T09:05:00Z','2026-06-16T09:05:00Z','2026-06-16T09:06:00Z')`); err != nil {
+		`INSERT INTO spawns (run_id, folder, container_name, state, outcome, exit_code, created_at, started_at, ended_at) VALUES
+		 ('r-ok','corp/eng','c-ok','exited','completed',0,'2026-06-16T09:00:00Z','2026-06-16T09:00:00Z','2026-06-16T09:00:42Z'),
+		 ('r-err','solo/inbox','c-err','error','crash',1,'2026-06-16T09:05:00Z','2026-06-16T09:05:00Z','2026-06-16T09:06:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 	// An active run must NOT appear in the recent table.
 	if _, err := rdb.Exec(
-		`INSERT INTO spawns (run_id, folder, state, created_at) VALUES ('r-live','x','running','2026-06-16T09:10:00Z')`); err != nil {
+		`INSERT INTO spawns (run_id, folder, container_name, state, created_at) VALUES ('r-live','x','c-live','running','2026-06-16T09:10:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 	db := routdDB(t)

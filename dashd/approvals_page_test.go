@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -159,21 +158,10 @@ func TestApprovalResolve_BadVerdictRejected(t *testing.T) {
 	}
 }
 
-// pendingCountDB builds a routd.db stand-in holding only pending_actions, the
-// one table the portal count reads.
+// pendingCountDB is a migrated routd.db; the portal count reads pending_actions.
 func pendingCountDB(t *testing.T) *dash {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	if _, err := db.Exec(`CREATE TABLE pending_actions (
-		id TEXT PRIMARY KEY, group_folder TEXT, tool TEXT, status TEXT,
-		expires_at TEXT DEFAULT '')`); err != nil {
-		t.Fatal(err)
-	}
-	return &dash{dbRoutd: db}
+	return &dash{dbRoutd: routdDB(t)}
 }
 
 // The portal banner counts only calls still WAITING: a lazily-expired hold and
@@ -187,8 +175,9 @@ func TestPortalCountsHeldApprovals(t *testing.T) {
 		{"p3", "rejected", ""},
 	} {
 		if _, err := d.dbRoutd.Exec(
-			`INSERT INTO pending_actions (id, group_folder, tool, status, expires_at)
-			 VALUES (?, 'demo', 'send_file', ?, ?)`, row[0], row[1], row[2]); err != nil {
+			`INSERT INTO pending_actions (id, group_folder, caller_agent, tool, status, created_at, expires_at)
+			 VALUES (?, 'demo', 'agent:demo', 'send_file', ?, '2026-08-09T00:00:00Z', ?)`,
+			row[0], row[1], row[2]); err != nil {
 			t.Fatal(err)
 		}
 	}
