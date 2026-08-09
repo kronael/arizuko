@@ -211,7 +211,9 @@ func (d *dash) handleMeSecretCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Seal at rest via secretStore (SECRETS_KEY keyring): PutSecretRow upserts the
-	// `v2:` ciphertext — the same encoding routd reads back through FolderSecrets.
+	// `v2:` ciphertext — the same encoding routd's broker reads back through
+	// ConnectorSecrets. This page writes capability credentials, so the value
+	// reaches a tool on the host and never the container env (spec 5/14 §2).
 	if err := ss.PutSecretRow(store.ScopeUser, sub, body.Key, body.Value); err != nil {
 		slog.Warn("me_secrets create", "sub", sub, "key", body.Key, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
