@@ -499,26 +499,31 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		ExtTools:   s.extTools,
 		// Capture the trigger sender so ConnectorSecrets resolves the triggering
 		// user's BYOA secrets (FolderSecretsForUser), not folder scope only.
-		ResolveConnectorSecrets: func(folder string, required []string) (map[string]string, error) {
+		ResolveConnectorSecrets: func(folder, tool string, required []string) (map[string]string, error) {
 			callerSub := turnCallerSub(t.trigger)
-			res, err := s.db.ConnectorSecrets(folder, callerSub, required)
+			res, scopes, err := s.db.ConnectorSecrets(folder, callerSub, required)
 			// secret_use_log writer (spec 5/13 §Audit, M2): one row per resolved key —
 			// records THAT a broker secret was read, never the value. Closes the gap
 			// where store.LogSecretUse had no production caller. Log-failure is
 			// non-fatal: an audit miss must not fail the tool call.
+			//
+			// scope and tool come from the resolution and the call site; the table
+			// exists to answer "who used which credential, from where", which a row
+			// that cannot tell a user's own BYO key from the folder default, and
+			// names no tool, does not answer.
 			status := "ok"
 			if err != nil {
 				status = "err"
 			}
 			st := store.New(s.db.SQL())
 			for _, k := range required {
-				scope := "missing"
-				if _, ok := res[k]; ok {
-					scope = "folder"
+				scope := scopes[k]
+				if scope == "" {
+					scope = store.ScopeMissing
 				}
 				if lerr := st.LogSecretUse(store.SecretUseRow{
 					SpawnID: t.turnID, CallerSub: callerSub, Folder: folder,
-					Key: k, Scope: scope, Status: status,
+					Tool: tool, Key: k, Scope: string(scope), Status: status,
 				}); lerr != nil {
 					slog.Warn("secret_use_log write failed", "key", k, "err", lerr)
 				}

@@ -465,7 +465,7 @@ func TestFolderSecretsResolvedForUser_UserOverridesFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := s.FolderSecretsResolvedForUser("atlas", "github:alice")
+	got, _, err := s.FolderSecretsResolvedForUser("atlas", "github:alice")
 	if err != nil {
 		t.Fatalf("FolderSecretsResolvedForUser: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestFolderSecretsResolvedForUser_UserOverridesFolder(t *testing.T) {
 	}
 
 	// A different user does NOT see alice's override → folder default stands.
-	bob, err := s.FolderSecretsResolvedForUser("atlas", "github:bob")
+	bob, _, err := s.FolderSecretsResolvedForUser("atlas", "github:bob")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +492,7 @@ func TestFolderSecretsResolvedForUser_UserOverridesFolder(t *testing.T) {
 	}
 
 	// Empty userSub → the folder set unchanged.
-	none, err := s.FolderSecretsResolvedForUser("atlas", "")
+	none, _, err := s.FolderSecretsResolvedForUser("atlas", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -537,7 +537,7 @@ func TestFolderSecretsResolvedForUser_Decrypts(t *testing.T) {
 	if raw := rawSecretValue(t, s, ScopeUser, "github:alice", "ANTHROPIC_API_KEY"); !strings.HasPrefix(raw, "v2:") {
 		t.Fatalf("user secret not sealed: %q", raw)
 	}
-	got, err := s.FolderSecretsResolvedForUser("atlas", "github:alice")
+	got, _, err := s.FolderSecretsResolvedForUser("atlas", "github:alice")
 	if err != nil {
 		t.Fatal(err)
 	}

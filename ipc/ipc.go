@@ -235,7 +235,12 @@ type StoreFns struct {
 	// pre-injection behaviour. Spec 5/13. A non-nil error is a surrogate-OAuth
 	// "reconnect" signal (spec 5/15): a required credential's refresh_token was
 	// revoked; the handler returns it to the agent as the tool result.
-	ResolveConnectorSecrets func(folder string, required []string) (map[string]string, error)
+	//
+	// `tool` is the calling tool's local name. It is passed rather than inferred
+	// because the resolver is the audit seam: secret_use_log's row answers "who
+	// used which credential, from where", and the tool half of that is knowable
+	// only here at the call site (spec 5/13 § Audit).
+	ResolveConnectorSecrets func(folder, tool string, required []string) (map[string]string, error)
 
 	// Authorize is the SOLE per-call authz check (5/33): sub may call action (e.g.
 	// "mcp:send") with params against `folder` as the SCOPE — the caller's own folder
@@ -1027,7 +1032,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				var secrets map[string]string
 				if db.ResolveConnectorSecrets != nil && tool.Connector != nil {
 					var rerr error
-					secrets, rerr = db.ResolveConnectorSecrets(folder, tool.Connector.Secrets)
+					secrets, rerr = db.ResolveConnectorSecrets(folder, tool.LocalName, tool.Connector.Secrets)
 					if rerr != nil {
 						return mcp.NewToolResultError(rerr.Error()), nil
 					}
@@ -1056,7 +1061,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 						needed = append(needed, tool.SecretKey2)
 					}
 					var rerr error
-					secrets, rerr = db.ResolveConnectorSecrets(folder, needed)
+					secrets, rerr = db.ResolveConnectorSecrets(folder, tool.LocalName, needed)
 					if rerr != nil {
 						return mcp.NewToolResultError(rerr.Error()), nil
 					}

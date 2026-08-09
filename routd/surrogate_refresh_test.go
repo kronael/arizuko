@@ -55,7 +55,7 @@ func TestBroker_FreshTokenNoRefresh(t *testing.T) {
 	})
 	seedOAuthRow(t, db, "old-access", "refresh-1", time.Now().Add(time.Hour))
 
-	got, err := db.ConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"})
+	got, _, err := db.ConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestBroker_RefreshNearExpiry(t *testing.T) {
 	})
 	seedOAuthRow(t, db, "old-access", "refresh-1", time.Now().Add(30*time.Second))
 
-	got, err := db.ConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"})
+	got, _, err := db.ConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestBroker_RefreshRejectedSignalsReconnect(t *testing.T) {
 	})
 	seedOAuthRow(t, db, "old-access", "revoked", time.Now().Add(30*time.Second))
 
-	got, err := db.ConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"})
+	got, _, err := db.ConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"})
 	if err == nil || !strings.Contains(err.Error(), "reconnect") {
 		t.Fatalf("err = %v, want a reconnect error", err)
 	}

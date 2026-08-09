@@ -124,12 +124,12 @@ func TestFolderSecrets_DecryptsV2(t *testing.T) {
 	}
 
 	// ConnectorSecrets narrows to the declared set and decrypts.
-	cs, _ := db.ConnectorSecrets("main/trading", "", []string{"GITHUB_TOKEN"})
+	cs, _, _ := db.ConnectorSecrets("main/trading", "", []string{"GITHUB_TOKEN"})
 	if cs["GITHUB_TOKEN"] != "ghp_plaintext42" {
 		t.Errorf("ConnectorSecrets = %q, want ghp_plaintext42", cs["GITHUB_TOKEN"])
 	}
 	// A non-declared key never surfaces even if present in the folder set.
-	other, _ := db.ConnectorSecrets("main/trading", "", []string{"OTHER"})
+	other, _, _ := db.ConnectorSecrets("main/trading", "", []string{"OTHER"})
 	if _, ok := other["GITHUB_TOKEN"]; ok {
 		t.Error("ConnectorSecrets leaked an undeclared key")
 	}
@@ -260,7 +260,7 @@ func TestConnectorSecrets_GracefulWhenUnset(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 
 	// Arm 1: empty secrets table, no keyring → empty.
-	if got, _ := db.ConnectorSecrets("main", "", []string{"GITHUB_TOKEN"}); len(got) != 0 {
+	if got, _, _ := db.ConnectorSecrets("main", "", []string{"GITHUB_TOKEN"}); len(got) != 0 {
 		t.Errorf("empty table: want empty, got %v", got)
 	}
 	if got := db.FolderSecrets("main"); len(got) != 0 {
@@ -311,20 +311,99 @@ func TestConnectorSecrets_UserBYOAWins(t *testing.T) {
 	}
 
 	// alice's callerSub → her key wins
-	got, _ := db.ConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"})
+	got, _, _ := db.ConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"})
 	if got["GITHUB_TOKEN"] != "ghp_alice" {
 		t.Errorf("alice callerSub: GITHUB_TOKEN = %q, want ghp_alice (BYOA override)", got["GITHUB_TOKEN"])
 	}
 
 	// bob has no override → falls back to folder default
-	got2, _ := db.ConnectorSecrets("main", "github:bob", []string{"GITHUB_TOKEN"})
+	got2, _, _ := db.ConnectorSecrets("main", "github:bob", []string{"GITHUB_TOKEN"})
 	if got2["GITHUB_TOKEN"] != "ghp_folder" {
 		t.Errorf("bob callerSub: GITHUB_TOKEN = %q, want ghp_folder (folder fallback)", got2["GITHUB_TOKEN"])
 	}
 
 	// empty callerSub (service:routd / cron) → folder default
-	got3, _ := db.ConnectorSecrets("main", "", []string{"GITHUB_TOKEN"})
+	got3, _, _ := db.ConnectorSecrets("main", "", []string{"GITHUB_TOKEN"})
 	if got3["GITHUB_TOKEN"] != "ghp_folder" {
 		t.Errorf("empty callerSub: GITHUB_TOKEN = %q, want ghp_folder", got3["GITHUB_TOKEN"])
+	}
+}
+
+// F68 / spec 5/13 § Audit: every secret_use_log row must name the scope the key
+// ACTUALLY resolved from ({user, folder, missing}) and the tool that asked. The
+// writer hardcoded "folder" for anything it found and never set tool, so the one
+// question the table exists to answer — "who used which credential, from where"
+// — could not distinguish a user's own BYO key from the folder default.
+//
+// Drives the real writer: buildStoreFns' ResolveConnectorSecrets closure, which
+// is what ipc calls per connector/ext tool invocation.
+func TestSecretUseLogRecordsScopeAndTool(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	s := seedSecretsStore(t, db, "test-secrets-key-0123456789")
+
+	// SHARED lives only at folder scope; MINE exists at BOTH and the user row
+	// must win (BYOA) — that is the shadowing case the old code mislabelled.
+	if err := s.PutSecretRow(store.ScopeFolder, "main", "SHARED", "folder-shared"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutSecretRow(store.ScopeFolder, "main", "MINE", "folder-mine"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutSecretRow(store.ScopeUser, "google:alice", "MINE", "alice-mine"); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	fns := srv.buildStoreFns(turnMCP{folder: "main", trigger: "google:alice", turnID: "turn-77"})
+
+	got, err := fns.ResolveConnectorSecrets("main", "gh_create_pull_request",
+		[]string{"SHARED", "MINE", "ABSENT"})
+	if err != nil {
+		t.Fatalf("ResolveConnectorSecrets: %v", err)
+	}
+	if got["MINE"] != "alice-mine" {
+		t.Fatalf("MINE = %q, want the user row to shadow the folder default", got["MINE"])
+	}
+
+	rows, err := db.SQL().Query(`SELECT key, scope, tool, caller_sub, spawn_id FROM secret_use_log ORDER BY key`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	type row struct{ scope, tool, caller, spawn string }
+	seen := map[string]row{}
+	for rows.Next() {
+		var k string
+		var r row
+		if err := rows.Scan(&k, &r.scope, &r.tool, &r.caller, &r.spawn); err != nil {
+			t.Fatal(err)
+		}
+		seen[k] = r
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 3 {
+		t.Fatalf("secret_use_log rows = %d (%v), want one per required key", len(seen), seen)
+	}
+	want := map[string]string{"SHARED": "folder", "MINE": "user", "ABSENT": "missing"}
+	for k, wantScope := range want {
+		r, ok := seen[k]
+		if !ok {
+			t.Fatalf("no secret_use_log row for %s", k)
+		}
+		if r.scope != wantScope {
+			t.Errorf("%s scope = %q, want %q", k, r.scope, wantScope)
+		}
+		if r.tool != "gh_create_pull_request" {
+			t.Errorf("%s tool = %q, want the calling tool name", k, r.tool)
+		}
+		if r.caller != "google:alice" || r.spawn != "turn-77" {
+			t.Errorf("%s caller/spawn = %q/%q, want google:alice/turn-77", k, r.caller, r.spawn)
+		}
 	}
 }

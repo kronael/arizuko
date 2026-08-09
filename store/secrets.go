@@ -89,6 +89,12 @@ const (
 	ScopeFolder SecretScope = "folder"
 	ScopeUser   SecretScope = "user"
 
+	// ScopeMissing is AUDIT-ONLY: it never names a stored row (SetSecret still
+	// admits only folder/user), it is the third member of the `secret_use_log`
+	// scope_kind vocabulary — the tool asked for a key that resolved to nothing
+	// (spec 5/13 § Audit: scope_kind ∈ {user, folder, missing}).
+	ScopeMissing SecretScope = "missing"
+
 	// Folder path "root" is the catch-all parent walked to last by
 	// FolderSecretsResolved. Concrete folders override it.
 	rootFolder = "root"
@@ -529,31 +535,41 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 // override — a web-chat user supplies ANTHROPIC_API_KEY for themselves and it
 // shadows the folder default at spawn. Empty userSub returns the folder set
 // unchanged (a system/timed trigger has no user to override with).
-func (s *Store) FolderSecretsResolvedForUser(folder, userSub string) (map[string]string, error) {
+//
+// The second return names the SCOPE each key came from ("user" | "folder").
+// This is the ONLY point where user-vs-folder provenance exists — the overlay
+// collapses both into one map — so `secret_use_log` gets it from here rather
+// than from a second lookup that could disagree (spec 5/13 § Audit).
+func (s *Store) FolderSecretsResolvedForUser(folder, userSub string) (map[string]string, map[string]SecretScope, error) {
 	out, err := s.FolderSecretsResolved(folder)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	scopes := make(map[string]SecretScope, len(out))
+	for k := range out {
+		scopes[k] = ScopeFolder
 	}
 	if userSub == "" {
-		return out, nil
+		return out, scopes, nil
 	}
 	rows, err := s.db.Query(
 		`SELECT key, value FROM secrets WHERE scope_kind = ? AND scope_id = ?`,
 		string(ScopeUser), userSub)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var key, value string
 		if err := rows.Scan(&key, &value); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		plain, err := s.open(value)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		out[key] = plain
+		scopes[key] = ScopeUser
 	}
-	return out, rows.Err()
+	return out, scopes, rows.Err()
 }

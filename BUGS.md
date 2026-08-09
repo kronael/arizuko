@@ -379,7 +379,31 @@ decision.
 
 - **Status:** fixed 2026-08-09 — read it (the keep option)
 
-## F68 — `secret_use_log` can never record `scope_kind='user'` and `tool` is always blank (2026-08-08, open)
+## ✅ FIXED 2026-08-09 — F68 — `secret_use_log` can never record `scope_kind='user'` and `tool` is always blank (2026-08-08)
+
+Threaded, as the entry said it must be, from the two places the facts exist:
+
+- **Scope** from the resolution itself. `Store.FolderSecretsResolvedForUser` is
+  the only point where user-vs-folder provenance is knowable — the overlay
+  collapses both into one map — so it now returns the per-key scope beside the
+  values. `DB.ConnectorSecrets` narrows that to `required` and stamps
+  `missing` for anything unresolved, AFTER the surrogate refresh, so a key the
+  refresh dropped reads `missing` rather than as a credential that was spent.
+  Not a second lookup: a re-derivation could disagree with what was handed out.
+- **Tool** from the call site. `ipc.StoreFns.ResolveConnectorSecrets` takes the
+  tool's local name; both the connector and the ext-REST handlers pass
+  `tool.LocalName`.
+
+`store.ScopeMissing` is added as the third member of the audit vocabulary,
+explicitly audit-only — `SetSecret` still admits folder/user alone.
+`DB.FolderSecretsForUser` keeps its signature (spawn-time injection audits
+nothing per key) and delegates to the shared body.
+
+Test `TestSecretUseLogRecordsScopeAndTool` (`routd/connectors_test.go`) drives
+the real writer with a key that exists at BOTH scopes, so the shadowing case the
+old code mislabelled is the assertion.
+
+Original report:
 
 `specs/5/13-ext-mcp.md:90-94` specifies rows carrying `scope_kind` ∈ {user,
 folder, missing} plus the calling tool. `routd/mcp.go:512-524` only ever writes
@@ -390,6 +414,8 @@ from where" — cannot distinguish a user's own BYO key from a folder-shared one
 and cannot say which tool spent it. The user/folder provenance is lost upstream
 of this call site, so fixing it means threading it through; that is the
 decision.
+
+- **Status:** fixed 2026-08-09 — threaded from the resolver and the call site
 
 ## F69 — surrogate-OAuth's specified retry-once-on-401 does not exist (2026-08-08, open)
 

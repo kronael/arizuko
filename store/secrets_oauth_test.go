@@ -66,7 +66,7 @@ func TestPutOAuthSecret_RoundTripSealed(t *testing.T) {
 	}
 
 	// The BYOA read path (FolderSecretsResolvedForUser) sees the fresh value too.
-	all, err := s.FolderSecretsResolvedForUser("main", "github:alice")
+	all, _, err := s.FolderSecretsResolvedForUser("main", "github:alice")
 	if err != nil {
 		t.Fatal(err)
 	}

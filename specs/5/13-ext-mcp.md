@@ -2,7 +2,7 @@
 status: defected
 depends:
   [17-openapi-mcp, specs/5/32-acl-unified, specs/5/5-worlds-agents-sessions]
-defects: [F68, X1]
+defects: [X1]
 ---
 
 # specs/5/13 — external capability injection
@@ -98,6 +98,13 @@ The writer fires at the broker resolve seam (`routd/mcp.go`
 `ResolveConnectorSecrets`, commit `c02b97c5`), emitting a `secret_use_log` row
 per resolved key which `audit/audit.go` polls into `audit_log`. This closed the
 M2 gap where the table and reader existed with no writer.
+
+`scope_kind` and `tool` are THREADED, never re-derived: the scope comes back
+from `Store.FolderSecretsResolvedForUser`, the one point where user-vs-folder
+provenance exists before the overlay collapses it, and `missing` is stamped
+after any surrogate refresh so a dropped key does not read as spent; the tool
+name arrives as an argument of `ipc.StoreFns.ResolveConnectorSecrets`, since the
+call site is the only place it is known.
 
 ## Trust model
 

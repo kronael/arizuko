@@ -115,11 +115,27 @@ func (d *DB) FolderSecrets(folder string) map[string]string {
 // secrets overlaid (a user's own key shadows the folder default) — the BYOA
 // spawn-time resolution. Empty userSub or read error → the plain folder set.
 func (d *DB) FolderSecretsForUser(folder, userSub string) map[string]string {
-	out, err := d.secretStore().FolderSecretsResolvedForUser(folder, userSub)
-	if err != nil {
-		return d.FolderSecrets(folder)
-	}
+	out, _ := d.folderSecretsForUser(folder, userSub)
 	return out
+}
+
+// folderSecretsForUser is the one resolution body: values plus the scope each
+// key resolved from ("user" | "folder"). Spawn-time injection drops the scopes;
+// the broker keeps them, because secret_use_log must record whether a call
+// spent the caller's OWN credential or the folder default and that distinction
+// exists nowhere downstream of the overlay (spec 5/13 § Audit).
+func (d *DB) folderSecretsForUser(folder, userSub string) (map[string]string, map[string]store.SecretScope) {
+	out, scopes, err := d.secretStore().FolderSecretsResolvedForUser(folder, userSub)
+	if err == nil {
+		return out, scopes
+	}
+	// Fallback path: folder scope only, so the provenance is uniform.
+	out = d.FolderSecrets(folder)
+	scopes = make(map[string]store.SecretScope, len(out))
+	for k := range out {
+		scopes[k] = store.ScopeFolder
+	}
+	return out, scopes
 }
 
 // SetSecret seals + upserts one folder/user secret (the operator write path
@@ -146,21 +162,35 @@ func (d *DB) DeleteSecret(scope store.SecretScope, scopeID, key string) error {
 // refresh_token) nulls the row's oauth columns, drops the key, and returns a
 // non-nil "reconnect" error the caller surfaces to the agent — the other keys
 // still resolve. A transient refresh failure keeps the stale token and no error.
-func (d *DB) ConnectorSecrets(folder, callerSub string, required []string) (map[string]string, error) {
+// The second return names the scope each REQUIRED key resolved from — "user",
+// "folder", or "missing" — the audit provenance secret_use_log records. It is
+// computed from this resolution, never re-derived by a second lookup, and it is
+// taken AFTER any surrogate refresh so a key the refresh dropped reads as
+// missing rather than as a credential that was spent.
+func (d *DB) ConnectorSecrets(folder, callerSub string, required []string) (map[string]string, map[string]store.SecretScope, error) {
 	if len(required) == 0 {
-		return map[string]string{}, nil
+		return map[string]string{}, map[string]store.SecretScope{}, nil
 	}
-	all := d.FolderSecretsForUser(folder, callerSub)
+	all, allScopes := d.folderSecretsForUser(folder, callerSub)
 	out := make(map[string]string, len(required))
 	for _, k := range required {
 		if v, ok := all[k]; ok {
 			out[k] = v
 		}
 	}
-	if d.surrogate == nil || callerSub == "" {
-		return out, nil
+	var err error
+	if d.surrogate != nil && callerSub != "" {
+		err = d.refreshNearExpiry(callerSub, required, out)
 	}
-	return out, d.refreshNearExpiry(callerSub, required, out)
+	scopes := make(map[string]store.SecretScope, len(required))
+	for _, k := range required {
+		if _, ok := out[k]; !ok {
+			scopes[k] = store.ScopeMissing
+			continue
+		}
+		scopes[k] = allScopes[k]
+	}
+	return out, scopes, err
 }
 
 // ListACL returns acl rows, optionally filtered by principal. Used for the
