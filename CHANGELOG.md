@@ -50,6 +50,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- **An API token for a tool never enters the agent's environment.** Until now
+  every secret you set on a folder was decrypted at spawn and handed to the
+  container as an environment variable, so a GitHub token or a pasted API key
+  sat in the environment of code the agent runs. Now the container env carries
+  model credentials only — the operator keys from the host `.env`, and the
+  triggering person's own keys when they set them at `/dash/me/env`. A tool that
+  needs a capability credential gets it from the broker on the host, for that one
+  call, narrowed to the keys the call declares and scrubbed from the result. No
+  operator action: set secrets the same way, and the connector and `[[ext]]`
+  paths that already used the broker are unchanged. Specs
+  [`5/13`](specs/5/13-ext-mcp.md), [`5/14`](specs/5/14-credentials.md).
+
 - **A release is an image: agents no longer read skills off the host checkout.**
   `routd` and `runed` read `ant/` — skills, `CLAUDE.md` and the per-surface
   output-styles — from `/opt/arizuko`, the copy the Dockerfile bakes in. Until
