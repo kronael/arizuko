@@ -23,6 +23,7 @@ func TestOnbodOpenAPI_AdvertisesOnlyWhatItMounts(t *testing.T) {
 		"DELETE /v1/gates/{gate}",
 		"DELETE /v1/invites/{ref}",
 		"DELETE /v1/onboarding/{jid}",
+		"GET /v1/audit",
 		"GET /v1/gates",
 		"GET /v1/invites",
 		"GET /v1/onboarding",

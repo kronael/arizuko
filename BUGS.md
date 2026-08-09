@@ -1707,7 +1707,34 @@ NULL`. Without it a logout landing between a refresh's lookup and its claim
   timing-free test instead: a `BEFORE INSERT` trigger fails the successor's
   INSERT, and only a real transaction rolls the claim back with it.
 
-## F35 — onbod's `audit_log` is the fourth owner and the only one still unreadable (2026-08-06, open)
+## F35 — onbod's `audit_log` is the fourth owner and the only one still unreadable (2026-08-06, FIXED 2026-08-09)
+
+**FIXED 2026-08-09**, sign-off given. `onbod/audit_resource.go` mounts the
+SHARED `audit` resource (`resreg/resources/audit.go`) — same Endpoints, same
+`audit.Query` reader, same `audit:read` gate, no fourth read path. onbod's
+Caller/Gate reuse its own existing bearer mechanism (`auth.VerifyHTTP` against
+`a.ks`, nil = local-dev open), exactly as `gates_resource.go` does.
+
+The pre-publish column audit found nothing to redact: `daemon.start` carries
+`{addr}`; the four admission rows carry `{jid, gate}`, both already rendered on
+`/dash/onbod/`; `invite.consume` carries `{target_glob, used_count}` and names
+the row `invites/<ref[:8]>` — `ref` is `store.TokenRef`, which `inviteJSON`
+already publishes precisely because it is not redeemable; `acl.add` carries
+`{principal, action, scope}`. No writer puts key material in `params_summary`.
+
+`dashd.auditSources` gains onbod, but CONDITIONALLY: it is the only owner that
+is an optional compose profile (`ONBOARDING_ENABLED`, default off), and the
+page's own "a source that cannot be read is NOT an empty source" rule would
+otherwise pin a permanent red banner on every instance without onboarding. The
+condition is `dbOnbod != nil` — the profile-off signal `openSiblingOwner`
+already hands the invites page, not a new env read.
+
+Tests: `TestOnbodAuditServesItsOwnRows` (rows readable, seeded and counted),
+`TestOnbodAuditFolderClaimCannotWiden`, `TestOnbodAuditRESTGateRequiresAuditRead`
+(`gates:read`, `acme/**` and `**` all denied), `TestAuditFederatesAllFourSources`,
+`TestAuditOnbodProfileOffIsNotASource`. onbod's doc-vs-mux guard
+(`TestOnbodOpenAPI_AdvertisesOnlyWhatItMounts`) caught the new mount unprompted
+and now pins `GET /v1/audit`.
 
 `F29` named three daemons; there are four. `onbod` owns an `audit_log`
 (`onbod/migrations/0002-audit-log.sql`) and writes real rows through five

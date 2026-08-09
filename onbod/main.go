@@ -223,6 +223,7 @@ func newOnbodMux(xdb, obdb *sql.DB, cfg config, ks *auth.KeySet) *http.ServeMux 
 	adm.mountOnboarding(mux) // /v1/onboarding via the shared resreg handler (spec 5/16)
 	adm.mountInvites(mux)    // /v1/invites via the shared resreg handler (spec 5/16)
 	adm.mountGates(mux)      // /v1/gates via the shared resreg handler (spec 5/16)
+	adm.mountAudit(mux)      // /v1/audit — onbod is the fourth audit_log owner (spec 5/I)
 
 	// Operator dashboard (spec 6/7): the proxyd transit proof (stripUnsigned)
 	// admits the proxyd-stamped end-user identity; handleDash then gates on

@@ -53,16 +53,26 @@ type auditSource struct {
 // map walk — a page that reshuffles equal-timestamp rows between reloads reads
 // as data changing under the operator.
 //
-// onbod owns an audit_log too (migration 0002) and writes real rows, but it
-// does not yet mount /v1/audit — recorded as BUGS F35 rather than added here,
-// because a new API surface on a daemon the sign-off did not name is exactly
-// the change that needs one.
+// All four owners are here. onbod was the last to mount /v1/audit (BUGS F35),
+// which is why the page used to federate three and stay silent about the
+// admission and invite rows that existed but could not be read.
+//
+// onbod joins only when its store is present, because unlike the other three it
+// is an OPTIONAL compose profile (ONBOARDING_ENABLED, default off). A daemon
+// that was never deployed is not a source that failed, and listing it anyway
+// would pin a permanent red "audit source unavailable" banner on every instance
+// without onboarding. dbOnbod == nil is the profile-off signal openSiblingOwner
+// already hands the invites page — reused here, not re-derived from env.
 func (d *dash) auditSources() []auditSource {
-	return []auditSource{
+	src := []auditSource{
 		{"routd", d.routdURL},
 		{"runed", d.runedURL},
 		{"authd", d.authdURL},
 	}
+	if d.dbOnbod != nil {
+		src = append(src, auditSource{"onbod", d.onbodURL})
+	}
+	return src
 }
 
 // auditRow is one merged row: the wire record plus which daemon served it.

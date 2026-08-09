@@ -305,7 +305,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	d := &dash{dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: backendURL("RUNED_URL", "runed"), proxydURL: backendURL("PROXYD_URL", "proxyd"), routdURL: backendURL("ROUTER_URL", "routd"), authdURL: backendURL("AUTHD_URL", "authd"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
+	d := &dash{dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: backendURL("RUNED_URL", "runed"), proxydURL: backendURL("PROXYD_URL", "proxyd"), routdURL: backendURL("ROUTER_URL", "routd"), authdURL: backendURL("AUTHD_URL", "authd"), onbodURL: backendURL("ONBOD_URL", "onbod"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
 	d.registerRoutes(mux)
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
@@ -399,6 +399,13 @@ type dash struct {
 	// in auth.db and nowhere else. dashd is NOT FS-mounted on auth.db and must
 	// not become so; HTTP is the only contract authd offers for them.
 	authdURL string
+	// onbodURL is onbod's /v1 face. /dash/audit/ reads its GET /v1/audit — the
+	// admission, invite-consume and invite-grant rows, which live in onbod.db.
+	// dashd IS FS-mounted on onbod.db (dbOnbod, for the invites page), but the
+	// audit read still goes over HTTP: /dash/audit/ is a fan-out of ONE path
+	// across four owners, and a direct-DB fourth source would be a second
+	// mechanism that drifts from the other three (spec 5/I, BUGS F35).
+	onbodURL string
 	// secretKeyring is the SECRETS_KEY material handed to secretStore so user-secret
 	// writes seal at rest under the same key routd reads with. Empty → plaintext.
 	secretKeyring [][]byte

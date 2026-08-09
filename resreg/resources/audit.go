@@ -10,15 +10,16 @@ import (
 
 // AuditEndpoints is the single owner of the audit-log read surface, driving
 // BOTH faces on every daemon that owns an audit_log: the mounted handler
-// (routd/audit_resource.go, runed/audit_resource.go, authd/audit_resource.go)
-// and each of their /openapi.json docs. READ-ONLY BY DESIGN, and more
-// strictly so than installed_packages: audit_log is append-only by contract.
+// (routd/audit_resource.go, runed/audit_resource.go, authd/audit_resource.go,
+// onbod/audit_resource.go) and each of their /openapi.json docs. READ-ONLY BY
+// DESIGN, and more strictly so than installed_packages: audit_log is
+// append-only by contract.
 // The row is written in the same transaction as the mutation it records
 // (resreg.invoke), so a create/update/delete face would let a caller forge or
 // erase the record of an act that did or did not happen — the one table where
 // a write API is not a missing feature but a defeat of the feature.
 //
-// ONE registration serves THREE daemons, and that is not a violation of root
+// ONE registration serves FOUR daemons, and that is not a violation of root
 // CLAUDE.md's "two daemons must NEVER register the same resource name". That
 // rule forbids two DIFFERENT tables sharing a wire name (routd's `routes` vs
 // proxyd's `proxyd_routes`). Here there is one table shape, `audit_log`,
@@ -26,10 +27,10 @@ import (
 // correlation across them is the turn_id, not a shared table". `/v1/audit`
 // therefore means "THIS daemon's audit log" on whichever daemon answers, which
 // is exactly what makes dashd's federation a fan-out of one path rather than
-// three bespoke clients.
+// four bespoke clients.
 //
 // There is no GET /v1/audit/{id}. `id` is a per-DB AUTOINCREMENT, so
-// /v1/audit/5 names a different row on each of the three daemons — a path key
+// /v1/audit/5 names a different row on each of the four daemons — a path key
 // that is not an identity would be a lie in the federated page, and an
 // append-only log's unit of use is a filtered window anyway.
 var AuditEndpoints = []resreg.Endpoint{

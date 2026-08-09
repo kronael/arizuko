@@ -91,10 +91,17 @@ func auditSourceOf(t *testing.T, db *sql.DB) *httptest.Server {
 	return srv
 }
 
-// auditDash builds a dash whose three sources point at the given base URLs.
-// An empty URL models an unconfigured daemon.
-func auditDash(routd, runed, authd string) *dash {
-	return &dash{routdURL: routd, runedURL: runed, authdURL: authd}
+// auditDash builds a dash whose four sources point at the given base URLs.
+// An empty URL models an unconfigured daemon. A non-empty onbod URL also sets
+// dbOnbod, since auditSources treats an absent onbod store as "the onboarding
+// profile is off" and drops the source rather than reporting it dead.
+func auditDash(t *testing.T, routd, runed, authd, onbod string) *dash {
+	t.Helper()
+	d := &dash{routdURL: routd, runedURL: runed, authdURL: authd, onbodURL: onbod}
+	if onbod != "" {
+		d.dbOnbod = auditDB(t)
+	}
+	return d
 }
 
 func auditGetOn(t *testing.T, d *dash, url string) string {
@@ -126,22 +133,27 @@ func bodyRows(t *testing.T, body string) int {
 	return strings.Count(inner, "<tr>")
 }
 
-// TestAuditFederatesAllThreeSources is the point of BUGS F29: runed's and
-// authd's rows reach the operator. It counts before it inspects, so a page that
-// rendered nothing cannot pass.
-func TestAuditFederatesAllThreeSources(t *testing.T) {
-	rdb, ndb, adb := auditDB(t), auditDB(t), auditDB(t)
+// TestAuditFederatesAllFourSources is the point of BUGS F29 and its F35 tail:
+// runed's, authd's AND onbod's rows reach the operator. It counts before it
+// inspects, so a page that rendered nothing cannot pass.
+func TestAuditFederatesAllFourSources(t *testing.T) {
+	rdb, ndb, adb, odb := auditDB(t), auditDB(t), auditDB(t), auditDB(t)
 	seedAudit(t, rdb, "2026-08-01T10:00:00.000Z", "mutation", "routes:create", "github:op", "alice", "ok")
 	seedAudit(t, ndb, "2026-08-01T11:00:00.000Z", "agent", "run.kill", "github:op", "alice", "ok")
 	seedAudit(t, adb, "2026-08-01T12:00:00.000Z", "authn", "login", "user:google:114", "alice", "ok")
+	seedAudit(t, odb, "2026-08-01T13:00:00.000Z", "mutation", "invite.consume", "user:github:bob", "alice", "ok")
 
-	d := auditDash(auditSourceOf(t, rdb).URL, auditSourceOf(t, ndb).URL, auditSourceOf(t, adb).URL)
+	d := auditDash(t, auditSourceOf(t, rdb).URL, auditSourceOf(t, ndb).URL,
+		auditSourceOf(t, adb).URL, auditSourceOf(t, odb).URL)
 	body := auditGetOn(t, d, "/dash/audit/")
 
-	if n := bodyRows(t, body); n != 3 {
-		t.Fatalf("rendered %d rows, want 3 (one per source): %s", n, body)
+	if n := bodyRows(t, body); n != 4 {
+		t.Fatalf("rendered %d rows, want 4 (one per source): %s", n, body)
 	}
-	for _, want := range []string{"routes:create", "run.kill", "login", "routd", "runed", "authd"} {
+	for _, want := range []string{
+		"routes:create", "run.kill", "login", "invite.consume",
+		"routd", "runed", "authd", "onbod",
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q — federation dropped a source: %s", want, body)
 		}
@@ -155,7 +167,7 @@ func TestAuditMergedNewestFirst(t *testing.T) {
 	seedAudit(t, ndb, "2026-08-01T11:00:00.000Z", "agent", "middle-runed", "op", "f", "ok")
 	seedAudit(t, rdb, "2026-08-01T12:00:00.000Z", "mutation", "newest-routd", "op", "f", "ok")
 
-	d := auditDash(auditSourceOf(t, rdb).URL, auditSourceOf(t, ndb).URL, "")
+	d := auditDash(t, auditSourceOf(t, rdb).URL, auditSourceOf(t, ndb).URL, "", "")
 	body := auditGetOn(t, d, "/dash/audit/")
 	if n := bodyRows(t, body); n != 3 {
 		t.Fatalf("rendered %d rows, want 3: %s", n, body)
@@ -180,7 +192,7 @@ func TestAuditSourceFailureIsLoud(t *testing.T) {
 	}))
 	defer dead.Close()
 
-	d := auditDash(auditSourceOf(t, rdb).URL, dead.URL, "")
+	d := auditDash(t, auditSourceOf(t, rdb).URL, dead.URL, "", "")
 	body := auditGetOn(t, d, "/dash/audit/")
 
 	if !strings.Contains(body, "audit source unavailable") || !strings.Contains(body, "runed") {
@@ -197,10 +209,10 @@ func TestAuditSourceFailureIsLoud(t *testing.T) {
 }
 
 // TestAuditUnconfiguredSourceIsLoud: an empty base URL is reported, not skipped
-// in silence. compose sets all three, so a blank one is a misconfiguration the
-// operator must see rather than a quietly narrower page.
+// in silence. compose always runs these three, so a blank one is a
+// misconfiguration the operator must see rather than a quietly narrower page.
 func TestAuditUnconfiguredSourceIsLoud(t *testing.T) {
-	d := auditDash("", "", "")
+	d := auditDash(t, "", "", "", "")
 	body := auditGetOn(t, d, "/dash/audit/")
 	for _, name := range []string{"routd", "runed", "authd"} {
 		if !strings.Contains(body, name+": no URL configured") {
@@ -212,6 +224,30 @@ func TestAuditUnconfiguredSourceIsLoud(t *testing.T) {
 	}
 }
 
+// TestAuditOnbodProfileOffIsNotASource: onbod is an optional compose profile
+// (ONBOARDING_ENABLED, default off). An instance that never ran onboarding must
+// not carry a permanent "audit source unavailable — onbod" banner; an instance
+// that DID must still hear about a dead one. dbOnbod is the profile signal.
+func TestAuditOnbodProfileOffIsNotASource(t *testing.T) {
+	rdb := auditDB(t)
+	seedAudit(t, rdb, "2026-08-01T10:00:00.000Z", "mutation", "survivor-row", "op", "f", "ok")
+
+	off := auditDash(t, auditSourceOf(t, rdb).URL, "", "", "")
+	body := auditGetOn(t, off, "/dash/audit/")
+	if strings.Contains(body, "audit source unavailable — onbod") {
+		t.Errorf("onboarding-off instance reports onbod as a failed source: %s", body)
+	}
+
+	// Profile ON but the daemon is unreachable: that IS a failure, and silence
+	// would tell the operator "no admissions happened" when onbod did not answer.
+	on := auditDash(t, auditSourceOf(t, rdb).URL, "", "", "")
+	on.dbOnbod = auditDB(t)
+	body = auditGetOn(t, on, "/dash/audit/")
+	if !strings.Contains(body, "onbod: no URL configured") {
+		t.Errorf("onboarding-on instance hid a dead onbod: %s", body)
+	}
+}
+
 // TestAuditCategoryFilter: ?cat= reaches the sources and the option renders
 // selected.
 func TestAuditCategoryFilter(t *testing.T) {
@@ -219,7 +255,7 @@ func TestAuditCategoryFilter(t *testing.T) {
 	seedAudit(t, rdb, "2026-08-01T10:00:00.000Z", "mutation", "routd.retry", "a", "alice", "ok")
 	seedAudit(t, rdb, "2026-08-01T11:00:00.000Z", "authz", "grant.add", "b", "bob", "ok")
 
-	d := auditDash(auditSourceOf(t, rdb).URL, "", "")
+	d := auditDash(t, auditSourceOf(t, rdb).URL, "", "", "")
 	body := auditGetOn(t, d, "/dash/audit/?cat=authz")
 	if n := bodyRows(t, body); n != 1 {
 		t.Fatalf("rendered %d rows, want 1 authz row: %s", n, body)
@@ -241,7 +277,7 @@ func TestAuditActorFilter(t *testing.T) {
 	seedAudit(t, rdb, "2026-08-01T10:00:00.000Z", "mutation", "act-alice", "alice", "grp1", "ok")
 	seedAudit(t, rdb, "2026-08-01T11:00:00.000Z", "authz", "act-bob", "bob", "grp2", "ok")
 
-	d := auditDash(auditSourceOf(t, rdb).URL, "", "")
+	d := auditDash(t, auditSourceOf(t, rdb).URL, "", "", "")
 	body := auditGetOn(t, d, "/dash/audit/?actor=alice")
 	if n := bodyRows(t, body); n != 1 {
 		t.Fatalf("rendered %d rows, want 1: %s", n, body)
@@ -265,7 +301,7 @@ func TestAuditFolderFilterIsSubtree(t *testing.T) {
 	seedAudit(t, rdb, "2026-08-01T12:00:00.000Z", "mutation", "at-lookalike", "op", "acmecorp", "ok")
 	seedAudit(t, rdb, "2026-08-01T13:00:00.000Z", "mutation", "at-other", "op", "beta", "ok")
 
-	d := auditDash(auditSourceOf(t, rdb).URL, "", "")
+	d := auditDash(t, auditSourceOf(t, rdb).URL, "", "", "")
 	body := auditGetOn(t, d, "/dash/audit/?folder=acme")
 	if n := bodyRows(t, body); n != 2 {
 		t.Fatalf("rendered %d rows, want 2 (acme + acme/support): %s", n, body)
@@ -299,7 +335,7 @@ func TestAuditPaginationCompositeCursor(t *testing.T) {
 	}
 	seedAudit(t, ndb, "2026-07-01T00:00:00.000Z", "agent", "runed-oldest", "actor", "f", "ok")
 
-	d := auditDash(auditSourceOf(t, rdb).URL, auditSourceOf(t, ndb).URL, "")
+	d := auditDash(t, auditSourceOf(t, rdb).URL, auditSourceOf(t, ndb).URL, "", "")
 	page1 := auditGetOn(t, d, "/dash/audit/")
 	if n := bodyRows(t, page1); n != 50 {
 		t.Fatalf("page 1 rendered %d rows, want 50: %s", n, page1)
@@ -342,7 +378,7 @@ func extractOlderHref(t *testing.T, body string) string {
 // no "unavailable" banner, which is the distinction that makes the banner
 // meaningful.
 func TestAuditEmpty(t *testing.T) {
-	d := auditDash(auditSourceOf(t, auditDB(t)).URL, "", "")
+	d := auditDash(t, auditSourceOf(t, auditDB(t)).URL, "", "", "")
 	body := auditGetOn(t, d, "/dash/audit/")
 	if !strings.Contains(body, `class="empty"`) {
 		t.Errorf("empty log should render the empty marker: %s", body)
@@ -355,7 +391,7 @@ func TestAuditEmpty(t *testing.T) {
 // TestAuditNonOperatorForbidden: the page is operator-only, and stays so now
 // that it holds three daemons' trails instead of one.
 func TestAuditNonOperatorForbidden(t *testing.T) {
-	d := auditDash(auditSourceOf(t, auditDB(t)).URL, "", "")
+	d := auditDash(t, auditSourceOf(t, auditDB(t)).URL, "", "", "")
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/audit/", nil)

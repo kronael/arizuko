@@ -1,15 +1,17 @@
 ---
-status: defected
+status: shipped
 depends: [17-openapi-mcp]
-defects: [F35, F70]
 ---
 
 # specs/5/I — per-tool-call logging
 
 Write path shipped 2026-06-14 (`audit.EmitInTx` in every mutation's own
-transaction, plus the container-side hooks). Read path shipped 2026-08-06:
-each owning daemon serves its own table at `GET /v1/audit` and `/dash/audit/`
-federates them.
+transaction, plus the container-side hooks). Read path shipped 2026-08-06 and
+completed 2026-08-09: all FOUR owning daemons — routd, runed, authd, onbod —
+serve their own table at `GET /v1/audit` and `/dash/audit/` federates them.
+The MCP tool-call sink into routd's own table was wired the same day (BUGS
+`F70`), so the agent surface is no longer the one caller path the page cannot
+see.
 
 ## What this solves
 
@@ -98,16 +100,23 @@ for both layers. `audit_log` carries the same columns plus `id` and
 
 Each owning daemon serves ITS OWN table at `GET /v1/audit`, registered once
 as a read-only `resreg` resource (`resreg/resources/audit.go`) and mounted by
-`routd`, `runed` and `authd`. `audit.Query` is the single reader; `audit.Row`
-is both its scan target and the resreg `RowType`, so the JSON a caller
-receives is the struct `/openapi.json` documents.
+`routd`, `runed`, `authd` and `onbod`. `audit.Query` is the single reader;
+`audit.Row` is both its scan target and the resreg `RowType`, so the JSON a
+caller receives is the struct `/openapi.json` documents.
 
-**Three daemons share one resource name, and that does not violate "name IS
+**Four daemons share one resource name, and that does not violate "name IS
 wire identity".** That rule forbids two DIFFERENT tables sharing a wire name.
 Here there is one table shape, replicated per owner DB by the per-daemon
 decision above, so `/v1/audit` means "this daemon's log" on whichever daemon
 answers — which is what lets `dashd` federate by fanning ONE path out rather
-than writing three clients.
+than writing four clients.
+
+**`onbod` is federated conditionally.** It is the only owner that is an
+optional compose profile (`ONBOARDING_ENABLED`, default off), so `dashd` adds
+it as a source only when its store is present. A daemon that was never
+deployed is not a source that failed, and the page's "a source that cannot be
+read is NOT an empty source" rule would otherwise pin a permanent error banner
+on every instance without onboarding.
 
 **No write face, and no `/{id}`.** A create/update/delete on an append-only
 evidence table would let a caller forge or erase the record of an act; `id`
@@ -200,9 +209,11 @@ truth is "runed did not answer".
    instance hits 1 GB.
 2. **Per-model-invocation logging** — desirable for cost + replay, but the
    SDK has no clean hook surface. `cost_log` covers it for now.
-3. **onbod's table is still unreachable** — `onbod` owns an `audit_log`
-   (migration `0002`) and writes real rows, but mounts no `/v1/audit`, so
-   `dashd` federates three of four owners. BUGS `F35`.
+3. ~~**onbod's table is still unreachable**~~ — closed 2026-08-09. `onbod`
+   mounts `/v1/audit` through the same shared resource, and `dashd` federates
+   all four owners. onbod joins the fan-out only when its store is present,
+   because it is an optional compose profile (`ONBOARDING_ENABLED`) and an
+   undeployed daemon is not a failed source.
 
 ## Non-goals
 
