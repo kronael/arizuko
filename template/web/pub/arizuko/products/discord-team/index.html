@@ -257,8 +257,9 @@
         <li>
           <strong>Channel-scoped secrets.</strong> API keys for tools the agent
           calls live in the <code>secrets</code> table, AES-256-GCM encrypted
-          at rest. Folder-scoped values are merged into the container's spawn
-          env; guild channels get folder secrets only.
+          at rest. They never enter the container: the host-side broker resolves
+          each key per tool call, spends it in the outbound request, and scrubs
+          it from the result.
         </li>
         <li>
           <strong>Channel boundary.</strong> A member in #dev-chat sees
@@ -324,7 +325,7 @@ arizuko run acme
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/discord-team/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 

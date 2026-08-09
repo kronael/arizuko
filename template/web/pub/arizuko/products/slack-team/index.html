@@ -107,8 +107,9 @@
           first message as <code>users/&lt;sub&gt;.md</code> inside the channel
           folder &mdash; preferences, recurring tasks, prior conclusions. Not
           shared with the channel; not visible to other teammates. (Per-user
-          <em>secrets</em> &mdash; distinct from memory &mdash; are spec 7/Y,
-          not yet shipped; folder-scoped secrets work today.)
+          <em>secrets</em> &mdash; distinct from memory &mdash; live at
+          <code>/dash/me/secrets</code> and reach tools through the host-side
+          broker.)
         </li>
         <li>
           <strong>Per-user grants.</strong> Per-user grant rules decide which
@@ -306,9 +307,9 @@
         <li>
           <strong>Channel-scoped secrets.</strong> API keys for tools the agent
           calls live in the <code>secrets</code> table, AES-256-GCM encrypted
-          at rest under <code>SECRETS_KEY</code>. Folder-scoped values are merged into
-          the container's spawn env; Slack channels get folder secrets only
-          (per-user overlay is 1:1-chat only).
+          at rest under <code>SECRETS_KEY</code>. They never enter the container:
+          the host-side broker resolves each key per tool call, spends it in the
+          outbound request, and scrubs it from the result.
         </li>
         <li>
           <strong>Channel boundary.</strong> A teammate in #eng-support sees
@@ -419,7 +420,7 @@ arizuko run acme
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/slack-team/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-14">2026-07-14</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 

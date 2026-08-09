@@ -454,7 +454,7 @@
 
     <div class="tablecard">
       <h3><code>secrets</code></h3>
-      <p>Folder- and user-scoped secret values. Encrypted at rest (AES-256-GCM, <code>v2:</code>-prefixed) under the <a href="env.html#SECRETS_KEY"><code>SECRETS_KEY</code></a> keyring; routd owns this table and refuses to start without the key (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/7/Y-secret-broker.md">7/Y</a>).</p>
+      <p>Folder- and user-scoped secret values. Encrypted at rest (AES-256-GCM, <code>v2:</code>-prefixed) under the <a href="env.html#SECRETS_KEY"><code>SECRETS_KEY</code></a> keyring; routd owns this table and refuses to start without the key (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/14-credentials.md">5/14</a>).</p>
       <table>
         <tr><th>column</th><th>type</th><th>meaning</th></tr>
         <tr><td><code>scope_kind</code></td><td>TEXT NOT NULL</td><td>'folder' or 'user'</td></tr>
@@ -466,13 +466,13 @@
       <p class="meta"><strong>PK:</strong> <code>(scope_kind, scope_id, key)</code>.</p>
       <p class="meta"><strong>Indexes:</strong> partial <code>idx_secrets_folder</code> on <code>scope_id WHERE scope_kind='folder'</code>; partial <code>idx_secrets_user</code> on <code>scope_id WHERE scope_kind='user'</code>.</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/secrets.go#L55"><code>store/secrets.go:55</code></a> (upsert), <a href="https://github.com/kronael/arizuko/blob/main/store/secrets.go#L119"><code>:119</code></a> (DELETE), <a href="https://github.com/kronael/arizuko/blob/main/dashd/me_secrets.go#L133"><code>dashd/me_secrets.go:133</code></a> (user-scope INSERT), <a href="https://github.com/kronael/arizuko/blob/main/dashd/me_secrets.go#L174"><code>:174</code></a> (UPDATE), <a href="https://github.com/kronael/arizuko/blob/main/dashd/me_secrets.go#L209"><code>:209</code></a> (DELETE).</p>
-      <p class="meta"><strong>Readers:</strong> routd (<code>FolderSecretsResolved</code>, <code>UserSecrets</code> at spawn), dashd.</p>
+      <p class="meta"><strong>Readers:</strong> routd &mdash; <code>EnvProfileSecrets</code> at spawn (the caller's own model keys, the only rows that enter the container) and <code>FolderSecretsResolved</code> for the host-side broker; dashd.</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0034-secrets.sql">0034</a> (originally <code>enc_value BLOB</code>); <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0047-secrets-plaintext.sql">0047</a> renamed to <code>value</code>.</p>
     </div>
 
     <div class="tablecard">
       <h3><code>secret_use_log</code></h3>
-      <p>Audit log for the secret broker (spec 7/Y). One row per tool-call &times; resolved key. No secret values stored.</p>
+      <p>Audit log for the secret broker (spec 5/14). One row per tool-call &times; resolved key. No secret values stored.</p>
       <table>
         <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
         <tr><td><code>ts</code></td><td>TEXT NOT NULL</td><td></td><td>RFC3339Nano</td></tr>

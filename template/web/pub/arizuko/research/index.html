@@ -115,7 +115,7 @@
       <p class="tldr-text">
         <strong>Folders are agents.</strong> Each folder is a tenant: isolated memory, persona, skills, routes.
         <strong>MCP over unix socket.</strong> Tool calls go through `gated`; host controls what agents can reach.
-        <strong>Defense-in-depth.</strong> Container isolation + DNS filtering + per-group MCP sockets + secret injection.
+        <strong>Defense-in-depth.</strong> Container isolation + DNS filtering + per-group MCP sockets + the host-side secret broker.
       </p>
     </div>
 
@@ -362,11 +362,14 @@
         Agents cannot reach other groups' sockets — Docker mounts only the agent's own socket.
       </p>
 
-      <h3>Secrets Injection</h3>
+      <h3>Secrets</h3>
       <p>
-        Secrets are AES-256-GCM encrypted in <code>secrets.db</code>. At container start,
-        <code>gated</code> decrypts and injects as env vars. No disk persistence inside container.
-        Secrets never written to <code>/home/node/</code> or logs.
+        Secrets are AES-256-GCM encrypted in the <code>secrets</code> table in <code>routd.db</code>.
+        The container env carries model credentials only &mdash; the four env-profile keys, taken
+        from the host <code>.env</code> and overlaid with the triggering user's own rows. Every
+        capability credential stays on the host: <code>routd</code> resolves it per tool call,
+        spends it in the outbound request, and returns only the response. No secret is written to
+        <code>/home/node/</code> or to logs.
       </p>
     </section>
 
