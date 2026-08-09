@@ -1,9 +1,12 @@
 package container
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -344,5 +347,112 @@ func TestBuildMounts_RootGroupsMount(t *testing.T) {
 
 	if m := findMount(mounts, "/var/lib/groups"); m == nil {
 		t.Errorf("tier 0 should get /var/lib/groups mount")
+	}
+}
+
+// --- BUGS F62: the per-group web slots are chowned where they are created ---
+
+// canChownToContainerUID reports whether this process can hand a file it owns
+// to containerUID. Only root can change an owner to a different uid; a process
+// already running as containerUID may "change" it to itself.
+func canChownToContainerUID() bool {
+	return os.Geteuid() == 0 || os.Geteuid() == containerUID
+}
+
+// captureWarnings redirects the default slog to a buffer for the test's
+// duration and returns the accumulated text.
+func captureWarnings(t *testing.T) func() string {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return buf.String
+}
+
+// TestChownR_ReportsFailure locks the mechanism behind F62: chownR used to
+// discard every os.Lchown error, so runed (uid 1000) chowning a root-owned
+// path failed silently and a read-only ~/public_html persisted for months.
+// The error must now come back to the caller.
+func TestChownR_ReportsFailure(t *testing.T) {
+	if canChownToContainerUID() {
+		t.Skipf("euid %d can chown to %d; EPERM is unreachable here", os.Geteuid(), containerUID)
+	}
+	dir := t.TempDir()
+	if err := chownR(dir, containerUID, containerUID); err == nil {
+		t.Fatal("chownR discarded the Lchown failure (want the EPERM returned)")
+	}
+}
+
+// TestSetupGroup_ChownsWebSlots is F62 itself: SetupGroup pre-creates
+// web/pub/<folder> and web/priv/<folder>, but the only chown in the path
+// (seedGroupDir's) walks GroupsDir — a different tree — so the slots were never
+// touched. Assert the chown now reaches both slot paths: by ownership where
+// this process can chown, by the loud failure where it cannot.
+func TestSetupGroup_ChownsWebSlots(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &core.Config{
+		GroupsDir: filepath.Join(tmp, "groups"),
+		IpcDir:    filepath.Join(tmp, "ipc"),
+		WebDir:    filepath.Join(tmp, "web"),
+	}
+	os.MkdirAll(cfg.GroupsDir, 0o755)
+	os.MkdirAll(cfg.IpcDir, 0o755)
+
+	logged := captureWarnings(t)
+	if err := SetupGroup(cfg, "slotted", ""); err != nil {
+		t.Fatalf("SetupGroup: %v", err)
+	}
+
+	slots := []string{
+		filepath.Join(cfg.WebDir, "pub", "slotted"),
+		filepath.Join(cfg.WebDir, "priv", "slotted"),
+	}
+	for _, slot := range slots {
+		if canChownToContainerUID() {
+			st, err := os.Stat(slot)
+			if err != nil {
+				t.Fatalf("stat %s: %v", slot, err)
+			}
+			sys, ok := st.Sys().(*syscall.Stat_t)
+			if !ok {
+				t.Skip("no syscall.Stat_t on this platform")
+			}
+			if int(sys.Uid) != containerUID {
+				t.Errorf("%s owned by uid %d, want %d — the slot was never chowned",
+					slot, sys.Uid, containerUID)
+			}
+			continue
+		}
+		// Cannot chown here, so the proof that the chown was ATTEMPTED on the
+		// slot is the warning naming it. Silence is the F62 bug.
+		if !strings.Contains(logged(), slot) {
+			t.Errorf("no chown warning naming %s; the slot is still skipped silently", slot)
+		}
+	}
+}
+
+// TestSetupGroup_WebSlotMkdirIsFatal: an uncreatable slot must fail group
+// creation, not pass silently. Left silent, the docker daemon materializes the
+// missing bind source as root at spawn and the agent gets an unwritable
+// ~/public_html — the symptom F63 shows an operator as "broken mount".
+func TestSetupGroup_WebSlotMkdirIsFatal(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &core.Config{
+		GroupsDir: filepath.Join(tmp, "groups"),
+		IpcDir:    filepath.Join(tmp, "ipc"),
+		WebDir:    filepath.Join(tmp, "web"),
+	}
+	os.MkdirAll(cfg.GroupsDir, 0o755)
+	os.MkdirAll(cfg.IpcDir, 0o755)
+	// A regular file where the "pub" directory belongs: MkdirAll under it
+	// fails with ENOTDIR.
+	os.MkdirAll(cfg.WebDir, 0o755)
+	if err := os.WriteFile(filepath.Join(cfg.WebDir, "pub"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SetupGroup(cfg, "blocked", ""); err == nil {
+		t.Fatal("SetupGroup ignored an uncreatable web slot (want an error)")
 	}
 }

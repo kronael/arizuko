@@ -35,7 +35,7 @@ func SeedCodexDirs(groupsDir string) {
 			slog.Warn("seed codex dir", "group", p, "err", e)
 			return nil
 		}
-		chownR(codexDir, containerUID, containerUID)
+		warnChown(codexDir)
 		return nil
 	})
 }
@@ -63,7 +63,7 @@ func MaterializeAppSrc(cfg *core.Config) string {
 		return dst
 	}
 	cpDirOverwrite(src, dst)
-	chownR(dst, containerUID, containerUID)
+	warnChown(dst)
 	return dst
 }
 

@@ -620,7 +620,7 @@ func buildMounts(
 	if in.WebPublish {
 		// ~/public_html: served at /pub/<folder>/ (no auth).
 		pubGroupHost := filepath.Join(cfg.WebDir, "pub", in.Folder)
-		os.MkdirAll(pubGroupHost, 0o755)
+		mkSlot(pubGroupHost)
 		m = append(m, volumeMount{
 			Host:      hp(cfg, pubGroupHost),
 			Container: filepath.Join(containerHome, "public_html"),
@@ -628,7 +628,7 @@ func buildMounts(
 
 		// ~/private_html: served at /priv/<folder>/ (OAuth/JWT).
 		privGroupHost := filepath.Join(cfg.WebDir, "priv", in.Folder)
-		os.MkdirAll(privGroupHost, 0o755)
+		mkSlot(privGroupHost)
 		m = append(m, volumeMount{
 			Host:      hp(cfg, privGroupHost),
 			Container: filepath.Join(containerHome, "private_html"),
@@ -1016,12 +1016,23 @@ func setupGroup(cfg *core.Config, folder string, seed func(groupDir string) erro
 		return err
 	}
 	// Per-group web slots — bind-mounted into ~/public_html and ~/private_html
-	// at agent spawn time. Pre-create here so the dirs exist before the first
-	// docker run and inherit the container's uid via chownR in seedGroupDir.
+	// at agent spawn time. Pre-create AND chown them HERE: seedGroupDir's chownR
+	// walks cfg.GroupsDir/<folder>, and these live under cfg.WebDir — a different
+	// tree no chown ever reached. A slot the container uid cannot write is
+	// read-only to the agent, which reports it as a broken mount (BUGS F62/F63).
 	// Spec 5/V.
 	if cfg.WebDir != "" {
-		os.MkdirAll(filepath.Join(cfg.WebDir, "pub", folder), 0o755)
-		os.MkdirAll(filepath.Join(cfg.WebDir, "priv", folder), 0o755)
+		for _, slot := range []string{
+			filepath.Join(cfg.WebDir, "pub", folder),
+			filepath.Join(cfg.WebDir, "priv", folder),
+		} {
+			// Fatal: an absent slot is materialized by the docker daemon at
+			// spawn — as root, on a tree the agent owns.
+			if err := os.MkdirAll(slot, 0o755); err != nil {
+				return fmt.Errorf("mkdir web slot %s: %w", slot, err)
+			}
+			warnChown(slot)
+		}
 	}
 	return seedGroupDir(cfg, folder)
 }
@@ -1034,20 +1045,51 @@ func seedGroupDir(cfg *core.Config, folder string) error {
 	}
 	seedSkills(cfg, claudeDir, folder)
 	// Host uid may differ from container node=1000; chown so ant can write.
-	chownR(groupDir, containerUID, containerUID)
+	warnChown(groupDir)
 	return nil
 }
 
 const containerUID = 1000
 
-func chownR(root string, uid, gid int) {
+// mkSlot is the spawn-time backstop for a web slot SetupGroup should already
+// have created (a group registered before cfg.WebDir was set, say). runed runs
+// as uid 1000, so a slot it creates here is already agent-writable — but if the
+// MkdirAll fails, the docker daemon materializes the bind source as root and the
+// agent sees a mounted-but-unwritable directory. Report; never discard.
+func mkSlot(dir string) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		slog.Error("web slot missing and not creatable — docker will materialize it as root",
+			"slot", dir, "err", err)
+	}
+}
+
+// warnChown gives the container uid ownership of root and reports failure.
+// Not fatal — a host whose uid is neither root nor 1000 (any dev checkout)
+// legitimately cannot chown, and refusing to create the group there would be
+// worse than the warning. Loud is the point: the discarded EPERM is how a
+// root-owned ~/public_html survived from May to August unnoticed.
+func warnChown(root string) {
+	if err := chownR(root, containerUID, containerUID); err != nil {
+		slog.Warn("chown failed — the agent (uid 1000) may not be able to write this path",
+			"path", root, "uid", containerUID, "err", err)
+	}
+}
+
+// chownR walks root and gives every entry to uid:gid. It returns the first
+// failure rather than discarding it: runed runs as uid 1000, so an Lchown of a
+// root-owned path returns EPERM and the tree silently stays unwritable.
+func chownR(root string, uid, gid int) error {
+	var firstErr error
 	filepath.WalkDir(root, func(p string, _ os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		os.Lchown(p, uid, gid)
+		if e := os.Lchown(p, uid, gid); e != nil && firstErr == nil {
+			firstErr = e
+		}
 		return nil
 	})
+	return firstErr
 }
 
 func seedSkills(cfg *core.Config, claudeDir, folder string) {
