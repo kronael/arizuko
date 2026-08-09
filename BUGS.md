@@ -340,7 +340,30 @@ caller — the same shape as `mountACL`. Needs a decision on who may approve ove
 REST (operator scope only, or a folder-scoped reviewer), which is why it is here
 rather than fixed inline.
 
-## F67 — an explicit `channel` on `POST /v1/outbound` is decoded and ignored (2026-08-08, open)
+## ✅ FIXED 2026-08-09 — F67 — an explicit `channel` on `POST /v1/outbound` is decoded and ignored (2026-08-08)
+
+Read it, per the spec's own order (keep, not delete — the field is the only
+disambiguator when one JID prefix is served by two adapter accounts, and
+`ForJID`'s iteration order is non-deterministic).
+
+`chanDeliverer.resolve` now takes the pin and applies the three steps in order:
+explicit channel → `lookupSource` → `chanreg.ForJID`. `Deliverer` gained
+`SendVia(channel, jid, text)`; `Send` and `SendVia` share one body (`send`), so
+there is no second egress path. Every other verb passes an empty pin.
+
+**Loud, not silent, on an unregistered pin.** `Registry.Resolve` degrades an
+unknown name to `ForJID`, which would deliver through the very adapter the
+caller pinned away from — so `handleOutbound` checks `s.reg.Get(channel)` first
+and returns `400 unknown_channel`. The check lives at the HTTP boundary because
+that is where the status code is owned; the resolver keeps its documented
+fallback for the unpinned path.
+
+Tests: `TestDelivererPinBeatsInboundSourceAndForJID` +
+`TestOutboundHonoursChannelPin` (`routd/deliver_test.go`). Both pin the fallback
+with an explicit `lookupSource` — the first draft passed against the mutated
+code because the ForJID scan picked the right adapter by map order.
+
+Original report:
 
 `routd/api/v1/types.go:202` declares `OutboundRequest.Channel`, and
 `specs/5/34-channel-protocol.md:115-119` specifies a resolution order that puts
@@ -353,6 +376,8 @@ accounts is silently overridden by the fallback. Silent, because the field
 decodes fine. Fix: read it in `handleOutbound` ahead of the fallback, or delete
 it from the wire type and the spec. Either is small; choosing which is the
 decision.
+
+- **Status:** fixed 2026-08-09 — read it (the keep option)
 
 ## F68 — `secret_use_log` can never record `scope_kind='user'` and `tool` is always blank (2026-08-08, open)
 

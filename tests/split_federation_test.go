@@ -156,6 +156,7 @@ func newFedVerifier(t *testing.T, a *fakeAuthd) fedVerifier {
 type fedDeliverer struct{}
 
 func (fedDeliverer) Send(_, _, _, _, _, _ string) (string, error) { return "platform-fed-1", nil }
+func (fedDeliverer) SendVia(_, _, _ string) (string, error)       { return "platform-fed-1", nil }
 func (fedDeliverer) React(_, _, _ string) error                   { return nil }
 func (fedDeliverer) Edit(_, _, _ string) error                    { return nil }
 func (fedDeliverer) Delete(_, _ string) error                     { return nil }

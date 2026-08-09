@@ -23,6 +23,7 @@ type typingEvent struct {
 }
 
 func (d *typingDeliverer) Send(_, _, _, _, _, _ string) (string, error) { return "pid-1", nil }
+func (d *typingDeliverer) SendVia(_, _, _ string) (string, error)       { return "pid-1", nil }
 func (d *typingDeliverer) React(_, _, _ string) error                   { return nil }
 func (d *typingDeliverer) Edit(_, _, _ string) error                    { return nil }
 func (d *typingDeliverer) Delete(_, _ string) error                     { return nil }
@@ -31,15 +32,15 @@ func (d *typingDeliverer) Unpin(_, _ string, _ bool) error              { return
 func (d *typingDeliverer) Document(_, _, _, _, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (d *typingDeliverer) SendVoice(_, _, _, _ string) (string, error)           { return "", nil }
-func (d *typingDeliverer) Post(_, _ string, _ []string) (string, error)          { return "", nil }
-func (d *typingDeliverer) Forward(_, _, _ string) (string, error)                { return "", nil }
-func (d *typingDeliverer) Quote(_, _, _ string) (string, error)                  { return "", nil }
-func (d *typingDeliverer) Repost(_, _ string) (string, error)                    { return "", nil }
-func (d *typingDeliverer) Dislike(_, _ string) error                             { return nil }
-func (d *typingDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error    { return nil }
-func (d *typingDeliverer) SetName(_, _ string) error                             { return nil }
-func (d *typingDeliverer) RoundDone(_, _, _, _ string) error                     { return nil }
+func (d *typingDeliverer) SendVoice(_, _, _, _ string) (string, error)        { return "", nil }
+func (d *typingDeliverer) Post(_, _ string, _ []string) (string, error)       { return "", nil }
+func (d *typingDeliverer) Forward(_, _, _ string) (string, error)             { return "", nil }
+func (d *typingDeliverer) Quote(_, _, _ string) (string, error)               { return "", nil }
+func (d *typingDeliverer) Repost(_, _ string) (string, error)                 { return "", nil }
+func (d *typingDeliverer) Dislike(_, _ string) error                          { return nil }
+func (d *typingDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error { return nil }
+func (d *typingDeliverer) SetName(_, _ string) error                          { return nil }
+func (d *typingDeliverer) RoundDone(_, _, _, _ string) error                  { return nil }
 func (d *typingDeliverer) FetchHistory(_ string, _ time.Time, _ int) ([]byte, error) {
 	return nil, nil
 }

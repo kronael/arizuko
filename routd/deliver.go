@@ -71,12 +71,16 @@ func (d *chanDeliverer) dropLive(name string) {
 	d.mu.Unlock()
 }
 
-// resolve picks the channel for jid: latest inbound source for the jid →
-// registry Resolve (name lookup, ForJID prefix fallback). Returns nil when no
-// adapter owns the jid. Reuses the live (outbox-bearing) channel when one is
-// cached, else builds a fresh one from the entry.
-func (d *chanDeliverer) resolve(jid string) *chanreg.HTTPChannel {
-	name := d.latestSource(jid)
+// resolve picks the channel for jid in the order spec 5/34 § "Outbound and
+// adapter resolution" fixes: an explicit pin (only POST /v1/outbound carries
+// one) → the latest inbound source for the jid → the registry's prefix owner.
+// Returns nil when no adapter owns the jid. Reuses the live (outbox-bearing)
+// channel when one is cached, else builds a fresh one from the entry.
+func (d *chanDeliverer) resolve(channel, jid string) *chanreg.HTTPChannel {
+	name := channel
+	if name == "" {
+		name = d.latestSource(jid)
+	}
 	entry := d.reg.Resolve(name, jid)
 	if entry == nil {
 		return nil
@@ -110,10 +114,19 @@ func (d *chanDeliverer) disabled(jid string) bool {
 }
 
 func (d *chanDeliverer) Send(jid, text, replyToID, threadID, threadRoot, idempotencyKey string) (string, error) {
+	return d.send("", jid, text, replyToID, threadID, threadRoot, idempotencyKey)
+}
+
+func (d *chanDeliverer) SendVia(channel, jid, text string) (string, error) {
+	return d.send(channel, jid, text, "", "", "", "")
+}
+
+// send is the one text-egress body; Send and SendVia differ only in the pin.
+func (d *chanDeliverer) send(channel, jid, text, replyToID, threadID, threadRoot, idempotencyKey string) (string, error) {
 	if d.disabled(jid) {
 		return "", nil
 	}
-	ch := d.resolve(jid)
+	ch := d.resolve(channel, jid)
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -124,7 +137,7 @@ func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, threadID, 
 	if d.disabled(jid) {
 		return "", nil
 	}
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -135,7 +148,7 @@ func (d *chanDeliverer) SendVoice(jid, audioPath, caption, threadID string) (str
 	if d.disabled(jid) {
 		return "", nil
 	}
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -143,7 +156,7 @@ func (d *chanDeliverer) SendVoice(jid, audioPath, caption, threadID string) (str
 }
 
 func (d *chanDeliverer) React(jid, platformID, reaction string) error {
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -151,7 +164,7 @@ func (d *chanDeliverer) React(jid, platformID, reaction string) error {
 }
 
 func (d *chanDeliverer) Edit(jid, platformID, content string) error {
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -159,7 +172,7 @@ func (d *chanDeliverer) Edit(jid, platformID, content string) error {
 }
 
 func (d *chanDeliverer) Delete(jid, platformID string) error {
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -167,7 +180,7 @@ func (d *chanDeliverer) Delete(jid, platformID string) error {
 }
 
 func (d *chanDeliverer) Pin(jid, platformID string) error {
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -175,7 +188,7 @@ func (d *chanDeliverer) Pin(jid, platformID string) error {
 }
 
 func (d *chanDeliverer) Unpin(jid, platformID string, all bool) error {
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -186,7 +199,7 @@ func (d *chanDeliverer) Typing(jid string, on bool) error {
 	if d.disabled(jid) {
 		return nil
 	}
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return nil // best-effort; never fail the turn
 	}
@@ -197,7 +210,7 @@ func (d *chanDeliverer) Post(jid, content string, mediaPaths []string) (string, 
 	if d.disabled(jid) {
 		return "", nil
 	}
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -205,7 +218,7 @@ func (d *chanDeliverer) Post(jid, content string, mediaPaths []string) (string, 
 }
 
 func (d *chanDeliverer) Forward(sourceMsgID, targetJID, comment string) (string, error) {
-	ch := d.resolve(targetJID)
+	ch := d.resolve("", targetJID)
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", targetJID)
 	}
@@ -213,7 +226,7 @@ func (d *chanDeliverer) Forward(sourceMsgID, targetJID, comment string) (string,
 }
 
 func (d *chanDeliverer) Quote(jid, sourceMsgID, comment string) (string, error) {
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -221,7 +234,7 @@ func (d *chanDeliverer) Quote(jid, sourceMsgID, comment string) (string, error) 
 }
 
 func (d *chanDeliverer) Repost(jid, sourceMsgID string) (string, error) {
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -229,7 +242,7 @@ func (d *chanDeliverer) Repost(jid, sourceMsgID string) (string, error) {
 }
 
 func (d *chanDeliverer) Dislike(jid, platformID string) error {
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -237,7 +250,7 @@ func (d *chanDeliverer) Dislike(jid, platformID string) error {
 }
 
 func (d *chanDeliverer) SetSuggestions(jid string, prompts []core.PanePrompt) error {
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -245,7 +258,7 @@ func (d *chanDeliverer) SetSuggestions(jid string, prompts []core.PanePrompt) er
 }
 
 func (d *chanDeliverer) SetName(jid, title string) error {
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -257,7 +270,7 @@ func (d *chanDeliverer) SetName(jid, title string) error {
 // fetch_history cap → error; the caller (Server.fetchPlatformHistory) then
 // falls back to the local DB.
 func (d *chanDeliverer) FetchHistory(jid string, before time.Time, limit int) ([]byte, error) {
-	ch := d.resolve(jid)
+	ch := d.resolve("", jid)
 	if ch == nil {
 		return nil, fmt.Errorf("no channel for jid %s", jid)
 	}
@@ -270,7 +283,7 @@ func (d *chanDeliverer) FetchHistory(jid string, before time.Time, limit int) ([
 // web: chat so the /chat SSE client stops waiting. A folder with no web channel
 // (most chats) is a silent no-op.
 func (d *chanDeliverer) RoundDone(folder, turnID, status, errMsg string) error {
-	ch := d.resolve("web:" + folder)
+	ch := d.resolve("", "web:"+folder)
 	if ch == nil {
 		return nil
 	}

@@ -30,6 +30,13 @@ type Deliverer interface {
 	// the adapter to root a NEW thread on that message id (Slack thread_ts,
 	// Discord start-thread-from-message). Returns the platform-native id.
 	Send(jid, text, replyToID, threadID, threadRoot, idempotencyKey string) (platformID string, err error)
+	// SendVia is Send pinned to a named adapter — step 1 of the outbound
+	// resolution order (spec 5/34 § "Outbound and adapter resolution"). Only
+	// POST /v1/outbound carries a pin, and only because a JID prefix can be
+	// owned by two adapter accounts (primary `telegram` plus a second bot),
+	// where the unpinned fallbacks are ambiguous: ForJID's iteration order is
+	// non-deterministic. Empty channel is exactly Send with no threading.
+	SendVia(channel, jid, text string) (platformID string, err error)
 	// React/Edit/Delete/Pin/Unpin mutate an existing platform message.
 	React(jid, platformID, reaction string) error
 	Edit(jid, platformID, content string) error
@@ -537,7 +544,19 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "no_channel", "no deliverer configured")
 		return
 	}
-	if _, err := s.deliver.Send(req.JID, req.Text, "", "", "", ""); err != nil {
+	// Step 1 of the outbound resolution order (spec 5/34): an explicit channel
+	// wins over the latest inbound source and over chanreg.ForJID. "if
+	// registered" is checked HERE and refused loudly — Registry.Resolve falls
+	// back to ForJID for an unknown name, which would silently deliver through
+	// the very adapter the caller pinned away from.
+	if req.Channel != "" {
+		if s.reg == nil || s.reg.Get(req.Channel) == nil {
+			writeErr(w, 400, "unknown_channel",
+				"channel "+req.Channel+" is not registered; omit `channel` to resolve by jid")
+			return
+		}
+	}
+	if _, err := s.deliver.SendVia(req.Channel, req.JID, req.Text); err != nil {
 		writeErr(w, 502, "delivery_failed", err.Error())
 		return
 	}

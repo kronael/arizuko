@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -185,11 +186,11 @@ func TestDelivererReusesLiveChannel(t *testing.T) {
 
 	live := chanreg.NewHTTPChannel(reg.Get("slakd"), func(context.Context) (string, error) { return "", nil })
 	d.setLive("slakd", live)
-	if got := d.resolve("slack:T1/C/U"); got != live {
+	if got := d.resolve("", "slack:T1/C/U"); got != live {
 		t.Fatal("resolve did not return the cached live channel")
 	}
 	d.dropLive("slakd")
-	if got := d.resolve("slack:T1/C/U"); got == live {
+	if got := d.resolve("", "slack:T1/C/U"); got == live {
 		t.Fatal("resolve returned the dropped live channel")
 	}
 }
@@ -237,4 +238,81 @@ func TestServerWiresDelivererViaRegistry(t *testing.T) {
 		t.Fatalf("delivered content=%q want answer", a.last.content)
 	}
 	_ = onDeregister
+}
+
+// F67 / spec 5/34 § "Outbound and adapter resolution" step 1: an explicit
+// channel pin beats the latest inbound source AND the ForJID prefix scan. This
+// is the disambiguation a caller reaches for when one prefix is served by two
+// adapter accounts (primary `telegram` plus a second bot) — before this, the
+// field decoded fine and was dropped on the floor, so the caller was silently
+// overridden by exactly the fallback it named a channel to avoid.
+func TestDelivererPinBeatsInboundSourceAndForJID(t *testing.T) {
+	pinned := newFakeAdapter(t, "from-pinned")
+	source := newFakeAdapter(t, "from-source")
+	reg := chanreg.New()
+	registerAdapter(t, reg, "aaa", pinned.srv.URL, "slack:T1/")
+	registerAdapter(t, reg, "zzz", source.srv.URL, "slack:T1/")
+
+	// lookupSource says "zzz" — the pin must still win.
+	d := newChanDeliverer(reg, nil, func(string) string { return "zzz" })
+	if _, err := d.SendVia("aaa", "slack:T1/C/U", "hi"); err != nil {
+		t.Fatalf("SendVia: %v", err)
+	}
+	if pinned.count() != 1 || source.count() != 0 {
+		t.Fatalf("pin ignored: pinned=%d source=%d want 1,0", pinned.count(), source.count())
+	}
+
+	// An empty pin falls back to the inbound source, unchanged.
+	if _, err := d.SendVia("", "slack:T1/C/U", "hi again"); err != nil {
+		t.Fatalf("SendVia unpinned: %v", err)
+	}
+	if source.count() != 1 {
+		t.Fatalf("empty pin did not fall back to the inbound source (source=%d)", source.count())
+	}
+}
+
+// The HTTP half of F67: POST /v1/outbound decodes `channel` and it must reach
+// resolution. An unregistered pin is refused LOUDLY (400) rather than falling
+// through — Registry.Resolve silently degrades an unknown name to ForJID, which
+// would deliver through the very adapter the caller pinned away from.
+func TestOutboundHonoursChannelPin(t *testing.T) {
+	pinned := newFakeAdapter(t, "from-pinned")
+	other := newFakeAdapter(t, "from-other")
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	reg := chanreg.New()
+	// lookupSource pins the fallback to "telegram" so the unpinned resolution is
+	// DETERMINISTIC: without this the ForJID prefix scan picks either adapter by
+	// map order and the assertion below would pass by luck.
+	deliver, onRegister, onDeregister := NewChannelDeliverer(reg, nil, func(string) string { return "telegram" })
+	registerAdapter(t, reg, "telegram", other.srv.URL, "telegram:")
+	registerAdapter(t, reg, "telegram-rhias", pinned.srv.URL, "telegram:")
+
+	srv := NewServer(db, nil, deliver, nil, 0, "")
+	srv.SetChannelRegistry(reg, onRegister, onDeregister)
+	h := srv.Handler()
+
+	// Pinned: the second bot account receives it, not the prefix-scan winner.
+	rec := doJSON(t, h, "POST", "/v1/outbound", "",
+		apiv1.OutboundRequest{JID: "telegram:user/9", Text: "pinned", Channel: "telegram-rhias"})
+	if rec.Code != 200 {
+		t.Fatalf("pinned outbound status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if pinned.count() != 1 || other.count() != 0 {
+		t.Fatalf("pin ignored: pinned=%d other=%d want 1,0", pinned.count(), other.count())
+	}
+
+	// Unregistered pin: loud 400, and NOTHING is delivered.
+	rec = doJSON(t, h, "POST", "/v1/outbound", "",
+		apiv1.OutboundRequest{JID: "telegram:user/9", Text: "ghost", Channel: "telegram-gone"})
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "unknown_channel") {
+		t.Fatalf("unregistered pin status=%d body=%s, want 400 unknown_channel", rec.Code, rec.Body.String())
+	}
+	if pinned.count() != 1 || other.count() != 0 {
+		t.Fatalf("unregistered pin still delivered: pinned=%d other=%d", pinned.count(), other.count())
+	}
 }

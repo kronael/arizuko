@@ -1,6 +1,6 @@
 ---
 status: defected
-defects: [F61, F67]
+defects: [F61]
 ---
 
 # Channel adapter protocol
@@ -113,7 +113,10 @@ When several adapters share a JID prefix (primary `telegram` plus a
 second bot), the return adapter is picked in this order
 (`chanreg.Registry.Resolve`, `routd/deliver.go:80`):
 
-1. Explicit `channel` field on `/v1/outbound`, if registered.
+1. Explicit `channel` field on `/v1/outbound`, if registered. An
+   UNregistered name is `400 unknown_channel` — never a fall-through to
+   2/3, which would deliver through the adapter the caller pinned away
+   from (`routd/server.go` `handleOutbound`).
 2. `messages.source` of the latest non-bot inbound on the chat
    (`store.LatestSource`) — always set once the chat has any inbound.
 3. `chanreg.ForJID(jid)` — first prefix owner found; iteration order is

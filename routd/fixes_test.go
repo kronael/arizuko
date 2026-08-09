@@ -25,6 +25,9 @@ type recDeliverer struct {
 	dislikes int
 	failSend bool
 	pid      string
+	// viaChannels records the explicit adapter pin of every SendVia call
+	// (spec 5/34 outbound resolution step 1).
+	viaChannels []string
 	// roundDones records every RoundDone call's folder key (the SSE subscriber
 	// key), to assert publishRoundDone keys on the chat-JID folder.
 	roundDones []string
@@ -57,7 +60,14 @@ func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem strin
 	}
 	return d.pid, nil
 }
-func (d *recDeliverer) React(_, _, _ string) error      { d.reacts++; return nil }
+
+// SendVia records the pin alongside the send so a test can assert which adapter
+// an explicit `channel` selected.
+func (d *recDeliverer) SendVia(channel, jid, text string) (string, error) {
+	d.viaChannels = append(d.viaChannels, channel)
+	return d.Send(jid, text, "", "", "", "")
+}
+func (d *recDeliverer) React(_, _, _ string) error { d.reacts++; return nil }
 func (d *recDeliverer) Edit(jid, platformID, content string) error {
 	d.edits = append(d.edits, sentEdit{jid, platformID, content})
 	return d.editErr

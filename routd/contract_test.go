@@ -332,6 +332,10 @@ func (d *fakeDeliverer) Send(_, _, _, _, _, _ string) (string, error) {
 	d.sends++
 	return d.platformID, nil
 }
+func (d *fakeDeliverer) SendVia(_, _, _ string) (string, error) {
+	d.sends++
+	return d.platformID, nil
+}
 func (d *fakeDeliverer) React(_, _, _ string) error      { return nil }
 func (d *fakeDeliverer) Edit(_, _, _ string) error       { return nil }
 func (d *fakeDeliverer) Delete(_, _ string) error        { return nil }
