@@ -42,6 +42,15 @@ func main() {
 	})
 }
 
+// linkdStateDir is the DATA_DIR code default. It MUST equal the path
+// template/services/linkd.yml mounts and exports, the same "set in both places
+// so neither drifts" rule the :8080 LISTEN_ADDR convention follows (root
+// CLAUDE.md). The old default was the containerDataMount ROOT, so a missing or
+// typo'd env line dropped linkd-state-<name>.json — which holds the REFRESHED
+// LinkedIn OAuth token — at the top of the instance tree, beside every daemon's
+// database.
+const linkdStateDir = "/srv/app/home/store/linkd"
+
 type config struct {
 	Name         string
 	ClientID     string
@@ -68,7 +77,7 @@ func loadConfig() config {
 		RouterURL:    chanlib.MustEnv("ROUTER_URL"),
 		ListenAddr:   chanlib.EnvOr("LISTEN_ADDR", ":9010"),
 		ListenURL:    chanlib.EnvOr("LISTEN_URL", "http://linkd:9010"),
-		DataDir:      chanlib.EnvOr("DATA_DIR", "/srv/app/home"),
+		DataDir:      chanlib.EnvOr("DATA_DIR", linkdStateDir),
 		APIBase:      chanlib.EnvOr("LINKEDIN_API_BASE", "https://api.linkedin.com"),
 		OAuthBase:    chanlib.EnvOr("LINKEDIN_OAUTH_BASE", "https://www.linkedin.com"),
 		PollInterval: chanlib.EnvOr("LINKEDIN_POLL_INTERVAL", "300s"),

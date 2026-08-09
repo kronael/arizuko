@@ -2,7 +2,7 @@
 status: defected
 depends: [5/13-ext-mcp, 5/17-openapi-mcp, 5/32-acl-unified]
 moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
-defects: [F55, F56]
+defects: [F55]
 ---
 
 > **Status (2026-08-07). SHIPPED.** All seven ordered steps are resolved — six

@@ -696,3 +696,46 @@ func (m *teledRouter) close() { m.srv.Close() }
 
 // ioRead used nowhere but kept to silence unused-import warnings elsewhere
 var _ = io.Discard
+
+// F56: the DATA_DIR code default must be teled's OWN state directory, never the
+// container data mount root. Same class as linkd's (which persists a refreshed
+// OAuth token there); teled persists the getUpdates offset, and losing or
+// misplacing it makes Telegram re-deliver its ~24h backlog.
+//
+// Asserted against the fragment itself, so drift in EITHER place fails — the
+// same "set in both places" rule the :8080 LISTEN_ADDR convention follows.
+func TestDataDirDefaultIsTeledStateDirNotTreeRoot(t *testing.T) {
+	const containerDataMountRoot = "/srv/app/home" // compose's whole-tree bind point
+	if teledStateDir == containerDataMountRoot {
+		t.Fatalf("DATA_DIR default is the instance tree root %q — adapter state lands beside every daemon DB", teledStateDir)
+	}
+	if !strings.HasPrefix(teledStateDir, containerDataMountRoot+"/store/") {
+		t.Fatalf("DATA_DIR default %q is outside the per-owner store/ layout", teledStateDir)
+	}
+
+	frag, err := os.ReadFile(filepath.Join("..", "template", "services", "teled.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ""
+	for line := range strings.SplitSeq(string(frag), "\n") {
+		if _, v, ok := strings.Cut(strings.TrimSpace(line), "DATA_DIR:"); ok {
+			want = strings.Trim(strings.TrimSpace(v), `'"`)
+			break
+		}
+	}
+	if want == "" {
+		t.Fatal("template/services/teled.yml declares no DATA_DIR")
+	}
+	if teledStateDir != want {
+		t.Fatalf("code default %q != template/services/teled.yml DATA_DIR %q — the two must agree", teledStateDir, want)
+	}
+
+	t.Setenv("TELEGRAM_BOT_TOKEN", "tok")
+	t.Setenv("ROUTER_URL", "http://routd:8080")
+	t.Setenv("CHANNEL_NAME", "telegram")
+	t.Setenv("DATA_DIR", "")
+	if got := loadConfig().StateFile; got != teledStateDir+"/teled-offset-telegram" {
+		t.Fatalf("loadConfig StateFile = %q want it under %q", got, teledStateDir)
+	}
+}

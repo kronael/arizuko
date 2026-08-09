@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -416,4 +418,58 @@ func TestSaveLoadState(t *testing.T) {
 	if !lc2.seen["k1"] || !lc2.seen["k2"] {
 		t.Errorf("seen = %v", lc2.seen)
 	}
+}
+
+// F56: the DATA_DIR code default must be linkd's OWN state directory, never the
+// container data mount root. linkd-state-<name>.json holds the REFRESHED
+// LinkedIn OAuth token; the old default put it at the top of the instance tree
+// beside every daemon's database, load-bearing on one env line in the compose
+// fragment agreeing with it.
+//
+// Asserted against the fragment itself, so drift in EITHER place fails — the
+// same "set in both places" rule the :8080 LISTEN_ADDR convention follows.
+func TestDataDirDefaultIsLinkdStateDirNotTreeRoot(t *testing.T) {
+	if linkdStateDir == containerDataMountRoot {
+		t.Fatalf("DATA_DIR default is the instance tree root %q — a refreshed OAuth token lands beside every daemon DB", linkdStateDir)
+	}
+	if !strings.HasPrefix(linkdStateDir, containerDataMountRoot+"/store/") {
+		t.Fatalf("DATA_DIR default %q is outside the per-owner store/ layout", linkdStateDir)
+	}
+
+	frag, err := os.ReadFile(filepath.Join("..", "template", "services", "linkd.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fragmentDataDir(t, string(frag))
+	if linkdStateDir != want {
+		t.Fatalf("code default %q != template/services/linkd.yml DATA_DIR %q — the two must agree", linkdStateDir, want)
+	}
+
+	// And loadConfig actually uses it when the env line is absent.
+	t.Setenv("LINKEDIN_CLIENT_ID", "id")
+	t.Setenv("LINKEDIN_CLIENT_SECRET", "secret")
+	t.Setenv("ROUTER_URL", "http://routd:8080")
+	t.Setenv("DATA_DIR", "")
+	if got := loadConfig().DataDir; got != linkdStateDir {
+		t.Fatalf("loadConfig DataDir = %q want %q", got, linkdStateDir)
+	}
+}
+
+// containerDataMountRoot is compose's containerDataMount — the bind point for
+// the WHOLE instance tree, and therefore never a state directory.
+const containerDataMountRoot = "/srv/app/home"
+
+// fragmentDataDir extracts the `DATA_DIR: '<path>'` value from a compose
+// fragment.
+func fragmentDataDir(t *testing.T, yml string) string {
+	t.Helper()
+	for line := range strings.SplitSeq(yml, "\n") {
+		_, v, ok := strings.Cut(strings.TrimSpace(line), "DATA_DIR:")
+		if !ok {
+			continue
+		}
+		return strings.Trim(strings.TrimSpace(v), `'"`)
+	}
+	t.Fatal("fragment declares no DATA_DIR")
+	return ""
 }

@@ -849,7 +849,28 @@ pass was a spec decision and this is an authd contract change.
 - **Source:** `authd/server.go:241,250,197-199,27,70,108`; `authd/http.go:339,352,361`; cf. `authd/server.go:229-231` (the capping sibling)
 - **Status:** fixed 2026-08-09 — capped at `maxAccessTTL` in `signMinted`
 
-## F56 — adapter `DATA_DIR` code defaults point at the instance tree root (2026-08-07, open)
+## ✅ FIXED 2026-08-09 — F56 — adapter `DATA_DIR` code defaults point at the instance tree root (2026-08-07)
+
+Both code defaults now name the adapter's own state dir — `linkdStateDir =
+/srv/app/home/store/linkd`, `teledStateDir = /srv/app/home/store/teled` — the
+entry's own prescription and the `LISTEN_ADDR=:8080` "set in both places so
+neither drifts" convention. A missing env line now lands adapter state (and
+linkd's refreshed OAuth token) in a per-owner subdirectory, never at the top of
+the tree beside every daemon's database.
+
+The tests assert the constant against the compose fragment's `DATA_DIR` line, so
+drift in EITHER place fails: `TestDataDirDefaultIsLinkdStateDirNotTreeRoot`
+(`linkd/linkd_test.go`), `TestDataDirDefaultIsTeledStateDirNotTreeRoot`
+(`teled/integration_test.go`).
+
+**One premise below was stale.** `template/services/teled.yml` DOES declare
+`DATA_DIR: '/srv/app/home/store/teled'` and mounts `${DATA_DIR}/store/teled`
+(lines 13, 18) — the "supplies no `DATA_DIR` at all" claim, inherited from `F53`,
+does not hold against the in-repo fragment. Only the code default was wrong. If
+a LIVE instance still runs a generated compose that predates the fragment line,
+that is a redeploy, not a code defect.
+
+Original report:
 
 `linkd/main.go:71` defaults `DataDir` to `/srv/app/home` — `containerDataMount`
 itself, the root of the whole instance tree — and `linkd/client.go:95,161`
@@ -875,7 +896,7 @@ the `LISTEN_ADDR=:8080` convention already requires both places to agree (root
 not fixed there because that audit's scope was ownership, not adapter defaults.
 
 - **Source:** `linkd/main.go:71`, `linkd/client.go:95,161`; `template/services/linkd.yml:19`; cf. `teled/main.go:69` (`F53`)
-- **Status:** open
+- **Status:** fixed 2026-08-09 — code default = the fragment's per-adapter store dir
 
 ## ✅ FIXED 2026-08-07 — F51 — dashd mounts the whole instance tree: `.env` secrets and live agent sockets (2026-08-07)
 

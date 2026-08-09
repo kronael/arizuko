@@ -58,6 +58,14 @@ func main() {
 	})
 }
 
+// teledStateDir is the DATA_DIR code default. It MUST equal the path
+// template/services/teled.yml mounts and exports, the same "set in both places
+// so neither drifts" rule the :8080 LISTEN_ADDR convention follows (root
+// CLAUDE.md). The old default was the containerDataMount ROOT, so a missing env
+// line dropped teled-offset-<name> at the top of the instance tree beside every
+// daemon's database.
+const teledStateDir = "/srv/app/home/store/teled"
+
 type config struct {
 	Name, TelegramToken, RouterURL       string
 	ListenAddr, ListenURL, AssistantName string
@@ -66,7 +74,7 @@ type config struct {
 }
 
 func loadConfig() config {
-	dataDir := chanlib.EnvOr("DATA_DIR", "/srv/app/home")
+	dataDir := chanlib.EnvOr("DATA_DIR", teledStateDir)
 	name := chanlib.EnvOr("CHANNEL_NAME", "telegram")
 	return config{
 		Name:          name,
