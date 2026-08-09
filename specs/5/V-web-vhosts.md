@@ -1,6 +1,5 @@
 ---
-status: defected
-defects: [F62, F63]
+status: shipped
 ---
 
 # Web Virtual Hosts + Agent Web Slots

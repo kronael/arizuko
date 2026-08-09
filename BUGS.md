@@ -136,7 +136,7 @@ the user-facing state is false and can never be resolved.
 - **Status:** open
 - **Fix:**
 
-## J4 — concurrent HITL verdicts can both report success (2026-08-08, open)
+## J4 — concurrent HITL verdicts can both report success (2026-08-08, FIXED 2026-08-09 — ResolvePendingAction checks RowsAffected != 1 and returns ErrPendingResolved; the loser no longer reports success)
 
 Two reviewers can both read a held row, then race approve against reject. Only
 one conditional UPDATE changes SQLite, but `ResolvePendingAction` ignores
@@ -150,7 +150,7 @@ approve can enqueue an approval message even though the stored row is rejected.
 - **Status:** open
 - **Fix:**
 
-## J5 — approval wakes the command chat instead of the held call's chat (2026-08-08, open)
+## J5 — approval wakes the command chat instead of the held call's chat (2026-08-08, FIXED 2026-08-09 — resolutionMessage targets the stored p.ChatJID, falling back to GroupFolder)
 
 `cmdResolveHold` ignores both the stored `PendingAction.ChatJID` and its `folder`
 argument. Approving an ID from a different operator chat injects and enqueues
@@ -178,7 +178,7 @@ error. Released records therefore keep blank outcomes despite the shipped spec.
 - **Status:** proposed
 - **Fix:**
 
-## J7 — pending-action expiry is unreachable and filters the wrong status (2026-08-08, proposed)
+## J7 — pending-action expiry is unreachable and filters the wrong status (2026-08-08, FIXED 2026-08-09 — applyExpiry runs in Go before the status filter, not in SQL)
 
 Production hold creation never sets `expires_at`, so `expired` is dead state. If
 a row is populated externally, list filtering applies the stored status before
@@ -249,7 +249,7 @@ records mix state under `growth`.
 - **Status:** proposed
 - **Fix:**
 
-## J13 — products list swallows output write failures (2026-08-08, open)
+## J13 — products list swallows output write failures (2026-08-08, FIXED 2026-08-09 — listProducts returns the io.WriteString error)
 
 Both catalog `Fprintf` calls discard their errors and `listProducts` returns
 nil. A broken pipe or full output filesystem yields a truncated catalog with a
@@ -5258,7 +5258,7 @@ dashd UX decision and needs sign-off.
   BUILT list with `services.go` and make the probe condition reachable in tests
   (stub a healthy probe, or drop the status gate).
 
-## D7 — `make test-e2e` verifies nothing: no `webd` test matches `-run E2E` (2026-08-02, open)
+## D7 — `make test-e2e` verifies nothing: no `webd` test matches `-run E2E` (2026-08-02, FIXED 2026-08-09 — three TestE2E* tests live in webd and the Makefile target fails when -run matches nothing)
 
 The target is `go test ./webd/... -count=1 -run E2E -timeout 300s`
 (`Makefile:73`), but no test function in `webd` has a name matching `E2E`, so it

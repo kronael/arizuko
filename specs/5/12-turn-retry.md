@@ -1,6 +1,6 @@
 ---
 status: defected
-defects: [F20, F73]
+defects: [F73]
 ---
 
 # Turn retry on failed completion

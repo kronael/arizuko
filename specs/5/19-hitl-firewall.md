@@ -2,7 +2,7 @@
 status: defected
 shipped: 2026-08-07
 moved-from: specs/17/4-hitl-firewall.md
-defects: [J1, J2, J3, J4, J5, J6, J7, F66, F76]
+defects: [J1, J2, J3, J6, F66, F76]
 ---
 
 # specs/5/19 — HITL firewall: hold a tool call for human approval

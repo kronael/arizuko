@@ -2,7 +2,7 @@
 status: defected
 shipped: 2026-08-07
 relates-to: [../5/28-packages]
-defects: [J12, J13, F64]
+defects: [J12, F64]
 ---
 
 # Products — curated agent templates (producer side)
