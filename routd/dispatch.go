@@ -528,6 +528,15 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	shareRO := !elevated && l.db.Authorize(sub, folder, "mcp:share_mount", map[string]string{"readonly": "true"})
 	egress := elevated || l.db.Authorize(sub, folder, "egress", nil)
 	webPublish := elevated || l.db.Authorize(sub, folder, "web:publish", nil)
+	// A denied capability is otherwise unattributable: web:publish=false makes
+	// container/runner skip both web bind mounts, so the agent finds no
+	// ~/public_html and reports a broken mount. An agent in rhias/nemo spent a
+	// session on that misdiagnosis and filed it four times because the host had
+	// nothing to grep. This line IS the signal — one per spawn, with the folder
+	// and every decision, so an absent surface points at its missing grant.
+	slog.Info("dispatch capabilities resolved",
+		"folder", folder, "turn_id", turnID, "elevated", elevated,
+		"egress", egress, "share_readonly", shareRO, "web_publish", webPublish)
 	return l.runner.Run(ctx, runedv1.RunRequest{
 		Folder:  types.Folder(folder),
 		Topic:   topic,
