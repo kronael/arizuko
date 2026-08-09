@@ -7512,7 +7512,7 @@ keep `status: shipped`.
   root-doc sites. Note `CLAUDE.md` is a project-instruction file — that edit
   wants the user's eye, not a bulk rewrite.
 
-## F17 — `obs/metrics.go`'s header comment undercounts its own metrics (2026-08-05, open)
+## F17 — `obs/metrics.go`'s header comment undercounts its own metrics (2026-08-05, FIXED 2026-08-09)
 
 `obs/metrics.go:3` says "nine families". The file defines fifteen
 (`obs/metrics.go:25-104`). `specs/5/O-observability.md` says "Fifteen families"
@@ -7524,9 +7524,31 @@ was eleven and the spec wrong; both halves of that were incorrect.
 - **Scope:** obs package doc comment
 - **Affected:** readers of obs/
 - **Source:** obs/metrics.go:3 vs obs/metrics.go:25-104
+- **Status:** FIXED 2026-08-09
+- **Fix:** took the second option — the count is dropped, not corrected. Counted
+  fifteen in the var block (turnDuration, turnsTotal, silentTurns,
+  modelCallDuration, modelTokens, containerSpawns, containerActive,
+  containerDuration, requestsTotal, requestDuration, circuitBreakerState,
+  egressRequests, egressBytes, tokenMints, tokenRefreshes), confirming the spec.
+  A number in a comment two lines above the list it counts drifts on the next
+  metric; the spec's copy is dated ("as of 2026-08-02") and stays.
+
+## F79 — `specs/5/O` still lists `obs.EndOutcome`, deleted as dead (2026-08-09, open)
+
+`specs/5/O-observability.md:58` describes `obs/spans.go` as exporting
+`SetupTraces`, `StartSpan`, `EndOutcome`. Commit `43687752` deleted
+`obs.EndOutcome` on 2026-08-08 for having zero callers; a repo-wide grep finds
+the name nowhere in `.go`. The other two are live.
+
+Found while fixing `F17` in the same file's neighbourhood; recorded rather than
+fixed, since it is a different claim from the metric count.
+
+- **Severity:** low (spec-only)
+- **Scope:** specs/5/O API list
+- **Affected:** readers wiring new spans
+- **Source:** specs/5/O-observability.md:58 vs commit 43687752
 - **Status:** open
-- **Fix:** one word. Or drop the count — a number in a comment beside the list
-  it counts will drift again.
+- **Fix:**
 
 ## F18 — two live copies of the false "routd.db has no audit_log" claim survive (2026-08-05, fixed)
 

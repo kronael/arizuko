@@ -1,6 +1,6 @@
 package obs
 
-// Prometheus metrics for the nine families in spec 5/O. Recording is always
+// Prometheus metrics for the families in spec 5/O. Recording is always
 // safe: when METRICS_ENABLED is unset the collectors still exist but nothing
 // scrapes them, so Record* calls are cheap atomic adds with no exporter cost.
 // MetricsHandler returns the promhttp endpoint when enabled, a 404 stub when
