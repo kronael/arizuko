@@ -118,7 +118,7 @@ type Config struct {
 	EgressParentSubnet  string // parent CIDR carved into per-folder /24s (default 10.99.0.0/16)
 	EgressAdminSecret   string // optional bearer token for crackbox admin API mutations
 
-	// Cost caps (spec 5/34). Enabled by default; pre-spawn gate consults
+	// Cost caps (spec 11/19). Enabled by default; pre-spawn gate consults
 	// per-folder + per-user caps in store/cost_log. Set false to bypass
 	// the gate entirely (escape hatch for operators).
 	CostCapsEnabled bool

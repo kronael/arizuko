@@ -116,11 +116,11 @@ type TurnResult struct {
 	// Models carries per-model token usage + pre-computed cost.
 	// Optional; nil/empty when the agent doesn't report (e.g. ant
 	// versions before the cost-caps cutover). One cost_log row per
-	// model when present. Spec 5/34.
+	// model when present. Spec 11/19.
 	Models map[string]ModelUsage `json:"models,omitempty"`
 
 	// CallerSub is the user_sub the turn ran on behalf of (empty for
-	// channel-scoped turns). Spec 5/34 uses this for per-user spend
+	// channel-scoped turns). Spec 11/19 uses this for per-user spend
 	// aggregation; spec 5/5 will replace it with full Caller shape.
 	CallerSub string `json:"caller_sub,omitempty"`
 }
@@ -214,7 +214,7 @@ type StoreFns struct {
 	CurrentTurnID func(folder string) string
 
 	// LogExternalCost records one cost_log row for a non-Anthropic LLM call
-	// (oracle/codex/openai). Spec 5/34.
+	// (oracle/codex/openai). Spec 11/19.
 	LogExternalCost func(folder, provider, model string, inputTok, outputTok, costCents int) error
 	// Connectors is the (discovered, namespaced) MCP-subprocess tool
 	// catalog, registered through the broker chain at buildMCPServer.
@@ -978,7 +978,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				"token counts and the call's USD cost; gateway converts to "+
 				"cents and writes a cost_log row. Skipping this hides the "+
 				"call from cost-caps (operator-visible drift only via the "+
-				"provider's own invoice). Spec 5/34.",
+				"provider's own invoice). Spec `specs/11/19-cost-caps.md`.",
 			[]mcp.ToolOption{
 				mcp.WithString("provider", mcp.Required(),
 					mcp.Description("openai | codex | other")),

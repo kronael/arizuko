@@ -5,7 +5,7 @@ import (
 )
 
 // CostRow is one LLM call's accounting row written into cost_log.
-// Spec 5/34. Folder and UserSub are how the budget gate aggregates;
+// Spec 11/19. Folder and UserSub are how the budget gate aggregates;
 // either may be empty (channel-scoped vs identified-caller turns).
 type CostRow struct {
 	TS         time.Time
@@ -59,7 +59,7 @@ func (s *Store) spendSince(col, val string, since time.Time) (int, error) {
 }
 
 // FolderCap returns the per-day cap for a group folder in cents.
-// Zero means uncapped (default). Spec 5/34.
+// Zero means uncapped (default). Spec 11/19.
 func (s *Store) FolderCap(folder string) (int, error) {
 	var cents int
 	err := s.db.QueryRow(

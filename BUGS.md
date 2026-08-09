@@ -630,7 +630,7 @@ from a broken mount. Fix: log the three capability decisions at spawn
 is attributable. Cause-level, not a symptom patch — the operator recovery path
 (`arizuko grant <sub> <folder> web:publish`) already exists and works.
 
-## F61 — nine code comments cite "Spec 5/34" for cost caps; 5/34 is the channel protocol (2026-08-07, open)
+## F61 — nine code comments cite "Spec 5/34" for cost caps; 5/34 is the channel protocol (2026-08-07, Go half FIXED 2026-08-09 — agent-skill + web-docs half open)
 
 `specs/5/34-channel-protocol.md` is the channel adapter protocol. The cost-cap
 spec is `specs/11/19-cost-caps.md` (`status: partial`). Nine production sites
@@ -651,6 +651,24 @@ fix (rewrite the pointer at ten sites); no behavior change.
 
 Found while shipping `specs/5/5`, which now cites `11/19` correctly. Recorded,
 not fixed — out of that change's scope.
+
+**Go half FIXED 2026-08-09.** All ten listed sites were still wrong — none had
+been corrected. Rewritten to `spec 11/19`, except the MCP tool description
+(`ipc/ipc.go:981`), which gets the full `specs/11/19-cost-caps.md` path because
+the agent reading it has to be able to open the file. A repo-wide grep for
+`5/34` in `.go` now returns only channel-protocol citations, which are correct.
+
+Three cost-cap `5/34` pointers are deliberately LEFT, each behind release
+machinery this change should not drag in:
+
+- `ant/skills/oracle/SKILL.md:79` — agent-shipped, so editing it needs a
+  migration file + `MIGRATION_VERSION` bump + ant image rebuild.
+- `template/web/pub/arizuko/reference/{mcp,schema,cli}.html` (+ the `legacy/`
+  twins) — these need the web-docs deploy. Their `href` is separately wrong: it
+  points at `specs/10/19-cost-caps.md`, a path that does not exist either.
+- `CHANGELOG.md` and `ant/skills/self/migrations/120-v0.36.0-cost-caps.md` are
+  dated records of what shipped under the old numbering. Correct as history;
+  must NOT be rewritten.
 
 ## F60 — `routd/db.go:140` names `auth.Delegate` at `register_group`, where it is not called (2026-08-07, open)
 

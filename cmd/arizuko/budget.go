@@ -11,7 +11,7 @@ import (
 )
 
 // cmdBudget manages per-folder and per-user cost caps + reports spend.
-// Spec 5/34. routd's pre-spawn budgetGate refuses to spawn when today's spend
+// Spec 11/19. routd's pre-spawn budgetGate refuses to spawn when today's spend
 // exceeds the lower of (folder cap, user cap), reading caps from
 // `groups.cost_cap_cents_per_day` / `user_profiles.cost_cap_cents_per_day` and
 // spend from `cost_log` — all in ROUTD.DB. The verb goes through *routd.DB so

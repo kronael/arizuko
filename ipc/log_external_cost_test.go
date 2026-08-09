@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// Spec 5/34: log_external_cost is the oracle-skill's hook for reporting
+// Spec 11/19: log_external_cost is the oracle-skill's hook for reporting
 // non-Anthropic spend so the budget gate covers it. End-to-end:
 // register the tool with a fake LogExternalCost recorder, call it via
 // the MCP unix socket with realistic params, assert the row landed.

@@ -700,7 +700,7 @@ func (s *server) dispatchRoute(rt *Route, w http.ResponseWriter, r *http.Request
 // the sole setter and strips any inbound X-Chat-*). Spec 5/W. Auth is
 // optional; a valid JWT stamps user
 // identity. Anon callers pass through an IP-keyed DoS shield (not
-// metering — cost-cap governance handles spend per spec 5/34);
+// metering — cost-cap governance handles spend per spec 11/19);
 // authenticated callers skip the throttle entirely.
 func (s *server) dispatchRouteToken(rp *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
 	if a := s.tryAuth(r); a != nil {
