@@ -2,7 +2,7 @@
 status: defected
 shipped: 2026-08-07
 moved-from: specs/17/4-hitl-firewall.md
-defects: [J1, J2, J3, J6, F66, F76]
+defects: [J1, J2, F66, F76]
 ---
 
 # specs/5/19 — HITL firewall: hold a tool call for human approval
@@ -71,10 +71,16 @@ not a hole.)
 JSON, status, chat_jid, created_at, reviewed_by, reviewed_at, reviewer_note,
 result JSON, error, expires_at)`, status `held → approved|rejected|expired →
 released`. Registered as a resreg `Resource` (REST + derived MCP + dashd), per
-the cold-tier invariant (`specs/CLAUDE.md`). `result`/`error` are written by the
-gate at release — single writer; outcomes also land in `audit_log` via the
-existing emit path. Expiry is lazy (computed from `expires_at` on read), no GC
-job.
+the cold-tier invariant (`specs/CLAUDE.md`). `released` is a row's terminal
+state: `result`/`error` are declared but NEVER written, and this spec now buys
+that rather than the writer it first specified. The gate consumes the approval
+before the call reaches `HandleMessage`, so no site holds both the released id
+and the call's outcome; `RecordPendingOutcome` was written for it, had zero
+callers and passed its SQL arguments in the wrong order, and was deleted rather
+than left as a shell (BUGS `J6`). Correlating an outcome back would mean
+carrying the released id down to the tool-result site — a cross-layer change
+whose only payoff is a field, on a table whose point is the DECISION. Expiry is
+lazy (computed from `expires_at` on read), no GC job.
 
 There is deliberately **no separate `prompts` resource**: a prompt has no state
 not already in `messages` plus the reply correlation. `pending_actions` is the
@@ -147,7 +153,7 @@ operator's go" into real `hold:mcp:<destructive-tool>` rules.
 - A `hold:mcp:<tool>(param=glob)` row → the call returns `{pending:true,id}`; a
   `pending_actions` row lands (held) with a chat notice + buttons.
 - `/approve <id>` by an operator → resolution message enqueued; the re-issued
-  call passes `CheckHold` one-shot; result written to the row.
+  call passes `CheckHold` one-shot; the row's terminal state is `released`.
 - A non-operator `/approve` is rejected.
 - No hold rule ⇒ inline execution; nil `CheckHold` ⇒ no-op.
 - An operator's `(*, **)` row does NOT hold every tool (Hazard 2).
@@ -171,8 +177,8 @@ is the only reason to believe them:
   (`TestCheckHold_PlainAllowRowIsNotAHold`).
 
 `ipc.StoreFns.CheckHold` fires at the one `tools/call` interception in
-`serveConn` — before `HandleMessage`, so no tool routes around it. A held call
-returns a tool RESULT, not a JSON-RPC error: the call did not fail, it is
+`serveConn` — before `HandleMessage`, so no tool routes around it. A RECORDED
+hold returns a tool RESULT, not a JSON-RPC error: the call did not fail, it is
 waiting, and the agent must be able to say so rather than retry a "failure" in
 a loop. Nil `CheckHold` is zero overhead.
 
@@ -182,7 +188,10 @@ Argument deviation misses the canonical-JSON hash and is held again, so
 edited-args enforcement needs no separate comparison. An elevated `/root` turn
 gets no gate: the operator holding their own call for their own approval is a
 deadlock, not a safeguard. A failure to RECORD the row holds anyway — failing
-open there would silently defeat the gate the operator asked for.
+open there would silently defeat the gate the operator asked for — but it is the
+one hold that answers with a JSON-RPC error and a chat notice instead of the
+pending result: there is no row and no id, so `pending:true` would send the
+agent to wait for an `/approve` nobody can type (BUGS `J3`).
 
 `/approve <id>` / `/reject <id>` replace the `"HITL not configured"` stub,
 gated on `IsOperator` (the same `**` test as `/root`). Approval writes the

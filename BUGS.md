@@ -167,7 +167,7 @@ folder cannot consume its approval.
 - **Status:** open
 - **Fix:**
 
-## J6 — released HITL calls never record result or error (2026-08-08, proposed)
+## J6 — released HITL calls never record result or error (2026-08-08, CLOSED 2026-08-09 — code half was already done)
 
 `RecordPendingOutcome` has no caller, because the gate discards the released ID
 before `HandleMessage`. Even if called, its SQL expects `(result, error, id)`
@@ -178,8 +178,13 @@ error. Released records therefore keep blank outcomes despite the shipped spec.
 - **Scope:** HITL outcome audit
 - **Affected:** routd, ipc
 - **Source:** routd/pending_actions.go:237
-- **Status:** proposed
-- **Fix:**
+- **Status:** CLOSED 2026-08-09
+- **Fix:** `RecordPendingOutcome` was already deleted by `43687752` (2026-08-08);
+  a repo-wide grep finds the name nowhere, so the entry was stale. Only the spec
+  half was outstanding: `5/19` still claimed the gate writes `result`/`error` at
+  release. It now records the costed decision NOT to — `released` is terminal,
+  and correlating an outcome back needs the released id carried to the
+  tool-result site.
 
 ## J7 — pending-action expiry is unreachable and filters the wrong status (2026-08-08, FIXED 2026-08-09 — applyExpiry runs in Go before the status filter, not in SQL)
 
