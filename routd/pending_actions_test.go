@@ -371,3 +371,44 @@ func TestListPendingActions_ExpiryFilteredAfterTransform(t *testing.T) {
 		t.Fatalf("status=held returned %+v, want only the live row", held)
 	}
 }
+
+// TestHoldGate_UnrecordableHoldBlocksAndReports — SQLite full/busy/schema means
+// the gate cannot write the row. The call must still be BLOCKED (fail closed),
+// but it must not come back as a normal pending result: with no row there is no
+// id anyone can `/approve`, so `pending:true` is a user-facing state that can
+// never resolve (BUGS J3). The empty id is what ipc renders as an error, and the
+// chat notice is the only signal an operator gets — a slog line is not one.
+func TestHoldGate_UnrecordableHoldBlocksAndReports(t *testing.T) {
+	d := memDB(t)
+	dl := &recDeliverer{}
+	srv := &Server{db: d, deliver: dl}
+	if err := d.AddACLRow(core.ACLRow{
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Scope: "atlas", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.db.Exec(`DROP TABLE pending_actions`); err != nil {
+		t.Fatal(err)
+	}
+	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t9"})
+
+	id, held := gate("mcp:delete", map[string]any{"target": "prod"})
+	if !held {
+		t.Fatal("an unrecordable hold must still block the call — fail closed")
+	}
+	if id != "" {
+		t.Fatalf("a hold with no row must report no id, got %q", id)
+	}
+	if len(dl.sends) != 1 {
+		t.Fatalf("the operator must be told; got %d sends", len(dl.sends))
+	}
+	got := dl.sends[0]
+	if !strings.Contains(got.text, "mcp:delete") ||
+		!strings.Contains(got.text, "could not be recorded") {
+		t.Fatalf("notice must name the blocked tool and why: %q", got.text)
+	}
+	if got.idem != "hitl-fail-t9" {
+		t.Fatalf("notice must be keyed per turn, got %q", got.idem)
+	}
+}

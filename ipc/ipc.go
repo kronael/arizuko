@@ -2328,7 +2328,24 @@ func addFacadeTools(srv *server.MCPServer, visible func(name string) bool) {
 // normal tool RESULT, not a JSON-RPC error: the call did not fail, it is
 // waiting, and the agent must be able to say so in chat and move on rather than
 // retry a "failure" in a loop.
+//
+// An EMPTY pendingID is the gate reporting that it blocked the call but could
+// not record it. There is no row and no id, so the pending shape would tell the
+// agent to wait for `/approve` on an id nobody can resolve — a user-facing state
+// that is false forever (BUGS J3). That case really did fail, so it returns a
+// JSON-RPC error and the agent surfaces it.
 func holdResponse(id any, pendingID, tool string) map[string]any {
+	if pendingID == "" {
+		return map[string]any{
+			"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{
+				"code": -32603,
+				"message": tool + " needs human approval and the hold could not be " +
+					"recorded, so the call was blocked. There is nothing to approve — " +
+					"tell the user, and an operator must check the router.",
+			},
+		}
+	}
 	text := fmt.Sprintf(
 		"HELD for human approval (id %s). %s was not run. An operator must "+
 			"/approve %s or /reject %s. Tell the user it is waiting; do not retry — "+

@@ -122,7 +122,7 @@ never pass authorization.
 - **Status:** proposed
 - **Fix:**
 
-## J3 — a failed pending-action insert returns an unresolvable empty ID (2026-08-08, open)
+## J3 — a failed pending-action insert returns an unresolvable empty ID (2026-08-08, FIXED 2026-08-09)
 
 SQLite-full/busy/schema failure returns `("", true)` from the gate. The agent
 therefore receives a normal `pending:true` result saying `/approve  or /reject`
@@ -133,8 +133,11 @@ the user-facing state is false and can never be resolved.
 - **Scope:** HITL fail-closed response
 - **Affected:** routd, ipc
 - **Source:** routd/pending_actions.go:273
-- **Status:** open
-- **Fix:**
+- **Status:** FIXED 2026-08-09
+- **Fix:** the empty id is now the signal, not an accident. `holdResponse`
+  renders a JSON-RPC error instead of a pending result when there is no id, and
+  the gate sends the chat a blocked-and-unrecorded notice (`notifyHoldFailed`,
+  the same deliver seam as `notifyHeld`). The call stays blocked.
 
 ## J4 — concurrent HITL verdicts can both report success (2026-08-08, FIXED 2026-08-09 — ResolvePendingAction checks RowsAffected != 1 and returns ErrPendingResolved; the loser no longer reports success)
 

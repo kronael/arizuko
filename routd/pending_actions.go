@@ -362,8 +362,13 @@ func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool)
 		}); err != nil {
 			// Fail CLOSED: a hold rule exists and we could not record the call, so
 			// letting it run would silently defeat the gate the operator asked for.
-			slog.Error("hitl could not record pending action; holding anyway",
+			// The EMPTY id is the signal ipc renders as an error rather than as a
+			// pending result: with no row there is no id to /approve, and the
+			// pending shape told the agent to wait on one that does not exist
+			// (BUGS J3). The chat notice is the operator's only sign it happened.
+			slog.Error("hitl could not record pending action; blocking the call",
 				"folder", t.folder, "tool", tool, "err", err)
+			s.notifyHoldFailed(t, tool, err)
 			return "", true
 		}
 		s.notifyHeld(t, id, tool)
@@ -392,12 +397,26 @@ func stringArgs(args map[string]any) map[string]string {
 // notifyHeld tells the chat a call is waiting. Delivery failure is logged, not
 // fatal: the row is already recorded and `pending_actions list` still finds it.
 func (s *Server) notifyHeld(t turnMCP, id, tool string) {
+	s.notifyHold(t, "hitl-"+id, fmt.Sprintf(
+		"⏸ %s held for approval (id %s)\n/approve %s   /reject %s", tool, id, id, id))
+}
+
+// notifyHoldFailed reports a call the gate blocked but could not record. Unlike
+// a held call this leaves NO row, so nothing lists it and no id can resolve it —
+// this notice and the agent's error are the whole trace. Keyed per turn, like
+// the other dispatch notices, so a failing turn reports once.
+func (s *Server) notifyHoldFailed(t turnMCP, tool string, cause error) {
+	s.notifyHold(t, "hitl-fail-"+t.turnID, fmt.Sprintf(
+		"⛔ %s needs approval and the hold could not be recorded (%v). The call was "+
+			"blocked and there is nothing to /approve — an operator must check routd.",
+		tool, cause))
+}
+
+func (s *Server) notifyHold(t turnMCP, idem, text string) {
 	if t.chatJID == "" || s.deliver == nil {
 		return
 	}
-	text := fmt.Sprintf("⏸ %s held for approval (id %s)\n/approve %s   /reject %s",
-		tool, id, id, id)
-	if _, err := s.deliver.Send(t.chatJID, text, "", t.topic, "", "hitl-"+id); err != nil {
-		slog.Error("hitl notice not delivered", "jid", t.chatJID, "pending", id, "err", err)
+	if _, err := s.deliver.Send(t.chatJID, text, "", t.topic, "", idem); err != nil {
+		slog.Error("hitl notice not delivered", "jid", t.chatJID, "idem", idem, "err", err)
 	}
 }
