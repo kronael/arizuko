@@ -390,7 +390,7 @@ arizuko gate krons add 'corp/eng/**' 1000</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L461"><code>cmd/arizuko/main.go:461</code></a></p>
 
     <h2 id="budget" class="group-h2">Budget (cost caps)</h2>
-    <p>Per-folder and per-user daily spend caps in cents. The pre-spawn gate in <code>gateway/</code> refuses to spawn when today's spend exceeds the lower of (folder cap, user cap). Caps live on <code>groups.cost_cap_cents_per_day</code> and <code>auth_users.cost_cap_cents_per_day</code>; spend is summed from <code>cost_log</code>. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/10/19-cost-caps.md">5/34</a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L18"><code>budget.go:18</code></a>.</p>
+    <p>Per-folder and per-user daily spend caps in cents. The pre-spawn gate in <code>gateway/</code> refuses to spawn when today's spend exceeds the lower of (folder cap, user cap). Caps live on <code>groups.cost_cap_cents_per_day</code> and <code>auth_users.cost_cap_cents_per_day</code>; spend is summed from <code>cost_log</code>. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/11/19-cost-caps.md">11/19</a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L18"><code>budget.go:18</code></a>.</p>
 
     <h3 id="budget-set"><span class="sig">arizuko budget &lt;instance&gt; set &lt;folder|user&gt; &lt;name|sub&gt; --daily N</span></h3>
     <p>Set a daily cap (in cents) on a folder or user. <code>--daily 0</code> removes the cap (uncapped). Negative values are rejected.</p>

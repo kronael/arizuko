@@ -76,7 +76,7 @@ Use the `log_external_cost` MCP tool (see below) to record the
 spend internally. That is the **only** sanctioned destination for
 the cost number.
 
-## Cost reporting (spec 5/34)
+## Cost reporting (spec 11/19)
 
 Anthropic spend is tracked automatically (gateway captures usage from
 every Claude Code turn). **codex/openai spend isn't**, so report it

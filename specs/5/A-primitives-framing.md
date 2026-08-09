@@ -1,5 +1,5 @@
 ---
-status: defected
+status: shipped
 depends:
   [
     17-openapi-mcp,
@@ -11,7 +11,6 @@ depends:
     33-paths-roles,
     ../17/9-positioning,
   ]
-defects: [F16]
 ---
 
 # specs/5/A — primitive framing (how to explain arizuko)

@@ -1,7 +1,6 @@
 ---
-status: defected
+status: shipped
 depends: [I-tool-call-logging, ../8/F-audit-stream]
-defects: [F79]
 ---
 
 # specs/5/O — Observability
@@ -55,7 +54,9 @@ Non-goals: SIEM webhooks, file rotation, JSONL dumps, custom trace UIs.
 
 - `obs/obs.go` — `Setup`, `WithTurn`, fanout handler. One line per daemon
   at the top of `main()`: `defer obs.Setup("routd", instance)()`.
-- `obs/spans.go` — `SetupTraces`, `StartSpan`, `EndOutcome`. Five span
+- `obs/spans.go` — `SetupTraces`, `StartSpan`. `StartSpan` returns the end
+  function, so there is no exported `EndOutcome`; `outcomeOf` maps the
+  error to the outcome attribute inside it. Five span
   names are defined (`turn`, `model_call`, `mcp_tool`, `container_spawn`,
   `cross_daemon`); `outcome` ∈ `success|error|timeout|canceled`.
 - `obs/metrics.go` — the metric registry. Fifteen families as of

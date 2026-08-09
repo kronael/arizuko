@@ -2155,7 +2155,7 @@ misconfigured-group case is the one that will actually cost someone an hour.
   is no control to offer without changing the spec — see `F29`'s sibling
   reasoning about new contracts needing sign-off.
 
-## F25 — components/dashd.html documents the retired HMAC identity model (2026-08-06, open)
+## F25 — components/dashd.html documents the retired HMAC identity model (2026-08-06, FIXED 2026-08-09 — dashd.html now describes auth.ProxydTransit; RequireSigned/PROXYD_HMAC_SECRET have zero hits in code)
 
 Same class as `F11`, different page, found while adding the `/dash/proxyd/` row.
 `template/web/pub/arizuko/components/dashd.html` tells operators that dashd
@@ -7633,7 +7633,7 @@ already names:
   no longer declares zero resources (`audit` landed with `5/I`). Both were true
   when filed.
 
-## F16 — the tier-drift sweep never scanned the web docs, and root docs still drift (2026-08-05, open)
+## F16 — the tier-drift sweep never scanned the web docs, and root docs still drift (2026-08-05, DISPROVED 2026-08-09 — re-checked both halves. Live web docs carry only hot-tier/cold-tier plus a CSS class named tier; numeric-tier language survives only in changelog/index.html, where history belongs. Root and per-package docs: zero hits for "tier N"/"role:tier". The predicted drift is not there)
 
 The sweep that removed numeric tiers from the docs reported taking stale
 references from 114 to 1. The measurement is not sound: its grep used
@@ -7684,7 +7684,7 @@ was eleven and the spec wrong; both halves of that were incorrect.
   A number in a comment two lines above the list it counts drifts on the next
   metric; the spec's copy is dated ("as of 2026-08-02") and stays.
 
-## F79 — `specs/5/O` still lists `obs.EndOutcome`, deleted as dead (2026-08-09, open)
+## F79 — `specs/5/O` still lists `obs.EndOutcome`, deleted as dead (2026-08-09, FIXED 2026-08-09 — 5/O lists SetupTraces/StartSpan; StartSpan returns its own end func)
 
 `specs/5/O-observability.md:58` describes `obs/spans.go` as exporting
 `SetupTraces`, `StartSpan`, `EndOutcome`. Commit `43687752` deleted

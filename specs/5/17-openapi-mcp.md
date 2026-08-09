@@ -1,8 +1,7 @@
 ---
-status: defected
+status: shipped
 depends:
   [1-auth-standalone, 5/E-routd, 8-yaml-manifests, specs/5/32-acl-unified]
-defects: [F25]
 ---
 
 # specs/5/17 — one handler, two faces: MCP for the agent, REST for humans
