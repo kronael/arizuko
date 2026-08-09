@@ -7,40 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## M2 — MIGRATION_VERSION advances even when the CLAUDE.md merge is skipped (2026-08-09, open)
-
-Found while verifying M1's fix on krons. All groups migrated 194 → 199 and two
-of three took the new `CLAUDE.md`; `krons` itself did not.
-
-    krons       v=199  ASD-STE100 occurrences in ~/.claude/CLAUDE.md: 0
-    rhias/nemo  v=199  2
-    eval        v=199  2
-
-The version stamp is written by the agent after it cats the migration files. The
-`CLAUDE.md` 3-way merge is a SEPARATE step the same agent performs, and nothing
-checks it happened. krons' agent ran the right diff — the log shows
-`diff ~/.claude/.merge-base/CLAUDE.md /opt/arizuko/ant/CLAUDE.md` — and then
-stamped 199 without applying the result. A group can therefore report itself
-migrated while running instructions from five migrations ago.
-
-The stale merge-base compounds it. `seedGroupDir` refreshes
-`.claude/.merge-base/CLAUDE.md`, but its only caller is `setupGroup`, which runs
-at group CREATE — not at spawn. The code comment says "merge-base: always
-refresh to mirror upstream", and "always" here means once. In practice the base
-is refreshed by the migrate agent's own `copy()`, so a group whose agent skips
-the merge also keeps a stale base: krons' is dated Aug 6, eval's Aug 9.
-
-Two candidate fixes, both wanting sign-off:
-
-1. Refresh the merge-base from Go on every spawn (move it out of `setupGroup`
-   into the `seedSettings` path beside `seedOutputStyles`). Cheap, removes the
-   agent from the base-tracking loop, and makes the stale-base half impossible.
-2. Do not let the agent stamp the version. Have routd write `MIGRATION_VERSION`
-   only after it verifies the merge landed — the stamp then means what it says.
-
-Option 1 alone does not close it: an agent can still skip the merge and stamp.
-
-## M1 — runed reads skills from the developer's working tree, not from a release (2026-08-09, proposal, needs sign-off)
+## M1 — runed reads skills from the developer's working tree, not from a release (2026-08-09, FIXED 2026-08-09, c8c67f3c)
 
 `arizuko_runed_krons` bind-mounts `/home/onvos/app/arizuko` at `/srv/app/arizuko`
 (read-only) and `APP_SRC_DIR` points at it. `seedSkills` and the `CLAUDE.md`
