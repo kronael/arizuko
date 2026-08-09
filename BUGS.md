@@ -3078,6 +3078,22 @@ than loudly — worse than a crash.
   should be refused unless (a) is proven impossible; (c) retire the product.
   Until one is chosen, `ant/examples/aws-devops/` must not ship.
 
+## X3 — runed gets `SECRETS_KEY` and never reads it (2026-08-09, open)
+
+`compose/compose.go:178` ships `SECRETS_KEY` to runed. Nothing in `runed/` or
+`container/` reads it: routd decrypts and sends plaintext in
+`RunRequest.Secrets`, and runed has no store. So the decryption key for every
+secret in the fleet sits in the env of a daemon that has no use for it, next to
+the daemon that spawns agent containers. Found while closing `X1`.
+
+- **Severity:** low (runed is a trusted daemon on the compose network; this
+  widens the blast radius of a runed compromise, it does not create one)
+- **Source:** compose/compose.go:178; no reader in runed/ or container/
+- **Status:** open — record only. Dropping the key is a one-line compose change,
+  but it regenerates every instance's `env/runed.env`, and that regeneration is
+  exactly what caused the fleet-wide `/login` outage after v0.62. Wants a
+  deliberate deploy, not a drive-by.
+
 ## M1 — `mcpc` socat-connect form 502s since mcpc 0.3.0 (2026-07-16, open)
 
 The documented ad-hoc MCP-call form for agents — `mcpc connect "socat

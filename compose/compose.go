@@ -174,8 +174,9 @@ var daemonKeys = map[string][]string{
 		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX", "EGRESS_CRACKBOX",
 		"CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL", "CRACKBOX_ADMIN_SECRET",
 		"HOST_CODEX_DIR",
-		// runed spawns the agent + injects folder secrets (decrypted with the
-		// key) into the container env — same role gated had in the monolith.
+		// runed spawns the agent and injects the model credentials routd already
+		// resolved and decrypted (RunRequest.Secrets). It reads no secret rows and
+		// no keyring, so this key is inert here — see BUGS X3.
 		"SECRETS_KEY",
 	},
 	"onbod": {
