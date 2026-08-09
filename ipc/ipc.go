@@ -938,6 +938,24 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		})
 	}
 
+	// gateJID is the two-gate prologue the messaging tools share: magnitude
+	// (mcp:<tool> held, with the target jid bound so a jid-scoped grant is
+	// exact) then JID containment. They cannot use granted(), which passes a nil
+	// param map — so the prologue was hand-copied at eight sites and none of
+	// them emitted the denial granted() emits (BUGS F70). One helper, one trace.
+	// nil = the call may proceed.
+	gateJID := func(tool, jid string) error {
+		if !authorizeCall(tool, map[string]string{"jid": jid}) {
+			emitAuthzDenied(tool, callerSub)
+			return fmt.Errorf("%s: not permitted", tool)
+		}
+		if err := authorizeJID(identity, tool, jid, db); err != nil {
+			emitAuthzDenied(tool, callerSub)
+			return err
+		}
+		return nil
+	}
+
 	// actorSub is the session caller; params must already be redacted.
 	emitSys := func(tool, targetFolder, actorSub string, params map[string]any, err error) {
 		actor := actorSub
@@ -1094,10 +1112,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !authorizeCall("send", map[string]string{"jid": jid}) {
-				return toolErr("send: not permitted")
-			}
-			if err := authorizeJID(identity, "send", jid, db); err != nil {
+			if err := gateJID("send", jid); err != nil {
 				return toolErr(err.Error())
 			}
 			text := req.GetString("text", "")
@@ -1120,10 +1135,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !authorizeCall("reply", map[string]string{"jid": jid}) {
-				return toolErr("reply: not permitted")
-			}
-			if err := authorizeJID(identity, "reply", jid, db); err != nil {
+			if err := gateJID("reply", jid); err != nil {
 				return toolErr(err.Error())
 			}
 			if gated.SendReply == nil {
@@ -1155,10 +1167,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !authorizeCall("send_file", map[string]string{"jid": jid}) {
-				return toolErr("send_file: not permitted")
-			}
-			if err := authorizeJID(identity, "send_file", jid, db); err != nil {
+			if err := gateJID("send_file", jid); err != nil {
 				return toolErr(err.Error())
 			}
 			fp := req.GetString("filepath", "")
@@ -1195,10 +1204,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !authorizeCall("send_voice", map[string]string{"jid": jid}) {
-				return toolErr("send_voice: not permitted")
-			}
-			if err := authorizeJID(identity, "send_voice", jid, db); err != nil {
+			if err := gateJID("send_voice", jid); err != nil {
 				return toolErr(err.Error())
 			}
 			if gated.SendVoice == nil {
@@ -1235,10 +1241,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
-			if !authorizeCall("post", map[string]string{"jid": jid}) {
-				return toolErr("post: not permitted")
-			}
-			if err := authorizeJID(identity, "post", jid, db); err != nil {
+			if err := gateJID("post", jid); err != nil {
 				return toolErr(err.Error())
 			}
 			if gated.Post == nil {
@@ -1306,10 +1309,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 					vals[a] = req.GetString(a, "")
 				}
 				jid := vals[jidArg]
-				if !authorizeCall(s.name, map[string]string{"jid": jid}) {
-					return toolErr(s.name + ": not permitted")
-				}
-				if err := authorizeJID(identity, s.name, jid, db); err != nil {
+				if err := gateJID(s.name, jid); err != nil {
 					return toolErr(err.Error())
 				}
 				slog.Info(s.name, "folder", folder, "jid", jid)
@@ -1463,10 +1463,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			},
 			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				jid := req.GetString("chatJid", "")
-				if !authorizeCall("pane_set_prompts", map[string]string{"jid": jid}) {
-					return toolErr("pane_set_prompts: not permitted")
-				}
-				if err := authorizeJID(identity, "pane_set_prompts", jid, db); err != nil {
+				if err := gateJID("pane_set_prompts", jid); err != nil {
 					return toolErr(err.Error())
 				}
 				raw := req.GetArguments()["prompts"]
@@ -1490,10 +1487,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			},
 			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				jid := req.GetString("chatJid", "")
-				if !authorizeCall("pane_set_title", map[string]string{"jid": jid}) {
-					return toolErr("pane_set_title: not permitted")
-				}
-				if err := authorizeJID(identity, "pane_set_title", jid, db); err != nil {
+				if err := gateJID("pane_set_title", jid); err != nil {
 					return toolErr(err.Error())
 				}
 				title := strings.TrimSpace(req.GetString("title", ""))

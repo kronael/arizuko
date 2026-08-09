@@ -457,7 +457,33 @@ boundary, so it wants sign-off rather than an inline fix.
 
 - **Status:** fixed 2026-08-09 — retry-once-on-401 behind a forced refresh
 
-## F70 — MCP tool-call audit is wired to a permanent nil, and 8 hot tools skip the shared gate (2026-08-08, open)
+## F70 — MCP tool-call audit is wired to a permanent nil, and 8 hot tools skip the shared gate (2026-08-08, FIXED 2026-08-09)
+
+**FIXED 2026-08-09.** First half: `routd/mcp.go`'s `buildStoreFns` wires
+`LogIPCAudit: store.New(s.db.SQL()).LogIPCAudit` — the existing mechanism
+(`store/ipc_audit.go` → `audit.EmitDB`), pointed at the DB `audit.Init` already
+uses, not a fourth path. The false comment is gone.
+`TestBuildStoreFnsLogsIPCAudit` asserts the sink is non-nil and that an `ok` and
+an `authz_denied` call both land `mcp.tool.invoke` rows in routd.db.
+
+Second half, **the title overstates it**: the eight tools do NOT skip the gate.
+They run a STRICTER one than `granted()` — `authorizeCall(tool, {"jid": jid})`
+with the target bound (so a jid-scoped grant is exact) plus `authorizeJID`
+containment, where `granted()` passes a nil param map and checks magnitude only.
+They cannot call `granted()` for exactly that reason. All eight are hot-tier
+agent actions with no REST twin — `send`, `reply`, `send_file`, `send_voice`,
+`post`, the ten `regSocial` verbs (`like`/`dislike`/`delete`/`edit`/`forward`/
+`quote`/`repost`/`pin_message`/`unpin_message`/`unpin_all`), `pane_set_prompts`,
+`pane_set_title` — the one MCP-only class `5/17` sanctions. So the gate-skip is
+not real and the exception is intended.
+
+What WAS real is the audit half of the same sentence: none of the eight called
+`emitAuthzDenied`, so a denial on the highest-traffic tools left no trace. The
+hand-copied prologue is now one helper, `gateJID`, which runs both gates and
+emits on either denial. `TestGateJIDDenialIsAudited` covers both denial branches
+(magnitude and containment); `TestGateJIDAllowsContainedChat` guards the
+converse. Mutation-checked: dropping the two `emitAuthzDenied` calls turns both
+subtests red.
 
 Two halves of one gap, reported by the dead-code sweep and confirmed:
 

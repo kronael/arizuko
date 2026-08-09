@@ -412,8 +412,6 @@ func beforeStr(t time.Time) string {
 // buildStoreFns wires the read/manage agent tools to routd.DB. Read tools whose
 // state lives elsewhere federate over HTTP (identity → authd, session_log →
 // runed's GET /v1/sessions/recent; graceful-absent → empty).
-// Deferred nil: LogIPCAudit — routd does not write a SQLite audit_log table;
-// it emits audit events via slog/.jl (see buildGatedFns.Audit).
 func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 	// Set and Bump engagement are the same write — one closure, two names the
 	// tool layer distinguishes (extend vs. start a window) but the store doesn't.
@@ -544,6 +542,12 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// Visible is the tools/list view: a tool shows iff the caller holds it (any
 		// scope). Elevated turns see everything (turnVisible).
 		Visible: s.turnVisible("folder:"+t.folder, t.elevated),
+		// Spec 5/I layer A: the hand-authored tools' mutations and every authz
+		// denial land one audit_log row in routd.db — the table migration 0016
+		// creates and cmd/routd's audit.Init points at. It was left nil behind a
+		// comment claiming routd has no such table (BUGS F70), so the agent MCP
+		// surface was the one caller path /dash/audit/ could not see.
+		LogIPCAudit: store.New(s.db.SQL()).LogIPCAudit,
 	}
 }
 
