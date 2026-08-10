@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus } from './mcp.js';
-import { loadAgentMcpServers, injectMcpEnv } from './mcp-servers.js';
+import { injectMcpEnv } from './mcp-servers.js';
 import { ClaudeSession, SessionConfig, spawnSession } from './claude.js';
 
 // A resumable Claude Code session id is a UUID. arizuko's lineage placeholders
@@ -290,7 +290,6 @@ function buildSessionConfig(
     }
   } catch { /* /mnt absent */ }
 
-  const agentMcpServers = loadAgentMcpServers(HOME);
   return {
     prompt,
     model: sdkEnv['ARIZUKO_MODEL'] || undefined,
@@ -300,7 +299,7 @@ function buildSessionConfig(
     systemPrompt: buildSystemPrompt(containerInput),
     addDirs: extraDirs,
     env: sdkEnv,
-    mcpServers: injectMcpEnv(agentMcpServers, sdkEnv),
+    mcpServers: injectMcpEnv(sdkEnv),
     assistantName: containerInput.assistantName,
     turnID,
   };
