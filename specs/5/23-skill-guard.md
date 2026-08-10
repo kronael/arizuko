@@ -1,8 +1,7 @@
 ---
-status: defected
+status: shipped
 shipped: 2026-08-07
 source: hermes-agent peel (2026-04-11)
-defects: [J8, J9]
 ---
 
 # Skill-guard PreToolUse hook

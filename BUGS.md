@@ -220,7 +220,7 @@ return a row relabelled expired.
 - **Status:** proposed
 - **Fix:**
 
-## J8 — Bash writes bypass skill-guard completely (2026-08-08, proposed)
+## J8 — Bash writes bypass skill-guard completely (2026-08-08, FIXED 2026-08-10 — a PostToolUse Bash hook rescans the guarded tree and quarantines a dangerous SKILL.md; judging the filesystem, not the shell command)
 
 The agent runs with sandbox disabled and bypass permissions. Skill-guard is
 registered only for Write/Edit/MultiEdit; Bash merely has two secret variables
@@ -234,7 +234,7 @@ instructions without any scan.
 - **Status:** proposed
 - **Fix:**
 
-## J9 — skill-guard scans fragments and lines, not the resulting file (2026-08-08, proposed)
+## J9 — skill-guard scans fragments and lines, not the resulting file (2026-08-08, FIXED 2026-08-10 — the hook scans the file the write would PRODUCE (resultingText reconstructs Edit/MultiEdit against the current file), not the fragment)
 
 Edit/MultiEdit scan only replacement strings, and every regex is evaluated one
 line at a time. A safe placeholder followed by an Edit to `$API_KEY`, or a
