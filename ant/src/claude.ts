@@ -7,16 +7,16 @@
 // (spec 5/P § "The container model").
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import {
   query,
   HookCallback,
   PreCompactHookInput,
-  PreToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import { createToolLogPreHook, createToolLogPostHook } from './tool-log.js';
 import { createTodoStatusHook } from './todo-status.js';
-import { createSkillGuardHook } from './skillguard.js';
+import { guardPreToolUse, guardPostToolUse } from './guards.js';
 import type { ModelUsage } from './mcp.js';
 
 // EventType is the category index.ts switches on. One per SDK message shape
@@ -214,27 +214,6 @@ function createPreCompactHook(assistantName?: string): HookCallback {
   };
 }
 
-const SECRET_ENV_VARS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
-
-function createSanitizeBashHook(): HookCallback {
-  return async (input, _toolUseId, _context) => {
-    const preInput = input as PreToolUseHookInput;
-    const command = (preInput.tool_input as { command?: string })?.command;
-    if (!command) return {};
-
-    const unsetPrefix = `unset ${SECRET_ENV_VARS.join(' ')} 2>/dev/null; `;
-    return {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        updatedInput: {
-          ...(preInput.tool_input as Record<string, unknown>),
-          command: unsetPrefix + command,
-        },
-      },
-    };
-  };
-}
-
 // drainIpcInput is provided by the runtime so the IPC-steering PostToolUse
 // hook can pull mid-turn user messages into the active query. The claude
 // backend owns the hook wiring (it's claude-SDK-specific); the runtime owns
@@ -343,14 +322,16 @@ export class ClaudeSession {
           mcpServers: agentMcpServers,
           hooks: {
             PreCompact: [{ hooks: [createPreCompactHook(cfg.assistantName)] }],
+            // Guards first, then observers. guards.ts is the ONLY place a
+            // refusal is registered — read guardPreToolUse/guardPostToolUse and
+            // you have the agent's whole safety surface. Everything below them
+            // observes and never denies.
             PreToolUse: [
-              { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
-              // A skill the agent writes today runs in its next session, so this
-              // is the gate between authoring and executing (spec 5/23).
-              { matcher: 'Write|Edit|MultiEdit', hooks: [createSkillGuardHook()] },
+              ...guardPreToolUse(),
               { hooks: [createToolLogPreHook()] },
             ],
             PostToolUse: [
+              ...guardPostToolUse(os.homedir()),
               { hooks: [createIpcDrainHook(this.drain), createToolLogPostHook()] },
               // TodoWrite → one live-edited ⏳ checklist per turn (spec 5/24).
               { matcher: 'TodoWrite', hooks: [createTodoStatusHook(cfg.turnID ?? '')] },

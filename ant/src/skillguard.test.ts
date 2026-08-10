@@ -221,7 +221,11 @@ describe('structural findings block (J11)', () => {
     expect(await call('Write', { file_path: '/home/node/.claude/settings.json', content: '' })).toEqual({});
   });
 
-  test('an Edit fragment is not frontmatter-validated — only Write carries a whole file', async () => {
+  // An Edit to an unreadable path falls back to scanning the fragment, which is
+  // what the guard always did. The frontmatter check needs a whole file, and a
+  // fragment is not one — so a body edit to a file that is not on disk here
+  // must not be refused for lacking frontmatter it never carried.
+  test('an Edit to an unreadable file falls back to the fragment and passes', async () => {
     const out = await call('Edit', {
       file_path: '/home/node/.claude/skills/diary/SKILL.md',
       new_string: 'one more body paragraph',

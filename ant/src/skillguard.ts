@@ -7,6 +7,7 @@
 // skillguard-patterns.ts). It is not rewritten — a retyped table is a new table
 // with new gaps.
 
+import fs from 'fs';
 import { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { THREAT_PATTERNS, ThreatPattern, Severity } from './skillguard-patterns.js';
 
@@ -208,8 +209,14 @@ export function isGuardedPath(p: string): boolean {
   return p.includes('/.claude/');
 }
 
-// writtenText pulls the text a Write/Edit/MultiEdit would land. An unknown
+// writtenText pulls the FRAGMENT a Write/Edit/MultiEdit carries. An unknown
 // tool shape yields nothing, which fails open by construction.
+//
+// Scanning this is not sufficient on its own: a safe placeholder written now
+// plus an Edit to `$API_KEY` later composes a payload while every fragment
+// scanned in isolation is clean (BUGS J9). resultingText is what the hook
+// scans; this stays because a fragment is still what an unreadable file
+// falls back to.
 export function writtenText(toolName: string, input: Record<string, unknown>): string {
   if (toolName === 'Write') return String(input.content ?? '');
   if (toolName === 'Edit') return String(input.new_string ?? '');
@@ -219,6 +226,58 @@ export function writtenText(toolName: string, input: Record<string, unknown>): s
     return edits.map((e) => String((e as Record<string, unknown>)?.new_string ?? '')).join('\n');
   }
   return '';
+}
+
+// applyEdit mirrors the Edit tool's own replacement so the hook can see the
+// file the write WOULD produce. replace_all splits/joins rather than using a
+// RegExp — old_string is literal text and may contain regex metacharacters.
+function applyEdit(text: string, e: Record<string, unknown>): string {
+  const oldS = String(e.old_string ?? '');
+  const newS = String(e.new_string ?? '');
+  if (oldS === '') return text;
+  if (e.replace_all === true) return text.split(oldS).join(newS);
+  const i = text.indexOf(oldS);
+  return i < 0 ? text : text.slice(0, i) + newS + text.slice(i + oldS.length);
+}
+
+// resultingText is the file as it will exist AFTER the write — the only text
+// a guard can honestly judge. Write carries it whole; Edit/MultiEdit are
+// fragments, so the current file is read and the replacement applied in
+// memory, exactly as the tool would.
+//
+// A file that cannot be read (new file, permissions) falls back to the
+// fragment: that is what the old behavior always scanned, so this is never
+// weaker than before.
+// `whole` reports whether the text IS the resulting file. It gates the
+// frontmatter check: validating a fragment as if it were a file reports
+// `frontmatter_missing` on every legitimate body edit, which is how this
+// function first shipped wrong.
+export function resultingText(
+  toolName: string,
+  input: Record<string, unknown>,
+  readFile: (p: string) => string,
+): { text: string; whole: boolean } {
+  if (toolName === 'Write') return { text: String(input.content ?? ''), whole: true };
+  const path = String(input.file_path ?? '');
+  let current: string;
+  try {
+    current = readFile(path);
+  } catch {
+    return { text: writtenText(toolName, input), whole: false };
+  }
+  if (toolName === 'Edit') return { text: applyEdit(current, input), whole: true };
+  if (toolName === 'MultiEdit') {
+    const edits = input.edits;
+    if (!Array.isArray(edits)) return { text: current, whole: true };
+    return {
+      text: edits.reduce<string>(
+        (acc, e) => applyEdit(acc, (e ?? {}) as Record<string, unknown>),
+        current,
+      ),
+      whole: true,
+    };
+  }
+  return { text: '', whole: false };
 }
 
 function report(path: string, findings: Finding[]): string {
@@ -246,14 +305,16 @@ export function createSkillGuardHook(): HookCallback {
       const path = String(toolInput.file_path ?? '');
       if (!path || !isGuardedPath(path)) return {};
 
-      // Frontmatter is a property of the WHOLE FILE, and only Write carries
-      // one — an Edit's new_string is a fragment with no frontmatter in it, so
-      // validating one would refuse every legitimate body edit now that
-      // structural findings block. (Reading the file to validate the RESULTING
-      // text is BUGS J9, a different gap.)
-      const validatesFrontmatter = path.endsWith('SKILL.md') && pre.tool_name === 'Write';
-
-      const text = writtenText(pre.tool_name, toolInput);
+      // Frontmatter is a property of the WHOLE FILE. The hook now scans the
+      // file the write would PRODUCE rather than the fragment it carries
+      // (BUGS J9), so an Edit's outcome carries frontmatter too and is
+      // validated like a Write — but only when the resulting file was actually
+      // reconstructed. An unreadable file leaves us holding a fragment, and a
+      // fragment has no frontmatter to judge.
+      const { text, whole } = resultingText(pre.tool_name, toolInput, (p) =>
+        fs.readFileSync(p, 'utf-8'),
+      );
+      const validatesFrontmatter = path.endsWith('SKILL.md') && whole;
       // Empty text used to return here, which skipped validation entirely — so
       // `Write` of an EMPTY SKILL.md, the most complete frontmatter failure
       // there is, sailed through (BUGS J11).
