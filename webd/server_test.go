@@ -44,7 +44,6 @@ type mockRouter struct {
 	st       *store.Store
 }
 
-func newMockRouter() *mockRouter              { return newMockRouterWithStore(nil) }
 func newMockRouterWithStore(st *store.Store) *mockRouter {
 	m := &mockRouter{st: st}
 	mux := http.NewServeMux()

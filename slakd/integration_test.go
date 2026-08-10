@@ -320,7 +320,6 @@ func newRouterMock(t *testing.T, st *store.Store) *routerMock {
 	return r
 }
 
-func (r *routerMock) Close() { r.srv.Close() }
 
 func (r *routerMock) snapshot() []chanlib.InboundMsg {
 	r.mu.Lock()
