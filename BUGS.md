@@ -92,7 +92,7 @@ Next step is one probe, not a guess: re-run `--case child-delegate` and check
 for a `"dispatch run"` line on the child folder plus the child's crackbox
 allowlist. Recorded now so the eval's 6/8 is not read as "two agent failures".
 
-## J1 — settings-defined MCP servers bypass the HITL firewall (2026-08-08, proposed)
+## J1 — settings-defined MCP servers bypass the HITL firewall (2026-08-08, FIXED 2026-08-09)
 
 The agent loads every `mcpServers` entry from `~/.claude/settings.json`
 directly into Claude Code beside the arizuko socat server. Calls to those tools
@@ -104,8 +104,28 @@ the agent's full MCP surface.
 - **Scope:** HITL firewall / agent MCP assembly
 - **Affected:** ant, ipc
 - **Source:** ant/src/mcp-servers.ts:18
-- **Status:** proposed
-- **Fix:**
+- **Status:** FIXED 2026-08-09
+- **Fix:** the extension point is deleted, not proxied — the user's call
+  (2026-08-09): the platform, not the agent, decides which MCP servers exist.
+  `loadAgentMcpServers` is gone and `injectMcpEnv(secrets)` now returns exactly
+  one server, arizuko. Third-party MCP arrives only as a connector
+  (`StoreFns.Connectors`), which crosses the socket and is therefore gated,
+  audited and holdable. `F76` is the same defect and closes with it.
+
+  Claude Code itself never read that key — verified, not assumed: `Settings` in
+  the SDK `.d.ts` declares `enabledMcpjsonServers`/`allowedMcpServers` but no
+  top-level `mcpServers`, `claude mcp list` under a HOME whose
+  `settings.json` declares one prints "No MCP servers configured", and an SDK
+  query against that HOME reports `mcp_servers = []`. So arizuko's own loader
+  was the entire path, and removing it removes the whole bypass.
+
+  Leaves TWO loose ends, both recorded rather than guessed: `J14` (the agent can
+  still self-register via `~/.mcp.json`, which Claude Code DOES read) and `J15`
+  (the `5/28` package `mcpServers` asset kind lost its only consumer).
+
+  Test: `a settings.json mcpServers entry never reaches the SDK config` plus
+  `mcp-servers exports no settings.json reader`, so a re-added loader fails the
+  suite before it can re-open the path.
 
 ## J2 — pre-auth hold creates rows for forbidden and unknown tools (2026-08-08, proposed)
 
@@ -298,7 +318,98 @@ successful exit, violating the CLI's fail-loud contract.
 - **Status:** open
 - **Fix:**
 
-## F76 — a hold rule on a settings.json MCP server tool is inert (2026-08-08, open)
+## J14 — the agent can still self-register MCP servers through `~/.mcp.json` (2026-08-09, proposed)
+
+`J1` closed the settings.json path. Claude Code reads a SECOND config the agent
+also owns: `.mcp.json` in the session cwd, which for a turn IS `/home/node`. The
+SDK query passes `settingSources: ['project', 'user']` and no `strictMcpConfig`,
+so those servers load.
+
+Verified against the shipped SDK binary, not reasoned: with `.mcp.json` in the
+query cwd, `system:init` reports `mcp_servers = [{"name":"projsneaky",
+"status":"failed"}]` — the server was loaded and dialled. With
+`strictMcpConfig: true` and the same file present, it reports `[]`. Failed is
+only because the probe used `/bin/echo`; a real server would have connected.
+
+Same shape as `J1`: those tools skip `ipc.serveConn`, so the grant check, the
+audit row and `CheckHold` never see them, and the agent writes the file itself.
+
+- **Severity:** high
+- **Scope:** HITL firewall / agent MCP assembly
+- **Affected:** ant
+- **Source:** ant/src/claude.ts:333
+- **Status:** proposed
+- **Fix (proposal — needs sign-off, this is a contract change):** set
+  `strictMcpConfig: true` on the query. It maps to the CLI's
+  `--strict-mcp-config`: only servers passed via the `mcpServers` option load,
+  and `.mcp.json`, user settings, Claude Code plugins and agent-frontmatter MCP
+  are all ignored. That is the whole class in one option, and it makes `5/19`'s
+  "no bypass by construction" literally true.
+
+  It needs sign-off because it also closes the Claude Code **plugin** MCP path.
+  The 2026-08-09 decision said third-party MCP "would be imported through
+  plugins"; if that meant Claude Code plugins rather than arizuko packages, this
+  option forecloses it and the answer is a socket-side proxy instead. Do not
+  ship it on a guess.
+
+  A cheaper half-measure (`settingSources: []`) does NOT work: `.mcp.json` is not
+  a settings source, and dropping `'project'` also stops `CLAUDE.md` loading.
+
+## J15 — the `5/28` package `mcpServers` asset kind has no consumer (2026-08-09, proposed)
+
+`container/blend.go` still map-unions each product's `.claude/settings.json`
+`mcpServers` and refuses a name collision, and `seedSettings` still preserves the
+key on every spawn. After `J1` nothing reads it: not ant, and not Claude Code
+(which has no top-level `mcpServers` setting). A product that ships an MCP server
+now applies cleanly and does nothing — a silent no-op on an operator-facing path,
+which the fail-loud rule forbids.
+
+`5/28` and the packages reference are reconciled to say so, so the docs no longer
+promise a working asset kind. The CODE is unchanged pending a decision.
+
+- **Severity:** medium
+- **Scope:** package blend / product asset kinds
+- **Affected:** container, cmd/arizuko
+- **Source:** container/blend.go:473
+- **Status:** proposed
+- **Fix (three options, pick one):**
+  (a) **Refuse at apply** — `blendSettings` errors when any product declares
+      `mcpServers`, naming the connector path in the message. Fail-loud, small,
+      keeps the row as a tombstone.
+  (b) **Delete the asset kind** — drop the `mcpServers` branch from
+      `blendSettings` (the file's other keys keep union-with-collision-refusal),
+      the `5/28` row, and the `EXTENDING.md` sentence. Smallest surface.
+  (c) **Give it a real consumer** — a product's MCP server registers as an
+      arizuko connector row instead of a settings key, so its tools come back
+      over the socket. This is what makes packages a genuine MCP import path
+      again, and it is a design change, not a cleanup.
+  (c) is the only option that keeps "MCP is imported through packages" true;
+  (a) is the honest interim.
+
+## J16 — `ant/CLAUDE.md` tells the agent connector tools are deferred; they are eager (2026-08-09, proposed)
+
+"Third-party connector tools (Slack, GitHub, …) do NOT [load eagerly] — they're
+deferred behind the **Tool Search Tool**." Connectors are `ExtTools` on the
+arizuko server, and that server is `alwaysLoad: true`, so they ride the eager
+prefix. `ant/src/mcp-servers.ts` said as much in its own comment before `J1`
+touched it. The agent is told to search for tools already in its list, which
+costs turns and invites "capability missing" conclusions when a search misses.
+
+Pre-existing, not caused by `J1` — but `J1` removed the last server that COULD
+be deferred, so no deferred MCP server exists at all now.
+
+- **Severity:** low
+- **Scope:** agent instructions vs MCP assembly
+- **Affected:** ant
+- **Source:** ant/CLAUDE.md:104
+- **Status:** proposed
+- **Fix:** either drop the paragraph, or split the routd-side MCP server so
+  connector tools really are deferred (`5/17` names the split as the cost).
+  Editing `ant/CLAUDE.md` fires the release path — migration file,
+  `MIGRATION_VERSION` bump, agent image rebuild — so it rides a release, not a
+  doc commit.
+
+## F76 — a hold rule on a settings.json MCP server tool is inert (2026-08-08, FIXED 2026-08-09 — same fix as `J1`: `loadAgentMcpServers` deleted, arizuko is the only server on the agent's map; option (d), remove the extension point, beat all three options below)
 
 `specs/5/19` claims the single `tools/call` interception makes "no bypass" hold
 by construction. It covers every tool **on arizuko's socket** — which is

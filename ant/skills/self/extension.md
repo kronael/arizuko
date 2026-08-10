@@ -2,32 +2,27 @@
 
 Persists across sessions (activates next session):
 
-| What         | How                                           |
-| ------------ | --------------------------------------------- |
-| Skills       | Create `~/.claude/skills/<name>/SKILL.md`     |
-| Instructions | Edit `~/.claude/CLAUDE.md`                    |
-| Memory       | Write to `~/.claude/projects/*/memory/`       |
-| MCP servers  | Add to `~/.claude/settings.json` `mcpServers` |
+| What         | How                                       |
+| ------------ | ----------------------------------------- |
+| Skills       | Create `~/.claude/skills/<name>/SKILL.md` |
+| Instructions | Edit `~/.claude/CLAUDE.md`                |
+| Memory       | Write to `~/.claude/projects/*/memory/`   |
 
-## Registering MCP servers
+## MCP servers are platform-set — you cannot add one
 
-```bash
-cat > ~/tools/myserver.js << 'EOF'
-// ... your MCP server implementation ...
-EOF
+`arizuko` is your only MCP server. Do NOT write `mcpServers` into
+`~/.claude/settings.json`: nothing reads that key, so the tools never
+appear. The platform removed that path because a tool loaded there
+skipped the socket that runs your grant check, writes the audit row,
+and holds a call for operator approval.
 
-node -e "
-const f = process.env.HOME + '/.claude/settings.json';
-const s = JSON.parse(require('fs').readFileSync(f, 'utf-8'));
-s.mcpServers = s.mcpServers || {};
-s.mcpServers.mytools = { command: 'node', args: [process.env.HOME + '/tools/myserver.js'] };
-require('fs').writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
-"
-```
+To get a third-party tool, ask the operator to add it as an arizuko
+**connector**. A connector's tools arrive on the arizuko socket, so they
+show up in your tool list like every other tool. Use `/issues` to file
+the request, and name the tool you need.
 
-Tools appear as `mcp__mytools__*` next session. The built-in `arizuko`
-server cannot be overridden. SDK hooks (PreCompact, PreToolUse) are
-hardcoded in ant and cannot be added by the agent.
+SDK hooks (PreCompact, PreToolUse) are hardcoded in ant and cannot be
+added by the agent.
 
 ## Group configuration files
 

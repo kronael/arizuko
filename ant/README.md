@@ -54,7 +54,7 @@ The container mounts the group folder at `/home/node/`:
   CLAUDE.md           operator-owned runbook overlay
   .claude/
     CLAUDE.md         agent-managed, merged on /migrate
-    settings.json     outputStyle, mcpServers
+    settings.json     outputStyle (mcpServers is written but read by nothing)
     skills/           stock skills (seeded, 3-way merged on /migrate)
   diary/              session log
   facts/              researched knowledge

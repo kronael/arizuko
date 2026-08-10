@@ -2,7 +2,7 @@
 status: defected
 shipped: 2026-08-07
 moved-from: specs/17/4-hitl-firewall.md
-defects: [J1, J2, F76]
+defects: [J2, J14]
 ---
 
 # specs/5/19 — HITL firewall: hold a tool call for human approval
@@ -52,14 +52,23 @@ today's behavior untouched.
 This single site covers every tool on the socket — hot tools, resreg facade
 tools, and timed-triggered turns — so "no bypass" holds by construction.
 
-**"On the socket" is the exact boundary, and it is narrower than it sounds.**
-MCP servers declared in the group's `~/.claude/settings.json` are handed
-straight to the harness (`ant/src/mcp-servers.ts` `loadAgentMcpServers`, which
-strips the `arizuko` entry and passes the rest through); the agent calls those
-tools subprocess-to-subprocess without ever crossing arizuko's unix socket. A
-`hold:mcp:<tool>` rule naming one of them is INERT. Connectors registered
-through `StoreFns.Connectors` and `ExtTools` DO traverse the socket and are
-covered. Tracked as BUGS `F76`. Hold
+**"On the socket" is the boundary, and arizuko is the only server on the
+agent's map.** `ant/src/mcp-servers.ts` `injectMcpEnv` returns exactly one
+server: socat to the per-turn gated socket. The settings.json extension point
+that once loaded agent-declared servers beside it was DELETED 2026-08-09 (BUGS
+`J1`, `F76`): those tools went subprocess-to-subprocess, no `hold:mcp:<tool>`
+rule could suspend them, and the agent writes that file itself, so it was also a
+self-grant. Third-party MCP now arrives only as a connector
+(`StoreFns.Connectors` / `ExtTools`), which traverses the socket and is covered.
+
+One residual is NOT closed: Claude Code natively reads `.mcp.json` from the
+session cwd — the agent's own home — and the SDK query passes neither
+`strictMcpConfig` nor an empty `settingSources`, so a `~/.mcp.json` the agent
+writes still loads servers the socket never sees. BUGS `J14`; the fix is
+`strictMcpConfig: true`, which also closes plugin and agent-frontmatter MCP and
+therefore needs a decision, not a patch.
+
+Hold
 runs BEFORE authz, which is safe: approval never substitutes for authz. The
 released call re-enters the normal path and every in-handler grant and JID gate
 still runs. (A held call an operator approves that authz then denies is noise,

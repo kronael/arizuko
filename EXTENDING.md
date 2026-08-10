@@ -219,7 +219,9 @@ merge base). `skills/` union by name with the last product winning wholesale;
 region per product (`<!-- arizuko:package:<name> BEGIN/END -->`) so operator
 text between regions is never touched; `facts/`, `tasks.toml` and
 `migrations/` union and REFUSE a filename collision; `.claude/settings.json`
-`mcpServers` map-union and refuse a name collision; at most one
+`mcpServers` map-union and refuse a name collision — though no MCP server loads
+from that key any more, so ship third-party tools as an arizuko connector
+instead (BUGS `J15`); at most one
 `Dockerfile.ant`; **anything else is copied whole, first provider wins**.
 
 Identity and knowledge seed once and become the group's own state — re-applying

@@ -103,7 +103,7 @@ source = "github.com/org/our-brand" # git → cloned and pinned to a revision</c
           <tr><td><code>PERSONA.md</code> / <code>SOUL.md</code></td><td>the first product wins; later ones are warned about</td><td>yes — written once, never re-written</td></tr>
           <tr><td><code>CLAUDE.md</code></td><td>one marked region per product, in mix order</td><td>yes — anything outside the markers is untouched</td></tr>
           <tr><td><code>facts/</code>, <code>tasks.toml</code>, <code>migrations/</code></td><td>union; the same filename twice <strong>refuses</strong></td><td>yes — written once</td></tr>
-          <tr><td><code>.claude/settings.json</code></td><td><code>mcpServers</code> merged by name; a name twice <strong>refuses</strong></td><td>yes — an edit is skipped, not overwritten</td></tr>
+          <tr><td><code>.claude/settings.json</code></td><td><code>mcpServers</code> merged by name; a name twice <strong>refuses</strong>. The merged entry is <strong>inert</strong> &mdash; no MCP server loads from it. Ship third-party tools as an arizuko connector instead</td><td>yes — an edit is skipped, not overwritten</td></tr>
           <tr><td><code>Dockerfile.ant</code></td><td>at most one in the whole mix</td><td>you rebuild the image yourself</td></tr>
           <tr><td><strong>everything else</strong></td><td><strong>copied whole; the first product wins</strong></td><td>yes — written once</td></tr>
         </tbody>
