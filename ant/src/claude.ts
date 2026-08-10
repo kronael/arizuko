@@ -331,6 +331,15 @@ export class ClaudeSession {
           permissionMode: 'bypassPermissions',
           allowDangerouslySkipPermissions: true,
           settingSources: ['project', 'user'],
+          // strictMcpConfig: mcpServers below is the ONLY server map. Without
+          // it the SDK also reads `.mcp.json` from the query cwd — which for a
+          // turn IS /home/node, a directory the agent writes. That server would
+          // be dialled straight from the SDK, never through ipc.serveConn, so
+          // no hold:mcp:<tool> rule could suspend it and no audit row would
+          // exist. It is the same self-grant J1 closed on settings.json, via a
+          // second door (BUGS J14). Third-party MCP arrives through plugins and
+          // connectors, both of which route through the arizuko socket.
+          strictMcpConfig: true,
           mcpServers: agentMcpServers,
           hooks: {
             PreCompact: [{ hooks: [createPreCompactHook(cfg.assistantName)] }],

@@ -318,7 +318,7 @@ successful exit, violating the CLI's fail-loud contract.
 - **Status:** open
 - **Fix:**
 
-## J14 — the agent can still self-register MCP servers through `~/.mcp.json` (2026-08-09, proposed)
+## J14 — the agent can still self-register MCP servers through `~/.mcp.json` (2026-08-09, FIXED 2026-08-10 — strictMcpConfig: true in ant/src/claude.ts; the SDK reads no config but the map arizuko passes)
 
 `J1` closed the settings.json path. Claude Code reads a SECOND config the agent
 also owns: `.mcp.json` in the session cwd, which for a turn IS `/home/node`. The
