@@ -61,7 +61,7 @@ Cheaper interim if the redesign is not wanted: point `APP_SRC_DIR` at a
 read-only release checkout (a detached worktree pinned to the deployed tag)
 instead of the working tree.
 
-## L1 — a webhook payload is parked in onboarding instead of reaching its folder (2026-08-08, open)
+## L1 — a webhook payload is parked in onboarding instead of reaching its folder (2026-08-08, FIXED 2026-08-11)
 
 Found by the live capability eval, not by reading — every unit test in this path
 mints a token and posts a payload without onbod running beside it.
@@ -89,6 +89,70 @@ Severity: high — a documented ingress surface silently drops every delivery on
 folder that has not separately been routed. Needs a decision on where the bind
 belongs (route the hook JID by its token's owner at ingress, or exclude `hook:`
 from onbod's unknown-chat path), so it is recorded rather than patched.
+
+**FIXED 2026-08-11** by the cause fix, and it turned out to be a duplication
+bug rather than a missing feature. `routd`'s `directFolder` carried its OWN copy
+of `groupfolder.JidFolder`'s `web:` half and simply omitted `hook:`, so
+resolution step 1 never recognised a hook JID and every payload fell through to
+the route miss. `directFolder` now delegates to `JidFolder`, so two helpers
+become one and `web:` behavior stays byte-identical.
+
+One premise in this entry was wrong and shaped the fix: `route_tokens` stores
+`owner_folder` (revocation authority, which MAY differ from the target) and no
+`target_folder`. The JID string is the only record of the routing target, so
+resolution reads the JID grammar — not the token row.
+
+`TestHookJIDDispatchesToOwnerFolder` builds the JID with the mint's own builder,
+wires an onbod with onboarding ENABLED, and asserts both halves: the turn
+dispatches to the folder AND no onboarding row appears. Reverting `directFolder`
+fails it with `turn_id="" want h1`. Verified at the Loop layer with onbod wired
+— the exact gap this entry named. NOT re-run live over webd→routd→runed HTTP.
+
+## L4 — a suffixed `hook:`/`web:` route token still parks in onboarding (2026-08-11, open)
+
+Found while fixing `L1`, and NOT fixed with it: the residue is a mint-grammar
+defect, not a resolution one.
+
+`route_tokens` records `owner_folder` but no `target_folder`, so a suffixed JID
+cannot be resolved back to the folder it was minted for:
+
+- `web:t/sfx` is byte-identical to a no-suffix mint at folder `t/sfx`.
+- `hook:a/b/c` is ambiguous between (folder `a/b`, source `c`) and (folder `a`,
+  source `b`, suffix `c`).
+
+`L1`'s fix reads the JID grammar, which is all the data there is, so a suffixed
+token still falls to the route miss and onbod parks it. A longest-existing-prefix
+rule would guess, and guessing which folder receives a payload is the wrong
+failure mode. `webd/route_token.go`'s `senderFromJID` already admits the same
+heuristic, so the two should be fixed together.
+
+The fix is at the MINT: record the target folder on the row, so ingress reads it
+instead of parsing it back out of a string. That is a schema change, so it is
+recorded here rather than patched.
+
+- **Severity:** medium — suffixed tokens are the minority, and the failure is
+  the same silent park `L1` described.
+- **Scope:** route-token grammar / webhook ingress
+- **Affected:** store, routd, webd
+- **Status:** open — needs the schema decision
+
+## L5 — a `hook:`/`web:` JID whose folder was deleted parks in onboarding (2026-08-11, open)
+
+Pre-existing for `web:` and unchanged by `L1`'s fix. `resolve` step 1 requires
+`GroupExists(direct)`, so a token minted for a folder that an operator later
+deletes falls through to the route miss, and onbod writes an admission row for
+a JID no human will redeem.
+
+The right behavior is to fail loud at ingress — the token names a folder that no
+longer exists, which is an operator data problem — rather than to route the
+payload somewhere else or to park it silently. Revoking a folder's tokens when
+the folder is deleted is the other half.
+
+- **Severity:** low — needs an operator to delete a folder that still has live
+  tokens.
+- **Scope:** route-token lifecycle
+- **Affected:** routd, onbod
+- **Status:** open
 
 ## L2 — a delegated child ran but never called back; cause not yet isolated (2026-08-08, open)
 
