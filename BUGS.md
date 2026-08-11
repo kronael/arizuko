@@ -4225,6 +4225,41 @@ the first key seals, the rest decrypt retired values.
 `TestSecret_NoKey_RefusesToWrite` and `TestStoreValue_NeverReturnsPlaintext`
 cover the refusal; reverting the guard fails both.
 
+## L21 — an MCP send failure writes no durable row, so nothing ever retries it (2026-08-11, open)
+
+`internalSend` (`ipc/ipc.go:725-748`) calls `gated.SendMessage`, and on error
+returns immediately. `recordOutbound` (`ipc/ipc.go:673`) runs only on the
+success path. So when an agent's `send`, `reply` or `send_file` fails, no
+`messages` row exists at all: `PendingOutbound` never sees it and the 30s sweep
+never retries it.
+
+The agent DOES get the error, so this is not a silent failure to the caller —
+it is a gap in the durable record. Two shipped specs state the opposite:
+`5/Q` says "routd writes the bot row `pending`, attempts delivery inline, marks
+`sent` on success", and `5/34` says "the `messages` row is the durable record,
+so a routd restart keeps the backlog". Neither holds on the MCP path.
+
+Surfaced by the `D4`/`D5` delivery design pass (2026-08-11) and verified in
+code. It was analysed inside `D4` and would have been lost when `D4` closed, so
+it is filed on its own.
+
+Needs a decision, because two answers are defensible:
+(a) **write the row** — the agent's send joins the same durable path as a turn
+    reply, and the sweep owns retry. Matches the standing "no in-memory state
+    of record" rule and makes both specs true as written.
+(b) **the live caller owns retry** — an agent that gets an error can resend,
+    and the returned platform id is load-bearing for `edit`/threading, so the
+    call is synchronous by design. Then BOTH specs must be narrowed to say the
+    sweep covers turn replies only.
+
+Either way the contradiction is real today, so `5/34` and `5/Q` stay defected.
+
+- **Severity:** medium — a failed agent send is unrecoverable and unrecorded.
+- **Scope:** MCP outbound durability
+- **Affected:** ipc, routd
+- **Source:** `ipc/ipc.go:725-748`, `ipc/ipc.go:673`
+- **Status:** open — needs the (a)/(b) decision
+
 ## L19 — the outbound sweep retries permanent failures ~2880 times (2026-08-11, open)
 
 `maybeRetryOutbound` (`routd/loop.go:359-379`) resends every `pending` bot row

@@ -1,6 +1,6 @@
 ---
 status: defected
-defects: [D4]
+defects: [L21]
 shipped: 2026-05-01
 ---
 
