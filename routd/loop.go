@@ -2,6 +2,7 @@ package routd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
@@ -126,6 +128,10 @@ type Loop struct {
 	// maxTurnRetry is the number of times to retry a turn that fails without
 	// delivering a reply (SIGKILL/OOM/timeout). Default 3.
 	maxTurnRetry int
+
+	// maxOutboundRetry is the number of transient delivery failures a pending
+	// bot row absorbs before the sweep dead-letters it. Default 10.
+	maxOutboundRetry int
 }
 
 // SetOnbodClient wires the onbod federation for the /invite + /gate commands.
@@ -195,6 +201,11 @@ type LoopConfig struct {
 	// MaxTurnRetry is the number of retry attempts when a turn fails without
 	// delivering a reply (SIGKILL/OOM/timeout). Default 3.
 	MaxTurnRetry int
+
+	// MaxOutboundRetry is the number of transient delivery failures a pending
+	// bot row absorbs before maybeRetryOutbound dead-letters it. Default 10;
+	// -1 dead-letters on the first transient failure.
+	MaxOutboundRetry int
 }
 
 // NewLoop builds the Loop and its per-folder queue. The queue's
@@ -216,6 +227,12 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		maxRetry = 0 // explicit disable via -1
 	} else if maxRetry == 0 {
 		maxRetry = 3 // unset: default
+	}
+	maxOutRetry := cfg.MaxOutboundRetry
+	if maxOutRetry < 0 {
+		maxOutRetry = 1 // explicit disable via -1: the first transient failure dead-letters
+	} else if maxOutRetry == 0 {
+		maxOutRetry = defaultMaxOutboundRetry // unset: default
 	}
 	l := &Loop{
 		db:              db,
@@ -239,6 +256,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		onboardingPlatforms: cfg.OnboardingPlatforms,
 		defaultModel:        cfg.DefaultModel,
 		maxTurnRetry:        maxRetry,
+		maxOutboundRetry:    maxOutRetry,
 	}
 	if cfg.Proactive.Enabled {
 		l.modes = newModeCache(cfg.GroupsDir)
@@ -348,14 +366,24 @@ func (l *Loop) sweepOrphanSocks() {
 const (
 	outboundRetryEvery = 30 * time.Second
 	outboundRetryAfter = 30 * time.Second
-	outboundFailAfter  = 24 * time.Hour
 	gcEvery            = time.Hour
+
+	// defaultMaxOutboundRetry bounds the transient-failure retries on one
+	// pending bot row. At the 30s cadence, 10 attempts give the platform about
+	// 5 minutes to recover. MAX_OUTBOUND_RETRY raises it for a flaky platform.
+	defaultMaxOutboundRetry = 10
 )
 
-// maybeRetryOutbound re-dispatches bot rows still 'pending' older than 30s and
-// fails them after 24h. The adapter dedups on the row's stable message_id, so a
-// redelivered row never creates a second platform message. No-op when no
-// Deliverer is wired.
+// maybeRetryOutbound re-dispatches bot rows still 'pending' older than 30s. The
+// adapter dedups on the row's stable message_id, so a redelivered row never
+// creates a second platform message. No-op when no Deliverer is wired.
+//
+// Two bounds stop an endless retry. A permanent refusal (chanlib.ErrPermanent)
+// dead-letters the row at once and spends no attempt, because a retry cannot
+// repair it. A transient failure spends one attempt, and the row dead-letters
+// when the attempts reach maxOutboundRetry. There is no age bound: an age bound
+// killed a row that the sweep had never tried, which loses a message that no
+// platform ever refused.
 func (l *Loop) maybeRetryOutbound(now time.Time) {
 	if l.deliver == nil || now.Before(l.nextRetryAt) {
 		return
@@ -367,13 +395,32 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 		return
 	}
 	for _, m := range rows {
-		if now.Sub(m.Timestamp) > outboundFailAfter {
-			_ = l.db.MarkStatus(m.ID, core.MessageStatusFailed)
-			continue
-		}
 		pid, derr := l.deliver.Send(m.ChatJID, m.Content, m.ReplyToID, m.Topic, "", m.ID)
-		if derr == nil {
-			_ = l.db.MarkBotPlatformID(m.ID, pid)
+		switch {
+		case derr == nil:
+			if err := l.db.MarkBotPlatformID(m.ID, pid); err != nil {
+				slog.Error("retry outbound: mark sent", "id", m.ID, "err", err)
+			}
+		case errors.Is(derr, chanlib.ErrPermanent):
+			if err := l.db.MarkStatus(m.ID, core.MessageStatusFailed); err != nil {
+				slog.Error("retry outbound: dead-letter", "id", m.ID, "err", err)
+			}
+			slog.Error("outbound dead-lettered: platform refused the message",
+				"id", m.ID, "jid", m.ChatJID, "err", derr)
+		default:
+			attempts, dead, err := l.db.RecordDeliveryFailure(m.ID, l.maxOutboundRetry)
+			if err != nil {
+				slog.Error("retry outbound: count attempt", "id", m.ID, "err", err)
+				continue
+			}
+			if dead {
+				slog.Error("outbound dead-lettered: retries exhausted",
+					"id", m.ID, "jid", m.ChatJID, "attempts", attempts, "err", derr)
+			} else {
+				slog.Warn("retry outbound: delivery failed",
+					"id", m.ID, "jid", m.ChatJID, "attempts", attempts,
+					"max", l.maxOutboundRetry, "err", derr)
+			}
 		}
 	}
 }

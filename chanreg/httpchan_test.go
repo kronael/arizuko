@@ -251,7 +251,7 @@ func TestHTTPChannelName(t *testing.T) {
 	}
 }
 
-// A 4xx adapter response marks errPermanent; a 5xx does not. Both reach the
+// A 4xx adapter response marks ErrPermanent; a 5xx does not. Both reach the
 // caller. The classification tells a retry owner that a resend cannot succeed.
 func TestHTTPChannelSendClassifiesPermanentVsTransient(t *testing.T) {
 	var status int
@@ -272,7 +272,7 @@ func TestHTTPChannelSendClassifiesPermanentVsTransient(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error on 400")
 	}
-	if !errors.Is(err, errPermanent) {
+	if !errors.Is(err, ErrPermanent) {
 		t.Errorf("400 not classified permanent: %v", err)
 	}
 
@@ -281,7 +281,7 @@ func TestHTTPChannelSendClassifiesPermanentVsTransient(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error on 500")
 	}
-	if errors.Is(err, errPermanent) {
+	if errors.Is(err, ErrPermanent) {
 		t.Errorf("500 wrongly classified permanent: %v", err)
 	}
 }

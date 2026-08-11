@@ -352,11 +352,13 @@ func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
 			pid, err := s.deliver.Document(jid, req.Path, req.Name, req.Caption, req.ReplyToID, tc.Topic, msgID)
 			if err != nil {
 				// Fail loud to the agent (422, like relay + the MCP send_file
-				// face); persist NO row. A pending document row would be re-sent
-				// by the text-only maybeRetryOutbound sweep as a captionless,
-				// fileless message.
+				// face) AND dead-letter the row. 'failed' keeps the evidence
+				// without a retry: the text-only maybeRetryOutbound sweep would
+				// re-send a pending document row as a captionless, fileless
+				// message.
 				slog.Error("deliver document failed", "jid", jid, "folder", tc.Folder, "err", err)
-				return 422, apiv1.Err{Error: "delivery_failed", Message: err.Error()}, nil
+				row.Status = core.MessageStatusFailed
+				return 422, apiv1.Err{Error: "delivery_failed", Message: err.Error()}, &row
 			}
 			row.PlatformID = pid
 			row.Status = core.MessageStatusSent

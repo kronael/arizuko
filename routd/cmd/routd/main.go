@@ -195,6 +195,9 @@ func main() {
 		DefaultModel: envOr("ARIZUKO_DEFAULT_MODEL", "claude-opus-4-8"),
 		// Turn retry on SIGKILL/OOM/timeout (spec 5/12). Default 3.
 		MaxTurnRetry: intOr("MAX_TURN_RETRY", 3),
+		// Transient delivery failures a pending bot row absorbs before the
+		// outbound sweep dead-letters it (spec 5/34). Default 10.
+		MaxOutboundRetry: intOr("MAX_OUTBOUND_RETRY", 10),
 		// Inbound media enrichment (download + Whisper transcription). Defaults
 		// mirror core.LoadConfig; unset MEDIA_ENABLED leaves it off.
 		Media: routd.MediaConfig(

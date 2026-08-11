@@ -132,6 +132,12 @@ type Config struct {
 	// fails without delivering a reply (SIGKILL/OOM/timeout). Default 3.
 	MaxTurnRetry int
 
+	// MaxOutboundRetry is the number of transient delivery failures a pending
+	// bot row absorbs before routd's sweep dead-letters it (status 'failed').
+	// A permanent refusal dead-letters at once and spends no attempt.
+	// Default 10.
+	MaxOutboundRetry int
+
 	// SecretsKey is the AES-256-GCM keyring for the secrets table (spec 5/14).
 	// Required by routd (the secrets-table owner) — secrets are encrypted at
 	// rest, no plaintext mode and no AUTH_SECRET fallback. routd refuses to
@@ -263,7 +269,8 @@ func LoadConfig() (*Config, error) {
 
 		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
 
-		MaxTurnRetry: envInt("MAX_TURN_RETRY", 3),
+		MaxTurnRetry:     envInt("MAX_TURN_RETRY", 3),
+		MaxOutboundRetry: envInt("MAX_OUTBOUND_RETRY", 10),
 
 		SecretsKey: envOr("SECRETS_KEY", ""),
 	}

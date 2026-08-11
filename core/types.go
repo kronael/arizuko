@@ -40,6 +40,10 @@ type Message struct {
 }
 
 // Message status values for the poll-based outbound delivery path.
+// 'failed' IS the dead-letter state: the row stays in `messages` with its
+// content, and no sweep sends it again. The `messages.delivery_attempts`
+// column tells the two dead-letter causes apart — 0 means the platform
+// refused the message permanently, the cap means the retries ran out.
 const (
 	MessageStatusSent    = "sent"
 	MessageStatusPending = "pending"

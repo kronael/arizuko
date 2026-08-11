@@ -112,6 +112,13 @@ var ErrUnsupported = errors.New("unsupported")
 // reaction reached the agent as a transport error before this).
 var ErrInvalidRequest = errors.New("invalid request")
 
+// ErrPermanent marks a delivery failure that a retry cannot repair — a bad
+// request, a deleted chat, a rejected emoji. routd dead-letters such a row
+// immediately; only a transient failure gets the retry budget. chanreg's
+// classifyStatus wraps it for a 4xx adapter response; it lives here so the
+// MCP wall (ipc) classifies by the SAME sentinel without importing chanreg.
+var ErrPermanent = errors.New("permanent")
+
 // UnsupportedError is the structured form. The HTTP layer encodes Tool/Platform/Hint
 // so the agent receives a concrete alternative. Is(ErrUnsupported) returns true so
 // errors.Is checks keep working across the stack.

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -49,16 +48,18 @@ func decodeUnsupported(body io.Reader, fallbackTool, fallbackPlatform string) er
 	return &chanlib.UnsupportedError{Tool: b.Tool, Platform: b.Platform, Hint: b.Hint}
 }
 
-// errPermanent marks a 4xx adapter response. The adapter refuses the message for
+// ErrPermanent marks a 4xx adapter response. The adapter refuses the message for
 // a reason that a retry cannot repair: a bad request, a deleted chat, or a bad
-// emoji. The wrapped error text reaches the agent. routd retries a transient
-// failure from the durable `pending` row (`routd/loop.go` maybeRetryOutbound).
-var errPermanent = errors.New("permanent")
+// emoji. The wrapped error text reaches the agent. routd dead-letters such a row
+// at once and retries only a transient failure (`routd/loop.go`
+// maybeRetryOutbound). Aliased to chanlib.ErrPermanent so the MCP wall
+// classifies by the same sentinel.
+var ErrPermanent = chanlib.ErrPermanent
 
-// classifyStatus wraps a non-200 adapter status: 4xx → errPermanent, else plain.
+// classifyStatus wraps a non-200 adapter status: 4xx → ErrPermanent, else plain.
 func classifyStatus(status int) error {
 	if status >= 400 && status < 500 {
-		return fmt.Errorf("%w: status %d", errPermanent, status)
+		return fmt.Errorf("%w: status %d", ErrPermanent, status)
 	}
 	return fmt.Errorf("status %d", status)
 }

@@ -454,6 +454,26 @@ func (d *DB) MarkStatus(id, status string) error {
 	return err
 }
 
+// RecordDeliveryFailure counts one transient delivery failure on an outbound
+// row and dead-letters the row when the count reaches maxAttempts. One
+// statement does both, so a crash between them is impossible. It returns the
+// new count and reports whether the row is now dead-lettered.
+//
+// SQLite reads the SET expressions from the row as it was before the update,
+// so both uses of delivery_attempts + 1 give the same new count, and RETURNING
+// gives the row as it is after the update.
+func (d *DB) RecordDeliveryFailure(id string, maxAttempts int) (int, bool, error) {
+	var attempts int
+	var status string
+	err := d.db.QueryRow(`UPDATE messages
+		SET delivery_attempts = delivery_attempts + 1,
+		    status = CASE WHEN delivery_attempts + 1 >= ? THEN ? ELSE status END
+		WHERE id = ?
+		RETURNING delivery_attempts, status`,
+		maxAttempts, core.MessageStatusFailed, id).Scan(&attempts, &status)
+	return attempts, status == core.MessageStatusFailed, err
+}
+
 // PendingOutbound returns bot rows still status='pending' whose timestamp is at
 // or before cutoff — the outbound retry feed.
 func (d *DB) PendingOutbound(cutoff time.Time, limit int) ([]core.Message, error) {

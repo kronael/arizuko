@@ -670,7 +670,34 @@ func activeTopic(db StoreFns, folder string) string {
 	return db.CurrentTopic(folder)
 }
 
+// recordOutbound appends the durable row for a DELIVERED outbound message.
 func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder string) {
+	putOutboundRow(gated, db, jid, text, platformID, folder, "", core.MessageStatusSent)
+}
+
+// recordOutboundFailure appends the durable row for an outbound message the
+// platform did NOT accept, so a failed send leaves evidence instead of nothing.
+// The agent still gets the error from the tool — this row only decides who
+// owns the retry.
+//
+// A transient failure lands 'pending' and routd's sweep re-sends it
+// (`routd/loop.go` maybeRetryOutbound). A permanent refusal lands 'failed', the
+// dead-letter state, because a retry cannot repair it. retryable=false forces
+// the dead letter for a send the text-only sweep must never repeat: a file
+// send, which the sweep would re-send as a captionless, fileless message.
+func recordOutboundFailure(gated GatedFns, db StoreFns, jid, text, folder, replyToID string, retryable bool, err error) {
+	status := core.MessageStatusPending
+	if !retryable || errors.Is(err, chanlib.ErrPermanent) {
+		status = core.MessageStatusFailed
+	}
+	slog.Error("outbound send failed: recording undelivered row",
+		"folder", folder, "jid", jid, "status", status, "err", err)
+	putOutboundRow(gated, db, jid, text, "", folder, replyToID, status)
+}
+
+// putOutboundRow is the ONE writer of an MCP-originated outbound row. Both
+// outcomes go through it, so the delivered and undelivered shapes cannot drift.
+func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, replyToID, status string) {
 	// Key last-reply + engagement under the active turn's topic — same
 	// key the gateway seeds (SetLastReply at turn start). "" would chain
 	// the next in-thread reply off the wrong (root) key.
@@ -698,7 +725,7 @@ func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder s
 		turnID = db.CurrentTurnID(folder)
 	}
 	if db.PutMessage != nil {
-		db.PutMessage(core.Message{
+		err := db.PutMessage(core.Message{
 			ID:        core.MsgID("mcp"),
 			ChatJID:   jid,
 			Sender:    folder,
@@ -707,6 +734,10 @@ func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder s
 			FromMe:    true,
 			BotMsg:    true,
 			TurnID:    turnID,
+			// An undelivered row carries the reply target so the sweep re-sends
+			// it into the same thread. A delivered row leaves it empty: its own
+			// platform id belongs in platform_id.
+			ReplyToID: replyToID,
 			// Store the sent message's own platform id in platform_id (the
 			// contract in store IsBotMessageByID): a later human reply to this
 			// message carries this id in reply_to, and the reply-to-bot →
@@ -717,11 +748,19 @@ func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder s
 			PlatformID: platformID,
 			RoutedTo:   jid,
 			Topic:      topic,
-			Status:     core.MessageStatusSent,
+			Status:     status,
 		})
+		if err != nil {
+			slog.Error("outbound row not stored", "folder", folder, "jid", jid,
+				"status", status, "err", err)
+		}
 	}
 }
 
+// internalSend delivers one MCP send and records it. Both outcomes write a
+// durable row: a delivered send goes 'sent', a failed send goes 'pending' or
+// 'failed'. The error still returns to the agent — the row decides the retry,
+// not the report.
 func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files []internalSendFile) error {
 	if len(files) == 0 {
 		if gated.SendMessage == nil {
@@ -729,6 +768,7 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 		}
 		platformID, err := gated.SendMessage(jid, text)
 		if err != nil {
+			recordOutboundFailure(gated, db, jid, text, folder, "", true, err)
 			return err
 		}
 		recordOutbound(gated, db, jid, text, platformID, folder)
@@ -740,6 +780,7 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 	for _, f := range files {
 		platformID, err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID)
 		if err != nil {
+			recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, false, err)
 			return err
 		}
 		recordOutbound(gated, db, jid, text, platformID, folder)
@@ -1166,6 +1207,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			}
 			platformID, err := gated.SendReply(jid, text, replyToID)
 			if err != nil {
+				recordOutboundFailure(gated, db, jid, text, folder, replyToID, true, err)
 				return toolErr(err.Error())
 			}
 			recordOutbound(gated, db, jid, text, platformID, folder)

@@ -51,10 +51,20 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("routd page: pending count", "err", err)
 	}
 
-	fmt.Fprintf(w, `<p class="dim">%s &middot; %s &middot; %s</p>`,
+	// Dead-lettered outbound — the platform refused the message, or the retries
+	// ran out. routd never sends these again.
+	deadLettered := -1
+	if err := d.dbRoutd.QueryRow(
+		`SELECT COUNT(*) FROM messages WHERE status='failed' AND is_bot_message=1`,
+	).Scan(&deadLettered); err != nil {
+		slog.Warn("routd page: dead-letter count", "err", err)
+	}
+
+	fmt.Fprintf(w, `<p class="dim">%s &middot; %s &middot; %s &middot; %s</p>`,
 		statLabel("routes", routeCount),
 		statLabel("groups", groupCount),
 		statLabel("pending outbound", pending),
+		statLabel("dead-lettered", deadLettered),
 	)
 
 	// Errored chats — group by chat, newest error first.

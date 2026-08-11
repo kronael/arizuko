@@ -162,6 +162,9 @@ Behavior:
 - `ARIZUKO_DEFAULT_MODEL` — fallback when group has none (default "claude-opus-4-8")
 - `COST_CAPS_ENABLED` — pre-spawn budget gate (default "true")
 - `MAX_TURN_RETRY` — SIGKILL/OOM/timeout retry ceiling (default 3)
+- `MAX_OUTBOUND_RETRY` — transient delivery failures a `pending` bot row
+  absorbs before the sweep dead-letters it to `failed` (default 10). A
+  permanent refusal (4xx) dead-letters at once and spends no attempt.
 - `OBSERVE_WINDOW_MESSAGES` — prompt context msg count (default 10)
 - `OBSERVE_WINDOW_CHARS` — prompt context char ceiling (default 4000)
 - `SEND_DISABLED_GROUPS` — CSV folders; persist outbound but don't deliver

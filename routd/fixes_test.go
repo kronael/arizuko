@@ -3,6 +3,7 @@ package routd
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,9 @@ type recDeliverer struct {
 	// failIdem fails ONLY the send whose idempotency key (the message id)
 	// matches, so a test can put one dead row among healthy ones.
 	failIdem string
+	// permIdem fails the send whose idempotency key matches with a
+	// chanlib.ErrPermanent error — the platform refuses the message for good.
+	permIdem string
 	pid      string
 	// viaChannels records the explicit adapter pin of every SendVia call
 	// (spec 5/34 outbound resolution step 1).
@@ -56,6 +60,9 @@ type sentEdit struct {
 
 func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
 	d.sends = append(d.sends, sentMsg{jid, text, replyTo, threadID, threadRoot, idem})
+	if d.permIdem != "" && idem == d.permIdem {
+		return "", fmt.Errorf("%w: status 400", chanlib.ErrPermanent)
+	}
 	if d.failSend || (d.failIdem != "" && idem == d.failIdem) {
 		return "", errSend
 	}
@@ -698,7 +705,9 @@ func TestReactionTopicInheritance(t *testing.T) {
 
 // TestOutboundRetryRedispatchesAndFails is the outboundRetryLoop fix: a
 // pending bot row older than 30s is re-dispatched (adapter dedups on the
-// stable id); one older than 24h is failed (spec 5/E § Outbound is
+// stable id). Age alone never fails a row — the retired 24h bound killed a
+// 25h-old row that no sweep had tried, which lost a message the platform had
+// never refused. The attempt cap is the only bound (spec 5/Q § Outbound is
 // poll-reconciled).
 func TestOutboundRetryRedispatchesAndFails(t *testing.T) {
 	db, err := OpenMem()
@@ -714,9 +723,9 @@ func TestOutboundRetryRedispatchesAndFails(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "stale", ChatJID: "slack:T/C/U", Sender: "demo",
 		Content: "retry me", Timestamp: now.Add(-2 * time.Minute), BotMsg: true,
 		Status: core.MessageStatusPending})
-	// pending for 25h → failed, never re-dispatched.
+	// pending for 25h → still re-dispatched: age is not a bound.
 	_ = db.PutMessage(core.Message{ID: "ancient", ChatJID: "slack:T/C/U", Sender: "demo",
-		Content: "give up", Timestamp: now.Add(-25 * time.Hour), BotMsg: true,
+		Content: "old but owed", Timestamp: now.Add(-25 * time.Hour), BotMsg: true,
 		Status: core.MessageStatusPending})
 	// fresh (5s) → left alone.
 	_ = db.PutMessage(core.Message{ID: "fresh", ChatJID: "slack:T/C/U", Sender: "demo",
@@ -726,14 +735,15 @@ func TestOutboundRetryRedispatchesAndFails(t *testing.T) {
 	loop.nextRetryAt = now.Add(-time.Second) // due now
 	loop.maybeRetryOutbound(now)
 
-	if len(dl.sends) != 1 || dl.sends[0].idem != "stale" {
-		t.Fatalf("expected one re-dispatch of 'stale', got %+v", dl.sends)
+	// PendingOutbound orders by timestamp ASC, so the 25h row comes first.
+	if len(dl.sends) != 2 || dl.sends[0].idem != "ancient" || dl.sends[1].idem != "stale" {
+		t.Fatalf("expected re-dispatch of 'ancient' then 'stale', got %+v", dl.sends)
 	}
 	if st := statusOf(db, "stale"); st != core.MessageStatusSent {
 		t.Fatalf("stale status=%q want sent (re-delivered)", st)
 	}
-	if st := statusOf(db, "ancient"); st != core.MessageStatusFailed {
-		t.Fatalf("ancient status=%q want failed (>24h)", st)
+	if st := statusOf(db, "ancient"); st != core.MessageStatusSent {
+		t.Fatalf("ancient status=%q want sent — age alone must not fail a row", st)
 	}
 	if st := statusOf(db, "fresh"); st != core.MessageStatusPending {
 		t.Fatalf("fresh status=%q want still pending (<30s)", st)
@@ -1168,8 +1178,9 @@ func TestDocumentStampsPlatformID(t *testing.T) {
 }
 
 // TestDocumentDeliveryFailure: a Document() delivery error returns 422 and
-// persists NO bot row (GB1 L2). A pending document row would be re-sent by the
-// text-only maybeRetryOutbound sweep as a captionless, fileless message.
+// dead-letters the bot row. The row keeps the evidence; 'failed' keeps it out
+// of PendingOutbound, because the text-only maybeRetryOutbound sweep would
+// re-send a pending document row as a captionless, fileless message.
 func TestDocumentDeliveryFailure(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -1187,10 +1198,19 @@ func TestDocumentDeliveryFailure(t *testing.T) {
 		t.Fatalf("document delivery failure status=%d body=%s, want 422", rec.Code, rec.Body.String())
 	}
 	var n int
-	db.SQL().QueryRow("SELECT COUNT(*) FROM messages WHERE chat_jid=? AND is_bot_message=1",
-		"slack:T/C/U").Scan(&n)
-	if n != 0 {
-		t.Fatalf("failed document persisted %d bot rows, want 0", n)
+	db.SQL().QueryRow(`SELECT COUNT(*) FROM messages
+		WHERE chat_jid=? AND is_bot_message=1 AND status=?`,
+		"slack:T/C/U", core.MessageStatusFailed).Scan(&n)
+	if n != 1 {
+		t.Fatalf("failed document persisted %d dead-lettered bot rows, want 1", n)
+	}
+	// The sweep must never see it.
+	rows, err := db.PendingOutbound(time.Now().Add(time.Hour), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("dead-lettered document row is still in the retry feed: %+v", rows)
 	}
 }
 
