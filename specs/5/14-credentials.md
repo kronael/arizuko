@@ -1,6 +1,5 @@
 ---
-status: defected
-defects: [S2]
+status: shipped
 depends:
   [17-openapi-mcp, 5/13-ext-mcp, specs/5/32-acl-unified, 5/15-surrogate-oauth]
 supersedes:
@@ -122,7 +121,54 @@ what they can use, and the call-time check remains as defence in depth.
   both types. It writes the same rows a paste would, plus `expires_at` and a
   refresh token.
 
-Storage is `store/secrets.go` (AES-256-GCM at rest).
+## Encryption at rest
+
+Storage is `store/secrets.go`. Every row in the `secrets` table is encrypted
+with AES-256-GCM. The stored form is `"v2:" + base64(nonce||ciphertext)`.
+
+`SECRETS_KEY` supplies the key. There is no plaintext mode and no `AUTH_SECRET`
+fallback. Two components enforce this:
+
+- **`routd` refuses to start** without `SECRETS_KEY`
+  (`routd/cmd/routd/main.go`, via `core.RequireSecretKeyring`). routd owns the
+  table, so an instance whose owner cannot seal must not run.
+- **`store.storeValue` refuses every write** when the keyring is empty, and
+  returns `store.ErrNoSecretsKey`. Each write path calls it — `SetSecret`,
+  `PutSecretRow`, `PutOAuthSecret` and `UpdateOAuthSecret` — so no caller can
+  persist a value the store did not seal. The error travels to the caller: the
+  `/dash/me/env` and `/dash/me/secrets` pages return it, and `arizuko secret`
+  refuses before it opens the store.
+
+Compose gives `SECRETS_KEY` to `routd`, to `runed`, and to `dashd`, which writes
+user secrets into `routd.db` directly.
+
+A row without the `"v2:"` prefix is a legacy plaintext row that a build before
+this rule wrote. Reads still open it. No write path creates one.
+`store.EncryptPlaintextSecrets` seals such rows in place, but no daemon calls
+it yet — an operator seals a legacy row by writing it again.
+
+> An earlier build only logged a warning when `SECRETS_KEY` was absent, and the
+> store then wrote the plaintext. An un-keyed instance persisted every secret
+> readable on disk while each healthcheck reported it healthy (BUGS `S2`).
+
+### Rotation
+
+`SECRETS_KEY` holds one key, or several keys separated by commas
+(`core.SecretKeyring`). **The first key seals all new writes. The other keys
+only decrypt.**
+
+To rotate, put the new key first and keep the old key after it:
+
+```
+SECRETS_KEY=<new-key>,<old-key>
+```
+
+Each new write then seals under `<new-key>`. A read tries every key in the
+keyring until one authenticates the value, so rows sealed under `<old-key>`
+stay readable. Writing a secret again re-seals it under the active key, which is
+how an operator moves a row onto `<new-key>`. Remove `<old-key>` from the list
+only after every row has been written again — a value the keyring cannot open
+reads as an error, not as plaintext.
 
 ## Supersedes
 

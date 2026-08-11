@@ -34,6 +34,57 @@ redesign → recorded, not fixed (System-change discipline).
   `deadcode ./...` flags `auth/jwt.go:29 mintJWT`; survives `-test` only via
   `auth/auth_test.go` (4 calls).
 
+**Proposal** (2026-08-11, awaits sign-off — option a: delete the HS256 bearer path)
+
+Verified facts:
+- `AUTH_SECRET` has three other live uses; none signs a cookie or a bearer:
+  authd CSRF state key (`authd/oauth.go:49`), dashd surrogate-OAuth CSRF state
+  (`dashd/me_connections.go:175,204`), proxyd auth-enabled flag
+  (`proxyd/main.go:943`). The refresh cookie is an opaque token, stored as a
+  sha256 row (`authd/http.go:131`); access tokens are ES256. The CSRF helpers
+  (`auth/oauth.go:169-204`) do not call `VerifyJWT`. The removal does not
+  touch them.
+- The "HS256-only local-dev mode" is dead: compose always sets
+  `AUTHD_URL=http://authd:8080` (`compose/compose.go:682-683`), and without
+  authd no minter exists, so the mode authenticates nobody.
+- The last legitimate HS256 token had `jwtTTL = time.Hour`
+  (`a56202d4^:auth/web.go:26`) and expired 2026-06-09. Every real caller now
+  presents an ES256 bearer or a refresh cookie (`proxyd/main.go:880-883,
+  906-939`); integration tests mint ES256 via a test authd
+  (`tests/feat_auth_test.go:17`); e2e uses route tokens. Spec `specs/5/7`
+  §Decisions already records: authd is the sole signer, the local HS256 mint
+  was transitional.
+
+Change list (one commit):
+1. Delete the HS256 branch in `tryAuth` (`proxyd/main.go:877-879`). Rewrite
+   the stale comments (`main.go:866-874`, `:37`, `:1001-1003` "soak").
+2. Warning: `auth/jwks.go` and `authd/server.go:305` use `ErrInvalidToken` /
+   `ErrExpiredToken` — keep both. Delete `mintJWT`, `VerifyJWT`, `Claims`,
+   `sign`, `clockSkew` from `auth/jwt.go`.
+3. Keep the enable flag at `proxyd/main.go:943` unchanged (separate concern;
+   `AUTH_SECRET` distribution is L7).
+4. Tests: delete the soak guard (`5436c7f0`) and the four HS256 tests in
+   `auth/auth_test.go`. Port the ~23 `testMintJWT` call sites in proxyd tests
+   to the existing `es256KeySet` + `k.Sign` helpers. Add one regression test:
+   proxyd rejects an HS256 bearer signed with `AUTH_SECRET`.
+5. Docs: `proxyd/README.md:14,145,152`, `auth/README.md:63,92,112`,
+   `template/env.example:11`, `cmd/arizuko/main.go:283` (both still say
+   `AUTH_SECRET` signs session cookies), and the false comment
+   `auth/es256.go:8` — the service-token bootstrap (`authd/http.go:287`)
+   exchanges a shared secret for ES256 and never uses HS256.
+
+Rejected options:
+- (b) env-gate: keeps the dead code and the forgery risk in the binary, and
+  it guards a mode that cannot authenticate anyone.
+- (c) re-point the dev mode: this needs a second token issuer; spec `5/7`
+  ("authd is the sole signer") and the 2026-06-07 directive (local dev runs
+  authd, no fallback branch) forbid that.
+
+Cost: three deleted production lines plus dead library code; the test port is
+mechanical. This proposal is wrong only if a script outside this repo mints
+HS256 with an instance `AUTH_SECRET`; the repo, templates, and web docs show
+none, and no expired-token holder loses anything.
+
 ## L7 — compose hands five daemons secrets they never read (2026-08-11, open)
 
 `compose/compose.go` `daemonKeys` distributes credentials to containers whose
@@ -48,7 +99,11 @@ nowhere; precedent `X1` for env-leak blast radius). Proven inert copies:
   zero hits for any CLIENT_ID/ALLOWED/AuthSecret in `onbod/`. The OAuth block is
   a leftover of onbod's own login flow, gone since authd took OAuth
   (`a56202d4`) and the P1b greeting fold.
-- **dashd**: `AUTH_SECRET` — zero reads.
+- **dashd**: `AUTH_SECRET` — ~~zero reads~~ **WRONG, corrected 2026-08-11 by the
+  `L6` study**: dashd DOES read it, for the surrogate-OAuth CSRF state
+  (`dashd/me_connections.go:175,204`, loaded at `dashd/main.go:308`). It reads it
+  with `os.Getenv`, which bypasses `core.LoadConfig` — so a reader search over
+  the config struct misses it. Do not drop `AUTH_SECRET` from dashd.
 - **webd**: `AUTH_SECRET`, `AUTH_BASE_URL` — zero reads of either.
 - **proxyd**: `AUTH_BASE_URL` — zero reads (`auth.AuthBaseURL(cfg)` is called
   only inside authd).
@@ -4090,10 +4145,77 @@ This also makes imports unsafe to proceed before validating the target key.
 
 - **Severity:** high
 - **Scope:** secrets encryption precondition / routd startup
-- **Affected:** instances started without `SECRETS_KEY`
+- **Affected:** instances started without `SECRETS_KEY`; **and every live
+  instance, via dashd** — see below
 - **Source:** core/config.go:136-146 (required-key contract); routd/cmd/routd/main.go:61-69 (warn-and-continue); store/secrets.go:72-78 (plaintext fallback)
+- **Status:** FIXED 2026-08-11
+- **Fix:** the cause fix is one choke point: `storeValue` returns
+  `ErrNoSecretsKey` instead of the plaintext, so all FOUR write paths
+  (`SetSecret`, `PutSecretRow`, `PutOAuthSecret`, `UpdateOAuthSecret`) fail loud
+  whatever their caller's boot check does. routd refuses to start without the
+  key; the `arizuko secret` CLI refuses before opening the store; dashd is
+  deliberately NOT boot-fatal (it serves the whole dashboard, so killing boot
+  over one page is the worse outage) and its writes fail per request instead.
+
+**The premise understated the blast radius. This was live on all three
+instances, not only on un-keyed ones.** `compose.go`'s dashd scope list never
+carried `SECRETS_KEY`, and dashd writes user secrets straight into `routd.db`
+(`/dash/me/env`, `/dash/me/secrets`, the Connect OAuth dance). So every BYOA
+user secret went to disk in plaintext on krons, sloth and marinade — the
+instance held a valid key and the daemon doing the writing never received it.
+Fixed in `compose/compose.go`.
+
+**Operator note before the next deploy.** All three instances carry a non-empty
+single-key `SECRETS_KEY`, so routd boots — the recorded crash-loop landmine is
+disarmed. But until compose is REGENERATED, dashd still has no key, so
+`/dash/me/env` and `/dash/me/secrets` writes now return an error instead of
+silently storing plaintext. That is correct, and it is user-visible.
+
+Rotation was already implemented as documented and is preserved, not
+redesigned: `seal` uses `secretKeys[0]` only, `open` tries every key until one
+authenticates, and `SetSecretKeys` keeps the order. Comma-separate the value —
+the first key seals, the rest decrypt retired values.
+`TestSecret_NoKey_RefusesToWrite` and `TestStoreValue_NeverReturnsPlaintext`
+cover the refusal; reverting the guard fails both.
+
+## L16 — legacy plaintext secret rows are never sealed; the migrator has no caller (2026-08-11, open)
+
+`store.EncryptPlaintextSecrets` exists to seal pre-encryption rows in place, and
+it has **zero non-test callers** — it is wired to no startup path, so it has
+never run on any instance.
+
+This matters more since `S2`: requiring the key stops NEW plaintext writes, but
+every row dashd already wrote in plaintext stays that way on disk. `S2` closed
+the leak; it did not clean up what leaked. A reader still decrypts those rows
+correctly (`open` falls back for un-prefixed values), so nothing is broken —
+they are simply unencrypted at rest, which is exactly what `5/14` promises they
+are not.
+
+Wiring a write-migration into boot is a behavior change on a live table, so it
+is recorded rather than done.
+
+- **Severity:** medium — a real at-rest exposure, bounded to rows written
+  before the fix
+- **Scope:** secrets at-rest migration
+- **Affected:** store, routd
+- **Source:** `store/secrets.go` `EncryptPlaintextSecrets`
+- **Status:** open — needs sign-off on where the migration runs
+
+## L17 — `store.LookupSecret` has no non-test callers (2026-08-11, open)
+
+Found while fixing `S2`. `LookupSecret` never decrypted — it returned the raw
+column, a bug that plaintext-at-rest hid completely. It now opens through the
+keyring, so it is correct; but an exhaustive search finds no production caller.
+
+Either it is dead and should go (the `spawn_logs` precedent, `F72`), or a
+surface that ought to use it does not. Decide which before the next reader is
+written against it.
+
+- **Severity:** low
+- **Scope:** dead read path
+- **Affected:** store
+- **Source:** `store/secret_use_log.go` `LookupSecret`
 - **Status:** open
-- **Fix:**
 
 ## Web docs claim URL↔kind binding on route tokens; shipped code accepts any token at either URL (2026-07-12, fixed, LOW)
 
