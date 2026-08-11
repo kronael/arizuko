@@ -75,6 +75,7 @@
         <p class="meta">channel: Telegram &middot; web chat &middot; webhook &middot; mass-consumer / minimal-config</p>
         <p>One folder, one catch-all route, no per-user state. Answers &ldquo;where&rsquo;s X cheapest?&rdquo; for any number of users without changing structure. The minimal end of the spectrum: same code serves 10 or 10,000 users &mdash; the limit is container slots, not registered users.</p>
         <p><a href="supermarket/">intro</a> &middot; <a href="supermarket/setup.html">setup</a></p>
+        <p class="dim">No template ships for this one yet &mdash; the page describes the shape; you assemble it from the primitives.</p>
       </div>
 
       <div class="tablecard">
@@ -82,6 +83,7 @@
         <p class="meta">channel: Telegram &middot; single-user &middot; research-intensive</p>
         <p>State the brief once &mdash; May researches, synthesises via oracle, and delivers a day-by-day itinerary. Preferences persist across trips. Mid-point on the spectrum: single-user depth without an org hierarchy.</p>
         <p><a href="trip/">intro</a> &middot; <a href="trip/setup.html">setup</a></p>
+        <p class="dim">Ships as a template: <code>arizuko create &lt;name&gt; --product trip</code></p>
       </div>
 
       <div class="tablecard">
@@ -89,6 +91,7 @@
         <p class="meta">channel: Slack &middot; shared workspace &middot; dashboard</p>
         <p>One agent per Slack channel: channel-scoped persona and thread context, per-teammate memory and grants, personal cloud storage, web interface, and usage dashboard. OAuth sign-in links a teammate&rsquo;s identities across chat and web.</p>
         <p><a href="slack-team/">intro</a> &middot; <a href="slack-team/setup.html">setup</a></p>
+        <p class="dim">Ships as a template: <code>arizuko create &lt;name&gt; --product slack-team</code></p>
       </div>
 
       <div class="tablecard">
@@ -96,6 +99,7 @@
         <p class="meta">channel: Discord &middot; shared workspace &middot; dashboard</p>
         <p>One agent per Discord guild: channel-scoped persona, per-member memory and grants, personal cloud storage, web interface, and usage dashboard. Use cases include support agents (KB-backed Q&amp;A with citations) and collaborative research (news ingestion, observation tracking, synthesis).</p>
         <p><a href="discord-team/">intro</a> &middot; <a href="discord-team/setup.html">setup</a></p>
+        <p class="dim">No template ships for this one yet &mdash; the page describes the shape; you assemble it from the primitives.</p>
       </div>
 
       <div class="tablecard">
@@ -103,6 +107,7 @@
         <p class="meta">channel: Telegram oncall &middot; Slack / Discord &middot; self-hosted</p>
         <p>An SRE in your team&rsquo;s chat that reads your runbooks and drives AWS read-before-write. Each engineer acts with their own keys, so CloudTrail names the human, not a shared robot. Default-deny egress means the agent can&rsquo;t reach anything but the hosts you allowlist. Per-operator credentials are the differentiator most AI-SRE tools skip.</p>
         <p><a href="aws-devops/">intro</a> &middot; <a href="aws-devops/setup.html">setup</a></p>
+        <p class="dim">Ships as a template: <code>arizuko create &lt;name&gt; --product aws-devops</code></p>
       </div>
 
       <div class="tablecard">
@@ -110,6 +115,7 @@
         <p class="meta">channel: Telegram &middot; single-user</p>
         <p>Long-running personal agent. Holds named threads for ongoing situations across weeks; structured reflection on demand; monthly scheduled sweep over diary + threads to surface what changed.</p>
         <p><a href="reality/">intro</a> &middot; <a href="reality/setup.html">setup</a></p>
+        <p class="dim">Ships as a template: <code>arizuko create &lt;name&gt; --product reality</code></p>
       </div>
 
       <div class="tablecard">
@@ -117,6 +123,7 @@
         <p class="meta">channel: Slack &middot; email &middot; webhook &middot; complex-org</p>
         <p>A network of per-team agents with their own inboxes, knowledge bases, and scheduled briefs. Folder tree mirrors the org chart. Intake from Slack, email, and webhooks. The complex end of the spectrum: all six primitives at full depth.</p>
         <p><a href="company-brain/">intro</a> &middot; <a href="company-brain/setup.html">setup</a></p>
+        <p class="dim">No template ships for this one yet &mdash; the page describes the shape; you assemble it from the primitives.</p>
       </div>
 
       <div class="tablecard">
@@ -124,7 +131,24 @@
         <p class="meta">channel: web chat &middot; public &middot; bundled dataset / minimal-config</p>
         <p>A read-only chat over a fixed dataset that ships inside the folder. The agent answers by running <code>jq</code> over bundled JSON &mdash; no web-search egress, no per-user state. Runs on a cheap model with trimmed skills. Swap the dataset and the same bot answers over your data.</p>
         <p><a href="marble/">intro</a> &middot; <a href="marble/setup.html">setup</a></p>
+        <p class="dim">No template ships for this one yet &mdash; the page describes the shape; you assemble it from the primitives.</p>
       </div>
+
+      <h2 id="templates-without-a-page">Templates without a page</h2>
+      <p>
+        These six ship as templates and run today, but they have no
+        write-up here yet. Seed one with
+        <code>arizuko create &lt;name&gt; --product &lt;id&gt;</code>, then read its
+        <code>PRODUCT.md</code> for the detail.
+      </p>
+      <ul>
+        <li><code>creator</code>: Content creation pipeline &mdash; draft, refine, publish.</li>
+        <li><code>personal</code>: Personal assistant with persistent memory &mdash; knows you across every session.</li>
+        <li><code>pm</code>: PM agent &mdash; task board, status summaries, decisions.</li>
+        <li><code>socials</code>: Social presence manager &mdash; post, monitor, cross-post.</li>
+        <li><code>strategy</code>: Domain researcher &mdash; weekly briefings and deep dives.</li>
+        <li><code>support</code>: Embedded support agent &mdash; answers from your knowledge base, escalates when stuck.</li>
+      </ul>
 
       <p class="dim">See <a href="../howto/">getting started</a> for the platform install before picking a product.</p>
 
