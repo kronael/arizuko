@@ -1,6 +1,5 @@
 ---
-status: defected
-defects: [C2, J15]
+status: shipped
 ---
 
 # specs/5/28 — arizuko packages

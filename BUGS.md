@@ -3100,7 +3100,7 @@ does not apply the same boundary.
 - **Fix:** `mustPkgName` validates `<name>` against `pkgNameRE` (identRE shape:
   no leading `.`, no `/`) in both `add` and `remove` before any path join.
 
-## C2 — package routes never update an existing proxyd route table (2026-07-28, proposed)
+## C2 — package routes never update an existing proxyd route table (2026-07-28, ALREADY FIXED — verified 2026-08-11)
 
 Package sidecars only change generated `PROXYD_ROUTES_JSON`, but proxyd reads
 that value only when `proxyd_routes` is empty. Adding Slack to an existing
@@ -3122,6 +3122,28 @@ operator-edited row.
   check, since an operator can't have edited a package-owned row without
   `detach`ing it (which drops it from the receipt). Needs sign-off + the receipt
   schema before implementation.
+
+**ALREADY FIXED — verified 2026-08-11.** This entry outlived its own fix. Both
+halves ship, and the installed-package record is the receipt the entry asked
+for (`5/28` §"Reconciler alternative — demolished" says so in as many words:
+"The installed-package record above is that schema, made minimal and
+explicit").
+
+- Install: `applyPackageRoutes` (`cmd/arizuko/packages.go:235`) hot-applies each
+  `*-routes.json` route through `store.PutProxydRoute` into the LIVE
+  `proxyd_routes` table, so the route works without a restart and without
+  depending on `PROXYD_ROUTES_JSON`, which proxyd reads only when the table is
+  empty (`proxyd/main.go` `loadInitialRoutes`). It returns the applied paths and
+  `packages.go:516` stores them as `manifest["proxyd_route"]`.
+- Remove: `packages.go:642-644` reads `rec.Manifest["proxyd_route"]` and calls
+  `DeleteProxydRoute(p)` for exactly that set — no ownership guessing.
+
+Covered by `TestPackageRoutesAudited`, `TestPackageRouteAuditNamesBackendAndAuth`,
+`TestPackageRouteRemovalAudited` and `TestPackagesInstallRemove`; all pass.
+
+The lesson is the recurring one: grep the call path before counting an entry as
+open. The fix landed with its own comment naming "the 5/27 C2 fix" and nobody
+closed the row.
 
 ## C3 — legacy conversion overwrites native package files (2026-07-28, open)
 
