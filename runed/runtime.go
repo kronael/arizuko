@@ -58,6 +58,10 @@ type RunResult struct {
 	Error        string
 	ExitCode     int
 	MessageCount int
+	// Terminal reports a failure that a retry cannot repair (the
+	// container invocation itself failed). The zero value means
+	// retryable (spec 5/12).
+	Terminal bool
 }
 
 // Runtime executes one agent turn end to end (the execution-session

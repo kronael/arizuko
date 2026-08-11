@@ -131,6 +131,11 @@ type Output struct {
 	// activity count runed echoes into session_log (spec 5/P § envelope 6).
 	ExitCode     int `json:"-"`
 	MessageCount int `json:"-"`
+	// Terminal reports a failure that a retry cannot repair: the docker
+	// invocation itself failed (a start error, or exit 125/126/127). The
+	// zero value means retryable, so every other failure keeps the turn
+	// retry (spec 5/12).
+	Terminal bool `json:"-"`
 }
 
 // Runner runs a containerized agent invocation. Tests inject fakes.
@@ -252,7 +257,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 	if err := cmd.Start(); err != nil {
 		stopMCP()
-		return Output{Error: "start: " + err.Error()}
+		// The docker CLI did not launch (missing or not executable) — a
+		// host misconfiguration; a retry spawns nothing (BUGS F73).
+		return Output{Error: "start: " + err.Error(), Terminal: true}
 	}
 
 	// Container env carries MODEL CREDENTIALS ONLY: the operator anchors from the
@@ -463,10 +470,20 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 				"Container exited with code %d: %s", code, tail),
 			ExitCode:     code,
 			MessageCount: msgCount,
+			Terminal:     terminalExit(code),
 		}
 	}
 
 	return Output{Status: "success", ExitCode: code, MessageCount: msgCount}
+}
+
+// terminalExit reports whether the exit code proves a configuration
+// fault. Docker reserves 125 (docker run failed — bad image or bad
+// flags), 126 (command not runnable), and 127 (command not found) for
+// invocation failures; a retry cannot repair them. Every other code
+// stays retryable (BUGS F73, spec 5/12).
+func terminalExit(code int) bool {
+	return code == 125 || code == 126 || code == 127
 }
 
 func prepareInput(cfg *core.Config, in Input, groupDir string) Input {

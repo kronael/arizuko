@@ -393,6 +393,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 
 	out := runedv1.RunOutcome{
 		RunID: runID, Outcome: res.Outcome, SessionID: endSession, Error: res.Error,
+		Terminal: res.Terminal,
 	}
 	// The run that pushes the folder to the threshold reports breaker_open on
 	// the response the caller awaits (no separate endpoint) — and it actually

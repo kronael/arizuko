@@ -3,6 +3,7 @@ package routd
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -477,6 +478,54 @@ func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {
 	}
 	if len(dl.sends) != 0 {
 		t.Fatalf("expected no notice on retry schedule, got %+v", dl.sends)
+	}
+}
+
+// TestTurnRetry_TerminalNotRetried: a failure runed marked Terminal (bad
+// image, failed docker start) is never retried, and the notice carries
+// runed's error text so the user sees the real cause, not the generic
+// failure text (spec 5/12, BUGS F73). Contrast
+// TestTurnRetry_SchedulesRetryOnError: the same OutcomeError WITHOUT
+// Terminal still schedules a retry — the zero value must stay retryable.
+func TestTurnRetry_TerminalNotRetried(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	dl := &recDeliverer{}
+	const cause = "Container exited with code 125: pull access denied for arizuko-ant"
+	var attempts int
+	runner := runnerFn(func(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		attempts++
+		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Error: cause, Terminal: true}, nil
+	})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: 2})
+	loop.StopQueue()
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
+	_ = db.PutMessage(core.Message{ID: "tm1", ChatJID: "slack:T/C/U", Sender: "u1",
+		Content: "hi", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	_, _ = loop.processGroupMessages("slack:T/C/U")
+	if attempts != 1 {
+		t.Fatalf("terminal failure spawned %d attempts, want 1 (retry burned on a misconfiguration)", attempts)
+	}
+	tc, _ := db.GetTurnContext("tm1")
+	if tc.RetryCount != 0 {
+		t.Fatalf("terminal failure incremented retry_count=%d, want 0", tc.RetryCount)
+	}
+	if tc.State != "done" {
+		t.Fatalf("expected state=done after terminal failure, got %q", tc.State)
+	}
+	if len(dl.sends) != 1 {
+		t.Fatalf("expected one failure notice, got %+v", dl.sends)
+	}
+	if got := dl.sends[0].text; got != terminalFailureNotice(cause) {
+		t.Fatalf("notice=%q want terminalFailureNotice with the cause", got)
+	}
+	if !strings.Contains(dl.sends[0].text, "code 125") {
+		t.Fatalf("notice does not name the real cause: %q", dl.sends[0].text)
 	}
 }
 

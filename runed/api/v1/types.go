@@ -77,6 +77,15 @@ type RunRequest struct {
 //     the cursor and MUST NOT count it toward the circuit breaker; the batch is
 //     re-fed on routd's next poll. RunID/Outcome/SessionID are empty.
 //   - BreakerOpen=true: rides only on the run that trips the circuit breaker.
+//
+// Terminal=true qualifies Outcome=error: runed decided that a retry
+// cannot repair the failure (the container invocation itself failed — a
+// start error, or docker exit 125/126/127). routd obeys — it skips the turn
+// retry and surfaces Error, the real cause, to the user. The DECISION
+// travels, not the raw exit code: runed owns the container and its
+// exit-code semantics, and routd must never classify runed's error prose
+// (spec 5/12, BUGS F73). The zero value means retryable, so an older
+// runed keeps today's retry behavior.
 type RunOutcome struct {
 	RunID       string `json:"run_id"`
 	Outcome     string `json:"outcome"` // ok|error|silent
@@ -85,6 +94,7 @@ type RunOutcome struct {
 	Steered     bool   `json:"steered"`
 	Busy        bool   `json:"busy"`
 	BreakerOpen bool   `json:"breaker_open"`
+	Terminal    bool   `json:"terminal,omitempty"`
 }
 
 // Outcome values (the contract routd keys on).

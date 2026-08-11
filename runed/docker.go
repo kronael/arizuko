@@ -119,6 +119,7 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		Error:        out.Error,
 		ExitCode:     out.ExitCode,
 		MessageCount: out.MessageCount,
+		Terminal:     out.Terminal,
 	}
 }
 

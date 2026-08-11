@@ -307,10 +307,12 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	if out.Outcome == runedv1.OutcomeError {
 		// The run failed. Check if we can retry: a turn that died without
 		// delivering a reply (SIGKILL/OOM/timeout) gets rescheduled up to
-		// maxTurnRetry times before we give up and notify the user.
+		// maxTurnRetry times before we give up and notify the user. A failure
+		// runed marked Terminal is never retried — a retry cannot repair a
+		// misconfiguration and only burns spawns (spec 5/12).
 		tc, _ := l.db.GetTurnContext(turnID)
 		hasBotReply := l.db.TurnHasBotReply(turnID)
-		if !hasBotReply && tc.RetryCount < l.maxTurnRetry {
+		if !out.Terminal && !hasBotReply && tc.RetryCount < l.maxTurnRetry {
 			newCount, err := l.db.IncrementRetryCount(turnID)
 			if err == nil {
 				slog.Warn("turn failed without reply, scheduling retry",
@@ -336,6 +338,11 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			// Use retry-exhausted notice only when retries were actually attempted.
 			if !hasBotReply && tc.RetryCount > 0 && tc.RetryCount >= l.maxTurnRetry {
 				notice = retryExhaustedNotice(l.maxTurnRetry)
+			}
+			// A terminal failure names the real cause: the generic text
+			// hides a misconfiguration an operator must fix (spec 5/12).
+			if out.Terminal {
+				notice = terminalFailureNotice(out.Error)
 			}
 			_, _ = l.deliver.Send(chatJID, notice, "", topic, "", "fail-"+turnID)
 		}
@@ -448,6 +455,14 @@ const runFailureNotice = "Failed: agent error on that message. Try rephrasing or
 // operator running MAX_TURN_RETRY=2 that the agent had tried three times.
 func retryExhaustedNotice(attempts int) string {
 	return fmt.Sprintf("⚠️ Agent couldn't complete this request after %d attempts.", attempts)
+}
+
+// terminalFailureNotice is sent when runed marks a failure terminal
+// (RunOutcome.Terminal): a retry cannot repair it, so the notice carries
+// runed's error text and names the real cause — for example a bad agent
+// image — instead of the generic failure text (spec 5/12, BUGS F73).
+func terminalFailureNotice(cause string) string {
+	return "⚠️ Agent run failed and a retry cannot fix it: " + cause
 }
 
 // silentTurnNotice is sent when a clean run delivered nothing — no turn result,

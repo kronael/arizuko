@@ -272,6 +272,27 @@ func TestManagerAppliesRunTTLDeadline(t *testing.T) {
 	}
 }
 
+// TestTerminalOnWire: Manager.spawn copies RunResult.Terminal onto the
+// pinned RunOutcome, so routd receives the retry decision, not the raw
+// exit code (spec 5/12, BUGS F73).
+func TestTerminalOnWire(t *testing.T) {
+	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
+		return RunResult{
+			Outcome: runedv1.OutcomeError, Terminal: true,
+			Error: "Container exited with code 125: pull access denied",
+		}
+	}}
+	_, mgr := newMgr(t, rt, 5)
+
+	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !out.Terminal {
+		t.Fatalf("RunOutcome.Terminal=false want true (out=%+v)", out)
+	}
+}
+
 // ctxWatchingRuntime blocks until ctx.Done(), mirroring dockerRuntime's
 // armCancel contract (kill/abort on ctx death) without any docker/container
 // machinery — used to prove Manager wires the RunTTL deadline onto ctx.

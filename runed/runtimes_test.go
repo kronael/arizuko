@@ -117,6 +117,37 @@ func TestExitCodeMessageCountFlow(t *testing.T) {
 	if res.Outcome != runedv1.OutcomeError {
 		t.Fatalf("outcome=%q want error", res.Outcome)
 	}
+	if res.Terminal {
+		t.Fatalf("exit 137 marked Terminal — it must stay retryable")
+	}
+}
+
+// TestTerminalFlow: dockerRuntime copies container.Output.Terminal into
+// RunResult, so Manager.spawn can put the decision on the wire — routd
+// never sees the raw exit code (spec 5/12, BUGS F73).
+func TestTerminalFlow(t *testing.T) {
+	folders := &groupfolder.Resolver{GroupsDir: t.TempDir(), IpcDir: t.TempDir()}
+	runner := &blockingRunner{
+		started: make(chan struct{}), release: make(chan struct{}),
+		out: container.Output{
+			Status: "error", ExitCode: 125, Terminal: true,
+			Error: "Container exited with code 125: pull access denied",
+		},
+	}
+	close(runner.release) // don't block.
+	rt := &dockerRuntime{cfg: &core.Config{}, folders: folders, runner: runner,
+		signal: func(string) error { return nil }}
+
+	res := rt.Run(context.Background(), RunSpec{
+		RunID: "run_t", Folder: "demo", ContainerName: "arizuko-test-demo-2", MessageBatch: "m",
+		RegisterSteer: func(func(string) bool) {},
+	})
+	if !res.Terminal {
+		t.Fatalf("RunResult.Terminal=false want true (res=%+v)", res)
+	}
+	if res.Outcome != runedv1.OutcomeError {
+		t.Fatalf("outcome=%q want error", res.Outcome)
+	}
 }
 
 // TestDockerRuntimeCtxDeadlineKills: RunTTL is no longer armed inside

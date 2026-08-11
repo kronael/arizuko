@@ -70,12 +70,17 @@ func makeCfg(t *testing.T) (*core.Config, *groupfolder.Resolver, string) {
 
 func TestRun_ExitCodes(t *testing.T) {
 	cases := []struct {
-		name     string
-		exitCode int
-		wantErr  bool
+		name         string
+		exitCode     int
+		wantErr      bool
+		wantTerminal bool
 	}{
 		{name: "clean exit", exitCode: 0, wantErr: false},
-		{name: "exit code 1 -> error", exitCode: 1, wantErr: true},
+		{name: "exit code 1 -> retryable error", exitCode: 1, wantErr: true},
+		{name: "exit code 137 (SIGKILL) -> retryable error", exitCode: 137, wantErr: true},
+		{name: "exit code 125 (docker run failed) -> terminal", exitCode: 125, wantErr: true, wantTerminal: true},
+		{name: "exit code 126 (not runnable) -> terminal", exitCode: 126, wantErr: true, wantTerminal: true},
+		{name: "exit code 127 (not found) -> terminal", exitCode: 127, wantErr: true, wantTerminal: true},
 	}
 
 	for _, c := range cases {
@@ -96,12 +101,41 @@ func TestRun_ExitCodes(t *testing.T) {
 				if out.Error == "" && out.Status != "error" {
 					t.Fatalf("want error, got %+v", out)
 				}
+				if out.Terminal != c.wantTerminal {
+					t.Fatalf("Terminal=%v want %v (out=%+v)", out.Terminal, c.wantTerminal, out)
+				}
 				return
 			}
 			if out.Status != "success" {
 				t.Errorf("status=%q want success (out=%+v)", out.Status, out)
 			}
+			if out.Terminal {
+				t.Errorf("clean exit marked Terminal (out=%+v)", out)
+			}
 		})
+	}
+}
+
+// TestRun_StartFailureTerminal: a cmd.Start failure (the docker CLI is
+// missing or not executable) is a host misconfiguration with ExitCode 0 —
+// the F73 neighbouring case. It must carry Terminal so routd never burns
+// retries on it (spec 5/12).
+func TestRun_StartFailureTerminal(t *testing.T) {
+	cfg, folders, _ := makeCfg(t)
+	prev := execCommand
+	execCommand = func(name string, args ...string) *exec.Cmd {
+		return exec.Command(filepath.Join(t.TempDir(), "missing-docker-cli"))
+	}
+	defer func() { execCommand = prev }()
+
+	out := Run(cfg, folders, Input{
+		Prompt: "p", ChatJID: "tg:1", Folder: "g", Name: "arizuko-startfail",
+	})
+	if !strings.HasPrefix(out.Error, "start: ") {
+		t.Fatalf("Error=%q want start: prefix (out=%+v)", out.Error, out)
+	}
+	if !out.Terminal {
+		t.Fatalf("start failure not marked Terminal (out=%+v)", out)
 	}
 }
 
