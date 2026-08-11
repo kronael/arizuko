@@ -4178,6 +4178,51 @@ the first key seals, the rest decrypt retired values.
 `TestSecret_NoKey_RefusesToWrite` and `TestStoreValue_NeverReturnsPlaintext`
 cover the refusal; reverting the guard fails both.
 
+## L19 — the outbound sweep retries permanent failures ~2880 times (2026-08-11, open)
+
+`maybeRetryOutbound` (`routd/loop.go:359-379`) resends every `pending` bot row
+every 30s until the row is 24h old, and it DISCARDS the send error: `pid, derr
+:= l.deliver.Send(...)` uses `derr` only to decide whether to stamp the platform
+id. Nothing classifies the failure. A permanent 4xx — a deleted channel, a
+malformed payload, a revoked token — therefore burns roughly 2880 delivery
+attempts before the row ages out, against a platform that will refuse all 2880.
+
+The repo rule is that only remote/network and DB-busy errors retry. This is the
+same class as `F73` on the container path: the daemon that knows the error is
+terminal does not say so, and the retry loop cannot tell.
+
+Its doc comment also states a guarantee that does not hold: "The adapter dedups
+on the row's stable message_id, so a redelivered row never creates a second
+platform message." No adapter dedups — that is `D5`.
+
+- **Severity:** medium — wasted work and platform rate-limit pressure; with `D5`
+  open, each retry of an ambiguous failure can also double-post.
+- **Scope:** outbound retry classification
+- **Affected:** routd, chanlib
+- **Source:** `routd/loop.go:359-379`
+- **Status:** open
+
+## L20 — whapd acks a send it has not sent, so routd records it as delivered (2026-08-11, open)
+
+`whapd/src/server.ts:196-214` answers `/send` with `200 {ok:true, queued:true}`
+when the socket is absent or disconnected, and again in the `catch` around
+`sendMessage`. routd reads 200 as success and marks the bot row `sent`, so the
+durable retry sweep never looks at it again.
+
+whapd's queue is in memory. A whapd restart — which is exactly what a
+disconnected whapd tends to get — drops the queue, and the message is gone with
+no record anywhere that it never arrived. The user sees silence and the operator
+sees a row marked `sent`.
+
+Fail-loud says a daemon that cannot perform the action returns non-2xx. 503 here
+would let the sweep own the retry, which is its job.
+
+- **Severity:** medium — silent message loss on a live channel, no operator signal.
+- **Scope:** adapter delivery acknowledgement
+- **Affected:** whapd, routd
+- **Source:** `whapd/src/server.ts:196-214`
+- **Status:** open
+
 ## L18 — four docs pages ship no theme toggle at all (2026-08-11, open)
 
 168 of 172 pages under `template/web/pub/arizuko/` carry a `.theme-toggle`
