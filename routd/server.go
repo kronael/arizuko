@@ -139,11 +139,8 @@ type Server struct {
 	extTools []ipc.ExtTool
 
 	// Channel-registration surface. reg==nil leaves the /v1/channels endpoints
-	// unmounted (pure REST tests). on{Register,Deregister} keep the Deliverer's
-	// per-adapter HTTPChannel (and its retry outbox) in sync.
-	reg          *chanreg.Registry
-	onRegister   func(name string, ch *chanreg.HTTPChannel)
-	onDeregister func(name string)
+	// unmounted (pure REST tests).
+	reg *chanreg.Registry
 }
 
 // DefaultEngagementTTL is the stay-in-conversation window (spec 5/G) when

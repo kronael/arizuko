@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kronael/arizuko/chanreg"
@@ -15,10 +14,12 @@ import (
 // for a jid through the channel registry and fans the outbound call out over
 // chanreg.HTTPChannel.
 //
-// Live-channel reuse: the per-adapter HTTPChannel carries a retry outbox.
-// Register/deregister hooks keep `live` in sync so a resolved send reuses the
-// adapter's channel (and its queued backlog) instead of a throwaway. A cache
-// miss falls back to a fresh channel built from the registry entry.
+// The Deliverer caches no channel. An HTTPChannel holds only the registry entry,
+// the bearer getter, and an http.Client with a nil Transport. A nil Transport
+// selects http.DefaultTransport, which pools connections for every channel. A
+// channel built for one send therefore opens no extra connection, and it always
+// reads the CURRENT entry: Registry.Register REPLACES the Entry value, so a
+// cached channel would keep the old URL.
 type chanDeliverer struct {
 	reg           *chanreg.Registry
 	disabledChans []string // SEND_DISABLED_CHANNELS jid-prefixes (the part before ':')
@@ -28,9 +29,6 @@ type chanDeliverer struct {
 	// the DB type — the cmd injects it. nil in tests that register adapters
 	// directly: resolution falls through to ForJID.
 	lookupSource func(jid string) string
-
-	mu   sync.RWMutex
-	live map[string]*chanreg.HTTPChannel // keyed by adapter name
 }
 
 func newChanDeliverer(reg *chanreg.Registry, disabled []string, lookupSource func(string) string) *chanDeliverer {
@@ -38,44 +36,21 @@ func newChanDeliverer(reg *chanreg.Registry, disabled []string, lookupSource fun
 		reg:           reg,
 		disabledChans: disabled,
 		lookupSource:  lookupSource,
-		live:          map[string]*chanreg.HTTPChannel{},
 	}
 }
 
 // NewChannelDeliverer is the cmd entry point: it builds the production
-// chanreg-backed Deliverer plus the register/deregister hooks that keep its
-// live-channel cache in sync. The caller passes the same Deliverer to
-// NewServer and LoopConfig.Deliver, and the hooks to Server.SetChannelRegistry.
-// lookupSource is DB.LatestSource (the inbound-source resolver).
-func NewChannelDeliverer(reg *chanreg.Registry, disabled []string, lookupSource func(string) string) (
-	deliver Deliverer,
-	onRegister func(name string, ch *chanreg.HTTPChannel),
-	onDeregister func(name string)) {
-	d := newChanDeliverer(reg, disabled, lookupSource)
-	return d, d.setLive, d.dropLive
-}
-
-// setLive records the live HTTPChannel for name (register hook) and drains any
-// backlog queued while the adapter was gone.
-func (d *chanDeliverer) setLive(name string, ch *chanreg.HTTPChannel) {
-	d.mu.Lock()
-	d.live[name] = ch
-	d.mu.Unlock()
-	ch.DrainOutbox()
-}
-
-// dropLive forgets the live channel for name (deregister hook).
-func (d *chanDeliverer) dropLive(name string) {
-	d.mu.Lock()
-	delete(d.live, name)
-	d.mu.Unlock()
+// chanreg-backed Deliverer. The caller passes it to NewServer and
+// LoopConfig.Deliver. lookupSource is DB.LatestSource (the inbound-source
+// resolver).
+func NewChannelDeliverer(reg *chanreg.Registry, disabled []string, lookupSource func(string) string) Deliverer {
+	return newChanDeliverer(reg, disabled, lookupSource)
 }
 
 // resolve picks the channel for jid in the order spec 5/34 § "Outbound and
 // adapter resolution" fixes: an explicit pin (only POST /v1/outbound carries
 // one) → the latest inbound source for the jid → the registry's prefix owner.
-// Returns nil when no adapter owns the jid. Reuses the live (outbox-bearing)
-// channel when one is cached, else builds a fresh one from the entry.
+// Returns nil when no adapter owns the jid.
 func (d *chanDeliverer) resolve(channel, jid string) *chanreg.HTTPChannel {
 	name := channel
 	if name == "" {
@@ -84,12 +59,6 @@ func (d *chanDeliverer) resolve(channel, jid string) *chanreg.HTTPChannel {
 	entry := d.reg.Resolve(name, jid)
 	if entry == nil {
 		return nil
-	}
-	d.mu.RLock()
-	ch := d.live[entry.Name]
-	d.mu.RUnlock()
-	if ch != nil {
-		return ch
 	}
 	return chanreg.NewHTTPChannel(entry, d.reg.Bearer())
 }

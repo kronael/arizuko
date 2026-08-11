@@ -426,7 +426,7 @@ func outboundDeliverer(t *testing.T, a *outAdapter, caps map[string]bool) routd.
 	if _, err := reg.Register("telegram", a.ts.URL, []string{"telegram:"}, caps); err != nil {
 		t.Fatalf("register stub adapter: %v", err)
 	}
-	d, _, _ := routd.NewChannelDeliverer(reg, nil, func(string) string { return "telegram" })
+	d := routd.NewChannelDeliverer(reg, nil, func(string) string { return "telegram" })
 	return d
 }
 

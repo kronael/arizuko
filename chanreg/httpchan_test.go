@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/chanlib"
@@ -123,7 +121,11 @@ func TestHTTPChannelSendNoCapErrors(t *testing.T) {
 	}
 }
 
-func TestHTTPChannelSendQueuesOnError(t *testing.T) {
+// An unreachable adapter must SURFACE the error to the caller. The channel keeps
+// no copy of the message: routd leaves the bot row `pending` and its 30s sweep
+// re-sends it (package routd, TestOutboundRetryRedispatchesAndFails and
+// TestOutboundRetryFailureKeepsRowPendingAndContinues).
+func TestHTTPChannelSendErrorsWhenAdapterUnreachable(t *testing.T) {
 	e := &Entry{
 		Name:         "tg",
 		URL:          "http://127.0.0.1:1", // unreachable
@@ -132,12 +134,8 @@ func TestHTTPChannelSendQueuesOnError(t *testing.T) {
 	}
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 
-	_, err := ch.Send("tg:123", "hello", "", "", "", "")
-	if err == nil {
+	if _, err := ch.Send("tg:123", "hello", "", "", "", ""); err == nil {
 		t.Fatal("expected error for unreachable")
-	}
-	if ch.QueueLen() != 1 {
-		t.Errorf("queue len = %d, want 1", ch.QueueLen())
 	}
 }
 
@@ -253,83 +251,9 @@ func TestHTTPChannelName(t *testing.T) {
 	}
 }
 
-func TestHTTPChannelDrainOutbox(t *testing.T) {
-	var calls int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
-	}))
-	defer srv.Close()
-
-	e := &Entry{
-		Name:         "tg",
-		URL:          srv.URL,
-		JIDPrefixes:  []string{"tg:"},
-		Capabilities: map[string]bool{"send_text": true},
-	}
-	ch := NewHTTPChannel(e, staticBearer("secret"))
-
-	// manually enqueue
-	ch.enqueue(outMsg{JID: "tg:1", Content: "a"})
-	ch.enqueue(outMsg{JID: "tg:2", Content: "b"})
-
-	ch.DrainOutbox()
-
-	if calls != 2 {
-		t.Errorf("calls = %d, want 2", calls)
-	}
-	if ch.QueueLen() != 0 {
-		t.Errorf("queue len = %d after drain", ch.QueueLen())
-	}
-}
-
-// A dead jid (server error at the head) must NOT block other messages in the
-// batch (head-of-line), and must self-evict after maxSendAttempts.
-func TestHTTPChannelDrainOutbox_DeadJIDDoesNotBlock(t *testing.T) {
-	var liveCalls int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		if strings.Contains(string(body), "tg:dead") {
-			w.WriteHeader(500)
-			return
-		}
-		liveCalls++
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
-	}))
-	defer srv.Close()
-
-	e := &Entry{
-		Name:         "tg",
-		URL:          srv.URL,
-		JIDPrefixes:  []string{"tg:"},
-		Capabilities: map[string]bool{"send_text": true},
-	}
-	ch := NewHTTPChannel(e, staticBearer("secret"))
-
-	ch.enqueue(outMsg{JID: "tg:dead", Content: "x"}) // head, permanently failing
-	ch.enqueue(outMsg{JID: "tg:live", Content: "y"})
-
-	ch.DrainOutbox()
-	if liveCalls != 1 {
-		t.Errorf("live calls = %d, want 1 — dead jid blocked the batch (head-of-line)", liveCalls)
-	}
-	if ch.QueueLen() != 1 {
-		t.Errorf("queue len = %d, want 1 — dead jid should be requeued, live drained", ch.QueueLen())
-	}
-
-	// The dead jid self-evicts after maxSendAttempts more drains.
-	for range maxSendAttempts {
-		ch.DrainOutbox()
-	}
-	if ch.QueueLen() != 0 {
-		t.Errorf("queue len = %d — dead jid should have self-evicted after %d attempts",
-			ch.QueueLen(), maxSendAttempts)
-	}
-}
-
-// A 4xx (permanent) adapter response is surfaced to the caller and NOT enqueued
-// for retry; a 5xx (transient) is enqueued.
-func TestHTTPChannelSend_PermanentNotEnqueued(t *testing.T) {
+// A 4xx adapter response marks errPermanent; a 5xx does not. Both reach the
+// caller. The classification tells a retry owner that a resend cannot succeed.
+func TestHTTPChannelSendClassifiesPermanentVsTransient(t *testing.T) {
 	var status int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(status)
@@ -343,20 +267,22 @@ func TestHTTPChannelSend_PermanentNotEnqueued(t *testing.T) {
 	}
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 
-	status = 400 // permanent
-	if _, err := ch.Send("tg:1", "x", "", "", "", ""); err == nil {
+	status = 400
+	_, err := ch.Send("tg:1", "x", "", "", "", "")
+	if err == nil {
 		t.Fatal("expected error on 400")
 	}
-	if ch.QueueLen() != 0 {
-		t.Errorf("permanent 400 was enqueued: queue len = %d, want 0", ch.QueueLen())
+	if !errors.Is(err, errPermanent) {
+		t.Errorf("400 not classified permanent: %v", err)
 	}
 
-	status = 500 // transient
-	if _, err := ch.Send("tg:2", "y", "", "", "", ""); err == nil {
+	status = 500
+	_, err = ch.Send("tg:2", "y", "", "", "", "")
+	if err == nil {
 		t.Fatal("expected error on 500")
 	}
-	if ch.QueueLen() != 1 {
-		t.Errorf("transient 500 not enqueued: queue len = %d, want 1", ch.QueueLen())
+	if errors.Is(err, errPermanent) {
+		t.Errorf("500 wrongly classified permanent: %v", err)
 	}
 }
 

@@ -54,7 +54,7 @@ func newES256ChannelRoutd(t *testing.T, ks *auth.KeySet) http.Handler {
 	}
 	t.Cleanup(func() { db.Close() })
 	srv := NewServer(db, nil, nil, es256Verifier{ks}, 0, "")
-	srv.SetChannelRegistry(chanreg.New(), nil, nil)
+	srv.SetChannelRegistry(chanreg.New())
 	return srv.Handler()
 }
 
@@ -138,7 +138,7 @@ func TestChannelRegisterES256OriginPinSurvivesRotation(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	srv := NewServer(db, nil, nil, es256Verifier{ks}, 0, "")
-	srv.SetChannelRegistry(chanreg.New(), nil, nil)
+	srv.SetChannelRegistry(chanreg.New())
 	h := srv.Handler()
 
 	body := map[string]any{
@@ -175,7 +175,7 @@ func TestIngressJIDOwnershipES256(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	srv := NewServer(db, nil, nil, es256Verifier{ks}, 0, "")
-	srv.SetChannelRegistry(chanreg.New(), nil, nil)
+	srv.SetChannelRegistry(chanreg.New())
 	h := srv.Handler()
 
 	// register service:teled owning telegram:
@@ -238,7 +238,7 @@ func TestIngressSenderSchemeES256(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	srv := NewServer(db, nil, nil, es256Verifier{ks}, 0, "")
-	srv.SetChannelRegistry(chanreg.New(), nil, nil)
+	srv.SetChannelRegistry(chanreg.New())
 	h := srv.Handler()
 
 	rec := httptest.NewRecorder()

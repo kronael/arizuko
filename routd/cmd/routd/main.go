@@ -156,7 +156,7 @@ func main() {
 	// prefix match). In-memory registry — adapters re-register on routd restart.
 	reg := chanreg.New()
 	reg.SetBearer(svcSrc) // service:routd egress token; nil → local dev (no auth)
-	deliver, onRegister, onDeregister := routd.NewChannelDeliverer(
+	deliver := routd.NewChannelDeliverer(
 		reg, parseCSV(os.Getenv("SEND_DISABLED_CHANNELS")), db.LatestSource)
 
 	loop := routd.NewLoop(db, runedClient, routd.LoopConfig{
@@ -239,7 +239,7 @@ func main() {
 		durOr("TTS_TIMEOUT", 15*time.Second),
 		filepath.Join(dataDir, "tts"),
 	))
-	srv.SetChannelRegistry(reg, onRegister, onDeregister)
+	srv.SetChannelRegistry(reg)
 	// Audit writer for mutating MCP tool calls (GatedFns.Audit). Writes
 	// audit-system.jl in DATA_DIR — observability only, never the routd.db
 	// audit_log table (audit.Init above owns that). AUDIT_ENABLED unset → noop.

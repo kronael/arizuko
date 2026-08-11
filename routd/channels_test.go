@@ -13,9 +13,8 @@ import (
 
 const testChanSecret = "test-channel-secret"
 
-// newChannelRoutd builds a routd Server with a wired channel registry. The
-// onRegister/onDeregister hooks record the live channels so the test can
-// assert the same reuse path gated uses.
+// newChannelRoutd builds a routd Server with a wired channel registry, so the
+// tests below drive the real /v1/channels register and deregister handlers.
 func newChannelRoutd(t *testing.T) (*Server, *chanreg.Registry) {
 	t.Helper()
 	db, err := OpenMem()
@@ -25,7 +24,7 @@ func newChannelRoutd(t *testing.T) (*Server, *chanreg.Registry) {
 	t.Cleanup(func() { db.Close() })
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	reg := chanreg.New()
-	srv.SetChannelRegistry(reg, nil, nil)
+	srv.SetChannelRegistry(reg)
 	return srv, reg
 }
 

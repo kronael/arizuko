@@ -7,8 +7,10 @@ Channel registry + HTTP channel proxy.
 Tracks registered channel adapters by name with their URL, JID prefixes,
 capabilities, and session token. Runs a health loop that pings each
 adapter's `/health` every 30s; 3 consecutive failures auto-deregister.
-`HTTPChannel` implements `core.Channel` by POSTing to `<url>/send` and
-buffers outbound while an adapter is disconnected.
+`HTTPChannel` implements `core.Channel` by POSTing to `<url>/send`. It is
+stateless and holds no queue: it makes one attempt and returns the result.
+routd owns the durable record and the retry (the `pending` bot row plus its
+30s sweep).
 
 ## Public API
 
@@ -17,7 +19,7 @@ buffers outbound while an adapter is disconnected.
 - `(*Registry).Deregister(name)`, `Get(name)`, `ByToken(token)`, `All()`, `ForJID(jid)`
 - `(*Registry).StartHealthLoop(ctx)`, `CheckAll(ctx)`
 - `NewHTTPChannel(e *Entry, secret string) *HTTPChannel`
-- `(*HTTPChannel).Send`, `SendFile`, `Typing`, `DrainOutbox`, `Owns`, `Connect`, `Disconnect`
+- `(*HTTPChannel).Send`, `SendFile`, `Typing`, `Owns`, `Connect`, `Disconnect`
 - `Entry` — per-adapter row
 
 ## Dependencies

@@ -16,15 +16,11 @@ import (
 // them on the way out. The registry is in-memory: adapters re-register on routd
 // restart (chanlib retries on 401).
 
-// SetChannelRegistry wires the channel registry + the live-channel hooks so the
-// Deliverer reuses the per-adapter HTTPChannel (preserving its retry outbox)
-// instead of constructing a throwaway per send. Call before Handler(). reg==nil
-// leaves the channel endpoints unmounted (pure REST tests / no adapters).
-func (s *Server) SetChannelRegistry(reg *chanreg.Registry,
-	onRegister func(name string, ch *chanreg.HTTPChannel), onDeregister func(name string)) {
+// SetChannelRegistry wires the channel registry the Deliverer resolves against.
+// Call it before Handler(). reg==nil leaves the channel endpoints unmounted
+// (pure REST tests / no adapters).
+func (s *Server) SetChannelRegistry(reg *chanreg.Registry) {
 	s.reg = reg
-	s.onRegister = onRegister
-	s.onDeregister = onDeregister
 }
 
 // mountChannels adds the channel-registration routes when a registry is wired.
@@ -111,11 +107,6 @@ func (s *Server) handleChannelRegister(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, status, err.Error())
 		return
 	}
-	if s.onRegister != nil {
-		if entry := s.reg.Get(req.Name); entry != nil {
-			s.onRegister(req.Name, chanreg.NewHTTPChannel(entry, s.reg.Bearer()))
-		}
-	}
 	slog.Info("channel registered", "name", req.Name, "url", req.URL, "prefixes", req.JIDPrefixes)
 	chanlib.WriteJSON(w, map[string]any{"ok": true, "token": token})
 }
@@ -128,9 +119,6 @@ func (s *Server) handleChannelDeregister(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.reg.Deregister(entry.Name)
-	if s.onDeregister != nil {
-		s.onDeregister(entry.Name)
-	}
 	slog.Info("channel deregistered", "name", entry.Name)
 	chanlib.WriteJSON(w, map[string]any{"ok": true})
 }

@@ -25,6 +25,9 @@ type recDeliverer struct {
 	posts    int
 	dislikes int
 	failSend bool
+	// failIdem fails ONLY the send whose idempotency key (the message id)
+	// matches, so a test can put one dead row among healthy ones.
+	failIdem string
 	pid      string
 	// viaChannels records the explicit adapter pin of every SendVia call
 	// (spec 5/34 outbound resolution step 1).
@@ -53,7 +56,7 @@ type sentEdit struct {
 
 func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
 	d.sends = append(d.sends, sentMsg{jid, text, replyTo, threadID, threadRoot, idem})
-	if d.failSend {
+	if d.failSend || (d.failIdem != "" && idem == d.failIdem) {
 		return "", errSend
 	}
 	if d.pid == "" {
@@ -734,6 +737,55 @@ func TestOutboundRetryRedispatchesAndFails(t *testing.T) {
 	}
 	if st := statusOf(db, "fresh"); st != core.MessageStatusPending {
 		t.Fatalf("fresh status=%q want still pending (<30s)", st)
+	}
+}
+
+// TestOutboundRetryFailureKeepsRowPendingAndContinues locks the durable form of
+// head-of-line freedom. The retired in-memory chanreg outbox claimed this
+// property and never delivered it: only a re-registration drained the queue, and
+// a re-registration also REPLACED the channel object that held it, so the drain
+// always ran on an empty, freshly built queue. The `messages` row is the real
+// carrier. A send that fails must leave its row `pending` for the next sweep,
+// and must not stop the sweep from attempting the rows behind it.
+func TestOutboundRetryFailureKeepsRowPendingAndContinues(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// PendingOutbound orders by timestamp ASC, so the older 'dead' row is the
+	// head of the batch — exactly the position that used to block the rest.
+	dl := &recDeliverer{failIdem: "dead"}
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl})
+
+	now := time.Now().UTC()
+	_ = db.PutMessage(core.Message{ID: "dead", ChatJID: "slack:T/C/U", Sender: "demo",
+		Content: "adapter refuses", Timestamp: now.Add(-2 * time.Minute), BotMsg: true,
+		Status: core.MessageStatusPending})
+	_ = db.PutMessage(core.Message{ID: "live", ChatJID: "slack:T/C/U", Sender: "demo",
+		Content: "deliver me", Timestamp: now.Add(-1 * time.Minute), BotMsg: true,
+		Status: core.MessageStatusPending})
+
+	loop.nextRetryAt = now.Add(-time.Second) // due now
+	loop.maybeRetryOutbound(now)
+
+	if len(dl.sends) != 2 {
+		t.Fatalf("sweep attempted %d rows, want 2 — the dead head blocked the batch: %+v", len(dl.sends), dl.sends)
+	}
+	if st := statusOf(db, "dead"); st != core.MessageStatusPending {
+		t.Errorf("dead row status=%q want pending (a failed send must stay retriable)", st)
+	}
+	if st := statusOf(db, "live"); st != core.MessageStatusSent {
+		t.Errorf("live row status=%q want sent", st)
+	}
+
+	// The next sweep retries the still-pending row — the durable queue survives
+	// where the in-memory one was discarded.
+	dl.failIdem = ""
+	loop.nextRetryAt = now.Add(-time.Second)
+	loop.maybeRetryOutbound(now)
+	if st := statusOf(db, "dead"); st != core.MessageStatusSent {
+		t.Errorf("dead row status=%q want sent after the adapter recovered", st)
 	}
 }
 

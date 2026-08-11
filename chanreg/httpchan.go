@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
@@ -50,16 +49,10 @@ func decodeUnsupported(body io.Reader, fallbackTool, fallbackPlatform string) er
 	return &chanlib.UnsupportedError{Tool: b.Tool, Platform: b.Platform, Hint: b.Hint}
 }
 
-const maxOutbox = 1000
-
-// maxSendAttempts bounds outbox retries per message so a permanently-dead jid
-// (group deleted, bot kicked) self-evicts instead of requeuing forever and
-// filling the outbox → dropping messages for ALL groups on the channel.
-const maxSendAttempts = 5
-
-// errPermanent marks a 4xx adapter response — a permanent failure (bad request,
-// chat gone, bad emoji) the caller can't fix by retrying. It is surfaced to the
-// agent and never enqueued; a transient 5xx/network error is retried instead.
+// errPermanent marks a 4xx adapter response. The adapter refuses the message for
+// a reason that a retry cannot repair: a bad request, a deleted chat, or a bad
+// emoji. The wrapped error text reaches the agent. routd retries a transient
+// failure from the durable `pending` row (`routd/loop.go` maybeRetryOutbound).
 var errPermanent = errors.New("permanent")
 
 // classifyStatus wraps a non-200 adapter status: 4xx → errPermanent, else plain.
@@ -77,11 +70,10 @@ type HTTPChannel struct {
 	// Never nil — NewHTTPChannel installs a getter.
 	bearer func(context.Context) (string, error)
 	client *http.Client
-
-	mu     sync.RWMutex
-	outbox []outMsg
 }
 
+// outMsg carries one outbound request from Send/SendFile into trySend. The
+// channel keeps no copy of it: routd owns the durable record and the retry.
 type outMsg struct {
 	JID         string
 	Content     string
@@ -94,7 +86,6 @@ type outMsg struct {
 	Name        string
 	Caption     string
 	FileReplyTo string
-	Attempts    int
 }
 
 // NewHTTPChannel builds the routd-side egress client for an adapter. bearer
@@ -140,24 +131,13 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID,
 		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
 	m := outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID, ThreadRoot: threadRoot, TurnID: turnID}
-	return h.sendOrQueue(ctx, m)
+	return h.trySend(ctx, m)
 }
 
-// sendOrQueue is the direct-send policy: try once, enqueue a transient failure
-// for DrainOutbox to retry, surface a permanent (4xx) error to the agent
-// without enqueuing (never retried).
-func (h *HTTPChannel) sendOrQueue(ctx context.Context, m outMsg) (string, error) {
-	id, err := h.trySend(ctx, m)
-	if err != nil && !errors.Is(err, errPermanent) {
-		h.enqueue(m)
-	}
-	return id, err
-}
-
-// trySend performs ONE delivery attempt for m without touching the outbox, so
-// the direct-send path and DrainOutbox each own their own enqueue/retry policy
-// (the direct path enqueues on failure; the drain re-enqueues with a bounded
-// attempt counter so a dead jid self-evicts).
+// trySend makes ONE delivery attempt for m and returns the result to the caller.
+// The channel holds no queue: routd writes the bot row `pending` before the
+// attempt, and its 30s sweep re-sends a row that stays `pending`. A retry here
+// would be a second writer beside that sweep.
 func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 	if m.IsFile {
 		if !h.entry.HasCap("send_file") {
@@ -218,7 +198,7 @@ func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption,
 		return "", fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
 	m := outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo, ThreadID: threadID}
-	return h.sendOrQueue(ctx, m)
+	return h.trySend(ctx, m)
 }
 
 func (h *HTTPChannel) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
@@ -504,42 +484,6 @@ func (h *HTTPChannel) Disconnect() error { return nil }
 
 func (h *HTTPChannel) HealthCheck() error { return healthPing(h.client, h.entry.URL) }
 
-func (h *HTTPChannel) DrainOutbox() {
-	h.mu.Lock()
-	q := h.outbox
-	h.outbox = nil
-	h.mu.Unlock()
-
-	for _, m := range q {
-		// trySend does NOT re-enqueue (unlike Send), so the drain owns the retry
-		// policy. CONTINUE past a failure — never let one dead jid block the rest
-		// of the batch (head-of-line). Re-queue with a bounded attempt counter so a
-		// permanently-dead jid (group deleted, bot kicked) self-evicts.
-		if _, err := h.trySend(context.Background(), m); err != nil {
-			if errors.Is(err, errPermanent) {
-				slog.Warn("outbox drain: permanent error, dropping",
-					"channel", h.entry.Name, "jid", m.JID, "err", err)
-				continue
-			}
-			m.Attempts++
-			if m.Attempts < maxSendAttempts {
-				h.enqueue(m)
-				slog.Warn("outbox drain failed, requeued",
-					"channel", h.entry.Name, "jid", m.JID, "attempt", m.Attempts, "err", err)
-			} else {
-				slog.Warn("outbox drain failed, dropping after max attempts",
-					"channel", h.entry.Name, "jid", m.JID, "attempts", m.Attempts, "err", err)
-			}
-		}
-	}
-}
-
-func (h *HTTPChannel) QueueLen() int {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return len(h.outbox)
-}
-
 func (h *HTTPChannel) post(ctx context.Context, path string, body []byte) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST", h.entry.URL+path, bytes.NewReader(body))
 	if err != nil {
@@ -548,14 +492,4 @@ func (h *HTTPChannel) post(ctx context.Context, path string, body []byte) (*http
 	req.Header.Set("Content-Type", "application/json")
 	h.authHeader(ctx, req)
 	return h.client.Do(req)
-}
-
-func (h *HTTPChannel) enqueue(m outMsg) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if len(h.outbox) >= maxOutbox {
-		slog.Warn("outbox full, dropping message", "channel", h.entry.Name, "jid", m.JID)
-		return
-	}
-	h.outbox = append(h.outbox, m)
 }

@@ -386,8 +386,8 @@ servers. Full protocol: `specs/5/34-channel-protocol.md`.
 - **Outbound**: router calls `POST <url>/send` (synchronous)
 - **Registration**: `POST /v1/channels/register` with name, URL, JID prefixes,
   capabilities; returns session token
-- **Health**: `GET /health` every 30s; 3 failures = auto-deregister; outbound
-  queues in `HTTPChannel.outbox`
+- **Health**: `GET /health` every 30s; 3 failures = auto-deregister; a send to a
+  deregistered adapter fails and routd's 30s sweep re-sends the `pending` row
 - **Auth**: an ES256 `service:<daemon>` token exchanged from
   `AUTHD_SERVICE_KEY` at authd, verified against authd's JWKS
   (`chanlib.Auth`). Both directions use it; there is no shared symmetric

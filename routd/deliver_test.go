@@ -1,7 +1,6 @@
 package routd
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -176,22 +175,27 @@ func TestDelivererDisabledAllowsReactions(t *testing.T) {
 	}
 }
 
-// TestDelivererReusesLiveChannel: the register hook records a live channel and
-// resolve reuses it (so the retry outbox survives) instead of building fresh.
-func TestDelivererReusesLiveChannel(t *testing.T) {
-	a := newFakeAdapter(t, "pid")
+// TestDelivererResolvesCurrentEntry: the Deliverer caches no channel, so a
+// re-registration that moves an adapter's URL takes effect on the very next
+// send. Registry.Register REPLACES the Entry value, so a cached channel would
+// have held the old URL and delivered to a dead address.
+func TestDelivererResolvesCurrentEntry(t *testing.T) {
+	old := newFakeAdapter(t, "from-old")
+	moved := newFakeAdapter(t, "from-moved")
 	reg := chanreg.New()
-	registerAdapter(t, reg, "slakd", a.srv.URL, "slack:T1/")
+	registerAdapter(t, reg, "slakd", old.srv.URL, "slack:T1/")
 	d := newChanDeliverer(reg, nil, nil)
 
-	live := chanreg.NewHTTPChannel(reg.Get("slakd"), func(context.Context) (string, error) { return "", nil })
-	d.setLive("slakd", live)
-	if got := d.resolve("", "slack:T1/C/U"); got != live {
-		t.Fatal("resolve did not return the cached live channel")
+	if _, err := d.Send("slack:T1/C/U", "first", "", "", "", "k1"); err != nil {
+		t.Fatalf("send before move: %v", err)
 	}
-	d.dropLive("slakd")
-	if got := d.resolve("", "slack:T1/C/U"); got == live {
-		t.Fatal("resolve returned the dropped live channel")
+	// The adapter re-registers at a new URL (a restart on a new host/port).
+	registerAdapter(t, reg, "slakd", moved.srv.URL, "slack:T1/")
+	if _, err := d.Send("slack:T1/C/U", "second", "", "", "", "k2"); err != nil {
+		t.Fatalf("send after move: %v", err)
+	}
+	if old.count() != 1 || moved.count() != 1 {
+		t.Fatalf("stale entry served: old=%d moved=%d want 1,1", old.count(), moved.count())
 	}
 }
 
@@ -208,9 +212,8 @@ func TestServerWiresDelivererViaRegistry(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 
 	reg := chanreg.New()
-	deliver, onRegister, onDeregister := NewChannelDeliverer(reg, nil, db.LatestSource)
-	srv := NewServer(db, nil, deliver, nil, 0, "")
-	srv.SetChannelRegistry(reg, onRegister, onDeregister)
+	srv := NewServer(db, nil, NewChannelDeliverer(reg, nil, db.LatestSource), nil, 0, "")
+	srv.SetChannelRegistry(reg)
 	h := srv.Handler()
 
 	// register the adapter via the HTTP surface.
@@ -237,7 +240,6 @@ func TestServerWiresDelivererViaRegistry(t *testing.T) {
 	if a.last.content != "answer" {
 		t.Fatalf("delivered content=%q want answer", a.last.content)
 	}
-	_ = onDeregister
 }
 
 // F67 / spec 5/34 § "Outbound and adapter resolution" step 1: an explicit
@@ -288,12 +290,12 @@ func TestOutboundHonoursChannelPin(t *testing.T) {
 	// lookupSource pins the fallback to "telegram" so the unpinned resolution is
 	// DETERMINISTIC: without this the ForJID prefix scan picks either adapter by
 	// map order and the assertion below would pass by luck.
-	deliver, onRegister, onDeregister := NewChannelDeliverer(reg, nil, func(string) string { return "telegram" })
+	deliver := NewChannelDeliverer(reg, nil, func(string) string { return "telegram" })
 	registerAdapter(t, reg, "telegram", other.srv.URL, "telegram:")
 	registerAdapter(t, reg, "telegram-rhias", pinned.srv.URL, "telegram:")
 
 	srv := NewServer(db, nil, deliver, nil, 0, "")
-	srv.SetChannelRegistry(reg, onRegister, onDeregister)
+	srv.SetChannelRegistry(reg)
 	h := srv.Handler()
 
 	// Pinned: the second bot account receives it, not the prefix-scan winner.

@@ -27,7 +27,7 @@ func TestSenderSchemeGuard(t *testing.T) {
 		"", "service:slakd"); err != nil {
 		t.Fatalf("register slakd: %v", err)
 	}
-	srv.SetChannelRegistry(reg, nil, nil)
+	srv.SetChannelRegistry(reg)
 	h := srv.Handler()
 
 	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
