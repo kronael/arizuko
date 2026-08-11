@@ -2,12 +2,19 @@ package main
 
 import (
 	"database/sql"
+	"embed"
 	"log/slog"
 	"os"
 	"path/filepath"
 
+	"github.com/kronael/arizuko/db_utils"
 	_ "modernc.org/sqlite"
 )
+
+//go:embed migrations/*.sql
+var migrationFS embed.FS
+
+const serviceName = "emaid"
 
 type emailThread struct {
 	ThreadID    string
@@ -15,26 +22,28 @@ type emailThread struct {
 	RootMsgID   string
 }
 
+// openDB opens <dataDir>/emaid.db with the owner-DB conventions (WAL,
+// busy_timeout, foreign keys on every pooled connection) and applies the
+// emaid migrations. emaid creates a missing file itself: emaid.db is
+// adapter-private state, and `arizuko create` does not seed it.
 func openDB(dataDir string) (*sql.DB, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", filepath.Join(dataDir, "emaid.db"))
+	dsn := filepath.Join(dataDir, "emaid.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS email_threads (
-			thread_id TEXT PRIMARY KEY,
-			from_address TEXT NOT NULL,
-			root_msg_id TEXT NOT NULL
-		);
-		CREATE TABLE IF NOT EXISTS email_msg_ids (
-			msg_id TEXT PRIMARY KEY,
-			thread_id TEXT NOT NULL
-		);
-	`)
-	return db, err
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
 }
 
 func getThreadByMsgID(db *sql.DB, msgID string) *emailThread {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -10,12 +11,49 @@ import (
 
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := openDB(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+func TestOpenDBFreshMigrates(t *testing.T) {
+	db := newTestDB(t)
+	for _, table := range []string{"email_threads", "email_msg_ids"} {
+		var name string
+		err := db.QueryRow(
+			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
+			table).Scan(&name)
+		if err != nil {
+			t.Fatalf("table %s: %v", table, err)
+		}
+	}
+	var version int
+	err := db.QueryRow(
+		`SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?`,
+		serviceName).Scan(&version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != 1 {
+		t.Fatalf("migration version = %d, want 1", version)
+	}
+}
+
+// TestOpenDBAdoptsPreMigrationFile protects the live instances: their
+// emaid.db was created by the retired inline CREATE TABLE, so it holds
+// both tables and rows but no migrations table. openDB must open that
+// file, keep its rows, and record migration version 1.
+func TestOpenDBAdoptsPreMigrationFile(t *testing.T) {
+	dir := t.TempDir()
+	old, err := sql.Open("sqlite", filepath.Join(dir, "emaid.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the retired inline schema, verbatim
+	_, err = old.Exec(`
 		CREATE TABLE IF NOT EXISTS email_threads (
 			thread_id TEXT PRIMARY KEY,
 			from_address TEXT NOT NULL,
@@ -29,8 +67,33 @@ func newTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	upsertThread(old, "msg-1@x.com", "tid1", "alice@x.com", "msg-1@x.com")
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := openDB(dir)
+	if err != nil {
+		t.Fatalf("openDB on a pre-migration file: %v", err)
+	}
+	defer db.Close()
+	got := getThreadByMsgID(db, "msg-1@x.com")
+	if got == nil {
+		t.Fatal("pre-existing row lost after migration")
+	}
+	if got.ThreadID != "tid1" || got.FromAddress != "alice@x.com" {
+		t.Fatalf("pre-existing row changed: %+v", got)
+	}
+	var version int
+	err = db.QueryRow(
+		`SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?`,
+		serviceName).Scan(&version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != 1 {
+		t.Fatalf("migration version = %d, want 1", version)
+	}
 }
 
 func TestThreadStore(t *testing.T) {
