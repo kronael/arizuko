@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L6 — proxyd verifies HS256 bearers that nothing can mint any more (2026-08-11, open)
+## L6 — proxyd verifies HS256 bearers that nothing can mint any more (2026-08-11, FIXED 2026-08-11, 58c17019)
 
 `proxyd.tryAuth` tries HS256 (`auth.VerifyJWT` with `AUTH_SECRET`) FIRST on every
 bearer, before ES256/authd. The only minter, `auth.mintJWT`, is package-private
@@ -33,6 +33,23 @@ redesign → recorded, not fixed (System-change discipline).
   `git show a56202d4 --stat` → `issueSession` + local-OAuth mount deleted.
   `deadcode ./...` flags `auth/jwt.go:29 mintJWT`; survives `-test` only via
   `auth/auth_test.go` (4 calls).
+
+**FIXED 2026-08-11** (`58c17019`). `tryAuth` is ES256 only and returns nil when
+`s.ks == nil`. `auth/jwt.go` is deleted whole — `Claims`, `mintJWT`,
+`VerifyJWT`, `sign`, `clockSkew`; `ErrInvalidToken`/`ErrExpiredToken` move to
+`es256.go`, where authd's `Refresh` and `VerifyToken` still use them.
+`AUTH_SECRET` stays required at `requireAuth` for a different and real reason:
+it keys the OAuth CSRF state, so the login flow cannot complete without it.
+
+The removal exposed something the audit had not: **19 proxyd tests
+authenticated by minting HS256 tokens**, so the suite exercised the forgery
+path as its auth mechanism. They now mint ES256 through the existing
+`es256KeySet`/`davES256Server` seams, and no assertion was weakened.
+`TestTryAuth_HS256StillWorksWithKeySet` pinned the branch as INTENDED
+behaviour; it is inverted into `TestTryAuth_HS256Refused`, which fails with
+`HS256 bearer signed with AUTH_SECRET was accepted as "forged"; the L6 forgery
+branch is back` when the branch is restored.
+
 
 **Proposal** (2026-08-11, awaits sign-off — option a: delete the HS256 bearer path)
 
