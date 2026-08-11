@@ -158,6 +158,11 @@ func main() {
 	loop := routd.NewLoop(db, runedClient, routd.LoopConfig{
 		RunTimeout: runedWait,
 		IpcDir:     filepath.Join(dataDir, "ipc"),
+		// The SAME variable runed reads for its own ceiling. routd's queue
+		// paces the work and runed admits it, so the two must agree: while
+		// this was unwired, routd held a hardcoded 5 and an operator raising
+		// MAX_CONCURRENT_CONTAINERS moved one cap and not the other (BUGS F71).
+		MaxRuns: intOr("MAX_CONCURRENT_CONTAINERS", 5),
 		RunScopes: []types.Scope{
 			"messages:send:own_group", "chats:read:own_group",
 		},
