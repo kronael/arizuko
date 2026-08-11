@@ -609,7 +609,7 @@ func (l *Loop) resolveGroup(chatJID string, last core.Message) (string, bool) {
 }
 
 func (l *Loop) resolve(chatJID string, last core.Message) resolution {
-	// 1. Direct address: web:<folder> or a bare registered folder.
+	// 1. Direct address: a web:/hook: JID or a bare registered folder.
 	if direct := directFolder(chatJID); direct != "" && l.db.GroupExists(direct) {
 		return resolution{Folder: direct, ok: true}
 	}
@@ -676,11 +676,14 @@ func (l *Loop) engaged(chatJID, topic string) (string, bool) {
 }
 
 // directFolder returns the folder a JID directly addresses, or "" if the JID is
-// not a direct address. web:<folder> and bare folder JIDs (no platform prefix)
-// address a group directly; the route table does not apply.
+// not a direct address. The mint writes the target folder into web: and hook:
+// JIDs (spec 5/W); groupfolder.JidFolder extracts it. Bare folder JIDs (no
+// platform prefix) also address a group directly. The route table does not
+// apply. hook: was missing here: resolution fell through to a route miss and
+// onbod parked every webhook payload as a new unknown chat (BUGS L1).
 func directFolder(jid string) string {
-	if after, ok := strings.CutPrefix(jid, "web:"); ok {
-		return after
+	if folder := groupfolder.JidFolder(jid); folder != "" {
+		return folder
 	}
 	if !strings.Contains(jid, ":") {
 		return jid

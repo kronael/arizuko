@@ -165,6 +165,52 @@ func TestQueuePathRouteMissInsertsOnboarding(t *testing.T) {
 	}
 }
 
+// TestHookJIDDispatchesToOwnerFolder pins the BUGS L1 fix: the mint writes the
+// target folder into a hook: JID (spec 5/W), so route resolution dispatches the
+// payload to that folder. Before the fix the JID missed resolution, onbod
+// queued it as a new unknown chat, and the payload never reached the agent —
+// with onboarding enabled and onbod wired, exactly the live shape. The test
+// asserts BOTH halves: a run dispatches for the owner folder, and no
+// onboarding row appears.
+func TestHookJIDDispatchesToOwnerFolder(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	runner := &stubRunner{}
+	loop := NewLoop(db, runner, LoopConfig{OnboardingEnabled: true})
+	loop.StopQueue()
+	srv := NewServer(db, loop, nil, nil, 0, "https://example.test")
+	runner.srv = srv
+	fo := &fakeOnbod{}
+	loop.SetOnbodClient(fo)
+	_ = db.PutGroup(core.Group{Folder: "eval"})
+
+	// Build the JID with the mint's own builder so the test and the mint
+	// grammar cannot drift.
+	jid, _, err := routeTokenJID("hook", "eval", "linear", "")
+	if err != nil {
+		t.Fatalf("mint jid: %v", err)
+	}
+	_ = db.PutMessage(core.Message{ID: "h1", ChatJID: jid, Sender: "linear",
+		Content: `{"event":"issue.created"}`, Timestamp: time.Now().UTC(), Verb: "message"})
+
+	if _, err := loop.processGroupMessages(jid); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if runner.gotTurn != "h1" {
+		t.Fatalf("turn_id=%q want h1 (webhook payload did not dispatch)", runner.gotTurn)
+	}
+	tc, ok := db.GetTurnContext("h1")
+	if !ok || tc.Folder != "eval" {
+		t.Fatalf("turn_context=%+v ok=%v, want folder eval", tc, ok)
+	}
+	if len(fo.onboarded) != 0 {
+		t.Fatalf("hook: JID parked in onboarding: %v", fo.onboarded)
+	}
+}
+
 // TestRouteMissOnboardingFailureSurfaces: an InsertOnboarding failure must not
 // be swallowed — the chat gets a notice (else the new user faces permanent
 // silence) and the cursor still advances (fail-forward, no poison replay).
