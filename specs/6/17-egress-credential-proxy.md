@@ -1,179 +1,178 @@
 ---
 status: draft
-source: paradigmxyz/centaur@20f3021 (Apache-2.0) peel, 2026-08-10
+source: paradigmxyz/centaur@20f3021 + paradigmxyz/iron-proxy (both Apache-2.0), 2026-08-11
 depends: [8-crackbox-standalone, ../5/13-ext-mcp, ../5/14-credentials]
 ---
 
 # specs/6/17 — egress credential proxy (the opaque-client hole)
 
-Proposal to fill the one credential hole arizuko still has: an
-**opaque HTTP client running inside the container** — the `aws` CLI,
-`gh`, `boto3`, or any script the agent writes that calls an API
-directly, not through an arizuko-brokered tool. `5/13`/`5/14` closed
-every BROKERED path (connectors, REST descriptors), but a raw client
-has no broker to hook. `5/13` §"Out of scope" names this as `8/Z`,
-"MITM-isolated egress for opaque HTTP clients, additive" — that spec was
-never written and `8/Z` does not exist. This is it, recast from what
-Centaur actually ships.
+Proposal to close the one credential hole arizuko still has: an
+**opaque HTTP client inside the container** — the `aws` CLI, `gh`,
+`boto3`, or any script the agent writes. `5/13`/`5/14` closed every
+brokered path, but a raw client has no broker to hook. `5/13` §"Out of
+scope" (`specs/5/13-ext-mcp.md:163`) names this gap `8/Z`, never
+written. This is it.
+
+Plan: **adopt the iron-proxy data plane, own the control plane.** An
+earlier draft claimed the data plane was closed and proposed to build
+MITM inside crackbox. That was wrong — `github.com/paradigmxyz/iron-proxy`
+is open, Apache-2.0, Go — and the build-it plan falls with it.
 
 ## The hole, precisely
 
 - **arizuko brokers only tools it dispatches.** A capability credential
-  reaches a connector subprocess or a REST request ON THE HOST, per call,
-  and is scrubbed from the result (`ipc/connector.go:120-127`,
-  `ipc/extcall.go:59-97`). The container env never carries it (`5/14` §2,
+  reaches a connector subprocess or a REST request on the host, per
+  call, and is scrubbed from the result (`ipc/connector.go:120`,
+  `ipc/extcall.go:59`). The container env never carries it (`5/14` §2,
   BUGS `X1` closed 2026-08-09).
-- **A raw in-container client is unreachable by that broker.** Its bytes
-  ride TLS the platform cannot see: crackbox CONNECT-tunnels HTTPS by
-  splicing raw bytes (`crackbox/pkg/proxy/proxy.go:95,159`) after peeking
-  only the SNI/ClientHello (`crackbox/pkg/proxy/peek.go:31,45`). It
-  cannot inject or inspect anything inside the tunnel — response scanning
-  is explicitly out of scope (`specs/6/8-crackbox-standalone.md:138`).
-- **So the only way to feed a raw client a capability credential is to
-  put it in container env — which `X1` forbids.** That collision is a
-  live, filed casualty: BUGS `X2`, the aws-devops product, whose whole
-  pitch is per-engineer `AWS_*` keys reaching `boto3` inside the
-  container for CloudTrail attribution. `X1` removed the mechanism; the
-  product now fails silently. `X2` option (a) is "a host-side SigV4
-  connector" — which is exactly this spec's `aws_auth` transform.
+- **The broker cannot reach a raw in-container client.** crackbox
+  tunnels HTTPS by splicing raw bytes (`crackbox/pkg/proxy/proxy.go:95,159`)
+  after it peeks only the SNI (`crackbox/pkg/proxy/peek.go`). It cannot
+  see or change anything inside the tunnel; response scanning is
+  declined (`specs/6/8-crackbox-standalone.md:138`).
+- **The only remaining way to feed such a client is container env** —
+  which `X1` forbids. BUGS `X2` is the live casualty: the aws-devops
+  product needs per-engineer `AWS_*` keys inside `boto3` for CloudTrail
+  attribution, and `X1` removed the mechanism.
 
-## What Centaur does — and the sharp caveat
+## The design, and who ships which half
 
-Centaur's answer is a **MITM egress proxy that swaps a placeholder for
-the real credential host-side**, keyed by destination host. The
-load-bearing idea, verified in their open control plane:
+- **Data plane: `paradigmxyz/iron-proxy`** (Apache-2.0, Go; the
+  `ironsh/iron-proxy` URL redirects there). A MITM egress proxy with a
+  built-in DNS server. It terminates TLS with leaf certificates it
+  signs on the fly, from a CA the operator provides. Its DNS server
+  resolves every name to `proxy_ip`, with passthrough domains and
+  static records. Its transform pipeline is ordered and default-deny:
+  `allowlist` (403 outside the list), `header_allowlist`, `secrets`
+  (replace or inject a credential; sources `env`/`file`/`aws_sm`/
+  `aws_ssm`/`1password` — no inline YAML value), `aws_auth` (SigV4
+  re-sign), `oauth_token`, `gcp_auth`, `hmac_sign`, audit transforms,
+  and an MCP tool allowlist. A management API (`POST /v1/reload`,
+  bearer key via `IRON_MANAGEMENT_API_KEY`) re-reads the config file
+  and swaps the pipeline atomically; a bad config returns 422 and keeps
+  the old pipeline. Reference: `docs.iron.sh/reference/configuration`.
+  (The README omits `aws_auth`; the configuration reference has it.)
+- **Control plane: arizuko's own.** Centaur renders per-sandbox proxy
+  config from `tools.toml` declarations
+  (`services/console/app/models/principal_sync_config_snapshot.rb`).
+  arizuko renders from **grant rows plus the credential store**. Our
+  policy source is the identity model we already have; that is the
+  reason to own this half.
 
-- **The tool holds a placeholder; the proxy holds the value.** A leaked
-  placeholder is worthless because substitution is bound to a host. In
-  their `inject` mode the client never sees a value at all — the proxy
-  adds the header (`tools/research/websearch/pyproject.toml:36-39`).
-- **Typed transforms per credential kind**, declared per tool and
-  compiled into per-sandbox proxy config
-  (`services/console/app/models/principal_sync_config_snapshot.rb:341-352`):
-  `secrets` (replace/inject a header), `hmac_sign`, `aws_auth`,
-  `oauth_token`, `gcp_auth`.
-- **AWS SigV4 re-signing is the standout.** boto3 signs each request with
-  throwaway placeholder keys; the proxy strips and re-signs with the real
-  read-only IAM keys, scoped by `allowed_services`
-  (`tools/infra/cloudwatch/pyproject.toml:29-47`). The real keys never
-  enter the tool process. This is `X2`'s attribution requirement, solved
-  without the credential ever touching the container.
-- **The sandbox's own identity JWT is injected BY the proxy**, never held
-  in the sandbox
-  (`services/console/app/models/principal_sync_config_snapshot.rb:236-240`)
-  — the cleanest expression of the whole model.
+The load-bearing idea survives adoption unchanged: **the tool holds a
+placeholder; the proxy holds the value.** A leaked placeholder is
+useless because substitution is bound to a destination host. In inject
+mode the client never sees any value (`tools/research/websearch/pyproject.toml:36`).
 
-**The caveat that reshapes the proposal — three findings that changed the
-plan mid-research:**
+## Control-plane stances arizuko sets (Centaur sets them differently)
 
-1. **Their MITM data plane is a closed third-party binary.** `services/iron-proxy/`
-   is a 14-line Dockerfile over a pinned image
-   (`services/iron-proxy/Dockerfile:3`,
-   `FROM ironsh/iron-proxy:0.49.0@sha256:c462…`); the repo has **zero Go
-   files**. Every TLS/ALPN/HPACK/body-buffering mechanic lives in code
-   we cannot read, and **no test in their repo ever starts the proxy**
-   (`centaur-sandbox-e2e/tests/support/mod.rs:387` points the control
-   client at a dead `http://127.0.0.1:1`). What is open is the CONTROL
-   plane (a Rails app, "iron-control") + config translators — the design,
-   not the engine. So there is nothing to import; only a design to copy
-   and build in crackbox.
-2. **Response-body secret scanning — the thing the brief asked me to
-   study — does not exist in Centaur.** Grepping their whole tree for
-   response/scan/dlp/redact/gzip found no response-side transform, no
-   leak detection, no size limit. Credentials flow outbound under policy;
-   what comes back is unexamined. (crackbox already declined response
-   scanning too, `6/8:138`.) If arizuko wants it, Centaur is not the
-   reference — it is greenfield, and it belongs in a separate spec.
-3. **Centaur's match-failure default is fail-OPEN, and they hardcode it
-   that way.** When a host matches but the credential doesn't resolve,
-   the secret is silently dropped and the PLACEHOLDER goes upstream as a
-   literal (`services/console/docs/API.md:145`;
-   observed as real 401s, `centaur-sandbox-agent-k8s/src/iron_proxy.rs:61-73`).
-   Their one fail-closed lever, `require`, is hardcoded `false` on the
-   tool path (`centaur-perms/src/translate.rs:188,191`), and its
-   semantics live in the closed binary, documented nowhere. **arizuko
-   must invert this**: a declared host with an unresolved credential
-   BLOCKS the request (`5/14`/`5/13` fail-loud discipline, CLAUDE.md
-   §"Fail loud"). A placeholder reaching an upstream is a credential-shaped
-   token in someone's logs.
+1. **Fail closed.** iron-proxy's `secrets` rule has a `require` field,
+   default `false`; with `true`, a request to a matching host without
+   the proxy token is rejected with 403. Centaur hardcodes
+   `require: false` on the tool path (`centaur-perms/src/translate.rs:191`),
+   and its control plane silently omits a secret whose credential does
+   not resolve (`services/console/docs/API.md:139`) — the placeholder
+   then goes upstream as a literal (observed as real 401s,
+   `centaur-sandbox-agent-k8s/src/iron_proxy.rs:61-73`). arizuko
+   inverts both levers: every rendered rule sets `require: true`, and
+   the renderer refuses to render a granted host whose credential does
+   not resolve — the turn fails loudly instead (CLAUDE.md §"Fail loud").
+2. **No wide-open seed.** Centaur's checked-in seed config allowlists
+   `domains: ["*"]` — fully open, with the real policy pushed at
+   runtime (`services/iron-proxy/iron-proxy.yaml:22-25`). arizuko's
+   renderer writes the folder's real allowlist into the file; a sidecar
+   that has not been configured allows nothing.
+3. **One credential store, two injection sites.** The renderer reads
+   `store.FolderSecretsResolvedForUser` (`store/secrets.go:543`) — the
+   same reader the `5/13` broker uses. Never a second credential table.
+   iron-proxy has no inline-value source, so the renderer writes each
+   value to a `0600` file in the sidecar's private volume and points a
+   `file` source at it.
 
-## The delta: crackbox gains an opt-in MITM inject mode
+## The delta
 
-crackbox already terminates the client's CONNECT and dials upstream. The
-addition is a per-host decision at that seam: **splice (today) OR
-terminate-inspect-inject (new)**, chosen by whether a transform rule
-matches the peeked SNI host. The pieces:
+- **One iron-proxy sidecar per folder network**, pinned by version AND
+  digest (Centaur pins `0.49.0@sha256:c462…`,
+  `services/iron-proxy/Dockerfile:3`; arizuko pins its own). Per-folder
+  because iron-proxy runs one pipeline per process and has no
+  per-source-IP registry (crackbox's model): a shared instance would
+  inject folder A's credential into folder B's request to the same
+  host. Centaur likewise runs it per sandbox.
+- **Render + reload before each spawn.** routd renders the config per
+  turn from grants + store (the triggering user's keys overlay folder
+  defaults, `5/14` §"Who is the caller"). The spawn path writes the
+  file and the secret files, POSTs `/v1/reload`, and starts the agent
+  container only on 200 — any other answer aborts the spawn.
+  Reload-from-file is the documented update path; there is no file
+  polling. The per-folder run slot (`runed/audit.go`)
+  serializes turns, so a reload cannot race a same-folder turn.
+- **CA lifecycle.** `arizuko create` generates one CA per instance. The
+  key mounts only into sidecars; the certificate mounts into agent
+  containers. Spawn env sets `NODE_EXTRA_CA_CERTS`,
+  `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE`, `CURL_CA_BUNDLE`,
+  `GIT_SSL_CAINFO` (Centaur's set, `iron_proxy.rs:1687-1703`). Known
+  gap, stated: rustls, Deno, and JVM clients ignore these variables.
+  Rotation is an operator command, not automatic.
+- **crackbox is replaced on the agent egress path.** The sidecar covers
+  the allowlist, the DNS filter (arizuko never wired crackbox's `6/10`
+  filter — `6/10` §Scope records that `--dns` was never passed), and
+  adds the injection crackbox declined. `container/egress.go` switches
+  from crackbox register/unregister to sidecar render/reload; the
+  per-instance crackbox container leaves the deployment. Running both
+  planes is rejected — two egress paths drift. crackbox stays a shipped
+  standalone component (`6/8`) with external consumers, and
+  `crackbox/pkg/host` (`6/9`, KVM) is untouched; arizuko simply stops
+  consuming its proxy. Retiring more of crackbox is a separate user
+  decision. Note also: iron-proxy's MCP tool allowlist overlaps `6/12`
+  (mcpfw, draft, unbuilt) — evaluate it before building mcpfw.
 
-- **A CA, generated once per instance, cert distributed to the container,
-  key held only by crackbox.** Centaur's split is correct
-  (`bootstrap-k8s-secrets.sh:384-396`, sandbox mounts cert-only) — copy
-  the split, NOT their unrotated 10-year shell-script CA. Container trust
-  is env-var: `NODE_EXTRA_CA_CERTS`/`REQUESTS_CA_BUNDLE`/`SSL_CERT_FILE`/
-  `CURL_CA_BUNDLE`/`GIT_SSL_CAINFO` at spawn (Centaur's set,
-  `iron_proxy.rs:1687-1703`) — with the same known gap they hit and
-  worked around three times: rustls/Deno/JVM clients ignore these vars
-  (`tools/productivity/gsuite/client.py:30-41`,
-  `tools/ruff.toml:16`). Document it; do not pretend it is total.
-- **Transform rules driven by the SAME broker credential store** —
-  `store.FolderSecretsResolvedForUser` (`store/secrets.go:449`), the
-  reader the connector broker already uses. One credential store, two
-  injection sites (brokered tool = `5/13`; opaque client = this proxy).
-  A rule is `(host-glob, transform)`; the transform vocabulary is
-  `6/19`'s typed secret entries (`http` replace/inject, `hmac_sign`,
-  `aws_auth`). crackbox's `match.Host` (`crackbox/pkg/match/match.go:46`)
-  already does host-glob matching — reuse it, do not re-implement it in a
-  second place (Centaur's cautionary tale: they re-implemented host
-  matching in Ruby and admit it is only "close enough",
-  `principal_sync_config_snapshot.rb:354-370`).
-- **Fail-closed on match without resolve** (the inversion above).
-- **HTTP/1.1 only, stated.** Centaur's pipeline is HTTP/1.1-shaped (their
-  header allowlist enumerates HTTP/1.1 hop-by-hop headers,
-  `services/iron-proxy/iron-proxy.yaml:55-62`; no ALPN control anywhere)
-  and h2/HPACK/gRPC-trailers are unmentioned in their entire tree. A
-  Go MITM proxy that forces `http/1.1` in ALPN and rejects what it can't
-  parse is the honest v1. Say so; don't claim h2.
+## `X2` is the consumer — satisfied by configuration
+
+`aws_auth` is iron-proxy's own transform, not a Centaur addition
+(`tools/infra/cloudwatch/pyproject.toml:30` rides it). It gives `X2`
+option (a) with zero new crypto code: `boto3` signs with throwaway
+placeholder keys inside the container; the sidecar re-signs with the
+real per-user keys from the store, scoped by `allowed_services`.
+CloudTrail attribution survives because the keys resolve per triggering
+user, exactly as the broker resolves them. The real keys never enter
+the container.
+
+## Tier placement (`5/14`)
+
+The proxy is a **second injection site for capability credentials
+(type 2)**; the first is the `5/13` broker. Env-profile keys (type 1)
+keep their spawn-env path unchanged. Infra credentials (type 3) stay in
+the host `.env`; the sidecar's management key is type 3. No new tier.
 
 ## Cost
 
-Real, and concentrated in crackbox (a shipped standalone component,
-`6/8`): a TLS-termination path beside the splice path, per-host leaf
-minting + cache, CA lifecycle (generate at `arizuko create`, mount at
-spawn, rotate — a real operational surface arizuko does not have today),
-the transform executors (`http` inject is trivial; `aws_auth` SigV4
-re-signing is the one with real crypto), and a config feed from the
-broker store to crackbox (crackbox's admin API already takes per-source
-registration, `6/8:37` — extend the registration payload with rules).
-Operationally it adds a decrypting middlebox to the egress path: a bug
-there is a wrong-credential-to-wrong-host bug, so it needs the fail-closed
-posture and tests that assert a placeholder NEVER reaches an upstream.
+- A vendored, digest-pinned upstream image; release review on every bump.
+- A CA lifecycle (generate, mount, rotate) — a new operational surface.
+- The config renderer, reload plumbing, and one sidecar container per
+  folder (today: one shared crackbox per instance). Container count and
+  RAM grow with folder count.
+- A decrypting middlebox on the egress path. A bug there is a
+  wrong-credential-to-wrong-host bug. Tests must assert that a
+  placeholder never reaches an upstream and that a request from one
+  folder never matches another folder's rule.
 
-## Why it is worth it
-
-It closes the last credential gap and it un-breaks a shipped product. The
-brokered-tool model (`5/13`) is arizuko's and is genuinely ahead of
-Centaur's placeholder-swap for tools arizuko dispatches — the credential
-never enters the container at all, versus Centaur's placeholder-in-env.
-But arizuko has NO answer for the opaque client, and "just don't run
-`aws` in the container" is not one when a product's whole value is per-user
-cloud attribution (`X2`). This is the additive layer `5/13` already
-anticipated by name.
+Against the earlier build-it plan, adoption deletes: a TLS-termination
+path in crackbox, leaf minting and caching, SigV4 re-signing crypto,
+and every transform executor. What remains to build is a renderer, file
+writes, and one HTTP call.
 
 ## Recommendation
 
-Sign this off FIRST among the Centaur specs, but build it **gated on
-`X2`'s design decision** — it IS `X2` option (a) generalized. If the user
-picks (c) retire aws-devops, this shrinks to "nice to have"; if (a), this
-is the mechanism and should be built as scoped here. Do NOT build the CA
-lifecycle speculatively — it earns its operational cost only with a
-consumer, and `X2` is the consumer.
+Adopt, gated on `X2`'s sign-off — this is `X2` option (a) by
+configuration. If the user picks (c) — retire aws-devops — this spec
+shrinks to "nice to have". Do not build the CA lifecycle without a
+consumer; `X2` is the consumer.
 
 ## Attribution
 
-Design derived from reading `paradigmxyz/centaur` (Apache-2.0), commit
-`20f3021`: `services/iron-proxy/`,
-`services/api-rs/crates/centaur-iron-control/`, `centaur-iron-proxy/`,
-`centaur-perms/`, `centaur-sandbox-agent-k8s/src/iron_proxy.rs`,
-`services/console/` (iron-control), `tools/*/pyproject.toml`,
-`contrib/scripts/bootstrap-k8s-secrets.sh`. Their MITM data plane
-(`ironsh/iron-proxy`) is closed and was NOT read; nothing is derived from
-it. No code was copied.
+Design derived from reading two Apache-2.0 repos: `paradigmxyz/centaur`
+@ `20f3021` (`services/iron-proxy/`, the `centaur-iron-*`/`centaur-perms`/
+`centaur-sandbox-agent-k8s` crates, `services/console/`,
+`tools/*/pyproject.toml`) and `paradigmxyz/iron-proxy` (README +
+`docs.iron.sh`). No code was copied. An earlier revision wrongly
+recorded the data plane as closed and unread; corrected 2026-08-11.
