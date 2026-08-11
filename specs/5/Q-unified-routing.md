@@ -30,9 +30,9 @@ noise, and its absence carries the same information. Agent-authored rows
 `messages.status` (migration 0039) is `sent` | `pending` | `failed`.
 routd writes the bot row `pending`, attempts delivery inline, marks
 `sent` on success; a sweep re-dispatches `pending` rows older than 30s
-and fails them after 24h (`routd/loop.go:359`). The in-memory `chanreg`
-outbox stays, but only to drain on adapter reconnect — the DB row is the
-durable record.
+and fails them after 24h (`routd/loop.go:359`). `chanreg` holds no queue
+of its own — the DB row is the only outbound record, and the sweep is
+its only retry owner.
 
 **`send` and `send_file` stay separate tools** (different
 intents, different descriptions, per the tool-naming rule) but funnel

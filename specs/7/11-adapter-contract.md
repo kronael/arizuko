@@ -97,9 +97,10 @@ Semantics:
   Baileys creds, twitd cookies) so the next connect starts a fresh
   auth/pair flow. Dangerous: the account goes offline until an
   operator completes pairing/login.
-- **pause outbound** — NOT offered. No adapter has a pause mechanism;
-  outbound buffering during disconnect lives in routd's
-  `chanreg.HTTPChannel` outbox and belongs to `7/3` if anywhere.
+- **pause outbound** — NOT offered. No adapter has a pause mechanism.
+  routd holds a message it cannot deliver as a `pending` row in
+  `messages` and re-sends it on the 30s sweep; that behaviour belongs
+  to `7/3` if anywhere.
 - **refresh registration** — NOT offered as a distinct verb;
   registration re-runs on adapter restart and `reconnect` does not
   touch it. Forcing re-registration is `routd`'s side (`7/3`).

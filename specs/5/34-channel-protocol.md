@@ -60,10 +60,15 @@ of an existing name is not.
 **Health failure auto-deregisters.** routd polls `/health` every 30s;
 three consecutive failures deregister the adapter
 (`chanreg/health.go`). `stale` (adapter alive, platform quiet) counts as
-healthy; `disconnected` does not. Outbound queues in the in-memory
-`chanreg` outbox (`DrainOutbox`) until the adapter re-registers, bounded
-at 1000 messages with per-message attempt caps so one dead JID cannot
-starve every group on the channel.
+healthy; `disconnected` does not. An outbound send to a deregistered
+adapter fails, and the error reaches the caller. `chanreg` holds no
+queue of its own. routd writes each bot row `pending` before it attempts
+delivery, and marks it `sent` only when the adapter confirms
+(`MarkBotPlatformID` stamps `platform_id` and `status` in one
+statement). A 30s sweep re-sends every row that stays `pending`, and
+fails a row after 24h (`routd/loop.go` maybeRetryOutbound). The
+`messages` row is the durable record, so a routd restart keeps the
+backlog.
 
 ## `chat_jid` and `sender` are different shapes
 
