@@ -4178,6 +4178,34 @@ the first key seals, the rest decrypt retired values.
 `TestSecret_NoKey_RefusesToWrite` and `TestStoreValue_NeverReturnsPlaintext`
 cover the refusal; reverting the guard fails both.
 
+## L18 — four docs pages ship no theme toggle at all (2026-08-11, open)
+
+168 of 172 pages under `template/web/pub/arizuko/` carry a `.theme-toggle`
+button. These four do not, so a reader who lands on one cannot switch theme and
+has no way to tell the control exists:
+
+- `reference/packages.html`
+- `crackbox/index.html`
+- `crackbox/reference/index.html`
+- `examples/chat-sdk.html`
+
+Pre-existing — it predates the 2026-08-11 layout pass and is not a regression
+from it. Found while verifying that fix: the toggle hit-test passed on 92 of 93
+docs pages, and the 93rd turned out to have no toggle to hit.
+
+The theme itself still works on these pages (they load `hub.css` and `hub.js`,
+so they follow the stored preference and the system setting); only the control
+is absent. So this is a consistency and discoverability gap, not a broken page.
+
+Fixing it is four one-line HTML edits, but the deeper question is why a shared
+chrome element is hand-repeated in 172 files at all — the same class of drift
+`5/D` covers. Whoever fixes it should say which of the two they are fixing.
+
+- **Severity:** low
+- **Scope:** docs chrome consistency
+- **Affected:** template/web/pub/arizuko
+- **Status:** open
+
 ## L16 — legacy plaintext secret rows are never sealed; the migrator has no caller (2026-08-11, open)
 
 `store.EncryptPlaintextSecrets` exists to seal pre-encryption rows in place, and
