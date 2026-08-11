@@ -1,5 +1,6 @@
 ---
-status: shipped
+status: defected
+defects: [D4]
 shipped: 2026-05-01
 ---
 
