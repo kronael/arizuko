@@ -1,8 +1,7 @@
 ---
-status: defected
+status: shipped
 depends: [5/13-ext-mcp, 5/17-openapi-mcp, 5/32-acl-unified]
 moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
-defects: [F55]
 ---
 
 > **Status (2026-08-07). SHIPPED.** All seven ordered steps are resolved — six
@@ -389,19 +388,19 @@ that infers access from ownership alone:
 3. Per-daemon mount set — **as shipped 2026-08-07**. `compose/compose_test.go`'s
    `wantDataMounts` is the executable copy; this table is the reasoning.
 
-   | Daemon                                   | `store/` access                                                                                                                          | other mounts                                                       |
-   | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-   | `authd`                                  | `authd/` rw only                                                                                                                         | —                                                                  |
-   | `routd`                                  | whole tree — see the ROOT-PATH note below                                                                                                | `groups/`, `ipc/`, `web/`, `tts/`, `surrogate/`, `connectors.toml` |
-   | `runed`                                  | whole tree (spawn path)                                                                                                                  | `groups/`, `ipc/`, docker.sock                                     |
-   | `onbod`                                  | `onbod/` rw + `routd/` rw (cross-write `user_profiles.username`, `onbod/main.go`; cross-read groups/routes/acl for onboarding decisions) | `groups/` (`SetupGroup`), `web/` (per-group pub+priv slots)        |
-   | `proxyd`                                 | `routd/` rw (`proxyd_routes`, `route_tokens`, `acl` — all three read per request; §"The hot-path exception")                             | —                                                                  |
-   | `dashd`                                  | `routd/` + `onbod/` + `runed/` (the operator console; NOT `authd/` — it reads sessions over authd's HTTP face)                           | `groups/`, `surrogate/` — **not** `.env`, **not** `ipc/` (`F51`)   |
-   | `webd`                                   | `routd/` rw (route resolution, history, audit sink)                                                                                      | —                                                                  |
-   | `slakd`                                  | `routd/` rw (pane reads; writes panes back over routd HTTP)                                                                              | —                                                                  |
-   | `bskyd` `emaid` `linkd` `reditd` `teled` | a PRIVATE `store/<name>/` state dir, `DATA_DIR` pointed inside it — no owner DB at all                                                   | —                                                                  |
-   | `whapd` `twitd`                          | `store/whatsapp-auth` / `store/twitter-auth` (platform session material, not SQLite)                                                     | —                                                                  |
-   | `timed` `discd` `kokoro` `mastd` `ttsd`  | none — no volume in the fragment at all                                                                                                  | —                                                                  |
+   | Daemon                                   | `store/` access                                                                                                                                        | other mounts                                                       |
+   | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+   | `authd`                                  | `authd/` rw only                                                                                                                                       | —                                                                  |
+   | `routd`                                  | whole tree — see the ROOT-PATH note below                                                                                                              | `groups/`, `ipc/`, `web/`, `tts/`, `surrogate/`, `connectors.toml` |
+   | `runed`                                  | whole tree (spawn path)                                                                                                                                | `groups/`, `ipc/`, docker.sock                                     |
+   | `onbod`                                  | `onbod/` rw + `routd/` rw (cross-write `user_profiles.username`, `onbod/main.go`; cross-read groups/routes/acl for onboarding decisions)               | `groups/` (`SetupGroup`), `web/` (per-group pub+priv slots)        |
+   | `proxyd`                                 | `routd/` rw (`proxyd_routes`, `route_tokens`, `acl` — all three read per request; §"The hot-path exception")                                           | —                                                                  |
+   | `dashd`                                  | `routd/` + `onbod/` + `runed/` (the operator console; NOT `authd/` — it reads sessions over authd's HTTP face)                                         | `groups/`, `surrogate/` — **not** `.env`, **not** `ipc/` (`F51`)   |
+   | `webd`                                   | `routd/` rw (route resolution, history, audit sink)                                                                                                    | —                                                                  |
+   | `slakd`                                  | `routd/` rw (pane reads; writes panes back over routd HTTP)                                                                                            | —                                                                  |
+   | `bskyd` `emaid` `linkd` `reditd` `teled` | a PRIVATE `store/<name>/` state dir, `DATA_DIR` pointed inside it — no shared DB mount; `emaid` keeps its own `emaid.db` in there (owner-DB map below) | —                                                                  |
+   | `whapd` `twitd`                          | `store/whatsapp-auth` / `store/twitter-auth` (platform session material, not SQLite)                                                                   | —                                                                  |
+   | `timed` `discd` `kokoro` `mastd` `ttsd`  | none — no volume in the fragment at all                                                                                                                | —                                                                  |
 
    **ROOT-PATH note (why `routd` is not narrowed).** Four things routd touches
    live at the data-dir ROOT, so no subdir mount can name them:
@@ -462,6 +461,16 @@ that happened to share a name** — different PK, different purpose, both
 live, both empty on krons at time of writing (verify on every instance
 before the rename below). The fix is renaming routd's copy, not merging the
 schemas; see the auth decision.
+
+`emaid`'s `emaid.db` is a **separate owner**, also outside this table: emaid
+owns and migrates it (`emaid/migrations/`, service `emaid`) inside the
+adapter's private `store/emaid/` dir. It holds two adapter-internal threading
+tables — `email_threads`, `email_msg_ids` — that map an inbound message id to
+its thread. These rows are not operator-managed cold-tier entities and have
+no agent/REST CRUD face, so "every management entity is a resreg resource"
+does not apply; the DB stays out of the resource map for the same reason
+`auth.db`'s identity tables do. Unlike the seeded owners, emaid creates the
+file itself — `arizuko create` does not seed adapter-private state (`F55`).
 
 ### The auth decision — routd stays the policy decision point
 

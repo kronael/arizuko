@@ -7,6 +7,30 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L3 — emaid drops an email thread mapping on a write error and reports nothing (2026-08-11, open)
+
+`upsertThread` (`emaid/store.go`) returns `void`. Every failure path — `Begin`,
+either `INSERT OR IGNORE`, `Commit` — logs at error level and returns, so the
+caller cannot tell that the mapping was not recorded and continues as if it
+was. The repo rule is that an error on a user-facing path surfaces to the user,
+not only to the log.
+
+The effect is a lost email thread: without the `email_msg_ids` row,
+`getThreadByMsgID` misses on the next inbound message, so a reply starts a NEW
+thread instead of continuing the existing one. The user sees a broken
+conversation and the operator sees one error line with no link to it.
+
+Found beside `F55` (2026-08-11) and deliberately left out of that fix, which
+was about the DB conventions. This is a separate concern: the signature has to
+change, and every caller has to decide what a failed mapping means for the
+message it is handling.
+
+- **Severity:** medium
+- **Scope:** emaid thread persistence
+- **Affected:** emaid
+- **Source:** `emaid/store.go` `upsertThread`
+- **Status:** open
+
 ## M1 — runed reads skills from the developer's working tree, not from a release (2026-08-09, FIXED 2026-08-09, c8c67f3c)
 
 `arizuko_runed_krons` bind-mounts `/home/onvos/app/arizuko` at `/srv/app/arizuko`
@@ -1059,7 +1083,31 @@ JSON-file shape the other five adapters use (`bskyd`, `linkd`, `reditd`,
 `twitd`, `whapd`). Choosing between them is a design call, not a patch.
 
 - **Source:** `emaid/store.go:18-38`
-- **Status:** open — needs a design call, recorded not fixed
+- **Status:** FIXED 2026-08-11 — option (a)
+
+**FIXED 2026-08-11** by option (a): emaid keeps SQLite and joins the owner-DB
+mechanism instead of leaving it. `openDB` opens the DSN with
+`busy_timeout(5000)` + `foreign_keys(on)`, sets `journal_mode=WAL`, and runs
+`db_utils.Migrate(db, migrationFS, "migrations", "emaid")` over a new
+`emaid/migrations/0001-initial-schema.sql`. Option (b) was rejected: the rows
+are relational lookups (msg_id → thread), which is what SQLite is for.
+
+Warning for whoever writes `0002`: `0001` carries `IF NOT EXISTS` and later
+migrations must not. Live instances created both tables from the inline
+statement and hold no `migrations` table, so `0001` has to adopt such a file as
+version 1 without an error and without touching its rows.
+`TestOpenDBAdoptsPreMigrationFile` builds a DB the retired way, inserts a row,
+reopens it through the new `openDB`, and asserts version 1 with the row intact;
+stripping `IF NOT EXISTS` fails it with `table email_threads already exists`.
+WAL converts a live file on first open, as it did for every other owner DB.
+
+`specs/5/16` is corrected in two places: the mount table claimed emaid had "no
+owner DB at all", which was false rather than merely incomplete, and the
+owner-DB map now carries an `emaid.db` paragraph stating why the resreg rule
+does not reach it.
+
+NOT verified against a production `emaid.db` — the adoption test replicates the
+old creation path exactly, but no krons/sloth/marinade file was opened.
 
 ## F58 — dashd's PRIMARY DB open still manufactures an empty routd.db (2026-08-07, open)
 
