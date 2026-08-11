@@ -1,5 +1,6 @@
 ---
-status: shipped
+status: defected
+defects: [S2]
 depends:
   [17-openapi-mcp, 5/13-ext-mcp, specs/5/32-acl-unified, 5/15-surrogate-oauth]
 supersedes:
