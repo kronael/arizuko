@@ -3949,7 +3949,7 @@ permanent failures such as `cannot_reply_to_message`,
 - **Status:** open
 - **Fix:**
 
-## D4 — Routd's in-memory 502 outbox is discarded and duplicates the durable retry owner (2026-07-15, proposed)
+## D4 — Routd's in-memory 502 outbox is discarded and duplicates the durable retry owner (2026-07-15, FIXED 2026-08-11, 1b8dbf8f)
 
 Every transient adapter failure appends an `outMsg` while still returning the
 error. Normal turn delivery separately leaves a pending DB row that routd
@@ -3969,6 +3969,36 @@ loss.
 - **Source:** chanreg/httpchan.go:146-154,507-534,553-560; routd/deliver.go:58-64; routd/channels.go:114-117; routd/loop.go:348-377
 - **Status:** proposed
 - **Fix:**
+
+**FIXED 2026-08-11** (`1b8dbf8f`) by DELETING the outbox, not repairing it.
+
+The mechanism enqueued and never delivered: every adapter re-registers on a
+3-minute heartbeat (`chanlib/run.go:76-84`), each register built a NEW
+`HTTPChannel` (`routd/channels.go`), and `setLive` drained that fresh EMPTY
+object while the one holding the backlog became garbage. Because it never
+delivered, it never double-delivered either, so removal changes nothing an
+adapter or a user can observe.
+
+Repair was rejected on the standing rule: a second `messages.status` writer
+would race the durable sweep — coordination beside a serialization point
+rather than onto it. `maybeRetryOutbound` stays the single retry owner, and
+`MarkBotPlatformID` already sets `platform_id` AND `status='sent'` in one
+statement, so a delivered row is not resent.
+
+`HTTPChannel` is now stateless, which let the `live` map and both
+register/deregister hooks go with it (`-125` lines over 17 files). That fixed
+a real bug in passing: `Registry.Register` builds a new `*Entry`, so a
+re-registration at a NEW URL now takes effect on the next send instead of
+being masked by the cached channel — pinned by
+`TestDelivererResolvesCurrentEntry`.
+
+The two drain tests were not deleted to make the build pass. Their properties
+moved to the durable layer: `TestOutboundRetryRedispatchesAndFails` already
+covered redelivery, and `TestOutboundRetryFailureKeepsRowPendingAndContinues`
+is new — a failing row stays `pending`, does not block the row behind it, and
+is redelivered next sweep.
+
+`D5` is still open, so `5/34` and `5/Q` keep `status: defected`.
 
 ## D5 — Stable delivery key is dropped before adapters, so ambiguous Slack success can double-post (2026-07-15, open)
 
