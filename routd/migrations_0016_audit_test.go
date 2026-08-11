@@ -70,6 +70,7 @@ func TestRoutdMutationsAudit(t *testing.T) {
 		t.Fatalf("OpenMem: %v", err)
 	}
 	defer d.Close()
+	d.SetSecretKeys([]byte("audit-test-key")) // the store refuses unsealed writes (BUGS S2)
 	// Route emissions into routd.db (EmitInTx writes the mutation's own tx; Init
 	// only stamps the instance column — set it so the row carries it).
 	audit.Init(d.SQL(), "test")

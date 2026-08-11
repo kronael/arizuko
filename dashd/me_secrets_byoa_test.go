@@ -9,20 +9,11 @@ import (
 	"github.com/kronael/arizuko/audit"
 )
 
-// meSecretsKeyringDB is meSecretsTestDB with a SECRETS_KEY keyring so writes
-// seal at rest (the BYOA encryption-at-rest path).
-func meSecretsKeyringDB(t *testing.T) *dash {
-	t.Helper()
-	d := meSecretsTestDB(t)
-	d.secretKeyring = [][]byte{[]byte("dashd-test-key")}
-	return d
-}
-
 // TestMeSecrets_SealsAtRest proves a POST under a configured keyring stores the
 // value as a v2: ciphertext — never plaintext. The encryption-bypass bug was
 // dashd's raw INSERT writing body.Value verbatim.
 func TestMeSecrets_SealsAtRest(t *testing.T) {
-	d := meSecretsKeyringDB(t)
+	d := meSecretsTestDB(t)
 	mux := newMux(d)
 
 	req := httptest.NewRequest("POST", "/dash/me/secrets",
@@ -50,7 +41,7 @@ func TestMeSecrets_SealsAtRest(t *testing.T) {
 
 // TestMeSecrets_UpdateSealsAtRest: PATCH reseals; the new value is v2: too.
 func TestMeSecrets_UpdateSealsAtRest(t *testing.T) {
-	d := meSecretsKeyringDB(t)
+	d := meSecretsTestDB(t)
 	mux := newMux(d)
 
 	post := httptest.NewRequest("POST", "/dash/me/secrets",

@@ -60,13 +60,17 @@ func main() {
 
 	// SECRETS_KEY keyring: routd OWNS secrets in routd.db. It reads folder/user
 	// secrets for connector + secret-requiring tool calls and seals writes at rest
-	// (POST /v1/secrets → audited SetSecret). Unset → reads stay ciphertext (no
-	// leak) and writes store plaintext.
-	if kr := core.SecretKeyring(os.Getenv("SECRETS_KEY")); len(kr) > 0 {
-		db.SetSecretKeys(kr...)
-	} else {
-		slog.Warn("SECRETS_KEY unset; connector/scoped secrets will not decrypt")
+	// (POST /v1/secrets → audited SetSecret). The key is REQUIRED: routd refuses
+	// to start without it. An earlier build only logged a warning and started, so
+	// an un-keyed instance persisted every secret readable on disk while each
+	// healthcheck reported it healthy (BUGS S2). Comma-separate the value to
+	// rotate — the first key seals new writes, the rest decrypt retired values.
+	kr, err := core.RequireSecretKeyring(os.Getenv("SECRETS_KEY"))
+	if err != nil {
+		slog.Error("secrets keyring", "err", err)
+		os.Exit(1)
 	}
+	db.SetSecretKeys(kr...)
 
 	// Surrogate OAuth (spec 5/15): the broker refreshes near-expiry capability
 	// credentials at call time. The engine loads the embedded provider registry;

@@ -19,17 +19,22 @@ import (
 // plumbing — same discipline it used for messages.db before the split. AsCLI
 // attributes the audit row to the invoking operator: the CLI has no X-User-*
 // header to learn a sub from.
+// The keyring is REQUIRED. Without it a write cannot seal and a read returns
+// ciphertext, so the command refuses instead of degrading (BUGS S2).
 func openStoreWithKey(dataDir string) (*store.Store, error) {
 	s, err := store.OpenRoutd(filepath.Join(dataDir, "store"))
 	if err != nil {
 		return nil, err
 	}
 	cfg, err := core.LoadConfigFrom(dataDir)
-	if err == nil {
-		if kr := core.SecretKeyring(cfg.SecretsKey); len(kr) > 0 {
-			s.SetSecretKeys(kr...)
-		}
+	if err != nil {
+		return nil, err
 	}
+	kr, err := core.RequireSecretKeyring(cfg.SecretsKey)
+	if err != nil {
+		return nil, fmt.Errorf("%w (%s)", err, filepath.Join(dataDir, ".env"))
+	}
+	s.SetSecretKeys(kr...)
 	return s.AsCLI(os.Getenv("USER")), nil
 }
 

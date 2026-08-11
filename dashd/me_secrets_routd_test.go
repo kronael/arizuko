@@ -16,7 +16,9 @@ import (
 func splitSecretsDash(t *testing.T) (*dash, *sql.DB) {
 	t.Helper()
 	db := routdDB(t)
-	return &dash{dbRoutd: db}, db
+	// The keyring is not optional: store.storeValue refuses every write without
+	// one (BUGS S2).
+	return &dash{dbRoutd: db, secretKeyring: [][]byte{[]byte("dashd-test-key")}}, db
 }
 
 func TestMeSecrets_WriteTargetsRoutdDB(t *testing.T) {

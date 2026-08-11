@@ -109,7 +109,6 @@ func TestSecretAuditNeverCarriesValue(t *testing.T) {
 		keyring bool
 	}{
 		{"folder sealed", store.ScopeFolder, "atlas", true},
-		{"folder plaintext", store.ScopeFolder, "atlas", false},
 		{"user sealed", store.ScopeUser, "github:alice", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -12,9 +12,11 @@ import (
 
 // meSecretsTestDB is a migrated routd.db — routd owns secrets AND the audit_log
 // a sealed write lands in, so both come from its chain.
+// The keyring is not optional: store.storeValue refuses every write without one
+// (BUGS S2), so a dashd that writes user secrets always carries it.
 func meSecretsTestDB(t *testing.T) *dash {
 	t.Helper()
-	return &dash{dbRoutd: routdDB(t)}
+	return &dash{dbRoutd: routdDB(t), secretKeyring: [][]byte{[]byte("dashd-test-key")}}
 }
 
 func newMux(d *dash) *http.ServeMux {
@@ -112,12 +114,7 @@ func TestMeSecrets_Update(t *testing.T) {
 		t.Fatalf("PATCH status = %d, body = %q", w.Code, w.Body.String())
 	}
 
-	var got string
-	if err := d.dbRoutd.QueryRow(
-		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id='github:alice' AND key='GITHUB_TOKEN'`,
-	).Scan(&got); err != nil {
-		t.Fatal(err)
-	}
+	got := secretValue(t, d, "github:alice", "GITHUB_TOKEN")
 	if got != "v2" {
 		t.Errorf("value = %q, want v2", got)
 	}
@@ -188,10 +185,7 @@ func TestMeSecrets_CrossUser_CannotReadOthers(t *testing.T) {
 	}
 
 	// Alice's value is unchanged
-	var got string
-	d.dbRoutd.QueryRow(
-		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id='github:alice' AND key='PRIVATE'`,
-	).Scan(&got)
+	got := secretValue(t, d, "github:alice", "PRIVATE")
 	if got != "alice" {
 		t.Errorf("alice value = %q, want alice", got)
 	}

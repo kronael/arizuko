@@ -11,6 +11,7 @@ import (
 func TestRunSecretSet_Folder(t *testing.T) {
 	s, _ := store.OpenMem()
 	defer s.Close()
+	s.SetSecretKeys([]byte("cli-test-key")) // the store refuses unsealed writes (BUGS S2)
 	var buf bytes.Buffer
 	if err := runSecretSet(s, store.ScopeFolder, "atlas/eng", "GITHUB_TOKEN", "ghp_xxx", &buf); err != nil {
 		t.Fatalf("runSecretSet: %v", err)
@@ -30,6 +31,7 @@ func TestRunSecretSet_Folder(t *testing.T) {
 func TestRunSecretSet_RequiresValue(t *testing.T) {
 	s, _ := store.OpenMem()
 	defer s.Close()
+	s.SetSecretKeys([]byte("cli-test-key")) // the store refuses unsealed writes (BUGS S2)
 	err := runSecretSet(s, store.ScopeFolder, "f", "KEY", "", new(bytes.Buffer))
 	if err == nil || !strings.Contains(err.Error(), "--value required") {
 		t.Errorf("err = %v", err)
@@ -39,6 +41,7 @@ func TestRunSecretSet_RequiresValue(t *testing.T) {
 func TestRunSecretSet_RejectsBadKey(t *testing.T) {
 	s, _ := store.OpenMem()
 	defer s.Close()
+	s.SetSecretKeys([]byte("cli-test-key")) // the store refuses unsealed writes (BUGS S2)
 	for _, key := range []string{"lower", "1leading", "with-dash", "", " SPACE "} {
 		err := runSecretSet(s, store.ScopeFolder, "f", key, "v", new(bytes.Buffer))
 		if err == nil {
@@ -50,6 +53,7 @@ func TestRunSecretSet_RejectsBadKey(t *testing.T) {
 func TestRunSecretList_Empty(t *testing.T) {
 	s, _ := store.OpenMem()
 	defer s.Close()
+	s.SetSecretKeys([]byte("cli-test-key")) // the store refuses unsealed writes (BUGS S2)
 	var buf bytes.Buffer
 	if err := runSecretList(s, store.ScopeFolder, "atlas", &buf); err != nil {
 		t.Fatal(err)
@@ -62,6 +66,7 @@ func TestRunSecretList_Empty(t *testing.T) {
 func TestRunSecretList_Rows(t *testing.T) {
 	s, _ := store.OpenMem()
 	defer s.Close()
+	s.SetSecretKeys([]byte("cli-test-key")) // the store refuses unsealed writes (BUGS S2)
 	s.SetSecret(store.ScopeFolder, "atlas", "A", "1")
 	s.SetSecret(store.ScopeFolder, "atlas", "B", "2")
 	var buf bytes.Buffer
@@ -85,6 +90,7 @@ func TestRunSecretList_Rows(t *testing.T) {
 func TestRunSecretDelete(t *testing.T) {
 	s, _ := store.OpenMem()
 	defer s.Close()
+	s.SetSecretKeys([]byte("cli-test-key")) // the store refuses unsealed writes (BUGS S2)
 	s.SetSecret(store.ScopeUser, "github:alice", "K", "v")
 	var buf bytes.Buffer
 	if err := runSecretDelete(s, store.ScopeUser, "github:alice", "K", &buf); err != nil {

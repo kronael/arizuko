@@ -131,6 +131,7 @@ func TestSecretLandsInRoutdDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenRoutd: %v", err)
 	}
+	s.SetSecretKeys([]byte("cli-test-key")) // the store refuses unsealed writes (BUGS S2)
 	var out bytes.Buffer
 	if err := runSecretSet(s, store.ScopeFolder, "main", "GITHUB_TOKEN", "ghp-xyz", &out); err != nil {
 		t.Fatalf("runSecretSet: %v", err)

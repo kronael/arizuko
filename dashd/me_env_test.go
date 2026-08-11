@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +20,7 @@ import (
 // ANTHROPIC_API_KEY and its three siblings, user scope only. Its twin
 // /dash/me/secrets carries capability credentials and rejects these key names;
 // this file covers the reverse guard plus the write path itself, which shipped
-// untested. It reuses meSecretsTestDB/meSecretsKeyringDB/newMux — one fixture
+// untested. It reuses meSecretsTestDB/newMux — one fixture
 // for both halves, since they share the secrets table and the same handlers'
 // shape.
 
@@ -36,18 +37,19 @@ func envReq(t *testing.T, mux *http.ServeMux, method, path, sub, body string) *h
 	return w
 }
 
-// secretValue returns the stored (at-rest) value of a user secret, or "" when
-// no row exists.
+// secretValue returns the plaintext of a user secret, or "" when no row exists.
+// It reads through the store because the row itself holds a v2: seal — the
+// at-rest form is asserted by the SealsAtRest tests, which query the column raw.
 func secretValue(t *testing.T, d *dash, sub, key string) string {
 	t.Helper()
-	var v string
-	err := d.dbRoutd.QueryRow(
-		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id=? AND key=?`,
-		sub, key).Scan(&v)
-	if err != nil && err != sql.ErrNoRows {
+	got, err := d.secretStore().GetSecret(store.ScopeUser, sub, key)
+	if errors.Is(err, store.ErrSecretNotFound) {
+		return ""
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
-	return v
+	return got.Value
 }
 
 // lockedBuf is an io.Writer a slog handler can share with the test goroutine.
@@ -332,13 +334,20 @@ func TestMeEnv_NoPlaintextInLogsOrAudit(t *testing.T) {
 // TestMeEnv_SealsAtRest: under a configured SECRETS_KEY keyring the env write
 // lands as a v2: ciphertext, the same encoding routd decrypts at spawn.
 func TestMeEnv_SealsAtRest(t *testing.T) {
-	d := meSecretsKeyringDB(t)
+	d := meSecretsTestDB(t)
 	mux := newMux(d)
 	if w := envReq(t, mux, "POST", "/dash/me/env", "github:alice",
 		`{"key":"CLAUDE_CODE_OAUTH_TOKEN","value":"oauth-plaintext"}`); w.Code != http.StatusNoContent {
 		t.Fatalf("POST = %d body=%q", w.Code, w.Body.String())
 	}
-	raw := secretValue(t, d, "github:alice", "CLAUDE_CODE_OAUTH_TOKEN")
+	// Read the column raw: this test is about the at-rest encoding, so it must
+	// not go through secretValue, which decrypts.
+	var raw string
+	if err := d.dbRoutd.QueryRow(
+		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id='github:alice' AND key='CLAUDE_CODE_OAUTH_TOKEN'`,
+	).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
 	if !strings.HasPrefix(raw, "v2:") || strings.Contains(raw, "oauth-plaintext") {
 		t.Errorf("stored value not sealed: %q", raw)
 	}

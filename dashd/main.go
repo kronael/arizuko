@@ -279,11 +279,13 @@ func main() {
 
 	// SECRETS_KEY keyring: dashd writes user secrets into routd.db directly (it is
 	// FS-mounted — split write-discipline) and MUST seal them at rest under the
-	// same key routd reads with. Unset → plaintext at rest (local dev), matching
-	// store.storeValue's no-key path.
+	// same key routd reads with. Unset → store.storeValue refuses every write, so
+	// /dash/me/env and /dash/me/secrets return an error instead of persisting a
+	// plaintext row (BUGS S2). dashd does not exit here: the key gates the two
+	// secret pages, not the rest of the dashboard.
 	secretKeyring := core.SecretKeyring(os.Getenv("SECRETS_KEY"))
 	if len(secretKeyring) == 0 {
-		slog.Warn("SECRETS_KEY unset in dashd — user secrets stored plaintext at rest")
+		slog.Warn("SECRETS_KEY unset in dashd; /dash/me/env and /dash/me/secrets writes will fail until the operator sets it")
 	}
 
 	// Surrogate OAuth (spec 5/15): the "Connect <provider>" dance under

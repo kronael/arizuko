@@ -263,6 +263,10 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 		t.Fatalf("routd.OpenMem: %v", err)
 	}
 	t.Cleanup(func() { rodb.Close() })
+	// routd refuses to start without SECRETS_KEY and the store refuses every
+	// unsealed write (BUGS S2), so the federation carries a keyring like a real
+	// instance does.
+	rodb.SetSecretKeys([]byte("federation-secrets-key"))
 	f.routdDB = rodb
 
 	// routd → runed over REAL HTTP via the production client, carrying routd's
