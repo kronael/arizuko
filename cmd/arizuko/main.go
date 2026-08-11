@@ -280,9 +280,11 @@ func cmdCreate(args []string) {
 
 	envFile := filepath.Join(dataDir, ".env")
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
-		// AUTH_SECRET signs the web stack's HS256 session/refresh cookies (proxyd,
-		// webd). Generate one so a fresh instance's login flow works out of the box;
-		// the ES256 service tokens are provisioned per-daemon by compose generation.
+		// AUTH_SECRET keys the OAuth CSRF state (authd, dashd) and switches proxyd's
+		// auth on. It signs no cookie: authd's refresh cookie is an opaque token
+		// stored as a sha256 digest, and access tokens are ES256. Generate one so a
+		// fresh instance's login flow works out of the box; the ES256 service tokens
+		// are provisioned per-daemon by compose generation.
 		authSecret := make([]byte, 32)
 		if _, err := rand.Read(authSecret); err != nil {
 			die("Failed: crypto/rand: %v", err)
