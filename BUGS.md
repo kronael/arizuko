@@ -7,6 +7,321 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L6 — proxyd verifies HS256 bearers that nothing can mint any more (2026-08-11, open)
+
+`proxyd.tryAuth` tries HS256 (`auth.VerifyJWT` with `AUTH_SECRET`) FIRST on every
+bearer, before ES256/authd. The only minter, `auth.mintJWT`, is package-private
+and called only by `auth/auth_test.go`; its last production caller
+(`issueSession` in the proxyd-era local-OAuth layer) was deleted in `a56202d4`
+(2026-06-09, "authd owns OAuth"). No other language mints one either (repo-wide
+grep for `AUTH_SECRET`/HS256 outside Go: only docs). Two costs: (1) the
+documented "HS256-only local-dev mode" (`proxyd/main.go:870-875`; guarded by
+test `5436c7f0`) cannot authenticate ANYONE — without authd, `requireAuth`
+always denies; (2) a forgery-capable identity path (attacker who obtains
+`AUTH_SECRET` mints arbitrary sub+groups, bypassing authd entirely) is kept live
+in the hot path with zero legitimate users. Removing it is an auth-surface
+redesign → recorded, not fixed (System-change discipline).
+
+- **Severity:** high
+- **Scope:** legacy HS256 bearer path with no issuer
+- **Affected:** proxyd, auth
+- **Source:** `proxyd/main.go:877`, `auth/jwt.go:29`
+- **Status:** open
+- **Evidence:** `grep -rn "VerifyJWT\|mintJWT" --include="*.go" . | grep -v _test`
+  → only `proxyd/main.go:877` (verify) and the `auth/jwt.go` definitions.
+  `grep -rn "AUTH_SECRET" .` (all file types) → no non-Go minter.
+  `git show a56202d4 --stat` → `issueSession` + local-OAuth mount deleted.
+  `deadcode ./...` flags `auth/jwt.go:29 mintJWT`; survives `-test` only via
+  `auth/auth_test.go` (4 calls).
+
+## L7 — compose hands five daemons secrets they never read (2026-08-11, open)
+
+`compose/compose.go` `daemonKeys` distributes credentials to containers whose
+code never reads them — each one is exposure surface in an extra container's
+env, for nothing (precedent BUGS `X3`: runed gets `SECRETS_KEY`, reads it
+nowhere; precedent `X1` for env-leak blast radius). Proven inert copies:
+
+- **onbod**: `AUTH_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
+  `GITHUB_ALLOWED_ORG`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`,
+  `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_ALLOWED_EMAILS` — onbod
+  consumes only `coreCfg.AuthBaseURL` + `ProjectRoot` (`onbod/main.go:280-288`);
+  zero hits for any CLIENT_ID/ALLOWED/AuthSecret in `onbod/`. The OAuth block is
+  a leftover of onbod's own login flow, gone since authd took OAuth
+  (`a56202d4`) and the P1b greeting fold.
+- **dashd**: `AUTH_SECRET` — zero reads.
+- **webd**: `AUTH_SECRET`, `AUTH_BASE_URL` — zero reads of either.
+- **proxyd**: `AUTH_BASE_URL` — zero reads (`auth.AuthBaseURL(cfg)` is called
+  only inside authd).
+
+Live consumers for contrast: authd reads `AUTH_SECRET` as the OAuth state key
+(`authd/oauth.go:49`) and `AUTH_BASE_URL`; proxyd reads `AUTH_SECRET` as its
+auth-enabled flag (`proxyd/main.go:943`) plus the dead HS256 verify above.
+
+- **Severity:** medium
+- **Scope:** generated env vs actual readers (one mechanism: `daemonKeys`)
+- **Affected:** compose, onbod, dashd, webd, proxyd
+- **Source:** `compose/compose.go:100-205` (daemonKeys map)
+- **Status:** open
+- **Evidence:** `grep -rn "\.AuthSecret" --include="*.go" .` → authd/oauth.go:49,
+  proxyd/main.go:984 only. `grep -rn "ALLOWED\|GITHUB\|GOOGLE\|DISCORD" onbod/`
+  → zero non-test hits. `grep -rn "AuthBaseURL" proxyd/ webd/` → zero.
+  `grep -rn "AUTH_SECRET" --include="*.go"` → core/config.go only (loader).
+
+## L8 — B1's capability-token deletion left cross-daemon stubs and lying comments (2026-08-11, open)
+
+`42657378` (BUGS `B1`, FIXED 2026-08-01) deleted the unconsumed per-spawn
+capability token, but its plumbing survived on both sides of the wire:
+routd still configures `RunScopes` (`routd/cmd/routd/main.go:166-168`) →
+`Loop.scopes` (`routd/loop.go:51,226`) → serializes
+`RunRequest.CapabilityScopes` on EVERY dispatch (`routd/dispatch.go:574`), and
+runed decodes and discards it — zero reads of `req.CapabilityScopes` in
+`runed/`. runed's own half is equally dead: `ManagerConfig.Scopes`
+(`runed/cmd/runed/main.go:91`) → `m.scopes` (`runed/manager.go:81`) is never
+read, and `intersect` (`runed/manager.go:510`) is called only by
+`manager_test.go:412-418`. Comments still describe the deleted feature as live:
+`runed/cmd/runed/main.go:5` ("brokers one downscoped token per spawn"),
+`runed/db.go:3`, `runed/manager.go:51,61`. Cost: a reader (or the next audit)
+rebuilds a false mental model — the exact class BUGS `F78` records for
+ARCHITECTURE.md; this is the code half. UNVERIFIED side note: `authd/http.go:40-43`
+claims service:runed downscopes per-turn agent tokens ("missing entry → every
+agent turn 403s"); runed contains no issuer-mint call, so that claim needs its
+own check before anyone relies on it.
+
+- **Severity:** medium
+- **Scope:** remnants of the deleted per-spawn capability token (one feature)
+- **Affected:** routd, runed (runedv1 wire type), authd (comment)
+- **Source:** `runed/api/v1/types.go:27`, `runed/manager.go:510`, `routd/dispatch.go:574`
+- **Status:** open
+- **Evidence:** `grep -rn "CapabilityScopes" routd/ runed/ container/ | grep -v _test`
+  → only the routd set-site + type def. `grep -n "m\.scopes" runed/manager.go`
+  → assignment only. `deadcode ./...` flags `runed/manager.go:510 intersect`;
+  `git log -S "intersect(ceiling"` → born `b646ba93`, caller died `42657378`.
+
+## L9 — routd/tokens.go: all five DB methods are production-dead twins of the resource tx implementations (2026-08-11, open)
+
+`DB.IssueRouteToken`, `DB.ResolveRouteToken`, `DB.RevokeRouteTokens`,
+`DB.PutWebRoute`, `DB.DeleteWebRoute` have zero non-test callers. The live
+paths are the tx-scoped reimplementations inside the resreg resources, which
+say so themselves: `routd/route_tokens_resource.go:296` "inserts sha256(token)
+on tx (mirrors DB.IssueRouteToken…)", `:320` "(mirrors DB.RevokeRouteTokens)",
+`routd/web_routes_resource.go:178-180` "putWebRouteTx upserts … (mirrors
+DB.PutWebRoute…)". That is two implementations of one hashing/upsert scheme —
+the drift class Z3c (`InviteRef` vs `HashRouteToken`) already cost once, and
+"one renderer, many sinks" forbids. Note for the record: a prior deadcode run
+against a mid-edit tree flagged these same five as a FALSE positive; on today's
+clean tree the superseding twins exist and the DB methods are genuinely
+test-only, so the two audits do not contradict each other.
+
+- **Severity:** medium
+- **Scope:** duplicated route-token/web-route write scheme
+- **Affected:** routd
+- **Source:** `routd/tokens.go:20,39,79,98,132`
+- **Status:** open
+- **Evidence:** `grep -rn "IssueRouteToken\|ResolveRouteToken\|RevokeRouteTokens\|PutWebRoute\|DeleteWebRoute" --include="*.go" . | grep -v _test | grep -v routd/tokens.go`
+  → only "mirrors …" comments in the two resource files. Test callers exist
+  (`routd/route_tokens_resource_test.go`, `web_routes_rest_test.go` et al.), so
+  `-test` hides all five.
+
+## L10 — queue/queue.go carries a dead pre-split process half, and its breaker notice + restart hook are wired to nil (2026-08-11, open)
+
+routd's only queue construction (`routd/loop.go:246-248`) sets
+`processMessages` + `folderForJid` and nothing else. Three consequences, all
+verified: (1) `RegisterProcess` has no production caller, so
+`groupState.containerName` is always "" → `StopProcess` always returns false,
+`Shutdown`'s "detached containers" list is always empty, and
+`signalContainer`/`defaultSignalContainer` (docker SIGUSR1) plus the stored
+`ipcDir` field are unreachable outside test overrides — container steering
+lives in runed since the split (`runed/docker.go:208 steerInto`). (2)
+`SetNotifyErrorFn` is called NOWHERE (not even tests), so the breaker-open user
+notice "too many failures, send another message to retry"
+(`queue/queue.go:230-234`) can never be delivered — a fail-silent path around
+the fail-loud rule. (3) `SetHasPendingFn` is test-only, so
+`startGroupLocked`'s immediate same-group restart (`queue/queue.go:274`) always
+declines in production; only the 2s poll re-feeds (behavior backstop, not
+verified live). Related comment drift: `Loop.StopQueue` says "and by shutdown"
+(`routd/loop.go:276-277`) but routd's main shuts down only the HTTP server
+(`routd/cmd/routd/main.go:283`). BUGS `F71` (FIXED 2026-08-11) validated the
+queue's LIVE half (pacing layer under runed's DB admission); this entry is the
+dead remainder around it.
+
+- **Severity:** medium
+- **Scope:** unwired half of the routd dispatch queue
+- **Affected:** queue, routd
+- **Source:** `queue/queue.go:167,294,56,39,83,88,274`; `routd/loop.go:276`
+- **Status:** open
+- **Evidence:** `grep -rn "RegisterProcess\|StopProcess\|SetNotifyErrorFn\|SetHasPendingFn" --include="*.go" . | grep -v queue/queue.go`
+  → tests only, and zero anywhere for SetNotifyErrorFn.
+  `grep -n "Shutdown\|StopQueue" routd/cmd/routd/main.go` → `httpd.Shutdown` only.
+  `deadcode ./...` flags RegisterProcess/StopProcess/StopQueue.
+
+## L11 — the audit "messages" stream has no producer since the ingestion-chain deletion (2026-08-11, open)
+
+`Audit.emitMessage` (`audit/audit.go:346`) has ZERO callers — the only deadcode
+hit outside crackbox/test-helpers that stays dead even under `deadcode -test`.
+Its producer died in `957ab5a3` "delete the poll-the-monolith ingestion chain"
+(stream born in `806b0974`, three-stream export). What survives around the
+corpse: the `MessageEvent` type, the `audit-messages.jl` writer constructed in
+every audit-enabled daemon (`audit/audit.go:303-305`; lazily opened, so no file
+is created), the operator knob `AUDIT_WEBHOOK_URL_MESSAGES`
+(`audit/audit.go:61`) which configures a webhook that can never fire, and the
+export-cursor machinery `loadCursor`/`cursor.get/set/save`
+(`audit/audit.go:365-401`) from the same deleted chain, now reachable from
+tests only. system/web streams remain live (`EmitSystem`/`EmitWeb` have
+callers).
+
+- **Severity:** medium
+- **Scope:** audit messages stream (producer deleted, shell kept)
+- **Affected:** audit
+- **Source:** `audit/audit.go:346,365-401,61,303`
+- **Status:** open
+- **Evidence:** `grep -rn "emitMessage\|MessageEvent" --include="*.go" .` →
+  definitions only, no caller in any file including tests.
+  `deadcode -test ./...` retains `audit/audit.go:346`. `git log -S emitMessage
+  -- audit/` → 806b0974 (add), 957ab5a3 (caller deletion).
+
+## L12 — three registered Prometheus metric families have no recorder (2026-08-11, open)
+
+`obs.RecordModelCall`, `obs.RecordEgressRequest`, `obs.RecordEgressBytes` have
+zero non-test callers, yet their families —
+`arizuko_model_call_duration_seconds`, `arizuko_egress_requests_total`,
+`arizuko_egress_bytes_total` — are registered and advertised with Help text on
+every daemon's `/metrics` (`obs/metrics.go:42-46,85-95`). An operator building
+dashboards on the documented families gets permanently-empty series.
+`specs/5/O` already carries an UNVERIFIED comment for `model_call` only
+(lines 71-75); the egress pair has no note anywhere, and its intended producer
+(the egress credential proxy, specs/6/17) is spec-only. Contrast:
+`RecordModelTokens` (the sibling declared in the same commit `82031d44`) IS
+wired — the pair drifted. Precedent: BUGS `F17` fixed this file's header count
+while leaving the no-producer gap.
+
+- **Severity:** low
+- **Scope:** advertised-but-inert metrics
+- **Affected:** obs
+- **Source:** `obs/metrics.go:160,196,201`
+- **Status:** open
+- **Evidence:** `grep -rn "RecordModelCall\|RecordEgressRequest\|RecordEgressBytes" --include="*.go" | grep -v _test`
+  → definitions only. `git log -S RecordEgressRequest` → born 82031d44, never
+  called since. All three flagged by `deadcode ./...`.
+
+## L13 — `secret_use_log` is write-only: no read surface on any face (2026-08-11, open)
+
+The table (routd/migrations/0008-secrets.sql) is written on every resolved
+secret (`routd/mcp.go:503`, `store/secret_use_log.go:38`) and read by nothing:
+no resreg resource, no REST/MCP face, no dashd page, no CLI verb — only the
+side `audit_log` row each write also emits is reachable. This repeats the exact
+class BUGS `F29`/`F35` closed for the four `audit_log` owners ("audit rows
+reachable only with sqlite3"), and it outlived `F68` (2026-08-09), which fixed
+this table's writer fields without giving it a reader. Cost: the per-key
+forensic detail (key, tool, scope_kind) the writer was just fixed to record
+answers "who used which secret" only to an operator with sqlite3 on the host.
+
+- **Severity:** low
+- **Scope:** secret-use forensic log read surface
+- **Affected:** routd, store
+- **Source:** `store/secret_use_log.go:38`, `routd/migrations/0008-secrets.sql`
+- **Status:** open
+- **Evidence:** table writer/reader sweep over all migrations
+  (`INSERT INTO|UPDATE` vs `FROM <table>` vs `Table:` resreg decls) →
+  `secret_use_log writers=1 readers=0 resreg=0`. `grep -rn secret_use_log`
+  → writer paths + migrate-split copy + docs only.
+
+## L14 — routd.DB accumulated eight production-dead wrapper methods (2026-08-11, open)
+
+Superseded seams kept alive only by tests: `DB.GroupByFolder` (:155),
+`DB.SetThreadReplies` (:252), `DB.MessageExists` (:348), `DB.SetRoutes` (:660)
+in `routd/db.go`; `DB.AddACLRow` (:252), `DB.AddMembership` (:256) in
+`routd/sibling_db.go` (live paths: `store.Store` directly, or the resource tx
+twins `addMembershipTx`/`grantACLTx`); `DB.PendingAction` (:137),
+`DB.ResolvePendingAction` (:207) in `routd/pending_actions.go` (live path:
+`pendingActionOn`/`resolveHoldTx` on the `queryExecer` seam — both resolution
+faces funnel there). None is called outside `_test.go`. Individually cheap;
+collectively they misrepresent the DB type's real surface and each is a
+doorway for the next caller to bypass the tx/audit funnel the live twins
+enforce. Related stale-liveness comment: `auth.NewKeySet`
+(`auth/jwks.go:50-52`) claims it is "used in-process by authd" — authd calls
+`NewKeySetWithRetirement` (`authd/server.go:146`); NewKeySet itself is a
+test-only convenience.
+
+- **Severity:** low
+- **Scope:** wrapper atrophy on routd.DB (+1 stale comment in auth)
+- **Affected:** routd, auth
+- **Source:** `routd/db.go:155,252,348,660`, `routd/sibling_db.go:252,256`, `routd/pending_actions.go:137,207`, `auth/jwks.go:50`
+- **Status:** open
+- **Evidence:** per-method grep excluding `_test.go` → definition-only hits for
+  all eight; all flagged by `deadcode ./...` and absent from `deadcode -test`.
+  `grep -rn "NewKeySet(" | grep -v _test` → authd/server.go:146 uses the
+  WithRetirement variant.
+
+## L15 — dead-code sweep 2026-08-11: the hits deliberately REJECTED (record, not a bug)
+
+Not a defect. This is the audit's negative result, kept so the next sweep does not
+re-report the same ~135 hits. `deadcode ./...` gave 149 hits, 56 under `-test`;
+nine survived verification and are filed above as `L6`-`L14`.
+
+- **Status:** record only — nothing to fix
+
+Production run: 149 hits. With `-test`: 56. Buckets and verdicts:
+
+- **crackbox/** (~67 prod hits; 48 survive `-test`: `pkg/host` + `pkg/host/internal`,
+  `pkg/admin.NewAPI`, `pkg/dns Server.LocalAddr`, `pkg/match.LooksLikeDomain`) —
+  REJECTED: crackbox is a shipped standalone component with external users
+  (`specs/6/8`; brief's false-positive #2). Reachability from arizuko's mains is
+  the wrong root set for a public library. Not adjudicated here: whether some
+  `pkg/host/internal` helpers are dead even relative to crackbox's public API —
+  out of scope for an arizuko audit, flag to a crackbox-scoped pass if wanted.
+- **tests/testutils** (28 hits: FakeChannel/FakePlatform/NewInstance/etc.) —
+  REJECTED: shared test library; the 8 that survive `-test`
+  (Name/Connect/Disconnect/Forward/Quote/Repost/Dislike/Edit) are interface-
+  satisfaction stubs, live through the Channel interface contract.
+- **resreg/resregtest** (8 hits) + `resreg/engine.go:1311 reset` ("Test-only." by
+  its own comment) — REJECTED: test harness by design.
+- **routd/db.go:87, runed/db.go:61, store/store.go:178 `OpenMem`** — REJECTED:
+  conventional in-memory constructors for tests, colocated with the real Open.
+- **runed/runtimes.go FakeRuntime.Run/Kill** — REJECTED: fake in a prod file so
+  other packages' tests can import it; standard pattern.
+- **queue SetSignalContainerForTest / SetActiveForTest** — REJECTED: named test
+  seams (the *unnamed* dead queue surface is filed above).
+- **proxyd/resource.go:114 installManualWeb** — REJECTED: self-labeled
+  "test-only entry point" in its own doc comment.
+- **chanlib isStubVerb + CapImplReport** — REJECTED: consumed by nine adapter
+  test suites (`emaid/bskyd/slakd/discd/mastd/reditd/linkd/teled/caps_test.go`,
+  `chanlib/extra_test.go`) — the drift-guard is doing exactly its intended job
+  at test time.
+- **chanlib NoFileSender.SendFile** — REJECTED (with note): unused mixin, but
+  its siblings `NoVoiceSender` (5 adapters) and `NoPinSupport` (2) are embedded;
+  it is the deliberate mixin family's spare slot for the next file-less adapter.
+  4 lines; deleting buys nothing.
+- **core/types.go RouteTarget.String** — REJECTED: fmt.Stringer convention;
+  absence of any `%v` path over a RouteTarget value is not provable by grep, and
+  a wrong deletion breaks log formatting silently.
+- **groupfolder/folder.go:34 IsTopLevel** — REJECTED: documented shape predicate
+  of the leaf library (deliberately renamed from IsRoot with a semantics note),
+  test-covered; 1 line.
+- **auth/surrogate/engine.go:83 NewEngineWith** — REJECTED: own comment says
+  "tests point a…" — a named test seam.
+- **auth/jwks.go:50 NewKeySet** — REJECTED as dead code (test convenience), but
+  its stale "used in-process by authd" comment is filed in the wrapper-atrophy
+  entry above.
+- **chanlib/handler.go:252 NoFileSender / core RouteTarget / audit loadCursor+cursor.get/set/save** —
+  cursor family NOT rejected: filed inside the audit-messages entry (same
+  deleted chain).
+- **auth/jwt.go:29 mintJWT** — NOT rejected: filed as the HS256 entry.
+- **routd/tokens.go (5), routd/db.go (4), routd/sibling_db.go (2),
+  routd/pending_actions.go (2), routd/loop.go StopQueue, queue
+  RegisterProcess/StopProcess/SetHasPendingFn, runed/manager.go intersect,
+  obs (3), audit emitMessage** — NOT rejected: filed above.
+
+# Not determined (UNVERIFIED)
+
+- Whether any live instance sets `AUDIT_WEBHOOK_URL_MESSAGES` (instance `.env`
+  is root-owned, not readable from this sandbox).
+- `authd/http.go:40-43`'s claim that service:runed's grants entry gates a
+  per-turn downscope — runed contains no issuer-mint call; the comment may
+  describe a third caller or nothing. Needs its own call-path check.
+- Whether the 2s poll fully substitutes for the queue's unwired
+  same-group-restart (`hasPending`) in production load — behavior inference
+  from code, not observed live.
+
 ## L3 — emaid drops an email thread mapping on a write error and reports nothing (2026-08-11, open)
 
 `upsertThread` (`emaid/store.go`) returns `void`. Every failure path — `Begin`,
