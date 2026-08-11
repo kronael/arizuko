@@ -302,39 +302,58 @@ func TestBlendDockerfileAtMostOne(t *testing.T) {
 	}
 }
 
-// TestBlendSettingsMcpServersUnion locks "settings.json mcpServers: map union;
-// name collision = refuse", written where arizuko actually reads it.
-func TestBlendSettingsMcpServersUnion(t *testing.T) {
+// TestBlendSettingsRefusesMcpServers — the settings.json `mcpServers` key
+// reaches no consumer. arizuko is the only server on the agent's map after
+// BUGS J1/J14, and Claude Code has no top-level `mcpServers` setting either, so
+// a product shipping one applied cleanly and did NOTHING: a silent no-op on an
+// operator-facing path, which the fail-loud rule forbids (BUGS J15). The apply
+// now stops and names the path that works.
+func TestBlendSettingsRefusesMcpServers(t *testing.T) {
 	root := t.TempDir()
 	a := mkProduct(t, root, "a", map[string]string{
 		".claude/settings.json": `{"mcpServers":{"alpha":{"command":"a"}},"outputStyle":"telegram"}`,
 	})
+
+	_, err := BlendProducts(filepath.Join(root, "group"), []Product{a}, nil)
+	if err == nil {
+		t.Fatal("a product declaring mcpServers applied cleanly and did nothing")
+	}
+	for _, want := range []string{"mcpServers", "connectors.toml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error must name %q so the operator knows the working path; got %v", want, err)
+		}
+	}
+}
+
+// A settings.json WITHOUT mcpServers still blends: the refusal is one key, not
+// the whole asset kind.
+func TestBlendSettingsUnionsOtherKeys(t *testing.T) {
+	root := t.TempDir()
+	a := mkProduct(t, root, "a", map[string]string{
+		".claude/settings.json": `{"outputStyle":"telegram"}`,
+	})
 	b := mkProduct(t, root, "b", map[string]string{
-		".claude/settings.json": `{"mcpServers":{"beta":{"command":"b"}}}`,
+		".claude/settings.json": `{"cleanupPeriodDays":1}`,
 	})
 	group := filepath.Join(root, "group")
-	out := blendInto(t, group, []Product{a, b}, nil)
+	blendInto(t, group, []Product{a, b}, nil)
 
 	var s map[string]any
 	if err := json.Unmarshal([]byte(read(t, group, ".claude/settings.json")), &s); err != nil {
 		t.Fatal(err)
 	}
-	servers, _ := s["mcpServers"].(map[string]any)
-	if servers["alpha"] == nil || servers["beta"] == nil {
-		t.Errorf("mcpServers = %v, want both providers unioned", servers)
-	}
 	if s["outputStyle"] != "telegram" {
-		t.Errorf("outputStyle = %v — a non-mcpServers key must survive the union", s["outputStyle"])
+		t.Errorf("outputStyle = %v, want telegram", s["outputStyle"])
 	}
-	if got := out[0].Manifest["mcp_server"]; len(got) != 1 || got[0] != "alpha" {
-		t.Errorf("a owns mcp servers %v", got)
+	if s["cleanupPeriodDays"] == nil {
+		t.Errorf("the second provider's key was dropped: %v", s)
 	}
 
 	dup := mkProduct(t, root, "dup", map[string]string{
-		".claude/settings.json": `{"mcpServers":{"alpha":{"command":"c"}}}`,
+		".claude/settings.json": `{"outputStyle":"slack"}`,
 	})
 	if _, err := BlendProducts(filepath.Join(root, "g2"), []Product{a, dup}, nil); err == nil {
-		t.Fatal("mcpServers name collision accepted")
+		t.Fatal("a settings.json key collision was accepted")
 	}
 }
 

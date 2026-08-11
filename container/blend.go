@@ -9,8 +9,8 @@ package container
 //
 // Seed vs managed is per KIND, not per product. Identity and knowledge (persona,
 // facts, CLAUDE.md regions) seed once and become the group's own state; skills
-// and mcpServers stay upstream-managed and are re-applied — but never over a
-// locally edited asset, which is reported dirty and skipped.
+// stay upstream-managed and are re-applied — but never over a locally edited
+// asset, which is reported dirty and skipped.
 
 import (
 	"crypto/sha256"
@@ -65,7 +65,7 @@ const (
 	payPersona                   // PERSONA.md / SOUL.md — FIRST wins, later warned
 	payClaude                    // CLAUDE.md — marked sections, in mix order
 	payUnion                     // facts/, tasks.toml, migrations/ — union, collision refuses
-	paySettings                  // .claude/settings.json — mcpServers map union
+	paySettings                  // .claude/settings.json — key union; mcpServers refused
 	payDockerfile                // Dockerfile.ant — at most one in the mix
 )
 
@@ -443,17 +443,17 @@ func claudeRegions(s string) (map[string]bool, error) {
 }
 
 // blendSettings applies "map union; name collision = refuse" to
-// .claude/settings.json. mcpServers is unioned entry by entry; the file's other
-// top-level keys are unioned the same way, because the alternative — one
-// provider silently winning a key the other set — is the loss this row exists to
-// prevent. Keys already in the group's own settings.json are the agent's and are
-// left alone: seedSettings rewrites that file every spawn.
+// .claude/settings.json. Every top-level key is unioned the same way, because
+// the alternative — one provider silently winning a key the other set — is the
+// loss this row exists to prevent. `mcpServers` is the one refused key: it
+// reaches no consumer, so a product declaring it is an error, not an asset.
+// Keys already in the group's own settings.json are the agent's and are left
+// alone: seedSettings rewrites that file every spawn.
 func blendSettings(groupDir string, mix []Product, p *plan, out []Blended) error {
 	if len(p.settings) == 0 {
 		return nil
 	}
 	merged := map[string]any{}
-	servers := map[string]any{}
 	owner := map[string]string{}
 	for _, i := range p.settings {
 		b, err := os.ReadFile(filepath.Join(mix[i].Dir, filepath.FromSlash(settingsRel)))
@@ -470,25 +470,14 @@ func blendSettings(groupDir string, mix []Product, p *plan, out []Blended) error
 		}
 		sort.Strings(names)
 		for _, k := range names {
+			// A settings.json mcpServers key reaches nothing. arizuko is the
+			// only server on the agent's map (`strictMcpConfig`, BUGS J1/J14),
+			// and Claude Code has no top-level mcpServers setting either, so
+			// this asset kind applied cleanly and then did nothing. Refuse it
+			// and name the path that works, rather than accept a no-op on an
+			// operator-facing path (BUGS J15).
 			if k == "mcpServers" {
-				sub, ok := s[k].(map[string]any)
-				if !ok {
-					return fmt.Errorf("%s %s: mcpServers is not an object", mix[i].Name, settingsRel)
-				}
-				var subNames []string
-				for n := range sub {
-					subNames = append(subNames, n)
-				}
-				sort.Strings(subNames)
-				for _, n := range subNames {
-					if prev, dup := owner["mcpServers."+n]; dup {
-						return fmt.Errorf("mcpServers.%s: both %s and %s declare it — a name collision refuses the mix", n, prev, mix[i].Name)
-					}
-					owner["mcpServers."+n] = mix[i].Name
-					servers[n] = sub[n]
-					out[i].Manifest["mcp_server"] = append(out[i].Manifest["mcp_server"], n)
-				}
-				continue
+				return fmt.Errorf("%s %s: mcpServers reaches nothing — a product's MCP server must register as an arizuko connector in connectors.toml (spec 5/13); remove the key", mix[i].Name, settingsRel)
 			}
 			if prev, dup := owner[k]; dup {
 				return fmt.Errorf("settings.json %q: both %s and %s set it — a key collision refuses the mix", k, prev, mix[i].Name)
@@ -498,10 +487,6 @@ func blendSettings(groupDir string, mix []Product, p *plan, out []Blended) error
 			out[i].Manifest["setting"] = append(out[i].Manifest["setting"], k)
 		}
 	}
-	if len(servers) > 0 {
-		merged["mcpServers"] = servers
-	}
-
 	path := filepath.Join(groupDir, filepath.FromSlash(settingsRel))
 	cur := map[string]any{}
 	if b, err := os.ReadFile(path); err == nil {
@@ -512,22 +497,9 @@ func blendSettings(groupDir string, mix []Product, p *plan, out []Blended) error
 		return err
 	}
 	for k, v := range merged {
-		if k != "mcpServers" {
-			if _, taken := cur[k]; !taken {
-				cur[k] = v
-			}
-			continue
+		if _, taken := cur[k]; !taken {
+			cur[k] = v
 		}
-		existing, _ := cur["mcpServers"].(map[string]any)
-		if existing == nil {
-			existing = map[string]any{}
-		}
-		for n, sv := range servers {
-			if _, taken := existing[n]; !taken {
-				existing[n] = sv
-			}
-		}
-		cur["mcpServers"] = existing
 	}
 	b, err := json.MarshalIndent(cur, "", "  ")
 	if err != nil {
