@@ -134,6 +134,59 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   ask these questions finds the answers and their cost instead of the
   questions.
 
+### Fixed
+
+- **A failed message is recorded, retried a bounded number of times, then
+  dead-lettered (BUGS `L21`, `L19`).** An agent `send`, `send_file` or `reply`
+  that failed used to leave no row at all, so nothing ever retried it and the
+  message was simply gone. Every failure now writes a durable row. The sweep
+  bounds retries by ATTEMPTS rather than by time — `delivery_attempts` against
+  `MAX_OUTBOUND_RETRY` (default 10) — and a permanent refusal dead-letters on
+  the first attempt instead of burning the whole budget, which previously meant
+  roughly 2880 doomed attempts at a platform that had already said no. The 24h
+  age limit is gone: it failed rows for the passage of time, so routd down for a
+  day discarded a whole backlog without one attempt.
+
+- **The outbound queue that never delivered is deleted (BUGS `D4`).** Adapters
+  re-register every three minutes as a heartbeat, and each registration built a
+  new channel whose empty outbox was then "drained" — so the queued backlog
+  became garbage within one heartbeat. It never delivered, and therefore never
+  double-delivered; removing it changes nothing you can observe. The durable row
+  plus the sweep is the only retry path, which is what the specs claimed all
+  along. A re-registration at a NEW url now also takes effect immediately
+  instead of being masked by the cached channel.
+
+- **proxyd no longer accepts HS256 bearers (BUGS `L6`).** Nothing had minted one
+  since authd took over OAuth, so the branch admitted no real caller — but it
+  ran FIRST on every request and stamped identity headers straight from the
+  token, which turned a leaked `AUTH_SECRET` into "log in as anyone" without
+  touching authd. The whole HS256 file is gone.
+
+- **A webhook payload reaches its folder (BUGS `L1`).** routd carried its own
+  copy of the JID-folder helper and had simply omitted the `hook:` case, so
+  every webhook delivery returned 204, stored a row, and then parked in
+  onboarding as if it were a stranger's first message.
+
+- **`plan` on an unmodified export no longer reports phantom updates (BUGS
+  `Z2`).** An absent list re-parsed as nothing while the live row held an empty
+  list, and the comparison called those different — so every affected row
+  showed as changed. Fixed in the engine, so it covers every resource rather
+  than the one that reported it.
+
+- **A product that ships an MCP server now fails loudly (BUGS `J15`).** The
+  `settings.json` `mcpServers` key reached no consumer, so such a product
+  applied cleanly and did nothing. It now refuses the apply and names the
+  connector path that works.
+
+- **Smaller ones.** `emaid` joins the owner-DB mechanism with real migrations
+  (`F55`); the product catalog prints the directory name that `--product`
+  actually takes and refuses a manifest that disagrees (`J12`); a held tool call
+  can no longer be created for a tool the caller cannot run or that does not
+  exist (`J2`); routd's queue reads the same concurrency ceiling runed does,
+  so raising it moves both (`F71`); a container failure that a retry cannot
+  repair — a bad image — is no longer retried, and the user is told the real
+  cause (`F73`).
+
 ### Added
 
 - **A group can now be built from several products at once, not one (spec
@@ -143,8 +196,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   share no merge base: `skills/` union with the last provider winning wholesale,
   `PERSONA.md` first-wins, `CLAUDE.md` one marked region per product so operator
   text between regions is never touched, `facts/`/`tasks.toml`/`migrations/`
-  union and REFUSE a filename collision, `mcpServers` map-union and refuse a
-  name collision, at most one `Dockerfile.ant` — and **anything the table does
+  union and REFUSE a filename collision, `settings.json` keys union and refuse
+  a key collision while an `mcpServers` key refuses the whole apply, at most one
+  `Dockerfile.ant` — and **anything the table does
   not name is copied whole, first provider wins**, which is what keeps every
   product's `PRODUCT.md` and `BRANDING.md` from being dropped by a table-strict
   blend. Identity and knowledge seed once and become the group's own state;
