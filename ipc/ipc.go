@@ -270,7 +270,8 @@ type StoreFns struct {
 	//
 	// It runs BEFORE authz, which is safe: approval never substitutes for
 	// authorization. A released call re-enters the normal path and every
-	// in-handler grant and JID gate still runs.
+	// in-handler grant and JID gate still runs. It is reached only for a call
+	// that could otherwise execute — see holdEligible (BUGS J2).
 	//
 	// Returns the pending-action id when the call was suspended. Nil CheckHold is
 	// zero overhead and today's behavior untouched.
@@ -415,6 +416,20 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoo
 	}, nil
 }
 
+// holdEligible reports whether a tools/call may create a pending-action row.
+// The hold gate deliberately runs before per-call authz, so these two cheap
+// preconditions stand in for it: an unregistered name has no handler to release
+// the call to, and a tool the caller cannot see at any scope can never pass the
+// in-handler gate. Without them `hold:mcp:*` let a raw caller mint unlimited
+// rows and approval notices for tools that could never execute, and probe which
+// forbidden tools carry a hold rule (BUGS J2).
+func holdEligible(srv *server.MCPServer, db StoreFns, tool string) bool {
+	if srv.GetTool(tool) == nil {
+		return false
+	}
+	return db.Visible == nil || db.Visible(tool)
+}
+
 func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated GatedFns, db StoreFns, folder string) {
 	r := bufio.NewReader(c)
 	var writeMu sync.Mutex
@@ -480,7 +495,7 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 			_ = json.Unmarshal(raw, &p)
 			// Spec 5/19: the hold gate sits here, before the call reaches
 			// HandleMessage, so no tool can route around it.
-			if db.CheckHold != nil {
+			if db.CheckHold != nil && holdEligible(srv, db, p.Params.Name) {
 				if id, held := db.CheckHold(p.Params.Name, p.Params.Arguments); held {
 					writeJSON(holdResponse(head.ID, id, p.Params.Name))
 					continue
