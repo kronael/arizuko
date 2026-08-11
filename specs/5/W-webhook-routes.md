@@ -1,6 +1,7 @@
 ---
-status: shipped
+status: defected
 shipped: 2026-05-18
+defects: [L4]
 depends: [Q-unified-routing, S-jid-format, 17-openapi-mcp, 32-acl-unified]
 supersedes: [specs/1/W-slink.md]
 ---

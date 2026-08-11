@@ -65,22 +65,22 @@ data entities defined here, and `9/3` moves the cold tier into git.
 
 ## Routing and messaging
 
-| Spec                                                             | Status  | Hook                                                                                                                                                 |
-| ---------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [E-routd.md](E-routd.md)                                         | shipped | **The conversation state machine.** Owns routing rules, the message store, the orchestration loop, and channel ingress/egress.                       |
-| [Q-unified-routing.md](Q-unified-routing.md)                     | shipped | One message table, one decision point, uniform `prefix:identifier` addressing.                                                                       |
-| [S-jid-format.md](S-jid-format.md)                               | shipped | `<platform>:<rest>` wire form with `path.Match` globs. The proposed typed Go structs were descoped.                                                  |
-| [B-route-mode-ingestion.md](B-route-mode-ingestion.md)           | shipped | Route mode as a URI fragment on `target` (`folder#observe`, `#announce`) instead of a weights table.                                                 |
-| [G-engagement.md](G-engagement.md)                               | shipped | A mention or bot reply engages `(jid, topic)` until TTL. Engagement commits after routing, never at ingest — the owning folder isn't known yet.      |
-| [L-mention-promotion.md](L-mention-promotion.md)                 | shipped | Reply or reaction to the bot promotes to `verb=mention` at routd ingest.                                                                             |
-| [F-topic-lineage.md](F-topic-lineage.md)                         | shipped | Topics carry `parent_topic`, `forked_at`, and a per-topic observed cursor; `fork_topic` copies the parent session.                                   |
-| [W-webhook-routes.md](W-webhook-routes.md)                       | shipped | One `route_tokens` table, two prefixes: `/chat/<token>/` and `/hook/<token>`. Owns token auth and URL shape.                                         |
-| [34-channel-protocol.md](34-channel-protocol.md)                 | shipped | The adapter contract: self-registration, send, health. Adapters authenticate with a `service:<daemon>` ES256 JWT.                                    |
-| [R-multi-account.md](R-multi-account.md)                         | shipped | Several accounts per adapter = several compose fragments, distinguished by `CHANNEL_NAME`.                                                           |
-| [Z-message-actions.md](Z-message-actions.md)                     | shipped | Agent-initiated edit, delete, pin, unpin on messages it sent.                                                                                        |
-| [Y-output-styles-per-surface.md](Y-output-styles-per-surface.md) | shipped | Output style selected per surface from the JID, falling back to the bare channel name.                                                               |
-| [6-proactive-interjection.md](6-proactive-interjection.md)       | shipped | Lurk mode: silence-driven turns behind a cooldown and a quiet-turn veto; the agent may emit nothing. Ships off — `PROACTIVE_ENABLED` defaults false. |
-| [12-turn-retry.md](12-turn-retry.md)                             | shipped | Reschedule a turn that died mid-execution without delivering a reply; failures runed marks terminal are never retried.                               |
+| Spec                                                             | Status   | Hook                                                                                                                                                 |
+| ---------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [E-routd.md](E-routd.md)                                         | shipped  | **The conversation state machine.** Owns routing rules, the message store, the orchestration loop, and channel ingress/egress.                       |
+| [Q-unified-routing.md](Q-unified-routing.md)                     | shipped  | One message table, one decision point, uniform `prefix:identifier` addressing.                                                                       |
+| [S-jid-format.md](S-jid-format.md)                               | shipped  | `<platform>:<rest>` wire form with `path.Match` globs. The proposed typed Go structs were descoped.                                                  |
+| [B-route-mode-ingestion.md](B-route-mode-ingestion.md)           | shipped  | Route mode as a URI fragment on `target` (`folder#observe`, `#announce`) instead of a weights table.                                                 |
+| [G-engagement.md](G-engagement.md)                               | shipped  | A mention or bot reply engages `(jid, topic)` until TTL. Engagement commits after routing, never at ingest — the owning folder isn't known yet.      |
+| [L-mention-promotion.md](L-mention-promotion.md)                 | shipped  | Reply or reaction to the bot promotes to `verb=mention` at routd ingest.                                                                             |
+| [F-topic-lineage.md](F-topic-lineage.md)                         | shipped  | Topics carry `parent_topic`, `forked_at`, and a per-topic observed cursor; `fork_topic` copies the parent session.                                   |
+| [W-webhook-routes.md](W-webhook-routes.md)                       | defected | One `route_tokens` table, two prefixes: `/chat/<token>/` and `/hook/<token>`. Owns token auth and URL shape.                                         |
+| [34-channel-protocol.md](34-channel-protocol.md)                 | shipped  | The adapter contract: self-registration, send, health. Adapters authenticate with a `service:<daemon>` ES256 JWT.                                    |
+| [R-multi-account.md](R-multi-account.md)                         | shipped  | Several accounts per adapter = several compose fragments, distinguished by `CHANNEL_NAME`.                                                           |
+| [Z-message-actions.md](Z-message-actions.md)                     | shipped  | Agent-initiated edit, delete, pin, unpin on messages it sent.                                                                                        |
+| [Y-output-styles-per-surface.md](Y-output-styles-per-surface.md) | shipped  | Output style selected per surface from the JID, falling back to the bare channel name.                                                               |
+| [6-proactive-interjection.md](6-proactive-interjection.md)       | shipped  | Lurk mode: silence-driven turns behind a cooldown and a quiet-turn veto; the agent may emit nothing. Ships off — `PROACTIVE_ENABLED` defaults false. |
+| [12-turn-retry.md](12-turn-retry.md)                             | shipped  | Reschedule a turn that died mid-execution without delivering a reply; failures runed marks terminal are never retried.                               |
 
 ## Runtime — the turn and the container
 

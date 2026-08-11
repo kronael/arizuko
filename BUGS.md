@@ -131,7 +131,11 @@ instead of parsing it back out of a string. That is a schema change, so it is
 recorded here rather than patched.
 
 - **Severity:** medium — suffixed tokens are the minority, and the failure is
-  the same silent park `L1` described.
+  the same silent park `L1` described. It DOES contradict `5/W`: line 59
+  specifies the grammar `hook:<folder>/<source>[/<suffix>]` and
+  `issue_webhook(source_label, jid_suffix?)` is a documented tool parameter,
+  so `5/W` keeps `status: defected` until this closes. Marking it shipped on
+  2026-08-11 was an error, corrected the same day.
 - **Scope:** route-token grammar / webhook ingress
 - **Affected:** store, routd, webd
 - **Status:** open — needs the schema decision
