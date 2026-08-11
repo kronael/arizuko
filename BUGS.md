@@ -784,7 +784,7 @@ denials on the highest-traffic tools leave no trace.
 Both fixes are additive, but "MCP tool calls become audited" is a visible
 behavior change on every instance, so it is recorded rather than shipped inline.
 
-## F71 — routd's in-memory admission duplicates runed's DB-backed admission (2026-08-08, open)
+## F71 — routd's in-memory admission duplicates runed's DB-backed admission (2026-08-08, FIXED 2026-08-11 — premise partly wrong)
 
 `queue/queue.go:129-150` implements folder-exclusivity, a concurrency cap and a
 3-strike circuit breaker in memory; `runed/manager.go:225-272` implements the
@@ -798,6 +798,29 @@ and is wired to no env var, while `MAX_CONCURRENT_CONTAINERS`
 moves one cap and not the other.
 
 Picking a single owner changes which cap governs, so it needs a decision.
+
+**FIXED 2026-08-11. The duplication half of this entry is wrong; the config
+half was real and live.**
+
+`runed/manager.go:29-32` says exactly what it does, and it is not what this
+entry read into it: "runed keeps NO internal admission queue (that duplicated
+routd's DB-backed dispatch queue). A caller that can't be admitted gets a
+retryable busy outcome; routd re-feeds it on its own queue." So the two are
+LAYERS, not copies — routd's queue paces and orders the work, runed makes the
+authoritative claim-or-reject off the DB and owns restart recovery. Deleting
+either leaves a real gap: without routd's queue nothing re-feeds a busy folder,
+and without runed's DB gate the ceiling does not survive a restart. No owner
+decision is needed, so none was taken.
+
+What WAS broken is the shared ceiling. `LoopConfig.MaxRuns` was never set at
+routd's only construction site (`routd/cmd/routd/main.go`), so it fell to the
+hardcoded 5 at `routd/loop.go:209` while `MAX_CONCURRENT_CONTAINERS` reached
+only runed. An operator who raised that variable moved runed's cap and left
+routd's queue throttling at 5. routd now reads the same variable.
+
+`TestConcurrencyCapReadsOneEnvVar` reads SOURCE, because a value-level test
+structurally cannot see this: with the variable unset both sides resolve to 5
+and agree by accident. Replacing the wiring with a literal fails it.
 
 ## F72 — `runed`'s `spawn_logs` table has no writer and was never dropped (2026-08-08, FIXED 2026-08-09)
 
