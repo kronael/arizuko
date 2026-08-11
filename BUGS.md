@@ -127,7 +127,7 @@ the agent's full MCP surface.
   `mcp-servers exports no settings.json reader`, so a re-added loader fails the
   suite before it can re-open the path.
 
-## J2 — pre-auth hold creates rows for forbidden and unknown tools (2026-08-08, proposed)
+## J2 — pre-auth hold creates rows for forbidden and unknown tools (2026-08-08, FIXED 2026-08-11)
 
 `serveConn` runs `CheckHold` before handler lookup and before the per-tool
 authorization inside registered handlers. A raw caller can probe whether an
@@ -139,8 +139,16 @@ never pass authorization.
 - **Scope:** HITL authorization ordering
 - **Affected:** ipc, routd
 - **Source:** ipc/ipc.go:458
-- **Status:** proposed
-- **Fix:**
+- **Status:** FIXED 2026-08-11
+- **Fix:** `holdEligible(srv, db, tool)` guards the hold gate at the same single
+  interception, so the ordering the spec wants is unchanged and no second check
+  appears inside a handler. Two preconditions stand in for the authz that runs
+  later: `srv.GetTool(tool) == nil` refuses an unregistered name (no handler
+  exists to release the call to), and `db.Visible` — the SAME tools/list
+  visibility view of `auth.EffectiveActions`, already injected per turn —
+  refuses a tool the caller cannot hold at any scope. Nil `Visible` is the
+  operator socket and still refuses unknown names.
+  `TestHoldEligible_OnlyACallThatCouldRun` covers all four cases.
 
 ## J3 — a failed pending-action insert returns an unresolvable empty ID (2026-08-08, FIXED 2026-08-09)
 
@@ -290,7 +298,7 @@ measures only the `>`/`|` marker instead of the description body.
   Mutation-checked twice: reverting `blockingFindings` to critical-only fails 3
   tests; making `scalarOf` skip the block-scalar branch fails 3 others.
 
-## J12 — product catalog and create use different identities (2026-08-08, proposed)
+## J12 — product catalog and create use different identities (2026-08-08, FIXED 2026-08-11)
 
 `products list` prints `PRODUCT.md.name`, while `create --product` selects and
 stores the directory argument; product-mix apply validates and keys the manifest
@@ -302,8 +310,16 @@ records mix state under `growth`.
 - **Scope:** product catalog identity
 - **Affected:** cmd/arizuko
 - **Source:** cmd/arizuko/products.go:175
-- **Status:** proposed
-- **Fix:**
+- **Status:** FIXED 2026-08-11
+- **Fix:** the DIRECTORY is the identity, because it is what `create --product`
+  accepts (root `CLAUDE.md`: a name IS its wire identity). `listProducts` prints
+  `e.Name()` and returns an error naming both spellings when a built-in's
+  `PRODUCT.md` declares a different `name`. All 10 shipped products already
+  agree, so the guard keeps a latent divergence latent rather than repairing a
+  live one. `productName()` (products.go:74) is deliberately untouched: a mix
+  product is cloned from a git URL into an arbitrary directory, so there the
+  manifest name is the only identity available.
+  `TestProductsListRefusesADivergentManifestName` covers it.
 
 ## J13 — products list swallows output write failures (2026-08-08, FIXED 2026-08-09 — listProducts returns the io.WriteString error)
 
@@ -775,7 +791,7 @@ excalidraw and manim-video). A `diff` shows the top-level
 `create/`-tree copy lacks — so the duplicate is not merely redundant, it is
 already stale. Deciding which is canonical for skill dispatch is the fix.
 
-## F64 — the public product catalog and the seedable one overlap in 4 of 14 names (2026-08-07, open)
+## F64 — the public product catalog and the seedable one overlap in 4 of 14 names (2026-08-07, FIXED 2026-08-11)
 
 `ant/examples/` seeds 10 products (aws-devops, creator, personal, pm,
 reality, slack-team, socials, strategy, support, trip).
@@ -792,6 +808,21 @@ A visitor reading `/pub/arizuko/products/marble/` has no `--product marble` to
 run; an operator running `arizuko create --product pm` finds nothing describing
 it. Content work, not a code fix: either publish the six missing pages or say
 on each page whether the product is seedable today.
+
+**FIXED 2026-08-11**, by the second option — the catalog now states template
+availability instead of implying it. Each of the 8 cards on
+`template/web/pub/arizuko/products/index.html` carries either the exact seed
+command (`trip`, `slack-team`, `aws-devops`, `reality`) or a line saying no
+template ships and the page describes a shape to assemble (`supermarket`,
+`discord-team`, `company-brain`, `marble`). A "Templates without a page"
+section lists the six seedable-only products (`creator`, `personal`, `pm`,
+`socials`, `strategy`, `support`) with their `PRODUCT.md` taglines, so neither
+half of the catalog is invisible. Writing six full product pages stays open as
+content work; it is not a correctness gap any more.
+
+Note for whoever picks up `X2`: the `aws-devops` card now advertises the seed
+command, and `X2` is the reason that product does not work end to end. Closing
+`X2` must revisit this card.
 
 ## ✅ FIXED 2026-08-07 F65 — every `PRODUCT.md` declares `brand` and `tagline`; nothing parses them (2026-08-07, FIXED)
 
@@ -1392,7 +1423,7 @@ becomes the authority. It is a real refusal added to the shipped invite flow
 (an invite whose `target_glob` does not evaluate to authority over the parent
 would start failing), so it wants sign-off rather than an inline patch.
 
-## F41 — the re-greet cooldown is a rate, not a cap (2026-08-06, open)
+## F41 — the re-greet cooldown is a rate, not a cap (2026-08-06, open question — NOT a spec defect)
 
 Shipped with the `5/31` fold and named in the spec rather than hidden. A chat
 that (a) keeps messaging, (b) still routes nowhere, and (c) never redeems its
@@ -1411,6 +1442,12 @@ Open question, not a defect with an obvious fix: should the Nth greeting back
 off? A `prompt_count` column and a widening interval is the obvious shape, and
 it is a new column plus a policy constant for a case nobody has hit yet. Left
 as a rate until an instance reports it.
+
+**Reclassified 2026-08-11 — this never made `5/31` defected.** A spec is
+`defected` when an open bug CONTRADICTS its guarantee. `5/31` names the rate in
+its own text and shipped it deliberately, so the spec is accurate and the code
+matches it; what is open is a future policy choice, which is a backlog item.
+`5/31` returns to `shipped` and keeps this entry as the recorded question.
 
 ## F40 — `onboarding.token_ref` / `token_expires` are inert after the fold (2026-08-06, FIXED 2026-08-09)
 
@@ -3188,6 +3225,11 @@ than loudly — worse than a crash.
   key prefix into spawn env, which reopens exactly the hole `X1` closed and
   should be refused unless (a) is proven impossible; (c) retire the product.
   Until one is chosen, `ant/examples/aws-devops/` must not ship.
+- **Proposal note (2026-08-11):** `specs/6/17-egress-credential-proxy.md`
+  (rewritten) is the concrete mechanism for (a): iron-proxy's `aws_auth`
+  transform re-signs SigV4 host-side from the same credential store —
+  configuration, not new crypto code, and `boto3` works unmodified in the
+  container. Decision between (a)/(b)/(c) remains the user's.
 
 ## X3 — runed gets `SECRETS_KEY` and never reads it (2026-08-09, open)
 
