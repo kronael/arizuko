@@ -1042,7 +1042,7 @@ func (r *Resource) rowScope(v reflect.Value) string {
 // every plan (spec 5/8 §"Apply lifecycle" step 3).
 func (r *Resource) payloadEqual(a, b reflect.Value) bool {
 	if len(r.meta.stampedIdx) == 0 {
-		return reflect.DeepEqual(a.Interface(), b.Interface())
+		return equalIgnoringEmpty(a, b)
 	}
 	ac := reflect.New(r.meta.rowType).Elem()
 	ac.Set(a)
@@ -1053,7 +1053,63 @@ func (r *Resource) payloadEqual(a, b reflect.Value) bool {
 		ac.Field(idx).Set(zero.Field(idx))
 		bc.Field(idx).Set(zero.Field(idx))
 	}
-	return reflect.DeepEqual(ac.Interface(), bc.Interface())
+	return equalIgnoringEmpty(ac, bc)
+}
+
+// equalIgnoringEmpty is DeepEqual with one difference: a nil slice or map
+// equals an empty one. Both spell the same thing in a manifest — the field is
+// absent — but reflect.DeepEqual calls them different.
+//
+// The engine needs this because the two sides of a Diff reach it by different
+// routes. An `omitempty` field with no value is omitted from the export, so it
+// re-parses as nil, while the live row's AfterScan builds an empty slice from
+// the stored "[]". Without this, every such row reported a phantom `update` and
+// `plan` on an unmodified export lied — 12 of 12 proxyd_routes rows on krons
+// (BUGS Z2). Normalizing HERE fixes the class: proxyd_routes' preserve_headers
+// and installed_packages' manifest today, and any resource that adds a slice or
+// map field later.
+func equalIgnoringEmpty(a, b reflect.Value) bool {
+	if a.Type() != b.Type() {
+		return false
+	}
+	switch a.Kind() {
+	case reflect.Slice, reflect.Map:
+		if a.Len() == 0 && b.Len() == 0 {
+			return true
+		}
+		if a.Len() != b.Len() {
+			return false
+		}
+		if a.Kind() == reflect.Slice {
+			for i := 0; i < a.Len(); i++ {
+				if !equalIgnoringEmpty(a.Index(i), b.Index(i)) {
+					return false
+				}
+			}
+			return true
+		}
+		for _, k := range a.MapKeys() {
+			bv := b.MapIndex(k)
+			if !bv.IsValid() || !equalIgnoringEmpty(a.MapIndex(k), bv) {
+				return false
+			}
+		}
+		return true
+	case reflect.Struct:
+		for i := 0; i < a.NumField(); i++ {
+			if !equalIgnoringEmpty(a.Field(i), b.Field(i)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Pointer, reflect.Interface:
+		if a.IsNil() || b.IsNil() {
+			return a.IsNil() && b.IsNil()
+		}
+		return equalIgnoringEmpty(a.Elem(), b.Elem())
+	default:
+		return reflect.DeepEqual(a.Interface(), b.Interface())
+	}
 }
 
 // byPK indexes a []RowType slice by pkKey. Last-writer-wins on duplicate

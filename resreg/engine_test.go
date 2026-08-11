@@ -818,3 +818,48 @@ func TestColumnOverride_Write(t *testing.T) {
 		t.Errorf("empty Model should write NULL, got non-null")
 	}
 }
+
+// BUGS Z2: an `omitempty` slice with no value is omitted from the export, so it
+// re-parses as nil, while the live row's AfterScan builds an empty slice from
+// the stored "[]". reflect.DeepEqual calls those different, so every such row
+// reported a phantom `update` and `plan` on an unmodified export lied — 12 of
+// 12 proxyd_routes rows on krons. The engine normalizes, so the fix covers
+// every resource rather than the one that reported it.
+func TestEqualIgnoringEmpty_NilAndEmptyAreTheSame(t *testing.T) {
+	type row struct {
+		Name    string              `db:"name"`
+		Headers []string            `db:"-"`
+		Tags    map[string][]string `db:"-"`
+	}
+	// Go through payloadEqual, the Diff call site — comparing the helper
+	// directly would still pass if payloadEqual reverted to reflect.DeepEqual.
+	res := &Resource{Name: "z2rows", Table: "z2rows", RowType: reflect.TypeFor[row](), PKFields: []string{"Name"}}
+	res.initMeta()
+	eq := func(a, b row) bool {
+		return res.payloadEqual(reflect.ValueOf(a), reflect.ValueOf(b))
+	}
+
+	if !eq(row{Name: "x"}, row{Name: "x", Headers: []string{}}) {
+		t.Error("a nil slice and an empty slice must compare equal")
+	}
+	if !eq(row{Name: "x"}, row{Name: "x", Tags: map[string][]string{}}) {
+		t.Error("a nil map and an empty map must compare equal")
+	}
+	// The normalization must not swallow a real difference.
+	if eq(row{Name: "x"}, row{Name: "x", Headers: []string{"authorization"}}) {
+		t.Error("a populated slice must differ from an absent one")
+	}
+	if eq(row{Name: "x"}, row{Name: "y"}) {
+		t.Error("a differing scalar must still differ")
+	}
+	if eq(row{Headers: []string{"a"}}, row{Headers: []string{"b"}}) {
+		t.Error("differing slice contents must differ")
+	}
+	// An empty inner slice inside a map is the same case, one level down.
+	if !eq(row{Tags: map[string][]string{"k": nil}}, row{Tags: map[string][]string{"k": {}}}) {
+		t.Error("a nil and an empty slice inside a map must compare equal")
+	}
+	if eq(row{Tags: map[string][]string{"k": {"a"}}}, row{Tags: map[string][]string{"j": {"a"}}}) {
+		t.Error("differing map keys must differ")
+	}
+}
