@@ -65,8 +65,8 @@ it. **Never** package-modifiable: daemons, cross-folder grants, host
 
 A **group seed is NOT a package-install asset** — a package installs
 instance-wide, but seeding a group is inherently create-a-specific-group.
-`PERSONA.md`, `CLAUDE.md`, `facts/`, `tasks.toml`, `[[env]]` hints, and
-`mcpServers` entries are seed content: applied once at group creation via
+`PERSONA.md`, `CLAUDE.md`, `facts/`, `tasks.toml` and `[[env]]` hints are seed
+content: applied once at group creation via
 `arizuko create --product` / a `5/21` product (`container.SetupGroup`,
 `container/runner.go:964`), then owned by the group as local state — never
 re-touched by install/upgrade/remove, here or anywhere else.
@@ -199,16 +199,16 @@ or a shallow git clone pinned to its resolved revision). Two providers
 share no merge base, so **blend is per PAYLOAD KIND, never a content
 merge**:
 
-| Payload                             | Blend                                                                      | On upstream update       |
-| ----------------------------------- | -------------------------------------------------------------------------- | ------------------------ |
-| `skills/`                           | union by name; LAST product wins wholesale                                 | managed: `sync`          |
-| `PERSONA.md` / `SOUL.md`            | FIRST provider wins; later warned                                          | seed-once                |
-| `CLAUDE.md`                         | marked sections, in mix order                                              | seed-once                |
-| `facts/`, `tasks.toml`              | union; filename collision = refuse                                         | seed-once                |
-| `settings.json` `mcpServers`        | map union; name collision = refuse — but INERT since 2026-08-09, see below | managed: `sync`          |
-| `Dockerfile.ant`                    | at most one in the mix                                                     | operator rebuilds        |
-| `migrations/NNN-*.md`               | union; filename collision = refuse                                         | seed-once (see Deferred) |
-| **anything else** (`PRODUCT.md`, …) | **verbatim copy; FIRST provider wins**                                     | seed-once                |
+| Payload                             | Blend                                                                    | On upstream update       |
+| ----------------------------------- | ------------------------------------------------------------------------ | ------------------------ |
+| `skills/`                           | union by name; LAST product wins wholesale                               | managed: `sync`          |
+| `PERSONA.md` / `SOUL.md`            | FIRST provider wins; later warned                                        | seed-once                |
+| `CLAUDE.md`                         | marked sections, in mix order                                            | seed-once                |
+| `facts/`, `tasks.toml`              | union; filename collision = refuse                                       | seed-once                |
+| `settings.json`                     | key union; key collision = refuse. An `mcpServers` key REFUSES the apply | managed: `sync`          |
+| `Dockerfile.ant`                    | at most one in the mix                                                   | operator rebuilds        |
+| `migrations/NNN-*.md`               | union; filename collision = refuse                                       | seed-once (see Deferred) |
+| **anything else** (`PRODUCT.md`, …) | **verbatim copy; FIRST provider wins**                                   | seed-once                |
 
 **The table is not a whitelist — the last row is what makes that true.** A
 payload the table does not name is copied whole, first-provider-wins, exactly as
@@ -227,21 +227,22 @@ guess would drift:
 - **`settings.json` is `.claude/settings.json`** — the only settings file
   arizuko reads (`seedSettings`, `container/runner.go`). A product tree mirrors
   the group home, so that is where its payload lives and where the merged result
-  lands; `seedSettings` preserves `mcpServers` on every spawn. A root-level
+  lands; `seedSettings` writes arizuko's own socket entry on every spawn. A root-level
   `settings.json` is an unnamed payload and falls to the catch-all.
-- **the `mcpServers` half of that row is INERT and a product must not rely on
-  it.** The blend still writes the key, but nothing loads it: `ant` stopped
-  reading it on 2026-08-09 (the settings.json MCP extension point was a
-  self-grant around the HITL firewall — `5/19`, BUGS `J1`/`F76`), and Claude Code
-  never read it (its `Settings` schema has `enabledMcpjsonServers` for
-  `.mcp.json`, no top-level `mcpServers`). A product that ships an MCP server
-  today applies cleanly and delivers nothing. The route that works is an arizuko
-  **connector** — its tools come back over the gated socket, so they are gated,
-  audited and holdable like every other tool. Whether to refuse the payload,
-  drop the row, or make packages register connectors is BUGS `J15`.
-- **the file's non-`mcpServers` keys union the same way**, key collision
-  refusing. Silently letting one provider win a key the other set is exactly the
-  loss the `mcpServers` half of the row exists to prevent.
+- **an `mcpServers` key REFUSES the apply** (BUGS `J15`, 2026-08-11). Nothing
+  loads it: `ant` stopped reading it on 2026-08-09 (the settings.json MCP
+  extension point was a self-grant around the HITL firewall — `5/19`, BUGS
+  `J1`/`F76`), and Claude Code never read it either (its `Settings` schema has
+  `enabledMcpjsonServers` for `.mcp.json`, no top-level `mcpServers`). The blend
+  used to write the key anyway, so a product shipping an MCP server applied
+  cleanly and delivered nothing — a silent no-op on an operator-facing path. It
+  now stops the apply and names the route that works: an arizuko **connector**,
+  whose tools come back over the gated socket and are therefore gated, audited
+  and holdable like every other tool. Making packages REGISTER a connector
+  stays open; refusing is the honest state until it is built.
+- **the file's other keys union normally**, key collision refusing. Silently
+  letting one provider win a key the other set is exactly the loss this row
+  exists to prevent.
 
 `SOUL.md` is the legacy `PERSONA.md` name, renamed on read
 (`container/runner.go`) and only when `PERSONA.md` is absent. It therefore
@@ -327,7 +328,7 @@ appended without the existing ones being rewritten or reordered — the case
 That table IS the cross-package collision rule this spec's own
 install/upgrade (above) defers to when a GROUP, not an instance, is the
 install target. The seed/managed split is per KIND, not per product:
-skills and `mcpServers` entries stay upstream-managed — what `sync`
+skills stay upstream-managed — what `sync`
 touches, same dirty-detection as any other asset above; identity
 and knowledge (persona, facts) seed once and become the group's own
 state, changed only by overlay (`~/CLAUDE.md`, `.disabled`, a custom

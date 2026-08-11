@@ -395,7 +395,7 @@ audit row and `CheckHold` never see them, and the agent writes the file itself.
   A cheaper half-measure (`settingSources: []`) does NOT work: `.mcp.json` is not
   a settings source, and dropping `'project'` also stops `CLAUDE.md` loading.
 
-## J15 — the `5/28` package `mcpServers` asset kind has no consumer (2026-08-09, proposed)
+## J15 — the `5/28` package `mcpServers` asset kind has no consumer (2026-08-09, FIXED 2026-08-11 — option (a))
 
 `container/blend.go` still map-unions each product's `.claude/settings.json`
 `mcpServers` and refuses a name collision, and `seedSettings` still preserves the
@@ -425,6 +425,25 @@ promise a working asset kind. The CODE is unchanged pending a decision.
       again, and it is a design change, not a cleanup.
   (c) is the only option that keeps "MCP is imported through packages" true;
   (a) is the honest interim.
+
+**FIXED 2026-08-11 — option (a).** `blendSettings` returns an error when any
+product's `.claude/settings.json` carries `mcpServers`, naming
+`connectors.toml` and `5/13` so the operator learns the route that works. The
+union code it replaced is deleted rather than left unreachable: no `servers`
+map, no `merged["mcpServers"]`, no `mcp_server` manifest kind. The file's other
+keys union exactly as before, key collision refusing —
+`TestBlendSettingsUnionsOtherKeys` pins that the refusal is one key, not the
+whole asset kind. `TestBlendSettingsRefusesMcpServers` asserts the error names
+both `mcpServers` and `connectors.toml`; neutering the guard fails it.
+
+Option (c) — a product's MCP server registering as an arizuko connector row —
+is NOT built and stays open. It is the only option that keeps "MCP is imported
+through packages" true, and it is a design change needing sign-off. Refusing is
+the honest state until it exists: an operator now learns at apply time instead
+of never.
+
+`5/28`'s asset-kind table, its two payload-path notes and `EXTENDING.md` all
+said the key was INERT-but-written. They now say it refuses.
 
 ## J16 — `ant/CLAUDE.md` tells the agent connector tools are deferred; they are eager (2026-08-09, proposed)
 
