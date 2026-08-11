@@ -65,10 +65,25 @@ adapter fails, and the error reaches the caller. `chanreg` holds no
 queue of its own. routd writes each bot row `pending` before it attempts
 delivery, and marks it `sent` only when the adapter confirms
 (`MarkBotPlatformID` stamps `platform_id` and `status` in one
-statement). A 30s sweep re-sends every row that stays `pending`, and
-fails a row after 24h (`routd/loop.go` maybeRetryOutbound). The
-`messages` row is the durable record, so a routd restart keeps the
-backlog.
+statement). A 30s sweep re-sends every row that stays `pending`
+(`routd/loop.go` maybeRetryOutbound). The `messages` row is the durable
+record, so a routd restart keeps the backlog. A failed send also writes
+its row: the MCP tools return the error to the agent and record the
+undelivered message, so the sweep can own the retry.
+
+**The sweep classifies before it retries.** `classifyStatus` marks a 4xx
+adapter response `chanlib.ErrPermanent`; the adapter refuses the message
+for a reason a retry cannot repair. Such a row dead-letters at once and
+spends no attempt budget. Only a transient failure retries, and each
+attempt increments `messages.delivery_attempts`. The row dead-letters
+when the attempts reach `MAX_OUTBOUND_RETRY` (default 10), so a stuck
+message cannot repeat forever — it burned about 2880 sends over 24h
+before this bound.
+
+`failed` IS the dead-letter state. The row keeps its content,
+`PendingOutbound` excludes it, and no sweep touches it again. An
+operator sees the count on dashd's routd page next to `pending
+outbound`.
 
 ## `chat_jid` and `sender` are different shapes
 
