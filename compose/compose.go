@@ -197,6 +197,11 @@ var daemonKeys = map[string][]string{
 	"dashd": {
 		"AUTH_SECRET", "DASH_PORT", "WHAPD_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY",
 		"SURROGATE_GITHUB_CLIENT_ID", "SURROGATE_GITHUB_CLIENT_SECRET",
+		// dashd writes user secrets into routd.db directly (/dash/me/env,
+		// /dash/me/secrets, and the Connect OAuth dance), so it seals with the
+		// same key routd reads with. Omitting it here made dashd write every
+		// user secret in plaintext on each live instance (BUGS S2).
+		"SECRETS_KEY",
 	},
 	// webd + proxyd present a service:<daemon> ES256 token as the channel proof
 	// for the X-User-* headers they forward: proxyd→backends, webd→proxyd
