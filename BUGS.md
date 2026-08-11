@@ -7433,7 +7433,7 @@ image build, are not protecting any live user.
   `invites` export against real data (this session's synthetic-schema tests
   already cover the post-migration shape; only the live-data path was blocked).
 
-## Z2 — proxyd_routes round-trip is not a no-op: `[]string{}` vs `nil` breaks Diff on every row with no preserve_headers (2026-08-04, open)
+## Z2 — proxyd_routes round-trip is not a no-op: `[]string{}` vs `nil` breaks Diff on every row with no preserve_headers (2026-08-04, FIXED 2026-08-11, df9fefc1)
 
 Found in the same live-DB verification pass (read-only, all three instances):
 exporting `proxyd_routes`, re-parsing the emitted fragment, and diffing against
@@ -7472,6 +7472,26 @@ per CLAUDE.md's bug-triage protocol (don't fix on discovery).
   treat a nil and a zero-length slice as equal generically — the general form
   is probably right, since any future `[]string`-typed field with `omitempty`
   hits the identical trap.
+
+**FIXED 2026-08-11** (`df9fefc1`), as a CLASS rather than an instance.
+
+The cause was not `proxyd_routes`: `payloadEqual` (`resreg/engine.go`) bottomed
+out in `reflect.DeepEqual`, which calls an empty slice and nil different. The
+two sides of a Diff reach it by different routes — an `omitempty` field with no
+value is omitted from the export and re-parses as nil, while the live row's
+`AfterScan` builds an empty slice from the stored value.
+
+The engine now normalizes: a nil slice or map equals an empty one, recursively.
+That covers `proxyd_routes.preserve_headers` and
+`installed_packages.manifest` today, and any resource that adds a slice or map
+field later — nobody has to remember to normalize per resource.
+
+`TestEqualIgnoringEmpty_NilAndEmptyAreTheSame` goes through `payloadEqual`, not
+the helper: comparing the helper directly would still pass if `payloadEqual`
+reverted to `reflect.DeepEqual`. Reverting it fails the test with `a nil slice
+and an empty slice must compare equal`. The test also pins that the
+normalization does NOT swallow a real difference — populated vs absent,
+differing contents, differing map keys.
 
 ## Z3 — `onboarding` (onbod) still not a resreg resource; archiving it as speced would leak a live plaintext bearer (2026-08-04, fixed)
 

@@ -1,6 +1,5 @@
 ---
-status: defected
-defects: [Z2]
+status: shipped
 shipped: 2026-06-14
 depends: specs/5/16-mcp-rest-unification.md, specs/5/17-openapi-mcp.md, specs/5/P-runed.md, specs/9/2-data-model.md
 ---
