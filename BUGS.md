@@ -865,7 +865,7 @@ enumerations (`F72`); left alone because it is a different removal's debt.
 - **Status:** open
 - **Fix:**
 
-## F73 — turn retry treats container exit 125 as transient (2026-08-08, open — BLOCKED on a contract decision)
+## F73 — turn retry treats container exit 125 as transient (2026-08-08, FIXED 2026-08-11)
 
 `routd/dispatch.go:307-324` retries any `OutcomeError`. Root `CLAUDE.md`'s own
 "Nothing works" checklist calls exit 125 an image/compose mismatch — a
@@ -906,6 +906,41 @@ control-flow change on the live retry path, which `CLAUDE.md`
 Note the neighbouring case so the fix does not miss it: a failure at
 `cmd.Start()` returns `Output{Error: "start: ..."}` with `ExitCode` 0
 (`container/runner.go:255`) — also a misconfiguration, also retried today.
+
+**FIXED 2026-08-11**, built as `Terminal bool` on `runedv1.RunOutcome` — runed
+decides, routd obeys, matching how `Busy`/`BreakerOpen` already ride that struct
+as decisions rather than raw facts. The DECISION travels, never the raw exit
+code and never the prose: classifying on `RunOutcome.Error` was rejected because
+it means substring-matching another daemon's format string.
+
+**The zero value means RETRYABLE**, so a failure runed says nothing about keeps
+today's behavior. The pre-existing `TestTurnRetry_SchedulesRetryOnError` builds
+a `RunOutcome` without `Terminal` and is the guard: it fails if the default ever
+flips.
+
+Terminal, each for a stated reason: docker exit **125** (`docker run` itself
+failed — bad image or bad flags), **126** (command not runnable), **127**
+(command not found), and a **`cmd.Start()` failure** (the docker CLI did not
+launch) — the neighbouring case above, which carries `ExitCode` 0 and so cannot
+be classified from the code. Everything else stays retryable, including the
+timeout path and exit 137.
+
+Classification sits at ONE site, `container/runner.go`'s return statements,
+rather than in `manager.spawn` as this entry proposed. `Start()` failure is
+undecidable from the exit code, so classifying in the manager would have needed
+a second rule there; one site beats two.
+
+The user now sees the cause instead of a generic failure:
+`⚠️ Agent run failed and a retry cannot fix it: Container exited with code 125:
+<stderr tail>`, delivered through the existing final-failure path — no new
+formatting layer.
+
+`TestTurnRetry_TerminalNotRetried` asserts retry_count stays 0 and the notice
+names the cause; removing `!out.Terminal` from the gate fails it with
+`terminal failure incremented retry_count=1, want 0`. `TestTerminalOnWire` and
+`TestTerminalFlow` cover the manager and runtime hops; `TestRun_ExitCodes` pins
+the table. NOT asserted: the HTTP round-trip of the bool itself, which the
+manager-level and contract-level tests bracket.
 
 ## F74 — `ARIZUKO_DEV` sentinel disagrees between production and tests (2026-08-08, open)
 

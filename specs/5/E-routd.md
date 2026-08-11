@@ -311,6 +311,12 @@ Three discriminators on the response, each meaning something different:
 - **`steered`** — a steer ack: the original run governs the batch, so
   don't advance.
 
+`terminal` rides only on `outcome:error`: runed decided that a retry
+cannot repair the failure (the container invocation itself failed — a
+start error, or docker exit 125/126/127). routd skips the turn retry
+and surfaces runed's error text to the user
+([`12-turn-retry.md`](12-turn-retry.md)).
+
 **Transport failure ≠ `outcome:error`.** On a transport failure routd
 does not know whether the run happened, so it does not advance the
 cursor and the chat is re-fed next poll (at-least-once; `turn_results`

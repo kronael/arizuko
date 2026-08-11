@@ -1,6 +1,5 @@
 ---
-status: defected
-defects: [F73]
+status: shipped
 ---
 
 # Turn retry on failed completion
@@ -49,8 +48,22 @@ cause is OOM and the most useful response is for the agent to do less.
 
 **What is retried**: the same input message and attachments, a fresh
 container, the same conversation context. **What is not**: turns that
-replied, turns the agent explicitly errored via `submit_turn`, and
-user-cancelled turns.
+replied, turns the agent explicitly errored via `submit_turn`,
+user-cancelled turns, and failures runed marked terminal.
+
+**runed decides terminal-vs-retryable; the decision travels, not the
+exit code.** Not every `outcome:error` is transient: container exit
+125/126/127 and a failed `docker` start are configuration faults, and
+a retry only spawns `MAX_TURN_RETRY` more doomed containers. The site
+that produces the exit code classifies it (`container/runner.go`
+`terminalExit`), the decision rides the pinned response as
+`RunOutcome.Terminal` (`runed/api/v1/types.go`), and routd obeys
+(`routd/dispatch.go`): no retry, and the failure notice carries runed's
+error text so the user sees the real cause. The raw exit code stays
+inside the daemon that owns the container — if routd classified runed's
+error prose instead, that would be a second classification path built
+on a format string. The zero value means retryable, so an older runed
+keeps the old retry behavior. (BUGS F73)
 
 **Retry does not extend engagement.** From the user's side the turn is
 still in progress — they are waiting — so the window is naturally alive.
