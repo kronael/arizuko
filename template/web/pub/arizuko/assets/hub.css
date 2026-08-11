@@ -34,10 +34,12 @@ body {
   line-height: 1.6;
   color: var(--fg);
   background: var(--bg);
+  overflow-wrap: break-word;
+  padding-bottom: 4em;
 }
 
 .hub-container {
-  max-width: 920px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 2em 1.5em;
 }
@@ -61,6 +63,8 @@ a:hover { text-decoration: underline; }
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 0.8em;
 }
+.grid.wide { grid-template-columns: repeat(auto-fit, minmax(28em, 1fr)); }
+.docs-content .grid, .hub-container .grid { margin: 0.8em 0; }
 
 .card {
   background: var(--card);
@@ -93,6 +97,7 @@ pre {
   position: fixed;
   top: 1em;
   right: 1em;
+  z-index: 21; /* .docs-topbar is 20 */
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 50%;
@@ -160,11 +165,10 @@ pre {
 }
 
 @media (max-width: 768px) {
-  body { font-size: 13px; }
   .hub-container { padding: 1.5em 1em; }
 }
 @media (max-width: 480px) {
-  body { font-size: 12px; }
+  body { font-size: 15px; }
   .hub-container { padding: 1em 0.8em; }
 }
 
@@ -215,7 +219,7 @@ pre {
   display: grid;
   grid-template-columns: 13em minmax(0, 1fr);
   gap: 2.5em;
-  max-width: 1040px;
+  max-width: 1180px;
   margin: 0 auto;
   padding: 2em 1.5em;
   align-items: start;
@@ -256,6 +260,18 @@ pre {
 }
 
 .docs-content { min-width: 0; }
+/* Prose reads at 80 columns — terminal measure. Code, tables, diagrams and
+   card grids are deliberately not capped: they are what wide screens are for. */
+.docs-content > p,
+.docs-content > ul,
+.docs-content > ol,
+.docs-content > dl,
+.docs-content > .callout,
+.docs-content > .lede,
+.hub-container > p,
+.hub-container > ul,
+.hub-container > ol,
+.hub-container > .lede { max-width: 80ch; }
 .docs-content .lede {
   font-size: 1.05em;
   color: var(--fg);
@@ -291,6 +307,14 @@ pre {
 }
 .docs-content th { background: var(--code-bg); font-weight: 600; }
 .docs-content td.n { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); }
+
+/* Tables get the same treatment as pre (overflow-x: auto): the containing
+   box scrolls. .wide (4+ columns, set by hub.js) also gets a floor so
+   columns stop collapsing before the scroll takes over. Placed after the
+   .docs-content table rules so the margin reset wins the cascade. */
+.table-scroll { overflow-x: auto; margin: 0.6em 0; }
+.table-scroll > table { margin: 0; }
+.table-scroll.wide > table { min-width: 30rem; }
 
 .docs-content .caption {
   color: var(--dim);
@@ -376,6 +400,22 @@ pre {
 /* schema.html — vestigial-table note */
 .docs-content .dead { font-size: 0.85em; color: var(--dim); font-style: italic; }
 
+/* numbered walkthrough list; pairs with a diagram inside .grid.wide */
+.tour { list-style: none; margin: 0.6em 0 1.2em; padding: 0; counter-reset: step; }
+.tour li { margin: 0.5em 0; padding-left: 2.2em; position: relative; }
+.tour li::before {
+  counter-increment: step;
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0.05em;
+  width: 1.5em;
+  text-align: right;
+  color: var(--dim);
+  font-size: 0.9em;
+}
+.tour a { font-weight: 600; }
+
 .docs-toc {
   position: sticky;
   top: 1em;
@@ -383,6 +423,7 @@ pre {
   max-height: calc(100vh - 2em);
   overflow-y: auto;
   font-size: 0.85em;
+  padding-bottom: 4em;
 }
 .docs-toc .toc-label {
   color: var(--dim);
@@ -431,4 +472,24 @@ pre {
   .docs-nav[hidden] { display: none; }
   .docs-toc { display: none; }
   .docs-pager a { max-width: 100%; }
+  /* The ask pill docks as a full-width bottom bar; body reserves its strip
+     so the bar never covers content that cannot scroll clear of it. */
+  .ask-agent {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    text-align: center;
+    min-height: 44px;
+    line-height: 44px;
+    padding: 0 0.8em;
+  }
+  body { padding-bottom: 5em; }
+}
+
+/* Touch: 44px minimum hit target. Desktop pointer sizes are unchanged.
+   Last in the file so these win the cascade over the base rules above. */
+@media (pointer: coarse), (max-width: 768px) {
+  .theme-toggle  { width: 44px; height: 44px; top: 0.15em; right: 0.5em; }
+  .docs-navtoggle { min-width: 44px; min-height: 44px; }
+  .docs-nav a    { min-height: 44px; display: flex; align-items: center; }
 }

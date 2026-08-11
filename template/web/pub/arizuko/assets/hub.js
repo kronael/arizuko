@@ -131,6 +131,22 @@
       .replace(/^-+|-+$/g, '');
   }
 
+  // Tables get pre's scroll box. 4+ columns also get a width floor so the
+  // columns stop collapsing before the scroll takes over; 2-column tables
+  // reflow fine and must not be forced into a scroller.
+  function wrapTables() {
+    document
+      .querySelectorAll('.docs-content table, .hub-container table')
+      .forEach(function (t) {
+        if (t.parentElement.classList.contains('table-scroll')) return;
+        var d = document.createElement('div');
+        d.className = 'table-scroll';
+        if (t.rows[0] && t.rows[0].cells.length >= 4) d.classList.add('wide');
+        t.parentNode.insertBefore(d, t);
+        d.appendChild(t);
+      });
+  }
+
   // Walk .docs-content h2,h3 into the "On this page" rail. Assign slug ids
   // to headings that lack one, de-duped with -2/-3. Render nothing when a
   // page has fewer than two headings.
@@ -237,6 +253,7 @@
     var grid = document.querySelector('.grid');
     var empty = document.querySelector('.empty');
     if (grid && empty && grid.children.length > 0) empty.style.display = 'none';
+    wrapTables();
     buildTOC();
     markCurrentNav();
     initNavDrawer();
