@@ -4225,7 +4225,7 @@ the first key seals, the rest decrypt retired values.
 `TestSecret_NoKey_RefusesToWrite` and `TestStoreValue_NeverReturnsPlaintext`
 cover the refusal; reverting the guard fails both.
 
-## L21 — an MCP send failure writes no durable row, so nothing ever retries it (2026-08-11, open)
+## L21 — an MCP send failure writes no durable row, so nothing ever retries it (2026-08-11, FIXED 2026-08-11, 535ca585)
 
 `internalSend` (`ipc/ipc.go:725-748`) calls `gated.SendMessage`, and on error
 returns immediately. `recordOutbound` (`ipc/ipc.go:673`) runs only on the
@@ -4260,7 +4260,19 @@ Either way the contradiction is real today, so `5/34` and `5/Q` stay defected.
 - **Source:** `ipc/ipc.go:725-748`, `ipc/ipc.go:673`
 - **Status:** open — needs the (a)/(b) decision
 
-## L19 — the outbound sweep retries permanent failures ~2880 times (2026-08-11, open)
+**FIXED 2026-08-11** (`535ca585`). All THREE MCP failure sites record a durable
+row — `send`, `send_file`, and `reply`, which has its own path (`gated.SendReply`)
+and carried the identical defect. This entry said two; it was three.
+
+The agent still gets its error synchronously and the success path still returns
+the platform id, so `edit` and threading are unaffected. Only the FAILURE path
+gained a row.
+
+A file send always dead-letters, even on a transient error: a `pending` file row
+would be re-sent by the text-only sweep as a captionless, fileless message. The
+REST document twin matches, so the two faces do not drift.
+
+## L19 — the outbound sweep retries permanent failures ~2880 times (2026-08-11, FIXED 2026-08-11, 535ca585)
 
 `maybeRetryOutbound` (`routd/loop.go:359-379`) resends every `pending` bot row
 every 30s until the row is 24h old, and it DISCARDS the send error: `pid, derr
@@ -4284,6 +4296,25 @@ platform message." No adapter dedups — that is `D5`.
 - **Source:** `routd/loop.go:359-379`
 - **Status:** open
 
+**FIXED 2026-08-11** (`535ca585`), together with `L21` — they were two halves of
+one contract.
+
+`delivery_attempts` (migration `0034`) counts failed attempts; the sweep
+dead-letters at `MAX_OUTBOUND_RETRY` (default 10). A permanent refusal
+dead-letters on the FIRST attempt and never consumes the budget, reusing the
+existing classifier — `errPermanent` moved to `chanlib.ErrPermanent` beside
+`ErrUnsupported`, and `chanreg` aliases it, so there is one sentinel and no new
+package edge.
+
+`RecordDeliveryFailure` does the increment and the conditional dead-letter in
+one `UPDATE ... RETURNING`, so a crash cannot land between them.
+
+The 24h age backstop is REMOVED, and it was a second bug: it failed a 25h-old
+row WITHOUT attempting it, so routd down for a day discarded the whole backlog.
+
+Two follow-ups are filed rather than hidden: the cap is ~5 minutes at the 30s
+cadence (`L22`), and a dead-lettered row is countable but not readable (`L23`).
+
 ## L20 — whapd acks a send it has not sent, so routd records it as delivered (2026-08-11, open)
 
 `whapd/src/server.ts:196-214` answers `/send` with `200 {ok:true, queued:true}`
@@ -4303,6 +4334,50 @@ would let the sweep own the retry, which is its job.
 - **Scope:** adapter delivery acknowledgement
 - **Affected:** whapd, routd
 - **Source:** `whapd/src/server.ts:196-214`
+- **Status:** open
+
+## L22 — the outbound retry cap is ~5 minutes, so an adapter outage dead-letters real messages (2026-08-11, open)
+
+`MAX_OUTBOUND_RETRY` defaults to 10 and the sweep runs every 30s, so a row
+exhausts its budget about five minutes after the first failure. The 24h window
+it replaced was too generous and killed rows without attempting them (`L19`),
+but five minutes is short for the outages that actually happen: a whapd
+reconnect, an adapter container restart, a platform incident.
+
+Those messages do not vanish — they land in the dead-letter state with
+`delivery_attempts` at the cap — but they stop being retried, and today nobody
+can read them back (`L23`).
+
+The fix is probably not a bigger number. Exponential backoff spends the same ten
+attempts across hours instead of minutes, which tolerates a real outage without
+letting one dead channel burn attempts every 30s. The cadence constant and the
+cap both live beside `maybeRetryOutbound`.
+
+- **Severity:** medium — a routine adapter restart can dead-letter live traffic.
+- **Scope:** outbound retry pacing
+- **Affected:** routd
+- **Source:** `routd/loop.go` `maybeRetryOutbound`, `core/config.go` `MaxOutboundRetry`
+- **Status:** open
+
+## L23 — a dead-lettered message is countable but not readable (2026-08-11, open)
+
+`dashd/routd_page.go` shows a `dead-lettered` count on the routd stat line. There
+is no per-row list anywhere, on any surface: an operator can tell that messages
+were lost but not which ones, to whom, or with what content.
+
+A dead-letter queue you cannot read is not a queue — it is a counter. The point
+of dead-lettering rather than dropping is that a human can inspect and replay;
+neither is possible today.
+
+The rows are already durable and already identifiable
+(`messages WHERE status='failed' AND is_bot_message=1`), so this is a read
+surface, not new state. Per the house rule it belongs on a resreg resource with
+both faces rather than a bespoke dashd page.
+
+- **Severity:** medium — the recovery path the dead-letter state exists for does not exist.
+- **Scope:** dead-letter visibility
+- **Affected:** dashd, routd, resreg
+- **Source:** `dashd/routd_page.go`
 - **Status:** open
 
 ## L18 — four docs pages ship no theme toggle at all (2026-08-11, open)

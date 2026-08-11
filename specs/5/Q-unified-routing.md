@@ -1,6 +1,5 @@
 ---
-status: defected
-defects: [L21]
+status: shipped
 shipped: 2026-05-01
 ---
 

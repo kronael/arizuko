@@ -1,6 +1,5 @@
 ---
-status: defected
-defects: [L21]
+status: shipped
 ---
 
 # Channel adapter protocol
