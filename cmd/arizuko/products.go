@@ -180,8 +180,15 @@ func listProducts(dataDir string, w io.Writer) error {
 		line := ""
 		if _, err := toml.DecodeFile(filepath.Join(root, e.Name(), "PRODUCT.md"), &m); err != nil {
 			line = fmt.Sprintf("%-14s (no readable PRODUCT.md)\n", e.Name())
+		} else if m.Name != e.Name() {
+			// The directory is what `create --product` accepts, so the directory
+			// IS the identity. A manifest declaring a different name advertises
+			// a product no command takes, and product-mix state keys the third
+			// spelling (BUGS J12). Refuse instead of printing the unusable one.
+			return fmt.Errorf("product %s: PRODUCT.md declares name %q — the directory name is the identity `create --product` takes",
+				e.Name(), m.Name)
 		} else {
-			line = fmt.Sprintf("%-14s %-10s %s\n", m.Name, m.Brand, m.Tagline)
+			line = fmt.Sprintf("%-14s %-10s %s\n", e.Name(), m.Brand, m.Tagline)
 		}
 		// A dropped write means the operator sees a SHORTER catalog and cannot
 		// tell — the same silent-omission failure the malformed-manifest line

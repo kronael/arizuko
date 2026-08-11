@@ -306,3 +306,35 @@ func TestProductsListReportsMalformedManifest(t *testing.T) {
 		t.Errorf("malformed product omitted from listing; got %q", out.String())
 	}
 }
+
+// TestProductsListRefusesADivergentManifestName — the catalog printed
+// PRODUCT.md's `name` while `create --product` takes the DIRECTORY, so a
+// manifest declaring `growth` inside `marketing/` advertised a product no
+// command accepts and keyed mix state under a third spelling (BUGS J12). The
+// directory is the identity; a manifest that disagrees is a packaging error.
+func TestProductsListRefusesADivergentManifestName(t *testing.T) {
+	dataDir, base := mixInstance(t, nil, nil)
+	t.Setenv("HOST_APP_DIR", base)
+	dir := filepath.Join(base, "ant", "examples", "marketing")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "name = \"growth\"\nbrand = \"Acme\"\ntagline = \"Ships copy.\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "PRODUCT.md"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	err := listProducts(dataDir, &out)
+	if err == nil {
+		t.Fatalf("a name no command accepts was advertised; got %q", out.String())
+	}
+	for _, want := range []string{"marketing", "growth"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error must name both spellings, got %v", err)
+		}
+	}
+	if strings.Contains(out.String(), "growth") {
+		t.Errorf("the unusable name reached the operator: %q", out.String())
+	}
+}
