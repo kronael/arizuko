@@ -2,7 +2,11 @@ package main
 
 import (
 	"crypto/ecdsa"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -268,9 +272,12 @@ func TestProxydJIDFolder(t *testing.T) {
 
 // tryAuth with a valid JWT returns a stamped request.
 func TestTryAuth_ValidJWT(t *testing.T) {
-	secret := []byte("testsecret")
-	s := &server{cfg: config{authSecret: "testsecret"}}
-	tok := testMintJWT(secret, "user:carol")
+	k, ks := es256KeySet(t)
+	s := &server{cfg: config{authSecret: "testsecret", authdURL: "http://authd"}, ks: ks}
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:carol", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("Authorization", "Bearer "+tok)
 	r2 := s.tryAuth(r)
@@ -293,9 +300,12 @@ func TestTryAuth_NoCredentials(t *testing.T) {
 
 // tryAuth with expired JWT returns nil.
 func TestTryAuth_ExpiredJWT(t *testing.T) {
-	secret := []byte("testsecret")
-	s := &server{cfg: config{authSecret: "testsecret"}}
-	tok := testMintExpiredJWT(secret, "user:expired")
+	k, ks := es256KeySet(t)
+	s := &server{cfg: config{authSecret: "testsecret", authdURL: "http://authd"}, ks: ks}
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:expired", Typ: "user"}, -time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("Authorization", "Bearer "+tok)
 	if s.tryAuth(r) != nil {
@@ -376,10 +386,11 @@ func TestPriv_FolderScopedGrant(t *testing.T) {
 	}))
 	defer backend.Close()
 	bu, _ := url.Parse(backend.URL)
-	secret := []byte("testsecret")
+	k, ks := es256KeySet(t)
 
 	s := &server{
-		cfg:         config{authSecret: string(secret)},
+		cfg:         config{authSecret: "testsecret", authdURL: "http://authd"},
+		ks:          ks,
 		chatAnonDOS: newRateLimiter(10, time.Minute),
 		viteProxy:   httputil.NewSingleHostReverseProxy(bu),
 	}
@@ -415,7 +426,12 @@ func TestPriv_FolderScopedGrant(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tok := testMintJWTGroups(secret, "user:1", tc.groups)
+			// Subtests run in sequence, so swapping the acl store per case is safe.
+			s.stRoutd = aclStore(t, "alice", tc.groups)
+			tok, err := k.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+			if err != nil {
+				t.Fatal(err)
+			}
 			req := httptest.NewRequest("GET", tc.path, nil)
 			req.Header.Set("Authorization", "Bearer "+tok)
 			w := httptest.NewRecorder()
@@ -445,9 +461,9 @@ func es256KeySet(t *testing.T) (*auth.SigningKey, *auth.KeySet) {
 	return k, auth.NewKeySet(map[string]*ecdsa.PublicKey{k.Kid: &k.Priv.PublicKey})
 }
 
-// An ES256 bearer minted by authd's key is accepted alongside HS256, stamping
-// the same X-User-* headers. Post-flip (HMAC retire step 2) NO X-User-Sig is
-// injected — the bearer (or, when wired, proxyd's service token) is the proof.
+// An ES256 bearer minted by authd's key is accepted, stamping the X-User-*
+// headers. Post-flip (HMAC retire step 2) NO X-User-Sig is injected — the
+// bearer (or, when wired, proxyd's service token) is the proof.
 func TestTryAuth_ES256Bearer(t *testing.T) {
 	k, ks := es256KeySet(t)
 	s := &server{cfg: config{authSecret: "hs256secret", authdURL: "http://authd"}, ks: ks}
@@ -469,16 +485,27 @@ func TestTryAuth_ES256Bearer(t *testing.T) {
 	}
 }
 
-// HS256 bearer keeps working with the ES256 KeySet present (additive).
-func TestTryAuth_HS256StillWorksWithKeySet(t *testing.T) {
+// L6 regression guard: tryAuth must refuse a well-formed HS256 bearer that is
+// signed with the configured AUTH_SECRET, also when the ES256 keyset is
+// present. The removed HS256-first branch admitted no legitimate caller and
+// let an AUTH_SECRET leak forge any identity (BUGS L6). The HS256 token
+// construction stays inline here so the capability exists only where it is
+// refused.
+func TestTryAuth_HS256Refused(t *testing.T) {
 	_, ks := es256KeySet(t)
 	s := &server{cfg: config{authSecret: "testsecret", authdURL: "http://authd"}, ks: ks}
-	tok := testMintJWT([]byte("testsecret"), "user:hsbob")
+	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	claims := fmt.Sprintf(`{"sub":"user:hsbob","name":"test","exp":%d,"iat":%d}`,
+		time.Now().Add(time.Hour).Unix(), time.Now().Unix())
+	body := base64.RawURLEncoding.EncodeToString([]byte(claims))
+	mac := hmac.New(sha256.New, []byte("testsecret"))
+	mac.Write([]byte(hdr + "." + body))
+	tok := hdr + "." + body + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("Authorization", "Bearer "+tok)
-	r2 := s.tryAuth(r)
-	if r2 == nil || r2.Header.Get("X-User-Sub") != "user:hsbob" {
-		t.Fatalf("HS256 bearer not accepted alongside ES256 KeySet: %v", r2)
+	if r2 := s.tryAuth(r); r2 != nil {
+		t.Fatalf("HS256 bearer signed with AUTH_SECRET was accepted as %q; the L6 forgery branch is back",
+			r2.Header.Get("X-User-Sub"))
 	}
 }
 
@@ -493,8 +520,8 @@ func TestTryAuth_ES256Invalid(t *testing.T) {
 	}
 }
 
-// AUTHD_URL unset → ks nil → the ES256 path is absent: a valid ES256 bearer is
-// rejected, exactly the pre-soak HS256-only behavior.
+// AUTHD_URL unset → ks nil → no bearer authenticates: even a valid ES256
+// bearer is rejected.
 func TestTryAuth_ES256RejectedWhenKeySetNil(t *testing.T) {
 	k, _ := es256KeySet(t)
 	s := &server{cfg: config{authSecret: "hs256secret"}} // ks: nil, authdURL: ""
@@ -505,7 +532,7 @@ func TestTryAuth_ES256RejectedWhenKeySetNil(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("Authorization", "Bearer "+tok)
 	if s.tryAuth(r) != nil {
-		t.Error("ES256 bearer must be rejected when AUTHD_URL unset (HS256-only)")
+		t.Error("ES256 bearer must be rejected when AUTHD_URL unset (no keyset)")
 	}
 }
 
@@ -547,11 +574,10 @@ func TestTryAuth_ES256SubPrefixGrantLookup(t *testing.T) {
 	}
 }
 
-// Cutover flip-blocker: an ES256-authenticated operator must get the operator
-// `**` grant injected into X-User-Groups from the DB — exactly as the HS256
-// path does. proxyd stays the grant-injector at flip; the ES256 path must NOT
-// stamp only the token claim. Guards that backends (webd/onbod/dashd reading
-// injected headers) see operator scope for ES256 sessions too.
+// An ES256-authenticated operator must get the operator `**` grant injected
+// into X-User-Groups from the DB. proxyd is the grant-injector; the ES256 path
+// must NOT stamp only the token claim. Guards that backends (webd/onbod/dashd
+// reading injected headers) see operator scope for ES256 sessions too.
 func TestTryAuth_ES256OperatorGroupsFromDB(t *testing.T) {
 	st, err := store.OpenMem()
 	if err != nil {

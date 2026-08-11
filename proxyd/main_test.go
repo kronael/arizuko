@@ -1,9 +1,6 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,29 +18,6 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
-
-func testMintJWT(secret []byte, sub string) string {
-	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	c := fmt.Sprintf(`{"sub":%q,"name":"test","exp":%d,"iat":%d}`,
-		sub, time.Now().Add(time.Hour).Unix(), time.Now().Unix())
-	body := base64.RawURLEncoding.EncodeToString([]byte(c))
-	h := hmac.New(sha256.New, secret)
-	h.Write([]byte(hdr + "." + body))
-	sig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
-	return hdr + "." + body + "." + sig
-}
-
-func testMintJWTGroups(secret []byte, sub string, groups []string) string {
-	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	gb, _ := json.Marshal(groups)
-	c := fmt.Sprintf(`{"sub":%q,"name":"test","groups":%s,"exp":%d,"iat":%d}`,
-		sub, gb, time.Now().Add(time.Hour).Unix(), time.Now().Unix())
-	body := base64.RawURLEncoding.EncodeToString([]byte(c))
-	h := hmac.New(sha256.New, secret)
-	h.Write([]byte(hdr + "." + body))
-	sig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
-	return hdr + "." + body + "." + sig
-}
 
 func testServer() *server {
 	return &server{
@@ -107,8 +81,8 @@ func TestProxydRequireAuthRawSecretRejected(t *testing.T) {
 }
 
 func TestProxydRequireAuthValidJWT(t *testing.T) {
-	secret := []byte("testsecret")
-	s := &server{cfg: config{authSecret: "testsecret"}, chatAnonDOS: newRateLimiter(10, time.Minute)}
+	k, ks := es256KeySet(t)
+	s := &server{cfg: config{authSecret: "testsecret", authdURL: "http://authd"}, ks: ks, chatAnonDOS: newRateLimiter(10, time.Minute)}
 	called := false
 	var gotSub string
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +90,10 @@ func TestProxydRequireAuthValidJWT(t *testing.T) {
 		gotSub = r.Header.Get("X-User-Sub")
 		w.WriteHeader(200)
 	})
-	tok := testMintJWT(secret, "user1")
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user1", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
@@ -159,26 +136,18 @@ func TestProxydRequireAuthNoHeader(t *testing.T) {
 	}
 }
 
-func testMintExpiredJWT(secret []byte, sub string) string {
-	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	c := fmt.Sprintf(`{"sub":%q,"name":"test","exp":%d,"iat":%d}`,
-		sub, time.Now().Add(-time.Hour).Unix(), time.Now().Add(-2*time.Hour).Unix())
-	body := base64.RawURLEncoding.EncodeToString([]byte(c))
-	h := hmac.New(sha256.New, secret)
-	h.Write([]byte(hdr + "." + body))
-	sig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
-	return hdr + "." + body + "." + sig
-}
-
 func TestProxydRequireAuthExpiredJWT(t *testing.T) {
-	secret := []byte("testsecret")
-	s := &server{cfg: config{authSecret: "testsecret"}, chatAnonDOS: newRateLimiter(10, time.Minute)}
+	k, ks := es256KeySet(t)
+	s := &server{cfg: config{authSecret: "testsecret", authdURL: "http://authd"}, ks: ks, chatAnonDOS: newRateLimiter(10, time.Minute)}
 	called := false
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(200)
 	})
-	tok := testMintExpiredJWT(secret, "user1")
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user1", Typ: "user"}, -time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
@@ -378,8 +347,14 @@ func TestProxydPubWebRouteAuth(t *testing.T) {
 	}
 
 	// (b) valid bearer → upstream reached.
+	k, ks := es256KeySet(t)
+	s.ks, s.cfg.authdURL = ks, "http://authd"
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:carol", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req = httptest.NewRequest("GET", "/pub/members/x.html", nil)
-	req.Header.Set("Authorization", "Bearer "+testMintJWT([]byte("testsecret"), "user:carol"))
+	req.Header.Set("Authorization", "Bearer "+tok)
 	w = httptest.NewRecorder()
 	s.route(w, req)
 	if w.Code != 200 {
@@ -456,8 +431,22 @@ func TestProxydPrivPathRequiresAuth(t *testing.T) {
 func TestProxydPrivPathWithJWTReachesUpstream(t *testing.T) {
 	s, up := testServerWithUpstream(t)
 	defer up.Close()
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	// ES256 tokens carry no groups claim; the grant comes from the acl table.
+	if err := st.PutACLRow(core.ACLRow{Principal: "alice", Action: "*", Scope: "krons", Effect: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	k, ks := es256KeySet(t)
+	s.ks, s.cfg.authdURL, s.stRoutd = ks, "http://authd", st
 
-	tok := testMintJWTGroups([]byte("testsecret"), "alice", []string{"krons"})
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("GET", "/priv/krons/secret.html", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
@@ -770,8 +759,13 @@ func TestProxydRouteUnauthedChatRedirectsToLogin(t *testing.T) {
 func TestProxydRouteWithJWTReachesUpstream(t *testing.T) {
 	s, up := testRouteServer(t, nil, "testsecret")
 	defer up.Close()
+	k, ks := es256KeySet(t)
+	s.ks, s.cfg.authdURL = ks, "http://authd"
 
-	tok := testMintJWT([]byte("testsecret"), "alice")
+	tok, err := k.Sign(auth.TokenClaims{Sub: "alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("GET", "/panel/atlas", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
@@ -813,9 +807,15 @@ func TestProxydMeRouteRequiresUser(t *testing.T) {
 func TestProxydMeRouteWithJWTReachesWebd(t *testing.T) {
 	s, up := testRouteServer(t, nil, "testsecret")
 	defer up.Close()
+	k, ks := es256KeySet(t)
+	s.ks, s.cfg.authdURL = ks, "http://authd"
 
+	tok, err := k.Sign(auth.TokenClaims{Sub: "alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("GET", "/me/chats/solo/inbox", nil)
-	req.Header.Set("Authorization", "Bearer "+testMintJWT([]byte("testsecret"), "alice"))
+	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	s.route(w, req)
 
@@ -1682,18 +1682,22 @@ func TestClientIP(t *testing.T) {
 
 // --- WebDAV JWT auth flow (spec M-webdav.md) ----------------------------------
 
-// testMintJWTWithGroups produces an HS256 JWT that includes the groups claim.
-// This is for direct JWT→header flows; DB-backed group lookup uses groupsForSub.
-func testMintJWTWithGroups(secret []byte, sub string, groups []string) string {
-	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	groupsJSON, _ := json.Marshal(groups)
-	c := fmt.Sprintf(`{"sub":%q,"name":"test","groups":%s,"exp":%d,"iat":%d}`,
-		sub, groupsJSON, time.Now().Add(time.Hour).Unix(), time.Now().Unix())
-	body := base64.RawURLEncoding.EncodeToString([]byte(c))
-	h := hmac.New(sha256.New, secret)
-	h.Write([]byte(hdr + "." + body))
-	sig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
-	return hdr + "." + body + "." + sig
+// aclStore returns an in-memory store where the principal holds an allow acl
+// row for each given scope. ES256 tokens carry no groups claim, so group and
+// slot checks read these rows via groupsForSub.
+func aclStore(t *testing.T, principal string, scopes []string) *store.Store {
+	t.Helper()
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	for _, scope := range scopes {
+		if err := st.PutACLRow(core.ACLRow{Principal: principal, Action: "*", Scope: scope, Effect: "allow"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return st
 }
 
 // testDavFullServer returns a server wired through server.route for /dav/*,
@@ -1737,12 +1741,15 @@ func TestProxydDavAuthFlow_NoCredentials(t *testing.T) {
 	}
 }
 
-// /dav/* with valid JWT + matching group claim reaches the upstream.
+// /dav/* with a valid JWT + matching group grant reaches the upstream.
 func TestProxydDavAuthFlow_ValidJWT(t *testing.T) {
-	s, up := testDavFullServer(t, nil, "testsecret")
+	s, up, k := davES256Server(t, aclStore(t, "alice", []string{"team-a"}))
 	defer up.Close()
 
-	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"team-a"})
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("GET", "/dav/team-a/notes.md", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
@@ -1761,10 +1768,13 @@ func TestProxydDavAuthFlow_ValidJWT(t *testing.T) {
 
 // User in group A cannot access /dav/B/ — JWT is valid but group mismatch → 403.
 func TestProxydDavAuthFlow_CrossGroupDenied(t *testing.T) {
-	s, up := testDavFullServer(t, nil, "testsecret")
+	s, up, k := davES256Server(t, aclStore(t, "alice", []string{"group-a"}))
 	defer up.Close()
 
-	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"group-a"})
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("GET", "/dav/group-b/secret.md", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
@@ -1796,9 +1806,12 @@ func TestProxydDavAuthFlow_SlotContainment(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s, up := testDavFullServer(t, nil, "testsecret")
+			s, up, k := davES256Server(t, aclStore(t, "alice", tc.groups))
 			defer up.Close()
-			tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", tc.groups)
+			tok, err := k.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+			if err != nil {
+				t.Fatal(err)
+			}
 			req := httptest.NewRequest("GET", tc.path, nil)
 			req.Header.Set("Authorization", "Bearer "+tok)
 			w := httptest.NewRecorder()
@@ -1901,10 +1914,13 @@ func TestProxydDavAuthFlow_DBCrossGroupDenied(t *testing.T) {
 
 // Write restriction: PUT on .env is blocked even with valid auth + correct group.
 func TestProxydDavAuthFlow_WriteBlockEnv(t *testing.T) {
-	s, up := testDavFullServer(t, nil, "testsecret")
+	s, up, k := davES256Server(t, aclStore(t, "alice", []string{"proj"}))
 	defer up.Close()
 
-	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"proj"})
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("PUT", "/dav/proj/.env", strings.NewReader("SECRET=x"))
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
@@ -1917,10 +1933,13 @@ func TestProxydDavAuthFlow_WriteBlockEnv(t *testing.T) {
 
 // Write restriction: DELETE on .git/config is blocked.
 func TestProxydDavAuthFlow_WriteBlockGit(t *testing.T) {
-	s, up := testDavFullServer(t, nil, "testsecret")
+	s, up, k := davES256Server(t, aclStore(t, "alice", []string{"proj"}))
 	defer up.Close()
 
-	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"proj"})
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("DELETE", "/dav/proj/.git/config", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
@@ -1933,10 +1952,13 @@ func TestProxydDavAuthFlow_WriteBlockGit(t *testing.T) {
 
 // Write restriction: MOVE on *.pem is blocked.
 func TestProxydDavAuthFlow_WriteBlockPEM(t *testing.T) {
-	s, up := testDavFullServer(t, nil, "testsecret")
+	s, up, k := davES256Server(t, aclStore(t, "alice", []string{"proj"}))
 	defer up.Close()
 
-	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"proj"})
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("MOVE", "/dav/proj/keys/server.pem", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("Destination", "/dav/proj/keys/old.pem")
@@ -1950,10 +1972,13 @@ func TestProxydDavAuthFlow_WriteBlockPEM(t *testing.T) {
 
 // Write restriction: PUT to logs/** is blocked (read-only).
 func TestProxydDavAuthFlow_WriteBlockLogs(t *testing.T) {
-	s, up := testDavFullServer(t, nil, "testsecret")
+	s, up, k := davES256Server(t, aclStore(t, "alice", []string{"proj"}))
 	defer up.Close()
 
-	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"proj"})
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("PUT", "/dav/proj/logs/app.log", strings.NewReader("data"))
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
@@ -1966,10 +1991,13 @@ func TestProxydDavAuthFlow_WriteBlockLogs(t *testing.T) {
 
 // Ordinary writes outside sensitive paths succeed.
 func TestProxydDavAuthFlow_WriteAllowed(t *testing.T) {
-	s, up := testDavFullServer(t, nil, "testsecret")
+	s, up, k := davES256Server(t, aclStore(t, "alice", []string{"proj"}))
 	defer up.Close()
 
-	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"proj"})
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("PUT", "/dav/proj/docs/readme.md", strings.NewReader("# Hello"))
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
@@ -1982,10 +2010,13 @@ func TestProxydDavAuthFlow_WriteAllowed(t *testing.T) {
 
 // Path rewrite integration: dufs backend receives /<group>/<rest>, not /dav/<group>/<rest>.
 func TestProxydDavAuthFlow_PathRewrite(t *testing.T) {
-	s, up := testDavFullServer(t, nil, "testsecret")
+	s, up, k := davES256Server(t, aclStore(t, "alice", []string{"workspace"}))
 	defer up.Close()
 
-	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"workspace"})
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("GET", "/dav/workspace/deep/path/file.txt", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
@@ -2001,10 +2032,13 @@ func TestProxydDavAuthFlow_PathRewrite(t *testing.T) {
 
 // Path traversal in /dav/* is rejected early.
 func TestProxydDavAuthFlow_TraversalRejected(t *testing.T) {
-	s, up := testDavFullServer(t, nil, "testsecret")
+	s, up, k := davES256Server(t, aclStore(t, "alice", []string{"proj"}))
 	defer up.Close()
 
-	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"proj"})
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, path := range []string{"/dav/proj/../other/file", "/dav/proj/%2e%2e/other"} {
 		req := httptest.NewRequest("GET", path, nil)
 		req.Header.Set("Authorization", "Bearer "+tok)

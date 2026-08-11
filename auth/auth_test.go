@@ -23,46 +23,6 @@ func hmacSHA256(key, msg []byte) string {
 
 var testSecret = []byte("test-secret-key-for-testing-only")
 
-func TestJWTRoundTrip(t *testing.T) {
-	token := mintJWT(testSecret, "user1", "Test User", nil, time.Hour)
-	claims, err := VerifyJWT(testSecret, token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if claims.Sub != "user1" {
-		t.Fatalf("got sub=%q, want user1", claims.Sub)
-	}
-	if claims.Name != "Test User" {
-		t.Fatalf("got name=%q, want Test User", claims.Name)
-	}
-}
-
-func TestJWTExpired(t *testing.T) {
-	token := mintJWT(testSecret, "user1", "Test", nil, -time.Hour)
-	_, err := VerifyJWT(testSecret, token)
-	if err != ErrExpiredToken {
-		t.Fatalf("got err=%v, want ErrExpiredToken", err)
-	}
-}
-
-// A token expired by less than clockSkew must still be accepted (skew parity
-// with the ES256 path in jwks.go).
-func TestJWTExpiredWithinSkew(t *testing.T) {
-	token := mintJWT(testSecret, "user1", "Test", nil, -10*time.Second)
-	_, err := VerifyJWT(testSecret, token)
-	if err != nil {
-		t.Fatalf("token within clockSkew must be accepted, got err=%v", err)
-	}
-}
-
-func TestJWTBadSignature(t *testing.T) {
-	token := mintJWT(testSecret, "user1", "Test", nil, time.Hour)
-	_, err := VerifyJWT([]byte("wrong"), token)
-	if err != ErrInvalidToken {
-		t.Fatalf("got err=%v, want ErrInvalidToken", err)
-	}
-}
-
 func TestOAuthStateExpired(t *testing.T) {
 	// create state with timestamp 11 minutes in the past
 	ts := fmt.Sprintf("%d", time.Now().Add(-11*time.Minute).Unix())

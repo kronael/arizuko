@@ -8,7 +8,9 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
@@ -91,10 +93,14 @@ func TestPubPathOpen(t *testing.T) {
 // TestReverseProxy: valid JWT on a gated path passes through to upstream and
 // the upstream sees the stamped X-User-Sub.
 func TestReverseProxy(t *testing.T) {
-	secret := "integsecret"
-	s, _, _ := newIntegProxy(t, secret)
+	s, _, _ := newIntegProxy(t, "integsecret")
+	k, ks := es256KeySet(t)
+	s.ks, s.cfg.authdURL = ks, "http://authd"
 
-	tok := testMintJWT([]byte(secret), "integ-user")
+	tok, err := k.Sign(auth.TokenClaims{Sub: "integ-user", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("GET", "/panel/atlas", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()

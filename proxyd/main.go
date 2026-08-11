@@ -867,20 +867,22 @@ func (s *server) groupsForSub(sub string) []string {
 // Bearer JWT; otherwise nil. A refresh_token cookie is NOT an identity here —
 // requireAuth trades it for an access token via tryRefreshViaAuthd.
 //
-// Bearer verify is dual: HS256 (auth.VerifyJWT) first, then ES256
-// (auth.VerifyHTTP) against authd's JWKs when AUTHD_URL is set. Either success
-// stamps the same X-User-* headers; setUserHeaders attaches proxyd's own
-// service:proxyd bearer as the backend transit proof. With AUTHD_URL unset, ks is
-// nil and this is HS256-only.
+// Bearer verify is ES256 only (auth.VerifyHTTP) against authd's JWKs.
+// setUserHeaders attaches proxyd's own service:proxyd bearer as the backend
+// transit proof.
+//
+// An HS256 branch used to run FIRST here, against AUTH_SECRET. Nothing has
+// minted an HS256 bearer since `a56202d4` moved OAuth to authd, so it admitted
+// no legitimate caller and turned an AUTH_SECRET leak into arbitrary identity
+// forgery that bypassed authd (BUGS L6). With AUTHD_URL unset, ks is nil and
+// no bearer authenticates at all.
 func (s *server) tryAuth(r *http.Request) *http.Request {
+	if s.ks == nil {
+		return nil
+	}
 	if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
-		if c, err := auth.VerifyJWT([]byte(s.cfg.authSecret), strings.TrimPrefix(hdr, "Bearer ")); err == nil {
-			return s.setUserHeaders(r, c.Sub, c.Name, c.Groups)
-		}
-		if s.ks != nil {
-			if sub, err := auth.VerifyHTTP(r, s.ks); err == nil {
-				return s.setUserHeaders(r, sub.Sub, sub.Extra["name"], s.groupsForSub(sub.Sub))
-			}
+		if sub, err := auth.VerifyHTTP(r, s.ks); err == nil {
+			return s.setUserHeaders(r, sub.Sub, sub.Extra["name"], s.groupsForSub(sub.Sub))
 		}
 	}
 	return nil
@@ -940,6 +942,9 @@ func (s *server) tryRefreshViaAuthd(w http.ResponseWriter, r *http.Request) *htt
 
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// AUTH_SECRET no longer verifies any bearer (BUGS L6); it keys the
+		// OAuth CSRF state, so the login flow cannot complete without it and
+		// denying here keeps the failure at the door rather than mid-flow.
 		if s.cfg.authSecret == "" {
 			slog.Warn("auth denied", "reason", "auth_secret_unset", "path", r.URL.Path)
 			http.NotFound(w, r)
