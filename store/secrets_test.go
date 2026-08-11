@@ -5,7 +5,22 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
+
+// openMemSealed opens an in-memory store that carries a keyring, like every
+// daemon that writes secrets. Without one each write path refuses (BUGS S2).
+// Tests that exercise the refusal itself open a bare store instead.
+func openMemSealed(t *testing.T) *Store {
+	t.Helper()
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatalf("OpenMem: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	s.SetSecretKeys([]byte("store-test-key"))
+	return s
+}
 
 func rawSecretValue(t *testing.T, s *Store, scope SecretScope, scopeID, key string) string {
 	t.Helper()
@@ -25,9 +40,7 @@ func rawSecretValue(t *testing.T, s *Store, scope SecretScope, scopeID, key stri
 // rows before it in the batch — and must name the failing row without
 // echoing its value.
 func TestValidateAndImportSecrets_ValidatesAllBeforeWritingAny(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-	s.SetSecretKeys([]byte("archive-key"))
+	s := openMemSealed(t)
 
 	good, err := s.seal("plain-value")
 	if err != nil {
@@ -58,9 +71,7 @@ func TestValidateAndImportSecrets_ValidatesAllBeforeWritingAny(t *testing.T) {
 // batch where each row is sealed under a DIFFERENT key still validates
 // (every key in the keyring is tried per row), and both rows import.
 func TestValidateAndImportSecrets_DifferentRetiredKeys(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
+	s := openMemSealed(t)
 	s.SetSecretKeys([]byte("key-old"))
 	sealedOld, err := s.seal("value-old")
 	if err != nil {
@@ -94,9 +105,7 @@ func TestValidateAndImportSecrets_DifferentRetiredKeys(t *testing.T) {
 // existing row by (scope_kind, scope_id, key), not require the table be
 // empty, and must never touch a row the batch doesn't mention.
 func TestValidateAndImportSecrets_UpsertNotRebuild(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-	s.SetSecretKeys([]byte("k"))
+	s := openMemSealed(t)
 
 	if err := s.SetSecret(ScopeFolder, "atlas", "UNTOUCHED", "stays"); err != nil {
 		t.Fatal(err)
@@ -128,9 +137,7 @@ func TestValidateAndImportSecrets_UpsertNotRebuild(t *testing.T) {
 // the stored ciphertext form travels verbatim (spec 5/8: "encrypted secret
 // blobs travel as-is").
 func TestExportSecretRows_TravelsAsIs(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-	s.SetSecretKeys([]byte("k"))
+	s := openMemSealed(t)
 	if err := s.SetSecret(ScopeFolder, "atlas", "TOKEN", "sk-secret-xyz"); err != nil {
 		t.Fatal(err)
 	}
@@ -150,9 +157,7 @@ func TestExportSecretRows_TravelsAsIs(t *testing.T) {
 }
 
 func TestSecret_EncryptionAtRest_RoundTrip(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-	s.SetSecretKeys([]byte("test-secrets-key"))
+	s := openMemSealed(t)
 
 	if err := s.SetSecret(ScopeFolder, "atlas", "TOKEN", "sk-secret-xyz"); err != nil {
 		t.Fatal(err)
@@ -173,27 +178,76 @@ func TestSecret_EncryptionAtRest_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestSecret_NoKey_PlaintextAtRest(t *testing.T) {
+// seedLegacyPlaintext writes an unencrypted row the way a build before BUGS S2
+// wrote one. No write path can still produce it, so the migration and
+// read-through tests must insert it directly.
+func seedLegacyPlaintext(t *testing.T, s *Store, scope SecretScope, scopeID, key, value string) {
+	t.Helper()
+	if _, err := s.db.Exec(
+		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)`,
+		string(scope), scopeID, key, value, time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		t.Fatalf("seedLegacyPlaintext: %v", err)
+	}
+}
+
+// BUGS S2: an empty keyring must REFUSE every write. It previously stored the
+// plaintext, so an un-keyed daemon persisted each secret readable on disk.
+func TestSecret_NoKey_RefusesToWrite(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
-	if err := s.SetSecret(ScopeUser, "u1", "K", "plainval"); err != nil {
+
+	writes := map[string]func() error{
+		"SetSecret":    func() error { return s.SetSecret(ScopeUser, "u1", "K", "plainval") },
+		"PutSecretRow": func() error { return s.PutSecretRow(ScopeUser, "u1", "K", "plainval") },
+		"PutOAuthSecret": func() error {
+			return s.PutOAuthSecret("u1", "K", "plainval", "github", "refresh-val", time.Time{}, "repo")
+		},
+	}
+	for name, write := range writes {
+		if err := write(); !errors.Is(err, ErrNoSecretsKey) {
+			t.Errorf("%s with no keyring: err = %v, want ErrNoSecretsKey", name, err)
+		}
+	}
+
+	// The refusal must also leave NOTHING behind — a partially-written row would
+	// be the same disclosure the error exists to prevent.
+	var n int
+	if err := s.db.QueryRow(`SELECT count(*) FROM secrets`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if raw := rawSecretValue(t, s, ScopeUser, "u1", "K"); raw != "plainval" {
-		t.Errorf("no-key stored = %q, want plaintext", raw)
+	if n != 0 {
+		t.Errorf("refused writes still left %d secrets row(s)", n)
 	}
-	if got, _ := s.GetSecret(ScopeUser, "u1", "K"); got.Value != "plainval" {
-		t.Errorf("Value = %q", got.Value)
+}
+
+// storeValue is the single choke point every write path funnels through, so it
+// must never hand back the plaintext it was given.
+func TestStoreValue_NeverReturnsPlaintext(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	const plaintext = "sk-live-never-at-rest"
+	if got, err := s.storeValue(plaintext); !errors.Is(err, ErrNoSecretsKey) {
+		t.Errorf("no keyring: storeValue = %q, %v; want ErrNoSecretsKey", got, err)
+	} else if got != "" {
+		t.Errorf("no keyring: storeValue returned %q, want empty", got)
+	}
+
+	s.SetSecretKeys([]byte("k"))
+	got, err := s.storeValue(plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, secretV2Prefix) || strings.Contains(got, plaintext) {
+		t.Errorf("keyed: storeValue = %q, want a v2: seal that hides the plaintext", got)
 	}
 }
 
 func TestSecret_LegacyPlaintext_ReadsThrough(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-	if err := s.SetSecret(ScopeFolder, "atlas", "OLD", "legacy-plain"); err != nil {
-		t.Fatal(err)
-	}
-	s.SetSecretKeys([]byte("k")) // key configured AFTER the plaintext write
+	s := openMemSealed(t)
+	seedLegacyPlaintext(t, s, ScopeFolder, "atlas", "OLD", "legacy-plain")
+	s.SetSecretKeys([]byte("k")) // key configured AFTER the legacy row exists
 	got, err := s.GetSecret(ScopeFolder, "atlas", "OLD")
 	if err != nil {
 		t.Fatal(err)
@@ -204,14 +258,9 @@ func TestSecret_LegacyPlaintext_ReadsThrough(t *testing.T) {
 }
 
 func TestSecret_EncryptPlaintextMigrate_Idempotent(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-	if err := s.SetSecret(ScopeFolder, "atlas", "A", "aaa"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetSecret(ScopeUser, "u1", "B", "bbb"); err != nil {
-		t.Fatal(err)
-	}
+	s := openMemSealed(t)
+	seedLegacyPlaintext(t, s, ScopeFolder, "atlas", "A", "aaa")
+	seedLegacyPlaintext(t, s, ScopeUser, "u1", "B", "bbb")
 	s.SetSecretKeys([]byte("mig-key"))
 	if err := s.EncryptPlaintextSecrets(context.Background()); err != nil {
 		t.Fatal(err)
@@ -235,8 +284,7 @@ func TestSecret_EncryptPlaintextMigrate_Idempotent(t *testing.T) {
 }
 
 func TestSecret_WrongKeyFails(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 	s.SetSecretKeys([]byte("key-A"))
 	if err := s.SetSecret(ScopeFolder, "atlas", "K", "secret"); err != nil {
 		t.Fatal(err)
@@ -251,8 +299,7 @@ func TestSecret_WrongKeyFails(t *testing.T) {
 // {new, old}; new writes seal under the active (first) key; dropping the
 // retired key makes the old-sealed value unreadable.
 func TestSecret_KeyringRotation(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 	s.SetSecretKeys([]byte("key-old"))
 	if err := s.SetSecret(ScopeFolder, "atlas", "K", "sealed-under-old"); err != nil {
 		t.Fatal(err)
@@ -275,9 +322,7 @@ func TestSecret_KeyringRotation(t *testing.T) {
 
 // FolderSecretsResolved must return DECRYPTED plaintext, not the v2: ciphertext.
 func TestFolderSecretsResolved_Decrypts(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-	s.SetSecretKeys([]byte("resolve-key"))
+	s := openMemSealed(t)
 	if err := s.SetSecret(ScopeFolder, "atlas/eng", "TOKEN", "sk-plain"); err != nil {
 		t.Fatal(err)
 	}
@@ -294,8 +339,7 @@ func TestFolderSecretsResolved_Decrypts(t *testing.T) {
 }
 
 func TestSetGetSecret_RoundTrip(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	if err := s.SetSecret(ScopeFolder, "atlas/eng", "API_KEY", "sk-abc-123"); err != nil {
 		t.Fatalf("SetSecret: %v", err)
@@ -316,8 +360,7 @@ func TestSetGetSecret_RoundTrip(t *testing.T) {
 }
 
 func TestSetSecret_Overwrites(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	if err := s.SetSecret(ScopeFolder, "atlas", "K", "v1"); err != nil {
 		t.Fatalf("SetSecret v1: %v", err)
@@ -342,8 +385,7 @@ func TestSetSecret_Overwrites(t *testing.T) {
 }
 
 func TestGetSecret_MissingFails(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	_, err := s.GetSecret(ScopeFolder, "atlas", "MISSING")
 	if !errors.Is(err, ErrSecretNotFound) {
@@ -352,8 +394,7 @@ func TestGetSecret_MissingFails(t *testing.T) {
 }
 
 func TestListSecrets_Scope(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	if err := s.SetSecret(ScopeFolder, "atlas", "A", "1"); err != nil {
 		t.Fatal(err)
@@ -399,8 +440,7 @@ func TestListSecrets_Scope(t *testing.T) {
 }
 
 func TestDeleteSecret(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	if err := s.SetSecret(ScopeFolder, "atlas", "K", "v"); err != nil {
 		t.Fatal(err)
@@ -419,8 +459,7 @@ func TestDeleteSecret(t *testing.T) {
 }
 
 func TestFolderSecretsResolved_DeepestWins(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	if err := s.SetSecret(ScopeFolder, "atlas", "KEY", "v1"); err != nil {
 		t.Fatal(err)
@@ -448,8 +487,7 @@ func TestFolderSecretsResolved_DeepestWins(t *testing.T) {
 // folder set: a user's own key WINS over the folder default; a folder-only key
 // still resolves; an empty userSub returns the folder set unchanged.
 func TestFolderSecretsResolvedForUser_UserOverridesFolder(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	// GITHUB_TOKEN: capability credential — allowed at folder scope (shared team key).
 	if err := s.SetSecret(ScopeFolder, "atlas", "GITHUB_TOKEN", "folder-gh"); err != nil {
@@ -504,8 +542,7 @@ func TestFolderSecretsResolvedForUser_UserOverridesFolder(t *testing.T) {
 // TestEnvProfileKeyFolderScopeRejected verifies the store-layer enforcement:
 // env-profile keys (ANTHROPIC_API_KEY etc) must not be written at folder scope.
 func TestEnvProfileKeyFolderScopeRejected(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	for _, k := range []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY"} {
 		if err := s.SetSecret(ScopeFolder, "atlas", k, "val"); err == nil {
@@ -528,9 +565,7 @@ func TestEnvProfileKeyFolderScopeRejected(t *testing.T) {
 // User overrides must DECRYPT — a sealed user value reads back as plaintext,
 // never the v2: ciphertext.
 func TestFolderSecretsResolvedForUser_Decrypts(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-	s.SetSecretKeys([]byte("byoa-key"))
+	s := openMemSealed(t)
 	if err := s.SetSecret(ScopeUser, "github:alice", "ANTHROPIC_API_KEY", "sk-alice"); err != nil {
 		t.Fatal(err)
 	}
@@ -547,8 +582,7 @@ func TestFolderSecretsResolvedForUser_Decrypts(t *testing.T) {
 }
 
 func TestFolderSecretsResolved_RootFallback(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	if err := s.SetSecret(ScopeFolder, "root", "KEY", "base"); err != nil {
 		t.Fatal(err)
@@ -569,26 +603,5 @@ func TestFolderSecretsResolved_RootFallback(t *testing.T) {
 	}
 	if got["KEY"] != "base" {
 		t.Errorf("root resolution KEY = %q, want base", got["KEY"])
-	}
-}
-
-// v1 stores plaintext per spec 7/Y. Verify the `value` column holds the
-// raw string written, not a ciphertext.
-func TestSecretPlaintextAtRest(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	const plaintext = "ghp_topsecret_token"
-	if err := s.SetSecret(ScopeFolder, "atlas", "GITHUB_TOKEN", plaintext); err != nil {
-		t.Fatalf("SetSecret: %v", err)
-	}
-	var got string
-	if err := s.db.QueryRow(
-		`SELECT value FROM secrets WHERE scope_kind='folder' AND scope_id='atlas' AND key='GITHUB_TOKEN'`,
-	).Scan(&got); err != nil {
-		t.Fatalf("scan value: %v", err)
-	}
-	if got != plaintext {
-		t.Errorf("value at rest = %q, want %q (plaintext)", got, plaintext)
 	}
 }

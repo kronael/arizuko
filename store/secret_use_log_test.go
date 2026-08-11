@@ -6,8 +6,7 @@ import (
 )
 
 func TestLogSecretUse_RoundTrip(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	ts := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
 	row := SecretUseRow{
@@ -47,8 +46,7 @@ func TestLogSecretUse_RoundTrip(t *testing.T) {
 // audit_log row in one transaction — the "every event has an audit row"
 // invariant. They commit together or not at all.
 func TestLogSecretUse_AuditPairAtomic(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	row := SecretUseRow{
 		SpawnID: "spawn-9", CallerSub: "github:bob", Folder: "atlas/eng",
@@ -79,8 +77,7 @@ func TestLogSecretUse_AuditPairAtomic(t *testing.T) {
 }
 
 func TestLogSecretUse_AutoTimestamp(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	if err := s.LogSecretUse(SecretUseRow{Tool: "t", Key: "K", Scope: "missing", Status: "ok"}); err != nil {
 		t.Fatalf("LogSecretUse: %v", err)
@@ -95,8 +92,7 @@ func TestLogSecretUse_AutoTimestamp(t *testing.T) {
 }
 
 func TestLookupSecret_HitAndMiss(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
+	s := openMemSealed(t)
 
 	if err := s.SetSecret(ScopeUser, "github:alice", "GITHUB_TOKEN", "ghp_xxx"); err != nil {
 		t.Fatal(err)

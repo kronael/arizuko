@@ -75,7 +75,8 @@ func (s *Store) auditIdentity() (actor, actorSub, surface string) {
 
 // SetSecretKeys derives a 32-byte AES key from each raw value via SHA-256.
 // raws[0] becomes the active (seal) key; the rest are decrypt-only retired
-// keys for rotation. Call after Open. No raws = encryption disabled.
+// keys for rotation. Call after Open. No raws leaves the store unable to write
+// a secret: storeValue then refuses every write (BUGS S2).
 func (s *Store) SetSecretKeys(raws ...[]byte) {
 	keys := make([][32]byte, 0, len(raws))
 	for _, r := range raws {

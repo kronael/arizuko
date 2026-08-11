@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -131,10 +132,12 @@ type Config struct {
 	// fails without delivering a reply (SIGKILL/OOM/timeout). Default 3.
 	MaxTurnRetry int
 
-	// SecretsKey is the AES-256-GCM keyring for the secrets table (spec 6/Y).
+	// SecretsKey is the AES-256-GCM keyring for the secrets table (spec 5/14).
 	// Required by routd (the secrets-table owner) — secrets are encrypted at
-	// rest, no plaintext mode and no AUTH_SECRET fallback. Comma-separate to
-	// rotate: the first key seals new writes, the rest decrypt-only (retired).
+	// rest, no plaintext mode and no AUTH_SECRET fallback. routd refuses to
+	// start without it, and store.storeValue refuses every write, so no daemon
+	// can persist a secret in plaintext. Comma-separate to rotate: the first
+	// key seals new writes, the rest decrypt-only (retired).
 	// Parse with SecretKeyring.
 	SecretsKey string
 }
@@ -150,6 +153,23 @@ func SecretKeyring(raw string) [][]byte {
 		}
 	}
 	return out
+}
+
+// ErrNoSecretsKey reports an absent or blank SECRETS_KEY.
+var ErrNoSecretsKey = errors.New("SECRETS_KEY required: secrets are encrypted at rest; set SECRETS_KEY in the instance .env")
+
+// RequireSecretKeyring parses SECRETS_KEY and REFUSES an empty result. Every
+// caller that writes secrets uses it, so one rule decides the question: routd
+// (the table owner) at boot, and the operator CLI before it opens the store.
+// store.storeValue enforces the same rule at the write itself. An earlier build
+// only logged a warning, so an un-keyed instance persisted every secret readable
+// on disk while each healthcheck reported it healthy (BUGS S2).
+func RequireSecretKeyring(raw string) ([][]byte, error) {
+	kr := SecretKeyring(raw)
+	if len(kr) == 0 {
+		return nil, ErrNoSecretsKey
+	}
+	return kr, nil
 }
 
 // LoadConfigFrom loads dir/.env and resolves the config with dir as the

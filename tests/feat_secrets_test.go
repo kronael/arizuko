@@ -137,12 +137,10 @@ func TestFeature_Secrets(t *testing.T) {
 	// Sealing at rest. A resolved secret is plaintext in memory for the turn;
 	// this asserts the value is not ALSO sitting in the row. The regression is
 	// invisible from the outside — reads keep working either way, because the
-	// read path decrypts only when a key is set. The keyring must be seeded
-	// here: with no SECRETS_KEY the store writes plaintext BY DESIGN, so a
-	// fixture that forgot it would assert nothing.
+	// read path decrypts only when a key is set. bootFederation seeds the
+	// keyring; a store without one now refuses the write (BUGS S2).
 	t.Run("stored-row-does-not-hold-the-plaintext", func(t *testing.T) {
 		f := bootFederation(t)
-		f.routdDB.SetSecretKeys([]byte("test-secrets-key-material"))
 		if err := f.routdDB.PutGroup(core.Group{Folder: "acme"}); err != nil {
 			t.Fatal(err)
 		}

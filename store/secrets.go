@@ -15,9 +15,11 @@ import (
 	"github.com/kronael/arizuko/audit"
 )
 
-// secretV2Prefix marks an AES-256-GCM-encrypted secret value (spec 6/Y
+// secretV2Prefix marks an AES-256-GCM-encrypted secret value (spec 5/14
 // "Encryption at rest"). Stored form: "v2:" + base64(nonce||ciphertext).
-// A value without this prefix is legacy plaintext (v1), read as-is.
+// A value without this prefix is a legacy plaintext row (v1) that a build
+// before BUGS S2 wrote. The read path still opens it. No write path creates
+// one.
 const secretV2Prefix = "v2:"
 
 // seal encrypts plaintext under the active key (secretKeys[0]). Only valid when
@@ -69,20 +71,24 @@ func (s *Store) gcm(key [32]byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-// storeValue returns the at-rest form of plaintext: encrypted when the keyring
-// is configured, plaintext otherwise (CLI/test paths without a key).
+// ErrNoSecretsKey reports that the caller tried to write a secret before an
+// operator configured SECRETS_KEY.
+var ErrNoSecretsKey = errors.New("SECRETS_KEY is not configured: refusing to write a secret in plaintext")
+
+// storeValue returns the at-rest form of plaintext. Every write path in this
+// package calls it, so it is the one place that enforces encryption at rest.
+// An empty keyring returns ErrNoSecretsKey. It MUST NOT return the plaintext:
+// that fallback made an un-keyed daemon persist every secret readable on disk,
+// and each healthcheck still reported the daemon healthy (BUGS S2).
 func (s *Store) storeValue(plaintext string) (string, error) {
 	if len(s.secretKeys) == 0 {
-		return plaintext, nil
+		return "", ErrNoSecretsKey
 	}
 	return s.seal(plaintext)
 }
 
 // SecretScope is the kind of scope a secret is bound to: a folder path glob
-// or an auth user sub. See specs/8/Y-secret-broker.md.
-//
-// v1: plaintext storage. Operator trusts disk + FS permissions.
-// Encryption at rest deferred.
+// or an auth user sub. See specs/5/14-credentials.md.
 type SecretScope string
 
 const (
@@ -333,7 +339,7 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 }
 
 // EncryptPlaintextSecrets encrypts every legacy-plaintext row in place under
-// the configured key (spec 6/Y "Encryption at rest"). Idempotent: rows already
+// the configured key (spec 5/14 "Encryption at rest"). Idempotent: rows already
 // "v2:" are skipped. No-op without a key. Never deletes — it replaces the old
 // PurgeUnencryptedSecrets, which DELETEd plaintext rows and so wiped every
 // secret on each startup (writes never wrote the prefix it kept).

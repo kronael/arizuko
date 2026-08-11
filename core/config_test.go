@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -199,6 +200,29 @@ func TestSecretKeyring(t *testing.T) {
 		if string(got[i]) != want[i] {
 			t.Errorf("key %d: got %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+// BUGS S2: routd calls RequireSecretKeyring at boot and exits when it errors,
+// so an absent or blank SECRETS_KEY must never yield a usable keyring.
+func TestRequireSecretKeyring(t *testing.T) {
+	for _, raw := range []string{"", "   ", ",", " , , "} {
+		got, err := RequireSecretKeyring(raw)
+		if !errors.Is(err, ErrNoSecretsKey) {
+			t.Errorf("RequireSecretKeyring(%q): err = %v, want ErrNoSecretsKey", raw, err)
+		}
+		if got != nil {
+			t.Errorf("RequireSecretKeyring(%q): keyring = %v, want nil", raw, got)
+		}
+	}
+
+	// A rotation value keeps every key, active first.
+	got, err := RequireSecretKeyring("new,old")
+	if err != nil {
+		t.Fatalf("RequireSecretKeyring(rotation): %v", err)
+	}
+	if len(got) != 2 || string(got[0]) != "new" || string(got[1]) != "old" {
+		t.Errorf("keyring = %q, want [new old]", got)
 	}
 }
 
