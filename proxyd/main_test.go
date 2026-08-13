@@ -1067,6 +1067,43 @@ func TestProxydChatTokenStampsHeaders(t *testing.T) {
 	}
 }
 
+// A suffixed JID stamps the folder the mint RECORDED, not the folder its
+// grammar reads. `web:a/b` is byte-identical to a no-suffix mint at folder
+// `a/b`, which exists here, so the grammar's answer stamps another tenant onto
+// webd's request (BUGS L4).
+func TestProxydSuffixedTokenStampsTheMintedFolder(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for _, f := range []string{"a", "a/b"} {
+		if err := st.PutGroup(core.Group{Folder: f, AddedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.InsertRouteToken("tokhook", store.RouteToken{
+		JID: "web:a/b", OwnerFolder: "a", TargetFolder: "a",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	s, up := testRouteServer(t, st, "testsecret")
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/chat/tokhook/", nil)
+	req.RemoteAddr = "4.4.4.4:4000"
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("X-Folder"); got != "a" {
+		t.Errorf("X-Folder upstream echo = %q, want a (the grammar's answer is a/b)", got)
+	}
+}
+
 // --- derived host → world redirect (spec 5/V) --------------------------------
 
 // vhostServer builds a route server with a fixed HOSTING_DOMAIN + optional

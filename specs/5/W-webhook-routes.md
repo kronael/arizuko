@@ -1,7 +1,6 @@
 ---
-status: defected
+status: shipped
 shipped: 2026-05-18
-defects: [L4]
 depends: [Q-unified-routing, S-jid-format, 17-openapi-mcp, 32-acl-unified]
 supersedes: [specs/1/W-slink.md]
 ---
@@ -167,6 +166,18 @@ is a separate concern with no REST face at all; see § Resolution.
 
 ## Resolution (who reads the table)
 
+**The mint records the delivery folder; nothing parses it back out of the
+JID.** `route_tokens.target_folder` is written at issuance, and
+`store.RouteToken.Folder()` / `store.RouteTokenTargetByJID` are the only
+readers — routd resolution, dashd visibility and proxyd's `X-Folder`
+stamp all go through them. The JID grammar cannot answer once a suffix is
+present: `web:t/sfx` is byte-identical to a no-suffix mint at folder
+`t/sfx`, and `hook:a/b/c` reads as folder `a/b`. Guessing sends a payload
+to another tenant, so the mint states the answer instead. A row minted
+before the column records NULL and keeps the grammar — the rule it was
+minted under. `CheckRouteTokenTarget` rejects a mint that would bind one
+JID to a second folder, so the reverse lookup has exactly one answer.
+
 routd owns and migrates `route_tokens` in `routd.db`. Two daemons READ it
 directly, in-process, on the request path:
 
@@ -191,8 +202,8 @@ whole life. It is deleted (BUGS `F13`). Recorded so it does not come back:
   token, which authenticates the daemon, not the tenant. Resolution is a
   reverse lookup on a secret the caller already holds; there is no
   caller-supplied folder to contain it to.
-- **The folder is never caller-supplied.** Both readers derive it from
-  the resolved row (`groupfolder.JidFolder(row.JID)`). The one surface
+- **The folder is never caller-supplied.** Both readers take it from
+  the resolved row (`row.Folder()`). The one surface
   where a caller names a folder beside a token — `/chat/stream?group=` —
   binds it to proxyd's token-derived `X-Folder` stamp
   (`handleRouteTokenStream`), tested adversarially by

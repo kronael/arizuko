@@ -4,11 +4,13 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 // RouteToken maps a bearer token to a single inbound JID + admin folder.
@@ -27,6 +29,77 @@ type RouteToken struct {
 	// Context is the optional issuer-authored per-link processing
 	// instructions (spec 5/W § link context). Empty = none.
 	Context string
+	// TargetFolder is the folder the token DELIVERS to, recorded by the mint.
+	// Empty for a token minted before the column existed; Folder falls back to
+	// the JID grammar for those.
+	TargetFolder string
+}
+
+// Folder returns the folder the token delivers to. The mint records the target
+// (spec 5/W); the JID grammar answers only for a token minted before the
+// target_folder column, because a suffixed JID is ambiguous — `web:t/sfx` reads
+// as folder `t/sfx`, and `hook:a/b/c` reads as folder `a/b`.
+func (t RouteToken) Folder() string {
+	if t.TargetFolder != "" {
+		return t.TargetFolder
+	}
+	return groupfolder.JidFolder(t.JID)
+}
+
+// ErrRouteTokenTargetTaken reports a mint whose JID already delivers to a
+// different folder. A JID names ONE chat, so two folders must never mint the
+// same JID: resolution reads target_folder back by JID and could not choose
+// between the two answers.
+var ErrRouteTokenTargetTaken = errors.New("jid already delivers to a different folder")
+
+// RouteTokenQuerier is the *sql.DB / *sql.Tx subset the mint guard reads. Both
+// mint paths (store.InsertRouteToken, routd.issueRouteTokenTx) call the guard
+// through it, so one function holds the rule.
+type RouteTokenQuerier interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// CheckRouteTokenTarget rejects a mint that would bind an existing JID to a
+// second delivery folder. A row minted before the target_folder column records
+// no target, so it never conflicts.
+func CheckRouteTokenTarget(q RouteTokenQuerier, jid, target string) error {
+	var other string
+	err := q.QueryRow(
+		`SELECT target_folder FROM route_tokens
+		 WHERE jid = ? AND kind = ? AND target_folder IS NOT NULL AND target_folder <> ?
+		 LIMIT 1`,
+		jid, RouteTokenKindRoute, target).Scan(&other)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("%w: %s delivers to %s", ErrRouteTokenTargetTaken, jid, other)
+}
+
+// RouteTokenTargetByJID returns the folder a web:/hook: JID delivers to, or ""
+// when no token records one (a row minted before the target_folder column, or
+// no token at all). Callers fall back to groupfolder.JidFolder for "" — that is
+// the rule those rows were minted under.
+//
+// This is the single reader every folder-from-JID path goes through
+// (routd resolution, dashd visibility, proxyd's X-Folder stamp), so the
+// grammar's ambiguity is answered in one place. CheckRouteTokenTarget keeps a
+// JID bound to ONE folder, so LIMIT 1 is the whole answer.
+func RouteTokenTargetByJID(q RouteTokenQuerier, jid string) (string, error) {
+	var target string
+	err := q.QueryRow(
+		`SELECT target_folder FROM route_tokens
+		 WHERE jid = ? AND kind = ? AND target_folder IS NOT NULL LIMIT 1`,
+		jid, RouteTokenKindRoute).Scan(&target)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return target, nil
 }
 
 // The JID-derived kind of a route token: which inbound surface its JID names.
@@ -72,6 +145,11 @@ func RouteTokenJIDKind(jid string) string {
 // InsertRouteToken persists a new token. Caller chooses the raw token
 // (via GenRouteToken) and is responsible for returning it to the user;
 // the store only retains sha256(raw).
+//
+// Every mint MUST set TargetFolder — it is the folder the token delivers to,
+// and only the mint knows it. An empty TargetFolder stores NULL, the shape of a
+// row minted before the column, which reads back through the ambiguous JID
+// grammar (spec 5/W § Resolution).
 func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	if rawToken == "" {
 		return fmt.Errorf("empty token")
@@ -82,6 +160,9 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	if RouteTokenJIDKind(t.JID) == "" {
 		return fmt.Errorf("jid must start with web: or hook:")
 	}
+	if err := CheckRouteTokenTarget(s.db, t.JID, t.TargetFolder); err != nil {
+		return err
+	}
 	ts := t.CreatedAt
 	if ts.IsZero() {
 		ts = time.Now()
@@ -89,8 +170,8 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	actor, actorSub, surface := s.auditIdentity()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		_, err := tx.Exec(
-			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind) VALUES (?, ?, ?, ?, ?, ?)`,
-			TokenRefBytes(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano), nilIfEmpty(t.Context), RouteTokenKindRoute,
+			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind, target_folder) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			TokenRefBytes(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano), nilIfEmpty(t.Context), RouteTokenKindRoute, nilIfEmpty(t.TargetFolder),
 		)
 		return audit.Event{
 			Category: audit.CategoryChannel,
@@ -119,9 +200,9 @@ func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 	var t RouteToken
 	var createdAt string
 	err := s.db.QueryRow(
-		`SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE token_hash = ? AND kind = ?`,
+		`SELECT jid, owner_folder, created_at, COALESCE(context,''), COALESCE(target_folder,'') FROM route_tokens WHERE token_hash = ? AND kind = ?`,
 		TokenRefBytes(rawToken), RouteTokenKindRoute,
-	).Scan(&t.JID, &t.OwnerFolder, &createdAt, &t.Context)
+	).Scan(&t.JID, &t.OwnerFolder, &createdAt, &t.Context, &t.TargetFolder)
 	if err != nil {
 		return RouteToken{}, false
 	}
@@ -134,7 +215,7 @@ func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 // needs (spec 5/31 § Unpair).
 func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
 	rows, err := s.db.Query(
-		`SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE owner_folder = ? AND kind = ? ORDER BY created_at DESC`,
+		`SELECT jid, owner_folder, created_at, COALESCE(context,''), COALESCE(target_folder,'') FROM route_tokens WHERE owner_folder = ? AND kind = ? ORDER BY created_at DESC`,
 		ownerFolder, RouteTokenKindRoute,
 	)
 	if err != nil {
@@ -145,7 +226,7 @@ func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
 	for rows.Next() {
 		var t RouteToken
 		var createdAt string
-		if rows.Scan(&t.JID, &t.OwnerFolder, &createdAt, &t.Context) != nil {
+		if rows.Scan(&t.JID, &t.OwnerFolder, &createdAt, &t.Context, &t.TargetFolder) != nil {
 			continue
 		}
 		t.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)

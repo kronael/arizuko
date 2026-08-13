@@ -2,6 +2,7 @@ package routd
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -51,7 +52,7 @@ func TestRouteTokenResolve_RejectsPairingKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	route, err := issueRouteTokenTx(context.Background(), tx2, "web:acme", "acme", "")
+	route, err := issueRouteTokenTx(context.Background(), tx2, "web:acme", "acme", "acme", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,5 +62,37 @@ func TestRouteTokenResolve_RejectsPairingKind(t *testing.T) {
 	jid, owner, _, err := db.ResolveRouteToken(route)
 	if err != nil || jid != "web:acme" || owner != "acme" {
 		t.Errorf("ResolveRouteToken(route) = (%q, %q, %v)", jid, owner, err)
+	}
+}
+
+// TestRouteTokenTargetConflict: a JID names ONE chat, so a second mint may not
+// bind it to a second folder. Without this guard RouteTokenTarget would read
+// back two answers for one JID and deliver the payload to whichever row it saw
+// first. A second mint at the SAME folder stays legal — spec 5/W permits several
+// active tokens per JID.
+func TestRouteTokenTargetConflict(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "a"})
+	_ = db.PutGroup(core.Group{Folder: "a/b"})
+
+	// folder a mints hook:a/b/c as (source b, suffix c).
+	if _, _, err := db.IssueRouteToken("hook:a/b/c", "a", "a", ""); err != nil {
+		t.Fatalf("first mint: %v", err)
+	}
+	// folder a/b would mint the SAME jid as (source c) — rejected.
+	_, _, err = db.IssueRouteToken("hook:a/b/c", "a/b", "a/b", "")
+	if !errors.Is(err, store.ErrRouteTokenTargetTaken) {
+		t.Fatalf("second folder minted the same jid: err = %v, want ErrRouteTokenTargetTaken", err)
+	}
+	// A second token for the same folder is still legal.
+	if _, _, err := db.IssueRouteToken("hook:a/b/c", "a", "a", ""); err != nil {
+		t.Fatalf("second token at the same folder: %v", err)
+	}
+	if target := db.RouteTokenTarget("hook:a/b/c"); target != "a" {
+		t.Fatalf("RouteTokenTarget = %q, want a", target)
 	}
 }

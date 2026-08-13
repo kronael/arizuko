@@ -12,11 +12,15 @@ import (
 // safe {jid, owner_folder, created_at} shape list_tokens returns. Apply never
 // rebuilds this table (SkipApplyRebuild) — tokens are runtime-minted, not
 // manifest state — so the missing PK column is moot for the engine.
+// TargetFolder is the folder the token DELIVERS to; owner_folder only bounds
+// revocation and may differ. Empty on a token minted before the mint recorded
+// it (spec 5/W § Resolution).
 type RouteTokensRow struct {
-	JID         string `db:"jid"          yaml:"jid"          json:"jid"`
-	OwnerFolder string `db:"owner_folder" yaml:"owner_folder" json:"owner_folder"`
-	CreatedAt   string `db:"created_at"   yaml:"created_at,omitempty" json:"created_at,omitempty"`
-	Context     string `db:"context"      yaml:"context,omitempty"    json:"context,omitempty"`
+	JID          string `db:"jid"           yaml:"jid"          json:"jid"`
+	OwnerFolder  string `db:"owner_folder"  yaml:"owner_folder" json:"owner_folder"`
+	TargetFolder string `db:"target_folder" yaml:"target_folder,omitempty" json:"target_folder,omitempty"`
+	CreatedAt    string `db:"created_at"    yaml:"created_at,omitempty" json:"created_at,omitempty"`
+	Context      string `db:"context"       yaml:"context,omitempty"    json:"context,omitempty"`
 }
 
 // RouteTokensEndpoints is the single owner of the route_tokens endpoint set that
@@ -73,8 +77,9 @@ var RouteTokensMCPDoc = map[resreg.Action]string{
 		"The link expires in 10 minutes and works once. Returns {url, jid}; " +
 		"the URL is shown once. Spec 5/31.",
 	resreg.ActionList: "List route tokens (chat links + webhooks) owned by your folder. " +
-		"Returns rows with {jid, owner_folder, created_at, context}. Raw tokens " +
-		"are NOT returned — they're shown once at issue time. Spec 5/W.",
+		"Returns rows with {jid, owner_folder, target_folder, created_at, context}; " +
+		"target_folder is where the token delivers, owner_folder is who may revoke it. " +
+		"Raw tokens are NOT returned — they're shown once at issue time. Spec 5/W.",
 	resreg.Action("revoke"): "Revoke a route token by JID. Caller must own the token " +
 		"(owner_folder = your folder). After revocation the URL " +
 		"returns 404 immediately — no grace period. Spec 5/W.",
@@ -144,6 +149,13 @@ func init() {
 				// instances the moment step 4 repoints them at live routd.db.
 				"Context": {
 					Read:  "COALESCE(context, '')",
+					Write: nilIfEmptyString,
+				},
+				// target_folder is nullable for the same reason (routd/
+				// migrations/0035-route-token-target-folder.sql: "NULL = a row
+				// minted before this column"), and scans the same way.
+				"TargetFolder": {
+					Read:  "COALESCE(target_folder, '')",
 					Write: nilIfEmptyString,
 				},
 			},

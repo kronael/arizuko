@@ -16,7 +16,7 @@ func TestFeature_RouteTokens(t *testing.T) {
 	// Raw token round-trips to its bound JID and owner; raw is returned once only.
 	t.Run("issue-and-resolve", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		raw, _, err := db.IssueRouteToken("web:demo", "demo", "")
+		raw, _, err := db.IssueRouteToken("web:demo", "demo", "demo", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -29,7 +29,7 @@ func TestFeature_RouteTokens(t *testing.T) {
 	// Revoking all tokens for a JID makes the raw token unresolvable.
 	t.Run("revoke", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		raw, _, _ := db.IssueRouteToken("hook:demo/gh", "demo", "")
+		raw, _, _ := db.IssueRouteToken("hook:demo/gh", "demo", "demo", "")
 		n, err := db.RevokeRouteTokens("hook:demo/gh", "demo")
 		if err != nil || n != 1 {
 			t.Fatalf("revoked = %d err=%v, want 1", n, err)
@@ -43,7 +43,7 @@ func TestFeature_RouteTokens(t *testing.T) {
 	t.Run("list-and-bulk-revoke", func(t *testing.T) {
 		db := mustRoutdDB(t)
 		for range 3 {
-			if _, _, err := db.IssueRouteToken("hook:demo/ci", "demo", ""); err != nil {
+			if _, _, err := db.IssueRouteToken("hook:demo/ci", "demo", "demo", ""); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -105,14 +105,14 @@ func TestFeature_RouteTokens(t *testing.T) {
 	// through resolve and list; a context-less mint stays empty.
 	t.Run("issue-with-context", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		raw, _, err := db.IssueRouteToken("web:demo", "demo", "bug reports; triage, don't chat")
+		raw, _, err := db.IssueRouteToken("web:demo", "demo", "demo", "bug reports; triage, don't chat")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if _, _, linkCtx, err := db.ResolveRouteToken(raw); err != nil || linkCtx != "bug reports; triage, don't chat" {
 			t.Fatalf("resolve context = (%q,%v)", linkCtx, err)
 		}
-		if _, _, err := db.IssueRouteToken("hook:demo/gh", "demo", ""); err != nil {
+		if _, _, err := db.IssueRouteToken("hook:demo/gh", "demo", "demo", ""); err != nil {
 			t.Fatal(err)
 		}
 		rows, err := db.ListRouteTokens("demo")
@@ -202,7 +202,7 @@ func TestFeature_RouteTokens(t *testing.T) {
 	// the web:<folder> JID the portal posts on.
 	t.Run("web-chat-jid-binding", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		raw, _, err := db.IssueRouteToken("web:demo/submissions", "demo", "")
+		raw, _, err := db.IssueRouteToken("web:demo/submissions", "demo", "demo", "")
 		if err != nil {
 			t.Fatal(err)
 		}

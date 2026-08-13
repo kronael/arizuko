@@ -415,7 +415,7 @@ func (d *dash) handleChatNew(w http.ResponseWriter, r *http.Request) {
 	// routd migration 0016, so the mint and its audit row commit together.
 	// AsUser attributes the mint to the operator.
 	if err := store.New(d.adminDB()).AsUser(sub).InsertRouteToken(raw, store.RouteToken{
-		JID: jid, OwnerFolder: folder,
+		JID: jid, OwnerFolder: folder, TargetFolder: folder,
 	}); err != nil {
 		slog.Warn("chat: mint token", "folder", folder, "err", err)
 		http.Error(w, "mint failed", http.StatusInternalServerError)

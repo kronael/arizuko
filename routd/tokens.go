@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"log/slog"
 	"time"
 
 	"github.com/kronael/arizuko/store"
@@ -15,9 +16,13 @@ import (
 // family from authd capability tokens.
 
 // IssueRouteToken mints a 32-byte token for jid under owner_folder, stores
-// sha256(token), and returns the raw token once. context is the optional
-// per-link processing instructions (spec 5/W § link context); "" stores NULL.
-func (d *DB) IssueRouteToken(jid, ownerFolder, context string) (string, string, error) {
+// sha256(token), and returns the raw token once. targetFolder is the folder the
+// token delivers to (spec 5/W § Resolution); context is the optional per-link
+// processing instructions (spec 5/W § link context); "" stores NULL for either.
+func (d *DB) IssueRouteToken(jid, ownerFolder, targetFolder, context string) (string, string, error) {
+	if err := store.CheckRouteTokenTarget(d.db, jid, targetFolder); err != nil {
+		return "", "", err
+	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", "", err
@@ -25,8 +30,8 @@ func (d *DB) IssueRouteToken(jid, ownerFolder, context string) (string, string, 
 	token := hex.EncodeToString(raw)
 	h := sha256.Sum256([]byte(token))
 	created := nowTS()
-	_, err := d.db.Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context, kind)
-		VALUES(?,?,?,?,?,?)`, h[:], jid, ownerFolder, created, nullStr(context), store.RouteTokenKindRoute)
+	_, err := d.db.Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context, kind, target_folder)
+		VALUES(?,?,?,?,?,?,?)`, h[:], jid, ownerFolder, created, nullStr(context), store.RouteTokenKindRoute, nullStr(targetFolder))
 	if err != nil {
 		return "", "", err
 	}
@@ -46,18 +51,34 @@ func (d *DB) ResolveRouteToken(token string) (jid, owner, context string, err er
 	return jid, owner, context, err
 }
 
+// RouteTokenTarget returns the folder the delivery tokens for jid route to, or
+// "" when no token records one. store.RouteTokenTargetByJID is the single
+// reader; this wraps it for the loop's call site.
+func (d *DB) RouteTokenTarget(jid string) string {
+	target, err := store.RouteTokenTargetByJID(d.db, jid)
+	if err != nil {
+		// A read failure here looks exactly like a pre-column row, and the
+		// grammar fallback then routes to the wrong folder. Say so.
+		slog.Error("route token target read failed; falling back to the JID grammar",
+			"jid", jid, "err", err)
+		return ""
+	}
+	return target
+}
+
 // RouteTokenRow is a listed token (never the raw value).
 type RouteTokenRow struct {
-	JID         string
-	OwnerFolder string
-	CreatedAt   string
-	Context     string
+	JID          string
+	OwnerFolder  string
+	CreatedAt    string
+	Context      string
+	TargetFolder string
 }
 
 // ListRouteTokens returns the delivery tokens owned by ownerFolder (no raw
 // token). Pairing rows are excluded — see store.ListRouteTokens.
 func (d *DB) ListRouteTokens(ownerFolder string) ([]RouteTokenRow, error) {
-	rows, err := d.db.Query("SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE owner_folder=? AND kind=?",
+	rows, err := d.db.Query("SELECT jid, owner_folder, created_at, COALESCE(context,''), COALESCE(target_folder,'') FROM route_tokens WHERE owner_folder=? AND kind=?",
 		ownerFolder, store.RouteTokenKindRoute)
 	if err != nil {
 		return nil, err
@@ -66,7 +87,7 @@ func (d *DB) ListRouteTokens(ownerFolder string) ([]RouteTokenRow, error) {
 	var out []RouteTokenRow
 	for rows.Next() {
 		var r RouteTokenRow
-		if err := rows.Scan(&r.JID, &r.OwnerFolder, &r.CreatedAt, &r.Context); err != nil {
+		if err := rows.Scan(&r.JID, &r.OwnerFolder, &r.CreatedAt, &r.Context, &r.TargetFolder); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

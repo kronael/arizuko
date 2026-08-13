@@ -465,3 +465,30 @@ func mustNotContain(t *testing.T, body, bad, why string) {
 		t.Errorf("%s: body leaked %q", why, bad)
 	}
 }
+
+//  8. A suffixed route token's message belongs to the folder its mint RECORDED.
+//     `web:corp/eng/sre` reads as folder `corp/eng/sre` under the JID grammar,
+//     and that folder is a DIFFERENT tenant here, so the grammar's answer shows
+//     corp/eng's message to corp/eng/sre (BUGS L4). jidFolder is the visibility
+//     gate, so this is a cross-tenant read, not a cosmetic mislabel.
+func TestIso_JidFolder_ReadsTheMintedTarget(t *testing.T) {
+	_, inst := isoEnv(t)
+	d := &dash{dbRoutd: inst.DB}
+
+	if _, err := inst.DB.Exec(
+		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind, target_folder)
+		 VALUES (?, ?, ?, datetime('now'), 'route', ?)`,
+		[]byte("h1"), "web:"+folderSre, folderEng, folderEng); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.jidFolder("web:" + folderSre); got != folderEng {
+		t.Errorf("jidFolder(web:%s) = %q, want %q (the grammar answers %s)",
+			folderSre, got, folderEng, folderSre)
+	}
+
+	// A token minted before the column records nothing, so the grammar stays
+	// the answer — that is the rule the row was minted under.
+	if got := d.jidFolder("web:" + folderSales); got != folderSales {
+		t.Errorf("jidFolder(web:%s) = %q, want %q", folderSales, got, folderSales)
+	}
+}

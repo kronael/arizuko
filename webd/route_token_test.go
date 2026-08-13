@@ -123,22 +123,30 @@ func TestJIDFolder(t *testing.T) {
 	}
 }
 
-// senderFromJID — hook: JID extracts last path segment as source.
-func TestSenderFromJID(t *testing.T) {
+// hookSender — the source label is the JID segment after the RECORDED delivery
+// folder (spec 5/W), so a suffixed JID reads exactly instead of by heuristic:
+// hook:atlas/linear/comments at folder atlas is source "linear", not "comments"
+// (BUGS L4). A token minted before the column records no folder; those keep the
+// last-segment answer they were minted under.
+func TestHookSender(t *testing.T) {
 	cases := []struct {
-		jid  string
+		name string
+		row  store.RouteToken
 		want string
 	}{
-		{"hook:atlas/telegram", "telegram"},
-		{"hook:atlas/eng/slack", "slack"},
-		{"hook:bare", ""},
-		{"web:atlas", ""},
-		{"", ""},
+		{"recorded folder, no suffix", store.RouteToken{JID: "hook:atlas/telegram", TargetFolder: "atlas"}, "telegram"},
+		{"recorded folder, suffix", store.RouteToken{JID: "hook:atlas/linear/comments", TargetFolder: "atlas"}, "linear"},
+		{"recorded nested folder", store.RouteToken{JID: "hook:atlas/eng/slack", TargetFolder: "atlas/eng"}, "slack"},
+		{"recorded nested folder, suffix", store.RouteToken{JID: "hook:atlas/eng/slack/alerts", TargetFolder: "atlas/eng"}, "slack"},
+		{"pre-column, no suffix", store.RouteToken{JID: "hook:atlas/telegram"}, "telegram"},
+		{"pre-column, nested", store.RouteToken{JID: "hook:atlas/eng/slack"}, "slack"},
+		{"no source segment", store.RouteToken{JID: "hook:bare", TargetFolder: "bare"}, ""},
+		{"web token", store.RouteToken{JID: "web:atlas", TargetFolder: "atlas"}, ""},
+		{"empty", store.RouteToken{}, ""},
 	}
 	for _, c := range cases {
-		got := senderFromJID(c.jid)
-		if got != c.want {
-			t.Errorf("senderFromJID(%q) = %q, want %q", c.jid, got, c.want)
+		if got := hookSender(c.row); got != c.want {
+			t.Errorf("%s: hookSender(%+v) = %q, want %q", c.name, c.row, got, c.want)
 		}
 	}
 }

@@ -727,7 +727,11 @@ func (s *server) dispatchRouteToken(rp *httputil.ReverseProxy, w http.ResponseWr
 	// route_tokens lives in routd.db (stRoutd) — split ownership
 	if token != "" && s.stRoutd != nil {
 		if row, ok := s.stRoutd.LookupRouteToken(token); ok {
-			folder := groupfolder.JidFolder(row.JID)
+			// row.Folder(), not the JID grammar: the mint records the
+			// delivery folder because a suffixed JID cannot be parsed back
+			// into one (BUGS L4). Stamping the grammar's answer sends
+			// `hook:a/b/c` to folder `a/b` — another tenant.
+			folder := row.Folder()
 			r = r.Clone(r.Context())
 			r.Header.Set("X-Folder", folder)
 			r.Header.Set("X-Group-Name", groupfolder.NameOf(folder))

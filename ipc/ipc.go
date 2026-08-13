@@ -98,6 +98,9 @@ type RouteTokenInfo struct {
 	URL         string    `json:"url,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	Context     string    `json:"context,omitempty"`
+	// TargetFolder is the folder the token delivers to. Empty on a token
+	// minted before the mint recorded it (spec 5/W § Resolution).
+	TargetFolder string `json:"target_folder,omitempty"`
 }
 
 // TurnResult is the agent-submitted turn payload. The MCP `submit_turn`

@@ -104,19 +104,33 @@ func (d *dash) requireOperator(w http.ResponseWriter, r *http.Request) bool {
 }
 
 // jidFolder maps a message chat_jid to its routing-target folder for
-// visibility filtering. web:/hook: JIDs carry the folder in the prefix
-// (groupfolder.JidFolder); any other platform JID resolves through the routes
-// table (store.DefaultFolderForJID). Empty when no folder can be determined —
-// such a message is invisible to every non-operator (fail-closed).
+// visibility filtering. A web:/hook: JID resolves through the folder its mint
+// RECORDED (store.RouteTokenTargetByJID), because the JID grammar reads
+// `hook:a/b/c` as folder `a/b` and would show tenant `a`'s message to tenant
+// `a/b` (BUGS L4); the grammar stays the fallback for a token minted before the
+// column. Any other platform JID resolves through the routes table
+// (store.DefaultFolderForJID). Empty when no folder can be determined — such a
+// message is invisible to every non-operator (fail-closed).
 func (d *dash) jidFolder(jid string) string {
-	if strings.HasPrefix(jid, "web:") || strings.HasPrefix(jid, "hook:") {
-		return groupfolder.JidFolder(jid)
-	}
-	// No routd.db → no routes table to resolve through. Unresolvable, not a
-	// panic: pages that render JIDs off HTTP-only data (approvals) reach here
-	// with a nil handle.
+	// No routd.db → no route_tokens or routes table to resolve through.
+	// Unresolvable, not a panic: pages that render JIDs off HTTP-only data
+	// (approvals) reach here with a nil handle.
 	if d.adminDB() == nil {
 		return ""
+	}
+	if strings.HasPrefix(jid, "web:") || strings.HasPrefix(jid, "hook:") {
+		target, err := store.RouteTokenTargetByJID(d.adminDB(), jid)
+		if err != nil {
+			// Fail closed: the grammar's answer can name another tenant, and
+			// this gate decides who sees the message.
+			slog.Error("route token target read failed; message stays invisible",
+				"jid", jid, "err", err)
+			return ""
+		}
+		if target != "" {
+			return target
+		}
+		return groupfolder.JidFolder(jid)
 	}
 	return store.New(d.adminDB()).DefaultFolderForJID(jid)
 }

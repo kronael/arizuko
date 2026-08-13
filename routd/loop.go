@@ -657,7 +657,7 @@ func (l *Loop) resolveGroup(chatJID string, last core.Message) (string, bool) {
 
 func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 	// 1. Direct address: a web:/hook: JID or a bare registered folder.
-	if direct := directFolder(chatJID); direct != "" && l.db.GroupExists(direct) {
+	if direct := l.directFolder(chatJID); direct != "" && l.db.GroupExists(direct) {
 		return resolution{Folder: direct, ok: true}
 	}
 	// 2. Route table.
@@ -723,13 +723,30 @@ func (l *Loop) engaged(chatJID, topic string) (string, bool) {
 }
 
 // directFolder returns the folder a JID directly addresses, or "" if the JID is
-// not a direct address. The mint writes the target folder into web: and hook:
-// JIDs (spec 5/W); groupfolder.JidFolder extracts it. Bare folder JIDs (no
-// platform prefix) also address a group directly. The route table does not
-// apply. hook: was missing here: resolution fell through to a route miss and
-// onbod parked every webhook payload as a new unknown chat (BUGS L1).
-func directFolder(jid string) string {
+// not a direct address. Bare folder JIDs (no platform prefix) address a group
+// directly. The route table does not apply.
+//
+// For a web:/hook: JID the mint RECORDS the delivery folder
+// (route_tokens.target_folder, spec 5/W). Read the record first: the JID
+// grammar cannot recover the folder once the mint adds a suffix, because
+// `web:t/sfx` reads as folder `t/sfx` and `hook:a/b/c` reads as folder `a/b`.
+// The grammar answered alone until now, so a suffixed token missed resolution
+// and onbod parked its payload as a new unknown chat (BUGS L4). It stays the
+// fallback for a token minted before the column existed — that is what those
+// rows were minted under.
+//
+// Cost: one indexed SELECT per message, on web:/hook: JIDs only. Reading the
+// record only after the grammar misses would be cheaper and WRONG: `hook:a/b/c`
+// minted at folder `a` hits an existing folder `a/b` and delivers the payload
+// to the wrong tenant.
+//
+// hook: was missing here entirely until BUGS L1: resolution fell through to a
+// route miss and onbod parked every webhook payload.
+func (l *Loop) directFolder(jid string) string {
 	if folder := groupfolder.JidFolder(jid); folder != "" {
+		if target := l.db.RouteTokenTarget(jid); target != "" {
+			return target
+		}
 		return folder
 	}
 	if !strings.Contains(jid, ":") {

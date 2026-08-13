@@ -67,7 +67,8 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 			// since routd migration 0016, so the mint and its audit row commit
 			// together. AsUser attributes the mint to the operator.
 			err := st.AsUser(sub).InsertRouteToken(raw, store.RouteToken{
-				JID: jid, OwnerFolder: folder, Context: r.FormValue("context"),
+				JID: jid, OwnerFolder: folder, TargetFolder: folder,
+				Context: r.FormValue("context"),
 			})
 			if err != nil {
 				fmt.Fprint(w, htmlBanner("err", "insert error: "+err.Error()))

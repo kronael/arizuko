@@ -45,6 +45,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -113,7 +114,8 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		}
 		out := make([]ipc.RouteTokenInfo, len(rows))
 		for i, r := range rows {
-			out[i] = ipc.RouteTokenInfo{JID: r.JID, OwnerFolder: r.OwnerFolder, Context: r.Context}
+			out[i] = ipc.RouteTokenInfo{JID: r.JID, OwnerFolder: r.OwnerFolder,
+				Context: r.Context, TargetFolder: r.TargetFolder}
 			out[i].CreatedAt, _ = time.Parse(time.RFC3339Nano, r.CreatedAt)
 		}
 		return map[string]any{"tokens": out}, nil
@@ -143,8 +145,11 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
 		}
-		raw, err := issueRouteTokenTx(ctx, x.Tx, jid, folder,
+		raw, err := issueRouteTokenTx(ctx, x.Tx, jid, folder, target,
 			strings.TrimSpace(argString(x.Args, "context")))
+		if errors.Is(err, store.ErrRouteTokenTargetTaken) {
+			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
+		}
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -295,12 +300,17 @@ func routeTokenJID(kind, targetFolder, sourceLabel, jidSuffix string) (jid, urlP
 // issueRouteTokenTx mints a 32-byte hex DELIVERY token for jid under owner and
 // inserts sha256(token) on tx (mirrors DB.IssueRouteToken so the mutation lands
 // in resreg.invoke's tx alongside its audit_log row), returning the raw token
-// once. context is the optional per-link processing instructions; "" stores
-// NULL. The pairing kind is NOT minted here — it has a second caller in another
-// process (onbod's greeting) that cannot reach this tx, so it lives in
-// store.IssuePairingLink where both callers can hold it (spec 5/31 § One mint,
-// per-caller target resolver).
-func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, context string) (string, error) {
+// once. target is the folder the token delivers to, which the JID grammar
+// cannot recover once a suffix is present (spec 5/W § Resolution). context is
+// the optional per-link processing instructions; "" stores NULL. The pairing
+// kind is NOT minted here — it has a second caller in another process (onbod's
+// greeting) that cannot reach this tx, so it lives in store.IssuePairingLink
+// where both callers can hold it (spec 5/31 § One mint, per-caller target
+// resolver).
+func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, target, context string) (string, error) {
+	if err := store.CheckRouteTokenTarget(tx, jid, target); err != nil {
+		return "", err
+	}
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -308,8 +318,8 @@ func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, context stri
 	raw := hex.EncodeToString(b)
 	h := sha256.Sum256([]byte(raw))
 	_, err := tx.ExecContext(ctx,
-		`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context, kind) VALUES(?,?,?,?,?,?)`,
-		h[:], jid, owner, nowTS(), nullStr(context), store.RouteTokenKindRoute)
+		`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context, kind, target_folder) VALUES(?,?,?,?,?,?,?)`,
+		h[:], jid, owner, nowTS(), nullStr(context), store.RouteTokenKindRoute, nullStr(target))
 	if err != nil {
 		return "", err
 	}

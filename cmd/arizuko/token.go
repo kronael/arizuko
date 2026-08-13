@@ -102,7 +102,8 @@ func tokenIssue(st *store.Store, dataDir string, args []string) {
 	}
 
 	raw := store.GenRouteToken()
-	rt := store.RouteToken{JID: jid, OwnerFolder: folder, CreatedAt: time.Now(), Context: context}
+	rt := store.RouteToken{JID: jid, OwnerFolder: folder, TargetFolder: folder,
+		CreatedAt: time.Now(), Context: context}
 	if err := st.InsertRouteToken(raw, rt); err != nil {
 		die("Failed: insert token: %v", err)
 	}

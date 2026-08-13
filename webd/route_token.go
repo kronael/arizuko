@@ -71,7 +71,7 @@ func (s *server) handleChatTokenRoot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	folder := groupfolder.JidFolder(row.JID)
+	folder := row.Folder()
 	name := groupfolder.NameOf(folder)
 	token := r.PathValue("token")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -86,7 +86,7 @@ func (s *server) handleChatTokenConfig(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	folder := groupfolder.JidFolder(row.JID)
+	folder := row.Folder()
 	token := r.PathValue("token")
 	chanlib.WriteJSON(w, map[string]any{
 		"token":  token,
@@ -145,7 +145,7 @@ func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	folder := groupfolder.JidFolder(row.JID)
+	folder := row.Folder()
 
 	if !s.limiter.allow(row.JID) {
 		slog.Warn("route-token rate limit", "folder", folder,
@@ -242,7 +242,7 @@ func (s *server) handleHookTokenPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.limiter.allow(row.JID) {
-		slog.Warn("hook rate limit", "folder", groupfolder.JidFolder(row.JID),
+		slog.Warn("hook rate limit", "folder", row.Folder(),
 			"token_hash", chanlib.ShortHash(r.PathValue("token")))
 		http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
 		return
@@ -254,9 +254,9 @@ func (s *server) handleHookTokenPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sender := senderFromJID(row.JID)
+	sender := hookSender(row)
 	jid := row.JID
-	folder := groupfolder.JidFolder(jid)
+	folder := row.Folder()
 
 	// routd is the sole message appender — no local PutMessage. rc.SendMessage
 	// delivers to routd which persists + dispatches.
@@ -282,20 +282,27 @@ func (s *server) handleHookTokenPost(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// senderFromJID pulls the source segment out of a hook: jid.
-// hook:<folder>/<source>[/<suffix>] → <source>. Returns "" for web: jids.
-func senderFromJID(jid string) string {
-	rest := strings.TrimPrefix(jid, "hook:")
-	if rest == jid {
+// hookSender returns the source label of a hook: token, which becomes the
+// inbound message's sender. The label is the first JID segment after the
+// delivery folder (hook:<folder>/<source>[/<suffix>], spec 5/W), and the mint
+// records that folder, so the label is read, not guessed.
+//
+// A token minted before the mint recorded the folder has nothing to strip. For
+// those the last segment stays the label — the same answer this function gave
+// for every token before the column existed. Returns "" for a web: token.
+func hookSender(row store.RouteToken) string {
+	rest, ok := strings.CutPrefix(row.JID, "hook:")
+	if !ok {
 		return ""
+	}
+	if tail, ok := strings.CutPrefix(rest, row.TargetFolder+"/"); ok && row.TargetFolder != "" {
+		source, _, _ := strings.Cut(tail, "/")
+		return source
 	}
 	parts := strings.Split(rest, "/")
 	if len(parts) < 2 {
 		return ""
 	}
-	// Source is the segment after the folder. Folder may itself contain "/".
-	// We assume the source is the second-to-last segment when a suffix is
-	// present, last segment otherwise. Simple heuristic: take the last segment.
 	return parts[len(parts)-1]
 }
 

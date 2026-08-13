@@ -198,7 +198,7 @@ func TestRouteTokensMCP_RevokeCrossFolderDenied(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "acme"})
 	_ = db.PutGroup(core.Group{Folder: "other"})
 	// acme mints its own token out-of-band.
-	acmeTok, _, err := db.IssueRouteToken("web:acme", "acme", "")
+	acmeTok, _, err := db.IssueRouteToken("web:acme", "acme", "acme", "")
 	if err != nil {
 		t.Fatalf("seed acme token: %v", err)
 	}

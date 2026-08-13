@@ -495,7 +495,7 @@ dispatches to the folder AND no onboarding row appears. Reverting `directFolder`
 fails it with `turn_id="" want h1`. Verified at the Loop layer with onbod wired
 — the exact gap this entry named. NOT re-run live over webd→routd→runed HTTP.
 
-## L4 — a suffixed `hook:`/`web:` route token still parks in onboarding (2026-08-11, open)
+## L4 — a suffixed `hook:`/`web:` route token still parks in onboarding (2026-08-11, FIXED 2026-08-13)
 
 Found while fixing `L1`, and NOT fixed with it: the residue is a mint-grammar
 defect, not a resolution one.
@@ -524,8 +524,26 @@ recorded here rather than patched.
   so `5/W` keeps `status: defected` until this closes. Marking it shipped on
   2026-08-11 was an error, corrected the same day.
 - **Scope:** route-token grammar / webhook ingress
-- **Affected:** store, routd, webd
-- **Status:** open — needs the schema decision
+- **Affected:** store, routd, webd, dashd, proxyd
+- **Status:** FIXED 2026-08-13. `route_tokens` gained `target_folder`
+  (routd `0035`, store `0086`); the mint writes it, `CheckRouteTokenTarget`
+  keeps one JID bound to one folder, and `store.RouteToken.Folder()` /
+  `store.RouteTokenTargetByJID` are the single readers behind routd
+  resolution, dashd visibility and proxyd's `X-Folder` stamp. No new entity —
+  one column on the existing row. NULL keeps the grammar for a pre-column
+  token. `webd.senderFromJID`'s admitted heuristic is gone with it.
+  `5/W` is `shipped` again.
+
+  Two sites the schema change exposed, both cross-tenant and both fixed
+  here: `dashd.jidFolder` gates who may SEE a message, and proxyd stamps
+  `X-Folder` onto webd's request — each read the grammar, so
+  `hook:a/b/c` served tenant `a`'s traffic to tenant `a/b`.
+
+  Landing it also uncovered a silent migration-runner defect: `Migrate`
+  skips any file whose version is not greater than the last applied one, so
+  a second `0084` in `store/migrations` applied one file and DROPPED the
+  other with no error. `db_utils.checkVersions` now rejects a duplicate or
+  gapped version set before applying anything.
 
 ## L5 — a `hook:`/`web:` JID whose folder was deleted parks in onboarding (2026-08-11, open)
 

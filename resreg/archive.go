@@ -302,11 +302,12 @@ func DeriveAgentCursors(ctx context.Context, db *sql.DB, touched map[string]bool
 // already applies (10-minute single-use credentials, no archival value,
 // reviving one actively harmful).
 type ArchiveRouteTokenRow struct {
-	TokenHash   string `yaml:"token_hash"`
-	JID         string `yaml:"jid"`
-	OwnerFolder string `yaml:"owner_folder"`
-	CreatedAt   string `yaml:"created_at"`
-	Context     string `yaml:"context,omitempty"`
+	TokenHash    string `yaml:"token_hash"`
+	JID          string `yaml:"jid"`
+	OwnerFolder  string `yaml:"owner_folder"`
+	TargetFolder string `yaml:"target_folder,omitempty"`
+	CreatedAt    string `yaml:"created_at"`
+	Context      string `yaml:"context,omitempty"`
 }
 
 // ExportRouteTokens reads every kind='route' row (jid delivery bearers —
@@ -315,7 +316,8 @@ type ArchiveRouteTokenRow struct {
 // store.TokenRefBytes of the same digest.
 func ExportRouteTokens(ctx context.Context, db *sql.DB) ([]ArchiveRouteTokenRow, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT token_hash, jid, owner_folder, created_at, COALESCE(context,'')
+		`SELECT token_hash, jid, owner_folder, created_at, COALESCE(context,''),
+		        COALESCE(target_folder,'')
 		 FROM route_tokens WHERE kind = 'route' ORDER BY jid`)
 	if err != nil {
 		return nil, fmt.Errorf("query route_tokens: %w", err)
@@ -325,7 +327,7 @@ func ExportRouteTokens(ctx context.Context, db *sql.DB) ([]ArchiveRouteTokenRow,
 	for rows.Next() {
 		var hashBytes []byte
 		var r ArchiveRouteTokenRow
-		if err := rows.Scan(&hashBytes, &r.JID, &r.OwnerFolder, &r.CreatedAt, &r.Context); err != nil {
+		if err := rows.Scan(&hashBytes, &r.JID, &r.OwnerFolder, &r.CreatedAt, &r.Context, &r.TargetFolder); err != nil {
 			return nil, fmt.Errorf("scan route_token: %w", err)
 		}
 		r.TokenHash = hex.EncodeToString(hashBytes)
@@ -359,9 +361,9 @@ func ImportRouteTokens(ctx context.Context, db *sql.DB, rows []ArchiveRouteToken
 			return 0, fmt.Errorf("route_token %s: bad token_hash: %w", r.JID, herr)
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT OR IGNORE INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind)
-			 VALUES (?, ?, ?, ?, ?, 'route')`,
-			hashBytes, r.JID, r.OwnerFolder, r.CreatedAt, nullStr(r.Context),
+			`INSERT OR IGNORE INTO route_tokens (token_hash, jid, owner_folder, created_at, context, kind, target_folder)
+			 VALUES (?, ?, ?, ?, ?, 'route', ?)`,
+			hashBytes, r.JID, r.OwnerFolder, r.CreatedAt, nullStr(r.Context), nullStr(r.TargetFolder),
 		); err != nil {
 			return 0, fmt.Errorf("insert route_token %s: %w", r.JID, err)
 		}

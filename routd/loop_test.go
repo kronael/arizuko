@@ -8,6 +8,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // TestAtomicAppendRouteTurn checks the spec 5/E invariant: append inbound →
@@ -208,6 +209,119 @@ func TestHookJIDDispatchesToOwnerFolder(t *testing.T) {
 	}
 	if len(fo.onboarded) != 0 {
 		t.Fatalf("hook: JID parked in onboarding: %v", fo.onboarded)
+	}
+}
+
+// TestSuffixedRouteTokenDispatchesToMintedFolder pins the BUGS L4 fix, the
+// residue of L1. The mint RECORDS the delivery folder, and resolution reads the
+// record, so a suffixed JID reaches the folder it was minted for instead of
+// parking in onboarding. The grammar alone cannot do this: `web:t/sfx` reads as
+// folder `t/sfx`, and `hook:a/b/c` reads as folder `a/b`.
+//
+// The third case is the one that discriminates. Folder `a/b` EXISTS, so the
+// grammar finds a real group and the payload reaches the WRONG tenant — a miss
+// the onboarding assertion alone would not catch.
+func TestSuffixedRouteTokenDispatchesToMintedFolder(t *testing.T) {
+	cases := []struct {
+		name   string
+		groups []string
+		kind   string
+		target string
+		source string
+		suffix string
+	}{
+		{"hook with suffix", []string{"acme"}, "hook", "acme", "linear", "comments"},
+		{"web with suffix", []string{"acme"}, "chat", "acme", "", "submissions"},
+		{"suffix collides with a real folder", []string{"a", "a/b"}, "hook", "a", "b", "c"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			db, err := OpenMem()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { db.Close() })
+			runner := &stubRunner{}
+			loop := NewLoop(db, runner, LoopConfig{OnboardingEnabled: true})
+			loop.StopQueue()
+			srv := NewServer(db, loop, nil, nil, 0, "https://example.test")
+			runner.srv = srv
+			fo := &fakeOnbod{}
+			loop.SetOnbodClient(fo)
+			for _, g := range c.groups {
+				_ = db.PutGroup(core.Group{Folder: g})
+			}
+
+			// Build the JID with the mint's own builder so the test and the
+			// mint grammar cannot drift.
+			jid, _, err := routeTokenJID(c.kind, c.target, c.source, c.suffix)
+			if err != nil {
+				t.Fatalf("mint jid: %v", err)
+			}
+			if _, _, err := db.IssueRouteToken(jid, c.target, c.target, ""); err != nil {
+				t.Fatalf("mint token: %v", err)
+			}
+			_ = db.PutMessage(core.Message{ID: "m1", ChatJID: jid, Sender: "src",
+				Content: `{"event":"issue.created"}`, Timestamp: time.Now().UTC(), Verb: "message"})
+
+			if _, err := loop.processGroupMessages(jid); err != nil {
+				t.Fatalf("process: %v", err)
+			}
+			if runner.gotTurn != "m1" {
+				t.Fatalf("turn_id=%q want m1 (%s payload did not dispatch)", runner.gotTurn, jid)
+			}
+			tc, ok := db.GetTurnContext("m1")
+			if !ok || tc.Folder != c.target {
+				t.Fatalf("%s dispatched to folder %q (ok=%v), want %q", jid, tc.Folder, ok, c.target)
+			}
+			if len(fo.onboarded) != 0 {
+				t.Fatalf("%s parked in onboarding: %v", jid, fo.onboarded)
+			}
+		})
+	}
+}
+
+// TestPreColumnRouteTokenResolvesByGrammar: a token minted before
+// target_folder existed records nothing, so resolution keeps the JID grammar —
+// the rule that token was minted under. An upgrade must not break a live
+// instance.
+func TestPreColumnRouteTokenResolvesByGrammar(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	runner := &stubRunner{}
+	loop := NewLoop(db, runner, LoopConfig{OnboardingEnabled: true})
+	loop.StopQueue()
+	srv := NewServer(db, loop, nil, nil, 0, "https://example.test")
+	runner.srv = srv
+	fo := &fakeOnbod{}
+	loop.SetOnbodClient(fo)
+	_ = db.PutGroup(core.Group{Folder: "acme"})
+
+	// A pre-migration row: every column the mint wrote back then, no target.
+	if _, err := db.SQL().Exec(
+		`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, kind)
+		 VALUES(?,?,?,?,?)`,
+		[]byte("oldhash"), "hook:acme/github", "acme", nowTS(), store.RouteTokenKindRoute); err != nil {
+		t.Fatalf("seed pre-column row: %v", err)
+	}
+	if target := db.RouteTokenTarget("hook:acme/github"); target != "" {
+		t.Fatalf("pre-column row reported target %q, want none", target)
+	}
+	_ = db.PutMessage(core.Message{ID: "old1", ChatJID: "hook:acme/github", Sender: "github",
+		Content: "push", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	if _, err := loop.processGroupMessages("hook:acme/github"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	tc, ok := db.GetTurnContext("old1")
+	if !ok || tc.Folder != "acme" {
+		t.Fatalf("pre-column token dispatched to %q (ok=%v), want acme", tc.Folder, ok)
+	}
+	if len(fo.onboarded) != 0 {
+		t.Fatalf("pre-column token parked in onboarding: %v", fo.onboarded)
 	}
 }
 
