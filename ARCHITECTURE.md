@@ -14,7 +14,7 @@ New integrations are added via the extension points described in
   davd, the container runner, chanlib/chanreg. The package graph below
   is core.
 - **Integrations** are pluggable: per-platform channel adapters
-  (`teled`, `whapd`, `mastd`, `discd`, `slakd`, `bskyd`, `reditd`, `emaid`,
+  (`teled`, `whapd`, `discd`, `slakd`, `bskyd`, `reditd`, `emaid`,
   `twitd`, `linkd`) talking to core over the channel protocol; optional
   capability hooks (Whisper transcription via `WHISPER_BASE_URL`, TTS
   via `ttsd` + `TTS_BASE_URL` (`specs/5/T-voice-synthesis.md`), oracle
@@ -61,7 +61,7 @@ webd/     web chat channel adapter (HTTP/SSE, registers as "web")
 vited/    Vite dev server / static origin behind proxyd
 proxyd/   reverse proxy: auth, vhost routing, slink rate limiting
 chanlib/  RouterClient, InboundMsg, auth middleware, URLCache (CDN-id
-          proxy cache for discd/mastd/reditd), fsutil (CopyDirNoSymlinks,
+          proxy cache for discd/reditd), fsutil (CopyDirNoSymlinks,
           CopyFile), env helpers (EnvOr/EnvInt/EnvDur), ShortHash — shared
           by adapters + routd + container + onbod + webd
 compose/  docker-compose generation
@@ -78,7 +78,7 @@ container. The per-turn agent MCP socket is hosted in-process by
 ## Integrations
 
 ```
-teled/ discd/ slakd/ mastd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/
+teled/ discd/ slakd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/
         channel adapters — separate processes, register with core via
         the HTTP channel protocol (see "Channel Protocol" below)
 
@@ -730,7 +730,7 @@ offline verification by the rest.
 
 Bundled catalog at `template/services/` (ships in image, Ansible extracts to
 `/srv/app/arizuko/template/services/`): `teled.yml`, `whapd.yml`, `discd.yml`,
-`slakd.yml` (+ `slakd-routes.json`), `bskyd.yml`, `mastd.yml`, `reditd.yml`,
+`slakd.yml` (+ `slakd-routes.json`), `bskyd.yml`, `reditd.yml`,
 `linkd.yml`, `emaid.yml`, `twitd.yml`, `ttsd.yml`, `kokoro.yml`.
 
 Fragment format — a plain partial compose file:

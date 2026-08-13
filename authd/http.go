@@ -49,7 +49,6 @@ var serviceGrants = map[string][]string{
 	"service:teled":  {"messages:write"},
 	"service:whapd":  {"messages:write"},
 	"service:discd":  {"messages:write"},
-	"service:mastd":  {"messages:write"},
 	"service:slakd":  {"messages:write"},
 	"service:bskyd":  {"messages:write"},
 	"service:reditd": {"messages:write"},

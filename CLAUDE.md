@@ -413,7 +413,7 @@ Red flags: `"error in message loop"`, `"container timeout"`, `"circuit breaker o
 
 Adapter `/health` returns 503 `{status:"disconnected"}` when the
 platform side is down even if the process is up (whapd showing QR,
-mastd stream dropped, …). Check on the host:
+an adapter stream dropped, …). Check on the host:
 
 ```bash
 sudo curl -s -o /dev/null -w '%{http_code}\n' http://localhost:<port>/health
@@ -488,8 +488,8 @@ Healthchecks green but the agent doesn't reply — usually one of:
 
 1. **`arizuko-ant` image missing**. Look for `pull access denied for arizuko-ant` in journalctl. Fix: `sudo make -C ant image`.
 2. **Adapter disconnected**. `docker ps` shows `(unhealthy)` or `/health`
-   returns 503 — platform link is down. whapd waits for QR scan, mastd
-   stream dropped, etc. Check adapter logs, not routd's.
+   returns 503 — platform link is down. whapd waits for QR scan, an
+   adapter's stream dropped, etc. Check adapter logs, not routd's.
 3. **Adapter silent**. `sudo journalctl -u arizuko_<inst> --since "10 min ago" | grep -viE health`.
 4. **Container exit 125** in runed logs = image/compose mismatch, not a code bug.
 

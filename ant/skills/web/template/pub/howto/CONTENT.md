@@ -120,7 +120,7 @@ Each adapter routes attachments differently:
 | Bluesky   | image extensions only · non-images: link in post text |
 | WhatsApp  | platform-native dispatch (Baileys)          |
 | X         | photo/video media types                     |
-| Mastodon, Reddit, LinkedIn, Email | no adapter wiring — file silently dropped |
+| Reddit, LinkedIn, Email | no adapter wiring — file silently dropped |
 
 `.gif` becomes an animation on Telegram, a regular preview on Discord. A `.pdf` lands as a document on Telegram, a rich preview on Discord, and is unsupported on Bluesky. If a send "looks ignored," check the adapter's capability before assuming a bug.
 
@@ -202,7 +202,7 @@ On top of that, the last 14 days of diary and any user-specific notes are always
 
 When you ask "why didn't that message reach the other group?" or "what tasks are scheduled?", the agent uses `inspect_routing`, `inspect_messages`, `inspect_tasks`, and `inspect_session` — read-only views into the gateway's database, scoped to its own group. No shelling out to logs or DB consoles.
 
-For thread reconstruction the agent picks `get_thread` first — it returns the topic-scoped conversation as a clean message list, no platform-side noise. Use `fetch_history` instead when the goal is backfill or search across the whole channel; it pulls prior messages from the platform on adapters that support it (Telegram, Discord, Mastodon, Bluesky, Reddit, LinkedIn, email — everything except WhatsApp).
+For thread reconstruction the agent picks `get_thread` first — it returns the topic-scoped conversation as a clean message list, no platform-side noise. Use `fetch_history` instead when the goal is backfill or search across the whole channel; it pulls prior messages from the platform on adapters that support it (Telegram, Discord, Bluesky, Reddit, LinkedIn, email — everything except WhatsApp).
 
 ```
 you    is my weather task still running?
@@ -219,7 +219,7 @@ agent  <get_thread → 14 messages → summary>
 
 **TLDR:** Routing rules use typed JIDs: `<platform>:<kind>/<id>`. Bare-id form is stale.
 
-Every chat ID is a typed JID — `telegram:user/<id>`, `telegram:group/<id>`, `discord:<guild>/<channel>`, `discord:dm/<channel>`, `discord:user/<id>`, `mastodon:account/<id>`, `mastodon:status/<id>`, `reddit:user/<name>`, `reddit:subreddit/<name>`, `email:thread/<id>`, `email:address/<addr>`, `bluesky:user/<did>`, `bluesky:post/<uri>`, `linkedin:user/<id>`, `twitter:user/<id>`, `twitter:tweet/<id>`, `web:folder/<group>`. Old bare forms (`telegram:1234`, `reddit:t1_xyz`) still parse but no new rule should use them.
+Every chat ID is a typed JID — `telegram:user/<id>`, `telegram:group/<id>`, `discord:<guild>/<channel>`, `discord:dm/<channel>`, `discord:user/<id>`, `reddit:user/<name>`, `reddit:subreddit/<name>`, `email:thread/<id>`, `email:address/<addr>`, `bluesky:user/<did>`, `bluesky:post/<uri>`, `linkedin:user/<id>`, `twitter:user/<id>`, `twitter:tweet/<id>`, `web:folder/<group>`. Old bare forms (`telegram:1234`, `reddit:t1_xyz`) still parse but no new rule should use them.
 
 Routing patterns are globs over the typed form. `telegram:group/*` matches every Telegram group; `discord:dm/*` matches every Discord DM; `*:user/*` matches a user on any platform. Rewriting an old rule is a one-step move: `telegram:*` becomes `telegram:*/*`, then narrow the kind if you only want groups or DMs.
 
@@ -356,7 +356,7 @@ Log in via OAuth (GitHub, Google, Discord) or Telegram login at `/auth/login`. T
 | `/dash/groups/`  | Routing table · per-group config · message counts          |
 | `/dash/memory/`  | Browse diary, facts, users, CLAUDE.md per group            |
 
-Each adapter publishes a `/health` endpoint that flips to `stale` when inbound traffic stops flowing, not just when the process dies. A silent Telegram bot, a dropped Mastodon stream, a logged-out WhatsApp session — all surface as unhealthy before you wonder why nobody's replying.
+Each adapter publishes a `/health` endpoint that flips to `stale` when inbound traffic stops flowing, not just when the process dies. A silent Telegram bot, a dropped Slack stream, a logged-out WhatsApp session — all surface as unhealthy before you wonder why nobody's replying.
 
 Messages that crash the agent get quarantined with an `errored` flag; three consecutive errors on one JID auto-reset the session so a single poisoned prompt can't wedge a group forever.
 
@@ -422,7 +422,7 @@ slink.get_round()  # returns latest agent reply
 
 **TLDR:** Every platform is an adapter. Adapters differ in what they support — voice, files, reactions, threading. Build workflows around the adapter, not against it.
 
-Each channel runs as its own adapter — Telegram, Discord, WhatsApp, Mastodon, Bluesky, Reddit, LinkedIn, email, web. Capabilities don't line up: Telegram and WhatsApp speak push-to-talk voice, Discord ships voice as an audio attachment, others return Unsupported. File extension routing varies (see 04c). Reactions exist on Telegram, Discord, Mastodon; Reddit returns Unsupported on `like`. Threading semantics differ — Discord channels vs. Telegram topics vs. Mastodon reply chains all map to the same `topic` token but the platform behaviour underneath is not identical.
+Each channel runs as its own adapter — Telegram, Discord, WhatsApp, Slack, Bluesky, Reddit, LinkedIn, email, web. Capabilities don't line up: Telegram and WhatsApp speak push-to-talk voice, Discord ships voice as an audio attachment, others return Unsupported. File extension routing varies (see 04c). Reactions exist on Telegram, Discord, Slack; Reddit returns Unsupported on `like`. Threading semantics differ — Discord channels vs. Telegram topics vs. Slack thread_ts all map to the same `topic` token but the platform behaviour underneath is not identical.
 
 When building a workflow that spans channels, branch on the inbound JID. A morning briefing scheduled to "all DMs" should call `send_voice` on Telegram, `send_file` with audio on Discord, and a plain `send` everywhere else. The agent already knows the adapter — just ask it to dispatch accordingly.
 

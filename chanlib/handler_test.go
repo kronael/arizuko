@@ -472,7 +472,7 @@ func TestHandlerPostUnsupportedPlain(t *testing.T) {
 
 // TestUnsupportedErrorIs verifies errors.Is chain through structured value.
 func TestUnsupportedErrorIs(t *testing.T) {
-	e := Unsupported("forward", "mastodon", "no native primitive")
+	e := Unsupported("forward", "bluesky", "no native primitive")
 	if !errors.Is(e, ErrUnsupported) {
 		t.Error("structured UnsupportedError must satisfy errors.Is(ErrUnsupported)")
 	}

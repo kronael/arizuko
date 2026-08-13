@@ -8,7 +8,7 @@ skills  = ["diary", "recall-memories", "web"]
 # 1. Populate facts/channels.md with platform accounts, audience notes
 # 2. Populate facts/voice.md with brand voice, tone, do/don't list
 # 3. Set TELEGRAM_BOT_TOKEN or DISCORD_TOKEN for operator approval
-# 4. Configure social adapters (BLUESKY_*, MASTODON_*, DISCORD_*, etc.)
+# 4. Configure social adapters (BLUESKY_*, DISCORD_*, TWITTER_*, etc.)
 # 5. arizuko run <instance>
 
 [[env]]
@@ -25,8 +25,3 @@ hint     = "Discord operator channel for post approval"
 key      = "BLUESKY_IDENTIFIER"
 required = false
 hint     = "Bluesky handle (also set BLUESKY_APP_PASSWORD)"
-
-[[env]]
-key      = "MASTODON_SERVER"
-required = false
-hint     = "Mastodon instance URL (also set MASTODON_ACCESS_TOKEN)"

@@ -11,7 +11,7 @@ import (
 // inbound 401/403s (the split's A1). Regression for the split cutover.
 func TestServiceAdapterGrants(t *testing.T) {
 	adapters := []string{
-		"teled", "whapd", "discd", "mastd", "slakd",
+		"teled", "whapd", "discd", "slakd",
 		"bskyd", "reditd", "emaid", "twitd", "linkd",
 	}
 	for _, a := range adapters {

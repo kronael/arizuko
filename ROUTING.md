@@ -15,7 +15,6 @@ treat it as an opaque string with `path.Match` glob semantics over `/`.
 | slakd   | `slack:`    | `slack:<workspace>/<kind>/<id>` (kind ∈ channel/dm/group)           |
 | teled   | `telegram:` | `telegram:user/<id>`, `telegram:group/<id>`                         |
 | whapd   | `whatsapp:` | `whatsapp:1234567@s.whatsapp.net`                                   |
-| mastd   | `mastodon:` | `mastodon:account/<id>`                                             |
 | reditd  | `reddit:`   | `reddit:comment/<id>`, `reddit:user/<id>`, `reddit:submission/<id>` |
 | bskyd   | `bluesky:`  | `bluesky:user/<did>`                                                |
 | linkd   | `linkedin:` | `linkedin:user/<urn>`                                               |

@@ -1293,7 +1293,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("post", "Create a new top-level post on a platform (mastodon toot, bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (`reply`), direct messages (`send`), or file delivery (`send_file`). Returns the new post's `id` (for `edit`, `delete`, or as `replyToId` to chain a thread).",
+	registerRaw("post", "Create a new top-level post on a platform (bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (`reply`), direct messages (`send`), or file delivery (`send_file`). Returns the new post's `id` (for `edit`, `delete`, or as `replyToId` to chain a thread).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("content", mcp.Required()),
@@ -1389,7 +1389,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "like",
-		desc: "Like an existing message (unicode emoji on discord, favourite on mastodon, like on bluesky). Use when acknowledging or endorsing a specific earlier message without sending text. Not for textual responses (`reply`) or new posts (`post`). Platform decides what reaction strings are valid; unsupported platforms return an error.",
+		desc: "Like an existing message (unicode emoji on discord, like on bluesky). Use when acknowledging or endorsing a specific earlier message without sending text. Not for textual responses (`reply`) or new posts (`post`). Platform decides what reaction strings are valid; unsupported platforms return an error.",
 		args: []string{"chatJid", "targetId", "reaction"},
 		call: func(a map[string]string) (string, error) {
 			if gated.Like == nil {
@@ -1428,7 +1428,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name:   "quote",
-		desc:   "Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only — Mastodon has no quote primitive and returns unsupported with a hint to use `post(content=..., source_url=...)`. Not for in-chat threaded replies (`reply`) or simple amplification (`repost`).",
+		desc:   "Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only — Discord has no quote primitive and returns unsupported with a hint to use `post(content=..., source_url=...)`. Not for in-chat threaded replies (`reply`) or simple amplification (`repost`).",
 		args:   []string{"chatJid", "sourceMsgId", "comment"},
 		idOut:  true,
 		record: func(a map[string]string) string { return a["comment"] },
@@ -1442,7 +1442,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name:   "repost",
-		desc:   "Amplify a message on your own feed without added text (Mastodon boost, Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (`quote`) or sending a copy to a different chat (`forward`).",
+		desc:   "Amplify a message on your own feed without added text (Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (`quote`) or sending a copy to a different chat (`forward`).",
 		args:   []string{"chatJid", "sourceMsgId"},
 		idOut:  true,
 		record: func(a map[string]string) string { return "" },
@@ -1456,7 +1456,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "dislike",
-		desc: "Endorse-negative on a message (Discord 👎 reaction). Native only — Mastodon, Bluesky, and most platforms have no native downvote and return unsupported with a hint.",
+		desc: "Endorse-negative on a message (Discord 👎 reaction). Native only — Bluesky and most platforms have no native downvote and return unsupported with a hint.",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
 			if gated.Dislike == nil {
@@ -1468,7 +1468,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "edit",
-		desc: "Modify a message previously sent by this agent in-place (Discord, Mastodon, Bluesky, Telegram own bot messages). Preserves the platform message id. Not for retract-and-resend (use `delete` then `post`/`send`). Email is unsupported.",
+		desc: "Modify a message previously sent by this agent in-place (Discord, Slack, Bluesky, Telegram own bot messages). Preserves the platform message id. Not for retract-and-resend (use `delete` then `post`/`send`). Email is unsupported.",
 		args: []string{"chatJid", "targetId", "content"},
 		call: func(a map[string]string) (string, error) {
 			if gated.Edit == nil {
@@ -1480,7 +1480,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "pin_message",
-		desc: "Pin a message to a chat/channel (Slack pins.add, Discord channel pin, Telegram pinned message). Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Not for editing content (`edit`) or amplifying on a feed (`repost`/`quote`). Mastodon/Bluesky/Reddit/Email/WhatsApp return unsupported.",
+		desc: "Pin a message to a chat/channel (Slack pins.add, Discord channel pin, Telegram pinned message). Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Not for editing content (`edit`) or amplifying on a feed (`repost`/`quote`). Bluesky/Reddit/Email/WhatsApp return unsupported.",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
 			if gated.Pin == nil {

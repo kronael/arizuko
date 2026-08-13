@@ -97,7 +97,7 @@ arizuko create launch --product strategy</code></pre>
     <p>Run a one-shot pairing/admin shell against a compose service: <code>docker compose -f &lt;compose&gt; run --rm &lt;service&gt; [args...]</code>. Used for interactive setup of channel adapters (e.g. whapd QR pairing).</p>
     <p><strong>State touched:</strong> whatever the chosen service does. <code>--rm</code> removes the container on exit.</p>
     <pre><code>arizuko pair krons whapd
-arizuko pair krons mastd login --instance mas.to</code></pre>
+arizuko pair krons bskyd login --handle me.bsky.social</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L699"><code>cmd/arizuko/main.go:699</code></a></p>
 
     <h2 id="manifest" class="group-h2">Config manifests</h2>
@@ -532,7 +532,7 @@ arizuko secret krons set main CF_API_TOKEN --value cf_xxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-09">2026-08-09</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-11">2026-08-11</time>
       </div>
     </main>
 

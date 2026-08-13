@@ -213,11 +213,10 @@ var daemonKeys = map[string][]string{
 	// /v1/pane (spec 5/1; no CHANNEL_SECRET remains).
 	"teled": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TELEGRAM_BOT_TOKEN"},
 	"discd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_BOT_TOKEN"},
-	// mastd reads MASTODON_INSTANCE_URL and bskyd reads BLUESKY_IDENTIFIER/
-	// BLUESKY_PASSWORD, both supplied by their template/services/*.yml. The keys
-	// listed here were MASTODON_INSTANCE and BLUESKY_HANDLE/BLUESKY_APP_PASSWORD —
-	// names no Go code has ever read, so they wrote dead lines into env/*.env.
-	"mastd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "MASTODON_ACCESS_TOKEN"},
+	// bskyd reads BLUESKY_IDENTIFIER/BLUESKY_PASSWORD, supplied by its
+	// template/services/bskyd.yml. The keys listed here were BLUESKY_HANDLE/
+	// BLUESKY_APP_PASSWORD — names no Go code has ever read, so they wrote dead
+	// lines into env/*.env.
 	"bskyd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
 	"reditd":   {"AUTHD_URL", "AUTHD_SERVICE_KEY", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
 	"slakd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
@@ -253,7 +252,7 @@ var foreignImages = map[string]bool{"kokoro": true}
 // resolve to the base adapter via envFileFor's `-` split, so they share the
 // base principal. Keep in sync with authd serviceGrants.
 var adapterDaemons = map[string]bool{
-	"teled": true, "whapd": true, "discd": true, "mastd": true, "slakd": true,
+	"teled": true, "whapd": true, "discd": true, "slakd": true,
 	"bskyd": true, "reditd": true, "emaid": true, "twitd": true, "linkd": true,
 }
 

@@ -64,7 +64,6 @@ covered in each adapter's own `*_test.go`.
 | teled (Telegram)  | yes    | yes — 8 test files     | teled/README.md |
 | discd (Discord)   | yes    | yes — 7 test files     | discd/          |
 | slakd (Slack)     | yes    | yes — 7 test files     | slakd/          |
-| mastd (Mastodon)  | yes    | yes — 5 test files     | mastd/          |
 | bskyd (Bluesky)   | yes    | yes — 5 test files     | bskyd/          |
 | reditd (Reddit)   | yes    | yes — 5 test files     | reditd/         |
 | emaid (Email)     | yes    | yes — 6 test files     | emaid/          |
@@ -74,20 +73,20 @@ covered in each adapter's own `*_test.go`.
 
 ### Capability matrix (per adapter, from README + code)
 
-| verb         | discd | slakd | mastd | bskyd | reditd | teled | emaid | linkd | whapd | twitd |
-| ------------ | ----- | ----- | ----- | ----- | ------ | ----- | ----- | ----- | ----- | ----- |
-| send / reply | ✓     | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     |
-| send_file    | ✓     | ✓     |       |       |        | ✓     |       |       | ✓     | ✓     |
-| send_voice   | ✓     |       |       |       |        | ✓     |       |       | ✓     |       |
-| post         | ✓     | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
-| like         | ✓     | ✓     | ✓     | ✓     | ✓      | ✓     |       |       | ✓     | ✓     |
-| delete       | ✓     | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
-| forward      |       |       |       |       |        | ✓     |       |       | ✓     |       |
-| quote        |       |       |       | ✓     |        |       |       |       |       | ✓     |
-| repost       |       |       | ✓     | ✓     |        |       |       |       |       | ✓     |
-| dislike      |       | ✓     |       |       | ✓      |       |       |       |       |       |
-| edit         | ✓     | ✓     | ✓     |       |        | ✓     |       |       | ✓     |       |
-| pin / unpin  | ✓     | ✓     |       |       |        | ✓     |       |       |       |       |
+| verb         | discd | slakd | bskyd | reditd | teled | emaid | linkd | whapd | twitd |
+| ------------ | ----- | ----- | ----- | ------ | ----- | ----- | ----- | ----- | ----- |
+| send / reply | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     |
+| send_file    | ✓     | ✓     |       |        | ✓     |       |       | ✓     | ✓     |
+| send_voice   | ✓     |       |       |        | ✓     |       |       | ✓     |       |
+| post         | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
+| like         | ✓     | ✓     | ✓     | ✓      | ✓     |       |       | ✓     | ✓     |
+| delete       | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
+| forward      |       |       |       |        | ✓     |       |       | ✓     |       |
+| quote        |       |       | ✓     |        |       |       |       |       | ✓     |
+| repost       |       |       | ✓     |        |       |       |       |       | ✓     |
+| dislike      |       | ✓     |       | ✓      |       |       |       |       |       |
+| edit         | ✓     | ✓     |       |        | ✓     |       |       | ✓     |       |
+| pin / unpin  | ✓     | ✓     |       |        | ✓     |       |       |       |       |
 
 ## 4. Auth
 

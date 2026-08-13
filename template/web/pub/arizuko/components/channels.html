@@ -28,7 +28,6 @@
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
             <li><a href="linkd.html">linkd</a></li>
-            <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
             <li><a href="proxyd.html">proxyd</a></li>
             <li><a href="reditd.html">reditd</a></li>
@@ -61,7 +60,7 @@
 <p>One adapter per platform. One container per adapter. Each runs on <code>LISTEN_ADDR=:8080</code> inside its container; Docker networking keeps the ports collision-free.</p>
 
 <h2>Why they exist</h2>
-<p>Every platform has its own protocol &mdash; Telegram long-polls, Discord holds a websocket, Mastodon streams, email speaks IMAP. Putting any of that into <code>routd</code> would bind the message loop to one platform&rsquo;s quirks. The adapter absorbs the quirks so <code>routd</code> only ever sees an authenticated <code>POST /v1/messages</code>. Add a platform by adding an adapter; <code>routd</code> doesn&rsquo;t change.</p>
+<p>Every platform has its own protocol &mdash; Telegram long-polls, Discord holds a websocket, Slack posts events, email speaks IMAP. Putting any of that into <code>routd</code> would bind the message loop to one platform&rsquo;s quirks. The adapter absorbs the quirks so <code>routd</code> only ever sees an authenticated <code>POST /v1/messages</code>. Add a platform by adding an adapter; <code>routd</code> doesn&rsquo;t change.</p>
 
 <h2>The shared shape</h2>
 <p>Every adapter binds to the same Go interface in <code>core/types.go</code>:</p>
@@ -110,7 +109,6 @@
     <tr><td class="name"><a href="../components/slakd.html">slakd</a></td><td>Slack</td><td>Go</td><td>Assistant pane &mdash; suggested prompts and conversation title; reactions map to likes.</td></tr>
     <tr><td class="name"><a href="../components/teled.html">teled</a></td><td>Telegram</td><td>Go</td><td>Long-poll bot API, file uploads, native voice messages.</td></tr>
     <tr><td class="name"><a href="../components/discd.html">discd</a></td><td>Discord</td><td>Go</td><td>Gateway over websocket, ActionRow buttons, channel threads.</td></tr>
-    <tr><td class="name"><a href="../components/mastd.html">mastd</a></td><td>Mastodon</td><td>Go</td><td>ActivityPub via API token, replies and boosts.</td></tr>
     <tr><td class="name"><a href="../components/bskyd.html">bskyd</a></td><td>Bluesky</td><td>Go</td><td>AT Protocol, post threading.</td></tr>
     <tr><td class="name"><a href="../components/reditd.html">reditd</a></td><td>Reddit</td><td>Go</td><td>Comments and posts; native dislike via downvote (the one platform with a true downvote).</td></tr>
     <tr><td class="name"><a href="../components/emaid.html">emaid</a></td><td>email</td><td>Go</td><td>IMAP receive, SMTP send, threading by Message-ID.</td></tr>
@@ -155,7 +153,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/channels.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 

@@ -197,7 +197,6 @@ Add credentials for your chosen adapter(s):
 | **teled** (Telegram) | `TELEGRAM_BOT_TOKEN`                                                    | @BotFather → /newbot                 |
 | **discd** (Discord)  | `DISCORD_BOT_TOKEN`                                                     | discord.com/developers → Bot → Token |
 | **slakd** (Slack)    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                               | api.slack.com → App → OAuth          |
-| **mastd** (Mastodon) | `MASTODON_ACCESS_TOKEN`, `MASTODON_INSTANCE`                            | Settings → Development → New app     |
 | **bskyd** (Bluesky)  | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`                                | Settings → App passwords             |
 | **emaid** (Email)    | `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_ACCOUNT`, `EMAIL_PASSWORD` | Your email provider                  |
 | **whapd** (WhatsApp) | (none — pairs via QR)                                                   | `./arizuko pair <name> whapd`        |

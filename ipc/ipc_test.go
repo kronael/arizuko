@@ -924,7 +924,7 @@ func TestServeMCP_FeedVerbs_RecordOutbound(t *testing.T) {
 		t.Fatalf("quote id = %v, want quote-id", p["id"])
 	}
 	if p, e := callTool(t, sock, "repost", map[string]any{
-		"chatJid": "mastodon:home", "sourceMsgId": "src-2",
+		"chatJid": "bluesky:home", "sourceMsgId": "src-2",
 	}); e != "" {
 		t.Fatalf("repost: %s", e)
 	} else if p["id"] != "repost-id" {

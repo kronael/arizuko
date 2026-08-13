@@ -4,7 +4,7 @@ Shared HTTP + auth primitives used by Go channel adapters.
 
 ## Purpose
 
-Common runtime for channel adapters (teled, discd, mastd, bskyd, reditd,
+Common runtime for channel adapters (teled, discd, bskyd, reditd,
 emaid, linkd, whapd, slakd, twitd) and a few other daemons (webd, onbod). Owns the
 router-facing side of the channel protocol: registration, JWT-signed POSTs,
 retry, typing refresh, health endpoint, URL cache, file proxy. Adapters
@@ -37,7 +37,7 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
 - `CapImplReport(b, caps) []string` — drift report: advertised caps vs actual verb stubs
 - `SlackJID`, `ParseSlackJID`, `FormatSlackJID` — Slack JID parsing (format: `slack:<workspace>/<kind>/<id>`)
 - `TypingRefresher` — presence re-sender with hard TTL
-- `URLCache` — 12-hex LRU short-ID proxy (cap 4096) shared by discd/mastd/reditd
+- `URLCache` — 12-hex LRU short-ID proxy (cap 4096) shared by discd/reditd
 - `FileProxyHandler(opts)` — /files/<id> handler with opaque-id→CDN resolution
 - `WriteJSON`, `WriteErr`, `Chunk`, `ProxyFile`, `LogMiddleware`
 - `ShortHash(s)` — 4-byte hex of sha256(s) for logging sensitive strings
@@ -49,7 +49,7 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
 
 `/health` returns:
 
-- `503 {status:"disconnected"}` when `isConnected()` is false (platform link down — whapd waiting on QR, mastd stream dropped, slakd `auth.test` failing).
+- `503 {status:"disconnected"}` when `isConnected()` is false (platform link down — whapd waiting on QR, slakd `auth.test` failing).
 - `200 {status:"stale", last_inbound_at, stale_seconds}` when no inbound within the staleness threshold (5m default, 10m for email, 60m for reddit). Informational only — a quiet-but-connected channel is normal and must not 503. Real death surfaces through `isConnected()`.
 - `200 {status:"ok"}` otherwise.
 

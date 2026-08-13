@@ -618,7 +618,7 @@ func handleHealth(name string, prefixes []string, isConnected func() bool, lastI
 
 // FileProxyOpts wires a /files/<id> handler that resolves an opaque id to a
 // CDN URL and streams the upstream response back through ProxyFile. Used by
-// slakd, discd, and mastd adapters where Resolve = URLCache.Get; slakd
+// slakd and discd adapters where Resolve = URLCache.Get; slakd
 // passes Decorate to add the `Authorization: Bearer xoxb` header required
 // by the Slack file CDN.
 type FileProxyOpts struct {

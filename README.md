@@ -150,7 +150,6 @@ Full package graph, message flow, container lifecycle, and SQLite schema in [ARC
 | teled   | Telegram           |
 | discd   | Discord            |
 | slakd   | Slack (Events API) |
-| mastd   | Mastodon           |
 | bskyd   | Bluesky            |
 | reditd  | Reddit             |
 | emaid   | Email (IMAP/SMTP)  |

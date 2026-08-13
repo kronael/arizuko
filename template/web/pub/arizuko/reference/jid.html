@@ -72,8 +72,6 @@ kind     := first segment of rest before &quot;/&quot;</code></pre>
       <tr><td><code>dm</code></td><td><code>discord:dm/&lt;channel_id&gt;</code></td><td><code>discord:dm/54321</code></td></tr>
       <tr><td><code>user</code></td><td><code>discord:user/&lt;user_id&gt;</code></td><td><code>discord:user/u123</code></td></tr>
       <tr><td><code>whatsapp</code></td><td>&mdash; (server suffix)</td><td><code>whatsapp:&lt;id&gt;@&lt;server&gt;</code></td><td><code>whatsapp:1234@g.us</code>, <code>&hellip;@s.whatsapp.net</code>, <code>&hellip;@lid</code></td></tr>
-      <tr><td rowspan="2"><code>mastodon</code></td><td><code>account</code></td><td><code>mastodon:account/&lt;account_id&gt;</code></td><td><code>mastodon:account/42</code></td></tr>
-      <tr><td><code>status</code></td><td><code>mastodon:status/&lt;status_id&gt;</code></td><td><code>mastodon:status/abc</code></td></tr>
       <tr><td rowspan="4"><code>reddit</code></td><td><code>comment</code></td><td><code>reddit:comment/&lt;id&gt;</code></td><td><code>reddit:comment/abc</code></td></tr>
       <tr><td><code>submission</code></td><td><code>reddit:submission/&lt;id&gt;</code></td><td><code>reddit:submission/xyz</code></td></tr>
       <tr><td><code>dm</code></td><td><code>reddit:dm/&lt;id&gt;</code></td><td><code>reddit:dm/m123</code></td></tr>
@@ -147,8 +145,8 @@ match='chat_jid=discord:dm/*'
 # all WhatsApp groups (server suffix discriminates)
 match='chat_jid=whatsapp:*@g.us'
 
-# all activity on a Mastodon instance (single account-id digit-or-letter)
-match='chat_jid=mastodon:account/*'
+# every Bluesky DID (typed user segment)
+match='chat_jid=bluesky:user/*'
 
 # specific Telegram room by signed numeric ID (room=&lt;rest after colon&gt;)
 match='platform=telegram room=group/-100123456'
@@ -185,7 +183,6 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
     <ul>
       <li><strong>Telegram</strong> &mdash; signed integer split: positive &rarr; <code>telegram:user/&lt;id&gt;</code>, negative &rarr; <code>telegram:group/&lt;|id|&gt;</code> (sign dropped).</li>
       <li><strong>Discord</strong> &mdash; split via <code>chats.is_group</code>: DMs &rarr; <code>discord:dm/&lt;channel&gt;</code>, guild channels &rarr; <code>discord:_/&lt;channel&gt;</code> (placeholder).</li>
-      <li><strong>Mastodon</strong> &mdash; drop host (single-instance per deployment); <code>account/&lt;id&gt;</code> for senders/recipients.</li>
       <li><strong>Reddit</strong> &mdash; thing-prefix lookup: <code>t1_</code>&rarr;<code>comment</code>, <code>t2_</code>&rarr;<code>user</code>, <code>t3_</code>&rarr;<code>submission</code>.</li>
       <li><strong>Bluesky</strong> &mdash; percent-encode the embedded <code>:</code> in <code>did:plc:&lt;rest&gt;</code> &rarr; <code>bluesky:user/did%3Aplc%3A&lt;rest&gt;</code>.</li>
       <li><strong>Email</strong> &mdash; senders rewritten to <code>email:address/&lt;addr&gt;</code>; <code>chat_jid</code> rewrite deferred until <code>emaid</code> emits typed form.</li>
@@ -221,7 +218,7 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/jid.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 

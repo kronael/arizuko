@@ -182,7 +182,7 @@ func TestServeMCP_PinMessage_Unsupported(t *testing.T) {
 	defer stop()
 
 	resp := callRaw(t, sock, "pin_message", map[string]any{
-		"chatJid":  "mastodon:home",
+		"chatJid":  "bluesky:home",
 		"targetId": "m1",
 	})
 	if !strings.Contains(resp, `"isError":true`) {

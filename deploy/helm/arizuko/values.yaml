@@ -132,8 +132,6 @@ secrets:
   discordBotToken: '' # DISCORD_BOT_TOKEN      (discd)
   slackBotToken: '' # SLACK_BOT_TOKEN        (slakd)
   slackSigningSecret: '' # SLACK_SIGNING_SECRET   (slakd)
-  mastodonAccessToken: '' # MASTODON_ACCESS_TOKEN  (mastd)
-  mastodonInstanceUrl: '' # MASTODON_INSTANCE_URL  (mastd)
   blueskyIdentifier: '' # BLUESKY_IDENTIFIER     (bskyd)
   blueskyPassword: '' # BLUESKY_PASSWORD       (bskyd)
   redditClientId: '' # REDDIT_CLIENT_ID       (reditd)
@@ -226,13 +224,6 @@ adapters:
     secretEnv:
       - SLACK_BOT_TOKEN
       - SLACK_SIGNING_SECRET
-
-  - name: mastd
-    enabled: false
-    entrypoint: ['mastd']
-    secretEnv:
-      - MASTODON_ACCESS_TOKEN
-      - MASTODON_INSTANCE_URL
 
   - name: bskyd
     enabled: false

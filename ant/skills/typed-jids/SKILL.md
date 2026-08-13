@@ -26,7 +26,6 @@ not cross `/`.
 | telegram   | `telegram:user/<id>`, `telegram:group/<id>`                |
 | discord    | `discord:<guild>/<channel>`, `discord:dm/<channel>`, `discord:user/<id>` |
 | whatsapp   | `whatsapp:<id>@<server>` (unchanged — no kind segment)     |
-| mastodon   | `mastodon:account/<id>`, `mastodon:status/<id>`            |
 | reddit     | `reddit:user/<name>`, `reddit:subreddit/<name>`, `reddit:comment/<id>`, `reddit:submission/<id>` |
 | email      | `email:thread/<id>`, `email:address/<addr>`                |
 | bluesky    | `bluesky:user/<percent-encoded-did>`, `bluesky:post/<at_uri>` |

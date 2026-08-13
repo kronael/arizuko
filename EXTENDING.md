@@ -125,23 +125,23 @@ The 15 outbound MCP verbs and their per-platform native support. An
 empty cell means the adapter returns `*UnsupportedError` with a
 concrete hint.
 
-| Verb         | discd | slakd | mastd | bskyd | reditd | teled | emaid | linkd | whapd | twitd |
-| ------------ | ----- | ----- | ----- | ----- | ------ | ----- | ----- | ----- | ----- | ----- |
-| `send`       | ✓     | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     |
-| `reply`      | ✓     | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     |
-| `send_file`  | ✓     | ✓     |       |       |        | ✓     |       |       | ✓     | ✓     |
-| `send_voice` | ✓     |       |       |       |        | ✓     |       |       | ✓     |       |
-| `post`       | ✓     | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
-| `like`       | ✓     | ✓     | ✓     | ✓     | ✓      | ✓     |       |       | ✓     | ✓     |
-| `delete`     | ✓     | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
-| `forward`    |       |       |       |       |        | ✓     |       |       | ✓     |       |
-| `quote`      |       |       |       | ✓     |        |       |       |       |       | ✓     |
-| `repost`     |       |       | ✓     | ✓     |        |       |       |       |       | ✓     |
-| `dislike`    |       | ✓     |       |       | ✓      |       |       |       |       |       |
-| `edit`       | ✓     | ✓     | ✓     |       |        | ✓     |       |       | ✓     |       |
-| `pin`        | ✓     | ✓     |       |       |        | ✓     |       |       |       |       |
-| `unpin`      | ✓     | ✓     |       |       |        | ✓     |       |       |       |       |
-| `unpin_all`  |       | ✓     |       |       |        | ✓     |       |       |       |       |
+| Verb         | discd | slakd | bskyd | reditd | teled | emaid | linkd | whapd | twitd |
+| ------------ | ----- | ----- | ----- | ------ | ----- | ----- | ----- | ----- | ----- |
+| `send`       | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     |
+| `reply`      | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     |
+| `send_file`  | ✓     | ✓     |       |        | ✓     |       |       | ✓     | ✓     |
+| `send_voice` | ✓     |       |       |        | ✓     |       |       | ✓     |       |
+| `post`       | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
+| `like`       | ✓     | ✓     | ✓     | ✓      | ✓     |       |       | ✓     | ✓     |
+| `delete`     | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |
+| `forward`    |       |       |       |        | ✓     |       |       | ✓     |       |
+| `quote`      |       |       | ✓     |        |       |       |       |       | ✓     |
+| `repost`     |       |       | ✓     |        |       |       |       |       | ✓     |
+| `dislike`    |       | ✓     |       | ✓      |       |       |       |       |       |
+| `edit`       | ✓     | ✓     |       |        | ✓     |       |       | ✓     |       |
+| `pin`        | ✓     | ✓     |       |        | ✓     |       |       |       |       |
+| `unpin`      | ✓     | ✓     |       |        | ✓     |       |       |       |       |
+| `unpin_all`  |       | ✓     |       |        | ✓     |       |       |       |       |
 
 `delete` and `edit` are own-message by default — the platform enforces
 authorship; `:any` is a distinct grant (spec 5/Z). `pin`/`unpin` are

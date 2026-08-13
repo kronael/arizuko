@@ -135,7 +135,7 @@ func isAdapter(container string) bool {
 		daemon = daemon[:i]
 	}
 	switch daemon {
-	case "teled", "discd", "slakd", "mastd", "bskyd", "reditd", "emaid", "linkd", "whapd", "twitd":
+	case "teled", "discd", "slakd", "bskyd", "reditd", "emaid", "linkd", "whapd", "twitd":
 		return true
 	}
 	return false

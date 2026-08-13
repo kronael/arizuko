@@ -307,7 +307,7 @@ Gateway downloads inbound media before you run; paths appear in message content:
 
 # Social actions
 
-- `post` — new top-level post (mastodon toot, bluesky post, discord channel message). Broadcast content, not replies or DMs.
+- `post` — new top-level post (bluesky post, discord channel message). Broadcast content, not replies or DMs.
 - `reply` — THE DEFAULT for responding; threads under the conversation you're answering (omit `replyToId`). `send` — ONLY for an explicit fresh top-level message that is NOT a reply (proactive notification, or a different chat); never the normal answer.
 - `like` — add a reaction by id. `targetId` MUST be the platform-native message id: use the `platform_id=` attribute from the message XML (present on all adapters — Slack TS, Telegram msg_id, etc.). The `id=` attribute is an internal DB id, unusable for platform actions.
 - `delete` — retract a post **you created** (platform enforces authorship; user messages error — do not retry). `platform_id=` as `targetId`.

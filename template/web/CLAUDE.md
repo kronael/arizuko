@@ -85,7 +85,7 @@ pub/
     onbod.html            onboarding daemon
     dashd.html            operator dashboard
     timed.html            cron/interval scheduler
-    channels.html         adapter overview (teled, discd, whapd, mastd, bskyd, reditd, emaid, twitd, linkd)
+    channels.html         adapter overview (teled, discd, whapd, slakd, bskyd, reditd, emaid, twitd, linkd)
     davd.html             WebDAV workspace
     ttsd.html             TTS proxy
   reference/

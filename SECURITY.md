@@ -203,7 +203,7 @@ holder of a valid authd token reaching a backend directly could spoof
 │  ┌─ arizuko_<instance> (docker-compose, trusted) ──────┐ │
 │  │                                                     │ │
 │  │  authd routd runed onbod dashd webd proxyd timed │ │
-│  │  teled   discd   slakd   mastd   whapd   ...        │ │
+│  │  teled   discd   slakd   bskyd   whapd   ...        │ │
 │  │                                                     │ │
 │  │  ┌─ agent container (per-group, partially trusted) ┐│ │
 │  │  │  claude code + ant/ + skills                    ││ │

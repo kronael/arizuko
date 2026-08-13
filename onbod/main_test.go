@@ -766,7 +766,6 @@ func TestMatchGate(t *testing.T) {
 		{"google:alice@co.com", "google:domain=co.com"},
 		{"google:alice@other.com", "*"},
 		{"email:bob@example.com", "email:domain=example.com"},
-		{"mastodon:foo", "*"},
 	}
 	for _, tc := range tests {
 		g := matchGate(gates, tc.sub)

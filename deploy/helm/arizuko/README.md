@@ -11,18 +11,18 @@ This chart is derived directly from `compose/compose.go` and
 
 ## What it deploys
 
-| Template        | Daemon                                                         | Role                                                                                  | From compose                       |
-| --------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------- |
-| `gated.yaml`    | gated                                                          | Router + execution plane; spawns the per-turn agent container; owns the SQLite WAL DB | `gatedService` (CUTOVER_SPLIT off) |
-| `webd.yaml`     | webd                                                           | Chat widget, operator panel, `/api`, `/me` portal                                     | `webdService`                      |
-| `proxyd.yaml`   | proxyd                                                         | Public reverse proxy + auth gate (Ingress target)                                     | `proxydService`                    |
-| `vited.yaml`    | vited                                                          | Static web tree (`/pub`, `/priv`)                                                     | `vitedService`                     |
-| `timed.yaml`    | timed                                                          | Scheduled messages                                                                    | `timedService`                     |
-| `dashd.yaml`    | dashd                                                          | Operator dashboard (`/dash`)                                                          | `dashdService`                     |
-| `onbod.yaml`    | onbod                                                          | Onboarding / admission queue (`/onboard`)                                             | `onbodService`                     |
-| `davd.yaml`     | davd                                                           | WebDAV over `groups/` (`/dav`)                                                        | `davdService`                      |
-| `crackbox.yaml` | crackbox                                                       | Egress-isolation proxy (advanced; parity only)                                        | `crackboxService`                  |
-| `adapters.yaml` | teled / discd / slakd / mastd / bskyd / reditd / emaid / linkd | Channel adapters, one Deployment+Service per enabled `.Values.adapters` entry         | `template/services/*.toml`         |
+| Template        | Daemon                                                 | Role                                                                                  | From compose                       |
+| --------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------- | ---------------------------------- |
+| `gated.yaml`    | gated                                                  | Router + execution plane; spawns the per-turn agent container; owns the SQLite WAL DB | `gatedService` (CUTOVER_SPLIT off) |
+| `webd.yaml`     | webd                                                   | Chat widget, operator panel, `/api`, `/me` portal                                     | `webdService`                      |
+| `proxyd.yaml`   | proxyd                                                 | Public reverse proxy + auth gate (Ingress target)                                     | `proxydService`                    |
+| `vited.yaml`    | vited                                                  | Static web tree (`/pub`, `/priv`)                                                     | `vitedService`                     |
+| `timed.yaml`    | timed                                                  | Scheduled messages                                                                    | `timedService`                     |
+| `dashd.yaml`    | dashd                                                  | Operator dashboard (`/dash`)                                                          | `dashdService`                     |
+| `onbod.yaml`    | onbod                                                  | Onboarding / admission queue (`/onboard`)                                             | `onbodService`                     |
+| `davd.yaml`     | davd                                                   | WebDAV over `groups/` (`/dav`)                                                        | `davdService`                      |
+| `crackbox.yaml` | crackbox                                               | Egress-isolation proxy (advanced; parity only)                                        | `crackboxService`                  |
+| `adapters.yaml` | teled / discd / slakd / bskyd / reditd / emaid / linkd | Channel adapters, one Deployment+Service per enabled `.Values.adapters` entry         | `template/services/*.toml`         |
 
 Supporting objects: `pvc.yaml` (the data dir, RWO), `configmap.yaml`
 (non-secret env), `secret.yaml` (signing secrets + platform tokens),

@@ -183,7 +183,6 @@ touched, not all at once:
 | email     | shipped | Go       |
 | telegram  | shipped | Go       |
 | reddit    | shipped | Go       |
-| mastodon  | shipped | Go       |
 | bluesky   | shipped | Go       |
 | web/slink | open    | Go       |
 | twitter   | open    | —        |
