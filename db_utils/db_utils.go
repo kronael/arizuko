@@ -47,6 +47,33 @@ func CreateDBFile(path string) error {
 	return f.Close()
 }
 
+// checkVersions rejects a migration set whose 4-digit prefixes are not exactly
+// 1..N. Migrate skips any file whose version is <= the version it just applied,
+// so two files sharing a number apply only the first in sort order and DROP the
+// second — with no error, on every instance. That cost the target_folder column
+// (BUGS L4): store/migrations grew a second 0084 and the column silently never
+// existed. A gap is the same class of mistake caught at the same moment.
+func checkVersions(files []string) error {
+	for i, f := range files {
+		if len(f) < 4 {
+			return fmt.Errorf("migration %q: filename too short for 4-digit version", f)
+		}
+		ver, err := strconv.Atoi(f[:4])
+		if err != nil {
+			return fmt.Errorf("migration %q: non-numeric version prefix: %w", f, err)
+		}
+		if ver != i+1 {
+			if i > 0 && f[:4] == files[i-1][:4] {
+				return fmt.Errorf("migration %q duplicates version %d of %q; renumber it",
+					f, ver, files[i-1])
+			}
+			return fmt.Errorf("migration %q is version %d but must be %04d; versions run 1..N with no gaps",
+				f, ver, i+1)
+		}
+	}
+	return nil
+}
+
 // Migrate applies pending `NNNN-*.sql` migrations from fsys/dir. Versions
 // must be sequential with no gaps. Tracked in the `migrations` table
 // keyed on (service, version).
@@ -74,11 +101,11 @@ func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 		}
 	}
 	sort.Strings(files)
+	if err := checkVersions(files); err != nil {
+		return err
+	}
 
 	for _, f := range files {
-		if len(f) < 4 {
-			return fmt.Errorf("migration %q: filename too short for 4-digit version", f)
-		}
 		ver, err := strconv.Atoi(f[:4])
 		if err != nil {
 			return fmt.Errorf("migration %q: non-numeric version prefix: %w", f, err)
