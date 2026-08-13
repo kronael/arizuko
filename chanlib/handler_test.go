@@ -56,16 +56,16 @@ func (m *mockBot) Typing(jid string, on bool) {
 
 func mux(bot *mockBot) http.Handler {
 	return NewAdapterMux("test", []string{"test:"}, bot,
-		func() bool { return true }, func() int64 { return time.Now().Unix() })
+		func() bool { return true }, func() int64 { return time.Now().Unix() }, nil)
 }
 
 func muxConn(bot *mockBot, connected func() bool) http.Handler {
 	return NewAdapterMux("test", []string{"test:"}, bot, connected,
-		func() int64 { return time.Now().Unix() })
+		func() int64 { return time.Now().Unix() }, nil)
 }
 
 func muxFull(bot *mockBot, connected func() bool, lastInbound func() int64) http.Handler {
-	return NewAdapterMux("test", []string{"test:"}, bot, connected, lastInbound)
+	return NewAdapterMux("test", []string{"test:"}, bot, connected, lastInbound, nil)
 }
 
 func TestHandlerSend(t *testing.T) {
@@ -373,7 +373,7 @@ func TestHandlerPanicsOnNilIsConnected(t *testing.T) {
 		}
 	}()
 	NewAdapterMux("test", []string{"test:"}, &mockBot{}, nil,
-		func() int64 { return 0 })
+		func() int64 { return 0 }, nil)
 }
 
 func TestHandlerPanicsOnNilLastInboundAt(t *testing.T) {
@@ -383,7 +383,7 @@ func TestHandlerPanicsOnNilLastInboundAt(t *testing.T) {
 		}
 	}()
 	NewAdapterMux("test", []string{"test:"}, &mockBot{},
-		func() bool { return true }, nil)
+		func() bool { return true }, nil, nil)
 }
 
 func TestHandlerHealthStale(t *testing.T) {
@@ -430,7 +430,7 @@ func TestHandlerPostUnsupportedStructured(t *testing.T) {
 	h := mux(&mockBot{}) // need a fresh mux pointing at b
 	_ = h
 	mux2 := NewAdapterMux("test", []string{"test:"}, b,
-		func() bool { return true }, func() int64 { return time.Now().Unix() })
+		func() bool { return true }, func() int64 { return time.Now().Unix() }, nil)
 	body, _ := json.Marshal(map[string]string{"chat_jid": "test:1", "content": "x"})
 	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer secret")
@@ -451,7 +451,7 @@ func TestHandlerPostUnsupportedStructured(t *testing.T) {
 func TestHandlerPostUnsupportedPlain(t *testing.T) {
 	b := &mockBotPost{err: ErrUnsupported}
 	mux2 := NewAdapterMux("test", []string{"test:"}, b,
-		func() bool { return true }, func() int64 { return time.Now().Unix() })
+		func() bool { return true }, func() int64 { return time.Now().Unix() }, nil)
 	body, _ := json.Marshal(map[string]string{"chat_jid": "test:1", "content": "x"})
 	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer secret")

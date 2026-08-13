@@ -36,7 +36,7 @@ func newServer(cfg config, rc chanlib.BotHandler, files *chanlib.URLCache, isCon
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"reddit:"}, s.rc, s.isConnected, s.lastInboundAt)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"reddit:"}, s.rc, s.isConnected, s.lastInboundAt, nil)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.handleFile))
 	return mux
 }

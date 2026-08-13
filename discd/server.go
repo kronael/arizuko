@@ -19,7 +19,7 @@ func newServer(cfg config, b chanlib.BotHandler, isConnected func() bool, lastIn
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"discord:"}, s.bot, s.isConnected, s.lastInboundAt)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"discord:"}, s.bot, s.isConnected, s.lastInboundAt, nil)
 	mux.HandleFunc("GET /files/", chanlib.Auth(chanlib.FileProxyHandler(chanlib.FileProxyOpts{
 		Resolve:  s.files.Get,
 		MaxBytes: s.cfg.MediaMaxBytes,

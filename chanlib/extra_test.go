@@ -164,7 +164,7 @@ func TestCapImplReport_ConsistentIsEmpty(t *testing.T) {
 
 func newMuxWith(bot BotHandler) *http.ServeMux {
 	return NewAdapterMux("t", []string{"t:"}, bot,
-		func() bool { return true }, func() int64 { return time.Now().Unix() })
+		func() bool { return true }, func() int64 { return time.Now().Unix() }, nil)
 }
 
 type fullBot struct {
@@ -475,7 +475,7 @@ func TestHandlerHealthEmailThreshold(t *testing.T) {
 	// email: stale after 10min. 6min old → NOT stale.
 	last := time.Now().Add(-6 * time.Minute).Unix()
 	h := NewAdapterMux("email", []string{"email:"}, &mockBot{},
-		func() bool { return true }, func() int64 { return last })
+		func() bool { return true }, func() int64 { return last }, nil)
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -490,7 +490,7 @@ func TestHandlerHealthDefaultThreshold(t *testing.T) {
 	// default: stale after 5min. 6min old → stale.
 	last := time.Now().Add(-6 * time.Minute).Unix()
 	h := NewAdapterMux("telegram", []string{"telegram:"}, &mockBot{},
-		func() bool { return true }, func() int64 { return last })
+		func() bool { return true }, func() int64 { return last }, nil)
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -512,7 +512,7 @@ func TestHandlerHealthDefaultThreshold(t *testing.T) {
 func TestHandlerHealthSlackStaleStays200(t *testing.T) {
 	last := time.Now().Add(-6 * time.Minute).Unix()
 	h := NewAdapterMux("slack", []string{"slack:"}, &mockBot{},
-		func() bool { return true }, func() int64 { return last })
+		func() bool { return true }, func() int64 { return last }, nil)
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -533,7 +533,7 @@ func TestHandlerHealthSlackStaleStays200(t *testing.T) {
 func TestHandlerHealthStrictFreshReturns200(t *testing.T) {
 	last := time.Now().Unix()
 	h := NewAdapterMux("slack", []string{"slack:"}, &mockBot{},
-		func() bool { return true }, func() int64 { return last })
+		func() bool { return true }, func() int64 { return last }, nil)
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

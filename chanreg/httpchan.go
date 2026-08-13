@@ -76,17 +76,17 @@ type HTTPChannel struct {
 // outMsg carries one outbound request from Send/SendFile into trySend. The
 // channel keeps no copy of it: routd owns the durable record and the retry.
 type outMsg struct {
-	JID         string
-	Content     string
-	ReplyTo     string
-	ThreadID    string
-	ThreadRoot  string
-	TurnID      string
-	IsFile      bool
-	Path        string
-	Name        string
-	Caption     string
-	FileReplyTo string
+	JID            string
+	Content        string
+	ReplyTo        string
+	ThreadID       string
+	ThreadRoot     string
+	IdempotencyKey string
+	IsFile         bool
+	Path           string
+	Name           string
+	Caption        string
+	FileReplyTo    string
 }
 
 // NewHTTPChannel builds the routd-side egress client for an adapter. bearer
@@ -123,15 +123,15 @@ func (h *HTTPChannel) Connect(_ context.Context) error { return nil }
 
 func (h *HTTPChannel) Owns(jid string) bool { return h.entry.Owns(jid) }
 
-func (h *HTTPChannel) Send(jid, text, replyTo, threadID, threadRoot, turnID string) (string, error) {
-	return h.SendCtx(context.Background(), jid, text, replyTo, threadID, threadRoot, turnID)
+func (h *HTTPChannel) Send(jid, text, replyTo, threadID, threadRoot, idempotencyKey string) (string, error) {
+	return h.SendCtx(context.Background(), jid, text, replyTo, threadID, threadRoot, idempotencyKey)
 }
 
-func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID, threadRoot, turnID string) (string, error) {
+func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID, threadRoot, idempotencyKey string) (string, error) {
 	if !h.entry.HasCap("send_text") {
 		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
-	m := outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID, ThreadRoot: threadRoot, TurnID: turnID}
+	m := outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID, ThreadRoot: threadRoot, IdempotencyKey: idempotencyKey}
 	return h.trySend(ctx, m)
 }
 
@@ -171,8 +171,8 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 	if m.ThreadRoot != "" {
 		body["thread_root"] = m.ThreadRoot
 	}
-	if m.TurnID != "" {
-		body["turn_id"] = m.TurnID
+	if m.IdempotencyKey != "" {
+		body["idempotency_key"] = m.IdempotencyKey
 	}
 	b, _ := json.Marshal(body)
 	httpResp, err := h.post(ctx, "/send", b)

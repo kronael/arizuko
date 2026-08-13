@@ -69,7 +69,7 @@ func (s *server) Edit(chanlib.EditRequest) error {
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"email:"}, s, s.isConnected, s.lastInboundAt)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"email:"}, s, s.isConnected, s.lastInboundAt, nil)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.handleFile))
 	return mux
 }

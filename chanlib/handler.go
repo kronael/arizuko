@@ -1,6 +1,7 @@
 package chanlib
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,12 @@ type SendRequest struct {
 	// thread_ts=ThreadRoot; Discord starts a thread from that message and
 	// posts into it. Adapters without threading ignore it.
 	ThreadRoot string `json:"thread_root"`
+	// IdempotencyKey is routd's stable id for this delivery (the outbound
+	// message row). routd re-sends a row that stays `pending`, so the SAME key
+	// arrives more than once by design and the adapter must not post twice.
+	// The mux enforces that (dedup.go); adapters read it only when the
+	// platform takes a key of its own. Empty = no dedup (SendVia, local dev).
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
 // BotHandler is the interface adapters implement for outbound messaging.
@@ -269,7 +276,7 @@ func (NoVoiceSender) SendVoice(_, _, _, _ string) (string, error) {
 // NewAdapterMux wires up the standard adapter HTTP surface.
 // isConnected: platform link is up (websocket/polling/IMAP IDLE); /health → 503 when false.
 // lastInboundAt: unix seconds of last successful inbound delivery; /health → stale when old.
-func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected func() bool, lastInboundAt func() int64) *http.ServeMux {
+func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected func() bool, lastInboundAt func() int64, db *sql.DB) *http.ServeMux {
 	if isConnected == nil {
 		panic("chanlib.NewAdapterMux: isConnected must not be nil")
 	}
@@ -277,8 +284,8 @@ func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected f
 		panic("chanlib.NewAdapterMux: lastInboundAt must not be nil")
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /send", Auth(handleSend(bot)))
-	mux.HandleFunc("POST /send-file", Auth(handleSendFile(bot)))
+	mux.HandleFunc("POST /send", Auth(handleSend(bot, db)))
+	mux.HandleFunc("POST /send-file", Auth(handleSendFile(bot, db)))
 	mux.HandleFunc("POST /send-voice", Auth(handleSendVoice(bot)))
 	mux.HandleFunc("POST /typing", Auth(handleTyping(bot)))
 	mux.HandleFunc("POST /post", Auth(handlePost(bot)))
@@ -359,10 +366,14 @@ func idless[T any](f func(T) error) func(T) (string, error) {
 	return func(req T) (string, error) { return "", f(req) }
 }
 
-func handleSend(bot BotHandler) http.HandlerFunc {
+func handleSend(bot BotHandler, db *sql.DB) http.HandlerFunc {
 	return jsonVerb("chat_jid and content required",
 		func(req SendRequest) bool { return req.ChatJID != "" && req.Content != "" },
-		bot.Send)
+		func(req SendRequest) (string, error) {
+			return deliverOnce(db, req.IdempotencyKey, req.ChatJID, func() (string, error) {
+				return bot.Send(req)
+			})
+		})
 }
 
 // receiveUpload parses a multipart upload, sanitizes the filename, writes to
@@ -418,7 +429,7 @@ func receiveUpload(w http.ResponseWriter, r *http.Request, tmpPrefix string) (ji
 	return jid, localPath, name, caption, func() { os.RemoveAll(dir) }, true
 }
 
-func handleSendFile(bot BotHandler) http.HandlerFunc {
+func handleSendFile(bot BotHandler, db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		jid, localPath, name, caption, cleanup, ok := receiveUpload(w, r, "chan-")
 		if !ok {
@@ -427,7 +438,9 @@ func handleSendFile(bot BotHandler) http.HandlerFunc {
 		defer cleanup()
 		replyTo := r.FormValue("reply_to")
 		threadID := r.FormValue("thread_id")
-		id, err := bot.SendFile(jid, localPath, name, caption, replyTo, threadID)
+		id, err := deliverOnce(db, r.FormValue("idempotency_key"), jid, func() (string, error) {
+			return bot.SendFile(jid, localPath, name, caption, replyTo, threadID)
+		})
 		writeBotResult(w, id, err)
 	}
 }

@@ -23,7 +23,7 @@ func newServer(cfg config, bc chanlib.BotHandler, isConnected func() bool, lastI
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"bluesky:"}, s.bc, s.isConnected, s.lastInboundAt)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"bluesky:"}, s.bc, s.isConnected, s.lastInboundAt, nil)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.handleFile))
 	return mux
 }
