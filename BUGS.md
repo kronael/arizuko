@@ -864,7 +864,7 @@ the folder is deleted is the other half.
   gap it was written for still exists (it fails loudly if a future cascade
   removes the row instead).
 
-## L2 — a delegated child ran but never called back; cause not yet isolated (2026-08-08, open)
+## L2 — a delegated child is never dispatched: its only message is a bot row (2026-08-08, CAUSE ISOLATED 2026-08-15, fix needs sign-off)
 
 Same live run, `child-delegate`. Unlike L1 this one is NOT root-caused, and it
 is recorded that way on purpose.
@@ -875,20 +875,61 @@ and delegated the task (`"send" folder=eval jid=web:eval/etjgjnv-child-delegate
 text="Task: run this exact command and report the result back here"`). So
 registration and delegation both work. The child never fired the callback.
 
-Candidate causes, none confirmed:
-- the child holds only the `role:member` floor, and the `egress` ACL row is
-  `folder:eval | egress | eval` — scope `eval` does not match
-  `eval/etjgjnv-child-delegate`, so the child's container-capability boolean is
-  false. Against this: `network_rules` has `eval|*` and `ResolveAllowlist` walks
-  ancestry, so the child may inherit the wildcard anyway. The two mechanisms
-  disagree about whether the child can reach the sink, and which one governs was
-  not established.
-- the child may never have been dispatched at all (no per-child dispatch line
-  was checked).
+**CAUSE ISOLATED 2026-08-15 by the call path.** No probe was needed and no
+capability is involved. Agent-to-agent delegation over `send` cannot wake the
+target folder, by construction:
 
-Next step is one probe, not a guess: re-run `--case child-delegate` and check
-for a `"dispatch run"` line on the child folder plus the child's crackbox
-allowlist. Recorded now so the eval's 6/8 is not read as "two agent failures".
+1. The parent's `send` reaches `ipc.internalSend` → `gated.SendMessage` →
+   `routd.mcpDeliver`, which delivers, and `ipc.putOutboundRow`, which persists
+   the row. That writer stamps EVERY agent-authored row `FromMe: true,
+   BotMsg: true` (`ipc/ipc.go` putOutboundRow) — there is no separate shape for
+   "addressed to another folder".
+2. The poll DOES see it: `DB.NewMessages` filters on timestamp only, so the
+   child chat is picked up and `resolve` succeeds (the child folder was
+   registered), and it is enqueued.
+3. `processGroupMessages` then drops it (`routd/dispatch.go:52-62`):
+
+       // Strip bot rows from the trigger batch (don't feed the agent its own
+       // output) but keep them in the rendered context.
+       for _, m := range msgs { if !m.BotMsg { trigger = append(trigger, m) } }
+       if len(trigger) == 0 { l.advance(chatJID, last); return false, nil }
+
+   The child's chat holds nothing BUT bot rows, so `trigger` is empty. The
+   cursor advances and the function returns `(false, nil)` — the "silent no-op"
+   that is deliberately NOT a failure, so it does not even trip the breaker.
+   No container is ever spawned for the child.
+
+Both recorded candidates are answered:
+- The `egress` ACL vs `network_rules` question is MOOT. No container starts, so
+  no egress decision is ever reached. The two mechanisms never got to disagree.
+- "the child may never have been dispatched at all" is CORRECT, and now
+  explained: it was enqueued and then dropped at the bot-row strip.
+
+- **Severity:** medium — agent-to-agent delegation silently does nothing.
+- **Scope:** message model — what may trigger a turn
+- **Affected:** routd (dispatch), ipc (outbound writer)
+- **Status:** NOT FIXED — the fix is a redesign and needs sign-off.
+
+**PROPOSAL, for the user, not built.** The bot-row strip is correct and must
+stay: it is what stops an agent re-triggering itself on its own output. The
+missing distinction is that a row authored by folder A and addressed to folder
+B is B's INBOUND, not B's own output. A fix has to say so explicitly, and that
+is a new contract on the message model plus a loop-safety rule:
+
+- Make the trigger test `m.BotMsg && m.Sender != <this folder>` rather than
+  `m.BotMsg` alone, so a row a DIFFERENT folder wrote can trigger. `Sender` is
+  already the author folder at this writer, so no new column is needed.
+- Bound it, or two agents ping-pong forever: a hop budget carried on the row, a
+  depth cap on the delegation chain, or a rule that only a registered CHILD
+  folder may be woken by its parent. This is the part that decides the shape,
+  and it is a product call, not a code call.
+- Decide whether the woken turn is credentialed as the child (socket folder) —
+  it is, since the socket is per-folder — and whether the parent needs an ACL
+  action to wake another folder at all.
+
+Until then, delegation should either be refused loudly at the `send` gate when
+the target folder is not the caller's own chat, or documented as not supported.
+Silently storing a row nobody will ever act on is the worst of the three.
 
 ## J1 — settings-defined MCP servers bypass the HITL firewall (2026-08-08, FIXED 2026-08-09)
 
