@@ -2324,26 +2324,40 @@ the first key seals, the rest decrypt retired values.
 `TestSecret_NoKey_RefusesToWrite` and `TestStoreValue_NeverReturnsPlaintext`
 cover the refusal; reverting the guard fails both.
 
-## L20 — whapd acks a send it has not sent, so routd records it as delivered (2026-08-11, open)
+## L20 — FIXED 2026-08-15, <short-sha> — whapd acks a send it has not sent, so routd records it as delivered (2026-08-11)
 
-`whapd/src/server.ts:196-214` answers `/send` with `200 {ok:true, queued:true}`
-when the socket is absent or disconnected, and again in the `catch` around
-`sendMessage`. routd reads 200 as success and marks the bot row `sent`, so the
-durable retry sweep never looks at it again.
+`whapd/src/server.ts:196-214` answered `/send` with `200 {ok:true, queued:true}`
+when the socket was absent or disconnected, and again in the `catch` around
+`sendMessage`. routd read 200 as success and marked the bot row `sent`, so the
+durable retry sweep never looked at it again.
 
-whapd's queue is in memory. A whapd restart — which is exactly what a
-disconnected whapd tends to get — drops the queue, and the message is gone with
-no record anywhere that it never arrived. The user sees silence and the operator
-sees a row marked `sent`.
+whapd's queue was in memory. A whapd restart — which is exactly what a
+disconnected whapd tends to get — dropped the queue, and the message was gone
+with no record anywhere that it never arrived.
 
-Fail-loud says a daemon that cannot perform the action returns non-2xx. 503 here
-would let the sweep own the retry, which is its job.
+Not the L25 durable-inbound redesign: L25 is about routd rejecting an inbound
+webhook after the platform is already acked (needs a new `inbound_pending`
+table + sweep). L20 is outbound, and routd already has the mechanism it
+needs — `chanreg/httpchan.go`'s `trySend` documents the contract every HTTP
+channel is supposed to follow: "The channel holds no queue: routd writes the
+bot row `pending` before the attempt, and its 30s sweep re-sends a row that
+stays `pending`. A retry here would be a second writer beside that sweep."
+whapd's in-memory `outboundQueue`/`flushOutboundQueue` was exactly that
+second, weaker writer (lost on restart, no dead-letter, no operator
+visibility) sitting beside routd's `maybeRetryOutbound` sweep.
 
-- **Severity:** medium — silent message loss on a live channel, no operator signal.
-- **Scope:** adapter delivery acknowledgement
-- **Affected:** whapd, routd
-- **Source:** `whapd/src/server.ts:196-214`
-- **Status:** open
+**Fix:** deleted whapd's own queue (`outboundQueue`, `flushOutboundQueue`,
+`queueOutbound`, `src/queue.ts`). `/send` now returns 502 immediately — via
+the same `requireSock` helper `/send-file` already used — when the socket is
+down, and 502 from the `sendMessage` catch, instead of 200. `classifyStatus`
+in `chanreg/httpchan.go` treats any `>=500` as transient, so
+`maybeRetryOutbound` (already shipped alongside L22/L23's delivery-attempts
+tracking) now owns every whapd retry the same way it owns every other
+adapter's — one retry mechanism, not two.
+
+- **Source:** `whapd/src/server.ts`, `whapd/src/main.ts`, `whapd/src/queue.ts` (removed)
+- **Tests:** `whapd/src/server.test.ts` — `/send` returns 502 disconnected and
+  on `sendMessage` throw; `bun test` 116/116 pass.
 
 ## L22 — the outbound retry cap is ~5 minutes, so an adapter outage dead-letters real messages (2026-08-11, open)
 

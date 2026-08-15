@@ -15,7 +15,8 @@ until scanned.
 - Post inbound as `whatsapp:<jid>` to router; download media.
 - Handle social-action HTTP surface (see Verb support).
 - Back up `creds.json` atomically; recover from `.bak` on crash.
-- Auto-resume the outbound queue from disk on reconnect.
+- Hold no outbound queue of its own: `/send` returns 502 when the socket is
+  down or the send throws, and routd's durable retry sweep owns the retry.
 
 ## Verb support
 
@@ -72,7 +73,6 @@ ascii art.
 - `src/inbound.ts` — pure inbound-dispatch helpers (unit-testable, sink in main.ts)
 - `src/bot.ts` — pair-flow state machine
 - `src/client.ts` — router client (register/inject)
-- `src/queue.ts` — outbound queue
 - `src/reply.ts` — reply metadata extraction
 - `src/typing.ts` — typing refresh
 - `src/log.ts` — slog-style structured logging
