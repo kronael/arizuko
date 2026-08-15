@@ -9,12 +9,14 @@ webhooks), tenancy (org-chart, invites, user-spawned agents,
 genericized daemons), and runtime (pipeline, middleware, modality).
 
 **Phase 6** is adoption & interop: the end goal is that people run
-arizuko instead of their own agent harness. Not "rip out your stack
-and switch" — wrap what you already run. Make runed's runtime
-swappable so another harness runs inside an arizuko folder, import its
-config/skills as-is, and let the folder coordinate (tenancy + egress +
-ACL + web) be the layer above the harness. The engine is an agentic
-reimplementation loop — arizuko's self-learning pointed outward.
+arizuko instead of their own agent harness. The path is publishing the
+environment, not wrapping the harness (`6/1`, inverted 2026-08-15):
+state the agent and component contracts (`6/7`), give each a
+conformance check a stranger's part must pass (`anteval` per backend;
+a component probe), and let the folder coordinate (tenancy + egress +
+ACL + web) be what the environment gives you for free. Wrapping stays
+an on-ramp; the engine is an agentic reimplementation loop —
+arizuko's self-learning pointed outward.
 
 **Phase 7** is the operator cockpit: every daemon serves its own
 dashboard (HTMX, its own `/dash/<daemon>/` namespace, source served
@@ -49,7 +51,7 @@ combination is the platform thesis arizuko ships toward.
 | [3/](3/)   | permissions, cleanup, gaps                                                                                            | shipped    |
 | [4/](4/)   | dashboards, memory, scheduler, personas — core architecture (channel protocol → `5/34`, ACL → `5/32`·`5/33`)          | shipped    |
 | [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                         | shipped    |
-| [6/](6/)   | adoption & interop + components — wrap-the-harness, the ship-in-parts catalogue (`6/16`), crackbox + mcp-firewall     | **active** |
+| [6/](6/)   | adoption & interop + components — the environment contracts (`6/7`), the ship-in-parts catalogue (`6/16`), crackbox   | **active** |
 | [7/](7/)   | operator cockpit — per-daemon dashboards + global hub                                                                 | queued     |
 | [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                          | queued     |
 | [9/](9/)   | platform program — data model, git-as-truth (MCP+REST unification → 5/16·5/17)                                        | drafting   |

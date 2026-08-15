@@ -5,52 +5,66 @@ status: active
 # specs/6 — adoption & interop
 
 The end goal is that people run arizuko instead of their own agent
-harness. This phase is the path there: not "rip out your stack and
-switch," but "wrap what you already run." Make runed's runtime
-swappable so another harness runs inside an arizuko folder, import
-its config/skills as-is, and let the folder coordinate (tenancy +
-egress + ACL + web) be the layer above the harness. Campaign second,
-on the proof the interop produces. The engine is an agentic
-reimplementation loop — arizuko's self-learning, pointed outward.
+harness. The path (thesis inverted 2026-08-15, `6/1`): **publish the
+environment, do not wrap the harness.** Like Lambda, arizuko publishes
+contracts — the agent environment and the component environment — and
+the value is what the environment gives you for free: tenancy, egress,
+ACL, web, audit. [`7-environment-contracts.md`](7-environment-contracts.md)
+is the spine: it states both contracts and their conformance (agent:
+`anteval` per backend, `pi` the intended second occupant; component: a
+probe against a live process). Wrapping a foreign harness stays an
+on-ramp; emulation is rejected.
 
 ## Specs
 
-| Spec                                                               | Status  | Covers                                                                                                                                                                                                                           |
-| ------------------------------------------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [1-adoption-interop.md](1-adoption-interop.md)                     | draft   | interop-first strategy + the agentic reimplementation loop + the services a wrap provides + demand-class mode (absorbed `3`+`4`, 2026-07-16)                                                                                     |
-| [8-crackbox-standalone.md](8-crackbox-standalone.md)               | shipped | crackbox — forward proxy with per-source allowlists; arizuko's per-folder egress consumer (was `12/9`)                                                                                                                           |
-| [9-crackbox-sandboxing.md](9-crackbox-sandboxing.md)               | shipped | crackbox `pkg/host/` KVM/qemu sandbox library — **shipped but unwired**: no importer outside `crackbox/`; `runed` still spawns Docker (was `12/12`)                                                                              |
-| [10-crackbox-dns-filter.md](10-crackbox-dns-filter.md)             | shipped | DNS NXDOMAIN filter on UDP/53; reuses `Registry`+`match.Host` (was `12/15`)                                                                                                                                                      |
-| [12-mcp-firewall.md](12-mcp-firewall.md)                           | draft   | `mcpfw` — transparent MCP proxy for THIRD-PARTY MCP servers; deny-wins tool-call filter (was `12/17`)                                                                                                                            |
-| [16-daemon-standalone-matrix.md](16-daemon-standalone-matrix.md)   | draft   | **the "ship in parts" catalogue**: two standalone axes + the component contract (domain vs mechanism) + the three-question method + package & daemon matrices + use-case clusters (absorbed `5`+`6`+`7`, 2026-07-16)             |
-| [17-egress-credential-proxy.md](17-egress-credential-proxy.md)     | draft   | Centaur peel: crackbox gains opt-in MITM inject mode for OPAQUE in-container clients (the `aws`/`gh`/`boto3` hole `5/13` named `8/Z`); fail-closed; `aws_auth` SigV4 re-sign is `X2` option (a) generalized                      |
-| [18-durable-workflows-decline.md](18-durable-workflows-decline.md) | draft   | Centaur peel: costed DECLINE of a durable-execution engine (their real Temporal-style replay on Postgres) — `5/A` decision 5 stands; reopen trigger + the four-table shape to copy if it fires                                   |
-| [19-unified-tool-declaration.md](19-unified-tool-declaration.md)   | draft   | Centaur peel: collapse `[[ext]]`+`[[mcp_connector]]` into one `[[connector]]` block with a `transport` discriminator + the ordered-source shadow rule arizuko's loader lacks; timed to `5/13` shape 4                            |
-| [20-sandbox-lifecycle-decline.md](20-sandbox-lifecycle-decline.md) | draft   | Centaur peel: costed DECLINE of the warm-pool sandbox lifecycle vs arizuko's per-turn ephemeral container; the mount-boundary blocker; `can_open_io`+reconcile survive for `6/9` KVM; harness-server = `5/K`'s answered question |
+| Spec                                                               | Status  | Covers                                                                                                                                                                                             |
+| ------------------------------------------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [7-environment-contracts.md](7-environment-contracts.md)           | draft   | **the spine**: the agent contract (identity, home, envelope, idempotent delivery, unfrozen lifecycle seam) + the component contract; conformance = `anteval` per backend / a live probe            |
+| [1-adoption-interop.md](1-adoption-interop.md)                     | draft   | adoption strategy: publish-the-contract thesis (Lambda analogy), the wrap demoted to on-ramp, the agentic reimplementation loop, the seven services, demand-class mode                             |
+| [16-daemon-standalone-matrix.md](16-daemon-standalone-matrix.md)   | draft   | the four-layer model (surfaces / core / substrate / agent — `ant` is the first layer-4 occupant) + two standalone axes + the matrices; `servekit` retired; crackbox's ship gate cleared            |
+| [8-crackbox-standalone.md](8-crackbox-standalone.md)               | shipped | crackbox — forward proxy with per-source allowlists; arizuko's per-folder egress consumer (was `12/9`)                                                                                             |
+| [9-crackbox-sandboxing.md](9-crackbox-sandboxing.md)               | shipped | crackbox `pkg/host/` KVM/qemu sandbox library — **shipped but unwired**: no importer outside `crackbox/`; `runed` still spawns Docker (was `12/12`)                                                |
+| [10-crackbox-dns-filter.md](10-crackbox-dns-filter.md)             | shipped | DNS NXDOMAIN filter on UDP/53; reuses `Registry`+`match.Host` (was `12/15`)                                                                                                                        |
+| [12-mcp-firewall.md](12-mcp-firewall.md)                           | draft   | `mcpfw` — transparent MCP proxy for THIRD-PARTY MCP servers; deny-wins tool-call filter (was `12/17`)                                                                                              |
+| [17-egress-credential-proxy.md](17-egress-credential-proxy.md)     | draft   | the opaque-client credential hole (`8/Z`), tiered: signing rides a host-side request tool; `credential_process` closes `X2`; MITM residue is allowlist + header injection, vendor signing DECLINED |
+| [18-durable-workflows-decline.md](18-durable-workflows-decline.md) | shipped | costed DECLINE of a durable-execution engine — `5/A` decision 5 stands; reopen trigger + the four-table shape to copy if it fires                                                                  |
+| [19-unified-tool-declaration.md](19-unified-tool-declaration.md)   | draft   | collapse `[[ext]]`+`[[mcp_connector]]` into one `[[connector]]` block + the ordered-source shadow rule; timed to `5/13` shape 4                                                                    |
+| [20-sandbox-lifecycle-decline.md](20-sandbox-lifecycle-decline.md) | shipped | costed DECLINE of the warm-pool sandbox lifecycle vs per-turn ephemeral containers; the mount-boundary blocker; `can_open_io`+reconcile survive for `6/9` KVM                                      |
 
-`1` is the adoption narrative; `16` is the component framing — the contract
-plus the catalogue. `8`–`10` (crackbox family: egress/sandbox/DNS) and `12`
-(`mcpfw`) are the concrete component specs from the former phase 12.
+`7` owns the contracts; `1` owns the strategy; `16` owns the map (layers,
+axes, matrices). `8`–`10` (crackbox family) and `12` (`mcpfw`) are the
+concrete component specs from the former phase 12. `17`–`20` are the
+**Centaur peel** (`paradigmxyz/centaur@20f3021`, Apache-2.0, read
+2026-08-10): `18` and `20` shipped as decision records (decline, costed,
+with reopen triggers); `17` was narrowed twice on 2026-08-15 (signing →
+request tool; vendor-signing transforms declined); `19` is timed, not
+standalone.
 
-`17`–`20` are the **Centaur peel** (`paradigmxyz/centaur@20f3021`, Apache-2.0,
-read 2026-08-10): four `draft` proposals from reading their source. Two argue
-to ADOPT (`17` egress credential proxy — the one to sign off first, it fills
-`5/13`'s named-but-unwritten `8/Z` hole and un-breaks BUGS `X2`; `19` unified
-tool declaration, timed to `5/13` shape 4), two argue to DECLINE with the cost
-recorded (`18` durable workflows, `20` warm-pool sandbox lifecycle) in the
-`5/5`/`5/16`-step-2 tradition. Each carries `file:line` citations into both
-trees and attributes what it derives from Centaur. Load-bearing correction from
-the research: iron-proxy's MITM data plane is a CLOSED third-party binary
-(`ironsh/iron-proxy`) — only their control plane is open — and the
-response-body secret scanning the peel went looking for does not exist in
-Centaur at all.
+## The plan from here
+
+The phase is `active` (2026-08-15). What ships, in the order the specs
+themselves argue:
+
+1. **The `6/7` contracts made real** — the component probe (until it
+   exists, that half is documentation) and the `anteval` gate run per
+   backend, with `pi` as the second agent-slot occupant.
+2. **`6/17` tier 0** — the `credential_process` helper closes BUGS `X2`
+   with no new trust surface; the request tool carries signing.
+3. **crackbox as the first shipped component** — its fail-open gate
+   cleared 2026-08-15 (`6/16`); "ship one, not seven" — get a stranger
+   running it and let what they hit choose the next seam.
+4. **Deferred by their own terms**: `19` waits for `5/13` shape 4; `12`
+   (mcpfw) waits for a third-party-MCP consumer; `17` tier 1 (MITM)
+   waits for a consumer tier 0 cannot serve.
+
+## History
 
 Dropped 2026-07-16: `3`+`4` (folded into `1`), `5`+`6`+`7` (folded into
-`16`), `11` (messaging-gateway — premature), `13` (sandd — `runed` owns
-spawn). Self-learning + skill-guard moved to `5/22`·`5/23` (agent features,
-not components); the Hermes integration moved to
-[`../5/35-hermes-integration.md`](../5/35-hermes-integration.md) 2026-08-02
-(it consumes the ingress + auth surfaces phase 5 owns).
+`16`; the number `7` was later reused for the contracts spec),
+`11` (messaging-gateway — premature), `13` (sandd — `runed` owns spawn).
+Self-learning + skill-guard moved to `5/22`·`5/23`; the Hermes
+integration moved to [`../5/35-hermes-integration.md`](../5/35-hermes-integration.md)
+2026-08-02.
 
 Deleted 2026-08-02:
 
@@ -61,10 +75,12 @@ Deleted 2026-08-02:
 | `slides.md`                  | a 10-slide pitch deck — presentation material, no buildable content.                                                                                                                               |
 
 `16`'s counterpart landscape was compressed to its durable finding (the
-composition is the moat; never claim a commodity part is novel); the dated
-2026-07-15 vendor sweep table was cut for the same reason `2` was.
+composition is the moat; never claim a commodity part is novel); the
+dated 2026-07-15 vendor sweep table was cut for the same reason `2` was.
 
 ## Ties
 
-`specs/5/A` (positioning) · `USELESS.md` (the honest gaps this closes)
-· the Agent Research Hub · `5/22` self-learning (the loop turned outward).
+`specs/5/A` (positioning) · `5/9` (`anteval` — the agent conformance
+basis) · `5/34` (channel protocol) · `USELESS.md` (the honest gaps this
+closes) · the Agent Research Hub · `5/22` self-learning (the loop turned
+outward).
