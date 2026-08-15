@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,39 @@ func TestUsageWithCost(t *testing.T) {
 	}
 	if !strings.Contains(body, `href="/dash/groups/alice"`) {
 		t.Errorf("per-group row should link to the group page: %s", body)
+	}
+}
+
+// TestGroupUsageBulkBatchesLargeFolderLists: groupUsageBulk must not build a
+// single IN(...) list sized to the whole folder count — that fails outright
+// once SQLite's bound-parameter limit is exceeded. Seed more folders than
+// usageBulkBatch and confirm every one still gets a row back.
+func TestGroupUsageBulkBatchesLargeFolderLists(t *testing.T) {
+	n := usageBulkBatch + 10
+	folders := make([]string, n)
+	for i := range folders {
+		folders[i] = strings.Repeat("f", 1) + string(rune('a'+i%26)) + strconv.Itoa(i)
+	}
+	routd := usageRoutdDB(t, folders...)
+	defer routd.Close()
+
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := routd.Exec(
+		`INSERT INTO cost_log (folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at)
+		 VALUES (?, 't1', 'claude-opus-5', 10, 10, 5, ?)`, folders[n-1], now); err != nil {
+		t.Fatal(err)
+	}
+
+	d := &dash{dbRoutd: routd}
+	out, err := d.groupUsageBulk(folders)
+	if err != nil {
+		t.Fatalf("groupUsageBulk: %v", err)
+	}
+	if len(out) != n {
+		t.Fatalf("got %d rows, want %d", len(out), n)
+	}
+	if out[n-1].Tokens7d != 20 {
+		t.Errorf("last folder's cost_log row not aggregated: got %+v", out[n-1])
 	}
 }
 

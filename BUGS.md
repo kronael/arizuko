@@ -2303,7 +2303,7 @@ A healthy davd always shows err. `services.go:60`: timeout mapped to `unknown` �
   timeout from a real DNS failure with an explicit resolve.
 - **Fix:** per-service probe path; classify timeout as err not unknown
 
-## usage: 7-day query covers 8 days; GroupUsageBulk IN list will fail at scale (2026-06-18, open)
+## ✅ FIXED 2026-08-15 — usage: 7-day query covers 8 days; GroupUsageBulk IN list will fail at scale (2026-06-18, open)
 
 `usage_page.go:111`: `date('now', '-7 days')` includes the full day 7 days ago + today = 8 days.
 `usage_page.go:38`: `GroupUsageBulk` builds `IN (...)` from all folder names — hits SQLite param
@@ -2312,8 +2312,16 @@ limit with many groups.
 - **Severity:** medium
 - **Scope:** dashd/usage_page.go:38,:111
 - **Source:** codex audit 2026-06-18
-- **Status:** partial — datetime fix applied (29e759f7); GroupUsageBulk IN-list still open
-- **Fix:** use `datetime('now','-7 days')` for rolling window; rewrite bulk query with JOIN
+- **Status:** the 7-day-window half was already fixed (29e759f7) — `usageVolumeTable`
+  uses `datetime('now', '-7 days')`, a true rolling 7×24h cutoff, not the 8-day
+  `date()` truncation. The `groupUsageBulk` IN-list half was genuinely still open —
+  verified 2026-08-15: it built one `IN (?,?,...)` sized to the full caller-visible
+  folder list (all groups on the operator-only Usage page; the caller's visible
+  subset on the Groups page, so it can't be replaced by a plain `groups` JOIN).
+  Fixed by chunking the IN-list into `usageBulkBatch`-sized (500) batches, run as
+  separate queries and merged in Go — same call path, no schema or contract change.
+- **Fix:** dashd/usage_page.go (`groupUsageBulk`, new `groupUsageBulkBatch`) — this commit.
+  Test: `dashd/usage_page_test.go TestGroupUsageBulkBatchesLargeFolderLists`.
 
 ## chat: loadChatSessions limits before filtering; nondeterministic continue links (2026-06-18, open)
 

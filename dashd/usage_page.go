@@ -108,73 +108,37 @@ type groupUsage struct {
 	LastActive string // RFC3339 timestamp of the latest message, or ""
 }
 
+// usageBulkBatch bounds how many folders go into one IN(...) list. SQLite
+// caps bound parameters per statement (SQLITE_MAX_VARIABLE_NUMBER); an
+// unbatched IN-list sized to the full folder count fails outright once an
+// instance's group tree passes that ceiling. groupUsageBulk chunks instead.
+const usageBulkBatch = 500
+
+type usageCost struct{ tokens, cents int }
+type usageMsg struct {
+	cnt    int
+	lastTS string
+}
+
 // groupUsageBulk returns one groupUsage per folder, joining routd.db's cost_log
 // (7d window) and messages (all-time count + last active) in Go. Both tables are
 // routd-owned: cost_log is keyed (folder, turn_id, model) with recorded_at /
-// input_tokens / output_tokens / cost_cents.
+// input_tokens / output_tokens / cost_cents. folders may be the caller's scoped
+// subset (Groups page) or the full instance list (Usage page); either way the
+// IN-list is batched so the query stays valid regardless of folder count.
 func (d *dash) groupUsageBulk(folders []string) ([]groupUsage, error) {
 	if len(folders) == 0 {
 		return nil, nil
 	}
 	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
-	ph := make([]string, len(folders))
-	args := make([]any, len(folders))
-	for i, f := range folders {
-		ph[i] = "?"
-		args[i] = f
-	}
-	in := strings.Join(ph, ",")
 
-	type cost struct{ tokens, cents int }
-	costMap := map[string]cost{}
-	costRows, err := d.adminDB().Query(
-		`SELECT folder,
-		        COALESCE(SUM(input_tokens+output_tokens),0),
-		        COALESCE(SUM(cost_cents),0)
-		 FROM cost_log
-		 WHERE folder IN (`+in+`) AND recorded_at >= ?
-		 GROUP BY folder`,
-		append(args, cutoff)...)
-	if err != nil {
-		return nil, err
-	}
-	defer costRows.Close()
-	for costRows.Next() {
-		var folder string
-		var tok, cents int
-		if err := costRows.Scan(&folder, &tok, &cents); err != nil {
+	costMap := map[string]usageCost{}
+	msgMap := map[string]usageMsg{}
+	for start := 0; start < len(folders); start += usageBulkBatch {
+		batch := folders[start:min(start+usageBulkBatch, len(folders))]
+		if err := d.groupUsageBulkBatch(batch, cutoff, costMap, msgMap); err != nil {
 			return nil, err
 		}
-		costMap[folder] = cost{tok, cents}
-	}
-	if err := costRows.Err(); err != nil {
-		return nil, err
-	}
-
-	type msg struct {
-		cnt    int
-		lastTS string
-	}
-	msgMap := map[string]msg{}
-	msgRows, err := d.adminDB().Query(
-		`SELECT routed_to, COUNT(*), COALESCE(MAX(timestamp),'')
-		 FROM messages
-		 WHERE routed_to IN (`+in+`)
-		 GROUP BY routed_to`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer msgRows.Close()
-	for msgRows.Next() {
-		var folder, lastTS string
-		var cnt int
-		if err := msgRows.Scan(&folder, &cnt, &lastTS); err != nil {
-			return nil, err
-		}
-		msgMap[folder] = msg{cnt, lastTS}
-	}
-	if err := msgRows.Err(); err != nil {
-		return nil, err
 	}
 
 	out := make([]groupUsage, len(folders))
@@ -189,6 +153,61 @@ func (d *dash) groupUsageBulk(folders []string) ([]groupUsage, error) {
 		}
 	}
 	return out, nil
+}
+
+// groupUsageBulkBatch runs the cost_log + messages aggregation for one
+// IN-list-sized batch of folders, merging results into the caller's maps.
+func (d *dash) groupUsageBulkBatch(batch []string, cutoff string, costMap map[string]usageCost, msgMap map[string]usageMsg) error {
+	ph := make([]string, len(batch))
+	args := make([]any, len(batch))
+	for i, f := range batch {
+		ph[i] = "?"
+		args[i] = f
+	}
+	in := strings.Join(ph, ",")
+
+	costRows, err := d.adminDB().Query(
+		`SELECT folder,
+		        COALESCE(SUM(input_tokens+output_tokens),0),
+		        COALESCE(SUM(cost_cents),0)
+		 FROM cost_log
+		 WHERE folder IN (`+in+`) AND recorded_at >= ?
+		 GROUP BY folder`,
+		append(args, cutoff)...)
+	if err != nil {
+		return err
+	}
+	defer costRows.Close()
+	for costRows.Next() {
+		var folder string
+		var tok, cents int
+		if err := costRows.Scan(&folder, &tok, &cents); err != nil {
+			return err
+		}
+		costMap[folder] = usageCost{tok, cents}
+	}
+	if err := costRows.Err(); err != nil {
+		return err
+	}
+
+	msgRows, err := d.adminDB().Query(
+		`SELECT routed_to, COUNT(*), COALESCE(MAX(timestamp),'')
+		 FROM messages
+		 WHERE routed_to IN (`+in+`)
+		 GROUP BY routed_to`, args...)
+	if err != nil {
+		return err
+	}
+	defer msgRows.Close()
+	for msgRows.Next() {
+		var folder, lastTS string
+		var cnt int
+		if err := msgRows.Scan(&folder, &cnt, &lastTS); err != nil {
+			return err
+		}
+		msgMap[folder] = usageMsg{cnt, lastTS}
+	}
+	return msgRows.Err()
 }
 
 // usageVolumeTable renders the 7-day daily human-message count from routd.db.
