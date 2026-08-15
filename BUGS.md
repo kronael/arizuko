@@ -1553,7 +1553,7 @@ acl`; `setfacl -m u:1000:r …`) if the host gains other users; (2) if onvos's
   its own uid-1000 copy. Keeps operator creds untouched, survives host-side
   rewrites, no world-read. Redesign of the codex mount → record + sign-off.
 
-## Onboarding recurs as a manual operator chore — new chat → route-miss → silence → hand-run `arizuko group add` (2026-07-12, OPEN, HIGH)
+## ✅ FIXED 2026-08-15 (re-verified) — Onboarding recurs as a manual operator chore — new chat → route-miss → silence → hand-run `arizuko group add` (2026-07-12)
 
 This keeps popping up. Live datapoint: Nikol (`telegram:user/8177590051`) sent
 `/start` + a question at 08:01 2026-07-12 on krons, hit a route-miss, got NO
@@ -1590,9 +1590,15 @@ pre-fix queue path (WaitForRow timeout — no onboarding row), green after.
 
 - **Severity:** high (every new user needs manual operator intervention today)
 - **Scope:** routd/loop.go onboarding branch; gateway `/chatid`; e2e/anteval
-- **Status:** fixed 9fcb0bce (onboarding) + 5f102e0d (/chatid) + 03b6949c
-  (e2e) (2026-07-12). NOT yet deployed — ships with the next krons image
-  build + restart.
+- **Status:** FIXED, re-verified 2026-08-15 at `131b069d`+merge-to-`fb152e98`.
+  `routd/loop.go:602 routeMiss` is still the single shared handler
+  (`InsertOnboarding` at `:639`, fail-loud on error), `/chatid` still
+  intercepted pre-resolution. `go test ./routd/... -run
+  'TestRouteMissChatID|TestRouteMissOnboardingFailureSurfaces'` and
+  `go test ./tests/... -run TestOnboardingEndToEnd` all PASS. Deploy is a
+  live-instance action (`sudo systemctl restart arizuko_<instance>`), out
+  of repo scope — OPERATOR: confirm krons is on an image built after
+  9fcb0bce/5f102e0d/03b6949c.
 
 ## Admin cannot log in to the krons dashboard (2026-07-12, OPEN, HIGH — needs root-cause)
 
