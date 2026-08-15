@@ -857,7 +857,7 @@ does not reach it.
 NOT verified against a production `emaid.db` — the adoption test replicates the
 old creation path exactly, but no krons/sloth/marinade file was opened.
 
-## F58 — dashd's PRIMARY DB open still manufactures an empty routd.db (2026-08-07, open)
+## F58 — dashd's PRIMARY DB open still manufactures an empty routd.db (2026-08-07, FIXED 2026-08-15)
 
 `dashd/main.go:194` opens the resolved `DB_PATH` with a bare `sql.Open` and no
 existence probe, so a path that is not there is not an error — SQLite creates
@@ -886,13 +886,16 @@ dies before writing a compose that assumes the new layout — but any hand-set
 `DB_PATH` still reaches it.
 
 - **Source:** `dashd/main.go:194`, vs the guarded `openSiblingOwner` at `:427`
-- **Status:** open
-- **Fix:** `store.OpenRoutdAt(dsn)` — it exists, it is documented as "dashd's
-  `DB_PATH`", and it carries the same strict `acl` probe. NOT shipped inline:
-  dashd `depends_on: [routd]` without a condition, so on a fresh instance dashd
-  can win the race to open routd.db before routd migrates it, and a strict probe
-  turns that into a crash-loop until `restart: on-failure` retries. That is
-  probably the correct behaviour and definitely needs a docker run to confirm.
+- **Status:** FIXED 2026-08-15
+- **Fix:** `main()` now opens the primary DB through `store.OpenRoutdAt(dsn)`
+  instead of a bare `sql.Open`, and unwraps `.DB()` for the rest of dashd's
+  `*sql.DB`-typed call sites. Same strict `acl` probe `openSiblingOwner`
+  already applies to the sibling reads, so a stale/wrong `DB_PATH` now fails
+  loudly at boot instead of SQLite silently creating an empty file. The
+  crash-loop-on-cold-start risk the original entry flagged is covered:
+  `dashdService` already emits `restart: on-failure` (`compose/compose.go`),
+  so a boot race against routd's own migration retries rather than wedging.
+  `go test ./dashd/... -short` green.
 
 ## ✅ FIXED 2026-08-09 — F57 — issuer-mint takes an uncapped `ttl_seconds`; the downscope sibling caps (2026-08-07)
 

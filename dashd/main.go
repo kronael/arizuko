@@ -195,11 +195,16 @@ func main() {
 		accentOverride = v
 	}
 
-	dbRoutd, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
+	// store.OpenRoutdAt probes for the `acl` table so a stale/wrong DB_PATH
+	// fails loudly at boot instead of SQLite silently creating an empty
+	// routd.db (BUGS F58) — the same guard openSiblingOwner already applies
+	// to dashd's onbod/runed reads.
+	routdStore, err := store.OpenRoutdAt(dsn)
 	if err != nil {
 		slog.Error("open db", "err", err)
 		os.Exit(1)
 	}
+	dbRoutd := routdStore.DB()
 	defer dbRoutd.Close()
 
 	slog.Info("dashd started", "db", dsn, "port", port)
