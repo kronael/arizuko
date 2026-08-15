@@ -319,8 +319,8 @@ func TestMessagesSinceTopic(t *testing.T) {
 		})
 	}
 
-	// After first message
-	got, err := s.MessagesSinceTopic("main", "tp1", now.Add(30*time.Second), 10)
+	// After first message — keyed by the chat JID verbatim (BUGS L30).
+	got, err := s.MessagesSinceTopic("web:main", "tp1", now.Add(30*time.Second), 10)
 	if err != nil {
 		t.Fatal(err)
 	}

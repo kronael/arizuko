@@ -294,13 +294,14 @@ func (l *Loop) StopQueue() {
 	}
 }
 
-// publishRoundDone fans a closed-turn notice to the web SSE channel. The
-// turns.go /result handler calls it on the first terminal signal.
-func (l *Loop) publishRoundDone(folder, turnID string) {
+// publishRoundDone fans a closed-turn notice to the web SSE channel, keyed on
+// the chat JID verbatim. The turns.go /result handler calls it on the first
+// terminal signal.
+func (l *Loop) publishRoundDone(chatJID, turnID string) {
 	if l == nil || l.deliver == nil {
 		return
 	}
-	_ = l.deliver.RoundDone(folder, turnID, "success", "")
+	_ = l.deliver.RoundDone(chatJID, turnID, "success", "")
 }
 
 // Run drives the poll loop until ctx is cancelled. On start it re-feeds

@@ -287,9 +287,10 @@ func (h *HTTPChannel) Typing(jid string, on bool) error {
 }
 
 // PostRoundDone signals the channel that the agent's run for turnID has closed.
+// chatJID is the turn's chat JID verbatim (the SSE hub key, BUGS L30).
 // 404 is treated as "channel doesn't implement round-handle protocol" — not an error.
-func (h *HTTPChannel) PostRoundDone(folder, turnID, status, errMsg string) error {
-	body := map[string]string{"folder": folder, "turn_id": turnID, "status": status}
+func (h *HTTPChannel) PostRoundDone(chatJID, turnID, status, errMsg string) error {
+	body := map[string]string{"chat_jid": chatJID, "turn_id": turnID, "status": status}
 	if errMsg != "" {
 		body["error"] = errMsg
 	}

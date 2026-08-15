@@ -352,8 +352,7 @@ func (s *Store) MessageTimestampByID(id, jid string) (time.Time, bool) {
 	return t, err == nil
 }
 
-func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit int) ([]core.Message, error) {
-	jid := "web:" + folder
+func (s *Store) MessagesSinceTopic(jid, topic string, after time.Time, limit int) ([]core.Message, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}

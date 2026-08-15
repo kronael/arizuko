@@ -130,13 +130,16 @@ func TestHub_Concurrent(t *testing.T) {
 	wg.Wait()
 }
 
-// GET /chat/stream without auth (no user sig, no slink sig) → 403.
+// GET /chat/stream with a valid token but no auth (no user sig, no chat
+// transit) → 403.
 func TestSlinkStream_Forbidden(t *testing.T) {
-	s, _, _ := newTestServer(t)
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "main", "Main")
+	tok := seedChatToken(t, st, "main")
 	srv := httptest.NewServer(s.handler())
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/chat/stream?group=main&topic=t")
+	resp, err := http.Get(srv.URL + "/chat/stream?token=" + tok + "&topic=t")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -146,7 +149,7 @@ func TestSlinkStream_Forbidden(t *testing.T) {
 	}
 }
 
-// GET /chat/stream missing group/topic → 400.
+// GET /chat/stream missing topic → 400; missing/unknown token → 404.
 func TestSlinkStream_MissingParams(t *testing.T) {
 	s, _, _ := newTestServer(t)
 	srv := httptest.NewServer(s.handler())
@@ -156,9 +159,18 @@ func TestSlinkStream_MissingParams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	defer resp.Body.Close()
+	resp.Body.Close()
 	if resp.StatusCode != 400 {
-		t.Fatalf("status = %d, want 400", resp.StatusCode)
+		t.Fatalf("no topic: status = %d, want 400", resp.StatusCode)
+	}
+
+	resp, err = http.Get(srv.URL + "/chat/stream?topic=t")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Fatalf("no token: status = %d, want 404", resp.StatusCode)
 	}
 }
 
@@ -169,7 +181,7 @@ func TestSlinkStream_TopicTooLong(t *testing.T) {
 	defer srv.Close()
 
 	topic := strings.Repeat("x", maxTopicLen+1)
-	resp, err := http.Get(srv.URL + "/chat/stream?group=main&topic=" + topic)
+	resp, err := http.Get(srv.URL + "/chat/stream?topic=" + topic)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -179,18 +191,19 @@ func TestSlinkStream_TopicTooLong(t *testing.T) {
 	}
 }
 
-// GET /chat/stream with slink signature streams events for the folder.
+// GET /chat/stream with chat transit streams events keyed on the token's JID.
 func TestSlinkStream_SlinkSigOK(t *testing.T) {
 	s, _, st := newTestServer(t)
 	_ = seedGroup(t, st, "main", "Main")
+	tok := seedChatToken(t, st, "main")
 	srv := httptest.NewServer(s.handler())
 	defer srv.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET",
-		srv.URL+"/chat/stream?group=main&topic=tt", nil)
-	for k, v := range signChatHeaders("test-tok", "main") {
+		srv.URL+"/chat/stream?token="+tok+"&topic=tt", nil)
+	for k, v := range signChatHeaders(tok, "main") {
 		req.Header.Set(k, v)
 	}
 	resp, err := http.DefaultClient.Do(req)
@@ -207,7 +220,7 @@ func TestSlinkStream_SlinkSigOK(t *testing.T) {
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		s.hub.publish("main", "tt", "message", `{"role":"assistant","id":"b1"}`)
+		s.hub.publish("web:main", "tt", "message", `{"role":"assistant","id":"b1"}`)
 	}()
 
 	r := bufio.NewReader(resp.Body)
@@ -231,10 +244,11 @@ func TestSlinkStream_SlinkSigOK(t *testing.T) {
 	}
 }
 
-// GET /chat/stream with user-sig auth + grant for folder also works.
+// GET /chat/stream with user-sig auth + grant for the token's folder also works.
 func TestSlinkStream_UserSigOK(t *testing.T) {
 	s, _, st := newTestServer(t)
 	seedGroup(t, st, "main", "Main")
+	tok := seedChatToken(t, st, "main")
 	srv := httptest.NewServer(s.handler())
 	defer srv.Close()
 
@@ -242,7 +256,7 @@ func TestSlinkStream_UserSigOK(t *testing.T) {
 	defer cancel()
 	groups, _ := json.Marshal([]string{"main"})
 	req, _ := http.NewRequestWithContext(ctx, "GET",
-		srv.URL+"/chat/stream?group=main&topic=tt2", nil)
+		srv.URL+"/chat/stream?token="+tok+"&topic=tt2", nil)
 	for k, v := range signUserHeaders(map[string]string{
 		"X-User-Sub":    "user:alice",
 		"X-User-Name":   "Alice",
@@ -264,6 +278,7 @@ func TestSlinkStream_UserSigOK(t *testing.T) {
 func TestSlinkStream_Replay(t *testing.T) {
 	s, _, st := newTestServer(t)
 	_ = seedGroup(t, st, "main", "Main")
+	tok := seedChatToken(t, st, "main")
 
 	now := time.Now()
 	// Anchor — the one the client already saw.
@@ -287,8 +302,8 @@ func TestSlinkStream_Replay(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET",
-		srv.URL+"/chat/stream?group=main&topic=tt-replay", nil)
-	for k, v := range signChatHeaders("test-tok", "main") {
+		srv.URL+"/chat/stream?token="+tok+"&topic=tt-replay", nil)
+	for k, v := range signChatHeaders(tok, "main") {
 		req.Header.Set(k, v)
 	}
 	req.Header.Set("Last-Event-Id", "anchor")

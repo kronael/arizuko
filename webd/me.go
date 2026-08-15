@@ -328,7 +328,9 @@ func (s *server) handleMeSSE(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many subscriptions", http.StatusServiceUnavailable)
 		return
 	}
-	ch, unsub := s.hub.subscribe(folder, topic)
+	// Panel chats live on the "web:"+folder JID (handleMeSend mints exactly
+	// that); the hub key is the chat JID verbatim.
+	ch, unsub := s.hub.subscribe("web:"+folder, topic)
 	defer unsub()
 	serveSSE(w, r, ch)
 }

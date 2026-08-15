@@ -725,7 +725,10 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 				"folder", tc.Folder, "turn_id", turnID, "err", err)
 		}
 		if s.loop != nil {
-			s.loop.publishRoundDone(strings.TrimPrefix(tc.ChatJID, "web:"), turnID)
+			// The chat JID travels VERBATIM — webd's hub keys on it as-is. A
+			// TrimPrefix here left hook: chats keyed differently on each end
+			// and hung every suffixed widget (BUGS L30).
+			s.loop.publishRoundDone(tc.ChatJID, turnID)
 		}
 	}
 	return first, nil

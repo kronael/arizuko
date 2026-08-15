@@ -23,7 +23,7 @@ const chatMCPWaitCap = 5 * time.Minute
 // route_tokens row is accepted; kind metadata is for the agent only.
 // Spec 5/W.
 func (s *server) handleChatTokenMCP(w http.ResponseWriter, r *http.Request) {
-	row, ok := s.lookupRouteToken(w, r)
+	row, ok := s.lookupRouteToken(w, r, r.PathValue("token"))
 	if !ok {
 		return
 	}
@@ -95,7 +95,7 @@ func (s *server) buildChatTokenMCP(jid, folder, token, linkContext string) *mcps
 		if topic == "" {
 			return roundSnapshot(turnID, info.Status, frames, false), nil
 		}
-		ch, unsub := s.hub.subscribe(folder, topic)
+		ch, unsub := s.hub.subscribe(jid, topic)
 		defer unsub()
 
 		frames = s.collectRoundFrames(jid, turnID, after)

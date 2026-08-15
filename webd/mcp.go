@@ -112,7 +112,7 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 			"sender":     name,
 			"created_at": ts.Format(time.RFC3339),
 		})
-		s.hub.publish(g.Folder, topic, "message", string(payload))
+		s.hub.publish(jid, topic, "message", string(payload))
 		out, _ := json.Marshal(map[string]any{"id": id, "topic": topic, "folder": g.Folder})
 		return mcp.NewToolResultText(string(out)), nil
 	})

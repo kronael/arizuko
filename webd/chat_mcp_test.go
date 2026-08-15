@@ -351,7 +351,8 @@ func TestSlinkMCP_GetRound_Wait(t *testing.T) {
 
 	go func() {
 		time.Sleep(80 * time.Millisecond)
-		s.hub.publish(g.Folder, "round-4", "message",
+		// The hub keys on the chat JID verbatim (the token's JID).
+		s.hub.publish("web:"+g.Folder, "round-4", "message",
 			`{"id":"bot-r4","role":"assistant","content":"yes","created_at":"2026-05-01T00:00:00Z"}`)
 	}()
 
