@@ -52,6 +52,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 > • whapd stops reporting a WhatsApp send it never made; a rate limit now reaches you instead of silence
 > • Products carry their own live tests, run by arizuko's own eval harness
 > • A product may no longer ship payloads nothing reads — they refuse instead of applying silently
+> • Slack and Discord retain an inbound routd rejected, so a deploy no longer drops it
+> • A dead-lettered message is readable and replayable instead of only countable
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
