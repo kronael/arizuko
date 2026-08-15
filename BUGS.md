@@ -2433,7 +2433,7 @@ away (profile page). CTO audit criterion: auth trust signal always on screen.
 - **Status:** resolved — name + ◆ operator badge added to nav as profile link (2026-06-16)
 - **Fix:** `dashNavFor` identity badge using X-User-Name/X-User-Sub + operator flag
 
-## `arizuko apply`/`plan`/`export`/`get` operate on the frozen messages.db post-split (2026-07-01, open)
+## ✅ FIXED 2026-08-15 — `arizuko apply`/`plan`/`export`/`get` operate on the frozen messages.db post-split (2026-07-01)
 
 The resreg YAML-manifest CLI (`cmd/arizuko/apply.go`) opens `store.Open(dataDir+"/store")`
 = **messages.db** and drives `resreg.Apply`/`Plan`/`Export`/`ConfigVersion` against it. But
@@ -2464,6 +2464,18 @@ metadata belongs in a dump.
   `config_meta` remains an orphan in messages.db, so the CAS counter has no owner-DB home;
   (2) the 5/8 token-exclusion gap — `resreg.Export` still scans every RowType including the
   raw invite `Token`, which now that the repoint has landed means a live-token export.
+
+  **Closed 2026-08-15** — both STILL OPEN items are now resolved, independently of this
+  entry: (1) the CAS mechanism was redesigned to a content-hash `Checksum` (recomputed
+  fresh from live rows, `resreg/engine.go:707`, doc comment "without a config_meta
+  table") — `cmd/arizuko/apply.go` calls `resreg.Checksum`, not `ConfigVersion`/
+  `config_meta`, so the orphan table is unused dead schema, not a functional gap.
+  (2) migration `store/migrations/0077-invites-hash-at-rest.sql` (I1) rekeyed
+  `invites` from a plaintext `token` PRIMARY KEY to `ref` (`hex(sha256(token))`);
+  `InvitesRow` (`resreg/resources/invites.go:23-30`) has no `Token` field at all —
+  "the raw bearer is never persisted, so there is no token field to leak here even
+  by omission-bug." `resreg.Export`/`GetResource` scan `RowType` verbatim, so there
+  is nothing left to leak. `go test ./cmd/arizuko/... ./resreg/...`: all `ok`.
 
 ## Product PRODUCT.md manifests declare a non-existent `facts` skill (2026-07-09, OPEN)
 
