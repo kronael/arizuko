@@ -2134,7 +2134,7 @@ missing destination. The shell loop also has no per-destination success state.
 - **Status:** open
 - **Fix:**
 
-## A3 — Announcement target discovery reads an unscoped, truncated route table (2026-07-15, open)
+## A3 — Announcement target discovery reads an unscoped, truncated route table (FIXED 2026-08-15, b0ee06c7)
 
 `inspect_routing` asks `ListRoutes(folder,isRoot)` but routd's production
 closure ignores both arguments, swallows the DB error, and returns the whole
