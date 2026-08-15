@@ -115,10 +115,9 @@ func Open(dir string) (*Store, error) {
 // *Store WITHOUT running store's migrations — routd owns that file and already
 // created its tables (acl/secrets/tasks/pane via routd's own migration set).
 // The host-admin CLI (arizuko grant/secret/user-secret) writes acl + secrets
-// here in the split topology instead of opening messages.db, since those tables
-// now live in routd.db (spec 5/5 § Daemon ownership). Strict: errors if routd.db
-// has no acl table (routd never booted to migrate it) rather than silently
-// creating a divergent schema.
+// here (spec 5/5 § Daemon ownership). Strict: errors if routd.db has no acl
+// table (routd never booted to migrate it) rather than silently creating a
+// divergent schema.
 func OpenRoutd(dir string) (*Store, error) {
 	return OpenRoutdAt(OwnerDBPath(dir, OwnerRoutd))
 }
@@ -133,10 +132,9 @@ func OpenRoutdAt(path string) (*Store, error) {
 // *Store WITHOUT running store's migrations — onbod owns that file and already
 // created its tables (onboarding/invites/onboarding_gates + audit_log via
 // onbod's own migration set). The host-admin CLI (arizuko invite/gate) and the
-// FS-mounted dashd write invites + gates here in the split topology instead of
-// opening messages.db, since those tables now live in onbod.db (spec 5/5
-// § Daemon ownership). Strict: errors if onbod.db has no invites table (onbod
-// never booted to migrate it) rather than silently creating a divergent schema.
+// FS-mounted dashd write invites + gates here (spec 5/5 § Daemon ownership).
+// Strict: errors if onbod.db has no invites table (onbod never booted to
+// migrate it) rather than silently creating a divergent schema.
 func OpenOnbod(dir string) (*Store, error) {
 	return OpenOnbodAt(OwnerDBPath(dir, OwnerOnbod))
 }

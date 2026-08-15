@@ -237,7 +237,6 @@ func TestMessagesFTS_Bulk(t *testing.T) {
 	if len(out) != 20 {
 		t.Errorf("bulk hits = %d, want 20", len(out))
 	}
-	// All snippets should carry the highlight.
 	for _, o := range out {
 		if !strings.Contains(o.Content, "«keyword»") {
 			t.Errorf("missing highlight: %q", o.Content)

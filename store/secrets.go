@@ -427,14 +427,12 @@ func (s *Store) ExportSecretRows(ctx context.Context) ([]ArchiveSecretRow, error
 // ValidateAndImportSecrets validates EVERY row's blob against the configured
 // keyring BEFORE writing any of them, then UPSERTs by (scope_kind, scope_id,
 // key) — never DELETE+INSERT, matching secrets' existing SkipApplyRebuild
-// discipline (spec 5/8 "Secret and token values": "One DB can hold blobs
-// sealed under different retired keys... a single probe row proves nothing
-// about the rest"). Refuses the WHOLE batch on the first validation failure,
-// naming the failing (scope_kind, scope_id, key) without echoing the value —
-// no row is written when any row fails. Uses the existing package-private
-// open() (the keyring probe SetSecret/GetSecret already rely on); no new
-// decrypt surface is exported — the plaintext this returns internally is
-// discarded immediately, never returned to the caller.
+// discipline (spec 5/8 "Secret and token values": one DB can hold blobs sealed
+// under different retired keys, so a single probe row proves nothing about the
+// rest). Refuses the WHOLE batch on the first validation failure, naming the
+// failing (scope_kind, scope_id, key) without echoing the value — no row is
+// written when any row fails. The plaintext open() yields here is discarded
+// immediately; no new decrypt surface is exported.
 func (s *Store) ValidateAndImportSecrets(ctx context.Context, rows []ArchiveSecretRow) (int, error) {
 	for _, r := range rows {
 		if _, err := s.open(r.Value); err != nil {

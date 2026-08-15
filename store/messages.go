@@ -370,9 +370,8 @@ func (s *Store) MessagesSinceTopic(folder, topic string, after time.Time, limit 
 	return collectMessages(rows)
 }
 
-// MarkMessagesObserved sets is_observed=1 and routed_to=folder for the
-// given message IDs. Called by the gateway poll loop when the resolved
-// route target is `folder#observe`.
+// MarkMessagesObserved records ids as ambient context for folder — the poll
+// loop calls it when the resolved route target is `folder#observe`.
 func (s *Store) MarkMessagesObserved(folder string, ids []string) error {
 	if len(ids) == 0 {
 		return nil
@@ -391,10 +390,9 @@ func (s *Store) MarkMessagesObserved(folder string, ids []string) error {
 // ObservedSince returns the trailing window of observed messages for
 // folder whose timestamp is strictly greater than cursor (RFC3339Nano
 // UTC). Empty cursor means "no lower bound; let the window cap
-// decide" — same shape as the old ObservedTail. Capped by maxMsgs
-// and maxChars; older messages drop first when the char cap binds.
-// Per spec 6/F, the gateway advances the topic's observed_cursor to
-// the youngest message's timestamp after rendering.
+// decide". Capped by maxMsgs and maxChars; older messages drop first
+// when the char cap binds. Per spec 6/F, the caller advances the topic's
+// observed_cursor to the youngest message's timestamp after rendering.
 func (s *Store) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []core.Message {
 	if maxMsgs <= 0 || maxChars <= 0 {
 		return nil
@@ -405,9 +403,6 @@ func (s *Store) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []co
 	// messages (is_observed=0) as additional ambient context for the observer.
 	watched := s.WatchedSources(folder)
 
-	// Build a UNION of two shapes:
-	//   (a) is_observed=1 rows routed to folder or open siblings
-	//   (b) is_observed=0 rows routed to watched sources (primary delivery to another folder)
 	observed := append([]string{folder}, siblings...)
 	observedPH := "?" + strings.Repeat(",?", len(observed)-1)
 	args := make([]any, 0, len(observed)+len(watched)+3)
@@ -464,8 +459,6 @@ func (s *Store) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []co
 	if err != nil {
 		return nil
 	}
-	// Take the youngest messages whose cumulative chars fit under
-	// maxChars, then reverse to ascending.
 	chars := 0
 	cut := 0
 	for i, m := range rev {
@@ -541,9 +534,8 @@ func (s *Store) BumpEngagement(jid, topic, folder string, until time.Time) error
 	return err
 }
 
-// SetEngagement is the legacy entrypoint for the mention write site
-// (api.handleMessage) and engage/disengage MCP tools. Identical to
-// BumpEngagement; kept under this name because tests + callers reference it.
+// SetEngagement is BumpEngagement under the name the mention write site and
+// the engage/disengage MCP tools call it by.
 func (s *Store) SetEngagement(jid, topic, folder string, until time.Time) error {
 	return s.BumpEngagement(jid, topic, folder, until)
 }

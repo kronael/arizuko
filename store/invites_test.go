@@ -105,7 +105,6 @@ func TestConsumeInviteHappyPath(t *testing.T) {
 		t.Errorf("used_count = %d, want 1", got.UsedCount)
 	}
 
-	// acl admin row inserted (replaces legacy user_groups row).
 	var n int
 	s.db.QueryRow(`SELECT COUNT(*) FROM acl WHERE principal=? AND action='admin' AND scope=?`,
 		"github:bob", "alice").Scan(&n)
@@ -115,8 +114,8 @@ func TestConsumeInviteHappyPath(t *testing.T) {
 }
 
 // ConsumeInviteNoGrant (the split twin) increments used_count + audits but does
-// NOT write the acl grant — acl is routd-OWNED in the split, so onbod writes it
-// to routd.db separately.
+// NOT write the acl grant — acl is routd-OWNED, so onbod writes it to routd.db
+// separately.
 func TestConsumeInviteNoGrantSkipsACL(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()

@@ -44,11 +44,8 @@ func (s *Store) InsertOnboarding(jid string) error {
 // all route through it) and onbod's openOwnedDB — every opener that runs the
 // onboarding migrations also runs this.
 //
-// It carried the pre-Z3 plaintext `token` forward as hex(sha256) so already-sent
-// /onboard?token=<raw> links kept resolving. That stopped buying anything at the
-// 5/31 fold, which deleted every reader of the ref, and onbod 0006 drops the
-// column outright — so the token columns are no longer named here at all
-// (naming them would fail outright against the post-0006 schema, BUGS F40).
+// The token columns are deliberately NOT named here: onbod 0006 drops them, so
+// naming them would fail outright against the post-0006 schema (BUGS F40).
 func CarryOnboardingLegacy(db *sql.DB) error {
 	var exists int
 	err := db.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='onboarding_legacy'`).Scan(&exists)
@@ -276,9 +273,9 @@ func (s *Store) DenyOnboarding(jid string) error {
 // BUGS O1 describes. The pairing edge is untouched; it is the user's consent,
 // not admission state, and the observer re-reads it on the next tick.
 //
-// It survives the fold as the operator's cooldown BYPASS. The cooldown in
-// InsertOnboarding is the routine reprompt; this is the button for a chat that
-// is not messaging again on its own.
+// It is the operator's cooldown BYPASS: the cooldown in InsertOnboarding is the
+// routine reprompt; this is the button for a chat that is not messaging again on
+// its own.
 func (s *Store) RepromptOnboarding(jid string) error {
 	_, err := s.db.Exec(
 		`UPDATE onboarding

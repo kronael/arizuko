@@ -40,7 +40,6 @@ func TestFlushSysMsgs_AllPresent(t *testing.T) {
 		}
 	}
 
-	// Table should be empty after flush
 	xml2 := s.FlushSysMsgs("main")
 	if xml2 != "" {
 		t.Errorf("expected empty after flush, got %q", xml2)
@@ -62,7 +61,6 @@ func TestFlushSysMsgs_IsolatesFolder(t *testing.T) {
 		t.Errorf("alpha: expected 1 tag, got %d", count)
 	}
 
-	// beta should still have its message
 	xml = s.FlushSysMsgs("beta")
 	if count := strings.Count(xml, "<system "); count != 1 {
 		t.Errorf("beta: expected 1 tag, got %d", count)
@@ -244,7 +242,6 @@ func TestForkTopic_ErrExistsNoForce(t *testing.T) {
 	if !errors.Is(err, core.ErrTopicExists) {
 		t.Errorf("err = %v, want ErrTopicExists", err)
 	}
-	// Confirm session_id was not overwritten.
 	sid, _ := s.GetSession("main", "#deploy")
 	if sid != "uuid-a" {
 		t.Errorf("session id changed: %q, want uuid-a", sid)

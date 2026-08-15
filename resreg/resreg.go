@@ -504,7 +504,6 @@ func rowMCPArgsFor(r Resource, action Action) []MCPArg {
 	return args
 }
 
-// nameSet turns a list of Go field names into a membership set.
 func nameSet(names []string) map[string]bool {
 	m := make(map[string]bool, len(names))
 	for _, n := range names {
@@ -513,8 +512,6 @@ func nameSet(names []string) map[string]bool {
 	return m
 }
 
-// kindToMCPType maps a Go type to an MCPArg type string
-// ("string"|"number"|"bool"|"array").
 func kindToMCPType(t reflect.Type) string {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()

@@ -172,8 +172,6 @@ func (r *Resource) initMeta() {
 	r.meta = m
 }
 
-// newRowPtr returns a freshly-allocated pointer to a row, used by Scan
-// loops and parse paths.
 func (r *Resource) newRowPtr() reflect.Value {
 	return reflect.New(r.meta.rowType)
 }
@@ -1030,7 +1028,6 @@ func (r *Resource) scopeFilter(manifestRows any) map[string]bool {
 	return set
 }
 
-// rowScope returns a live row's scope-column value as a string.
 func (r *Resource) rowScope(v reflect.Value) string {
 	return fmt.Sprintf("%v", v.Field(r.meta.scopeField.idx).Interface())
 }

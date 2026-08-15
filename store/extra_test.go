@@ -7,10 +7,6 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// ---------------------------------------------------------------------------
-// folderAncestors (pure)
-// ---------------------------------------------------------------------------
-
 func TestFolderAncestors(t *testing.T) {
 	cases := []struct {
 		folder string
@@ -35,10 +31,6 @@ func TestFolderAncestors(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// MessageByID
-// ---------------------------------------------------------------------------
 
 func TestMessageByID_Found(t *testing.T) {
 	s, _ := OpenMem()
@@ -77,10 +69,6 @@ func TestMessageByID_EmptyID(t *testing.T) {
 		t.Fatal("empty id should return not found")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// IsBotMessageByID
-// ---------------------------------------------------------------------------
 
 func TestIsBotMessageByID_BotMsg(t *testing.T) {
 	s, _ := OpenMem()
@@ -132,10 +120,6 @@ func TestIsBotMessageByID_EmptyID(t *testing.T) {
 		t.Error("empty id should return false")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// MarkMessagesObserved / ObservedSince
-// ---------------------------------------------------------------------------
 
 func TestMarkMessagesObserved_AndObservedSince(t *testing.T) {
 	s, _ := OpenMem()
@@ -214,10 +198,6 @@ func TestObservedSince_ZeroLimitsReturnNil(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// MessagesBefore
-// ---------------------------------------------------------------------------
-
 func TestMessagesBefore_OrderAscending(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
@@ -266,10 +246,6 @@ func TestMessagesBefore_BeforeCutsOff(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// LatestSource
-// ---------------------------------------------------------------------------
-
 func TestLatestSource(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
@@ -299,10 +275,6 @@ func TestLatestSource_MissingJID(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Topics / MessagesSinceTopic
-// ---------------------------------------------------------------------------
-
 func TestTopics_GroupByTopic(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
@@ -324,7 +296,6 @@ func TestTopics_GroupByTopic(t *testing.T) {
 	if len(topics) != 2 {
 		t.Fatalf("expected 2 topics, got %d", len(topics))
 	}
-	// t1 should have 2 messages
 	var t1cnt int
 	for _, tp := range topics {
 		if tp.ID == "t1" {
@@ -361,10 +332,6 @@ func TestMessagesSinceTopic(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// RoutedToByMessageID
-// ---------------------------------------------------------------------------
-
 func TestRoutedToByMessageID(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
@@ -382,10 +349,6 @@ func TestRoutedToByMessageID(t *testing.T) {
 		t.Errorf("missing id: got %q, want empty", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// HasPendingMessages
-// ---------------------------------------------------------------------------
 
 func TestHasPendingMessages(t *testing.T) {
 	s, _ := OpenMem()
@@ -405,16 +368,11 @@ func TestHasPendingMessages(t *testing.T) {
 		t.Fatal("should have pending messages after PutMessage")
 	}
 
-	// Bot messages don't count
 	s.SetAgentCursor(jid, now.Add(time.Second))
 	if s.HasPendingMessages(jid, "Bot") {
 		t.Fatal("advancing cursor should clear pending")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// SetLastReply — empty replyID preserves existing value
-// ---------------------------------------------------------------------------
 
 func TestSetLastReply_EmptyReplyIDPreservesExisting(t *testing.T) {
 	s, _ := OpenMem()
@@ -423,7 +381,6 @@ func TestSetLastReply_EmptyReplyIDPreservesExisting(t *testing.T) {
 	if err := s.SetLastReply("jid1", "", "rid-1", "folderA"); err != nil {
 		t.Fatal(err)
 	}
-	// Second call with empty replyID must not overwrite rid-1
 	if err := s.SetLastReply("jid1", "", "", "folderA"); err != nil {
 		t.Fatal(err)
 	}
@@ -431,10 +388,6 @@ func TestSetLastReply_EmptyReplyIDPreservesExisting(t *testing.T) {
 		t.Errorf("last_reply_id = %q, want rid-1 (preserved)", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// MarkMessagesErrored / DeleteErroredMessages
-// ---------------------------------------------------------------------------
 
 func TestMarkMessagesErrored_AndDelete(t *testing.T) {
 	s, _ := OpenMem()
@@ -465,7 +418,6 @@ func TestMarkMessagesErrored_AndDelete(t *testing.T) {
 	if n != 0 {
 		t.Errorf("errored remaining = %d, want 0", n)
 	}
-	// e3 untouched
 	s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id='e3'`).Scan(&n)
 	if n != 1 {
 		t.Error("e3 should not have been deleted")

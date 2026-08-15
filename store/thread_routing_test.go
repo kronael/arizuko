@@ -14,7 +14,6 @@ func TestMessageQueries_WithRoutedTo(t *testing.T) {
 	}
 	defer s.Close()
 
-	// Insert messages with routed_to
 	msgs := []core.Message{
 		{
 			ID:        "msg-1",
@@ -52,13 +51,11 @@ func TestMessageQueries_WithRoutedTo(t *testing.T) {
 		}
 	}
 
-	// Query should preserve routed_to
 	retrieved, err := s.MessagesSince("tg:123", time.Now().Add(-3*time.Minute), "bot")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Should get non-bot messages
 	if len(retrieved) != 2 {
 		t.Fatalf("got %d messages, want 2", len(retrieved))
 	}
@@ -79,7 +76,6 @@ func TestMessageQueries_WithTopic(t *testing.T) {
 	}
 	defer s.Close()
 
-	// Insert messages with topics
 	msgs := []core.Message{
 		{
 			ID:        "msg-1",
@@ -116,7 +112,6 @@ func TestMessageQueries_WithTopic(t *testing.T) {
 		}
 	}
 
-	// Query should preserve topic
 	retrieved, err := s.MessagesSince("tg:123", time.Now().Add(-3*time.Minute), "bot")
 	if err != nil {
 		t.Fatal(err)
@@ -277,7 +272,6 @@ func TestNewMessages_PreservesRoutedToAndTopic(t *testing.T) {
 	}
 	defer s.Close()
 
-	// Insert messages with both routed_to and topic
 	msgs := []core.Message{
 		{
 			ID:        "msg-1",
@@ -305,7 +299,6 @@ func TestNewMessages_PreservesRoutedToAndTopic(t *testing.T) {
 		}
 	}
 
-	// Query using NewMessages (multi-JID query)
 	jids := []string{"tg:123", "tg:456"}
 	retrieved, _, err := s.NewMessages(jids, time.Now().Add(-3*time.Minute), "bot")
 	if err != nil {
@@ -316,7 +309,6 @@ func TestNewMessages_PreservesRoutedToAndTopic(t *testing.T) {
 		t.Fatalf("got %d messages, want 2", len(retrieved))
 	}
 
-	// Check first message
 	if retrieved[0].Topic != "thread-1" {
 		t.Errorf("msg[0].Topic = %q, want %q", retrieved[0].Topic, "thread-1")
 	}
@@ -324,7 +316,6 @@ func TestNewMessages_PreservesRoutedToAndTopic(t *testing.T) {
 		t.Errorf("msg[0].RoutedTo = %q, want %q", retrieved[0].RoutedTo, "group-a")
 	}
 
-	// Check second message
 	if retrieved[1].Topic != "thread-2" {
 		t.Errorf("msg[1].Topic = %q, want %q", retrieved[1].Topic, "thread-2")
 	}

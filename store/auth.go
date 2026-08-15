@@ -11,7 +11,5 @@ func (s *Store) CreateAuthUser(sub, username, name string) error {
 	return err
 }
 
-// User-folder grants live in the `acl` table (post-0053). See
-// store/acl.go for `AddACLRow`, `RemoveACLRow`, `UserScopes`, `ListACL`.
-// Role / JID-claim membership lives in `acl_membership`; see
-// store/membership.go.
+// User-folder grants live in the `acl` table; see store/acl.go. Role /
+// JID-claim membership lives in `acl_membership`; see store/membership.go.
