@@ -302,7 +302,7 @@ this needs a look rather than a mechanical port.
   link answers 502 with nothing recorded and the sweep retries freely. That is
   the whole class of proven-non-delivery whapd can actually observe, and it is
   handled where it is observable.
-- **Fix:**
+- **Fix:** 44677153
 
 ## ✅ FIXED 2026-08-15 — L33 — a one-shot task's retry mints a fresh message id, so a lost response fires it twice (2026-08-15)
 
@@ -339,7 +339,7 @@ instead silently dedup a legitimately re-armed one-shot.
   A task with no `next_run` falls back to the wall-clock id. A stable-LOOKING
   id that is not actually per-fire would dedup two legitimate fires into one,
   and a silent drop is worse than a duplicate.
-- **Fix:**
+- **Fix:** a56845c7
 
 ## L38 — the product catalog and the product corpus are two different sets (2026-08-15, open)
 
@@ -697,7 +697,7 @@ next poll. The two adapters disagree on whether an inbound is durable.
   still have the shape (`whapd/src/main.ts` calls `sock.readMessages` to ack,
   then only logs a failed `rc.sendMessage`), but it is TypeScript and outside
   this Go mechanism; filed fresh as `L39` rather than fixed here.
-- **Fix:**
+- **Fix:** 054daefd
 
 ## L26 — `make test-race`, the documented pre-tag gate, cannot finish (2026-08-15, open)
 
@@ -1327,6 +1327,8 @@ branch returns before the `Outcome == OutcomeError` block, so a steered turn in
 another chat gets no failure notice at all. That is a delivery concern, not a
 typing concern, and merging it here would make one fix span two.
 
+**Fix:** a4f2152d
+
 ## T2 — a steered turn gets no failure notice when its run dies (2026-08-15, open)
 
 Split out of `T1` point 3, confirmed at this tree while fixing `T1` points 1
@@ -1544,6 +1546,7 @@ action — is still undone.
   reads over HTTP and writes over HTTP even though the count beside it reads
   routd.db directly: a page whose read and write disagree about the source of
   truth is how the two drift.
+- **Fix:** 752185f0
 
 ## L16 — legacy plaintext secret rows are never sealed; the migrator has no caller (2026-08-11, open)
 
