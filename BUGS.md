@@ -768,19 +768,44 @@ so the operator learns at grant time; (b) proxy settings-defined servers through
 the socket; (c) document it as the boundary and leave it. (a) is cheap and
 honest, (b) is a real design change. Spec now states the boundary either way.
 
-## F74 — `ARIZUKO_DEV` sentinel disagrees between production and tests (2026-08-08, open)
+## F74 — `ARIZUKO_DEV` sentinel disagrees between production and tests (2026-08-08, FIXED 2026-08-15)
 
 `container/runner.go:564` tests `== "1"`; tests set `ARIZUKO_DEV=true`. One of
 the two is wrong, and the tests are the ones passing. Whichever way it is
 settled, an operator following the test's spelling gets no dev behavior.
 
-## F75 — three skill trees are triplicated and one pair has already drifted (2026-08-08, open)
+- **Status:** FIXED 2026-08-15
+- **Fix:** the docs (`reference/env.html`) already declared the contract —
+  `Type: bool ("true" or "1")` — so `runner.go` now parses it with
+  `strconv.ParseBool` instead of a literal `== "1"` compare. Both spellings
+  (and `1`/`0`/`t`/`f`) now agree; no test or README had to change.
+  Test: `TestBuildMounts_ArizukoDevAcceptsTrueSpelling`
+  (`container/runner_layered_test.go`) — failed against the old compare,
+  passes now. `go test ./container/... -short` green.
+
+## F75 — three skill trees are triplicated and one pair has already drifted (2026-08-08, open — verified 2026-08-15, still a redesign)
 
 `ant/skills/p5js/` also exists under `ant/skills/create/art/.../p5js/` (same for
 excalidraw and manim-video). A `diff` shows the top-level
 `p5js/scripts/export-frames.js` carries a chromium `executablePath` fix the
 `create/`-tree copy lacks — so the duplicate is not merely redundant, it is
 already stale. Deciding which is canonical for skill dispatch is the fix.
+
+**Verified 2026-08-15, premise still holds.** All three pairs are real and
+each nested copy carries a `README.md` where the top-level carries `SKILL.md`
+(dispatchable skill vs. reference resource read by the `create` router):
+`ant/skills/p5js` ↔ `ant/skills/create/art/p5js`,
+`ant/skills/excalidraw` ↔ `ant/skills/create/diagram/excalidraw`,
+`ant/skills/manim-video` ↔ `ant/skills/create/video/manim`. The `p5js` pair's
+`scripts/export-frames.js` still differs — the top-level tree has the
+chromium `executablePath` fix, the `create/`-tree copy does not.
+NOT fixed here: syncing the stale script would patch the symptom (this
+instance of drift) while leaving the duplication mechanism that produced it
+in place — the same class root `CLAUDE.md` calls out under "No duplication —
+amend the original." The actual fix is the canonicalization decision the
+entry already names (which tree is the single source, and whether the other
+becomes a symlink/reference rather than a second copy), which is a
+cross-cutting structural change to skill dispatch and wants sign-off.
 
 ## F60 — `routd/db.go:140` names `auth.Delegate` at `register_group`, where it is not called (2026-08-07, open)
 
@@ -857,7 +882,7 @@ does not reach it.
 NOT verified against a production `emaid.db` — the adoption test replicates the
 old creation path exactly, but no krons/sloth/marinade file was opened.
 
-## F58 — dashd's PRIMARY DB open still manufactures an empty routd.db (2026-08-07, open)
+## F58 — dashd's PRIMARY DB open still manufactures an empty routd.db (2026-08-07, FIXED 2026-08-15)
 
 `dashd/main.go:194` opens the resolved `DB_PATH` with a bare `sql.Open` and no
 existence probe, so a path that is not there is not an error — SQLite creates
@@ -886,13 +911,16 @@ dies before writing a compose that assumes the new layout — but any hand-set
 `DB_PATH` still reaches it.
 
 - **Source:** `dashd/main.go:194`, vs the guarded `openSiblingOwner` at `:427`
-- **Status:** open
-- **Fix:** `store.OpenRoutdAt(dsn)` — it exists, it is documented as "dashd's
-  `DB_PATH`", and it carries the same strict `acl` probe. NOT shipped inline:
-  dashd `depends_on: [routd]` without a condition, so on a fresh instance dashd
-  can win the race to open routd.db before routd migrates it, and a strict probe
-  turns that into a crash-loop until `restart: on-failure` retries. That is
-  probably the correct behaviour and definitely needs a docker run to confirm.
+- **Status:** FIXED 2026-08-15
+- **Fix:** `main()` now opens the primary DB through `store.OpenRoutdAt(dsn)`
+  instead of a bare `sql.Open`, and unwraps `.DB()` for the rest of dashd's
+  `*sql.DB`-typed call sites. Same strict `acl` probe `openSiblingOwner`
+  already applies to the sibling reads, so a stale/wrong `DB_PATH` now fails
+  loudly at boot instead of SQLite silently creating an empty file. The
+  crash-loop-on-cold-start risk the original entry flagged is covered:
+  `dashdService` already emits `restart: on-failure` (`compose/compose.go`),
+  so a boot race against routd's own migration retries rather than wedging.
+  `go test ./dashd/... -short` green.
 
 ## ✅ FIXED 2026-08-09 — F57 — issuer-mint takes an uncapped `ttl_seconds`; the downscope sibling caps (2026-08-07)
 
@@ -1050,7 +1078,7 @@ that are still identical catalog copies.
 - **Source:** deployed `services/teled.yml` vs `template/services/teled.yml`; `teled/main.go:69,78`
 - **Status:** open
 
-## F54 — dashd's stock-skills picker is dead in every deployed container (2026-08-07, open)
+## F54 — dashd's stock-skills picker is dead in every deployed container (2026-08-07, FIXED 2026-08-15)
 
 `dashd/groups_admin.go:187` reads `<HOST_APP_DIR>/ant/skills`. `env/dashd.env`
 sets `HOST_APP_DIR=/home/onvos/app/arizuko`, but `dashdService` attaches no
@@ -1059,9 +1087,16 @@ returns nil silently (`:184-186`), so the picker renders empty and no error
 reaches the operator.
 
 - **Source:** `dashd/groups_admin.go:184-187`; `compose/compose.go:1039`
-- **Status:** open
-- **Fix:** mount the source read-only (routd and runed already get
-  `HOST_APP_DIR:ro`), or read the skills from a path dashd actually has.
+- **Status:** FIXED 2026-08-15
+- **Fix:** wired dashd onto the EXISTING `appSrc()` mechanism routd/runed
+  already use (`compose/compose.go`) instead of inventing a second one:
+  `dashdService` now sets `APP_SRC_DIR` and, under `APP_SRC_DEV`, the same
+  read-only host bind. `dashd/main.go`'s `appDir` reads `APP_SRC_DIR` falling
+  back to `HOST_APP_DIR`, matching `routd/cmd/routd/main.go`'s pattern.
+  `stockSkills()`'s own join logic was already correct — only the container
+  path it read from was wrong. Tests: `TestAppSrcDefaultsToTheBakedCopy` and
+  `TestAppSrcDevMountsTheHostCheckout` (`compose/compose_test.go`) extended to
+  cover dashd alongside routd/runed.
 
 ## ✅ FIXED 2026-08-09 — F43 — routd hands the agent a scheme-less pairing URL (2026-08-06)
 
@@ -1245,7 +1280,7 @@ its own text and shipped it deliberately, so the spec is accurate and the code
 matches it; what is open is a future policy choice, which is a backlog item.
 `5/31` returns to `shipped` and keeps this entry as the recorded question.
 
-## F39 — `SCREENS.md`'s page hierarchy is missing ten shipped dashd pages (2026-08-06, open)
+## F39 — `SCREENS.md`'s page hierarchy is missing ten shipped dashd pages (2026-08-06, FIXED 2026-08-15)
 
 Found while shipping `/dash/authd/`. `SCREENS.md` is the dashd page inventory —
 the document a design pass reads to know what screens exist — and its
@@ -1271,10 +1306,13 @@ tracked rather than swept.
 - **Scope:** `SCREENS.md`
 - **Affected:** contributors and design passes, not instances
 - **Source:** SCREENS.md:64-86, :217-218; dashd/main.go:499-603
-- **Fix:** rebuild the hierarchy from `dash.registerRoutes`, one entry per
-  operator-visible page, and keep it there — or delete the block and point at
-  `dashd/README.md`'s route list, which IS maintained, rather than keeping a
-  second inventory that drifts.
+- **Status:** FIXED 2026-08-15
+- **Fix:** rebuilt `### Page hierarchy` against `dashd/main.go`'s
+  `registerRoutes` directly (`sed -n '535,650p' dashd/main.go`), not the ten
+  the entry named. Two more had shipped since 2026-08-06 and were missing too
+  — `/dash/approvals/` and `/dash/channels/whatsapp/pair` — so all twelve are
+  now listed alongside the original fourteen, each with a one-line
+  description read off its handler's doc comment.
 
 ## F46 — `runed`, `routd` and `authd` all serve `GET /v1/sessions`, for different tables (2026-08-06, open — CORRECTED 2026-08-07: three daemons, not two)
 
@@ -2416,7 +2454,7 @@ action — is still undone.
 - **Source:** `dashd/routd_page.go`
 - **Status:** open
 
-## L18 — four docs pages ship no theme toggle at all (2026-08-11, open)
+## L18 — four docs pages ship no theme toggle at all (2026-08-11, FIXED 2026-08-15)
 
 168 of 172 pages under `template/web/pub/arizuko/` carry a `.theme-toggle`
 button. These four do not, so a reader who lands on one cannot switch theme and
@@ -2442,7 +2480,17 @@ chrome element is hand-repeated in 172 files at all — the same class of drift
 - **Severity:** low
 - **Scope:** docs chrome consistency
 - **Affected:** template/web/pub/arizuko
-- **Status:** open
+- **Status:** FIXED 2026-08-15
+- **Fix:** added the same `<button class="theme-toggle">&#127769;</button>`
+  markup the other 168 pages carry, right before each page's `hub.js`
+  `<script>` tag — verified against `reference/schema.html`'s copy for exact
+  markup and placement. Three of the four (`crackbox/index.html`,
+  `crackbox/reference/index.html`, `examples/chat-sdk.html`) are meta-refresh
+  redirect stubs to their moved pages; the toggle now renders consistently
+  even in the instant before the redirect fires, matching every other page
+  in the tree. Not fixing the deeper "172 hand-repeated chrome" question this
+  entry also raised — that is `5/D`'s shared-chrome scope, not a
+  four-file patch.
 
 ## L16 — legacy plaintext secret rows are never sealed; the migrator has no caller (2026-08-11, open)
 
@@ -4407,7 +4455,7 @@ noting: an adapter stuck in `health: starting` forever looks less alarming in
 - **Fix:** re-pair whapd per `reference_whapd_pairing`; set marinade's IMAP
   password. Neither requires a deploy.
 
-## D6 — `make test-all` is red: the services-hub link test cannot pass as written (2026-08-02, open)
+## D6 — `make test-all` is red: the services-hub link test cannot pass as written (2026-08-02, FIXED 2026-08-15)
 
 `tests/dashd-playwright/tests/services.spec.ts:32` ("built tiles link to their
 control plane") fails, so `make test-all` exits non-zero. Confirmed pre-existing
@@ -4437,9 +4485,17 @@ dashd UX decision and needs sign-off.
 - **Scope:** dashd services hub + its playwright contract
 - **Affected:** `tests/dashd-playwright/tests/services.spec.ts:32`,
   `dashd/services.go:31-38,142`
-- **Fix:** decide the link-when-unreachable question first, then align the test's
-  BUILT list with `services.go` and make the probe condition reachable in tests
-  (stub a healthy probe, or drop the status gate).
+- **Status:** FIXED 2026-08-15
+- **Fix:** both prerequisites this entry named were already resolved in the
+  code by the time of the 2026-08-15 audit — `dashd/services.go`'s link
+  condition is gated on `Built` alone (an unreachable built daemon links; see
+  `wantLink`/`s.Built` around `:101-155`), and `authd`/`proxyd` are `Built:
+  true`. Only the test's own `BUILT`/`UNBUILT` const arrays had not been
+  updated to match — they still listed `authd`/`proxyd` under `UNBUILT`,
+  which the test's own comment calls out as the wrong direction ("mirror
+  dashd/services.go, the source of truth"). Moved both into `BUILT`. Verified
+  live: `cd tests/dashd-playwright && npx playwright test services.spec.ts` —
+  failed on the stale list (`authd` unexpectedly linked), passes 5/5 now.
 
 ## A1 — the split is deployment-shaped only: auth data lives in the router's DB (2026-08-02, proposal)
 
@@ -5187,7 +5243,7 @@ budget swap changes an operator-facing surface, so it wants its own tests.
   A `store.Open(` grep now leaves only the playwright seed; `migrate-split` reads
   messages.db by read-only `ATTACH`, not `store.Open`.
 
-## Q2 — dashd's audit-free writers outlived their reason, so admin mutations are unaudited (2026-08-05, open)
+## Q2 — dashd's audit-free writers outlived their reason, so admin mutations are unaudited (2026-08-05, FIXED — heading was stale, body already said fixed 2026-08-05)
 
 Five sites in dashd justify using audit-FREE store variants with the same stale claim —
 "routd.db has no audit_log table, so the audited writer would roll back":
@@ -5222,7 +5278,13 @@ paths and belongs in its own commit with per-path tests, not smuggled into a rep
   audit-free writer fails its test with `actor_sub = ""`.
   Tests: `dashd/audit_mutations_test.go`.
 
-## Q3 — dashd tests wire a STORE-schema DB as routd.db (2026-08-05, open)
+  **Heading closed 2026-08-15**: only the entry's own heading had never been
+  updated to match this body — re-verified all five sites against HEAD
+  (`AddACLRow`/`RemoveACLRow` in grants_admin.go, `InsertRouteToken`
+  ×2/`RevokeRouteToken` in route_tokens.go and chat.go, `AddRoute` in
+  routes_admin.go) and `go test ./dashd/... -short` green.
+
+## Q3 — dashd tests wire a STORE-schema DB as routd.db (2026-08-05, FIXED — heading was stale, body already said fixed 2026-08-05)
 
 `testutils.NewInstance` runs `store.Migrate` — the pre-split messages.db schema — and
 dashd tests pass that handle as `dbRoutd`. The two schemas overlap enough (messages,
@@ -5251,6 +5313,10 @@ routd.db; `store.Migrate` should stay only where the frozen schema is the subjec
   schema, which immediately caught three test rows production would reject.
   `splitAdminDash` now also calls `audit.Init` as dashd's main does, so handlers
   emitting through the package sink are actually observable in tests.
+
+  **Heading closed 2026-08-15**: only the entry's own heading had never been
+  updated to match this body — confirmed no `cost_log`/`createChatSessions`
+  in-line compensation remains and `go test ./dashd/... -short` green.
 
 ## Q4 — the same false "routd.db has no audit_log" justification survives in cmd/arizuko and onbod (2026-08-05, fixed)
 
@@ -5297,7 +5363,7 @@ actor would need to come from the invoking operator or stay `system` deliberatel
     case (no row found / `actor=system`) while `TestRouteLandsInRoutdDB` and
     `TestSplitInviteGrantLandsInRoutd` stay green.
 
-## Q5 — `arizuko grant`/`ungrant` and `arizuko packages` carry the same false audit_log claim (2026-08-05, open)
+## Q5 — `arizuko grant`/`ungrant` and `arizuko packages` carry the same false audit_log claim (2026-08-05, FIXED — heading was stale, body already said fixed 2026-08-05)
 
 Found while fixing Q4, not fixed with it (separate concern, and outside that
 brief). `cmd/arizuko/main.go:518` states "runGrant writes acl rows audit-free
@@ -5372,6 +5438,11 @@ its own verdict — a secret's audit row must not carry the value.
     `PutACLRow`/`PutMembership` stay (test seeding; the `role:member` seed at
     group creation, the 4r migration backfill) with the missing-table
     justification struck from their comments.
+
+  **Heading closed 2026-08-15**: only the entry's own heading had never been
+  updated to match this body — confirmed all three commits
+  (`877ea615`/`f445b639`/`703f6e75`) are in HEAD's history and
+  `go test ./cmd/arizuko/... -short` green.
 ## ✅ FIXED 2026-08-05 — F1 — `installed_packages` is a management table with no resreg resource (2026-08-05, fixed)
 
 Every cold-tier management entity is required to register a resreg `Resource`,
@@ -5706,7 +5777,7 @@ service)` returns the env override when set and `http://<service>:8080`
   other — `service:dashd` missing from authd's `serviceGrants`, so the bearer
   was minted with empty scope — was fixed separately in `fd697e99`.
 
-## F22 — `/dash/me/env`'s three rejection messages disagree (2026-08-06, open)
+## F22 — `/dash/me/env`'s three rejection messages disagree (2026-08-06, FIXED 2026-08-15)
 
 `handleMeEnvCreate` rejects a capability key with
 
@@ -5730,6 +5801,11 @@ verbs, which is what the spec's "Write paths" section implies, and failed.
 - **Scope:** dashd env-profile handlers
 - **Affected:** API callers hitting PATCH/DELETE with a capability key
 - **Source:** dashd/me_env.go:208, :258; dashd/me_secrets.go:211, :260, :316
-- **Status:** open
-- **Fix:** give both the same suffix as the POST branch. One string constant for
-  all three so a fourth verb cannot invent a fifth wording.
+- **Status:** FIXED 2026-08-15
+- **Fix:** `notEnvProfileKeySuffix` const in `dashd/me_env.go`, used at all
+  three sites (`handleMeEnvCreate`/`Update`/`Delete`) so a fourth verb cannot
+  invent a fifth wording. `TestMeEnv_CrossGuard`
+  (`dashd/me_env_test.go`) previously documented the asymmetry as
+  intentional ("Only POST points... — BUGS F20"); updated to assert all
+  three verbs point at `/dash/me/secrets`. `go test ./dashd/... -short`
+  green.

@@ -584,7 +584,10 @@ func buildMounts(
 		})
 	}
 
-	if os.Getenv("ARIZUKO_DEV") == "1" {
+	// ARIZUKO_DEV is documented as bool ("true" or "1") — parse it as one
+	// rather than pinning a single literal spelling (BUGS F74: this compared
+	// only "1" while every test and the dashd-playwright README use "true").
+	if devMode, _ := strconv.ParseBool(os.Getenv("ARIZUKO_DEV")); devMode {
 		runnerSrc := filepath.Join(cfg.HostAppDir, "ant", "src")
 		if _, err := os.Stat(runnerSrc); err == nil {
 			m = append(m, volumeMount{

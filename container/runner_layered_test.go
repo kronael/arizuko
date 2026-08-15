@@ -148,6 +148,25 @@ func TestBuildMounts_AgentSrcIsStagedNotHostCheckout(t *testing.T) {
 	}
 }
 
+// ARIZUKO_DEV is documented as bool ("true" or "1"); every test setup and the
+// dashd-playwright README spell it "true", so the runner must honor that
+// spelling, not just "1" (BUGS F74).
+func TestBuildMounts_ArizukoDevAcceptsTrueSpelling(t *testing.T) {
+	cfg, folders := fhsConfig(t)
+	if err := os.MkdirAll(filepath.Join(cfg.HostAppDir, "ant", "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ARIZUKO_DEV", "true")
+
+	in := Input{Folder: "atlas/support"}
+	groupDir := filepath.Join(cfg.GroupsDir, in.Folder)
+	os.MkdirAll(groupDir, 0o755)
+
+	if m := findMount(buildMounts(cfg, in, groupDir, false, folders), "/app/src"); m == nil {
+		t.Error("ARIZUKO_DEV=true did not mount ant/src; runner accepted only the literal \"1\"")
+	}
+}
+
 // MaterializeAppSrc is what puts bytes at that staged path. A bind mount reads
 // the host filesystem, so a copy that silently no-ops leaves every agent with an
 // empty /opt/arizuko and no way to migrate.

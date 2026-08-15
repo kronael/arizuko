@@ -14,6 +14,11 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
+// notEnvProfileKeySuffix is appended to every rejection across all three
+// verbs (create/update/delete) so a fourth cannot invent a fifth wording
+// (BUGS F22: POST already carried the pointer, PATCH/DELETE truncated it).
+const notEnvProfileKeySuffix = ": not an env-profile key — use /dash/me/secrets for capability keys"
+
 // envProfileKeyList in display order — fixed list from spec 5/14.
 var envProfileKeyList = []string{
 	"ANTHROPIC_API_KEY",
@@ -175,7 +180,7 @@ func (d *dash) handleMeEnvCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := store.EnvProfileKeys[body.Key]; !ok {
-		http.Error(w, body.Key+": not an env-profile key — use /dash/me/secrets for capability keys", http.StatusBadRequest)
+		http.Error(w, body.Key+notEnvProfileKeySuffix, http.StatusBadRequest)
 		return
 	}
 	if err := ss.PutSecretRow(store.ScopeUser, sub, body.Key, body.Value); err != nil {
@@ -204,7 +209,7 @@ func (d *dash) handleMeEnvUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	key := r.PathValue("key")
 	if _, ok := store.EnvProfileKeys[key]; !ok {
-		http.Error(w, key+": not an env-profile key", http.StatusBadRequest)
+		http.Error(w, key+notEnvProfileKeySuffix, http.StatusBadRequest)
 		return
 	}
 	body, err := parseSecretBody(w, r)
@@ -254,7 +259,7 @@ func (d *dash) handleMeEnvDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	key := r.PathValue("key")
 	if _, ok := store.EnvProfileKeys[key]; !ok {
-		http.Error(w, key+": not an env-profile key", http.StatusBadRequest)
+		http.Error(w, key+notEnvProfileKeySuffix, http.StatusBadRequest)
 		return
 	}
 	switch err := ss.DeleteSecretRow(store.ScopeUser, sub, key); {

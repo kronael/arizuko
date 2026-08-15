@@ -534,7 +534,9 @@ func TestTTSAutoEnable(t *testing.T) {
 }
 
 // routd's checkMigrationVersion reads ant/skills/self/MIGRATION_VERSION from
-// APP_SRC_DIR, and runed seeds every group's skills from it. Pointed at the
+// APP_SRC_DIR, and runed seeds every group's skills from it. dashd's stock-
+// skills picker reads the same tree (BUGS F54: it used to read the HOST path
+// HOST_APP_DIR from inside the container and got nothing). Pointed at the
 // wrong tree, /migrate is never enqueued and agents freeze at an old version.
 //
 // The default must be the copy baked into the image, EVEN WHEN HOST_APP_DIR is
@@ -542,7 +544,7 @@ func TestTTSAutoEnable(t *testing.T) {
 // uncommitted working tree in front of krons' live agents (BUGS M1).
 func TestAppSrcDefaultsToTheBakedCopy(t *testing.T) {
 	out := gen(t, seed(t, "HOST_APP_DIR=/home/op/app/arizuko\n"))
-	for _, name := range []string{"routd", "runed"} {
+	for _, name := range []string{"routd", "runed", "dashd"} {
 		s := serviceBlock(out, name)
 		if !strings.Contains(s, `APP_SRC_DIR: "/opt/arizuko"`) {
 			t.Errorf("%s must read ant/ from the image, got:\n%s", name, s)
@@ -556,7 +558,7 @@ func TestAppSrcDefaultsToTheBakedCopy(t *testing.T) {
 // The dev loop stays reachable, but only when the operator asks for it by name.
 func TestAppSrcDevMountsTheHostCheckout(t *testing.T) {
 	out := gen(t, seed(t, "HOST_APP_DIR=/home/op/app/arizuko\nAPP_SRC_DEV=1\n"))
-	for _, name := range []string{"routd", "runed"} {
+	for _, name := range []string{"routd", "runed", "dashd"} {
 		s := serviceBlock(out, name)
 		if !strings.Contains(s, "- /home/op/app/arizuko:/srv/app/arizuko:ro\n") {
 			t.Errorf("%s missing read-only source mount, got:\n%s", name, s)
@@ -567,7 +569,7 @@ func TestAppSrcDevMountsTheHostCheckout(t *testing.T) {
 	}
 	// APP_SRC_DEV alone cannot mount anything — there is no path to mount.
 	out = gen(t, seed(t, "APP_SRC_DEV=1\n"))
-	for _, name := range []string{"routd", "runed"} {
+	for _, name := range []string{"routd", "runed", "dashd"} {
 		s := serviceBlock(out, name)
 		if strings.Contains(s, "/srv/app/arizuko:ro") {
 			t.Errorf("%s mounted a source with no HOST_APP_DIR, got:\n%s", name, s)

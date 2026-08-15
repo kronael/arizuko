@@ -223,12 +223,11 @@ func TestMeEnv_CrossGuard(t *testing.T) {
 			!strings.Contains(w.Body.String(), "not an env-profile key") {
 			t.Errorf("%s %s: error %q does not name the rejected key", c.method, c.path, w.Body.String())
 		}
-	}
-	// Only POST points the caller at the other page (PATCH/DELETE stop at the key
-	// name — BUGS F20); the form only ever POSTs, so that is the reachable message.
-	if w := envReq(t, mux, "POST", "/dash/me/env", "github:alice",
-		`{"key":"GITHUB_TOKEN","value":"ghp_x"}`); !strings.Contains(w.Body.String(), "/dash/me/secrets") {
-		t.Errorf("POST rejection %q does not point at /dash/me/secrets", w.Body.String())
+		// All three verbs point at the other page (BUGS F22 — PATCH/DELETE used
+		// to stop at the key name while POST alone named /dash/me/secrets).
+		if !strings.Contains(w.Body.String(), "/dash/me/secrets") {
+			t.Errorf("%s %s rejection %q does not point at /dash/me/secrets", c.method, c.path, w.Body.String())
+		}
 	}
 	if v := secretValue(t, d, "github:alice", "GITHUB_TOKEN"); v != "" {
 		t.Errorf("rejected env write still stored a capability key: %q", v)
