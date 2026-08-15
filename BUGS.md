@@ -2234,7 +2234,7 @@ sort after row 500. `main.go:808`: activity feed fetches 1000 rows then filters 
   SQL-expressible); residual: scoped rows older than the newest 1000 stay hidden
 - **Fix:** push visibility filter into SQL; or page until N visible rows found
 
-## main: memory write/delete broken for nested group folders (2026-06-18, open)
+## ✅ FIXED 2026-08-15 main: memory write/delete broken for nested group folders (2026-06-18)
 
 `main.go:1073`: `parseMemoryPath` splits on first `/` after `/dash/memory/`. For
 `corp/eng`, folder="corp" and rel="eng/MEMORY.md" — fails allowlist. Read page shows nested groups
@@ -2243,8 +2243,16 @@ correctly but mutations don't work.
 - **Severity:** medium
 - **Scope:** dashd/main.go:1073
 - **Source:** codex audit 2026-06-18
-- **Status:** resolved — parseMemoryPath scans split points right-to-left; nested folders work (91159586)
-- **Fix:** route mutations through a wildcard `{folder...}` path param or parse from suffix
+- **Status:** resolved — parseMemoryPath scans split points; nested folders work (91159586)
+- **Fix:** 91159586 shipped it; re-verified at fb152e98 — `main.go:1354-1368` walks every
+  `/` split point (left-to-right, first `rel` passing `memoryPathAllowed` wins), so
+  `corp/eng/MEMORY.md` resolves to folder=`corp/eng`. Both mutators authorize on the
+  PARSED folder (`main.go:1414`, `:1459`), so the scan cannot reach another tenant.
+  (The old status line said "right-to-left"; the scan is left-to-right — same result,
+  wrong description, corrected here.) The fix had NO nested test — `setupMemoryTest`
+  only ever used flat `g1`. Added `dashd/memory_nested_test.go`: parseMemoryPath table
+  (nested, 3-deep, diary, .claude, non-allowlisted, traversal) + nested write/diary/delete
+  + an ungranted-caller 403.
 
 ## audit: pagination cursor off by one (2026-06-18, open)
 
