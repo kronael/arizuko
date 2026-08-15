@@ -2323,7 +2323,7 @@ limit with many groups.
 - **Fix:** dashd/usage_page.go (`groupUsageBulk`, new `groupUsageBulkBatch`) — this commit.
   Test: `dashd/usage_page_test.go TestGroupUsageBulkBatchesLargeFolderLists`.
 
-## chat: loadChatSessions limits before filtering; nondeterministic continue links (2026-06-18, open)
+## chat: loadChatSessions limits before filtering; nondeterministic continue links (2026-06-18, PARTIAL — folderSessionTokens half PROPOSED, needs sign-off, verified still open 2026-08-15)
 
 `chat.go:90`: newest 200 rows fetched then filtered in Go — older sessions disappear once table
 grows. `chat.go:361`: `folderSessionTokens` infers topic→token by time proximity; two sessions
@@ -2334,9 +2334,19 @@ without an early message produce nondeterministic continue links.
 - **Source:** codex audit 2026-06-18
 - **Status:** partial — LIMIT-before-filter half resolved a51989cc (2026-07-05,
   verified 2026-07-13: `folder IN (...)` pushed into SQL before the LIMIT 200).
-  Still open: `folderSessionTokens` topic→token linkage by time proximity
-  (nondeterministic continue links) — needs persisted linkage, design change
-- **Fix:** push filter into SQL; persist topic-session linkage explicitly
+  `folderSessionTokens` half re-verified 2026-08-15, still open and NOT a contained
+  fix: for each `chat_sessions` row (newest created_at first) it takes the first
+  `messages` row with `timestamp >= created_at AND topic != ''` as that session's
+  topic, first claim wins (`dashd/chat.go:359-391`). Two sessions from the same
+  folder created close together can each have a topic-bearing message fall inside
+  the other's `>= created_at` window, so the session→topic mapping can attach a
+  continue link to the wrong session — a heuristic on message timing, not an
+  explicit link. A real fix needs an explicit session↔topic (or session↔turn)
+  column persisted at session-creation/first-message time — a schema change to an
+  existing table, not a new call path — so per CLAUDE.md redesign discipline this
+  is reported, not fixed, pending sign-off on where that column lives
+  (`chat_sessions.topic` set once at first message, vs. `messages.session_id`).
+- **Fix:** push filter into SQL (done); persist topic-session linkage explicitly (proposed, open)
 
 ## runed: dead session_id variable in run query (2026-06-18, open)
 
