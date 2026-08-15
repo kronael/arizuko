@@ -2022,7 +2022,7 @@ zero occurrences of "usage", "throughput", or "metric". Not specced, not built.
 - **Status:** resolved — /dash/usage/ shipped
 - **Fix:**
 
-## dashd: routes + task-detail visible to any auth'd user (2026-06-17, open)
+## ✅ FIXED 2026-08-15 dashd: routes + task-detail visible to any auth'd user (2026-06-17)
 
 `handleRoutes` GET (`routes_admin.go:28`) gates on `requireUser` only — any auth'd caller can
 enumerate the full route table including routes targeting other tenants' folders. `handleTaskDetail`
@@ -2038,7 +2038,13 @@ caller who knows a task ID can read its full prompt and owner. Both list pages f
   2026-07-13: task detail gates on the task's owner via `visible()`
   (tasks_admin.go), routes list filters each row by `visible(target folder)`
   (routes_admin.go:65)
-- **Fix:** add `requireOperator` or `requireVisible(folder)` gate to those GET handlers
+- **Fix:** d52b2c50 + b99138fb; re-verified at fb152e98 — the routes page keeps the
+  `requireUser` gate but drops every row the caller cannot see:
+  `visible(allowed, operator, ParseRouteTarget(target).Folder)` (`routes_admin.go:64`),
+  with `allowed/operator` from `callerScope`. Task detail loads the row, then 403s on
+  `!visible(allowed, operator, owner)` BEFORE rendering the prompt
+  (`tasks_admin.go:87-91`). Isolation covered by `isolation_test.go:117` (scoped
+  caller's routes view) — a tenant sees only its own rows.
 
 ## dashd: adminDB() panics if routd.db open fails (2026-06-17, open)
 
