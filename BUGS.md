@@ -389,7 +389,7 @@ test-only, so the two audits do not contradict each other.
   (`routd/route_tokens_resource_test.go`, `web_routes_rest_test.go` et al.), so
   `-test` hides all five.
 
-## L10 — queue/queue.go carries a dead pre-split process half, and its breaker notice + restart hook are wired to nil (2026-08-11, open)
+## L10 — queue/queue.go carries a dead pre-split process half, and its breaker notice + restart hook are wired to nil (2026-08-11, FIXED 2026-08-15)
 
 routd's only queue construction (`routd/loop.go:246-248`) sets
 `processMessages` + `folderForJid` and nothing else. Three consequences, all
@@ -415,7 +415,34 @@ dead remainder around it.
 - **Scope:** unwired half of the routd dispatch queue
 - **Affected:** queue, routd
 - **Source:** `queue/queue.go:167,294,56,39,83,88,274`; `routd/loop.go:276`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — queue.go is 306 lines down to 203. Gone:
+  `RegisterProcess`, `StopProcess`, `groupState.containerName`/`groupFolder`,
+  `signalContainer`/`defaultSignalContainer`/`SetSignalContainerForTest`, the
+  `ipcDir` field and the `New` parameter that fed it, `SetHasPendingFn` +
+  `hasPending` + `startGroupLocked`, and `SetNotifyErrorFn` + `notifyError` +
+  the unreachable breaker notice. Container steering is runed's
+  (`runed/docker.go steerInto`); the queue holds no container handle, and
+  `Shutdown` no longer pretends to list detached ones. Behavior is unchanged:
+  `startGroupLocked` returned false on every production call, so the drain path
+  it guarded already ran every time.
+  The entry's shutdown claim is CORRECTED: routd's main does more than stop the
+  HTTP server — `signal.Notify` then `cancel()`
+  (`routd/cmd/routd/main.go:280-283`) reaches `Run`'s `ctx.Done`, which calls
+  `q.Shutdown()` (`routd/loop.go:328`). What was wrong is `StopQueue`'s comment
+  ("and by shutdown"): `StopQueue` itself has only test callers. It now names
+  the path that really shuts the daemon down.
+  Deleted with the dead code: two `RegisterProcess` tests and three orphaned
+  comment blocks in the queue tests describing `SendMessages`, a method that no
+  longer exists. `TestEnqueueMessageCheckQueuesWhenActive` asserted the drain
+  only `hasPending` could trigger; `TestEnqueueMessageCheckCollapsesWhileActive`
+  replaces it, asserting what production does — a second enqueue while active is
+  collapsed, and the finished run does not restart itself.
+- **FOR THE USER, not fixed here:** deleting the breaker notice removes the last
+  code that would ever have told a USER their group stopped processing. It never
+  ran, so nothing regresses, but the gap is now explicit: breaker-open is
+  visible to the operator (slog Error, journald/OTLP) and to nobody else.
+  Wiring it to routd's Deliverer is a behavior change — new outbound messages on
+  failure, needing a re-notify policy — so it wants sign-off, not a silent fix.
 - **Evidence:** `grep -rn "RegisterProcess\|StopProcess\|SetNotifyErrorFn\|SetHasPendingFn" --include="*.go" . | grep -v queue/queue.go`
   → tests only, and zero anywhere for SetNotifyErrorFn.
   `grep -n "Shutdown\|StopQueue" routd/cmd/routd/main.go` → `httpd.Shutdown` only.
