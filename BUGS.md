@@ -907,23 +907,6 @@ not a one-off backfill.
 - **Status:** open — needs the producer identified before deciding delete-orphans
   vs relax-the-constraint. Do NOT rebuild `task_run_logs` until then.
 
-## C7 — package add can overwrite or partially install a package (CLOSED-STALE 2026-08-15 — already fixed 4fa9553e, superseded by symlink packaging (5/28), heading was stale)
-
-`packages add` writes the live YAML directly before reading/writing its optional
-route sidecar. Re-adding truncates an operator-customized fragment; a sidecar
-read/write failure leaves the fragment enabled despite the command reporting
-failure. Package input should be validated and staged before any destination is
-replaced.
-
-- **Severity:** medium
-- **Scope:** compose package CLI atomicity
-- **Affected:** `arizuko packages add`
-- **Source:** cmd/arizuko/packages.go:70-83,100-105
-- **Status:** fixed 2026-07-28
-- **Fix:** `add` reads every source (fragment + optional routes) BEFORE writing any
-  destination, and each write goes through `writeFileAtomic` (temp + rename) — no
-  half-written fragment on a routes read/write error.
-
 ## C9 — queue replay opens circuit breakers before runed is ready (2026-07-30, proposed)
 
 On every full-stack restart, routd begins replaying pending group work before
@@ -1138,21 +1121,6 @@ with the scoped watcher. The clean end-state is a static serve (`vite preview` o
 a plain file server) keeping the pub-fallback/trailing-slash middleware; deferred,
 needs sign-off.
 
-## A2 — Release guard advances before announcement delivery, making partial failure permanent (FIXED 2026-08-15, 0116e33a)
-
-The migrate skill writes `~/.announced-version` before inspecting routes or
-sending any destination. A transient route-read failure, authorization error,
-adapter 502, or partial multi-destination fanout therefore marks the entire
-release announced; the next `/migrate` prints `SKIP` and never retries the
-missing destination. The shell loop also has no per-destination success state.
-
-- **Severity:** medium
-- **Scope:** v0.59 release announcement delivery
-- **Affected:** every group with one or more `#announce` routes
-- **Source:** ant/skills/migrate/SKILL.md:243-252,259-299
-- **Status:** open
-- **Fix:**
-
 ## R2 — Reserving `#announce` silently steals an existing route topic (2026-07-15, proposed)
 
 Before v0.59, every fragment other than `#observe` was a valid pinned topic, so
@@ -1169,61 +1137,6 @@ more than one field.
 - **Source:** core/types.go:94-135; routd/loop.go:630-646
 - **Status:** proposed
 - **Fix:**
-
-## CLOSED-STALE 2026-08-15 — Egress allowlist NOT enforced — crackbox allows non-allowlisted hosts (2026-07-14, HIGH — security)
-
-**Closure evidence:** premise no longer holds. `admin.Registry.Allow`
-(`crackbox/pkg/admin/registry.go:135-144`) and `match.Host`
-(`crackbox/pkg/match/match.go`) fail CLOSED — an unregistered source IP or a
-host absent from the allowlist returns `ok=false` → the proxy 403s
-(`crackbox/pkg/proxy/proxy.go:65-70,107-112`). The one path that appends `"*"`
-(bypass) is `container/runner.go:184-192`, gated on `in.EgressOpen`, which
-routd sets ONLY when the folder holds the explicit `egress` grant
-(`routd/dispatch.go:547`: `egress := elevated || l.db.Authorize(sub, folder,
-"egress", nil)`) — the 5/33 grants redesign (`628b968b`, landed after this
-entry was filed) replaced the old tier-based default-open behavior a
-tightly-scoped folder without that grant gets exactly its resolved allowlist,
-nothing more. `crackbox/test/egress_e2e_test.go` Case2/Case4 assert the
-non-allowlisted-host 403 directly and pass:
-`go test ./crackbox/... -run TestE2E -v` → all PASS (2 SKIP, both
-kernel-level cases the proxy alone can't enforce, by design/comment).
-No code change.
-
-A contained-folder test (`libtest`, egress set to pypi-only) proved the
-per-folder egress allowlist is **not enforced**. crackbox's own logs:
-`{"msg":"allow connect","id":"libtest","host":"example.com"}` (also
-`webhook.site`, `http-intake.logs.us5.datadoghq.com`) — every one ABSENT from
-`libtest`'s resolved allowlist (`arizuko network resolve libtest` returned only
-`anthropic.com`/`api.anthropic.com`/`pypi.org`/`files.pythonhosted.org`). The
-"default-deny per-folder allowlist" guarantee in `SECURITY.md` + `ant/CLAUDE.md`
-("a host not on your allowlist is refused at CONNECT → 403 on every path") does
-NOT hold: a tightly-scoped folder reaches arbitrary hosts.
-
-Practical exposure is masked on marinade today (every live folder is `atlas/*`
-with `*` egress by config), but the ENFORCEMENT PATH is broken — you cannot
-restrict a folder even by setting a tight allowlist. This blocks any
-egress-contained deployment — e.g. the in-container librarian with private data
-(Surface B works end-to-end, but its data cannot be egress-contained → "must not
-leak" fails at the network layer).
-
-Root cause (needs a focused crackbox audit): routd resolves the tight list
-(`routd/dispatch.go:493` `allowlist, _ := l.db.ResolveAllowlist(folder)` — the
-error is SWALLOWED, and the comment at `:491` says "nil allowlist on error") and
-passes it (`:527 EgressAllowlist`) to the spawn; the proxy decision is
-`id, ok := p.allow.Allow(src, host)` (`crackbox/pkg/proxy/proxy.go:65`) which
-returned `ok=true` for `example.com` under the CORRECT `id=libtest`. So either
-the resolved list isn't applied per-container-IP in crackbox (fail-open when the
-per-id policy is missing/empty), or a permissive default exists. The
-`_`-swallowed `ResolveAllowlist` error → nil allowlist → fail-open is the prime
-suspect.
-
-**Fix direction (record-only, needs sign-off — security redesign):** crackbox
-must fail-CLOSED (deny all) for a container whose per-id allowlist is
-missing/empty; routd must surface (not swallow) a `ResolveAllowlist` error
-rather than spawn with a nil allowlist. Add a containment test: a folder with a
-tight allowlist gets 403 on a non-listed host (the exact test that just failed).
-This is the structural half of the "librarian must not leak" guarantee (with
-`secretscan` for reply-content leaks).
 
 ## Release announcement is over-delivered: every group blasts all its routes, once per server-per-group — no opt-in, no main-channel, no mute (2026-07-14, OPEN, proposal)
 
@@ -1265,41 +1178,6 @@ both need the announce target-resolution audited together.
   agents: bump `MIGRATION_VERSION` + rebuild ant image + redeploy. Residual:
   cross-group global dedup is still per-group — two groups tagging the same
   server double-post (operator-controlled: tag one channel per server).
-
-## L20 — FIXED 2026-08-15, 1591ccbf — whapd acks a send it has not sent, so routd records it as delivered (2026-08-11)
-
-`whapd/src/server.ts:196-214` answered `/send` with `200 {ok:true, queued:true}`
-when the socket was absent or disconnected, and again in the `catch` around
-`sendMessage`. routd read 200 as success and marked the bot row `sent`, so the
-durable retry sweep never looked at it again.
-
-whapd's queue was in memory. A whapd restart — which is exactly what a
-disconnected whapd tends to get — dropped the queue, and the message was gone
-with no record anywhere that it never arrived.
-
-Not the L25 durable-inbound redesign: L25 is about routd rejecting an inbound
-webhook after the platform is already acked (needs a new `inbound_pending`
-table + sweep). L20 is outbound, and routd already has the mechanism it
-needs — `chanreg/httpchan.go`'s `trySend` documents the contract every HTTP
-channel is supposed to follow: "The channel holds no queue: routd writes the
-bot row `pending` before the attempt, and its 30s sweep re-sends a row that
-stays `pending`. A retry here would be a second writer beside that sweep."
-whapd's in-memory `outboundQueue`/`flushOutboundQueue` was exactly that
-second, weaker writer (lost on restart, no dead-letter, no operator
-visibility) sitting beside routd's `maybeRetryOutbound` sweep.
-
-**Fix:** deleted whapd's own queue (`outboundQueue`, `flushOutboundQueue`,
-`queueOutbound`, `src/queue.ts`). `/send` now returns 502 immediately — via
-the same `requireSock` helper `/send-file` already used — when the socket is
-down, and 502 from the `sendMessage` catch, instead of 200. `classifyStatus`
-in `chanreg/httpchan.go` treats any `>=500` as transient, so
-`maybeRetryOutbound` (already shipped alongside L22/L23's delivery-attempts
-tracking) now owns every whapd retry the same way it owns every other
-adapter's — one retry mechanism, not two.
-
-- **Source:** `whapd/src/server.ts`, `whapd/src/main.ts`, `whapd/src/queue.ts` (removed)
-- **Tests:** `whapd/src/server.test.ts` — `/send` returns 502 disconnected and
-  on `sendMessage` throw; `bun test` 116/116 pass.
 
 ## L23 — PROPOSED, needs sign-off (verified still open 2026-08-15) — a dead-lettered message is countable but not readable (2026-08-11)
 
@@ -1426,33 +1304,6 @@ prefix, and routd returns `no channel for jid`. A normal `room=` route tagged
 - **Severity:** medium (announcements silently lost on some groups; log noise)
 - **Status:** OPEN, record-only.
 
-## ✅ FIXED 2026-08-15 — rate_limit is the top failure signal (195/2d) — verify it's surfaced to the user, not swallowed (2026-07-13)
-
-`rate_limit` was the single largest signal in the stop-responding eval (195 hits
-in 2 days across instances). The stale-session-adjacent BUGS note records the
-session/weekly-limit case as *"SDK threw after result (ignored)"* — i.e.
-swallowed. IF the model-API rate-limit/throttle error is swallowed rather than
-delivered, the user's chat **silently stops** with no explanation during
-throttling (unavoidable externally, but the silence is fixable). **To verify:**
-trace `ant/src/index.ts` result handling for the rate-limit / "hit your … limit"
-subtype — is it delivered as a "rate limited, back shortly" chat message or
-dropped? If dropped, surface a terse user-facing notice (one delivery, not a
-retry loop). Distinct from the stale-session fix (that class is now closed).
-
-- **Severity:** medium (silent stop during throttling; most-frequent signal)
-- **Status:** FIXED. Verified: the SDK emits `rate_limit_event` on every
-  usage-info update (`SDKRateLimitEvent.rate_limit_info.status`:
-  `allowed`/`allowed_warning`/`rejected` — the 195/2d is mostly `allowed`
-  informational pings, explaining the volume). `normalize()` mapped it to
-  `EventType: 'rate_limit'` (`ant/src/claude.ts:447-448`) but `runQuery`'s
-  event loop in `ant/src/index.ts` never switched on it — confirmed
-  swallowed. Fix: `ant/src/index.ts` now surfaces one terse `⏳` notice via
-  the existing `submitStatus` interim-status channel the first time a
-  `status: 'rejected'` event lands in a turn (not on `allowed`/
-  `allowed_warning`, and only once — no retry-loop spam). New exported
-  `isRateLimitRejected` + tests in `ant/src/index.test.ts`.
-  **Fix:** 79d0e390.
-
 ## ✅ FIXED 2026-08-07 — Resource identity (`Name`/`Table`) restated across the two `resreg.Resource` sites — residual drift the 5/16 single-source model retires (2026-07-13, sweep, record-only)
 
 **Fixed 2026-08-07**, closing `5/16`'s last open item. `resreg/resources/names.go`
@@ -1553,53 +1404,6 @@ acl`; `setfacl -m u:1000:r …`) if the host gains other users; (2) if onvos's
   its own uid-1000 copy. Keeps operator creds untouched, survives host-side
   rewrites, no world-read. Redesign of the codex mount → record + sign-off.
 
-## ✅ FIXED 2026-08-15 (re-verified) — Onboarding recurs as a manual operator chore — new chat → route-miss → silence → hand-run `arizuko group add` (2026-07-12)
-
-This keeps popping up. Live datapoint: Nikol (`telegram:user/8177590051`) sent
-`/start` + a question at 08:01 2026-07-12 on krons, hit a route-miss, got NO
-greeting and NO admission-queue row; the operator had to discover the JID out of
-band (sqlite) and hand-run `arizuko group krons add … rhias/niki`. Same story as
-adshaus and the earlier telegram groups. Two distinct defects compound it:
-
-1. **`InsertOnboarding` never fires on a genuine route-miss** — **fixed
-   2026-07-12**: root cause pinned — TWO drifted route-miss handlers; the
-   queue-worker copy that ingest actually drives (`processGroupMessages`)
-   had no onboarding and advanced the cursor first, so `pollOnce`'s
-   onboarding branch was dead. Full walkthrough in the "Chat-initiated
-   onboarding still dead" entry below. One shared `routeMiss` handler now
-   serves both paths; an `InsertOnboarding` failure is `slog.Error` + a
-   notice delivered to the chat.
-2. **No self-serve JID discovery — `/chatid` dead exactly where it's needed** —
-   **fixed 2026-07-12.** Correction to the original claim: `/chatid` DOES
-   exist (`routd/steer.go handleCommand`, tested by `TestCmdChatID`) — but the
-   steer layer only runs on chats that RESOLVE, so on an unrouted chat (the
-   one audience that needs it) the command fell into the route-miss drop.
-   Live: 3 dead `/chatid` attempts on unrouted `telegram:group/5567410596`,
-   2026-07-09. Fix: `routeMiss` intercepts `/chatid` (same `lookupCommand`
-   parser, same `ack` path — not a second dispatcher) and replies with the
-   chat JID; the miss still queues onboarding. Test: `TestRouteMissChatID`.
-
-**Test gap (operator ask 2026-07-12):** **closed 2026-07-12** —
-`tests/onboarding_e2e_test.go TestOnboardingEndToEnd` drives the WHOLE path on
-the bootFederation harness (real authd tokens, real ingest→queue→dispatch,
-real runed over HTTP): unrouted inbound → route miss → onboarding row
-`awaiting_message` in the onbod-owned store via routd's production OnbodClient
-→ operator admits (approve + the `arizuko group add` group/route shape) → same
-chat's next message routes → agent reply row lands. Verified failing on the
-pre-fix queue path (WaitForRow timeout — no onboarding row), green after.
-
-- **Severity:** high (every new user needs manual operator intervention today)
-- **Scope:** routd/loop.go onboarding branch; gateway `/chatid`; e2e/anteval
-- **Status:** FIXED, re-verified 2026-08-15 at `131b069d`+merge-to-`fb152e98`.
-  `routd/loop.go:602 routeMiss` is still the single shared handler
-  (`InsertOnboarding` at `:639`, fail-loud on error), `/chatid` still
-  intercepted pre-resolution. `go test ./routd/... -run
-  'TestRouteMissChatID|TestRouteMissOnboardingFailureSurfaces'` and
-  `go test ./tests/... -run TestOnboardingEndToEnd` all PASS. Deploy is a
-  live-instance action (`sudo systemctl restart arizuko_<instance>`), out
-  of repo scope — OPERATOR: confirm krons is on an image built after
-  9fcb0bce/5f102e0d/03b6949c.
-
 ## OPERATIONAL 2026-08-15 — Admin cannot log in to the krons dashboard (2026-07-12, HIGH, config-not-code)
 
 Reported: an admin cannot get into krons (`/dash`/`/auth`). Facts gathered:
@@ -1653,136 +1457,6 @@ inventing a fallback.
   /srv/data/arizuko_krons/store/authd/auth.db "select sub, created_at from
   auth_users;"` to confirm whether a login has since completed; if still 0
   rows, follow the three numbered actions above. No further code change.
-
-## ✅ FIXED 2026-08-15 (re-verified) — Services hub: onbod + timed tiles are `Built=true` but their `/dash/` routes 404 (2026-07-10)
-
-`dashd/services.go:35-36` marks `onbod` and `timed` `Built=true` (Dash=
-`/dash/onbod/`, `/dash/timed/`), so `handleServices` renders them as drill-in
-links once the daemon's `/health` is reachable (`services.go:143`). But
-`dashd/main.go` only mounts `GET /dash/routd/` and `GET /dash/runed/` — there is
-**no `/dash/onbod/` or `/dash/timed/` handler**. Result: on a live instance the
-onbod and timed service tiles link to a 404. The slice comment ("Set Built=true
-once the per-daemon /dash/ route is shipped") documents the invariant that was
-violated. Fix: either ship the two control-plane handlers, or set
-`Built=false` on onbod+timed until they exist. Surfaced by the dashd-playwright
-audit (`services.spec.ts:32`), 2026-07-10.
-
-- **Status:** fixed 2026-07-11 — set `Built=false` on onbod+timed (restores the
-  slice invariant: tiles show as probe-only status, no dead drill-in link).
-  Shipping the two `/dash/` control-plane handlers stays a follow-up (flip back
-  to `true` then). Re-verified 2026-08-15: `dashd/services.go:35-36` still
-  `Built=false` for both; `go test ./dashd/... -run TestServicesBuiltFlagMatchesMountedRoutes`
-  PASSes (guards the Built/mounted-route invariant in both directions).
-
-## ✅ FIXED 2026-08-15 — Stale chat-bound session → `error_during_execution` + silent context loss (2026-07-10)
-
-Symptom (reported as "agents dying after some minutes"): a long-lived group's
-agent briefly errors mid-turn and appears to "forget" the thread. **Not a
-crash** — 24/24 container exits over 12h were `code:0, timedOut:false`; no OOM
-(containers have no mem limit, ~218MB usage), no query timeout.
-
-**Root cause.** routd persists one session ID per chat (`sessions` table) and
-resumes it next turn via `claude --resume <id>`. The container's SDK transcript
-store (`groups/<folder>/.claude/projects/-home-node/*.jsonl`, bind-mounted) is
-pruned by Claude Code's **native retention cleanup** (`.last-cleanup`, ~30-day).
-When routd resumes a session whose transcript was pruned or never fully
-persisted, the SDK returns *"No conversation found with session ID"* → the turn
-result is `subtype=error_during_execution`.
-
-Evidence (marinade `atlas`): `.last-cleanup` = `2026-07-09T19:31:48Z` matches an
-`error_during_execution` at 19:31:41 to the minute; another at 2026-07-10
-07:13:26 resumed `b6c2b287-…` which is absent from disk. On-disk transcripts
-span 06-10 → 07-10 (retention window).
-
-**Self-heals but lossy.** `ant/src/index.ts:335,440` catches the session error
-and retries with a **fresh** session — the 07:13 case delivered `subtype=success`
-~3 min later. Costs: (1) the failed attempt's `error_during_execution` is logged
-as `Result #1` and may surface to the user before the retry; (2) the resumed
-conversation context is discarded (agent "forgets" the thread); (3) wasted
-latency + tokens.
-
-**Candidate fixes (do NOT apply until asked):** (a) before `--resume`, stat the
-transcript file for the stored session ID; if missing, start fresh silently
-(never surface `error_during_execution` as a delivered result); (b) routd expires
-/ nulls a session ID older than the CLI retention window; (c) raise or disable
-Claude Code `cleanupPeriodDays` in the container settings so referenced
-transcripts aren't pruned while `sessions` still points at them. (a)+(c) together
-close both the error-flash and the context loss.
-
-**Status (verified 2026-08-15):** candidate fix (a) is shipped —
-`resolveResumeSession` (`ant/src/index.ts:29-43`) stats the transcript via
-`transcriptPath` before `--resume`; a missing file or a non-UUID lineage
-placeholder starts fresh silently instead of resuming. `isSessionError`
-(`:49-51`) keeps a genuine `error_during_execution` off the delivered-result
-path so it's a retry signal, never a user-facing reply. Wired at the call
-site (`:464`). `ant/src/index.test.ts` covers both functions; `bun test`
-(ant/): 86 pass, 0 fail. (b)/(c) not applied — (a) alone already closes both
-the error-flash and the context-loss symptoms this entry reported.
-
-## ✅ FIXED 2026-08-15 (re-verified) — Chat-initiated onboarding still dead after the compose fix — InsertOnboarding never fires (2026-07-09)
-
-A new group posts, hits a route miss, and **nothing happens** — no greeting, no
-admission-queue row. The operator must discover the JID out-of-band (grep
-routd.db `messages.chat_jid` / journalctl) and hand-run `arizuko group <inst> add
-<jid> <folder>`. Witnessed on krons: `telegram:group/5567410596` posted repeatedly
-05:34–06:11 2026-07-09, all stored, zero onboarding row created.
-
-**Fix #1 (shipped, `4b4d868c`, deployed to krons):** the route-miss onboarding
-insert lives in **routd** (`routd/loop.go:520`, gated by `l.onboardingEnabled` ←
-`routd/cmd/routd/main.go:184` `envOr("ONBOARDING_ENABLED","false")`), but
-`compose/compose.go` passed `ONBOARDING_ENABLED` only to **onbod**. Added it (+
-`ONBOARDING_PLATFORMS`) to routd's env passthrough; rebuilt `arizuko:latest`
-(the systemd `ExecStartPre` regenerates env from the image, so a host-side
-regen alone reverts on restart — the image MUST be rebuilt); verified
-`printenv ONBOARDING_ENABLED=true` inside the routd container.
-
-**Still broken (residual bug).** With the flag confirmed live, a genuine
-telegram-group route miss at 06:11:42 was processed (chat `agent_cursor`
-advanced to 06:11:42) but produced NO onboarding row and NO error. All
-preconditions are met and ruled out:
-- `l.onboardingEnabled=true` (in-container printenv),
-- `l.onbod != nil` (routd logged "service-token bootstrap via authd" at 06:09:11),
-- `ONBOARDING_PLATFORMS` unset → `onboardingAllowed` true,
-- no matching/catch-all route, `sticky_group`/`sticky_topic` empty (no engagement),
-- `httpOnbod.do` returns an error on any non-2xx and `loop.go:531` logs
-  `slog.Warn("insert onboarding", …)` — **no such warn exists**, so a swallowed
-  403 is excluded. `InsertOnboarding` is simply never invoked for the miss.
-
-So the `else if l.onboardingEnabled && l.onbod != nil` branch at `loop.go:520` is
-not being entered even though both are true. Next step: add a trace log at the
-top of the route-miss block (is `!r.ok` even reached, or does `resolve()` return
-`ok=true`/`Observe!=""` for an unrouted telegram group?) and confirm the poll
-actually walks `pollOnce` for this chat rather than the cursor being advanced at
-ingest. Candidate causes: `resolve()` returns a non-miss for a bare group JID; or
-`agent_cursor` is advanced before the onboarding branch runs (batching /
-`last.Timestamp <= GetAgentCursor` skip at `loop.go:500`).
-
-Note: `/chatid` is not an arizuko command (nothing echoes it) — JID discovery is
-meant to BE the onboarding greeting + dashboard queue, exactly what this disables.
-
-See also the onboarding redesign the operator wants (telegram groups = Slack
-channels: new group → default staging folder, private-group interaction gated to
-some users). That vision is being specced into `specs/5/` — the fix here should
-land compatibly with it.
-
-- **Status:** fixed 9fcb0bce (2026-07-12) — **root cause: two route-miss
-  handlers, and the one that runs had no onboarding.** Ingest (`routd/server.go`
-  `handleMessages`) calls `loop.Enqueue` directly, so the queue worker
-  `processGroupMessages` (dispatch.go) consumes the miss within milliseconds —
-  its miss branch was a drifted copy (observe + advance only, NO onboarding).
-  By the next `pollOnce` tick (2s) the cursor was already current, so the
-  `last.Timestamp <= GetAgentCursor` skip suppressed the ONLY onboarding site.
-  Matches the live evidence exactly (cursor advanced, no row, no warn, no
-  turn_context). Fix: one shared `Loop.routeMiss` (observe ingest → onboarding
-  → advance) called from BOTH `pollOnce` and `processGroupMessages`;
-  `InsertOnboarding` failure is now `slog.Error` + `onboardingFailedNotice`
-  delivered to the chat (fail loud, fail-forward — cursor still advances, no
-  poison replay). Tests: `TestQueuePathRouteMissInsertsOnboarding` (failed
-  pre-fix), `TestRouteMissOnboardingFailureSurfaces`.
-
-  Re-verified 2026-08-15 (same fix as the "Onboarding recurs as a manual
-  operator chore" entry): `TestQueuePathRouteMissInsertsOnboarding` PASSes
-  against `routd/loop.go:602 routeMiss`.
 
 ## 5/16 invites fold — agent-forwarder half deferred (2026-07-07, by design)
 
@@ -1869,105 +1543,6 @@ routes (3195f867), tasks (0b6ca53e). Open:
    load but passes 5/5 in isolation. Pre-existing, unrelated to the 5/16/5/15 work. Needs a
    sync point or serialization in the test harness. Low priority (not a product bug).
 
-## CLOSED-STALE 2026-08-15 (heading lagged body) — oracle skill + examples tell operators to folder-scope CODEX_API_KEY, which the store rejects (2026-07-02, resolved 2026-07-05)
-
-Spec 5/14 put `CODEX_API_KEY`/`OPENAI_API_KEY` in `store.EnvProfileKeys`, so `validateScope`
-(`store/secrets.go:128`) rejects them at `scope_kind='folder'` — model creds are user-only (BYOA)
-or platform (host `.env`). But `ant/skills/oracle/SKILL.md` "Path B" and several
-`ant/examples/*/PRODUCT.md` still show `[[secret]] key = "CODEX_API_KEY"` at **folder** scope.
-Under 5/14 enforcement that write 400s.
-
-**Design call needed** (do not silently change either side): (a) keep the model — codex/openai are
-user-only like Anthropic — and fix the oracle docs/examples to user-scope or platform `.env`; or
-(b) carve `CODEX_API_KEY`/`OPENAI_API_KEY` OUT of the folder-reject as a shared *team* capability
-(a folder pays for codex for everyone), keeping only the Anthropic keys user-only. The platform
-`.env` fallback for all four now works (`container/runner.go:readSecrets` fixed 2026-07-02); this
-is purely about whether folder-scope is allowed. Fixing the docs also requires an ant image rebuild.
-
-- **Severity:** medium (breaks documented operator flow)
-- **Scope:** store/secrets.go:128 EnvProfileKeys; ant/skills/oracle/SKILL.md, ant/examples/*/PRODUCT.md
-- **Source:** credential refine-review 2026-07-02
-- **Status:** RESOLVED 2026-07-05 — user decided codex scopes like Claude: one global (platform
-  `.env`) + BYOC (user-scoped), NEVER folder. Code already enforced this (store rejects folder;
-  readSecrets carries all 4 keys). Only `oracle/SKILL.md` Path B claimed "folder secret" — fixed to
-  env-profile. The `PRODUCT.md` examples were already correct (they use `[[env]]` = platform, not
-  `[[secret]]` folder). NOTE: the SKILL.md fix reaches live agents only after an ant image rebuild.
-  Re-verified 2026-08-15: `ant/skills/oracle/SKILL.md:40` still says "platform-or-user, NEVER
-  folder"; `store/secrets.go:128-140` still rejects `ScopeFolder`. Heading updated to match the
-  body's already-resolved status.
-
-## ✅ FIXED 2026-08-15 — OpenAPI convention emits phantom/divergent paths for hand-rolled resources (2026-07-02)
-
-`resreg/openapi.go:resourcePaths` synthesizes the 5/8 CRUD convention (`/v1/<name>`
-GET/POST/GET-one/PATCH/DELETE) from `(RowType, PKFields)`, ignoring each resource's real
-`Endpoints`. Truthful only for `proxyd_routes` (the one resource whose live RegisterREST
-matches the convention). The others advertise paths their daemons don't serve or serve with
-different shapes:
-
-- `timed` advertises `/v1/scheduled_tasks` CRUD — serves none (only `/health`,`/dash`,`/openapi.json`).
-- `onbod` advertises `/v1/onboarding_gates` CRUD — actually serves `/v1/onboarding`.
-- `routd` advertises `routes`/`web_routes`/`acl` — hand-rolled `server.go` diverges on method/param
-  (routes `{id}` not `{seq}`, has `PUT` + no `PATCH`; acl remove is body-`DELETE /v1/acl`; etc).
-
-The `secrets` read-surface leak (convention emitted `GET /v1/secrets/{scope_kind}`) is FIXED by
-dropping `secrets` from routd's OpenAPI list (2026-07-02). The rest is the 5/16 ipc→resreg
-migration: when each becomes a real resreg resource served via RegisterREST with true `Endpoints`,
-change `resourcePaths` to emit from `Endpoints` (empty → schema-only) and the drift closes for good.
-
-- **Severity:** medium (public API doc misleads; not a live leak — phantom paths 404)
-- **Scope:** resreg/openapi.go:resourcePaths; timed/split.go, onbod/main.go, routd/cmd/routd/main.go
-- **Source:** resreg refine-review 2026-07-02
-- **Status:** MOSTLY RESOLVED 2026-07-11 — `resreg/openapi.go` now emits each resource's
-  real `Endpoints` (7c14efd6, single-sourced), so routd (routes/web_routes/acl) and onbod
-  (gates → `/v1/gates`, 4bd09532) are truthful. **Only `timed` remains**: `timed/split.go:13`
-  still lists `scheduled_tasks` in its OpenAPI while serving only health/openapi/dash. Fix is
-  a decision (Q8): emit an empty resource list for timed, or give timed a real `/v1` face.
-
-  **Closed 2026-08-15**: Q8 was decided — `timed/split.go:newTimedMux` mounts no resource
-  (`resreg.OpenAPIHandler("timed", mux)` with an empty mux, doc explicitly citing this same
-  BUGS class as `F32`), so timed's document is empty BY DERIVATION, not a hand-kept list.
-  `routd/README.md:69-75` documents `scheduled_tasks` as routd's resource served at
-  `/v1/tasks` (the one non-`/v1/<name>` path, by design, since timed calls that prefix
-  across the container boundary). Fixed a stale doc line found in the same call path:
-  `timed/README.md:22` still said `resreg.OpenAPIHandler("timed", ["scheduled_tasks"])`.
-
-## ✅ FIXED 2026-08-15 — proxyd_routes list handler returns {routes:[]} envelope; OpenAPI documents a bare array (2026-07-02)
-
-`proxyd/resource.go:187` returns `map[string]any{"routes": out}` but `resreg/openapi.go` documents
-list `200` as a bare `array<ProxydRoutes>`. The one resource whose paths are correct still serves a
-body shape its own doc contradicts. Fix: return the bare `[]Route` (matches the engine convention;
-no in-tree consumer indexes the `routes` key) or document the envelope. Deferred: needs a consumer
-sweep (webd forwarder relays the body) to confirm the bare-array change is safe.
-
-- **Severity:** low-medium (doc/handler drift on one resource)
-- **Scope:** proxyd/resource.go:187
-- **Source:** resreg refine-review 2026-07-02
-- **Status:** FIXED. Confirmed the deferred consumer sweep is safe:
-  `webd/routes_mcp.go:74` (`routesForwarder`) relays the proxyd response
-  body verbatim as `json.RawMessage` to both its REST and MCP callers — no
-  unwrap of a `routes` key anywhere in-tree. Changed `ActionList` to return
-  the bare `[]Route` (matches every other resreg list handler's
-  convention, e.g. `routd/routes_resource.go`'s REST branch). Updated
-  `proxyd/resource_test.go`'s two assertions to the new bare-array shape.
-  `go test ./proxyd/... ./webd/...`: both `ok`. **Fix:** e59ba143.
-
-## CLOSED-STALE 2026-08-15 (heading lagged body) — resreg.Caller.Name is write-only (2026-07-02, fixed 2026-07-12)
-
-`resreg/resreg.go:76` `Caller.Name` is set by both adapters (`proxyd/resource.go:366`,
-`webd/routes_mcp.go:50`) but read by nobody — `buildEvent` uses `Sub` for both audit `Actor` and
-`ActorSub`. Either drop the field + its two assignments, or use it as the human-readable audit
-`Actor`. Left this round (the drop cascades through the two call sites' `name` computations; the
-use-as-Actor changes audit semantics — neither is a pure cleanup).
-
-- **Severity:** minor
-- **Scope:** resreg/resreg.go:76
-- **Source:** resreg refine-review 2026-07-02
-- **Status:** fixed 2026-07-12 — dropped the field + both assignments (audit Actor
-  stays Sub, unchanged); the proxyd `name` computation went with it, webd's `name`
-  param remains live for the forwarded X-User-Name header. Re-verified 2026-08-15:
-  `resreg.Caller` (`resreg/resreg.go:88-92`) has no `Name` field. Heading updated
-  to match the already-fixed body.
-
 ## ConnectorSecrets resolves folder scope only — user BYOA key never reaches MCP subprocess
 
 **Severity**: medium
@@ -2037,27 +1612,6 @@ Fix: `cmdNetwork` should call `store.OpenRoutd(dataDir/store)` instead of `store
 - **Affected:** `arizuko network allow|deny|list|resolve` on all split instances
 - **Source:** cmd/arizuko/network.go:17 (`store.Open` → should be `store.OpenRoutd`)
 - **Status:** fixed 2026-06-21 (2dfa5670 — store.Open → store.OpenRoutd)
-
-## CLOSED-STALE 2026-08-15 (heading lagged body) — slakd message IDs are per-channel, not globally unique (2026-06-19, fixed 2026-07-11)
-
-`slakd/bot.go:521` uses `m.TS` (Slack timestamp) as the `InboundMsg.ID`. Slack `ts` is unique
-within a channel but not across channels in the same workspace. Two channels posting at the same
-microsecond get the same `ts` → `INSERT OR IGNORE` would silently drop the second. Same class of
-bug as the teled cross-chat ID collision (fixed 2026-06-19). In practice extremely unlikely
-(Slack backend is monotonic per-workspace, microsecond precision), but structurally unsound.
-
-Fix: prefix with the channel JID, e.g. `jid + "/" + m.TS`. Same pattern as teled.
-Reaction IDs (`r.Item.TS + ":r:" + r.Reaction`) need the same treatment.
-
-- **Severity:** low (theoretical — Slack TS precision makes collision astronomically unlikely)
-- **Scope:** slakd
-- **Affected:** slakd/bot.go:521,567 — multi-channel Slack workspaces
-- **Status:** fixed 2026-07-11 — message + reaction IDs prefixed with the channel
-  `jid`, mirroring teled (`bot.go:291,209`). Raw-TS API targeting uses `TargetID`,
-  not `InboundMsg.ID`, so prefixing is safe. Re-verified 2026-08-15:
-  `slakd/bot.go:533` (`jid + "/" + m.TS`) and `:579`
-  (`jid + "/" + r.Item.TS + ":r:" + r.Reaction`) both still prefixed.
-  Heading updated to match the already-fixed body.
 
 ## dashd reads SQLite directly — spec 7/1 (formerly 6/1) says it shouldn't; code and CLAUDE.md say it should (2026-06-16, PROPOSED — spec/code conflict, needs sign-off, verified 2026-08-15)
 
@@ -2129,30 +1683,6 @@ zero occurrences of "usage", "throughput", or "metric". Not specced, not built.
   per-group breakdown and a 7-day daily volume table. `navLinks` carries the `usage` tile.
 - **Fix:** shipped, no further code change; heading closed docs-only.
 
-## ✅ FIXED 2026-08-15 dashd: routes + task-detail visible to any auth'd user (2026-06-17)
-
-`handleRoutes` GET (`routes_admin.go:28`) gates on `requireUser` only — any auth'd caller can
-enumerate the full route table including routes targeting other tenants' folders. `handleTaskDetail`
-GET (`tasks_admin.go:21`) also gates on `requireUser` with no folder-scope check — any auth'd
-caller who knows a task ID can read its full prompt and owner. Both list pages filter correctly
-(`handleGroups`, `handleTasks`), but their detail/read views don't re-check scope.
-
-- **Severity:** medium
-- **Scope:** dashd/routes_admin.go:28, dashd/tasks_admin.go:21
-- **Affected:** multitenant: non-operator users can see other tenants' routes/task details
-- **Source:** bucket A refine review 2026-06-17
-- **Status:** resolved d52b2c50 + b99138fb (2026-06-06) — stale entry, verified
-  2026-07-13: task detail gates on the task's owner via `visible()`
-  (tasks_admin.go), routes list filters each row by `visible(target folder)`
-  (routes_admin.go:65)
-- **Fix:** d52b2c50 + b99138fb; re-verified at fb152e98 — the routes page keeps the
-  `requireUser` gate but drops every row the caller cannot see:
-  `visible(allowed, operator, ParseRouteTarget(target).Folder)` (`routes_admin.go:64`),
-  with `allowed/operator` from `callerScope`. Task detail loads the row, then 403s on
-  `!visible(allowed, operator, owner)` BEFORE rendering the prompt
-  (`tasks_admin.go:87-91`). Isolation covered by `isolation_test.go:117` (scoped
-  caller's routes view) — a tenant sees only its own rows.
-
 ## ✅ FIXED 2026-08-15 dashd: adminDB() panics if routd.db open fails (2026-06-17)
 
 `main.go:226-231` warns and continues if `routd.db` fails to open, leaving `d.dbRoutd = nil`.
@@ -2221,120 +1751,6 @@ action. (2) Line 91: JS polling renders `expires_at`/`since` from whapd JSON dir
   only `innerHTML` left (`:81`) is an hx-swap target attribute, not a sink.
   Covered by `channels_test.go` (non-admin denied, admin proxies + audits).
 
-## ✅ FIXED 2026-08-15 [SEC] routes: handleRouteUpdate authorizes new target, not existing row (2026-06-18)
-
-`routes_admin.go:194`: PATCH only requires admin on the new target folder. A caller who knows a
-route ID in another folder can PATCH it into a folder they own — changing match/seq/target on an
-otherwise inaccessible rule.
-
-- **Severity:** high
-- **Scope:** dashd/routes_admin.go:194
-- **Source:** codex audit 2026-06-18
-- **Status:** resolved — loads existing row first, requires admin on old + new folder (80bd29da)
-- **Fix:** 80bd29da shipped the gate; re-verified at fb152e98 — `routes_admin.go:202-223`
-  loads `curTarget`, requires admin on `curFolder`, and requires admin on the new
-  folder too when the target moves. `handleRouteDelete` (`:270-283`) resolves the
-  folder from the stored row, so the sibling path never had the hole. The fix had
-  NO regression test; added `dashd/routes_admin_test.go` (4 cases: cross-folder
-  PATCH denied, donate-to-unowned denied, own-folder PATCH allowed, cross-folder
-  DELETE denied). Mutation-checked — removing the `curFolder` gate turns the two
-  deny cases from 403 into 204.
-
-## ✅ FIXED 2026-08-15 [SEC] invites: raw token exposed in revoke URL (2026-06-18)
-
-`invites.go:56`: token is a path param in the revoke form action — leaks live bearer into request
-logs, browser history, and proxy access logs.
-
-- **Severity:** high
-- **Scope:** dashd/invites.go:56
-- **Source:** codex audit 2026-06-18
-- **Status:** resolved a51989cc — stale entry, verified 2026-07-12: revoke URL
-  carries `inviteRef` (sha256 of token); handler resolves ref→token server-side
-- **Fix:** a51989cc; re-verified at fb152e98 — the revoke form posts to
-  `/dash/invites/{ref}/revoke` (`invites.go:57-61`) and `handleInviteRevoke` (`:155`)
-  calls `RevokeInviteByRef(ref)`. `ref` is `store.TokenRef(token)` = sha256 hex
-  (`store/invites_test.go:22`), so it is one-way — a log or history leak of the URL
-  yields no redeemable bearer. The raw token appears once, in the create-response
-  BODY (`:143-149`), never in a URL.
-
-## ✅ FIXED 2026-08-15 [SEC] route_tokens: encodeJID/decodeJID not reversible; webhook label unvalidated (2026-06-18)
-
-`route_tokens.go:131`: `decodeJID` maps every `--` back to `/`, so a label containing `--` revokes
-the wrong JID. `route_tokens.go:43`: label is unvalidated — can contain `/` or control chars that
-break JID namespace.
-
-- **Severity:** high
-- **Scope:** dashd/route_tokens.go:43,:131
-- **Source:** codex audit 2026-06-18
-- **Status:** resolved — label validated against `[a-zA-Z0-9._-]+` (80bd29da);
-  encodeJID collision fixed a51989cc, verified 2026-07-13: `encodeJID` =
-  `url.PathEscape` (reversible), `decodeJID` deleted (mux PathValue unescapes)
-- **Fix:** 80bd29da + a51989cc; re-verified at fb152e98 — `encodeJID` is `url.PathEscape`
-  (`route_tokens.go:143`), the lossy `decodeJID` is gone, and `handleTokensRevoke`
-  (`:116-121`) reads the mux-unescaped `{jid}` PathValue. Labels are gated by
-  `webhookLabelRe = ^[a-zA-Z0-9._-]+$` (`:15`, enforced `:56`) before composing
-  `hook:<folder>/<label>`. Revoke is also folder-bound —
-  `RevokeRouteToken(jid, folder)` (`:133`) after `requireAdmin(folder)` — so even a
-  crafted jid cannot revoke another folder's token.
-
-## ✅ FIXED 2026-08-15 [SEC] chat: raw bearer tokens visible to read-scoped dashboard users (2026-06-18)
-
-`chat.go:152,262`: session list renders raw chat bearer tokens in Continue links. Any read-scoped
-user who can see the portal sees a reusable write-capable token, bypassing the admin gate on token
-minting.
-
-- **Severity:** high
-- **Scope:** dashd/chat.go:152,:262
-- **Source:** codex audit 2026-06-18
-- **Status:** resolved a51989cc (2026-07-05) — stale entry, verified 2026-07-13:
-  continue links render only for folders the caller admins (`callerAdmins` map
-  in the portal, `admin` gate on the group page; `folderSessionTokens` fetched
-  only when admin) — read-scoped viewers see rows without tokens
-- **Fix:** a51989cc; re-verified at fb152e98 — the portal builds `admin[folder]` from
-  `callerAdmins` (`chat.go:81`) and `writeConvGroups` (`:255-259`) emits the
-  `/chat/<token>/` anchor ONLY when `admin[s.folder]`; otherwise a plain `<div>` with
-  no token. Per-folder, `writeFolderConversations` (`:331-333`) fetches
-  `folderSessionTokens` only when admin, so a read-scoped viewer's rows render
-  `cont = "—"`. `callerAdmins` (`:235`) is the non-writing twin of `requireAdmin`,
-  so both surfaces resolve through the same `auth.Authorize` decision — no second
-  inline check. Covered by `chat_test.go` `TestHandleChatPortal_hidesTokenFromNonAdmin`
-  and `TestHandleChatGroup_tokenAdminOnly`.
-
-## ✅ FIXED 2026-08-15 [SEC] routd/runed: retry + kill endpoints missing CSRF protection (2026-06-18)
-
-`routd_page.go:106`: POST /dash/routd/retry gated by `requireOperator` only — no same-origin
-check. `runed_page.go:135`: POST /dash/runed/kill same issue, higher impact (terminates live runs).
-
-- **Severity:** high
-- **Scope:** dashd/routd_page.go:106, dashd/runed_page.go:135
-- **Source:** codex audit 2026-06-18
-- **Status:** resolved — `requireSameOrigin` added to both (1dc9b356)
-- **Fix:** 1dc9b356; re-verified at fb152e98 — `handleRoutdRetry` (`routd_page.go:117`)
-  and `handleRunedKill` (`runed_page.go:156`) each call `requireSameOrigin` right after
-  `requireOperator`. Same guard, not a second mechanism: `requireAdmin` also embeds it
-  (`authz.go:212`), so every dashd write goes through one CSRF check.
-  Covered by `authz_test.go` (missing Origin passes, matching passes, cross-origin 403).
-
-## ✅ FIXED 2026-08-15 [SEC] grants: effect silently defaults to allow; nil adminDB in POST paths (2026-06-18)
-
-`grants_admin.go:184`: invalid `effect` value silently creates an allow grant. `grants_admin.go:46`
-guards GET but not POST — nil adminDB panics on add/revoke.
-
-- **Severity:** high
-- **Scope:** dashd/grants_admin.go:184,:46
-- **Source:** codex audit 2026-06-18
-- **Status:** resolved — invalid effect → 400; nil adminDB guard on add + revoke (91159586)
-- **Fix:** 91159586; re-verified at fb152e98 — the ADD path rejects an unknown effect
-  with 400 (`grants_admin.go:189-193`: empty → `allow`, anything not allow/deny → 400),
-  so a typo can no longer mint an allow grant. `adminDB()` is nil-guarded on GET (`:46`),
-  add-POST (`:170`) and revoke-POST (`:236`).
-  Noted while verifying, NOT part of this entry and not fixed: the revoke path
-  (`:253`) still defaults a blank effect to `allow` without the 400 check, and
-  `RemoveACLRow` reports no rows-affected — a revoke whose fields don't match any row
-  redirects as success. That fails CLOSED (the grant stays) and the form is
-  dashd-rendered from the row itself (`:64`), so it is a fail-loud gap, not an
-  escalation. Worth its own entry if the queue wants it.
-
 ## ✅ FIXED 2026-08-15 — tasks: new tasks have no next_run; cron not validated on create (2026-06-18, open)
 
 `tasks_admin.go:216`: tasks inserted with `status='active'` but no `next_run` — timed only fires
@@ -2365,24 +1781,6 @@ invalid cron/interval strings stored silently; timed logs warning and task stays
   0 rows affected → 409.
 - **Fix:** enforce valid transitions in SQL or code; recompute next_run on resume
 
-## ✅ FIXED 2026-08-15 groups: delete parent leaves orphaned child rows; not atomic (2026-06-18)
-
-`groups_admin.go:403`: deleting `corp` removes ACL/routes for the whole subtree and purges files,
-but leaves `corp/eng` rows in `groups`. Orphaned child groups become invisible but persistent.
-Also not atomic — if ACL cleanup fails after groups DELETE, stale rows resurface.
-
-- **Severity:** medium
-- **Scope:** dashd/groups_admin.go:403
-- **Source:** codex audit 2026-06-18
-- **Status:** resolved — delete wrapped in transaction; descendant group rows purged atomically (91159586)
-- **Fix:** 91159586; re-verified at fb152e98 — `groups_admin.go:431` opens a tx and every
-  step runs inside it: the folder row (`:437`), descendants
-  (`DELETE FROM groups WHERE folder LIKE ?||'/%'`, `:450`), `acl` by scope + subtree
-  (`:457`), `routes` by target/`#`/subtree (`:464`), and the audit row via
-  `audit.EmitInTx` (`:471`) — every failure path `tx.Rollback()`s, and one
-  `tx.Commit()` (`:486`) makes it atomic. No orphaned child rows, no half-applied
-  cleanup.
-
 ## ✅ FIXED 2026-08-15 — groups: observe-window and max_children forms corrupt defaults on save (2026-06-18, open)
 
 `groups_admin.go:246,:286`: GET maps stored -1/NULL to `0` for display; POST saves `0` back as a
@@ -2399,52 +1797,6 @@ nothing) or "0 max_children" (spawning disabled).
   the field itself was removed, so that half of the entry is moot rather than fixed.
 - **Fix:** render -1/NULL as blank; treat submitted 0 as clear-to-default in POST handler
 
-## ✅ FIXED 2026-08-15 (tasks; activity residual documented) main: writeTaskRows and activity feed apply LIMIT before visibility filter (2026-06-18)
-
-`main.go:730`: `writeTaskRows` fetches LIMIT 500 then filters in Go — scoped users miss tasks that
-sort after row 500. `main.go:808`: activity feed fetches 1000 rows then filters — same class.
-
-- **Severity:** medium
-- **Scope:** dashd/main.go:730,:808
-- **Source:** codex audit 2026-06-18
-- **Status:** resolved a51989cc (2026-07-05) — stale entry, verified 2026-07-13:
-  writeTaskRows pushes the owner filter into SQL (`ownerVisibleSQL`; glob grants
-  fall back to a 5000 over-fetch). Activity deliberately over-fetches 1000 for
-  non-operators (visibility needs Go-side `jidFolder` route resolution, not
-  SQL-expressible); residual: scoped rows older than the newest 1000 stay hidden
-- **Fix:** a51989cc; re-verified at fb152e98 — `writeTaskRows` (`main.go:981-1001`) pushes
-  the owner filter into SQL via `ownerVisibleSQL` (`:963`), so the LIMIT counts only
-  visible rows; a grant carrying a `*` is inexpressible in that predicate, so it
-  returns `ok=false` and the query falls back to `ORDER BY owner, id LIMIT 5000` with
-  the Go-side `visible()` filter. No concrete grants → the predicate is literal `0`
-  (fail-closed, nothing visible).
-  Residual, deliberate: the activity feed still over-fetches 1000 and filters in Go,
-  because visibility there needs `jidFolder` route resolution that SQL cannot express.
-  Both directions of the residual only HIDE rows from an under-privileged caller —
-  neither leaks — so this closes as a completeness limit, not a security defect. If the
-  operator-visible gap ("my task/event is older than the newest 1000") is worth fixing,
-  it wants keyset pagination, which is a redesign and needs its own entry.
-
-## ✅ FIXED 2026-08-15 main: memory write/delete broken for nested group folders (2026-06-18)
-
-`main.go:1073`: `parseMemoryPath` splits on first `/` after `/dash/memory/`. For
-`corp/eng`, folder="corp" and rel="eng/MEMORY.md" — fails allowlist. Read page shows nested groups
-correctly but mutations don't work.
-
-- **Severity:** medium
-- **Scope:** dashd/main.go:1073
-- **Source:** codex audit 2026-06-18
-- **Status:** resolved — parseMemoryPath scans split points; nested folders work (91159586)
-- **Fix:** 91159586 shipped it; re-verified at fb152e98 — `main.go:1354-1368` walks every
-  `/` split point (left-to-right, first `rel` passing `memoryPathAllowed` wins), so
-  `corp/eng/MEMORY.md` resolves to folder=`corp/eng`. Both mutators authorize on the
-  PARSED folder (`main.go:1414`, `:1459`), so the scan cannot reach another tenant.
-  (The old status line said "right-to-left"; the scan is left-to-right — same result,
-  wrong description, corrected here.) The fix had NO nested test — `setupMemoryTest`
-  only ever used flat `g1`. Added `dashd/memory_nested_test.go`: parseMemoryPath table
-  (nested, 3-deep, diary, .claude, non-allowlisted, traversal) + nested write/diary/delete
-  + an ungranted-caller 403.
-
 ## ✅ FIXED 2026-08-15 — audit: pagination cursor off by one (2026-06-18, open)
 
 `audit_page.go:83`: `lastID` is set on the 51st lookahead row, then page is sliced to 50 and
@@ -2459,20 +1811,6 @@ correctly but mutations don't work.
   OLDEST row that source actually contributed to the RENDERED page (after the
   `merged[:auditPageSize]` slice) — no lookahead-row leak.
 - **Fix:** capture cursor from row 50, not the lookahead row
-
-## ✅ FIXED 2026-08-15 routd: retry clears errored on all messages, not just errored=1 (2026-06-18)
-
-`routd_page.go:123`: `UPDATE messages SET errored=0 WHERE chat_jid=?` resets all rows, including
-non-errored history.
-
-- **Severity:** medium
-- **Scope:** dashd/routd_page.go:123
-- **Source:** codex audit 2026-06-18
-- **Status:** resolved — `AND errored=1` added (1dc9b356)
-- **Fix:** 1dc9b356; re-verified at fb152e98 — `routd_page.go:133` is exactly
-  `UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1`, so a retry touches
-  only errored rows and `RowsAffected` reports the true cleared count into the audit
-  event (`:139-150`) instead of the chat's whole history.
 
 ## ✅ FIXED 2026-08-15 — services: davd probe path wrong; timeout classified as unknown (2026-06-18, open)
 
@@ -2599,171 +1937,6 @@ away (profile page). CTO audit criterion: auth trust signal always on screen.
   groups, and renders it as an always-visible badge on every page's nav.
 - **Fix:** `dashNavFor` identity badge using X-User-Name/X-User-Sub + operator flag
 
-## ✅ FIXED 2026-08-15 — `arizuko apply`/`plan`/`export`/`get` operate on the frozen messages.db post-split (2026-07-01)
-
-The resreg YAML-manifest CLI (`cmd/arizuko/apply.go`) opens `store.Open(dataDir+"/store")`
-= **messages.db** and drives `resreg.Apply`/`Plan`/`Export`/`ConfigVersion` against it. But
-the config resources it manages (groups/acl/acl_membership/routes/web_routes/scheduled_tasks/
-network_rules/proxyd_routes/onboarding_gates) all MOVED to routd.db/onbod.db in the split
-cutover. So `apply` reads + writes a frozen twin: its CAS counter (`config_meta`) and every
-resource DELETE+INSERT hit tables the live daemons no longer read. Effectively `arizuko apply`
-is a no-op against production config. `config_meta` is entangled with this — it cannot move to
-routd.db until the CLI is repointed at the owner DBs (a per-resource DB routing problem, since
-resources now span routd.db + onbod.db). Deferred out of the messages.db-retirement slice.
-
-The same CLI also contradicts 5/8's token exclusion: `resreg.Export` scans every
-registered `RowType`, while `resreg/resources/invites.go` registers the raw invite
-`Token` and does not set `SkipApplyRebuild`. Therefore today's frozen-DB export can
-emit invite bearer tokens, and a naive owner-DB repoint would emit the live tokens.
-The 5/8 finalization must exclude imperative token resources from export/apply,
-not merely route them to the correct owner DB. `route_tokens` already skips apply
-but is still exported as non-secret metadata; decide separately whether that
-metadata belongs in a dump.
-
-- **Severity:** medium
-- **Scope:** cmd/arizuko resreg apply/plan/export/get, config_meta ownership
-- **Affected:** all instances (YAML-manifest config management dead post-split)
-- **Source:** resreg/engine.go:627-645 (exports every RowType); resreg/resources/invites.go:14-21,36-43 (raw token registered); store/migrations/0067-config-meta.sql
-- **Status:** PARTIAL (verified 2026-08-05) — the messages.db half is DONE: `apply.go` now
-  opens routd.db + onbod.db per subsystem via `openSubsystemStores` (`store.OpenRoutd`/
-  `OpenOnbod`, apply.go:46-58), so these verbs reach production config. STILL OPEN: (1)
-  `config_meta` remains an orphan in messages.db, so the CAS counter has no owner-DB home;
-  (2) the 5/8 token-exclusion gap — `resreg.Export` still scans every RowType including the
-  raw invite `Token`, which now that the repoint has landed means a live-token export.
-
-  **Closed 2026-08-15** — both STILL OPEN items are now resolved, independently of this
-  entry: (1) the CAS mechanism was redesigned to a content-hash `Checksum` (recomputed
-  fresh from live rows, `resreg/engine.go:707`, doc comment "without a config_meta
-  table") — `cmd/arizuko/apply.go` calls `resreg.Checksum`, not `ConfigVersion`/
-  `config_meta`, so the orphan table is unused dead schema, not a functional gap.
-  (2) migration `store/migrations/0077-invites-hash-at-rest.sql` (I1) rekeyed
-  `invites` from a plaintext `token` PRIMARY KEY to `ref` (`hex(sha256(token))`);
-  `InvitesRow` (`resreg/resources/invites.go:23-30`) has no `Token` field at all —
-  "the raw bearer is never persisted, so there is no token field to leak here even
-  by omission-bug." `resreg.Export`/`GetResource` scan `RowType` verbatim, so there
-  is nothing left to leak. `go test ./cmd/arizuko/... ./resreg/...`: all `ok`.
-
-## CLOSED-STALE 2026-08-15 — Product PRODUCT.md manifests declare a non-existent `facts` skill (2026-07-09)
-
-9 of the `ant/examples/*/PRODUCT.md` manifests list `"facts"` in their `skills`
-array (personal, reality, socials, support, creator, pm, slack-team, strategy,
-trip), but there is no `ant/skills/facts/` — writing facts is done by `find` +
-`recall-memories`. Either the seed path silently ignores unknown skill names
-(then the manifest is misleading) or it errors/mis-seeds. Product doc pages
-mirror the manifests, so the drift shows up in docs too.
-
-- **Severity:** low
-- **Scope:** `ant/examples/*/PRODUCT.md` skills field vs `ant/skills/`
-- **Source:** grep — no `ant/skills/facts`; 9 PRODUCT.md declare it
-- **Status:** OPEN — decide: rename to a real skill, add a `facts` skill, or drop from manifests
-- **Found:** product-docs refine pass (fable), 2026-07-09
-- **Closure evidence (2026-08-15):** `grep -rl '"facts"' ant/examples/*/PRODUCT.md` returns
-  nothing — no manifest declares `facts` anymore (e.g. `ant/examples/personal/PRODUCT.md:4`
-  now lists `["diary", "recall-memories", "compact-memories", "users", "web", "oracle"]`),
-  and `ant/skills/` still has no `facts/` directory. Manifests were already fixed to the
-  real skill set (`/find` + `/recall-memories`) sometime after this entry was filed. No
-  code change.
-
-## ✅ FIXED 2026-08-15 — Suffixed web chat token mints a JID that routes nowhere (2026-07-09)
-
-`arizuko token <inst> issue chat <folder> <suffix>` builds
-`jid = "web:"+folder+"/"+suffix` (`cmd/arizuko/token.go:60`). A group's auto route
-is `room=<folder>`, and direct-address resolution keys on the folder — a
-`web:<folder>/<suffix>` JID appears to match neither, so a suffixed chat link may
-be dead on arrival. The unsuffixed form (`web:<folder>`) works. If suffixed chat
-tokens are meant to route (e.g. sub-surface chats), that's a routd gap; if not,
-the CLI should reject the suffix for `chat`. Product setup pages were written to
-avoid the suffix as a workaround.
-
-- **Severity:** medium (silent dead link if an operator uses the documented suffix arg)
-- **Scope:** `cmd/arizuko/token.go` chat JID + routd route/direct-address resolution
-- **Source:** `cmd/arizuko/token.go:55-62`; route match `room=<folder>`
-- **Status:** OPEN — needs a routing repro to confirm whether `web:X/sub` resolves
-- **Found:** product-docs refine pass (fable), 2026-07-09
-- **Closed 2026-08-15** — fixed by the L4 `route_tokens.target_folder` work
-  (`store/migrations/0086-route-token-target-folder.sql`,
-  `routd/migrations/0035`): `store.RouteToken.Folder()`
-  (`store/route_tokens.go:41-47`) now reads the mint-recorded `TargetFolder`
-  first — set unconditionally to `folder` regardless of suffix by
-  `cmd/arizuko/token.go:104` (`TargetFolder: folder`) — and only falls back
-  to parsing the ambiguous suffixed JID for a pre-migration token. A
-  suffixed `web:<folder>/<suffix>` chat token now resolves to `<folder>`
-  exactly like the unsuffixed form. `go test ./routd/... ./webd/...
-  ./tests/... ./store/...`: all pass.
-
-## CLOSED-STALE 2026-08-15 (heading lagged body) — howto/webhooks.html claims hook headers are delivered; ingest forwards body only (2026-07-09, fixed 2026-07-12)
-
-`template/web/pub/arizuko/howto/webhooks.html` documents a `"headers": {…}`
-envelope on hook ingest, but the route-token webhook path forwards the request
-body only (per `webd/route_token.go` ~:268, cited by the refine agent — verify).
-Product pages had the same claim removed; the howto page still carries it.
-
-- **Severity:** low (doc-only; misleads webhook integrators)
-- **Scope:** `template/web/pub/arizuko/howto/webhooks.html` vs `webd/route_token.go`
-- **Status:** fixed 2026-07-12 — verified `webd/route_token.go:handleHookIngest`
-  builds `InboundMsg{Content: body}` only (no headers field exists on the type);
-  removed all four headers-delivery claims from the howto page, security bullet
-  now states headers are dropped at ingest. Re-verified 2026-08-15:
-  `template/web/pub/arizuko/howto/webhooks.html:147` still says "Request
-  headers are not forwarded." Heading updated to match the already-fixed body.
-- **Found:** product-docs refine pass (fable), 2026-07-09
-
-## ✅ FIXED 2026-08-15 (re-verified) — `arizuko token issue chat|webhook` writes route_tokens to frozen messages.db (2026-07-11)
-
-Same class as the fixed `arizuko network` bug (2026-06-21, 2dfa5670): `cmd/arizuko/token.go`
-`cmdToken` opens the DB via `store.Open(dir/store)` → `messages.db`, but post-split
-`route_tokens` is owned by routd in `routd.db` (`routd/tokens.go` resolves against `d.db`).
-CLI-issued chat/webhook tokens land in a table routd never reads — the printed `/chat/<token>`
-or `/hook/<token>` URL silently never resolves (webd POST /v1/route_tokens/resolve → 404).
-Verified live on krons: routd.db has 3 route_tokens, messages.db has 1 stale CLI-issued row.
-Also breaks `token list` (reads stale rows) and the `issue` folder-existence check
-(`GroupByFolder` on messages.db misses post-split groups, e.g. `eval`). The REST
-(`POST /v1/route_tokens/chat`) and MCP (`issue_chat_link`) paths are correct — only the CLI
-is wrong. Note `tokenIssueBearer` (added 2026-07-11) is unaffected: it reads auth.db +
-validates the folder via `mustOpenACL` (routd.db).
-
-Fix: route `issue chat|webhook`/`list`/`revoke` through `store.OpenRoutd` (mirror 2dfa5670).
-
-- **Severity:** medium (silent — operator-issued capability URLs are dead; no error surfaced)
-- **Scope:** cmd/arizuko/token.go
-- **Affected:** `arizuko token issue chat|webhook|list|revoke` on all split instances
-- **Source:** cmd/arizuko/token.go:27 (`store.Open` → should be `store.OpenRoutd` for route_tokens)
-- **Status:** fixed 2026-07-12 — cmdToken opens routd.db via the existing
-  `mustOpenACL` (one CLI open-path, no second `store.OpenRoutd` copy); guarded by
-  `TestTokenLandsInRoutdDB` (issue+revoke land in routd.db, messages.db stays empty).
-  Re-verified 2026-08-15: `cmd/arizuko/token.go:33` still `st := mustOpenACL(dataDir)`;
-  `go test ./cmd/arizuko/... -run TestTokenLandsInRoutdDB` PASSes.
-- **Fix:** 91630159
-
-## ✅ FIXED 2026-08-15 (re-verified) — `arizuko group add`/`create` writes the group skeleton to CWD, not the data dir (2026-07-11)
-
-`core.LoadConfigFrom(dataDir)` loads the instance `.env` but resolves
-`root = envOr("DATA_DIR", mustCwd())` (`core/config.go:157`). Instance `.env` files don't set
-`DATA_DIR` (compose injects it per-container), so on the HOST the CLI's `cfg.GroupsDir`
-becomes `<cwd>/groups` — `container.SetupGroup` writes the whole agent-home skeleton
-(`.claude/`, skills, logs) into a stray `groups/<folder>` under whatever directory the
-operator ran the command from. The DB rows still land correctly (routd.db), and routd/runed
-re-provision the real `groups/<folder>` on first dispatch, which masks the bug. Observed
-live 2026-07-11 creating the `eval` group on krons from a repo worktree: skeleton appeared
-in `<worktree>/groups/eval` (root-owned), real dir appeared only when routd provisioned it.
-
-Fix direction: host CLI paths should derive GroupsDir from the instance dir it was given
-(`filepath.Join(dataDir, "groups")`), not from `DATA_DIR`-or-cwd. Cross-check other CLI
-users of `LoadConfigFrom` (`cmdCreate`, `cmdPair`, `cmdStatus`) for the same cwd fallback.
-
-- **Severity:** low (masked by daemon-side re-provisioning; litters cwd, confuses operators)
-- **Scope:** cmd/arizuko/main.go + core/config.go LoadConfigFrom root resolution
-- **Affected:** `arizuko create`, `arizuko group add` run on the host
-- **Source:** core/config.go:157 (`envOr("DATA_DIR", mustCwd())`)
-- **Status:** fixed 2026-07-12 — `LoadConfigFrom(dir)` defaults DATA_DIR to `dir`
-  (explicit env/.env still wins), fixing all four callers at the one cause site
-  (cross-checked: create/group add/status/secret all pass `mustInstanceDir`);
-  daemons use `LoadConfig()` directly, unaffected. Tests:
-  `TestLoadConfigFromDefaultsRootToDir` + `TestLoadConfigFromRespectsDataDirEnv`.
-  Re-verified 2026-08-15: `core/config.go:186-192` (`LoadConfigFrom`) still sets
-  `DATA_DIR` from `dir` before delegating to `LoadConfig()`; both tests PASS.
-- **Fix:** ae7277a9
-
 ## PROPOSAL — anteval `--mcp` parity face needs an inspect-read on a public MCP surface (2026-07-11, proposed)
 
 Spec 5/9 gap (b): `anteval --mcp` expects an "inspect-compatible MCP-over-HTTP face" —
@@ -2843,36 +2016,6 @@ backup, git POSSIBLE (ant image ships git + commit skill).
   create + a commit hook on /migrate + diary writes — small, but that IS
   specs/9/3-git-as-truth scope creep; decide there, not ad hoc.
 - **Status:** open — wording fix in flight; the make-it-true decision belongs to 9/3
-
-## ✅ FIXED 2026-08-15 — Two hub.js in template — release stamps the one pages don't load (2026-07-14)
-
-`template/web/pub/assets/hub.js` and `template/web/pub/arizuko/assets/hub.js` are
-byte-identical twins except `ARIZUKO_VERSION`. The docs pages reference relative
-`assets/hub.js` → the `arizuko/assets/` copy; the release runbook (root CLAUDE.md
-"Tagging" step 3) bumps only the top-level copy. Live footer showed v0.51.0 for
-seven releases (v0.51→v0.58) until caught at the v0.58.0 deploy. Same twin risk
-for hub.css.
-
-- **Severity:** low (cosmetic version stamp; but a textbook two-paths drift)
-- **Scope:** template/web asset layout + release runbook
-- **Fix options:** (a) collapse to ONE file (arizuko/assets is the loaded one;
-  decide whether the top-level assets/ serves any non-arizuko hub page before
-  deleting); (b) release script bumps both (band-aid, applied 2026-07-14 in
-  CLAUDE.md wording).
-- **Status:** FIXED — the entry's own open decision ("decide whether the
-  top-level assets/ serves any non-arizuko hub page before deleting") is
-  answered by evidence: `grep -rn "assets/hub.js\|assets/hub.css\|assets/
-  arizuko-client.js" template/web/pub --include=*.html` outside `arizuko/`
-  returned zero hits — no page anywhere loads the top-level copy — and
-  `template/web/CLAUDE.md`'s own deploy procedure says the sync source is
-  `template/web/pub/arizuko/`, NOT the parent, so the top-level `assets/`
-  was never part of the deployed tree either. By 2026-08-15 the two copies
-  had also drifted FUNCTIONALLY (`wrapTables()` only in the loaded copy,
-  several CSS rules only in one file), not just on the version stamp —
-  confirming (a) collapse-to-one was the right call. Deleted
-  `template/web/pub/assets/{hub.js,hub.css,arizuko-client.js}` (option (a));
-  updated root `CLAUDE.md`'s Tagging step 3 to drop the twin-bump
-  instruction. **Fix:** cd7c9b06.
 
 ## P3 — Proxyd dispatch combines routes from two database snapshots (2026-07-30, proposed)
 
@@ -3594,33 +2737,6 @@ with Make.
   6. **Closed.** `webd/Makefile` `test-e2e` captures the output and `exit 1`s on
      "no tests to run", with a comment naming the root Makefile's guard as its
      mirror. A selector matching zero tests can no longer pass as green.
-
-## ✅ FIXED 2026-08-15 — authd `TestRefreshRotationRaceSingleWinner` is flaky (2026-08-03)
-
-Found while verifying the R1 fragment-relink fix (unrelated package —
-`compose`/`cmd/arizuko` are untouched by this test). Fails intermittently
-(1/5 runs) in isolation with no other tests running:
-`bugfix_test.go:168: successor must be revoked after a concurrent-reuse
-family kill`. Timing-sensitive race assertion, not reproducible on demand.
-
-- **Severity:** low (test-only; no evidence of a production race, just an
-  assertion that sometimes loses a real race in the test harness)
-- **Scope:** authd refresh-token rotation test
-- **Source:** authd/bugfix_test.go:168, TestRefreshRotationRaceSingleWinner
-- **Status:** FIXED. Root cause (2026-08-15 pass): `claimAndRotateRefresh`
-  used to claim `used_at` and insert the successor as two separate writes;
-  a loser's `revokeFamily` (`authd/store.go:324-328`, a single `UPDATE ...
-  WHERE family_id=?`) could run in the window between the winner's claim
-  and its successor INSERT, missing the not-yet-existing successor row —
-  the exact intermittent "successor must be revoked" failure. Fixed
-  independently by `dfd4feb5` (2026-08-06, "claim and rotate a refresh
-  token in one transaction" — BUGS F36): `claimAndRotateRefresh`
-  (`authd/store.go:303-321`) now does `markRefreshUsed` + `insertRefresh` +
-  `Commit` as one tx, so by the time any loser observes `won=false` the
-  successor row is guaranteed to already exist, and `revokeFamily` always
-  catches it. Verified: `go test ./authd/... -run
-  TestRefreshRotationRaceSingleWinner -count=200` and `-count=50 -race`
-  both clean, 0 failures.
 
 ## V2 — dashd duplicates ~4,500 LOC of control planes phase 7 moves away (2026-08-04, proposal)
 
