@@ -25,13 +25,24 @@ was dropped for this: a prefix that only ever meant "not a platform" is
 noise, and its absence carries the same information. Agent-authored rows
 (sender without `:`) therefore never get content-based routing.
 
-**Outbound is poll-reconciled, not fire-and-forget.**
-`messages.status` is `sent` | `pending` | `failed`. routd writes the bot
-row `pending`, attempts delivery inline, and marks `sent` on success. A
-sweep re-dispatches `pending` rows older than 30s
-(`routd/loop.go` `maybeRetryOutbound`). `chanreg` holds no queue of its
-own — the DB row is the only outbound record, and the sweep is its only
-retry owner.
+**Outbound is poll-reconciled, not fire-and-forget — and this IS the
+outbox.** `messages.status` is `sent` | `pending` | `failed`. routd
+writes the bot row `pending`, attempts delivery inline, and marks `sent`
+on success. A 30s sweep re-dispatches rows still `pending`
+(`routd/loop.go` `maybeRetryOutbound`); each row waits out its own
+exponential gap first (`backoffDelay`: 30s doubling per prior failure,
+capped at 1h), so ten attempts span about an hour — the retired flat
+30s cadence exhausted the budget in ~5 minutes, too short for an
+adapter restart or a platform incident to recover in (BUGS L22). The
+pending bot row is the ONLY queue entry there is: `chanreg` and the
+adapters hold no queue of their own (whapd's in-memory one was a
+second, weaker writer — deleted, BUGS L20), and the sweep is the one
+retry owner. The row's stable `id` is the idempotency key end to end —
+the sweep resends it, the adapter's durable ledger dedups on it
+([`E-routd.md`](E-routd.md) § Dedup, [`34-channel-protocol.md`](34-channel-protocol.md)).
+This subsumes the drafted "final-delivery outbox" (`specs/16/2`): the
+delivery-state column set, the re-offer tick, the attempt bound and the
+adapter-side dedup all ship here; the delivered-ack is `/send`'s 200.
 
 **The retries are bounded, and `failed` is the dead-letter state.**
 `failed` is terminal: the row keeps its content, `PendingOutbound`
@@ -43,8 +54,7 @@ excludes it, and no sweep sends it again. Two rules end the retries:
   request.
 - A **transient** failure spends one attempt
   (`messages.delivery_attempts`, migration 0034). The row dead-letters
-  when the attempts reach `MAX_OUTBOUND_RETRY` (default 10, about 5
-  minutes at the 30s cadence).
+  when the attempts reach `MAX_OUTBOUND_RETRY` (default 10).
 
 Age is not a bound. The retired 24h rule failed a row that the sweep had
 never attempted — a routd outage longer than 24h discarded the whole

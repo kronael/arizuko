@@ -186,6 +186,16 @@ is a future spec.
   duplicates the message or drops it; routd exhausts its retries and
   dead-letters the row for an operator instead. Visible beats doubled.
 
+  Only an AMBIGUOUS failure holds the claim. A failure that proves nothing
+  was posted releases it: the permanent family (`ErrPermanent`/
+  `ErrInvalidRequest`/`ErrUnsupported` — routd dead-letters at once) and
+  `chanlib.ErrNotDelivered`, the transient refusal (a 429, an `ok:false`)
+  whose 502 lets the sweep retry on a fresh claim. Before that class
+  existed, any adapter-side rate limit left the claim `inflight` and the
+  sweep's whole backoff budget was spent on refusals — a plain 429 was a
+  guaranteed dead-letter. Classification lives in the adapter, the site
+  that sees the platform response ([`34-channel-protocol.md`](34-channel-protocol.md)).
+
   The key was serialized as `turn_id` and dropped by `SendRequest` before any
   adapter saw it, which made this whole paragraph a claim with no code behind
   it (BUGS `D5`). Retrying a non-idempotent platform create call inside the

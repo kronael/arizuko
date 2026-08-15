@@ -79,6 +79,36 @@ when the attempts reach `MAX_OUTBOUND_RETRY` (default 10), so a stuck
 message cannot repeat forever — it burned about 2880 sends over 24h
 before this bound.
 
+**Outbound carries `idempotency_key`, and honoring it durably is part of
+the adapter contract.** routd sends the bot row's stable id in the
+`/send` and `/send-file` body on every attempt, first try and resend
+alike. The adapter must deliver at most once per key: claim the key in
+its OWN durable store BEFORE the platform call, settle it with the
+platform id after, answer a resend of a settled key with the recorded id
+and no platform call, and REFUSE (502) a key whose earlier attempt never
+settled — the adapter cannot tell a lost response from a lost request,
+so it reports the ambiguity and routd dead-letters visibly instead of
+double-posting (BUGS `D5`). Go adapters get all of this from
+`chanlib.NewAdapterMux` + `chanlib.OpenAdapterDB`; an adapter in another
+language implements the same contract. whapd does not yet — it ignores
+the key, so a routd resend can double-post on WhatsApp; it is the one
+adapter still outside the contract.
+
+**The adapter classifies its own platform failures** — the site that
+sees the platform response holds the proof (same rule as runed's
+terminal-vs-retryable, `12-turn-retry.md`). Three sentinel classes in
+`chanlib`: `ErrInvalidRequest`/`ErrUnsupported` (caller-side, → 400/501,
+routd dead-letters at once), `ErrNotDelivered` (a TRANSIENT refusal that
+proves nothing was posted — a 429, an application-level `ok:false` — the
+dedup claim is released and the 502 lets the sweep retry on a fresh
+claim), and everything else (ambiguous: a 5xx or a transport error may
+have posted, the claim stays held, resends are refused until routd
+dead-letters). Without the middle class every adapter-side rate limit
+poisoned the claim and turned the sweep's whole backoff budget into
+refusals — a plain 429 became a guaranteed dead-letter. Chunked senders
+(teled, discd) release only while NO chunk has landed; after a delivered
+chunk a re-post would duplicate it.
+
 `failed` IS the dead-letter state. The row keeps its content,
 `PendingOutbound` excludes it, and no sweep touches it again. An
 operator sees the count on dashd's routd page next to `pending

@@ -1,56 +1,30 @@
 ---
-status: draft
-depends: [E-routd, Q-unified-routing]
+status: shipped
+absorbed-into: [5/Q-unified-routing, 5/E-routd]
 ---
 
 # Final-delivery outbox
 
-When a turn finishes, its reply must reach the channel **exactly once,
-eventually**, even if the adapter or routd restarts mid-delivery.
-arizuko's outbound is poll-based (`Q-unified-routing`): routd appends
-the assistant `messages` row, the adapter polls and sends. If the
-adapter is down or the send fails, there is no record that _this
-terminal reply still owes delivery_ — recovery relies on the row still
-being unsent, with no retry accounting and no "delivered" acknowledgement
-distinct from "appended".
+Absorbed — the guarantee ships under existing names, not as a new table.
+This file stays as the record of where each piece landed; the living
+description is [`5/Q`](../5/Q-unified-routing.md) § "Outbound is
+poll-reconciled" and [`5/E`](../5/E-routd.md) § "Dedup is the adapter's
+contract".
 
-## What we steal
+The Centaur-inspired outbox obligation — the terminal reply is retried
+until the channel confirms, surviving restarts — maps onto arizuko as:
 
-Centaur's `agent_final_delivery_outbox` table and the API's
-"final-delivery recovery" obligation: the terminal answer is an
-outbox entry retried until the channel confirms, surviving service
-restarts. "The API owns ... final-delivery recovery; Postgres is the
-source of truth."
+- Outbox entry = the bot `messages` row written `status='pending'`
+  (routd is the sole appender, `5/E`). No second table.
+- Re-offer tick = `maybeRetryOutbound`, per-row exponential backoff,
+  bounded by `MAX_OUTBOUND_RETRY`, exhausted → `failed` (the
+  dead-letter state, `5/Q`).
+- Delivered-ack = the adapter's 200 on `/send`; `MarkBotPlatformID`
+  stamps `platform_id` + `sent` in one statement (`5/34`).
+- Idempotent redelivery = the row's stable id sent as
+  `idempotency_key`, claimed/settled in the adapter's own durable
+  ledger (`chanlib/dedup.go`, `5/E`).
 
-## arizuko-shaped design
-
-routd owns the message store and is the sole appender (`5/E`). The
-terminal assistant frame already lands as a `messages` row; this adds a
-delivery-state column set so retry is explicit and idempotent, rather
-than a new table that duplicates the message.
-
-- On the terminal assistant frame, routd marks it `delivery=pending`.
-- The adapter's existing poll → send path acks back to routd
-  (`POST /v1/turns/{turn_id}/delivered` or a column write via routd's
-  own `/v1/*`): `delivery=delivered` with a `delivered_at`.
-- A routd background tick (sibling to the existing `pollOnce`) re-offers
-  `pending` terminal frames older than `DELIVERY_RETRY_AFTER` (default
-  30s), bounded by `DELIVERY_MAX_ATTEMPTS`; exhausted → `delivery=failed`
-  - an `audit_log` row, no infinite loop.
-- Idempotency: the adapter dedups on `messages.id`; redelivery of an
-  already-sent frame is a no-op send guarded by the platform message id
-  routd already records.
-
-Only terminal frames enter the retry discipline — intermediate progress
-frames stay best-effort (they are observability, not the result). This
-keeps the outbox small and matches Centaur's "final delivery" scope.
-
-## Out of scope
-
-- Streaming/progress delivery guarantees — `16/1` handles reconnect for
-  observers; intermediate frames are not retried.
-- Cross-channel fan-out of one reply — one terminal frame, one target
-  chat.
-- Exactly-once across a platform that itself drops acks — best-effort
-  ack from the adapter is the boundary; platform-side dedup is the
-  adapter's concern.
+Scope survived unchanged: only terminal frames enter the retry
+discipline (progress frames are observability, `16/1`); one terminal
+frame, one target chat; platform-side dedup is the adapter's concern.
