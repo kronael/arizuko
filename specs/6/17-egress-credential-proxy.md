@@ -161,6 +161,87 @@ path in crackbox, leaf minting and caching, SigV4 re-signing crypto,
 and every transform executor. What remains to build is a renderer, file
 writes, and one HTTP call.
 
+## Resolution — a signing REQUEST tool, not a signing proxy (2026-08-15)
+
+Operator's call, and it narrows this spec to a residue. **Signing belongs in a
+host-side MCP tool that performs the request, not in the egress path.**
+
+Shape: the agent calls a generic request tool — target, method, body, and an
+auth scheme naming a credential (`sigv4:aws_prod`, `hmac:partner_api`,
+`bearer:github`). `ipc.CallExtTool` (`ipc/extcall.go`) already makes host-side
+REST calls with secrets resolved per call; the generalization is the scheme set
+plus letting the caller name the request rather than only pre-declared
+endpoints. The credential is read from arizuko's own secret store
+(`store.FolderSecretsResolvedForUser`), used to sign in routd's process, and
+never leaves the host.
+
+**Why this is safe where a generic `run(command, credential)` is not** — the
+distinction is what the agent controls:
+
+| Shape                                 | Agent controls        | Platform controls | Safe                                           |
+| ------------------------------------- | --------------------- | ----------------- | ---------------------------------------------- |
+| `run(command=…, credential=…)`        | execution environment | nothing useful    | no — `echo $TOKEN \| base64` defeats scrubbing |
+| `request(url=…, auth=sigv4:aws_prod)` | the request           | execution + value | yes — there is no shell and no env to read     |
+
+The agent never receives the credential and has no process in which to observe
+it. It picks _what to ask for_; arizuko picks _how it is executed_.
+
+**What this buys over the proxy**, for the same case:
+
+- All four tool-call properties (`SECURITY.md` §"Why a tool call beats a raw
+  socket"): host-side credential, one authorization evaluator, HITL hold, audit
+  row. A proxy gives only the first.
+- Per-request containment is already expressible — an `acl` row carries
+  `params`, so `params=host=api.github.com` scopes the grant without inventing
+  HTTP policy.
+- No CA, no TLS termination, no vendor crypto in the egress path, no sidecar per
+  folder network.
+
+**What remains for this spec.** Only the genuinely opaque client — a binary or
+script the agent runs that speaks neither MCP nor the request tool. The proxy is
+justified for that residue, with `allowlist` + header injection only (below),
+and the residue shrinks with every capability that becomes a tool. The integrations
+themselves are not arizuko's problem to enumerate: the ecosystem is producing MCP
+servers for the third-party surface, and this tool covers the long tail of private
+endpoints that will never get one.
+
+## Decline the signing transforms — split by auth mechanism (2026-08-15)
+
+**Adopt iron-proxy's `allowlist` and header injection. DECLINE `aws_auth`,
+`gcp_auth` and `hmac_sign`.** Operator call, and it narrows this spec.
+
+The pipeline this spec proposed adopting carries four vendor-specific
+transforms. Taking them means a network-policy component owns cryptographic
+request signing for N clouds: every new provider changes the box on the critical
+path for ALL egress, and SigV4's edge cases (STS session tokens, chunked
+payloads, unsigned-payload mode) are ours to track — where subtly wrong means
+either broken requests or a signature covering the wrong bytes. It also crosses
+`6/16`'s component line: a component owns MECHANISM and takes strings, and a
+proxy implementing AWS's auth protocol owns vendor DOMAIN. That is how
+crackbox's zero-arizuko-imports property dies.
+
+The fork is genuine and has no free option:
+
+- key out of the client → something in the path must sign → it needs every
+  vendor's crypto;
+- signing done by code that already owns the protocol → the **SDK** signs → the
+  SDK needs the key.
+
+So split by AUTH MECHANISM, not by client type:
+
+| Auth shape                        | Where the credential lives | Mechanism                               |
+| --------------------------------- | -------------------------- | --------------------------------------- |
+| Bearer / API key (most HTTP APIs) | the proxy                  | header injection, bound to the host     |
+| Request-signing (SigV4, HMAC)     | the client, short-lived    | SDK signs; `credential_process` (below) |
+
+The proxy stays dumb — allowlist plus header injection — and vendor crypto stays
+where the vendor maintains it. TLS termination is still required to inject a
+header into an HTTPS request, so MITM remains; what goes away is carrying AWS's,
+Google's and Azure's signing code inside the egress chokepoint.
+
+For the signing half, prefer a credential that expires on its own (an STS
+session token) so what can leak has a bounded life.
+
 ## Tier 0 — the cooperating client, and why it comes first (2026-08-15)
 
 This spec jumped to MITM without costing the cheaper tier. **Lambda does not

@@ -244,6 +244,45 @@ retry blindly.
 
 Spec: [`specs/5/23-skill-guard.md`](specs/5/23-skill-guard.md).
 
+## Why a tool call beats a raw socket
+
+arizuko's credential story is not "we hide secrets well". It is that **the tool
+call is a chokepoint and a raw socket is not**, and four properties hang off
+that one fact. For anything the agent reaches as a tool:
+
+1. **The credential never enters the container.** A connector's secret is
+   rendered into the subprocess environment **host-side**, in routd's
+   in-process MCP host (`ipc/connector.go` `renderEnv`, `ipc/extcall.go`), and
+   the value is scrubbed from the result before the agent sees it. Container
+   env carries no capability credential at all (BUGS `X1`, closed 2026-08-09).
+   This is the same property competitors buy with a TLS-terminating proxy, and
+   it costs us no CA and no man-in-the-middle.
+2. **Every call passes one authorization evaluator.** `auth.Authorize` over
+   `acl` rows — the row's scope glob IS the containment, read live so a revoke
+   applies to the next call inside the same turn.
+3. **A call can be suspended for a human.** A `hold:mcp:<tool>` rule stops the
+   call at the same chokepoint and waits for approval (`5/19`). There is one
+   interception point and no bypass: only one MCP server exists on the agent's
+   map.
+4. **Every mutation writes its audit row in its own transaction** — the call is
+   attributable to a folder, a tool, and a triggering user.
+
+A raw HTTP client inside the container — `aws`, `gh`, a script the agent just
+wrote — gets **none** of the four. It never crosses the socket, so no grant, no
+hold, and no per-call audit applies; only the host allowlist below does.
+
+Two consequences we state rather than paper over:
+
+- **Shrinking the raw-socket surface is a security measure**, not just tidiness.
+  Every capability that becomes a declared connector gains all four properties
+  at once. That is why the connector path is the primary one and the egress
+  proxy (`6/17`) covers the residue.
+- **Scrubbing is substring replacement** (`ipc/connector.go` `scrubResult`).
+  It protects against a credential appearing incidentally in output; it is not
+  a defence against a caller that chooses its own command and encodes the value.
+  That is precisely why arizuko has no generic "run this with a credential
+  injected" tool — the flexibility and the leak would be the same property.
+
 ## Network egress isolation
 
 When `CRACKBOX_ADMIN_API` is set and `crackbox:latest` is running,
