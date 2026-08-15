@@ -4584,7 +4584,7 @@ Note what that writer implies more broadly: routd still opens the frozen
 `messages.db` at every boot to copy legacy rows forward. That is the real
 blocker for retiring `messages.db`, and it is bigger than any single table.
 
-## M1 — agent-facing MCP tool descriptions still promise dissolved tiers and a dropped table (2026-08-02, open)
+## ✅ FIXED 2026-08-15 M1 — agent-facing MCP tool descriptions still promise dissolved tiers and a dropped table (2026-08-02)
 
 Four tool descriptions in `ipc/ipc.go` tell the agent about authorization that
 no longer exists. These are not comments — they are the strings the model reads
@@ -4619,6 +4619,23 @@ and the live DB before logging.
   of the `acl`/`acl_membership` row it actually writes. Grep the whole file for
   other tier/`user_groups` references before calling it done — these four were
   found by a full-file read, not a truncated grep.
+- **Status:** FIXED 2026-08-15.
+
+**The four descriptions were already fixed; one residue in the same file was
+not.** Re-verified at `bcb5bb83`: `grep -in tier ipc/ipc.go` returns three hits
+and all three are "hot-tier"/"cold-tier" (the tool-surface architecture, not
+authorization), and `user_groups` appears in `ipc/ipc.go` zero times. Repo-wide,
+no `.go`/`.md`/`.ts` file outside this queue's own history says "Tier 0-2 only"
+or "Tier 0-1 only" any more, and `resreg/resources/route_tokens.go` — the
+`R1`-3 site — carries no tier language either.
+
+What survived was an ORPHAN: a five-line comment at the end of `ipc/ipc_test.go`
+documenting a `list_acl` test that had been deleted out from under it. It
+asserted `AuthorizeStructural` (deleted), a "Tier 0-1 only" description
+(deleted), and `Tier = min(count("/"), 3)` (the dissolved derivation) — three
+false facts about the auth model, in the very file this entry named, with no
+test attached to make them fail. Deleted. That is the whole remaining delta,
+so the entry closes here.
 
 ## ✅ FIXED 2026-08-03 Y2 — fixing Y1 would activate an invite-token wipe and a raw-bearer export (2026-08-02, open)
 

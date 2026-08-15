@@ -947,8 +947,3 @@ func TestServeMCP_FeedVerbs_RecordOutbound(t *testing.T) {
 		t.Fatalf("PutMessage platform ids = %v, want %v (forward must not record)", putIDs, wantRecorded)
 	}
 }
-
-// list_acl is registered only for tiers 0-1: AuthorizeStructural denies
-// tier 2 (the grant-management group), so the registration guard and the
-// "Tier 0-1 only" description must agree — tier 2 must not see a tool it can
-// never call. Tier = min(count("/"), 3).
