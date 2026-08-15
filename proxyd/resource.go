@@ -185,7 +185,11 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		routes, _ := rr.snapshot()
 		out := make([]Route, 0, len(routes))
 		out = append(out, routes...)
-		return map[string]any{"routes": out}, nil
+		// Bare array — matches resreg/openapi.go's documented `array<ProxydRoutes>`
+		// convention (every other list handler returns bare; this one drifted to
+		// an envelope). webd's routesForwarder relays the body verbatim to both
+		// REST and MCP callers, and no in-tree consumer indexes a "routes" key.
+		return out, nil
 
 	case resreg.ActionGet:
 		path := normalisePath(x.Args["path"])
