@@ -2099,7 +2099,7 @@ with the scoped watcher. The clean end-state is a static serve (`vite preview` o
 a plain file server) keeping the pub-fallback/trailing-slash middleware; deferred,
 needs sign-off.
 
-## S3 — FIXED 2026-08-15, <sha> — Slack permanent send failures are forced through the retryable 502 path (2026-07-15)
+## S3 — FIXED 2026-08-15, 24f93c3c — Slack permanent send failures are forced through the retryable 502 path (2026-07-15)
 
 First half of the premise was already stale at this tree: `handleSend`
 (`chanlib/handler.go`) goes through `jsonVerb` → `writeBotResult`, which
