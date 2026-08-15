@@ -768,11 +768,20 @@ so the operator learns at grant time; (b) proxy settings-defined servers through
 the socket; (c) document it as the boundary and leave it. (a) is cheap and
 honest, (b) is a real design change. Spec now states the boundary either way.
 
-## F74 — `ARIZUKO_DEV` sentinel disagrees between production and tests (2026-08-08, open)
+## F74 — `ARIZUKO_DEV` sentinel disagrees between production and tests (2026-08-08, FIXED 2026-08-15)
 
 `container/runner.go:564` tests `== "1"`; tests set `ARIZUKO_DEV=true`. One of
 the two is wrong, and the tests are the ones passing. Whichever way it is
 settled, an operator following the test's spelling gets no dev behavior.
+
+- **Status:** FIXED 2026-08-15
+- **Fix:** the docs (`reference/env.html`) already declared the contract —
+  `Type: bool ("true" or "1")` — so `runner.go` now parses it with
+  `strconv.ParseBool` instead of a literal `== "1"` compare. Both spellings
+  (and `1`/`0`/`t`/`f`) now agree; no test or README had to change.
+  Test: `TestBuildMounts_ArizukoDevAcceptsTrueSpelling`
+  (`container/runner_layered_test.go`) — failed against the old compare,
+  passes now. `go test ./container/... -short` green.
 
 ## F75 — three skill trees are triplicated and one pair has already drifted (2026-08-08, open)
 
