@@ -57,6 +57,37 @@ router|grants|ipc|…)` under the component dir → empty. `ant/` is the mirror:
 TS in arizuko's repo, own build + Dockerfile, consumed as an image over a
 stdin/stdout protocol, zero Go imports.
 
+## The four layers — where a boundary can exist at all (2026-08-15)
+
+The two axes above say whether a part passes; this says where a seam can be.
+arizuko is four layers, and **each boundary is a contract, not a directory**:
+
+1. **Surfaces** — channel adapters in, the web stack out. They speak the
+   message envelope.
+2. **Core platform** — routd (routing, turn record, bus), `resreg`, the folder
+   coordinate. The layer that DEFINES contracts.
+3. **Execution substrate** — runed + `container/` + the egress proxy. The layer
+   that PROVIDES the agent environment: home, socket, mounts, network policy.
+4. **The agent** — `ant`. Runs inside 3, consumes what 2 defines.
+
+`ant` is a component of nothing. It is not part of `resreg` (it is a CLIENT of
+resreg's output — every two-face resource becomes a tool ant calls) and not part
+of runed (runed hands it an environment; ant occupies it). It is the first
+implementation of layer 4, which is why `6/16` already treats it as the mirror
+of the component contract.
+
+The consequence that matters: **a second backend — pi, codex — is a sibling of
+`ant`, not of runed.** `ARIZUKO_BACKEND` died silently because nothing declared
+what occupying ant's slot requires. Writing that contract is the precondition
+for backends, for a substrate change, and for shipping the channel layer — one
+document, three unblocked items.
+
+A part is shippable exactly when its contract with the neighbouring layer is
+statable in one sentence. That is why the substrate ("run a workload with this
+home, socket and egress policy"), `resreg` ("one declaration, two faces") and
+the channel layer ("this envelope, N platforms") are candidates, and why
+`servekit` is not — see below.
+
 ## The matrix
 
 All 21 daemons on disk, grouped by verdict. **Surface** = how a
@@ -133,13 +164,52 @@ Internal-dep counts (indicative — they drift; grep 2026-07-14):
 | `servekit` _(concept)_             | proxyd/webd/dashd 8–13 | heavy decouple             | the web+service stack (below)    |
 | store, auth, chanlib, ipc, compose | 3–11                   | **don't extract**          | these _are_ the platform         |
 
-Only `obs` plausibly ships as-is; `crackbox` is 0-dep **and** broken (the
-rubric's point — import-purity ≠ readiness). `servekit` names the
-web+management bundle (`proxyd` reverse proxy + `webd` token chat/SSE/
-webhooks + `vited`/`davd` static/WebDAV + `dashd` console) — deeply
-arizuko-coupled today (folder identity, `routd.db`, `groups/` FS), a
-decouple-and-name candidate, not a standalone. `dockbox` names the
-run-an-agent-in-a-container concern for a later clean extraction.
+Only `obs` plausibly ships as-is. `dockbox` names the
+run-an-agent-in-a-container concern for a later clean extraction — and that is
+where crackbox's `pkg/host` KVM library belongs, which is why nothing imports it
+from crackbox today (`6/9`).
+
+**`crackbox`'s ship gate cleared 2026-08-15.** The "egress fails OPEN" blocker
+this table cites was closed: `5/33` grants gate the `*` bypass behind an
+explicit `egress` grant, and the e2e suite (Case2/Case4) proves deny. crackbox
+is now the first shippable part, not a blocked one. Note it is three things, not
+one: a forward proxy with per-source allowlists and a DNS filter (both LIVE and
+enforcing — `container/egress.go` registers every spawn's IP with its admin API)
+plus the unwired KVM library above. Deleting the mechanism would remove
+per-tenant egress enforcement, one of the three claims `USELESS.md` says
+survives its own counter; collapsing the component BOUNDARY is a separate and
+much cheaper decision.
+
+**`servekit` is retired as a name (2026-08-15).** It bundled three unrelated
+contracts by directory and therefore fails the one-sentence test:
+
+- `davd` and `vited` are **zero lines of Go** — davd is `sigoden/dufs` wrapped
+  in alpine to add `wget` for a healthcheck (`compose/compose.go:1190`). They
+  are already someone else's product, composed.
+- `proxyd` (1,591 lines) is the commodity half — Caddy/Traefik plus Authelia's
+  job, and the weakest position in the repo. `5/7` already specs it droppable.
+- `webd` (3,282 lines) is **not** a web-stack part at all: token chat, SSE,
+  `/hook`, `/me` are the agent surface and belong with the platform.
+
+What is irreplaceable there is one mechanism, not a stack: every web surface is
+scoped by the same folder and the same `acl` rows as the agent (`auth.MatchSlot`,
+per-folder mounts, no parent inheritance — `5/10`). Nextcloud cannot do that
+because it has no folder-agent. So the move is **shrink toward off-the-shelf and
+publish the grant-scoped mount contract**, not extract a bundle.
+
+**The channel layer is closer than "not extraction candidates" implies.** That
+verdict is right about ONE adapter — a bridge with no router is inert — and
+wrong-shaped for the layer. `chanlib` imports only `auth`, `db_utils` and `obs`:
+JWT verification, migrations, logging. **No `store`, no `core`, no `router`, no
+`ipc` — zero domain coupling** (`chanreg` adds `audit` + `core`). The product is
+"one normalized envelope, N platforms, with reconnect, declared capabilities and
+idempotent send"; the gate is writing the envelope as a contract rather than
+"whatever routd accepts".
+
+**`router` ships; routd does not.** `router/` has exactly one internal dep
+(`core`) and matching a message against a route table knows nothing about
+agents. routd the daemon owns the Turn and the folder coordinate and stays
+core — the DSL is agent-agnostic, the daemon is not.
 
 ## Reading the matrix — the honest takeaways
 
@@ -153,8 +223,14 @@ run-an-agent-in-a-container concern for a later clean extraction.
   `authd`/`proxyd` carry imports yet are the real standalone daemons.
 - **Adapter sprawl is correct granularity, not debt** — one daemon per
   channel isolates its own failure; don't consolidate the fleet.
-- **One security gate blocks the only sure component.** `crackbox`'s
-  egress fails open (`BUGS.md`) — the ship gate is the fix, not a README.
+- ~~**One security gate blocks the only sure component.**~~ **Cleared
+  2026-08-15** — the egress-fails-open entry is closed (`5/33` grants gate the
+  `*` bypass, e2e proves deny). crackbox is shippable now.
+- **Ship one, not seven.** `USELESS.md`'s sharpest finding is that arizuko is
+  over-built for its proven audience, and "one stranger running one instance is
+  worth more than the next five daemons". Carving every boundary in this
+  catalogue on spec repeats that in a new register. Ship crackbox, get a
+  stranger to run it, and let what they hit choose the next seam.
 
 ## Use-case clusters — resolidify by the deployer's job
 

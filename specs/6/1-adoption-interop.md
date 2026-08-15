@@ -30,6 +30,42 @@ Two things make that layer worth adopting (`specs/5/A`, `USELESS.md` §4):
 
 Neither requires replacing the harness. That is the wedge.
 
+## Correction — the environment IS the product, not the wrap (2026-08-15)
+
+The framing above ("run your harness inside arizuko") is **emulation**, and
+operator direction on 2026-08-15 inverts it. Emulation inherits the wrapped
+thing's model, carries compatibility debt forever, and caps arizuko at whatever
+it wraps.
+
+The Lambda analogy is the correction. Lambda never emulated your server. It
+published a contract — handler, event, context, and a role the SDK finds on its
+own — and the value was what the environment gives you for free: isolation,
+IAM, scaling. You give up generality and gain the platform. **You write to their
+APIs; they do not reimplement yours.**
+
+arizuko has two such environments already, and neither is stated as a contract:
+
+- **The agent environment**, which is `event + tools + home`:
+  the prompt (`<autocalls>`, the `<observed>` window, the output style picked per
+  surface), the MCP tool surface (14 hand-authored tools in `ipc/ipc.go` plus 18
+  catalog resources whose tools are derived), and the folder home (`PERSONA.md`,
+  `facts/`, `.claude/skills`, `public_html`, env-profile keys, egress allowlist,
+  turn timeout). The tools are the API; the home is the half no competitor has.
+- **The component environment**: `:8080` always, your own DB under
+  `store/<owner>/` that you migrate, `obs.Setup`, `/openapi.json`, resreg
+  resources behind an injected auth gate, an `audit_log` row in your own tx, a
+  compose fragment that needs no edit to proxyd or the generator.
+
+Both exist today as PROSE in root `CLAUDE.md`, not as anything that fails a test
+when violated. Compare `TestResourceName_NoStringLiteral`, which IS a contract
+because breaking it breaks the build. Nothing answers "is this a well-formed
+arizuko daemon" or "is this a well-formed arizuko agent".
+
+So the adoption work is: **name the two environments, write each as a contract,
+give each a conformance test a stranger's part must pass.** Wrapping a foreign
+harness stays available as an on-ramp — it is no longer the thesis. `6/16`'s
+four-layer model is the map; this is the promise each layer makes.
+
 ## Two tracks, ranked
 
 **1. Interop first (primary).** Do not ask anyone to switch. Let arizuko wrap

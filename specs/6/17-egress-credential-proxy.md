@@ -161,12 +161,45 @@ path in crackbox, leaf minting and caching, SigV4 re-signing crypto,
 and every transform executor. What remains to build is a renderer, file
 writes, and one HTTP call.
 
+## Tier 0 — the cooperating client, and why it comes first (2026-08-15)
+
+This spec jumped to MITM without costing the cheaper tier. **Lambda does not
+intercept your HTTP client; it publishes a credential source the SDK already
+knows to ask for.** That is a credential-helper protocol, and the clients in
+question already speak one:
+
+- the AWS CLI and **boto3** both honour `credential_process` in `~/.aws/config`
+  — an arbitrary command returning JSON credentials on stdout, called on demand;
+- `git`, `gh` and `docker` have credential helpers of the same shape.
+
+So the tool asks a local helper, the helper asks arizuko's MCP unix socket —
+already credentialed by `SO_PEERCRED`, no token — and gets a short-lived
+credential. **No MITM, no CA in the container trust store, no TLS termination,
+no new high-value target.** It reuses the trust boundary that already exists
+instead of standing up a second one.
+
+Limits, stated plainly because they decide the tiering:
+
+- **Cooperating clients only.** A script the agent writes doing
+  `requests.get(url, headers={...})` has no helper protocol and gets nothing.
+  MITM covers that case; this does not.
+- **The credential lands in the client's process memory.** Prompt injection
+  inside that process can read it — the exact axis `USELESS.md` scores us down
+  on. Weaker than MITM; far stronger than container env, because it is per-use,
+  auditable and revocable.
+
+**`X2` is this spec's only named consumer, and `credential_process` satisfies it
+exactly** — per-engineer `AWS_*` keys inside boto3 for CloudTrail attribution,
+with no proxy at all. So tier 0 closes the live bug, and MITM becomes tier 1,
+justified when a consumer appears that tier 0 cannot serve (an opaque client
+that speaks no helper protocol).
+
 ## Recommendation
 
-Adopt, gated on `X2`'s sign-off — this is `X2` option (a) by
-configuration. If the user picks (c) — retire aws-devops — this spec
-shrinks to "nice to have". Do not build the CA lifecycle without a
-consumer; `X2` is the consumer.
+**Ship tier 0 first** — it closes `X2` for a fraction of the cost and adds no
+new trust surface. Then adopt the MITM data plane for opaque clients, gated on a
+consumer that tier 0 cannot serve. Do not build the CA lifecycle without one;
+`X2` no longer counts, because tier 0 covers it.
 
 ## Attribution
 
