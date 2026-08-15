@@ -22,6 +22,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // Product is one entry of a group's ordered mix. Name is PRODUCT.md's `name` —
@@ -69,6 +71,22 @@ const (
 	payDockerfile                // Dockerfile.ant — at most one in the mix
 	payMigrations                // migrations/ — refused: nothing runs a product's migrations
 )
+
+// productDest maps a product-relative path to where it lands in the group home.
+// ONE placement rule, shared by both seeders — the blend (blendSkills) and the
+// verbatim single-product seed (SeedProduct) — so a product means the same thing
+// however it is applied.
+//
+// Only skills relocate, and they must: seedSkills and the agent both read
+// .claude/skills, so a skills/<n>/ left at the group root reaches no consumer.
+// The verbatim path used to copy it there and report success (BUGS L37), which
+// is why the copy is no longer a plain CopyDirNoSymlinks.
+func productDest(rel string) string {
+	if classify(rel) == paySkill {
+		return skillsRel + strings.TrimPrefix(rel, "skills")
+	}
+	return rel
+}
 
 // classify maps a product-relative path (slash-separated) to its blend rule.
 func classify(rel string) payload {
@@ -118,6 +136,28 @@ func CheckProductAssets(product, dir string) error {
 	for _, rel := range rels {
 		if classify(rel) == payMigrations {
 			return migrationsRefusal(product, rel)
+		}
+	}
+	return nil
+}
+
+// SeedProduct copies ONE product tree into groupDir — the single-product seed
+// behind `arizuko create --product` and `group add --product`. It is
+// chanlib.CopyDirNoSymlinks plus productDest: same symlink discipline, same
+// bytes, but each file lands where its payload kind is read rather than where
+// the author happened to put it.
+func SeedProduct(groupDir, dir string) error {
+	rels, err := productFiles(dir)
+	if err != nil {
+		return err
+	}
+	for _, rel := range rels {
+		dst := filepath.Join(groupDir, filepath.FromSlash(productDest(rel)))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		if err := chanlib.CopyFile(filepath.Join(dir, filepath.FromSlash(rel)), dst); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -291,7 +331,7 @@ func blendSkills(groupDir string, mix []Product, p *plan, prior map[string]map[s
 		for _, rel := range p.files[i] {
 			if classify(rel) == paySkill && strings.Split(rel, "/")[1] == name {
 				files = append(files, [2]string{
-					skillsRel + strings.TrimPrefix(rel, "skills"),
+					productDest(rel),
 					filepath.Join(mix[i].Dir, filepath.FromSlash(rel)),
 				})
 			}

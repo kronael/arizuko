@@ -56,12 +56,17 @@ func walkFiles(t *testing.T, root string) map[string]string {
 // tree into the group folder byte-for-byte, every file, no filter.
 //
 // This is the regression bar for spec 5/28's composition blend. The blend table
-// names `skills/`, PERSONA.md, CLAUDE.md, facts/, tasks.toml, settings.json,
-// Dockerfile.ant and migrations/ — but the shipped corpus also ships
-// PRODUCT.md (10/10 products), SOUL.md (6/10) and BRANDING.md (2/10). A
+// names `skills/`, PERSONA.md, CLAUDE.md, facts/, settings.json,
+// Dockerfile.ant, tasks.toml and migrations/ — but the shipped corpus also ships
+// PRODUCT.md (11/11 products), SOUL.md (6/11) and BRANDING.md (3/11). A
 // table-strict blend that treats the table as a whitelist would silently DROP
 // those, which is a regression and not a simplification. If a future blend
-// engine replaces CopyDirNoSymlinks, this test must still pass.
+// engine replaces SeedProduct, this test must still pass.
+//
+// Verbatim is about BYTES, not about the author's directory layout: a skill
+// relocates under .claude/ here exactly as it does in the blend, because that is
+// the one place a skill is read (productDest, BUGS L37). Both seeders share that
+// rule, so both tests assert it the same way.
 func TestProductSeedIsVerbatim(t *testing.T) {
 	products, err := os.ReadDir(examplesDir)
 	if err != nil {
@@ -97,13 +102,17 @@ func TestProductSeedIsVerbatim(t *testing.T) {
 
 			got := walkFiles(t, filepath.Join(cfg.GroupsDir, "seeded"))
 			for rel, wantHash := range want {
-				gotHash, ok := got[rel]
+				dst := filepath.FromSlash(productDest(filepath.ToSlash(rel)))
+				gotHash, ok := got[dst]
 				if !ok {
-					t.Errorf("seed DROPPED %s", rel)
+					t.Errorf("seed DROPPED %s (expected at %s)", rel, dst)
 					continue
 				}
 				if gotHash != wantHash {
 					t.Errorf("seed altered %s: %s != %s", rel, gotHash, wantHash)
+				}
+				if dst != rel && got[rel] != "" {
+					t.Errorf("seed ALSO left %s at the group root — one placement rule, not two", rel)
 				}
 			}
 		})
@@ -166,7 +175,7 @@ func TestProductMixSeedsCorpusVerbatim(t *testing.T) {
 				// either payload. Every other payload is still byte-identical
 				// at its own path.
 				if strings.HasPrefix(rel, "skills/") {
-					moved := skillsRel + strings.TrimPrefix(rel, "skills")
+					moved := productDest(rel)
 					if got[moved] != wantHash {
 						t.Errorf("skill %s did not land verbatim at %s", rel, moved)
 					}
@@ -196,6 +205,61 @@ func TestProductMixSeedsCorpusVerbatim(t *testing.T) {
 	}
 	if seen == 0 {
 		t.Fatal("no products found — corpus path wrong, test would pass vacuously")
+	}
+}
+
+// TestBothSeedersPlaceAlike is BUGS L37's regression bar: the verbatim seed and
+// the blend must put a product's payload in the SAME place, because a product
+// that means one thing under `group add --product` and another under `products
+// apply` is two products. The skill is the file that broke it — the verbatim
+// path left it at the group root, where nothing reads it.
+func TestBothSeedersPlaceAlike(t *testing.T) {
+	prod := t.TempDir()
+	for rel, body := range map[string]string{
+		"PRODUCT.md":             "name = \"pp\"\n",
+		"skills/triage/SKILL.md": "---\nname: triage\n---\nBody.\n",
+		"facts/sla.md":           "Four hours.\n",
+	} {
+		path := filepath.Join(prod, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tmp := t.TempDir()
+	cfg := &core.Config{GroupsDir: filepath.Join(tmp, "groups"), IpcDir: filepath.Join(tmp, "ipc")}
+	if err := SetupGroup(cfg, "verbatim", prod); err != nil {
+		t.Fatalf("SetupGroup: %v", err)
+	}
+	seeded := walkFiles(t, filepath.Join(cfg.GroupsDir, "verbatim"))
+
+	blended := filepath.Join(t.TempDir(), "group")
+	if _, err := BlendProducts(blended, []Product{{Name: "pp", Dir: prod}}, nil); err != nil {
+		t.Fatalf("BlendProducts: %v", err)
+	}
+	mixed := walkFiles(t, blended)
+
+	// The skill is the whole point: assert its destination explicitly rather
+	// than only that the two agree, so both agreeing on the WRONG place fails.
+	const skill = ".claude/skills/triage/SKILL.md"
+	for path, set := range map[string]map[string]string{"verbatim seed": seeded, "blend": mixed} {
+		if set[skill] == "" {
+			t.Errorf("%s: skill did not land at %s", path, skill)
+		}
+		if set["skills/triage/SKILL.md"] != "" {
+			t.Errorf("%s: skill left at the group root, where nothing reads it", path)
+		}
+	}
+	for rel, h := range mixed {
+		if rel == "CLAUDE.md" {
+			continue // the blend's one concatenating payload; this product ships none
+		}
+		if seeded[rel] != h {
+			t.Errorf("blend put %s where the verbatim seed did not (seed has %q)", rel, seeded[rel])
+		}
 	}
 }
 

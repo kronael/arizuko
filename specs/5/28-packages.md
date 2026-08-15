@@ -200,7 +200,7 @@ merge**:
 
 | Payload                             | Blend                                                                    | On upstream update |
 | ----------------------------------- | ------------------------------------------------------------------------ | ------------------ |
-| `skills/`                           | union by name; LAST product wins wholesale                               | managed: `sync`    |
+| `skills/<n>/`                       | → `.claude/skills/<n>/`; union by name, LAST product wins wholesale      | managed: `sync`    |
 | `PERSONA.md` / `SOUL.md`            | FIRST provider wins; later warned                                        | seed-once          |
 | `CLAUDE.md`                         | marked sections, in mix order                                            | seed-once          |
 | `facts/`, `tasks.toml`              | union; filename collision = refuse                                       | seed-once          |
@@ -260,10 +260,20 @@ per product under `(folder, name)`. It is the only writer of a non-empty
 `folder`. It is idempotent: an unchanged mix re-writes no byte and reports
 `unchanged`.
 
-`arizuko create --product` / `group add --product` are unchanged — one product,
-seeded by verbatim copy (`container.SetupGroup`). They are not a degenerate mix
-and do not route through the blend, because `TestProductSeedIsVerbatim` locks
-their output byte-for-byte and the `CLAUDE.md` row would move it.
+`arizuko create --product` / `group add --product` seed ONE product by verbatim
+copy (`container.SeedProduct`, called by `container.SetupGroup`). They are not a
+degenerate mix and do not route through the blend, because
+`TestProductSeedIsVerbatim` locks their output byte-for-byte and the `CLAUDE.md`
+row would move it.
+
+**Verbatim is about bytes, not about the author's layout.** Both seeders share
+ONE placement rule — `container.productDest` — so a product means the same thing
+however it is applied. Only `skills/<n>/` relocates, to `.claude/skills/<n>/`,
+because that is the one path `seedSkills` and the agent read. The verbatim
+seeder used to copy it to the group root instead, where nothing reads it, so
+`--product` — the command the product catalog tells operators to run — seeded a
+dead skill (BUGS `L37`). `TestBothSeedersPlaceAlike` asserts the two agree AND
+that they agree on the right place.
 
 `packages sync` covers both halves of the lock: instance-wide records go through
 `reapplyPackage` as before, group-scoped ones through the mix that owns them,

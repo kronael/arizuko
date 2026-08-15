@@ -297,7 +297,7 @@ not followed — this is drift, not a missing convention.
   natural home.
 - **Fix:**
 
-## L37 — a product's skill is dead when seeded by `--product`, live when blended (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L37 — a product's skill is dead when seeded by `--product`, live when blended (2026-08-15)
 
 The two seeders disagree about the one payload kind that relocates, so a product
 shipping `skills/<name>/` works one way and silently does not the other.
@@ -331,14 +331,17 @@ in the same places". They do not.
   reference product
 - **Source:** `container/blend.go` (`skillsRel` relocation) vs
   `container/runner.go` `SetupGroup` → `chanlib.CopyDirNoSymlinks`
-- **Status:** open, and it is a one-renderer question rather than a patch. The
-  honest fix is that both seeders share one payload placement rule, so a product
-  means the same thing however it is applied — which likely means the verbatim
-  path stops being verbatim for this one kind, and `TestProductSeedIsVerbatim`
-  grows the same relocation exemption the mix lock just grew. The alternative —
-  teaching the agent to also read a group-root `skills/` — adds a second lookup
-  path for one payload and should not win.
-- **Fix:**
+- **Status:** FIXED — both seeders now share one placement rule.
+- **Fix:** `container.productDest` is the single rule mapping a product-relative
+  path to its group destination; `blendSkills` and the new
+  `container.SeedProduct` both call it, and `SetupGroup` uses `SeedProduct`
+  instead of a plain `chanlib.CopyDirNoSymlinks` (same symlink discipline, same
+  bytes, one placement). Verbatim now means byte-identical, not
+  layout-identical. `TestProductSeedIsVerbatim` grew the relocation exemption
+  and also asserts the file is NOT left at the group root — one placement rule,
+  not two — and `TestBothSeedersPlaceAlike` pins the two seeders to the same
+  destination set, checked to fail against the old copy. Spec `5/28` blend table
+  + §single-product updated. SHA a5f1eab5.
 
 ## L36 — `packages install` applies grants without saying so (2026-08-15, open)
 
