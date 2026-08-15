@@ -1828,7 +1828,7 @@ Complete blocks, CRLF, and missing trailing newlines are otherwise idempotent.
   fails loud on any malformed marker (begin without end, duplicate, end-first)
   instead of dropping every following line — operator secrets can't be erased.
 
-## C7 — package add can overwrite or partially install a package (2026-07-28, open)
+## C7 — package add can overwrite or partially install a package (CLOSED-STALE 2026-08-15 — already fixed 4fa9553e, superseded by symlink packaging (5/28), heading was stale)
 
 `packages add` writes the live YAML directly before reading/writing its optional
 route sidecar. Re-adding truncates an operator-customized fragment; a sidecar
