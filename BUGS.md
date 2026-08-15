@@ -2646,6 +2646,19 @@ next proxyd restart activates it).
 - **Source:** anteval webhook-in live run 2026-07-11; proxyd request log `status:302 path:/hook/...`
 - **Status:** open (row inserted on krons, awaits proxyd restart; re-seed/upsert path undesigned)
 - **Fix:**
+- **2026-08-15 re-check:** two separate facets, still both true. (a) OPERATIONAL,
+  live-krons-only — verify with `sudo curl -s -o /dev/null -w '%{http_code}\n'
+  https://krons.fiu.wtf/hook/<a-real-token>` (should NOT 302 to `/pub/...`) and
+  `sudo sqlite3 /srv/data/arizuko_krons/store/proxyd/proxyd_routes.db "select
+  path from proxyd_routes where path like '/hook%';"`. (b) code-level design
+  gap CONFIRMED still present: `proxyd/main.go:loadInitialRoutes` (`:238-273`)
+  still seeds `PROXYD_ROUTES_JSON` into `proxyd_routes` ONLY when the table has
+  zero rows ("Persistence wins when proxyd_routes has rows" — spec 6/2
+  Phase-3), so any pre-existing instance never gains a newly-added
+  `coreProxydRoutes` entry without a manual row insert. A durable fix is an
+  upsert-missing-core-routes-on-boot path — new boot behavior, cross-cutting
+  (every instance's route table), so this stays a PROPOSAL needing sign-off,
+  not a same-session fix.
 
 ## Positioning claims "diff, fork, git revert" but nothing versions agent folders (2026-07-14, open)
 
