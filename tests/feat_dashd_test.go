@@ -59,7 +59,11 @@ func TestFeature_DashdAdminPlane(t *testing.T) {
 		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/acl", tok, "", body); rec.StatusCode != 200 {
 			t.Fatalf("grant add = %d, want 200", rec.StatusCode)
 		}
-		if len(f.routdDB.ListACL("alice@x")) == 0 {
+		rows, err := f.routdDB.ListACL("alice@x")
+		if err != nil {
+			t.Fatalf("ListACL: %v", err)
+		}
+		if len(rows) == 0 {
 			t.Fatal("grant not persisted")
 		}
 	})

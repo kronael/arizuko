@@ -1899,7 +1899,7 @@ PKCE and refresh-token generators already return these errors correctly.
   crosses authd/runed contracts and needs sign-off
 - **Fix:**
 
-## A4 — ACL read errors are indistinguishable from valid empty policy (2026-07-30, proposed)
+## ✅ FIXED 2026-08-15 A4 — ACL read errors are indistinguishable from valid empty policy (2026-07-30)
 
 Query failures intentionally return no rows and therefore deny authorization,
 but the API cannot distinguish that failure from an empty policy. User-scope and
@@ -1911,10 +1911,48 @@ while retaining allows.
 - **Scope:** ACL storage and authorization evaluation
 - **Affected:** agent authorization, login scope snapshots, ACL management surfaces
 - **Source:** store/acl.go:176-310; auth/authorize.go:59-99; routd/server.go:506-514
-- **Status:** proposed — authorization must remain fail-closed, but
-  error-returning store contracts and 5xx management responses require
-  cross-component sign-off
-- **Fix:**
+- **Fix:** the four `store` ACL readers (`ACLRowsFor`, `ACLWildcardRows`,
+  `ListACL`, `ListACLByScope`) return `([]core.ACLRow, error)`. Authorization
+  still fails CLOSED everywhere — the error return changes who can SEE the
+  failure, never the direction it fails in.
+
+Two distinct defects, both closed:
+
+1. **A read error read as an empty policy.** A query error returned a bare `nil`
+   with no log at all. Now an error, so `GET /v1/users/{sub}/scopes` answers 500
+   instead of `404 no_grants` (authd snapshots that at login — it would have
+   minted a scopeless session indistinguishable from a legitimately
+   unprivileged one), `list_acl` answers 500 instead of `{"acl":[]}`, dashd's
+   grants page shows an error banner instead of an empty table, and `arizuko
+   grants` errors instead of printing "no grants".
+2. **A partial policy could ESCALATE.** Per-row scan failures were SKIPPED
+   (`if err == nil { append }`). Dropping a DENY row leaves the allow rows
+   above it intact, so the caller is granted something an operator explicitly
+   forbade — the more dangerous half, and the reason a partial read is now
+   never returned at all: one bad row fails the whole read.
+
+Consolidated rather than repeated: `store.scanACLRows` is the single place a
+policy read materialises, and `auth.policyRows` is the single exact+wildcard read
+all four evaluators (`Authorize`, `EffectiveActions`, `UserScopes`, `CheckHold`)
+go through — previously four hand-copied pairs of calls that could each drift on
+what a failed read means.
+
+Fail-closed directions, all logged loud: `Authorize` DENIES; `EffectiveActions`
+advertises NO tools; `CheckHold` holds nothing; `auth.Delegate` REFUSES (it is
+the precondition on a write handing out authority — if what the granter holds
+cannot be read, nothing is provably a subset of it); proxyd stamps no
+`X-User-Groups`; dashd treats the caller as having no access.
+
+- **Verified:** `store/acl_partial_test.go` corrupts ONE row's `grant_option` so
+  only that row fails to scan, and requires an error with no rows — the
+  dropped-deny escalation. `store/failclosed_test.go` rewritten: it used to
+  ASSERT the old contract (empty on a broken table) and now requires an error
+  from all four readers. `auth/userscopes_test.go` gained
+  broken-table cases for `UserScopes` (error, not empty), `Authorize` +
+  `EffectiveActions` (still deny/hide) and `Delegate` (refuses), each with a
+  vacuity guard proving the fixture allowed before the table was dropped.
+  `routd/acl_read_error_test.go` pins the endpoint 500; mutation-checked by
+  disabling the error branch, which reproduces the exact `404 no_grants`.
 
 ## Adversarial review of the 5/16+surrogate features — deferred findings (2026-07-30)
 

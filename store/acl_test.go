@@ -21,7 +21,7 @@ func TestACL_CRUD(t *testing.T) {
 	if err := s.AddACLRow(row); err != nil {
 		t.Fatal(err)
 	}
-	got := s.ACLRowsFor([]string{"google:alice"})
+	got := mustACL(s.ACLRowsFor([]string{"google:alice"}))
 	if len(got) != 1 {
 		t.Fatalf("ACLRowsFor: %d rows %+v", len(got), got)
 	}
@@ -31,7 +31,7 @@ func TestACL_CRUD(t *testing.T) {
 	if err := s.RemoveACLRow(row); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.ACLRowsFor([]string{"google:alice"}); len(got) != 0 {
+	if got := mustACL(s.ACLRowsFor([]string{"google:alice"})); len(got) != 0 {
 		t.Fatalf("after remove: %v", got)
 	}
 }
@@ -49,11 +49,11 @@ func TestACL_GrantOption(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	owner := s.ACLRowsFor([]string{"role:owner"})
+	owner := mustACL(s.ACLRowsFor([]string{"role:owner"}))
 	if len(owner) != 1 || !owner[0].GrantOption {
 		t.Fatalf("owner grant_option not persisted: %+v", owner)
 	}
-	member := s.ACLRowsFor([]string{"role:member"})
+	member := mustACL(s.ACLRowsFor([]string{"role:member"}))
 	if len(member) != 1 || member[0].GrantOption {
 		t.Fatalf("member default grant_option must be false: %+v", member)
 	}
@@ -69,7 +69,7 @@ func TestACL_DefaultEffectAllow(t *testing.T) {
 	if err := s.AddACLRow(row); err != nil {
 		t.Fatal(err)
 	}
-	got := s.ACLRowsFor([]string{"p"})
+	got := mustACL(s.ACLRowsFor([]string{"p"}))
 	if len(got) != 1 || got[0].Effect != "allow" {
 		t.Fatalf("default effect: %+v", got)
 	}
@@ -85,12 +85,12 @@ func TestACL_WildcardRows(t *testing.T) {
 	if err := s.AddACLRow(wild); err != nil {
 		t.Fatal(err)
 	}
-	w := s.ACLWildcardRows()
+	w := mustACL(s.ACLWildcardRows())
 	if len(w) != 1 || w[0].Principal != "discord:user/*" {
 		t.Fatalf("wildcards: %+v", w)
 	}
 	// Exact-only path should not return wildcards.
-	got := s.ACLRowsFor([]string{"google:alice"})
+	got := mustACL(s.ACLRowsFor([]string{"google:alice"}))
 	if len(got) != 1 || got[0].Principal != "google:alice" {
 		t.Fatalf("exact-only: %+v", got)
 	}
@@ -106,8 +106,18 @@ func TestACL_DenyCoexistsWithAllow(t *testing.T) {
 	if err := s.AddACLRow(deny); err != nil {
 		t.Fatal(err)
 	}
-	got := s.ACLRowsFor([]string{"p"})
+	got := mustACL(s.ACLRowsFor([]string{"p"}))
 	if len(got) != 2 {
 		t.Fatalf("expected 2 rows, got %d: %+v", len(got), got)
 	}
+}
+
+// mustACL unwraps an ACL read in a test that is not about read failures. It
+// takes the call's two results directly, so a site reads as one expression;
+// store/failclosed_test.go is where the error path itself is asserted.
+func mustACL(rows []core.ACLRow, err error) []core.ACLRow {
+	if err != nil {
+		panic("acl read: " + err.Error())
+	}
+	return rows
 }

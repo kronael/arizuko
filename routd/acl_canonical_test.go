@@ -126,11 +126,14 @@ func TestAddACLToAnAliasStillWritesTheRowAsAsked(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows := db.ListACL("github:Y")
+	rows, err := db.ListACL("github:Y")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(rows) != 1 {
 		t.Fatalf("rows for the alias = %d, want 1 (the grant must land as asked)", len(rows))
 	}
-	if got := db.ListACL("google:X"); len(got) != 0 {
+	if got, err := db.ListACL("google:X"); err != nil || len(got) != 0 {
 		t.Errorf("the principal was silently rewritten to the canonical: %+v", got)
 	}
 }

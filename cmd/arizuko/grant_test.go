@@ -71,7 +71,7 @@ func TestUngrantRemoves(t *testing.T) {
 		t.Errorf("ungrant output = %q", out.String())
 	}
 
-	if rows := s.ListACL("github:1"); len(rows) != 0 {
+	if rows, err := s.ListACL("github:1"); err != nil || len(rows) != 0 {
 		t.Fatalf("expected 0 rows after ungrant, got %d", len(rows))
 	}
 }

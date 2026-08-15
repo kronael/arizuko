@@ -35,12 +35,12 @@ func eqScopes(t *testing.T, got []string, want ...string) {
 }
 
 func TestUserScopesNoRows(t *testing.T) {
-	eqScopes(t, UserScopes(scopesEnv(t), "nobody"))
+	eqScopes(t, mustScopes(UserScopes(scopesEnv(t), "nobody")))
 }
 
 func TestUserScopesEmptyInputs(t *testing.T) {
-	eqScopes(t, UserScopes(scopesEnv(t), ""))
-	eqScopes(t, UserScopes(nil, "somebody"))
+	eqScopes(t, mustScopes(UserScopes(scopesEnv(t), "")))
+	eqScopes(t, mustScopes(UserScopes(nil, "somebody")))
 }
 
 func TestUserScopesSpecificFolders(t *testing.T) {
@@ -49,7 +49,7 @@ func TestUserScopesSpecificFolders(t *testing.T) {
 		core.ACLRow{Principal: "u1", Action: "admin", Scope: "alpha", Effect: "allow"},
 	)
 	s.CreateAuthUser("u1", "u1", "User One")
-	eqScopes(t, UserScopes(s, "u1"), "alpha", "beta")
+	eqScopes(t, mustScopes(UserScopes(s, "u1")), "alpha", "beta")
 }
 
 func TestUserScopesOperatorViaMembership(t *testing.T) {
@@ -60,7 +60,7 @@ func TestUserScopesOperatorViaMembership(t *testing.T) {
 	if err := s.AddMembership("op", "role:operator", "test"); err != nil {
 		t.Fatal(err)
 	}
-	eqScopes(t, UserScopes(s, "op"), "**")
+	eqScopes(t, mustScopes(UserScopes(s, "op")), "**")
 }
 
 // The bug that came with the raw `principal IN (...)` query in store/: a
@@ -71,14 +71,14 @@ func TestUserScopesIncludesWildcardPrincipalGrants(t *testing.T) {
 	s := scopesEnv(t,
 		core.ACLRow{Principal: "google:*", Action: "admin", Scope: "atlas", Effect: "allow"},
 	)
-	eqScopes(t, UserScopes(s, "google:114"), "atlas")
+	eqScopes(t, mustScopes(UserScopes(s, "google:114")), "atlas")
 
 	// Authorize agrees — that is the point of reading one row set.
 	if !Authorize(s, Caller{Principal: "google:114"}, "admin", "atlas", nil) {
 		t.Error("Authorize must honour the same wildcard-principal row")
 	}
 	// The glob is segment-wise on ':', so another namespace gets nothing.
-	eqScopes(t, UserScopes(s, "github:114"))
+	eqScopes(t, mustScopes(UserScopes(s, "github:114")))
 }
 
 func TestUserScopesExcludesDenyOnlyRows(t *testing.T) {
@@ -86,7 +86,7 @@ func TestUserScopesExcludesDenyOnlyRows(t *testing.T) {
 		core.ACLRow{Principal: "u1", Action: "admin", Scope: "alpha", Effect: "allow"},
 		core.ACLRow{Principal: "u1", Action: "admin", Scope: "blocked", Effect: "deny"},
 	)
-	eqScopes(t, UserScopes(s, "u1"), "alpha")
+	eqScopes(t, mustScopes(UserScopes(s, "u1")), "alpha")
 }
 
 // A []string cannot carry a deny, so a scope with BOTH an allow and a deny row
@@ -98,7 +98,7 @@ func TestUserScopesCannotRepresentDenyAndSoCannotGate(t *testing.T) {
 		core.ACLRow{Principal: "u1", Action: "*", Scope: "alpha", Effect: "allow"},
 		core.ACLRow{Principal: "u1", Action: "admin", Scope: "alpha", Effect: "deny"},
 	)
-	eqScopes(t, UserScopes(s, "u1"), "alpha")
+	eqScopes(t, mustScopes(UserScopes(s, "u1")), "alpha")
 	if Authorize(s, Caller{Principal: "u1"}, "admin", "alpha", nil) {
 		t.Error("deny must win at the gate even though the scope still lists")
 	}
@@ -109,18 +109,75 @@ func TestUserScopesIgnoresActionSoTheGateMustNot(t *testing.T) {
 	s := scopesEnv(t,
 		core.ACLRow{Principal: "u1", Action: "mcp:reply", Scope: "alpha", Effect: "allow"},
 	)
-	eqScopes(t, UserScopes(s, "u1"), "alpha")
+	eqScopes(t, mustScopes(UserScopes(s, "u1")), "alpha")
 	if Authorize(s, Caller{Principal: "u1"}, "admin", "alpha", nil) {
 		t.Error("mcp:reply must not authorize admin")
 	}
 }
 
-// A broken acl table yields no scopes rather than a partial or panicking read —
-// the row loaders fail closed and UserScopes inherits that.
+// A broken acl table yields an ERROR, not an empty scope list (BUGS A4). It used
+// to return no scopes, which is fail-closed for the evaluator but reads as "this
+// user holds nothing" to everyone else — authd snapshots this at login, so an
+// unreadable policy would have minted a scopeless session indistinguishable from
+// a legitimately unprivileged one.
 func TestUserScopesFailsClosedOnBrokenTable(t *testing.T) {
 	s := scopesEnv(t)
 	if _, err := s.DB().Exec(`DROP TABLE acl`); err != nil {
 		t.Fatalf("drop acl: %v", err)
 	}
-	eqScopes(t, UserScopes(s, "google:alice"))
+	got, err := UserScopes(s, "google:alice")
+	if err == nil {
+		t.Error("a broken acl table must surface an error, not an empty scope list")
+	}
+	if len(got) != 0 {
+		t.Errorf("UserScopes on a broken table = %v, want no scopes alongside the error", got)
+	}
+}
+
+// Authorize still DENIES on the same broken table — the error return changes who
+// can SEE the failure, never the direction it fails in.
+func TestAuthorizeDeniesOnBrokenTable(t *testing.T) {
+	s := scopesEnv(t, core.ACLRow{
+		Principal: "u1", Action: "*", Scope: "**", Effect: "allow",
+	})
+	if !Authorize(s, Caller{Principal: "u1"}, "admin", "alpha", nil) {
+		t.Fatal("fixture is vacuous: the grant does not authorize before the drop")
+	}
+	if _, err := s.DB().Exec(`DROP TABLE acl`); err != nil {
+		t.Fatalf("drop acl: %v", err)
+	}
+	if Authorize(s, Caller{Principal: "u1"}, "admin", "alpha", nil) {
+		t.Error("Authorize allowed with an unreadable policy")
+	}
+	if EffectiveActions(s, Caller{Principal: "u1"})("mcp:reply") {
+		t.Error("EffectiveActions advertised a tool with an unreadable policy")
+	}
+}
+
+// Delegate REFUSES rather than silently finding nothing held: it is the
+// precondition on a write that hands out authority, so an unreadable policy
+// means nothing is provably a subset of what the granter holds.
+func TestDelegateRefusesOnBrokenTable(t *testing.T) {
+	s := scopesEnv(t, core.ACLRow{
+		Principal: "u1", Action: "*", Scope: "**", Effect: "allow", GrantOption: true,
+	})
+	want := []core.ACLRow{{Principal: "u2", Action: "mcp:reply", Scope: "alpha", Effect: "allow"}}
+	if err := Delegate(s, "u1", want); err != nil {
+		t.Fatalf("fixture is vacuous: delegation already refused before the drop: %v", err)
+	}
+	if _, err := s.DB().Exec(`DROP TABLE acl`); err != nil {
+		t.Fatalf("drop acl: %v", err)
+	}
+	if err := Delegate(s, "u1", want); err == nil {
+		t.Error("Delegate allowed a grant with an unreadable policy")
+	}
+}
+
+// mustScopes unwraps UserScopes in a test that is not about read failures; the
+// error path itself is asserted in store/failclosed_test.go.
+func mustScopes(scopes []string, err error) []string {
+	if err != nil {
+		panic("UserScopes: " + err.Error())
+	}
+	return scopes
 }

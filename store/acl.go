@@ -165,9 +165,17 @@ const aclCols = `principal, action, scope, effect, params, predicate, granted_by
 // ACLRowsFor returns rows whose principal EXACTLY matches any element of
 // principals. Wildcard-bearing stored principals are fetched separately
 // via ACLWildcardRows.
-func (s *Store) ACLRowsFor(principals []string) []core.ACLRow {
+//
+// A read failure is an ERROR, never an empty policy (BUGS A4). These four
+// readers used to return a bare nil on a query error and to SKIP individual
+// scan failures, so a broken table and a folder with no grants were the same
+// value — the evaluator denied either way, but a management surface answered
+// 200 with `[]`, and a partial scan could drop a DENY row while keeping the
+// allows above it. A partial policy is never evaluated now: one bad row fails
+// the whole read.
+func (s *Store) ACLRowsFor(principals []string) ([]core.ACLRow, error) {
 	if len(principals) == 0 {
-		return nil
+		return nil, nil
 	}
 	args := make([]any, 0, len(principals))
 	for _, p := range principals {
@@ -176,21 +184,10 @@ func (s *Store) ACLRowsFor(principals []string) []core.ACLRow {
 	rows, err := s.db.Query(
 		`SELECT `+aclCols+` FROM acl WHERE principal IN (`+sqlPH(len(principals))+`)`, args...)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("acl: read rows for principals: %w", err)
 	}
 	defer rows.Close()
-	var out []core.ACLRow
-	for rows.Next() {
-		r, err := scanACLRow(rows)
-		if err == nil {
-			out = append(out, r)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		slog.Error("ACLRowsFor iteration failed; failing closed", "err", err)
-		return nil
-	}
-	return out
+	return scanACLRows(rows, "ACLRowsFor")
 }
 
 // UserScopes lives in auth (auth.UserScopes) — it is a projection of the rows
@@ -198,30 +195,21 @@ func (s *Store) ACLRowsFor(principals []string) []core.ACLRow {
 // second SQL statement is what let it miss wildcard-principal grants.
 
 // ListACLByScope returns all acl rows whose scope exactly matches scope.
-func (s *Store) ListACLByScope(scope string) []core.ACLRow {
+// Errors, never an empty list, on a read failure — see ACLRowsFor.
+func (s *Store) ListACLByScope(scope string) ([]core.ACLRow, error) {
 	rows, err := s.db.Query(
 		`SELECT `+aclCols+` FROM acl WHERE scope = ? ORDER BY principal, action`, scope)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("acl: read rows for scope %q: %w", scope, err)
 	}
 	defer rows.Close()
-	var out []core.ACLRow
-	for rows.Next() {
-		r, err := scanACLRow(rows)
-		if err == nil {
-			out = append(out, r)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		slog.Error("ListACLByScope iteration failed; failing closed", "err", err)
-		return nil
-	}
-	return out
+	return scanACLRows(rows, "ListACLByScope")
 }
 
 // ListACL returns every acl row, optionally filtered by principal.
-// Empty principal returns all rows.
-func (s *Store) ListACL(principal string) []core.ACLRow {
+// Empty principal returns all rows. Errors, never an empty list, on a read
+// failure — see ACLRowsFor.
+func (s *Store) ListACL(principal string) ([]core.ACLRow, error) {
 	q := `SELECT ` + aclCols + ` FROM acl`
 	args := []any{}
 	if principal != "" {
@@ -231,43 +219,45 @@ func (s *Store) ListACL(principal string) []core.ACLRow {
 	q += ` ORDER BY principal, action, scope`
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("acl: list rows: %w", err)
 	}
 	defer rows.Close()
-	var out []core.ACLRow
-	for rows.Next() {
-		r, err := scanACLRow(rows)
-		if err == nil {
-			out = append(out, r)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		slog.Error("ListACL iteration failed; failing closed", "err", err)
-		return nil
-	}
-	return out
+	return scanACLRows(rows, "ListACL")
 }
 
 // ACLWildcardRows returns rows whose stored principal contains a glob
 // segment (`*`). Evaluated by Authorize as a second pass against the
-// expanded principal set.
-func (s *Store) ACLWildcardRows() []core.ACLRow {
+// expanded principal set. Errors, never an empty list, on a read failure —
+// see ACLRowsFor.
+func (s *Store) ACLWildcardRows() ([]core.ACLRow, error) {
 	rows, err := s.db.Query(
 		`SELECT ` + aclCols + ` FROM acl WHERE principal LIKE '%*%'`)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("acl: read wildcard rows: %w", err)
 	}
 	defer rows.Close()
+	return scanACLRows(rows, "ACLWildcardRows")
+}
+
+// scanACLRows drains rows into a slice. It is the ONE place a policy read
+// materialises, so the "a partial policy is never returned" rule holds for
+// every reader at once: a scan failure aborts, it does not skip the row. A
+// dropped DENY row with its allows intact is an escalation, not a degradation.
+func scanACLRows(rows *sql.Rows, who string) ([]core.ACLRow, error) {
 	var out []core.ACLRow
 	for rows.Next() {
 		r, err := scanACLRow(rows)
-		if err == nil {
-			out = append(out, r)
+		if err != nil {
+			slog.Error("acl: row scan failed; refusing to return a partial policy",
+				"reader", who, "err", err)
+			return nil, fmt.Errorf("acl: %s scan: %w", who, err)
 		}
+		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
-		slog.Error("ACLWildcardRows iteration failed; failing closed", "err", err)
-		return nil
+		slog.Error("acl: iteration failed; refusing to return a partial policy",
+			"reader", who, "err", err)
+		return nil, fmt.Errorf("acl: %s iterate: %w", who, err)
 	}
-	return out
+	return out, nil
 }

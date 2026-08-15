@@ -38,11 +38,14 @@ func TestACLAddEndpoint(t *testing.T) {
 		t.Fatalf("POST /v1/acl = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
 
-	rows := db.ListACL("github:7")
+	rows, err := db.ListACL("github:7")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(rows) != 1 || rows[0].Scope != "main/eng" || rows[0].Action != "admin" || rows[0].Effect != "allow" {
 		t.Fatalf("ListACL after POST = %+v", rows)
 	}
-	if got := db.UserScopes("github:7"); len(got) != 1 || got[0] != "main/eng" {
+	if got, err := db.UserScopes("github:7"); err != nil || len(got) != 1 || got[0] != "main/eng" {
 		t.Errorf("UserScopes = %v, want [main/eng]", got)
 	}
 }
@@ -84,7 +87,7 @@ func TestACLRemoveEndpoint(t *testing.T) {
 		Principal: "u1", Scope: "main"}); rec.Code != 200 {
 		t.Fatalf("DELETE row = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if rows := db.ListACL("u1"); len(rows) != 0 {
+	if rows, err := db.ListACL("u1"); err != nil || len(rows) != 0 {
 		t.Fatalf("acl rows after DELETE = %d, want 0", len(rows))
 	}
 

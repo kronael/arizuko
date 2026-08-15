@@ -131,7 +131,12 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 		if gf == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "folder required")
 		}
-		rows := s.db.ListACL("")
+		rows, err := s.db.ListACL("")
+		if err != nil {
+			// A 200 with an empty `acl` array would read as "this folder has no
+			// grants" — the exact confusion A4 is about. Say the read failed.
+			return nil, resreg.Errorf(http.StatusInternalServerError, "acl read failed: %v", err)
+		}
 		out := make([]map[string]any, 0, len(rows))
 		for _, r := range rows {
 			if r.Scope != gf {

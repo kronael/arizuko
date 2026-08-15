@@ -882,7 +882,15 @@ func (s *server) groupsForSub(sub string) []string {
 	if s.stRoutd == nil {
 		return nil
 	}
-	return auth.UserScopes(s.stRoutd, strings.TrimPrefix(sub, "user:"))
+	scopes, err := auth.UserScopes(s.stRoutd, strings.TrimPrefix(sub, "user:"))
+	if err != nil {
+		// Stamp no groups — the backend then denies, which is the right direction.
+		// But an unreadable acl table and a user who holds nothing produced the
+		// SAME header, so the resulting 403s had no cause anywhere (BUGS A4).
+		slog.Error("proxyd: scope read failed; stamping no groups", "sub", sub, "err", err)
+		return nil
+	}
+	return scopes
 }
 
 // tryAuth returns an identity-stamped request if the caller has a valid

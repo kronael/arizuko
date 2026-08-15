@@ -32,8 +32,17 @@ import (
 // It is a pure precondition — it writes nothing. The caller writes the rows only
 // after this returns nil.
 func Delegate(s *store.Store, granter string, want []core.ACLRow) error {
-	held := grantableRows(s, granter)
-	denies := denyRows(s, granter)
+	// A policy read failure REFUSES the delegation. Delegate is a precondition on
+	// a write that hands out authority: if what the granter holds cannot be read,
+	// nothing is provably a subset of it, so the honest answer is no (BUGS A4).
+	held, err := grantableRows(s, granter)
+	if err != nil {
+		return fmt.Errorf("cannot check delegation: %w", err)
+	}
+	denies, err := denyRows(s, granter)
+	if err != nil {
+		return fmt.Errorf("cannot check delegation: %w", err)
+	}
 	for _, r := range want {
 		// Delegation grants capability; it never writes a deny (that is a
 		// restriction, not a subset of what the granter holds) and never targets a
@@ -61,32 +70,38 @@ func Delegate(s *store.Store, granter string, want []core.ACLRow) error {
 
 // denyRows is granter's DENY rows over its expanded principal set — the rows a
 // delegation may not grant past (deny-precedence, mirrored into the subset check).
-func denyRows(s *store.Store, granter string) []core.ACLRow {
+func denyRows(s *store.Store, granter string) ([]core.ACLRow, error) {
 	principals := append([]string{granter}, s.Ancestors(granter)...)
-	all := s.ACLRowsFor(principals)
+	all, err := s.ACLRowsFor(principals)
+	if err != nil {
+		return nil, err
+	}
 	out := all[:0]
 	for _, r := range all {
 		if r.Effect == "deny" {
 			out = append(out, r)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // grantableRows is granter's allow-rows with grant_option=1, over its expanded
 // principal set (self + transitive membership ancestors). Deny rows and
 // non-grant-option rows are excluded — you cannot delegate what you may not
 // re-grant.
-func grantableRows(s *store.Store, granter string) []core.ACLRow {
+func grantableRows(s *store.Store, granter string) ([]core.ACLRow, error) {
 	principals := append([]string{granter}, s.Ancestors(granter)...)
-	all := s.ACLRowsFor(principals)
+	all, err := s.ACLRowsFor(principals)
+	if err != nil {
+		return nil, err
+	}
 	out := all[:0]
 	for _, r := range all {
 		if r.GrantOption && (r.Effect == "" || r.Effect == "allow") {
 			out = append(out, r)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // coveredByGrantable reports whether some held grantable row covers want:

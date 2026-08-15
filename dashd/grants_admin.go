@@ -50,7 +50,15 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s := store.New(d.adminDB())
-	rows := s.ListACLByScope(folder)
+	rows, err := s.ListACLByScope(folder)
+	if err != nil {
+		// An empty grants table would read as "this folder has no permissions",
+		// which is the opposite of "we could not read them" (BUGS A4).
+		slog.Error("dashd: grants read failed", "folder", folder, "err", err)
+		fmt.Fprint(w, htmlBanner("err", "could not read grants: "+esc(err.Error())))
+		pageClose(w, r)
+		return
+	}
 
 	fmt.Fprintf(w, `<p class="dim">ACL rows scoped to <code>%s</code>.</p>`, esc(folder))
 	fmt.Fprint(w, `<p>Each row is a permission: who may do what, and when.</p>`)

@@ -525,7 +525,10 @@ func TestPackagesInstallGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := store.New(rdb.SQL()).ListACL("@ops")
+	rows, err := store.New(rdb.SQL()).ListACL("@ops")
+	if err != nil {
+		t.Fatal(err)
+	}
 	found := false
 	for _, r := range rows {
 		if r.Action == "reply" && r.Scope == "eng/*" {
@@ -548,7 +551,11 @@ func TestPackagesInstallGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rdb2.Close()
-	for _, r := range store.New(rdb2.SQL()).ListACL("@ops") {
+	rows2, err := store.New(rdb2.SQL()).ListACL("@ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows2 {
 		if r.Action == "reply" && r.Scope == "eng/*" {
 			t.Fatal("grant not removed from acl")
 		}

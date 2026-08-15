@@ -50,7 +50,7 @@ func TestGrantRejectsUnknownAction(t *testing.T) {
 	if !strings.Contains(err.Error(), "unknown action") {
 		t.Errorf("error does not name the problem: %v", err)
 	}
-	if len(s.ListACL("folder:demo")) != 0 {
+	if rows, err := s.ListACL("folder:demo"); err != nil || len(rows) != 0 {
 		t.Error("a rejected grant still wrote a row")
 	}
 }

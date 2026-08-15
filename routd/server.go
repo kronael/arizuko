@@ -592,7 +592,13 @@ func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sub := r.PathValue("sub")
-	scope := s.db.UserScopes(sub)
+	scope, err := s.db.UserScopes(sub)
+	if err != nil {
+		// NOT 404 no_grants: authd would snapshot "this user holds nothing" from a
+		// broken read and mint a scopeless session (BUGS A4).
+		writeErr(w, 500, "db_error", err.Error())
+		return
+	}
 	if len(scope) == 0 {
 		writeErr(w, 404, "no_grants", "no grants for sub "+sub)
 		return
