@@ -782,7 +782,7 @@ excalidraw and manim-video). A `diff` shows the top-level
 `create/`-tree copy lacks — so the duplicate is not merely redundant, it is
 already stale. Deciding which is canonical for skill dispatch is the fix.
 
-## F60 — `routd/db.go:140` names `auth.Delegate` at `register_group`, where it is not called (2026-08-07, open)
+## ✅ FIXED 2026-08-15 F60 — `routd/db.go:140` names `auth.Delegate` at `register_group`, where it is not called (2026-08-07)
 
 ```go
 // Everything above the floor is explicit
