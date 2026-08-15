@@ -2286,7 +2286,7 @@ non-errored history.
 - **Status:** resolved — `AND errored=1` added (1dc9b356)
 - **Fix:** `UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1`
 
-## services: davd probe path wrong; timeout classified as unknown (2026-06-18, open)
+## ✅ FIXED 2026-08-15 — services: davd probe path wrong; timeout classified as unknown (2026-06-18, open)
 
 `services.go:54`: probe uses `GET /health` for all daemons, but davd's healthcheck is `GET /`.
 A healthy davd always shows err. `services.go:60`: timeout mapped to `unknown` — should be `err`
@@ -2295,7 +2295,12 @@ A healthy davd always shows err. `services.go:60`: timeout mapped to `unknown` �
 - **Severity:** medium
 - **Scope:** dashd/services.go:54,:60
 - **Source:** codex audit 2026-06-18
-- **Status:** resolved — per-service Probe field; timeout → statusErr; DNS → statusUnknown (29e759f7)
+- **Status:** resolved — per-service Probe field; timeout → statusErr; DNS → statusUnknown (29e759f7).
+  Re-verified 2026-08-15: davd's service row carries `Probe: "/"`; `probeHealth`
+  defaults to `/health` only when `Probe == ""`. `classifyHealth` maps a plain
+  client error (connection refused/timeout) to `statusErr`; only a `*net.DNSError`
+  maps to `statusUnknown`, and `probeHealth` disambiguates an opaque deadline
+  timeout from a real DNS failure with an explicit resolve.
 - **Fix:** per-service probe path; classify timeout as err not unknown
 
 ## usage: 7-day query covers 8 days; GroupUsageBulk IN list will fail at scale (2026-06-18, open)
