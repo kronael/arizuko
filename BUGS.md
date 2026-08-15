@@ -5336,7 +5336,7 @@ actor would need to come from the invoking operator or stay `system` deliberatel
     case (no row found / `actor=system`) while `TestRouteLandsInRoutdDB` and
     `TestSplitInviteGrantLandsInRoutd` stay green.
 
-## Q5 — `arizuko grant`/`ungrant` and `arizuko packages` carry the same false audit_log claim (2026-08-05, open)
+## Q5 — `arizuko grant`/`ungrant` and `arizuko packages` carry the same false audit_log claim (2026-08-05, FIXED — heading was stale, body already said fixed 2026-08-05)
 
 Found while fixing Q4, not fixed with it (separate concern, and outside that
 brief). `cmd/arizuko/main.go:518` states "runGrant writes acl rows audit-free
@@ -5411,6 +5411,11 @@ its own verdict — a secret's audit row must not carry the value.
     `PutACLRow`/`PutMembership` stay (test seeding; the `role:member` seed at
     group creation, the 4r migration backfill) with the missing-table
     justification struck from their comments.
+
+  **Heading closed 2026-08-15**: only the entry's own heading had never been
+  updated to match this body — confirmed all three commits
+  (`877ea615`/`f445b639`/`703f6e75`) are in HEAD's history and
+  `go test ./cmd/arizuko/... -short` green.
 ## ✅ FIXED 2026-08-05 — F1 — `installed_packages` is a management table with no resreg resource (2026-08-05, fixed)
 
 Every cold-tier management entity is required to register a resreg `Resource`,
