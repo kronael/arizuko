@@ -5003,6 +5003,39 @@ second OAuth identity — which no one has.
   lookup, not new state. Do NOT silently rewrite the principal: moving a grant
   without the operator asking is the failure mode N1 chose an immutable
   canonical to avoid.
+- **Status:** open — PROPOSAL, needs sign-off. Premise re-verified 2026-08-15
+  at `bcb5bb83` and it holds.
+
+**"The check is a lookup, not new state" understates it: the lookup crosses a
+daemon.** `oauth_identities` lives in **auth.db** and `oauthIdentityForSub` is
+unexported in package `main` of **authd** (`authd/store.go:116`). The grant and
+pairing writes are **routd**, against **routd.db** (`routd/acl_resource.go`
+`add_acl`). routd holds no handle on auth.db — `routd/sibling_db.go:13` states
+identity is federated over HTTP, never opened — so the check is a cross-daemon
+call, not a local lookup.
+
+The transport exists: `GET /v1/identities/{sub}` returns the canonical identity
+plus every linked sub, and routd already calls it via `httpIdentity.Resolve`
+(`routd/identity.go:47`). Canonicality is then `identity.id != principal`.
+
+**Why it still needs sign-off rather than being contained.** `Resolve` is
+deliberately advisory: EVERY failure — transport, auth, non-200, decode —
+returns the unclaimed shape, never an error, because its only caller today is
+an inspect tool. Making `add_acl` REFUSE on its answer puts a hard dependency
+on authd into a write path that has none, and the fail-open/fail-closed choice
+is the whole decision:
+
+- fail-CLOSED (authd down → no grants) turns an authd blip into a control-plane
+  outage, over a risk with zero live instances.
+- fail-OPEN (authd down → grant proceeds) is a guard that stops working exactly
+  when identity data is unavailable, which is a guarantee worth less than it
+  reads.
+
+Recommending fail-OPEN with a LOUD warn on both the unreachable case and the
+non-canonical case, on the grounds that N2 is a data-hygiene guard and not a
+containment boundary — but that is the user's call, and either way `Resolve`
+must grow a distinguishable "could not answer" result instead of folding it
+into "unclaimed". Do not ship this inline.
 
 ## Z1 — all three live instances run a routd/onbod image ~5 days stale; a chunk of shipped migrations is not live (2026-08-04, open)
 
