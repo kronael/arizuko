@@ -254,7 +254,7 @@ adapter-local database, two tables, not two bespoke stores.
   durable store (node:22 has no stable `node:sqlite`).
 - **Fix:**
 
-## L32 — whapd ignores `idempotency_key`: the one adapter still outside the D5 dedup contract (2026-08-15, open)
+## ✅ FIXED 2026-08-15 — L32 — whapd ignores `idempotency_key`: the one adapter still outside the D5 dedup contract (2026-08-15)
 
 Every Go adapter claims/settles routd's `idempotency_key` in a durable
 per-adapter ledger (`chanlib/dedup.go`), so a sweep resend of a delivered row
@@ -273,7 +273,35 @@ this needs a look rather than a mechanical port.
 - **Scope:** outbound delivery / channel protocol
 - **Affected:** whapd (krons runs it as the primary channel)
 - **Source:** whapd/src/server.ts `/send` (no idempotency_key read)
-- **Status:** open
+- **Status:** FIXED — `whapd/src/dedup.ts` claims the key before the Baileys
+  call and settles it after, wired into BOTH `/send` and `/send-file` (the
+  entry only named `/send`; routd sends the key on both, `chanreg/httpchan.go`
+  writes the `idempotency_key` multipart field). Every adapter is now inside
+  the D5 contract and spec `5/34` says so.
+
+  **Store: a directory of files, one per key** — the entry's first option, and
+  it needs no runtime bump. node:22 has no stable `node:sqlite`, and the only
+  operation that must be atomic here is the CLAIM, which `open(path, 'wx')`
+  (`O_CREAT|O_EXCL`) already is at the filesystem level. Keys are
+  `encodeURIComponent`-encoded: a routd message id carries `/` and `:`, and a
+  raw key as a filename would escape the ledger directory. It lives under
+  `WHAPD_STATE_DIR`, and `template/services/whapd.yml` now mounts it — an
+  unmounted ledger forgets every claim on recreate, which is the same as
+  having none.
+
+  **The Baileys error taxonomy decision — the answer is ORDERING, not error
+  parsing.** Baileys exposes no signal that separates "WhatsApp refused it"
+  from "the ack was lost", so whapd never guesses: it HOLDS the claim on any
+  error after the platform call and answers `409` on the next attempt, which
+  routd dead-letters for an operator rather than double-posting.
+
+  What stops that from turning every plain transient into a guaranteed
+  dead-letter — the failure `chanlib.ErrNotDelivered` exists to prevent — is
+  the CLAIM ORDER, not a classifier: `requireSock` refuses a send when the
+  socket is not open, BEFORE any claim exists. So a routd restart or a dropped
+  link answers 502 with nothing recorded and the sweep retries freely. That is
+  the whole class of proven-non-delivery whapd can actually observe, and it is
+  handled where it is observable.
 - **Fix:**
 
 ## ✅ FIXED 2026-08-15 — L33 — a one-shot task's retry mints a fresh message id, so a lost response fires it twice (2026-08-15)

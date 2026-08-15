@@ -3,12 +3,18 @@ import Busboy from 'busboy';
 import type { WAMessage, WASocket } from '@whiskeysockets/baileys';
 import { verifyRoutd, type RoutdVerifier } from './auth.js';
 import { PairError, type WhapdBot } from './bot.js';
+import { DedupLedger, DeliveryUnresolvedError, deliverOnce } from './dedup.js';
 import { log } from './log.js';
 
 interface SendReq {
   chat_jid: string;
   content: string;
   reply_to?: string;
+  // idempotency_key is routd's stable id for this delivery (the outbound
+  // message row). routd re-sends a row that stays `pending`, so the SAME key
+  // arrives more than once by design and the adapter must not post twice.
+  // Empty = no dedup (SendVia, local dev).
+  idempotency_key?: string;
 }
 
 interface TypingReq {
@@ -41,6 +47,7 @@ function parseMultipart(req: http.IncomingMessage): Promise<{
   chatJid: string;
   filename: string;
   caption: string;
+  idempotencyKey: string;
   fileBytes: Buffer | null;
 }> {
   return new Promise((resolve, reject) => {
@@ -58,6 +65,7 @@ function parseMultipart(req: http.IncomingMessage): Promise<{
         chatJid: fields['chat_jid'] ?? '',
         filename: fields['filename'] ?? '',
         caption: fields['caption'] ?? '',
+        idempotencyKey: fields['idempotency_key'] ?? '',
         fileBytes: chunks.length > 0 ? Buffer.concat(chunks) : null,
       }),
     );
@@ -137,6 +145,22 @@ async function act(res: http.ServerResponse, fn: () => Promise<string | void>) {
   }
 }
 
+// sendFailure answers a failed delivery. An unresolved claim is 409, not 502:
+// routd's sweep retries a 502 and would get the same refusal every time until
+// the budget ran out, whereas the message may already be on WhatsApp. 409 says
+// "this is not retryable and not settled" — routd dead-letters it and an
+// operator decides (spec 5/34, BUGS D5). Everything else stays 502.
+function sendFailure(res: http.ServerResponse, e: unknown) {
+  if (e instanceof DeliveryUnresolvedError) {
+    log('error', 'outbound delivery unresolved; refusing to guess', {
+      err: e.message,
+    });
+    json(res, 409, { ok: false, error: e.message });
+    return;
+  }
+  json(res, 502, { ok: false, error: String(e) });
+}
+
 export function startServer(
   addr: string,
   verifier: RoutdVerifier,
@@ -145,6 +169,10 @@ export function startServer(
   setTyping: (jid: string, on: boolean) => void,
   lastInboundAt: () => number,
   bot?: WhapdBot,
+  // ledger is whapd's durable outbound dedup. null disables it (local dev with
+  // no state dir); routd's resend of a still-pending row then double-posts,
+  // which is why the container always has one.
+  ledger: DedupLedger | null = null,
 ): http.Server {
   const srv = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -196,16 +224,27 @@ export function startServer(
         const body = await readBody<SendReq>(req);
         const waJid = toWaJid(body.chat_jid);
         const text = mdToWa(body.content);
+        // requireSock runs BEFORE the dedup claim on purpose: a link that is
+        // down proves nothing was sent, so it must answer 502 with no record,
+        // leaving routd's sweep free to retry (dedup.ts deliverOnce).
         const s = requireSock(res, sock, isConnected);
         if (!s) return;
         try {
           const opts = body.reply_to
             ? { quoted: quotedStub(waJid, body.reply_to) }
             : undefined;
-          await s.sendMessage(waJid, { text }, opts);
-          json(res, 200, { ok: true });
+          const id = await deliverOnce(
+            ledger,
+            body.idempotency_key ?? '',
+            body.chat_jid,
+            async () => {
+              const sent = await s.sendMessage(waJid, { text }, opts);
+              return (sent as { key?: { id?: string } })?.key?.id ?? '';
+            },
+          );
+          json(res, 200, id ? { ok: true, id } : { ok: true });
         } catch (e) {
-          json(res, 502, { ok: false, error: String(e) });
+          sendFailure(res, e);
         }
         return;
       }
@@ -214,7 +253,7 @@ export function startServer(
         const s = requireSock(res, sock, isConnected);
         if (!s) return;
         try {
-          const { chatJid, filename, caption, fileBytes } =
+          const { chatJid, filename, caption, idempotencyKey, fileBytes } =
             await parseMultipart(req);
           if (!chatJid) {
             json(res, 400, { ok: false, error: 'chat_jid required' });
@@ -240,10 +279,21 @@ export function startServer(
             content['fileName'] = filename || 'file';
             content['caption'] = cap;
           }
-          await s.sendMessage(toWaJid(chatJid), content as any);
-          json(res, 200, { ok: true });
+          const id = await deliverOnce(
+            ledger,
+            idempotencyKey,
+            chatJid,
+            async () => {
+              const sent = await s.sendMessage(
+                toWaJid(chatJid),
+                content as any,
+              );
+              return (sent as { key?: { id?: string } })?.key?.id ?? '';
+            },
+          );
+          json(res, 200, id ? { ok: true, id } : { ok: true });
         } catch (e) {
-          json(res, 502, { ok: false, error: String(e) });
+          sendFailure(res, e);
         }
         return;
       }

@@ -57,8 +57,32 @@ until scanned.
 ## Configuration
 
 - `WHATSAPP_AUTH_DIR` (default `$DATA_DIR/store/whatsapp-auth`)
+- `WHAPD_STATE_DIR` (default `$DATA_DIR/store/whapd`) — the outbound dedup
+  ledger. MUST be mounted: an unmounted one forgets every claim on recreate,
+  which is the same as having none.
 - `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME`, `LISTEN_ADDR`, `LISTEN_URL`
 - `ASSISTANT_NAME`, `DATA_DIR`
+
+## Outbound dedup
+
+routd re-sends a bot row that stays `pending`, so the same
+`idempotency_key` arrives at `/send` and `/send-file` more than once by
+design. whapd claims the key in a durable ledger BEFORE calling WhatsApp and
+settles it after, so a resend of a delivered key returns the recorded id and
+posts nothing (spec `5/34`, BUGS `L32`).
+
+The ledger is a DIRECTORY OF FILES, one per key, not a database: node:22 has
+no stable `node:sqlite`, and the only operation that must be atomic is the
+claim — which `open(path, 'wx')` (`O_CREAT|O_EXCL`) already is.
+
+Failure handling is ordering, not error parsing. Baileys exposes no signal
+separating "WhatsApp refused it" from "the ack was lost", so whapd never
+guesses: it HOLDS the claim on any error after the call and answers `409` on
+the next attempt, which routd dead-letters for an operator instead of
+double-posting. The transient that would otherwise become a guaranteed
+dead-letter is caught earlier — a socket that is not open refuses the send
+BEFORE any claim exists, so a routd restart answers 502 with nothing
+recorded and the sweep retries freely.
 
 ## Health signal
 
@@ -73,6 +97,7 @@ ascii art.
 - `src/inbound.ts` — pure inbound-dispatch helpers (unit-testable, sink in main.ts)
 - `src/bot.ts` — pair-flow state machine
 - `src/client.ts` — router client (register/inject)
+- `src/dedup.ts` — outbound dedup ledger (file-per-key claim/settle/release)
 - `src/reply.ts` — reply metadata extraction
 - `src/typing.ts` — typing refresh
 - `src/log.ts` — slog-style structured logging

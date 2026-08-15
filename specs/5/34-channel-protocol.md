@@ -90,9 +90,27 @@ settled — the adapter cannot tell a lost response from a lost request,
 so it reports the ambiguity and routd dead-letters visibly instead of
 double-posting (BUGS `D5`). Go adapters get all of this from
 `chanlib.NewAdapterMux` + `chanlib.OpenAdapterDB`; an adapter in another
-language implements the same contract. whapd does not yet — it ignores
-the key, so a routd resend can double-post on WhatsApp; it is the one
-adapter still outside the contract.
+language implements the same contract. **Every adapter is now inside it**,
+whapd included (BUGS `L32`).
+
+whapd's store is a DIRECTORY OF FILES, one per key
+(`whapd/src/dedup.ts`), not a database: node:22 has no stable
+`node:sqlite`, and the only operation that must be atomic is the CLAIM,
+which `open(path, 'wx')` (O_CREAT|O_EXCL) already is at the filesystem
+level. It lives under `WHAPD_STATE_DIR`, which the compose fragment
+mounts — an unmounted ledger forgets every claim on recreate, which is
+the same as having none.
+
+Its failure taxonomy is ORDERING, not error parsing. Baileys exposes no
+signal separating "WhatsApp refused it" from "the ack was lost", so
+whapd never guesses: it HOLDS the claim on any error after the platform
+call, and answers `409` (not 502) on the next attempt, because retrying
+a refusal only burns routd's budget on the same answer. The transient
+that would otherwise become a guaranteed dead-letter is caught EARLIER —
+a socket that is not open refuses the send BEFORE any claim exists, so a
+routd restart or a dropped link answers 502 with nothing recorded and
+the sweep retries freely. That ordering is what `ErrNotDelivered`'s
+claim-release does for the Go adapters.
 
 **The adapter classifies its own platform failures** — the site that
 sees the platform response holds the proof (same rule as runed's
