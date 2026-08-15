@@ -2245,7 +2245,7 @@ invalid cron/interval strings stored silently; timed logs warning and task stays
 - **Status:** resolved — SQL-level guards on pause/resume/cancel; next_run recomputed on resume (91159586)
 - **Fix:** enforce valid transitions in SQL or code; recompute next_run on resume
 
-## groups: delete parent leaves orphaned child rows; not atomic (2026-06-18, open)
+## ✅ FIXED 2026-08-15 groups: delete parent leaves orphaned child rows; not atomic (2026-06-18)
 
 `groups_admin.go:403`: deleting `corp` removes ACL/routes for the whole subtree and purges files,
 but leaves `corp/eng` rows in `groups`. Orphaned child groups become invisible but persistent.
@@ -2255,7 +2255,13 @@ Also not atomic — if ACL cleanup fails after groups DELETE, stale rows resurfa
 - **Scope:** dashd/groups_admin.go:403
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — delete wrapped in transaction; descendant group rows purged atomically (91159586)
-- **Fix:** delete descendant groups rows in same transaction; forbid non-leaf delete or wrap all in tx
+- **Fix:** 91159586; re-verified at fb152e98 — `groups_admin.go:431` opens a tx and every
+  step runs inside it: the folder row (`:437`), descendants
+  (`DELETE FROM groups WHERE folder LIKE ?||'/%'`, `:450`), `acl` by scope + subtree
+  (`:457`), `routes` by target/`#`/subtree (`:464`), and the audit row via
+  `audit.EmitInTx` (`:471`) — every failure path `tx.Rollback()`s, and one
+  `tx.Commit()` (`:486`) makes it atomic. No orphaned child rows, no half-applied
+  cleanup.
 
 ## groups: observe-window and max_children forms corrupt defaults on save (2026-06-18, open)
 
