@@ -2569,7 +2569,7 @@ Fix: route `issue chat|webhook`/`list`/`revoke` through `store.OpenRoutd` (mirro
   `go test ./cmd/arizuko/... -run TestTokenLandsInRoutdDB` PASSes.
 - **Fix:** 91630159
 
-## `arizuko group add`/`create` writes the group skeleton to CWD, not the data dir (2026-07-11, open)
+## ✅ FIXED 2026-08-15 (re-verified) — `arizuko group add`/`create` writes the group skeleton to CWD, not the data dir (2026-07-11)
 
 `core.LoadConfigFrom(dataDir)` loads the instance `.env` but resolves
 `root = envOr("DATA_DIR", mustCwd())` (`core/config.go:157`). Instance `.env` files don't set
@@ -2593,8 +2593,10 @@ users of `LoadConfigFrom` (`cmdCreate`, `cmdPair`, `cmdStatus`) for the same cwd
   (explicit env/.env still wins), fixing all four callers at the one cause site
   (cross-checked: create/group add/status/secret all pass `mustInstanceDir`);
   daemons use `LoadConfig()` directly, unaffected. Tests:
-  `TestLoadConfigFromDefaultsRootToDir` + `TestLoadConfigFromRespectsDataDirEnv`
-- **Fix:**
+  `TestLoadConfigFromDefaultsRootToDir` + `TestLoadConfigFromRespectsDataDirEnv`.
+  Re-verified 2026-08-15: `core/config.go:186-192` (`LoadConfigFrom`) still sets
+  `DATA_DIR` from `dir` before delegating to `LoadConfig()`; both tests PASS.
+- **Fix:** ae7277a9
 
 ## PROPOSAL — anteval `--mcp` parity face needs an inspect-read on a public MCP surface (2026-07-11, proposed)
 
