@@ -1820,7 +1820,7 @@ work on every routed request.
 - **Scope:** proxyd request dispatch
 - **Affected:** requests concurrent with `proxyd_routes` mutation
 - **Source:** proxyd/main.go:124-136,625-626,654-660; proxyd/resource.go:60-91
-- **Fix:** one snapshot per dispatch. `s.routes()`/`s.proxies()` each called
+- **Fix:** `0dc7dce8` — one snapshot per dispatch. `s.routes()`/`s.proxies()` each called
   `rr.snapshot()` — two reads of `proxyd_routes` and two full proxy-map builds
   per routed request. Replaced by `s.routeSnapshot()`, taken once in the
   catch-all handler and passed into `dispatchRoute(rt, proxies, …)`; `s.routes()`
