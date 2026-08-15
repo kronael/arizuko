@@ -25,7 +25,8 @@ Two things make that layer worth adopting (`specs/5/A`, `USELESS.md` §4):
 2. **Agents reshape the system; you stay in the loop.** The persona, skills,
    routing, even child groups are files the LLM edits — the agent changes the
    system, not just its output — yet every change is a file you diff, a grant
-   that gates it, a `git revert` away. Self-modifying, human-owned.
+   that gates it, and (if you `git init` the group) a `git revert` away.
+   Self-modifying, human-owned.
 
 Neither requires replacing the harness. That is the wedge.
 

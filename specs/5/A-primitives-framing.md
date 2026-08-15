@@ -191,7 +191,8 @@ and the agent's folder. You author and operate it by talking to an agent
 that edits those files, and the daemon compartments
 (`routd`/`runed`/`authd`) keep that molding inside the ACL. The wedge is
 that ownership and language meet: deep customization is changing files
-you diff, fork, and `git revert` on your own host.
+you diff, fork, and (if you `git init` the folder) `git revert`, on your own
+host.
 
 **The trace** — the one diagram that makes the model legible:
 

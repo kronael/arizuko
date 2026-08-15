@@ -1586,7 +1586,7 @@ next proxyd restart activates it).
   (every instance's route table), so this stays a PROPOSAL needing sign-off,
   not a same-session fix.
 
-## Positioning claims "diff, fork, git revert" but nothing versions agent folders (2026-07-14, open)
+## ✅ FIXED 2026-08-15 Positioning claims "diff, fork, git revert" but nothing versions agent folders
 
 specs/5/A (grand message, shipped) + specs/17/9 sell ownership as "files you diff,
 fork, and `git revert` on your own host". Verified: the platform has NO `git init`
@@ -1602,7 +1602,17 @@ backup, git POSSIBLE (ant image ships git + commit skill).
   instructed, 2026-07-14); (b) make it TRUE: `git init` + initial commit at group
   create + a commit hook on /migrate + diary writes — small, but that IS
   specs/9/3-git-as-truth scope creep; decide there, not ad hoc.
-- **Status:** open — wording fix in flight; the make-it-true decision belongs to 9/3
+- **Re-verified 2026-08-15:** premise still holds — no `git init`/auto-commit
+  anywhere in `onbod`/`container`/`cmd/arizuko`; `specs/9/3-git-as-truth.md`
+  was never created, so (b) is still undecided. README + `template/web/pub/`
+  were already softened (2026-07-14 landing pass) — zero live-doc hits for
+  "diff, fork"/"git revert". Two spec files still carried the unqualified
+  claim: `specs/5/A-primitives-framing.md:194` and
+  `specs/6/1-adoption-interop.md:28` — both reworded here to
+  "(if you `git init` the folder) `git revert`", matching (a), the already-
+  applied landing wording.
+- **Status:** wording fix (a) now complete across specs + web docs; the
+  make-it-true decision (b) still belongs to (unshipped) 9/3.
 
 ## P3 — Proxyd dispatch combines routes from two database snapshots (2026-07-30, proposed)
 
