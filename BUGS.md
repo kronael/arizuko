@@ -4764,7 +4764,7 @@ adapters is a per-fragment edit, not one code change.
   set `DATA_DIR` where absent, and make `loadOffset` fail loud instead of
   swallowing the read error.
 
-## R1 — codex review of the 2026-08-03 fix batch: six gaps (2026-08-03, open)
+## R1 — codex review of the 2026-08-03 fix batch: six gaps (2026-08-03, 5 of 6 closed 2026-08-15; 1 open on live-state only)
 
 Adversarial review of `50af5f50..e37a084b` (the Y2/M1/E1/D6/D7 fixes). Findings
 verified before logging. Ordered by consequence.
@@ -4816,6 +4816,49 @@ with Make.
 - **Fix:** 1 needs an installed-fragment update path — a real `arizuko` command,
   not a manual edit, since it must run on every instance and survive the next
   `generate`. 2-6 are small and independent.
+- **Status:** 2026-08-15 — each of the six re-verified SEPARATELY at `bcb5bb83`.
+  Five are closed, one (1) is closed in code and unverifiable here. Verdicts:
+
+  1. **Closed in code; live state unverified.** The mechanism claim still holds —
+     `compose/compose.go:764` writes `./services/<name>.yml`, i.e. the
+     instance's own dir, never `template/services/`. But the update path R1
+     demanded now exists as a real command: `arizuko packages upgrade` (one
+     package) and `arizuko packages sync` (all) both re-fetch the recorded
+     source and rewrite the installed fragment through ONE updater,
+     `reapplyPackage` (`cmd/arizuko/packages.go:371`), which refuses to
+     overwrite a locally edited asset instead of clobbering it. `template/
+     services/teled.yml` carries the `${DATA_DIR}/store/teled` state mount and
+     no `CHANNEL_SECRET`. What cannot be checked from this worktree: whether
+     krons/sloth/marinade have actually RUN it, and whether hand-made variants
+     like `teled-rhias.yml` carry an `installed_packages` record for `sync` to
+     reach. Both are live-host questions.
+  2. **Closed.** teled no longer swallows the save. `maxSaveFailStreak = 3`
+     consecutive `saveOffset` failures now call `fatalExit` (`teled/bot.go`),
+     so a full or read-only mount crashes the process instead of looking
+     healthy until restart. A single failure is still logged and tolerated,
+     which is correct — a transient write hiccup must not crash-loop the poll
+     goroutine.
+  3. **Closed.** Both halves. `resreg/resources/*.go` contains no tier language
+     at all (the `route_tokens.go:86` sentence is gone), and `ant/CLAUDE.md`
+     now states the opposite of what R1 found: lines 4, 35 and 173 each say
+     "5/33: no tiers" explicitly. Repo-wide, nothing outside this queue's own
+     history says "Tier 0-2 only" or "Tier 0-1 only". See `M1` for the last
+     residue of this class, fixed in the same pass.
+  4. **Closed by a schema change, not by a serializer tag.** `json:"token"` is
+     gone because the FIELD is gone: migration
+     `store/migrations/0077-invites-hash-at-rest` made `ref` (=
+     `hex(sha256(token))`) the primary key, so the raw bearer is never
+     persisted and `InvitesRow` has no token field to leak by omission. dashd
+     renders `ref`. The only surviving raw token is
+     `toInviteCreatedJSON`'s mint-time response (`onbod/admin.go`), which is the
+     one moment the caller must receive it.
+  5. **FIXED 2026-08-15** — see the commit closing it. It was real: FIVE
+     resources carry `SkipApplyRebuild` (secrets, route_tokens, invites,
+     onboarding, installed_packages), and `printPlan` printed the secrets
+     command for all five.
+  6. **Closed.** `webd/Makefile` `test-e2e` captures the output and `exit 1`s on
+     "no tests to run", with a comment naming the root Makefile's guard as its
+     mirror. A selector matching zero tests can no longer pass as green.
 
 ## authd `TestRefreshRotationRaceSingleWinner` is flaky (2026-08-03, open)
 
