@@ -1798,7 +1798,7 @@ new model; the old binary no longer has its adapter inputs for rollback.
   states the Compose 2.20+ requirement (`include:`). The destructive-migration
   race is gone with the converter.
 
-## C5 — `packages add ttsd` installs no Kokoro dependency (2026-07-28, open)
+## C5 — `packages add ttsd` installs no Kokoro dependency (CLOSED-STALE 2026-08-15 — already fixed 4fa9553e, heading was stale)
 
 The CLI copies only the named fragment, but `ttsd.yml` has a required
 `depends_on: [kokoro]` and Kokoro is a separate package. Adding ttsd alone—or
