@@ -7,6 +7,63 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L25 — slakd acks Slack before routd accepts, so a deploy silently drops messages (2026-08-15, proposed)
+
+`slakd.handleEvents` answers `200 OK` to Slack BEFORE calling routd
+(`slakd/bot.go:405-406`, comment: "ack first; Slack retries on non-2xx, which we
+don't want for handled events"). If the routd call then fails, `dispatch` logs
+`deliver failed` and returns (`slakd/bot.go:546-548`). Slack has its 2xx, so it
+never redelivers. The message is gone, with one ERROR line as the only trace.
+
+`slakd.yml:23` declares `depends_on: [routd]` with no `condition:
+service_healthy`, so the documented deploy — `systemctl restart
+arizuko_<instance>` — restarts both and opens exactly this window on every
+release.
+
+`teled` does the opposite and is correct: `teled/bot.go:212-224` advances its
+getUpdates offset ONLY when `delivered` is true, so Telegram redelivers on the
+next poll. The two adapters disagree on whether an inbound is durable.
+
+- **Severity:** high — silent user-visible data loss on the documented deploy
+  path, on the adapter krons and marinade both run.
+- **Scope:** slakd inbound durability
+- **Affected:** every Slack message arriving while routd is restarting or down
+- **Source:** `slakd/bot.go:405-406,546-548`; `template/services/slakd.yml:23`;
+  contrast `teled/bot.go:212-224`
+- **Status:** proposed — the fix is a REDESIGN and needs sign-off.
+
+  Deferring the ack until after routd accepts is the obvious change and is
+  wrong: Slack requires the ack inside 3 seconds and retries on non-2xx, so a
+  slow routd would turn one message into several. The durable answer matches
+  what we established for outbound on 2026-08-15: slakd now owns `slakd.db`,
+  so an inbound that routd rejects should land in a local `inbound_pending`
+  table and be re-delivered by a sweep, exactly as `teled` re-polls. That is a
+  new mechanism and a new table, hence a proposal, not an inline fix.
+
+  Sibling question for the same decision: every other adapter that acks a
+  platform webhook before calling routd has this shape. `whapd` already has a
+  filed instance (`L20` — it queues undelivered messages in memory and
+  200-acks). One durable-inbound mechanism in `chanlib`, one table per adapter
+  daemon, would answer both rather than two bespoke fixes.
+- **Fix:**
+
+## L26 — `make test-race`, the documented pre-tag gate, cannot finish (2026-08-15, open)
+
+`routd` and `store` both hit `panic: test timed out after 10m0s` under `-race`,
+so the target never completes and never gates anything. CI does not run it
+either. 0 races were reported in the packages that did finish, so this is a
+timeout, not a detected race — but a gate that cannot run is not a gate, and
+the release procedure names it.
+
+- **Severity:** medium — no race coverage on the two most concurrent packages
+- **Scope:** release verification
+- **Affected:** every tag; `routd` and `store` in particular
+- **Source:** `make test-race`; reproduced 2026-08-15 during the CTO audit
+- **Status:** open — needs either a longer `-timeout` for those two packages, a
+  split target that runs them separately, or the gate removed from the release
+  procedure and replaced with something that runs.
+- **Fix:**
+
 ## L24 — a fresh instance ships with egress isolation OFF, while the docs describe it as the model (2026-08-15, proposed)
 
 `CRACKBOX_ADMIN_API` is the master switch for egress isolation
@@ -4751,7 +4808,15 @@ pre-fix queue path (WaitForRow timeout — no onboarding row), green after.
   (e2e) (2026-07-12). NOT yet deployed — ships with the next krons image
   build + restart.
 
-## Steer layer (slash commands / sticky nav / @child) races the queue path — routed-chat slash commands dispatch agent turns (2026-07-12, OPEN, HIGH)
+## Steer layer (slash commands / sticky nav / @child) races the queue path — routed-chat slash commands dispatch agent turns (2026-07-12, FIXED — closed 2026-08-15)
+
+**FIXED by `caf38bfb` ("[routd] steer in the queue worker, not the pollOnce
+backstop"); the entry was never closed.** `steer` is now called from
+`routd/dispatch.go:47`, inside `processGroupMessages` — the queue worker the
+race was against — and no longer from `pollOnce`. Verified 2026-08-15 during
+the CTO audit: `grep` finds exactly one production call site, in the worker.
+The description below is the original report, kept for the record.
+
 
 Found while root-causing the onboarding miss (same structural drift, distinct
 concern — recorded, NOT fixed). The steer layer (`routd/steer.go` — `/ping`,
