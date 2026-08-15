@@ -2010,7 +2010,7 @@ actions (approve/deny onboarding, revoke token, etc.). Table stakes for multiten
   via each owner's `/v1/audit` (no direct DB read). `navLinks` carries the `audit` tile.
 - **Fix:** shipped, no further code change; heading closed docs-only.
 
-## No usage/analytics page (2026-06-16, open)
+## ✅ FIXED 2026-08-15 — No usage/analytics page (2026-06-16, open)
 
 `GroupUsageBulk` (dashd/main.go:789-822) surfaces msgs, tokens/7d, $/7d, last-active per folder —
 but only on the groups detail page, three clicks deep. There is no instance-wide usage summary:
@@ -2021,8 +2021,10 @@ zero occurrences of "usage", "throughput", or "metric". Not specced, not built.
 - **Scope:** dashd specs 6/1, 6/2
 - **Affected:** operators, business visibility
 - **Source:** dashd/main.go:789-822; specs/7/2-dashd-hub.md
-- **Status:** resolved — /dash/usage/ shipped
-- **Fix:**
+- **Status:** resolved — verified 2026-08-15: `dashd/usage_page.go` mounts operator-only
+  `GET /dash/usage/` with instance-wide totals (messages, tokens/7d, $/7d) plus a
+  per-group breakdown and a 7-day daily volume table. `navLinks` carries the `usage` tile.
+- **Fix:** shipped, no further code change; heading closed docs-only.
 
 ## dashd: routes + task-detail visible to any auth'd user (2026-06-17, open)
 
