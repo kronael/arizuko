@@ -2,7 +2,6 @@ import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose';
 import { WhapdBot, type SocketBuilder } from './bot';
 import { startServer } from './server';
-import { flushQueue } from './queue';
 import { extractReplyMeta } from './reply';
 import type { WAMessage } from '@whiskeysockets/baileys';
 
@@ -60,7 +59,6 @@ beforeAll(async () => {
     verifier,
     () => stub.sock,
     () => connected,
-    () => {},
     (jid, on) => {
       typingCalls.push({ jid, on });
     },
@@ -169,16 +167,16 @@ describe('auth gate', () => {
 });
 
 describe('POST /send', () => {
-  it('queues when not connected', async () => {
+  it('returns 502 when not connected', async () => {
     connected = false;
     const r = await fetch(`${BASE}/send`, {
       method: 'POST',
       body: JSON.stringify({ chat_jid: 'whatsapp:12345', content: 'hello' }),
       headers: { 'Content-Type': 'application/json', ...auth() },
     });
-    expect(r.status).toBe(200);
+    expect(r.status).toBe(502);
     const b = await r.json();
-    expect(b.queued).toBe(true);
+    expect(b.ok).toBe(false);
     connected = true;
   });
 
@@ -343,8 +341,8 @@ function makeThrowingStub() {
   return { sock, calls };
 }
 
-describe('POST /send queues on sendMessage error', () => {
-  it('falls through to queued response when upstream throws', async () => {
+describe('POST /send returns 502 on sendMessage error', () => {
+  it('surfaces the failure instead of acking an unsent message', async () => {
     const throwing = makeThrowingStub();
     stub.sock = throwing.sock;
     connected = true;
@@ -353,10 +351,9 @@ describe('POST /send queues on sendMessage error', () => {
       body: JSON.stringify({ chat_jid: 'whatsapp:12345', content: 'hi' }),
       headers: { 'Content-Type': 'application/json', ...auth() },
     });
-    expect(r.status).toBe(200);
+    expect(r.status).toBe(502);
     const b = await r.json();
-    expect(b.ok).toBe(true);
-    expect(b.queued).toBe(true);
+    expect(b.ok).toBe(false);
     expect(throwing.calls.some((c) => c.method === 'sendMessage')).toBe(true);
     stub = makeStub();
   });
@@ -626,56 +623,5 @@ describe('POST /send with reply_to', () => {
     expect(call).toBeTruthy();
     const opts = call!.args[2] as Record<string, any>;
     expect(opts?.quoted?.key?.id).toBe('PARENT_ID');
-  });
-});
-
-describe('flushQueue', () => {
-  it('returns empty result for empty queue', async () => {
-    const q: string[] = [];
-    const r = await flushQueue(q, async () => {});
-    expect(r.sent).toEqual([]);
-    expect(r.failed).toEqual([]);
-    expect(q.length).toBe(0);
-  });
-
-  it('sends all items when sendFn succeeds', async () => {
-    const q = ['a', 'b', 'c'];
-    const seen: string[] = [];
-    const r = await flushQueue(q, async (item) => {
-      seen.push(item);
-    });
-    expect(seen).toEqual(['a', 'b', 'c']);
-    expect(r.sent).toEqual(['a', 'b', 'c']);
-    expect(r.failed).toEqual([]);
-    expect(q.length).toBe(0);
-  });
-
-  it('continues past a mid-batch failure', async () => {
-    const q = [
-      { jid: '1', text: 'one' },
-      { jid: '2', text: 'two' },
-      { jid: '3', text: 'three' },
-    ];
-    const seen: string[] = [];
-    const r = await flushQueue(q, async (item) => {
-      seen.push(item.jid);
-      if (item.jid === '2') throw new Error('boom');
-    });
-    expect(seen).toEqual(['1', '2', '3']);
-    expect(r.sent.map((i) => i.jid)).toEqual(['1', '3']);
-    expect(r.failed.length).toBe(1);
-    expect(r.failed[0]!.item.jid).toBe('2');
-    expect(r.failed[0]!.err.message).toBe('boom');
-    expect(q.length).toBe(0);
-  });
-
-  it('wraps non-Error throws into Error', async () => {
-    const q = ['x'];
-    const r = await flushQueue(q, async () => {
-      throw 'string-error';
-    });
-    expect(r.sent).toEqual([]);
-    expect(r.failed[0]!.err).toBeInstanceOf(Error);
-    expect(r.failed[0]!.err.message).toBe('string-error');
   });
 });

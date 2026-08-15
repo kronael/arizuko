@@ -142,7 +142,6 @@ export function startServer(
   verifier: RoutdVerifier,
   sock: () => WASocket | null,
   isConnected: () => boolean,
-  queueOutbound: (jid: string, text: string) => void,
   setTyping: (jid: string, on: boolean) => void,
   lastInboundAt: () => number,
   bot?: WhapdBot,
@@ -197,21 +196,16 @@ export function startServer(
         const body = await readBody<SendReq>(req);
         const waJid = toWaJid(body.chat_jid);
         const text = mdToWa(body.content);
-        const s = sock();
-        if (!s || !isConnected()) {
-          queueOutbound(waJid, text);
-          json(res, 200, { ok: true, queued: true });
-          return;
-        }
+        const s = requireSock(res, sock, isConnected);
+        if (!s) return;
         try {
           const opts = body.reply_to
             ? { quoted: quotedStub(waJid, body.reply_to) }
             : undefined;
           await s.sendMessage(waJid, { text }, opts);
           json(res, 200, { ok: true });
-        } catch {
-          queueOutbound(waJid, text);
-          json(res, 200, { ok: true, queued: true });
+        } catch (e) {
+          json(res, 502, { ok: false, error: String(e) });
         }
         return;
       }

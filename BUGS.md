@@ -1877,7 +1877,7 @@ after runed becomes ready. Live krons reproduced this fleet-wide at
 - **Fix:** gate queue replay on runed readiness, or keep transient connection
   failures outside the breaker budget until the execution plane is ready
 
-## T1 — stalled typing indicator on timed-out/errored turns (2026-07-26, open)
+## T1 — PROPOSED, needs sign-off (verified still open 2026-08-15) — stalled typing indicator on timed-out/errored turns (2026-07-26)
 
 Symptom (krons, telegram:user/1112184352, 2026-07-26): the agent shows "typing…"
 for ~20 min then goes silent with no reply. Recurring; the user recognises it as
@@ -1901,6 +1901,15 @@ unreliable and the backstop can't cover for it):
 Evidence: 4 query-timeouts + 3 `container exited with error` in 12h; last real
 bot reply 10:03 while user msgs at 16:11/16:12/16:13 went unanswered under a
 live-but-doomed 19.5-min browser-automation turn.
+
+Re-verified 2026-08-15, unchanged: `DefaultTypingMaxTTL` (`chanlib/typing.go`)
+is still `20*time.Minute`, `RUNED_RUN_TIMEOUT` (`runed/cmd/runed/main.go`)
+still defaults to the same `20*time.Minute`, and `dispatch.go`'s typing-clear
+still gates on `!out.Steered` with no run-end reconcile for an orphaned
+steered turn (`turns.go`'s `appendAndDeliver` is still the only other clear
+site). Not contained — routd turn-lifecycle change across dispatch.go +
+turns.go + the chanlib backstop, not one call path — so left unbuilt per the
+redesign sign-off gate.
 
 Fix (redesign — needs sign-off; routd turn-lifecycle + chanlib backstop):
 1. **Clear typing on every terminal turn outcome, including steered.** The
@@ -2099,25 +2108,28 @@ with the scoped watcher. The clean end-state is a static serve (`vite preview` o
 a plain file server) keeping the pub-fallback/trailing-slash middleware; deferred,
 needs sign-off.
 
-## S3 — Slack permanent send failures are forced through the retryable 502 path (2026-07-15, open)
+## S3 — FIXED 2026-08-15, 24f93c3c — Slack permanent send failures are forced through the retryable 502 path (2026-07-15)
 
-`slakd.Send` correctly wraps its known permanent `chat.postMessage` failures
-with `chanlib.ErrInvalidRequest`, but the shared `/send` handler maps every
-`BotHandler.Send` error to HTTP 502 instead of using the existing
-`writeBotResult` classifier. A deleted/archived channel, missing membership, or
-failed root fallback is therefore enqueued/retried as a transient delivery.
-Even after repairing that boundary, `slackSendClientErrors` omits documented
-permanent failures such as `cannot_reply_to_message`,
+First half of the premise was already stale at this tree: `handleSend`
+(`chanlib/handler.go`) goes through `jsonVerb` → `writeBotResult`, which
+already classifies `chanlib.ErrInvalidRequest` as 400, not the generic 502 —
+no second mapping bypasses it. That refactor landed before this entry was
+re-verified.
+
+Second half was real: `slackSendClientErrors` (`slakd/bot.go`) omitted four
+documented permanent `chat.postMessage` failures —
 `restricted_action_non_threadable_channel`,
-`restricted_action_read_only_channel`, and
-`restricted_action_thread_locked`, so those still take the 502 path.
+`restricted_action_read_only_channel`, `restricted_action_thread_locked`,
+`cannot_reply_to_message` — so those still fell through to the unclassified
+502 path (`chanreg/httpchan.go`'s `classifyStatus` then treats them as
+transient and routd's retry sweep burns attempts on something a retry can
+never fix).
 
-- **Severity:** high
-- **Scope:** Slack outbound error classification
-- **Affected:** Slack text sends and thread replies
-- **Source:** slakd/bot.go:927-937,1183-1205; chanlib/handler.go:328-340,450-480
-- **Status:** open
-- **Fix:**
+- **Fix:** added the four codes to `slackSendClientErrors`.
+- **Source:** slakd/bot.go (slackSendClientErrors)
+- **Tests:** `slakd.TestSendClientErrorsClassifyAsInvalidRequest` (one
+  subtest per code, asserts `Send` wraps `chanlib.ErrInvalidRequest`);
+  `go test ./slakd/... -count=1 -short` green.
 
 ## A2 — Release guard advances before announcement delivery, making partial failure permanent (FIXED 2026-08-15, 0116e33a)
 
@@ -2168,39 +2180,33 @@ more than one field.
 - **Status:** proposed
 - **Fix:**
 
-## M3 — MCP send, reply, and send_file hide the platform ID their backends return (2026-07-15, open)
+## M3 — FIXED 2026-08-15, b0f1287b — MCP send, reply, and send_file hide the platform ID their backends return (2026-07-15)
 
-All three handlers receive and persist the created platform ID but return plain
-`ok`; `post`, `send_voice`, `forward`, `quote`, and `repost` return JSON IDs.
-This contradicts the agent self-doc that says `reply` returns `messageId` and
-prevents immediate explicit edit/delete/branch targeting without an extra
-message inspection. The stronger claim that sequential reply chaining is
-impossible is false: `recordOutbound` updates `SetLastReply`, and the next
-`reply` without `replyToId` reads that value, so root→child→grandchild works
-implicitly on adapters that return IDs.
+`reply`'s half was already stale — it already returned `toolJSON({"ok":
+true, "id": platformID})`, just under `id`, not the `messageId` the doc
+claimed (a second, smaller drift, fixed alongside).
 
-- **Severity:** medium
-- **Scope:** MCP messaging result contract
-- **Affected:** send, reply, send_file on all adapters
-- **Source:** ipc/ipc.go:607-680,1016-1123; ant/skills/self/mcp.md:5-13
-- **Status:** open
-- **Fix:**
+`send` and `send_file` were real: both go through `internalSend`, which
+received `platformID` from `gated.SendMessage`/`gated.SendDocument`, used it
+to record the outbound row, then discarded it — the handlers returned plain
+`toolOK()`.
 
-## X2 — X tweet replies are wired to an unreachable adapter endpoint (2026-07-15, open)
+- **Fix:** `internalSend` now returns `(platformID string, err error)`; both
+  callers pass it through `toolJSON({"ok": true, "id": platformID})`, same
+  shape `reply` already used. `ant/skills/self/mcp.md` corrected to `id` (not
+  `messageId`) on all three rows.
+- **Source:** ipc/ipc.go (internalSend, send, send_file); ant/skills/self/mcp.md
+- **Tests:** `ipc.TestSendSuccessRecordsSentRow` now asserts the returned id;
+  `go test ./ipc/... -count=1 -short` green.
 
-Routd implements every `reply` through `Deliverer.Send`, which always calls the
-adapter `/send` endpoint with `reply_to`. The X adapter accepts that field but
-ignores it: `/send` always invokes the DM-only verb and rejects tweet JIDs.
-Its working tweet-reply implementation is mounted separately at `/reply`, an
-endpoint no production routd/chanreg call uses. An agent replying to
-`twitter:tweet/<id>` therefore gets a 502 and posts nothing.
+## X2 — CLOSED-STALE 2026-08-15 — X tweet replies are wired to an unreachable adapter endpoint (2026-07-15)
 
-- **Severity:** high
-- **Scope:** twitd outbound reply contract
-- **Affected:** X/Twitter tweet replies and reply chains
-- **Source:** routd/mcp.go:47-52,226-248; chanreg/httpchan.go:183-209; twitd/src/server.ts:7-20,123-147; twitd/src/verbs.ts:52-84
-- **Status:** open
-- **Fix:**
+Already fixed by `23e38efa` ("[twitd] /send honors reply_to so X replies
+thread") before this entry was re-verified: `twitd/src/server.ts`'s `/send`
+handler now dispatches to `v.reply(s, body.reply_to, body.content)` when
+`reply_to` is set, instead of always calling the DM-only `v.send`. Covered by
+`twitd/src/server.test.ts` (`reply_to`-carrying `/send` request); `bun test`
+in `twitd/` — 52/52 pass.
 
 ## Egress allowlist NOT enforced — crackbox allows non-allowlisted hosts (2026-07-14, OPEN, HIGH — security)
 
@@ -2324,64 +2330,85 @@ the first key seals, the rest decrypt retired values.
 `TestSecret_NoKey_RefusesToWrite` and `TestStoreValue_NeverReturnsPlaintext`
 cover the refusal; reverting the guard fails both.
 
-## L20 — whapd acks a send it has not sent, so routd records it as delivered (2026-08-11, open)
+## L20 — FIXED 2026-08-15, 1591ccbf — whapd acks a send it has not sent, so routd records it as delivered (2026-08-11)
 
-`whapd/src/server.ts:196-214` answers `/send` with `200 {ok:true, queued:true}`
-when the socket is absent or disconnected, and again in the `catch` around
-`sendMessage`. routd reads 200 as success and marks the bot row `sent`, so the
-durable retry sweep never looks at it again.
+`whapd/src/server.ts:196-214` answered `/send` with `200 {ok:true, queued:true}`
+when the socket was absent or disconnected, and again in the `catch` around
+`sendMessage`. routd read 200 as success and marked the bot row `sent`, so the
+durable retry sweep never looked at it again.
 
-whapd's queue is in memory. A whapd restart — which is exactly what a
-disconnected whapd tends to get — drops the queue, and the message is gone with
-no record anywhere that it never arrived. The user sees silence and the operator
-sees a row marked `sent`.
+whapd's queue was in memory. A whapd restart — which is exactly what a
+disconnected whapd tends to get — dropped the queue, and the message was gone
+with no record anywhere that it never arrived.
 
-Fail-loud says a daemon that cannot perform the action returns non-2xx. 503 here
-would let the sweep own the retry, which is its job.
+Not the L25 durable-inbound redesign: L25 is about routd rejecting an inbound
+webhook after the platform is already acked (needs a new `inbound_pending`
+table + sweep). L20 is outbound, and routd already has the mechanism it
+needs — `chanreg/httpchan.go`'s `trySend` documents the contract every HTTP
+channel is supposed to follow: "The channel holds no queue: routd writes the
+bot row `pending` before the attempt, and its 30s sweep re-sends a row that
+stays `pending`. A retry here would be a second writer beside that sweep."
+whapd's in-memory `outboundQueue`/`flushOutboundQueue` was exactly that
+second, weaker writer (lost on restart, no dead-letter, no operator
+visibility) sitting beside routd's `maybeRetryOutbound` sweep.
 
-- **Severity:** medium — silent message loss on a live channel, no operator signal.
-- **Scope:** adapter delivery acknowledgement
-- **Affected:** whapd, routd
-- **Source:** `whapd/src/server.ts:196-214`
-- **Status:** open
+**Fix:** deleted whapd's own queue (`outboundQueue`, `flushOutboundQueue`,
+`queueOutbound`, `src/queue.ts`). `/send` now returns 502 immediately — via
+the same `requireSock` helper `/send-file` already used — when the socket is
+down, and 502 from the `sendMessage` catch, instead of 200. `classifyStatus`
+in `chanreg/httpchan.go` treats any `>=500` as transient, so
+`maybeRetryOutbound` (already shipped alongside L22/L23's delivery-attempts
+tracking) now owns every whapd retry the same way it owns every other
+adapter's — one retry mechanism, not two.
 
-## L22 — the outbound retry cap is ~5 minutes, so an adapter outage dead-letters real messages (2026-08-11, open)
+- **Source:** `whapd/src/server.ts`, `whapd/src/main.ts`, `whapd/src/queue.ts` (removed)
+- **Tests:** `whapd/src/server.test.ts` — `/send` returns 502 disconnected and
+  on `sendMessage` throw; `bun test` 116/116 pass.
 
-`MAX_OUTBOUND_RETRY` defaults to 10 and the sweep runs every 30s, so a row
-exhausts its budget about five minutes after the first failure. The 24h window
-it replaced was too generous and killed rows without attempting them (`L19`),
-but five minutes is short for the outages that actually happen: a whapd
-reconnect, an adapter container restart, a platform incident.
+## L22 — FIXED 2026-08-15, 15c5c08c — the outbound retry cap is ~5 minutes, so an adapter outage dead-letters real messages (2026-08-11)
 
-Those messages do not vanish — they land in the dead-letter state with
-`delivery_attempts` at the cap — but they stop being retried, and today nobody
-can read them back (`L23`).
+`MAX_OUTBOUND_RETRY` defaulted to 10 and the sweep ran every 30s flat, so a
+row exhausted its budget about five minutes after the first failure —
+shorter than the outages that actually happen: a whapd reconnect, an
+adapter container restart, a platform incident.
 
-The fix is probably not a bigger number. Exponential backoff spends the same ten
-attempts across hours instead of minutes, which tolerates a real outage without
-letting one dead channel burn attempts every 30s. The cadence constant and the
-cap both live beside `maybeRetryOutbound`.
-
-- **Severity:** medium — a routine adapter restart can dead-letter live traffic.
-- **Scope:** outbound retry pacing
-- **Affected:** routd
+- **Fix:** `backoffDelay(attempts)` (`routd/loop.go`) doubles the required
+  gap since a row's own `timestamp` each time it fails — 30s, 1m, 2m, 4m,
+  ..., capped at `maxOutboundBackoff` (1h) — instead of retrying every
+  pending row on the same flat 30s clock regardless of how many times it had
+  already failed. `maybeRetryOutbound` now skips a row until
+  `now.Sub(m.Timestamp) >= backoffDelay(m.DeliveryAttempts)`. 10 attempts now
+  spend roughly an hour instead of five minutes before dead-lettering.
+  `delivery_attempts` (already written by `RecordDeliveryFailure`) is now
+  also READ — added to `core.Message`/`msgReadCols`/`scanMessages`, so this
+  also lays the groundwork `L23` needs to surface it.
+- **Source:** routd/loop.go (backoffDelay, maybeRetryOutbound); core/types.go;
+  routd/reads.go; routd/db.go
+- **Tests:** `routd.TestBackoffDelayGrowsAndCaps`,
+  `routd.TestOutboundRetryHonorsPerRowBackoff`; `go test ./routd/... -short`
+  and `go test ./store/... -short` green.
 - **Source:** `routd/loop.go` `maybeRetryOutbound`, `core/config.go` `MaxOutboundRetry`
 - **Status:** open
 
-## L23 — a dead-lettered message is countable but not readable (2026-08-11, open)
+## L23 — PROPOSED, needs sign-off (verified still open 2026-08-15) — a dead-lettered message is countable but not readable (2026-08-11)
 
-`dashd/routd_page.go` shows a `dead-lettered` count on the routd stat line. There
-is no per-row list anywhere, on any surface: an operator can tell that messages
-were lost but not which ones, to whom, or with what content.
+Premise re-verified at this tree: `dashd/routd_page.go` still only shows a
+`dead-lettered` COUNT; grepped `resreg/` for any dead-letter resource —
+none exists. Still true: an operator can tell messages were lost but not
+which ones, to whom, or with what content, and nothing can replay them.
 
-A dead-letter queue you cannot read is not a queue — it is a counter. The point
-of dead-lettering rather than dropping is that a human can inspect and replay;
-neither is possible today.
+Not contained — this is a new resreg `Resource` (REST + MCP, per the
+CLAUDE.md "every cold-tier management entity is a resreg resource" rule),
+not a one-file fix, so it needs the redesign sign-off this pass doesn't
+have authority to give. Recommended shape, unchanged from the original
+report: `messages WHERE status='failed' AND is_bot_message=1` is already the
+durable, identifiable row set — read-only surface, no new state.
 
-The rows are already durable and already identifiable
-(`messages WHERE status='failed' AND is_bot_message=1`), so this is a read
-surface, not new state. Per the house rule it belongs on a resreg resource with
-both faces rather than a bespoke dashd page.
+L22 (this pass) added the one piece this needs that didn't exist yet:
+`delivery_attempts` is now readable (`core.Message.DeliveryAttempts` via
+`msgReadCols`/`scanMessages`), where before it was write-only. The
+resource itself — registration, REST handler, MCP annotation, a replay
+action — is still undone.
 
 - **Severity:** medium — the recovery path the dead-letter state exists for does not exist.
 - **Scope:** dead-letter visibility

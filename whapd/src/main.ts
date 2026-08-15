@@ -26,7 +26,6 @@ import {
   isOwnEcho,
 } from './inbound.js';
 import { log } from './log.js';
-import { flushQueue } from './queue.js';
 import { startServer } from './server.js';
 import { TypingRefresher } from './typing.js';
 
@@ -235,32 +234,6 @@ let connected = false;
 // message. Updated only after rc.sendMessage resolves.
 let lastInboundAt = Math.floor(Date.now() / 1000);
 
-const outboundQueue: { jid: string; text: string }[] = [];
-let flushing = false;
-
-async function flushOutboundQueue(): Promise<void> {
-  if (flushing || outboundQueue.length === 0) return;
-  flushing = true;
-  log('info', 'flushing outbound queue', { count: outboundQueue.length });
-  try {
-    const { sent, failed } = await flushQueue(outboundQueue, (item) =>
-      sock!.sendMessage(item.jid, { text: item.text }).then(() => {}),
-    );
-    log('info', 'outbound queue flushed', {
-      sent: sent.length,
-      failed: failed.length,
-    });
-    for (const f of failed) {
-      log('error', 'outbound send failed', {
-        jid: f.item.jid,
-        err: String(f.err),
-      });
-    }
-  } finally {
-    flushing = false;
-  }
-}
-
 // Wraps the pure extractContent + Baileys media download, since downloads
 // need a live socket. Pure logic lives in inbound.ts; this function is
 // the only place the socket leaks in.
@@ -352,10 +325,6 @@ async function connect(): Promise<void> {
       bot.markIdle();
       log('info', 'connected to whatsapp');
       sock!.sendPresenceUpdate('unavailable').catch(() => {});
-
-      flushOutboundQueue().catch((e) =>
-        log('error', 'queue flush failed', { err: String(e) }),
-      );
     }
   });
 
@@ -418,14 +387,6 @@ export function getSocket(): WASocket | null {
 
 export function isConnected(): boolean {
   return connected;
-}
-
-export function queueOutbound(jid: string, text: string): void {
-  outboundQueue.push({ jid, text });
-  log('info', 'outbound queued (disconnected)', {
-    jid,
-    queue: outboundQueue.length,
-  });
 }
 
 // WhatsApp 'composing' presence decays ~25s server-side, so long agent runs
@@ -504,7 +465,6 @@ async function main() {
     verifier,
     getSocket,
     isConnected,
-    queueOutbound,
     setTyping,
     () => lastInboundAt,
     bot,

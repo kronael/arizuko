@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -51,6 +52,10 @@ type slackMock struct {
 	// when set, chat.postMessage carrying a thread_ts returns thread_not_found
 	// (the marinade thread-reply failure); posts without thread_ts still succeed.
 	threadGone bool
+
+	// when set, chat.postMessage returns this Slack error code unconditionally
+	// (classification coverage for slackSendClientErrors, independent of thread state).
+	postError string
 }
 
 func newSlackMock() *slackMock {
@@ -121,6 +126,10 @@ func newSlackMock() *slackMock {
 			cap[k] = r.PostForm.Get(k)
 		}
 		m.posted = append(m.posted, cap)
+		if m.postError != "" {
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": m.postError})
+			return
+		}
 		if m.threadGone && cap["thread_ts"] != "" {
 			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "thread_not_found"})
 			return
@@ -1497,6 +1506,45 @@ func TestSendThreadGoneFallsBackToRoot(t *testing.T) {
 	}
 	if mock.posted[1]["thread_ts"] != "" {
 		t.Errorf("root retry must drop thread_ts, got %q", mock.posted[1]["thread_ts"])
+	}
+}
+
+// S3: chat.postMessage failures the agent cannot fix by retrying must
+// classify as chanlib.ErrInvalidRequest (→ 400) via writeBotResult, not the
+// generic 502 an unclassified error falls through to. restricted_action's
+// four documented variants and cannot_reply_to_message were missing from
+// slackSendClientErrors.
+func TestSendClientErrorsClassifyAsInvalidRequest(t *testing.T) {
+	for _, code := range []string{
+		"restricted_action_non_threadable_channel",
+		"restricted_action_read_only_channel",
+		"restricted_action_thread_locked",
+		"cannot_reply_to_message",
+	} {
+		t.Run(code, func(t *testing.T) {
+			mock := newSlackMock()
+			defer mock.srv.Close()
+			mock.postError = code
+
+			cfg := config{Name: "slack", BotToken: "xoxb-test", CacheTTL: time.Minute}
+			b, err := newBotWithBase(cfg, mock.srv.URL+"/api")
+			if err != nil {
+				t.Fatal(err)
+			}
+			b.botUserID.Store("Ubot")
+			b.teamID.Store("T012")
+
+			_, err = b.Send(chanlib.SendRequest{
+				ChatJID: "slack:T012/channel/CNORM",
+				Content: "hello",
+			})
+			if err == nil {
+				t.Fatal("Send: want error, got nil")
+			}
+			if !errors.Is(err, chanlib.ErrInvalidRequest) {
+				t.Fatalf("Send err = %v, want wrapping chanlib.ErrInvalidRequest", err)
+			}
+		})
 	}
 }
 

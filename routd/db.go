@@ -384,7 +384,7 @@ func scanMessages(rows *sql.Rows, since string) ([]core.Message, string, error) 
 		if err := rows.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content, &ts,
 			&fromMe, &botMsg, &m.ReplyToID, &m.Topic, &m.RoutedTo, &m.Verb, &m.Source,
 			&turnID, &m.Status, &platformID, &m.ChatName, &fwdFrom, &m.Attachments,
-			&m.LinkContext); err != nil {
+			&m.LinkContext, &m.DeliveryAttempts); err != nil {
 			return out, hi, err
 		}
 		m.ForwardedFrom = fwdFrom.String
