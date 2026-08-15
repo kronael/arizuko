@@ -112,13 +112,15 @@ config:
 secrets:
   # Use an out-of-band Secret instead of the values below. When set, the
   # chart references it and renders NO inline Secret. The Secret must carry
-  # the same keys the chart would (CHANNEL_SECRET, AUTH_SECRET, …).
+  # the same keys the chart would (AUTH_SECRET, …).
   existingSecret: ''
 
-  # Platform-wide signing secrets (required).
-  channelSecret: '' # CHANNEL_SECRET   — adapter <-> router HMAC
-  authSecret: '' # AUTH_SECRET      — JWT signing
-  proxydHmacSecret: '' # PROXYD_HMAC_SECRET — proxyd <-> webd identity HMAC
+  # Platform-wide signing secret (required). There is no adapter or proxyd
+  # HMAC: spec 5/1 retired both. Adapters exchange a service token as the
+  # daemon principal and proxyd proves identity with a service:proxyd ES256
+  # bearer verified by auth.ProxydTransit, so AUTH_SECRET is the only
+  # platform-wide signing value left.
+  authSecret: '' # AUTH_SECRET — JWT signing
 
   # Agent LLM auth — gated forwards ONE of these into each spawned
   # arizuko-ant container (container/runner.go readSecrets). Required for the

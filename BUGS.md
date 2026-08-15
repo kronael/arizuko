@@ -445,7 +445,7 @@ prefix vocabulary the spec deleted on purpose.
   reads as "not a folder" instead of being silently rewritten into one —
   pinned by the three helper tests (`TestRouteTargetOwned` is new).
 
-## L29 — the Helm chart still demands two secrets nothing reads (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L29 — the Helm chart still demands two secrets nothing reads (2026-08-15)
 
 `deploy/helm/arizuko` declares `CHANNEL_SECRET` and `PROXYD_HMAC_SECRET` as
 required values (`values.yaml:119,121`, `templates/secret.yaml:13,15`,
@@ -463,9 +463,26 @@ is. Compose is the maintained deploy path; the chart drifted behind it.
 - **Scope:** Helm packaging
 - **Affected:** any Helm deployment
 - **Source:** `deploy/helm/arizuko/{values.yaml,templates/secret.yaml,templates/adapters.yaml,README.md}`
-- **Status:** open — drop both keys from the chart and its README. Check the
-  same chart for other post-split drift while in there; nothing verifies it.
-- **Fix:**
+- **Status:** FIXED 2026-08-15.
+- **Fix:** both keys are gone from `values.yaml`, `templates/secret.yaml`,
+  `templates/adapters.yaml` and `README.md` (grep over `deploy/helm/` returns
+  nothing for either name or either value key). `values.yaml` now states the
+  retired model instead of implying it: `AUTH_SECRET` is the only platform-wide
+  signing value, adapters exchange a service token as the daemon principal, and
+  proxyd proves identity with a `service:proxyd` ES256 bearer. Premise
+  re-verified first — every `.go` hit for both names is a comment or a test
+  name saying the secret is retired; no reader exists. Not renderable here
+  (`helm` is not installed in the worktree), so the change is verified by grep
+  plus the `check yaml` pre-commit hook, not by `helm lint`.
+
+**SPUN-OFF FINDING, worse than this entry — needs its own entry.** While
+checking the chart for other post-split drift: `deploy/helm/` mentions
+`SECRETS_KEY` **zero times**. Since `S2`'s fix, `routd/cmd/routd/main.go:67`
+calls `core.RequireSecretKeyring` and REFUSES to start without it, so a
+Helm-deployed routd cannot boot at all — the chart cannot express the one
+secret the daemon now requires. Recorded, not fixed: it is a new bug found
+during a check, and picking which daemons receive the key is the compose scope
+list's decision (`compose/compose.go:139,180,206`), not this entry's.
 
 ## L25 — slakd acks Slack before routd accepts, so a deploy silently drops messages (2026-08-15, proposed)
 

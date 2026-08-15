@@ -65,15 +65,6 @@ spec:
               value: {{ $routerURL | quote }}
             - name: LISTEN_ADDR
               value: ":8080"
-            # CHANNEL_SECRET is shared by every adapter (router HMAC).
-            # optional:true so a missing key surfaces as a clear adapter
-            # error rather than blocking the whole pod from scheduling.
-            - name: CHANNEL_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $secretName }}
-                  key: CHANNEL_SECRET
-                  optional: true
             {{- range $k, $v := .env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

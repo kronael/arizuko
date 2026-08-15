@@ -91,14 +91,12 @@ mirrors the current, working topology exactly.
 ## Install
 
 ```bash
-# 1. Set the required secrets + your web host. Generate the HMAC/signing
-#    values with: openssl rand -hex 32
+# 1. Set the required secrets + your web host. Generate the signing value
+#    with: openssl rand -hex 32
 helm install arizuko deploy/helm/arizuko \
   --namespace arizuko --create-namespace \
   --set config.webHost=arizuko.example.com \
-  --set secrets.channelSecret=$(openssl rand -hex 32) \
   --set secrets.authSecret=$(openssl rand -hex 32) \
-  --set secrets.proxydHmacSecret=$(openssl rand -hex 32) \
   --set secrets.claudeCodeOauthToken=$CLAUDE_CODE_OAUTH_TOKEN \
   --set agentRuntime.dockerGid=$(stat -c '%g' /var/run/docker.sock)
 ```
@@ -115,17 +113,14 @@ helm install arizuko deploy/helm/arizuko -n arizuko --create-namespace \
 | Value                                                           | Why                                                                                                                                   |
 | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `config.webHost`                                                | Public hostname; used by webd/proxyd and the Ingress.                                                                                 |
-| `secrets.channelSecret`                                         | Adapter ↔ router HMAC (`CHANNEL_SECRET`).                                                                                             |
 | `secrets.authSecret`                                            | JWT signing (`AUTH_SECRET`).                                                                                                          |
-| `secrets.proxydHmacSecret`                                      | proxyd ↔ webd identity HMAC (`PROXYD_HMAC_SECRET`).                                                                                   |
 | `secrets.claudeCodeOauthToken` **or** `secrets.anthropicApiKey` | The agent's LLM credential — gated forwards it into every spawned `arizuko-ant` container. Without it the agent can't call the model. |
 | `agentRuntime.dockerGid`                                        | GID owning the node's docker socket.                                                                                                  |
 
 Prefer `secrets.existingSecret: <name>` in production — point it at a Secret
 you manage out-of-band (sealed-secrets, external-secrets, …) carrying the same
-keys (`CHANNEL_SECRET`, `AUTH_SECRET`, `PROXYD_HMAC_SECRET`,
-`CLAUDE_CODE_OAUTH_TOKEN`/`ANTHROPIC_API_KEY`, and any platform tokens). When
-set, the chart renders no inline Secret.
+keys (`AUTH_SECRET`, `CLAUDE_CODE_OAUTH_TOKEN`/`ANTHROPIC_API_KEY`, and any
+platform tokens). When set, the chart renders no inline Secret.
 
 ### Enabling channel adapters
 
