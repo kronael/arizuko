@@ -199,7 +199,7 @@ mechanical. This proposal is wrong only if a script outside this repo mints
 HS256 with an instance `AUTH_SECRET`; the repo, templates, and web docs show
 none, and no expired-token holder loses anything.
 
-## L7 — compose hands five daemons secrets they never read (2026-08-11, open)
+## L7 — compose hands five daemons secrets they never read (2026-08-11, FIXED 2026-08-15)
 
 `compose/compose.go` `daemonKeys` distributes credentials to containers whose
 code never reads them — each one is exposure surface in an extra container's
@@ -230,7 +230,12 @@ auth-enabled flag (`proxyd/main.go:943`) plus the dead HS256 verify above.
 - **Scope:** generated env vs actual readers (one mechanism: `daemonKeys`)
 - **Affected:** compose, onbod, dashd, webd, proxyd
 - **Source:** `compose/compose.go:100-205` (daemonKeys map)
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — the twelve inert copies are gone from
+  `daemonKeys`: onbod keeps only `AUTH_BASE_URL` (the one key it reads), webd
+  drops both, proxyd drops `AUTH_BASE_URL` and keeps `AUTH_SECRET`. dashd keeps
+  `AUTH_SECRET` with a comment naming the `os.Getenv` read, so the next reader
+  search does not delete it. `TestAuthKeysScopedToReaders` asserts both
+  directions — absent where unread, present where read.
 - **Evidence:** `grep -rn "\.AuthSecret" --include="*.go" .` → authd/oauth.go:49,
   proxyd/main.go:984 only. `grep -rn "ALLOWED\|GITHUB\|GOOGLE\|DISCORD" onbod/`
   → zero non-test hits. `grep -rn "AuthBaseURL" proxyd/ webd/` → zero.
