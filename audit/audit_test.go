@@ -148,17 +148,3 @@ func TestEmitWebFlushesWebhook(t *testing.T) {
 		t.Fatal("EmitWeb did not flush the web webhook")
 	}
 }
-
-func TestCursorPersist(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "audit-cursor.json")
-
-	c := loadCursor(path)
-	c.set("messages", 42)
-	c.save()
-
-	c2 := loadCursor(path)
-	if got := c2.get("messages"); got != 42 {
-		t.Errorf("cursor=%d want 42", got)
-	}
-}

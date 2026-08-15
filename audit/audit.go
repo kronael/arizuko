@@ -37,30 +37,28 @@ func envInt(k string, fallback int) int {
 
 // Config holds all audit configuration loaded from environment.
 type Config struct {
-	Enabled            bool
-	DataDir            string
-	Instance           string
-	MaxBytes           int64
-	RotateHours        int
-	WebhookURL         string
-	WebhookURLSystem   string
-	WebhookURLMessages string
-	WebhookURLWeb      string
-	WebhookSecret      string
+	Enabled          bool
+	DataDir          string
+	Instance         string
+	MaxBytes         int64
+	RotateHours      int
+	WebhookURL       string
+	WebhookURLSystem string
+	WebhookURLWeb    string
+	WebhookSecret    string
 }
 
 func LoadConfig(dataDir, instance string) Config {
 	return Config{
-		Enabled:            envOr("AUDIT_ENABLED", "false") == "true",
-		DataDir:            dataDir,
-		Instance:           instance,
-		MaxBytes:           int64(envInt("AUDIT_MAX_BYTES", 100*1024*1024)),
-		RotateHours:        envInt("AUDIT_ROTATE_HOURS", 24),
-		WebhookURL:         envOr("AUDIT_WEBHOOK_URL", ""),
-		WebhookURLSystem:   envOr("AUDIT_WEBHOOK_URL_SYSTEM", ""),
-		WebhookURLMessages: envOr("AUDIT_WEBHOOK_URL_MESSAGES", ""),
-		WebhookURLWeb:      envOr("AUDIT_WEBHOOK_URL_WEB", ""),
-		WebhookSecret:      envOr("AUDIT_WEBHOOK_SECRET", ""),
+		Enabled:          envOr("AUDIT_ENABLED", "false") == "true",
+		DataDir:          dataDir,
+		Instance:         instance,
+		MaxBytes:         int64(envInt("AUDIT_MAX_BYTES", 100*1024*1024)),
+		RotateHours:      envInt("AUDIT_ROTATE_HOURS", 24),
+		WebhookURL:       envOr("AUDIT_WEBHOOK_URL", ""),
+		WebhookURLSystem: envOr("AUDIT_WEBHOOK_URL_SYSTEM", ""),
+		WebhookURLWeb:    envOr("AUDIT_WEBHOOK_URL_WEB", ""),
+		WebhookSecret:    envOr("AUDIT_WEBHOOK_SECRET", ""),
 	}
 }
 
@@ -73,20 +71,6 @@ type SystemEvent struct {
 	ActorSub string         `json:"actor_sub"`
 	Tool     string         `json:"tool"`
 	Folder   string         `json:"folder,omitempty"`
-	Params   map[string]any `json:"params,omitempty"`
-	Outcome  Outcome        `json:"outcome"`
-}
-
-// MessageEvent is one entry in audit-messages.jl.
-type MessageEvent struct {
-	ID       string         `json:"id"`
-	TS       string         `json:"ts"`
-	Stream   string         `json:"stream"`
-	Instance string         `json:"instance"`
-	Folder   string         `json:"folder,omitempty"`
-	ChatJID  string         `json:"chat_jid,omitempty"`
-	Actor    string         `json:"actor,omitempty"`
-	Action   string         `json:"action"`
 	Params   map[string]any `json:"params,omitempty"`
 	Outcome  Outcome        `json:"outcome"`
 }
@@ -270,10 +254,9 @@ func postWebhook(url, secret string, payload []byte) {
 
 // Audit is the main entry point for all three streams.
 type Audit struct {
-	cfg      Config
-	system   *writer
-	messages *writer
-	web      *writer
+	cfg    Config
+	system *writer
+	web    *writer
 }
 
 var noop = &Audit{}
@@ -286,10 +269,6 @@ func New(cfg Config) *Audit {
 	if systemURL == "" {
 		systemURL = cfg.WebhookURL
 	}
-	messagesURL := cfg.WebhookURLMessages
-	if messagesURL == "" {
-		messagesURL = cfg.WebhookURL
-	}
 	webURL := cfg.WebhookURLWeb
 	if webURL == "" {
 		webURL = cfg.WebhookURL
@@ -299,10 +278,6 @@ func New(cfg Config) *Audit {
 		system: newWriter(
 			filepath.Join(cfg.DataDir, "audit-system.jl"),
 			cfg.MaxBytes, cfg.RotateHours, systemURL, cfg.WebhookSecret,
-		),
-		messages: newWriter(
-			filepath.Join(cfg.DataDir, "audit-messages.jl"),
-			cfg.MaxBytes, cfg.RotateHours, messagesURL, cfg.WebhookSecret,
 		),
 		web: newWriter(
 			filepath.Join(cfg.DataDir, "audit-web.jl"),
@@ -340,60 +315,4 @@ func (a *Audit) EmitWeb(e WebEvent) {
 	a.web.mu.Lock()
 	a.web.flushWebhookLocked(false)
 	a.web.mu.Unlock()
-}
-
-// emitMessage appends one event to audit-messages.jl (internal, batched).
-func (a *Audit) emitMessage(e MessageEvent) {
-	if !a.enabled() {
-		return
-	}
-	e.Stream = "messages"
-	e.Instance = a.cfg.Instance
-	a.messages.write(e)
-	a.messages.mu.Lock()
-	a.messages.flushWebhookLocked(false)
-	a.messages.mu.Unlock()
-}
-
-// cursor tracks the last exported integer ID per table.
-type cursor struct {
-	mu   sync.Mutex
-	data map[string]int64
-	path string
-}
-
-func loadCursor(path string) *cursor {
-	c := &cursor{path: path, data: make(map[string]int64)}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return c
-	}
-	json.Unmarshal(raw, &c.data)
-	return c
-}
-
-func (c *cursor) get(table string) int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.data[table]
-}
-
-func (c *cursor) set(table string, id int64) {
-	c.mu.Lock()
-	c.data[table] = id
-	c.mu.Unlock()
-}
-
-func (c *cursor) save() {
-	c.mu.Lock()
-	raw, err := json.Marshal(c.data)
-	c.mu.Unlock()
-	if err != nil {
-		return
-	}
-	tmp := c.path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o640); err != nil {
-		return
-	}
-	os.Rename(tmp, c.path)
 }

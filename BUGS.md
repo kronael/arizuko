@@ -448,7 +448,7 @@ dead remainder around it.
   `grep -n "Shutdown\|StopQueue" routd/cmd/routd/main.go` → `httpd.Shutdown` only.
   `deadcode ./...` flags RegisterProcess/StopProcess/StopQueue.
 
-## L11 — the audit "messages" stream has no producer since the ingestion-chain deletion (2026-08-11, open)
+## L11 — the audit "messages" stream has no producer since the ingestion-chain deletion (2026-08-11, FIXED 2026-08-15)
 
 `Audit.emitMessage` (`audit/audit.go:346`) has ZERO callers — the only deadcode
 hit outside crackbox/test-helpers that stays dead even under `deadcode -test`.
@@ -467,7 +467,15 @@ callers).
 - **Scope:** audit messages stream (producer deleted, shell kept)
 - **Affected:** audit
 - **Source:** `audit/audit.go:346,365-401,61,303`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — the whole shell is deleted: `emitMessage`, the
+  `MessageEvent` type, the `Audit.messages` writer and its construction, the
+  `AUDIT_WEBHOOK_URL_MESSAGES` knob with its `Config.WebhookURLMessages` field,
+  and the `cursor` type with `loadCursor`/`get`/`set`/`save` plus its test.
+  `EmitSystem` and `EmitWeb` keep their producers and are untouched.
+  This also ANSWERS the "Not determined" question below: it no longer matters
+  whether a live instance sets `AUDIT_WEBHOOK_URL_MESSAGES`. The stream had no
+  producer, so the knob configured a webhook that could not fire either way —
+  an operator who set it was buying silence, not a feed.
 - **Evidence:** `grep -rn "emitMessage\|MessageEvent" --include="*.go" .` →
   definitions only, no caller in any file including tests.
   `deadcode -test ./...` retains `audit/audit.go:346`. `git log -S emitMessage
@@ -607,11 +615,13 @@ Production run: 149 hits. With `-test`: 56. Buckets and verdicts:
 
 # Not determined (UNVERIFIED)
 
-- Whether any live instance sets `AUDIT_WEBHOOK_URL_MESSAGES` (instance `.env`
-  is root-owned, not readable from this sandbox).
-- `authd/http.go:40-43`'s claim that service:runed's grants entry gates a
-  per-turn downscope — runed contains no issuer-mint call; the comment may
-  describe a third caller or nothing. Needs its own call-path check.
+- ~~Whether any live instance sets `AUDIT_WEBHOOK_URL_MESSAGES`~~ — MOOT
+  2026-08-15: the knob and its producer-less stream are deleted (`L11`). No
+  setting of it ever produced an event.
+- ~~`authd/http.go:40-43`'s claim that service:runed's grants entry gates a
+  per-turn downscope~~ — RESOLVED 2026-08-15 while fixing `L8`: the claim was
+  FALSE. runed calls `auth.ServiceToken` nowhere and mints nothing, so the
+  grant gated no call. Grant, comment and dead plumbing are deleted.
 - Whether the 2s poll fully substitutes for the queue's unwired
   same-group-restart (`hasPending`) in production load — behavior inference
   from code, not observed live.
