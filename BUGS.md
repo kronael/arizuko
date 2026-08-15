@@ -2038,7 +2038,7 @@ Fix: `cmdNetwork` should call `store.OpenRoutd(dataDir/store)` instead of `store
 - **Source:** cmd/arizuko/network.go:17 (`store.Open` → should be `store.OpenRoutd`)
 - **Status:** fixed 2026-06-21 (2dfa5670 — store.Open → store.OpenRoutd)
 
-## slakd message IDs are per-channel, not globally unique (2026-06-19, open)
+## CLOSED-STALE 2026-08-15 (heading lagged body) — slakd message IDs are per-channel, not globally unique (2026-06-19, fixed 2026-07-11)
 
 `slakd/bot.go:521` uses `m.TS` (Slack timestamp) as the `InboundMsg.ID`. Slack `ts` is unique
 within a channel but not across channels in the same workspace. Two channels posting at the same
@@ -2054,7 +2054,10 @@ Reaction IDs (`r.Item.TS + ":r:" + r.Reaction`) need the same treatment.
 - **Affected:** slakd/bot.go:521,567 — multi-channel Slack workspaces
 - **Status:** fixed 2026-07-11 — message + reaction IDs prefixed with the channel
   `jid`, mirroring teled (`bot.go:291,209`). Raw-TS API targeting uses `TargetID`,
-  not `InboundMsg.ID`, so prefixing is safe.
+  not `InboundMsg.ID`, so prefixing is safe. Re-verified 2026-08-15:
+  `slakd/bot.go:533` (`jid + "/" + m.TS`) and `:579`
+  (`jid + "/" + r.Item.TS + ":r:" + r.Reaction`) both still prefixed.
+  Heading updated to match the already-fixed body.
 
 ## dashd reads SQLite directly — violates spec 6/1 read-path contract (2026-06-16, open)
 
