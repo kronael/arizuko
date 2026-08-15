@@ -2260,7 +2260,7 @@ correctly but mutations don't work.
 - **Status:** resolved — parseMemoryPath scans split points right-to-left; nested folders work (91159586)
 - **Fix:** route mutations through a wildcard `{folder...}` path param or parse from suffix
 
-## audit: pagination cursor off by one (2026-06-18, open)
+## ✅ FIXED 2026-08-15 — audit: pagination cursor off by one (2026-06-18, open)
 
 `audit_page.go:83`: `lastID` is set on the 51st lookahead row, then page is sliced to 50 and
 `before=<lastID>` skips the actual 50th row on the next page.
@@ -2268,7 +2268,11 @@ correctly but mutations don't work.
 - **Severity:** medium
 - **Scope:** dashd/audit_page.go:83
 - **Source:** codex audit 2026-06-18
-- **Status:** resolved — cursor taken from last displayed row (29e759f7)
+- **Status:** resolved — cursor taken from last displayed row (29e759f7). Re-verified
+  2026-08-15: the audit page was rewritten since (spec 5/I) into a federated fan-out
+  across routd/runed/authd/onbod. `nextAuditCursor` advances each source to the
+  OLDEST row that source actually contributed to the RENDERED page (after the
+  `merged[:auditPageSize]` slice) — no lookahead-row leak.
 - **Fix:** capture cursor from row 50, not the lookahead row
 
 ## routd: retry clears errored on all messages, not just errored=1 (2026-06-18, open)
