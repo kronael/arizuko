@@ -163,6 +163,33 @@ type dueTask struct {
 	Prompt      string `json:"prompt"`
 	Cron        string `json:"cron"`
 	ContextMode string `json:"context_mode"`
+	// NextRun is the scheduled time this claim fires for — the fire's identity.
+	NextRun string `json:"next_run"`
+}
+
+// fireID is the message id for ONE firing of a task. It keys on the SCHEDULED
+// run time, not the wall clock, so every attempt at the same fire mints the
+// same id and routd's id-PK dedup (INSERT OR IGNORE on messages) collapses
+// them into one message.
+//
+// It was core.MsgID("sched-"+t.ID) — a UnixNano suffix, fresh per attempt. When
+// the POST /v1/messages response was lost but routd had recorded the row, the
+// error path below rescheduled a one-shot to fire again, the retry minted a NEW
+// id, and the task fired twice (BUGS L33).
+//
+// A bare "sched-<taskID>" would fix the double fire and break re-arming: an
+// operator who re-arms a completed one-shot would get silent dedup against the
+// original fire. The scheduled time distinguishes them — a re-armed task has a
+// new next_run, hence a new fire.
+func fireID(t dueTask) string {
+	if t.NextRun == "" {
+		// Nothing stable to key on. Fall back to the wall clock, which is the
+		// old behaviour: at worst a lost response fires twice, where a
+		// stable-LOOKING id that is not actually per-fire would dedup two
+		// legitimate fires into one — a silent drop is worse than a duplicate.
+		return core.MsgID("sched-" + t.ID)
+	}
+	return "sched-" + t.ID + "@" + t.NextRun
 }
 
 // fireSplit runs one federated tick: claim due tasks at routd, then for each
@@ -181,16 +208,23 @@ func (r *router) fireSplit(ctx context.Context) {
 		if t.ContextMode == "isolated" {
 			sender = "timed-isolated:" + t.ID
 		}
-		id := core.MsgID("sched-" + t.ID)
 		if err := r.enqueue(ctx, apiv1.Message{
-			ID: id, ChatJID: t.ChatJID, Sender: sender, Content: t.Prompt,
+			ID: fireID(t), ChatJID: t.ChatJID, Sender: sender, Content: t.Prompt,
 			Timestamp: start.Unix(),
 		}); err != nil {
 			slog.Error("enqueue message (split)", "task", t.ID, "jid", t.ChatJID, "err", err)
 			r.runlog(ctx, t.ID, "error", err.Error(), time.Since(start).Milliseconds())
-			// Restore to active: compute the next scheduled fire so the task stays
-			// discoverable. For one-shot tasks (cron=""), retry in 1 minute.
+			// Restore to active so the task stays discoverable. A cron task takes
+			// its next natural slot. A one-shot goes back to the next_run it was
+			// just claimed at — NOT a fresh now+1m — because that value IS the
+			// fire's identity (fireID). Keeping it means the next tick re-claims
+			// the SAME fire and mints the SAME message id, so routd dedups a fire
+			// it already recorded instead of running it twice. The fire loop ticks
+			// every 60s, so this is still a one-minute retry.
 			retryRun := computeNextRun(t.Cron, r.tz, t.ID)
+			if retryRun == "" {
+				retryRun = t.NextRun
+			}
 			if retryRun == "" {
 				retryRun = time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
 			}

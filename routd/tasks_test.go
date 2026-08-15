@@ -60,6 +60,13 @@ func TestTasksDueEndpoint(t *testing.T) {
 	if resp.Tasks[0].Prompt != "ping" {
 		t.Errorf("due task prompt = %q want ping", resp.Tasks[0].Prompt)
 	}
+	// next_run is the fire's IDENTITY, not a display field: timed keys the
+	// enqueued message id on it so a retry after a lost response dedups against
+	// the first attempt (BUGS L33). The claim must not disturb it, and it must
+	// round-trip byte-stably through the reschedule, so it is RFC3339 in UTC.
+	if want := past.UTC().Format(time.RFC3339); resp.Tasks[0].NextRun != want {
+		t.Errorf("due task next_run = %q, want the claimed %q", resp.Tasks[0].NextRun, want)
+	}
 	// Claimed: the returned task is now 'firing', the future task still 'active'.
 	if got, _ := db.GetTask("due-1"); got.Status != "firing" {
 		t.Errorf("due task status = %q want firing (claimed)", got.Status)

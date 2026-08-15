@@ -276,7 +276,7 @@ this needs a look rather than a mechanical port.
 - **Status:** open
 - **Fix:**
 
-## L33 — a one-shot task's retry mints a fresh message id, so a lost response fires it twice (2026-08-15, open)
+## ✅ FIXED 2026-08-15 — L33 — a one-shot task's retry mints a fresh message id, so a lost response fires it twice (2026-08-15)
 
 `timed.fireSplit` enqueues each due task with `id = core.MsgID("sched-"+t.ID)`
 — a `UnixNano` suffix, fresh per attempt. When the `POST /v1/messages`
@@ -293,7 +293,24 @@ instead silently dedup a legitimately re-armed one-shot.
 - **Scope:** scheduled tasks / ingress idempotency
 - **Affected:** timed → routd
 - **Source:** timed/split.go:184 (`core.MsgID`), core/types.go:275
-- **Status:** open
+- **Status:** FIXED — the claimed `next_run` is the fire identity, as this entry
+  proposed; no `fire_id` column was needed.
+
+  `GET /v1/tasks/due` now returns `next_run` (RFC3339 UTC, unchanged by the
+  claim) and `timed.fireID` mints `sched-<taskID>@<next_run>` instead of
+  `core.MsgID`. Every attempt at one fire carries one id, so routd's
+  `INSERT OR IGNORE` on `messages.id` collapses them.
+
+  The error path is what makes that hold: a one-shot is re-armed to the
+  next_run it was CLAIMED at, not a fresh `now+1m`. That value IS the identity,
+  so the next tick re-claims the same fire with the same id. The 60s fire-loop
+  cadence preserves the old one-minute retry exactly — the backoff was never
+  the `now+1m` value, it was the tick. Cron tasks keep taking their next
+  natural slot: the missed fire and the next one are different fires.
+
+  A task with no `next_run` falls back to the wall-clock id. A stable-LOOKING
+  id that is not actually per-fire would dedup two legitimate fires into one,
+  and a silent drop is worse than a duplicate.
 - **Fix:**
 
 ## L38 — the product catalog and the product corpus are two different sets (2026-08-15, open)

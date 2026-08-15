@@ -15,6 +15,18 @@ of `routd`. Drives routd over HTTP; opens NO local DB.
 - Reschedule task (`POST /v1/tasks/{id}/reschedule`); mark one-shots completed.
 - Log each run (`POST /v1/tasks/runlog`).
 
+### One fire, one message id
+
+The enqueued id is `sched-<taskID>@<next_run>` (`fireID`), keyed on the
+SCHEDULED time the claim fires for — carried on the `/v1/tasks/due` row. Every
+attempt at the same fire therefore mints the same id, and routd's id-PK dedup
+collapses them. This matters on the error path: when the `POST /v1/messages`
+response is lost but routd recorded the row, a one-shot is re-armed to the
+next_run it was CLAIMED at (not a fresh `now+1m`), the next 60s tick re-claims
+the same fire, and routd drops the duplicate. A wall-clock id fired the task
+twice; a bare `sched-<taskID>` would instead silently swallow a legitimately
+re-armed one-shot. BUGS `L33`.
+
 ## Entry points
 
 - Binary: `timed/main.go`
