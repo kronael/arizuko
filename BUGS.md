@@ -2275,7 +2275,7 @@ nothing) or "0 max_children" (spawning disabled).
 - **Status:** resolved — -1/NULL renders blank; 0 clears to default via ClearGroupMaxChildren (91159586)
 - **Fix:** render -1/NULL as blank; treat submitted 0 as clear-to-default in POST handler
 
-## main: writeTaskRows and activity feed apply LIMIT before visibility filter (2026-06-18, open)
+## ✅ FIXED 2026-08-15 (tasks; activity residual documented) main: writeTaskRows and activity feed apply LIMIT before visibility filter (2026-06-18)
 
 `main.go:730`: `writeTaskRows` fetches LIMIT 500 then filters in Go — scoped users miss tasks that
 sort after row 500. `main.go:808`: activity feed fetches 1000 rows then filters — same class.
@@ -2288,7 +2288,18 @@ sort after row 500. `main.go:808`: activity feed fetches 1000 rows then filters 
   fall back to a 5000 over-fetch). Activity deliberately over-fetches 1000 for
   non-operators (visibility needs Go-side `jidFolder` route resolution, not
   SQL-expressible); residual: scoped rows older than the newest 1000 stay hidden
-- **Fix:** push visibility filter into SQL; or page until N visible rows found
+- **Fix:** a51989cc; re-verified at fb152e98 — `writeTaskRows` (`main.go:981-1001`) pushes
+  the owner filter into SQL via `ownerVisibleSQL` (`:963`), so the LIMIT counts only
+  visible rows; a grant carrying a `*` is inexpressible in that predicate, so it
+  returns `ok=false` and the query falls back to `ORDER BY owner, id LIMIT 5000` with
+  the Go-side `visible()` filter. No concrete grants → the predicate is literal `0`
+  (fail-closed, nothing visible).
+  Residual, deliberate: the activity feed still over-fetches 1000 and filters in Go,
+  because visibility there needs `jidFolder` route resolution that SQL cannot express.
+  Both directions of the residual only HIDE rows from an under-privileged caller —
+  neither leaks — so this closes as a completeness limit, not a security defect. If the
+  operator-visible gap ("my task/event is older than the newest 1000") is worth fixing,
+  it wants keyset pagination, which is a redesign and needs its own entry.
 
 ## ✅ FIXED 2026-08-15 main: memory write/delete broken for nested group folders (2026-06-18)
 
