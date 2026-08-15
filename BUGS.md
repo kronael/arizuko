@@ -1869,7 +1869,7 @@ routes (3195f867), tasks (0b6ca53e). Open:
    load but passes 5/5 in isolation. Pre-existing, unrelated to the 5/16/5/15 work. Needs a
    sync point or serialization in the test harness. Low priority (not a product bug).
 
-## oracle skill + examples tell operators to folder-scope CODEX_API_KEY, which the store rejects (2026-07-02, open)
+## CLOSED-STALE 2026-08-15 (heading lagged body) — oracle skill + examples tell operators to folder-scope CODEX_API_KEY, which the store rejects (2026-07-02, resolved 2026-07-05)
 
 Spec 5/14 put `CODEX_API_KEY`/`OPENAI_API_KEY` in `store.EnvProfileKeys`, so `validateScope`
 (`store/secrets.go:128`) rejects them at `scope_kind='folder'` — model creds are user-only (BYOA)
@@ -1892,6 +1892,9 @@ is purely about whether folder-scope is allowed. Fixing the docs also requires a
   readSecrets carries all 4 keys). Only `oracle/SKILL.md` Path B claimed "folder secret" — fixed to
   env-profile. The `PRODUCT.md` examples were already correct (they use `[[env]]` = platform, not
   `[[secret]]` folder). NOTE: the SKILL.md fix reaches live agents only after an ant image rebuild.
+  Re-verified 2026-08-15: `ant/skills/oracle/SKILL.md:40` still says "platform-or-user, NEVER
+  folder"; `store/secrets.go:128-140` still rejects `ScopeFolder`. Heading updated to match the
+  body's already-resolved status.
 
 ## OpenAPI convention emits phantom/divergent paths for hand-rolled resources (2026-07-02, open)
 
