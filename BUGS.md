@@ -2586,7 +2586,7 @@ agent accepts, the dashboard refuses. dashd's copy dies with its tasks page
 pages land — filed as the follow-up, not fixed here, because it is a second
 concern.
 
-## N2 — an operator can grant to a non-canonical alias, silently (2026-08-04, open)
+## ✅ FIXED 2026-08-15 N2 — an operator can grant to a non-canonical alias, silently (2026-08-04)
 
 Residual risk from N1 (`beecf595`), verified as having **zero live instances**
 today but no guard against acquiring one.
@@ -2648,6 +2648,41 @@ non-canonical case, on the grounds that N2 is a data-hygiene guard and not a
 containment boundary — but that is the user's call, and either way `Resolve`
 must grow a distinguishable "could not answer" result instead of folding it
 into "unclaimed". Do not ship this inline.
+
+- **Fix:** built as recommended — fail-OPEN, both cases warned.
+  `Server.nonCanonicalWarning` (`routd/acl_resource.go`) runs on the `add` case
+  of the ONE shared `aclHandler`, so the agent's `add_acl` and the operator's
+  `POST /v1/acl` get it from the same line. `IdentityResolver.Resolve` grew the
+  distinguishable fourth result the entry required: `(identity, subs, claimed,
+  error)`, where a 404 or a null identity is a real "unclaimed" (`false, nil`)
+  and a token/transport/other-non-200/decode failure is an error. It never
+  rewrites the principal — moving a grant the operator did not ask to move is
+  the failure mode N1 chose an immutable canonical to avoid.
+
+**The warning rides on the RESPONSE, not only the log.** A fail-open guard whose
+only output is a log line is a guard nobody sees, and `add_acl` is a user-facing
+path. `add` now returns `aclAddResult{ok, warning omitempty}` — the wire shape is
+byte-identical to the old `{"ok":true}` when there is nothing to say, and when
+there is, the caller is told in the same breath the grant lands. Both cases
+warn: a known alias names the canonical sub to re-grant to, and an unreachable
+authd says plainly that it could NOT verify, rather than implying the principal
+checked out.
+
+`inspect_identity` keeps its advisory behaviour (an error still renders as
+unclaimed) but now logs instead of swallowing — that tool cannot distinguish
+"authd is down" from "nobody claims this sub" in its output either way.
+
+**Not covered, and deliberately:** the pairing half. `acl_membership.parent`
+naming an alias has the same shape, but it is a different write path and a
+different concern; folding it in here would be two fixes pretending to be one.
+Still open as recorded above.
+
+- **Verified:** `routd/acl_canonical_test.go` — an alias warns and names the
+  canonical; canonical, unclaimed, `role:` principals and a nil resolver are all
+  silent; an unreachable authd warns that it could not verify; and the grant
+  still lands on the principal AS ASKED, with nothing written to the canonical.
+  `routd/identity_test.go` gained the 404-is-unclaimed, 5xx-is-an-error and
+  dead-authd-is-an-error cases that the old advisory `Resolve` could not express.
 
 ## Z1 — all three live instances run a routd/onbod image ~5 days stale; a chunk of shipped migrations is not live (2026-08-04, open)
 

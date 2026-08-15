@@ -32,6 +32,7 @@ package routd
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -150,11 +151,12 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 		if principal == "" || scope == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "principal and scope required")
 		}
+		warning := s.nonCanonicalWarning(principal)
 		if err := grantACLTx(ctx, x.Tx, principal, scope,
 			argString(x.Args, "action"), argString(x.Args, "effect"), "agent:"+x.Caller.Folder); err != nil {
 			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
 		}
-		return apiv1.OK{OK: true}, nil
+		return aclAddResult{OK: true, Warning: warning}, nil
 
 	case resreg.Action("remove"):
 		principal := argString(x.Args, "principal")
@@ -212,6 +214,54 @@ func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, v
 		return nil
 	}
 	return mountAgentResource(res, callerSub, folder, visible)
+}
+
+// aclAddResult is add_acl's reply: the old `{"ok":true}` plus an optional
+// warning. `omitempty` keeps the wire shape identical when there is nothing to
+// say, so the common case is unchanged for every existing caller.
+type aclAddResult struct {
+	OK      bool   `json:"ok"`
+	Warning string `json:"warning,omitempty"`
+}
+
+// nonCanonicalWarning reports whether `principal` is a KNOWN alias of some other
+// account, and returns the operator-facing warning if so (BUGS N2).
+//
+// 5/32 resolves a linked OAuth login to the account's canonical sub at MINT, so
+// a JWT only ever carries the canonical. Grants key on the exact string and
+// expandPrincipals compares exact strings, so a grant written against a linked
+// alias creates a row that can NEVER match — it looks applied and never fires.
+// authd owns the answer; routd federates it over HTTP (routd holds no handle on
+// auth.db — sibling_db.go).
+//
+// FAIL-OPEN, deliberately, and it must stay that way. Refusing on authd's answer
+// would put a hard dependency on authd into a write path that has none, so an
+// authd blip would become a control-plane outage over a risk with zero live
+// instances. But fail-open with a log only is a guard nobody sees, so the
+// warning rides back on the RESPONSE: the grant lands AND the operator is told,
+// in the same breath.
+//
+// It never rewrites the principal. Moving a grant the operator did not ask to
+// move is the failure mode N1 chose an immutable canonical sub to avoid.
+func (s *Server) nonCanonicalWarning(principal string) string {
+	if s.identity == nil {
+		return ""
+	}
+	id, _, claimed, err := s.identity.Resolve(principal)
+	if err != nil {
+		// A guard that stops working exactly when identity data is unavailable is
+		// worth less than it reads, so say so rather than implying the principal
+		// checked out.
+		slog.Warn("add_acl: could not check principal canonicality", "principal", principal, "err", err)
+		return "could not verify that " + principal + " is a canonical sub (authd did not answer): " +
+			"the grant was written, but if this is a linked login it will never match a token"
+	}
+	if !claimed || id.ID == "" || id.ID == principal {
+		return ""
+	}
+	return "granted to " + principal + ", which is a linked alias of " + id.ID +
+		": tokens for this account always carry " + id.ID + ", so this row will never match. " +
+		"Re-grant to " + id.ID + " and revoke this one"
 }
 
 // grantACLTx grants via tx so the mutation + invoke's audit row commit as one
