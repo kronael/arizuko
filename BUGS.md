@@ -1148,7 +1148,7 @@ not a one-off backfill.
 - **Status:** open — needs the producer identified before deciding delete-orphans
   vs relax-the-constraint. Do NOT rebuild `task_run_logs` until then.
 
-## C9 — queue replay opens circuit breakers before runed is ready (2026-07-30, proposed)
+## ✅ FIXED 2026-08-15 C9 — queue replay opens circuit breakers before runed is ready (2026-07-30)
 
 On every full-stack restart, routd begins replaying pending group work before
 runed listens on `:8080`. The three immediate `connection refused` attempts
@@ -1159,10 +1159,44 @@ after runed becomes ready. Live krons reproduced this fleet-wide at
 - **Severity:** high
 - **Scope:** routd queue replay readiness / runed client retry
 - **Affected:** every instance with pending work during restart
-- **Source:** krons journal 2026-07-30 07:49:05–07:49:08
-- **Status:** proposed (dispatch-readiness redesign, needs sign-off)
-- **Fix:** gate queue replay on runed readiness, or keep transient connection
-  failures outside the breaker budget until the execution plane is ready
+- **Source:** krons journal 2026-07-30 07:49:05–07:49:08; reproduced live on a
+  krons deploy 2026-08-15 19:54:48 (`connect: connection refused` to
+  `runed:8080`, four groups' breakers opened, then self-recovered)
+- **Fix:** the breaker no longer counts a dependency outage.
+  `queue.ErrDependencyDown` marks a failure the group did not cause;
+  `queue.runForGroup` leaves the streak untouched for it (neither incremented
+  nor reset — nothing ran, so there is nothing to blame or credit) and logs it
+  loud as an operator condition. `routd.runedUnreachable` decides, tagging only
+  a failed CONNECT: `syscall.ECONNREFUSED` (nothing listening on :8080 yet) and
+  `*net.DNSError` (compose has not published the name yet). A
+  `*runedv1.APIError` is excluded explicitly — runed took the request and
+  refused it, which IS the folder's business — and a mid-run deadline still
+  counts, because that run started.
+
+Chose the breaker-accounting fix over startup ordering: runed can restart at any
+time, not only at boot, so an ordering gate would fix the boot case and leave
+the general one. No new mechanism — this joins the exemption `dispatch.go`
+already applies for `busy` ("do NOT return an err, which would trip the queue
+breaker"), and expresses the one rule the breaker has: only a failure
+attributable to processing THIS group counts.
+
+**Correction to the original entry.** "Healthy queued work remains blocked
+after runed becomes ready" is WRONG, and the fix should not be read as
+unblocking anything. `consecutiveFailures` is never a gate — the only non-test
+read is in `EnqueueMessageCheck`, which RESETS it — so routd's breaker was
+log-only and the next poll always re-fed the batch. runed's own
+`circuit_breaker` table could not have been touched either: runed was not
+running to increment it. The real defect was a false alarm on a signal
+`CLAUDE.md` lists as a post-deploy RED FLAG ("circuit breaker open"), pointing
+an operator at four healthy groups instead of at the one daemon still starting.
+The severity stands for that reason; the blocked-work claim does not.
+
+- **Verified:** `queue/dependency_down_test.go` — a dependency-down return
+  leaves the streak at 0 across threshold+2 runs, does not reset a streak real
+  failures built, and real failures still count once the plane recovers.
+  `routd/runed_unreachable_test.go` — table over the classifier, using a real
+  dial to a closed port rather than a hand-built error, plus the API-error,
+  deadline and decode-failure negatives.
 
 ## T1 — PROPOSED, needs sign-off (verified still open 2026-08-15) — stalled typing indicator on timed-out/errored turns (2026-07-26)
 

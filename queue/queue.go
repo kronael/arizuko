@@ -1,12 +1,25 @@
 package queue
 
 import (
+	"errors"
 	"log/slog"
 	"slices"
 	"sync"
 )
 
 const circuitBreakerThreshold = 3
+
+// ErrDependencyDown marks a failure the GROUP did not cause: the execution
+// plane was never reached, so no work was attempted on this group's behalf.
+// The caller wraps its transport error with it; the breaker then leaves the
+// group's streak alone and the batch re-feeds on the next poll.
+//
+// Without it one runed restart is charged to every group at once — a krons
+// deploy opened four groups' breakers on `connect: connection refused` to
+// runed:8080 before runed had finished starting (BUGS C9). "runed is not up"
+// and "this group's turns keep failing" are different signals and only the
+// second one is the breaker's business.
+var ErrDependencyDown = errors.New("execution plane unreachable")
 
 type groupState struct {
 	active              bool
@@ -147,13 +160,22 @@ func (q *GroupQueue) runForGroup(groupJid string) {
 
 	q.mu.Lock()
 	s := q.getGroup(groupJid)
-	if err != nil {
-		// Only a real processing error counts toward the breaker. A clean return
-		// (err==nil) is success even with no output: silent no-ops (observe,
+	switch {
+	case err == nil:
+		// A clean return is success even with no output: silent no-ops (observe,
 		// already-current cursor, agent chose not to reply) advance the cursor
 		// and never re-feed, so they are progress, not failure. Counting
 		// no-output as failure false-tripped the breaker after silent turns —
 		// discord channel chatter on sloth+marinade, 9ms after a 0-exit run.
+		s.consecutiveFailures = 0
+	case errors.Is(err, ErrDependencyDown):
+		// Loud, because an unreachable execution plane is an operator's problem —
+		// but neither success nor this group's failure, so the streak is left
+		// exactly as it was. Nothing ran, so there is nothing to credit or blame.
+		slog.Error("execution plane unreachable; group work re-feeds on next poll",
+			"groupJid", groupJid, "failures", s.consecutiveFailures, "err", err)
+	default:
+		// Only a failure attributable to processing THIS group counts.
 		s.consecutiveFailures++
 		slog.Error("error processing messages for group",
 			"groupJid", groupJid, "failures", s.consecutiveFailures, "err", err)
@@ -161,8 +183,6 @@ func (q *GroupQueue) runForGroup(groupJid string) {
 			slog.Error("circuit breaker open - too many consecutive failures",
 				"groupJid", groupJid, "failures", s.consecutiveFailures)
 		}
-	} else {
-		s.consecutiveFailures = 0
 	}
 
 	s.active = false

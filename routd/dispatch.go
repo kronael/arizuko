@@ -2,16 +2,20 @@ package routd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
+	"net"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
+	"github.com/kronael/arizuko/queue"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/types"
 )
@@ -273,6 +277,12 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	}
 	if derr != nil {
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
+		if runedUnreachable(derr) {
+			// runed never answered, so nothing ran and this folder failed at
+			// nothing. Tag it so the queue's breaker leaves the group's streak
+			// alone (BUGS C9); the batch re-feeds next poll either way.
+			derr = fmt.Errorf("%w: %w", queue.ErrDependencyDown, derr)
+		}
 		return false, false, false, derr
 	}
 	if out.Busy {
@@ -519,6 +529,31 @@ func turnCallerSub(trigger string) string {
 		return "service:routd"
 	}
 	return trigger
+}
+
+// runedUnreachable reports whether err means routd never reached runed at all:
+// the connect phase failed, so no request was served and no run happened. That
+// is compose boot order or a runed restart, not a verdict on the folder.
+//
+// A *runedv1.APIError is the opposite case and is excluded explicitly — runed
+// took the request and answered with a refusal, which IS attributable. The
+// client already draws that line ("a transport failure surfaces as the bare
+// network error"); this reads it rather than inventing a second rule.
+//
+// Deliberately narrow. A mid-run context deadline also surfaces as a bare
+// error, but the run DID start, so it stays a real failure and keeps counting.
+func runedUnreachable(err error) bool {
+	var apiErr *runedv1.APIError
+	if errors.As(err, &apiErr) {
+		return false
+	}
+	// The service name has no A record yet (compose brings runed up after routd).
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	// The name resolves but nothing is listening on :8080 yet.
+	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
 func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, trigger, batch string, elevated bool) (runedv1.RunOutcome, error) {
