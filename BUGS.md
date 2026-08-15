@@ -2360,7 +2360,7 @@ the hot path.
   `grep -n session_id dashd/runed_page.go` has zero hits.
 - **Fix:** drop from SELECT and remove variable
 
-## main: duplicate profile nav link + dead portal .Err field (2026-06-18, open)
+## ✅ FIXED 2026-08-15 — main: duplicate profile nav link + dead portal .Err field (2026-06-18, open)
 
 `main.go:463`: `profile` appears in both `navLinks` and the identity badge — double aria-current
 on `/dash/profile/`. `main.go:540`: portal template `.Err` field is always empty — dead branch.
@@ -2368,7 +2368,11 @@ on `/dash/profile/`. `main.go:540`: portal template `.Err` field is always empty
 - **Severity:** low
 - **Scope:** dashd/main.go:463,:540
 - **Source:** codex audit 2026-06-18
-- **Status:** resolved — profile removed from navLinks; .Err branch removed (91159586)
+- **Status:** resolved — profile removed from navLinks; .Err branch removed (91159586).
+  Re-verified 2026-08-15: `navLinks` (dashd/main.go:666-686) has no `/dash/profile/`
+  entry — profile is reached only via the identity badge link (comment at :664-665
+  states this explicitly). `grep -rn '\.Err\b' dashd/*.go` (excluding `rows.Err()`
+  etc.) has zero hits — no dead portal field remains.
 - **Fix:** remove profile from navLinks (keep badge); remove .Err from portal template
 
 ## ext tools: InputSchema never populated — agents have no parameter schema (2026-06-26, open)
