@@ -2427,7 +2427,7 @@ both faces rather than a bespoke dashd page.
 - **Source:** `dashd/routd_page.go`
 - **Status:** open
 
-## L18 — four docs pages ship no theme toggle at all (2026-08-11, open)
+## L18 — four docs pages ship no theme toggle at all (2026-08-11, FIXED 2026-08-15)
 
 168 of 172 pages under `template/web/pub/arizuko/` carry a `.theme-toggle`
 button. These four do not, so a reader who lands on one cannot switch theme and
@@ -2453,7 +2453,17 @@ chrome element is hand-repeated in 172 files at all — the same class of drift
 - **Severity:** low
 - **Scope:** docs chrome consistency
 - **Affected:** template/web/pub/arizuko
-- **Status:** open
+- **Status:** FIXED 2026-08-15
+- **Fix:** added the same `<button class="theme-toggle">&#127769;</button>`
+  markup the other 168 pages carry, right before each page's `hub.js`
+  `<script>` tag — verified against `reference/schema.html`'s copy for exact
+  markup and placement. Three of the four (`crackbox/index.html`,
+  `crackbox/reference/index.html`, `examples/chat-sdk.html`) are meta-refresh
+  redirect stubs to their moved pages; the toggle now renders consistently
+  even in the instant before the redirect fires, matching every other page
+  in the tree. Not fixing the deeper "172 hand-repeated chrome" question this
+  entry also raised — that is `5/D`'s shared-chrome scope, not a
+  four-file patch.
 
 ## L16 — legacy plaintext secret rows are never sealed; the migrator has no caller (2026-08-11, open)
 
