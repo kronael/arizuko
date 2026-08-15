@@ -118,7 +118,7 @@ Endpoints (`server.go`, `channels.go`):
   widen it), so it can never reach a window the list would not show, and it
   lands its `audit_log` row inside the write's own transaction
   (`DB.SetEngagementAudited`) — `engagement.set` / `engagement.clear`.
-- `GET /v1/sessions` — session info
+- `GET /v1/topic_sessions` — the resume Claude-session id for (folder, topic)
 - `GET /v1/users/{sub}/scopes` — login-time scope snapshot (`grants:read`)
 - `POST /v1/acl`, `DELETE /v1/acl` — acl grant/revoke (`acl:write`)
 - `POST /v1/secrets`, `DELETE /v1/secrets/{key}` — secret write/delete (`secrets:write`)

@@ -99,9 +99,11 @@ Mounted on `routd`, `runed`, `authd`, timed, onbod, webd, proxyd, dashd.
 Aggregator landing: `/pub/arizuko/reference/openapi.html`.
 
 `OpenAPI(daemon, baseURL, resources)` is the underlying emitter, taking
-resources directly; tests use it with `resregtest.Mounted(...)`. A resource
-with no `Endpoints` falls back to the `/v1/<name>` PK-CRUD convention, which
-nothing mounted reaches today (every registry resource declares `Endpoints`).
+resources directly; tests use it with `resregtest.Mounted(...)`. One operation
+per declared `Endpoint` and nothing else — a resource with no `Endpoints`
+contributes only its schema. The PK-CRUD convention that used to invent
+`/v1/<name>` operations for such a resource is deleted:
+`resources.TestEveryResourceDeclaresEndpoints` keeps the case from arising.
 
 Per-action derivation: MCP tools are `deriveMCPTools`'d from the
 `Endpoints` whose `Action` has an `MCPDoc` entry, and each tool's args
@@ -195,14 +197,15 @@ Table: [`specs/8/F-audit-stream.md`](../specs/5/I-tool-call-logging.md).
 1. Declare the SHAPE once in `resreg/resources/<name>.go` — the catalog
    registration (`Name`, `Table`, `RowType`, `PKFields`, `Endpoints`,
    `MCPDoc`/`MCPArgs`/`MCPNames`), with its name added to the const block
-   in `resreg/resources/names.go`. Then declare the mounted `Resource`
-   literal in your daemon, IMPORTING that shape — `Name:
-resources.<X>Name`, `Endpoints: resources.<X>Endpoints`, … — and adding
-   only `Authz`, `Handler`, `Store` and the injected `Gate`.
+   in `resreg/resources/names.go`. In your daemon, obtain it with
+   `r := resreg.Mount(resources.<X>Name)` and set only `Authz`, `Handler`,
+   `Store` and the injected `Gate`. Never build a `resreg.Resource` literal
+   there — that is a second declaration of the same resource, and
+   `resources/name_source_test.go` fails on one.
    A resource's `Name` is its wire identity (`/v1/<name>` + the MCP tool
-   prefix); it is spelled in `names.go` and nowhere else, so the catalog
-   and the mount cannot disagree about what the resource is called.
-   `resources/name_source_test.go` fails on a re-introduced string literal.
+   prefix); it is spelled in `names.go` and nowhere else. `Mount` panics on an
+   unregistered name, so a resource served but absent from every catalog
+   stops the binary at boot.
 2. Implement one `Handler` that switches on `x.Action`. Run mutations
    via `x.Tx` when `Store` is set.
 3. Wire from `main.go`: `resreg.RegisterREST(mux, r, build)` and

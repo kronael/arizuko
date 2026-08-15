@@ -52,12 +52,10 @@ func (s *Server) mountSecrets(mux *http.ServeMux) {
 // s.db.SetSecret/DeleteSecret, and resreg neither opens a tx nor writes an audit
 // row. Authz carries the operator gate (forwarders skip Resource.Gate).
 func (s *Server) secretsResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.SecretsName,
-		Endpoints: resources.SecretsEndpoints, // single source: doc + REST read one list
-		Authz:     s.secretsAuthz,
-		Handler:   s.secretsHandler,
-	}
+	r := resreg.Mount(resources.SecretsName)
+	r.Authz = s.secretsAuthz
+	r.Handler = s.secretsHandler
+	return r
 }
 
 // secretsRESTCaller builds the REST Caller: identity via the Verifier, held

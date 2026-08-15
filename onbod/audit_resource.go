@@ -50,19 +50,14 @@ func (a *admin) mountAudit(mux *http.ServeMux) {
 // does not mutate, so no transaction is ever opened on it. Authz is a no-op —
 // all policy is the injected Gate, as with every other onbod resource.
 func (a *admin) auditResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.AuditName,
-		Endpoints: resources.AuditEndpoints,
-		MCPDoc:    resources.AuditMCPDoc,
-		MCPArgs:   resources.AuditMCPArgs,
-		MCPNames:  resources.AuditMCPNames,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Gate:    a.auditRESTGate,
-		Handler: a.auditHandler,
-		Store:   store.New(a.db),
+	r := resreg.Mount(resources.AuditName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Gate = a.auditRESTGate
+	r.Handler = a.auditHandler
+	r.Store = store.New(a.db)
+	return r
 }
 
 // auditRESTCaller builds the resreg Caller from the bearer, verified against

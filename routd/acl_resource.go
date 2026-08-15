@@ -54,20 +54,15 @@ var aclMCPNames = resources.ACLMCPNames
 // the exact wire shapes (principal/scope/action/effect; folder for list),
 // single-sourced in resreg/resources.
 func (s *Server) aclResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.ACLName,
-		Endpoints: resources.ACLEndpoints, // single source: doc + REST(add/remove) read one list
-		MCPDoc:    resources.ACLMCPDoc,    // single source (resreg/resources)
-		MCPArgs:   resources.ACLMCPArgs,
-		MCPNames:  aclMCPNames,
-		// Authz derives (scope, params) for the gate; acl's containment is done
-		// in the injected Gate against the scope arg, so this is a no-op.
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Handler: s.aclHandler,
-		Store:   store.New(s.db.SQL()),
+	r := resreg.Mount(resources.ACLName)
+	// Authz derives (scope, params) for the gate; acl's containment is done
+	// in the injected Gate against the scope arg, so this is a no-op.
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Handler = s.aclHandler
+	r.Store = store.New(s.db.SQL())
+	return r
 }
 
 // mountACL wires the /v1/acl operator/human REST face onto the SAME shared

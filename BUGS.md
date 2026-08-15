@@ -759,7 +759,7 @@ its own text and shipped it deliberately, so the spec is accurate and the code
 matches it; what is open is a future policy choice, which is a backlog item.
 `5/31` returns to `shipped` and keeps this entry as the recorded question.
 
-## F46 — `runed`, `routd` and `authd` all serve `GET /v1/sessions`, for different tables (2026-08-06, open — CORRECTED 2026-08-07: three daemons, not two)
+## ✅ FIXED 2026-08-15 — F46 — `runed`, `routd` and `authd` all serve `GET /v1/sessions`, for different tables (2026-08-06 — CORRECTED 2026-08-07: three daemons, not two)
 
 **Correction (2026-08-07, during `F33`).** This is THREE daemons, not two.
 `routd/server.go:286` also mounts `GET /v1/sessions` (hand-rolled,
@@ -780,30 +780,49 @@ path, three unrelated tables.
 Since `F33` the doc no longer lies about this — only authd's RegisterREST mount
 is documented, and `resreg/openapi_mount_test.go` pins that a hand-rolled mount
 at a resource's path documents nothing. The wire-identity collision itself is
-untouched and still wants the rename below.
+what the rename below closed.
 
-Not currently reachable as a bug: the daemons listen on separate containers, and
-`runed`'s is hand-rolled rather than a resreg registration, so
-`TestResourceEndpoints_SingleSource` sees nothing. It is the exact shape the
-`Name` rule exists to prevent — "a resource's name IS its wire identity,
-globally unique" (root `CLAUDE.md`), the rule `proxyd_routes` violated in
-2026-07 — and it bites the moment either surface is federated behind one host,
-or `runed`'s spawn sessions become a resreg resource (which `5/16`'s adoption
-program would do).
+It was never reachable as a live fault — the daemons listen on separate
+containers, and both squatters were hand-rolled rather than resreg
+registrations, so `TestResourceEndpoints_SingleSource` saw nothing. It was the
+exact shape the `Name` rule exists to prevent — "a resource's name IS its wire
+identity, globally unique" (root `CLAUDE.md`), the rule `proxyd_routes` violated
+in 2026-07 — and it would have bitten the moment either surface was federated
+behind one host, or `runed`'s spawn sessions became a resreg resource (which
+`5/16`'s adoption program would do).
 
 - **Severity:** low today, medium on federation (an aggregator or generated
   client keying on `/v1/sessions` gets whichever daemon it was pointed at)
-- **Scope:** runed/server.go:44-45, routd/server.go:286, authd sessions resource
-- **Source:** runed/server.go:44 `mux.HandleFunc("GET /v1/sessions", …)`;
-  routd/server.go:286 `mux.HandleFunc("GET /v1/sessions", s.handleSessionGet)`;
+- **Scope:** runed/server.go, routd/server.go, resreg/resregtest, authd sessions resource
+- **Source:** runed/server.go `mux.HandleFunc("GET /v1/sessions", …)`;
+  routd/server.go `mux.HandleFunc("GET /v1/sessions", s.handleSessionGet)`;
   authd/http.go `s.mountSessions(m)` → `/v1/sessions`
-- **Fix:** rename `runed`'s to its actual subject before it becomes a resource —
-  `/v1/spawn_sessions` (and `/v1/spawn_sessions/recent`), matching `runed`'s
-  `spawns`/`session_log` vocabulary. `authd` keeps `sessions`: it is the
-  registered resreg resource and the one with a REST twin, so it holds the wire
-  identity. Renaming `runed`'s touches its one federated caller (routd's recent-
-  sessions read, spec 5/P) — a cross-daemon path change, so it wants sign-off
-  rather than an inline fix.
+- **Fix:** ✅ 2026-08-15. `authd` keeps `sessions` — it is the registered resreg
+  resource and the one with a REST twin, so it holds the wire identity. `runed`'s
+  two reads became `/v1/spawn_sessions` and `/v1/spawn_sessions/recent` (matching
+  its `spawns`/`session_log` vocabulary); `routd`'s became `/v1/topic_sessions`
+  (its `sessions` table is the `(group_folder, topic)` → Claude-session-id map).
+  Not `runs` for `runed`, though `5/5` names that for the tier: `/v1/runs` and
+  `/v1/runs/{run_id}` already serve the `spawns` table, and one name over two
+  tables is the defect being closed.
+- **Cross-daemon path change, and why it needed no sign-off:** the ONE federated
+  caller is routd's `SessionResolver` → `runed/api/v1.Client.RecentSessions`
+  (`routd/session.go`), both sides in the same binary set and the same
+  `docker compose up`. Its contract is already advisory — any transport error or
+  non-2xx returns nil and the prompt renders "no prior session" — so a
+  mixed-version window degrades exactly like an unreachable runed, never a
+  failed turn. `runed`'s plain `/v1/spawn_sessions` had NO caller in the tree at
+  all. `authd`'s `/v1/sessions` did not move, so dashd's authd control plane is
+  untouched.
+- **Cause fix, not just this instance:** `resregtest.AssertServesNoneOf(t,
+  daemon, foreign, mux)` took a hand-written foreign list, and none of the six
+  daemons' lists named `sessions` — which is how this survived three audits. It
+  is now `AssertServesNoForeignResource(t, daemon, mux)` and DERIVES the foreign
+  set as the complement of what the mux owns (every registered resource minus
+  the ones `RegisterREST` mounted there), so a list can no longer omit the name
+  that matters. Falsified against the pre-fix tree: restoring routd's
+  `GET /v1/sessions` fails `TestRoutdMux_ServesNoForeignResource` with the
+  collision message.
 
 ## F37 — three dispatch tests fail under whole-suite load, so the suite cannot gate a release (2026-08-06, open)
 

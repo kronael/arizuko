@@ -212,7 +212,7 @@ func TestHTTPUnauthorizedWhenVerifyFails(t *testing.T) {
 	if got := postJSON(t, h, "/v1/runs", `{"folder":"demo"}`); got.Code != 401 {
 		t.Fatalf("run with bad token = %d want 401", got.Code)
 	}
-	if got := req(t, h, "GET", "/v1/sessions/recent?folder=demo"); got.Code != 401 {
+	if got := req(t, h, "GET", "/v1/spawn_sessions/recent?folder=demo"); got.Code != 401 {
 		t.Fatalf("recent with bad token = %d want 401", got.Code)
 	}
 }
@@ -224,7 +224,7 @@ func (errVerifier) Verify(*http.Request) (string, []string, string, error) {
 	return "", nil, "", context.DeadlineExceeded
 }
 
-// TestHTTPRecentSessionsShape: GET /v1/sessions/recent returns rows newest-first
+// TestHTTPRecentSessionsShape: GET /v1/spawn_sessions/recent returns rows newest-first
 // with the full federated shape (group_folder + error), honoring ?n=.
 func TestHTTPRecentSessionsShape(t *testing.T) {
 	db, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: []string{"sessions:read"}, folder: "demo"})
@@ -232,7 +232,7 @@ func TestHTTPRecentSessionsShape(t *testing.T) {
 		id, _ := db.RecordSession("demo", sid)
 		db.EndSession(id, sid, "ok", "", 2)
 	}
-	rec := req(t, srv.Handler(), "GET", "/v1/sessions/recent?n=2")
+	rec := req(t, srv.Handler(), "GET", "/v1/spawn_sessions/recent?n=2")
 	if rec.Code != 200 {
 		t.Fatalf("recent = %d want 200", rec.Code)
 	}

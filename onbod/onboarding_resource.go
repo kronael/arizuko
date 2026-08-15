@@ -33,18 +33,14 @@ func (a *admin) mountOnboarding(mux *http.ServeMux) {
 // store.Store over onbod.db so resreg.invoke opens the mutation+audit tx there.
 // Authz is a no-op; all policy lives in the injected Gate.
 func (a *admin) onboardingResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.OnboardingName,
-		Endpoints: resources.OnboardingEndpoints,
-		MCPDoc:    resources.OnboardingMCPDoc,
-		MCPArgs:   resources.OnboardingMCPArgs,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Handler: a.onboardingHandler,
-		Gate:    a.onboardingRESTGate,
-		Store:   store.New(a.db),
+	r := resreg.Mount(resources.OnboardingName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Handler = a.onboardingHandler
+	r.Gate = a.onboardingRESTGate
+	r.Store = store.New(a.db)
+	return r
 }
 
 // onboardingRESTGate reproduces the retired handlers' bearer-scope check

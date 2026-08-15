@@ -1347,6 +1347,30 @@ func Lookup(name string) *Resource {
 	return nil
 }
 
+// Mount returns the registered SHAPE of a resource — Name, Endpoints, RowType,
+// Table, PK, MCP metadata: everything Register stored — for a daemon to fill in
+// with BEHAVIOR (Authz, Gate, Handler, Store) and mount. It is the only way to
+// build a mountable Resource.
+//
+// This is what makes "one owner" structural (spec 5/16 §"One owner +
+// federation"). A mount site used to restate the shape as a struct literal
+// whose fields happened to reference the catalog's exported vars — a second
+// declaration held in step by care, so a site could name a different slice,
+// omit MCPDoc and silently lose the agent's tools, or (as proxyd_routes did)
+// carry an MCPArgs map the catalog never had. There is nothing left to restate.
+//
+// Panics on an unregistered name. A daemon mounting a resource no catalog knows
+// is served-but-invisible to /openapi.json and the CLI manifest, and that must
+// stop the binary at boot rather than surface as a missing row later.
+func Mount(name string) Resource {
+	r := Lookup(name)
+	if r == nil {
+		panic("resreg: Mount of unregistered resource " + name +
+			" — a resource's name is its wire identity; register it in resreg/resources first")
+	}
+	return *r
+}
+
 // BySubsystem returns the registered resources whose Resource.DB equals
 // subsystem, in registration order — the per-owner-DB view Export/Apply/Plan
 // operate over (spec 5/8: "one subsystem = one owner DB").

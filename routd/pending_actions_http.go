@@ -36,18 +36,13 @@ const (
 // resreg/resources/pending_actions.go. Store is non-nil so resreg runs the
 // Gate and opens the verdict tx.
 func (s *Server) pendingActionsResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.PendingActionsName,
-		Endpoints: resources.PendingActionsEndpoints,
-		MCPDoc:    resources.PendingActionsMCPDoc,
-		MCPArgs:   resources.PendingActionsMCPArgs,
-		MCPNames:  resources.PendingActionsMCPNames,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Handler: s.pendingActionsHandler,
-		Store:   store.New(s.db.SQL()),
+	r := resreg.Mount(resources.PendingActionsName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Handler = s.pendingActionsHandler
+	r.Store = store.New(s.db.SQL())
+	return r
 }
 
 func (s *Server) mountPendingActions(mux *http.ServeMux) {

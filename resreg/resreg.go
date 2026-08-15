@@ -356,11 +356,13 @@ func RegisterREST(mux *http.ServeMux, r Resource, build CallerFromHTTPFunc) {
 
 // restMount is the mount identity RegisterREST stamps on every REST face. A
 // hand-rolled mux.HandleFunc is not one, which is what lets the doc tell
-// resource faces from look-alike paths: THREE daemons serve GET /v1/sessions
+// resource faces from look-alike paths: THREE daemons served GET /v1/sessions
 // over three different tables — authd's refresh-token families (the resreg
-// resource), runed's session_log and routd's core.SessionRecord — so deriving
-// the advertised set by probing paths would make routd and runed publish
-// authd's schema (BUGS F46, filed as two daemons; it is three).
+// resource), runed's session_log and routd's topic→session-id map — so deriving
+// the advertised set by probing paths would have made routd and runed publish
+// authd's schema. F46 renamed the two squatters (/v1/spawn_sessions,
+// /v1/topic_sessions); this identity is what kept the doc honest before that,
+// and what keeps the next look-alike out.
 type restMount struct {
 	resource string
 	endpoint Endpoint

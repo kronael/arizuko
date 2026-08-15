@@ -30,7 +30,7 @@ func TestProxydOpenAPI_AdvertisesOnlyWhatItMounts(t *testing.T) {
 	// The ownership anchor. routd owns `routes`, the wire identity
 	// proxyd's live resource once drifted onto (root CLAUDE.md, 2026-07-01);
 	// onbod owns onboarding. proxyd must mount neither.
-	resregtest.AssertServesNoneOf(t, "proxyd", []string{"routes", "onboarding"}, mux)
+	resregtest.AssertServesNoForeignResource(t, "proxyd", mux)
 }
 
 // TestProxydCatchAllDoesNotSatisfyTheGuard is the reason the shared assertion

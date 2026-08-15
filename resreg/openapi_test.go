@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -23,11 +22,24 @@ func registerOAPI(t *testing.T) {
 	t.Helper()
 	reset()
 	Register(Resource{
-		Name:     "oapi_rows",
-		Table:    "oapi_rows",
-		RowType:  reflect.TypeFor[oapiTestRow](),
-		PKFields: []string{"Seq", "Match", "Target"},
+		Name:      "oapi_rows",
+		Table:     "oapi_rows",
+		RowType:   reflect.TypeFor[oapiTestRow](),
+		PKFields:  []string{"Seq", "Match", "Target"},
+		Endpoints: oapiCRUDEndpoints,
 	})
+}
+
+// oapiCRUDEndpoints is the plain PK-CRUD face, spelled out. It used to be
+// implied — a resource declaring no Endpoints got these five operations from a
+// convention inside the emitter, which meant the doc could describe a path
+// nothing served. There is one renderer now, so a resource says what it serves.
+var oapiCRUDEndpoints = []Endpoint{
+	{Verb: "GET", Path: "/v1/oapi_rows", Action: ActionList},
+	{Verb: "POST", Path: "/v1/oapi_rows", Action: ActionCreate, Status: http.StatusCreated},
+	{Verb: "GET", Path: "/v1/oapi_rows/{seq}", Action: ActionGet},
+	{Verb: "PATCH", Path: "/v1/oapi_rows/{seq}", Action: ActionUpdate},
+	{Verb: "DELETE", Path: "/v1/oapi_rows/{seq}", Action: ActionDelete, Status: http.StatusNoContent},
 }
 
 func TestOpenAPI_BasicShape(t *testing.T) {
@@ -80,14 +92,15 @@ func TestOpenAPI_PathsCRUD(t *testing.T) {
 			t.Errorf("item missing %s", m)
 		}
 	}
-	// Composite PK should be flagged in the parameter description.
+	// The item path's parameter is named after the placeholder in the DECLARED
+	// path, not after the PK. Those diverge — this resource's PK is the triple
+	// (seq, match, target) — and the path is what a caller sends.
 	params := item["parameters"].([]any)
 	if len(params) != 1 {
 		t.Fatalf("params len = %d, want 1", len(params))
 	}
-	desc, _ := params[0].(map[string]any)["description"].(string)
-	if want := "Composite primary key:"; !strings.Contains(desc, want) {
-		t.Errorf("description missing composite hint: %q", desc)
+	if name, _ := params[0].(map[string]any)["name"].(string); name != "seq" {
+		t.Errorf("param name = %q, want seq (the placeholder in the declared path)", name)
 	}
 }
 
@@ -177,10 +190,11 @@ func TestOpenAPI_ResourceFilter(t *testing.T) {
 func TestOpenAPI_MCPDoc(t *testing.T) {
 	reset()
 	Register(Resource{
-		Name:     "oapi_rows",
-		Table:    "oapi_rows",
-		RowType:  reflect.TypeFor[oapiTestRow](),
-		PKFields: []string{"Seq"},
+		Name:      "oapi_rows",
+		Table:     "oapi_rows",
+		RowType:   reflect.TypeFor[oapiTestRow](),
+		PKFields:  []string{"Seq"},
+		Endpoints: oapiCRUDEndpoints,
 		MCPDoc: map[Action]string{
 			ActionCreate: "Create a row. When to use: seeding.",
 			ActionList:   "List rows.",
@@ -285,28 +299,31 @@ func TestOpenAPI_EndpointsDriven(t *testing.T) {
 	}
 }
 
-// TestOpenAPI_ConventionFallback: a resource with NO Endpoints still emits the
-// full 5-op PK-CRUD convention (list/create on the collection; get/update/delete
-// on the {pk} item) — the fallback engine-managed tables rely on.
-func TestOpenAPI_ConventionFallback(t *testing.T) {
-	registerOAPI(t) // oapi_rows declares no Endpoints
+// TestOpenAPI_NoEndpointsNoPaths pins the deletion of the PK-CRUD convention
+// fallback. A resource that declares no Endpoints once had five operations
+// invented for it from its Name and RowType — paths nothing had to mount, which
+// is the drift shape the whole "advertised set comes from the mux" design
+// removes everywhere else. Now such a resource contributes NOTHING, and
+// resources.TestEveryResourceDeclaresEndpoints is what stops one from being
+// registered that way in the first place.
+func TestOpenAPI_NoEndpointsNoPaths(t *testing.T) {
+	reset()
+	Register(Resource{
+		Name:     "oapi_rows",
+		Table:    "oapi_rows",
+		RowType:  reflect.TypeFor[oapiTestRow](),
+		PKFields: []string{"Seq"},
+	})
 	out, _ := OpenAPI("testd", "/", All())
 	var doc map[string]any
 	json.Unmarshal(out, &doc)
 	paths := doc["paths"].(map[string]any)
-	col := paths["/v1/oapi_rows"].(map[string]any)
-	for _, m := range []string{"get", "post"} {
-		if _, ok := col[m]; !ok {
-			t.Errorf("fallback collection missing %s", m)
-		}
+	if len(paths) != 0 {
+		t.Errorf("an Endpoints-less resource was documented at %v — the emitter invented a path", paths)
 	}
-	item, ok := paths["/v1/oapi_rows/{seq}"].(map[string]any)
-	if !ok {
-		t.Fatalf("fallback missing item path /v1/oapi_rows/{seq}: %v", paths)
-	}
-	for _, m := range []string{"get", "patch", "delete"} {
-		if _, ok := item[m]; !ok {
-			t.Errorf("fallback item missing %s", m)
-		}
+	// The schema still lands: it is reflected from RowType, which is real.
+	comp := doc["components"].(map[string]any)
+	if _, ok := comp["schemas"].(map[string]any)["OapiRows"]; !ok {
+		t.Error("RowType schema went missing — only the invented PATHS were meant to go")
 	}
 }

@@ -145,10 +145,13 @@ Drift is structurally impossible on both axes: schemas come from
 struct, and the advertised SET comes from the daemon's own mux
 (`resreg.OpenAPIHandler(daemon, mux)` → `MountedResources`), so a daemon
 cannot name a resource it does not mount. Never derive that set by
-probing paths — three daemons serve `GET /v1/sessions` over three
-different tables, and proxyd answers every path from a `/` catch-all;
+probing paths — proxyd answers every path from a `/` catch-all, and a
+hand-rolled `mux.HandleFunc` at a resource's path is not that resource;
 only the `*restMount` identity `RegisterREST` stamps tells them apart
-(BUGS `F33`).
+(BUGS `F33`). The ownership half is derived too: each daemon's
+`resregtest.AssertServesNoForeignResource` probes every registered
+resource its mux does NOT own, so a second daemon squatting a name fails
+a test instead of shipping (BUGS `F46`).
 
 Aggregator landing: `/pub/arizuko/reference/openapi.html` lists every
 daemon's `/openapi.json` URL with a one-line description. Spec:

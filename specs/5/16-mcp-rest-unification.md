@@ -72,15 +72,20 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > tested for.
 >
 > Derivation is by mount IDENTITY, never by probing paths. Path-probing was
-> considered and is WRONG here: THREE daemons serve `GET /v1/sessions` over three
+> considered and is WRONG here: THREE daemons served `GET /v1/sessions` over three
 > different tables — authd's refresh-token families (the resreg resource), runed's
-> `session_log` (`runed/server.go:44`), routd's `core.SessionRecord`
-> (`routd/server.go:286`) — so a path probe would make routd and runed publish
-> authd's `SessionsRow` schema. (`F46` files this collision as two daemons; it is
-> three.) The type assertion drops both hand-rolled mounts, and proxyd's `/`
-> catch-all with them. The one resulting doc change was `+ DELETE
-/v1/acl_membership` on routd, which routd genuinely mounts
-> (`routd/membership_resource.go`) and never advertised.
+> `session_log`, routd's topic→session-id map — so a path probe would have made
+> routd and runed publish authd's `SessionsRow` schema. The type assertion drops
+> both hand-rolled mounts, and proxyd's `/` catch-all with them. The one resulting
+> doc change was `+ DELETE /v1/acl_membership` on routd, which routd genuinely
+> mounts (`routd/membership_resource.go`) and never advertised.
+>
+> `F46` — the collision itself — closed separately: runed's reads are
+> `/v1/spawn_sessions{,/recent}` and routd's is `/v1/topic_sessions`, and the
+> per-daemon ownership guard now DERIVES its foreign set as the complement of
+> what the mux owns (`resregtest.AssertServesNoForeignResource`) instead of
+> taking a hand-written list. Six daemons carried such a list and not one named
+> `sessions`.
 >
 > **What "one owner" needed, and now has:**
 >
@@ -309,17 +314,31 @@ is the SHAPE, consumed by:
 - the owning daemon's mounted handler (routd for most, onbod for
   `onboarding_gates`/`invites`, authd for `sessions`/`signing_keys`, proxyd for
   `proxyd_routes`, plus `audit` mounted by routd/runed/authd over three owner
-  DBs), which imports `Name` (the `names.go` constant) and
-  `Endpoints`/`MCPDoc`/`MCPArgs`/`MCPNames` from the registry and adds `Store` +
-  the resource's `Handler` + the injected `Gate` + per-face `containFn`.
-  `Table`/`RowType`/`PKFields` are the CLI's read path and no mount site sets
-  them at all — nothing to import, which is why closing this gap touched `Name`
-  only.
+  DBs), which obtains the shape whole from **`resreg.Mount(name)`** and sets
+  only `Store` + the resource's `Handler` + the injected `Gate` + per-face
+  `containFn`.
 
-This closes the **shape** half of the two-declaration drift (BUGS.md
-"Resource identity", now closed). Every mounted handler imports the shape;
-`Name` is a constant from `resreg/resources/names.go`, so the two declarations
-of a resource cannot disagree about its wire identity.
+**There is one declaration, not two held in step.** A mount site used to build
+its own `resreg.Resource` composite literal whose fields happened to reference
+the catalog's exported vars — a second declaration, correct by care. It could
+name a different endpoint slice, omit `MCPDoc` and silently drop the agent's
+tools, or carry an `MCPArgs` map the catalog never had, which is exactly what
+`proxyd_routes` did: proxyd and webd both set `ProxydRoutesMCPArgs` while the
+registered decl reflected a DIFFERENT arg list from its `RowType`, under the
+same tool names. `resreg.Mount` returns the registered `Resource` and the mount
+site adds behavior; `Mount` panics on an unregistered name, so a served-but-
+uncatalogued resource stops the binary at boot instead of going missing from
+`/openapi.json` and the CLI manifest.
+`resreg/resources/name_source_test.go`'s `TestResourceLiteral_OnlyInCatalog`
+fails any `resreg.Resource` literal outside `resreg/resources`.
+
+One declaration also leaves the OpenAPI emitter with **one path renderer**. It
+carried a PK-CRUD convention fallback for `Endpoints`-less resources, which
+invented `/v1/<name>` and `/v1/<name>/{pk}` operations from `Name` + `RowType`
+alone — documented paths nothing had to mount, the same drift shape "derive the
+advertised set from the mux" removes everywhere else. Every registered resource
+declares real `Endpoints` (pinned by `TestEveryResourceDeclaresEndpoints`), so
+the fallback was unreachable and is deleted.
 
 Single-sourcing the shape does not make a HANDLER divergence a **compile
 error** — `Action` is a plain `string` (`resreg/resreg.go:55`) and every
@@ -328,17 +347,21 @@ handler `switch`es on it, so a `RowType`+`Endpoints` pair with no matching
 compile-time enforcement; that claim is dropped. The realistic bar is three
 tests, each catching what the others cannot:
 
+- `resreg/resources/name_source_test.go`'s `TestResourceLiteral_OnlyInCatalog`
+  reads the SOURCE of every non-test file and rejects a `resreg.Resource`
+  composite literal outside the catalog — the shape has one declaration, so a
+  second one is the finding, whatever values it happens to carry today.
+  `TestResourceName_NoStringLiteral` covers the half that cannot see: the
+  catalog's own literals may still spell a `Name` inline.
 - `routd/endpoints_source_test.go`'s `TestResourceEndpoints_SingleSource` looks
   each mounted resource up by its own `Name` and compares against what the
-  registry publishes under it — an unregistered name and a drifted endpoint set
-  both fail.
-- `resreg/resources/name_source_test.go`'s `TestResourceName_NoStringLiteral`
-  reads the SOURCE of all 40 declarations and rejects a `Name` string literal.
-  This is not redundant with the one above: a literal with the CORRECT value
-  passes every value-level test in the tree, and is precisely the state from
-  which one of the two spellings later gets edited.
+  registry publishes under it. With `Mount` it can no longer catch a mistyped
+  constructor; what it still catches is a mount function REASSIGNING
+  `r.Endpoints` after construction, the `F21`/`F27` shape.
 - `resreg.MountedResources` derives the advertised set from the mux, so a
-  daemon cannot advertise a resource it does not mount (`F33`).
+  daemon cannot advertise a resource it does not mount (`F33`); and
+  `resregtest.AssertServesNoForeignResource` derives the complement, so it
+  cannot serve one it does not own (`F46`).
 
 The per-action coverage assertion remains unbuilt — `Handler` still switches on
 a hand-written case list.

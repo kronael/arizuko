@@ -71,6 +71,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- **A resource is declared once.** Its shape — REST paths, row schema, agent
+  tool names, arguments and descriptions — lived in the catalog AND was
+  restated at each daemon's mount site, two copies held in step by care. A
+  daemon now obtains the shape with `resreg.Mount(name)` and supplies only its
+  handler and gate, so a mount cannot name different paths or quietly drop the
+  agent's tools. The OpenAPI emitter lost its second path renderer with it: the
+  document describes the endpoints a daemon really mounts, never a convention
+  guessed from the resource's name.
+
+- **One `/v1/sessions` now means one thing.** Three daemons answered that path
+  over three unrelated tables, so a generated client or an aggregator got
+  whichever daemon it happened to be pointed at. `authd` keeps `/v1/sessions`
+  (the logins); runed's spawn history moved to `/v1/spawn_sessions` and
+  `/v1/spawn_sessions/recent`, routd's topic→session-id lookup to
+  `/v1/topic_sessions`. Scopes, responses and `authd`'s path are unchanged, and
+  the one cross-daemon caller is advisory — a mixed-version window renders "no
+  prior session", never a failed turn. Each daemon's ownership test now derives
+  the set of names it must not serve instead of taking a hand-written list, so
+  the next squatter fails a test rather than shipping (BUGS `F46`).
+
 - **An API token for a tool never enters the agent's environment.** Until now
   every secret you set on a folder was decrypted at spawn and handed to the
   container as an environment variable, so a GitHub token or a pasted API key

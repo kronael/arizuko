@@ -169,7 +169,7 @@ func (s *stubSessions) RecentSessions(folder string, n int) []core.SessionRecord
 
 // TestEmitSystemEvents_NewSession: with no live session_id, emitSystemEvents
 // enqueues new_session carrying the prior session's <previous_session> tail.
-// The tail is FEDERATED from runed's GET /v1/sessions/recent (here a
+// The tail is FEDERATED from runed's GET /v1/spawn_sessions/recent (here a
 // SessionResolver stub bound via the Server) — NOT a cross-DB runed.db read.
 func TestEmitSystemEvents_NewSession(t *testing.T) {
 	db, err := OpenMem()

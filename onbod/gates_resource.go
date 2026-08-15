@@ -45,16 +45,14 @@ func (a *admin) mountGates(mux *http.ServeMux) {
 // resreg.invoke opens the mutation+audit tx there. Authz is a no-op; all policy
 // lives in the injected Gate.
 func (a *admin) gatesResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.OnboardingGatesName,
-		Endpoints: resources.OnboardingGatesEndpoints,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Handler: a.gatesHandler,
-		Gate:    a.gatesRESTGate,
-		Store:   store.New(a.db),
+	r := resreg.Mount(resources.OnboardingGatesName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Handler = a.gatesHandler
+	r.Gate = a.gatesRESTGate
+	r.Store = store.New(a.db)
+	return r
 }
 
 // gatesRESTCaller builds the resreg Caller for /v1/gates. It verifies the bearer

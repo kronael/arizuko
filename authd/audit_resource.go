@@ -41,19 +41,14 @@ import (
 // a forwarder and resreg.invoke skips authorization for those; list does not
 // mutate, so no transaction is ever opened on it.
 func (s *server) auditResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.AuditName,
-		Endpoints: resources.AuditEndpoints,
-		MCPDoc:    resources.AuditMCPDoc,
-		MCPArgs:   resources.AuditMCPArgs,
-		MCPNames:  resources.AuditMCPNames,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Gate:    scopeGate("audit", "read"),
-		Handler: s.auditHandler,
-		Store:   s.auditStore(),
+	r := resreg.Mount(resources.AuditName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Gate = scopeGate("audit", "read")
+	r.Handler = s.auditHandler
+	r.Store = s.auditStore()
+	return r
 }
 
 // auditStore is the non-forwarder marker every authd resource passes as Store.

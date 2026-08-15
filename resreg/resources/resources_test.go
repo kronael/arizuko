@@ -549,7 +549,9 @@ func TestApply_WritesOneAuditRow(t *testing.T) {
 // daemon's real mux against its real emitted doc, from the daemon's OWN
 // package (every daemon but routd is `package main` and cannot be imported).
 // A daemon advertising a foreign resource mounts none of its paths and fails
-// there; a daemon MOUNTING one fails resregtest.AssertServesNoneOf.
+// there; a daemon MOUNTING one fails resregtest.AssertServesNoForeignResource,
+// whose foreign set is the complement of what the mux owns — so it needs no
+// table either.
 
 // TestOpenAPI_ProxydRoutesCarriesMCPDoc: the registered proxyd_routes
 // catalog decl carries MCPDoc, so the emitted /openapi.json annotates the

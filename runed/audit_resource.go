@@ -47,19 +47,14 @@ const auditScope = "audit:read"
 // those. It is otherwise unused: list does not mutate, so no tx is opened, and
 // the Gate injected below never consults an acl row.
 func (s *Server) auditResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.AuditName,
-		Endpoints: resources.AuditEndpoints,
-		MCPDoc:    resources.AuditMCPDoc,
-		MCPArgs:   resources.AuditMCPArgs,
-		MCPNames:  resources.AuditMCPNames,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Gate:    s.auditGate,
-		Handler: s.auditHandler,
-		Store:   store.New(s.db.SQL()),
+	r := resreg.Mount(resources.AuditName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Gate = s.auditGate
+	r.Handler = s.auditHandler
+	r.Store = store.New(s.db.SQL())
+	return r
 }
 
 // mountAudit wires GET /v1/audit onto the mux.

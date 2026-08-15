@@ -46,15 +46,10 @@ const groupsActionRegister = resreg.Action("register")
 // emit. authz is the per-turn gate closure (the grant check on the child folder)
 // built in groupsPostBuild — for a forwarder invoke runs Authz, never Gate.
 func (s *Server) groupsResource(authz func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error)) resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.GroupsName,
-		Endpoints: resources.GroupsAgentEndpoints, // single source: doc + MCP read one list
-		MCPDoc:    resources.GroupsMCPDoc,         // single source (resreg/resources)
-		MCPArgs:   resources.GroupsMCPArgs,
-		MCPNames:  resources.GroupsMCPNames,
-		Authz:     authz,
-		Handler:   s.groupsHandler,
-	}
+	r := resreg.Mount(resources.GroupsName)
+	r.Authz = authz
+	r.Handler = s.groupsHandler
+	return r
 }
 
 // groupsHandler runs register/list against routd.db. register is the manual

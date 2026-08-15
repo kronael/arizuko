@@ -140,7 +140,7 @@ One agent run: the turn container (`5/P`), its **subagent spawns**,
 auto-onboarding, and prototyping.
 
 **The word `session` is taken, three times over,** so nothing here may
-register as `sessions`. `sessions` is already a globally-unique wire identity
+register as `sessions`. `sessions` is a globally-unique wire identity
 (`resreg/resources/names.go` `SessionsName`) owned by **authd** —
 refresh-token families at `/v1/sessions`, no MCP face. Separately, routd has a
 `sessions` TABLE that is the topic→Claude-session-id map
@@ -149,6 +149,14 @@ refresh-token families at `/v1/sessions`, no MCP face. Separately, routd has a
 (`runed/migrations/0001:19`). Per CLAUDE.md's "a resource's name IS its wire
 identity, globally unique", the name to use is `runs` — the one the data
 already uses.
+
+All three used to answer `GET /v1/sessions`. `F46` split the wire names
+without touching the tables: authd keeps `/v1/sessions`, routd's read is
+`/v1/topic_sessions`, and runed's `session_log` history is
+`/v1/spawn_sessions{,/recent}` — `spawn_sessions` rather than `runs` because
+`/v1/runs{,/{run_id}}` already serves the `spawns` table, and one name over two
+tables is the collision being fixed. A resreg resource for this tier still
+registers as `runs` over `spawns`.
 
 **Subagents have no identity, and by R4 they are not getting one yet.**
 `grep -rn subagent --include=*.go` returns nothing. A turn is credentialed by

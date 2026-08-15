@@ -209,7 +209,7 @@ func TestInspectIdentity_NoResolverUnclaimed(t *testing.T) {
 }
 
 // TestInspectSession_Federated: inspect_session returns the routd.db session_id
-// plus recent session_log rows FEDERATED from runed's GET /v1/sessions/recent
+// plus recent session_log rows FEDERATED from runed's GET /v1/spawn_sessions/recent
 // (here a SessionResolver stub). No cross-DB runed.db read — runed owns
 // session_log and serves it over HTTP.
 func TestInspectSession_Federated(t *testing.T) {

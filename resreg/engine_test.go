@@ -863,3 +863,52 @@ func TestEqualIgnoringEmpty_NilAndEmptyAreTheSame(t *testing.T) {
 		t.Error("differing map keys must differ")
 	}
 }
+
+// TestMount_CarriesCatalogShape is the collapse's own control: Mount hands back
+// the registered shape whole, so a mount site has nothing left to restate. Every
+// field checked here was previously copied by hand at each of ~20 mount sites.
+func TestMount_CarriesCatalogShape(t *testing.T) {
+	Register(Resource{
+		Name:  "mountprobe",
+		Table: "mountprobe",
+		RowType: reflect.TypeFor[struct {
+			Key string `db:"key" json:"key"`
+		}](),
+		PKFields:  []string{"Key"},
+		Endpoints: []Endpoint{{Verb: "GET", Path: "/v1/mountprobe", Action: ActionList}},
+		MCPDoc:    map[Action]string{ActionList: "list them"},
+		MCPArgs:   map[Action][]MCPArg{ActionList: {{Name: "q", Type: "string"}}},
+		MCPNames:  map[Action]string{ActionList: "list_mountprobes"},
+	})
+	reg := Lookup("mountprobe")
+	got := Mount("mountprobe")
+
+	if got.Name != reg.Name || got.Table != reg.Table || got.RowType != reg.RowType {
+		t.Errorf("Mount dropped identity/schema: %+v", got)
+	}
+	if !reflect.DeepEqual(got.Endpoints, reg.Endpoints) {
+		t.Errorf("Mount Endpoints = %v, want %v", got.Endpoints, reg.Endpoints)
+	}
+	if !reflect.DeepEqual(got.MCPDoc, reg.MCPDoc) ||
+		!reflect.DeepEqual(got.MCPArgs, reg.MCPArgs) ||
+		!reflect.DeepEqual(got.MCPNames, reg.MCPNames) {
+		t.Error("Mount dropped MCP metadata — the agent's tool names, args or descriptions would differ from the catalog")
+	}
+	// Behavior is the mount site's half and must arrive empty, or a daemon could
+	// inherit another surface's gate.
+	if got.Handler != nil || got.Gate != nil || got.Authz != nil || got.Store != nil {
+		t.Error("Mount carried behavior fields — those belong to the mounting daemon")
+	}
+}
+
+// TestMount_PanicsOnUnregistered: a daemon mounting a name no catalog knows
+// serves a path that /openapi.json and the CLI manifest cannot see. That must
+// stop the binary at boot rather than surface later as a missing row.
+func TestMount_PanicsOnUnregistered(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("Mount of an unregistered name returned instead of panicking")
+		}
+	}()
+	_ = Mount("no_such_resource")
+}

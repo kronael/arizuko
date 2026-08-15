@@ -36,16 +36,14 @@ func (a *admin) mountInvites(mux *http.ServeMux) {
 // store.Store over onbod.db so resreg.invoke opens the mutation+audit tx there.
 // Authz is a no-op; all policy lives in the injected Gate.
 func (a *admin) invitesResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.InvitesName,
-		Endpoints: resources.InvitesEndpoints,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Handler: a.invitesHandler,
-		Gate:    a.invitesRESTGate,
-		Store:   store.New(a.db),
+	r := resreg.Mount(resources.InvitesName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Handler = a.invitesHandler
+	r.Gate = a.invitesRESTGate
+	r.Store = store.New(a.db)
+	return r
 }
 
 // invitesRESTGate reproduces the retired handlers' bearer-scope checks VERBATIM:

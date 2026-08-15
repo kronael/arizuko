@@ -30,16 +30,14 @@ import (
 // marks a forwarder and resreg.invoke skips authorization for those; list does
 // not mutate, so no transaction is ever opened on it.
 func (s *server) signingKeysResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.SigningKeysName,
-		Endpoints: resources.SigningKeysEndpoints,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Gate:    instanceWideGate("signing_keys", "read"),
-		Handler: s.signingKeysHandler,
-		Store:   s.auditStore(),
+	r := resreg.Mount(resources.SigningKeysName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Gate = instanceWideGate("signing_keys", "read")
+	r.Handler = s.signingKeysHandler
+	r.Store = s.auditStore()
+	return r
 }
 
 func (s *server) mountSigningKeys(m *http.ServeMux) {

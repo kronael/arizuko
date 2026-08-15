@@ -85,18 +85,13 @@ var routeTokensMCPNames = resources.RouteTokensMCPNames
 // deriveMCPTools (Action ∩ MCPDoc) and the REST routes + /openapi.json. Store is
 // a store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
 func (s *Server) routeTokensResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.RouteTokensName,
-		Endpoints: resources.RouteTokensEndpoints, // single source: doc + MCP read one list
-		MCPDoc:    resources.RouteTokensMCPDoc,    // single source (resreg/resources)
-		MCPArgs:   resources.RouteTokensMCPArgs,
-		MCPNames:  routeTokensMCPNames,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Handler: s.routeTokensHandler,
-		Store:   store.New(s.db.SQL()),
+	r := resreg.Mount(resources.RouteTokensName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Handler = s.routeTokensHandler
+	r.Store = store.New(s.db.SQL())
+	return r
 }
 
 // routeTokensHandler runs issue_chat/issue_hook/revoke/list against routd.db,

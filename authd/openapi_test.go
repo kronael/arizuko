@@ -41,7 +41,7 @@ func TestAuthdOpenAPI_AdvertisesOnlyWhatItMounts(t *testing.T) {
 
 	// The ownership anchor, and the half F33 did NOT subsume: proxyd owns
 	// proxyd_routes and onbod owns onboarding; authd must mount neither.
-	resregtest.AssertServesNoneOf(t, "authd", []string{"proxyd_routes", "onboarding"}, mux)
+	resregtest.AssertServesNoForeignResource(t, "authd", mux)
 }
 
 // TestAuthdMux_CoversTheWholeServedSurface pins that mux() is the complete

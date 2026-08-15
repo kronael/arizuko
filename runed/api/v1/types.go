@@ -167,7 +167,7 @@ type StopRunResponse struct {
 	RunID  string `json:"run_id"`
 }
 
-// SessionRow is one GET /v1/sessions entry (session_log, dashd run
+// SessionRow is one GET /v1/spawn_sessions entry (session_log, dashd run
 // history).
 type SessionRow struct {
 	ID           int64  `json:"id"`
@@ -178,12 +178,12 @@ type SessionRow struct {
 	MessageCount int    `json:"message_count"`
 }
 
-// SessionsResponse is GET /v1/sessions.
+// SessionsResponse is GET /v1/spawn_sessions.
 type SessionsResponse struct {
 	Sessions []SessionRow `json:"sessions"`
 }
 
-// RecentSessionRecord is one GET /v1/sessions/recent entry: the full
+// RecentSessionRecord is one GET /v1/spawn_sessions/recent entry: the full
 // session_log row routd needs for the new_session continuity hint and the
 // inspect_session tool. Carries group_folder + error (which the dashd-facing
 // SessionRow omits) so it round-trips a core.SessionRecord losslessly.
@@ -198,7 +198,7 @@ type RecentSessionRecord struct {
 	MessageCount int    `json:"message_count"`
 }
 
-// RecentSessionsResponse is GET /v1/sessions/recent — the n newest session_log
+// RecentSessionsResponse is GET /v1/spawn_sessions/recent — the n newest session_log
 // rows for a folder, newest first.
 type RecentSessionsResponse struct {
 	Sessions []RecentSessionRecord `json:"sessions"`

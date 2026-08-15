@@ -55,18 +55,13 @@ var auditMCPNames = resources.AuditMCPNames
 // resreg runs the Gate at all — a nil Store marks a forwarder and invoke skips
 // authorization for those.
 func (s *Server) auditResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.AuditName,
-		Endpoints: resources.AuditEndpoints,
-		MCPDoc:    resources.AuditMCPDoc,
-		MCPArgs:   resources.AuditMCPArgs,
-		MCPNames:  auditMCPNames,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Handler: s.auditHandler,
-		Store:   store.New(s.db.SQL()),
+	r := resreg.Mount(resources.AuditName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Handler = s.auditHandler
+	r.Store = store.New(s.db.SQL())
+	return r
 }
 
 // mountAudit wires GET /v1/audit onto the same handler the agent's query_audit

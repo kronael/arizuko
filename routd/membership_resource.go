@@ -37,17 +37,11 @@ import (
 // the per-face endpoint proof (see header); it receives the resolved target —
 // the child's routing folder for the agent, the row's parent for REST.
 func (s *Server) membershipResource(contain containFn) resreg.Resource {
-	r := resreg.Resource{
-		Name:      resources.ACLMembershipName,
-		Endpoints: resources.ACLMembershipEndpoints,
-		MCPDoc:    resources.ACLMembershipMCPDoc,
-		MCPArgs:   resources.ACLMembershipMCPArgs,
-		MCPNames:  resources.ACLMembershipMCPNames,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Store: store.New(s.db.SQL()),
+	r := resreg.Mount(resources.ACLMembershipName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Store = store.New(s.db.SQL())
 	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
 		return s.membershipHandler(ctx, x, contain)
 	}

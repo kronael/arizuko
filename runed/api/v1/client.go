@@ -147,7 +147,7 @@ func (c *Client) ReleaseHold(ctx context.Context, runID string) error {
 	return err
 }
 
-// RecentSessions GETs /v1/sessions/recent?folder=&n= — the n newest
+// RecentSessions GETs /v1/spawn_sessions/recent?folder=&n= — the n newest
 // session_log rows for folder (full-fielded). routd calls it for the
 // new_session continuity hint + inspect_session tool instead of opening
 // runed.db. A transport failure / non-2xx surfaces as the error; the caller
@@ -159,7 +159,7 @@ func (c *Client) RecentSessions(ctx context.Context, folder string, n int) (Rece
 		q.Set("n", strconv.Itoa(n))
 	}
 	return call[RecentSessionsResponse](ctx, c, http.MethodGet,
-		"/v1/sessions/recent?"+q.Encode(), nil, false, "recent sessions")
+		"/v1/spawn_sessions/recent?"+q.Encode(), nil, false, "recent sessions")
 }
 
 // APIError is a non-2xx response from runed carrying the decoded Err

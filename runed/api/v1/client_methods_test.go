@@ -58,7 +58,7 @@ func TestStopFolder_NonOK_APIError(t *testing.T) {
 func TestRecentSessions_OK(t *testing.T) {
 	var gotFolder, gotN string
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/sessions/recent", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v1/spawn_sessions/recent", func(w http.ResponseWriter, r *http.Request) {
 		gotFolder = r.URL.Query().Get("folder")
 		gotN = r.URL.Query().Get("n")
 		_ = json.NewEncoder(w).Encode(RecentSessionsResponse{
@@ -84,7 +84,7 @@ func TestRecentSessions_OK(t *testing.T) {
 func TestRecentSessions_OmitsZeroN(t *testing.T) {
 	var hasN bool
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/sessions/recent", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v1/spawn_sessions/recent", func(w http.ResponseWriter, r *http.Request) {
 		_, hasN = r.URL.Query()["n"]
 		_ = json.NewEncoder(w).Encode(RecentSessionsResponse{})
 	})

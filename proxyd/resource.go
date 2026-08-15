@@ -305,21 +305,15 @@ func routesAuthz(_ resreg.Caller, _ resreg.Action, _ resreg.Args) (string, map[s
 
 // routesResourceDecl is the resreg.Resource literal: REST endpoints,
 // MCP doc/args, authz, single handler. Per spec 5/5. proxyd_routes has
-// no RowType here (the schema half lives in resreg/resources), so the
-// MCP tools' args come from MCPArgs; resreg derives the tool list from
-// Endpoints ∩ MCPDoc. MCPDoc + MCPArgs are owned by the resources catalog
-// decl (resources.ProxydRoutesMCPDoc/Args) so this decl, webd's forwarder,
-// and the OpenAPI emitter never drift.
+// The whole shape — Endpoints, MCPDoc, MCPArgs, RowType — comes from the
+// catalog via resreg.Mount, so this decl, webd's forwarder and the OpenAPI
+// emitter cannot drift. proxyd adds only behavior.
 func routesResourceDecl(rr *routesResource) resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.ProxydRoutesName,
-		Endpoints: resources.ProxydRoutesEndpoints,
-		MCPDoc:    resources.ProxydRoutesMCPDoc,
-		MCPArgs:   resources.ProxydRoutesMCPArgs,
-		Authz:     routesAuthz,
-		Handler:   rr.handle,
-		Store:     rr.st,
-	}
+	r := resreg.Mount(resources.ProxydRoutesName)
+	r.Authz = routesAuthz
+	r.Handler = rr.handle
+	r.Store = rr.st
+	return r
 }
 
 // trustedForwarders are the only principals whose stamped X-User-* headers

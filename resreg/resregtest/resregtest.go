@@ -15,9 +15,11 @@
 // mounts lives in resreg's own tests, which can build a drifted mux; a daemon
 // test cannot.
 //
-// AssertServesNoneOf did NOT weaken: nothing about deriving from the mux stops
-// two daemons from mounting one resource name, and that is a live hazard —
-// THREE daemons serve GET /v1/sessions over three different tables.
+// AssertServesNoForeignResource did NOT weaken: nothing about deriving from the
+// mux stops two daemons from mounting one resource name, and that is a live
+// hazard — THREE daemons served GET /v1/sessions over three different tables
+// until BUGS F46 renamed routd's to /v1/topic_sessions and runed's to
+// /v1/spawn_sessions.
 //
 // Why a shared package rather than one guard covering every daemon: only
 // `routd` is an importable package. `onbod`, `proxyd`, `authd`, `webd`,
@@ -69,13 +71,34 @@ func AdvertisedOps(t TB, daemon string, mux *http.ServeMux) []Op {
 
 // byName picks registered resources by name. Test-only, and deliberately not
 // exported by resreg: selecting resources by hand is exactly what F33 removed
-// from production. It exists so AssertServesNoneOf can render the paths of
-// resources the daemon under test must NOT serve — those have no mount to
-// derive from, which is the point of the assertion.
+// from production. Only this package's own tests use it, to build the drifted
+// muxes the assertions must fail on.
 func byName(names []string) []*resreg.Resource {
 	var out []*resreg.Resource
 	for _, r := range resreg.All() {
 		if slices.Contains(names, r.Name) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// foreignTo returns every registered resource mux does NOT own — owning a
+// resource means RegisterREST put at least one of its faces on this mux, which
+// resreg.MountedResources reads back by mount identity.
+//
+// Derived, never listed. Six daemons each carried a hand-written foreign list,
+// and not one of them named `sessions` — which is precisely how routd, runed and
+// authd all came to serve GET /v1/sessions over three different tables (BUGS
+// F46). A list can omit the name that matters; a complement cannot.
+func foreignTo(mux *http.ServeMux) []*resreg.Resource {
+	owned := map[string]bool{}
+	for _, r := range resreg.MountedResources(mux) {
+		owned[r.Name] = true
+	}
+	var out []*resreg.Resource
+	for _, r := range resreg.All() {
+		if !owned[r.Name] {
 			out = append(out, r)
 		}
 	}
@@ -173,20 +196,26 @@ func AssertAdvertises(t TB, daemon string, mux *http.ServeMux, want []string) {
 	}
 }
 
-// AssertServesNoneOf is the ownership half, and it needs no ownership table:
-// it renders the paths of resources this daemon does NOT own and pins that its
-// mux serves none of them. This is the assertion F33 did NOT subsume — a
-// daemon that MOUNTS a foreign resource now advertises it truthfully, so
-// deriving from the mux makes the collision documented rather than caught.
+// AssertServesNoForeignResource is the ownership half, and it needs no
+// ownership table AND no foreign list: it renders the paths of EVERY registered
+// resource this daemon does not own and pins that its mux serves none of them.
+// This is the assertion F33 did NOT subsume — a daemon that MOUNTS a foreign
+// resource now advertises it truthfully, so deriving from the mux makes the
+// collision documented rather than caught.
+//
+// A hand-rolled mux.HandleFunc counts as serving: ownership is read off
+// RegisterREST's mount identity, so squatting a foreign path without
+// registering fails here rather than hiding.
 //
 // It doubles as the non-vacuity anchor: it t.Fatals if the foreign resources
 // render no operation at all, so a guard cannot pass merely because the
 // emitter produced nothing.
-func AssertServesNoneOf(t TB, daemon string, foreign []string, mux *http.ServeMux) int {
+func AssertServesNoForeignResource(t TB, daemon string, mux *http.ServeMux) int {
 	t.Helper()
-	ops := opsOf(t, daemon, byName(foreign))
+	foreign := foreignTo(mux)
+	ops := opsOf(t, daemon, foreign)
 	if len(ops) == 0 {
-		t.Fatalf("%s: resources %v render no operation — this anchor has nothing to compare against", daemon, foreign)
+		t.Fatalf("%s: every registered resource is owned by this mux — this anchor has nothing to compare against", daemon)
 	}
 	for _, op := range ops {
 		want := op.Method + " " + op.Path

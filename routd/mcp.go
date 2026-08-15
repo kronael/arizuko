@@ -435,7 +435,7 @@ func scopeRoutes(all func() ([]core.Route, error)) func(folder string, isRoot bo
 
 // buildStoreFns wires the read/manage agent tools to routd.DB. Read tools whose
 // state lives elsewhere federate over HTTP (identity → authd, session_log →
-// runed's GET /v1/sessions/recent; graceful-absent → empty).
+// runed's GET /v1/spawn_sessions/recent; graceful-absent → empty).
 func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 	// Set and Bump engagement are the same write — one closure, two names the
 	// tool layer distinguishes (extend vs. start a window) but the store doesn't.
@@ -455,7 +455,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			return s.db.TaskRunLogs(taskID, limit)
 		},
 		// Session reads: current session_id from routd.db; recent session_log rows
-		// federated from runed's GET /v1/sessions/recent.
+		// federated from runed's GET /v1/spawn_sessions/recent.
 		GetSession:     s.db.GetSession,
 		RecentSessions: s.recentSessions,
 		// Identity reads: authd's GET /v1/identities/{sub}, snapshotted over HTTP.
