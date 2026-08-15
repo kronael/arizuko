@@ -236,17 +236,17 @@ func (s *Store) RevokeInviteByRef(ref string) error {
 
 // ConsumeInvite atomically increments used_count (guarding max_uses and expiry)
 // and inserts an acl admin row in one transaction. Concurrent callers race on
-// the UPDATE — only the first max_uses succeed. Use in the monolith where
-// invites + acl share one DB; the split (acl in routd.db, invites in onbod.db)
-// uses ConsumeInviteNoGrant + a separate routd-side acl write.
+// the UPDATE — only the first max_uses succeed. Requires invites + acl in ONE
+// DB; the split topology (acl in routd.db, invites in onbod.db) uses
+// ConsumeInviteNoGrant + a separate routd-side acl write instead.
 func (s *Store) ConsumeInvite(token, userSub string) (*Invite, error) {
 	return s.consumeInvite(token, userSub, true)
 }
 
 // ConsumeInviteNoGrant is the split twin: same atomic used_count increment +
-// audit, but it does NOT write the acl grant — acl is routd-OWNED in the split,
-// so the caller writes that row to routd.db separately (AddACLRow, which audits
-// into routd.db's own audit_log).
+// audit, but it does NOT write the acl grant — acl is routd-OWNED, so the
+// caller writes that row to routd.db separately (AddACLRow, which audits into
+// routd.db's own audit_log).
 func (s *Store) ConsumeInviteNoGrant(token, userSub string) (*Invite, error) {
 	return s.consumeInvite(token, userSub, false)
 }

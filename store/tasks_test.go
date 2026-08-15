@@ -65,7 +65,6 @@ func TestSeedDefaultTasks(t *testing.T) {
 		t.Fatalf("after re-seed want %d, got %d", len(defaultTasks), n)
 	}
 
-	// Verify prompt/cron for one entry.
 	var prompt, cron string
 	s.db.QueryRow(
 		`SELECT prompt, cron FROM scheduled_tasks WHERE id = ?`, "alice-mem-0",

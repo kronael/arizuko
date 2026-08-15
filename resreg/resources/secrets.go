@@ -18,8 +18,7 @@ import (
 // because it's not in this struct), but apply leaves the rows untouched.
 // secrets is also excluded from the `config_meta` count (spec §"CAS
 // implementation"), so out-of-band blob rotation doesn't invalidate a
-// pending manifest apply. Rebuilding triples from YAML on apply (so a
-// manifest can declare secret shape before the blob lands) is drafted.
+// pending manifest apply.
 type SecretsRow struct {
 	ScopeKind string `db:"scope_kind" yaml:"scope_kind" json:"scope_kind"`
 	ScopeID   string `db:"scope_id"   yaml:"scope_id"   json:"scope_id"`

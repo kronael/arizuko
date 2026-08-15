@@ -139,7 +139,6 @@ func TestFK_TaskRunLogs_CascadeOnTaskDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Sanity check via direct count.
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM task_run_logs WHERE task_id='task-1'`).Scan(&n); err != nil {
 		t.Fatal(err)
@@ -168,7 +167,6 @@ func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
 	if err := s.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
 	}
-	// Seed a message and an audit_log entry for the group.
 	if _, err := db.Exec(
 		`INSERT INTO messages (id, chat_jid, sender, content, timestamp)
 		 VALUES ('m1', 'acme', 'u', 'hi', datetime('now'))`,

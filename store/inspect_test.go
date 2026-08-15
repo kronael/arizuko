@@ -73,15 +73,12 @@ func TestTaskRunLogs(t *testing.T) {
 	if len(logs) != 3 {
 		t.Fatalf("want 3 logs, got %d", len(logs))
 	}
-	// newest first
 	if logs[0].DurationMS != 102 {
 		t.Errorf("want newest first (duration=102), got %d", logs[0].DurationMS)
 	}
-	// limit respected
 	if got := s.TaskRunLogs("t1", 2); len(got) != 2 {
 		t.Errorf("limit=2: got %d", len(got))
 	}
-	// unknown task → empty
 	if got := s.TaskRunLogs("missing", 10); len(got) != 0 {
 		t.Errorf("unknown task: want 0, got %d", len(got))
 	}

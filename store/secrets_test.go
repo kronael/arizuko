@@ -376,7 +376,6 @@ func TestSetSecret_Overwrites(t *testing.T) {
 		t.Errorf("Value = %q, want v2", got.Value)
 	}
 
-	// Exactly one row.
 	var n int
 	s.db.QueryRow(`SELECT COUNT(*) FROM secrets WHERE scope_kind='folder' AND scope_id='atlas' AND key='K'`).Scan(&n)
 	if n != 1 {

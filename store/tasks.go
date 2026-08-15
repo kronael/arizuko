@@ -105,9 +105,8 @@ func (s *Store) RemoveTask(id string) error {
 
 // RescheduleTask sets a fired task's next_run + status WITHOUT emitting an
 // audit_log row — the audit-free path behind POST /v1/tasks/{id}/reschedule,
-// the write half of timed's fire loop in the split. An empty nextRun stores
-// NULL (one-shot completion); a non-empty value is stored verbatim. Mirrors
-// timed's monolith UPDATEs (status='active'|'completed', next_run=?|NULL).
+// the write half of timed's fire loop. An empty nextRun stores NULL (one-shot
+// completion); a non-empty value is stored verbatim.
 func (s *Store) RescheduleTask(id, nextRun, status string) error {
 	_, err := s.db.Exec(
 		`UPDATE scheduled_tasks SET status = ?, next_run = NULLIF(?, '') WHERE id = ?`,
@@ -115,10 +114,6 @@ func (s *Store) RescheduleTask(id, nextRun, status string) error {
 	return err
 }
 
-// DueTasks atomically claims active tasks whose next_run has passed (marking
-// them 'firing' so concurrent pollers skip them) and returns them — the read
-// half of timed's fire loop, moved behind GET /v1/tasks/due. datetime()
-// normalizes RFC3339 offsets to UTC so a non-UTC next_run still orders right.
 // RecoverFiringTasks re-arms tasks stranded in 'firing' by a crash/restart
 // between claim and reschedule — the poll only claims 'active' rows, so a stuck
 // task never fires again (stranded main/trading's daily compaction for days
@@ -133,6 +128,10 @@ func (s *Store) RecoverFiringTasks() (int64, error) {
 	return n, nil
 }
 
+// DueTasks atomically claims active tasks whose next_run has passed (marking
+// them 'firing' so concurrent pollers skip them) and returns them — the read
+// half of timed's fire loop, behind GET /v1/tasks/due. datetime() normalizes
+// RFC3339 offsets to UTC so a non-UTC next_run still orders right.
 func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 	nowStr := now.Format(time.RFC3339)
 	rows, err := s.db.Query(

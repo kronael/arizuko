@@ -57,7 +57,6 @@ func TestMembership_SelfRejected(t *testing.T) {
 
 func TestMembership_CycleDirect(t *testing.T) {
 	s := openMem(t)
-	// a→b
 	if err := s.AddMembership("a", "b", ""); err != nil {
 		t.Fatal(err)
 	}

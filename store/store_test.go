@@ -176,7 +176,6 @@ func TestSystemMessages(t *testing.T) {
 		t.Errorf("unexpected <system_message> tag, got: %s", xml)
 	}
 
-	// Second flush should be empty
 	xml2 := s.FlushSysMsgs("main")
 	if xml2 != "" {
 		t.Fatalf("expected empty after flush, got %q", xml2)
@@ -223,7 +222,6 @@ func TestTaskCRUD(t *testing.T) {
 		t.Fatal("next_run is nil")
 	}
 
-	// Update next_run and verify it changed
 	past := now.Add(-time.Hour)
 	if err := s.UpdateTask("t1", TaskPatch{NextRun: &past}); err != nil {
 		t.Fatal("UpdateTask:", err)
@@ -276,7 +274,6 @@ func TestTaskUpdateEmptyPatch(t *testing.T) {
 		Prompt: "test", Status: "active", Created: now,
 	})
 
-	// empty patch should be a no-op
 	err := s.UpdateTask("ep-1", TaskPatch{})
 	if err != nil {
 		t.Fatal("empty patch should not error:", err)
@@ -295,7 +292,6 @@ func TestTaskUpdateNonexistent(t *testing.T) {
 	defer s.Close()
 
 	status := "paused"
-	// should not error, just no rows affected
 	err := s.UpdateTask("ghost", TaskPatch{Status: &status})
 	if err != nil {
 		t.Fatal("UpdateTask on nonexistent should not error:", err)
@@ -343,7 +339,6 @@ func TestTaskDeleteNonexistent(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	// deleting nonexistent should not error
 	if err := s.DeleteTask("ghost"); err != nil {
 		t.Fatal("DeleteTask on nonexistent should not error:", err)
 	}
@@ -708,25 +703,21 @@ func TestEngagement_SetAndCheck(t *testing.T) {
 	defer s.Close()
 
 	now := time.Now()
-	// No row → idle.
 	if s.IsEngaged("jid1", "", now) {
 		t.Fatal("missing row should be idle")
 	}
-	// Set into the future → engaged.
 	if err := s.SetEngagement("jid1", "", "folderA", now.Add(10*time.Minute)); err != nil {
 		t.Fatalf("SetEngagement: %v", err)
 	}
 	if !s.IsEngaged("jid1", "", now) {
 		t.Fatal("expected engaged after SetEngagement")
 	}
-	// Clear with zero time → idle.
 	if err := s.SetEngagement("jid1", "", "folderA", time.Time{}); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
 	if s.IsEngaged("jid1", "", now) {
 		t.Fatal("expected idle after clear")
 	}
-	// Past deadline → idle.
 	if err := s.SetEngagement("jid1", "", "folderA", now.Add(-time.Second)); err != nil {
 		t.Fatalf("past: %v", err)
 	}
@@ -755,7 +746,6 @@ func TestEngagement_SetLastReplyAndBump(t *testing.T) {
 	if !s.IsEngaged("jid1", "", now) {
 		t.Fatal("expected engaged")
 	}
-	// Clear engagement; last_reply_id stays put.
 	if err := s.BumpEngagement("jid1", "", "folderA", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
@@ -774,12 +764,10 @@ func TestEngagement_EngagedFolder(t *testing.T) {
 	defer s.Close()
 	now := time.Now()
 
-	// No row → "".
 	if got := s.EngagedFolder("jid1", ""); got != "" {
 		t.Fatalf("EngagedFolder empty case = %q", got)
 	}
 
-	// SetEngagement on a fresh pair (no prior bot reply): folder still set.
 	if err := s.SetEngagement("jid1", "", "folderA", now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}

@@ -31,7 +31,6 @@ func (s *Store) AddMembership(child, parent, addedBy string) error {
 	}
 	defer tx.Rollback()
 
-	// Recursive walk: would the new edge make `child` reachable from `parent`?
 	var hits int
 	err = tx.QueryRow(
 		`WITH RECURSIVE up(p) AS (

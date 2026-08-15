@@ -110,7 +110,6 @@ func TestApply_RoundTrip_Routes(t *testing.T) {
 	if c1 == c0 {
 		t.Errorf("checksum unchanged after apply that added routes")
 	}
-	// Verify the rows landed.
 	r := resreg.Lookup("routes")
 	got, err := r.ScanAll(db)
 	if err != nil {
@@ -521,7 +520,6 @@ func TestApply_WritesOneAuditRow(t *testing.T) {
 	if p["checksum"] != newSum {
 		t.Errorf("checksum = %v, want %q", p["checksum"], newSum)
 	}
-	// Per-resource counts present for the two mentioned resources.
 	res, _ := p["resources"].(map[string]any)
 	if _, ok := res["routes"]; !ok {
 		t.Errorf("resources summary missing routes: %v", res)
