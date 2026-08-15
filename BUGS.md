@@ -2115,7 +2115,7 @@ otherwise inaccessible rule.
   DELETE denied). Mutation-checked — removing the `curFolder` gate turns the two
   deny cases from 403 into 204.
 
-## [SEC] invites: raw token exposed in revoke URL (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] invites: raw token exposed in revoke URL (2026-06-18)
 
 `invites.go:56`: token is a path param in the revoke form action — leaks live bearer into request
 logs, browser history, and proxy access logs.
@@ -2125,7 +2125,12 @@ logs, browser history, and proxy access logs.
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved a51989cc — stale entry, verified 2026-07-12: revoke URL
   carries `inviteRef` (sha256 of token); handler resolves ref→token server-side
-- **Fix:** revoke by opaque row ID, not token
+- **Fix:** a51989cc; re-verified at fb152e98 — the revoke form posts to
+  `/dash/invites/{ref}/revoke` (`invites.go:57-61`) and `handleInviteRevoke` (`:155`)
+  calls `RevokeInviteByRef(ref)`. `ref` is `store.TokenRef(token)` = sha256 hex
+  (`store/invites_test.go:22`), so it is one-way — a log or history leak of the URL
+  yields no redeemable bearer. The raw token appears once, in the create-response
+  BODY (`:143-149`), never in a URL.
 
 ## [SEC] route_tokens: encodeJID/decodeJID not reversible; webhook label unvalidated (2026-06-18, open)
 
