@@ -1170,7 +1170,24 @@ more than one field.
 - **Status:** proposed
 - **Fix:**
 
-## Egress allowlist NOT enforced — crackbox allows non-allowlisted hosts (2026-07-14, OPEN, HIGH — security)
+## CLOSED-STALE 2026-08-15 — Egress allowlist NOT enforced — crackbox allows non-allowlisted hosts (2026-07-14, HIGH — security)
+
+**Closure evidence:** premise no longer holds. `admin.Registry.Allow`
+(`crackbox/pkg/admin/registry.go:135-144`) and `match.Host`
+(`crackbox/pkg/match/match.go`) fail CLOSED — an unregistered source IP or a
+host absent from the allowlist returns `ok=false` → the proxy 403s
+(`crackbox/pkg/proxy/proxy.go:65-70,107-112`). The one path that appends `"*"`
+(bypass) is `container/runner.go:184-192`, gated on `in.EgressOpen`, which
+routd sets ONLY when the folder holds the explicit `egress` grant
+(`routd/dispatch.go:547`: `egress := elevated || l.db.Authorize(sub, folder,
+"egress", nil)`) — the 5/33 grants redesign (`628b968b`, landed after this
+entry was filed) replaced the old tier-based default-open behavior a
+tightly-scoped folder without that grant gets exactly its resolved allowlist,
+nothing more. `crackbox/test/egress_e2e_test.go` Case2/Case4 assert the
+non-allowlisted-host 403 directly and pass:
+`go test ./crackbox/... -run TestE2E -v` → all PASS (2 SKIP, both
+kernel-level cases the proxy alone can't enforce, by design/comment).
+No code change.
 
 A contained-folder test (`libtest`, egress set to pypi-only) proved the
 per-folder egress allowlist is **not enforced**. crackbox's own logs:
