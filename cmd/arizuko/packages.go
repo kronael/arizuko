@@ -195,8 +195,10 @@ func checkGrantPredicate(row core.ACLRow) error {
 // applyPackageGrants hot-applies every grant in the package's `*-grants.json`
 // files into routd.db's acl table (spec 5/28 acl asset kind). Grants are not
 // compose-fragment assets (not copied to services/), so this scans the source
-// dir directly. Returns each applied grant as JSON for the record, so remove
-// can reverse it exactly.
+// dir directly. Returns each applied row: the caller marshals it for the record
+// (so remove can reverse it exactly) AND prints it, because a grant is the one
+// asset kind that changes who can do what and a count does not say that
+// (BUGS L36).
 //
 // ONE audit row per grant, not one for the bundle (BUGS.md Q5). A bundle row
 // would say "installed ttsd" and hide that the install handed somebody admin on
@@ -205,13 +207,13 @@ func checkGrantPredicate(row core.ACLRow) error {
 // row names the package in granted_by, so a per-grant trail still reads as one
 // act. `packages remove` already emits per-grant acl.remove; install now matches
 // it instead of leaving grants that appear from nowhere and vanish on the record.
-func applyPackageGrants(rdb *routd.DB, name, dir string) []string {
+func applyPackageGrants(rdb *routd.DB, name, dir string) []core.ACLRow {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		die("Failed: read source %s: %v", dir, err)
 	}
 	st := packageStore(rdb)
-	var recorded []string
+	var applied []core.ACLRow
 	for _, e := range entries {
 		n := e.Name()
 		if e.IsDir() || !strings.HasSuffix(n, "-grants.json") {
@@ -234,11 +236,24 @@ func applyPackageGrants(rdb *routd.DB, name, dir string) []string {
 			if err := st.AddACLRow(row); err != nil {
 				die("Failed: apply grant %s/%s: %v", row.Principal, row.Action, err)
 			}
-			j, _ := json.Marshal(row)
-			recorded = append(recorded, string(j))
+			applied = append(applied, row)
 		}
 	}
-	return recorded
+	return applied
+}
+
+// describeGrant is the operator-facing line for one applied grant: WHO may do
+// WHAT, WHERE. A bare count hides the fact the install handed somebody admin on
+// a folder — the same reason the audit trail is per-grant (BUGS Q5/L36).
+func describeGrant(row core.ACLRow) string {
+	s := fmt.Sprintf("  %s: %s %s on %s", row.Effect, row.Principal, row.Action, row.Scope)
+	if row.Params != "" {
+		s += " (" + row.Params + ")"
+	}
+	if row.GrantOption {
+		s += " WITH GRANT OPTION"
+	}
+	return s
 }
 
 // packageStore wraps routd.db for the package install/remove writers, attributed
@@ -540,9 +555,18 @@ func cmdPackages(args []string) {
 				manifest["proxyd_route"] = paths
 			}
 		}
+		var grants []core.ACLRow
 		if hasTable(rdb, "acl") {
-			if grants := applyPackageGrants(rdb, name, dir); len(grants) > 0 {
-				manifest["grant"] = grants
+			if grants = applyPackageGrants(rdb, name, dir); len(grants) > 0 {
+				recorded := make([]string, len(grants))
+				for i, row := range grants {
+					j, mErr := json.Marshal(row)
+					if mErr != nil {
+						die("Failed: record grant %s/%s: %v", row.Principal, row.Action, mErr)
+					}
+					recorded[i] = string(j)
+				}
+				manifest["grant"] = recorded
 			}
 		}
 		if skills := applyPackageSkills(dataDir, dir); len(skills) > 0 {
@@ -561,8 +585,13 @@ func cmdPackages(args []string) {
 		}); err != nil {
 			die("Failed: record install of %s: %v", name, err)
 		}
-		fmt.Printf("installed %s@%s (%d file(s), %d route(s)) — run `arizuko generate %s` to apply\n",
-			name, revision, len(files), len(manifest["proxyd_route"]), args[0])
+		fmt.Printf("installed %s@%s (%d file(s), %d route(s), %d grant(s)) — run `arizuko generate %s` to apply\n",
+			name, revision, len(files), len(manifest["proxyd_route"]), len(grants), args[0])
+		// Grants are named, not counted: files and routes are inert until
+		// `generate`, a grant is live the moment it lands.
+		for _, row := range grants {
+			fmt.Println(describeGrant(row))
+		}
 	case "upgrade":
 		// P3 (spec 5/28): re-install a package's assets from its recorded source,
 		// but REFUSE to overwrite a locally edited (dirty) asset — emit which and

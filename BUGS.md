@@ -343,7 +343,7 @@ in the same places". They do not.
   destination set, checked to fail against the old copy. Spec `5/28` blend table
   + §single-product updated. SHA a5f1eab5.
 
-## L36 — `packages install` applies grants without saying so (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L36 — `packages install` applies grants without saying so (2026-08-15)
 
 Installing a package that ships `<name>-grants.json` prints:
 
@@ -364,10 +364,16 @@ kind that changes who can do what is the one the summary omits.
 - **Affected:** any package shipping `*-grants.json`
 - **Source:** the install summary line in `cmd/arizuko/packages.go`; contrast
   `applyPackageGrants`, which returns each applied row for the record
-- **Status:** open — count grants in the summary like files and routes, and
-  name the principal and scope for each rather than a bare count, since one
-  grant is a bigger fact than ten files.
-- **Fix:**
+- **Status:** FIXED.
+- **Fix:** the summary counts grants beside files and routes, then prints one
+  line per grant naming effect, principal, action and scope (plus params and
+  `WITH GRANT OPTION` when set) — `describeGrant` in `cmd/arizuko/packages.go`.
+  `applyPackageGrants` returns `[]core.ACLRow` instead of pre-marshalled JSON so
+  the caller can both record and report from one value; the record's bytes are
+  unchanged, so `remove` still reverses exactly. Files and routes are inert
+  until `generate`, a grant is live the moment it lands — that is why it is
+  named and not counted. `TestPackageInstallSummaryNamesEachGrant` +
+  a lab assertion on the printed line. SHA (this commit).
 
 ## ✅ FIXED 2026-08-15 L35 — `tasks.toml` is a product payload nothing reads (2026-08-15)
 

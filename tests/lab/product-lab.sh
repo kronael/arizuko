@@ -184,7 +184,14 @@ printf '[{"path":"/helpbot/","backend":"http://helpbot:8080","auth":"user","stri
   > "$PKG/helpbot-routes.json"
 printf '[{"principal":"folder:main","action":"mcp:send","scope":"main","effect":"allow"}]\n' \
   > "$PKG/helpbot-grants.json"
-"$BIN" packages "$INST" install "$PKG" 2>/dev/null | tail -1
+# The summary names every grant: files and routes are inert until `generate`,
+# a grant is live the moment it lands, so it is named and not counted (BUGS L36).
+inst=$("$BIN" packages "$INST" install "$PKG" 2>/dev/null)
+printf '%s\n' "$inst" | tail -2 | sed 's/^/   /'
+case "$inst" in
+  *"folder:main mcp:send on main"*) ok "install summary names the grant it applied" ;;
+  *)                                bad "install summary hid the grant: $inst" ;;
+esac
 DB="$DATA/store/routd/routd.db"
 q() { sqlite3 "$DB" "$1"; }
 [ "$(q "select count(*) from acl where granted_by='package:helpbot';")" = 1 ] \
