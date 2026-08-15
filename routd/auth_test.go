@@ -108,8 +108,6 @@ func TestRouteWriteRequiresScope(t *testing.T) {
 	}
 }
 
-// TestIngressRequiresWriteScope: POST /v1/messages needs messages:write — a
-// token without it is 403.
 func TestIngressRequiresWriteScope(t *testing.T) {
 	_, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"chats:read"}})
 	rec := doJSON(t, h, "POST", "/v1/messages", "",

@@ -118,7 +118,6 @@ func TestDelivererResolutionOrder(t *testing.T) {
 	}
 }
 
-// TestDelivererNoChannel: an unowned jid yields an error (no adapter).
 func TestDelivererNoChannel(t *testing.T) {
 	reg := chanreg.New()
 	d := newChanDeliverer(reg, nil, nil)
@@ -216,7 +215,6 @@ func TestServerWiresDelivererViaRegistry(t *testing.T) {
 	srv.SetChannelRegistry(reg)
 	h := srv.Handler()
 
-	// register the adapter via the HTTP surface.
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", testChanSecret, map[string]any{
 		"name": "slakd", "url": a.srv.URL,
@@ -227,7 +225,6 @@ func TestServerWiresDelivererViaRegistry(t *testing.T) {
 		t.Fatalf("register status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	// a turn reply resolves the adapter and delivers.
 	db.PutTurnContext("t1", "demo", "", "slack:T1/C/U", "u1", "")
 	drec := doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "k1",
 		apiv1.ReplyRequest{JID: "slack:T1/C/U", Text: "answer"})

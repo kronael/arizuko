@@ -399,7 +399,6 @@ func (d *DB) History(chatJID, before string, limit int) ([]core.Message, error) 
 	if err != nil {
 		return nil, err
 	}
-	// reverse to chronological
 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
 		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}

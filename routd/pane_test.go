@@ -40,7 +40,6 @@ func TestPaneSetEndpoint(t *testing.T) {
 	}
 }
 
-// TestPaneSetMissingChannel: a request without channel_id is 400.
 func TestPaneSetMissingChannel(t *testing.T) {
 	_, h := authSrv(t, fakeVerifier{sub: "service:slakd", scope: []string{"messages:write"}})
 	rec := doJSON(t, h, "POST", "/v1/pane", "", paneSetBody{JID: "slack:T1/channel/C42"})
@@ -49,7 +48,6 @@ func TestPaneSetMissingChannel(t *testing.T) {
 	}
 }
 
-// TestPaneSetRequiresWriteScope: a token without messages:write is 403.
 func TestPaneSetRequiresWriteScope(t *testing.T) {
 	_, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:read"}})
 	rec := doJSON(t, h, "POST", "/v1/pane", "", paneSetBody{ChannelID: "D0XY", JID: "x"})

@@ -193,7 +193,7 @@ func TestRESTRouteTier1OwnSubtree(t *testing.T) {
 		return doJSON(t, h, "POST", "/v1/routes", "",
 			map[string]any{"route": apiv1.Route{Seq: seq, Match: "m", Target: target}}).Code
 	}
-	if c := add(1, "alice/team"); c != 200 { // own folder (was 403 under the strict-descendant cap)
+	if c := add(1, "alice/team"); c != 200 { // own folder
 		t.Fatalf("own-folder add = %d want 200", c)
 	}
 	if c := add(2, "alice/team/sub"); c != 200 {
@@ -226,7 +226,7 @@ func TestRESTRouteTier2OperatorOwnSubtree(t *testing.T) {
 		return doJSON(t, h, "POST", "/v1/routes", "",
 			map[string]any{"route": apiv1.Route{Seq: seq, Match: "m", Target: target}}).Code
 	}
-	if c := add(1, "alice/team/sub"); c != 200 { // own (was 403 — tier 2 blanket-denied)
+	if c := add(1, "alice/team/sub"); c != 200 { // own
 		t.Fatalf("own add = %d want 200", c)
 	}
 	if c := add(2, "alice/team/sub/deep"); c != 200 {

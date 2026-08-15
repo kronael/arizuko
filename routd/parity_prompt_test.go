@@ -27,8 +27,6 @@ func promptLoop(t *testing.T) (*DB, *Loop, string) {
 	return db, l, groups
 }
 
-// --- <autocalls> render (mirror autocalls_test.go:TestRenderAutocalls) ---
-
 func TestRenderAutocalls(t *testing.T) {
 	now := time.Date(2026, 4, 22, 14, 30, 0, 0, time.UTC)
 	tests := []struct {
@@ -77,8 +75,6 @@ func TestRenderAutocalls(t *testing.T) {
 		})
 	}
 }
-
-// --- strict <persona> block 4-case (mirror persona_test.go:TestPersonaBlock_*) ---
 
 func writePersona(t *testing.T, groups, folder, body string) {
 	t.Helper()
@@ -146,8 +142,6 @@ summary: |
 	}
 }
 
-// --- <topic> envelope (mirror gateway_test.go:TestBuildAgentPrompt_TopicEnvelope) ---
-
 // TestBuildAgentPrompt_TopicEnvelope: the prompt carries <topic name="#deploy" />
 // for a thread and <topic name="" /> for the root, and never an <inherited>
 // block (gated TestBuildAgentPrompt_TopicEnvelope).
@@ -171,8 +165,6 @@ func TestBuildAgentPrompt_TopicEnvelope(t *testing.T) {
 		t.Errorf("missing <topic name=\"\" /> envelope for main; prompt:\n%s", gotMain)
 	}
 }
-
-// --- <previous_session> field-level (mirror gateway_test.go:TestPreviousSessionXML_*) ---
 
 // TestPreviousSessionXML_WithRecord: a completed session_log row renders the tag
 // with truncated id, msg count, and result (gated TestPreviousSessionXML_WithRecord).

@@ -560,8 +560,8 @@ func TestCmdApproveUnknownIDFailsLoudly(t *testing.T) {
 // TestDelegateToMissingFolderFailsLoudly: delegating to a folder that does not
 // exist creates nothing and reports back into the originating chat, naming the
 // missing folder AND register_group — routing consumed the message, so a silent
-// drop would swallow it. Replaces TestSpawnOnDelegation + TestSpawnDeniedNoPrototype:
-// no parent, no prototype/ dir and no config ever auto-creates a group.
+// drop would swallow it. No parent, no prototype/ dir and no config ever
+// auto-creates a group.
 func TestDelegateToMissingFolderFailsLoudly(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}

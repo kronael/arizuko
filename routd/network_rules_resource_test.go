@@ -4,14 +4,10 @@ package routd
 // network_allow/network_deny/network_list now ride resreg's MCP mechanism
 // through the ServeMCP postBuild seam instead of hand-rolled ipc bodies. Each
 // test drives the REAL unix socket end-to-end (not the handler directly) so the
-// seam + injected Gate (grants.CheckAction + AuthorizeStructural tier cap +
-// db.Authorize) + Visible predicate are all exercised.
+// seam + injected Gate + Visible predicate are all exercised.
 //
-// Tier note: these tools are granted only at tier 0 by default (DeriveRules
-// tier-0 = ["*"]); tiers 1+ don't get them. Egress management also carries a
-// STRUCTURAL tier cap (auth.AuthorizeStructural: tier 2+ denied) that operator
-// ACL grants can't widen — TestNetworkRulesMCP_TierGateDeniesTier2 is the one
-// that fails if that cap is dropped (the naive "pilot-shape Gate" regression).
+// 5/33 decision 8: containment is the grant's scope, not a tier depth cap —
+// egress management is a delegable scoped grant (TestNetworkRulesMCP_ScopedGrantAllowsInScope).
 
 import (
 	"strings"
@@ -246,18 +242,12 @@ func TestNetworkRulesMCP_Tier1SubtreeContainment(t *testing.T) {
 	}
 }
 
-// TestNetworkRulesMCP_TierGateDeniesTier2: egress management carries a structural
-// tier cap — tier 2+ can NEVER manage egress, even when an operator ACL row
-// grants the tool (which passes both grants.CheckAction and db.Authorize). This
-// fails on a Gate that only runs CheckAction + db.Authorize (the pilot shape) and
-// drops auth.AuthorizeStructural.
 // TestNetworkRulesMCP_ScopedGrantAllowsInScope pins the 5/33 (B) model (spec 5/33
 // decision 8, "containment = grant scope"): egress management is a DELEGABLE
 // scoped grant, not a hard tier cap. A folder the OPERATOR explicitly grants
 // network_allow (scoped to its own subtree) MAY manage egress there — and is
 // CONTAINED to that scope (a sibling target is denied). Depth is irrelevant; only
-// the grant + its scope decide. (Pre-5/33 this was a hard tier-2 cap that ignored
-// the operator grant — TestNetworkRulesMCP_TierGateDeniesTier2, now superseded.)
+// the grant + its scope decide.
 func TestNetworkRulesMCP_ScopedGrantAllowsInScope(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {

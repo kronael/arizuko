@@ -29,9 +29,9 @@ type Message struct {
 	Source         string       `json:"source"`       // adapter channel name (CHANNEL_NAME); persisted for multi-account reply routing
 	LinkContext    string       `json:"link_context"` // route-token context snapshotted at ingest by webd (spec 5/W)
 	Attachments    []Attachment `json:"attachments"`
-	Attachment     string       `json:"attachment"`      // whapd flat-attachment compatibility
-	AttachmentMime string       `json:"attachment_mime"` //
-	AttachmentName string       `json:"attachment_name"` //
+	Attachment     string       `json:"attachment"` // whapd flat-attachment compatibility
+	AttachmentMime string       `json:"attachment_mime"`
+	AttachmentName string       `json:"attachment_name"`
 }
 
 // Attachment is one inbound media item.
