@@ -245,7 +245,8 @@ latest=$(awk '/^## \[v/{print $2; exit}' /opt/arizuko/CHANGELOG.md | tr -d '[]')
 guard=~/.announced-version
 last=$(cat "$guard" 2>/dev/null || echo "")
 if [ "$latest" = "$last" ]; then echo "SKIP"; exit 0; fi
-echo "$latest" > "$guard"
+# Do NOT write the guard here — delivery hasn't happened yet (BUGS A2). The
+# guard advances only after the send step below completes without error.
 # First bullet under the > blockquote — the top user-facing change
 bullet=$(awk '/^## \[v/{n++} n==1 && /^> •/{sub(/^> • /,""); print; exit}' \
   /opt/arizuko/CHANGELOG.md)
@@ -273,27 +274,39 @@ one channel per server.
 ```bash
 MSG="<output of script above>"
 [ "$MSG" = "SKIP" ] && exit 0
+latest="${MSG%% — *}"
+guard=~/.announced-version
 
 mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
 trap 'mcpc @s close' EXIT
 
-mcpc @s tools-call inspect_routing | jq -r '
+jids=$(mcpc @s tools-call inspect_routing | jq -r '
   .routes[] | select(.announce == true) | .match
   | (splits(" ")) | select(startswith("chat_jid=") or startswith("room="))
   | if startswith("room=") then sub("^room=";"")
     else sub("^chat_jid=";"") end
   | select((contains("*") or startswith("web:") or startswith("slink:")) | not)
-' \
-  | awk '
+' | awk '
     /^slack:/ { key="slack:"substr($0,8,index(substr($0,8),"/")-1) }
     /^discord:/ { key="discord:"substr($0,9,index(substr($0,9),"/")-1) }
     !/^slack:|^discord:/ { key=$0 }
     !seen[key]++ { print }
-  ' \
-  | while read jid; do
-    test -n "$jid" && mcpc @s tools-call send chatJid:="$jid" text:="$MSG"
-  done
+  ') || { echo "route discovery failed — NOT marking $latest announced, retry next run" >&2; exit 1; }
+
+for jid in $jids; do
+  test -n "$jid" || continue
+  mcpc @s tools-call send chatJid:="$jid" text:="$MSG" \
+    || { echo "send to $jid failed — NOT marking $latest announced, retry next run" >&2; exit 1; }
+done
+
+echo "$latest" > "$guard"
 ```
 
-The `~/.announced-version` guard makes this idempotent — a retry does
-NOT re-announce. Do NOT re-write the guard on per-message retries.
+The `~/.announced-version` guard advances ONLY after every destination has
+been sent to without error (BUGS A2 — it used to advance before the first
+send attempt, so a transient route-read failure, an auth error, or an
+adapter 502 permanently suppressed the announcement). A route-discovery or
+send failure aborts the loop and leaves the guard untouched, so the whole
+step retries next run — including destinations that already succeeded this
+run. A duplicate announce to an already-delivered channel on retry is the
+accepted tradeoff for never silently skipping one.
