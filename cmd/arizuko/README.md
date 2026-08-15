@@ -24,7 +24,7 @@ beyond `docker` for `run` and `pair`).
   - `arizuko group <inst> list | add | rm | grant | ungrant | grants`
   - `arizuko gate  <inst> list | add | rm | enable | disable`
   - `arizuko network <inst> allow|deny <folder> <target> | list | resolve <folder>` — per-folder egress allow/deny rules
-  - `arizuko secret <inst> set <folder> KEY --value V | list <folder> | delete <folder> KEY` — folder-scoped secrets
+  - `arizuko secret <inst> set <folder> KEY --value V | list <folder> | delete <folder> KEY | seal-legacy [--dry-run]` — folder-scoped secrets; `seal-legacy` encrypts rows written before encryption-at-rest landed (rehearse with `--dry-run` against a `.backup` copy — it rewrites the column every credential lives in)
   - `arizuko user-secret <inst> set <user_sub> KEY --value V | list <user_sub> | delete <user_sub> KEY` — user-scoped secrets
   - `arizuko token <inst> issue chat <folder> [<suffix>] | issue webhook <folder> <label> | list <folder> | revoke <jid> [<owner_folder>]` — manage `route_tokens` (chat / webhook capability URLs)
   - `arizuko token <inst> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]` — mint a folder-scoped ES256 access JWT signed with authd's active key (read from auth.db; operator-only). E.g. `--scope messages:write,messages:read` for anteval's inject+inspect

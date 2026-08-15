@@ -338,18 +338,34 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 	return tx.Commit()
 }
 
+// CountPlaintextSecrets counts the legacy rows EncryptPlaintextSecrets would
+// seal. It backs `arizuko secret seal-legacy --dry-run`, so the operator sees
+// the blast radius BEFORE rewriting the column every credential lives in.
+func (s *Store) CountPlaintextSecrets(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM secrets WHERE value NOT LIKE 'v2:%'`).Scan(&n)
+	return n, err
+}
+
 // EncryptPlaintextSecrets encrypts every legacy-plaintext row in place under
-// the configured key (spec 5/14 "Encryption at rest"). Idempotent: rows already
-// "v2:" are skipped. No-op without a key. Never deletes — it replaces the old
-// PurgeUnencryptedSecrets, which DELETEd plaintext rows and so wiped every
-// secret on each startup (writes never wrote the prefix it kept).
-func (s *Store) EncryptPlaintextSecrets(ctx context.Context) error {
+// the configured key (spec 5/14 "Encryption at rest") and returns how many it
+// sealed. Idempotent: rows already "v2:" are skipped. Never deletes — it
+// replaces the old PurgeUnencryptedSecrets, which DELETEd plaintext rows and so
+// wiped every secret on each startup (writes never wrote the prefix it kept).
+//
+// Refuses without a key rather than reporting a silent success: its whole job
+// is to seal, so "no key" is a misconfiguration, not a no-op. It ran nowhere at
+// all until 2026-08-15 (BUGS L16) — a caller that cannot tell "sealed nothing,
+// there was nothing to seal" from "sealed nothing, there was no key" is how a
+// migration goes unnoticed for months.
+func (s *Store) EncryptPlaintextSecrets(ctx context.Context) (int, error) {
 	if len(s.secretKeys) == 0 {
-		return nil
+		return 0, ErrNoSecretsKey
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT rowid, value FROM secrets WHERE value NOT LIKE 'v2:%'`)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	type todo struct {
 		rowid int64
@@ -360,32 +376,35 @@ func (s *Store) EncryptPlaintextSecrets(ctx context.Context) error {
 		var t todo
 		if err := rows.Scan(&t.rowid, &t.value); err != nil {
 			rows.Close()
-			return err
+			return 0, err
 		}
 		pending = append(pending, t)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return err
+		return 0, err
 	}
 	if len(pending) == 0 {
-		return nil
+		return 0, nil
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
 	for _, t := range pending {
 		sealed, err := s.seal(t.value)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE secrets SET value = ? WHERE rowid = ?`, sealed, t.rowid); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(pending), nil
 }
 
 // ArchiveSecretRow is one row of the archive's routd.secrets.yaml document

@@ -1426,7 +1426,7 @@ action — is still undone.
 - **Source:** `dashd/routd_page.go`
 - **Status:** open
 
-## L16 — legacy plaintext secret rows are never sealed; the migrator has no caller (2026-08-11, open)
+## ✅ FIXED 2026-08-15 L16 — legacy plaintext secret rows are never sealed; the migrator has no caller (2026-08-11)
 
 `store.EncryptPlaintextSecrets` exists to seal pre-encryption rows in place, and
 it has **zero non-test callers** — it is wired to no startup path, so it has
@@ -1473,6 +1473,46 @@ this file already paid for:
 Blast radius if wrong is total — this rewrites the column every credential
 lives in — so it does not ship inline, and it wants a rehearsal against a
 read-only `.backup` copy of each instance before the real run.
+
+- **Fix:** the proposed shape, built as proposed. `arizuko secret <inst>
+  seal-legacy [--dry-run]` (`cmd/arizuko/secret.go` `runSealLegacy`) is the
+  caller — an explicit operator verb, NOT a boot hook, for the two reasons
+  recorded above. `store.CountPlaintextSecrets` is new and backs the dry run;
+  `EncryptPlaintextSecrets` now returns the count it sealed, and the verb prints
+  before/after and FAILS if any row is still plaintext after the run. Reachable
+  from `user-secret` too — it shares `cmdScopedSecret`, and the table is one
+  table, so the verb seals every scope either way.
+
+**Reachability checked before writing the caller, per the brief.** The migrator
+was live code with no caller, not dead code: `EncryptPlaintextSecrets` compiled,
+had two passing tests, and the only thing missing was an entry point. That is
+the opposite of `L17`'s `LookupSecret`, which was a dead READER (deleted rather
+than wired). A sealer with no caller leaves data exposed; a reader with no
+caller leaves nothing.
+
+**Also changed: no key is now an error, not a silent success.** It returned
+`nil` on an empty keyring, so a caller could not tell "sealed nothing, there was
+nothing to seal" from "sealed nothing, there was no key" — the exact ambiguity
+that let this sit unrun. It returns `store.ErrNoSecretsKey` (the existing error,
+not a second one). The CLI cannot reach that branch: `openStoreWithKey` already
+calls `core.RequireSecretKeyring`.
+
+**Doc drift this exposed.** Three docs asserted the mechanism was already wired,
+which is part of why nobody noticed it was not: `SECURITY.md` claimed "legacy
+plaintext rows migrated in place on boot"; `store/README.md` still documented
+`PurgeUnencryptedSecrets` — the function DELETED in this area's last fix — as
+"called on startup ... removes rows without `v1:` prefix". Both corrected;
+`cmd/arizuko/README.md` gained the verb.
+
+- **Operator note:** rehearse `--dry-run` against a read-only `.backup` copy per
+  instance before the real run, and read the count. A rehearsal matching 0 rows
+  is a RED FLAG, not an all-clear (`derived_vs_stored_migration`).
+- **Verified:** `cmd/arizuko/seal_legacy_test.go` — seals plaintext rows without
+  changing what any reader sees (including the already-sealed row, which must
+  not be re-encrypted), `--dry-run` reports the count and changes nothing, a
+  clean table is a no-op, and a keyless store refuses. `store/secrets_test.go`
+  updated for the count return, still asserting idempotence (second run seals
+  0).
 
 ## System-turn / broadcast delivery targets a folder-jid or prefix-less room → "no channel for jid" → the broadcast is silently lost (2026-07-13, OPEN)
 

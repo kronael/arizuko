@@ -262,8 +262,12 @@ func TestSecret_EncryptPlaintextMigrate_Idempotent(t *testing.T) {
 	seedLegacyPlaintext(t, s, ScopeFolder, "atlas", "A", "aaa")
 	seedLegacyPlaintext(t, s, ScopeUser, "u1", "B", "bbb")
 	s.SetSecretKeys([]byte("mig-key"))
-	if err := s.EncryptPlaintextSecrets(context.Background()); err != nil {
+	sealed, err := s.EncryptPlaintextSecrets(context.Background())
+	if err != nil {
 		t.Fatal(err)
+	}
+	if sealed != 2 {
+		t.Errorf("sealed = %d, want 2", sealed)
 	}
 	rawB := rawSecretValue(t, s, ScopeUser, "u1", "B")
 	if !strings.HasPrefix(rawSecretValue(t, s, ScopeFolder, "atlas", "A"), "v2:") || !strings.HasPrefix(rawB, "v2:") {
@@ -272,8 +276,12 @@ func TestSecret_EncryptPlaintextMigrate_Idempotent(t *testing.T) {
 	if got, _ := s.GetSecret(ScopeFolder, "atlas", "A"); got.Value != "aaa" {
 		t.Errorf("A reads = %q", got.Value)
 	}
-	if err := s.EncryptPlaintextSecrets(context.Background()); err != nil { // idempotent
+	again, err := s.EncryptPlaintextSecrets(context.Background()) // idempotent
+	if err != nil {
 		t.Fatal(err)
+	}
+	if again != 0 {
+		t.Errorf("second run sealed %d rows, want 0", again)
 	}
 	if rawSecretValue(t, s, ScopeUser, "u1", "B") != rawB {
 		t.Error("migrate not idempotent: a v2: row was re-encrypted")
