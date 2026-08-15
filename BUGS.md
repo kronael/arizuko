@@ -2152,7 +2152,7 @@ break JID namespace.
   `RevokeRouteToken(jid, folder)` (`:133`) after `requireAdmin(folder)` — so even a
   crafted jid cannot revoke another folder's token.
 
-## [SEC] chat: raw bearer tokens visible to read-scoped dashboard users (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] chat: raw bearer tokens visible to read-scoped dashboard users (2026-06-18)
 
 `chat.go:152,262`: session list renders raw chat bearer tokens in Continue links. Any read-scoped
 user who can see the portal sees a reusable write-capable token, bypassing the admin gate on token
@@ -2165,7 +2165,15 @@ minting.
   continue links render only for folders the caller admins (`callerAdmins` map
   in the portal, `admin` gate on the group page; `folderSessionTokens` fetched
   only when admin) — read-scoped viewers see rows without tokens
-- **Fix:** restrict session listing to admins, or hide the raw token from non-admin views
+- **Fix:** a51989cc; re-verified at fb152e98 — the portal builds `admin[folder]` from
+  `callerAdmins` (`chat.go:81`) and `writeConvGroups` (`:255-259`) emits the
+  `/chat/<token>/` anchor ONLY when `admin[s.folder]`; otherwise a plain `<div>` with
+  no token. Per-folder, `writeFolderConversations` (`:331-333`) fetches
+  `folderSessionTokens` only when admin, so a read-scoped viewer's rows render
+  `cont = "—"`. `callerAdmins` (`:235`) is the non-writing twin of `requireAdmin`,
+  so both surfaces resolve through the same `auth.Authorize` decision — no second
+  inline check. Covered by `chat_test.go` `TestHandleChatPortal_hidesTokenFromNonAdmin`
+  and `TestHandleChatGroup_tokenAdminOnly`.
 
 ## [SEC] routd/runed: retry + kill endpoints missing CSRF protection (2026-06-18, open)
 
