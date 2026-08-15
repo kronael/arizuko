@@ -14,6 +14,32 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- **A product's skill lands where the agent reads it, on both seed paths.**
+  `--product` copied `skills/<n>/` to the group root and `products apply`
+  relocated it under `.claude/`, so the more prominent command seeded a dead
+  skill. Both seeders share one placement rule now (BUGS `L37`).
+- **Handing an asset between two products in one mix no longer deletes it.**
+  The stale-asset check ran per product against its own hashes, so identical
+  bytes from a new provider read as the old provider's clean leftover. It takes
+  the mix's union now, which also removes the false "edited locally" warning
+  (BUGS `L34`).
+- **`packages install` names every grant it applies** — effect, principal,
+  action and scope, not a count. Files and routes are inert until `generate`; a
+  grant is live on landing (BUGS `L36`).
+
+### Changed
+
+- **A product may no longer ship `tasks.toml`** — it is refused like
+  `migrations/` and an `mcpServers` key. Nothing ever read it, while `5/21`
+  told authors it seeded scheduled tasks. A scheduled task is a
+  `scheduled_tasks` row created through `schedule_task`, the dashboard or
+  `POST /v1/tasks` (BUGS `L35`, spec `5/28`).
+- **The product catalog documents every shipped product.** Six templates had no
+  page and four pages had no template; the six are written and the four say they
+  are shapes. A test holds the two sets together (BUGS `L38`).
+
 ## [v0.64.0] — 2026-08-15
 
 > arizuko v0.64.0 — phase 5 closed, and the delivery paths that were quietly lying

@@ -192,11 +192,15 @@ source = "github.com/org/our-brand"  # or a git source, pinned to a revision</co
       </ul>
 
       <div class="note">
-        <strong>Do not ship <code>tasks.toml</code> yet.</strong> Older
-        docs describe it as seeding scheduled tasks. It is copied into the
-        group and nothing reads it &mdash; tasks are rows, created by the
-        <code>scheduled_tasks</code> tool, the REST face or the CLI.
-        Tracked as <code>L35</code>.
+        <strong><code>tasks.toml</code> is refused.</strong> Older docs
+        described it as seeding scheduled tasks; nothing ever read it, so a
+        product shipping one no longer applies at all. A scheduled task is a
+        row, created through the <code>schedule_task</code> tool, the
+        dashboard or <code>POST /v1/tasks</code> &mdash; a product that wants
+        one says so in its <code>CLAUDE.md</code> and the agent creates it.
+        Same rule as <code>migrations/</code> and an <code>mcpServers</code>
+        key: a payload that applies cleanly and reaches nothing is an
+        authoring error, not an asset.
       </div>
 
       <h2>6. Blending several products</h2>

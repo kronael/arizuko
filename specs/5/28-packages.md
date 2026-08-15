@@ -64,7 +64,7 @@ it. **Never** package-modifiable: daemons, cross-folder grants, host
 
 A **group seed is NOT a package-install asset** — a package installs
 instance-wide, but seeding a group is inherently create-a-specific-group.
-`PERSONA.md`, `CLAUDE.md`, `facts/`, `tasks.toml` and `[[env]]` hints are seed
+`PERSONA.md`, `CLAUDE.md`, `facts/` and `[[env]]` hints are seed
 content: applied once at group creation via
 `arizuko create --product` / a `5/21` product (`container.SetupGroup`,
 `container/runner.go:964`), then owned by the group as local state — never
@@ -475,8 +475,8 @@ sign-off-shaped decision rather than an implementation detail.
    nothing exercised the two payloads that transform (a skill relocates under
    `.claude/`, `settings.json` is a re-serialised key union), so the lock now
    asserts the transformed result. `tasks.toml`, `Dockerfile.ant` and
-   `migrations/` remain unshipped: the last is refused, and `tasks.toml` reaches
-   no consumer (`L35`), so shipping one would document a no-op as a feature.
+   `migrations/` remain unshipped: two of the three are now refused outright
+   (`L35`), so shipping one would not apply at all.
 
 ## Code pointers
 
