@@ -2119,7 +2119,7 @@ permanent failures such as `cannot_reply_to_message`,
 - **Status:** open
 - **Fix:**
 
-## A2 — Release guard advances before announcement delivery, making partial failure permanent (2026-07-15, open)
+## A2 — Release guard advances before announcement delivery, making partial failure permanent (FIXED 2026-08-15, 0116e33a)
 
 The migrate skill writes `~/.announced-version` before inspecting routes or
 sending any destination. A transient route-read failure, authorization error,
