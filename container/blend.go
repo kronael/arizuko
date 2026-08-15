@@ -301,11 +301,20 @@ func BlendProducts(groupDir string, mix []Product, prior map[string]map[string]s
 	if err := blendSettings(groupDir, mix, p, out); err != nil {
 		return nil, err
 	}
-	// Drop what a product owned last time and no longer ships. Only when the
-	// file still matches the recorded hash: an asset the operator edited is
-	// theirs, and deleting it is the same data loss as overwriting it.
+	// Drop what a product owned last time and no longer ships. "No longer
+	// shipped" is a property of the WHOLE mix, not of one product: handing an
+	// asset from A to B is a supported move, and against A's own hashes alone it
+	// reads as A dropping a clean file, so A deleted what B had just written
+	// (BUGS L34). The union is the shipped set; ownership moved, the file did
+	// not.
+	shipped := map[string]string{}
+	for i := range out {
+		for k, h := range out[i].AssetHashes {
+			shipped[k] = h
+		}
+	}
 	for i := range mix {
-		dropped, warns, err := dropStale(groupDir, prior[mix[i].Name], out[i].AssetHashes)
+		dropped, warns, err := dropStale(groupDir, prior[mix[i].Name], shipped)
 		if err != nil {
 			return nil, err
 		}
@@ -633,17 +642,19 @@ func writeIfDifferent(groupDir, rel string, b []byte) (bool, error) {
 	return true, os.WriteFile(path, b, 0o644)
 }
 
-// dropStale removes the files a product owned at its last apply and no longer
-// ships. A file whose bytes moved since then is the operator's: it is kept and
-// reported, because deleting it loses exactly as much as overwriting it would.
-func dropStale(groupDir string, recorded, current map[string]string) (bool, []string, error) {
+// dropStale removes the files a product owned at its last apply that NO product
+// in the current mix ships — `shipped` is the mix's union, so a path another
+// provider took over is still shipped and is left alone. A file whose bytes
+// moved since then is the operator's: it is kept and reported, because deleting
+// it loses exactly as much as overwriting it would.
+func dropStale(groupDir string, recorded, shipped map[string]string) (bool, []string, error) {
 	var stale []string
 	for k := range recorded {
 		rel, isFile := strings.CutPrefix(k, "file:")
 		if !isFile {
 			continue
 		}
-		if _, still := current[k]; !still {
+		if _, still := shipped[k]; !still {
 			stale = append(stale, rel)
 		}
 	}

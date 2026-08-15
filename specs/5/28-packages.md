@@ -260,6 +260,15 @@ per product under `(folder, name)`. It is the only writer of a non-empty
 `folder`. It is idempotent: an unchanged mix re-writes no byte and reports
 `unchanged`.
 
+An apply also DROPS what a product's last record owned and no product now
+ships. "No longer shipped" is a property of the whole mix: the check is the
+UNION of every current provider's hashes, so moving an asset from one provider
+to another keeps it. Per-product hashes made that handoff delete the file — the
+bytes were identical, so the on-disk hash still matched the old owner's record
+and read as clean-and-no-longer-mine, while the apply reported `unchanged`
+(BUGS `L34`). A file whose bytes moved since the record is the operator's: kept
+and reported, never deleted.
+
 `arizuko create --product` / `group add --product` seed ONE product by verbatim
 copy (`container.SeedProduct`, called by `container.SetupGroup`). They are not a
 degenerate mix and do not route through the blend, because

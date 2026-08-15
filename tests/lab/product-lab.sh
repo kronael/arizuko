@@ -116,12 +116,14 @@ case "$out" in
 esac
 rm -f "$SECOND/facts/sla.md"
 
-say "KNOWN BUG — BUGS L34: handing an asset between products deletes it"
+say "handing an asset between two products in one mix keeps it (BUGS L34)"
 # The condition is precise: A recorded the asset, A stops shipping it, and B
 # ships it with IDENTICAL bytes — so the on-disk hash still matches A's recorded
-# hash and A's dropStale reads it as clean-and-no-longer-mine. Both products must
-# stay in the mix; dropping A from the mix entirely does not reproduce it,
-# because A's record is then never processed.
+# hash. Against A's own hashes alone that reads as clean-and-no-longer-mine, and
+# A deleted what B had just written. dropStale now takes the mix's UNION, so a
+# path any current provider ships is still shipped. Both products must stay in
+# the mix; dropping A entirely does not exercise it, because A's record is then
+# never processed.
 "$BIN" group "$INST" add web:l34 l34 >/dev/null 2>&1
 LG="$DATA/groups/l34"
 PA="$WORK/products/pa"; PB="$WORK/products/pb"
@@ -134,15 +136,14 @@ printf '[[product]]\nsource = "%s"\n' "$PA" > "$LG/products.toml"
 [ -f "$LG/.claude/skills/shared/SKILL.md" ] || bad "setup: pa never owned the skill"
 rm -rf "$PA/skills"
 printf '[[product]]\nsource = "%s"\n\n[[product]]\nsource = "%s"\n' "$PA" "$PB" > "$LG/products.toml"
-"$BIN" products "$INST" apply l34 >/dev/null 2>&1
-if [ -f "$LG/.claude/skills/shared/SKILL.md" ]; then
-  ok "skill survived the handoff (L34 is FIXED — close it and simplify this probe)"
-else
-  printf '   \033[33mknown\033[0m L34 reproduced: pb ships the skill, pa'\''s dropStale deleted it\n'
-  "$BIN" products "$INST" apply l34 >/dev/null 2>&1
-  [ -f "$LG/.claude/skills/shared/SKILL.md" ] \
-    && printf '   \033[33mknown\033[0m and the NEXT apply restores it — so it is a window, not a permanent loss\n'
-fi
+out=$("$BIN" products "$INST" apply l34 2>&1)
+[ -f "$LG/.claude/skills/shared/SKILL.md" ] \
+  && ok "skill survived the handoff from pa to pb" \
+  || bad "L34 reproduced: pb ships the skill, pa's dropStale deleted it"
+case "$out" in
+  *"edited locally"*) bad "handoff reported as a local edit: $out" ;;
+  *)                  ok "no false 'edited locally' warning — ownership moved, the file did not" ;;
+esac
 
 say "a product ships its OWN live tests"
 # A product carries its own cases; the harness reads them with --cases. Contract:

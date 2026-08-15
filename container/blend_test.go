@@ -561,6 +561,43 @@ func TestBlendDropsStaleAsset(t *testing.T) {
 	}
 }
 
+// TestBlendHandoffKeepsTheAsset is BUGS L34: `a` drops an asset, `b` picks it up
+// with IDENTICAL bytes, both stay in the mix. The identical bytes are the whole
+// trap — the on-disk hash still matches `a`'s record, so against `a`'s own
+// hashes alone the file reads as clean-and-no-longer-mine and `a` deleted what
+// `b` had just written, while the apply reported `b unchanged`.
+func TestBlendHandoffKeepsTheAsset(t *testing.T) {
+	const body = "---\nname: shared\n---\nBody.\n"
+	root := t.TempDir()
+	a := mkProduct(t, root, "a", map[string]string{
+		"PRODUCT.md": "name = \"a\"\n", "skills/shared/SKILL.md": body,
+	})
+	group := filepath.Join(root, "group")
+	first := blendInto(t, group, []Product{a}, nil)
+
+	if err := os.Remove(filepath.Join(root, "a", "skills", "shared", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	b := mkProduct(t, root, "b", map[string]string{
+		"PRODUCT.md": "name = \"b\"\n", "skills/shared/SKILL.md": body,
+	})
+	out := blendInto(t, group, []Product{a, b},
+		map[string]map[string]string{"a": first[0].AssetHashes})
+
+	const rel = ".claude/skills/shared/SKILL.md"
+	if got := read(t, group, rel); got != body {
+		t.Errorf("%s = %q — the handoff deleted an asset another provider ships", rel, got)
+	}
+	if out[1].AssetHashes["file:"+rel] == "" {
+		t.Errorf("b's record does not own %s it wrote", rel)
+	}
+	for i, o := range out {
+		if len(o.Warnings) != 0 {
+			t.Errorf("out[%d] warned %v — ownership handoff is not a local edit", i, o.Warnings)
+		}
+	}
+}
+
 // TestClassifyCoversTheBlendTable pins each table row to the rule it selects, so
 // a future edit that quietly reroutes a payload (dropping PRODUCT.md into a
 // named rule, say) fails here rather than in a live group.

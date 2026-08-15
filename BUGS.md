@@ -409,7 +409,7 @@ asset.
   Whichever wins, `5/21:56` must stop claiming the behaviour it claims today.
 - **Fix:**
 
-## L34 — handing an asset between two products in one mix DELETES it (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L34 — handing an asset between two products in one mix DELETES it (2026-08-15)
 
 Reproduced end to end in the product lab, from a clean group:
 
@@ -445,12 +445,15 @@ anything; `oncall` had simply taken ownership from `helpdesk`.
   providers; no live instance runs a multi-product mix yet
 - **Source:** `container/blend.go` `BlendProducts` → `dropStale`; reproduced
   2026-08-15 with `arizuko products <inst> apply`
-- **Status:** open. The fix is contained and does not need a redesign: compute
-  the union of every product's `AssetHashes` for the mix, and let `dropStale`
-  treat a path owned by ANY current provider as still-shipped. That also removes
-  the false "edited locally" warning, because ownership handoff stops looking
-  like a local edit.
-- **Fix:**
+- **Status:** FIXED.
+- **Fix:** `BlendProducts` computes the union of every product's `AssetHashes`
+  once and passes that one `shipped` set to every product's `dropStale`, so a
+  path any current provider ships is still shipped. The false "edited locally"
+  warning goes with it — ownership handoff stops looking like a local edit.
+  `TestBlendHandoffKeepsTheAsset` covers it (checked to fail against the
+  per-product hashes) and asserts no warning; the product lab's L34 probe is now
+  a pass/fail assertion instead of a known-bug note. Spec `5/28` states the
+  union rule. SHA (this commit).
 
 ## L31 — a product never really updates: four of six payload kinds are seed-once (2026-08-15, proposal — needs sign-off)
 
