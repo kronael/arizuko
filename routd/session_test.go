@@ -11,7 +11,7 @@ import (
 )
 
 // TestSessionResolver_FederatesOverHTTP: NewSessionResolver, backed by routd's
-// real runed client, fetches GET /v1/sessions/recent and maps the wire rows to
+// real runed client, fetches GET /v1/spawn_sessions/recent and maps the wire rows to
 // core.SessionRecord. This is the path that replaced the runed.db sibling read:
 // no DB handle, pure HTTP federation.
 func TestSessionResolver_FederatesOverHTTP(t *testing.T) {
@@ -33,8 +33,8 @@ func TestSessionResolver_FederatesOverHTTP(t *testing.T) {
 	client := runedv1.NewClient(srv.URL, "svc-token", 5*time.Second)
 	res := NewSessionResolver(client).RecentSessions("demo", 1)
 
-	if gotPath != "/v1/sessions/recent?folder=demo&n=1" {
-		t.Fatalf("request path/query = %q want /v1/sessions/recent?folder=demo&n=1", gotPath)
+	if gotPath != "/v1/spawn_sessions/recent?folder=demo&n=1" {
+		t.Fatalf("request path/query = %q want /v1/spawn_sessions/recent?folder=demo&n=1", gotPath)
 	}
 	if gotAuth != "Bearer svc-token" {
 		t.Fatalf("auth header = %q want Bearer svc-token", gotAuth)

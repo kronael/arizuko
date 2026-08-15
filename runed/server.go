@@ -19,7 +19,12 @@ type Verifier interface {
 }
 
 // Server is runed's HTTP face: POST /v1/runs (the routd↔runed contract) +
-// run status/kill + session history. The Manager owns the run lifecycle.
+// run status/kill + spawn-session history. The Manager owns the run lifecycle.
+//
+// The history reads live under `spawn_sessions`, NOT `sessions`: a resource's
+// name is its wire identity and `sessions` is authd's, the refresh-token
+// families (BUGS F46). runed's session_log holds one row per agent spawn, a
+// different table under a name that says so.
 type Server struct {
 	mgr    *Manager
 	db     *DB
@@ -42,8 +47,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/runs/stop", s.handleRunStop)
 	mux.HandleFunc("GET /v1/runs/{run_id}", s.handleRunStatus)
 	mux.HandleFunc("DELETE /v1/runs/{run_id}", s.handleRunKill)
-	mux.HandleFunc("GET /v1/sessions", s.handleSessions)
-	mux.HandleFunc("GET /v1/sessions/recent", s.handleRecentSessions)
+	mux.HandleFunc("GET /v1/spawn_sessions", s.handleSessions)
+	mux.HandleFunc("GET /v1/spawn_sessions/recent", s.handleRecentSessions)
 	s.mountAudit(mux)
 	return mux
 }
@@ -281,7 +286,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 // newest session_log rows for a folder, full-fielded (group_folder + error),
 // backing routd's new_session continuity hint + inspect_session tool — split
 // ownership means routd never opens runed.db directly. Gated on
-// sessions:read like GET /v1/sessions. Folder is bound by the token's
+// sessions:read like GET /v1/spawn_sessions. Folder is bound by the token's
 // arz/folder claim when present; routd's service token (folder="") honors
 // the ?folder= query param.
 func (s *Server) handleRecentSessions(w http.ResponseWriter, r *http.Request) {

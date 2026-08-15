@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources"
 )
 
@@ -142,40 +143,43 @@ func TestAssertAdvertises_HandRolledMountIsNotASurface(t *testing.T) {
 	}
 }
 
-// TestAssertServesNoneOf_CatchesForeignMount is the ownership half: a daemon
-// mounting a resource it does not own. This is the check the deleted
-// daemonOwnership map claimed to perform and structurally could not, because it
-// computed both sides from the same table.
-func TestAssertServesNoneOf_CatchesForeignMount(t *testing.T) {
+// TestAssertServesNoForeignResource_CatchesForeignMount is the ownership half:
+// a daemon serving a resource it does not own. The mount is HAND-ROLLED, which
+// is both the F46 shape (routd and runed each answered GET /v1/sessions with
+// plain mux.HandleFunc) and the only shape the derived foreign set can see —
+// a RegisterREST mount would make the daemon the owner instead.
+func TestAssertServesNoForeignResource_CatchesForeignMount(t *testing.T) {
 	rec := &recorder{}
-	AssertServesNoneOf(rec, "probe", []string{"routes"}, MuxOf("routes"))
+	AssertServesNoForeignResource(rec, "probe", muxServing(opStrings(realOps(t))...))
 	if len(rec.errs) == 0 {
 		t.Fatal("guard stayed silent while the mux served every foreign path — it cannot catch a wire-identity collision")
 	}
 }
 
-// TestAssertServesNoneOf_CatchesForeignWildcardMount is the same check on the
-// one path shape the rendering has to translate: proxyd's route keys contain
-// slashes, so it mounts `/v1/proxyd_routes/{path...}` while OpenAPI 3.1, having
-// no multi-segment template, documents `{path}`. A foreign daemon mounting that
-// must still be caught — the translation must not become an excuse.
-func TestAssertServesNoneOf_CatchesForeignWildcardMount(t *testing.T) {
-	mux := MuxOf("proxyd_routes")
+// TestAssertServesNoForeignResource_CatchesForeignWildcardMount is the same
+// check on the one path shape the rendering has to translate: proxyd's route
+// keys contain slashes, so it mounts `/v1/proxyd_routes/{path...}` while
+// OpenAPI 3.1, having no multi-segment template, documents `{path}`. A foreign
+// daemon mounting that must still be caught — the translation must not become
+// an excuse.
+func TestAssertServesNoForeignResource_CatchesForeignWildcardMount(t *testing.T) {
+	const pattern = "GET /v1/proxyd_routes/{path...}"
+	mux := muxServing(pattern)
 	_, p := mux.Handler(httptest.NewRequest("GET", "/v1/proxyd_routes/a/b", nil))
 	if !strings.Contains(p, "...") {
-		t.Fatalf("proxyd_routes no longer mounts a multi-segment wildcard (got %q) — nothing to exercise", p)
+		t.Fatalf("mux resolved %q, not a multi-segment wildcard — nothing to exercise", p)
 	}
 	rec := &recorder{}
-	AssertServesNoneOf(rec, "probe", []string{"proxyd_routes"}, mux)
+	AssertServesNoForeignResource(rec, "probe", mux)
 	if len(rec.errs) == 0 {
 		t.Fatal("a foreign {path...} mount was not reported — the {path} rendering is excusing a real collision")
 	}
 }
 
-// TestAssertServesNoneOf_PassesWhenAbsent is that half's control.
-func TestAssertServesNoneOf_PassesWhenAbsent(t *testing.T) {
+// TestAssertServesNoForeignResource_PassesWhenAbsent is that half's control.
+func TestAssertServesNoForeignResource_PassesWhenAbsent(t *testing.T) {
 	rec := &recorder{}
-	n := AssertServesNoneOf(rec, "probe", []string{"routes"}, muxServing("GET /health"))
+	n := AssertServesNoForeignResource(rec, "probe", muxServing("GET /health"))
 	if n == 0 {
 		t.Fatal("anchor rendered zero operations")
 	}
@@ -184,13 +188,29 @@ func TestAssertServesNoneOf_PassesWhenAbsent(t *testing.T) {
 	}
 }
 
-// TestAssertServesNoneOf_FatalsOnEmptyAnchor pins the non-vacuity guarantee: an
-// anchor naming resources that render nothing must stop, not silently assert
-// over an empty set.
-func TestAssertServesNoneOf_FatalsOnEmptyAnchor(t *testing.T) {
+// TestAssertServesNoForeignResource_OwnedIsNotForeign is the derivation's own
+// control: mounting a resource through RegisterREST makes the daemon its owner,
+// so its paths must not be reported. Without this the guard would fail every
+// daemon on the resources it legitimately serves.
+func TestAssertServesNoForeignResource_OwnedIsNotForeign(t *testing.T) {
 	rec := &recorder{}
-	rec.run(func() { AssertServesNoneOf(rec, "probe", []string{"no_such_resource"}, http.NewServeMux()) })
+	AssertServesNoForeignResource(rec, "probe", MuxOf("routes"))
+	if len(rec.errs) != 0 {
+		t.Errorf("guard reported a resource the mux owns: %v", rec.errs)
+	}
+}
+
+// TestAssertServesNoForeignResource_FatalsOnEmptyAnchor pins the non-vacuity
+// guarantee: a mux owning every registered resource leaves nothing foreign to
+// probe, and that must stop rather than silently assert over an empty set.
+func TestAssertServesNoForeignResource_FatalsOnEmptyAnchor(t *testing.T) {
+	var names []string
+	for _, r := range resreg.All() {
+		names = append(names, r.Name)
+	}
+	rec := &recorder{}
+	rec.run(func() { AssertServesNoForeignResource(rec, "probe", MuxOf(names...)) })
 	if len(rec.fatals) == 0 {
-		t.Fatal("anchor accepted a resource set rendering zero operations — a vacuous anchor proves nothing")
+		t.Fatal("anchor accepted an empty foreign set — a vacuous anchor proves nothing")
 	}
 }

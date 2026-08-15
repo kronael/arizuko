@@ -334,7 +334,7 @@ type EngagementRequest struct {
 	TTLSeconds int    `json:"ttl_seconds"`
 }
 
-// SessionResponse is GET /v1/sessions?folder&topic: the resume session id
+// SessionResponse is GET /v1/topic_sessions?folder&topic: the resume session id
 // for (folder, topic), "" when none.
 type SessionResponse struct {
 	SessionID string `json:"session_id"`

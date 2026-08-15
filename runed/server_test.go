@@ -173,7 +173,7 @@ func postJSON(t *testing.T, h http.Handler, path, body string) *httptest.Respons
 	return rec
 }
 
-// TestSessionsFolderBound: GET /v1/sessions is bounded by the token's
+// TestSessionsFolderBound: GET /v1/spawn_sessions is bounded by the token's
 // arz/folder, NOT the ?folder= query param — a token cannot read another
 // folder's history (bugs.md should-fix server.go:43).
 func TestSessionsFolderBound(t *testing.T) {
@@ -186,7 +186,7 @@ func TestSessionsFolderBound(t *testing.T) {
 	h := srv.Handler()
 
 	// even asking for bob, the token's folder (alice) wins.
-	rec := req(t, h, "GET", "/v1/sessions?folder=bob")
+	rec := req(t, h, "GET", "/v1/spawn_sessions?folder=bob")
 	if rec.Code != 200 {
 		t.Fatalf("sessions = %d want 200", rec.Code)
 	}
@@ -197,16 +197,16 @@ func TestSessionsFolderBound(t *testing.T) {
 	}
 }
 
-// TestSessionsRequiresScope: GET /v1/sessions without sessions:read is 403.
+// TestSessionsRequiresScope: GET /v1/spawn_sessions without sessions:read is 403.
 func TestSessionsRequiresScope(t *testing.T) {
 	db, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: []string{"runs:kill"}, folder: "alice"})
 	_ = db
-	if got := req(t, srv.Handler(), "GET", "/v1/sessions?folder=alice"); got.Code != 403 {
+	if got := req(t, srv.Handler(), "GET", "/v1/spawn_sessions?folder=alice"); got.Code != 403 {
 		t.Fatalf("sessions without sessions:read = %d want 403", got.Code)
 	}
 }
 
-// TestRecentSessionsReturnsRecords: GET /v1/sessions/recent returns the seeded
+// TestRecentSessionsReturnsRecords: GET /v1/spawn_sessions/recent returns the seeded
 // session_log rows for a folder, full-fielded (group_folder + error), newest
 // first — the federated read routd uses for its new_session hint.
 func TestRecentSessionsReturnsRecords(t *testing.T) {
@@ -215,7 +215,7 @@ func TestRecentSessionsReturnsRecords(t *testing.T) {
 	db.EndSession(id, "sa", "ok", "boom", 7)
 	h := srv.Handler()
 
-	rec := req(t, h, "GET", "/v1/sessions/recent?n=5")
+	rec := req(t, h, "GET", "/v1/spawn_sessions/recent?n=5")
 	if rec.Code != 200 {
 		t.Fatalf("recent = %d want 200 (body=%s)", rec.Code, rec.Body.String())
 	}
@@ -231,7 +231,7 @@ func TestRecentSessionsReturnsRecords(t *testing.T) {
 	}
 }
 
-// TestRecentSessionsFolderBound: GET /v1/sessions/recent is bounded by the
+// TestRecentSessionsFolderBound: GET /v1/spawn_sessions/recent is bounded by the
 // token's arz/folder, NOT ?folder= — a token cannot read another folder's
 // history.
 func TestRecentSessionsFolderBound(t *testing.T) {
@@ -241,7 +241,7 @@ func TestRecentSessionsFolderBound(t *testing.T) {
 	b, _ := db.RecordSession("bob", "sb")
 	db.EndSession(b, "sb", "ok", "", 1)
 
-	rec := req(t, srv.Handler(), "GET", "/v1/sessions/recent?folder=bob")
+	rec := req(t, srv.Handler(), "GET", "/v1/spawn_sessions/recent?folder=bob")
 	if rec.Code != 200 {
 		t.Fatalf("recent = %d want 200", rec.Code)
 	}
@@ -252,11 +252,11 @@ func TestRecentSessionsFolderBound(t *testing.T) {
 	}
 }
 
-// TestRecentSessionsRequiresScope: GET /v1/sessions/recent without sessions:read
+// TestRecentSessionsRequiresScope: GET /v1/spawn_sessions/recent without sessions:read
 // is 403.
 func TestRecentSessionsRequiresScope(t *testing.T) {
 	_, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: []string{"runs:kill"}, folder: "alice"})
-	if got := req(t, srv.Handler(), "GET", "/v1/sessions/recent?folder=alice"); got.Code != 403 {
+	if got := req(t, srv.Handler(), "GET", "/v1/spawn_sessions/recent?folder=alice"); got.Code != 403 {
 		t.Fatalf("recent without sessions:read = %d want 403", got.Code)
 	}
 }

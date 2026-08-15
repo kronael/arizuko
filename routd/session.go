@@ -10,7 +10,7 @@ import (
 
 // SessionResolver federates the new_session continuity hint + inspect_session
 // run history: runed OWNS session_log (it writes a row per spawn), so routd
-// fetches the n newest rows over GET /v1/sessions/recent. nil resolver /
+// fetches the n newest rows over GET /v1/spawn_sessions/recent. nil resolver /
 // unreachable runed → nil (no prior session).
 type SessionResolver interface {
 	RecentSessions(folder string, n int) []core.SessionRecord
@@ -32,7 +32,7 @@ func NewSessionResolver(c *runedv1.Client) SessionResolver {
 	return &httpSessions{c: c}
 }
 
-// RecentSessions issues GET /v1/sessions/recent and maps the wire rows to
+// RecentSessions issues GET /v1/spawn_sessions/recent and maps the wire rows to
 // core.SessionRecord. Any transport/auth error or non-200 returns nil —
 // advisory only, never an error path.
 func (h *httpSessions) RecentSessions(folder string, n int) []core.SessionRecord {

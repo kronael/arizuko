@@ -70,13 +70,26 @@ to one of those. A daemon therefore cannot advertise what it does not
 mount. Each daemon used to hand over a list of resource names instead,
 which drifted three times (BUGS `F21`/`F27`/`F32`, cause closed as `F33`).
 
-Derivation checks mount IDENTITY and must never check path presence: THREE
-daemons serve `GET /v1/sessions` over three different tables (authd's
-resreg resource, runed's `session_log`, routd's `core.SessionRecord`), and
+Derivation checks mount IDENTITY and must never check path presence: three
+daemons once served `GET /v1/sessions` over three different tables (authd's
+resreg resource, runed's `session_log`, routd's topic→session-id map), and
 proxyd answers every path from a `/` catch-all — a path probe would make
 those daemons publish schemas they do not own. Because the set is read at
 first REQUEST rather than at construction, `/openapi.json` may be mounted
 on the mux it documents.
+
+**Ownership is derived too, and that is what closed `F46`.** `sessions` is
+authd's name; the two squatters now read `/v1/spawn_sessions` (runed,
+`session_log`, one row per agent spawn) and `/v1/topic_sessions` (routd,
+`(group_folder, topic)` → Claude session id). What keeps the next one out is
+`resregtest.AssertServesNoForeignResource(t, daemon, mux)`, which every
+HTTP-serving daemon runs against its real mux: the foreign set is the
+COMPLEMENT of what the mux owns — every registered resource minus the ones
+`RegisterREST` mounted there — so it cannot omit a name. Six daemons each
+carried a hand-written foreign list before this and not one named `sessions`,
+which is exactly how the collision survived three audits. A hand-rolled
+`mux.HandleFunc` at a foreign resource's path is not ownership and fails the
+assertion.
 
 ## Caller and Execution
 

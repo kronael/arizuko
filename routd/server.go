@@ -104,7 +104,7 @@ type Server struct {
 	identity IdentityResolver
 
 	// sessions federates the session_log run history via runed's
-	// GET /v1/sessions/recent. Backs the inspect_session MCP tool's recent rows;
+	// GET /v1/spawn_sessions/recent. Backs the inspect_session MCP tool's recent rows;
 	// nil → no prior sessions. Set via SetSessionResolver.
 	sessions SessionResolver
 
@@ -230,7 +230,7 @@ func (s *Server) resolveIdentity(sub string) (ipc.Identity, []string, bool) {
 func (s *Server) SetSessionResolver(r SessionResolver) { s.sessions = r }
 
 // recentSessions is the StoreFns.RecentSessions backing: it federates to runed's
-// GET /v1/sessions/recent. A nil resolver returns nil.
+// GET /v1/spawn_sessions/recent. A nil resolver returns nil.
 func (s *Server) recentSessions(folder string, n int) []core.SessionRecord {
 	if s.sessions == nil {
 		return nil
@@ -267,7 +267,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/routing/errored", s.handleErroredChats)
 	mux.HandleFunc("GET /v1/engagement", s.handleEngagementGet)
 	mux.HandleFunc("POST /v1/engagement", s.handleEngagementSet)
-	mux.HandleFunc("GET /v1/sessions", s.handleSessionGet)
+	// topic_sessions, NOT sessions: `sessions` is authd's wire identity (the
+	// refresh-token families resource). routd's own `sessions` table is the
+	// (group_folder, topic) → Claude-session-id map, so the path says topic
+	// (BUGS F46, spec 5/5 § Tier 3).
+	mux.HandleFunc("GET /v1/topic_sessions", s.handleSessionGet)
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
 	s.mountACL(mux)
 	// /v1/acl_membership DELETE — the account side of unpair (spec 5/31). The

@@ -72,15 +72,20 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > tested for.
 >
 > Derivation is by mount IDENTITY, never by probing paths. Path-probing was
-> considered and is WRONG here: THREE daemons serve `GET /v1/sessions` over three
+> considered and is WRONG here: THREE daemons served `GET /v1/sessions` over three
 > different tables — authd's refresh-token families (the resreg resource), runed's
-> `session_log` (`runed/server.go:44`), routd's `core.SessionRecord`
-> (`routd/server.go:286`) — so a path probe would make routd and runed publish
-> authd's `SessionsRow` schema. (`F46` files this collision as two daemons; it is
-> three.) The type assertion drops both hand-rolled mounts, and proxyd's `/`
-> catch-all with them. The one resulting doc change was `+ DELETE
-/v1/acl_membership` on routd, which routd genuinely mounts
-> (`routd/membership_resource.go`) and never advertised.
+> `session_log`, routd's topic→session-id map — so a path probe would have made
+> routd and runed publish authd's `SessionsRow` schema. The type assertion drops
+> both hand-rolled mounts, and proxyd's `/` catch-all with them. The one resulting
+> doc change was `+ DELETE /v1/acl_membership` on routd, which routd genuinely
+> mounts (`routd/membership_resource.go`) and never advertised.
+>
+> `F46` — the collision itself — closed separately: runed's reads are
+> `/v1/spawn_sessions{,/recent}` and routd's is `/v1/topic_sessions`, and the
+> per-daemon ownership guard now DERIVES its foreign set as the complement of
+> what the mux owns (`resregtest.AssertServesNoForeignResource`) instead of
+> taking a hand-written list. Six daemons carried such a list and not one named
+> `sessions`.
 >
 > **What "one owner" needed, and now has:**
 >

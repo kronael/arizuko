@@ -207,7 +207,7 @@ func TestOpenAPI_EveryAdvertisedPathIsMounted(t *testing.T) {
 	if !ok {
 		t.Fatalf("Server.Handler() is %T, not *http.ServeMux", srv.Handler())
 	}
-	// routd hand-rolls GET /v1/sessions (core.SessionRecord) and a dozen other
+	// routd hand-rolls GET /v1/topic_sessions and a dozen other
 	// /v1/* reads with plain mux.HandleFunc. None may appear: only a
 	// RegisterREST mount is a documented resource face (BUGS F33).
 	resregtest.AssertAdvertises(t, "routd", mux, []string{
@@ -253,7 +253,7 @@ func TestRoutdMux_ServesNoForeignResource(t *testing.T) {
 	if !ok {
 		t.Fatalf("Server.Handler() is %T, not *http.ServeMux", srv.Handler())
 	}
-	resregtest.AssertServesNoneOf(t, "routd", []string{"proxyd_routes", "onboarding", "invites"}, mux)
+	resregtest.AssertServesNoForeignResource(t, "routd", mux)
 }
 
 // TestRouteTokens_NoHandRolledResolve pins the F13 deletion from both sides:

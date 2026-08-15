@@ -139,7 +139,7 @@ func (d *DB) RecentSessions(folder string, limit int) ([]SessionRow, error) {
 }
 
 // SessionRecord is a full session_log row (group_folder + error included),
-// the shape routd federates over GET /v1/sessions/recent for its new_session
+// the shape routd federates over GET /v1/spawn_sessions/recent for its new_session
 // hint + inspect_session tool. The dashd-facing SessionRow drops both fields.
 type SessionRecord struct {
 	ID           int64

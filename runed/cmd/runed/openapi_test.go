@@ -29,7 +29,7 @@ func testServer(t *testing.T) *runed.Server {
 func TestRunedOpenAPI_AdvertisesOnlyWhatItMounts(t *testing.T) {
 	mux := newRunedMux(testServer(t))
 
-	// runed hand-rolls GET /v1/sessions and GET /v1/sessions/recent over
+	// runed hand-rolls GET /v1/spawn_sessions and GET /v1/spawn_sessions/recent over
 	// session_log. Neither may appear here: authd's `sessions` resource is a
 	// different table behind the same path, and only a RegisterREST mount of
 	// that resource documents it (BUGS F33/F46).
@@ -39,7 +39,7 @@ func TestRunedOpenAPI_AdvertisesOnlyWhatItMounts(t *testing.T) {
 
 	// The ownership anchor. proxyd owns proxyd_routes and onbod owns
 	// onboarding; runed must mount neither.
-	resregtest.AssertServesNoneOf(t, "runed", []string{"proxyd_routes", "onboarding"}, mux)
+	resregtest.AssertServesNoForeignResource(t, "runed", mux)
 }
 
 // TestRunedMux_ServesItsPublicRoutes pins what newRunedMux DOES serve, so the

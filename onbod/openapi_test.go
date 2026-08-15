@@ -36,7 +36,7 @@ func TestOnbodOpenAPI_AdvertisesOnlyWhatItMounts(t *testing.T) {
 
 	// The ownership anchor. proxyd owns proxyd_routes and routd owns
 	// scheduled_tasks; onbod must mount neither.
-	resregtest.AssertServesNoneOf(t, "onbod", []string{"proxyd_routes", "scheduled_tasks"}, mux)
+	resregtest.AssertServesNoForeignResource(t, "onbod", mux)
 }
 
 // TestOnbodMux_ServesItsPublicRoutes pins what newOnbodMux DOES serve, so the

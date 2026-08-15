@@ -38,10 +38,10 @@ func TestRESTReadFolderBound(t *testing.T) {
 	if c := getCode(t, "alice", "/v1/messages/thread?jid=web:bob&topic=x", read...); c != 403 {
 		t.Fatalf("cross-folder thread = %d want 403", c)
 	}
-	if c := getCode(t, "alice", "/v1/sessions?folder=bob", read...); c != 403 {
+	if c := getCode(t, "alice", "/v1/topic_sessions?folder=bob", read...); c != 403 {
 		t.Fatalf("cross-folder session = %d want 403", c)
 	}
-	if c := getCode(t, "alice", "/v1/sessions?folder=alice", read...); c != 200 {
+	if c := getCode(t, "alice", "/v1/topic_sessions?folder=alice", read...); c != 200 {
 		t.Fatalf("own session = %d want 200", c)
 	}
 	// routing/errored binds an explicit ?folder= to the token's subtree.

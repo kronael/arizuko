@@ -98,9 +98,9 @@ func OpenAPI(daemon, baseURL string, rs []*Resource) ([]byte, error) {
 //
 // Derivation is by mount IDENTITY, not by path. Asking only "does something
 // answer here?" would be a new lie in place of the old one — proxyd's `/`
-// catch-all answers every probe, and routd and runed both hand-roll a
-// GET /v1/sessions over tables that are not authd's sessions resource. Both
-// drop out here because neither is a *restMount carrying this resource+action.
+// catch-all answers every probe, and routd and runed both hand-roll a read at a
+// /v1/* path of their own. Those drop out here because neither is a *restMount
+// carrying this resource+action.
 //
 // Registration order is preserved so output stays stable across runs.
 func MountedResources(mux *http.ServeMux) []*Resource {

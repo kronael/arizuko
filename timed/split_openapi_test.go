@@ -28,7 +28,7 @@ func TestTimedOpenAPI_AdvertisesOnlyWhatItMounts(t *testing.T) {
 	// Half 2 — the anchor, and the F32 regression itself. scheduled_tasks is
 	// routd's; timed only CALLS it. Emitting it here is what advertised four
 	// phantom operations.
-	resregtest.AssertServesNoneOf(t, "timed", []string{"scheduled_tasks"}, mux)
+	resregtest.AssertServesNoForeignResource(t, "timed", mux)
 }
 
 // TestTimedMux_ServesItsThreeRoutes pins what timed DOES serve, so half 1 above
