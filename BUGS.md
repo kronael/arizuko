@@ -481,7 +481,7 @@ callers).
   `deadcode -test ./...` retains `audit/audit.go:346`. `git log -S emitMessage
   -- audit/` → 806b0974 (add), 957ab5a3 (caller deletion).
 
-## L12 — three registered Prometheus metric families have no recorder (2026-08-11, open)
+## L12 — three registered Prometheus metric families have no recorder (2026-08-11, FIXED 2026-08-15)
 
 `obs.RecordModelCall`, `obs.RecordEgressRequest`, `obs.RecordEgressBytes` have
 zero non-test callers, yet their families —
@@ -500,7 +500,18 @@ while leaving the no-producer gap.
 - **Scope:** advertised-but-inert metrics
 - **Affected:** obs
 - **Source:** `obs/metrics.go:160,196,201`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — the three recorders and their three families
+  are deleted, so `/metrics` advertises only what a producer fills: 15 families
+  down to 12. `bucketsModel` went with `modelCallDuration`, its only user.
+  `RecordModelTokens` keeps its live caller (`routd/turns.go:711-712`) and is
+  untouched. Deleting beat wiring on both: the model call happens INSIDE the
+  agent container, so no Go site can time it (the same reason `5/O`'s
+  `model_call` span name was deleted on 2026-08-15), and the egress pair's
+  producer is the spec-only credential proxy of `specs/6/17`. Whoever builds
+  that proxy adds the family with the recorder, in one commit.
+  Docs synced in the same commit: `specs/5/O` no longer says the model-call
+  metric "is still registered" and its family count is now twelve; `obs/README`
+  drops the two families it listed.
 - **Evidence:** `grep -rn "RecordModelCall\|RecordEgressRequest\|RecordEgressBytes" --include="*.go" | grep -v _test`
   → definitions only. `git log -S RecordEgressRequest` → born 82031d44, never
   called since. All three flagged by `deadcode ./...`.

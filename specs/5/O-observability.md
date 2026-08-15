@@ -61,10 +61,13 @@ Non-goals: SIEM webhooks, file rotation, JSONL dumps, custom trace UIs.
   `cross_daemon`); `outcome` ∈ `success|error|timeout|canceled`. There is
   no `model_call` span: the model call happens inside the agent container,
   not in a Go daemon, so a Go span site cannot exist (dead name deleted
-  2026-08-15). The `arizuko_model_call_duration_seconds` metric is still
-  registered.
-- `obs/metrics.go` — the metric registry. Fifteen families as of
-  2026-08-02 (turn, model, container, HTTP, breaker, egress, token).
+  2026-08-15). The `arizuko_model_call_duration_seconds` metric had no
+  recorder for the same reason and is deleted too (BUGS `L12`).
+- `obs/metrics.go` — the metric registry. Twelve families as of 2026-08-15
+  (turn, model tokens, container, HTTP, breaker, token). Every family has a
+  recorder; the three that never had one — model-call latency and the egress
+  pair, whose producer (the egress credential proxy, specs/6/17) is spec-only —
+  are deleted rather than advertised empty (BUGS `L12`).
 - `obs/middleware.go` — `HTTPMiddleware(daemon)`: request metrics + the
   `cross_daemon` span, mounted before auth so `/metrics` stays public.
 - `obs/propagation.go` — `InjectRequest` / `ExtractRequest`.
