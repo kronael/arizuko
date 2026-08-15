@@ -144,7 +144,7 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 		if !h.entry.HasCap("send_file") {
 			return "", fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 		}
-		resp, err := h.uploadMultipart(ctx, "/send-file", m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo, m.ThreadID)
+		resp, err := h.uploadMultipart(ctx, "/send-file", m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo, m.ThreadID, m.IdempotencyKey)
 		if err == nil {
 			defer resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -190,15 +190,15 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
 
-func (h *HTTPChannel) SendFile(jid, path, name, caption, replyTo, threadID string) (string, error) {
-	return h.SendFileCtx(context.Background(), jid, path, name, caption, replyTo, threadID)
+func (h *HTTPChannel) SendFile(jid, path, name, caption, replyTo, threadID, idempotencyKey string) (string, error) {
+	return h.SendFileCtx(context.Background(), jid, path, name, caption, replyTo, threadID, idempotencyKey)
 }
 
-func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption, replyTo, threadID string) (string, error) {
+func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption, replyTo, threadID, idempotencyKey string) (string, error) {
 	if !h.entry.HasCap("send_file") {
 		return "", fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
-	m := outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo, ThreadID: threadID}
+	m := outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo, ThreadID: threadID, IdempotencyKey: idempotencyKey}
 	return h.trySend(ctx, m)
 }
 
@@ -210,7 +210,7 @@ func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption,
 	if !h.entry.HasCap("send_voice") {
 		return "", chanlib.Unsupported("send_voice", h.entry.Name, "adapter does not advertise voice capability")
 	}
-	resp, err := h.uploadMultipart(ctx, "/send-voice", jid, audioPath, filepath.Base(audioPath), caption, "", threadID)
+	resp, err := h.uploadMultipart(ctx, "/send-voice", jid, audioPath, filepath.Base(audioPath), caption, "", threadID, "")
 	if err != nil {
 		return "", fmt.Errorf("channel %s send-voice: %w", h.entry.Name, err)
 	}
@@ -229,11 +229,14 @@ func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption,
 }
 
 // uploadMultipart builds a multipart body and POSTs to endpoint.
-func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, name, caption, replyTo, threadID string) (*http.Response, error) {
+func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, name, caption, replyTo, threadID, idempotencyKey string) (*http.Response, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	w.WriteField("chat_jid", jid)
 	w.WriteField("filename", name)
+	if idempotencyKey != "" {
+		w.WriteField("idempotency_key", idempotencyKey)
+	}
 	if caption != "" {
 		w.WriteField("caption", caption)
 	}

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -446,5 +447,55 @@ func TestPostFormRetriesACreateCallOn429(t *testing.T) {
 	_ = b.postForm(context.Background(), "/chat.postMessage", url.Values{}, &out)
 	if n != 3 {
 		t.Fatalf("/chat.postMessage attempted %d times on 429, want 3", n)
+	}
+}
+
+// An exhausted 429 is still a documented refusal — nothing was created — so
+// postForm classifies it ErrNotDelivered and deliverOnce releases the dedup
+// claim for routd's sweep instead of holding it until dead-letter.
+func TestPostFormClassifiesAnExhausted429AsNotDelivered(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(429)
+	}))
+	defer srv.Close()
+	b, err := newBotWithBase(config{Name: "slack", BotToken: "x"}, srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	err = b.postForm(context.Background(), "/chat.postMessage", url.Values{}, &out)
+	if !errors.Is(err, chanlib.ErrNotDelivered) {
+		t.Fatalf("postForm err = %v, want ErrNotDelivered", err)
+	}
+}
+
+// `ok:false` IS Slack's proof that chat.postMessage created nothing: an
+// unknown application error classifies ErrNotDelivered (claim released, sweep
+// retries), while a known caller-side error stays ErrInvalidRequest (claim
+// released, routd dead-letters at once).
+func TestSendClassifiesAnOKFalseRefusal(t *testing.T) {
+	for _, c := range []struct {
+		slackErr string
+		want     error
+	}{
+		{"fatal_error", chanlib.ErrNotDelivered},
+		{"channel_not_found", chanlib.ErrInvalidRequest},
+	} {
+		t.Run(c.slackErr, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"ok":false,"error":"` + c.slackErr + `"}`))
+			}))
+			defer srv.Close()
+			b, err := newBotWithBase(config{Name: "slack", BotToken: "x"}, srv.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = b.Send(chanlib.SendRequest{ChatJID: "slack:T012/channel/C0HJK", Content: "hi"})
+			if !errors.Is(err, c.want) {
+				t.Fatalf("Send err = %v, want %v", err, c.want)
+			}
+		})
 	}
 }

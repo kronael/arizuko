@@ -171,7 +171,7 @@ func (f *FakeChannel) Send(jid, text, replyTo, threadID, threadRoot, turnID stri
 	return fmt.Sprintf("fake-%d", len(f.SentMessages)), nil
 }
 
-func (f *FakeChannel) SendFile(jid, path, name, caption, _, threadID string) (string, error) {
+func (f *FakeChannel) SendFile(jid, path, name, caption, _, threadID, _ string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.SendErr != nil {

@@ -88,6 +88,27 @@ func TestDeliverOncePermanentFailureFreesTheKey(t *testing.T) {
 	}
 }
 
+// ErrNotDelivered is a transient refusal that PROVES nothing was posted (a
+// 429, an `ok:false`), so it frees the key: routd's sweep must be able to
+// retry on a fresh claim. Holding it turned every adapter-side rate limit
+// into a guaranteed dead-letter.
+func TestDeliverOnceNotDeliveredFreesTheKey(t *testing.T) {
+	db := testDedupDB(t)
+	limited := &counter{err: fmt.Errorf("slack send: status 429: %w", ErrNotDelivered)}
+
+	if _, err := deliverOnce(db, "row-5", "slack:c/1", limited.post); err == nil {
+		t.Fatal("not-delivered failure must surface")
+	}
+	next := &counter{id: "plat-5"}
+	id, err := deliverOnce(db, "row-5", "slack:c/1", next.post)
+	if err != nil || id != "plat-5" {
+		t.Fatalf("retry after a not-delivered failure = (%q, %v), want (plat-5, nil)", id, err)
+	}
+	if next.n != 1 {
+		t.Fatalf("platform called %d times, want 1", next.n)
+	}
+}
+
 // No DB and no key both mean "no dedup": a local-dev adapter with no state
 // mount, and a send routd issued without a key, must still deliver every time.
 func TestDeliverOnceWithoutDedupAlwaysPosts(t *testing.T) {

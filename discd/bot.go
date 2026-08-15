@@ -359,7 +359,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 			time.Sleep(time.Second)
 		}
 		if err != nil {
-			return "", fmt.Errorf("discord send: %w", err)
+			return "", classifySendErr(err, firstID)
 		}
 		if msg != nil {
 			if firstID == "" {
@@ -640,6 +640,19 @@ func (b *bot) sendTyping(jid string) bool {
 		return false
 	}
 	return true
+}
+
+// classifySendErr maps a failed chunk send onto chanlib's dedup taxonomy. A
+// 429 that outlived the local retries proves Discord created nothing — but the
+// dedup claim may be released only while NO chunk has landed (firstID empty);
+// after a delivered chunk a re-post would duplicate it, so the claim stays
+// held and routd dead-letters visibly. Everything else stays unclassified: a
+// lost response may have sent the message.
+func classifySendErr(err error, firstID string) error {
+	if isRateLimit(err) && firstID == "" {
+		return fmt.Errorf("discord send: %v: %w", err, chanlib.ErrNotDelivered)
+	}
+	return fmt.Errorf("discord send: %w", err)
 }
 
 // isRateLimit detects Discord 429 errors via typed discordgo errors with substring fallback.

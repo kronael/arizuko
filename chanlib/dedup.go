@@ -135,9 +135,12 @@ func settleDelivery(db *sql.DB, key, platformID string) {
 // message or drops it. routd retries, gets the same refusal, and dead-letters
 // the row for an operator — visible, not doubled (BUGS D5, spec 5/34).
 //
-// An ErrPermanent failure is the one error that proves nothing was posted, so
-// it releases the claim. Every other error leaves it: "the platform refused"
-// and "the response was lost" look identical from here.
+// A failure that proves nothing was posted releases the claim: the permanent
+// family (ErrPermanent/ErrUnsupported/ErrInvalidRequest, which routd
+// dead-letters) and ErrNotDelivered (a transient refusal — a 429, an
+// `ok:false` — which routd's sweep retries on a fresh claim). Every other
+// error leaves it: "the platform failed" and "the response was lost" look
+// identical from here.
 func deliverOnce(db *sql.DB, key, jid string, post func() (string, error)) (string, error) {
 	claim, err := claimDelivery(db, key, jid)
 	if err != nil {
@@ -148,7 +151,8 @@ func deliverOnce(db *sql.DB, key, jid string, post func() (string, error)) (stri
 	}
 	id, err := post()
 	if err != nil {
-		if errors.Is(err, ErrPermanent) || errors.Is(err, ErrUnsupported) || errors.Is(err, ErrInvalidRequest) {
+		if errors.Is(err, ErrPermanent) || errors.Is(err, ErrUnsupported) ||
+			errors.Is(err, ErrInvalidRequest) || errors.Is(err, ErrNotDelivered) {
 			releaseDelivery(db, key)
 		}
 		return "", err

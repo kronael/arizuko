@@ -143,6 +143,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **Outbound delivery is exactly-once-or-visible, end to end (BUGS `D5`,
+  `L20`, `L22`; specs `5/Q`, `5/34`, `5/E`).** Every bot row's stable id now
+  travels as `idempotency_key` into the adapter, which claims it in its own
+  durable SQLite ledger BEFORE the platform call — a resend of a delivered
+  row returns the recorded platform id and posts nothing, so routd's retry
+  sweep can no longer double-post. The sweep itself backs off exponentially
+  per row (30s doubling to 1h, ~an hour of retries instead of five minutes),
+  whapd's in-memory queue — a second, weaker retry writer — is deleted, and
+  adapters classify their own failures: a provable refusal (a 429, an
+  `ok:false`) releases the claim so the sweep's retry can actually post,
+  while an ambiguous failure (5xx, lost response) keeps it held and
+  dead-letters visibly rather than guessing. Without that last rule a plain
+  rate limit poisoned the key and turned the whole retry budget into
+  refusals.
 - **A webhook or chat link with a suffix reaches the folder it was minted for
   (BUGS `L4`, spec `5/W`).** `route_tokens` now records `target_folder` at
   issue time. Before this the folder was parsed back out of the JID, which

@@ -347,8 +347,8 @@ type outAdapter struct {
 	ts   *httptest.Server
 	mu   sync.Mutex
 	last struct {
-		endpoint, jid, filename, caption, replyTo string
-		body                                       []byte
+		endpoint, jid, filename, caption, replyTo, idemKey string
+		body                                               []byte
 	}
 	fileHits, voiceHits int
 	voiceUnsupported    bool // /send-voice → 501 Unsupported
@@ -376,6 +376,7 @@ func newOutAdapter(t *testing.T) *outAdapter {
 		a.last.filename = hdr.Filename
 		a.last.caption = r.FormValue("caption")
 		a.last.replyTo = r.FormValue("reply_to")
+		a.last.idemKey = r.FormValue("idempotency_key")
 		a.last.body = []byte(buf.String())
 		a.mu.Unlock()
 		json.NewEncoder(w).Encode(map[string]string{"id": "platform-" + endpoint})
@@ -552,6 +553,32 @@ func TestOutboundSendVoice_TTSStubSynthesizes(t *testing.T) {
 // TestOutboundChan_SendFileNonexistentPath: SendFile with a path that doesn't
 // exist → error, and (since the open fails before any POST) the adapter is
 // never hit.
+// The /send-file multipart body carries the idempotency key, so the adapter's
+// durable dedup ledger covers documents too — the key used to be dropped on
+// the routd side while the adapter mux already read it (the D5 shape: a spec
+// claim with no wire behind it).
+func TestOutboundChan_SendFileCarriesIdempotencyKey(t *testing.T) {
+	a := newOutAdapter(t)
+	reg := chanreg.New()
+	if _, err := reg.Register("telegram", a.ts.URL, []string{"telegram:"},
+		map[string]bool{"send_file": true}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	ch := chanreg.NewHTTPChannel(reg.Resolve("telegram", "telegram:user/9"), func(context.Context) (string, error) { return "", nil })
+	tmp := filepath.Join(t.TempDir(), "f.bin")
+	if err := os.WriteFile(tmp, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ch.SendFile("telegram:user/9", tmp, "f.bin", "", "", "", "out-abc123"); err != nil {
+		t.Fatalf("SendFile: %v", err)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.last.idemKey != "out-abc123" {
+		t.Fatalf("adapter saw idempotency_key %q, want out-abc123", a.last.idemKey)
+	}
+}
+
 func TestOutboundChan_SendFileNonexistentPath(t *testing.T) {
 	a := newOutAdapter(t)
 	reg := chanreg.New()
@@ -560,7 +587,7 @@ func TestOutboundChan_SendFileNonexistentPath(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 	ch := chanreg.NewHTTPChannel(reg.Resolve("telegram", "telegram:user/9"), func(context.Context) (string, error) { return "", nil })
-	_, err := ch.SendFile("telegram:user/9", "/no/such/file.bin", "x.bin", "", "", "")
+	_, err := ch.SendFile("telegram:user/9", "/no/such/file.bin", "x.bin", "", "", "", "")
 	if err == nil {
 		t.Fatal("SendFile with a nonexistent path must error")
 	}
@@ -582,7 +609,7 @@ func TestOutboundChan_NoCapUnsupported(t *testing.T) {
 
 	tmp := filepath.Join(t.TempDir(), "f.bin")
 	os.WriteFile(tmp, []byte("x"), 0o644)
-	if _, err := ch.SendFile("telegram:user/9", tmp, "f.bin", "", "", ""); err == nil {
+	if _, err := ch.SendFile("telegram:user/9", tmp, "f.bin", "", "", "", ""); err == nil {
 		t.Error("SendFile must be unsupported when cap absent")
 	}
 	if _, err := ch.SendVoice("telegram:user/9", tmp, "", ""); err == nil {

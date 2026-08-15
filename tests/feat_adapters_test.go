@@ -16,7 +16,7 @@ func TestFeature_ChannelAdapters(t *testing.T) {
 		if _, err := fc.Send("telegram:42", "hi", "", "", "", "turn-1"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := fc.SendFile("telegram:42", "/p", "n", "cap", "", ""); err != nil {
+		if _, err := fc.SendFile("telegram:42", "/p", "n", "cap", "", "", "file-key-1"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := fc.SendVoice("telegram:42", "/v.ogg", "cap", ""); err != nil {

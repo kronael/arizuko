@@ -126,6 +126,16 @@ var ErrInvalidRequest = errors.New("invalid request")
 // MCP wall (ipc) classifies by the SAME sentinel without importing chanreg.
 var ErrPermanent = errors.New("permanent")
 
+// ErrNotDelivered marks a TRANSIENT failure that PROVES the platform accepted
+// nothing — a 429, an application-level `ok:false`, a refusal on the first
+// chunk. deliverOnce releases the dedup claim on it (a retry cannot
+// double-post what was never posted) and the adapter still answers 502, so
+// routd's sweep keeps the retry. Without this class every adapter-side rate
+// limit left the claim `inflight`, and the sweep's whole backoff budget was
+// spent on ErrDeliveryUnresolved refusals — a plain 429 became a guaranteed
+// dead-letter.
+var ErrNotDelivered = errors.New("not delivered")
+
 // UnsupportedError is the structured form. The HTTP layer encodes Tool/Platform/Hint
 // so the agent receives a concrete alternative. Is(ErrUnsupported) returns true so
 // errors.Is checks keep working across the stack.
