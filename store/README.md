@@ -29,11 +29,14 @@ Primary methods (by domain):
 - Tasks: `CreateTask`, `GetTask`, `ListTasks`, `UpdateTask`, `DeleteTask`, `TaskRunLogs`
 - Secrets: `SetSecret`, `GetSecret`, `ListSecrets`, `DeleteSecret`,
   `FolderSecretsResolved` (walk parents → root), `UserSecrets`
-  (per-user overlay), `PurgeUnencryptedSecrets` (called on startup
-  when key set; removes rows without `v1:` prefix).
-  AES-256-GCM encrypted at rest; key derived via SHA-256 from
-  `SECRETS_KEY` env var (falls back to `AUTH_SECRET`). Plaintext
-  rows are rejected on read and purged on startup.
+  (per-user overlay), `CountPlaintextSecrets` + `EncryptPlaintextSecrets`
+  (seal legacy rows in place; driven by `arizuko secret <inst> seal-legacy`,
+  never on boot — the boot-time `PurgeUnencryptedSecrets` they replaced wiped
+  every secret on each startup).
+  AES-256-GCM encrypted at rest under the `v2:` prefix; key derived via SHA-256
+  from the `SECRETS_KEY` env var, which is REQUIRED — every write path refuses
+  without it rather than storing plaintext (BUGS S2). A legacy un-prefixed row
+  still reads correctly until it is sealed.
 - Routes, system messages, onboarding, topics — see source
 
 `messages.is_observed` (migration 0054) marks rows stored under a

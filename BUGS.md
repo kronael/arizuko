@@ -1273,7 +1273,7 @@ not a one-off backfill.
 - **Status:** open — needs the producer identified before deciding delete-orphans
   vs relax-the-constraint. Do NOT rebuild `task_run_logs` until then.
 
-## C9 — queue replay opens circuit breakers before runed is ready (2026-07-30, proposed)
+## ✅ FIXED 2026-08-15 C9 — queue replay opens circuit breakers before runed is ready (2026-07-30)
 
 On every full-stack restart, routd begins replaying pending group work before
 runed listens on `:8080`. The three immediate `connection refused` attempts
@@ -1284,10 +1284,44 @@ after runed becomes ready. Live krons reproduced this fleet-wide at
 - **Severity:** high
 - **Scope:** routd queue replay readiness / runed client retry
 - **Affected:** every instance with pending work during restart
-- **Source:** krons journal 2026-07-30 07:49:05–07:49:08
-- **Status:** proposed (dispatch-readiness redesign, needs sign-off)
-- **Fix:** gate queue replay on runed readiness, or keep transient connection
-  failures outside the breaker budget until the execution plane is ready
+- **Source:** krons journal 2026-07-30 07:49:05–07:49:08; reproduced live on a
+  krons deploy 2026-08-15 19:54:48 (`connect: connection refused` to
+  `runed:8080`, four groups' breakers opened, then self-recovered)
+- **Fix:** `49e967e5` — the breaker no longer counts a dependency outage.
+  `queue.ErrDependencyDown` marks a failure the group did not cause;
+  `queue.runForGroup` leaves the streak untouched for it (neither incremented
+  nor reset — nothing ran, so there is nothing to blame or credit) and logs it
+  loud as an operator condition. `routd.runedUnreachable` decides, tagging only
+  a failed CONNECT: `syscall.ECONNREFUSED` (nothing listening on :8080 yet) and
+  `*net.DNSError` (compose has not published the name yet). A
+  `*runedv1.APIError` is excluded explicitly — runed took the request and
+  refused it, which IS the folder's business — and a mid-run deadline still
+  counts, because that run started.
+
+Chose the breaker-accounting fix over startup ordering: runed can restart at any
+time, not only at boot, so an ordering gate would fix the boot case and leave
+the general one. No new mechanism — this joins the exemption `dispatch.go`
+already applies for `busy` ("do NOT return an err, which would trip the queue
+breaker"), and expresses the one rule the breaker has: only a failure
+attributable to processing THIS group counts.
+
+**Correction to the original entry.** "Healthy queued work remains blocked
+after runed becomes ready" is WRONG, and the fix should not be read as
+unblocking anything. `consecutiveFailures` is never a gate — the only non-test
+read is in `EnqueueMessageCheck`, which RESETS it — so routd's breaker was
+log-only and the next poll always re-fed the batch. runed's own
+`circuit_breaker` table could not have been touched either: runed was not
+running to increment it. The real defect was a false alarm on a signal
+`CLAUDE.md` lists as a post-deploy RED FLAG ("circuit breaker open"), pointing
+an operator at four healthy groups instead of at the one daemon still starting.
+The severity stands for that reason; the blocked-work claim does not.
+
+- **Verified:** `queue/dependency_down_test.go` — a dependency-down return
+  leaves the streak at 0 across threshold+2 runs, does not reset a streak real
+  failures built, and real failures still count once the plane recovers.
+  `routd/runed_unreachable_test.go` — table over the classifier, using a real
+  dial to a closed port rather than a hand-built error, plus the API-error,
+  deadline and decode-failure negatives.
 
 ## ✅ FIXED 2026-08-15 — T1 — stalled typing indicator on timed-out/errored turns (2026-07-26)
 
@@ -1429,7 +1463,7 @@ than loudly — worse than a crash.
   configuration, not new crypto code, and `boto3` works unmodified in the
   container. Decision between (a)/(b)/(c) remains the user's.
 
-## X3 — runed gets `SECRETS_KEY` and never reads it (2026-08-09, open)
+## ✅ FIXED 2026-08-15 X3 — runed gets `SECRETS_KEY` and never reads it (2026-08-09)
 
 `compose/compose.go:178` ships `SECRETS_KEY` to runed. Nothing in `runed/` or
 `container/` reads it: routd decrypts and sends plaintext in
@@ -1440,10 +1474,36 @@ the daemon that spawns agent containers. Found while closing `X1`.
 - **Severity:** low (runed is a trusted daemon on the compose network; this
   widens the blast radius of a runed compromise, it does not create one)
 - **Source:** compose/compose.go:178; no reader in runed/ or container/
-- **Status:** open — record only. Dropping the key is a one-line compose change,
-  but it regenerates every instance's `env/runed.env`, and that regeneration is
-  exactly what caused the fleet-wide `/login` outage after v0.62. Wants a
-  deliberate deploy, not a drive-by.
+- **Fix:** `c7722184` — `SECRETS_KEY` removed from `daemonKeys["runed"]` in
+  `compose/compose.go`. routd and dashd keep it (they seal/unseal rows); runed
+  gets already-decrypted credentials in `RunRequest.Secrets` and opens no
+  secrets table.
+
+**Why this regeneration is NOT the v0.62 `/login` outage (`M1`).** That outage
+happened because the model credentials (`ANTHROPIC_API_KEY`,
+`CLAUDE_CODE_OAUTH_TOKEN`, …) vanished from a regenerated `env/runed.env`. Those
+keys do not come from `daemonKeys["runed"]` at all — `writeEnvFiles` appends
+`store.EnvProfileKeys` for runed separately (`compose/compose.go`), so editing
+the runed key list cannot drop them. `TestModelCredentialsScopedToRuned` pins
+that, and it still passes.
+
+**OPERATOR ACTION ON DEPLOY.** This changes generated output, so it only takes
+effect where the compose env is regenerated:
+
+1. Regenerate, then diff `env/runed.env` before restarting. The ONLY expected
+   change is the `SECRETS_KEY=` line disappearing. If any `ANTHROPIC_API_KEY` /
+   `CLAUDE_CODE_OAUTH_TOKEN` / `OPENAI_API_KEY` / `CODEX_API_KEY` line also
+   disappeared, STOP — that is `M1` recurring, not this change.
+2. Leave `SECRETS_KEY` in the instance's top-level `.env`. It is still required:
+   routd refuses to start without it, and `env/routd.env` + `env/dashd.env`
+   still carry it. Removing it from `.env` crash-loops the instance
+   (`deploy_secrets_key_landmine`).
+3. `sudo systemctl restart arizuko_<instance>` and confirm a real turn replies
+   end-to-end — runed injecting model credentials is the path this touches.
+
+- **Verified:** `compose.TestSplitScopesSecretsKey` now asserts routd + dashd
+  carry the key and runed does not; `TestModelCredentialsScopedToRuned` (the M1
+  guard) unchanged and green.
 
 ## M1 — `mcpc` socat-connect form 502s since mcpc 0.3.0 (2026-07-16, open)
 
@@ -1586,7 +1646,7 @@ action — is still undone.
   truth is how the two drift.
 - **Fix:** 752185f0
 
-## L16 — legacy plaintext secret rows are never sealed; the migrator has no caller (2026-08-11, open)
+## ✅ FIXED 2026-08-15 L16 — legacy plaintext secret rows are never sealed; the migrator has no caller (2026-08-11)
 
 `store.EncryptPlaintextSecrets` exists to seal pre-encryption rows in place, and
 it has **zero non-test callers** — it is wired to no startup path, so it has
@@ -1633,6 +1693,46 @@ this file already paid for:
 Blast radius if wrong is total — this rewrites the column every credential
 lives in — so it does not ship inline, and it wants a rehearsal against a
 read-only `.backup` copy of each instance before the real run.
+
+- **Fix:** `33d4d277` — the proposed shape, built as proposed. `arizuko secret <inst>
+  seal-legacy [--dry-run]` (`cmd/arizuko/secret.go` `runSealLegacy`) is the
+  caller — an explicit operator verb, NOT a boot hook, for the two reasons
+  recorded above. `store.CountPlaintextSecrets` is new and backs the dry run;
+  `EncryptPlaintextSecrets` now returns the count it sealed, and the verb prints
+  before/after and FAILS if any row is still plaintext after the run. Reachable
+  from `user-secret` too — it shares `cmdScopedSecret`, and the table is one
+  table, so the verb seals every scope either way.
+
+**Reachability checked before writing the caller, per the brief.** The migrator
+was live code with no caller, not dead code: `EncryptPlaintextSecrets` compiled,
+had two passing tests, and the only thing missing was an entry point. That is
+the opposite of `L17`'s `LookupSecret`, which was a dead READER (deleted rather
+than wired). A sealer with no caller leaves data exposed; a reader with no
+caller leaves nothing.
+
+**Also changed: no key is now an error, not a silent success.** It returned
+`nil` on an empty keyring, so a caller could not tell "sealed nothing, there was
+nothing to seal" from "sealed nothing, there was no key" — the exact ambiguity
+that let this sit unrun. It returns `store.ErrNoSecretsKey` (the existing error,
+not a second one). The CLI cannot reach that branch: `openStoreWithKey` already
+calls `core.RequireSecretKeyring`.
+
+**Doc drift this exposed.** Three docs asserted the mechanism was already wired,
+which is part of why nobody noticed it was not: `SECURITY.md` claimed "legacy
+plaintext rows migrated in place on boot"; `store/README.md` still documented
+`PurgeUnencryptedSecrets` — the function DELETED in this area's last fix — as
+"called on startup ... removes rows without `v1:` prefix". Both corrected;
+`cmd/arizuko/README.md` gained the verb.
+
+- **Operator note:** rehearse `--dry-run` against a read-only `.backup` copy per
+  instance before the real run, and read the count. A rehearsal matching 0 rows
+  is a RED FLAG, not an all-clear (`derived_vs_stored_migration`).
+- **Verified:** `cmd/arizuko/seal_legacy_test.go` — seals plaintext rows without
+  changing what any reader sees (including the already-sealed row, which must
+  not be re-encrypted), `--dry-run` reports the count and changes nothing, a
+  clean table is a no-op, and a keyless store refuses. `store/secrets_test.go`
+  updated for the count return, still asserting idempotence (second run seals
+  0).
 
 ## System-turn / broadcast delivery targets a folder-jid or prefix-less room → "no channel for jid" → the broadcast is silently lost (2026-07-13, OPEN)
 
@@ -1969,7 +2069,7 @@ next proxyd restart activates it).
   (every instance's route table), so this stays a PROPOSAL needing sign-off,
   not a same-session fix.
 
-## P3 — Proxyd dispatch combines routes from two database snapshots (2026-07-30, proposed)
+## ✅ FIXED 2026-08-15 P3 — Proxyd dispatch combines routes from two database snapshots (2026-07-30)
 
 Route matching reads one snapshot, then proxy selection rereads the table and
 rebuilds proxies. A concurrent route mutation can pair old authentication policy
@@ -1980,11 +2080,30 @@ work on every routed request.
 - **Scope:** proxyd request dispatch
 - **Affected:** requests concurrent with `proxyd_routes` mutation
 - **Source:** proxyd/main.go:124-136,625-626,654-660; proxyd/resource.go:60-91
-- **Status:** proposed — passing one route/proxy snapshot through dispatch changes
-  request control flow and needs sign-off
-- **Fix:**
+- **Fix:** `0dc7dce8` — one snapshot per dispatch. `s.routes()`/`s.proxies()` each called
+  `rr.snapshot()` — two reads of `proxyd_routes` and two full proxy-map builds
+  per routed request. Replaced by `s.routeSnapshot()`, taken once in the
+  catch-all handler and passed into `dispatchRoute(rt, proxies, …)`; `s.routes()`
+  survives only for the callers that need the table and no backend (startup log,
+  `/health` count). Halves the per-request DB reads and proxy construction as a
+  side effect.
 
-## K1 — Security-sensitive identifier generators discard entropy failures (2026-07-30, proposed)
+The false 404 is now impossible-by-construction rather than merely unlikely:
+`snapshot()` builds a proxy for every non-redirect route in the same read, and
+`dispatchRoute` returns early on redirects, so `proxies[rt.Path]` cannot be nil
+for a route matched from that snapshot. That branch answered a bare 404 —
+blaming the caller for a proxyd bug — and now logs loud and answers 500.
+
+- **Verified:** `proxyd/dispatch_snapshot_test.go`.
+  `TestSnapshotCarriesAProxyForEveryRoute` is the deterministic structural
+  guard. `TestConcurrentRouteMutationNeverSplitsAcrossSnapshots` deletes and
+  re-adds THE MATCHED route under 8 concurrent readers and requires both a
+  match and a miss to occur (else the fixture is vacuous), then asserts no
+  matched request ever lost its backend. Mutation-checked: restoring the second
+  `routeSnapshot()` call inside the loop reproduces it — "4 of 58 matched
+  requests found no backend". Full `go test ./proxyd/ -race` green (424s).
+
+## ✅ CLOSED-STALE 2026-08-15 K1 — Security-sensitive identifier generators discard entropy failures (2026-07-30)
 
 JWT JTIs, OAuth-state nonces, signing-key IDs, run IDs, and session UUIDs are
 returned after unchecked `crypto/rand.Read`. Entropy failure therefore emits
@@ -1996,11 +2115,44 @@ PKCE and refresh-token generators already return these errors correctly.
 - **Affected:** JWT lineage, OAuth state uniqueness, key rotation, run/session identity
 - **Source:** auth/es256.go:140-145; auth/oauth.go:160-164;
   authd/server.go:95-101; runed/manager.go:364-376
-- **Status:** proposed — correcting helper signatures and propagating errors
-  crosses authd/runed contracts and needs sign-off
-- **Fix:**
+- **Fix:** NONE — no code changed. The premise does not hold on this toolchain.
 
-## A4 — ACL read errors are indistinguishable from valid empty policy (2026-07-30, proposed)
+**`crypto/rand.Read` cannot return a non-nil error.** Since Go 1.24 it is
+documented "It never returns an error, and always fills b entirely. Read calls
+io.ReadFull on Reader and CRASHES THE PROGRAM IRRECOVERABLY if an error is
+returned." `go.mod` declares `go 1.27`, so no supported build of this module
+gets the old behaviour.
+
+Verified empirically rather than from the doc comment, on `go1.27rc2`: a probe
+swapping in a always-failing `rand.Reader` does not return an error to the
+caller — it dies with `fatal error: crypto/rand: failed to read random data (see
+https://go.dev/issue/66821)`, unrecoverable, from `crypto/rand.fatal`.
+
+So the failure mode the entry describes — "entropy failure therefore emits
+predictable or duplicate identifiers instead of aborting" — has no reachable
+path. Every listed site is ALREADY maximally fail-loud: the process dies before
+a weak identifier can exist. All eight discarding sites (`auth/es256.go:152`,
+`auth/oauth.go:162`, `authd/server.go:101`, `routd/server.go:772`,
+`runed/manager.go:505,512`, `crackbox/pkg/run/run.go:168`) import
+`crypto/rand`, not `math/rand` — checked, not assumed.
+
+The entry's closing line has it backwards: the PKCE and refresh-token generators
+it praises for "returning these errors correctly" are the ones carrying
+UNREACHABLE branches. That is harmless and conventional, so it is left alone —
+deleting dead `if err != nil` across seven files would be churn with no
+behaviour change.
+
+**Checked for a real instance of the class while here, and found none.** The two
+`math/rand` users are not identifier generators in the security sense:
+`chanlib/retry.go:121` is backoff jitter, and `runed/docker.go:244` is a
+uniqueness suffix on a temp filename inside one folder's own private IPC dir. If
+either had minted a token or nonce it WOULD have been this bug for real, since
+`math/rand` genuinely is predictable.
+
+**Re-file only if** `go.mod`'s floor ever drops below `go 1.24`, or a
+security-sensitive identifier starts coming from `math/rand`.
+
+## ✅ FIXED 2026-08-15 A4 — ACL read errors are indistinguishable from valid empty policy (2026-07-30)
 
 Query failures intentionally return no rows and therefore deny authorization,
 but the API cannot distinguish that failure from an empty policy. User-scope and
@@ -2012,10 +2164,48 @@ while retaining allows.
 - **Scope:** ACL storage and authorization evaluation
 - **Affected:** agent authorization, login scope snapshots, ACL management surfaces
 - **Source:** store/acl.go:176-310; auth/authorize.go:59-99; routd/server.go:506-514
-- **Status:** proposed — authorization must remain fail-closed, but
-  error-returning store contracts and 5xx management responses require
-  cross-component sign-off
-- **Fix:**
+- **Fix:** `9076253a` — the four `store` ACL readers (`ACLRowsFor`, `ACLWildcardRows`,
+  `ListACL`, `ListACLByScope`) return `([]core.ACLRow, error)`. Authorization
+  still fails CLOSED everywhere — the error return changes who can SEE the
+  failure, never the direction it fails in.
+
+Two distinct defects, both closed:
+
+1. **A read error read as an empty policy.** A query error returned a bare `nil`
+   with no log at all. Now an error, so `GET /v1/users/{sub}/scopes` answers 500
+   instead of `404 no_grants` (authd snapshots that at login — it would have
+   minted a scopeless session indistinguishable from a legitimately
+   unprivileged one), `list_acl` answers 500 instead of `{"acl":[]}`, dashd's
+   grants page shows an error banner instead of an empty table, and `arizuko
+   grants` errors instead of printing "no grants".
+2. **A partial policy could ESCALATE.** Per-row scan failures were SKIPPED
+   (`if err == nil { append }`). Dropping a DENY row leaves the allow rows
+   above it intact, so the caller is granted something an operator explicitly
+   forbade — the more dangerous half, and the reason a partial read is now
+   never returned at all: one bad row fails the whole read.
+
+Consolidated rather than repeated: `store.scanACLRows` is the single place a
+policy read materialises, and `auth.policyRows` is the single exact+wildcard read
+all four evaluators (`Authorize`, `EffectiveActions`, `UserScopes`, `CheckHold`)
+go through — previously four hand-copied pairs of calls that could each drift on
+what a failed read means.
+
+Fail-closed directions, all logged loud: `Authorize` DENIES; `EffectiveActions`
+advertises NO tools; `CheckHold` holds nothing; `auth.Delegate` REFUSES (it is
+the precondition on a write handing out authority — if what the granter holds
+cannot be read, nothing is provably a subset of it); proxyd stamps no
+`X-User-Groups`; dashd treats the caller as having no access.
+
+- **Verified:** `store/acl_partial_test.go` corrupts ONE row's `grant_option` so
+  only that row fails to scan, and requires an error with no rows — the
+  dropped-deny escalation. `store/failclosed_test.go` rewritten: it used to
+  ASSERT the old contract (empty on a broken table) and now requires an error
+  from all four readers. `auth/userscopes_test.go` gained
+  broken-table cases for `UserScopes` (error, not empty), `Authorize` +
+  `EffectiveActions` (still deny/hide) and `Delegate` (refuses), each with a
+  vacuity guard proving the fixture allowed before the table was dropped.
+  `routd/acl_read_error_test.go` pins the endpoint 500; mutation-checked by
+  disabling the error branch, which reproduces the exact `404 no_grants`.
 
 ## Adversarial review of the 5/16+surrogate features — deferred findings (2026-07-30)
 
@@ -2710,7 +2900,7 @@ agent accepts, the dashboard refuses. dashd's copy dies with its tasks page
 pages land — filed as the follow-up, not fixed here, because it is a second
 concern.
 
-## N2 — an operator can grant to a non-canonical alias, silently (2026-08-04, open)
+## ✅ FIXED 2026-08-15 N2 — an operator can grant to a non-canonical alias, silently (2026-08-04)
 
 Residual risk from N1 (`beecf595`), verified as having **zero live instances**
 today but no guard against acquiring one.
@@ -2773,6 +2963,41 @@ containment boundary — but that is the user's call, and either way `Resolve`
 must grow a distinguishable "could not answer" result instead of folding it
 into "unclaimed". Do not ship this inline.
 
+- **Fix:** `22e16615` — built as recommended: fail-OPEN, both cases warned.
+  `Server.nonCanonicalWarning` (`routd/acl_resource.go`) runs on the `add` case
+  of the ONE shared `aclHandler`, so the agent's `add_acl` and the operator's
+  `POST /v1/acl` get it from the same line. `IdentityResolver.Resolve` grew the
+  distinguishable fourth result the entry required: `(identity, subs, claimed,
+  error)`, where a 404 or a null identity is a real "unclaimed" (`false, nil`)
+  and a token/transport/other-non-200/decode failure is an error. It never
+  rewrites the principal — moving a grant the operator did not ask to move is
+  the failure mode N1 chose an immutable canonical to avoid.
+
+**The warning rides on the RESPONSE, not only the log.** A fail-open guard whose
+only output is a log line is a guard nobody sees, and `add_acl` is a user-facing
+path. `add` now returns `aclAddResult{ok, warning omitempty}` — the wire shape is
+byte-identical to the old `{"ok":true}` when there is nothing to say, and when
+there is, the caller is told in the same breath the grant lands. Both cases
+warn: a known alias names the canonical sub to re-grant to, and an unreachable
+authd says plainly that it could NOT verify, rather than implying the principal
+checked out.
+
+`inspect_identity` keeps its advisory behaviour (an error still renders as
+unclaimed) but now logs instead of swallowing — that tool cannot distinguish
+"authd is down" from "nobody claims this sub" in its output either way.
+
+**Not covered, and deliberately:** the pairing half. `acl_membership.parent`
+naming an alias has the same shape, but it is a different write path and a
+different concern; folding it in here would be two fixes pretending to be one.
+Still open as recorded above.
+
+- **Verified:** `routd/acl_canonical_test.go` — an alias warns and names the
+  canonical; canonical, unclaimed, `role:` principals and a nil resolver are all
+  silent; an unreachable authd warns that it could not verify; and the grant
+  still lands on the principal AS ASKED, with nothing written to the canonical.
+  `routd/identity_test.go` gained the 404-is-unclaimed, 5xx-is-an-error and
+  dead-authd-is-an-error cases that the old advisory `Resolve` could not express.
+
 ## Z1 — all three live instances run a routd/onbod image ~5 days stale; a chunk of shipped migrations is not live (2026-08-04, open)
 
 Found verifying `83cccc78` (the 5/8 CAS/repoint) against read-only `.backup`
@@ -2815,7 +3040,7 @@ image build, are not protecting any live user.
   `invites` export against real data (this session's synthetic-schema tests
   already cover the post-migration shape; only the live-data path was blocked).
 
-## Z5 — `network_rules`' seed migration uses `CURRENT_TIMESTAMP`, making two fresh instances' checksums permanently unequal (2026-08-04, open)
+## ✅ FIXED 2026-08-15 Z5 — `network_rules`' seed migration uses `CURRENT_TIMESTAMP`, making two fresh instances' checksums permanently unequal (2026-08-04)
 
 Found chasing a flaky archive test (a cross-agent report of ONE failure led to
 a 50-run `-count` sweep, not dismissed as a fluke). `routd/migrations/0005-
@@ -2865,9 +3090,28 @@ the same "seed a default row" problem, not a property of seeding itself.
 - **Source:** `routd/migrations/0005-network-rules.sql`,
   `resreg/resources/network_rules.go:73`, verified 2026-08-04 by a 50-run
   `-count` sweep with the migration file moved aside vs restored
-- **Fix:** re-seed via a new migration with a fixed literal timestamp
-  (matching 0022's pattern) to normalize future installs — cannot rewrite an
-  already-applied migration; separately, decide whether `Checksum` should
-  exclude `StampedFields` generically (would also close part of Z2's gap).
-  Needs sign-off (schema + a content-hash semantics change), not attempted
-  here.
+- **Fix:** `493b280e` — `routd/migrations/0037-network-rules-seed-timestamp.sql` normalises
+  the two system-seeded rows to the fixed literal `2026-08-04T00:00:00Z`,
+  matching 0022's pattern. Scoped by exact PK plus `created_by='system'`, so an
+  operator who re-added either target keeps their own stamp. 0005 is left
+  untouched (already applied everywhere); a fresh install runs 0005 then 0037
+  and lands on the same bytes as an existing instance.
+
+**The `Checksum`/`StampedFields` question is DECIDED: no.** `Checksum` keeps
+hashing the exact `EmitYAML(Export(...))` bytes. Excluding `StampedFields` there
+would break the property the CAS rests on — that the hash is the hash of the
+document the operator holds — and would leave two renderers where 5/8 requires
+one. `Diff` ignores stamped fields because it answers a different question (did
+INTENT change); the hash answers "is the content still what I read". A
+non-deterministic seed is cured by making the seed deterministic, not by making
+the hash blind. Z2's gap stands on its own and is NOT closed by this.
+
+Also surfaced by the fix: `CURRENT_TIMESTAMP` was writing `2026-08-15 20:16:08`,
+SQLite's space-separated form — every other stamp in the projection is RFC3339,
+so the seed was off-format as well as non-deterministic. The literal is RFC3339.
+
+- **Verified:** `cmd/arizuko/seed_determinism_test.go` — two instances
+  bootstrapped >1s apart must agree on `resreg.Checksum`, plus a direct assert
+  on the literal so a future `CURRENT_TIMESTAMP` re-seed cannot pass by landing
+  inside one second. Mutation-checked: both tests FAIL with 0037 moved aside
+  (`a = sha256:e2c741d7…` vs `b = sha256:de29e07a…`) and pass with it restored.

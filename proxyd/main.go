@@ -117,24 +117,24 @@ type server struct {
 	pubRedir    *pubRedirect
 }
 
-// routes / proxies are thin snapshot accessors so the rest of proxyd can
-// stay oblivious to the mutex. Slices/maps returned are replaced wholesale
-// on mutation, never appended in place, so the caller can use them safely
-// without holding the lock.
-func (s *server) routes() []Route {
+// routeSnapshot returns ONE consistent view of the route table and the proxies
+// built from it. Every dispatch takes it once and passes it down: the route a
+// request matched and the backend it is forwarded to must come from the same
+// read of `proxyd_routes`, or a concurrent mutation pairs one route's auth
+// policy with another's backend (BUGS P3). Slices/maps returned are never
+// mutated in place, so a caller can use them without holding a lock.
+func (s *server) routeSnapshot() ([]Route, map[string]*httputil.ReverseProxy) {
 	if s.rr == nil {
-		return nil
+		return nil, nil
 	}
-	r, _ := s.rr.snapshot()
-	return r
+	return s.rr.snapshot()
 }
 
-func (s *server) proxies() map[string]*httputil.ReverseProxy {
-	if s.rr == nil {
-		return nil
-	}
-	_, p := s.rr.snapshot()
-	return p
+// routes is the read-only view for callers that need the table but no backend
+// (startup logging, /health counts). Dispatch must use routeSnapshot.
+func (s *server) routes() []Route {
+	r, _ := s.routeSnapshot()
+	return r
 }
 
 // webRoutes is a per-request snapshot of the web_routes table (no row
@@ -622,20 +622,28 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ONE snapshot for the whole dispatch. Matching used to read the route
+	// table and proxy selection used to read it AGAIN, so a request could be
+	// matched against one version of `proxyd_routes` and forwarded (or 404'd)
+	// against another: old auth policy paired with a new backend, or a false
+	// 404 when the matched path was gone by the second read (BUGS P3). It also
+	// halves the per-request DB reads and proxy construction.
+	routes, proxies := s.routeSnapshot()
+
 	// Bare /dav and /dav/* both route through the /dav/ entry (davRoute picks
 	// a group for the bare case). When the route is absent (WEBDAV_ENABLED=
 	// false) emit the dedicated 404 rather than the public-redirect fallback.
 	if r.URL.Path == "/dav" || strings.HasPrefix(r.URL.Path, "/dav/") {
-		if rt := MatchRoute(s.routes(), "/dav/"); rt != nil {
-			s.dispatchRoute(rt, w, r)
+		if rt := MatchRoute(routes, "/dav/"); rt != nil {
+			s.dispatchRoute(rt, proxies, w, r)
 		} else {
 			http.Error(w, "WebDAV not configured", http.StatusNotFound)
 		}
 		return
 	}
 
-	if rt := MatchRoute(s.routes(), r.URL.Path); rt != nil {
-		s.dispatchRoute(rt, w, r)
+	if rt := MatchRoute(routes, r.URL.Path); rt != nil {
+		s.dispatchRoute(rt, proxies, w, r)
 		return
 	}
 
@@ -663,14 +671,24 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 // the cached ReverseProxy. Bespoke logic for `/chat/`, `/hook/`, and
 // `/dav/` lives in dedicated helpers so the generic auth switch stays
 // orthogonal.
-func (s *server) dispatchRoute(rt *Route, w http.ResponseWriter, r *http.Request) {
+// It takes the proxy map from the SAME snapshot rt was matched in — never
+// re-reads it — so route and backend cannot come from two versions of the
+// table (BUGS P3).
+func (s *server) dispatchRoute(rt *Route, proxies map[string]*httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
 	if rt.RedirectTo != "" {
 		http.Redirect(w, r, rt.RedirectTo, http.StatusFound)
 		return
 	}
-	rp := s.proxies()[rt.Path]
+	rp := proxies[rt.Path]
 	if rp == nil {
-		http.NotFound(w, r)
+		// Unreachable: snapshot() builds a proxy for every non-redirect route in
+		// the same read rt was matched from, and the redirect case returned
+		// above. It used to be reachable — and answered 404 — because proxy
+		// selection re-read the table (BUGS P3). A 404 here would blame the
+		// caller for a proxyd bug, so say what it is.
+		slog.Error("proxyd: matched route has no proxy in its own snapshot",
+			"path", rt.Path, "url", r.URL.Path)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 	switch rt.Path {
@@ -864,7 +882,15 @@ func (s *server) groupsForSub(sub string) []string {
 	if s.stRoutd == nil {
 		return nil
 	}
-	return auth.UserScopes(s.stRoutd, strings.TrimPrefix(sub, "user:"))
+	scopes, err := auth.UserScopes(s.stRoutd, strings.TrimPrefix(sub, "user:"))
+	if err != nil {
+		// Stamp no groups — the backend then denies, which is the right direction.
+		// But an unreadable acl table and a user who holds nothing produced the
+		// SAME header, so the resulting 403s had no cause anywhere (BUGS A4).
+		slog.Error("proxyd: scope read failed; stamping no groups", "sub", sub, "err", err)
+		return nil
+	}
+	return scopes
 }
 
 // tryAuth returns an identity-stamped request if the caller has a valid

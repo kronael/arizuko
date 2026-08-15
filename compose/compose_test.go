@@ -302,18 +302,25 @@ func TestProxydPortAliases(t *testing.T) {
 	}
 }
 
-// In the split, routd OWNS secrets, runed injects them into spawned containers,
-// and dashd writes user secrets into routd.db directly, so all three env files
-// carry SECRETS_KEY. routd REFUSES to start without it and every store write
-// path refuses to seal without it, so a daemon that misses it here cannot write
-// a secret at all (BUGS S2).
+// In the split, routd OWNS secrets and dashd writes user secrets into routd.db
+// directly, so both env files carry SECRETS_KEY. routd REFUSES to start without
+// it and every store write path refuses to seal without it, so a daemon that
+// misses it here cannot write a secret at all (BUGS S2).
+//
+// runed must NOT carry it (BUGS X3): it receives already-decrypted model
+// credentials in RunRequest.Secrets and opens no secrets table, so the key had
+// no reader there — just the fleet's decryption key sitting on the one daemon
+// holding docker.sock.
 func TestSplitScopesSecretsKey(t *testing.T) {
 	dir := seed(t, "AUTH_SECRET=s\nSECRETS_KEY=deadbeef\n")
 	gen(t, dir)
-	for _, d := range []string{"routd", "runed", "dashd"} {
+	for _, d := range []string{"routd", "dashd"} {
 		if !strings.Contains(read(t, dir, "env/"+d+".env"), "SECRETS_KEY=deadbeef") {
 			t.Errorf("env/%s.env must carry SECRETS_KEY", d)
 		}
+	}
+	if strings.Contains(read(t, dir, "env/runed.env"), "SECRETS_KEY=") {
+		t.Error("env/runed.env must not carry SECRETS_KEY: runed reads it nowhere")
 	}
 }
 

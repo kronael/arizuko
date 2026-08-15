@@ -1,9 +1,11 @@
 package auth
 
 import (
+	"log/slog"
 	"slices"
 	"strings"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -39,15 +41,18 @@ func Authorize(
 	// 1. Expand principal set.
 	expanded := expandPrincipals(s, caller)
 
-	// 2. Exact-match rows.
-	rows := s.ACLRowsFor(expanded)
-
-	// 3. Wildcard rows: stored principal contains '*'. Filter against
-	// expanded set with segment-wise glob.
-	for _, r := range s.ACLWildcardRows() {
-		if anyPrincipalMatches(r.Principal, expanded) {
-			rows = append(rows, r)
-		}
+	// 2+3. Exact-match rows plus wildcard rows (stored principal contains '*',
+	// filtered against the expanded set with segment-wise glob).
+	//
+	// A read failure DENIES — but loudly. It used to be indistinguishable from
+	// "this principal holds no grants", so a broken acl table degraded every
+	// caller to no-access with nothing in the log to say why (BUGS A4). Denying
+	// is still correct; being silent about it was not.
+	rows, err := policyRows(s, expanded)
+	if err != nil {
+		slog.Error("authorize: acl read failed; DENYING",
+			"principal", caller.Principal, "action", action, "scope", scope, "err", err)
+		return false
 	}
 
 	// 4. Evaluate.
@@ -92,11 +97,11 @@ func EffectiveActions(s *store.Store, caller Caller) func(action string) bool {
 		return func(string) bool { return false }
 	}
 	expanded := expandPrincipals(s, caller)
-	rows := s.ACLRowsFor(expanded)
-	for _, r := range s.ACLWildcardRows() {
-		if anyPrincipalMatches(r.Principal, expanded) {
-			rows = append(rows, r)
-		}
+	rows, err := policyRows(s, expanded)
+	if err != nil {
+		slog.Error("effective actions: acl read failed; advertising NO tools",
+			"principal", caller.Principal, "err", err)
+		return func(string) bool { return false }
 	}
 	lattice := false
 	held := map[string]bool{}
@@ -134,16 +139,14 @@ func EffectiveActions(s *store.Store, caller Caller) func(action string) bool {
 // "some allow row grants it, at some action". Anything gating access MUST call
 // Authorize, which reads action, predicate, params and deny-wins; a caller that
 // treats this result as a verdict has built a second, weaker evaluator.
-func UserScopes(s *store.Store, sub string) []string {
+func UserScopes(s *store.Store, sub string) ([]string, error) {
 	if s == nil || sub == "" {
-		return nil
+		return nil, nil
 	}
 	expanded := expandPrincipals(s, Caller{Principal: sub})
-	rows := s.ACLRowsFor(expanded)
-	for _, r := range s.ACLWildcardRows() {
-		if anyPrincipalMatches(r.Principal, expanded) {
-			rows = append(rows, r)
-		}
+	rows, err := policyRows(s, expanded)
+	if err != nil {
+		return nil, err
 	}
 	seen := map[string]bool{}
 	var out []string
@@ -155,7 +158,29 @@ func UserScopes(s *store.Store, sub string) []string {
 		out = append(out, r.Scope)
 	}
 	slices.Sort(out)
-	return out
+	return out, nil
+}
+
+// policyRows is the single read every evaluator here goes through: exact-match
+// rows for the expanded principal set, plus wildcard-principal rows that glob
+// onto it. One reader means one failure mode — the three callers cannot drift
+// on what "could not read the policy" means, and none of them can accidentally
+// evaluate half of it.
+func policyRows(s *store.Store, expanded []string) ([]core.ACLRow, error) {
+	rows, err := s.ACLRowsFor(expanded)
+	if err != nil {
+		return nil, err
+	}
+	wild, err := s.ACLWildcardRows()
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range wild {
+		if anyPrincipalMatches(r.Principal, expanded) {
+			rows = append(rows, r)
+		}
+	}
+	return rows, nil
 }
 
 // expandPrincipals: caller.Principal + caller.Extra plus the transitive
@@ -362,11 +387,13 @@ func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[str
 	}
 	want := HoldPrefix + tool
 	expanded := expandPrincipals(s, caller)
-	rows := s.ACLRowsFor(expanded)
-	for _, r := range s.ACLWildcardRows() {
-		if anyPrincipalMatches(r.Principal, expanded) {
-			rows = append(rows, r)
-		}
+	rows, err := policyRows(s, expanded)
+	if err != nil {
+		// No hold row readable → no hold. Same direction as Authorize's deny:
+		// the safe answer is "no special treatment", said out loud.
+		slog.Error("check hold: acl read failed; holding NOTHING",
+			"principal", caller.Principal, "tool", tool, "err", err)
+		return false
 	}
 	for _, r := range rows {
 		if r.Action != want && r.Action != HoldPrefix+"*" {

@@ -203,7 +203,7 @@ func TestGroupDelete_PurgesOrphanAclAndRoutes(t *testing.T) {
 
 	// X's acl rows (folder + X/** glob) must be gone.
 	for _, sc := range []string{X, X + "/**"} {
-		if rows := s.ListACLByScope(sc); len(rows) != 0 {
+		if rows, err := s.ListACLByScope(sc); err != nil || len(rows) != 0 {
 			t.Errorf("acl scope %q still present after delete: %+v", sc, rows)
 		}
 	}
@@ -214,7 +214,7 @@ func TestGroupDelete_PurgesOrphanAclAndRoutes(t *testing.T) {
 		}
 	}
 	// Y untouched: grant + route survive.
-	if rows := s.ListACLByScope(Y); len(rows) != 1 || rows[0].Principal != "carol@x" {
+	if rows, err := s.ListACLByScope(Y); err != nil || len(rows) != 1 || rows[0].Principal != "carol@x" {
 		t.Errorf("sibling Y acl not preserved: %+v", rows)
 	}
 	yRoute := false
@@ -343,7 +343,10 @@ func TestDash_GrantAdd(t *testing.T) {
 		t.Fatalf("add grant status = %d", resp.StatusCode)
 	}
 
-	rows := s.ListACLByScope(folder)
+	rows, err := s.ListACLByScope(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
 	found := false
 	for _, r := range rows {
 		if r.Principal == "carol@x" && r.Action == "reply" {
@@ -391,7 +394,10 @@ func TestDash_GrantRevoke(t *testing.T) {
 		t.Fatalf("revoke status = %d", resp.StatusCode)
 	}
 
-	rows := s.ListACLByScope(folder)
+	rows, err := s.ListACLByScope(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, r := range rows {
 		if r.Principal == "dave@x" && r.Action == "send" {
 			t.Errorf("grant still present after revoke")

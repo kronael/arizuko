@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -51,7 +52,7 @@ func cmdUserSecret(args []string) {
 }
 
 func cmdScopedSecret(args []string, command, scopeName string, scope store.SecretScope) {
-	need(args, 2, fmt.Sprintf("arizuko %s <instance> <set|list|delete> ...", command))
+	need(args, 2, fmt.Sprintf("arizuko %s <instance> <set|list|delete|seal-legacy> ...", command))
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
@@ -80,9 +81,72 @@ func cmdScopedSecret(args []string, command, scopeName string, scope store.Secre
 		if err := runSecretDelete(s, scope, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
+	case "seal-legacy":
+		dryRun, err := parseSealLegacy(command+" seal-legacy", args[2:])
+		if err != nil {
+			die("usage: arizuko %s <instance> seal-legacy [--dry-run]: %v", command, err)
+		}
+		if err := runSealLegacy(s, dryRun, os.Stdout); err != nil {
+			die("Failed: %v", err)
+		}
 	default:
 		die("unknown %s action: %s", command, action)
 	}
+}
+
+func parseSealLegacy(name string, args []string) (dryRun bool, err error) {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.BoolVar(&dryRun, "dry-run", false, "count the rows that would be sealed, change nothing")
+	if err = flexParse(fs, args); err != nil {
+		return false, err
+	}
+	if fs.NArg() != 0 {
+		return false, fmt.Errorf("unexpected argument %q", fs.Arg(0))
+	}
+	return dryRun, nil
+}
+
+// runSealLegacy seals rows written before encryption-at-rest landed. Readers
+// already decrypt them correctly (`open` falls back for un-prefixed values), so
+// nothing is broken — they are simply unencrypted at rest, which is what 5/14
+// promises they are not.
+//
+// An explicit operator verb, NOT a boot hook (BUGS L16). Two reasons this file
+// already paid for: the function this replaced, PurgeUnencryptedSecrets, was a
+// boot-time mutation of this same table and wiped every secret on each startup;
+// and a data migration that reports nothing is how `0023` left the whole fleet
+// a member of nothing for nine hours. A verb prints the count before and after
+// and runs when an operator says so, on one instance at a time.
+//
+// Rehearse with --dry-run against a read-only `.backup` copy first: this
+// rewrites the column every credential lives in.
+func runSealLegacy(s *store.Store, dryRun bool, w io.Writer) error {
+	ctx := context.Background()
+	before, err := s.CountPlaintextSecrets(ctx)
+	if err != nil {
+		return err
+	}
+	if dryRun {
+		fmt.Fprintf(w, "%d plaintext secret row(s) would be sealed (dry run, nothing changed)\n", before)
+		return nil
+	}
+	if before == 0 {
+		fmt.Fprintln(w, "no plaintext secret rows: nothing to seal")
+		return nil
+	}
+	sealed, err := s.EncryptPlaintextSecrets(ctx)
+	if err != nil {
+		return err
+	}
+	after, err := s.CountPlaintextSecrets(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "sealed %d of %d plaintext secret row(s); %d remaining\n", sealed, before, after)
+	if after != 0 {
+		return fmt.Errorf("%d row(s) still plaintext after sealing", after)
+	}
+	return nil
 }
 
 // parseSecretSet parses `secret set` / `user-secret set` args via flexParse so

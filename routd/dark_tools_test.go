@@ -98,13 +98,17 @@ type stubIdentity struct {
 	idn  ipc.Identity
 	subs []string
 	sub  string // the one sub that resolves; others are unclaimed
+	err  error  // when set, authd could not answer at all (BUGS N2)
 }
 
-func (s stubIdentity) Resolve(sub string) (ipc.Identity, []string, bool) {
-	if sub == s.sub {
-		return s.idn, s.subs, true
+func (s stubIdentity) Resolve(sub string) (ipc.Identity, []string, bool, error) {
+	if s.err != nil {
+		return ipc.Identity{}, nil, false, s.err
 	}
-	return ipc.Identity{}, nil, false
+	if sub == s.sub {
+		return s.idn, s.subs, true, nil
+	}
+	return ipc.Identity{}, nil, false, nil
 }
 
 // TestInspectIdentity_ViaAuthd: inspect_identity resolves a claimed sub to its

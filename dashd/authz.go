@@ -44,7 +44,15 @@ func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
 	allowed = callerGroups(r)
 	if len(allowed) == 0 {
 		if sub := strings.TrimSpace(r.Header.Get("X-User-Sub")); sub != "" && d.adminDB() != nil {
-			allowed = auth.UserScopes(store.New(d.adminDB()), strings.TrimPrefix(sub, "user:"))
+			scopes, err := auth.UserScopes(store.New(d.adminDB()), strings.TrimPrefix(sub, "user:"))
+			if err != nil {
+				// Fail closed — but say so. An unreadable policy and a user with no
+				// grants both render as an empty dashboard (BUGS A4).
+				slog.Error("dashd: caller scope read failed; treating as no access",
+					"sub", sub, "err", err)
+				return nil, false
+			}
+			allowed = scopes
 		}
 	}
 	if slices.Contains(allowed, "**") {

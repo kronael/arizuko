@@ -72,7 +72,11 @@ func serveACLMCPElevated(t *testing.T, db *DB, folder string) string {
 func aclRowCount(t *testing.T, db *DB, scope string) int {
 	t.Helper()
 	n := 0
-	for _, r := range db.ListACL("") {
+	allRows, err := db.ListACL("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range allRows {
 		// Exclude seeded role:* infrastructure (role:operator from migration 0022,
 		// role:member's messaging floor from 0023) — these helpers assert what a
 		// REST/MCP WRITE produced, not the seeds.

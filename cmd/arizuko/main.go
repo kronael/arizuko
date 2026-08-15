@@ -636,7 +636,11 @@ func runUngrant(s *store.Store, sub, pat string, w io.Writer) error {
 }
 
 func runGrants(s *store.Store, sub string, w io.Writer) error {
-	rows := s.ListACL(sub)
+	// "no grants" must mean no grants, not "could not read them" (BUGS A4).
+	rows, err := s.ListACL(sub)
+	if err != nil {
+		return err
+	}
 	if len(rows) == 0 && len(s.Ancestors(sub)) == 0 {
 		fmt.Fprintln(w, "no grants")
 		return nil

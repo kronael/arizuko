@@ -237,14 +237,15 @@ func (d *DB) connectorSecrets(folder, callerSub string, required []string, force
 
 // ListACL returns acl rows, optionally filtered by principal. Used for the
 // mcp:<tool> operator overlay (deriveFolderGrants) and the list_acl tool.
-func (d *DB) ListACL(principal string) []core.ACLRow {
+// A read failure is an error, never an empty list (BUGS A4).
+func (d *DB) ListACL(principal string) ([]core.ACLRow, error) {
 	return d.aclEval().ListACL(principal)
 }
 
 // UserScopes returns the distinct allow-scopes a sub has, expanding membership
 // transitively. Backs GET /v1/users/{sub}/scopes (authd snapshots it at login).
 // A listing, never a verdict — see auth.UserScopes.
-func (d *DB) UserScopes(sub string) []string {
+func (d *DB) UserScopes(sub string) ([]string, error) {
 	return auth.UserScopes(d.aclEval(), sub)
 }
 

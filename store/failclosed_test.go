@@ -6,9 +6,13 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// Authz/visibility list reads MUST fail closed: on any DB trouble they return
-// nil/empty, never a truncated allow-list (a partial list silently narrows or
-// — worse for membership expansion — could be mistaken for "no grants exist").
+// Authz/visibility list reads MUST fail closed on any DB trouble, and must never
+// return a truncated allow-list.
+//
+// For the ACL readers, failing closed means returning an ERROR (BUGS A4): they
+// used to return a bare empty slice, which IS fail-closed for the evaluator but
+// indistinguishable from "no grants exist" for everyone else. AllGroups is a
+// visibility listing with no such consumer and still returns nil.
 //
 // The rows.Err() guard itself cannot be unit-forced with the modernc test DB:
 // modernc buffers result rows, so closing the handle mid-iteration does not
@@ -46,34 +50,37 @@ func TestACLLists_FailClosedOnQueryError(t *testing.T) {
 		}
 	}
 	// Preconditions: each list surfaces rows before the table is dropped.
-	if len(s.ACLRowsFor([]string{"google:alice"})) == 0 {
-		t.Fatal("precondition: ACLRowsFor empty")
+	readers := map[string]func() ([]core.ACLRow, error){
+		"ACLRowsFor":      func() ([]core.ACLRow, error) { return s.ACLRowsFor([]string{"google:alice"}) },
+		"ListACL":         func() ([]core.ACLRow, error) { return s.ListACL("") },
+		"ListACLByScope":  func() ([]core.ACLRow, error) { return s.ListACLByScope("atlas") },
+		"ACLWildcardRows": func() ([]core.ACLRow, error) { return s.ACLWildcardRows() },
 	}
-	if len(s.ListACL("")) == 0 {
-		t.Fatal("precondition: ListACL empty")
-	}
-	if len(s.ListACLByScope("atlas")) == 0 {
-		t.Fatal("precondition: ListACLByScope empty")
-	}
-	if len(s.ACLWildcardRows()) == 0 {
-		t.Fatal("precondition: ACLWildcardRows empty")
+	for name, read := range readers {
+		got, err := read()
+		if err != nil {
+			t.Fatalf("precondition: %s: %v", name, err)
+		}
+		if len(got) == 0 {
+			t.Fatalf("precondition: %s empty", name)
+		}
 	}
 
 	if _, err := s.db.Exec(`DROP TABLE acl`); err != nil {
 		t.Fatal(err)
 	}
 
-	// Every list read must now return nil/empty, never a partial allow-list.
-	if got := s.ACLRowsFor([]string{"google:alice"}); len(got) != 0 {
-		t.Errorf("ACLRowsFor on broken table = %+v, want empty", got)
-	}
-	if got := s.ListACL(""); len(got) != 0 {
-		t.Errorf("ListACL on broken table = %+v, want empty", got)
-	}
-	if got := s.ListACLByScope("atlas"); len(got) != 0 {
-		t.Errorf("ListACLByScope on broken table = %+v, want empty", got)
-	}
-	if got := s.ACLWildcardRows(); len(got) != 0 {
-		t.Errorf("ACLWildcardRows on broken table = %+v, want empty", got)
+	// BUGS A4: every list read must now return an ERROR, not an empty slice.
+	// Empty and broken used to be the same value, so a management surface
+	// answered 200 with `[]` for a table it could not read at all, and a caller
+	// had no way to tell "this principal holds nothing" from "the read failed".
+	for name, read := range readers {
+		got, err := read()
+		if err == nil {
+			t.Errorf("%s on a broken table returned no error — an unreadable policy must not read as an empty one", name)
+		}
+		if len(got) != 0 {
+			t.Errorf("%s on broken table = %+v, want no rows alongside the error", name, got)
+		}
 	}
 }

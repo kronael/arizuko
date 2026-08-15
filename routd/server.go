@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
@@ -218,12 +219,21 @@ func (s *Server) SetExtTools(t []ipc.ExtTool) { s.extTools = t }
 func (s *Server) SetIdentityResolver(r IdentityResolver) { s.identity = r }
 
 // resolveIdentity is the StoreFns.GetIdentityForSub backing: it delegates to the
-// authd resolver. A nil resolver returns the unclaimed shape.
+// authd resolver. A nil resolver returns the unclaimed shape. inspect_identity
+// is advisory, so a resolver error still renders as unclaimed — but it is logged
+// rather than swallowed, because "authd did not answer" and "nobody claims this
+// sub" read identically in the tool's output (BUGS N2).
 func (s *Server) resolveIdentity(sub string) (ipc.Identity, []string, bool) {
 	if s.identity == nil {
 		return ipc.Identity{}, nil, false
 	}
-	return s.identity.Resolve(sub)
+	id, subs, ok, err := s.identity.Resolve(sub)
+	if err != nil {
+		slog.Warn("inspect_identity: authd could not answer; rendering unclaimed",
+			"sub", sub, "err", err)
+		return ipc.Identity{}, nil, false
+	}
+	return id, subs, ok
 }
 
 // SetSessionResolver wires the runed session client backing inspect_session.
@@ -583,7 +593,13 @@ func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sub := r.PathValue("sub")
-	scope := s.db.UserScopes(sub)
+	scope, err := s.db.UserScopes(sub)
+	if err != nil {
+		// NOT 404 no_grants: authd would snapshot "this user holds nothing" from a
+		// broken read and mint a scopeless session (BUGS A4).
+		writeErr(w, 500, "db_error", err.Error())
+		return
+	}
 	if len(scope) == 0 {
 		writeErr(w, 404, "no_grants", "no grants for sub "+sub)
 		return
