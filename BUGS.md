@@ -2622,7 +2622,7 @@ the same "seed a default row" problem, not a property of seeding itself.
 - **Source:** `routd/migrations/0005-network-rules.sql`,
   `resreg/resources/network_rules.go:73`, verified 2026-08-04 by a 50-run
   `-count` sweep with the migration file moved aside vs restored
-- **Fix:** `routd/migrations/0037-network-rules-seed-timestamp.sql` — normalises
+- **Fix:** `493b280e` — `routd/migrations/0037-network-rules-seed-timestamp.sql` normalises
   the two system-seeded rows to the fixed literal `2026-08-04T00:00:00Z`,
   matching 0022's pattern. Scoped by exact PK plus `created_by='system'`, so an
   operator who re-added either target keeps their own stamp. 0005 is left
