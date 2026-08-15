@@ -4428,7 +4428,7 @@ noting: an adapter stuck in `health: starting` forever looks less alarming in
 - **Fix:** re-pair whapd per `reference_whapd_pairing`; set marinade's IMAP
   password. Neither requires a deploy.
 
-## D6 — `make test-all` is red: the services-hub link test cannot pass as written (2026-08-02, open)
+## D6 — `make test-all` is red: the services-hub link test cannot pass as written (2026-08-02, FIXED 2026-08-15)
 
 `tests/dashd-playwright/tests/services.spec.ts:32` ("built tiles link to their
 control plane") fails, so `make test-all` exits non-zero. Confirmed pre-existing
@@ -4458,9 +4458,17 @@ dashd UX decision and needs sign-off.
 - **Scope:** dashd services hub + its playwright contract
 - **Affected:** `tests/dashd-playwright/tests/services.spec.ts:32`,
   `dashd/services.go:31-38,142`
-- **Fix:** decide the link-when-unreachable question first, then align the test's
-  BUILT list with `services.go` and make the probe condition reachable in tests
-  (stub a healthy probe, or drop the status gate).
+- **Status:** FIXED 2026-08-15
+- **Fix:** both prerequisites this entry named were already resolved in the
+  code by the time of the 2026-08-15 audit — `dashd/services.go`'s link
+  condition is gated on `Built` alone (an unreachable built daemon links; see
+  `wantLink`/`s.Built` around `:101-155`), and `authd`/`proxyd` are `Built:
+  true`. Only the test's own `BUILT`/`UNBUILT` const arrays had not been
+  updated to match — they still listed `authd`/`proxyd` under `UNBUILT`,
+  which the test's own comment calls out as the wrong direction ("mirror
+  dashd/services.go, the source of truth"). Moved both into `BUILT`. Verified
+  live: `cd tests/dashd-playwright && npx playwright test services.spec.ts` —
+  failed on the stale list (`authd` unexpectedly linked), passes 5/5 now.
 
 ## A1 — the split is deployment-shaped only: auth data lives in the router's DB (2026-08-02, proposal)
 

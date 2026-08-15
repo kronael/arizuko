@@ -11,8 +11,8 @@ import { test, expect, asUser } from './_helpers';
 // dashd/services.go, the source of truth — keep in sync with it, not the
 // other way round.
 
-const BUILT = ['routd', 'runed'];
-const UNBUILT = ['authd', 'proxyd', 'onbod', 'timed', 'webd', 'davd'];
+const BUILT = ['routd', 'runed', 'authd', 'proxyd'];
+const UNBUILT = ['onbod', 'timed', 'webd', 'davd'];
 const ALL = [...BUILT, ...UNBUILT];
 
 test.describe('services hub', () => {
