@@ -1202,7 +1202,7 @@ Blast radius if wrong is total — this rewrites the column every credential
 lives in — so it does not ship inline, and it wants a rehearsal against a
 read-only `.backup` copy of each instance before the real run.
 
-## Web docs claim URL↔kind binding on route tokens; shipped code accepts any token at either URL (2026-07-12, fixed, LOW)
+## ✅ FIXED 2026-08-15 Web docs claim URL↔kind binding on route tokens; shipped code accepts any token at either URL — re-verified clean
 
 **Location**: `template/web/pub/arizuko/reference/tokens.html` §"/chat/ and /hook/ — each URL bound to its JID prefix kind" (+ echoes in `concepts/tokens.html`, `reference/schema.html`, both howto ledes)
 
@@ -1221,6 +1221,10 @@ spec section to the any-token contract (docs-only).
   `/hook`, no hook SSE row; POST `/hook` → 204) and removed its residual
   headers-delivery claim (same drift the fixed howto/webhooks entry removed —
   ingest forwards body only). `legacy/` snapshot pages left as-is.
+- **Re-verified 2026-08-15:** `webd/route_token.go:27` ("Both URLs accept any
+  valid token regardless of kind; kind is metadata") and
+  `reference/tokens.html:42` (same any-token wording) both still match the
+  shipped contract at HEAD `0d376586`.
 
 ## System-turn / broadcast delivery targets a folder-jid or prefix-less room → "no channel for jid" → the broadcast is silently lost (2026-07-13, OPEN)
 
