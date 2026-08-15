@@ -2572,7 +2572,7 @@ image build, are not protecting any live user.
   `invites` export against real data (this session's synthetic-schema tests
   already cover the post-migration shape; only the live-data path was blocked).
 
-## Z5 — `network_rules`' seed migration uses `CURRENT_TIMESTAMP`, making two fresh instances' checksums permanently unequal (2026-08-04, open)
+## ✅ FIXED 2026-08-15 Z5 — `network_rules`' seed migration uses `CURRENT_TIMESTAMP`, making two fresh instances' checksums permanently unequal (2026-08-04)
 
 Found chasing a flaky archive test (a cross-agent report of ONE failure led to
 a 50-run `-count` sweep, not dismissed as a fluke). `routd/migrations/0005-
@@ -2622,9 +2622,28 @@ the same "seed a default row" problem, not a property of seeding itself.
 - **Source:** `routd/migrations/0005-network-rules.sql`,
   `resreg/resources/network_rules.go:73`, verified 2026-08-04 by a 50-run
   `-count` sweep with the migration file moved aside vs restored
-- **Fix:** re-seed via a new migration with a fixed literal timestamp
-  (matching 0022's pattern) to normalize future installs — cannot rewrite an
-  already-applied migration; separately, decide whether `Checksum` should
-  exclude `StampedFields` generically (would also close part of Z2's gap).
-  Needs sign-off (schema + a content-hash semantics change), not attempted
-  here.
+- **Fix:** `routd/migrations/0037-network-rules-seed-timestamp.sql` — normalises
+  the two system-seeded rows to the fixed literal `2026-08-04T00:00:00Z`,
+  matching 0022's pattern. Scoped by exact PK plus `created_by='system'`, so an
+  operator who re-added either target keeps their own stamp. 0005 is left
+  untouched (already applied everywhere); a fresh install runs 0005 then 0037
+  and lands on the same bytes as an existing instance.
+
+**The `Checksum`/`StampedFields` question is DECIDED: no.** `Checksum` keeps
+hashing the exact `EmitYAML(Export(...))` bytes. Excluding `StampedFields` there
+would break the property the CAS rests on — that the hash is the hash of the
+document the operator holds — and would leave two renderers where 5/8 requires
+one. `Diff` ignores stamped fields because it answers a different question (did
+INTENT change); the hash answers "is the content still what I read". A
+non-deterministic seed is cured by making the seed deterministic, not by making
+the hash blind. Z2's gap stands on its own and is NOT closed by this.
+
+Also surfaced by the fix: `CURRENT_TIMESTAMP` was writing `2026-08-15 20:16:08`,
+SQLite's space-separated form — every other stamp in the projection is RFC3339,
+so the seed was off-format as well as non-deterministic. The literal is RFC3339.
+
+- **Verified:** `cmd/arizuko/seed_determinism_test.go` — two instances
+  bootstrapped >1s apart must agree on `resreg.Checksum`, plus a direct assert
+  on the literal so a future `CURRENT_TIMESTAMP` re-seed cannot pass by landing
+  inside one second. Mutation-checked: both tests FAIL with 0037 moved aside
+  (`a = sha256:e2c741d7…` vs `b = sha256:de29e07a…`) and pass with it restored.
