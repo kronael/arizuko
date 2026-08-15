@@ -1995,7 +1995,7 @@ because snapshots can't see that state.
 - **Status:** open
 - **Fix:**
 
-## No operator audit-log page (2026-06-16, open)
+## ✅ FIXED 2026-08-15 — No operator audit-log page (2026-06-16, open)
 
 `audit.Emit` writes events (dashd/main.go:114-124) but no `/dash` handler reads them. Spec 6/5
 covers authd identity events only; there is no operator-facing "who did what" view for dashd
@@ -2005,8 +2005,10 @@ actions (approve/deny onboarding, revoke token, etc.). Table stakes for multiten
 - **Scope:** dashd, authd
 - **Affected:** operators — no audit trail in UI
 - **Source:** dashd/main.go:114-124; grep: no audit handler in dashd
-- **Status:** resolved — /dash/audit/ shipped
-- **Fix:**
+- **Status:** resolved — verified 2026-08-15: `dashd/audit_page.go` mounts `GET
+  /dash/audit/`, operator-gated, federating `audit_log` from routd/runed/authd/onbod
+  via each owner's `/v1/audit` (no direct DB read). `navLinks` carries the `audit` tile.
+- **Fix:** shipped, no further code change; heading closed docs-only.
 
 ## No usage/analytics page (2026-06-16, open)
 
