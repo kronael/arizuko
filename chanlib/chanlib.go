@@ -376,6 +376,17 @@ func MustEnv(k string) string {
 	return v
 }
 
+// EnvDur reads a Go duration ("20m", "90s"). Unset, unparseable or
+// non-positive → fallback.
+func EnvDur(k string, fallback time.Duration) time.Duration {
+	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return fallback
+}
+
 func EnvBytes(k string, def int64) int64 {
 	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {

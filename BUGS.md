@@ -1223,7 +1223,7 @@ after runed becomes ready. Live krons reproduced this fleet-wide at
 - **Fix:** gate queue replay on runed readiness, or keep transient connection
   failures outside the breaker budget until the execution plane is ready
 
-## T1 — PROPOSED, needs sign-off (verified still open 2026-08-15) — stalled typing indicator on timed-out/errored turns (2026-07-26)
+## ✅ FIXED 2026-08-15 — T1 — stalled typing indicator on timed-out/errored turns (2026-07-26)
 
 Symptom (krons, telegram:user/1112184352, 2026-07-26): the agent shows "typing…"
 for ~20 min then goes silent with no reply. Recurring; the user recognises it as
@@ -1272,6 +1272,60 @@ Fix (redesign — needs sign-off; routd turn-lifecycle + chanlib backstop):
    call losing auth is its own bug; the user-facing timeout must still surface a
    notice (dispatch.go:339 `runFailureNotice` covers the non-steered parent, but
    confirm it fires for the steered-follow-up case).
+
+**FIXED 2026-08-15 — points 1 and 2 shipped; point 3 was CONFIRMED and split
+out.**
+
+Point 1, and it is the cause rather than the symptom: `turn_context.run_id`
+ALREADY records which run each turn was steered into (`SetTurnRunID`, set from
+the steer ack's parent `RunID`), so the run-end clear reads that instead of
+keeping a second ledger of indicator owners. `DB.TypingJIDsForRun` resolves each
+turn's indicator chat the same way dispatch picked it — `return_to` when set,
+else `chat_jid` — and dispatch's single `Typing(typingJID, false)` became a loop
+over `typingOwnedBy(typingJID, out.RunID)`. This is why the reported case ran
+the full 20 minutes: the parent's own clear fires on the PARENT's chat, and
+routd steers by FOLDER, so a follow-up from a second chat in the same folder was
+never covered by it.
+
+Point 2: `DefaultTypingMaxTTL` is now `90%` of `RUNED_RUN_TIMEOUT`
+(`chanlib.typingMaxTTL`, floored at 1m) instead of a flat `20m` that equalled
+the wall. It reads the env var runed and routd already read, and
+`template/services/{teled,discd}.yml` now pass it, so an instance with a wider
+wall widens the backstop instead of losing the indicator early. A test asserts
+the derivation stays strictly below the wall for every plausible value.
+
+Point 3 CONFIRMED OPEN and filed as `T2` rather than folded in: the steered
+branch returns before the `Outcome == OutcomeError` block, so a steered turn in
+another chat gets no failure notice at all. That is a delivery concern, not a
+typing concern, and merging it here would make one fix span two.
+
+## T2 — a steered turn gets no failure notice when its run dies (2026-08-15, open)
+
+Split out of `T1` point 3, confirmed at this tree while fixing `T1` points 1
+and 2.
+
+`dispatch.go`'s steered branch marks the turn done and returns
+(`return true, true, false, nil`) BEFORE the `out.Outcome == OutcomeError`
+block that sends `runFailureNotice`. The parent run's own error branch does
+send a notice — to the PARENT's chat. routd steers by FOLDER, so a follow-up
+from a second chat in the same folder had its message consumed into the
+container and gets nothing at all when that run dies at the timeout wall.
+
+`T1` closed the half that lies (the indicator now stops). This is the half that
+is silent.
+
+- **Severity:** medium — the user's message was accepted and produced neither a
+  reply nor an error
+- **Scope:** turn failure delivery
+- **Affected:** routd dispatch, any folder with two chats routed to it
+- **Source:** `routd/dispatch.go` (steered early return vs the
+  `OutcomeError` notice block)
+- **Status:** open — needs a decision before code. The steered turn is already
+  marked `done`, so there is no retry to wait for, but notifying every steered
+  chat of a failed run risks a notice storm on a folder that steers heavily.
+  A per-run cap, or notifying only steered turns with no delivered bot row
+  (`TurnHasBotReply`), are the two shapes worth costing.
+- **Fix:**
 
 ## X2 — the aws-devops product's credential model died with X1 (2026-08-09, proposed)
 

@@ -875,6 +875,38 @@ func (d *DB) SetTurnRunID(turnID, runID string) error {
 	return err
 }
 
+// TypingJIDsForRun returns the chats whose typing indicator a run owns: one per
+// turn recorded against run_id, resolved the same way dispatch picks the
+// indicator's chat — the delegation return address when set, else the turn's
+// own chat.
+//
+// A follow-up that arrives mid-run is STEERED into the live container, and
+// steering is by FOLDER, so the steered turn's chat is not always the running
+// turn's chat. Its indicator was handed to a submit_turn that never fires when
+// the run dies at the timeout wall, and nothing else cleared it (BUGS T1).
+// turn_context.run_id already records which run each turn went into, so the
+// run-end clear reads that rather than keeping a second ledger of owners.
+func (d *DB) TypingJIDsForRun(runID string) []string {
+	rows, err := d.db.Query(
+		`SELECT DISTINCT COALESCE(NULLIF(return_to,''), chat_jid)
+		 FROM turn_context WHERE run_id=?`, runID)
+	if err != nil {
+		slog.Error("typing jids for run", "run_id", runID, "err", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var jid string
+		if err := rows.Scan(&jid); err != nil {
+			slog.Error("typing jids for run: scan", "run_id", runID, "err", err)
+			continue
+		}
+		out = append(out, jid)
+	}
+	return out
+}
+
 // IncrementRetryCount bumps a turn's retry_count and sets state to pending_retry.
 // Returns the new count.
 func (d *DB) IncrementRetryCount(turnID string) (int, error) {
