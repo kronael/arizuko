@@ -1809,7 +1809,7 @@ next proxyd restart activates it).
   (every instance's route table), so this stays a PROPOSAL needing sign-off,
   not a same-session fix.
 
-## P3 — Proxyd dispatch combines routes from two database snapshots (2026-07-30, proposed)
+## ✅ FIXED 2026-08-15 P3 — Proxyd dispatch combines routes from two database snapshots (2026-07-30)
 
 Route matching reads one snapshot, then proxy selection rereads the table and
 rebuilds proxies. A concurrent route mutation can pair old authentication policy
@@ -1820,9 +1820,28 @@ work on every routed request.
 - **Scope:** proxyd request dispatch
 - **Affected:** requests concurrent with `proxyd_routes` mutation
 - **Source:** proxyd/main.go:124-136,625-626,654-660; proxyd/resource.go:60-91
-- **Status:** proposed — passing one route/proxy snapshot through dispatch changes
-  request control flow and needs sign-off
-- **Fix:**
+- **Fix:** one snapshot per dispatch. `s.routes()`/`s.proxies()` each called
+  `rr.snapshot()` — two reads of `proxyd_routes` and two full proxy-map builds
+  per routed request. Replaced by `s.routeSnapshot()`, taken once in the
+  catch-all handler and passed into `dispatchRoute(rt, proxies, …)`; `s.routes()`
+  survives only for the callers that need the table and no backend (startup log,
+  `/health` count). Halves the per-request DB reads and proxy construction as a
+  side effect.
+
+The false 404 is now impossible-by-construction rather than merely unlikely:
+`snapshot()` builds a proxy for every non-redirect route in the same read, and
+`dispatchRoute` returns early on redirects, so `proxies[rt.Path]` cannot be nil
+for a route matched from that snapshot. That branch answered a bare 404 —
+blaming the caller for a proxyd bug — and now logs loud and answers 500.
+
+- **Verified:** `proxyd/dispatch_snapshot_test.go`.
+  `TestSnapshotCarriesAProxyForEveryRoute` is the deterministic structural
+  guard. `TestConcurrentRouteMutationNeverSplitsAcrossSnapshots` deletes and
+  re-adds THE MATCHED route under 8 concurrent readers and requires both a
+  match and a miss to occur (else the fixture is vacuous), then asserts no
+  matched request ever lost its backend. Mutation-checked: restoring the second
+  `routeSnapshot()` call inside the loop reproduces it — "4 of 58 matched
+  requests found no backend". Full `go test ./proxyd/ -race` green (424s).
 
 ## K1 — Security-sensitive identifier generators discard entropy failures (2026-07-30, proposed)
 
