@@ -1782,7 +1782,7 @@ destination rather than choose one source implicitly.
   `.yml` (krons/marinade/sloth converted, `.toml.bak` kept). `.yml` is now the
   only package format, so the overwrite hazard no longer exists.
 
-## C4 — compose migration accepts unsupported Compose v2 versions (2026-07-28, open)
+## C4 — compose migration accepts unsupported Compose v2 versions (CLOSED-STALE 2026-08-15 — legacy converter deleted 258d14f8, heading was stale)
 
 The generated file uses top-level `include`, which requires Docker Compose
 2.20+, while INSTALL.md accepts any Compose v2. On an older qualifying host,
