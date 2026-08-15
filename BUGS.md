@@ -839,7 +839,7 @@ Same defect class as `auth/delegate.go`'s "used at spawn" header, fixed 2026-08-
 under `specs/5/5` R4. This one was left alone to keep that change's diff to a
 single file. One-line comment fix; no behavior change.
 
-## F55 — `emaid` runs an undeclared SQLite DB with an inline schema and no migrations (2026-08-07, open)
+## ✅ FIXED 2026-08-11 F55 — `emaid` runs an undeclared SQLite DB with an inline schema and no migrations (2026-08-07)
 
 `emaid/store.go:22` opens `<DATA_DIR>/emaid.db` — resolving to
 `store/emaid/emaid.db` — and creates its schema with an inline
@@ -2321,7 +2321,7 @@ both need the announce target-resolution audited together.
   cross-group global dedup is still per-group — two groups tagging the same
   server double-post (operator-controlled: tag one channel per server).
 
-## S2 — Missing SECRETS_KEY permits plaintext secret writes despite the required-key contract (2026-07-14, open)
+## ✅ FIXED 2026-08-11 S2 — Missing SECRETS_KEY permits plaintext secret writes despite the required-key contract (2026-07-14)
 
 The configuration contract says `SECRETS_KEY` is required, with no plaintext
 mode or `AUTH_SECRET` fallback, but routd only warns when the keyring is empty.
@@ -2363,6 +2363,20 @@ authenticates, and `SetSecretKeys` keeps the order. Comma-separate the value —
 the first key seals, the rest decrypt retired values.
 `TestSecret_NoKey_RefusesToWrite` and `TestStoreValue_NeverReturnsPlaintext`
 cover the refusal; reverting the guard fails both.
+
+**Heading closed 2026-08-15 — the fix was already shipped, only the heading
+still said open.** Re-verified at `bcb5bb83` rather than taken on the entry's
+word. `storeValue` returns `ErrNoSecretsKey` and an EMPTY string on an empty
+keyring (`store/secrets.go:83`), and it is the only sealer: every `INSERT`/
+`UPDATE` of `secrets.value` outside it is `EncryptPlaintextSecrets` (re-sealing
+rows it just read) or `ValidateAndImportSecrets` (archive blobs that travel
+as-is by design, spec 5/8). The four write paths named in the fix —
+`SetSecret`, `PutSecretRow`, `PutOAuthSecret`, `UpdateOAuthSecret` — all funnel
+through it. routd refuses to boot without the key
+(`core.RequireSecretKeyring`, `routd/cmd/routd/main.go:67`), the `arizuko
+secret` CLI refuses before opening the store (`cmd/arizuko/secret.go:33`), and
+`compose/compose.go` now scopes `SECRETS_KEY` to three daemons including dashd.
+No write path bypasses the refusal.
 
 ## L20 — whapd acks a send it has not sent, so routd records it as delivered (2026-08-11, open)
 
