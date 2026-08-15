@@ -137,14 +137,12 @@ func TestChannelRegisterListDeregister(t *testing.T) {
 		t.Fatalf("prefixes=%+v", list.Channels[0].JIDPrefixes)
 	}
 
-	// deregister with the session token.
 	drec := httptest.NewRecorder()
 	h.ServeHTTP(drec, chanReq("POST", "/v1/channels/deregister", rr.Token, nil))
 	if drec.Code != 200 {
 		t.Fatalf("deregister status=%d body=%s", drec.Code, drec.Body.String())
 	}
 
-	// list is empty again.
 	lrec2 := httptest.NewRecorder()
 	h.ServeHTTP(lrec2, chanReq("GET", "/v1/channels", testChanSecret, nil))
 	json.Unmarshal(lrec2.Body.Bytes(), &list)

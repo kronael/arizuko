@@ -144,7 +144,6 @@ func TestChannelRegisterES256OriginPinSurvivesRotation(t *testing.T) {
 	body := map[string]any{
 		"name": "teled", "url": "http://teled:8080", "jid_prefixes": []string{"telegram:"},
 	}
-	// First registration by service:teled.
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", mint("service:teled"), body))
 	if rec.Code != http.StatusOK {
@@ -178,7 +177,6 @@ func TestIngressJIDOwnershipES256(t *testing.T) {
 	srv.SetChannelRegistry(chanreg.New())
 	h := srv.Handler()
 
-	// register service:teled owning telegram:
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", tok, map[string]any{
 		"name": "teled", "url": "http://teled:8080",

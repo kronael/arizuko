@@ -22,8 +22,6 @@ import (
 // gated — extFromMime, multi-language whisperTranscribe + readWhisperLanguages,
 // the base64 attachment arm, and the skip-empty-URL guard.
 
-// --- extFromMime canonical extension (mirror gated extFromMime) ---
-
 // TestExtFromMime: the filename extension wins; otherwise canonical preferred
 // extensions pin Claude-readable types; family fallbacks and .bin last.
 func TestExtFromMime(t *testing.T) {
@@ -49,8 +47,6 @@ func TestExtFromMime(t *testing.T) {
 	}
 }
 
-// --- readWhisperLanguages (.whisper-language) ---
-
 // TestReadWhisperLanguages: one language per non-blank line; missing file → nil.
 func TestReadWhisperLanguages(t *testing.T) {
 	dir := t.TempDir()
@@ -71,8 +67,6 @@ func TestReadWhisperLanguages(t *testing.T) {
 		}
 	}
 }
-
-// --- whisperTranscribe multi-language ---
 
 // TestWhisperTranscribe_MultiLanguage: each configured language hits the service
 // once; results join with newlines. Mirrors gated whisperTranscribe per-lang fan-out.
@@ -120,8 +114,6 @@ func TestWhisperTranscribe_DefaultSingleLang(t *testing.T) {
 		t.Errorf("default lang request carried language=%q, want unset", sawLang)
 	}
 }
-
-// --- enrich base64 attachment arm + skip-empty-URL ---
 
 func b64VoiceAtt(data string) string {
 	raw, _ := json.Marshal([]chanlib.InboundAttachment{
