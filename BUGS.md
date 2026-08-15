@@ -7,6 +7,93 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## Error-hygiene sweep: swallowed / mis-levelled errors in the hot path (2026-07-11, 2 FIXED, rest OPEN)
+
+Sweep for the same class as the no-reply bug below (an error swallowed as
+Warn/`_ =` while execution continues → silent degradation). Two shapes recur:
+`if err == nil { use }` with the else branch missing, and `_ = err` on
+bookkeeping writes that matter next turn.
+
+**FIXED this pass** (both were missing error logs, no control-flow change):
+- `routd/loop.go` `resolve()` — a transient `l.db.Routes()` read failure was
+  indistinguishable from a clean route-miss, so the poll caller advanced the
+  cursor and **dropped the inbound message** with zero log. Kept the
+  fail-forward (retry risks a poison-message loop) but made the drop a loud
+  `slog.Error`.
+- `routd/turns.go:337` `handleDocument` — `s.deliver.Document` error had no
+  `else`, so `send_file` failures returned HTTP 200 (row left pending) and were
+  never logged, unlike the sibling `handleSend` (`turns.go:308` logs
+  "deliver send failed"). Added the matching `slog.Error`.
+
+**VERIFIED, OPEN** (real, left for prioritisation):
+- `authd/main.go:108-112` — `core.LoadConfig()` failure → OAuth `/auth/*` not
+  mounted, logged only `Warn`, server starts green (JWKS/health OK). Human login
+  404s while everything reports healthy. **FIXED 2026-07-11** — elevated to
+  `slog.Error` with the "login 404s while health green" symptom in the message.
+
+**NOT A BUG** (verified benign, recorded so it isn't re-flagged):
+- `container/runner.go:173` `ipcDir, _ := folders.IpcPath(in.Folder)` — the same
+  folder is already resolved+validated via `buildMounts` (`runner.go:170`, which
+  handles the error at `:560`) before line 173; `IpcPath` won't diverge for a
+  folder that reached dispatch. Discard is a cosmetic asymmetry, not a live gap.
+- `routd/prompt.go:29-39` (scout #2) — the store reads there don't surface an
+  error at the call site (methods return zero-value/empty context); the one
+  explicit `_ = UpdateObservedCursor` is **documented-benign** (comment L24-27:
+  re-seeing observed messages is harmless, at-least-once by design).
+
+**REPORTED by sweep, NOT yet independently verified** (read before fixing):
+- `ipc/ipc.go:378-386` `writeJSON` — swallows `json.Marshal` error with bare
+  `return`, no error frame → tool result vanishes, caller times out. (HIGH if
+  confirmed.) **Verified + partially fixed 2026-07-13** — marshal failure now
+  `slog.Error` (same log-add shape as the two FIXED items above; no
+  control-flow change). Error-frame delivery stays open: writeJSON takes an
+  opaque `v`, so a proper JSON-RPC error frame needs the request id threaded
+  in — design, not a log-add.
+- `ipc/ipc.go:348-361` — peer-cred/UID mismatch on MCP accept only `Warn`; gates
+  every tool call for the group. (MED)
+- `crackbox/pkg/admin/registry.go:84-107` `flushLocked` — `Warn`+return on
+  disk-persist failure inside a void fn; handler still ACKs 200 → stale egress
+  allowlist can reappear after restart. (MED)
+- `routd/turns.go:670-676` `recordTurnResult` — discards `PutMessage`/`PutSession`
+  errors (this path historically broke all replies post-split — verify first). (MED)
+- `runed/manager.go:212-214`, `runed/docker.go:66` (steer silently no-ops),
+  `ipc/ipc.go:340-345` (conn-limit reject, no error frame),
+  `routd/dispatch.go:263,305,320` (terminal SetTurnState unlogged),
+  `crackbox/pkg/host/host.go:130-132`, `routd/budget.go:32-43` (spend caps fail
+  open on a DB hiccup). (MED/LOW)
+
+Adapters (teled/discd/slakd/mastd/bskyd/reditd/emaid/chanlib) swept clean for
+this class.
+
+## Root-owned group home → agent runs config-less, silently never replies ("typing but no reply") (2026-07-11, ROOT CAUSE FIXED on krons, HARDENING OPEN)
+
+Symptom (user-reported): the bot shows a typing indicator then never replies,
+intermittently. Reproduced on krons folder `krons/content`: 4 turns (5729–5732)
+dispatched + spawned, each ran ~33s, logged `[ant] Query done. Messages: 0,
+results: 0` then `[ant] Input empty, exiting`, `code:0` — **no `turn_results`
+row, no bot message**. rhias/nemo (healthy) replies normally.
+
+**Root cause.** `groups/krons/content` was hand-created as **root:root** (Jul 7,
+manual `mkdir`/host-CLI — the "never mkdir groups manually, use onbod/SetupGroup"
+rule, `group_creation` memory). The container runs `user: 1000:1000`
+(`compose/compose.go:694`); it can't `mkdir .claude` under the root-owned home, so
+`cpDirImpl` (`container/runner.go:1146`) and `writeSettings`
+(`container/runner.go:865`) both fail — **settings.json (which carries the
+`mcpServers.arizuko` socket + outputStyle) is never written** → the SDK query
+runs with no MCP tools and returns 0 messages → no reply. Note `krons/content` is
+also a **ghost**: routed-to but NOT in `groups` (registered krons groups:
+adshaus, happy, krons, krons/public/marble, mayai, rhias, rhias/content,
+rhias/nemo). Fixed live: `chown -R 1000:1000 groups/krons/content`; uid-1000 can
+now write `.claude`. Pending end-to-end confirm on next inbound.
+
+**Hardening (OPEN).** Both write-failure sites swallow the error as `WARN` and
+continue, producing a silently dead agent — violates CLAUDE.md "strict, not
+magical / no silent fallbacks." Fix: when the group home is not writable (mkdir
+`.claude` = permission denied, or settings.json write fails), fail LOUD — log
+`ERROR` with the folder AND abort the spawn / deliver an error turn, rather than
+running a config-less container. Also consider refusing to dispatch a folder with
+no `groups` row (ghost-group guard) or auto-`chown` a fresh home to the run uid.
+
 ## F5 — `store.UserScopes` decides folder visibility without action or deny (2026-08-05, PARTIALLY FIXED 2026-08-05)
 
 `specs/5/32` makes `auth.Authorize` the one question the ACL answers.
@@ -64,231 +151,6 @@ folders appear for existing users — a live authorization-behaviour change.
   cannot represent deny — an auth-model change, which is precisely the class
   that ships only after sign-off.
 - **Found:** specs/5 frontmatter audit; `5/32` demoted to `partial`, now shipped.
-
-## ✅ FIXED 2026-08-06 F6 — `5/K`'s backend contract claims more than `ant/` implements (2026-08-05, RESOLVED BY DELETION)
-
-Four statements in `specs/5/K-ant-backend-codex.md` are not backed by the code:
-
-1. **Graceful degradation is unimplemented.** `capabilities()` has exactly two
-   call sites, both tests (`codex.test.ts:67`, `select.test.ts:32`); nothing in
-   `ant/src/index.ts` branches on it. The spec (lines 57-58) promises the
-   runtime "degrades gracefully" when a capability is `false`.
-2. **The backends disagree on a capability the spec says both satisfy.**
-   `claude.ts:443` sets `setModelLive: false`, `codex.ts:323` sets it `true`;
-   spec lines 59-60 say *"Both claude and codex satisfy every field today."*
-3. **`claude.ts` has no dedicated test file** — the default backend, driving
-   every production turn, is exercised only indirectly. `codex.ts` has
-   `codex.test.ts`.
-4. **`ARIZUKO_BACKEND` is undocumented.** Read at `ant/src/index.ts:444-445`
-   and `ant/src/backend/index.ts:1,14,25`; it appears in no README, no
-   ARCHITECTURE/EXTENDING section, and no `template/` env file — the switch
-   that picks the harness is discoverable only by reading the source.
-
-- **Severity:** medium (the default backend is untested; the selector is undiscoverable)
-- **Scope:** ant backend abstraction
-- **Affected:** all instances running ant
-- **Source:** ant/src/backend/claude.ts:443; ant/src/backend/codex.ts:323; ant/src/index.ts:444-445; ant/src/backend/index.ts:1,14,25; specs/5/K-ant-backend-codex.md:57-60
-- **Status:** RESOLVED 2026-08-06 — the operator chose deletion over wiring.
-  `13c9d12d` removed the whole `Backend`/`Caps`/`Session` seam, `codex.ts`
-  and `ARIZUKO_BACKEND`; `8e2e563f` deleted `5/K`. Every item is moot: there
-  is no `capabilities()` to wire (1), no second backend to disagree with (2),
-  and no selector to document (4). Item 3's fix survives — `claude.test.ts`
-  moved to `ant/src/claude.test.ts` and still covers `normalize()`
-  row-by-row, verified falsifiable by mutation.
-  Root cause the audit missed: `ARIZUKO_BACKEND` was unreachable, not merely
-  undocumented — `container/runner.go` `buildArgs` never emitted it into the
-  container, so codex could never have been selected in production.
-- **Fix (2, 3, 4):** `cd6ebc0b`. The spec no longer claims both backends
-  satisfy every field; `setModelLive` is now pinned by a test on BOTH sides
-  (`claude.test.ts` false, `codex.test.ts` true) so the divergence is a
-  recorded fact. `claude.test.ts` covers `normalize()` row-by-row against
-  `5/K`'s mapping table — deliberately not re-testing `claudeResultStatus`,
-  which `index.test.ts` already owns. `ARIZUKO_BACKEND` documented in
-  `ant/README.md` + `EXTENDING.md`. (`reference/env.html` is another agent's
-  lane this round and is NOT done.)
-
-### ✅ F6.1 — SIGNED OFF + SHIPPED 2026-08-06: delete `Caps` and four dead `Session` methods
-
-The audit called item 1 "wire or drop `capabilities()`". It cannot be wired as
-specced, and the reason generalizes past `capabilities()`:
-
-- `interrupt`, `sendUserMessage`, `setModel`, `setPermissionMode` have **zero
-  call sites** in `ant/src` outside the two backend implementations. Four of
-  `Caps`' eight fields exist to gate exactly those.
-- `5/K`'s worked example — *"no live interrupt → close+respawn"* — is what
-  `runQuery` does **unconditionally**. It always ends in `session.close()`;
-  continuation is always a fresh `spawn()` with `resume`/`resumeAt`. The
-  degraded path is the only path, so the capability check would gate nothing.
-- Building the undegraded half would add a **third** live-steering mechanism
-  beside the respawn loop and each backend's native wiring (claude's
-  `createIpcDrainHook` PostToolUse drain of `/run/ipc/input`; codex's
-  `turn/steer`) — the parallel second path root `CLAUDE.md` forbids.
-- `streaming` / `toolUse` have no branch to gate: a backend that cannot stream
-  cannot implement `events()`. The runtime's two real backend branches
-  (`resolveResumeSession`, MCP rendering) key on `backend.name()`, because they
-  are about one harness's id format and config format, not a capability.
-
-**Proposed:** delete `Caps`, `Backend.capabilities()`, and the four unused
-`Session` methods; the seam becomes `name()` + `spawn()` + `events()` +
-`close()`, which is what the runtime actually calls. `codex.ts`'s `turn/steer`
-and `turn/interrupt` implementations stay — they are reachable from inside the
-backend, which is where steering belongs.
-
-**Shipped 2026-08-06 — and the operator went further than the proposal.** Not
-just `Caps` and the four methods: the entire in-process seam is gone, `codex.ts`
-with it. The proposal's own reasoning generalized one step past where it
-stopped — if the runtime only ever calls `spawn`/`events`/`close` on a single
-implementation, the interface is not a seam, it is a one-implementation
-indirection.
-
-Harness independence was never lost, because it never lived here. It lives at
-the **process boundary**: the MCP tool surface + `submit_turn` on the unix
-socket `routd` serves in-process, which ant already speaks every turn as a
-socat client. A TypeScript interface compiled into ant was a second, weaker
-copy of a genericity the wire protocol already provides — the parallel second
-path root `CLAUDE.md` forbids. The durable idea moved to `5/P` § "ant wraps a
-harness, it never is one"; `5/K` is deleted.
-
-## ✅ FIXED 2026-08-06 F7 — runed has no `audit_log` table at all (2026-08-05, FIXED)
-
-`specs/5/I`'s Layer A is "state-changing REST call writes an `audit_log` row in
-its own tx", and every other daemon that owns a DB implements it — authd, onbod
-and routd each carry an `audit_log` migration and `EmitInTx` call sites. runed
-carries neither: `grep -ri audit runed/` is empty, and `runed/migrations/`
-(0001-0004) never creates the table. This is deeper than unwritten calls — there
-is nowhere to write.
-
-The two endpoints that need it are the highest-consequence ones runed has:
-`handleRun` (`runed/server.go:86-115`) spawns a container, `handleHold`
-(`server.go:123-147`) claims a folder's run slot. Both call the manager
-directly.
-
-Precision on the spec: `specs/5/I-tool-call-logging.md:32` mentions runed once,
-under Layer B (the stderr tool-log tap, explicitly "no DB write"). So the spec
-does not name runed as a Layer A participant — but Layer A is stated as an
-unconditional rule for state-changing REST, which `/v1/runs` and `/v1/holds`
-are.
-
-- **Severity:** medium (container spawns and run-slot claims leave no trail)
-- **Scope:** runed audit instrumentation
-- **Affected:** all instances
-- **Source:** runed/migrations/0001-0004 (no audit_log); runed/server.go:86-115,123-147; specs/5/I-tool-call-logging.md:32
-- **Status:** resolved-not-yet-removed
-- **Fix:** `1d4f33b9`. Migration `0005` adds the table (the routd-0016 shape)
-  and `main.go` wires `audit.Init` on runed's own handle. **The report's
-  proposed fix was not taken, on two counts.**
-
-  *`POST /v1/runs` is deliberately NOT audited.* A row per turn duplicates the
-  `spawns` row, which already carries kind, state, outcome, exit_code, steered
-  and all three timestamps and is rendered by dashd — strictly more than an
-  audit row, at the same volume. That is `audit/PLAN.md` § SKIP's own rule for
-  `messages` (the row IS the record) applied to runed's record.
-  `TestRunEmitsNoAuditRow` pins it. What `spawns` cannot answer is who ASKED,
-  so the audited calls are the ones that are pure intent: `run.hold` (POST
-  `/v1/holds`) and `run.kill` (DELETE `/v1/runs/{id}`, POST `/v1/runs/stop`).
-  Both also have outcomes that write no `spawns` row at all — a busy hold, a
-  kill of an already-terminal run, a `/stop` on an idle folder — where the
-  audit row is the only trace the call happened.
-
-  *`EmitDB`, not `EmitInTx`.* Manager.Kill's mutation lands on the docker
-  daemon and Manager.Hold's detaches into a goroutine; runed's writers are
-  autocommit throughout (`runed/db.go`). There is no `*sql.Tx` to join — the
-  same reasoning as `75cc1a6b`.
-
-  The report's `turn_id` note does not apply either: neither audited call
-  carries one. A hold is external (a restore, a vacuum) and an operator kill
-  arrives by run_id or folder, not from inside a turn. The join key is
-  `resource = runs/<run_id>` → `spawns`.
-
-  Still open, tracked in `specs/5/I`'s status rather than here: **denied**
-  runed calls are unrecorded. That is `authz.deny`, it applies to every runed
-  endpoint including the reads, and it wants one uniform gate — a kills-only
-  denial row would be an arbitrary slice of it.
-
-## ✅ FIXED 2026-08-06 F8 — the OpenAPI aggregator page misstates routd and omits two daemons (2026-08-05, FIXED)
-
-Two errors on `template/web/pub/arizuko/reference/openapi.html`, the page
-`specs/5/17` designates as the discovery surface:
-
-1. Line 89 states `secrets` is *"excluded… to keep enc_value blobs off any read
-   surface"*. routd includes it — `routd/cmd/routd/main.go:268-269` lists
-   `secrets` in the `OpenAPIHandler` allowlist, with a write-only verb set. The
-   protection is real, the description of it is not. (The audit also claimed
-   `route_tokens` was falsely described as excluded; it is not mentioned on the
-   page at all, so that half is DISPROVED.)
-2. The aggregator table (lines 55-81) lists six daemons — routd, proxyd, onbod,
-   webd, dashd, timed. Eight mount `/openapi.json`: **authd**
-   (`authd/main.go:114`) and **runed** (`runed/cmd/runed/main.go:116`) are
-   missing. No reverse drift — nothing listed is unmounted.
-
-- **Severity:** low (discovery gap + one false security claim in operator docs)
-- **Scope:** web docs vs routd/authd/runed mounts
-- **Affected:** operators using the aggregator
-- **Source:** template/web/pub/arizuko/reference/openapi.html:55-81,89; routd/cmd/routd/main.go:268-269; authd/main.go:114; runed/cmd/runed/main.go:116
-- **Status:** resolved-not-yet-removed
-- **Fix:** `016d3d0b` (secrets wording + the authd/runed rows) and `d8b0ecd4`.
-  The second pass found three more drifts on the same page that the audit had
-  not: `installed_packages` was missing from routd's row (it IS in
-  `routd.OpenAPIResources`), emission was described as a fixed five-operation
-  CRUD convention (`resreg/openapi.go:217` emits one operation per declared
-  `Endpoint`, falling back to the convention only when none are declared), and
-  `x-mcp-when` — the whole point of `5/17` — was absent. `routd/README.md:51`
-  carried the same stale `secrets`-is-excluded claim and was corrected too.
-  NOT deployed: `template/web/pub/` is source-of-truth; the rsync is the
-  operator's step.
-
-## ✅ FIXED 2026-08-15 F61 — nine code comments cite "Spec 5/34" for cost caps; 5/34 is the channel protocol (2026-08-07, Go half FIXED 2026-08-09)
-
-`specs/5/34-channel-protocol.md` is the channel adapter protocol. The cost-cap
-spec is `specs/11/19-cost-caps.md` (`status: partial`). Nine production sites
-cite the wrong one:
-
-`core/config.go:121`, `store/cost_log.go:8`, `store/cost_log.go:62`,
-`ipc/ipc.go:118`, `ipc/ipc.go:122`, `ipc/ipc.go:216`, `ipc/ipc.go:958`,
-`proxyd/main.go:703`, `cmd/arizuko/budget.go:14`, plus
-`ipc/log_external_cost_test.go:9`.
-
-`ipc/ipc.go:958` is the worst of them: the bad pointer is inside an **MCP tool
-description string**, so it is shipped to the agent, not just to a reader.
-
-Harmless at runtime, but it is the comment-asserts-a-false-fact class that has
-cost this project several wrong briefs — an agent following the pointer lands
-on adapter wire types and concludes cost caps are a channel concern. Mechanical
-fix (rewrite the pointer at ten sites); no behavior change.
-
-Found while shipping `specs/5/5`, which now cites `11/19` correctly. Recorded,
-not fixed — out of that change's scope.
-
-**Go half FIXED 2026-08-09.** All ten listed sites were still wrong — none had
-been corrected. Rewritten to `spec 11/19`, except the MCP tool description
-(`ipc/ipc.go:981`), which gets the full `specs/11/19-cost-caps.md` path because
-the agent reading it has to be able to open the file. A repo-wide grep for
-`5/34` in `.go` now returns only channel-protocol citations, which are correct.
-
-Three cost-cap `5/34` pointers are deliberately LEFT, each behind release
-machinery this change should not drag in:
-
-- `ant/skills/oracle/SKILL.md:79` — agent-shipped, so editing it needs a
-  migration file + `MIGRATION_VERSION` bump + ant image rebuild.
-- `template/web/pub/arizuko/reference/{mcp,schema,cli}.html` (+ the `legacy/`
-  twins) — these need the web-docs deploy. Their `href` is separately wrong: it
-  points at `specs/10/19-cost-caps.md`, a path that does not exist either.
-- `CHANGELOG.md` and `ant/skills/self/migrations/120-v0.36.0-cost-caps.md` are
-  dated records of what shipped under the old numbering. Correct as history;
-  must NOT be rewritten.
-
-**CLOSED 2026-08-15.** Both deferred halves verified gone at `bcb5bb83`:
-`ant/skills/oracle/SKILL.md` has no `5/34` left (repo-wide `grep -rn 5/34 ant/`
-returns only `ant/src` + the dated migration), and the live
-`template/web/pub/arizuko/reference/{mcp,schema,cli}.html` are clean — the only
-surviving web hits are the frozen `legacy/` snapshots, which this file's own
-precedent leaves as-is.
-
-The same pass closed a FIFTH category the entry never enumerated: five
-`ant/src` sites cited `5/34` for cost accounting (`claude.ts:43`, `claude.ts:238`,
-`index.ts:72`, `mcp.ts:6`, `claude.test.ts:56`). `specs/5/34` contains the
-string "cost" zero times, so these were the same wrong pointer in TypeScript.
-Repointed to `11/19`; comments only, no behaviour, so no migration bump.
 
 ## F77 — skill-guard's per-line scan is evadable by splitting a payload (2026-08-08, PARTIALLY FIXED 2026-08-08)
 
@@ -433,75 +295,6 @@ length envelope, no per-surface shape.
   length/markup envelope per platform, not a template — so it wants the user's
   call before anyone writes prose into the agent's mouth.
 - **Fix:**
-
-## ✅ FIXED 2026-08-15 L28 — `routeTargetWithin` still parses three target prefixes no writer emits (2026-08-15)
-
-`routd/routes_resource.go:386-392` branches on `folder:`, `daemon:` and
-`builtin:` route-target prefixes. `specs/5/34` states route targets carry no
-such prefixes, and no live writer emits one. The branch is dead: the `folder:`
-arm strips a prefix that never arrives, and the `daemon:`/`builtin:` arm returns
-false for a shape nothing produces.
-
-Harmless today, but it is the kind of dead branch that reads as a live contract:
-the next person to add a target kind will follow the pattern and re-introduce a
-prefix vocabulary the spec deleted on purpose.
-
-- **Severity:** low — dead code, no user-visible failure
-- **Scope:** route target containment
-- **Affected:** nobody today
-- **Source:** `routd/routes_resource.go:386-392`; `specs/5/34-channel-protocol.md`
-- **Status:** FIXED 2026-08-15.
-- **Fix:** the branch is gone and `groupfolder.Contains` is the whole body. The
-  prefix vocabulary lived at THREE sites, not one — `routeTargetWithin`,
-  `isSelfDefault` (`routes_resource.go`) and `routeTargetOwned`
-  (`routes_http.go`, the REST twin, 2 live callers) each stripped `folder:` —
-  so removing only the named branch would have left the pattern to be copied
-  from either survivor. All three now take the target as the bare folder path
-  `5/34` defines. Verified no writer exists: repo-wide, `"daemon:"`/`"builtin:"`
-  appeared at exactly the one deleted arm, and every `"folder:"` occurrence is
-  either an ACL PRINCIPAL (`folder:<f>`, a different namespace) or one of these
-  three strips. Behaviour delta is confined to a prefixed target, which now
-  reads as "not a folder" instead of being silently rewritten into one —
-  pinned by the three helper tests (`TestRouteTargetOwned` is new).
-
-## ✅ FIXED 2026-08-15 L29 — the Helm chart still demands two secrets nothing reads (2026-08-15)
-
-`deploy/helm/arizuko` declares `CHANNEL_SECRET` and `PROXYD_HMAC_SECRET` as
-required values (`values.yaml:119,121`, `templates/secret.yaml:13,15`,
-`templates/adapters.yaml:68-71`, `README.md:118,120,126`). Both are HMAC-era
-identity secrets that `5/1` retired: adapters now exchange a service token as
-the daemon principal, and proxyd proves identity with a `service:proxyd` ES256
-bearer. Zero `.go` files read either name.
-
-A Helm-based operator generates, stores and rotates two secrets that reach no
-code, and — worse — reads the chart as the identity model, which it no longer
-is. Compose is the maintained deploy path; the chart drifted behind it.
-
-- **Severity:** low — no runtime failure, but it misstates the trust model to
-  the one audience most likely to ask about it.
-- **Scope:** Helm packaging
-- **Affected:** any Helm deployment
-- **Source:** `deploy/helm/arizuko/{values.yaml,templates/secret.yaml,templates/adapters.yaml,README.md}`
-- **Status:** FIXED 2026-08-15.
-- **Fix:** both keys are gone from `values.yaml`, `templates/secret.yaml`,
-  `templates/adapters.yaml` and `README.md` (grep over `deploy/helm/` returns
-  nothing for either name or either value key). `values.yaml` now states the
-  retired model instead of implying it: `AUTH_SECRET` is the only platform-wide
-  signing value, adapters exchange a service token as the daemon principal, and
-  proxyd proves identity with a `service:proxyd` ES256 bearer. Premise
-  re-verified first — every `.go` hit for both names is a comment or a test
-  name saying the secret is retired; no reader exists. Not renderable here
-  (`helm` is not installed in the worktree), so the change is verified by grep
-  plus the `check yaml` pre-commit hook, not by `helm lint`.
-
-**SPUN-OFF FINDING, worse than this entry — needs its own entry.** While
-checking the chart for other post-split drift: `deploy/helm/` mentions
-`SECRETS_KEY` **zero times**. Since `S2`'s fix, `routd/cmd/routd/main.go:67`
-calls `core.RequireSecretKeyring` and REFUSES to start without it, so a
-Helm-deployed routd cannot boot at all — the chart cannot express the one
-secret the daemon now requires. Recorded, not fixed: it is a new bug found
-during a check, and picking which daemons receive the key is the compose scope
-list's decision (`compose/compose.go:139,180,206`), not this entry's.
 
 ## L25 — slakd acks Slack before routd accepts, so a deploy silently drops messages (2026-08-15, proposed)
 
@@ -806,42 +599,6 @@ be deferred, so no deferred MCP server exists at all now.
   `MIGRATION_VERSION` bump, agent image rebuild — so it rides a release, not a
   doc commit.
 
-## F76 — a hold rule on a settings.json MCP server tool is inert (2026-08-08, FIXED 2026-08-09 — same fix as `J1`: `loadAgentMcpServers` deleted, arizuko is the only server on the agent's map; option (d), remove the extension point, beat all three options below)
-
-`specs/5/19` claims the single `tools/call` interception makes "no bypass" hold
-by construction. It covers every tool **on arizuko's socket** — which is
-narrower than it reads.
-
-`ant/src/mcp-servers.ts` `loadAgentMcpServers` reads the group's
-`~/.claude/settings.json`, deletes the `arizuko` entry, and hands the remaining
-`mcpServers` to the harness. The agent calls those tools subprocess-to-
-subprocess; they never cross `ipc.serveConn`, so `CheckHold` never sees them. A
-`hold:mcp:<tool>` row naming one is silently inert — the failure mode the whole
-feature exists to prevent, wearing the shape of a working rule.
-
-Connectors registered through `StoreFns.Connectors` / `ExtTools` DO traverse the
-socket and are covered. Found by codex.
-
-Options: (a) refuse to register a hold rule for a tool arizuko does not serve,
-so the operator learns at grant time; (b) proxy settings-defined servers through
-the socket; (c) document it as the boundary and leave it. (a) is cheap and
-honest, (b) is a real design change. Spec now states the boundary either way.
-
-## F74 — `ARIZUKO_DEV` sentinel disagrees between production and tests (2026-08-08, FIXED 2026-08-15)
-
-`container/runner.go:564` tests `== "1"`; tests set `ARIZUKO_DEV=true`. One of
-the two is wrong, and the tests are the ones passing. Whichever way it is
-settled, an operator following the test's spelling gets no dev behavior.
-
-- **Status:** FIXED 2026-08-15
-- **Fix:** the docs (`reference/env.html`) already declared the contract —
-  `Type: bool ("true" or "1")` — so `runner.go` now parses it with
-  `strconv.ParseBool` instead of a literal `== "1"` compare. Both spellings
-  (and `1`/`0`/`t`/`f`) now agree; no test or README had to change.
-  Test: `TestBuildMounts_ArizukoDevAcceptsTrueSpelling`
-  (`container/runner_layered_test.go`) — failed against the old compare,
-  passes now. `go test ./container/... -short` green.
-
 ## F75 — three skill trees are triplicated and one pair has already drifted (2026-08-08, open — verified 2026-08-15, still a redesign)
 
 `ant/skills/p5js/` also exists under `ant/skills/create/art/.../p5js/` (same for
@@ -866,262 +623,6 @@ entry already names (which tree is the single source, and whether the other
 becomes a symlink/reference rather than a second copy), which is a
 cross-cutting structural change to skill dispatch and wants sign-off.
 
-## ✅ FIXED 2026-08-15 F60 — `routd/db.go:140` names `auth.Delegate` at `register_group`, where it is not called (2026-08-07)
-
-```go
-// Everything above the floor is explicit
-// delegation from a lineage ancestor (auth.Delegate at register_group / add_acl).
-```
-
-`auth.Delegate` has exactly one production call site: `routd/acl_resource.go:213`
-(`add_acl`). `register_group`'s gate is `db.Authorize` — the granted-row check —
-never `auth.Delegate` (`routd/groups_resource.go:152-155`). The `add_acl` half of
-the parenthetical is right; the `register_group` half names a function at a site
-that does not call it.
-
-Same defect class as `auth/delegate.go`'s "used at spawn" header, fixed 2026-08-07
-under `specs/5/5` R4. This one was left alone to keep that change's diff to a
-single file. One-line comment fix; no behavior change.
-
-## ✅ FIXED 2026-08-11 F55 — `emaid` runs an undeclared SQLite DB with an inline schema and no migrations (2026-08-07)
-
-`emaid/store.go:22` opens `<DATA_DIR>/emaid.db` — resolving to
-`store/emaid/emaid.db` — and creates its schema with an inline
-`CREATE TABLE IF NOT EXISTS` at `emaid/store.go:26-36`:
-
-```
-email_threads(thread_id PK, from_address, root_msg_id)
-email_msg_ids(msg_id PK, thread_id)
-```
-
-It is the only channel adapter that opens a database. Three things follow, none
-fatal today and all wrong by rules the tree otherwise holds:
-
-- It uses `database/sql` + `sql.Open` directly, not the `store` package, so
-  every convention `store` carries is absent — no WAL pragma, no
-  `busy_timeout`, no `foreign_keys(on)`.
-- It has no `migrations/` directory. The schema evolves by editing the
-  `CREATE TABLE IF NOT EXISTS` string, which silently does nothing against an
-  existing file — a column added there never appears on a live instance.
-- It is absent from spec `5/16`'s owner-DB map, which enumerates `routd.db`,
-  `onbod.db` and `auth.db`. A fifth owner DB exists and no spec says so.
-
-Found by the `5/16` step-6 adapter audit (2026-08-07). Not a resreg gap — these
-are adapter-internal threading rows, not an operator-managed cold-tier entity,
-so "every management entity is a resreg resource" does not obviously bite. The
-defensible fixes are (a) real migrations under the `store` package's mechanism,
-or (b) decide adapter-local state does not belong in SQLite and move it to the
-JSON-file shape the other five adapters use (`bskyd`, `linkd`, `reditd`,
-`twitd`, `whapd`). Choosing between them is a design call, not a patch.
-
-- **Source:** `emaid/store.go:18-38`
-- **Status:** FIXED 2026-08-11 — option (a)
-
-**FIXED 2026-08-11** by option (a): emaid keeps SQLite and joins the owner-DB
-mechanism instead of leaving it. `openDB` opens the DSN with
-`busy_timeout(5000)` + `foreign_keys(on)`, sets `journal_mode=WAL`, and runs
-`db_utils.Migrate(db, migrationFS, "migrations", "emaid")` over a new
-`emaid/migrations/0001-initial-schema.sql`. Option (b) was rejected: the rows
-are relational lookups (msg_id → thread), which is what SQLite is for.
-
-Warning for whoever writes `0002`: `0001` carries `IF NOT EXISTS` and later
-migrations must not. Live instances created both tables from the inline
-statement and hold no `migrations` table, so `0001` has to adopt such a file as
-version 1 without an error and without touching its rows.
-`TestOpenDBAdoptsPreMigrationFile` builds a DB the retired way, inserts a row,
-reopens it through the new `openDB`, and asserts version 1 with the row intact;
-stripping `IF NOT EXISTS` fails it with `table email_threads already exists`.
-WAL converts a live file on first open, as it did for every other owner DB.
-
-`specs/5/16` is corrected in two places: the mount table claimed emaid had "no
-owner DB at all", which was false rather than merely incomplete, and the
-owner-DB map now carries an `emaid.db` paragraph stating why the resreg rule
-does not reach it.
-
-NOT verified against a production `emaid.db` — the adoption test replicates the
-old creation path exactly, but no krons/sloth/marinade file was opened.
-
-## F58 — dashd's PRIMARY DB open still manufactures an empty routd.db (2026-08-07, FIXED 2026-08-15)
-
-`dashd/main.go:194` opens the resolved `DB_PATH` with a bare `sql.Open` and no
-existence probe, so a path that is not there is not an error — SQLite creates
-the file and every dashboard page renders empty, with nothing in the log.
-
-The `store/<owner>/` pass hardened the neighbours and left this one. The four
-owner daemons went through `db_utils.RequireDBFile` (`F52`'s fix) and dashd's
-two SIBLING opens became stat-gated with a log line (`openSiblingOwner`,
-`dashd/main.go:427`); the handle dashd actually serves from did not.
-`resolveDSN`'s messages.db refusal guards one wrong VALUE, not a wrong PATH —
-and its own comment says that class already cost "months of stale
-usage/chat/activity".
-
-Measured against a copy of live marinade with the files moved into
-`store/<owner>/` and a stale `DB_PATH` still naming the flat layout:
-
-```
-slakd (stale DB_PATH)   LOUD FAIL: unable to open database file
-dashd (stale DB_PATH)   SILENT: created an empty <store>/routd.db
-```
-
-slakd fails loudly because it goes through `store.OpenRoutd`, which probes for
-`acl`. dashd has no probe. The shipped mover makes that stale-path state
-unreachable through the supported path — `generateCompose` moves the tree and
-dies before writing a compose that assumes the new layout — but any hand-set
-`DB_PATH` still reaches it.
-
-- **Source:** `dashd/main.go:194`, vs the guarded `openSiblingOwner` at `:427`
-- **Status:** FIXED 2026-08-15
-- **Fix:** `main()` now opens the primary DB through `store.OpenRoutdAt(dsn)`
-  instead of a bare `sql.Open`, and unwraps `.DB()` for the rest of dashd's
-  `*sql.DB`-typed call sites. Same strict `acl` probe `openSiblingOwner`
-  already applies to the sibling reads, so a stale/wrong `DB_PATH` now fails
-  loudly at boot instead of SQLite silently creating an empty file. The
-  crash-loop-on-cold-start risk the original entry flagged is covered:
-  `dashdService` already emits `restart: on-failure` (`compose/compose.go`),
-  so a boot race against routd's own migration retries rather than wedging.
-  `go test ./dashd/... -short` green.
-
-## ✅ FIXED 2026-08-09 — F57 — issuer-mint takes an uncapped `ttl_seconds`; the downscope sibling caps (2026-08-07)
-
-Capped at `maxAccessTTL`, in `signMinted` — the ONE site every mint funnels
-through (`Downscope`, `IssuerMint`, the OAuth session mint), so the field's
-stated contract now holds by construction instead of being re-checked per
-caller. Same clamp shape as `Downscope`'s parent-remaining clamp, and a ceiling
-only: a `ttl_seconds` under the cap is still honoured verbatim. Tests
-`TestTokensIssuerMintTTLCappedAtMaxAccessTTL` +
-`TestTokensIssuerMintShortTTLHonoured` (`authd/tokens_test.go`).
-
-Original report:
-
-`POST /v1/tokens` reads a caller-supplied `ttl_seconds` (`authd/http.go:339,352`)
-and hands it to whichever mode it picks. The two modes disagree. `Downscope`
-clamps it to the parent token's remaining life (`authd/server.go:229-231`);
-`IssuerMint` applies no upper bound at all (`authd/server.go:241,250`), and
-`signMinted` substitutes `accessTTL` only when `ttl <= 0`
-(`authd/server.go:197-199`). So an issuer-mint may request any lifetime.
-
-That contradicts `maxAccessTTL`'s stated contract — *"longest access TTL ever
-minted; bounds a retired key's serving window"* (`authd/server.go:27`) — which
-the key lifecycle actually depends on: retirement keeps a key verifying for
-`retiredAt + maxAccessTTL` (`server.go:70`) and purges on the same window
-(`server.go:108`). Nothing enforces the bound at the one mint site that can
-exceed it, so the comment describes an invariant the code does not hold.
-
-Impact is a revocation hole rather than a key one. Access tokens are verified
-offline against no revocation list, and they carry a frozen `Scope` snapshot, so
-a long-TTL issuer-minted token freezes its grants for its whole life. The
-15-minute `accessTTL` bound that the `5/16` §"The hot-path exception" trade-off
-reasons about is the browser-session bound (`authd/oauth.go:332`,
-`authd/server.go:167` — both hardcode it), NOT a system-wide one. This does not
-weaken that decision; it is the reason proxyd's live `acl` read is load-bearing
-for tokens minted through this path too.
-
-Latent, not live: the issuer branch needs `tokens:mint` on the caller
-(`authd/http.go:361`) and no in-tree caller sends `ttl_seconds` to `/v1/tokens`
-(the `ttl_seconds` hits elsewhere are routd's unrelated `/v1/engagement`). Found
-while verifying the TTL figure for `5/16` step 2; not fixed there because that
-pass was a spec decision and this is an authd contract change.
-
-- **Severity:** medium (latent; privileged caller required)
-- **Scope:** authd token mint
-- **Source:** `authd/server.go:241,250,197-199,27,70,108`; `authd/http.go:339,352,361`; cf. `authd/server.go:229-231` (the capping sibling)
-- **Status:** fixed 2026-08-09 — capped at `maxAccessTTL` in `signMinted`
-
-## ✅ FIXED 2026-08-09 — F56 — adapter `DATA_DIR` code defaults point at the instance tree root (2026-08-07)
-
-Both code defaults now name the adapter's own state dir — `linkdStateDir =
-/srv/app/home/store/linkd`, `teledStateDir = /srv/app/home/store/teled` — the
-entry's own prescription and the `LISTEN_ADDR=:8080` "set in both places so
-neither drifts" convention. A missing env line now lands adapter state (and
-linkd's refreshed OAuth token) in a per-owner subdirectory, never at the top of
-the tree beside every daemon's database.
-
-The tests assert the constant against the compose fragment's `DATA_DIR` line, so
-drift in EITHER place fails: `TestDataDirDefaultIsLinkdStateDirNotTreeRoot`
-(`linkd/linkd_test.go`), `TestDataDirDefaultIsTeledStateDirNotTreeRoot`
-(`teled/integration_test.go`).
-
-**One premise below was stale.** `template/services/teled.yml` DOES declare
-`DATA_DIR: '/srv/app/home/store/teled'` and mounts `${DATA_DIR}/store/teled`
-(lines 13, 18) — the "supplies no `DATA_DIR` at all" claim, inherited from `F53`,
-does not hold against the in-repo fragment. Only the code default was wrong. If
-a LIVE instance still runs a generated compose that predates the fragment line,
-that is a redeploy, not a code defect.
-
-Original report:
-
-`linkd/main.go:71` defaults `DataDir` to `/srv/app/home` — `containerDataMount`
-itself, the root of the whole instance tree — and `linkd/client.go:95,161`
-writes `<DataDir>/linkd-state-<name>.json` there. That file holds the
-**refreshed LinkedIn OAuth token**. Only `template/services/linkd.yml:19`
-(`DATA_DIR: '/srv/app/home/store/linkd'`) keeps it out of the data root; delete
-or typo that one env line and a credential file lands at the top of the tree,
-beside every daemon's database.
-
-`F53` is the same root pattern seen from the other side: teled also defaults to
-`/srv/app/home` (`teled/main.go:69`), and there the deployed fragment supplies
-no `DATA_DIR` at all, so its state goes to the container's ephemeral layer.
-One class, two symptoms — a code default that is a real, writable, wrong
-directory, load-bearing on a template line agreeing with it.
-
-`bskyd`, `reditd` and `emaid` get this wrong in the harmless direction: they
-default to `/srv/data/<name>`, a path absent from the container, so a missing
-env line fails loudly instead of landing in the data root.
-
-Fix is one line per adapter — make the code default match the fragment, the way
-the `LISTEN_ADDR=:8080` convention already requires both places to agree (root
-`CLAUDE.md`, "Daemon HTTP port"). Found by the `5/16` step-6 adapter audit;
-not fixed there because that audit's scope was ownership, not adapter defaults.
-
-- **Source:** `linkd/main.go:71`, `linkd/client.go:95,161`; `template/services/linkd.yml:19`; cf. `teled/main.go:69` (`F53`)
-- **Status:** fixed 2026-08-09 — code default = the fragment's per-adapter store dir
-
-## ✅ FIXED 2026-08-07 — F51 — dashd mounts the whole instance tree: `.env` secrets and live agent sockets (2026-08-07)
-
-Closed with spec 5/16 step 7 (`d780ee86`). `dashdService` now names
-`store/routd`, `store/onbod`, `store/runed`, `groups` and `surrogate`; the
-whole-tree bind that carried `.env` (`AUTH_SECRET`, `SECRETS_KEY`, every
-platform token) and `ipc/` (the live per-turn agent MCP sockets) is gone.
-`authd/auth.db` is deliberately NOT in the list — dashd reads sessions over
-authd's HTTP face.
-
-The durable half is the exemption: dashd joined `wantDataMounts` and the
-`TestScopedDaemonsCannotReachIpcOrDotEnv` list, so the guard that forbids the
-whole tree now covers the daemon that had the widest mount in the fleet.
-Falsified by removing the `dataSubdirs` again — three tests fire, including
-the `.env`/`ipc/` one.
-
-Two new guards came with it, because a table asserting only the mounts a
-daemon HAS is vacuous: `TestScopedDaemonsGetNoOtherOwnersDB` pins the owner
-binds each daemon must NOT have, and `TestOwnerDBEnvPathsLandInsideTheMounts`
-pins every emitted DB path inside a mount that daemon carries.
-
-**The file move is the operator's, not shipped here** — procedure in
-`specs/5/16-mcp-rest-unification.md` "Migration path per instance" step 4.
-Until it runs on an instance, that instance's daemons refuse to boot rather
-than creating empty databases (F52's fix, same pass).
-
-## ✅ FIXED 2026-08-07 — F52 — onbod's "fatal, no silent empty-DB cross-read" guard cannot fire (2026-08-07)
-
-Both halves, as the entry proposed. The cross-read goes through
-`store.OpenRoutdAt`, whose `acl` probe is a real check rather than a lazy
-`sql.Open` whose error branch could never fire (`176d9448`), and the path is
-now the configured `ROUTD_DB_PATH` instead of `filepath.Dir(its own DSN)`
-(`d780ee86`) — required, because under `store/<owner>/` a sibling is not a
-sibling.
-
-The bug class was wider than onbod. `routd.Open`, `runed.Open` and
-`authd.resolveDSN` had the same shape: SQLite creates a missing file silently
-and `Migrate` fills it with a complete empty schema, so any wrong path yielded
-a fully-migrated instance with zero rows that boots GREEN. All four now
-require the file to exist, and creation is one explicit act — `routd.Create` /
-`runed.Create` plus `arizuko create`'s `seedOwnerDBs`, which touches all four
-(a zero-byte file is a valid empty SQLite database, so each daemon migrates
-its own schema into it).
-
-Falsified by making `db_utils.RequireDBFile` a no-op: exactly four tests fail,
-one per owner surface, and nothing else.
-
 ## F53 — live krons teled has no state mount, so its offset resets every recreate (2026-08-07, open)
 
 Deployed `/srv/data/arizuko_krons/services/teled.yml` carries neither a state
@@ -1136,182 +637,6 @@ that are still identical catalog copies.
 
 - **Source:** deployed `services/teled.yml` vs `template/services/teled.yml`; `teled/main.go:69,78`
 - **Status:** open
-
-## F54 — dashd's stock-skills picker is dead in every deployed container (2026-08-07, FIXED 2026-08-15)
-
-`dashd/groups_admin.go:187` reads `<HOST_APP_DIR>/ant/skills`. `env/dashd.env`
-sets `HOST_APP_DIR=/home/onvos/app/arizuko`, but `dashdService` attaches no
-source mount for it — a HOST path used as a CONTAINER path. `stockSkills()`
-returns nil silently (`:184-186`), so the picker renders empty and no error
-reaches the operator.
-
-- **Source:** `dashd/groups_admin.go:184-187`; `compose/compose.go:1039`
-- **Status:** FIXED 2026-08-15
-- **Fix:** wired dashd onto the EXISTING `appSrc()` mechanism routd/runed
-  already use (`compose/compose.go`) instead of inventing a second one:
-  `dashdService` now sets `APP_SRC_DIR` and, under `APP_SRC_DEV`, the same
-  read-only host bind. `dashd/main.go`'s `appDir` reads `APP_SRC_DIR` falling
-  back to `HOST_APP_DIR`, matching `routd/cmd/routd/main.go`'s pattern.
-  `stockSkills()`'s own join logic was already correct — only the container
-  path it read from was wrong. Tests: `TestAppSrcDefaultsToTheBakedCopy` and
-  `TestAppSrcDevMountsTheHostCheckout` (`compose/compose_test.go`) extended to
-  cover dashd alongside routd/runed.
-
-## ✅ FIXED 2026-08-09 — F43 — routd hands the agent a scheme-less pairing URL (2026-08-06)
-
-Normalised at ONE place, as the entry asked: `core.PublicBaseURL(webHost)` —
-bare host → `https://`, `localhost`/`127.0.0.1` → `http://`, a value that already
-carries a scheme returned unchanged (so an operator may configure either shape
-and existing `https://…` configs are untouched). `WEB_HOST` stays a HOST; the
-scheme is applied where a public URL is built.
-
-Not a new URL-building path: `cmd/arizuko/send.go` already had exactly this
-https/localhost logic inline, and now calls the shared function — one renderer,
-two sinks. `route_tokens_resource.go`'s two emit sites (issue_chat/issue_hook
-and issue_pair) call it too.
-
-`ipc.WebPresenceFor` is deliberately untouched: it already emits a scheme, and
-its `webHost` is used as a HOSTNAME (`CanonicalHost`), not a base URL — folding
-it in would be a second concern.
-
-Tests: `TestPublicBaseURL` (`core/config_test.go`),
-`TestIssuedURLsCarrySchemeForBareWebHost` + `TestIssuedURLsNotDoubleSchemed`
-(`routd/pairing_mint_test.go`), the latter pinning idempotency.
-
-Original report:
-
-`routd/cmd/routd/main.go` reads `webHost := os.Getenv("WEB_HOST")` raw, and
-`issue_pair` returns `s.webHost + "/pair/" + raw`. All three live instances set
-a BARE hostname:
-
-```
-krons     WEB_HOST=krons.fiu.wtf         AUTH_BASE_URL=https://krons.fiu.wtf
-sloth     WEB_HOST=sloth.quantblue.tech  AUTH_BASE_URL=https://sloth.quantblue.tech
-marinade  WEB_HOST=fab.krons.cx          AUTH_BASE_URL=https://fab.krons.cx
-```
-
-So `issue_pairing_link` hands the agent `krons.fiu.wtf/pair/<tok>` — no scheme.
-Same for `issue_chat_link`/`issue_webhook` (`route_tokens_resource.go`'s
-`s.webHost + urlPrefix + raw`) and every other `s.webHost` consumer. Telegram
-auto-links a bare domain; WhatsApp and most clients do not, and a user who
-copies it into a browser gets a relative-path resolve.
-
-Found while folding onbod's greeting onto pairing (`5/31`). onbod does NOT hit
-this — it builds the link from `cfg.authBaseURL`, which carries the scheme —
-so this is routd's agent-facing surface only, and the fold neither caused nor
-widened it.
-
-Not fixed here: the honest fix is deciding whether `WEB_HOST` is a host or a
-URL and normalising at ONE place (a `core.Config` accessor), not prefixing
-`https://` at each of the ~6 call sites, and `core.Config.WebHost` has other
-readers. Cross-cutting → proposal, not an inline patch.
-
-- **Status:** fixed 2026-08-09 — `core.PublicBaseURL` is that one place
-
-## ✅ FIXED 2026-08-06 — F42 — spec 5/18 step 8: a chat-onboarded stranger with no world still cannot make one (2026-08-06)
-
-**Resolved with option 2** (`c28160bd`): `status='approved'` unlocks the
-username picker for a caller with no worlds **only when at least one enabled
-`onboarding_gates` row exists**. `mayCreateFirstWorld` is the predicate; it is
-the precondition on the WRITE (`handleCreateWorld`), with `handleDashboard`
-calling the same function purely to decide what to render.
-
-Both premises the option-1 rejection rested on were verified against the code
-before building: `admitJID` (`onbod/main.go:529`) approves every paired identity
-when `loadGates` returns empty, and no production path seeds a gate — the DDL
-creates the table empty and the only INSERTs are the explicit operator CRUD in
-`gates_resource.go` / `store/onboarding.go`. So option 1 would have flipped every
-existing deployment to open signup. Option 2 preserves today's posture exactly
-where no gate exists and remains reversible: option 1 is still available as an
-operator-facing change if the posture is ever revisited.
-
-The gate condition reads `loadGates` rather than counting the table, so the
-`enabled=1` rows that make `admitJID` selective are exactly the rows that make
-its verdict grant something. Recorded in `5/18` § "Open, blocking" Q1.
-
-- **Severity:** medium
-- **Scope:** onboarding / admission
-- **Affected:** onbod
-- **Source:** `onbod/main.go` `handleDashboard` + `handleCreateWorld`
-- **Status:** resolved-not-yet-removed
-- **Fix:** `c28160bd`
-
-## ✅ FIXED 2026-08-07 — F50 — a forged `pending_target` cookie creates a world in any subtree (2026-08-06)
-
-**Resolved with shape (A)** (`4e63f93d`): onbod migration 0005 adds
-`invite_redemptions(user_sub, target_glob, redeemed_at)`; `store.consumeInvite`
-writes one row per subgroup redemption inside its existing transaction (same DB,
-so no cross-DB rollback problem); `handleCreateWorld` DERIVES `parent` from it
-and spends it with a `DELETE` whose `RowsAffected` is the claim. The cookie is
-gone from both ends — nothing the browser sends names a parent.
-
-The `auth.MatchGroups`/`auth.Authorize` fix proposed below was **disproved
-before it was built**: `store/invites.go:294` and `onbod/main.go:1158` write the
-acl row only when the target has NO trailing slash, while `main.go:1183` set the
-cookie only when it DID. The cookie was set exactly when the acl table held
-nothing about the caller, so a predicate over `acl` would have refused every
-legitimate subgroup redeemer. The fact the predicate needs did not exist, so it
-had to be recorded. `TestRedeemedSubgroupInviteCreatesUnderItsParent` asserts
-that premise (zero acl rows at the moment the picker is shown) rather than
-assuming it.
-
-Reproduced before and after, on the folder and the acl rows rather than the
-status:
-
-```
-before   303   folders=[victim victim/pwned]        mallory holds [victim/pwned/**]
-after    200   folders=[victim]                     mallory holds []
-```
-
-Three falsification breaks, each isolating a different half: making the cookie
-an authority again reddens the two forgery tests only; letting it override the
-derived parent reddens the two precedence tests only; skipping the spend reddens
-the single-use test only. Migration rehearsed against seeded copies of krons
-(0 invites) and sloth (4 invites, 2 subgroup): version 4→5, every pre-existing
-count unchanged, redemption 0→1 on consume and 1→0 on spend, replay a no-op.
-
-`5/8`'s archive lane deliberately does NOT carry the table. It holds one
-in-flight authority between "redeemed" and "picked a username"; carrying it
-would move a live grant-in-waiting between instances, and losing it costs a new
-invite — the same exposure the 10-minute cookie already had.
-
-- **Severity:** high
-- **Scope:** onboarding / folder containment
-- **Affected:** onbod (all instances)
-- **Status:** resolved-not-yet-removed
-- **Fix:** `4e63f93d`
-
-Original report:
-
-Found while building `F42`'s fix, which is why it is filed rather than patched:
-it is pre-existing and on the OTHER authority (the invite cookie), not the one
-step 8 added. `handleCreateWorld` checks only that `pending_target` is non-empty
-and then uses it verbatim as the parent folder — nothing binds it to the
-caller's authority. `HttpOnly` stops JS from writing the cookie; it does not
-stop the caller, who owns the browser.
-
-Verified by probe, not inferred. An authenticated `github:mallory` holding no
-grant anywhere, posting `create_world` with `Cookie: pending_target=victim/`:
-
-```
-status=303   folder created = "victim/pwned"   acl scope = "victim/pwned/**"
-```
-
-So any authenticated caller writes a group inside any existing tenant's subtree
-and takes `admin` over it. Reachable by anyone who can complete OAuth; on an
-instance with open OAuth (`GOOGLE_ALLOWED_EMAILS=*@…`, `GITHUB_ALLOWED_ORG`)
-that is anyone in the allowed set.
-
-`F42`'s approved-admission path does NOT widen this: `parent` still derives from
-the cookie alone, and the approved branch runs only when the cookie is absent,
-so it can only ever create at the root (tested).
-
-The honest fix is the same binding step 7 already applies to routes —
-`auth.MatchGroups(userFolders(sub), parent)` (or `auth.Authorize(… "admin",
-parent)`) before `createWorldTx` — so the cookie becomes a hint and the grant
-becomes the authority. It is a real refusal added to the shipped invite flow
-(an invite whose `target_glob` does not evaluate to authority over the parent
-would start failing), so it wants sign-off rather than an inline patch.
 
 ## F41 — the re-greet cooldown is a rate, not a cap (2026-08-06, open question — NOT a spec defect)
 
@@ -1338,40 +663,6 @@ as a rate until an instance reports it.
 its own text and shipped it deliberately, so the spec is accurate and the code
 matches it; what is open is a future policy choice, which is a backlog item.
 `5/31` returns to `shipped` and keeps this entry as the recorded question.
-
-## F39 — `SCREENS.md`'s page hierarchy is missing ten shipped dashd pages (2026-08-06, FIXED 2026-08-15)
-
-Found while shipping `/dash/authd/`. `SCREENS.md` is the dashd page inventory —
-the document a design pass reads to know what screens exist — and its
-`### Page hierarchy` block (`SCREENS.md:64-86`) lists neither `/dash/authd/` nor
-`/dash/audit/`, `/dash/usage/`, `/dash/engagement/`, `/dash/proactive/`,
-`/dash/packages/`, `/dash/runed/`, `/dash/routd/`, `/dash/me/env` or
-`/dash/me/connections`.
-
-That is ten of the pages dashd actually serves. The inventory is not merely
-incomplete, it is the wrong shape: an audit run against it would report the
-control planes as unbuilt, which is how the now-corrected "What's missing (spec
-gap)" block came to claim per-daemon cockpits were not built at all.
-
-Fixed here, because it named this ship's own feature: the `What's missing` block
-now describes which tiles are built and points at
-`TestServicesBuiltFlagMatchesMountedRoutes`. NOT fixed here: the hierarchy list
-itself. Rewriting a ten-entry inventory is a documentation pass on a file this
-change does not otherwise touch, and the entries need per-page screen
-descriptions rather than a route list — the same reason `F16`'s web-doc drift is
-tracked rather than swept.
-
-- **Severity:** low (documentation only; no runtime effect)
-- **Scope:** `SCREENS.md`
-- **Affected:** contributors and design passes, not instances
-- **Source:** SCREENS.md:64-86, :217-218; dashd/main.go:499-603
-- **Status:** FIXED 2026-08-15
-- **Fix:** rebuilt `### Page hierarchy` against `dashd/main.go`'s
-  `registerRoutes` directly (`sed -n '535,650p' dashd/main.go`), not the ten
-  the entry named. Two more had shipped since 2026-08-06 and were missing too
-  — `/dash/approvals/` and `/dash/channels/whatsapp/pair` — so all twelve are
-  now listed alongside the original fourteen, each with a one-line
-  description read off its handler's doc comment.
 
 ## F46 — `runed`, `routd` and `authd` all serve `GET /v1/sessions`, for different tables (2026-08-06, open — CORRECTED 2026-08-07: three daemons, not two)
 
@@ -1536,236 +827,6 @@ contract change over every ipc tool and therefore a sign-off, not an inline fix.
   "persists one ipc_audit row" — a claim, not evidence. Comment corrected.
   No code move needed; `disengage` is audited like its ~45 neighbours.
 
-## ✅ FIXED 2026-08-07 F33 — `OpenAPIHandler` takes an advertised set with no reference to the mux (2026-08-06, FIXED 2026-08-07)
-
-**FIXED.** `OpenAPIHandler(daemon, mux)` now takes the routing table and nothing
-else. `RegisterREST` mounts each face as a `*restMount` stamped with its
-`(resource, endpoint)`; `resreg.MountedResources(mux)` keeps only the registry
-resources the mux resolves to one of those, and the emitter renders that. All
-six hand-passed lists are deleted — `routd.OpenAPIResources`,
-`authdOpenAPIResources`, `onbodOpenAPIResources`, `proxydOpenAPIResources`,
-`runedOpenAPIResources`, `timedOpenAPIResources` — plus webd's and dashd's
-inline `[]string{}`.
-
-Derivation is by mount IDENTITY, not by probing paths. Path-probing was the
-signed-off approach and was WRONG: THREE daemons serve `GET /v1/sessions` over
-three different tables (see the `F46` correction below), so a path probe would
-have made routd and runed publish authd's `SessionsRow` schema — a new lie for
-an old one. The type assertion drops both hand-rolled mounts and proxyd's `/`
-catch-all with them.
-
-The carve-out audit F33 called for came out clean: every registry resource
-already declares `Endpoints`, and every mount reuses the registry's own slice,
-so `acl`'s list, `secrets`' read face and `network_rules` are all already
-expressed as `MCPOnly` or absent. Whole-fleet doc diff, pre vs post, was **one
-operation**: `+ DELETE /v1/acl_membership` on routd, which routd genuinely
-mounts (`routd/membership_resource.go:134`) and had never advertised. The other
-44 operations are byte-identical.
-
-Falsifiability: `resreg/openapi_mount_test.go` reintroduces each of the four
-drift shapes — unmounted advertise, re-path, catch-all, foreign hand-rolled
-mount — and pins that `MountedResources` drops it while the by-name rendering
-still shows it (the anchor, so a test cannot pass on an emitter producing
-nothing). Verified by breaking the fix: making `serves` presence-only fails all
-four and nothing else.
-
-The per-daemon guard changed shape with the cause. `AssertServesWhatItAdvertises`
-compared the doc to the mux, which deriving the doc FROM the mux makes
-tautological; it is replaced by `resregtest.AssertAdvertises(daemon, mux, want)`,
-pinning each daemon's whole derived surface against a stated list.
-`AssertServesNoneOf` is unchanged and did not weaken. Also deleted:
-`TestFoldedEndpoints_RegistrySingleSource`, which compared the registry to the
-exported var that had populated it — the vacuous guard `5/16` named.
-
-- **Second half:** already closed by `F47` — `daemonOwnership` and
-  `TestOpenAPI_PerDaemonOwnership` are gone.
-- **Fix:** resreg/resreg.go (`restMount`), resreg/openapi.go
-  (`MountedResources`/`serves`/`ConcretePath`), 9 daemon call sites,
-  resreg/resregtest.
-- **Spec:** `specs/5/16` status block updated; `5/16` stays `partial` on steps
-  2/6/7, none of which this touches.
-
-The cause under `F21`/`F27`/`F32`, left standing after `F32` took the small fix.
-`resreg.OpenAPIHandler(daemon, resources)` (`resreg/openapi.go:527`) accepts a
-list of resource NAMES. Nothing connects that list to the routes the caller
-mounts, so "advertised" and "served" are two independent declarations that agree
-only by care. Three of them have disagreed so far.
-
-The cause fix makes the disagreement impossible rather than detectable: pass the
-mux — `OpenAPIHandler(daemon, mux)` — and emit only the endpoints that mux
-actually resolves. There is no second list to drift. Mount ORDER is not an
-obstacle: `/openapi.json` is mounted before the resources it documents, but the
-handler already computes lazily and caches on first REQUEST, by which time the
-mux is complete. (A mount-time check would read the slice before the routes
-exist — the trap that made `daemonOwnership` vacuous.)
-
-Not shipped inline because it changes a cross-cutting contract across seven call
-sites, which `CLAUDE.md` says is a sign-off, and because it is not free: routd's
-`OpenAPIResources` is a CURATED list, deliberately narrower than what is mounted
-in places (`acl`'s list, `secrets`' read face, `network_rules`), and those
-carve-outs are expressed today as `MCPOnly` endpoint declarations. Deriving from
-the mux means proving every carve-out is expressible as "not mounted", which is
-a real audit, not a signature change.
-
-Second, smaller half: `daemonOwnership` (`resreg/resources/resources_test.go:543`)
-should go. It is a hand-maintained COPY of what each daemon advertises, and
-`TestOpenAPI_PerDaemonOwnership` computes both the expected and the actual path
-set from that same copy — so it cannot fail for the thing it names. Demonstrated
-during `F32`: the table said timed owned nothing while timed advertised
-`scheduled_tasks`, and the test passed. It had already drifted three resources in
-each direction (found during `F27`). Whatever replaces it must read the daemon,
-not a restatement of it.
-
-- **Severity:** low (no runtime effect; it is the recurrence risk that has now
-  cost three entries)
-- **Scope:** `resreg` OpenAPI mount contract (spec 5/17, 5/8) + every daemon main
-- **Affected:** all instances
-- **Source:** resreg/openapi.go:527; routd/server.go:256; resreg/resources/resources_test.go:529-581; timed/split.go
-- **Status:** FIXED 2026-08-07
-- **Blocks:** nothing; `F32`'s guard covers the one daemon that could drift today.
-
-## ✅ FIXED 2026-08-06 F29 — runed's and authd's audit rows are reachable only with sqlite3 (2026-08-06, FIXED)
-
-Spec `5/I` says each daemon owns its own `audit_log`, and two daemons now do.
-Neither can be read by anything but a shell on the box.
-
-- **runed** writes real rows: `audit.Init(db.SQL(), …)` at
-  `runed/cmd/runed/main.go:51`, `audit.EmitDB` from `auditRunSlot`
-  (`runed/audit.go:87`), covering `run.hold` and `run.kill`. Its whole `/v1`
-  surface is `runed/server.go:37-44` — runs, holds, sessions. **No audit read
-  endpoint**, and `/openapi.json` is emitted with an empty resource list
-  (`runed/cmd/runed/main.go:121`), so the doc advertises zero paths.
-- **authd** writes rows into `auth.db` (`audit.Init` at `authd/main.go:78`,
-  `audit.Emit` at `:79` and `authd/oauth.go:356`). It mounts **no `/v1` at
-  all** — only `/auth/*` OAuth routes, `/openapi.json`, `/metrics`. Same root
-  cause as `F15a`.
-- **`/dash/audit/`** reads `routd.db` through `d.adminDB()`
-  (`dashd/audit_page.go:24,60`), so it shows routd's rows and only routd's.
-
-So the trail exists and is correct, and an operator asking "who killed that
-run" gets nothing from the dashboard. `concepts/audit.html` now says this
-plainly rather than implying full coverage, but the honest doc is not the fix.
-
-**Why this is not fixed inline.** The obvious shortcut is to open `runed.db`
-from dashd the way `/dash/runed/` already opens it for `spawns`. That would
-make the dashboard a second reader of a table whose owner exposes no contract,
-and it does not generalise to authd, whose DB dashd does not open at all. The
-fix is a read endpoint per daemon plus one federating page — new API surface on
-a spec that does not describe it, which is the sign-off case (`F12a`, `F15a`,
-same shape).
-
-Two shapes, not equivalent:
-
-- **(a) Hand-rolled `GET /v1/audit` per daemon**, matching runed's existing
-  hand-rolled handlers, with dashd fanning out and merging by `created_at`.
-  Smallest change. Leaves `audit_log` as a read surface with no resreg
-  registration.
-- **(b) Register `audit_log` as a read-only resreg resource** in each owning
-  daemon, which is what root `CLAUDE.md` asks of every operator-managed entity
-  and would put the rows in `openapi.json` and give MCP the same face for free
-  (closing `5/I`'s open question 2, the `query_audit` self-introspection tool,
-  as a side effect). More work, and it needs a read-only `Action` that does not
-  itself write an audit row per call — the read/write split in `5/I` exists
-  precisely to stop that.
-
-Either way `serviceGrants["service:dashd"]` must carry a scope that admits the
-new action; the entry itself now exists (`fd697e99`).
-
-- **Severity:** medium (a shipped audit trail that no operator surface can read)
-- **Scope:** runed + authd `/v1` + dashd audit page (spec 5/I)
-- **Affected:** all instances
-- **Status:** FIXED 2026-08-06
-- **Fix:** shape **(b)** as signed off — `audit` registered ONCE as a read-only
-  resreg resource (`resreg/resources/audit.go`), mounted by routd, runed and
-  authd; `audit.Query` is the single reader; `/dash/audit/` federates the three
-  over HTTP. routd also mounts the agent face, closing `5/I` open question 2.
-  Spec `5/I` is `shipped`.
-- **Note — the write-shape objection was answered, not dodged.** (b)'s stated
-  cost was "a read-only `Action` that does not itself write an audit row per
-  call". It needed no new machinery: `Action.Mutates()` is already false for
-  `list`, so `resreg.emitAudit` returns before the insert. Denials and errors
-  still land. `runed/audit_resource_test.go` pins it — three reads leave the
-  table at one row.
-- **Note — one resource name on three daemons is not the collision the rule
-  forbids.** Root `CLAUDE.md` bars two DIFFERENT tables sharing a wire name
-  (`routes` vs `proxyd_routes`). This is ONE table shape replicated per owner
-  DB by `5/I`'s own per-daemon decision, so `/v1/audit` means "this daemon's
-  log" and dashd federates by fanning one path out rather than writing three
-  clients.
-- **Note — F29's premise was wrong about authd.** "authd mounts no `/v1` at
-  all" is false: `authd/http.go:124-135` mounts five, and `GET
-  /v1/identities/{sub}` is already a bearer-plus-scope-gated READ of `auth.db`.
-  The new endpoint reuses that gate rather than inventing a second one, so the
-  change is smaller than the entry implied.
-- **Note — the authd column was audited before it was published.** authd's
-  `params_summary` had exactly ONE writer, `daemon.start`'s
-  `{dsn, serving_keys, service_subs}`; both counts are `len()` values and the
-  `login` row sets none. No signing key, refresh token or service secret is
-  reachable — `audit.Query` names `audit_log` and no other table. The DSN (a
-  host path, not key material, but where a credential would hide) is now
-  redacted at the WRITER via `audit.redactRE` and scrubbed from history by
-  authd migration `0007`. `TestAuthdParamsSummaryHasOneWriter` fails if a new
-  emit site appears, so the audit cannot silently go stale.
-- **Note — containment never reads the folder claim to decide authority.** An
-  absent `arz/folder` is not evidence of operator status (routd stamps a folder
-  only when the sub holds exactly one scope, so a two-grant tenant is equally
-  claimless) — that is the recorded REST list-all leak. REST authorizes on the
-  `audit:read` scope, which no human bearer can hold because a user token's
-  scopes are folder globs and `auth.scopeMatches` rejects any held value
-  without a colon. The claim only NARROWS an already-authorized call.
-- **Also fixed here:** `5/I` open question 1 — the redaction set and the
-  cap encoding are pinned (`audit/log.go`), and the spec's "1 KB" was corrected
-  to the 512 bytes `audit/PLAN.md` and the code always used.
-- **Not done here:** onbod's `audit_log` — see `F35`.
-
-## ✅ FIXED 2026-08-06 F24 — proactive interjection has no dashd surface (2026-08-06, FIXED)
-
-The last unmet definition-of-done item for spec `5/6`, and the only reason that
-spec is still `partial`. An operator can turn proactive interjection on
-(`PROACTIVE_ENABLED`) and set a group to `mode: lurk`, but then has no way to
-see the resulting state:
-
-- **Which groups lurk** is only visible by reading each
-  `groups/<folder>/CLAUDE.md` frontmatter by hand. `routd`'s `modeCache`
-  (`routd/proactive.go:200`) already holds the parsed answer per folder.
-- **When a chat last fired** lives in `routd.db`'s `chat_proactive`
-  (`routd/db.go:1267`) and is reachable only by SQL. The 24h cooldown means
-  "why didn't it speak" is usually this row, and an operator cannot look.
-- **A misconfigured block** — unknown mode, bad `quiet_hours`, bad tz — makes
-  the group fire nothing and logs a config error (`proactive.go:126-155`). It is
-  correctly loud in the log and completely invisible in the dashboard, which is
-  where an operator would look after a group went quiet.
-
-Not urgent while the feature ships off everywhere (nothing in `template/` sets
-`PROACTIVE_ENABLED`), but it blocks calling `5/6` shipped, and the
-misconfigured-group case is the one that will actually cost someone an hour.
-
-- **Severity:** low today, medium the day an operator enables it
-- **Scope:** dashd / routd proactive (spec 5/6)
-- **Affected:** any operator who enables proactive interjection
-- **Source:** routd/proactive.go:200,126-155; routd/db.go:1267; dashd/ (absent)
-- **Status:** FIXED 2026-08-06
-- **Fix:** shipped as proposed — `dashd/proactive_page.go`, `GET
-/dash/proactive/`, operator-only, in the nav. Two tables: per-group mode +
-  quiet hours + parse error, and per-chat last-fired from `chat_proactive`.
-  Reads only, for the reason recorded above.
-- **Note — the parser is now shared, not copied.** The page needs the same
-  answer routd's scanner gates on, so `parseProactiveMode`/`proactiveMode`/
-  `quietWindow` moved out of `routd/` into a new `proactive/` package as
-  `Parse`/`Mode`/`Window` (commit `30d1bff7`). A second frontmatter reader in
-  dashd would have drifted from the one that decides whether a group fires, and
-  the drift would have surfaced as a dashboard claiming `lurk` about a group
-  routd refuses to run. `Window` gained `Raw` so the page shows the operator's
-  own quiet-hours text.
-- **Note — the page states the switch, it does not read it.** dashd cannot see
-  routd's environment, so a banner names `PROACTIVE_ENABLED` and says the
-  feature is off unless the operator opted in. A green "enabled" dot dashd
-  cannot verify would be worse than no dot.
-- **Not done here:** setting `mode:` from the dashboard. Spec `5/6` makes the
-  group's `CLAUDE.md` the single source, and the cooldown mandatory, so there
-  is no control to offer without changing the spec — see `F29`'s sibling
-  reasoning about new contracts needing sign-off.
-
 ## F21 — `scheduled_tasks`' REST face is unadvertised and its single-source guard can't see it (2026-08-06, fixed)
 
 `routd/tasks_http.go:26-32` builds the resource, then **replaces**
@@ -1846,85 +907,6 @@ not a one-off backfill.
 - **Status:** open — needs the producer identified before deciding delete-orphans
   vs relax-the-constraint. Do NOT rebuild `task_run_logs` until then.
 
-## C1 — package names can traverse outside `services/` (CLOSED-STALE 2026-08-15 — already fixed 4fa9553e, heading was stale)
-
-`arizuko packages <instance> add|remove <name>` joins the unvalidated name
-directly into filesystem paths. `remove ../docker-compose` resolves to the
-instance's `docker-compose.yml`; deeper traversal can delete any accessible
-`.yml` file. The generator validates discovered filenames, but the mutating CLI
-does not apply the same boundary.
-
-- **Severity:** high
-- **Scope:** compose package CLI path containment
-- **Affected:** `arizuko packages add|remove`
-- **Source:** cmd/arizuko/packages.go:72-92
-- **Status:** fixed 2026-07-28
-- **Fix:** `mustPkgName` validates `<name>` against `pkgNameRE` (identRE shape:
-  no leading `.`, no `/`) in both `add` and `remove` before any path join.
-
-## C3 — legacy conversion overwrites native package files (CLOSED-STALE 2026-08-15 — legacy converter deleted 258d14f8, heading was stale)
-
-When `<name>.toml` coexists with `<name>.yml` or
-`<name>-routes.json`, conversion silently overwrites the native/operator-edited
-file before deleting the TOML. This can happen after a partial/manual migration
-or after `packages add`; the conversion should fail on a non-identical
-destination rather than choose one source implicitly.
-
-- **Severity:** high
-- **Scope:** compose legacy migration
-- **Affected:** pre-v0.62 data dirs with mixed TOML/YAML package state
-- **Source:** compose/legacy.go:73-89
-- **Status:** resolved 2026-07-28 — legacy converter deleted
-- **Fix:** `compose/legacy.go` removed entirely once every live data dir was on
-  `.yml` (krons/marinade/sloth converted, `.toml.bak` kept). `.yml` is now the
-  only package format, so the overwrite hazard no longer exists.
-
-## C4 — compose migration accepts unsupported Compose v2 versions (CLOSED-STALE 2026-08-15 — legacy converter deleted 258d14f8, heading was stale)
-
-The generated file uses top-level `include`, which requires Docker Compose
-2.20+, while INSTALL.md accepts any Compose v2. On an older qualifying host,
-generation first converts and deletes legacy TOMLs, then Compose rejects the
-new model; the old binary no longer has its adapter inputs for rollback.
-
-- **Severity:** high
-- **Scope:** compose compatibility / upgrade preflight
-- **Affected:** hosts running Docker Compose v2.0-v2.19
-- **Source:** compose/compose.go:601-603,656-660; INSTALL.md:20-21
-- **Status:** resolved 2026-07-28 — legacy converter deleted
-- **Fix:** no `generate` ever converts+deletes now (converter removed); INSTALL.md
-  states the Compose 2.20+ requirement (`include:`). The destructive-migration
-  race is gone with the converter.
-
-## C5 — `packages add ttsd` installs no Kokoro dependency (CLOSED-STALE 2026-08-15 — already fixed 4fa9553e, heading was stale)
-
-The CLI copies only the named fragment, but `ttsd.yml` has a required
-`depends_on: [kokoro]` and Kokoro is a separate package. Adding ttsd alone—or
-removing Kokoro while ttsd remains—makes the whole Compose model invalid.
-
-- **Severity:** high
-- **Scope:** compose package dependencies
-- **Affected:** ttsd / kokoro
-- **Source:** cmd/arizuko/packages.go:70-83; template/services/ttsd.yml:11-13
-- **Status:** fixed 2026-07-28
-- **Fix:** `add` parses the fragment's `depends_on` and warns for any dep that is
-  neither a base daemon nor an enabled package (e.g. `ttsd` → `kokoro`).
-
-## C6 — malformed compose-managed marker can erase `.env` tail (CLOSED-STALE 2026-08-15 — already fixed 4fa9553e, heading was stale)
-
-`writeManagedEnv` treats any prefix match as a marker and never checks marker
-balance. An unmatched begin marker causes every following operator line,
-including tokens and feature flags, to be omitted from the atomic replacement.
-Complete blocks, CRLF, and missing trailing newlines are otherwise idempotent.
-
-- **Severity:** medium
-- **Scope:** compose-managed `.env` rewrite
-- **Affected:** data dirs with malformed or partially edited managed markers
-- **Source:** compose/compose.go:443-454
-- **Status:** fixed 2026-07-28
-- **Fix:** `writeManagedEnv` now finds a single well-formed `[begin,end]` block and
-  fails loud on any malformed marker (begin without end, duplicate, end-first)
-  instead of dropping every following line — operator secrets can't be erased.
-
 ## C7 — package add can overwrite or partially install a package (CLOSED-STALE 2026-08-15 — already fixed 4fa9553e, superseded by symlink packaging (5/28), heading was stale)
 
 `packages add` writes the live YAML directly before reading/writing its optional
@@ -1941,22 +923,6 @@ replaced.
 - **Fix:** `add` reads every source (fragment + optional routes) BEFORE writing any
   destination, and each write goes through `writeFileAtomic` (temp + rename) — no
   half-written fragment on a routes read/write error.
-
-## C8 — route sidecars silently discard unknown fields (CLOSED-STALE 2026-08-15 — already fixed 4fa9553e, heading was stale)
-
-Package route JSON is decoded with permissive `json.Unmarshal`, so a misspelled
-optional field such as `strip_prefx` is ignored and a valid-looking but
-behaviorally wrong route is emitted. The compose route type also drifts from
-proxyd's route shape by omitting `redirect_to`.
-
-- **Severity:** medium
-- **Scope:** compose package route schema
-- **Affected:** custom package `*-routes.json` files
-- **Source:** compose/compose.go:279-286,357-359
-- **Status:** fixed 2026-07-28
-- **Fix:** route sidecars decode with `DisallowUnknownFields` (a misspelled
-  `strip_prefx` now errors), and `ProxydRoute` gained `redirect_to` to match
-  proxyd's route shape.
 
 ## C9 — queue replay opens circuit breakers before runed is ready (2026-07-30, proposed)
 
@@ -2023,57 +989,6 @@ Fix (redesign — needs sign-off; routd turn-lifecycle + chanlib backstop):
    call losing auth is its own bug; the user-facing timeout must still surface a
    notice (dispatch.go:339 `runFailureNotice` covers the non-steered parent, but
    confirm it fires for the steered-follow-up case).
-
-## ✅ FIXED 2026-08-09 — X1 — capability secrets leak into the agent container env (2026-07-29, 8f64ea6b)
-
-**Shipped 2026-08-09.** `routd/dispatch.go` now resolves
-`l.db.EnvProfileSecrets(caller)` — a new reader in `routd/sibling_db.go` that
-queries `scope_kind='user'` and keeps only `store.EnvProfileKeys`. Container env
-holds two things and nothing else: the operator anchors from the host `.env`
-(`container/runner.go readSecrets()`) and the caller's own four model
-credentials. Every other row in `secrets` keeps its existing broker path
-(`ipc.StoreFns.ResolveConnectorSecrets`), which was not touched.
-
-The narrowing sits in the reader, not at the dispatch call site: the reader
-takes no folder argument at all, so there is no exported path from a folder
-capability secret to `RunRequest.Secrets` for a future caller to reopen.
-`FolderSecrets` is unexported for the same reason; `FolderSecretsForUser` had no
-other production caller and is gone.
-
-Tests: `routd.TestEnvProfileSecrets_OnlyUserModelCredentials` (folder row, user
-capability row, and an archive-shaped folder row for a model key all excluded)
-and `tests.TestFeature_Secrets/only-the-caller's-model-credentials-reach-the-container-env`
-(end-to-end through the real poll loop, asserting `RunRequest.Secrets` at the
-runed boundary). Both fail when the narrowing is removed. Specs `5/13` and
-`5/14` are `shipped`; `SECURITY.md`, `ARCHITECTURE.md`, `README.md`,
-`EXTENDING.md`, `container/README.md` and the web docs are reconciled.
-
-Blast radius at flip time was nil: the fleet held one `secrets` row
-(`marinade`, folder `atlas`, `GITHUB_TOKEN`) and `secret_use_log` was empty
-everywhere. One design consumer did break — see `X2`.
-
-Original report follows.
-
----
-
-`5/13` guarantees table secrets are **broker-only** — "credentials never enter the
-container" (`specs/5/13-ext-mcp.md:8,231`). The spawn path breaks it:
-`routd/dispatch.go:507` resolves `l.db.FolderSecretsForUser(folder, caller)` — the
-FULL folder secret set — and runed injects it as container env
-(`container/runner.go:263`). So a connector's API token / a pasted PAT (exactly
-the credentials `5/13` says the broker holds and the agent never sees) lands in
-the agent's environment. `store.EnvProfileKeys` (`store/secrets.go:99`) already
-names the ONLY keys that legitimately belong in spawn env (the AI-model creds the
-agent's own harness needs); nothing enforces that subset at spawn.
-
-- **Severity:** high (credential exposure to agent-run code)
-- **Source:** routd/dispatch.go:507; container/runner.go:263; store/secrets.go:99
-- **Status:** proposed — needs the credential-tier decision + sign-off
-- **Fix (redesign, sign-off):** at spawn, inject only `EnvProfileKeys`; every other
-  secret stays broker-only, resolved at the ext-call boundary (`5/13` broker path),
-  never in env. Reconcile `5/13`/`5/14` to state the split explicitly (env-profile
-  tier vs capability/broker tier). Verify no connector relies on its key being in
-  env before flipping. Found by codex tearing the ext-auth plan (2026-07-29).
 
 ## X2 — the aws-devops product's credential model died with X1 (2026-08-09, proposed)
 
@@ -2223,29 +1138,6 @@ with the scoped watcher. The clean end-state is a static serve (`vite preview` o
 a plain file server) keeping the pub-fallback/trailing-slash middleware; deferred,
 needs sign-off.
 
-## S3 — FIXED 2026-08-15, 24f93c3c — Slack permanent send failures are forced through the retryable 502 path (2026-07-15)
-
-First half of the premise was already stale at this tree: `handleSend`
-(`chanlib/handler.go`) goes through `jsonVerb` → `writeBotResult`, which
-already classifies `chanlib.ErrInvalidRequest` as 400, not the generic 502 —
-no second mapping bypasses it. That refactor landed before this entry was
-re-verified.
-
-Second half was real: `slackSendClientErrors` (`slakd/bot.go`) omitted four
-documented permanent `chat.postMessage` failures —
-`restricted_action_non_threadable_channel`,
-`restricted_action_read_only_channel`, `restricted_action_thread_locked`,
-`cannot_reply_to_message` — so those still fell through to the unclassified
-502 path (`chanreg/httpchan.go`'s `classifyStatus` then treats them as
-transient and routd's retry sweep burns attempts on something a retry can
-never fix).
-
-- **Fix:** added the four codes to `slackSendClientErrors`.
-- **Source:** slakd/bot.go (slackSendClientErrors)
-- **Tests:** `slakd.TestSendClientErrorsClassifyAsInvalidRequest` (one
-  subtest per code, asserts `Send` wraps `chanlib.ErrInvalidRequest`);
-  `go test ./slakd/... -count=1 -short` green.
-
 ## A2 — Release guard advances before announcement delivery, making partial failure permanent (FIXED 2026-08-15, 0116e33a)
 
 The migrate skill writes `~/.announced-version` before inspecting routes or
@@ -2258,23 +1150,6 @@ missing destination. The shell loop also has no per-destination success state.
 - **Scope:** v0.59 release announcement delivery
 - **Affected:** every group with one or more `#announce` routes
 - **Source:** ant/skills/migrate/SKILL.md:243-252,259-299
-- **Status:** open
-- **Fix:**
-
-## A3 — Announcement target discovery reads an unscoped, truncated route table (FIXED 2026-08-15, b0ee06c7)
-
-`inspect_routing` asks `ListRoutes(folder,isRoot)` but routd's production
-closure ignores both arguments, swallows the DB error, and returns the whole
-instance table. The inspect handler then truncates to the first 50 rows before
-annotating them. A group's own `#announce` route after global row 50 is
-invisible; unrelated groups' routes can be attempted instead, and a DB failure
-looks like a successful empty route list. Combined with the prewritten release
-guard, all three cases permanently suppress or misdirect the announcement.
-
-- **Severity:** medium
-- **Scope:** inspect_routing / announcement target selection
-- **Affected:** multi-group instances, especially those with more than 50 routes
-- **Source:** routd/mcp.go:407-412; ipc/inspect.go:12-45; ant/skills/migrate/SKILL.md:259-295
 - **Status:** open
 - **Fix:**
 
@@ -2294,34 +1169,6 @@ more than one field.
 - **Source:** core/types.go:94-135; routd/loop.go:630-646
 - **Status:** proposed
 - **Fix:**
-
-## M3 — FIXED 2026-08-15, b0f1287b — MCP send, reply, and send_file hide the platform ID their backends return (2026-07-15)
-
-`reply`'s half was already stale — it already returned `toolJSON({"ok":
-true, "id": platformID})`, just under `id`, not the `messageId` the doc
-claimed (a second, smaller drift, fixed alongside).
-
-`send` and `send_file` were real: both go through `internalSend`, which
-received `platformID` from `gated.SendMessage`/`gated.SendDocument`, used it
-to record the outbound row, then discarded it — the handlers returned plain
-`toolOK()`.
-
-- **Fix:** `internalSend` now returns `(platformID string, err error)`; both
-  callers pass it through `toolJSON({"ok": true, "id": platformID})`, same
-  shape `reply` already used. `ant/skills/self/mcp.md` corrected to `id` (not
-  `messageId`) on all three rows.
-- **Source:** ipc/ipc.go (internalSend, send, send_file); ant/skills/self/mcp.md
-- **Tests:** `ipc.TestSendSuccessRecordsSentRow` now asserts the returned id;
-  `go test ./ipc/... -count=1 -short` green.
-
-## X2 — CLOSED-STALE 2026-08-15 — X tweet replies are wired to an unreachable adapter endpoint (2026-07-15)
-
-Already fixed by `23e38efa` ("[twitd] /send honors reply_to so X replies
-thread") before this entry was re-verified: `twitd/src/server.ts`'s `/send`
-handler now dispatches to `v.reply(s, body.reply_to, body.content)` when
-`reply_to` is set, instead of always calling the DM-only `v.send`. Covered by
-`twitd/src/server.test.ts` (`reply_to`-carrying `/send` request); `bun test`
-in `twitd/` — 52/52 pass.
 
 ## Egress allowlist NOT enforced — crackbox allows non-allowlisted hosts (2026-07-14, OPEN, HIGH — security)
 
@@ -2402,63 +1249,6 @@ both need the announce target-resolution audited together.
   cross-group global dedup is still per-group — two groups tagging the same
   server double-post (operator-controlled: tag one channel per server).
 
-## ✅ FIXED 2026-08-11 S2 — Missing SECRETS_KEY permits plaintext secret writes despite the required-key contract (2026-07-14)
-
-The configuration contract says `SECRETS_KEY` is required, with no plaintext
-mode or `AUTH_SECRET` fallback, but routd only warns when the keyring is empty.
-`store.Store.storeValue` then returns the plaintext unchanged, so REST/CLI
-secret writes can persist readable values while the service remains healthy.
-This also makes imports unsafe to proceed before validating the target key.
-
-- **Severity:** high
-- **Scope:** secrets encryption precondition / routd startup
-- **Affected:** instances started without `SECRETS_KEY`; **and every live
-  instance, via dashd** — see below
-- **Source:** core/config.go:136-146 (required-key contract); routd/cmd/routd/main.go:61-69 (warn-and-continue); store/secrets.go:72-78 (plaintext fallback)
-- **Status:** FIXED 2026-08-11
-- **Fix:** the cause fix is one choke point: `storeValue` returns
-  `ErrNoSecretsKey` instead of the plaintext, so all FOUR write paths
-  (`SetSecret`, `PutSecretRow`, `PutOAuthSecret`, `UpdateOAuthSecret`) fail loud
-  whatever their caller's boot check does. routd refuses to start without the
-  key; the `arizuko secret` CLI refuses before opening the store; dashd is
-  deliberately NOT boot-fatal (it serves the whole dashboard, so killing boot
-  over one page is the worse outage) and its writes fail per request instead.
-
-**The premise understated the blast radius. This was live on all three
-instances, not only on un-keyed ones.** `compose.go`'s dashd scope list never
-carried `SECRETS_KEY`, and dashd writes user secrets straight into `routd.db`
-(`/dash/me/env`, `/dash/me/secrets`, the Connect OAuth dance). So every BYOA
-user secret went to disk in plaintext on krons, sloth and marinade — the
-instance held a valid key and the daemon doing the writing never received it.
-Fixed in `compose/compose.go`.
-
-**Operator note before the next deploy.** All three instances carry a non-empty
-single-key `SECRETS_KEY`, so routd boots — the recorded crash-loop landmine is
-disarmed. But until compose is REGENERATED, dashd still has no key, so
-`/dash/me/env` and `/dash/me/secrets` writes now return an error instead of
-silently storing plaintext. That is correct, and it is user-visible.
-
-Rotation was already implemented as documented and is preserved, not
-redesigned: `seal` uses `secretKeys[0]` only, `open` tries every key until one
-authenticates, and `SetSecretKeys` keeps the order. Comma-separate the value —
-the first key seals, the rest decrypt retired values.
-`TestSecret_NoKey_RefusesToWrite` and `TestStoreValue_NeverReturnsPlaintext`
-cover the refusal; reverting the guard fails both.
-
-**Heading closed 2026-08-15 — the fix was already shipped, only the heading
-still said open.** Re-verified at `bcb5bb83` rather than taken on the entry's
-word. `storeValue` returns `ErrNoSecretsKey` and an EMPTY string on an empty
-keyring (`store/secrets.go:83`), and it is the only sealer: every `INSERT`/
-`UPDATE` of `secrets.value` outside it is `EncryptPlaintextSecrets` (re-sealing
-rows it just read) or `ValidateAndImportSecrets` (archive blobs that travel
-as-is by design, spec 5/8). The four write paths named in the fix —
-`SetSecret`, `PutSecretRow`, `PutOAuthSecret`, `UpdateOAuthSecret` — all funnel
-through it. routd refuses to boot without the key
-(`core.RequireSecretKeyring`, `routd/cmd/routd/main.go:67`), the `arizuko
-secret` CLI refuses before opening the store (`cmd/arizuko/secret.go:33`), and
-`compose/compose.go` now scopes `SECRETS_KEY` to three daemons including dashd.
-No write path bypasses the refusal.
-
 ## L20 — FIXED 2026-08-15, 1591ccbf — whapd acks a send it has not sent, so routd records it as delivered (2026-08-11)
 
 `whapd/src/server.ts:196-214` answered `/send` with `200 {ok:true, queued:true}`
@@ -2494,31 +1284,6 @@ adapter's — one retry mechanism, not two.
 - **Tests:** `whapd/src/server.test.ts` — `/send` returns 502 disconnected and
   on `sendMessage` throw; `bun test` 116/116 pass.
 
-## L22 — FIXED 2026-08-15, 15c5c08c — the outbound retry cap is ~5 minutes, so an adapter outage dead-letters real messages (2026-08-11)
-
-`MAX_OUTBOUND_RETRY` defaulted to 10 and the sweep ran every 30s flat, so a
-row exhausted its budget about five minutes after the first failure —
-shorter than the outages that actually happen: a whapd reconnect, an
-adapter container restart, a platform incident.
-
-- **Fix:** `backoffDelay(attempts)` (`routd/loop.go`) doubles the required
-  gap since a row's own `timestamp` each time it fails — 30s, 1m, 2m, 4m,
-  ..., capped at `maxOutboundBackoff` (1h) — instead of retrying every
-  pending row on the same flat 30s clock regardless of how many times it had
-  already failed. `maybeRetryOutbound` now skips a row until
-  `now.Sub(m.Timestamp) >= backoffDelay(m.DeliveryAttempts)`. 10 attempts now
-  spend roughly an hour instead of five minutes before dead-lettering.
-  `delivery_attempts` (already written by `RecordDeliveryFailure`) is now
-  also READ — added to `core.Message`/`msgReadCols`/`scanMessages`, so this
-  also lays the groundwork `L23` needs to surface it.
-- **Source:** routd/loop.go (backoffDelay, maybeRetryOutbound); core/types.go;
-  routd/reads.go; routd/db.go
-- **Tests:** `routd.TestBackoffDelayGrowsAndCaps`,
-  `routd.TestOutboundRetryHonorsPerRowBackoff`; `go test ./routd/... -short`
-  and `go test ./store/... -short` green.
-- **Source:** `routd/loop.go` `maybeRetryOutbound`, `core/config.go` `MaxOutboundRetry`
-- **Status:** open
-
 ## L23 — PROPOSED, needs sign-off (verified still open 2026-08-15) — a dead-lettered message is countable but not readable (2026-08-11)
 
 Premise re-verified at this tree: `dashd/routd_page.go` still only shows a
@@ -2544,44 +1309,6 @@ action — is still undone.
 - **Affected:** dashd, routd, resreg
 - **Source:** `dashd/routd_page.go`
 - **Status:** open
-
-## L18 — four docs pages ship no theme toggle at all (2026-08-11, FIXED 2026-08-15)
-
-168 of 172 pages under `template/web/pub/arizuko/` carry a `.theme-toggle`
-button. These four do not, so a reader who lands on one cannot switch theme and
-has no way to tell the control exists:
-
-- `reference/packages.html`
-- `crackbox/index.html`
-- `crackbox/reference/index.html`
-- `examples/chat-sdk.html`
-
-Pre-existing — it predates the 2026-08-11 layout pass and is not a regression
-from it. Found while verifying that fix: the toggle hit-test passed on 92 of 93
-docs pages, and the 93rd turned out to have no toggle to hit.
-
-The theme itself still works on these pages (they load `hub.css` and `hub.js`,
-so they follow the stored preference and the system setting); only the control
-is absent. So this is a consistency and discoverability gap, not a broken page.
-
-Fixing it is four one-line HTML edits, but the deeper question is why a shared
-chrome element is hand-repeated in 172 files at all — the same class of drift
-`5/D` covers. Whoever fixes it should say which of the two they are fixing.
-
-- **Severity:** low
-- **Scope:** docs chrome consistency
-- **Affected:** template/web/pub/arizuko
-- **Status:** FIXED 2026-08-15
-- **Fix:** added the same `<button class="theme-toggle">&#127769;</button>`
-  markup the other 168 pages carry, right before each page's `hub.js`
-  `<script>` tag — verified against `reference/schema.html`'s copy for exact
-  markup and placement. Three of the four (`crackbox/index.html`,
-  `crackbox/reference/index.html`, `examples/chat-sdk.html`) are meta-refresh
-  redirect stubs to their moved pages; the toggle now renders consistently
-  even in the instant before the redirect fires, matching every other page
-  in the tree. Not fixing the deeper "172 hand-repeated chrome" question this
-  entry also raised — that is `5/D`'s shared-chrome scope, not a
-  four-file patch.
 
 ## L16 — legacy plaintext secret rows are never sealed; the migrator has no caller (2026-08-11, open)
 
@@ -2630,40 +1357,6 @@ this file already paid for:
 Blast radius if wrong is total — this rewrites the column every credential
 lives in — so it does not ship inline, and it wants a rehearsal against a
 read-only `.backup` copy of each instance before the real run.
-
-## ✅ FIXED 2026-08-15 L17 — `store.LookupSecret` has no non-test callers (2026-08-11)
-
-Found while fixing `S2`. `LookupSecret` never decrypted — it returned the raw
-column, a bug that plaintext-at-rest hid completely. It now opens through the
-keyring, so it is correct; but an exhaustive search finds no production caller.
-
-Either it is dead and should go (the `spawn_logs` precedent, `F72`), or a
-surface that ought to use it does not. Decide which before the next reader is
-written against it.
-
-- **Severity:** low
-- **Scope:** dead read path
-- **Affected:** store
-- **Source:** `store/secret_use_log.go` `LookupSecret`
-- **Status:** FIXED 2026-08-15 — dead, deleted (the `spawn_logs` precedent,
-  `F72`).
-- **Fix:** the "surface that ought to use it" question resolves to NO: the
-  broker's one resolution body is `DB.folderSecretsForUser` →
-  `store.FolderSecretsResolvedForUser` (`routd/sibling_db.go:151`), which
-  resolves user-over-folder in one pass AND returns the per-key scope
-  provenance `secret_use_log` records. `LookupSecret` answers a strictly weaker
-  question (one exact `(scope, scope_id, key)` row, no overlay, no provenance),
-  so wiring it in would have been a SECOND reader beside the one that exists —
-  the drift this repo bans. Its own doc comment already described a caller that
-  is not there ("the broker treats missing as a normal flow"); the broker never
-  called it. Function and `TestLookupSecret_HitAndMiss` both deleted.
-  `LogSecretUse`, its file-mate, is NOT dead — `routd/mcp.go:523` calls it.
-
-**NOT the same story as `L16`, checked before writing either fix.** They share
-a file neighbourhood and the S2 aftermath, nothing else: `L17` is a redundant
-READER of a path that already exists (delete it), `L16` is a needed WRITER with
-no home (deciding where it runs is the open question). One deletion cannot
-close both, and bundling them would have hidden that `L16` still needs sign-off.
 
 ## Web docs claim URL↔kind binding on route tokens; shipped code accepts any token at either URL (2026-07-12, fixed, LOW)
 
@@ -2873,48 +1566,6 @@ pre-fix queue path (WaitForRow timeout — no onboarding row), green after.
   (e2e) (2026-07-12). NOT yet deployed — ships with the next krons image
   build + restart.
 
-## Steer layer (slash commands / sticky nav / @child) races the queue path — routed-chat slash commands dispatch agent turns (2026-07-12, FIXED — closed 2026-08-15)
-
-**FIXED by `caf38bfb` ("[routd] steer in the queue worker, not the pollOnce
-backstop"); the entry was never closed.** `steer` is now called from
-`routd/dispatch.go:47`, inside `processGroupMessages` — the queue worker the
-race was against — and no longer from `pollOnce`. Verified 2026-08-15 during
-the CTO audit: `grep` finds exactly one production call site, in the worker.
-The description below is the original report, kept for the record.
-
-Found while root-causing the onboarding miss (same structural drift, distinct
-concern — recorded, NOT fixed). The steer layer (`routd/steer.go` — `/ping`,
-`/new`, `/stop`, `/root`, `/invite`, `/gate`, sticky `@group`/`#topic`, @child
-delegation) runs ONLY in `pollOnce` (`loop.go l.steer`), but ingest enqueues
-straight into the queue worker `processGroupMessages`, which dispatches a turn
-WITHOUT consulting steer. So for a routed chat both race: the queue path
-usually starts an agent turn on the raw command message within ms, and the
-2s-tick `pollOnce` may ALSO steer it while that run is in flight (cursor not
-yet advanced) → double-processing (steer ack + an agent reply to the command
-text).
-
-**Live evidence (krons):** `/root check rhias direct groups…`
-(`telegram:user/1112184352/5771`, 2026-07-12 08:08:31) has a `turn_context`
-row on the RAW message (state=done) and NO `root-…` reinjection row — i.e. the
-queue path ran it as a plain non-elevated agent turn and the agent replied
-ABOUT `/root` instead of `cmdRoot` elevating it. Operator `/root` (and every
-routd-serviceable command) is therefore unreliable on the live split: whether
-the fixed command response, an agent turn, or both happen is a race.
-
-**Suggested direction (needs design sign-off — control-flow change):** the
-same consolidation shape as `routeMiss`: steer must run on the path that
-processes the batch (`processGroupMessages`, before `runTurn`), not in a
-racing backstop. Care: steer consumes only the LATEST message (`last`) while
-the queue path batches; and pollOnce's steer call must not remain as a second
-racing site.
-
-- **Severity:** high (operator /root silently not elevating; command double-
-  processing burns turns)
-- **Scope:** routd/loop.go pollOnce steer site; routd/dispatch.go
-  processGroupMessages; routd/steer.go
-- **Status:** OPEN — recorded per triage protocol; fix is a dispatch-ordering
-  redesign, awaits sign-off.
-
 ## Admin cannot log in to the krons dashboard (2026-07-12, OPEN, HIGH — needs root-cause)
 
 Reported: an admin cannot get into krons (`/dash`/`/auth`). Facts gathered:
@@ -2963,168 +1614,6 @@ inventing a fallback.
   `GOOGLE_ALLOWED_EMAILS`) to `/srv/data/arizuko_krons/.env`, then
   `sudo systemctl restart arizuko_krons`.
 
-## GB1 — Redesign: eliminate the "green but broken" class at the cause (2026-07-11, mostly ✅ SHIPPED)
-
-Cause fix for the silent-failure class. fable-reviewed + code-verified; signed
-off and shipped L3→L4→L2→L1, each its own commit + test (all `go test ./routd/`
-green). NOT deployed yet (ships next image build).
-
-- **Severity:** medium (rare triggers, silent + user-facing when they fire)
-- **Scope:** routd dispatch + delivery, container spawn, route write-path, lint
-- **Status:** shipped (code); remaining follow-ups below
-
-**Shipped:** L3 silent-turn detect+notice+metric (`d65e73c2`); L4a ghost-group
-dispatch guard (`c9979e78`); L4b DeleteGroup route/engagement cascade (`836d3f88`
-+ fix `a4c4a68d`); L2 send_file→422+no-row (`d347a0dc`); L1 golangci errcheck+nilerr
-config + `lint-strict` (`3aa59fd3`).
-
-**Remaining (open):**
-1. **L4b route-write validation** — `routesHandler` add/set + CLI `route add` should
-   `GroupExists(target)` before persist. Deferred: needs a shared target parser
-   (observe/web/hook suffixes) + confirm no bootstrap adds route-before-group.
-   L4a backstops it at dispatch meanwhile.
-2. **L1 gate-flip** — wire `lint-strict` into `make lint`/CI once golangci-lint
-   builds against the toolchain (x/tools mismatch here), then triage findings.
-3. **ant `deliverTurn`** — submit_turn RPC failure should retry once then exit
-   non-zero (`ant/src/index.ts:105`) → `OutcomeError` → existing notice path.
-4. **Finish `01a61a07`** — home-not-writable should return an error from the runner
-   (→ `OutcomeError` → user notice), not log-and-spawn-config-less.
-
-Original plan detail (for the record):
-
-Ship order **L3 → L4 → L2 → L1** (biggest cause-net first). Each = own commit + test.
-
-**L3 — silent-turn reconciliation (KEEP, ~8 lines, highest value).** The clean
-epilogue `dispatch.go:314-321` ALREADY computes `TurnResultRecorded(folder,turnID)`
-(line 316) and runs synchronously at container exit (no async observer/ledger
-needed). Add: `Outcome==OK && !TurnResultRecorded && !TurnHasBotReply` → `slog.Error`
-+ deliver a chat notice via the existing `l.deliver.Send` (as `dispatch.go:297-303`)
-+ a `silent_turns_total` counter. NO retry (a 0-result run isn't transient). Verified
-no false positives: deliberate silence records turn_results (`ant/src/index.ts:328`
-calls deliverTurn on every result event incl. think-only); steered turns exit before
-the epilogue. Cause-agnostic — catches the three residues L2/L4 miss: 0-result query
-(`index.ts:459`), swallowed submit_turn RPC (`index.ts:105`), and the config-less
-home fix that still spawns (`01a61a07`).
-
-**L4 — ghost-group guard, TWO commits.** (a) Runtime backstop: guard the HEAD of
-`runTurn` (`dispatch.go:102`), mirroring `budgetGate` (`:132`) — `!GroupExists(folder)`
-→ ERROR + `deliver.Send` notice + return `true` (consume batch, cursor advances, no
-poison replay). One choke covers route/engagement/sticky ghosts. **NOT** in `resolve()`
-— there a failed guard becomes a route-*miss* → silently drops (`loop.go:540`) AND fires
-spurious `InsertOnboarding` (`:525`). (b) Write-time integrity (the real cause):
-`routesHandler` add/set (`routes_resource.go` ~149/171) + CLI `route add`
-(`cmd/arizuko/route.go:33`) must `GroupExists(target)` before persist; add a route/
-engagement cascade to `DeleteGroup` (`db.go:254`, currently a bare DELETE). Legit flows
-traced clean (@child, sticky, web:/hook:, observe, onboarding all pre-register or
-pre-guard).
-
-**L2 — `handleDocument` only (~5 lines), NOT a funnel.** The agent surface is already
-loud: MCP `send_file`→`mcpAppendDoc`→`toolErr` (`mcp.go:265`,`ipc/ipc.go:1112`), social
-REST returns 422 via `relay()` (`turns.go:480`). Only `handleDocument` (`turns.go:336`)
-drifted: swallow→HTTP 200 + `pending` row. Fix: return 422 on `Document()` error AND
-don't persist the pending row — else the text-only `maybeRetryOutbound` sweep
-(`loop.go:373`, sends `m.Content` only) re-sends the caption WITHOUT the file (latent
-bug). DROP the `recordDelivery` abstraction and DROP making `appendAndDeliver` non-2xx
-(fights `maybeRetryOutbound`, causes double-sends).
-
-**L1 — golangci-lint `errcheck` + `nilerr` only.** Into `make lint` + pre-commit (lint
-is bare `go vet`, `Makefile:35`). DROP `errorlint` (unrelated to this class) and DROP
-the ast-grep `if err==nil{}` rule (false-positive generator — the with-else form is
-legit and used correctly, `turns.go:297`, `dispatch.go:278`). Triage ~15 sweep sites;
-benign discards → `//nolint … // benign:`.
-
-**Plus (fable-added cause fixes, cheap):** ant `deliverTurn` submit_turn failure →
-retry once then exit non-zero → `outcomeFor`→OutcomeError → existing retry+notice path
-(`index.ts:105`,`docker.go:276`). And finish `01a61a07`: home-not-writable → runner
-returns error → OutcomeError → existing user notice, not log-and-spawn-config-less.
-
-## Error-hygiene sweep: swallowed / mis-levelled errors in the hot path (2026-07-11, 2 FIXED, rest OPEN)
-
-Sweep for the same class as the no-reply bug below (an error swallowed as
-Warn/`_ =` while execution continues → silent degradation). Two shapes recur:
-`if err == nil { use }` with the else branch missing, and `_ = err` on
-bookkeeping writes that matter next turn.
-
-**FIXED this pass** (both were missing error logs, no control-flow change):
-- `routd/loop.go` `resolve()` — a transient `l.db.Routes()` read failure was
-  indistinguishable from a clean route-miss, so the poll caller advanced the
-  cursor and **dropped the inbound message** with zero log. Kept the
-  fail-forward (retry risks a poison-message loop) but made the drop a loud
-  `slog.Error`.
-- `routd/turns.go:337` `handleDocument` — `s.deliver.Document` error had no
-  `else`, so `send_file` failures returned HTTP 200 (row left pending) and were
-  never logged, unlike the sibling `handleSend` (`turns.go:308` logs
-  "deliver send failed"). Added the matching `slog.Error`.
-
-**VERIFIED, OPEN** (real, left for prioritisation):
-- `authd/main.go:108-112` — `core.LoadConfig()` failure → OAuth `/auth/*` not
-  mounted, logged only `Warn`, server starts green (JWKS/health OK). Human login
-  404s while everything reports healthy. **FIXED 2026-07-11** — elevated to
-  `slog.Error` with the "login 404s while health green" symptom in the message.
-
-**NOT A BUG** (verified benign, recorded so it isn't re-flagged):
-- `container/runner.go:173` `ipcDir, _ := folders.IpcPath(in.Folder)` — the same
-  folder is already resolved+validated via `buildMounts` (`runner.go:170`, which
-  handles the error at `:560`) before line 173; `IpcPath` won't diverge for a
-  folder that reached dispatch. Discard is a cosmetic asymmetry, not a live gap.
-- `routd/prompt.go:29-39` (scout #2) — the store reads there don't surface an
-  error at the call site (methods return zero-value/empty context); the one
-  explicit `_ = UpdateObservedCursor` is **documented-benign** (comment L24-27:
-  re-seeing observed messages is harmless, at-least-once by design).
-
-**REPORTED by sweep, NOT yet independently verified** (read before fixing):
-- `ipc/ipc.go:378-386` `writeJSON` — swallows `json.Marshal` error with bare
-  `return`, no error frame → tool result vanishes, caller times out. (HIGH if
-  confirmed.) **Verified + partially fixed 2026-07-13** — marshal failure now
-  `slog.Error` (same log-add shape as the two FIXED items above; no
-  control-flow change). Error-frame delivery stays open: writeJSON takes an
-  opaque `v`, so a proper JSON-RPC error frame needs the request id threaded
-  in — design, not a log-add.
-- `ipc/ipc.go:348-361` — peer-cred/UID mismatch on MCP accept only `Warn`; gates
-  every tool call for the group. (MED)
-- `crackbox/pkg/admin/registry.go:84-107` `flushLocked` — `Warn`+return on
-  disk-persist failure inside a void fn; handler still ACKs 200 → stale egress
-  allowlist can reappear after restart. (MED)
-- `routd/turns.go:670-676` `recordTurnResult` — discards `PutMessage`/`PutSession`
-  errors (this path historically broke all replies post-split — verify first). (MED)
-- `runed/manager.go:212-214`, `runed/docker.go:66` (steer silently no-ops),
-  `ipc/ipc.go:340-345` (conn-limit reject, no error frame),
-  `routd/dispatch.go:263,305,320` (terminal SetTurnState unlogged),
-  `crackbox/pkg/host/host.go:130-132`, `routd/budget.go:32-43` (spend caps fail
-  open on a DB hiccup). (MED/LOW)
-
-Adapters (teled/discd/slakd/mastd/bskyd/reditd/emaid/chanlib) swept clean for
-this class.
-
-## Root-owned group home → agent runs config-less, silently never replies ("typing but no reply") (2026-07-11, ROOT CAUSE FIXED on krons, HARDENING OPEN)
-
-Symptom (user-reported): the bot shows a typing indicator then never replies,
-intermittently. Reproduced on krons folder `krons/content`: 4 turns (5729–5732)
-dispatched + spawned, each ran ~33s, logged `[ant] Query done. Messages: 0,
-results: 0` then `[ant] Input empty, exiting`, `code:0` — **no `turn_results`
-row, no bot message**. rhias/nemo (healthy) replies normally.
-
-**Root cause.** `groups/krons/content` was hand-created as **root:root** (Jul 7,
-manual `mkdir`/host-CLI — the "never mkdir groups manually, use onbod/SetupGroup"
-rule, `group_creation` memory). The container runs `user: 1000:1000`
-(`compose/compose.go:694`); it can't `mkdir .claude` under the root-owned home, so
-`cpDirImpl` (`container/runner.go:1146`) and `writeSettings`
-(`container/runner.go:865`) both fail — **settings.json (which carries the
-`mcpServers.arizuko` socket + outputStyle) is never written** → the SDK query
-runs with no MCP tools and returns 0 messages → no reply. Note `krons/content` is
-also a **ghost**: routed-to but NOT in `groups` (registered krons groups:
-adshaus, happy, krons, krons/public/marble, mayai, rhias, rhias/content,
-rhias/nemo). Fixed live: `chown -R 1000:1000 groups/krons/content`; uid-1000 can
-now write `.claude`. Pending end-to-end confirm on next inbound.
-
-**Hardening (OPEN).** Both write-failure sites swallow the error as `WARN` and
-continue, producing a silently dead agent — violates CLAUDE.md "strict, not
-magical / no silent fallbacks." Fix: when the group home is not writable (mkdir
-`.claude` = permission denied, or settings.json write fails), fail LOUD — log
-`ERROR` with the folder AND abort the spawn / deliver an error turn, rather than
-running a config-less container. Also consider refusing to dispatch a folder with
-no `groups` row (ghost-group guard) or auto-`chown` a fresh home to the run uid.
-
 ## Services hub: onbod + timed tiles are `Built=true` but their `/dash/` routes 404 (2026-07-10, OPEN)
 
 `dashd/services.go:35-36` marks `onbod` and `timed` `Built=true` (Dash=
@@ -3142,23 +1631,6 @@ audit (`services.spec.ts:32`), 2026-07-10.
   slice invariant: tiles show as probe-only status, no dead drill-in link).
   Shipping the two `/dash/` control-plane handlers stays a follow-up (flip back
   to `true` then).
-
-## dashd-playwright: 4 drifted test assertions (harness maintenance, not dashd bugs) (2026-07-10, RESOLVED 2026-07-11 — d068eeaa)
-
-The offline dashd playtest (`make play`) has 4 stale assertions that no longer
-match verified-correct dashd behavior. Dashboard is sound; fix the tests:
-**All 4 fixed in d068eeaa "[tests] dashd-playwright: fix 4 drifted assertions to
-match current dashd" — verified this pass.**
-- `davd.spec.ts:21` — asserts per-file `/dav/inbox/{MEMORY,CLAUDE}.md` links on
-  `/dash/memory/`; they actually render on the group **settings** page
-  (`groups_admin.go:306-308`). Point the test there.
-- `groups.spec.ts:71` — clicks "delete group" without expanding the collapsed
-  `<details>Danger zone` wrapper (`groups_admin.go:330`, added 2026-06-18) →
-  button hidden → 30s timeout. Expand the `<summary>` first.
-- `invites.spec.ts:44` — POSTs the raw token to `/revoke`; handler keys revoke on
-  the short **ref** (`invites_test.go:175,182`) → 404. Revoke by ref.
-- `read-only.spec.ts:34` — asserts "Active sessions" on `/dash/status/`; that row
-  lives on the chat portal (`main.go:756`). Assert the group-count row instead.
 
 ## Stale chat-bound session → `error_during_execution` + silent context loss (2026-07-10, OPEN)
 
@@ -3600,6 +2072,7 @@ incident you cannot scroll back past 50 events and must parse UTC strings by eye
 - **Fix:** `relativeTS` function + writeActivityRows updated (2026-06-16)
 
 ---
+
 ## Codex audit 2026-06-18 — dashd full sweep
 
 ---
@@ -3913,29 +2386,6 @@ metadata belongs in a dump.
   (2) the 5/8 token-exclusion gap — `resreg.Export` still scans every RowType including the
   raw invite `Token`, which now that the repoint has landed means a live-token export.
 
-## ✅ FIXED 2026-08-05 — dashd reads messages/chats/cost_log/task_run_logs from frozen messages.db (2026-07-01)
-
-Several dashd read paths still query the pre-split messages.db handle (`d.db`) for tables that
-moved to routd.db: `routd_page.go` reads `messages`/`chats` (errored + pending outbound counts,
-and UPDATEs `messages SET errored=0`), `usage_page.go` reads `cost_log` via `GroupUsageBulk(d.db)`,
-`chat.go` reads chat_sessions + messages. These render stale/empty because the live rows are in
-routd.db now. Separate concern from the audit_log move (which this pass fixed by repointing
-audit.Init + the audit reader to routd.db). These readers should be repointed to `d.adminDB()`
-(routd.db) / `d.dbRuned` respectively; after that dashd could drop `store.Open(messages.db)`.
-
-- **Severity:** medium
-- **Scope:** dashd routd_page.go / usage_page.go / chat.go direct messages.db reads
-- **Affected:** all instances (dashd status/usage/chat views show stale post-split data)
-- **Source:** dashd/routd_page.go:50,64,126; dashd/usage_page.go:38; dashd/chat.go:138,369
-- **Status:** ✅ RESOLVED — both remaining halves landed. `usage_page.go`'s aggregation was
-  rewritten for routd's cost_log columns and moved into dashd (its only consumer);
-  `store.GroupUsageBulk`/`GroupUsageSummary` deleted rather than left as a store-schema twin.
-  `chat_sessions` became a real routd table (migration 0029) instead of a lazily-CREATEd
-  table inside the monolith; it held zero rows on all three instances, so no backfill.
-  dashd's `db`/`dbRW` fields are gone — the monolith is unreachable by construction — and
-  `resolveDSN` refuses a `DB_PATH` ending in `messages.db` so a stale env fails loudly.
-- **Fix:** 3c2b7ad7
-
 ## Product PRODUCT.md manifests declare a non-existent `facts` skill (2026-07-09, OPEN)
 
 9 of the `ant/examples/*/PRODUCT.md` manifests list `"facts"` in their `skills`
@@ -4119,59 +2569,6 @@ for hub.css.
   CLAUDE.md wording).
 - **Status:** open — versions synced at v0.58.0; collapse decision pending
 
-## `groups` REST twin (`/v1/groups`) — RESOLVED (2026-07-30, shipped option a)
-
-5/16's last resreg rollout item. The agent's `register_group`/`refresh_groups`
-already ride `s.groupsResource()`; the spec wants the human REST twin at
-`/v1/groups` too. Unlike the other folds (`web_routes`/`routes`/`tasks`/
-`route_tokens` — mechanical), this one is NOT mechanical:
-
-- `groups` is a side-effecting **FORWARDER** (Store nil): `register_group` runs
-  `s.registerGroup` (git-init a group dir + insert a room route + a DB row), which
-  cannot ride a resreg SQL tx (`groups_resource.go` header).
-- Operator group-creation ALREADY exists as dashd's FS-managed `/dash/groups/*`
-  (`container.SetupGroup`) — the FS-mounted write-discipline path that also seeds
-  skills/settings/tasks (the `group_creation` law: never bare-create a group row).
-
-So a routd `/v1/groups` create would be a SECOND group-create door that does LESS
-than dashd's (no skill/settings seed) — the exact two-paths drift the platform
-forbids. Options:
-- **(a) Read-only `/v1/groups`** — mount only the LIST/GET face via resreg (no
-  create/delete over REST); operator create stays dashd's `SetupGroup`. Satisfies
-  "both faces" for the read surface without a second create door. **Recommended,
-  but NOT free:** the `refresh_groups` list handler returns EVERY group folder
-  unscoped (`groups_resource.go:71`) — a tier-2 operator must see only its own
-  subtree, so this needs result-filtering by the caller's JWT folder first, else
-  it's the `rest_listall` cross-tenant leak (see memory `rest_listall_leak`). So
-  even (a) is a real change + a leak-risk review, not a one-line mount.
-- **(b) Full `/v1/groups` create** — route it through `container.SetupGroup` (not
-  `s.registerGroup`), so the one seed path is shared. Larger; routd would need the
-  container/setup dependency it currently lacks.
-- **(c) Leave groups agent-MCP-only** for create; document that operator
-  group-create is dashd-only by design (write-discipline), and drop the `/v1/groups`
-  REST item from 5/16.
-
-- **Severity:** low (no runtime bug; a rollout-completeness + orthogonality call)
-- **Scope:** routd groups_resource + dashd group forms + 5/16 status
-- **Status:** RESOLVED 2026-07-30 (commit 210b8012) — shipped **option (a)**:
-  read-only `GET /v1/groups` scoped to the caller subtree (leak closed via the
-  surface==REST ownsFolder filter); CREATE stays dashd's `SetupGroup`. No second
-  bare create door.
-
-## C11 — Compose generation succeeds after daemon env writes fail (FIXED 2026-08-15, cd3fd616)
-
-`Generate` logs `writeEnvFiles` failure and continues, producing compose that
-references stale, partial, or missing daemon env files. For `runed`, this can
-silently reuse obsolete credentials or recreate the `/login` outage class.
-
-- **Severity:** high
-- **Scope:** compose generation / daemon environment integrity
-- **Affected:** every generated deployment, especially `runed`
-- **Source:** compose/compose.go:241-274,668-672
-- **Status:** open — returning the write error is a localized fail-loud fix; no
-  redesign sign-off required
-- **Fix:**
-
 ## P3 — Proxyd dispatch combines routes from two database snapshots (2026-07-30, proposed)
 
 Route matching reads one snapshot, then proxy selection rereads the table and
@@ -4286,23 +2683,6 @@ Status: BUG1-3 un-shipped by the revert; deriveFolderGrants back to DeriveRules-
 flip; BUG5 pre-existing. The correct flip must satisfy all five + the tests the
 review named (differential over the REAL path; operator-deny-vs-role-verb; restrict-
 via-role; multi-platform dedup; dashd/socket parity; reseed-staleness).
-
-## 5/33 grant-flip bugs — RESOLVED (2026-07-30, re-shipped correctly)
-
-The adversary-caught flip bugs (BUG1-5, logged above) are addressed in the
-re-shipped corrected flip (`be724eed`):
-- BUG1 (differential tested dead code) → RESOLVED: `TestIntegration_GrantSourceDifferential`
-  drives the REAL `deriveFolderGrants` and proves it == old `DeriveRules`.
-- BUG2 (blind rebind → no restriction) → RESOLVED: `hasTierRole` assign-once guard;
-  `TestIntegration_RoleDecouplesDepth` proves a rebind sticks.
-- BUG3 (operator deny masked) → RESOLVED: `folderGrantsFromACLOnly` renders denies
-  LAST; `TestIntegration_OperatorDenyBeatsRoleAllow` confirms deny-precedence.
-- BUG4 (stale role rows) → RESOLVED: `SeedTierRoles` prunes (DeleteACLPrincipal)
-  then reseeds.
-- BUG5 (dashd renders from DeriveRules) → NOT A LIVE BUG YET: the role bundles ==
-  the tier bundles today (differential), so dashd's render matches the socket's.
-  It only drifts once grants come from delegation (tier-removal steps b/d/e); fold
-  dashd onto the shared render THEN.
 
 ## CEO audit — release-readiness doc gaps (2026-07-31)
 
@@ -4589,48 +2969,6 @@ noting: an adapter stuck in `health: starting` forever looks less alarming in
 - **Fix:** re-pair whapd per `reference_whapd_pairing`; set marinade's IMAP
   password. Neither requires a deploy.
 
-## D6 — `make test-all` is red: the services-hub link test cannot pass as written (2026-08-02, FIXED 2026-08-15)
-
-`tests/dashd-playwright/tests/services.spec.ts:32` ("built tiles link to their
-control plane") fails, so `make test-all` exits non-zero. Confirmed pre-existing
-— it reproduces on a clean tree, unrelated to the modernizer sweep (`a5645e4d`).
-
-Two independent mismatches, and the second makes the test unsatisfiable:
-
-1. **Stale list.** The spec asserts `BUILT = ['onbod','timed']` and puts
-   `routd`/`runed` in `UNBUILT`. `dashd/services.go:31-38` says the opposite —
-   `routd` and `runed` carry `Built: true`, `onbod` and `timed` `false`.
-2. **Unreachable assertion.** `dashd/services.go:142` renders the link only
-   when `s.Built && statuses[i] != statusUnknown`. The spec's own header comment
-   states that in tests no daemon hostname resolves, so every tile is
-   `unknown` — under its own stated conditions **no tile can ever render a
-   link**. Fixing only the BUILT list would leave it red.
-
-This also explains why the sibling test at :42 ("unbuilt tiles render name as
-text") passes: it passes trivially, because nothing links.
-
-Behind it is a real design question, hence proposal not fix: should a tile for a
-daemon that is built but currently unreachable link to its control plane? The
-current answer is no — which is arguably backwards, since an unreachable daemon
-is exactly the one an operator wants to click through to. Changing that is a
-dashd UX decision and needs sign-off.
-
-- **Severity:** medium (CI red; masks any real regression in the same suite)
-- **Scope:** dashd services hub + its playwright contract
-- **Affected:** `tests/dashd-playwright/tests/services.spec.ts:32`,
-  `dashd/services.go:31-38,142`
-- **Status:** FIXED 2026-08-15
-- **Fix:** both prerequisites this entry named were already resolved in the
-  code by the time of the 2026-08-15 audit — `dashd/services.go`'s link
-  condition is gated on `Built` alone (an unreachable built daemon links; see
-  `wantLink`/`s.Built` around `:101-155`), and `authd`/`proxyd` are `Built:
-  true`. Only the test's own `BUILT`/`UNBUILT` const arrays had not been
-  updated to match — they still listed `authd`/`proxyd` under `UNBUILT`,
-  which the test's own comment calls out as the wrong direction ("mirror
-  dashd/services.go, the source of truth"). Moved both into `BUILT`. Verified
-  live: `cd tests/dashd-playwright && npx playwright test services.spec.ts` —
-  failed on the stale list (`authd` unexpectedly linked), passes 5/5 now.
-
 ## A1 — the split is deployment-shaped only: auth data lives in the router's DB (2026-08-02, proposal)
 
 The daemons look like microservices and are coupled through a shared filesystem.
@@ -4760,59 +3098,6 @@ instance is non-zero.
 Note what that writer implies more broadly: routd still opens the frozen
 `messages.db` at every boot to copy legacy rows forward. That is the real
 blocker for retiring `messages.db`, and it is bigger than any single table.
-
-## ✅ FIXED 2026-08-15 M1 — agent-facing MCP tool descriptions still promise dissolved tiers and a dropped table (2026-08-02)
-
-Four tool descriptions in `ipc/ipc.go` tell the agent about authorization that
-no longer exists. These are not comments — they are the strings the model reads
-when deciding whether it may call a tool, so this is a behaviour bug in the
-agent surface, not documentation drift.
-
-- `:1177` (`post`) and `:1291` (`delete`) end with **"Tier 0-2 only."**
-- `:1874` (`invite_create`) and `:1956` (`invite_revoke`) end with
-  **"Tier 0-1 only."**
-
-Depth-derived tiers were removed; `auth/identity.go:11` states the principal
-"carries ZERO authorization (no tier, no world rank)". Authorization is a single
-`auth.Authorize` over ACL rows. An agent told "Tier 0-1 only" may decline a call
-it is in fact permitted to make, or reason wrongly about its own authority —
-the failure is silent and looks like model reticence rather than a bug.
-
-Same site, second defect: `invite_create` promises the recipient "gets a
-**`user_groups`** row matching target_glob". That table was cut over by
-`store/migrations/0053-acl-cutover.sql` and does not exist — `sqlite_master`
-count is 0 on krons. The row a recipient actually gets is an `acl` /
-`acl_membership` row.
-
-Found during the phase-1..4 spec minimization pass, which flagged it as live
-misinformation rather than stale prose. Verified independently against the code
-and the live DB before logging.
-
-- **Severity:** medium (silent under-use of granted authority; no privilege
-  escalation — the real gate is `auth.Authorize`, which is correct)
-- **Scope:** agent MCP tool descriptions
-- **Affected:** `ipc/ipc.go:1177,1291,1874,1956`
-- **Fix:** delete the tier sentences; restate `invite_create`'s effect in terms
-  of the `acl`/`acl_membership` row it actually writes. Grep the whole file for
-  other tier/`user_groups` references before calling it done — these four were
-  found by a full-file read, not a truncated grep.
-- **Status:** FIXED 2026-08-15.
-
-**The four descriptions were already fixed; one residue in the same file was
-not.** Re-verified at `bcb5bb83`: `grep -in tier ipc/ipc.go` returns three hits
-and all three are "hot-tier"/"cold-tier" (the tool-surface architecture, not
-authorization), and `user_groups` appears in `ipc/ipc.go` zero times. Repo-wide,
-no `.go`/`.md`/`.ts` file outside this queue's own history says "Tier 0-2 only"
-or "Tier 0-1 only" any more, and `resreg/resources/route_tokens.go` — the
-`R1`-3 site — carries no tier language either.
-
-What survived was an ORPHAN: a five-line comment at the end of `ipc/ipc_test.go`
-documenting a `list_acl` test that had been deleted out from under it. It
-asserted `AuthorizeStructural` (deleted), a "Tier 0-1 only" description
-(deleted), and `Tier = min(count("/"), 3)` (the dissolved derivation) — three
-false facts about the auth model, in the very file this entry named, with no
-test attached to make them fail. Deleted. That is the whole remaining delta,
-so the entry closes here.
 
 ## ✅ FIXED 2026-08-03 Y2 — fixing Y1 would activate an invite-token wipe and a raw-bearer export (2026-08-02, open)
 
@@ -5019,35 +3304,6 @@ family kill`. Timing-sensitive race assertion, not reproducible on demand.
 - **Source:** authd/bugfix_test.go:168, TestRefreshRotationRaceSingleWinner
 - **Status:** open, record-only — needs a root-cause pass on the race timing,
   not a fix on sight
-
-## ✅ FIXED 2026-08-03 — F1 — onbod's dashboard forms never emit the CSRF field they are checked against (2026-08-03, fixed)
-
-`handleOnboardPost` rejects any request whose `csrf` form value is missing or
-does not match the `onbod_csrf` cookie, but no rendered form contains that
-field: `renderUsernamePicker` and `renderDashboard` emit `<form method="POST"
-action="/onboard">` with no hidden `csrf` input. Every real dashboard submission
-— create_world, add_route, delete_route — should therefore 403 with "csrf token
-invalid". Only the tests pass, because `postOnboard` injects the pair itself.
-
-Found while extracting the double-submit helpers into `auth.EnsureCSRF` /
-`auth.CheckCSRF` for spec 5/31's pairing confirm page. The extraction preserved
-onbod's behavior exactly (the shared `EnsureCSRF` now RETURNS the token, which
-is what a renderer needs to embed); it did not add the missing field, because
-that is a behavior fix on a surface this work does not otherwise touch.
-
-Narrower than recorded: `renderUsernamePicker` is the ONLY form onbod renders
-for `POST /onboard`. `renderDashboard` renders read-only tables — the
-`add_route` / `delete_route` actions `handleOnboardPost` dispatches have no
-rendered form on any onbod page, so `create_world` was the whole live breakage.
-
-- **Severity:** high — onboarding self-service dashboard is unusable if confirmed
-- **Scope:** onbod HTML forms
-- **Affected:** `POST /onboard` action=create_world
-- **Source:** onbod/main.go `checkCSRF`, `renderUsernamePicker`
-- **Status:** fixed — not deployed
-- **Fix:** 4def8f36 — the token `auth.EnsureCSRF` returns is threaded through
-  `handleDashboard` into the renderer, plus a test that replays the rendered
-  form's own inputs against the handler instead of injecting the pair.
 
 ## V2 — dashd duplicates ~4,500 LOC of control planes phase 7 moves away (2026-08-04, proposal)
 
@@ -5470,81 +3726,6 @@ budget swap changes an operator-facing surface, so it wants its own tests.
   A `store.Open(` grep now leaves only the playwright seed; `migrate-split` reads
   messages.db by read-only `ATTACH`, not `store.Open`.
 
-## Q2 — dashd's audit-free writers outlived their reason, so admin mutations are unaudited (2026-08-05, FIXED — heading was stale, body already said fixed 2026-08-05)
-
-Five sites in dashd justify using audit-FREE store variants with the same stale claim —
-"routd.db has no audit_log table, so the audited writer would roll back":
-`groups_admin.go:122,412`, `route_tokens.go:69,131`, `routes_admin.go:157`,
-`grants_admin.go:216,267`, `chat.go:416`. routd migration **0016** added `audit_log` to
-routd.db, and dashd's own sink has pointed there since; `audit.Init(dbRoutd, …)` runs at
-boot. The premise is false, and the consequence is that operator grant/route/route-token/
-group mutations through the dashboard persist with no audit row — while the same
-mutations through the CLI and MCP surfaces are audited.
-
-Found while retiring messages.db (the comments are adjacent to the repointed reads).
-Left in place: switching to the audited writers is a behavior change on seven mutation
-paths and belongs in its own commit with per-path tests, not smuggled into a repoint.
-
-- **Severity:** medium (operator mutations invisible to the audit trail; surfaces disagree)
-- **Scope:** dashd admin write paths vs audit/log.go
-- **Affected:** all instances — dashboard grant/route/token/group/task mutations
-- **Source:** dashd/groups_admin.go:122,412; route_tokens.go:69,131; routes_admin.go:157; grants_admin.go:216,267; chat.go:416; routd/migrations/0016-audit-log.sql
-- **Status:** fixed 2026-08-05
-- **Fix:** per-site, since the audit-free choice was not uniformly wrong. Five
-  sites moved to the audited writer (`AddACLRow`, `RemoveACLRow`, `AddRoute`,
-  `InsertRouteToken` ×2, `RevokeRouteToken`). The two group handlers KEPT their
-  raw multi-table transactions — `PutGroup`/`DeleteGroup` open their own tx and
-  cannot carry the admin grant or the acl/routes cascade — and emit via
-  `audit.EmitInTx` inside that same tx instead; group delete's pre-existing emit
-  also moved from post-commit into the tx, so an audit row can no longer outlive
-  a rolled-back delete. The audited writers hardcoded `Actor: "system"` /
-  `Surface: gateway`, which would have recorded an operator action as the
-  system, so `store.Store` gained `AsUser(sub)` + a single `auditIdentity()`
-  renderer generalizing the actor seam `AddACLRow` already had via
-  `row.GrantedBy`. Falsifiability proven per site: reverting each to its
-  audit-free writer fails its test with `actor_sub = ""`.
-  Tests: `dashd/audit_mutations_test.go`.
-
-  **Heading closed 2026-08-15**: only the entry's own heading had never been
-  updated to match this body — re-verified all five sites against HEAD
-  (`AddACLRow`/`RemoveACLRow` in grants_admin.go, `InsertRouteToken`
-  ×2/`RevokeRouteToken` in route_tokens.go and chat.go, `AddRoute` in
-  routes_admin.go) and `go test ./dashd/... -short` green.
-
-## Q3 — dashd tests wire a STORE-schema DB as routd.db (2026-08-05, FIXED — heading was stale, body already said fixed 2026-08-05)
-
-`testutils.NewInstance` runs `store.Migrate` — the pre-split messages.db schema — and
-dashd tests pass that handle as `dbRoutd`. The two schemas overlap enough (messages,
-groups, acl, routes) that this passed unnoticed, but they diverge on `cost_log`
-(`ts/cents/input_tok` vs `recorded_at/cost_cents/input_tokens`) and on tables routd added
-after the split (`chat_sessions`, migration 0029), which the store schema simply lacks.
-
-Two dashd tests now compensate in-line — `TestGroupListUsage` DROPs and recreates
-`cost_log` in routd's shape, and the chat tests CREATE `chat_sessions` themselves. That
-works but means the fixture can assert against a schema production does not have, so a
-genuine column-name regression can pass. The durable fix is a routd-schema instance
-helper (`testutils.NewRoutdInstance` running routd's migration FS) for daemons that read
-routd.db; `store.Migrate` should stay only where the frozen schema is the subject.
-
-- **Severity:** low (test-fidelity; can mask a real schema drift)
-- **Scope:** tests/testutils vs routd/migrations
-- **Affected:** dashd test suite (and any future daemon test wiring inst.DB as routd.db)
-- **Source:** tests/testutils/testutils.go:49; dashd/integration_test.go (cost_log swap); dashd/chat_test.go:createChatSessions
-- **Status:** fixed 2026-08-05
-- **Fix:** `testutils.NewRoutdInstance` migrates a real routd DB; every dashd
-  fixture uses it. Both in-line compensations deleted (the `cost_log`
-  DROP+recreate and `createChatSessions`). A SECOND fixture had the same defect:
-  `dashd/admin_routd_test.go`'s hand-rolled `adminSchema` const claimed to mirror
-  routd/migrations but omitted `audit_log`, `messages.sender NOT NULL`, and
-  `route_tokens.owner_folder`'s FK to `groups` — deleted in favour of the real
-  schema, which immediately caught three test rows production would reject.
-  `splitAdminDash` now also calls `audit.Init` as dashd's main does, so handlers
-  emitting through the package sink are actually observable in tests.
-
-  **Heading closed 2026-08-15**: only the entry's own heading had never been
-  updated to match this body — confirmed no `cost_log`/`createChatSessions`
-  in-line compensation remains and `go test ./dashd/... -short` green.
-
 ## Q4 — the same false "routd.db has no audit_log" justification survives in cmd/arizuko and onbod (2026-08-05, fixed)
 
 Q2 retired the claim in dashd, but two more sites still carry it. `cmd/arizuko/route.go:16`
@@ -5589,140 +3770,6 @@ actor would need to come from the invoking operator or stay `system` deliberatel
   - **Falsifiable:** reverting each writer one at a time fails only its audit
     case (no row found / `actor=system`) while `TestRouteLandsInRoutdDB` and
     `TestSplitInviteGrantLandsInRoutd` stay green.
-
-## Q5 — `arizuko grant`/`ungrant` and `arizuko packages` carry the same false audit_log claim (2026-08-05, FIXED — heading was stale, body already said fixed 2026-08-05)
-
-Found while fixing Q4, not fixed with it (separate concern, and outside that
-brief). `cmd/arizuko/main.go:518` states "runGrant writes acl rows audit-free
-(routd.db has no audit_log table — same discipline as routd's own grant
-endpoint)" — the identical claim Q2 and Q4 already retired. `arizuko grant` /
-`ungrant` therefore mutate `acl` and `acl_membership` with no audit row, while
-the same grant through dashd (`81521b18`) and MCP is recorded.
-
-The Q4 fix makes this strictly mechanical now: `AddACLRow` / `RemoveACLRow`
-exist and audit into routd.db, and `AsCLI` supplies the operator, so these are
-one-line swaps plus the same falsifiable test shape as `route_audit_test.go`.
-
-`cmd/arizuko/packages.go:200` applies a whole grant bundle through `PutACLRow`
-in a loop — same swap, but it wants a verdict of its own first: a package apply
-may deserve ONE audit row for the bundle rather than N for the rows.
-
-Not checked here: `arizuko secret` (`PutSecretRow`, `cmd/arizuko/secret.go:108`)
-carries the same audit-free shape and the audited `SetSecret` exists. Give it
-its own verdict — a secret's audit row must not carry the value.
-
-- **Severity:** medium (operator grant mutations invisible to the audit trail;
-  same class as Q2/Q4, and grants are the higher-privilege surface)
-- **Scope:** `cmd/arizuko/main.go` (runGrant/runUngrant), `cmd/arizuko/packages.go`,
-  possibly `cmd/arizuko/secret.go`
-- **Affected:** all instances — `arizuko grant|ungrant`, `arizuko packages apply`
-- **Source:** cmd/arizuko/main.go:518,526,532,547,553; cmd/arizuko/packages.go:200
-- **Status:** fixed 2026-08-05 (`877ea615`, `f445b639`, `703f6e75`). All three
-  sites were defects; none was legitimately audit-free.
-  - `main.go` grant/ungrant — **defect**, the mechanical swap the entry
-    predicted: `AddACLRow`/`RemoveACLRow` for a scoped grant,
-    `AddMembership`/`RemoveMembership` for the `**` operator grant, `AsCLI` for
-    the actor. `AddMembership`/`RemoveMembership` had to move onto
-    `auditIdentity()` first — they rendered Actor/Surface by hand
-    (`addedBy`-or-`system` over `gateway`), so an `AsCLI` store wrote an
-    operator grant as anonymous gateway traffic. One renderer now serves both
-    acl writers; unattributed output is byte-for-byte unchanged.
-  - `packages.go` — **defect, and the verdict is N rows, not one**. A bundle row
-    would say "installed grantpkg" and hide WHICH authority it handed to whom;
-    the question an audit trail answers is per-grant, and the bundle is already
-    recorded durably in `installed_packages`. The objection to a per-row trail
-    (N anonymous rows at one timestamp do not read as one act) is defeated by
-    naming the package in each row, not by collapsing them — so each grant
-    writes `granted_by: package:<name>` and `AddACLRow`'s ParamsSummary gained
-    `granted_by`, without which the actor (`cli:alice` either way) cannot
-    distinguish a typed grant from one a package brought in. Settled
-    independently by an asymmetry the entry did not predict: `packages remove`
-    ALREADY reversed grants through the audited `RemoveACLRow`, one row each —
-    install was the silent half, so grants appeared from nowhere and were
-    recorded only on the way out.
-  - `secret.go` — **defect, and its comment was wrong twice**: it claimed
-    routd.db has no audit_log AND that this matched "routd's POST /v1/secrets
-    endpoint", which calls the audited `SetSecret`
-    (`routd/secrets_resource.go:126`). The CLI was the last silent secret
-    writer, not a peer of routd's. `SetSecret`/`DeleteSecret` are behaviourally
-    identical to the Bare twins (same `validateScope`, same sealing, same
-    `ErrSecretNotFound`), so this adds a row and changes nothing else.
-  - **No secret reaches an audit row.** The payload was already safe — the row
-    holds `secrets/<scope>/<id>/<key>` plus `"encrypted": bool`, delete holds no
-    params, and `audit.marshalParams` redacts key names matching
-    `token|secret|api_key|^key$`. So the fix is the CALL SITE, not the payload
-    shape. Nothing asserted the invariant, though, so
-    `TestSecretAuditNeverCarriesValue` now scans EVERY column of both rows for
-    the plaintext, across folder/user scope and sealed/unsealed stores. Proven
-    non-vacuous: adding `"note": value` to the ParamsSummary fails it (the
-    redaction regex does NOT save a badly-named key).
-  - **Falsifiable, per writer:** reverting each of the six writers one at a time
-    fails only its own audit case (no row / `actor=system`) while the behavior
-    tests (`TestGrantThenList`, `TestGrantLandsInRoutdDB`,
-    `TestPackagesInstallGrants`, `TestSecretLandsInRoutdDB`) stay green.
-  - `RemoveACLRowBare` and `RemoveMembershipBare` are deleted — this was their
-    last caller, and they were the false claim in executable form.
-    `PutACLRow`/`PutMembership` stay (test seeding; the `role:member` seed at
-    group creation, the 4r migration backfill) with the missing-table
-    justification struck from their comments.
-
-  **Heading closed 2026-08-15**: only the entry's own heading had never been
-  updated to match this body — confirmed all three commits
-  (`877ea615`/`f445b639`/`703f6e75`) are in HEAD's history and
-  `go test ./cmd/arizuko/... -short` green.
-## ✅ FIXED 2026-08-05 — F1 — `installed_packages` is a management table with no resreg resource (2026-08-05, fixed)
-
-Every cold-tier management entity is required to register a resreg `Resource`,
-so one handler wears a REST face for operators and a derived MCP face for
-agents. `installed_packages` registers none: `resreg/resources/` has no packages
-resource, `dashd/packages_page.go` is read-only by its own comment ("install /
-upgrade / remove is the `arizuko packages` CLI"), and the only mutation path is
-`cmd/arizuko/packages.go` writing through `routd/packages_store.go`. Root
-`CLAUDE.md` names this exact shape: *"A management resource without a resreg
-registration is a review-blocker."*
-
-The consequence is the drift the rule exists to prevent — an agent cannot see or
-manage what an operator installed, and the two surfaces disagree about what a
-package is. Registering it is not a mechanical addition: package install runs a
-multi-step side-effecting lifecycle (git fetch at a pinned revision, asset
-copy, grant apply, route apply) that does not fit the CRUD convention resreg
-emits, so the resource shape has to be designed — probably a narrow
-`list`/`get` face plus explicit install/remove actions, not a table CRUD.
-
-Signed off and shipped as a READ-ONLY resource — the entry's own instinct
-("probably a narrow `list`/`get` face") was right, and the "plus explicit
-install/remove actions" half was dropped on inspection. Install writes host
-files (compose fragments under `<datadir>/services/`, skills under
-`<datadir>/skills/`), shells out to `git clone`, applies acl + `proxyd_routes`
-rows, and needs `arizuko generate` + a compose restart afterwards. Putting that
-behind a routd handler means either a second implementation of a ~200-line
-pipeline (the drift CLAUDE.md forbids) or a write that does less than the CLI
-while looking like it did the same thing. Remove is worse: the record is what
-`packages remove` reads to find the identities to reverse, so a `DELETE` orphans
-the routes, grants and files it named. The lifecycle stays CLI-owned; the
-resource publishes the read both faces were missing.
-
-Containment turned out not to be folder containment at all: the table has no
-folder column and the record names cross-folder identities, so there is no
-per-folder slice to hand a tenant. Both faces bind the same instance-wide target
-(`**`) and run `auth.Authorize` on it — a folder-scoped grant does not match, so
-only the operator role or an explicit `**`-scoped delegation reads it.
-
-- **Severity:** medium (agent/operator surfaces disagree; documented review-blocker)
-- **Scope:** packages lifecycle vs resreg
-- **Affected:** all instances — `arizuko packages`
-- **Source:** resreg/resources/ (no packages resource); dashd/packages_page.go:8-25; cmd/arizuko/packages.go; routd/packages_store.go; CLAUDE.md:71-73
-- **Status:** fixed — not deployed
-- **Found:** specs/5 frontmatter audit; `5/28` demoted to `partial`.
-- **Fix:** `308a2f05` — `resreg/resources/installed_packages.go` (catalog decl:
-  RowType → OpenAPI schema, two GET Endpoints, `list_packages`/`get_package`)
-  + `routd/packages_resource.go` (one handler, REST gate + agent gate, both on
-  `**`) + `routd.OpenAPIResources` (so a test can assert doc and mux agree) +
-  `store/migrations/0081` (the shared schema library never mirrored routd's
-  0020, so `resreg.Export(routd)` could not scan the resource). 11 tests, each
-  falsified by breaking exactly the mechanism it covers.
-- **Leaves `5/28` at `partial`:** F2 (unaudited route install) and F3
-  (`products.toml` composition unbuilt) are untouched by this.
 
 ## F2 — package route installs write no audit row (2026-08-05, fixed)
 
@@ -5968,71 +4015,3 @@ citation look verifiable while being unreachable for every other checkout.)
   before recording a SHA. `git cat-file -t` is NOT enough — all eleven still
   resolve to commit objects in the shared object DB, so `git show` succeeds on a
   SHA no one else can reach. The check is reachability, not existence.
-
-## ✅ FIXED 2026-08-06 F23 — dashd's `RUNED_URL` is read but never written, so the runed kill button is dead in every deploy (2026-08-06, FIXED)
-
-`dashd/main.go` reads `RUNED_URL` into `d.runedURL`, and `handleRunedKill`
-returns **503 "RUNED_URL not configured"** when it is empty
-(`dashd/runed_page.go:153-156`). Nothing writes it: `compose/compose.go`
-never emits `RUNED_URL` (`grep -n "RUNED_URL" compose/compose.go` is empty),
-and it is absent from dashd's env allowlist at `compose/compose.go:191-194`
-(`AUTH_SECRET, DASH_PORT, WHAPD_URL, AUTHD_URL, AUTHD_SERVICE_KEY,
-SURROGATE_GITHUB_CLIENT_ID, SURROGATE_GITHUB_CLIENT_SECRET`). So unless an
-operator hand-adds it to the instance `.env`, `/dash/runed/`'s only control
-503s on every click.
-
-`TestRunedKillNoURL` covers the 503 branch, so the code is doing what it was
-written to do; nothing tests that the deploy supplies the variable. Found
-while wiring `/dash/proxyd/`, which avoids the same trap with a code default
-(`PROXYD_URL` → `http://proxyd:8080`, matching `webd/main.go:45`).
-
-- **Severity:** medium (a shipped operator control that cannot work as deployed)
-- **Scope:** compose generation vs dashd
-- **Affected:** all instances
-- **Source:** dashd/main.go (runedURL read), dashd/runed_page.go:153-156; compose/compose.go:191-194
-- **Status:** FIXED 2026-08-06
-- **Fix:** shipped as proposed, but as **one renderer rather than a second
-  copy of the proxyd expression**: `dashd/main.go`'s new `backendURL(envKey,
-service)` returns the env override when set and `http://<service>:8080`
-  otherwise, and BOTH `runedURL` and `proxydURL` now go through it. Mirroring
-  proxyd's inline `chanlib.EnvOr` would have left two places for the same rule
-  to drift; the bare `os.Getenv` that caused this bug is now gone from dashd's
-  wiring entirely. `TestBackendURLDefaultsToComposeService` pins both defaults
-  plus override-wins and trailing-slash-trim; reverting `backendURL` to
-  `os.Getenv` fails that test and only that test.
-- **Note:** this was one of two independent faults on the same button. The
-  other — `service:dashd` missing from authd's `serviceGrants`, so the bearer
-  was minted with empty scope — was fixed separately in `fd697e99`.
-
-## F22 — `/dash/me/env`'s three rejection messages disagree (2026-08-06, FIXED 2026-08-15)
-
-`handleMeEnvCreate` rejects a capability key with
-
-    GITHUB_TOKEN: not an env-profile key — use /dash/me/secrets for capability keys
-
-but `handleMeEnvUpdate` (`me_env.go:208`) and `handleMeEnvDelete`
-(`me_env.go:258`) stop at `GITHUB_TOKEN: not an env-profile key` — no pointer at
-the page that does accept the key. The twin `me_secrets.go` carries
-`— use /dash/me/env` on all three verbs (`:211`, `:260`, `:316`), so the
-asymmetry is `me_env`'s alone.
-
-Cosmetic today: the page's form only ever POSTs or DELETEs a key it already
-listed, so the truncated message is unreachable from the UI. It is reachable
-from `curl` and from any future client, and one guard answering three different
-ways is how the two pages drift apart.
-
-Found writing the F9 tests: the test first asserted the pointer on all three
-verbs, which is what the spec's "Write paths" section implies, and failed.
-
-- **Severity:** low (message consistency on an unreachable-from-UI path)
-- **Scope:** dashd env-profile handlers
-- **Affected:** API callers hitting PATCH/DELETE with a capability key
-- **Source:** dashd/me_env.go:208, :258; dashd/me_secrets.go:211, :260, :316
-- **Status:** FIXED 2026-08-15
-- **Fix:** `notEnvProfileKeySuffix` const in `dashd/me_env.go`, used at all
-  three sites (`handleMeEnvCreate`/`Update`/`Delete`) so a fourth verb cannot
-  invent a fifth wording. `TestMeEnv_CrossGuard`
-  (`dashd/me_env_test.go`) previously documented the asymmetry as
-  intentional ("Only POST points... — BUGS F20"); updated to assert all
-  three verbs point at `/dash/me/secrets`. `go test ./dashd/... -short`
-  green.
