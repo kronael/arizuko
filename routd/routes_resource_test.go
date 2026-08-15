@@ -468,6 +468,13 @@ func TestRoutesMCP_AuditRowLands(t *testing.T) {
 // TestIsSelfDefault + TestRouteTargetWithin: unit tests for the two containment
 // helpers, moved here from ipc when the route tools migrated to resreg (their only
 // callers moved with them).
+//
+// A route target is a BARE folder path. Spec 5/34 gives targets no prefix
+// vocabulary and no writer emits one, so `folder:`/`daemon:`/`builtin:` are not
+// folders — the prefixed cases below pin that they are within nothing and are
+// nobody's self-default, rather than being silently stripped back into a folder
+// (BUGS L28). Deleting the strip and re-running these is what proves the arms
+// were dead: nothing else in the tree changed shape.
 func TestIsSelfDefault(t *testing.T) {
 	cases := []struct {
 		seq    int
@@ -476,7 +483,7 @@ func TestIsSelfDefault(t *testing.T) {
 		want   bool
 	}{
 		{0, "world/a", "world/a", true},
-		{0, "folder:world/a", "world/a", true},
+		{0, "folder:world/a", "world/a", false},
 		{1, "world/a", "world/a", false},
 		{0, "world/a/child", "world/a", false},
 		{0, "world/b", "world/a", false},
@@ -498,8 +505,8 @@ func TestRouteTargetWithin(t *testing.T) {
 		{"world/a", "world/a", true},
 		{"world/a/child", "world/a", true},
 		{"world/a/deep/nested", "world/a", true},
-		{"folder:world/a", "world/a", true},
-		{"folder:world/a/child", "world/a", true},
+		{"folder:world/a", "world/a", false},
+		{"folder:world/a/child", "world/a", false},
 		{"folder:world/b", "world/a", false},
 		{"world/b", "world/a", false},
 		{"world/ab", "world/a", false}, // must not prefix-match world/a in world/ab
@@ -509,6 +516,31 @@ func TestRouteTargetWithin(t *testing.T) {
 	for _, c := range cases {
 		if got := routeTargetWithin(c.target, c.owner); got != c.want {
 			t.Errorf("routeTargetWithin(%q, %q) = %v, want %v", c.target, c.owner, got, c.want)
+		}
+	}
+}
+
+// routeTargetOwned is the REST twin of routeTargetWithin and carried the same
+// dead `folder:` strip (BUGS L28). Empty jwtFolder is root and owns every
+// target; a scoped folder owns itself and its descendants, and a prefixed
+// target is not a folder it can own.
+func TestRouteTargetOwned(t *testing.T) {
+	cases := []struct {
+		jwtFolder, target string
+		want              bool
+	}{
+		{"", "world/a", true}, // root / service token owns everything
+		{"", "daemon:timed", true},
+		{"world/a", "world/a", true},
+		{"world/a", "world/a/child", true},
+		{"world/a", "world/b", false},
+		{"world/a", "world/ab", false},
+		{"world/a", "folder:world/a", false},
+		{"world/a", "daemon:timed", false},
+	}
+	for _, c := range cases {
+		if got := routeTargetOwned(c.jwtFolder, c.target); got != c.want {
+			t.Errorf("routeTargetOwned(%q, %q) = %v, want %v", c.jwtFolder, c.target, got, c.want)
 		}
 	}
 }

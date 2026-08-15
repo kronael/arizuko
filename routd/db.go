@@ -136,8 +136,11 @@ func (d *DB) PutGroup(g core.Group) error {
 		return err
 	}
 	// Create-time default role (5/33): bind the new folder to role:member so it holds
-	// the messaging floor immediately. Everything above the floor is explicit
-	// delegation from a lineage ancestor (auth.Delegate at register_group / add_acl).
+	// the messaging floor immediately. Everything above the floor is an explicit acl
+	// row: add_acl writes one after auth.Delegate proves it is a subset of what the
+	// granter holds (routd/acl_resource.go). register_group itself is gated by
+	// db.Authorize on "mcp:register_group" (routd/groups_resource.go) and calls no
+	// Delegate — it seeds this floor, it does not delegate anything above it.
 	return assignDefaultRole(store.New(d.db), g.Folder)
 }
 

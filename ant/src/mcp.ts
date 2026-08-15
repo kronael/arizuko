@@ -3,7 +3,7 @@ import net from 'net';
 const MCP_SOCK = '/run/ipc/gated.sock';
 
 // ModelUsage is one model's per-turn accounting, forwarded so gated can
-// write a cost_log row per call. Spec 5/34. Mirrors the SDK's ModelUsage
+// write a cost_log row per call. Spec 11/19. Mirrors the SDK's ModelUsage
 // in snake_case; cost_cents is the SDK's costUSD × 100 rounded.
 export interface ModelUsage {
   input: number;

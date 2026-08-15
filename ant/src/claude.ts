@@ -40,7 +40,7 @@ export interface Event {
   // status is set on result events: how the turn ended.
   status?: 'success' | 'error';
   // models is per-model token/cost accounting, set on result events when the
-  // harness reports it. Snake_case to match the submit_turn payload (5/34).
+  // harness reports it. Snake_case to match the submit_turn payload (spec 11/19).
   models?: Record<string, ModelUsage>;
   // timedOut marks a result synthesised after the query-timeout deadline
   // (graceful summary, not a normal completion). routd logs a WARN.
@@ -235,7 +235,7 @@ function createIpcDrainHook(drain: DrainIpcInput): HookCallback {
 }
 
 // extractModelUsage converts the SDK's modelUsage record to the snake_case
-// shape gated expects. costUSD → cost_cents via × 100 + round. Spec 5/34.
+// shape gated expects. costUSD → cost_cents via × 100 + round. Spec 11/19.
 function extractModelUsage(modelUsage: unknown): Record<string, ModelUsage> | undefined {
   if (!modelUsage || typeof modelUsage !== 'object') return undefined;
   const out: Record<string, ModelUsage> = {};

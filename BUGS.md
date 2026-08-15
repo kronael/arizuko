@@ -52,6 +52,17 @@ folders appear for existing users — a live authorization-behaviour change.
   carrying deny, so the gate has to move off the header entirely. Not shipped
   inline. Note the original entry overstated onbod: `onbod/dash.go`
   `requireOperator` only tests for `**`, it does no per-folder visibility.
+  **Re-verified 2026-08-15 at `bcb5bb83`; still exactly as described, still a
+  redesign.** `store.UserScopes` is gone — `store/acl.go:196` is now only a
+  pointer to `auth.UserScopes` — so the second READER really did close. The
+  live half is unchanged: `dashd.callerScope` (`dashd/authz.go:44`) reads the
+  `X-User-Groups` header, falls back to `auth.UserScopes(sub)`, and treats
+  `slices.Contains(allowed, "**")` as operator; `visible()` then decides
+  200/403 by `auth.MatchGroups` over that list. There is no `auth.Authorize`
+  anywhere in dashd's read path. Not fixed here: closing it picks which action
+  dashboard read requires and moves the gate off a `[]string` header that
+  cannot represent deny — an auth-model change, which is precisely the class
+  that ships only after sign-off.
 - **Found:** specs/5 frontmatter audit; `5/32` demoted to `partial`, now shipped.
 
 ## ✅ FIXED 2026-08-06 F6 — `5/K`'s backend contract claims more than `ant/` implements (2026-08-05, RESOLVED BY DELETION)
@@ -226,7 +237,7 @@ Two errors on `template/web/pub/arizuko/reference/openapi.html`, the page
   NOT deployed: `template/web/pub/` is source-of-truth; the rsync is the
   operator's step.
 
-## F61 — nine code comments cite "Spec 5/34" for cost caps; 5/34 is the channel protocol (2026-08-07, Go half FIXED 2026-08-09 — agent-skill + web-docs half open)
+## ✅ FIXED 2026-08-15 F61 — nine code comments cite "Spec 5/34" for cost caps; 5/34 is the channel protocol (2026-08-07, Go half FIXED 2026-08-09)
 
 `specs/5/34-channel-protocol.md` is the channel adapter protocol. The cost-cap
 spec is `specs/11/19-cost-caps.md` (`status: partial`). Nine production sites
@@ -266,6 +277,19 @@ machinery this change should not drag in:
   dated records of what shipped under the old numbering. Correct as history;
   must NOT be rewritten.
 
+**CLOSED 2026-08-15.** Both deferred halves verified gone at `bcb5bb83`:
+`ant/skills/oracle/SKILL.md` has no `5/34` left (repo-wide `grep -rn 5/34 ant/`
+returns only `ant/src` + the dated migration), and the live
+`template/web/pub/arizuko/reference/{mcp,schema,cli}.html` are clean — the only
+surviving web hits are the frozen `legacy/` snapshots, which this file's own
+precedent leaves as-is.
+
+The same pass closed a FIFTH category the entry never enumerated: five
+`ant/src` sites cited `5/34` for cost accounting (`claude.ts:43`, `claude.ts:238`,
+`index.ts:72`, `mcp.ts:6`, `claude.test.ts:56`). `specs/5/34` contains the
+string "cost" zero times, so these were the same wrong pointer in TypeScript.
+Repointed to `11/19`; comments only, no behaviour, so no migration bump.
+
 ## F77 — skill-guard's per-line scan is evadable by splitting a payload (2026-08-08, PARTIALLY FIXED 2026-08-08)
 
 The demonstrated case is fixed: shell line-continuations are joined before
@@ -281,6 +305,14 @@ line at a time. Closing it means AST or dataflow analysis, which
 Not a containment boundary — Docker, the crackbox egress allowlist and the gated
 MCP socket are, and `SECURITY.md` states this. Recorded so the residual is not
 mistaken for coverage.
+
+**Re-verified 2026-08-15 at `bcb5bb83`: accurate as written, no action.** The
+demonstrated fix is present and is the one described — `logicalLines`
+(`ant/src/skillguard.ts:46`) joins a line ending in `\` with the next before
+scanning. The residual class is genuinely out of scope: closing it needs AST or
+dataflow analysis, which `specs/5/23` excludes by decision, so there is no
+contained fix to make and nothing to close. Left open deliberately as a
+recorded residual, which is what this entry is for.
 
 ## L31 — a product never really updates: four of six payload kinds are seed-once (2026-08-15, proposal — needs sign-off)
 
@@ -402,7 +434,7 @@ length envelope, no per-surface shape.
   call before anyone writes prose into the agent's mouth.
 - **Fix:**
 
-## L28 — `routeTargetWithin` still parses three target prefixes no writer emits (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L28 — `routeTargetWithin` still parses three target prefixes no writer emits (2026-08-15)
 
 `routd/routes_resource.go:386-392` branches on `folder:`, `daemon:` and
 `builtin:` route-target prefixes. `specs/5/34` states route targets carry no
@@ -418,11 +450,21 @@ prefix vocabulary the spec deleted on purpose.
 - **Scope:** route target containment
 - **Affected:** nobody today
 - **Source:** `routd/routes_resource.go:386-392`; `specs/5/34-channel-protocol.md`
-- **Status:** open — delete the branch, keep `groupfolder.Contains`, and make
-  the spec's claim true rather than aspirational.
-- **Fix:**
+- **Status:** FIXED 2026-08-15.
+- **Fix:** the branch is gone and `groupfolder.Contains` is the whole body. The
+  prefix vocabulary lived at THREE sites, not one — `routeTargetWithin`,
+  `isSelfDefault` (`routes_resource.go`) and `routeTargetOwned`
+  (`routes_http.go`, the REST twin, 2 live callers) each stripped `folder:` —
+  so removing only the named branch would have left the pattern to be copied
+  from either survivor. All three now take the target as the bare folder path
+  `5/34` defines. Verified no writer exists: repo-wide, `"daemon:"`/`"builtin:"`
+  appeared at exactly the one deleted arm, and every `"folder:"` occurrence is
+  either an ACL PRINCIPAL (`folder:<f>`, a different namespace) or one of these
+  three strips. Behaviour delta is confined to a prefixed target, which now
+  reads as "not a folder" instead of being silently rewritten into one —
+  pinned by the three helper tests (`TestRouteTargetOwned` is new).
 
-## L29 — the Helm chart still demands two secrets nothing reads (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L29 — the Helm chart still demands two secrets nothing reads (2026-08-15)
 
 `deploy/helm/arizuko` declares `CHANNEL_SECRET` and `PROXYD_HMAC_SECRET` as
 required values (`values.yaml:119,121`, `templates/secret.yaml:13,15`,
@@ -440,9 +482,26 @@ is. Compose is the maintained deploy path; the chart drifted behind it.
 - **Scope:** Helm packaging
 - **Affected:** any Helm deployment
 - **Source:** `deploy/helm/arizuko/{values.yaml,templates/secret.yaml,templates/adapters.yaml,README.md}`
-- **Status:** open — drop both keys from the chart and its README. Check the
-  same chart for other post-split drift while in there; nothing verifies it.
-- **Fix:**
+- **Status:** FIXED 2026-08-15.
+- **Fix:** both keys are gone from `values.yaml`, `templates/secret.yaml`,
+  `templates/adapters.yaml` and `README.md` (grep over `deploy/helm/` returns
+  nothing for either name or either value key). `values.yaml` now states the
+  retired model instead of implying it: `AUTH_SECRET` is the only platform-wide
+  signing value, adapters exchange a service token as the daemon principal, and
+  proxyd proves identity with a `service:proxyd` ES256 bearer. Premise
+  re-verified first — every `.go` hit for both names is a comment or a test
+  name saying the secret is retired; no reader exists. Not renderable here
+  (`helm` is not installed in the worktree), so the change is verified by grep
+  plus the `check yaml` pre-commit hook, not by `helm lint`.
+
+**SPUN-OFF FINDING, worse than this entry — needs its own entry.** While
+checking the chart for other post-split drift: `deploy/helm/` mentions
+`SECRETS_KEY` **zero times**. Since `S2`'s fix, `routd/cmd/routd/main.go:67`
+calls `core.RequireSecretKeyring` and REFUSES to start without it, so a
+Helm-deployed routd cannot boot at all — the chart cannot express the one
+secret the daemon now requires. Recorded, not fixed: it is a new bug found
+during a check, and picking which daemons receive the key is the compose scope
+list's decision (`compose/compose.go:139,180,206`), not this entry's.
 
 ## L25 — slakd acks Slack before routd accepts, so a deploy silently drops messages (2026-08-15, proposed)
 
@@ -807,7 +866,7 @@ entry already names (which tree is the single source, and whether the other
 becomes a symlink/reference rather than a second copy), which is a
 cross-cutting structural change to skill dispatch and wants sign-off.
 
-## F60 — `routd/db.go:140` names `auth.Delegate` at `register_group`, where it is not called (2026-08-07, open)
+## ✅ FIXED 2026-08-15 F60 — `routd/db.go:140` names `auth.Delegate` at `register_group`, where it is not called (2026-08-07)
 
 ```go
 // Everything above the floor is explicit
@@ -824,7 +883,7 @@ Same defect class as `auth/delegate.go`'s "used at spawn" header, fixed 2026-08-
 under `specs/5/5` R4. This one was left alone to keep that change's diff to a
 single file. One-line comment fix; no behavior change.
 
-## F55 — `emaid` runs an undeclared SQLite DB with an inline schema and no migrations (2026-08-07, open)
+## ✅ FIXED 2026-08-11 F55 — `emaid` runs an undeclared SQLite DB with an inline schema and no migrations (2026-08-07)
 
 `emaid/store.go:22` opens `<DATA_DIR>/emaid.db` — resolving to
 `store/emaid/emaid.db` — and creates its schema with an inline
@@ -2091,6 +2150,24 @@ Fix (deferred, operator): pin/patch in-container `mcpc` to a version whose
 skills to a working direct-`UNIX-CONNECT` form — verify against a live socket
 before touching the skill docs.
 
+**Premise re-verified 2026-08-15 at `bcb5bb83`: still live, still deferred, and
+the deferral now has a second reason.** All three documented sites still carry
+the failing form verbatim (`ant/skills/self/mcp.md:134`,
+`ant/skills/mcp/SKILL.md:24`, `ant/skills/migrate/SKILL.md:277`), plus a fourth
+in the frozen migration record `ant/skills/self/migrations/052-mcpc-cli.md:7`,
+which is history and must not be rewritten. `ant/Dockerfile:171` installs
+`@apify/mcpc` UNPINNED, so the version an image gets is whatever npm serves at
+build time — the regression can move under the fleet without a code change, and
+pinning is itself the first half of the fix.
+
+Not fixed here, for the reason the entry already gives and one more: the fix is
+unverifiable without a live socket (this worktree has none, and a form that
+merely LOOKS right is what put the failing one in three skills), and
+`ant/skills/` is release machinery — a change there needs a migration file, a
+`MIGRATION_VERSION` bump and an ant image rebuild to reach any agent. Shipping
+an unverified form into all three skills would replace a known-broken
+instruction with an unknown one.
+
 ## M2 — elevated (/root) turns bound by static-tier STRUCTURAL gates (2026-07-16, fixed 2026-07-20 except route_tokens)
 
 The 2026-07-16 elevation fix widened both halves of the per-tool grant
@@ -2325,7 +2402,7 @@ both need the announce target-resolution audited together.
   cross-group global dedup is still per-group — two groups tagging the same
   server double-post (operator-controlled: tag one channel per server).
 
-## S2 — Missing SECRETS_KEY permits plaintext secret writes despite the required-key contract (2026-07-14, open)
+## ✅ FIXED 2026-08-11 S2 — Missing SECRETS_KEY permits plaintext secret writes despite the required-key contract (2026-07-14)
 
 The configuration contract says `SECRETS_KEY` is required, with no plaintext
 mode or `AUTH_SECRET` fallback, but routd only warns when the keyring is empty.
@@ -2367,6 +2444,20 @@ authenticates, and `SetSecretKeys` keeps the order. Comma-separate the value —
 the first key seals, the rest decrypt retired values.
 `TestSecret_NoKey_RefusesToWrite` and `TestStoreValue_NeverReturnsPlaintext`
 cover the refusal; reverting the guard fails both.
+
+**Heading closed 2026-08-15 — the fix was already shipped, only the heading
+still said open.** Re-verified at `bcb5bb83` rather than taken on the entry's
+word. `storeValue` returns `ErrNoSecretsKey` and an EMPTY string on an empty
+keyring (`store/secrets.go:83`), and it is the only sealer: every `INSERT`/
+`UPDATE` of `secrets.value` outside it is `EncryptPlaintextSecrets` (re-sealing
+rows it just read) or `ValidateAndImportSecrets` (archive blobs that travel
+as-is by design, spec 5/8). The four write paths named in the fix —
+`SetSecret`, `PutSecretRow`, `PutOAuthSecret`, `UpdateOAuthSecret` — all funnel
+through it. routd refuses to boot without the key
+(`core.RequireSecretKeyring`, `routd/cmd/routd/main.go:67`), the `arizuko
+secret` CLI refuses before opening the store (`cmd/arizuko/secret.go:33`), and
+`compose/compose.go` now scopes `SECRETS_KEY` to three daemons including dashd.
+No write path bypasses the refusal.
 
 ## L20 — FIXED 2026-08-15, 1591ccbf — whapd acks a send it has not sent, so routd records it as delivered (2026-08-11)
 
@@ -2513,9 +2604,34 @@ is recorded rather than done.
 - **Scope:** secrets at-rest migration
 - **Affected:** store, routd
 - **Source:** `store/secrets.go` `EncryptPlaintextSecrets`
-- **Status:** open — needs sign-off on where the migration runs
+- **Status:** open — needs sign-off on where the migration runs.
 
-## L17 — `store.LookupSecret` has no non-test callers (2026-08-11, open)
+**Premise re-verified 2026-08-15 at `bcb5bb83`, and it holds exactly.**
+`EncryptPlaintextSecrets` has two callers and both are in
+`store/secrets_test.go`; no daemon boot path, no CLI verb, no migration
+references it. It is correct code (idempotent, `WHERE value NOT LIKE 'v2:%'`,
+re-seals in one transaction, no-ops without a key) with nowhere to run.
+
+**PROPOSED SHAPE — an explicit operator verb, NOT a boot hook.** Recommending
+`arizuko secret seal-legacy <instance>` (a `--dry-run` counting rows first)
+over wiring the call into routd's boot after `SetSecretKeys`, for two reasons
+this file already paid for:
+
+- The function it REPLACED, `PurgeUnencryptedSecrets`, was a boot-time mutation
+  of this same table, and it wiped every secret on each startup because writes
+  never wrote the prefix it keyed on (recorded in its own doc comment). A
+  second boot-time in-place rewrite of `secrets.value` is the same shape as the
+  outage.
+- `derived_vs_stored_migration` is the standing lesson: a data migration whose
+  rehearsal matches 0 rows is a red flag, not an all-clear. An operator verb
+  reports the count before and after; a boot hook runs silently on three
+  instances at once with the daemon's exit code as its only signal.
+
+Blast radius if wrong is total — this rewrites the column every credential
+lives in — so it does not ship inline, and it wants a rehearsal against a
+read-only `.backup` copy of each instance before the real run.
+
+## ✅ FIXED 2026-08-15 L17 — `store.LookupSecret` has no non-test callers (2026-08-11)
 
 Found while fixing `S2`. `LookupSecret` never decrypted — it returned the raw
 column, a bug that plaintext-at-rest hid completely. It now opens through the
@@ -2529,7 +2645,25 @@ written against it.
 - **Scope:** dead read path
 - **Affected:** store
 - **Source:** `store/secret_use_log.go` `LookupSecret`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — dead, deleted (the `spawn_logs` precedent,
+  `F72`).
+- **Fix:** the "surface that ought to use it" question resolves to NO: the
+  broker's one resolution body is `DB.folderSecretsForUser` →
+  `store.FolderSecretsResolvedForUser` (`routd/sibling_db.go:151`), which
+  resolves user-over-folder in one pass AND returns the per-key scope
+  provenance `secret_use_log` records. `LookupSecret` answers a strictly weaker
+  question (one exact `(scope, scope_id, key)` row, no overlay, no provenance),
+  so wiring it in would have been a SECOND reader beside the one that exists —
+  the drift this repo bans. Its own doc comment already described a caller that
+  is not there ("the broker treats missing as a normal flow"); the broker never
+  called it. Function and `TestLookupSecret_HitAndMiss` both deleted.
+  `LogSecretUse`, its file-mate, is NOT dead — `routd/mcp.go:523` calls it.
+
+**NOT the same story as `L16`, checked before writing either fix.** They share
+a file neighbourhood and the S2 aftermath, nothing else: `L17` is a redundant
+READER of a path that already exists (delete it), `L16` is a needed WRITER with
+no home (deciding where it runs is the open question). One deletion cannot
+close both, and bundling them would have hidden that `L16` still needs sign-off.
 
 ## Web docs claim URL↔kind binding on route tokens; shipped code accepts any token at either URL (2026-07-12, fixed, LOW)
 
@@ -4627,7 +4761,7 @@ Note what that writer implies more broadly: routd still opens the frozen
 `messages.db` at every boot to copy legacy rows forward. That is the real
 blocker for retiring `messages.db`, and it is bigger than any single table.
 
-## M1 — agent-facing MCP tool descriptions still promise dissolved tiers and a dropped table (2026-08-02, open)
+## ✅ FIXED 2026-08-15 M1 — agent-facing MCP tool descriptions still promise dissolved tiers and a dropped table (2026-08-02)
 
 Four tool descriptions in `ipc/ipc.go` tell the agent about authorization that
 no longer exists. These are not comments — they are the strings the model reads
@@ -4662,6 +4796,23 @@ and the live DB before logging.
   of the `acl`/`acl_membership` row it actually writes. Grep the whole file for
   other tier/`user_groups` references before calling it done — these four were
   found by a full-file read, not a truncated grep.
+- **Status:** FIXED 2026-08-15.
+
+**The four descriptions were already fixed; one residue in the same file was
+not.** Re-verified at `bcb5bb83`: `grep -in tier ipc/ipc.go` returns three hits
+and all three are "hot-tier"/"cold-tier" (the tool-surface architecture, not
+authorization), and `user_groups` appears in `ipc/ipc.go` zero times. Repo-wide,
+no `.go`/`.md`/`.ts` file outside this queue's own history says "Tier 0-2 only"
+or "Tier 0-1 only" any more, and `resreg/resources/route_tokens.go` — the
+`R1`-3 site — carries no tier language either.
+
+What survived was an ORPHAN: a five-line comment at the end of `ipc/ipc_test.go`
+documenting a `list_acl` test that had been deleted out from under it. It
+asserted `AuthorizeStructural` (deleted), a "Tier 0-1 only" description
+(deleted), and `Tier = min(count("/"), 3)` (the dissolved derivation) — three
+false facts about the auth model, in the very file this entry named, with no
+test attached to make them fail. Deleted. That is the whole remaining delta,
+so the entry closes here.
 
 ## ✅ FIXED 2026-08-03 Y2 — fixing Y1 would activate an invite-token wipe and a raw-bearer export (2026-08-02, open)
 
@@ -4758,7 +4909,7 @@ adapters is a per-fragment edit, not one code change.
   set `DATA_DIR` where absent, and make `loadOffset` fail loud instead of
   swallowing the read error.
 
-## R1 — codex review of the 2026-08-03 fix batch: six gaps (2026-08-03, open)
+## R1 — codex review of the 2026-08-03 fix batch: six gaps (2026-08-03, 5 of 6 closed 2026-08-15; 1 open on live-state only)
 
 Adversarial review of `50af5f50..e37a084b` (the Y2/M1/E1/D6/D7 fixes). Findings
 verified before logging. Ordered by consequence.
@@ -4810,6 +4961,49 @@ with Make.
 - **Fix:** 1 needs an installed-fragment update path — a real `arizuko` command,
   not a manual edit, since it must run on every instance and survive the next
   `generate`. 2-6 are small and independent.
+- **Status:** 2026-08-15 — each of the six re-verified SEPARATELY at `bcb5bb83`.
+  Five are closed, one (1) is closed in code and unverifiable here. Verdicts:
+
+  1. **Closed in code; live state unverified.** The mechanism claim still holds —
+     `compose/compose.go:764` writes `./services/<name>.yml`, i.e. the
+     instance's own dir, never `template/services/`. But the update path R1
+     demanded now exists as a real command: `arizuko packages upgrade` (one
+     package) and `arizuko packages sync` (all) both re-fetch the recorded
+     source and rewrite the installed fragment through ONE updater,
+     `reapplyPackage` (`cmd/arizuko/packages.go:371`), which refuses to
+     overwrite a locally edited asset instead of clobbering it. `template/
+     services/teled.yml` carries the `${DATA_DIR}/store/teled` state mount and
+     no `CHANNEL_SECRET`. What cannot be checked from this worktree: whether
+     krons/sloth/marinade have actually RUN it, and whether hand-made variants
+     like `teled-rhias.yml` carry an `installed_packages` record for `sync` to
+     reach. Both are live-host questions.
+  2. **Closed.** teled no longer swallows the save. `maxSaveFailStreak = 3`
+     consecutive `saveOffset` failures now call `fatalExit` (`teled/bot.go`),
+     so a full or read-only mount crashes the process instead of looking
+     healthy until restart. A single failure is still logged and tolerated,
+     which is correct — a transient write hiccup must not crash-loop the poll
+     goroutine.
+  3. **Closed.** Both halves. `resreg/resources/*.go` contains no tier language
+     at all (the `route_tokens.go:86` sentence is gone), and `ant/CLAUDE.md`
+     now states the opposite of what R1 found: lines 4, 35 and 173 each say
+     "5/33: no tiers" explicitly. Repo-wide, nothing outside this queue's own
+     history says "Tier 0-2 only" or "Tier 0-1 only". See `M1` for the last
+     residue of this class, fixed in the same pass.
+  4. **Closed by a schema change, not by a serializer tag.** `json:"token"` is
+     gone because the FIELD is gone: migration
+     `store/migrations/0077-invites-hash-at-rest` made `ref` (=
+     `hex(sha256(token))`) the primary key, so the raw bearer is never
+     persisted and `InvitesRow` has no token field to leak by omission. dashd
+     renders `ref`. The only surviving raw token is
+     `toInviteCreatedJSON`'s mint-time response (`onbod/admin.go`), which is the
+     one moment the caller must receive it.
+  5. **FIXED 2026-08-15** — see the commit closing it. It was real: FIVE
+     resources carry `SkipApplyRebuild` (secrets, route_tokens, invites,
+     onboarding, installed_packages), and `printPlan` printed the secrets
+     command for all five.
+  6. **Closed.** `webd/Makefile` `test-e2e` captures the output and `exit 1`s on
+     "no tests to run", with a comment naming the root Makefile's guard as its
+     mirror. A selector matching zero tests can no longer pass as green.
 
 ## authd `TestRefreshRotationRaceSingleWinner` is flaky (2026-08-03, open)
 
@@ -4929,6 +5123,39 @@ second OAuth identity — which no one has.
   lookup, not new state. Do NOT silently rewrite the principal: moving a grant
   without the operator asking is the failure mode N1 chose an immutable
   canonical to avoid.
+- **Status:** open — PROPOSAL, needs sign-off. Premise re-verified 2026-08-15
+  at `bcb5bb83` and it holds.
+
+**"The check is a lookup, not new state" understates it: the lookup crosses a
+daemon.** `oauth_identities` lives in **auth.db** and `oauthIdentityForSub` is
+unexported in package `main` of **authd** (`authd/store.go:116`). The grant and
+pairing writes are **routd**, against **routd.db** (`routd/acl_resource.go`
+`add_acl`). routd holds no handle on auth.db — `routd/sibling_db.go:13` states
+identity is federated over HTTP, never opened — so the check is a cross-daemon
+call, not a local lookup.
+
+The transport exists: `GET /v1/identities/{sub}` returns the canonical identity
+plus every linked sub, and routd already calls it via `httpIdentity.Resolve`
+(`routd/identity.go:47`). Canonicality is then `identity.id != principal`.
+
+**Why it still needs sign-off rather than being contained.** `Resolve` is
+deliberately advisory: EVERY failure — transport, auth, non-200, decode —
+returns the unclaimed shape, never an error, because its only caller today is
+an inspect tool. Making `add_acl` REFUSE on its answer puts a hard dependency
+on authd into a write path that has none, and the fail-open/fail-closed choice
+is the whole decision:
+
+- fail-CLOSED (authd down → no grants) turns an authd blip into a control-plane
+  outage, over a risk with zero live instances.
+- fail-OPEN (authd down → grant proceeds) is a guard that stops working exactly
+  when identity data is unavailable, which is a guarantee worth less than it
+  reads.
+
+Recommending fail-OPEN with a LOUD warn on both the unreachable case and the
+non-canonical case, on the grounds that N2 is a data-hygiene guard and not a
+containment boundary — but that is the user's call, and either way `Resolve`
+must grow a distinguishable "could not answer" result instead of folding it
+into "unclaimed". Do not ship this inline.
 
 ## Z1 — all three live instances run a routd/onbod image ~5 days stale; a chunk of shipped migrations is not live (2026-08-04, open)
 
