@@ -7,6 +7,46 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L24 — a fresh instance ships with egress isolation OFF, while the docs describe it as the model (2026-08-15, proposed)
+
+`CRACKBOX_ADMIN_API` is the master switch for egress isolation
+(`core/config.go:265` → `Config.EgressAPI`; `compose/compose.go:493,621` gate
+the crackbox service and the per-folder agent networks on it). Nothing seeds it:
+`template/env.example` is 20 lines and does not mention it, and no code under
+`cmd/arizuko/` writes it. So `arizuko create` produces an instance whose agent
+containers reach the internet unfiltered, silently.
+
+`SECURITY.md:249` and `ARCHITECTURE.md:23,88,761` describe egress isolation as
+the deployment model without saying it is opt-in and off by default. A reader
+who follows `INSTALL.md` gets the opposite of what the security page describes,
+with no warning at any step.
+
+**Correcting the finding that surfaced this.** The 2026-08-15 CEO memo
+(`.ship/critique-ceo-20260815.md`) reads `container/runner.go:184-191` — the
+`egress` grant appending `"*"`, which `crackbox/pkg/match/match.go:49` honours
+as allow-all — as egress default-deny being "negated by its own grant". That
+half is NOT a defect: it is the documented behaviour of the `egress` grant per
+spec `5/33`, and the comment at the call site says so. The grant is how an
+operator deliberately opens a folder. The real gap is the one above — the
+control is off unless an operator knows to switch it on.
+
+- **Severity:** high — a security control the docs present as the model does not
+  run on a default install, and nothing says so.
+- **Scope:** instance seeding + the security docs
+- **Affected:** every instance created from `arizuko create`; readers of
+  SECURITY.md and ARCHITECTURE.md
+- **Source:** `core/config.go:265`; `compose/compose.go:493,621`;
+  `template/env.example` (no entry); `SECURITY.md:249`
+- **Status:** proposed — needs a decision, two parts:
+  1. **Docs (no sign-off needed).** State plainly in `SECURITY.md`,
+     `ARCHITECTURE.md` and `INSTALL.md` that egress isolation is opt-in, name
+     the variable, and say what an instance without it allows.
+  2. **Default (needs sign-off).** Whether `arizuko create` should seed
+     `CRACKBOX_ADMIN_API` so a fresh instance is filtered by default. That
+     changes what a new install runs and requires the crackbox image to be
+     present, so it is a deployment-behaviour change, not an inline fix.
+- **Fix:**
+
 ## L6 — proxyd verifies HS256 bearers that nothing can mint any more (2026-08-11, FIXED 2026-08-11, 58c17019)
 
 `proxyd.tryAuth` tries HS256 (`auth.VerifyJWT` with `AUTH_SECRET`) FIRST on every
