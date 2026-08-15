@@ -1845,7 +1845,7 @@ replaced.
   destination, and each write goes through `writeFileAtomic` (temp + rename) — no
   half-written fragment on a routes read/write error.
 
-## C8 — route sidecars silently discard unknown fields (2026-07-28, open)
+## C8 — route sidecars silently discard unknown fields (CLOSED-STALE 2026-08-15 — already fixed 4fa9553e, heading was stale)
 
 Package route JSON is decoded with permissive `json.Unmarshal`, so a misspelled
 optional field such as `strip_prefx` is ignored and a valid-looking but
