@@ -1,14 +1,10 @@
-# helpdesk product eval — spec 5/9's harness, pointed at ONE PRODUCT.
+# helpdesk product eval — run by arizuko's own harness:
 #
-# These do not test arizuko. They test that this product's persona, rules and
-# facts produce the behaviour the product page promises, on a live agent with a
-# real model. Run them after applying the product:
+#   anteval run <target> --cases <data-dir>/groups/<folder>/eval
 #
-#   anteval run https://<host> --cases <data-dir>/groups/<folder>/eval
-#
-# Templates expand per run: {nonce} unique per run+case, {chat} the eval chat
-# JID, {target} the instance base. Keep every prompt self-contained — a case
-# must not depend on another case having run.
+# These test THIS PRODUCT (persona, rules, facts), not arizuko. Authoring guide
+# and the check-kind list: howto/build-a-product.html §"Ship tests with it".
+# {nonce} is unique per run+case, so a case never matches an older reply.
 
 # ── Escalation: the behaviour the product exists for ─────────────────────────
 

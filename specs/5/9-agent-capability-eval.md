@@ -81,6 +81,37 @@ Scoring is **binary per case** (effect present or absent), aggregated to
 pass-rate per dimension. Partial credit is additive and out of scope for
 the gate.
 
+### A product carries its own cases (2026-08-15)
+
+The harness already takes `--cases <dir>` and `spec.Load` reads every
+`*.toml` under it, so **a product ships `eval/*.toml` and the same harness
+runs it** — no second runner, no per-product mode. The convention is the
+whole mechanism:
+
+- the payload falls to the blend's catch-all, so `products apply` copies
+  it into the group home verbatim;
+- `anteval validate --cases <data-dir>/groups/<folder>/eval` checks schema
+  and templates for free;
+- `anteval run <target> --cases <data-dir>/groups/<folder>/eval` runs it
+  against the live agent, and costs model credits like any other run.
+
+**What a product case asserts is different in kind from the 34 above.**
+Those certify the PLATFORM's capability — can an agent modify itself,
+publish, reach REST. A product's case certifies that ITS persona, rules
+and facts produce the behaviour its page promises: `rest_reply` with the
+string the answer must contain is the usual shape. An agent that replies
+politely and offers the refund has regressed even though every daemon is
+healthy and all 34 platform cases pass.
+
+Reference product: `ant/examples/helpdesk/eval/helpdesk.toml` (4 cases).
+One of them — the triage skill being loaded — doubles as the live check
+for `L37`, which is the intended pattern: a platform bug becomes visible
+as a product behaviour failure rather than a file-placement detail.
+
+Authoring guide (canonical for operators):
+`template/web/pub/arizuko/howto/build-a-product.html` §"Ship tests with
+it". Do not restate the case schema anywhere else — it drifts.
+
 ## What the first live run proved (krons, 2026-07-11, $4.78 / 23 turns)
 
 7/8 of the then-`--smoke` basis passed. The 8th, `webhook-in`, FAILED —

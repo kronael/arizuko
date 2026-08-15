@@ -145,11 +145,9 @@ else
 fi
 
 say "a product ships its OWN live tests"
-# eval/*.toml falls to the catch-all, so it lands in the group home verbatim and
-# arizuko's own eval harness reads it from there with --cases. No new mechanism:
-# the product declares what it must do, the harness proves it against a real
-# agent. `validate` is the free tier; `anteval run <target> --cases <dir>` spends
-# model credits against a live instance, so it is not run here.
+# A product carries its own cases; the harness reads them with --cases. Contract:
+# specs/5/9 §"A product carries its own cases". `validate` is the free tier —
+# `anteval run` spends model credits, so it is not run here.
 [ -f "$GROUP/eval/helpdesk.toml" ] \
   && ok "product eval cases landed at <group>/eval/" || bad "eval cases missing"
 if command -v go >/dev/null && [ -d "$REPO/anteval" ]; then
