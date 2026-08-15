@@ -419,14 +419,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 				sent, err = b.api.Send(pm)
 			}
 			if err != nil {
-				var tgErr *tgbotapi.Error
-				if errors.As(err, &tgErr) && (tgErr.Code == 400 || tgErr.Code == 403) {
-					// Permanent after the plain-text retry: chat gone, bot
-					// kicked/blocked, no rights. Retrying won't help — surface a
-					// clear error to the agent (→400), not a 502, and don't enqueue.
-					return "", fmt.Errorf("%w: telegram %s", chanlib.ErrInvalidRequest, tgErr.Message)
-				}
-				return "", fmt.Errorf("telegram send: %w", err)
+				return "", classifySendErr(err, firstID)
 			}
 		}
 		if firstID == "" {
@@ -435,6 +428,26 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	}
 	slog.Debug("send", "chat_jid", req.ChatJID, "message_id", firstID, "source", "telegram")
 	return firstID, nil
+}
+
+// classifySendErr maps a failed chunk send onto chanlib's dedup taxonomy.
+// 400/403 after the plain-text fallback are caller-side and permanent (chat
+// gone, bot kicked/blocked) → ErrInvalidRequest, a clear agent error instead
+// of a 502. Any other STRUCTURED API error (`ok:false`, e.g. a 429) proves
+// Telegram sent this chunk's message nothing-at-all — but the dedup claim may
+// be released only while NO chunk has landed (firstID empty); after a
+// delivered chunk a re-post would duplicate it, so the claim stays held and
+// routd dead-letters visibly. Transport errors stay unclassified: a lost
+// response may have sent the message.
+func classifySendErr(err error, firstID string) error {
+	var tgErr *tgbotapi.Error
+	if errors.As(err, &tgErr) && (tgErr.Code == 400 || tgErr.Code == 403) {
+		return fmt.Errorf("%w: telegram %s", chanlib.ErrInvalidRequest, tgErr.Message)
+	}
+	if errors.As(err, &tgErr) && firstID == "" {
+		return fmt.Errorf("telegram send: %v: %w", err, chanlib.ErrNotDelivered)
+	}
+	return fmt.Errorf("telegram send: %w", err)
 }
 
 func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) (string, error) {

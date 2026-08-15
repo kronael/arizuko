@@ -1,9 +1,12 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+
+	"github.com/kronael/arizuko/chanlib"
 )
 
 func TestReplaceMentions(t *testing.T) {
@@ -50,5 +53,36 @@ func TestReplaceMentions_OtherUsers(t *testing.T) {
 		if got := replaceMentions(c.in, "Ari", self, mentions); got != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// classifySendErr releases the dedup claim (ErrNotDelivered) only for a rate
+// limit with NO chunk delivered — a 429 proves Discord created nothing, while
+// after a delivered chunk a re-post would duplicate it, and a transport error
+// may have sent the message.
+func TestClassifySendErr(t *testing.T) {
+	rl := &discordgo.RateLimitError{RateLimit: &discordgo.RateLimit{
+		TooManyRequests: &discordgo.TooManyRequests{}, URL: "/channels/1/messages",
+	}}
+	cases := []struct {
+		name    string
+		err     error
+		firstID string
+		wantND  bool
+	}{
+		{"rate limit before any chunk", rl, "", true},
+		{"rate limit after a delivered chunk", rl, "17", false},
+		{"transport error", errors.New("connection reset"), "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := classifySendErr(c.err, c.firstID)
+			if got == nil {
+				t.Fatal("classifySendErr must always return an error")
+			}
+			if errors.Is(got, chanlib.ErrNotDelivered) != c.wantND {
+				t.Fatalf("err = %v, ErrNotDelivered = %v, want %v", got, !c.wantND, c.wantND)
+			}
+		})
 	}
 }

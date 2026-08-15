@@ -485,6 +485,12 @@ func (rc *redditClient) Typing(string, bool) {}
 // remaining failures so an outbound verb doesn't report silent success.
 func checkStatus(resp *http.Response, op string) error {
 	defer resp.Body.Close()
+	if resp.StatusCode == 429 {
+		// A 429 that outlived do()'s retries is still a documented refusal —
+		// nothing was created — so the dedup claim is released for the
+		// sweep's retry instead of held until dead-letter.
+		return fmt.Errorf("%s: status 429: %w", op, chanlib.ErrNotDelivered)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return fmt.Errorf("%s: status %d: %s", op, resp.StatusCode, string(b))

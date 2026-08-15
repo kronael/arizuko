@@ -1157,7 +1157,9 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 			// channel) → clear agent error (400), not a 502 the agent retries.
 			return "", fmt.Errorf("%w: slack %s", chanlib.ErrInvalidRequest, resp.Error)
 		}
-		return "", fmt.Errorf("slack send: %s", resp.Error)
+		// `ok:false` IS Slack's proof that chat.postMessage created nothing,
+		// so the dedup claim is released and the sweep's retry may post.
+		return "", fmt.Errorf("slack send: %s: %w", resp.Error, chanlib.ErrNotDelivered)
 	}
 	slog.Debug("send", "chat_jid", req.ChatJID, "message_id", resp.TS, "source", "slack")
 	b.markSent(resp.TS)
@@ -1697,6 +1699,12 @@ func (b *bot) postForm(ctx context.Context, path string, form url.Values, out an
 		return fmt.Errorf("slack %s: %w", path, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == 429 {
+		// A 429 that outlived DoWithPolicy's budget is still a documented
+		// refusal — nothing was created — so the dedup claim must be
+		// released for the sweep's retry, not held until dead-letter.
+		return fmt.Errorf("slack %s: status 429: %w", path, chanlib.ErrNotDelivered)
+	}
 	if resp.StatusCode/100 != 2 {
 		return fmt.Errorf("slack %s: status %d", path, resp.StatusCode)
 	}
