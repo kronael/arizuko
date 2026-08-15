@@ -240,7 +240,8 @@ func buildPlan(mix []Product) (*plan, error) {
 		}
 		p.files[i] = rels
 		for _, rel := range rels {
-			switch classify(rel) {
+			kind := classify(rel)
+			switch kind {
 			case paySkill:
 				p.skill[strings.Split(rel, "/")[1]] = i
 			case payPersona:
@@ -273,7 +274,7 @@ func buildPlan(mix []Product) (*plan, error) {
 			case paySettings:
 				p.settings = append(p.settings, i)
 			case payMigrations, payTasks:
-				return nil, refusePayload(prod.Name, rel, classify(rel))
+				return nil, refusePayload(prod.Name, rel, kind)
 			case payDockerfile:
 				if p.dockerfile != -1 {
 					return nil, fmt.Errorf("Dockerfile.ant: both %s and %s ship one — at most one image extension per mix",
