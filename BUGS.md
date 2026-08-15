@@ -1062,48 +1062,6 @@ merely LOOKS right is what put the failing one in three skills), and
 an unverified form into all three skills would replace a known-broken
 instruction with an unknown one.
 
-## ✅ FIXED 2026-08-15 M2 — elevated (/root) turns bound by static-tier STRUCTURAL gates — CLOSED-STALE, premise gone
-
-The 2026-07-16 elevation fix widened both halves of the per-tool grant
-(`ServeTurnMCP` rules → `*`, `turnAuthorize` → allow-all), but the resource
-gates' STRUCTURAL checks still keyed on `auth.Resolve(folder)` — the folder's
-static tier, blind to `turnMCP.elevated`. So `/root network_allow(...)` /
-`add_acl` / `register_group` from a tier-2 folder still 403'd "tier N cannot ..."
-(the rhias operator hit exactly this on `network_allow('rhias/content', …)`).
-
-**Fixed 2026-07-20 (commit d452d6ef, user sign-off):** `turnIdentity(folder,
-elevated)` (tier 0 under /root, else the folder's tier) is computed once in
-`ServeTurnMCP` and threaded into the five postBuild structural gates —
-`network_rules`, `acl`, `groups`, `routes`, `scheduled_tasks`. `network_rules`
-was doubly broken (the only postBuild that never took the elevated `authorize`
-either) — now routed through the shared `toolGrant`. Operator-gated: cmdRoot
-elevates only for `IsOperator(sender)`. Test:
-`TestNetworkRulesMCP_RootElevationManagesEgress`.
-
-**Both residuals below are now moot — the whole tier system this entry
-describes is gone.** `auth.Identity` (`auth/identity.go`) carries only
-`Folder`/`IsRoot`, no tier field; `AuthorizeStructural` no longer exists
-(only stale comments reference it). The 5/33 redesign replaced every
-static-tier check with `auth.Authorize`/acl grant rows.
-
-- `route_tokens`: `routeTokensHandler` (`routd/route_tokens_resource.go:107`)
-  has no `authorizeRouteTokenMint` call left. Containment now runs through
-  `routeTokensPostBuild`'s injected Gate (`turnAuthorize`/`turnIdentity`,
-  `routd/agent_gate.go`), which IS elevation-aware — `turnIdentity` sets
-  `IsRoot` under `/root`, and `turnAuthorize(elevated)` returns an allow-all
-  fn when elevated. Mint containment against the target folder rides the
-  same uniform evaluator as every other resource, own- or cross-subtree.
-- `ipc/ipc.go` `buildMCPServer` (line 957) now takes `isRoot bool` directly
-  (`identity.IsRoot = identity.IsRoot || isRoot`), and `authorizeCall`/
-  `visible` route through `db.Authorize`/`db.Visible` — the same evaluator,
-  not a tier check. The caller (`ipc.go:374`) threads `isRoot` through.
-  `fork_topic`, `inspect_messages`, `set_work`, `get_web_presence` are
-  elevation-aware via this shared path; no per-tool residual remains.
-
-**Fix:** none needed — closed by the unrelated 5/33 tiers-removal redesign,
-verified against `auth/identity.go`, `routd/agent_gate.go`,
-`routd/route_tokens_resource.go`, `ipc/ipc.go` at HEAD `0d376586`.
-
 ## M4 — `vited` runs the Vite DEV server in production (2026-07-16, partly fixed 2026-07-18)
 
 **Crash class fixed (2026-07-18):** the dev server's dep-optimization cache
@@ -1136,54 +1094,6 @@ more than one field.
 - **Source:** core/types.go:94-135; routd/loop.go:630-646
 - **Status:** proposed
 - **Fix:**
-
-## ✅ FIXED 2026-08-15 Release announcement is over-delivered: every group blasts all its routes, once per server-per-group — no opt-in, no main-channel, no mute
-
-The `/migrate` skill step (e) (`ant/skills/migrate/SKILL.md:224-289`) is run
-per-group by each behind group's own agent. It sends the release line to EVERY
-non-web route of that group (skips only web/slink/wildcard), deduped only per
-telegram-JID / slack-team / discord-guild, guarded by a per-group
-`~/.announced-version`. Two symptoms:
-
-1. **Per-group dedup, shared destination.** N groups routing into the same
-   Discord server / Slack workspace / Telegram chat each announce once → the
-   server sees N copies, one per group, each in that group's first-`seq` route.
-2. **No opt-in / no main-channel / no mute.** All routes are targets; the
-   within-server dedup lands in an arbitrary (`seq`-first) channel, not a
-   designated #general/#random. Routes table (`store/migrations/0022`) has no
-   announce/mute column.
-
-Desired: announcements are opt-in per channel, default one main channel per
-server, explicitly mutable, and on discord/slack land only in the operator's
-chosen (#random) channel — each server sees it exactly once.
-
-**Fix direction (record-only, needs sign-off — redesign):** make announce
-opt-in. Candidate mechanism = an `#announce` fragment on the route target
-(mirrors the existing `#observe` fragment, `store/migrations/0054`); step (e)
-sends ONLY to `#announce`-tagged routes, deduped per server; no tag → no
-announce (mute = remove the tag). Operator tags exactly one channel per server
-→ naturally once-per-server even across groups. Alternative: a small resreg
-`announce_targets` resource (heavier; the "every management entity is a resreg
-resource" rule favors this if it grows beyond a flag). Related but opposite
-symptom to the "broadcast silently lost / no channel for jid" entry below —
-both need the announce target-resolution audited together.
-
-- **Severity:** low-medium (noise/duplicate pings, no data loss)
-- **Status:** IMPLEMENTED (code+skill, 2026-07-14), mechanism signed off =
-  `#announce` route fragment. `ParseRouteTarget` (`core/types.go`) reserves
-  `announce` (inbound-neutral); `router.Describe` annotates `announce`;
-  migrate skill step (e) sends only to `#announce` routes, deduped per
-  server (web/slink/wildcard skipped). Residual: cross-group global dedup is
-  still per-group — two groups tagging the same server double-post
-  (operator-controlled: tag one channel per server).
-- **Re-verified 2026-08-15:** deploy plumbing landed —
-  `ant/skills/self/migrations/175-v0.59.0-announce.md` shipped the mechanism
-  with `MIGRATION_VERSION` at the time; `CHANGELOG.md` v0.59.0 (2026-07-15)
-  headlines "announcements you opt into". Current `MIGRATION_VERSION` is 200
-  (this entry's migration was 175), so every instance following the normal
-  bump/rebuild/redeploy cadence since has already picked it up. No open
-  action remains; the per-group double-post residual is operator-controlled
-  by design, not a defect.
 
 ## L23 — PROPOSED, needs sign-off (verified still open 2026-08-15) — a dead-lettered message is countable but not readable (2026-08-11)
 
@@ -1258,30 +1168,6 @@ this file already paid for:
 Blast radius if wrong is total — this rewrites the column every credential
 lives in — so it does not ship inline, and it wants a rehearsal against a
 read-only `.backup` copy of each instance before the real run.
-
-## ✅ FIXED 2026-08-15 Web docs claim URL↔kind binding on route tokens; shipped code accepts any token at either URL — re-verified clean
-
-**Location**: `template/web/pub/arizuko/reference/tokens.html` §"/chat/ and /hook/ — each URL bound to its JID prefix kind" (+ echoes in `concepts/tokens.html`, `reference/schema.html`, both howto ledes)
-
-The docs say "a hook: token at /chat/… returns 404; a web: token at /hook/…
-returns 404 — binding enforced at token lookup". The shipped contract is the
-opposite: spec 5/W §"URL routing" locked "both URL prefixes accept ANY valid
-route_token; kind is metadata, not a URL access gate", and
-`webd/route_token.go` implements exactly that (lookup does not filter on JID
-prefix). Also spec 5/W §"Where this runs" still describes the old filtered
-lookup — internal spec inconsistency. Fix: align the four web pages + that
-spec section to the any-token contract (docs-only).
-
-- **Status:** fixed 2026-07-13 — all four pages + spec 5/W (lede, "Where this
-  runs", Tests) state the any-token contract. Same pass trued
-  `reference/tokens.html`'s endpoint table to the shipped handlers (no GET
-  `/hook`, no hook SSE row; POST `/hook` → 204) and removed its residual
-  headers-delivery claim (same drift the fixed howto/webhooks entry removed —
-  ingest forwards body only). `legacy/` snapshot pages left as-is.
-- **Re-verified 2026-08-15:** `webd/route_token.go:27` ("Both URLs accept any
-  valid token regardless of kind; kind is metadata") and
-  `reference/tokens.html:42` (same any-token wording) both still match the
-  shipped contract at HEAD `0d376586`.
 
 ## System-turn / broadcast delivery targets a folder-jid or prefix-less room → "no channel for jid" → the broadcast is silently lost (2026-07-13, OPEN)
 
@@ -1488,31 +1374,6 @@ routes (3195f867), tasks (0b6ca53e). Open:
    load but passes 5/5 in isolation. Pre-existing, unrelated to the 5/16/5/15 work. Needs a
    sync point or serialization in the test harness. Low priority (not a product bug).
 
-## ✅ FIXED 2026-08-15 ConnectorSecrets resolves folder scope only — user BYOA key never reaches MCP subprocess — re-verified fixed
-
-**Severity**: medium
-**Found**: 2026-06-26
-**Location**: `routd/sibling_db.go:ConnectorSecrets` (calls `FolderSecrets(folder)`, not `FolderSecretsForUser`)
-
-A user who sets `GITHUB_TOKEN` in their user-scoped secrets (via `/dash/me/secrets`)
-expects it to be used when they invoke a GitHub MCP connector tool. It isn't.
-`ConnectorSecrets` reads folder scope only — the user-scoped override is invisible
-to the connector subprocess.
-
-Fix requires:
-1. `sibling_db.go:ConnectorSecrets(folder, callerSub string)` — add `callerSub` param,
-   call `FolderSecretsForUser(folder, callerSub)` instead of `FolderSecrets(folder)`.
-2. Thread `callerSub` (the turn's trigger sender) into `ipc/ipc.go:1027` where
-   `db.ResolveConnectorSecrets(folder, ...)` is called.
-3. `routd/mcp.go:569` pass `callerSub` alongside `folder` into the resolver.
-
-Spec: `specs/5/14-credentials.md § ConnectorSecrets user-scope`.
-
-- **Status:** fixed 0d244973 (2026-06-26) — ConnectorSecrets now takes callerSub, calls FolderSecretsForUser
-- **Re-verified 2026-08-15:** `routd/sibling_db.go:194` `ConnectorSecrets(folder,
-  callerSub string, ...)` calls `connectorSecrets` → `folderSecretsForUser` at
-  HEAD `0d376586`. Still correct.
-
 ## dashd reads SQLite directly — spec 7/1 (formerly 6/1) says it shouldn't; code and CLAUDE.md say it should (2026-06-16, PROPOSED — spec/code conflict, needs sign-off, verified 2026-08-15)
 
 `dashd/main.go` opens `routd.db` (`dbRoutd`), `onbod.db` (`dbOnbod`) and `runed.db`
@@ -1642,34 +1503,6 @@ next proxyd restart activates it).
   upsert-missing-core-routes-on-boot path — new boot behavior, cross-cutting
   (every instance's route table), so this stays a PROPOSAL needing sign-off,
   not a same-session fix.
-
-## ✅ FIXED 2026-08-15 Positioning claims "diff, fork, git revert" but nothing versions agent folders
-
-specs/5/A (grand message, shipped) + specs/17/9 sell ownership as "files you diff,
-fork, and `git revert` on your own host". Verified: the platform has NO `git init`
-at group creation (onbod/container/cmd grep clean), no auto-commit; live homes show
-.git in only 4/8 krons groups + marinade/atlas, and those repos have ZERO commits
-(rhias: empty master, 86 dirty files) — agent/operator-initiated shells. So `git
-revert` mostly has nothing to revert to. The true claims: plain files, tar = full
-backup, git POSSIBLE (ant image ships git + commit skill).
-
-- **Severity:** low (positioning honesty, no runtime impact)
-- **Scope:** specs/5/A + 17/9 wording; landing/README ownership sections; the gap itself
-- **Fix options:** (a) soften wording to possibility framing (landing sub already
-  instructed, 2026-07-14); (b) make it TRUE: `git init` + initial commit at group
-  create + a commit hook on /migrate + diary writes — small, but that IS
-  specs/9/3-git-as-truth scope creep; decide there, not ad hoc.
-- **Re-verified 2026-08-15:** premise still holds — no `git init`/auto-commit
-  anywhere in `onbod`/`container`/`cmd/arizuko`; `specs/9/3-git-as-truth.md`
-  was never created, so (b) is still undecided. README + `template/web/pub/`
-  were already softened (2026-07-14 landing pass) — zero live-doc hits for
-  "diff, fork"/"git revert". Two spec files still carried the unqualified
-  claim: `specs/5/A-primitives-framing.md:194` and
-  `specs/6/1-adoption-interop.md:28` — both reworded here to
-  "(if you `git init` the folder) `git revert`", matching (a), the already-
-  applied landing wording.
-- **Status:** wording fix (a) now complete across specs + web docs; the
-  make-it-true decision (b) still belongs to (unshipped) 9/3.
 
 ## P3 — Proxyd dispatch combines routes from two database snapshots (2026-07-30, proposed)
 
@@ -1953,63 +1786,6 @@ should NOT be reattempted as written:
   makes it less so.
 
 - **Status:** closed — recorded to prevent a repeat, no action wanted
-
-## ✅ FIXED 2026-08-15 S1 — retired `CHANNEL_SECRET` still documented as the live adapter credential — re-verified clean; helm split to S1b
-
-`CHANNEL_SECRET` is gone from the code — `chanlib.RouterClient.svcToken` carries
-a `service:<daemon>` ES256 JWT on every authenticated routd call, and five call
-sites carry the comment "no `CHANNEL_SECRET` remains". Three places still tell a
-reader otherwise:
-
-- Root `CLAUDE.md ## Config` lists it as an anchor env var an operator must set.
-- `template/web/pub/arizuko/security/index.html` states adapter ingress is
-  "authenticated by `Authorization: Bearer $CHANNEL_SECRET`" and lists it under
-  operator anchors — this is the **live** security page on krons.
-- Two legacy product setup pages emit it in their `.env` sample.
-
-An operator following the security page sets a variable nothing reads, and
-believes ingress is guarded by a shared secret when it is guarded by a rotating
-signed token pinned to a verified `sub`. Spec-side copies were corrected with
-the `5/34` move (`6ae3e954`); these three were left because they are a docs
-concern, not a spec one.
-
-- **Severity:** medium (no exploit — the real gate is stronger than documented)
-- **Scope:** operator docs accuracy
-- **Affected:** `CLAUDE.md`, `template/web/pub/arizuko/security/index.html`,
-  `template/web/pub/arizuko/legacy/products/{reality,slack-team}/setup.html`
-- **Fix:** replace with `AUTHD_SERVICE_KEY` (the one surviving symmetric
-  bootstrap secret) and describe the ES256 exchange; redeploy `/pub`.
-- **Status:** docs fixed 2026-08-05; **helm split out to S1b, needs sign-off**.
-  - `CLAUDE.md` + `security/index.html` — the two live pages the entry named
-    were already done in `d81cc2d2` (2026-08-04).
-  - The sweep the entry did not do found the var alive on **17 more live
-    pages**, including the one an operator is likeliest to follow:
-    `reference/env.html` documented `CHANNEL_SECRET` as "Required in
-    production" plus TEN per-daemon `<DAEMON>_CHANNEL_SECRET` overrides, all
-    dead (`grep -rn '_CHANNEL_SECRET' --include='*.go'` → 0). Those eleven
-    `env-entry` blocks are deleted, not reworded — there is no surviving var to
-    redirect them to, and `AUTHD_SERVICE_KEY` already had its own entry.
-  - The wording fix is not a rename. The pages described a **symmetric HMAC**
-    ("routd verifies inbound HMACs, the adapter verifies outbound HMACs"). Both
-    directions are ES256 bearers verified against authd's JWKS: routd requires a
-    `service:` subject, and the adapter's `chanlib.authGate` (`chanlib/auth.go:67`)
-    requires exactly `service:routd`. Symmetric, but no shared secret exists to
-    verify — so the sentence had to be rewritten, not have a token swapped.
-  - `howto/index.html` and `reference/cli.html` claimed `arizuko create`
-    generates a `CHANNEL_SECRET` into `.env`. It writes `AUTH_SECRET` and
-    `SECRETS_KEY` (`cmd/arizuko/main.go:270-284`) and never wrote this one.
-  - `template/web/pub/arizuko/legacy/**` deliberately untouched (~60 hits). The
-    changelog page calls it "the previous docs are preserved at /legacy/" — an
-    archive that also documents `gated` and `emaid`. Editing one var inside a
-    snapshot of a retired topology makes it neither the old docs nor the new.
-  - NOT deployed: `template/web/pub/` is source-of-truth, the `/pub` deploy is
-    the operator's step (`template/web/CLAUDE.md`).
-
-**Re-verified 2026-08-15:** `grep -rn CHANNEL_SECRET --include=*.go .` finds
-zero live references (three comments note its retirement); `CLAUDE.md`,
-`security/index.html`, `reference/env.html`, `howto/index.html`,
-`reference/cli.html` are all clean. S1b (helm `gated` deploy) stays open,
-separately, as its own PROPOSED redesign entry.
 
 ## S1b — the helm chart deploys the deleted `gated` daemon (2026-08-05, PROPOSED — redesign, needs sign-off)
 
@@ -2557,51 +2333,3 @@ the same "seed a default row" problem, not a property of seeding itself.
   exclude `StampedFields` generically (would also close part of Z2's gap).
   Needs sign-off (schema + a content-hash semantics change), not attempted
   here.
-
-## ✅ FIXED 2026-08-15 F16 — the tier-drift sweep never scanned the web docs, and root docs still drift
-
-The sweep that removed numeric tiers from the docs reported taking stale
-references from 114 to 1. The measurement is not sound: its grep used
-`--include="*.md"`, and the 169 files under `template/web/pub` are all `.html`
-— so the entire operator-facing docs site scored zero by construction, whether
-or not it drifted.
-
-Hand-classified against the current code (excluding hot-tier/cold-tier, which is
-a different and still-valid concept, and excluding CHANGELOG/BUGS history where
-past state is the point), roughly eight stale tier-as-authority references
-remain, concentrated in the root documents the sweep evidently did not re-check:
-`CLAUDE.md:54`, `ARCHITECTURE.md:332,594-595,864`, `EXTENDING.md:59`,
-`SECURITY.md:39,131`, and `specs/4/P-personas.md:45` (still "Tier 2/3: ro
-mounts"). Tiers are gone from the code — no `Tier` field, no `auth/policy.go`,
-no `AuthorizeStructural` — so each of these describes an authority model that
-does not exist.
-
-The three specs the sweep named — `5/33`, `5/A`, `5/M` — read clean in full and
-keep `status: shipped`.
-
-Re-verified 2026-08-15: `CLAUDE.md`, `ARCHITECTURE.md`, `EXTENDING.md`,
-`SECURITY.md` are now clean of numeric-tier authority language (a prior pass
-fixed them; only `grep -i tier` hits left are `hot-tier`/`cold-tier`, a
-different and still-valid concept). The one straggler,
-`specs/4/P-personas.md:45` ("Tier 2/3: ro mounts over inherited files"),
-described an authority model that no longer exists — the actual mechanism is
-the `share_mount(readonly=true)` grant (5/33; `routd/dispatch.go:546`,
-`container/runner.go:571`) — fixed here to name that instead.
-
-Live (non-`legacy/`) web docs (`concepts/scopes.html`, `reference/mcp.html`,
-`reference/grants.html`, `concepts/autoviv.html`, `components/dashd.html`,
-`concepts/tokens.html`, `concepts/ant.html`) carry zero numeric-tier hits.
-`template/web/pub/arizuko/legacy/**` still has the old tier-1/tier-2 language,
-but that tree is an intentionally preserved historical snapshot (its own
-`index.html`/`legacy/` namespace), the same category as CHANGELOG history —
-not drift. `slack-team/setup.html`'s one "Tier 2 (rate-limited)" hit is
-Slack's own API rate-limit tier, unrelated to arizuko's auth model — false
-positive, not a doc bug.
-
-- **Severity:** low (docs describe a removed authority model)
-- **Scope:** root docs + web docs tier references
-- **Affected:** readers of CLAUDE/ARCHITECTURE/EXTENDING/SECURITY
-- **Fix:** `specs/4/P-personas.md:45` rewritten
-  (`share_mount(readonly=true)` grant, not "Tier 2/3"). Root docs and live
-  web docs were already clean at HEAD `0d376586`; `legacy/` is an
-  intentional archive, out of scope.
