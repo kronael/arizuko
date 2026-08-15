@@ -45,11 +45,12 @@ var ProxydRoutesMCPDoc = map[resreg.Action]string{
 	resreg.ActionDelete: "Delete a proxyd route. Idempotent.",
 }
 
-// ProxydRoutesMCPArgs is the explicit per-action arg list for the two proxyd_routes
-// decls that carry NO RowType (proxyd's dispatch decl + webd's forwarder), so their
-// derived MCP tools can't reflect args. This catalog decl DOES have a RowType and
-// reflects its own args; it doesn't consume this map. Single owner so proxyd + webd
-// don't drift.
+// ProxydRoutesMCPArgs is the explicit per-action arg list. It overrides RowType
+// reflection: the wire args carry descriptions and an `auth` requirement that
+// no struct tag can express, and proxyd's dispatch decl and webd's forwarder
+// both need the same list. Registered below so all three read it — until
+// resreg.Mount it lived only at the two mount sites, and the catalog reflected
+// a different arg list under the same tool name.
 var ProxydRoutesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.ActionGet: {{Name: "path", Type: "string", Required: true}},
 	resreg.ActionCreate: {
@@ -94,6 +95,7 @@ func init() {
 		PKFields:  []string{"Path"},
 		Endpoints: ProxydRoutesEndpoints,
 		MCPDoc:    ProxydRoutesMCPDoc,
+		MCPArgs:   ProxydRoutesMCPArgs,
 		Hooks: resreg.Hooks{
 			BeforeInsert: func(_ context.Context, _ *sql.Tx, row any) error {
 				r := row.(*ProxydRoutesRow)

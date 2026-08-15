@@ -71,7 +71,7 @@ func TestMCPOnly_DerivesToolWithoutRESTFace(t *testing.T) {
 }
 
 func TestMCPOnly_AbsentFromOpenAPI(t *testing.T) {
-	paths := resourcePaths(ptr(mcpOnlyResource()))
+	paths := endpointPaths(ptr(mcpOnlyResource()))
 	if _, ok := paths["/v1/widgets"]; !ok {
 		t.Fatalf("declared endpoint missing from the doc: %v", paths)
 	}

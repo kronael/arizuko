@@ -179,3 +179,74 @@ func TestResourceName_NoStringLiteral(t *testing.T) {
 			"seeing the declarations it claims to check", root, found, n)
 	}
 }
+
+// TestResourceLiteral_OnlyInCatalog is the structural half, and it retires the
+// reason TestResourceName_NoStringLiteral had to read source at all: a resource
+// is DECLARED once, here, and a daemon obtains it with resreg.Mount(name) and
+// fills in behavior. A composite literal anywhere else is a second declaration —
+// it can name a different endpoint slice, omit MCPDoc and silently drop the
+// agent's tools, or carry an MCPArgs map the catalog never had (proxyd_routes
+// did exactly that until this landed).
+//
+// The name check above stays: it is the one thing this cannot see, since the
+// catalog's own literals may still spell a Name inline.
+func TestResourceLiteral_OnlyInCatalog(t *testing.T) {
+	root := repoRoot(t)
+	catalog := filepath.Join("resreg", "resources")
+	fset := token.NewFileSet()
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") || d.Name() == "third_party" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		if strings.HasPrefix(rel, catalog) {
+			return nil
+		}
+		file, perr := parser.ParseFile(fset, path, nil, 0)
+		if perr != nil {
+			return perr
+		}
+		for _, lit := range resourceLits(file) {
+			t.Errorf("%s:%d: builds a resreg.Resource as a composite literal — that is a "+
+				"second declaration of a resource whose shape already lives in "+
+				"resreg/resources. Use resreg.Mount(resources.<X>Name) and set only the "+
+				"behavior fields (Authz, Gate, Handler, Store).",
+				rel, fset.Position(lit.Pos()).Line)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestEveryResourceDeclaresEndpoints pins the precondition that let the OpenAPI
+// emitter drop its PK-CRUD convention fallback. That fallback documented a
+// resource at /v1/<name> from its Name and RowType alone, which is a path
+// nothing had to serve; with one renderer left, the doc can only ever say what
+// RegisterREST mounted. A resource registered without Endpoints would have no
+// REST face to document and would have silently gone missing from the doc, so
+// it fails here instead.
+func TestEveryResourceDeclaresEndpoints(t *testing.T) {
+	all := resreg.All()
+	if len(all) == 0 {
+		t.Fatal("registry is empty — this guard would pass vacuously")
+	}
+	for _, r := range all {
+		if len(r.Endpoints) == 0 {
+			t.Errorf("%s registers no Endpoints — resreg.OpenAPI renders one operation per "+
+				"declared Endpoint and has no convention fallback, so this resource would "+
+				"vanish from /openapi.json", r.Name)
+		}
+	}
+}

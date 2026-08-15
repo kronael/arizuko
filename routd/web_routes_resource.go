@@ -46,18 +46,13 @@ var webRoutesMCPNames = resources.WebRoutesMCPNames
 // REST face is NOT mounted from this resource (see file header). Store is a
 // store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
 func (s *Server) webRoutesResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.WebRoutesName,
-		Endpoints: resources.WebRoutesEndpoints, // single source: doc + MCP read one list
-		MCPDoc:    resources.WebRoutesMCPDoc,     // single source (resreg/resources)
-		MCPArgs:   resources.WebRoutesMCPArgs,
-		MCPNames:  webRoutesMCPNames,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Handler: s.webRoutesHandler,
-		Store:   store.New(s.db.SQL()),
+	r := resreg.Mount(resources.WebRoutesName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Handler = s.webRoutesHandler
+	r.Store = store.New(s.db.SQL())
+	return r
 }
 
 // webRoutesHandler runs create(upsert)/delete/list against routd.db, folding in

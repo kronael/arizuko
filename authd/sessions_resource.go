@@ -37,16 +37,14 @@ import (
 // sessionsResource is authd's mounted decl of the shared catalog resource
 // (resreg/resources/sessions.go).
 func (s *server) sessionsResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.SessionsName,
-		Endpoints: resources.SessionsEndpoints,
-		Authz: func(_ resreg.Caller, action resreg.Action, args resreg.Args) (string, map[string]string, error) {
-			return "", map[string]string{"family_id": args.Str("family_id")}, nil
-		},
-		Gate:    s.sessionsGate,
-		Handler: s.sessionsHandler,
-		Store:   s.auditStore(),
+	r := resreg.Mount(resources.SessionsName)
+	r.Authz = func(_ resreg.Caller, _ resreg.Action, args resreg.Args) (string, map[string]string, error) {
+		return "", map[string]string{"family_id": args.Str("family_id")}, nil
 	}
+	r.Gate = s.sessionsGate
+	r.Handler = s.sessionsHandler
+	r.Store = s.auditStore()
+	return r
 }
 
 func (s *server) mountSessions(m *http.ServeMux) {

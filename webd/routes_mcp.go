@@ -75,17 +75,13 @@ func routesForwarder(c *proxydClient, sub, name string, groups []string) resreg.
 		}
 		return json.RawMessage(raw), nil
 	}
-	return resreg.Resource{
-		Name:      resources.ProxydRoutesName,
-		Endpoints: resources.ProxydRoutesEndpoints,
-		MCPDoc:    resources.ProxydRoutesMCPDoc,
-		MCPArgs:   resources.ProxydRoutesMCPArgs,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Handler: handler,
-		Store:   nil, // forwarder — proxyd writes the audit row
+	r := resreg.Mount(resources.ProxydRoutesName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Handler = handler
+	r.Store = nil // forwarder — proxyd writes the audit row
+	return r
 }
 
 // routesRESTSpec maps a resreg action+args to the REST call shape that

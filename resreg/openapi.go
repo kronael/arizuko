@@ -46,7 +46,12 @@ import (
 // emitted via the same map-key sort `encoding/json` applies. Resources
 // without `RowType` (forwarders, MCP-only) contribute nothing.
 //
-// One operation per Endpoint — its real mounted verb+path.
+// One operation per Endpoint — its real mounted verb+path. There is no second
+// renderer: a PK-CRUD convention fallback for `Endpoints`-less resources used to
+// sit beside this, so a resource could be DOCUMENTED at `/v1/<name>` while being
+// SERVED somewhere else entirely. It was already unreachable — every registered
+// resource declares Endpoints, and `MountedResources` drops any resource with no
+// served endpoint — and it is now deleted rather than merely unused.
 //
 // Standard error responses (400, 401, 403, 404, 409, 500) are referenced
 // from `components.responses` so per-path bloat stays small.
@@ -66,7 +71,7 @@ func OpenAPI(daemon, baseURL string, rs []*Resource) ([]byte, error) {
 			return nil, fmt.Errorf("%s: schema: %w", r.Name, err)
 		}
 		schemas[schemaName(r.Name)] = schema
-		for path, ops := range resourcePaths(r) {
+		for path, ops := range endpointPaths(r) {
 			paths[path] = ops
 		}
 	}
@@ -243,17 +248,6 @@ func kindToSchema(t reflect.Type) map[string]any {
 	}
 }
 
-// resourcePaths builds the OpenAPI operations for one resource. A resource
-// that declares Endpoints (its real mounted REST faces) emits exactly those;
-// one with none falls back to the spec 5/8 PK-CRUD convention. Returns a
-// map[path]ops; ops is keyed by HTTP method (lowercased per OpenAPI).
-func resourcePaths(r *Resource) map[string]map[string]any {
-	if len(r.Endpoints) > 0 {
-		return endpointPaths(r)
-	}
-	return conventionPaths(r)
-}
-
 // endpointPaths renders one operation per declared Endpoint — the doc mirrors
 // what RegisterREST mounts, so the two cannot drift. The path key + parameters
 // come from the stdlib-mux Path (placeholders {id}/{path...} → OpenAPI {param});
@@ -360,51 +354,6 @@ func OpenAPIPathKey(p string) string {
 	return strings.Join(segs, "/")
 }
 
-// conventionPaths is the PK-CRUD fallback for engine-managed resources that
-// declare no Endpoints (their REST face IS the generic 5/8 CRUD).
-func conventionPaths(r *Resource) map[string]map[string]any {
-	schemaRef := map[string]any{"$ref": "#/components/schemas/" + schemaName(r.Name)}
-	collection := fmt.Sprintf("/v1/%s", r.Name)
-	out := map[string]map[string]any{
-		collection: {
-			"get": withMCPDoc(r, ActionList, map[string]any{
-				"summary":     fmt.Sprintf("List %s", r.Name),
-				"operationId": fmt.Sprintf("list_%s", r.Name),
-				"responses":   mergeResponses(map[string]any{"200": listResponse(schemaRef)}),
-			}),
-			"post": withMCPDoc(r, ActionCreate, map[string]any{
-				"summary":     fmt.Sprintf("Create %s", r.Name),
-				"operationId": fmt.Sprintf("create_%s", r.Name),
-				"requestBody": requestBody(schemaRef),
-				"responses":   mergeResponses(map[string]any{"201": itemResponse(schemaRef)}),
-			}),
-		},
-	}
-	if pkPath := pkPathTemplate(r); pkPath != "" {
-		item := collection + "/" + pkPath
-		out[item] = map[string]any{
-			"parameters": pkParams(r),
-			"get": withMCPDoc(r, ActionGet, map[string]any{
-				"summary":     fmt.Sprintf("Get %s", r.Name),
-				"operationId": fmt.Sprintf("get_%s", r.Name),
-				"responses":   mergeResponses(map[string]any{"200": itemResponse(schemaRef)}),
-			}),
-			"patch": withMCPDoc(r, ActionUpdate, map[string]any{
-				"summary":     fmt.Sprintf("Update %s", r.Name),
-				"operationId": fmt.Sprintf("update_%s", r.Name),
-				"requestBody": requestBody(schemaRef),
-				"responses":   mergeResponses(map[string]any{"200": itemResponse(schemaRef)}),
-			}),
-			"delete": withMCPDoc(r, ActionDelete, map[string]any{
-				"summary":     fmt.Sprintf("Delete %s", r.Name),
-				"operationId": fmt.Sprintf("delete_%s", r.Name),
-				"responses":   mergeResponses(map[string]any{"204": map[string]any{"description": "No Content"}}),
-			}),
-		}
-	}
-	return out
-}
-
 // listResponse / itemResponse / requestBody are the shared JSON shapes for a
 // collection read, a single-item read/write, and a mutation body.
 func listResponse(schemaRef map[string]any) map[string]any {
@@ -457,44 +406,6 @@ func withMCPDoc(r *Resource, action Action, op map[string]any) map[string]any {
 	op["description"] = doc
 	op["x-mcp-when"] = doc
 	return op
-}
-
-// pkPathTemplate returns the `{pk}` URL segment for a resource, or ""
-// when the resource has no PKFields. Composite PKs collapse to one URL
-// parameter named after the first PK field — the path is documented as
-// taking a dash-separated composite via the parameter description.
-func pkPathTemplate(r *Resource) string {
-	if r.meta == nil || len(r.meta.pkFields) == 0 {
-		return ""
-	}
-	return "{" + r.meta.pkFields[0].col + "}"
-}
-
-// pkParams describes the single path parameter that carries the (maybe
-// composite) PK. Composite PKs document the encoding so clients know
-// to URL-encode dashes/slashes in field values.
-func pkParams(r *Resource) []any {
-	if r.meta == nil || len(r.meta.pkFields) == 0 {
-		return nil
-	}
-	first := r.meta.pkFields[0]
-	desc := "Primary key."
-	if len(r.meta.pkFields) > 1 {
-		cols := make([]string, len(r.meta.pkFields))
-		for i, fm := range r.meta.pkFields {
-			cols[i] = fm.col
-		}
-		desc = "Composite primary key: " + strings.Join(cols, "-") + " (URL-encode separators inside fields)."
-	}
-	return []any{
-		map[string]any{
-			"name":        first.col,
-			"in":          "path",
-			"required":    true,
-			"description": desc,
-			"schema":      map[string]any{"type": "string"},
-		},
-	}
 }
 
 // mergeResponses returns the per-operation responses map with the

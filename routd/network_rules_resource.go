@@ -56,18 +56,13 @@ var networkMCPNames = resources.NetworkRulesMCPNames
 // is NOT mounted from this resource (network is agent-only). Store is a
 // store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
 func (s *Server) networkRulesResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.NetworkRulesName,
-		Endpoints: resources.NetworkRulesEndpoints, // single source: doc + MCP read one list
-		MCPDoc:    resources.NetworkRulesMCPDoc,    // single source (resreg/resources)
-		MCPArgs:   resources.NetworkRulesMCPArgs,
-		MCPNames:  networkMCPNames,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Handler: s.networkRulesHandler,
-		Store:   store.New(s.db.SQL()),
+	r := resreg.Mount(resources.NetworkRulesName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Handler = s.networkRulesHandler
+	r.Store = store.New(s.db.SQL())
+	return r
 }
 
 // networkRulesHandler runs allow/deny/list against routd.db, folding in the

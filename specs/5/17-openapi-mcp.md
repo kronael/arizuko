@@ -106,13 +106,21 @@ Two contracts inside `Execution`:
 - **The caller resolver runs per call**, never captured at registration, so
   a shared MCP socket cannot confuse one agent's privileges for another's.
 
-Single-sourcing `RowType`+`Endpoints` in one `resreg/resources/<name>.go`
-imported by both the CLI and the mounted handler is what makes the
-"drift is structurally impossible" claim actually hold. Without it the
-CLI-manifest declaration and the mounted handler (`routd/*_resource.go`)
-can diverge and OpenAPI emits a phantom fixed-CRUD convention instead of
-the real `Endpoints` — the deferred "one owner + federation" work in
-[`5/16`](16-mcp-rest-unification.md).
+**The shape is declared once and OBTAINED, not restated.** A daemon builds a
+mountable resource with `resreg.Mount(resources.<X>Name)` — the registered
+`Resource` value from `resreg/resources/<name>.go`, which the CLI manifest reads
+too — and sets only `Store`, `Handler`, `Gate`. It cannot name a different
+endpoint slice or omit `MCPDoc`, because it names nothing. `Mount` panics on an
+unregistered name, so a resource served but absent from every catalog stops the
+binary at boot. This is the "one owner + federation" work
+[`5/16`](16-mcp-rest-unification.md) deferred; the guard is
+`TestResourceLiteral_OnlyInCatalog`.
+
+One declaration leaves ONE path renderer: operations come from the resource's
+real `Endpoints`. The PK-CRUD convention that used to fill in for an
+`Endpoints`-less resource is deleted — it emitted `/v1/<name>` and
+`/v1/<name>/{pk}` from `Name` + `RowType` alone, which is a documented path
+nothing had to mount.
 
 ## Auth model — resreg holds no policy; each surface injects its gate
 
@@ -221,7 +229,7 @@ about its own emitter (BUGS `F28`):
 | `acl` grant row | `mcp:<tool name>`       | `mcp:add_route`               |
 
 **`operationId` is `<action>_<name>`, verb-first and underscore-joined**
-(`resreg/openapi.go` `endpointOp` + `conventionPaths`). OpenAPI 3.1 §4.8.10.1
+(`resreg/openapi.go` `endpointOp`). OpenAPI 3.1 §4.8.10.1
 says tools MAY use `operationId` to identify an operation "therefore, it is
 RECOMMENDED to follow common programming naming conventions" — client
 generators turn it into a method name, and `.` is not an identifier character

@@ -60,20 +60,15 @@ var installedPackagesMCPNames = resources.InstalledPackagesMCPNames
 // disagree about the action set. Store is non-nil so resreg runs the Gate at all
 // — a nil Store marks a forwarder, and invoke skips authorization for those.
 func (s *Server) installedPackagesResource() resreg.Resource {
-	return resreg.Resource{
-		Name:      resources.InstalledPackagesName,
-		Endpoints: resources.InstalledPackagesEndpoints,
-		MCPDoc:    resources.InstalledPackagesMCPDoc,
-		MCPArgs:   resources.InstalledPackagesMCPArgs,
-		MCPNames:  installedPackagesMCPNames,
-		// Containment is the injected Gate's, run against installedPackagesScope;
-		// there is no per-call scope to derive from args.
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Handler: s.installedPackagesHandler,
-		Store:   store.New(s.db.SQL()),
+	r := resreg.Mount(resources.InstalledPackagesName)
+	// Containment is the injected Gate's, run against installedPackagesScope;
+	// there is no per-call scope to derive from args.
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Handler = s.installedPackagesHandler
+	r.Store = store.New(s.db.SQL())
+	return r
 }
 
 // mountInstalledPackages wires GET /v1/installed_packages[/{name}] onto the same

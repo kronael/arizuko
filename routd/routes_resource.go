@@ -94,17 +94,11 @@ type containFn func(c resreg.Caller, a resreg.Action, target string) error
 // per-face target-containment seam (auth.Authorize on the target for the agent,
 // ownsFolder for REST) closed into the handler — see containFn.
 func (s *Server) routesResource(contain containFn) resreg.Resource {
-	r := resreg.Resource{
-		Name:      resources.RoutesName,
-		Endpoints: resources.RoutesEndpoints, // single source: doc + mount + MCP read one list
-		MCPDoc:    resources.RoutesMCPDoc,    // single source (resreg/resources)
-		MCPArgs:   resources.RoutesMCPArgs,
-		MCPNames:  routesMCPNames,
-		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
-			return "", nil, nil
-		},
-		Store: store.New(s.db.SQL()),
+	r := resreg.Mount(resources.RoutesName)
+	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+		return "", nil, nil
 	}
+	r.Store = store.New(s.db.SQL())
 	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
 		return s.routesHandler(ctx, x, contain)
 	}
