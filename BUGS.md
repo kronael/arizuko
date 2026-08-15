@@ -2217,7 +2217,7 @@ Also not atomic — if ACL cleanup fails after groups DELETE, stale rows resurfa
 - **Status:** resolved — delete wrapped in transaction; descendant group rows purged atomically (91159586)
 - **Fix:** delete descendant groups rows in same transaction; forbid non-leaf delete or wrap all in tx
 
-## groups: observe-window and max_children forms corrupt defaults on save (2026-06-18, open)
+## ✅ FIXED 2026-08-15 — groups: observe-window and max_children forms corrupt defaults on save (2026-06-18, open)
 
 `groups_admin.go:246,:286`: GET maps stored -1/NULL to `0` for display; POST saves `0` back as a
 real override. Opening settings and clicking save changes "use defaults" to "0 msgs/0 chars" (send
@@ -2226,7 +2226,11 @@ nothing) or "0 max_children" (spawning disabled).
 - **Severity:** medium
 - **Scope:** dashd/groups_admin.go:246,:286
 - **Source:** codex audit 2026-06-18
-- **Status:** resolved — -1/NULL renders blank; 0 clears to default via ClearGroupMaxChildren (91159586)
+- **Status:** resolved — -1/NULL renders blank; 0 clears to default via ClearGroupMaxChildren (91159586).
+  Re-verified 2026-08-15: `numOrBlank` renders ≤0 as blank, `clearableNum` maps a
+  blank/zero/invalid submission back to the -1 clear sentinel. `max_children` no
+  longer exists anywhere in the codebase (`grep -rn max_children` — zero hits) —
+  the field itself was removed, so that half of the entry is moot rather than fixed.
 - **Fix:** render -1/NULL as blank; treat submitted 0 as clear-to-default in POST handler
 
 ## main: writeTaskRows and activity feed apply LIMIT before visibility filter (2026-06-18, open)
