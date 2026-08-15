@@ -1896,7 +1896,7 @@ is purely about whether folder-scope is allowed. Fixing the docs also requires a
   folder"; `store/secrets.go:128-140` still rejects `ScopeFolder`. Heading updated to match the
   body's already-resolved status.
 
-## OpenAPI convention emits phantom/divergent paths for hand-rolled resources (2026-07-02, open)
+## ✅ FIXED 2026-08-15 — OpenAPI convention emits phantom/divergent paths for hand-rolled resources (2026-07-02)
 
 `resreg/openapi.go:resourcePaths` synthesizes the 5/8 CRUD convention (`/v1/<name>`
 GET/POST/GET-one/PATCH/DELETE) from `(RowType, PKFields)`, ignoring each resource's real
@@ -1922,6 +1922,14 @@ change `resourcePaths` to emit from `Endpoints` (empty → schema-only) and the 
   (gates → `/v1/gates`, 4bd09532) are truthful. **Only `timed` remains**: `timed/split.go:13`
   still lists `scheduled_tasks` in its OpenAPI while serving only health/openapi/dash. Fix is
   a decision (Q8): emit an empty resource list for timed, or give timed a real `/v1` face.
+
+  **Closed 2026-08-15**: Q8 was decided — `timed/split.go:newTimedMux` mounts no resource
+  (`resreg.OpenAPIHandler("timed", mux)` with an empty mux, doc explicitly citing this same
+  BUGS class as `F32`), so timed's document is empty BY DERIVATION, not a hand-kept list.
+  `routd/README.md:69-75` documents `scheduled_tasks` as routd's resource served at
+  `/v1/tasks` (the one non-`/v1/<name>` path, by design, since timed calls that prefix
+  across the container boundary). Fixed a stale doc line found in the same call path:
+  `timed/README.md:22` still said `resreg.OpenAPIHandler("timed", ["scheduled_tasks"])`.
 
 ## proxyd_routes list handler returns {routes:[]} envelope; OpenAPI documents a bare array (2026-07-02, open)
 
