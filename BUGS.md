@@ -1162,7 +1162,7 @@ after runed becomes ready. Live krons reproduced this fleet-wide at
 - **Source:** krons journal 2026-07-30 07:49:05–07:49:08; reproduced live on a
   krons deploy 2026-08-15 19:54:48 (`connect: connection refused` to
   `runed:8080`, four groups' breakers opened, then self-recovered)
-- **Fix:** the breaker no longer counts a dependency outage.
+- **Fix:** `49e967e5` — the breaker no longer counts a dependency outage.
   `queue.ErrDependencyDown` marks a failure the group did not cause;
   `queue.runForGroup` leaves the streak untouched for it (neither incremented
   nor reset — nothing ran, so there is nothing to blame or credit) and logs it
