@@ -7,6 +7,45 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L30 — the SSE hub key is an unwritten string convention both ends re-derive (2026-08-15, open)
+
+`webd/turn.go` was fixed on 2026-08-15 to subscribe on the real chat JID rather
+than the route token's `target_folder` (spec `5/J`). The fix is correct and
+tested, but it treats one symptom of a shared cause: **nothing owns the hub
+key.** Each end reconstructs it with string surgery, and the two must agree by
+convention alone.
+
+Four remaining sites, all verified at `8ef52f47`:
+
+- `routd/turns.go:716` — publishes on `strings.TrimPrefix(tc.ChatJID, "web:")`.
+  For a `hook:` chat JID the prefix does not match, so the key stays
+  `hook:a/b` while every webd subscriber builds a `web:`-derived key.
+- `webd/channel.go:59` — `handleRoundDone` rebuilds `jid := "web:" + req.Folder`
+  and looks the topic up by it. A `hook:` chat gets `"web:hook:a/b"`, so
+  `TopicByMessageID` returns `""` and the event publishes under an empty topic.
+- `webd/route_token.go:195,382` — `handleChatTokenPost` / `injectRouteMessage`
+  subscribe and publish on `row.Folder()` (the token's target), while the
+  assistant frame arrives through `handleSend` keyed on the chat JID. A
+  suffixed token's `wait=` POST never sees its own reply.
+- `webd/route_token.go:419,435` — `handleRouteTokenStream` builds
+  `"web:" + folder` from the CLIENT-SUPPLIED `group` param and subscribes to
+  it, so a suffixed chat is unreachable and the param decides the key.
+
+- **Severity:** medium — each site is a hang, not a leak, but the last one lets
+  a request parameter choose a subscription key.
+- **Scope:** webd SSE delivery
+- **Affected:** every route token minted with a `jid_suffix`, and every `hook:`
+  chat
+- **Source:** `routd/turns.go:716`; `webd/channel.go:59`;
+  `webd/route_token.go:195,382,419,435`; contrast the fixed `webd/turn.go:125-140`
+- **Status:** open, and the honest fix is a REDESIGN needing sign-off: give the
+  key ONE renderer — a `store` helper that turns a chat JID into a hub key —
+  and make both daemons call it instead of each spelling the convention. Patching
+  the four sites individually re-creates exactly the drift that produced them.
+  Same class as [`L4`](#l4) and the `5/J` fix; see the identity-derived-not-read
+  rule in `CLAUDE.md`.
+- **Fix:**
+
 ## L27 — five channel platforms ship no output-style file, so their agents format blind (2026-08-15, open)
 
 `specs/5/Y` says WhatsApp, Reddit, Bluesky, Twitter and LinkedIn "keep their
