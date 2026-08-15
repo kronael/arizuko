@@ -18,6 +18,7 @@ const (
 	ACLName               = "acl"
 	ACLMembershipName     = "acl_membership"
 	AuditName             = "audit"
+	DeadLettersName       = "dead_letters"
 	GroupsName            = "groups"
 	InstalledPackagesName = "installed_packages"
 	InvitesName           = "invites"

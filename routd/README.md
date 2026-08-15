@@ -126,6 +126,13 @@ Endpoints (`server.go`, `channels.go`):
 - `GET|PATCH|DELETE /v1/tasks[/{id}]` — scheduled-task CRUD, shared with the agent's task tools (`tasks:read`/`tasks:write`)
 - `GET /v1/tasks/due` — claim due tasks (`tasks:read`)
 - `POST /v1/tasks/runlog`, `POST /v1/tasks/{id}/reschedule` — task logs/reschedule (`tasks:write`)
+- `GET /v1/dead_letters` — outbound routd gave up on, with the lost content
+  (`dead_letters:read`); `POST /v1/dead_letters/{id}/replay` requeues one for
+  the EXISTING outbound sweep (`dead_letters:write`). Its own scope pair, not
+  `messages:*`: `messages:write` composes any inbound, this moves one already
+  composed and already failed row back to `pending`. `delivery_attempts` tells
+  the two dead-letter causes apart — 0 = the platform refused it, the cap =
+  retries ran out. Agent twins `list_dead_letters` / `replay_dead_letter`.
 - `POST /v1/cost` — cost log write
 - `POST /v1/turns/{turn_id}/{reply,send,document,history,like,edit,delete,pin,unpin,post,forward,quote,repost,send_voice,result}` — agent tool forwards
 - `GET /openapi.json` — OpenAPI 3.1 doc (public, pre-auth)

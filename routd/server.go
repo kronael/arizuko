@@ -255,6 +255,7 @@ func (s *Server) Handler() http.Handler {
 	// so it stays the `arizuko packages` CLI (packages_resource.go header).
 	s.mountInstalledPackages(mux)
 	s.mountAudit(mux)
+	s.mountDeadLetters(mux)
 	// /v1/pending_actions list + approve/reject — spec 5/19's REST resolution
 	// face (pending_actions_http.go). Verdicts funnel to the same core the chat
 	// /approve command runs.

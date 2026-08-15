@@ -110,10 +110,18 @@ func TestEveryServiceGrantIsNonEmpty(t *testing.T) {
 //     widest read (ListRouteTokens) never selects the token value.
 //   - By COUNT, which is the stronger bound and closes the gap that letting
 //     routes:write off the named list would otherwise open: the grant is exactly
-//     these nine, so a TENTH scope of ANY name — including one nobody thought
-//     to blacklist — fails here before it ships. This bound has now caught seven
-//     additions (routes:write, audit:read, the three /dash/authd/ scopes and the
-//     two pending_actions scopes) and forced each to state its case.
+//     these eleven, so a TWELFTH scope of ANY name — including one nobody
+//     thought to blacklist — fails here before it ships. This bound has now
+//     caught nine additions (routes:write, audit:read, the three /dash/authd/
+//     scopes, the two pending_actions scopes and the two dead_letters scopes)
+//     and forced each to state its case.
+//
+// dead_letters:write is the newest and the one whose case rests on being
+// NARROWER than a scope already blacklisted here: messages:write composes any
+// inbound, dead_letters:write moves one already-composed, already-failed row
+// back to 'pending'. A pair named for the resource is what keeps that
+// distinction expressible — reusing messages:* would have smuggled "speak as a
+// channel" past this very list.
 //
 // tokens:mint is blacklisted by name from here on. It is the one scope that
 // would turn "can end a session" into "can BE anyone" — IssuerMint mints a user
@@ -129,6 +137,7 @@ func TestServiceDashdIsScopedToWhatItProxiesAndReads(t *testing.T) {
 		"runs:kill", "routes:read", "routes:write", "audit:read",
 		"signing_keys:read", "sessions:read", "sessions:write",
 		"pending_actions:read", "pending_actions:write",
+		"dead_letters:read", "dead_letters:write",
 	}
 	for _, needed := range want {
 		if !slices.Contains(g, needed) {

@@ -174,15 +174,42 @@ var serviceGrants = map[string][]string{
 	// IsOperator gate is matched on this path by dashd's requireOperator page
 	// gate.
 	//
-	// The ceiling is exactly these nine. dashd proxies and reads; it does not
+	// dead_letters:read and dead_letters:write are the /dash/routd/ dead-letter
+	// section (BUGS L23): the outbound messages routd gave up on, and the
+	// requeue of one. Before them the page rendered a COUNT, so an operator
+	// could see that delivery had failed and not what was lost or to whom, and
+	// nothing could send it again.
+	//
+	// They are their OWN pair rather than messages:read/messages:write, and that
+	// distinction is the point: messages:write is "speak as a channel" — it
+	// authorizes posting arbitrary inbound at POST /v1/messages — and the line
+	// below says dashd does not hold it. Requeueing one already-composed row is
+	// a strictly smaller authority than composing any row.
+	//
+	// The read returns DeadLetterRow: the message's own text, its chat, its
+	// folder and its attempt count. That is the same material an operator can
+	// already read straight out of routd.db through dashd's FS mount, so like
+	// routes:read it moves a page OFF the direct-DB read rather than widening
+	// reach. The write reaches one guarded UPDATE (routd ReplayDeadLetter):
+	// status 'failed'→'pending' with a zeroed attempt count on a row that is
+	// already dead-lettered. It cannot compose a message, cannot delete one, and
+	// cannot touch a row in any other state — a replay of an already-replayed
+	// row matches nothing and answers 409 rather than claiming success.
+	//
+	// Neither is reachable by a human bearer, for the same mechanical reason
+	// audit:read is not: a user token's scope list holds folder globs, and
+	// auth.scopeMatches rejects a held value without a colon.
+	//
+	// The ceiling is exactly these eleven. dashd proxies and reads; it does not
 	// originate work (runs:run), speak as a channel (messages:write), or read
 	// credentials (secrets:read, grants:read). authd/service_dashd_test.go pins
-	// both halves — the nine that must be here and the count, so a tenth
+	// both halves — the eleven that must be here and the count, so a twelfth
 	// scope of any name fails there before it ships.
 	"service:dashd": {
 		"runs:kill", "routes:read", "routes:write", "audit:read",
 		"signing_keys:read", "sessions:read", "sessions:write",
 		"pending_actions:read", "pending_actions:write",
+		"dead_letters:read", "dead_letters:write",
 	},
 }
 

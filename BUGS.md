@@ -1453,7 +1453,7 @@ more than one field.
 - **Status:** proposed
 - **Fix:**
 
-## L23 — PROPOSED, needs sign-off (verified still open 2026-08-15) — a dead-lettered message is countable but not readable (2026-08-11)
+## ✅ FIXED 2026-08-15 — L23 — a dead-lettered message is countable but not readable (2026-08-11)
 
 Premise re-verified at this tree: `dashd/routd_page.go` still only shows a
 `dead-lettered` COUNT; grepped `resreg/` for any dead-letter resource —
@@ -1477,7 +1477,45 @@ action — is still undone.
 - **Scope:** dead-letter visibility
 - **Affected:** dashd, routd, resreg
 - **Source:** `dashd/routd_page.go`
-- **Status:** open
+- **Status:** FIXED — shipped as the resreg `dead_letters` resource, in the
+  shape this entry recommended: `messages WHERE status='failed' AND
+  is_bot_message=1` is the row set, and NO new state was added.
+
+  `GET /v1/dead_letters` + `POST /v1/dead_letters/{id}/replay`
+  (`resreg/resources/dead_letters.go` for the catalog, `routd/
+  dead_letters_resource.go` for the mounted handler), with the agent twins
+  `list_dead_letters` / `replay_dead_letter` on the MCP socket. One handler,
+  two injected gates, containment on `routed_to` by subtree — and the replay
+  re-reads the row to bind the id to the caller's folder before mutating, so
+  an id alone cannot reach another tenant's message.
+
+  **Replay adds no second delivery path.** It flips the row to `pending` with
+  a zeroed attempt count, which is exactly what `PendingOutbound` selects, so
+  routd's existing outbound sweep sends it. It reports whether a row actually
+  moved: a row already replayed answers 409 rather than claiming a queueing
+  it did not do.
+
+  Three decisions worth keeping:
+
+  - **`DB: ""` in the registration**, like `audit`. A dead letter is EVIDENCE
+    that a message was lost, so `Export`/`Plan`/`Apply` must never round-trip
+    it — `arizuko apply` would be able to rewrite the record. It is also a
+    VIEW of `messages`, which no manifest owns.
+  - **Its own `dead_letters:read`/`dead_letters:write` scope pair**, not
+    `messages:*`. `messages:write` is "speak as a channel" (it authorizes
+    POST /v1/messages), and authd's `service:dashd` ceiling explicitly denies
+    that; requeueing one already-composed row is a strictly smaller authority.
+    dashd's ceiling went 9 → 11 with the case stated at the grant.
+  - **The handler projects to `DeadLetterRow`.** `core.Message` carries no
+    json tags, so returning it raw shipped Go field names in a body whose
+    `/openapi.json` schema is reflected off `DeadLetterRow` — the two
+    declarations disagreed on every field name. Caught by the REST test.
+
+  `/dash/routd/` now renders the rows (chat, the lost text, refused-vs-retries
+  -exhausted, when) with a replay button, where it rendered a bare count. It
+  reads over HTTP and writes over HTTP even though the count beside it reads
+  routd.db directly: a page whose read and write disagree about the source of
+  truth is how the two drift.
 
 ## L16 — legacy plaintext secret rows are never sealed; the migrator has no caller (2026-08-11, open)
 
