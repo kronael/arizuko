@@ -1411,6 +1411,15 @@ var slackSendClientErrors = map[string]bool{
 	"not_in_channel":    true,
 	"msg_too_long":      true,
 	"restricted_action": true,
+	// restricted_action_* are documented chat.postMessage variants of
+	// restricted_action — a workspace posting-permission restriction the
+	// caller cannot fix by retrying, same as the bare form above.
+	"restricted_action_non_threadable_channel": true,
+	"restricted_action_read_only_channel":      true,
+	"restricted_action_thread_locked":          true,
+	// The target message no longer accepts replies (deleted, or the sender's
+	// own visibility/permission changed) — permanent, not transient.
+	"cannot_reply_to_message": true,
 	// Thread parent gone: permanent, not transient. Send retries these once at
 	// channel root first; if that still fails they land here as a 400.
 	"thread_not_found":  true,

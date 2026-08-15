@@ -2099,25 +2099,28 @@ with the scoped watcher. The clean end-state is a static serve (`vite preview` o
 a plain file server) keeping the pub-fallback/trailing-slash middleware; deferred,
 needs sign-off.
 
-## S3 — Slack permanent send failures are forced through the retryable 502 path (2026-07-15, open)
+## S3 — FIXED 2026-08-15, <sha> — Slack permanent send failures are forced through the retryable 502 path (2026-07-15)
 
-`slakd.Send` correctly wraps its known permanent `chat.postMessage` failures
-with `chanlib.ErrInvalidRequest`, but the shared `/send` handler maps every
-`BotHandler.Send` error to HTTP 502 instead of using the existing
-`writeBotResult` classifier. A deleted/archived channel, missing membership, or
-failed root fallback is therefore enqueued/retried as a transient delivery.
-Even after repairing that boundary, `slackSendClientErrors` omits documented
-permanent failures such as `cannot_reply_to_message`,
+First half of the premise was already stale at this tree: `handleSend`
+(`chanlib/handler.go`) goes through `jsonVerb` → `writeBotResult`, which
+already classifies `chanlib.ErrInvalidRequest` as 400, not the generic 502 —
+no second mapping bypasses it. That refactor landed before this entry was
+re-verified.
+
+Second half was real: `slackSendClientErrors` (`slakd/bot.go`) omitted four
+documented permanent `chat.postMessage` failures —
 `restricted_action_non_threadable_channel`,
-`restricted_action_read_only_channel`, and
-`restricted_action_thread_locked`, so those still take the 502 path.
+`restricted_action_read_only_channel`, `restricted_action_thread_locked`,
+`cannot_reply_to_message` — so those still fell through to the unclassified
+502 path (`chanreg/httpchan.go`'s `classifyStatus` then treats them as
+transient and routd's retry sweep burns attempts on something a retry can
+never fix).
 
-- **Severity:** high
-- **Scope:** Slack outbound error classification
-- **Affected:** Slack text sends and thread replies
-- **Source:** slakd/bot.go:927-937,1183-1205; chanlib/handler.go:328-340,450-480
-- **Status:** open
-- **Fix:**
+- **Fix:** added the four codes to `slackSendClientErrors`.
+- **Source:** slakd/bot.go (slackSendClientErrors)
+- **Tests:** `slakd.TestSendClientErrorsClassifyAsInvalidRequest` (one
+  subtest per code, asserts `Send` wraps `chanlib.ErrInvalidRequest`);
+  `go test ./slakd/... -count=1 -short` green.
 
 ## A2 — Release guard advances before announcement delivery, making partial failure permanent (2026-07-15, open)
 
