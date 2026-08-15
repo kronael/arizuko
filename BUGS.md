@@ -783,13 +783,29 @@ settled, an operator following the test's spelling gets no dev behavior.
   (`container/runner_layered_test.go`) — failed against the old compare,
   passes now. `go test ./container/... -short` green.
 
-## F75 — three skill trees are triplicated and one pair has already drifted (2026-08-08, open)
+## F75 — three skill trees are triplicated and one pair has already drifted (2026-08-08, open — verified 2026-08-15, still a redesign)
 
 `ant/skills/p5js/` also exists under `ant/skills/create/art/.../p5js/` (same for
 excalidraw and manim-video). A `diff` shows the top-level
 `p5js/scripts/export-frames.js` carries a chromium `executablePath` fix the
 `create/`-tree copy lacks — so the duplicate is not merely redundant, it is
 already stale. Deciding which is canonical for skill dispatch is the fix.
+
+**Verified 2026-08-15, premise still holds.** All three pairs are real and
+each nested copy carries a `README.md` where the top-level carries `SKILL.md`
+(dispatchable skill vs. reference resource read by the `create` router):
+`ant/skills/p5js` ↔ `ant/skills/create/art/p5js`,
+`ant/skills/excalidraw` ↔ `ant/skills/create/diagram/excalidraw`,
+`ant/skills/manim-video` ↔ `ant/skills/create/video/manim`. The `p5js` pair's
+`scripts/export-frames.js` still differs — the top-level tree has the
+chromium `executablePath` fix, the `create/`-tree copy does not.
+NOT fixed here: syncing the stale script would patch the symptom (this
+instance of drift) while leaving the duplication mechanism that produced it
+in place — the same class root `CLAUDE.md` calls out under "No duplication —
+amend the original." The actual fix is the canonicalization decision the
+entry already names (which tree is the single source, and whether the other
+becomes a symlink/reference rather than a second copy), which is a
+cross-cutting structural change to skill dispatch and wants sign-off.
 
 ## F60 — `routd/db.go:140` names `auth.Delegate` at `register_group`, where it is not called (2026-08-07, open)
 
