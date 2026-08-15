@@ -1765,7 +1765,7 @@ does not apply the same boundary.
 - **Fix:** `mustPkgName` validates `<name>` against `pkgNameRE` (identRE shape:
   no leading `.`, no `/`) in both `add` and `remove` before any path join.
 
-## C3 — legacy conversion overwrites native package files (2026-07-28, open)
+## C3 — legacy conversion overwrites native package files (CLOSED-STALE 2026-08-15 — legacy converter deleted 258d14f8, heading was stale)
 
 When `<name>.toml` coexists with `<name>.yml` or
 `<name>-routes.json`, conversion silently overwrites the native/operator-edited
