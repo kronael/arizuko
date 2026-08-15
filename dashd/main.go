@@ -169,7 +169,7 @@ func main() {
 
 	// DB_PATH points at routd.db: routd OWNS every table dashd reads or writes
 	// (messages/chats/cost_log/user_profiles/acl/groups/routes/route_tokens/
-	// secrets/scheduled_tasks/audit_log/chat_sessions). dashd is FS-mounted, so
+	// secrets/scheduled_tasks/audit_log). dashd is FS-mounted, so
 	// it drives them directly (split write-discipline). The pre-split
 	// messages.db is retired — no daemon opens it. Its sibling DBs (onbod/runed)
 	// resolve off this path's directory.
@@ -383,7 +383,7 @@ func upstreamErr(daemon string, status int, body []byte) string {
 
 type dash struct {
 	dbRoutd *sql.DB // routd.db handle — dashd's ONLY message/config store. routd OWNS
-	// acl/groups/routes/route_tokens/secrets/chat_sessions/audit_log AND the live
+	// acl/groups/routes/route_tokens/secrets/audit_log AND the live
 	// messages/chats/sessions/cost_log/user_profiles tables (spec 5/5); dashd
 	// reads+writes them here. nil in read-only tests.
 	dbOnbod *sql.DB // onbod.db handle. onbod OWNS invites/onboarding_gates in the
@@ -628,16 +628,9 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/groups/{folder}/grants", g(d.handleGroupGrantAdd))
 	mux.HandleFunc("POST /dash/groups/{folder}/grants/revoke", g(d.handleGroupGrantRevoke))
 
-	// Chat portal — browse groups, open/continue web chat sessions. A single
-	// trailing-wildcard ({folder...}) dispatcher routes the bare /dash/chat/
-	// (empty tail → portal) and nested folders (corp/eng/sre → group page);
-	// Go's mux forbids a bare /dash/chat/ next to {folder...} (both match the
-	// empty tail), so we dispatch inside one handler like the groups routes.
-	mux.HandleFunc("GET /dash/chat/{folder...}", g(d.dispatchChatGet))
-	mux.HandleFunc("POST /dash/chat/{folder...}", g(d.handleChatNew))
-
+	// Route tokens: list + revoke only. No POST /dash/tokens/{folder}/ — the
+	// cockpit mints nothing (routd's route_tokens resource owns issuance).
 	mux.HandleFunc("GET /dash/tokens/{folder}/", g(d.handleTokensFolder))
-	mux.HandleFunc("POST /dash/tokens/{folder}/", g(d.handleTokensFolder))
 	mux.HandleFunc("POST /dash/tokens/{folder}/{jid}/revoke", g(d.handleTokensRevoke))
 
 	// Invite management — operator-gated.
@@ -668,7 +661,6 @@ var navLinks = []struct {
 	operator    bool
 }{
 	{"/dash/", "arizuko", false},
-	{"/dash/chat/", "chat", false},
 	{"/dash/status/", "status", false},
 	{"/dash/tasks/", "tasks", false},
 	{"/dash/activity/", "activity", false},
@@ -759,7 +751,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<h1 class="brand">{
 <a class="tile" href="/dash/status/"><h2>status<span class="dot {{.StatusDot}}"></span></h2><p>service health</p></a>
 <a class="tile" href="/dash/tasks/"><h2>tasks<span class="dot {{.TasksDot}}"></span></h2><p>scheduled jobs</p></a>
 <a class="tile" href="/dash/activity/"><h2>activity</h2><p>message flow</p></a>
-<a class="tile" href="/dash/chat/"><h2>chat</h2><p>web chat sessions</p></a>
+<a class="tile" href="/me/chats"><h2>chat</h2><p>web chat sessions</p></a>
 <a class="tile" href="/dash/packages/"><h2>packages</h2><p>installed packages</p></a>
 <a class="tile" href="/dash/groups/"><h2>groups</h2><p>group hierarchy</p></a>
 <a class="tile" href="/dash/routes/"><h2>routes</h2><p>message routing table</p></a>

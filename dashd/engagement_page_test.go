@@ -106,9 +106,10 @@ func TestEngagementPage_RendersLiveWindows(t *testing.T) {
 			t.Errorf("window section missing %q\nsection: %s", want, sec)
 		}
 	}
-	// The folder must be a link to its chat page, not bare text.
-	if !strings.Contains(sec, `href="/dash/chat/corp%2Feng/"`) {
-		t.Errorf("folder is not linked to its chat page\nsection: %s", sec)
+	// The folder must link to webd's /me/chats — the one chat surface since
+	// dashd's portal was deleted (BUGS V2) — not bare text.
+	if !strings.Contains(sec, `href="/me/chats?folder=corp%2Feng"`) {
+		t.Errorf("folder is not linked to its conversations\nsection: %s", sec)
 	}
 }
 

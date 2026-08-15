@@ -38,10 +38,10 @@ type Inst struct {
 // routd.db actually has in production. Daemons that read routd.db (dashd) must
 // use this, not NewInstance: the two schemas overlap on messages/groups/acl/
 // routes but diverge on cost_log (recorded_at/cost_cents/input_tokens vs the
-// store's ts/cents/input_tok) and on tables routd added after the split
-// (chat_sessions, 0029), so a store-schema fixture lets a genuine column-name
-// regression pass. NewInstance stays for callers whose subject IS the frozen
-// pre-split schema. Registers t.Cleanup to close the DB.
+// store's ts/cents/input_tok) and on whatever routd's own migration chain adds
+// next, so a store-schema fixture lets a genuine column-name regression pass.
+// NewInstance stays for callers whose subject IS the frozen pre-split schema.
+// Registers t.Cleanup to close the DB.
 func NewRoutdInstance(t *testing.T) *Inst {
 	t.Helper()
 	tmp := t.TempDir()

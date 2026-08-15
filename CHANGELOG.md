@@ -54,6 +54,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   its helm block and the `go-mastodon` dependency are deleted, and no
   `mastodon:` JID exists any more. A routing rule that matches `mastodon:`
   matches nothing — remove it or point it at a platform you still run.
+- **The dashboard's chat portal is gone; chat lives at `/me/chats`.**
+  `/dash/chat/` duplicated webd's conversation list, and to offer "continue"
+  links it stored the RAW reusable chat bearer in a `chat_sessions` table —
+  a plaintext credential store readable by anyone who could read the DB.
+  The page, its links and that table are all deleted (routd migration `0036`;
+  the table held zero rows fleet-wide, so nothing is lost). The cockpit's
+  `chat` tile and every folder link now point at `/me/chats`, which reads
+  only token hashes.
+- **The cockpit no longer mints route tokens.** `/dash/tokens/{folder}/` keeps
+  the list and the revoke button; the "Issue new token" form is gone. It was a
+  second writer over `route_tokens` with its own label validation, beside
+  routd's resource. Mint from the agent (`issue_chat_link`, `issue_webhook`,
+  `issue_pairing_link`), from `POST /v1/route_tokens/{chat,hook}`, or with
+  `arizuko token`.
 
 ### Changed
 

@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -85,17 +86,32 @@ func TestRouteCreate_Audited(t *testing.T) {
 	}
 }
 
-func TestRouteTokenIssue_Audited(t *testing.T) {
+// The cockpit MINTS NOTHING (BUGS V2, spec 7/3 §webd). A mint form here was a
+// second writer over route_tokens beside routd's resource, with its own label
+// validation — the shape that drifts. Issuance is routd's
+// POST /v1/route_tokens/{chat,hook}, the agent's issue_* tools, and
+// `arizuko token`. Guard both halves: no route, and no form to post to.
+func TestRouteTokenMint_NotInCockpit(t *testing.T) {
 	d, _ := splitAdminDash(t, "alice@x")
 	mux := newMux(d)
+
 	form := url.Values{"kind": {"chat"}}.Encode()
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/tokens/team/", form, "alice@x"))
-	if w.Code != 200 {
-		t.Fatalf("POST tokens = %d body=%q", w.Code, w.Body.String())
+	if w.Code == http.StatusOK {
+		t.Fatalf("POST /dash/tokens/{folder}/ returned 200 — the mint route is back")
 	}
-	if got := auditActor(t, d, "route_token.mint"); got != "alice@x" {
-		t.Errorf("route_token.mint actor_sub = %q, want alice@x", got)
+	if n := count(t, d.dbRoutd, `SELECT COUNT(*) FROM route_tokens`); n != 0 {
+		t.Fatalf("route_tokens = %d rows, want 0 — the cockpit minted a token", n)
+	}
+
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("GET", "/dash/tokens/team/", "", "alice@x"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET tokens = %d body=%q", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); strings.Contains(body, `action="/dash/tokens/team/"`) {
+		t.Error("tokens page still renders a mint form posting to itself")
 	}
 }
 
@@ -114,22 +130,6 @@ func TestRouteTokenRevoke_Audited(t *testing.T) {
 	}
 	if got := auditActor(t, d, "route_token.revoke"); got != "alice@x" {
 		t.Errorf("route_token.revoke actor_sub = %q, want alice@x", got)
-	}
-}
-
-// The chat portal mints a route token too; it must be audited like any other.
-func TestChatNew_Audited(t *testing.T) {
-	d, _ := splitAdminDash(t, "alice@x")
-	mux := newMux(d)
-	req := adminReq("POST", "/dash/chat/team/", "label=kickoff", "alice@x")
-	req.Host = "example.com"
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-	if w.Code != http.StatusSeeOther {
-		t.Fatalf("POST chat = %d body=%q", w.Code, w.Body.String())
-	}
-	if got := auditActor(t, d, "route_token.mint"); got != "alice@x" {
-		t.Errorf("route_token.mint actor_sub = %q, want alice@x", got)
 	}
 }
 
