@@ -2542,7 +2542,7 @@ Product pages had the same claim removed; the howto page still carries it.
   headers are not forwarded." Heading updated to match the already-fixed body.
 - **Found:** product-docs refine pass (fable), 2026-07-09
 
-## `arizuko token issue chat|webhook` writes route_tokens to frozen messages.db (2026-07-11, open)
+## ✅ FIXED 2026-08-15 (re-verified) — `arizuko token issue chat|webhook` writes route_tokens to frozen messages.db (2026-07-11)
 
 Same class as the fixed `arizuko network` bug (2026-06-21, 2dfa5670): `cmd/arizuko/token.go`
 `cmdToken` opens the DB via `store.Open(dir/store)` → `messages.db`, but post-split
@@ -2564,8 +2564,10 @@ Fix: route `issue chat|webhook`/`list`/`revoke` through `store.OpenRoutd` (mirro
 - **Source:** cmd/arizuko/token.go:27 (`store.Open` → should be `store.OpenRoutd` for route_tokens)
 - **Status:** fixed 2026-07-12 — cmdToken opens routd.db via the existing
   `mustOpenACL` (one CLI open-path, no second `store.OpenRoutd` copy); guarded by
-  `TestTokenLandsInRoutdDB` (issue+revoke land in routd.db, messages.db stays empty)
-- **Fix:**
+  `TestTokenLandsInRoutdDB` (issue+revoke land in routd.db, messages.db stays empty).
+  Re-verified 2026-08-15: `cmd/arizuko/token.go:33` still `st := mustOpenACL(dataDir)`;
+  `go test ./cmd/arizuko/... -run TestTokenLandsInRoutdDB` PASSes.
+- **Fix:** 91630159
 
 ## `arizuko group add`/`create` writes the group skeleton to CWD, not the data dir (2026-07-11, open)
 
