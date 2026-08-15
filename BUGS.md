@@ -2103,6 +2103,24 @@ Fix (deferred, operator): pin/patch in-container `mcpc` to a version whose
 skills to a working direct-`UNIX-CONNECT` form — verify against a live socket
 before touching the skill docs.
 
+**Premise re-verified 2026-08-15 at `bcb5bb83`: still live, still deferred, and
+the deferral now has a second reason.** All three documented sites still carry
+the failing form verbatim (`ant/skills/self/mcp.md:134`,
+`ant/skills/mcp/SKILL.md:24`, `ant/skills/migrate/SKILL.md:277`), plus a fourth
+in the frozen migration record `ant/skills/self/migrations/052-mcpc-cli.md:7`,
+which is history and must not be rewritten. `ant/Dockerfile:171` installs
+`@apify/mcpc` UNPINNED, so the version an image gets is whatever npm serves at
+build time — the regression can move under the fleet without a code change, and
+pinning is itself the first half of the fix.
+
+Not fixed here, for the reason the entry already gives and one more: the fix is
+unverifiable without a live socket (this worktree has none, and a form that
+merely LOOKS right is what put the failing one in three skills), and
+`ant/skills/` is release machinery — a change there needs a migration file, a
+`MIGRATION_VERSION` bump and an ant image rebuild to reach any agent. Shipping
+an unverified form into all three skills would replace a known-broken
+instruction with an unknown one.
+
 ## M2 — elevated (/root) turns bound by static-tier STRUCTURAL gates (2026-07-16, fixed 2026-07-20 except route_tokens)
 
 The 2026-07-16 elevation fix widened both halves of the per-tool grant
