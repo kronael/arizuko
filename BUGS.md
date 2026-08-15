@@ -1911,7 +1911,7 @@ while retaining allows.
 - **Scope:** ACL storage and authorization evaluation
 - **Affected:** agent authorization, login scope snapshots, ACL management surfaces
 - **Source:** store/acl.go:176-310; auth/authorize.go:59-99; routd/server.go:506-514
-- **Fix:** the four `store` ACL readers (`ACLRowsFor`, `ACLWildcardRows`,
+- **Fix:** `9076253a` — the four `store` ACL readers (`ACLRowsFor`, `ACLWildcardRows`,
   `ListACL`, `ListACLByScope`) return `([]core.ACLRow, error)`. Authorization
   still fails CLOSED everywhere — the error return changes who can SEE the
   failure, never the direction it fails in.
