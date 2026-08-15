@@ -2678,7 +2678,7 @@ backup, git POSSIBLE (ant image ships git + commit skill).
   specs/9/3-git-as-truth scope creep; decide there, not ad hoc.
 - **Status:** open — wording fix in flight; the make-it-true decision belongs to 9/3
 
-## Two hub.js in template — release stamps the one pages don't load (2026-07-14, open)
+## ✅ FIXED 2026-08-15 — Two hub.js in template — release stamps the one pages don't load (2026-07-14)
 
 `template/web/pub/assets/hub.js` and `template/web/pub/arizuko/assets/hub.js` are
 byte-identical twins except `ARIZUKO_VERSION`. The docs pages reference relative
@@ -2693,7 +2693,20 @@ for hub.css.
   decide whether the top-level assets/ serves any non-arizuko hub page before
   deleting); (b) release script bumps both (band-aid, applied 2026-07-14 in
   CLAUDE.md wording).
-- **Status:** open — versions synced at v0.58.0; collapse decision pending
+- **Status:** FIXED — the entry's own open decision ("decide whether the
+  top-level assets/ serves any non-arizuko hub page before deleting") is
+  answered by evidence: `grep -rn "assets/hub.js\|assets/hub.css\|assets/
+  arizuko-client.js" template/web/pub --include=*.html` outside `arizuko/`
+  returned zero hits — no page anywhere loads the top-level copy — and
+  `template/web/CLAUDE.md`'s own deploy procedure says the sync source is
+  `template/web/pub/arizuko/`, NOT the parent, so the top-level `assets/`
+  was never part of the deployed tree either. By 2026-08-15 the two copies
+  had also drifted FUNCTIONALLY (`wrapTables()` only in the loaded copy,
+  several CSS rules only in one file), not just on the version stamp —
+  confirming (a) collapse-to-one was the right call. Deleted
+  `template/web/pub/assets/{hub.js,hub.css,arizuko-client.js}` (option (a));
+  updated root `CLAUDE.md`'s Tagging step 3 to drop the twin-bump
+  instruction. **Fix:** cd7c9b06.
 
 ## P3 — Proxyd dispatch combines routes from two database snapshots (2026-07-30, proposed)
 
