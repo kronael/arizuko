@@ -3,6 +3,8 @@ package container
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -156,6 +158,31 @@ func TestProductMixSeedsCorpusVerbatim(t *testing.T) {
 					}
 					continue
 				}
+				// Two payload kinds transform BY DESIGN, so "same path, same
+				// bytes" is the wrong assertion for them: a skill is relocated
+				// under .claude/, and settings.json is a key union that is
+				// re-serialised. Assert the transformed result instead of
+				// exempting them, or the reference product would silently lose
+				// either payload. Every other payload is still byte-identical
+				// at its own path.
+				if strings.HasPrefix(rel, "skills/") {
+					moved := skillsRel + strings.TrimPrefix(rel, "skills")
+					if got[moved] != wantHash {
+						t.Errorf("skill %s did not land verbatim at %s", rel, moved)
+					}
+					continue
+				}
+				if rel == settingsRel {
+					var seedKeys, blendedKeys map[string]any
+					readJSON(t, filepath.Join(seedDir, rel), &seedKeys)
+					readJSON(t, filepath.Join(group, rel), &blendedKeys)
+					for k, v := range seedKeys {
+						if fmt.Sprint(blendedKeys[k]) != fmt.Sprint(v) {
+							t.Errorf("settings key %q: got %v, want %v", k, blendedKeys[k], v)
+						}
+					}
+					continue
+				}
 				gotHash, ok := got[rel]
 				if !ok {
 					t.Errorf("blend DROPPED %s", rel)
@@ -195,24 +222,35 @@ func TestProductCorpusPayloadKinds(t *testing.T) {
 		}
 	}
 	want := map[string]int{
-		"PRODUCT.md":  10, // every product
+		"PRODUCT.md":  11, // every product
 		"SOUL.md":     6,
-		"PERSONA.md":  3,
-		"BRANDING.md": 2,
-		"CLAUDE.md":   3,
+		"PERSONA.md":  4,
+		"BRANDING.md": 3,
+		"CLAUDE.md":   4,
 	}
-	if total != 10 {
-		t.Fatalf("corpus size moved: %d products, spec 5/28 says 10", total)
+	if total != 11 {
+		t.Fatalf("corpus size moved: %d products, spec 5/28 says 11", total)
 	}
 	for name, wantN := range want {
 		if counts[name] != wantN {
 			t.Errorf("%s: corpus has %d, spec 5/28 says %d", name, counts[name], wantN)
 		}
 	}
-	// Kinds the blend table names that the corpus does not ship — the spec's
-	// "payload kinds do not match the corpus" gap. If one appears, the blend
-	// table stops being hypothetical for it and the spec must say so.
-	for _, absent := range []string{"tasks.toml", "settings.json", "Dockerfile.ant"} {
+	// `helpdesk` is the reference product: it exercises every payload kind that
+	// has a consumer, so the blend table is no longer hypothetical for skills or
+	// settings. Assert it keeps doing that — a reference that quietly loses a
+	// payload stops being one.
+	for _, rel := range []string{".claude/settings.json", "skills/triage/SKILL.md", "facts/sla.md"} {
+		if _, err := os.Stat(filepath.Join(examplesDir, "helpdesk", rel)); err != nil {
+			t.Errorf("helpdesk is the reference product and no longer ships %s: %v", rel, err)
+		}
+	}
+	// Kinds the blend table names that the corpus does not ship. `tasks.toml` is
+	// deliberate, not an oversight: nothing reads it (BUGS L35), so shipping one
+	// in the corpus would document a no-op as a feature. Paths are
+	// product-relative — `.claude/settings.json` is the settings payload; a
+	// root-level `settings.json` is an unnamed payload under the catch-all.
+	for _, absent := range []string{"tasks.toml", "Dockerfile.ant", "migrations"} {
 		for _, p := range products {
 			if !p.IsDir() {
 				continue
@@ -221,5 +259,18 @@ func TestProductCorpusPayloadKinds(t *testing.T) {
 				t.Errorf("%s now ships %s — spec 5/28's corpus gap is stale", p.Name(), absent)
 			}
 		}
+	}
+}
+
+// readJSON decodes a JSON file into v, failing the test on any error — used by
+// the settings-union assertion, where comparing hashes would be wrong.
+func readJSON(t *testing.T, path string, v any) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if err := json.Unmarshal(b, v); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
 	}
 }
