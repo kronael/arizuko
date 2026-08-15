@@ -53,7 +53,7 @@ test('normalize maps a success result to a final ok event with usage', () => {
   expect(ev!.final).toBe(true);
   expect(ev!.status).toBe('success');
   expect(ev!.text).toBe('the answer');
-  // costUSD → cost_cents is × 100 then ROUNDED (spec 5/34). 0.0456 → 4.56 → 5;
+  // costUSD → cost_cents is × 100 then ROUNDED (spec 11/19). 0.0456 → 4.56 → 5;
   // truncation would give 4, so this value discriminates the two. The cache
   // fields cross names — cacheReadInputTokens → cache_read,
   // cacheCreationInputTokens → cache_write — and 7 ≠ 3 catches a swap.

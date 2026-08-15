@@ -69,7 +69,7 @@ interface ContainerOutput {
   newSessionId?: string;
   error?: string;
   // Per-model usage harvested from the SDK's result message (Anthropic
-  // usage only; oracle/codex skill captures separately). Spec 5/34.
+  // usage only; oracle/codex skill captures separately). Spec 11/19.
   models?: Record<string, import('./mcp.js').ModelUsage>;
   // timedOut marks a result that is the graceful query-timeout summary.
   timedOut?: boolean;

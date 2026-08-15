@@ -226,7 +226,7 @@ Two errors on `template/web/pub/arizuko/reference/openapi.html`, the page
   NOT deployed: `template/web/pub/` is source-of-truth; the rsync is the
   operator's step.
 
-## F61 — nine code comments cite "Spec 5/34" for cost caps; 5/34 is the channel protocol (2026-08-07, Go half FIXED 2026-08-09 — agent-skill + web-docs half open)
+## ✅ FIXED 2026-08-15 F61 — nine code comments cite "Spec 5/34" for cost caps; 5/34 is the channel protocol (2026-08-07, Go half FIXED 2026-08-09)
 
 `specs/5/34-channel-protocol.md` is the channel adapter protocol. The cost-cap
 spec is `specs/11/19-cost-caps.md` (`status: partial`). Nine production sites
@@ -265,6 +265,19 @@ machinery this change should not drag in:
 - `CHANGELOG.md` and `ant/skills/self/migrations/120-v0.36.0-cost-caps.md` are
   dated records of what shipped under the old numbering. Correct as history;
   must NOT be rewritten.
+
+**CLOSED 2026-08-15.** Both deferred halves verified gone at `bcb5bb83`:
+`ant/skills/oracle/SKILL.md` has no `5/34` left (repo-wide `grep -rn 5/34 ant/`
+returns only `ant/src` + the dated migration), and the live
+`template/web/pub/arizuko/reference/{mcp,schema,cli}.html` are clean — the only
+surviving web hits are the frozen `legacy/` snapshots, which this file's own
+precedent leaves as-is.
+
+The same pass closed a FIFTH category the entry never enumerated: five
+`ant/src` sites cited `5/34` for cost accounting (`claude.ts:43`, `claude.ts:238`,
+`index.ts:72`, `mcp.ts:6`, `claude.test.ts:56`). `specs/5/34` contains the
+string "cost" zero times, so these were the same wrong pointer in TypeScript.
+Repointed to `11/19`; comments only, no behaviour, so no migration bump.
 
 ## F77 — skill-guard's per-line scan is evadable by splitting a payload (2026-08-08, PARTIALLY FIXED 2026-08-08)
 
