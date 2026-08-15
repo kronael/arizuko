@@ -2375,7 +2375,7 @@ on `/dash/profile/`. `main.go:540`: portal template `.Err` field is always empty
   etc.) has zero hits — no dead portal field remains.
 - **Fix:** remove profile from navLinks (keep badge); remove .Err from portal template
 
-## ext tools: InputSchema never populated — agents have no parameter schema (2026-06-26, open)
+## ✅ FIXED 2026-08-15 — ext tools: InputSchema never populated — agents have no parameter schema (2026-06-26, open)
 
 `ipc.ExtTool.InputSchema` is `json.RawMessage` and `ipc/ipc.go` registration gates on
 `len(tool.InputSchema) > 0` to attach it. But `routd/ext.go:LoadExtProviders` never sets
@@ -2389,7 +2389,8 @@ callers (and accurate UI hint displays) see nothing.
 - **Source:** refine review 2026-06-26
 - **Status:** RESOLVED 2026-07-11 — `extToolConfig` gained a `[[param]]` array
   (`routd/ext.go:42`), `extInputSchema` builds the MCP schema (`:63`), and it's
-  populated on registration (`:157`), consumed at `ipc/ipc.go:990`. Verified this pass.
+  populated on registration (`:157`), consumed at `ipc/ipc.go:990`. Re-verified
+  2026-08-15: all three still present unchanged in `routd/ext.go`.
 
 ---
 
