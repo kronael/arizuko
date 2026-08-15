@@ -7,7 +7,6 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
-	"github.com/kronael/arizuko/types"
 )
 
 // auditServer is serverWith plus the KindHold executor — the exact wiring
@@ -23,7 +22,7 @@ func auditServer(t *testing.T, rt Runtime, v Verifier) (*DB, *Server) {
 	}
 	t.Cleanup(func() { db.Close() })
 	mgr := NewManager(db, rt, ManagerConfig{
-		Scopes: []types.Scope{"messages:send:own_group"}, Instance: "test",
+		Instance:      "test",
 		MaxConcurrent: 5, RunTTL: time.Minute,
 	})
 	mgr.RegisterExecutor(KindHold, NewHoldRuntime())

@@ -317,6 +317,50 @@ func TestSplitScopesSecretsKey(t *testing.T) {
 	}
 }
 
+// A daemon's env file carries a credential only if the daemon's code reads it.
+// authd owns OAuth (a56202d4), so onbod's provider block was pure exposure
+// surface; webd reads neither AUTH_SECRET nor AUTH_BASE_URL, proxyd reads only
+// AUTH_SECRET (its auth-enabled flag). dashd DOES read AUTH_SECRET, via
+// os.Getenv, and is asserted here so a reader search does not drop it (BUGS L7).
+func TestAuthKeysScopedToReaders(t *testing.T) {
+	dir := seed(t, "AUTH_SECRET=s\nAUTH_BASE_URL=https://x\nGOOGLE_CLIENT_ID=g\n"+
+		"GOOGLE_CLIENT_SECRET=gs\nGOOGLE_ALLOWED_EMAILS=*@x\nGITHUB_CLIENT_ID=h\n"+
+		"GITHUB_CLIENT_SECRET=hs\nGITHUB_ALLOWED_ORG=o\nDISCORD_CLIENT_ID=d\n"+
+		"DISCORD_CLIENT_SECRET=ds\nONBOARDING_ENABLED=true\n")
+	gen(t, dir)
+
+	unread := map[string][]string{
+		"onbod": {"AUTH_SECRET", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET",
+			"GITHUB_ALLOWED_ORG", "DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
+			"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ALLOWED_EMAILS"},
+		"webd":   {"AUTH_SECRET", "AUTH_BASE_URL"},
+		"proxyd": {"AUTH_BASE_URL"},
+	}
+	for daemon, keys := range unread {
+		got := read(t, dir, "env/"+daemon+".env")
+		for _, key := range keys {
+			if strings.Contains(got, key+"=") {
+				t.Errorf("env/%s.env must not carry %s: %s reads it nowhere", daemon, key, daemon)
+			}
+		}
+	}
+
+	readers := map[string][]string{
+		"authd":  {"AUTH_SECRET", "AUTH_BASE_URL", "GOOGLE_CLIENT_ID"},
+		"dashd":  {"AUTH_SECRET"},
+		"proxyd": {"AUTH_SECRET"},
+		"onbod":  {"AUTH_BASE_URL"},
+	}
+	for daemon, keys := range readers {
+		got := read(t, dir, "env/"+daemon+".env")
+		for _, key := range keys {
+			if !strings.Contains(got, key+"=") {
+				t.Errorf("env/%s.env must carry %s: %s reads it", daemon, key, daemon)
+			}
+		}
+	}
+}
+
 func TestModelCredentialsScopedToRuned(t *testing.T) {
 	const credentials = "ANTHROPIC_API_KEY=anthropic\n" +
 		"CLAUDE_CODE_OAUTH_TOKEN=claude\n" +

@@ -34,7 +34,6 @@ import (
 	routdv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/runed"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
-	"github.com/kronael/arizuko/types"
 )
 
 // ---- inbound harness: routd (real Loop + enrich) + runed (FakeRuntime) ----
@@ -81,7 +80,6 @@ func bootMediaFed(t *testing.T, enabled bool, whisperURL string, maxBytes int64)
 		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + spec.TurnID}
 	}}
 	mgr := runed.NewManager(rudb, rt, runed.ManagerConfig{
-		Scopes:   []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 		Instance: "mediatest",
 	})
 	runedTS := httptest.NewServer(runed.NewServer(mgr, rudb, newFedVerifier(t, f.authd)).Handler())
@@ -100,7 +98,6 @@ func bootMediaFed(t *testing.T, enabled bool, whisperURL string, maxBytes int64)
 	loop := routd.NewLoop(rodb, runedClient, routd.LoopConfig{
 		InstanceName: "mediatest",
 		PollEvery:    20 * time.Millisecond,
-		RunScopes:    []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 		GroupsDir:    f.groupsDir,
 		// nil-ish bearer → the enrich download goes out unauthenticated; the
 		// stub file server accepts it.

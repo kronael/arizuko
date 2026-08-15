@@ -28,7 +28,6 @@ import (
 	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
 	"github.com/kronael/arizuko/routd"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
-	"github.com/kronael/arizuko/types"
 )
 
 func main() {
@@ -166,10 +165,7 @@ func main() {
 		// paces the work and runed admits it, so the two must agree: while
 		// this was unwired, routd held a hardcoded 5 and an operator raising
 		// MAX_CONCURRENT_CONTAINERS moved one cap and not the other (BUGS F71).
-		MaxRuns: intOr("MAX_CONCURRENT_CONTAINERS", 5),
-		RunScopes: []types.Scope{
-			"messages:send:own_group", "chats:read:own_group",
-		},
+		MaxRuns:   intOr("MAX_CONCURRENT_CONTAINERS", 5),
 		Deliver:   deliver,
 		Proactive: routd.LoadProactiveConfig(os.Getenv),
 		GroupsDir: filepath.Join(dataDir, "groups"),

@@ -179,11 +179,11 @@ var daemonKeys = map[string][]string{
 		// no keyring, so this key is inert here — see BUGS X3.
 		"SECRETS_KEY",
 	},
+	// onbod reads AUTH_BASE_URL (redirect base + cookie Secure flag) and nothing
+	// else from the auth block: authd took OAuth in a56202d4, so the provider
+	// credentials onbod's own login flow used are gone from its code.
 	"onbod": {
-		"AUTH_SECRET", "AUTH_BASE_URL",
-		"GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_ALLOWED_ORG",
-		"DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
-		"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ALLOWED_EMAILS",
+		"AUTH_BASE_URL",
 		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",
 		"ONBOARDING_GREETING",
 		"ONBOARD_POLL_INTERVAL", "ONBOD_LISTEN_ADDR",
@@ -193,7 +193,9 @@ var daemonKeys = map[string][]string{
 	// dashd VERIFIES proxyd's ES256 transit bearer against authd's JWKS (AUTHD_URL)
 	// AND presents its own service:dashd token on the whapd re-pair proxy
 	// (AUTHD_SERVICE_KEY). SURROGATE_* runs the Connect-GitHub OAuth dance
-	// at /dash/me/connections (spec 5/15).
+	// at /dash/me/connections (spec 5/15). AUTH_SECRET keys that dance's CSRF
+	// state and is read with os.Getenv, not core.LoadConfig — a reader search
+	// over the config struct misses it, so do not drop it as unread (BUGS L7).
 	"dashd": {
 		"AUTH_SECRET", "DASH_PORT", "WHAPD_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY",
 		"SURROGATE_GITHUB_CLIENT_ID", "SURROGATE_GITHUB_CLIENT_SECRET",
@@ -206,8 +208,10 @@ var daemonKeys = map[string][]string{
 	// webd + proxyd present a service:<daemon> ES256 token as the channel proof
 	// for the X-User-* headers they forward: proxyd→backends, webd→proxyd
 	// /v1/routes + webd→routd register. Exchanged from AUTHD_SERVICE_KEY at AUTHD_URL.
-	"webd":   {"AUTH_SECRET", "AUTH_BASE_URL", "ROUTER_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY"},
-	"proxyd": {"AUTH_SECRET", "AUTH_BASE_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY", "HOSTING_DOMAIN", "WEB_VHOST_ALIASES"},
+	// proxyd reads AUTH_SECRET as its auth-enabled flag (proxyd/main.go); webd
+	// reads neither it nor AUTH_BASE_URL.
+	"webd":   {"ROUTER_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY"},
+	"proxyd": {"AUTH_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "HOSTING_DOMAIN", "WEB_VHOST_ALIASES"},
 	// Channel adapters: AUTHD_URL + AUTHD_SERVICE_KEY let each exchange a
 	// service:<adapter> JWT presented on EVERY routd call — register, /v1/messages,
 	// /v1/pane (spec 5/1; no CHANNEL_SECRET remains).

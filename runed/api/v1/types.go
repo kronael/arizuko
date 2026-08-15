@@ -16,19 +16,18 @@ import "github.com/kronael/arizuko/types"
 // rendered prompt STRING (sysMsgs+autocalls+persona+<observed>+feed), not
 // an array — routd renders, runed runs.
 type RunRequest struct {
-	Folder           types.Folder   `json:"folder"`
-	Topic            string         `json:"topic"`
-	ChatJID          string         `json:"chat_jid"`
-	Channel          string         `json:"channel,omitempty"` // JID scheme (telegram|slack|discord|web); drives the per-surface output style. Empty = default.
-	SessionID        string         `json:"session_id"`        // empty = fresh; runed resumes if non-empty
-	MessageBatch     string         `json:"message_batch"`     // rendered prompt STRING
-	TriggerSender    string         `json:"trigger_sender"`    // engagement-skip policy only; NOT token identity
-	CallerSub        types.UserSub  `json:"caller_sub"`        // token SUBJECT for the brokered agent token; never ""
-	TurnID           string         `json:"turn_id"`           // triggering inbound id; echoed on callbacks
-	CapabilityScopes []types.Scope  `json:"capability_scopes"`
-	Model            string         `json:"model"`            // group override; empty = instance default
-	ContainerConfig  map[string]any `json:"container_config"` // opaque GroupConfig forwarded from groups.container_config
-	Isolated         bool           `json:"isolated"`         // timed-isolated:* runs: one-off container, no session persist
+	Folder          types.Folder   `json:"folder"`
+	Topic           string         `json:"topic"`
+	ChatJID         string         `json:"chat_jid"`
+	Channel         string         `json:"channel,omitempty"` // JID scheme (telegram|slack|discord|web); drives the per-surface output style. Empty = default.
+	SessionID       string         `json:"session_id"`        // empty = fresh; runed resumes if non-empty
+	MessageBatch    string         `json:"message_batch"`     // rendered prompt STRING
+	TriggerSender   string         `json:"trigger_sender"`    // engagement-skip policy only; NOT token identity
+	CallerSub       types.UserSub  `json:"caller_sub"`        // token SUBJECT for the brokered agent token; never ""
+	TurnID          string         `json:"turn_id"`           // triggering inbound id; echoed on callbacks
+	Model           string         `json:"model"`             // group override; empty = instance default
+	ContainerConfig map[string]any `json:"container_config"`  // opaque GroupConfig forwarded from groups.container_config
+	Isolated        bool           `json:"isolated"`          // timed-isolated:* runs: one-off container, no session persist
 	// Kind selects the post-claim executor ('agent' | 'hold' | ..., spec
 	// 5/8 "Filesystem restore claims the folder's run slot"). Empty = 'agent'
 	// (the column default), so every existing caller is unaffected. A

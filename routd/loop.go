@@ -20,7 +20,6 @@ import (
 	"github.com/kronael/arizuko/queue"
 	"github.com/kronael/arizuko/router"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
-	"github.com/kronael/arizuko/types"
 )
 
 // Runner dispatches a rendered batch to the execution plane (runed). The Loop
@@ -50,7 +49,6 @@ type Loop struct {
 	deliver    Deliverer
 	pollEvery  time.Duration
 	runTimeout time.Duration
-	scopes     []types.Scope
 
 	// srv stands up the per-turn agent MCP socket in-process (ServeTurnMCP);
 	// set post-construction via BindServer (Loop↔Server is a deliberate cycle).
@@ -138,16 +136,13 @@ type Loop struct {
 // nil leaves them reporting the federation gap.
 func (l *Loop) SetOnbodClient(c OnbodClient) { l.onbod = c }
 
-// LoopConfig wires the Loop. RunScopes is the capability set every
-// dispatched run requests from runed's broker (downscoped ⊆ runed's
-// service scope). RunTimeout is the hard deadline routd applies to a run
-// (RUNED_RUN_TIMEOUT); 0 leaves it to the runner's context.
+// LoopConfig wires the Loop. RunTimeout is the hard deadline routd applies
+// to a run (RUNED_RUN_TIMEOUT); 0 leaves it to the runner's context.
 type LoopConfig struct {
 	PollEvery  time.Duration
 	RunTimeout time.Duration
 	MaxRuns    int
 	IpcDir     string
-	RunScopes  []types.Scope
 
 	// Prompt-envelope inputs (buildAgentPrompt). InstanceName feeds the
 	// autocalls <instance> field; ObserveWindowMessages/Chars are the
@@ -240,7 +235,6 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		deliver:         cfg.Deliver,
 		pollEvery:       cfg.PollEvery,
 		runTimeout:      cfg.RunTimeout,
-		scopes:          cfg.RunScopes,
 		proactive:       cfg.Proactive,
 		instanceName:    cfg.InstanceName,
 		observeMessages: cfg.ObserveWindowMessages,

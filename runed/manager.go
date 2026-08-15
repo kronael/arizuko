@@ -48,7 +48,6 @@ type Manager struct {
 	// Executor IS the existing Runtime interface — no new interface for a
 	// new kind.
 	executors map[string]Runtime
-	scopes    []types.Scope // runed's service scope ceiling for brokered tokens
 	runTTL    time.Duration
 	instance  string
 	maxRun    int
@@ -57,11 +56,9 @@ type Manager struct {
 	steerFns map[string]func(batch string) bool // folder -> steer callback (runtime-wired)
 }
 
-// ManagerConfig wires the Manager. Scopes is the ceiling for every
-// brokered agent token (downscope guarantees scope ⊆ this ∩ requested).
-// MaxConcurrent caps total live spawns (MAX_CONCURRENT_CONTAINERS).
+// ManagerConfig wires the Manager. MaxConcurrent caps total live spawns
+// (MAX_CONCURRENT_CONTAINERS).
 type ManagerConfig struct {
-	Scopes        []types.Scope
 	RunTTL        time.Duration
 	Instance      string
 	MaxConcurrent int
@@ -78,7 +75,6 @@ func NewManager(db *DB, runtime Runtime, cfg ManagerConfig) *Manager {
 	return &Manager{
 		db:        db,
 		executors: map[string]Runtime{KindAgent: runtime},
-		scopes:    cfg.Scopes,
 		runTTL:    cfg.RunTTL,
 		instance:  cfg.Instance,
 		maxRun:    cfg.MaxConcurrent,
@@ -502,23 +498,6 @@ func (m *Manager) ActiveRunID(folder string) string {
 func (m *Manager) ActiveCount() int {
 	n, _ := m.db.ActiveCount()
 	return n
-}
-
-// intersect returns the requested scope ∩ the ceiling. Empty or fully
-// disjoint requested scope yields the EMPTY brokered scope (fail closed) —
-// runed never broadens an agent to its full ceiling on a missing/bad ask.
-func intersect(ceiling, want []types.Scope) []types.Scope {
-	set := map[types.Scope]bool{}
-	for _, s := range ceiling {
-		set[s] = true
-	}
-	out := []types.Scope{}
-	for _, s := range want {
-		if set[s] {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 func randHex(n int) string {

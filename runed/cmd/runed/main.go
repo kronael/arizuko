@@ -1,9 +1,8 @@
 // Command runed runs the runed daemon: the execution plane (spec 5/P) —
-// the work queue, per-spawn container lifecycle, per-tenant MCP socket, and
-// per-spawn capability-token brokering. runed never appends a message
-// (routd is the sole appender) and never signs a token (authd is the sole
-// signer); it brokers one downscoped token per spawn and forwards the
-// agent's conversation tools back to routd's /v1/turns/{turn_id}/*.
+// the work queue and the per-spawn container lifecycle. runed never appends a
+// message (routd is the sole appender), holds no signing key, and mints no
+// token: it verifies its callers against authd's JWKs and spawns containers.
+// routd hosts the agent MCP socket in-process.
 package main
 
 import (
@@ -23,7 +22,6 @@ import (
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/runed"
-	"github.com/kronael/arizuko/types"
 )
 
 // newRunedMux builds runed's complete HTTP surface: the Server's routed mux
@@ -88,7 +86,6 @@ func main() {
 	runtime := runed.NewDockerRuntime(cfg, folders)
 
 	mgr := runed.NewManager(db, runtime, runed.ManagerConfig{
-		Scopes:        []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 		RunTTL:        runTTL,
 		Instance:      cfg.Name,
 		MaxConcurrent: cfg.MaxContainers,

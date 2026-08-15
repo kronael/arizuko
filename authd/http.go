@@ -37,11 +37,11 @@ var serviceGrants = map[string][]string{
 	// federates the /invite + /gate slash commands to onbod (invites:write +
 	// gates:write → onbod's /v1/invites + /v1/gates; onbod OWNS those tables).
 	"service:routd": {"runs:run", "identity:read", "invites:write", "gates:write"},
-	// service:runed is the broker ceiling for per-turn agent tokens: it downscopes
-	// its own service:runed token to the agent's capabilities, so it must hold at
-	// least that set (runed ManagerConfig.Scopes / routd RunScopes). Missing this
-	// entry → empty ceiling → every agent turn 403s on downscope (scope_exceeds_parent).
-	"service:runed": {"messages:send:own_group", "chats:read:own_group"},
+	// service:runed holds no grant: runed calls auth.ServiceToken nowhere and
+	// mints nothing. It only VERIFIES its callers against authd's JWKs
+	// (runed/cmd/runed/main.go keysetVerifier). The broker ceiling that used to
+	// sit here died with the per-spawn capability token (BUGS B1/L8); the turn is
+	// credentialed by routd's SO_PEERCRED socket, not by a token runed downscopes.
 	// Channel adapters post inbound to routd's /v1/messages (messages:write).
 	// Each exchanges its AUTHD_SERVICE_KEY for a service:<adapter> JWT (spec 5/1);
 	// missing the entry → empty scope → every inbound 401/403s (the split's A1).

@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -21,8 +22,10 @@ func TestConcurrencyCapReadsOneEnvVar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `MaxRuns: intOr("` + capEnvVar + `"`
-	if !strings.Contains(string(routdMain), want) {
+	// Whitespace-insensitive: gofmt re-aligns the literal whenever a
+	// neighbouring field is added or removed, which is not a cap regression.
+	want := regexp.MustCompile(`MaxRuns:\s*intOr\("` + capEnvVar + `"`)
+	if !want.Match(routdMain) {
 		t.Fatalf("routd does not wire its queue cap to %s — an operator raising it "+
 			"would move runed's ceiling and leave routd's hardcoded default", capEnvVar)
 	}

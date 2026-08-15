@@ -45,7 +45,6 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
-	"github.com/kronael/arizuko/types"
 )
 
 // In the split, an adapter authenticates inbound on routd's /v1/messages with a
@@ -250,7 +249,6 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + spec.TurnID}
 	}}
 	mgr := runed.NewManager(rudb, rt, runed.ManagerConfig{
-		Scopes:   []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 		Instance: "fedtest",
 	})
 	runedSrv := runed.NewServer(mgr, rudb, newFedVerifier(t, f.authd))
@@ -277,7 +275,6 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 	lc := routd.LoopConfig{
 		InstanceName: "fedtest",
 		PollEvery:    20 * time.Millisecond, // fast poll for the test
-		RunScopes:    []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 	}
 	for _, mod := range cfgMods {
 		mod(&lc)
