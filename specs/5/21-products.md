@@ -53,8 +53,15 @@ skills list, `[[env]]` hints) is required — those three are what
 was closed). Optional and
 copied verbatim into the group dir: `PERSONA.md` (the agent's identity),
 `CLAUDE.md` (the per-group runbook read every session), `facts/` (seed
-knowledge), `tasks.toml` (seed scheduled tasks). Most products ship both
-Markdown files.
+knowledge). Most products ship both Markdown files.
+
+`tasks.toml` was listed here as "seed scheduled tasks" and **that is false** —
+nothing reads the file (BUGS `L35`, found 2026-08-15 while building the
+reference product). The blend copies it into the group and no task is ever
+created; scheduled tasks are `scheduled_tasks` rows written through the owning
+handler. Either the payload is refused like `migrations/` and `mcpServers`, or
+the seeding path gets built; until one of those happens the sentence stays
+deleted rather than aspirational.
 
 **Two kinds of skill, don't conflate them.** The `skills` LIST in
 `PRODUCT.md` is a whitelist SELECTING stock skills from the image —

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>build a product — arizuko</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="How-to">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="./">How-to</a>
+          <ul class="nav-children">
+            <li><a href="index.html">Getting started</a></li>
+            <li><a href="talking-to-agents.html">Talking to agents</a></li>
+            <li><a href="build-a-product.html" aria-current="page">Build a product</a></li>
+            <li><a href="slack.html">Slack</a></li>
+            <li><a href="discord.html">Discord</a></li>
+            <li><a href="asymmetric-channels.html">Asymmetric channels</a></li>
+            <li><a href="chat-link.html">Chat link on your site</a></li>
+            <li><a href="chat-sdk.html">Embed chat (SDK)</a></li>
+            <li><a href="webhooks.html">Webhooks</a></li>
+            <li><a href="oauth-provider.html">Add an OAuth provider</a></li>
+            <li><a href="webdav.html">WebDAV mount</a></li>
+            <li><a href="kubernetes.html">Kubernetes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Build a product</p>
+      <h1>build a product</h1>
+
+      <p>
+        A product is a directory of files. There is no build step, no
+        registry and no plugin API &mdash; you write the files, arizuko
+        copies them into a group&rsquo;s home, and the agent reads them
+        the way it reads anything else. This page walks one complete
+        product from empty directory to applied, and names the two
+        places the shape surprises people.
+      </p>
+
+      <div class="note">
+        Every claim on this page is checked by
+        <code>tests/lab/product-lab.sh</code>, which builds a throwaway
+        instance and applies a product with no docker, no root and no
+        model credits. If a rule here ever stops being true, that script
+        fails. Run it before trusting anything below.
+      </div>
+
+      <h2>The whole product</h2>
+
+      <p>
+        This is <code>ant/examples/helpdesk</code>, the reference
+        product. It ships one of every payload kind that has a consumer:
+      </p>
+
+      <pre><code>helpdesk/
+  PRODUCT.md              the manifest — name, brand, tagline, env hints
+  PERSONA.md              who the agent is
+  CLAUDE.md               operating rules, landed in a marked region
+  BRANDING.md             anything unnamed: copied whole
+  facts/sla.md            knowledge the agent should have
+  skills/triage/SKILL.md  a skill only this product ships
+  .claude/settings.json   agent settings, merged key by key</code></pre>
+
+      <h2>1. The manifest is TOML, despite the name</h2>
+
+      <p>
+        <code>PRODUCT.md</code> is the one file whose <code>.md</code>
+        lies: it is parsed as a whole TOML document, not as markdown and
+        not as YAML frontmatter. Everything after the keys is a TOML
+        comment, which is why the operator notes below start with
+        <code>#</code>.
+      </p>
+
+      <pre><code>name    = "helpdesk"
+brand   = "Helpdesk"
+tagline = "Triage inbound support, answer what it can, escalate what it cannot."
+skills  = ["triage"]
+
+# Operator setup
+#
+# 1. Set HELPDESK_ESCALATION_CHANNEL to the folder escalations route to
+
+[[env]]
+key      = "HELPDESK_ESCALATION_CHANNEL"
+required = false
+hint     = "Folder that billing/account escalations are routed to"</code></pre>
+
+      <div class="note">
+        <strong>The <code>skills</code> list is documentation, not
+        wiring.</strong> Naming a skill there does not install it &mdash;
+        the <code>skills/</code> <em>directory</em> is what ships one.
+        The list tells a human which skills this product expects to have
+        available. Likewise <code>[[env]]</code> is a preflight hint, never
+        a gate: a missing variable warns, it does not stop the apply.
+      </div>
+
+      <h2>2. Apply it to a group</h2>
+
+      <p>
+        A group is not limited to one product, so the mix lives in the
+        group&rsquo;s own home as <code>products.toml</code> (the agent
+        sees it at <code>~/products.toml</code>). One block per product,
+        in the order they should blend:
+      </p>
+
+      <pre><code>[[product]]
+source = "ant/examples/helpdesk"   # relative → joined to HOST_APP_DIR
+source = "github.com/org/our-brand"  # or a git source, pinned to a revision</code></pre>
+
+      <pre><code>arizuko products &lt;instance&gt; apply &lt;folder&gt;</code></pre>
+
+      <p>Applying the helpdesk product to an empty group produces:</p>
+
+      <pre><code>main/
+  PRODUCT.md                     copied whole
+  PERSONA.md                     copied whole
+  BRANDING.md                    copied whole
+  facts/sla.md                   copied whole
+  CLAUDE.md                      wrapped in a marked region
+  .claude/settings.json          merged
+  .claude/skills/triage/SKILL.md  MOVED under .claude/
+  products.toml                  yours, untouched</code></pre>
+
+      <h2>3. Two payloads transform; the rest are copied</h2>
+
+      <p>
+        Most files land byte-identical at the same path. Two do not, and
+        both surprises are worth knowing before you go looking for a file
+        that is not where you put it:
+      </p>
+
+      <ul>
+        <li>
+          <strong><code>skills/&lt;name&gt;/</code> is relocated</strong>
+          to <code>.claude/skills/&lt;name&gt;/</code>, because that is
+          where the agent looks for skills.
+        </li>
+        <li>
+          <strong><code>CLAUDE.md</code> is wrapped</strong> in
+          <code>&lt;!-- arizuko:package:helpdesk BEGIN --&gt;</code> …
+          <code>END</code>. A product owns only the bytes between its own
+          markers; anything you write outside them is never read,
+          rewritten or reordered. That is what lets a second product be
+          added later without disturbing the first.
+        </li>
+      </ul>
+
+      <h2>4. Re-applying is safe</h2>
+
+      <p>
+        An unchanged mix writes nothing and reports
+        <code>unchanged</code>. Local edits are protected rather than
+        overwritten: a managed file whose bytes moved since the last
+        apply is reported dirty and skipped, never replaced.
+      </p>
+
+      <h2>5. What a product may not ship</h2>
+
+      <p>
+        Two payloads are <strong>refused</strong>, and both for the same
+        reason: they would apply cleanly and then reach no consumer,
+        which reads as success for something that never happens.
+      </p>
+
+      <ul>
+        <li>
+          <strong><code>migrations/</code></strong> — nothing runs a
+          product&rsquo;s migrations. There is one instance-wide
+          migration counter and no per-product runner. Put setup steps in
+          the product&rsquo;s <code>CLAUDE.md</code> or a skill, which the
+          agent actually reads.
+        </li>
+        <li>
+          <strong>an <code>mcpServers</code> key</strong> in
+          <code>settings.json</code> — no MCP server loads from it. Ship a
+          third-party tool as an arizuko connector instead, so its calls
+          are gated, held and audited like every other tool.
+        </li>
+      </ul>
+
+      <div class="note">
+        <strong>Do not ship <code>tasks.toml</code> yet.</strong> Older
+        docs describe it as seeding scheduled tasks. It is copied into the
+        group and nothing reads it &mdash; tasks are rows, created by the
+        <code>scheduled_tasks</code> tool, the REST face or the CLI.
+        Tracked as <code>L35</code>.
+      </div>
+
+      <h2>6. Blending several products</h2>
+
+      <p>
+        Two products share no common ancestor, so nothing merges two
+        files&rsquo; text. Each kind of file gets one rule, and a
+        collision that cannot be resolved without losing someone&rsquo;s
+        bytes refuses the <em>whole</em> apply rather than leaving a
+        half-composed group:
+      </p>
+
+      <table>
+        <thead><tr><th>Payload</th><th>Rule in a mix</th></tr></thead>
+        <tbody>
+          <tr><td><code>skills/</code></td><td>union by name; the <strong>last</strong> product wins a whole skill</td></tr>
+          <tr><td><code>PERSONA.md</code></td><td>the <strong>first</strong> product wins; later ones are warned about</td></tr>
+          <tr><td><code>CLAUDE.md</code></td><td>one marked region per product, in mix order</td></tr>
+          <tr><td><code>facts/</code></td><td>union; the same filename twice refuses</td></tr>
+          <tr><td><code>.claude/settings.json</code></td><td>keys merged by name; the same key twice refuses</td></tr>
+          <tr><td>anything else</td><td>copied whole; the <strong>first</strong> product wins</td></tr>
+        </tbody>
+      </table>
+
+      <div class="note">
+        <strong>Known bug, <code>L34</code>.</strong> If one product stops
+        shipping an asset in the same apply that another product starts
+        shipping it with identical bytes, the file is deleted and restored
+        only on the next apply. Until it is fixed, apply twice when you
+        move an asset between products in a mix.
+      </div>
+
+      <h2>Where the record lives</h2>
+
+      <p>
+        Each applied product writes one row keyed
+        <code>(folder, name)</code>, holding the source, the resolved
+        revision, the identities it owns and a content hash per asset.
+        That row is what makes upgrade, removal and dirty-detection
+        honest &mdash; it is how arizuko knows which files are yours and
+        which are the product&rsquo;s. Read it at
+        <code>/dash/packages/</code> or over
+        <code>/v1/installed_packages</code>.
+      </p>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/build-a-product.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
