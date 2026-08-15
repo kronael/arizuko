@@ -406,17 +406,24 @@ func cmdPlan(args []string) {
 }
 
 // printPlan renders the plan delta in catalog order. Changed resources
-// list the add/update/remove PK strings. SkipApplyRebuild resources
-// (secrets) never mutate via apply, so they print as informational
-// "set/unset" — never actionable +/~/- deltas (spec 5/8 §"Secret
-// safety": plan must agree with apply, which skips them).
+// list the add/update/remove PK strings. SkipApplyRebuild resources never
+// mutate via apply, so they print as informational "set" — never actionable
+// +/~/- deltas (spec 5/8 §"Secret safety": plan must agree with apply, which
+// skips them).
+//
+// The informational line names no command. FIVE resources carry the flag —
+// secrets, route_tokens, invites, onboarding, installed_packages — and each is
+// managed by a different verb, so the line said "set via `arizuko secret set`"
+// for four resources that verb cannot touch (BUGS R1-5). A per-resource command
+// table here would be a second catalog beside resreg's; the flag's own meaning
+// is the honest thing to print.
 func printPlan(deltas []resreg.ResourceDelta) {
 	any := false
 	for _, d := range deltas {
 		if d.SkipApplyRebuild {
 			if n := len(d.Add) + len(d.Update) + len(d.Unchanged); n > 0 {
 				any = true
-				fmt.Printf("%s: %d set (not applied — set via `arizuko secret set`)\n", d.Resource, n)
+				fmt.Printf("%s: %d set (not applied — managed imperatively, never via apply)\n", d.Resource, n)
 			}
 			continue
 		}
