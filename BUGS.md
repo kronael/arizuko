@@ -5216,7 +5216,7 @@ budget swap changes an operator-facing surface, so it wants its own tests.
   A `store.Open(` grep now leaves only the playwright seed; `migrate-split` reads
   messages.db by read-only `ATTACH`, not `store.Open`.
 
-## Q2 — dashd's audit-free writers outlived their reason, so admin mutations are unaudited (2026-08-05, open)
+## Q2 — dashd's audit-free writers outlived their reason, so admin mutations are unaudited (2026-08-05, FIXED — heading was stale, body already said fixed 2026-08-05)
 
 Five sites in dashd justify using audit-FREE store variants with the same stale claim —
 "routd.db has no audit_log table, so the audited writer would roll back":
@@ -5250,6 +5250,12 @@ paths and belongs in its own commit with per-path tests, not smuggled into a rep
   `row.GrantedBy`. Falsifiability proven per site: reverting each to its
   audit-free writer fails its test with `actor_sub = ""`.
   Tests: `dashd/audit_mutations_test.go`.
+
+  **Heading closed 2026-08-15**: only the entry's own heading had never been
+  updated to match this body — re-verified all five sites against HEAD
+  (`AddACLRow`/`RemoveACLRow` in grants_admin.go, `InsertRouteToken`
+  ×2/`RevokeRouteToken` in route_tokens.go and chat.go, `AddRoute` in
+  routes_admin.go) and `go test ./dashd/... -short` green.
 
 ## Q3 — dashd tests wire a STORE-schema DB as routd.db (2026-08-05, open)
 
