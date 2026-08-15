@@ -3429,7 +3429,7 @@ with Make.
      "no tests to run", with a comment naming the root Makefile's guard as its
      mirror. A selector matching zero tests can no longer pass as green.
 
-## authd `TestRefreshRotationRaceSingleWinner` is flaky (2026-08-03, open)
+## ✅ FIXED 2026-08-15 — authd `TestRefreshRotationRaceSingleWinner` is flaky (2026-08-03)
 
 Found while verifying the R1 fragment-relink fix (unrelated package —
 `compose`/`cmd/arizuko` are untouched by this test). Fails intermittently
@@ -3441,8 +3441,20 @@ family kill`. Timing-sensitive race assertion, not reproducible on demand.
   assertion that sometimes loses a real race in the test harness)
 - **Scope:** authd refresh-token rotation test
 - **Source:** authd/bugfix_test.go:168, TestRefreshRotationRaceSingleWinner
-- **Status:** open, record-only — needs a root-cause pass on the race timing,
-  not a fix on sight
+- **Status:** FIXED. Root cause (2026-08-15 pass): `claimAndRotateRefresh`
+  used to claim `used_at` and insert the successor as two separate writes;
+  a loser's `revokeFamily` (`authd/store.go:324-328`, a single `UPDATE ...
+  WHERE family_id=?`) could run in the window between the winner's claim
+  and its successor INSERT, missing the not-yet-existing successor row —
+  the exact intermittent "successor must be revoked" failure. Fixed
+  independently by `dfd4feb5` (2026-08-06, "claim and rotate a refresh
+  token in one transaction" — BUGS F36): `claimAndRotateRefresh`
+  (`authd/store.go:303-321`) now does `markRefreshUsed` + `insertRefresh` +
+  `Commit` as one tx, so by the time any loser observes `won=false` the
+  successor row is guaranteed to already exist, and `revokeFamily` always
+  catches it. Verified: `go test ./authd/... -run
+  TestRefreshRotationRaceSingleWinner -count=200` and `-count=50 -race`
+  both clean, 0 failures.
 
 ## V2 — dashd duplicates ~4,500 LOC of control planes phase 7 moves away (2026-08-04, proposal)
 
