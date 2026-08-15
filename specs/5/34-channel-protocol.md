@@ -90,9 +90,27 @@ settled — the adapter cannot tell a lost response from a lost request,
 so it reports the ambiguity and routd dead-letters visibly instead of
 double-posting (BUGS `D5`). Go adapters get all of this from
 `chanlib.NewAdapterMux` + `chanlib.OpenAdapterDB`; an adapter in another
-language implements the same contract. whapd does not yet — it ignores
-the key, so a routd resend can double-post on WhatsApp; it is the one
-adapter still outside the contract.
+language implements the same contract. **Every adapter is now inside it**,
+whapd included (BUGS `L32`).
+
+whapd's store is a DIRECTORY OF FILES, one per key
+(`whapd/src/dedup.ts`), not a database: node:22 has no stable
+`node:sqlite`, and the only operation that must be atomic is the CLAIM,
+which `open(path, 'wx')` (O_CREAT|O_EXCL) already is at the filesystem
+level. It lives under `WHAPD_STATE_DIR`, which the compose fragment
+mounts — an unmounted ledger forgets every claim on recreate, which is
+the same as having none.
+
+Its failure taxonomy is ORDERING, not error parsing. Baileys exposes no
+signal separating "WhatsApp refused it" from "the ack was lost", so
+whapd never guesses: it HOLDS the claim on any error after the platform
+call, and answers `409` (not 502) on the next attempt, because retrying
+a refusal only burns routd's budget on the same answer. The transient
+that would otherwise become a guaranteed dead-letter is caught EARLIER —
+a socket that is not open refuses the send BEFORE any claim exists, so a
+routd restart or a dropped link answers 502 with nothing recorded and
+the sweep retries freely. That ordering is what `ErrNotDelivered`'s
+claim-release does for the Go adapters.
 
 **The adapter classifies its own platform failures** — the site that
 sees the platform response holds the proof (same rule as runed's
@@ -150,6 +168,41 @@ base64 in `attachments[].data` instead. teled proxies
 `GET /files/{fileID}` because Telegram CDN URLs need a bot token and
 expire; discd uses CDN URLs directly. Outbound: multipart POST to the
 adapter's `/send-file` with an optional caption.
+
+## Inbound durability
+
+An inbound is delivered exactly once, and which side holds it while routd
+is unavailable depends on whether the adapter can ask the platform again.
+
+**Cursor-gated adapters make the platform the queue.** `teled`, `bskyd`,
+`reditd`, `linkd` and `emaid` advance their offset / seen-pointer / cursor
+/ IMAP `\Seen` flag ONLY after routd answers 200. A failure leaves the
+platform holding the message and the next poll re-fetches it. These
+adapters keep no local queue: a second queue beside a working one is a
+second thing to drift.
+
+**Consume-on-arrival adapters retain locally.** `slakd` must answer Slack
+`200 OK` within 3 seconds and Slack redelivers on non-2xx, so deferring
+the ack until routd accepts turns one slow routd into several copies of
+the message; `discd`'s gateway hands each event over exactly once. Both
+call `RouterClient.RetainInbound`, which writes a failed inbound to the
+adapter's own `inbound_pending` table (`chanlib/inbound.go`, schema
+`chanlib/migrations/0002`) and re-delivers it on a 15s sweep with a
+30s→15m backoff. The retained row carries the adapter's stable message
+id, which is routd's `messages` primary key, so a re-delivery of a row
+routd already took is an `INSERT OR IGNORE` no-op.
+
+Retention covers UNAVAILABILITY, not refusal. A routd answer of 400 /
+403 / 413 / 422 means routd read the payload and rejected it; the row is
+dropped with an ERROR line, because replaying it would fail identically
+forever. Everything else — a dial failure, a 401 while authd restarts, a
+5xx, a 429 — is retained. `GET /health` reports `pending_inbound` while
+the backlog is non-empty.
+
+Before this, `slakd` lost every message that arrived while routd was
+restarting — which the documented `systemctl restart arizuko_<instance>`
+deploy does on every release — with one ERROR line as the trace (BUGS
+`L25`).
 
 ## Outbound and adapter resolution
 

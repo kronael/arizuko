@@ -55,6 +55,7 @@ func routdResources(s *Server) []resreg.Resource {
 		s.installedPackagesResource(),
 		s.auditResource(),
 		s.pendingActionsResource(),
+		s.deadLettersResource(),
 	}
 }
 
@@ -219,6 +220,7 @@ func TestOpenAPI_EveryAdvertisedPathIsMounted(t *testing.T) {
 		"DELETE /v1/tasks/{taskId}",
 		"DELETE /v1/web_routes",
 		"GET /v1/audit",
+		"GET /v1/dead_letters",
 		"GET /v1/groups",
 		"GET /v1/installed_packages",
 		"GET /v1/installed_packages/{name}",
@@ -230,6 +232,7 @@ func TestOpenAPI_EveryAdvertisedPathIsMounted(t *testing.T) {
 		"GET /v1/web_routes",
 		"PATCH /v1/tasks/{taskId}",
 		"POST /v1/acl",
+		"POST /v1/dead_letters/{id}/replay",
 		"POST /v1/pending_actions/{id}/approve",
 		"POST /v1/pending_actions/{id}/reject",
 		"POST /v1/route_tokens/chat",

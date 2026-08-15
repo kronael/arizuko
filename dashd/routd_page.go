@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -32,7 +33,8 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeFlash(w, r, map[string]flash{
-		"retried": {"ok", "errored messages cleared — they will be re-dispatched"},
+		"retried":  {"ok", "errored messages cleared — they will be re-dispatched"},
+		"replayed": {"ok", "message requeued — routd's outbound sweep will send it again"},
 	})
 
 	// Stats — route + group + message totals all from routd.db (its owner).
@@ -106,7 +108,127 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprint(w, htmlTable([]string{"Chat", "Errors", "Last", ""}, tableRows))
 
+	d.renderDeadLetters(w, r)
 	pageClose(w, r)
+}
+
+// renderDeadLetters writes the lost-outbound table from routd's
+// GET /v1/dead_letters. The count above says delivery failed; this says WHAT
+// failed, to whom, and after how many attempts — which is the whole of BUGS
+// L23, where an operator could see the number and nothing else.
+//
+// It reads over HTTP rather than off d.dbRoutd, even though the count beside it
+// reads the table directly, because the replay button below MUST go through
+// routd's resource (one mutation path, one audit row) and a page whose read and
+// write disagree about the source of truth is how the two drift.
+func (d *dash) renderDeadLetters(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, `<h2>Dead-lettered outbound</h2>`)
+	if d.routdURL == "" {
+		fmt.Fprint(w, htmlBanner("err", "ROUTER_URL not configured"))
+		return
+	}
+	body, status, err := d.routdGet(r.Context(), "/v1/dead_letters?limit=50")
+	if err != nil {
+		slog.Warn("routd page: dead-letter call", "err", err)
+		fmt.Fprint(w, htmlBanner("err", "could not reach routd: "+err.Error()))
+		return
+	}
+	if status != http.StatusOK {
+		slog.Warn("routd page: dead-letter status", "status", status)
+		fmt.Fprint(w, htmlBanner("err", upstreamErr("routd", status, body)))
+		return
+	}
+	var rows []struct {
+		ID               string `json:"id"`
+		ChatJID          string `json:"chat_jid"`
+		Content          string `json:"content"`
+		Timestamp        string `json:"timestamp"`
+		DeliveryAttempts int    `json:"delivery_attempts"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil {
+		slog.Warn("routd page: dead-letter decode", "err", err)
+		fmt.Fprint(w, htmlBanner("err", "could not read routd's answer: "+err.Error()))
+		return
+	}
+	if len(rows) == 0 {
+		fmt.Fprint(w, `<p class="dim">nothing lost</p>`)
+		return
+	}
+	var tableRows [][]string
+	for _, m := range rows {
+		// delivery_attempts separates the two dead-letter causes, and an
+		// operator needs them apart: 0 means the platform refused the message
+		// outright, so a replay will fail the same way.
+		cause := fmt.Sprintf("%d attempts", m.DeliveryAttempts)
+		if m.DeliveryAttempts == 0 {
+			cause = "refused"
+		}
+		replay := fmt.Sprintf(
+			`<form method="post" action="/dash/routd/replay" class="form-inline" `+
+				`onsubmit="return confirm('Send this message again?')">`+
+				`<input type="hidden" name="id" value="%s">`+
+				`<button class="btn" type="submit">replay</button></form>`,
+			esc(m.ID))
+		tableRows = append(tableRows, []string{
+			d.chatJIDCell(m.ChatJID),
+			`<code>` + esc(truncate64(m.Content)) + `</code>`,
+			esc(cause),
+			abbrTS(m.Timestamp),
+			replay,
+		})
+	}
+	fmt.Fprint(w, htmlTable([]string{"Chat", "Lost message", "Why", "When", ""}, tableRows))
+}
+
+// handleRoutdReplay handles POST /dash/routd/replay — requeue one dead-lettered
+// message through routd's own resource. Operator-only.
+//
+// It calls routd rather than updating routd.db directly, unlike the retry
+// button beside it: replay has ONE implementation (routd ReplayDeadLetter,
+// audited inside its own transaction), and a direct write here would be a
+// second one that drifts from it.
+func (d *dash) handleRoutdReplay(w http.ResponseWriter, r *http.Request) {
+	if !d.requireOperator(w, r) {
+		return
+	}
+	if !requireSameOrigin(w, r) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	id := strings.TrimSpace(r.FormValue("id"))
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	if d.routdURL == "" {
+		routdRedirect(w, r, "", "ROUTER_URL not configured")
+		return
+	}
+	body, status, err := d.routdCall(r.Context(), http.MethodPost,
+		"/v1/dead_letters/"+url.PathEscape(id)+"/replay", nil)
+	if err != nil {
+		slog.Warn("dead-letter replay: routd call", "id", id, "err", err)
+		routdRedirect(w, r, "", "could not reach routd: "+err.Error())
+		return
+	}
+	if status < 200 || status >= 300 {
+		slog.Warn("dead-letter replay: routd status", "id", id, "status", status)
+		routdRedirect(w, r, "", upstreamErr("routd", status, body))
+		return
+	}
+	slog.Info("dead letter replayed", "id", id)
+	routdRedirect(w, r, "replayed", "")
+}
+
+func routdRedirect(w http.ResponseWriter, r *http.Request, msg, errMsg string) {
+	dest := "/dash/routd/?msg=" + msg
+	if errMsg != "" {
+		dest = "/dash/routd/?err=" + url.QueryEscape(errMsg)
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
 }
 
 // handleRoutdRetry handles POST /dash/routd/retry — clear the errored flag on a

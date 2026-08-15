@@ -15,5 +15,9 @@ services:
       LISTEN_ADDR: ':8080'
       LISTEN_URL: 'http://teled:8080'
       DATA_DIR: '/srv/app/home/store/teled'
+      # The typing backstop is 90% of the run wall (chanlib.DefaultTypingMaxTTL).
+      # Without this the adapter assumes 20m, and an instance running longer
+      # turns loses the indicator well before the reply lands (BUGS T1).
+      RUNED_RUN_TIMEOUT: '${RUNED_RUN_TIMEOUT:-20m}'
     depends_on: [routd]
     restart: on-failure

@@ -199,3 +199,48 @@ func TestTypingRefresher_EagerSendFailureStartsLoop(t *testing.T) {
 		t.Errorf("sends = %d, want >= 3 (loop ran despite eager-send failure)", got)
 	}
 }
+
+// The backstop must land STRICTLY below the run wall. At a flat 20m it equalled
+// the RUNED_RUN_TIMEOUT default, so it never fired before the container's own
+// SIGKILL and a stalled turn showed "typing" for the full run (BUGS T1).
+func TestTypingMaxTTLStaysBelowTheRunWall(t *testing.T) {
+	for _, runTTL := range []time.Duration{
+		20 * time.Minute, 30 * time.Minute, 5 * time.Minute, time.Hour,
+	} {
+		got := typingMaxTTL(runTTL)
+		if got >= runTTL {
+			t.Errorf("typingMaxTTL(%s) = %s — not below the wall, so not a backstop", runTTL, got)
+		}
+	}
+}
+
+// A tiny or absurd RUNED_RUN_TIMEOUT must not produce a backstop that kills the
+// indicator before the first refresh tick.
+func TestTypingMaxTTLHasAFloor(t *testing.T) {
+	if got := typingMaxTTL(time.Second); got < minTypingMaxTTL {
+		t.Errorf("typingMaxTTL(1s) = %s, want at least %s", got, minTypingMaxTTL)
+	}
+}
+
+// The default matches the RUNED_RUN_TIMEOUT default runed and routd use, so an
+// unset env leaves the three in agreement.
+func TestDefaultTypingMaxTTLTracksTheDefaultWall(t *testing.T) {
+	if want := typingMaxTTL(20 * time.Minute); DefaultTypingMaxTTL != want {
+		t.Errorf("DefaultTypingMaxTTL = %s, want %s", DefaultTypingMaxTTL, want)
+	}
+}
+
+func TestEnvDur(t *testing.T) {
+	t.Setenv("ARZ_TEST_DUR", "30m")
+	if got := EnvDur("ARZ_TEST_DUR", time.Minute); got != 30*time.Minute {
+		t.Errorf("EnvDur = %s, want 30m", got)
+	}
+	t.Setenv("ARZ_TEST_DUR", "nonsense")
+	if got := EnvDur("ARZ_TEST_DUR", time.Minute); got != time.Minute {
+		t.Errorf("EnvDur on unparseable = %s, want the fallback", got)
+	}
+	t.Setenv("ARZ_TEST_DUR", "-5m")
+	if got := EnvDur("ARZ_TEST_DUR", time.Minute); got != time.Minute {
+		t.Errorf("EnvDur on non-positive = %s, want the fallback", got)
+	}
+}

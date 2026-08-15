@@ -308,7 +308,7 @@ func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected f
 	mux.HandleFunc("POST /edit", Auth(handleEdit(bot)))
 	mux.HandleFunc("POST /pin", Auth(handlePin(bot)))
 	mux.HandleFunc("POST /unpin", Auth(handleUnpin(bot)))
-	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt))
+	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt, db))
 	if hp, ok := bot.(HistoryProvider); ok {
 		mux.HandleFunc("GET /v1/history", Auth(handleHistory(hp)))
 	}
@@ -608,7 +608,7 @@ var staleThresholds = map[string]time.Duration{
 // the watchdog's auth.test-gated os.Exit job; a quiet workspace must not 503.
 const defaultStaleThreshold = 5 * time.Minute
 
-func handleHealth(name string, prefixes []string, isConnected func() bool, lastInboundAt func() int64) http.HandlerFunc {
+func handleHealth(name string, prefixes []string, isConnected func() bool, lastInboundAt func() int64, db *sql.DB) http.HandlerFunc {
 	threshold := defaultStaleThreshold
 	if t, ok := staleThresholds[name]; ok {
 		threshold = t
@@ -632,6 +632,13 @@ func handleHealth(name string, prefixes []string, isConnected func() bool, lastI
 		}
 		if status == "stale" {
 			resp["stale_seconds"] = staleSec
+		}
+		// Inbound routd has not accepted yet (BUGS L25). Reported, not fatal:
+		// the sweep is working through it and the adapter is otherwise healthy.
+		if n, err := PendingInboundCount(db); err != nil {
+			slog.Error("health: pending inbound count failed", "err", err)
+		} else if n > 0 {
+			resp["pending_inbound"] = n
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)

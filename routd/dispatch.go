@@ -267,9 +267,16 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// For steered turns (container already running, returned immediately), the
 	// container is still processing — don't clear typing here. appendAndDeliver
 	// clears it when content lands. For all other outcomes (including errors and
-	// silent runs), clear now.
+	// silent runs), clear now — and clear it for EVERY chat this run owns, not
+	// just this turn's. A turn steered into this run handed its indicator to a
+	// submit_turn that never arrives when the run dies at the timeout wall, and
+	// steering is by FOLDER, so that turn's chat is not always this one. Its
+	// indicator then ran to the adapter backstop, which is the twenty-minute
+	// "typing…" a user reported (BUGS T1).
 	if l.deliver != nil && !out.Steered {
-		_ = l.deliver.Typing(typingJID, false)
+		for _, jid := range l.typingOwnedBy(typingJID, out.RunID) {
+			_ = l.deliver.Typing(jid, false)
+		}
 	}
 	if derr != nil {
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
@@ -452,6 +459,23 @@ func groupBySender(msgs []core.Message) [][]core.Message {
 
 func groupByTopic(msgs []core.Message) [][]core.Message {
 	return consecutiveRuns(msgs, func(m core.Message) string { return m.Topic })
+}
+
+// typingOwnedBy lists the chats whose indicator a finished run must clear:
+// primary (this turn's, resolved before the run so it holds even when the run
+// reported no id) plus every chat of a turn recorded against runID. Duplicates
+// are dropped so an adapter is not told twice.
+func (l *Loop) typingOwnedBy(primary, runID string) []string {
+	jids := []string{primary}
+	if runID == "" {
+		return jids
+	}
+	for _, jid := range l.db.TypingJIDsForRun(runID) {
+		if jid != "" && !slices.Contains(jids, jid) {
+			jids = append(jids, jid)
+		}
+	}
+	return jids
 }
 
 // runFailureNotice is sent to the chat when a run returns outcome:error and

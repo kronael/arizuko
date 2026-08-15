@@ -226,7 +226,35 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
-## L32 — whapd ignores `idempotency_key`: the one adapter still outside the D5 dedup contract (2026-08-15, open)
+## L39 — whapd acks WhatsApp before routd accepts, the TS half of L25 (2026-08-15, open)
+
+Found while fixing `L25`, which named a sibling entry `L20` for this — `L20`
+does not exist in this file, and the in-memory queue it described
+(`whapd/src/queue.ts`) was deleted before that pass. The defect itself is real
+and still open.
+
+`whapd/src/main.ts` calls `sock.readMessages([msg.key])` — the WhatsApp read
+receipt — BEFORE `await rc.sendMessage(payload)`, and the `catch` around the
+send only logs `deliver failed`. Baileys will not hand the message over again,
+so a routd that is restarting loses it, exactly as slakd did.
+
+`L25` shipped the durable answer as `chanlib.RouterClient.RetainInbound` (a
+per-adapter `inbound_pending` table plus a sweep), wired into slakd and discd.
+whapd is TypeScript and cannot use it. The fix is the same shape in TS and
+should share whatever durable store `L32` picks for the outbound ledger — one
+adapter-local database, two tables, not two bespoke stores.
+
+- **Severity:** high — same class as `L25`, on the adapter krons runs as its
+  primary channel
+- **Scope:** whapd inbound durability
+- **Affected:** every WhatsApp message arriving while routd is restarting
+- **Source:** `whapd/src/main.ts` (`readMessages` then `rc.sendMessage` in a
+  log-only `catch`); contrast `chanlib/inbound.go`
+- **Status:** open — do it together with `L32`, which has to choose the same
+  durable store (node:22 has no stable `node:sqlite`).
+- **Fix:**
+
+## ✅ FIXED 2026-08-15 — L32 — whapd ignores `idempotency_key`: the one adapter still outside the D5 dedup contract (2026-08-15)
 
 Every Go adapter claims/settles routd's `idempotency_key` in a durable
 per-adapter ledger (`chanlib/dedup.go`), so a sweep resend of a delivered row
@@ -245,10 +273,38 @@ this needs a look rather than a mechanical port.
 - **Scope:** outbound delivery / channel protocol
 - **Affected:** whapd (krons runs it as the primary channel)
 - **Source:** whapd/src/server.ts `/send` (no idempotency_key read)
-- **Status:** open
-- **Fix:**
+- **Status:** FIXED — `whapd/src/dedup.ts` claims the key before the Baileys
+  call and settles it after, wired into BOTH `/send` and `/send-file` (the
+  entry only named `/send`; routd sends the key on both, `chanreg/httpchan.go`
+  writes the `idempotency_key` multipart field). Every adapter is now inside
+  the D5 contract and spec `5/34` says so.
 
-## L33 — a one-shot task's retry mints a fresh message id, so a lost response fires it twice (2026-08-15, open)
+  **Store: a directory of files, one per key** — the entry's first option, and
+  it needs no runtime bump. node:22 has no stable `node:sqlite`, and the only
+  operation that must be atomic here is the CLAIM, which `open(path, 'wx')`
+  (`O_CREAT|O_EXCL`) already is at the filesystem level. Keys are
+  `encodeURIComponent`-encoded: a routd message id carries `/` and `:`, and a
+  raw key as a filename would escape the ledger directory. It lives under
+  `WHAPD_STATE_DIR`, and `template/services/whapd.yml` now mounts it — an
+  unmounted ledger forgets every claim on recreate, which is the same as
+  having none.
+
+  **The Baileys error taxonomy decision — the answer is ORDERING, not error
+  parsing.** Baileys exposes no signal that separates "WhatsApp refused it"
+  from "the ack was lost", so whapd never guesses: it HOLDS the claim on any
+  error after the platform call and answers `409` on the next attempt, which
+  routd dead-letters for an operator rather than double-posting.
+
+  What stops that from turning every plain transient into a guaranteed
+  dead-letter — the failure `chanlib.ErrNotDelivered` exists to prevent — is
+  the CLAIM ORDER, not a classifier: `requireSock` refuses a send when the
+  socket is not open, BEFORE any claim exists. So a routd restart or a dropped
+  link answers 502 with nothing recorded and the sweep retries freely. That is
+  the whole class of proven-non-delivery whapd can actually observe, and it is
+  handled where it is observable.
+- **Fix:** 44677153
+
+## ✅ FIXED 2026-08-15 — L33 — a one-shot task's retry mints a fresh message id, so a lost response fires it twice (2026-08-15)
 
 `timed.fireSplit` enqueues each due task with `id = core.MsgID("sched-"+t.ID)`
 — a `UnixNano` suffix, fresh per attempt. When the `POST /v1/messages`
@@ -265,8 +321,25 @@ instead silently dedup a legitimately re-armed one-shot.
 - **Scope:** scheduled tasks / ingress idempotency
 - **Affected:** timed → routd
 - **Source:** timed/split.go:184 (`core.MsgID`), core/types.go:275
-- **Status:** open
-- **Fix:**
+- **Status:** FIXED — the claimed `next_run` is the fire identity, as this entry
+  proposed; no `fire_id` column was needed.
+
+  `GET /v1/tasks/due` now returns `next_run` (RFC3339 UTC, unchanged by the
+  claim) and `timed.fireID` mints `sched-<taskID>@<next_run>` instead of
+  `core.MsgID`. Every attempt at one fire carries one id, so routd's
+  `INSERT OR IGNORE` on `messages.id` collapses them.
+
+  The error path is what makes that hold: a one-shot is re-armed to the
+  next_run it was CLAIMED at, not a fresh `now+1m`. That value IS the identity,
+  so the next tick re-claims the same fire with the same id. The 60s fire-loop
+  cadence preserves the old one-minute retry exactly — the backoff was never
+  the `now+1m` value, it was the tick. Cron tasks keep taking their next
+  natural slot: the missed fire and the next one are different fires.
+
+  A task with no `next_run` falls back to the wall-clock id. A stable-LOOKING
+  id that is not actually per-fire would dedup two legitimate fires into one,
+  and a silent drop is worse than a duplicate.
+- **Fix:** a56845c7
 
 ## ✅ FIXED 2026-08-15 L38 — the product catalog and the product corpus are two different sets (2026-08-15)
 
@@ -610,7 +683,7 @@ length envelope, no per-surface shape.
   call before anyone writes prose into the agent's mouth.
 - **Fix:**
 
-## L25 — slakd acks Slack before routd accepts, so a deploy silently drops messages (2026-08-15, proposed)
+## ✅ FIXED 2026-08-15 — L25 — slakd acks Slack before routd accepts, so a deploy silently drops messages (2026-08-15)
 
 `slakd.handleEvents` answers `200 OK` to Slack BEFORE calling routd
 (`slakd/bot.go:405-406`, comment: "ack first; Slack retries on non-2xx, which we
@@ -633,22 +706,36 @@ next poll. The two adapters disagree on whether an inbound is durable.
 - **Affected:** every Slack message arriving while routd is restarting or down
 - **Source:** `slakd/bot.go:405-406,546-548`; `template/services/slakd.yml:23`;
   contrast `teled/bot.go:212-224`
-- **Status:** proposed — the fix is a REDESIGN and needs sign-off.
+- **Status:** FIXED — the redesign shipped as ONE mechanism in `chanlib`, not a
+  slakd-local patch. `RouterClient.RetainInbound(ctx, db)` writes a failed
+  inbound to the adapter's own `inbound_pending` table
+  (`chanlib/inbound.go`, `chanlib/migrations/0002-inbound-pending.sql`) and a
+  15s sweep re-delivers it with a 30s→15m backoff. The ack is untouched: Slack
+  still gets its 200 inside 3s.
 
-  Deferring the ack until after routd accepts is the obvious change and is
-  wrong: Slack requires the ack inside 3 seconds and retries on non-2xx, so a
-  slow routd would turn one message into several. The durable answer matches
-  what we established for outbound on 2026-08-15: slakd now owns `slakd.db`,
-  so an inbound that routd rejects should land in a local `inbound_pending`
-  table and be re-delivered by a sweep, exactly as `teled` re-polls. That is a
-  new mechanism and a new table, hence a proposal, not an inline fix.
+  Wired into the two adapters that CONSUME their platform event on arrival —
+  `slakd` (Slack's webhook ack) and `discd` (the gateway hands each event over
+  once). Deliberately NOT wired into `teled`, `bskyd`, `reditd`, `linkd` or
+  `emaid`: each already advances its cursor / seen-pointer / `\Seen` flag only
+  after routd answers 200, so the platform IS their queue and a second queue
+  beside a working one is a second thing to drift.
 
-  Sibling question for the same decision: every other adapter that acks a
-  platform webhook before calling routd has this shape. `whapd` already has a
-  filed instance (`L20` — it queues undelivered messages in memory and
-  200-acks). One durable-inbound mechanism in `chanlib`, one table per adapter
-  daemon, would answer both rather than two bespoke fixes.
-- **Fix:**
+  Retention covers UNAVAILABILITY, not refusal: a 400/403/413/422 means routd
+  read the payload and rejected it, so the row is dropped with an ERROR line
+  rather than replayed forever (`permanentIngress`, keyed on the new
+  `chanlib.StatusError` rather than on matching error text). The retained row
+  carries the adapter's stable message id — routd's `messages` PK — so a
+  re-delivery of a row routd already took is an `INSERT OR IGNORE` no-op.
+  `GET /health` reports `pending_inbound` while the backlog is non-empty, so
+  the failure surfaces where an operator already looks.
+
+  **Correction to this entry's own sibling note.** `L20` does not exist in this
+  file — the reference is dangling, and `whapd/src/queue.ts` (the in-memory
+  queue it described) was deleted before this pass. whapd's inbound path DOES
+  still have the shape (`whapd/src/main.ts` calls `sock.readMessages` to ack,
+  then only logs a failed `rc.sendMessage`), but it is TypeScript and outside
+  this Go mechanism; filed fresh as `L39` rather than fixed here.
+- **Fix:** 054daefd
 
 ## L26 — `make test-race`, the documented pre-tag gate, cannot finish (2026-08-15, open)
 
@@ -1202,7 +1289,7 @@ after runed becomes ready. Live krons reproduced this fleet-wide at
 - **Fix:** gate queue replay on runed readiness, or keep transient connection
   failures outside the breaker budget until the execution plane is ready
 
-## T1 — PROPOSED, needs sign-off (verified still open 2026-08-15) — stalled typing indicator on timed-out/errored turns (2026-07-26)
+## ✅ FIXED 2026-08-15 — T1 — stalled typing indicator on timed-out/errored turns (2026-07-26)
 
 Symptom (krons, telegram:user/1112184352, 2026-07-26): the agent shows "typing…"
 for ~20 min then goes silent with no reply. Recurring; the user recognises it as
@@ -1251,6 +1338,62 @@ Fix (redesign — needs sign-off; routd turn-lifecycle + chanlib backstop):
    call losing auth is its own bug; the user-facing timeout must still surface a
    notice (dispatch.go:339 `runFailureNotice` covers the non-steered parent, but
    confirm it fires for the steered-follow-up case).
+
+**FIXED 2026-08-15 — points 1 and 2 shipped; point 3 was CONFIRMED and split
+out.**
+
+Point 1, and it is the cause rather than the symptom: `turn_context.run_id`
+ALREADY records which run each turn was steered into (`SetTurnRunID`, set from
+the steer ack's parent `RunID`), so the run-end clear reads that instead of
+keeping a second ledger of indicator owners. `DB.TypingJIDsForRun` resolves each
+turn's indicator chat the same way dispatch picked it — `return_to` when set,
+else `chat_jid` — and dispatch's single `Typing(typingJID, false)` became a loop
+over `typingOwnedBy(typingJID, out.RunID)`. This is why the reported case ran
+the full 20 minutes: the parent's own clear fires on the PARENT's chat, and
+routd steers by FOLDER, so a follow-up from a second chat in the same folder was
+never covered by it.
+
+Point 2: `DefaultTypingMaxTTL` is now `90%` of `RUNED_RUN_TIMEOUT`
+(`chanlib.typingMaxTTL`, floored at 1m) instead of a flat `20m` that equalled
+the wall. It reads the env var runed and routd already read, and
+`template/services/{teled,discd}.yml` now pass it, so an instance with a wider
+wall widens the backstop instead of losing the indicator early. A test asserts
+the derivation stays strictly below the wall for every plausible value.
+
+Point 3 CONFIRMED OPEN and filed as `T2` rather than folded in: the steered
+branch returns before the `Outcome == OutcomeError` block, so a steered turn in
+another chat gets no failure notice at all. That is a delivery concern, not a
+typing concern, and merging it here would make one fix span two.
+
+**Fix:** a4f2152d
+
+## T2 — a steered turn gets no failure notice when its run dies (2026-08-15, open)
+
+Split out of `T1` point 3, confirmed at this tree while fixing `T1` points 1
+and 2.
+
+`dispatch.go`'s steered branch marks the turn done and returns
+(`return true, true, false, nil`) BEFORE the `out.Outcome == OutcomeError`
+block that sends `runFailureNotice`. The parent run's own error branch does
+send a notice — to the PARENT's chat. routd steers by FOLDER, so a follow-up
+from a second chat in the same folder had its message consumed into the
+container and gets nothing at all when that run dies at the timeout wall.
+
+`T1` closed the half that lies (the indicator now stops). This is the half that
+is silent.
+
+- **Severity:** medium — the user's message was accepted and produced neither a
+  reply nor an error
+- **Scope:** turn failure delivery
+- **Affected:** routd dispatch, any folder with two chats routed to it
+- **Source:** `routd/dispatch.go` (steered early return vs the
+  `OutcomeError` notice block)
+- **Status:** open — needs a decision before code. The steered turn is already
+  marked `done`, so there is no retry to wait for, but notifying every steered
+  chat of a failed run risks a notice storm on a folder that steers heavily.
+  A per-run cap, or notifying only steered turns with no delivered bot row
+  (`TurnHasBotReply`), are the two shapes worth costing.
+- **Fix:**
 
 ## X2 — the aws-devops product's credential model died with X1 (2026-08-09, proposed)
 
@@ -1378,7 +1521,7 @@ more than one field.
 - **Status:** proposed
 - **Fix:**
 
-## L23 — PROPOSED, needs sign-off (verified still open 2026-08-15) — a dead-lettered message is countable but not readable (2026-08-11)
+## ✅ FIXED 2026-08-15 — L23 — a dead-lettered message is countable but not readable (2026-08-11)
 
 Premise re-verified at this tree: `dashd/routd_page.go` still only shows a
 `dead-lettered` COUNT; grepped `resreg/` for any dead-letter resource —
@@ -1402,7 +1545,46 @@ action — is still undone.
 - **Scope:** dead-letter visibility
 - **Affected:** dashd, routd, resreg
 - **Source:** `dashd/routd_page.go`
-- **Status:** open
+- **Status:** FIXED — shipped as the resreg `dead_letters` resource, in the
+  shape this entry recommended: `messages WHERE status='failed' AND
+  is_bot_message=1` is the row set, and NO new state was added.
+
+  `GET /v1/dead_letters` + `POST /v1/dead_letters/{id}/replay`
+  (`resreg/resources/dead_letters.go` for the catalog, `routd/
+  dead_letters_resource.go` for the mounted handler), with the agent twins
+  `list_dead_letters` / `replay_dead_letter` on the MCP socket. One handler,
+  two injected gates, containment on `routed_to` by subtree — and the replay
+  re-reads the row to bind the id to the caller's folder before mutating, so
+  an id alone cannot reach another tenant's message.
+
+  **Replay adds no second delivery path.** It flips the row to `pending` with
+  a zeroed attempt count, which is exactly what `PendingOutbound` selects, so
+  routd's existing outbound sweep sends it. It reports whether a row actually
+  moved: a row already replayed answers 409 rather than claiming a queueing
+  it did not do.
+
+  Three decisions worth keeping:
+
+  - **`DB: ""` in the registration**, like `audit`. A dead letter is EVIDENCE
+    that a message was lost, so `Export`/`Plan`/`Apply` must never round-trip
+    it — `arizuko apply` would be able to rewrite the record. It is also a
+    VIEW of `messages`, which no manifest owns.
+  - **Its own `dead_letters:read`/`dead_letters:write` scope pair**, not
+    `messages:*`. `messages:write` is "speak as a channel" (it authorizes
+    POST /v1/messages), and authd's `service:dashd` ceiling explicitly denies
+    that; requeueing one already-composed row is a strictly smaller authority.
+    dashd's ceiling went 9 → 11 with the case stated at the grant.
+  - **The handler projects to `DeadLetterRow`.** `core.Message` carries no
+    json tags, so returning it raw shipped Go field names in a body whose
+    `/openapi.json` schema is reflected off `DeadLetterRow` — the two
+    declarations disagreed on every field name. Caught by the REST test.
+
+  `/dash/routd/` now renders the rows (chat, the lost text, refused-vs-retries
+  -exhausted, when) with a replay button, where it rendered a bare count. It
+  reads over HTTP and writes over HTTP even though the count beside it reads
+  routd.db directly: a page whose read and write disagree about the source of
+  truth is how the two drift.
+- **Fix:** 752185f0
 
 ## L16 — legacy plaintext secret rows are never sealed; the migrator has no caller (2026-08-11, open)
 
@@ -2266,7 +2448,7 @@ Note what that writer implies more broadly: routd still opens the frozen
 `messages.db` at every boot to copy legacy rows forward. That is the real
 blocker for retiring `messages.db`, and it is bigger than any single table.
 
-## E1 — five adapters keep state in unmounted paths; it dies on every recreate (2026-08-03, open)
+## ✅ FIXED 2026-08-15 (CLOSED-STALE — fixed in 32b180da, entry never closed) — E1 — five adapters keep state in unmounted paths; it dies on every recreate (2026-08-03)
 
 Found by the mount audit. `teled`, `bskyd`, `reditd`, `linkd` and `emaid` each
 persist state under a data-dir path, and their compose fragments declare
@@ -2309,10 +2491,33 @@ adapters is a per-fragment edit, not one code change.
 - **Scope:** compose fragment volumes for channel adapters
 - **Affected:** `template/services/{teled,bskyd,reditd,linkd,emaid}.yml`,
   `teled/bot.go:60`
-- **Fix:** give each fragment the narrow rw mount it needs (`whapd.yml:9` and
-  `twitd.yml:9` already show the pattern — a single subpath, not the data dir),
-  set `DATA_DIR` where absent, and make `loadOffset` fail loud instead of
-  swallowing the read error.
+- **Fix:** 32b180da — give each fragment the narrow rw mount it needs
+  (`whapd.yml:9` and `twitd.yml:9` already show the pattern — a single subpath,
+  not the data dir), set `DATA_DIR` where absent, and make `loadOffset` fail
+  loud instead of swallowing the read error.
+
+**CLOSED-STALE 2026-08-15. Every claim in this entry is false at HEAD: the fix
+landed in `32b180da` and the entry was simply never closed.** Re-verified point
+by point:
+
+- `grep -c 'volumes:'` on
+  `template/services/{teled,bskyd,reditd,linkd,emaid}.yml` returns **1 for
+  each**, where the entry says "declares `volumes:` zero times". Each is the
+  narrow subpath the fix line prescribed, e.g.
+  `${DATA_DIR}/store/teled:/srv/app/home/store/teled`.
+- All five fragments now set `DATA_DIR` explicitly, including the two the entry
+  singled out as not even having it (`reditd`, `emaid`), and all five daemons
+  carry a matching code default (`chanlib.EnvOr("DATA_DIR", …)`).
+- `loadOffset` no longer swallows the read error. It separates the three cases
+  (absent file → genuine first run, offset 0; unreadable → error; unparseable →
+  error), and `teled/main.go` returns that error out of `Start` with the
+  comment saying why, so `chanlib.Run` exits rather than polling from offset 0
+  and re-answering Telegram's ~24h backlog.
+
+The LIVE half is a different entry and stays open: deployed instances include
+their OWN `/srv/data/arizuko_<inst>/services/*.yml`, not `template/`, so krons
+still runs the pre-fix fragment. That is `F53` (and `R1` finding 1) — fragment
+relink on deployed instances, not this repo's templates.
 
 ## R1 — codex review of the 2026-08-03 fix batch: six gaps (2026-08-03, 5 of 6 closed 2026-08-15; 1 open on live-state only)
 

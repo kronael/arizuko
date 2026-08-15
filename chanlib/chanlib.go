@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -94,6 +96,11 @@ type RouterClient struct {
 	regPrefixes []string
 	regCaps     map[string]bool
 	regMu       sync.Mutex
+
+	// pending is the adapter's own database holding inbound_pending. nil until
+	// RetainInbound wires it, which only the adapters that consume a platform
+	// event on arrival do (inbound.go).
+	pending *sql.DB
 }
 
 func NewRouterClient(url string) *RouterClient {
@@ -192,7 +199,24 @@ func (r *RouterClient) Deregister() error {
 	return r.Post("/v1/channels/deregister", nil, r.getToken(), &resp)
 }
 
+// SendMessage delivers one inbound to routd. When the adapter wired
+// RetainInbound, a transient failure is ALSO written to the adapter's own
+// inbound_pending table before the error returns, so the sweep re-delivers it
+// (spec 5/34, BUGS L25). The error still returns either way: an adapter that
+// gates a platform cursor on delivery must keep seeing the failure.
 func (r *RouterClient) SendMessage(msg InboundMsg) error {
+	err := r.postInbound(msg)
+	if err != nil {
+		r.retainInbound(msg, err)
+	}
+	return err
+}
+
+// postInbound is the bare delivery: two attempts, re-registering once on a
+// monolith 401. It is the ONLY place an InboundMsg goes on the wire — both the
+// live path and the retention sweep call it, so neither can drift from the
+// other's auth or retry behaviour.
+func (r *RouterClient) postInbound(msg InboundMsg) error {
 	// Stamp the originating channel name so routd can route the reply back to the
 	// correct bot/account (multi-account: both share one service:<daemon> JWT).
 	if msg.Source == "" {
@@ -235,13 +259,27 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 }
 
 func isAuthErr(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "status 401")
+	var se *StatusError
+	return errors.As(err, &se) && se.Code == http.StatusUnauthorized
 }
 
 func (r *RouterClient) usingServiceToken() bool {
 	r.regMu.Lock()
 	defer r.regMu.Unlock()
 	return r.svcToken != nil
+}
+
+// StatusError is a non-200 answer from routd. It carries the code so callers
+// classify by number instead of by matching the message text: inbound
+// retention (inbound.go) must tell a routd that is restarting from a routd
+// that rejected the payload, and a substring test cannot.
+type StatusError struct {
+	Path string
+	Code int
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("router %s: status %d", e.Path, e.Code)
 }
 
 func (r *RouterClient) Post(path string, body any, auth string, out any) error {
@@ -264,7 +302,7 @@ func (r *RouterClient) Post(path string, body any, auth string, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("router %s: status %d", path, resp.StatusCode)
+		return &StatusError{Path: path, Code: resp.StatusCode}
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, maxRouterResponseBytes)).Decode(out)
 }
@@ -336,6 +374,17 @@ func MustEnv(k string) string {
 		os.Exit(1)
 	}
 	return v
+}
+
+// EnvDur reads a Go duration ("20m", "90s"). Unset, unparseable or
+// non-positive → fallback.
+func EnvDur(k string, fallback time.Duration) time.Duration {
+	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return fallback
 }
 
 func EnvBytes(k string, def int64) int64 {

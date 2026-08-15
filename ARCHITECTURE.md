@@ -395,7 +395,12 @@ servers. Full protocol: `specs/5/34-channel-protocol.md`.
   secret.
 - **Typing**: `/typing` handlers route through `TypingRefresher`
   (`chanlib.TypingRefresher` / `whapd/src/typing.ts`) — re-sends presence on
-  short interval with hard TTL
+  short interval with hard TTL. routd owns the terminator: it clears typing for
+  every chat a finished run owned (`turn_context.run_id`), which covers a
+  follow-up steered into that run from a different chat of the same folder. The
+  adapter TTL is the backstop and is 90% of `RUNED_RUN_TIMEOUT` — strictly
+  below the wall, or it only fires once the container is already dead (BUGS
+  `T1`).
 
 Packages: `chanreg/` (registry, health, `HTTPChannel`, the egress
 Deliverer), `routd/` (router-side `/v1/*` handlers), `chanlib/`

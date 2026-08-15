@@ -19,6 +19,7 @@ import {
 } from './auth.js';
 import { WhapdBot, authDirHasCreds, type SocketBuilder } from './bot.js';
 import { RouterClient } from './client.js';
+import { DedupLedger } from './dedup.js';
 import {
   buildMessagePayload,
   buildReactionPayload,
@@ -47,6 +48,16 @@ const authDir = env(
   'WHATSAPP_AUTH_DIR',
   dataDir ? `${dataDir}/store/whatsapp-auth` : '/srv/data/store/whatsapp-auth',
 );
+
+// Outbound dedup is a delivery guarantee, not a nicety: without the ledger
+// routd's re-send of a still-pending row posts a second WhatsApp message
+// (BUGS L32). The directory must be MOUNTED — an unmounted one dies with the
+// container and every claim is forgotten, which is the same as having none.
+const stateDir = env(
+  'WHAPD_STATE_DIR',
+  dataDir ? `${dataDir}/store/whapd` : '/srv/data/store/whapd',
+);
+const ledger = new DedupLedger(`${stateDir}/outbound-dedup`);
 
 // Baileys writes creds.json non-atomically; restore from .bak if a prior crash
 // left the live file empty.
@@ -468,6 +479,7 @@ async function main() {
     setTyping,
     () => lastInboundAt,
     bot,
+    ledger,
   );
 
   async function shutdown() {

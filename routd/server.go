@@ -255,6 +255,7 @@ func (s *Server) Handler() http.Handler {
 	// so it stays the `arizuko packages` CLI (packages_resource.go header).
 	s.mountInstalledPackages(mux)
 	s.mountAudit(mux)
+	s.mountDeadLetters(mux)
 	// /v1/pending_actions list + approve/reject — spec 5/19's REST resolution
 	// face (pending_actions_http.go). Verdicts funnel to the same core the chat
 	// /approve command runs.
@@ -659,6 +660,14 @@ type dueTask struct {
 	Prompt      string `json:"prompt"`
 	Cron        string `json:"cron"`
 	ContextMode string `json:"context_mode"`
+	// NextRun is the scheduled time this claim FIRES FOR, unchanged by the
+	// claim itself. It is the fire's identity: timed keys the enqueued message
+	// id on it, so a retry after a lost POST /v1/messages response mints the
+	// SAME id and routd's id-PK dedup collapses the two attempts into one
+	// message. Without it a one-shot whose response was lost fired twice
+	// (BUGS L33). RFC3339 in UTC so the round-trip through
+	// POST /v1/tasks/{id}/reschedule is byte-stable.
+	NextRun string `json:"next_run"`
 }
 
 // handleTasksDue atomically claims (marks 'firing') and returns the tasks whose
@@ -675,8 +684,12 @@ func (s *Server) handleTasksDue(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]dueTask, len(tasks))
 	for i, t := range tasks {
+		next := ""
+		if t.NextRun != nil {
+			next = t.NextRun.UTC().Format(time.RFC3339)
+		}
 		out[i] = dueTask{ID: t.ID, ChatJID: t.ChatJID, Prompt: t.Prompt,
-			Cron: t.Cron, ContextMode: t.ContextMode}
+			Cron: t.Cron, ContextMode: t.ContextMode, NextRun: next}
 	}
 	writeJSON(w, 200, map[string]any{"tasks": out})
 }

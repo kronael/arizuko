@@ -5,13 +5,34 @@ import (
 	"time"
 )
 
-// DefaultTypingMaxTTL is the backstop that stops typing if the normal
-// terminator (routd's Typing(off) at turn end, turns.go) never arrives — a
-// crashed/stuck agent. It MUST exceed the longest a healthy turn can run
-// (RUNED_RUN_TIMEOUT, ~19.5m) or it fires first and the indicator vanishes
-// mid-turn on long work; 20m keeps typing alive to the end while still
-// bounding a truly hung turn.
-const DefaultTypingMaxTTL = 20 * time.Minute
+// DefaultTypingMaxTTL is the backstop that stops typing when the normal
+// terminator — routd's Typing(off) at turn end (turns.go, dispatch.go) — never
+// arrives.
+//
+// It is derived from the run wall, not fixed, and it MUST land strictly below
+// it. At a flat 20m it equalled the RUNED_RUN_TIMEOUT default, so it fired no
+// earlier than the container's own SIGKILL: a stalled turn showed "typing" for
+// the full twenty minutes and then went silent with no reply, which is what a
+// user reported as "the typing indication again" (BUGS T1). A backstop that
+// only fires when the thing it guards is already dead is not a backstop.
+//
+// 90% of the wall. That still cuts a healthy turn's indicator ~2m short of the
+// agent's own query timeout (the wall minus 30s), which is the deliberate
+// trade: an indicator that stops early is honest about not knowing, one that
+// runs to the wall is a twenty-minute lie.
+//
+// RUNED_RUN_TIMEOUT is read here from the adapter's own env — the same var and
+// the same 20m default runed and routd use — so an instance that widens the
+// wall widens the backstop with it.
+var DefaultTypingMaxTTL = typingMaxTTL(EnvDur("RUNED_RUN_TIMEOUT", 20*time.Minute))
+
+// minTypingMaxTTL floors the derivation so a tiny or absurd RUNED_RUN_TIMEOUT
+// cannot produce a backstop that kills the indicator before the first refresh.
+const minTypingMaxTTL = time.Minute
+
+func typingMaxTTL(runTTL time.Duration) time.Duration {
+	return max(runTTL*9/10, minTypingMaxTTL)
+}
 
 // TypingRefresher re-emits a "composing" indicator every refreshRate until
 // Set(jid, false), Stop, or maxTTL. send returning false in the loop cancels
