@@ -30,6 +30,12 @@
             <li><a href="reality/">Reality agent</a></li>
             <li><a href="company-brain/">Company brain</a></li>
             <li><a href="marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="support/">Support desk (Atlas)</a></li>
+            <li><a href="personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="pm/">PM agent (Sloth)</a></li>
+            <li><a href="creator/">Content pipeline (Inari)</a></li>
+            <li><a href="socials/">Social presence (Phosphene)</a></li>
+            <li><a href="strategy/">Domain researcher (Prometheus)</a></li>
           </ul>
         </li>
       </ul>
@@ -42,9 +48,10 @@
 
       <p class="lede">
         Each product is a folder shape &mdash; a persona, a skill set, the
-        channel wiring, and an operator setup guide. Some ship as templates
-        (<code>arizuko create --product trip</code>, <code>reality</code>,
-        <code>slack-team</code>); the rest are a short recipe of CLI commands.
+        channel wiring, and an operator setup guide. Eleven ship as
+        templates you can seed with <code>arizuko create --product
+        &lt;id&gt;</code>; four are <em>shapes</em>, described here and
+        assembled from the primitives, each marked as such on its own page.
         Either way you end up with files you edit.
       </p>
       <p>
@@ -143,23 +150,55 @@
         <p><a href="marble/">intro</a> &middot; <a href="marble/setup.html">setup</a></p>
         <p class="dim">No template ships for this one yet &mdash; the page describes the shape; you assemble it from the primitives.</p>
       </div>
+
+      <div class="tablecard">
+        <h3><a href="support/">Support desk (Atlas)</a></h3>
+        <p class="meta">channel: Telegram &middot; web widget &middot; knowledge-base-native</p>
+        <p>Answers from your <code>facts/</code> tree and cites the path it answered from. Says &ldquo;I don&rsquo;t have that recorded&rdquo; instead of guessing, and logs the gap. Helpdesk is the reference shape; this is the version for teams whose answers already live in documents.</p>
+        <p><a href="support/">intro</a> &middot; <a href="support/setup.html">setup</a></p>
+        <p class="dim">Ships as a template: <code>arizuko create &lt;name&gt; --product support</code></p>
       </div>
 
-      <h2 id="templates-without-a-page">Templates without a page</h2>
-      <p>
-        These six ship as templates and run today, but they have no
-        write-up here yet. Seed one with
-        <code>arizuko create &lt;name&gt; --product &lt;id&gt;</code>, then read its
-        <code>PRODUCT.md</code> for the detail.
-      </p>
-      <ul>
-        <li><code>creator</code>: Content creation pipeline &mdash; draft, refine, publish.</li>
-        <li><code>personal</code>: Personal assistant with persistent memory &mdash; knows you across every session.</li>
-        <li><code>pm</code>: PM agent &mdash; task board, status summaries, decisions.</li>
-        <li><code>socials</code>: Social presence manager &mdash; post, monitor, cross-post.</li>
-        <li><code>strategy</code>: Domain researcher &mdash; weekly briefings and deep dives.</li>
-        <li><code>support</code>: Embedded support agent &mdash; answers from your knowledge base, escalates when stuck.</li>
-      </ul>
+      <div class="tablecard">
+        <h3><a href="personal/">Personal assistant (Fiu)</a></h3>
+        <p class="meta">channel: Telegram &middot; single-user &middot; memory-first</p>
+        <p>Knows you across sessions: writes what is durable into <code>facts/</code> after each one, reads the diary before answering the next. Never invents details about your life &mdash; if it is not recorded, it asks.</p>
+        <p><a href="personal/">intro</a> &middot; <a href="personal/setup.html">setup</a></p>
+        <p class="dim">Ships as a template: <code>arizuko create &lt;name&gt; --product personal</code></p>
+      </div>
+
+      <div class="tablecard">
+        <h3><a href="pm/">PM agent (Sloth)</a></h3>
+        <p class="meta">channel: Telegram / Discord &middot; small team</p>
+        <p>The task board is a Markdown file in the group. Updates it on instruction, confirms owner and deadline before writing, flags what is blocked or overdue, and logs decisions with the context that produced them. Executes nothing.</p>
+        <p><a href="pm/">intro</a> &middot; <a href="pm/setup.html">setup</a></p>
+        <p class="dim">Ships as a template: <code>arizuko create &lt;name&gt; --product pm</code></p>
+      </div>
+
+      <div class="tablecard">
+        <h3><a href="creator/">Content pipeline (Inari)</a></h3>
+        <p class="meta">channel: Telegram approval &middot; publish adapters &middot; oracle</p>
+        <p>Pitch, draft, revise, publish &mdash; in the voice recorded in <code>facts/style.md</code>, and never without approval. Asks for a brief before drafting and confirms the target platform before finishing.</p>
+        <p><a href="creator/">intro</a> &middot; <a href="creator/setup.html">setup</a></p>
+        <p class="dim">Ships as a template: <code>arizuko create &lt;name&gt; --product creator</code></p>
+      </div>
+
+      <div class="tablecard">
+        <h3><a href="socials/">Social presence (Phosphene)</a></h3>
+        <p class="meta">channel: Telegram / Discord approval &middot; multi-platform</p>
+        <p>Distribution rather than drafting: proposes platform mix and timing with a rationale, cross-posts on approval, watches replies, and reports weekly on what spread and what flopped. Composes with the content pipeline.</p>
+        <p><a href="socials/">intro</a> &middot; <a href="socials/setup.html">setup</a></p>
+        <p class="dim">Ships as a template: <code>arizuko create &lt;name&gt; --product socials</code></p>
+      </div>
+
+      <div class="tablecard">
+        <h3><a href="strategy/">Domain researcher (Prometheus)</a></h3>
+        <p class="meta">channel: Telegram / Discord &middot; research-intensive &middot; oracle</p>
+        <p>Tracks one domain and delivers the same four-section briefing every week, plus deep dives on demand. Every finding is marked confirmed, inferred or speculative and cited inline; the archive is a directory you can grep.</p>
+        <p><a href="strategy/">intro</a> &middot; <a href="strategy/setup.html">setup</a></p>
+        <p class="dim">Ships as a template: <code>arizuko create &lt;name&gt; --product strategy</code></p>
+      </div>
+      </div>
 
       <p class="dim">See <a href="../howto/">getting started</a> for the platform install before picking a product.</p>
 
@@ -169,7 +208,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-11">2026-08-11</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
       </div>
     </main>
 

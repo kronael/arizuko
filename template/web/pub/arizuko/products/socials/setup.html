@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Social presence (Phosphene) setup &mdash; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../aws-devops/">AWS DevOps agent (Argus)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/" aria-current="page">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">Social presence (Phosphene)</a> &rsaquo; setup</p>
+      <h1>Social presence setup</h1>
+
+      <h2>1. Prerequisites</h2>
+
+      <ul>
+        <li>A running instance (<a href="../../howto/">getting started</a>).</li>
+        <li>An approval channel &mdash; <code>TELEGRAM_BOT_TOKEN</code> or
+          <code>DISCORD_BOT_TOKEN</code>. At least one, or approvals have
+          nowhere to happen.</li>
+        <li>One or more publish adapters. Without any, the agent still
+          plans and still reports &mdash; it just hands you the text.</li>
+      </ul>
+
+      <h2>2. Seed a group from it</h2>
+
+      <pre><code>arizuko group &lt;instance&gt; add telegram:user/12345678 socials --product socials</code></pre>
+
+      <h2>3. Describe the channels</h2>
+
+      <p>
+        <code>facts/channels.md</code> is what stops it cross-posting into
+        the wrong room. Per account: the handle, who reads it, what belongs
+        there, and what does not. A support Discord that never takes
+        marketing posts should say so in this file &mdash; the agent honours
+        it, and nothing else will.
+      </p>
+
+      <p>
+        <code>facts/voice.md</code> carries brand voice and the
+        do/don&rsquo;t list. Keep it short and specific; a long file of
+        adjectives changes nothing.
+      </p>
+
+      <h2>4. Wire the adapters</h2>
+
+      <pre><code>BLUESKY_IDENTIFIER=you.bsky.social
+BLUESKY_APP_PASSWORD=...
+DISCORD_BOT_TOKEN=...</code></pre>
+
+      <p>
+        Posting is an adapter action bound to a grant, so the agent can only
+        publish where you have both. Revoking the grant is the off switch
+        and it takes effect on the next turn &mdash; see
+        <a href="../../concepts/grants.html">grants</a>.
+      </p>
+
+      <h2>5. Verify</h2>
+
+      <pre><code>arizuko send &lt;instance&gt; socials "draft is ready — where and when?" --wait</code></pre>
+
+      <p>
+        A correct answer proposes a platform mix with timing and a
+        rationale, then waits. If it posts, check <code>SOUL.md</code>
+        landed &mdash; approval-first is in the persona, not in the
+        platform.
+      </p>
+
+      <h2>6. Tuning</h2>
+
+      <ul>
+        <li><strong>The digest</strong> &mdash; ask for a weekly one and the
+          agent schedules it as a
+          <a href="../../concepts/tasks.html">scheduled task</a>.</li>
+        <li><strong>Timing</strong> &mdash; the rationale comes from
+          <code>facts/channels.md</code>; correct the file rather than
+          arguing per post.</li>
+        <li><strong>Voice</strong> &mdash; <code>facts/voice.md</code> for
+          the output, <code>SOUL.md</code> for how it works.</li>
+      </ul>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/socials/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

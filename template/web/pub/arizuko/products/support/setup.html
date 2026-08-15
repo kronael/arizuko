@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support desk (Atlas) setup &mdash; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../aws-devops/">AWS DevOps agent (Argus)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/" aria-current="page">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">Support desk (Atlas)</a> &rsaquo; setup</p>
+      <h1>Support desk setup</h1>
+
+      <h2>1. Prerequisites</h2>
+
+      <ul>
+        <li>A running instance (<a href="../../howto/">getting started</a>).</li>
+        <li>A channel adapter. The product declares
+          <code>TELEGRAM_BOT_TOKEN</code> as its primary channel and
+          escalation target; any adapter works.</li>
+        <li>Your answers in writing. Without <code>facts/</code> the agent
+          can only web-search, which is the failure mode this product is
+          built to avoid.</li>
+      </ul>
+
+      <h2>2. Seed a group from it</h2>
+
+      <pre><code>arizuko group &lt;instance&gt; add telegram:group/-100123 support --product support</code></pre>
+
+      <p>
+        That copies the product tree into <code>groups/support/</code> once
+        and writes the route in the same command. From then on the files are
+        the group&rsquo;s own state: edit the persona, add facts, and nothing
+        re-writes them.
+      </p>
+
+      <p>
+        Or blend it into a group you already have, alongside other products:
+      </p>
+
+      <pre><code>[[product]]
+source = "ant/examples/support"</code></pre>
+
+      <pre><code>arizuko products &lt;instance&gt; apply support</code></pre>
+
+      <h2>3. Set the channel token</h2>
+
+      <pre><code>TELEGRAM_BOT_TOKEN=...
+OPENAI_API_KEY=...   # optional: web-search fallback</code></pre>
+
+      <p>
+        The <code>[[env]]</code> block in <code>PRODUCT.md</code> is a
+        checklist that <code>arizuko create</code> prints, not a gate. A
+        missing value does not stop the apply &mdash; it stops the channel,
+        later, which is harder to diagnose. Set them now.
+      </p>
+
+      <h2>4. Fill the knowledge base</h2>
+
+      <p>
+        <code>facts/kb.md</code> ships as a seed. Replace it, then add one
+        file per topic &mdash; <code>facts/api.md</code>,
+        <code>facts/billing.md</code>, <code>facts/limits.md</code>. Longer
+        reference documents go under <code>refs/</code>. The agent reads both
+        before answering and cites the path, so file names are part of the
+        user-visible output: name them the way you would want to see them
+        quoted.
+      </p>
+
+      <div class="note">
+        <strong>A fact file is not a knowledge dump.</strong> The agent
+        quotes what it finds, so a stale line is a wrong answer with a
+        citation attached &mdash; worse than no answer. Treat stale facts as
+        bugs; the persona already does.
+      </div>
+
+      <h2>5. Verify</h2>
+
+      <pre><code>arizuko send &lt;instance&gt; support "does the export endpoint support pagination?" --wait</code></pre>
+
+      <p>
+        A correct answer either cites a path from <code>facts/</code> or says
+        it has nothing recorded. An answer with neither means the persona did
+        not land &mdash; check that <code>groups/support/PERSONA.md</code>
+        exists and that <code>CLAUDE.md</code> holds an
+        <code>arizuko:package:support</code> marked region.
+      </p>
+
+      <h2>6. Escalation</h2>
+
+      <p>
+        Unanswered questions are the product&rsquo;s real output. Point them
+        at a second folder and let a person or another agent own the queue:
+      </p>
+
+      <pre><code>arizuko group &lt;instance&gt; add telegram:group/-100999 support/escalations</code></pre>
+
+      <p>
+        Delegating to that folder needs the <code>delegate_group</code> grant
+        on the support folder &mdash; it is not in the
+        <code>role:member</code> floor. Until it is granted the agent will
+        say it cannot escalate, which is the correct failure rather than a
+        bug. See <a href="../../concepts/grants.html">grants</a>.
+      </p>
+
+      <h2>7. Tuning</h2>
+
+      <ul>
+        <li><strong>Voice</strong> &mdash; edit <code>PERSONA.md</code>. The
+          lowercase, no-exclamation register is a choice; change it if your
+          users expect otherwise.</li>
+        <li><strong>Rules</strong> &mdash; edit inside the marked region in
+          <code>CLAUDE.md</code>. Text outside the markers is never
+          touched.</li>
+        <li><strong>Coverage</strong> &mdash; every &ldquo;I don&rsquo;t have
+          that recorded&rdquo; is a missing file. Add it and the same
+          question answers itself next time.</li>
+      </ul>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/support/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

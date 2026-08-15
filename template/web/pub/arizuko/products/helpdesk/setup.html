@@ -30,6 +30,12 @@
             <li><a href="../reality/">Reality agent</a></li>
             <li><a href="../company-brain/">Company brain</a></li>
             <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
           </ul>
         </li>
       </ul>
@@ -44,16 +50,14 @@
         group you already have.
       </p>
 
-      <div class="note">
-        <strong>Use the blend path for this product.</strong> The two
-        seeders currently disagree about one payload kind: a product's
-        <code>skills/</code> directory is relocated under
-        <code>.claude/</code> by <code>products apply</code>, where the
-        agent reads it, but copied to the group root verbatim by
-        <code>--product</code>, where nothing does. Helpdesk ships a
-        skill, so <code>--product helpdesk</code> seeds it into a dead
-        location until this is fixed. Tracked as <code>L37</code>.
-      </div>
+      <p>
+        Both end with the same files in the same places: one placement rule
+        serves both seeders, so a product means the same thing however it is
+        applied. The skill is the payload that moves &mdash; a product ships
+        it at <code>skills/&lt;name&gt;/</code> and it lands at
+        <code>.claude/skills/&lt;name&gt;/</code>, which is where the agent
+        reads it.
+      </p>
 
       <h2>1. Prerequisites</h2>
 

@@ -268,7 +268,7 @@ instead silently dedup a legitimately re-armed one-shot.
 - **Status:** open
 - **Fix:**
 
-## L38 — the product catalog and the product corpus are two different sets (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L38 — the product catalog and the product corpus are two different sets (2026-08-15)
 
 `ant/examples/` ships 11 products; `template/web/pub/arizuko/products/` documents
 9. They are not the same 9.
@@ -290,12 +290,23 @@ not followed — this is drift, not a missing convention.
 - **Scope:** product catalog docs vs `ant/examples/`
 - **Affected:** anyone choosing a product from the site
 - **Source:** `ls ant/examples` vs `ls template/web/pub/arizuko/products`
-- **Status:** open. Either write the six missing page pairs or drop the products
-  from the corpus, and mark the four documented-only pages as shapes rather than
-  templates. A test asserting the two sets match would stop it recurring —
-  `container/product_seed_test.go` already asserts corpus counts and is the
-  natural home.
-- **Fix:**
+- **Status:** FIXED — pages written, not products dropped. Every shipped tree is
+  something an operator can seed today; deleting six working templates to make a
+  docs assertion pass would be the wrong direction.
+- **Fix:** six page pairs written (`support`, `personal`, `pm`, `creator`,
+  `socials`, `strategy`) from each product's `PRODUCT.md` + persona + facts, each
+  with an intro and a setup page; the six moved from the "Templates without a
+  page" list into the grid, and that section is gone. The four documented-only
+  products keep their pages and now carry a "This is a shape, not a template"
+  note at the top, so the page no longer reads like something you can install.
+  The `nav-children` list is identical across all 31 catalog pages. Landing-page
+  counts corrected ("all eight" → all fifteen).
+  `TestProductCatalogMatchesCorpus` is the gate, directional by design: a shipped
+  product MUST have both pages (a name `products list` prints with no page is a
+  dead end), a documented product with no tree MUST carry the shape note. Both
+  halves checked to fail. `template/web/CLAUDE.md` §"Adding a new product" names
+  the test and the nav step. Also dropped the stale `L37` warning from
+  `products/helpdesk/setup.html` — the two seeders now agree. SHA (this commit).
 
 ## ✅ FIXED 2026-08-15 L37 — a product's skill is dead when seeded by `--product`, live when blended (2026-08-15)
 

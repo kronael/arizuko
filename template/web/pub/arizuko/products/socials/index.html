@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Social presence (Phosphene) &mdash; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../aws-devops/">AWS DevOps agent (Argus)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/" aria-current="page">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Social presence (Phosphene)</p>
+      <h1>Social presence <span class="dim">(Phosphene)</span></h1>
+
+      <p class="lede">
+        Distribution, not drafting: platform mix, timing, cross-posting, and
+        a weekly digest of what spread and what flopped. Never posts without
+        approval.
+      </p>
+
+      <h2>What it does</h2>
+
+      <p>
+        Give it content and it proposes where and when, with a short
+        rationale. On approval it posts and cross-posts through the adapters
+        you wired, watches the reply threads, and reports engagement plainly
+        &mdash; numbers and patterns, no hype in its own voice.
+      </p>
+
+      <p>
+        It reads <code>facts/channels.md</code> and
+        <code>facts/voice.md</code> before every action, because platform
+        tone is not interchangeable: what works as a Bluesky post is a bad
+        Discord message.
+      </p>
+
+      <h2>A sample exchange</h2>
+
+      <pre><code>user   here's the post. where does it go?
+
+agent  Bluesky now (your audience there is EU-evening), X as a two-post
+       thread tomorrow 09:00, skip Discord — facts/channels.md says that
+       server is support-only. Approve?
+
+user   yes, and skip X
+
+agent  Posted to Bluesky. I'll check replies in 4h and again tomorrow.</code></pre>
+
+      <h2>What it ships</h2>
+
+      <table>
+        <thead><tr><th>File</th><th>What it is</th></tr></thead>
+        <tbody>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, env hints</td></tr>
+          <tr><td><code>SOUL.md</code></td><td>who the agent is: proposes, waits, reports</td></tr>
+          <tr><td><code>facts/channels.md</code></td><td>the accounts, their audiences, and what each is for</td></tr>
+          <tr><td><code>facts/voice.md</code></td><td>brand voice and the do/don&rsquo;t list</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Who it is for</h2>
+
+      <p>
+        Anyone running more than one account who is losing time to the
+        mechanics rather than the writing. Pair it with
+        <a href="../creator/">the content pipeline</a> when drafting is also
+        a bottleneck.
+      </p>
+
+      <p><a href="setup.html">Set it up &rsaquo;</a></p>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/socials/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

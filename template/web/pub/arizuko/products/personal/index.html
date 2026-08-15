@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Personal assistant (Fiu) &mdash; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../aws-devops/">AWS DevOps agent (Argus)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/" aria-current="page">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Personal assistant (Fiu)</p>
+      <h1>Personal assistant <span class="dim">(Fiu)</span></h1>
+
+      <p class="lede">
+        A single-user agent whose defining feature is memory. It knows what
+        you are working on, what you said last week, and what you prefer
+        &mdash; without you re-explaining it.
+      </p>
+
+      <h2>What it does</h2>
+
+      <p>
+        Fiu handles the ordinary range &mdash; questions, drafting, task
+        tracking, research, reminders &mdash; and does one thing
+        deliberately: after each session it writes what is durable into
+        <code>facts/</code>, and on the next session it reads the diary
+        before answering. Memory here is not a feature bolted on; it is two
+        files and a habit.
+      </p>
+
+      <p>
+        The habit matters more than the storage. It refers to prior context
+        naturally (&ldquo;you mentioned last week&hellip;&rdquo;), and it
+        never invents details about your life &mdash; if it is not in
+        <code>facts/</code> or the diary, it asks.
+      </p>
+
+      <h2>A sample exchange</h2>
+
+      <pre><code>user   what was I going to do about the visa thing?
+
+agent  Two weeks ago you decided to apply for the D-type rather than
+       renew &mdash; diary 2026-08-01. You were waiting on the employer
+       letter. Nothing since. Want me to draft the follow-up?</code></pre>
+
+      <h2>What it ships</h2>
+
+      <table>
+        <thead><tr><th>File</th><th>What it is</th></tr></thead>
+        <tbody>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, env hints</td></tr>
+          <tr><td><code>SOUL.md</code></td><td>who the agent is (the legacy name for <code>PERSONA.md</code>; read the same way)</td></tr>
+          <tr><td><code>facts/preferences.md</code></td><td>the seed for what it knows about you</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Who it is for</h2>
+
+      <p>
+        One person, one folder, one long conversation. It is the simplest
+        end of the spectrum in structure and the deepest in continuity
+        &mdash; the value accrues over months, not in the first session.
+        For a version that holds several ongoing situations as named
+        threads, see <a href="../reality/">the reality agent</a>.
+      </p>
+
+      <p><a href="setup.html">Set it up &rsaquo;</a></p>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/personal/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

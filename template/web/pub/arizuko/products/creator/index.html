@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Content pipeline (Inari) &mdash; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../aws-devops/">AWS DevOps agent (Argus)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/" aria-current="page">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Content pipeline (Inari)</p>
+      <h1>Content pipeline <span class="dim">(Inari)</span></h1>
+
+      <p class="lede">
+        Pitch, draft, revise, publish &mdash; in your voice, and never
+        without your approval. The approval step is the product.
+      </p>
+
+      <h2>What it does</h2>
+
+      <p>
+        Inari monitors sources, pitches angles, drafts in the voice recorded
+        in <code>facts/style.md</code>, revises on feedback, and publishes
+        only when you approve. It asks for a brief before drafting rather
+        than starting cold, and confirms the target platform before
+        finishing &mdash; a Bluesky post and a newsletter section are not the
+        same draft.
+      </p>
+
+      <p>
+        Research cites its sources; final drafts strip them unless your
+        style file asks for them. That split is deliberate: you need to check
+        the claim, your reader usually does not.
+      </p>
+
+      <h2>A sample exchange</h2>
+
+      <pre><code>user   anything worth writing about this week?
+
+agent  Three angles. (1) the SQLite WAL post everyone is reacting to —
+       contrarian take available. (2) your own migration story, no one
+       has covered the rollback half. (3) a link roundup, cheap.
+       Which, and for which platform?
+
+user   2, bluesky thread
+
+agent  Brief first: how technical, and do you want the outage named?</code></pre>
+
+      <h2>What it ships</h2>
+
+      <table>
+        <thead><tr><th>File</th><th>What it is</th></tr></thead>
+        <tbody>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, env hints</td></tr>
+          <tr><td><code>SOUL.md</code></td><td>who the agent is: drafts in your voice, waits for approval</td></tr>
+          <tr><td><code>facts/style.md</code></td><td>the voice, tone, in-scope topics and platform rules</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Who it is for</h2>
+
+      <p>
+        Someone who publishes regularly and is the bottleneck on drafting
+        rather than on ideas. If you want distribution and scheduling across
+        several platforms instead of drafting, that is
+        <a href="../socials/">the social presence manager</a> &mdash; the two
+        compose: blend both into one group and Inari drafts what Phosphene
+        posts.
+      </p>
+
+      <p><a href="setup.html">Set it up &rsaquo;</a></p>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/creator/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>
