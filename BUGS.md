@@ -2046,7 +2046,7 @@ caller who knows a task ID can read its full prompt and owner. Both list pages f
   (`tasks_admin.go:87-91`). Isolation covered by `isolation_test.go:117` (scoped
   caller's routes view) — a tenant sees only its own rows.
 
-## dashd: adminDB() panics if routd.db open fails (2026-06-17, open)
+## ✅ FIXED 2026-08-15 dashd: adminDB() panics if routd.db open fails (2026-06-17)
 
 `main.go:226-231` warns and continues if `routd.db` fails to open, leaving `d.dbRoutd = nil`.
 `adminDB()` (`main.go:307`) returns `d.dbRoutd` unconditionally. Any request to `handleStatus`,
@@ -2061,7 +2061,13 @@ caller who knows a task ID can read its full prompt and owner. Both list pages f
   sits behind a fail-closed gate (`requireVisible`/`requireAdmin` 503 on nil,
   chat portal early-returns on empty folders). Startup keeps Warn+continue by
   design (nil → degraded 503s, comment main.go:223)
-- **Fix:** make routd.db open failure fatal, or nil-check in adminDB() and return 503
+- **Fix:** a51989cc; re-verified at fb152e98 — `adminDB()` (`main.go:439`) still returns
+  the handle unconditionally, by design: the nil case is handled at the gates, which
+  fail closed with 503 (`requireAdmin` `authz.go:217-220`) or a banner. The guarantee
+  is pinned by a regression test rather than by auditing call sites again:
+  `nilbackend_test.go` `TestReadHandlers_nilAdminDB` drives 13 read paths against a
+  `dash` with ALL handles nil and requires 200-or-503, so a panic fails the build.
+  Startup keeps Warn+continue (degraded, not dead).
 
 ## Activity page: no relative timestamps and no pagination (2026-06-16, open)
 
