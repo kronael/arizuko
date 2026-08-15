@@ -824,7 +824,7 @@ recorded here rather than patched.
   other with no error. `db_utils.checkVersions` now rejects a duplicate or
   gapped version set before applying anything.
 
-## L5 — a `hook:`/`web:` JID whose folder was deleted parks in onboarding (2026-08-11, open)
+## L5 — a `hook:`/`web:` JID whose folder was deleted parks in onboarding (2026-08-11, FIXED 2026-08-15)
 
 Pre-existing for `web:` and unchanged by `L1`'s fix. `resolve` step 1 requires
 `GroupExists(direct)`, so a token minted for a folder that an operator later
@@ -839,8 +839,30 @@ the folder is deleted is the other half.
 - **Severity:** low — needs an operator to delete a folder that still has live
   tokens.
 - **Scope:** route-token lifecycle
-- **Affected:** routd, onbod
-- **Status:** open
+- **Affected:** routd, onbod, webd
+- **Status:** FIXED 2026-08-15, and the premise was HALF STALE. The entry asks
+  for two halves; the second one already shipped, as a schema constraint rather
+  than code: `route_tokens.owner_folder` is
+  `TEXT REFERENCES groups(folder) ON DELETE CASCADE` (routd `0032` / store
+  `0083`), and every daemon opens its DB with `_pragma=foreign_keys(on)`, so
+  deleting the folder that MINTED a token already revokes it. A test written
+  for the entry as stated passes without any fix — the token is simply gone.
+  What survives is narrower and was not in the entry: `target_folder` carries
+  NO foreign key and MAY DIFFER from the owner — routd migration `0035` says so
+  in as many words ("owner_folder bounds revocation and may differ from the
+  delivery target"). Delete the TARGET folder of a token owned by a folder that
+  still exists and nothing cascades: `resolve` step 1 fails `GroupExists`, the
+  message falls through to the route miss, and onbod parks an admission row.
+  The fix refuses it at ingress, in `webd.lookupRouteToken` — the ONE funnel
+  every `/chat/` and `/hook/` handler already passes through, so all six
+  handlers are covered by one guard. The caller gets a 404, not a 410: this
+  surface's stated rule is that every error is a 404 so it never discloses which
+  tokens exist, and the reason belongs in the operator log, which now names the
+  jid, the folder and the token hash at ERROR level. Nothing reaches routd, so
+  no admission row is written.
+  `TestRouteToken_DeletedTargetFolderRefusedAtIngress` covers it and asserts the
+  gap it was written for still exists (it fails loudly if a future cascade
+  removes the row instead).
 
 ## L2 — a delegated child ran but never called back; cause not yet isolated (2026-08-08, open)
 
