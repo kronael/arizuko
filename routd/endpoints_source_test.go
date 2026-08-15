@@ -55,6 +55,7 @@ func routdResources(s *Server) []resreg.Resource {
 		s.installedPackagesResource(),
 		s.auditResource(),
 		s.pendingActionsResource(),
+		s.deadLettersResource(),
 	}
 }
 
