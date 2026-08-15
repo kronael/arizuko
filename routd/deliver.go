@@ -110,7 +110,7 @@ func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, threadID, 
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
-	return ch.SendFile(jid, path, name, caption, replyToID, threadID)
+	return ch.SendFile(jid, path, name, caption, replyToID, threadID, idempotencyKey)
 }
 
 func (d *chanDeliverer) SendVoice(jid, audioPath, caption, threadID string) (string, error) {

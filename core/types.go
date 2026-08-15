@@ -169,9 +169,10 @@ type Channel interface {
 	// Send delivers text. threadID posts into an existing thread; threadRoot
 	// asks the adapter to root a NEW thread on that message id when threadID
 	// is empty (Slack thread_ts, Discord start-thread-from-message). Adapters
-	// without threading accept-and-ignore both.
-	Send(jid, text, replyTo, threadID, threadRoot, turnID string) (string, error)
-	SendFile(jid, path, name, caption, replyTo, threadID string) (string, error)
+	// without threading accept-and-ignore both. idempotencyKey is the bot
+	// row's stable id — the adapter's durable dedup claim (spec 5/34).
+	Send(jid, text, replyTo, threadID, threadRoot, idempotencyKey string) (string, error)
+	SendFile(jid, path, name, caption, replyTo, threadID, idempotencyKey string) (string, error)
 	// SendVoice delivers a synthesized voice message. Adapters that don't
 	// support a native voice/PTT primitive return chanlib.ErrUnsupported.
 	// threadID posts into the active thread (same semantics as Send);
