@@ -2050,7 +2050,7 @@ zero occurrences of "usage", "throughput", or "metric". Not specced, not built.
   per-group breakdown and a 7-day daily volume table. `navLinks` carries the `usage` tile.
 - **Fix:** shipped, no further code change; heading closed docs-only.
 
-## dashd: routes + task-detail visible to any auth'd user (2026-06-17, open)
+## ✅ FIXED 2026-08-15 dashd: routes + task-detail visible to any auth'd user (2026-06-17)
 
 `handleRoutes` GET (`routes_admin.go:28`) gates on `requireUser` only — any auth'd caller can
 enumerate the full route table including routes targeting other tenants' folders. `handleTaskDetail`
@@ -2066,9 +2066,15 @@ caller who knows a task ID can read its full prompt and owner. Both list pages f
   2026-07-13: task detail gates on the task's owner via `visible()`
   (tasks_admin.go), routes list filters each row by `visible(target folder)`
   (routes_admin.go:65)
-- **Fix:** add `requireOperator` or `requireVisible(folder)` gate to those GET handlers
+- **Fix:** d52b2c50 + b99138fb; re-verified at fb152e98 — the routes page keeps the
+  `requireUser` gate but drops every row the caller cannot see:
+  `visible(allowed, operator, ParseRouteTarget(target).Folder)` (`routes_admin.go:64`),
+  with `allowed/operator` from `callerScope`. Task detail loads the row, then 403s on
+  `!visible(allowed, operator, owner)` BEFORE rendering the prompt
+  (`tasks_admin.go:87-91`). Isolation covered by `isolation_test.go:117` (scoped
+  caller's routes view) — a tenant sees only its own rows.
 
-## dashd: adminDB() panics if routd.db open fails (2026-06-17, open)
+## ✅ FIXED 2026-08-15 dashd: adminDB() panics if routd.db open fails (2026-06-17)
 
 `main.go:226-231` warns and continues if `routd.db` fails to open, leaving `d.dbRoutd = nil`.
 `adminDB()` (`main.go:307`) returns `d.dbRoutd` unconditionally. Any request to `handleStatus`,
@@ -2083,7 +2089,13 @@ caller who knows a task ID can read its full prompt and owner. Both list pages f
   sits behind a fail-closed gate (`requireVisible`/`requireAdmin` 503 on nil,
   chat portal early-returns on empty folders). Startup keeps Warn+continue by
   design (nil → degraded 503s, comment main.go:223)
-- **Fix:** make routd.db open failure fatal, or nil-check in adminDB() and return 503
+- **Fix:** a51989cc; re-verified at fb152e98 — `adminDB()` (`main.go:439`) still returns
+  the handle unconditionally, by design: the nil case is handled at the gates, which
+  fail closed with 503 (`requireAdmin` `authz.go:217-220`) or a banner. The guarantee
+  is pinned by a regression test rather than by auditing call sites again:
+  `nilbackend_test.go` `TestReadHandlers_nilAdminDB` drives 13 read paths against a
+  `dash` with ALL handles nil and requires 200-or-503, so a panic fails the build.
+  Startup keeps Warn+continue (degraded, not dead).
 
 ## ✅ FIXED 2026-08-15 — Activity page: no relative timestamps and no pagination (2026-06-16, open)
 
@@ -2111,7 +2123,7 @@ incident you cannot scroll back past 50 events and must parse UTC strings by eye
 
 ---
 
-## [SEC] channels: pairAuth fails open + innerHTML XSS in pair-status polling (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] channels: pairAuth fails open + innerHTML XSS in pair-status polling (2026-06-18)
 
 Two issues in `channels.go`. (1) `pairAuth` at line 33: if service-token minting fails, dashd
 still sends the call to whapd without Authorization — auth bypass risk on a sensitive operator
@@ -2122,9 +2134,15 @@ action. (2) Line 91: JS polling renders `expires_at`/`since` from whapd JSON dir
 - **Scope:** dashd/channels.go:33, :91
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — pairAuth returns error + fail-closed; JS uses textContent/createTextNode (80bd29da)
-- **Fix:** (1) fail closed when svc token unavailable; (2) use `textContent` or escape fields
+- **Fix:** 80bd29da; re-verified at fb152e98 — (1) `pairAuth` (`channels.go:34-46`) returns
+  the exchange error and BOTH callers abort on it (`:177` pair-start → "service token
+  unavailable", `:205` pair-status → state "unreachable"); the request is never sent
+  unauthenticated. (2) the polling JS (`:104-114`) builds the status block from
+  `textContent` + `createTextNode`, so `expires_at`/`since` cannot inject markup; the
+  only `innerHTML` left (`:81`) is an hx-swap target attribute, not a sink.
+  Covered by `channels_test.go` (non-admin denied, admin proxies + audits).
 
-## [SEC] routes: handleRouteUpdate authorizes new target, not existing row (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] routes: handleRouteUpdate authorizes new target, not existing row (2026-06-18)
 
 `routes_admin.go:194`: PATCH only requires admin on the new target folder. A caller who knows a
 route ID in another folder can PATCH it into a folder they own — changing match/seq/target on an
@@ -2134,9 +2152,16 @@ otherwise inaccessible rule.
 - **Scope:** dashd/routes_admin.go:194
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — loads existing row first, requires admin on old + new folder (80bd29da)
-- **Fix:** load current row first; require admin on both old and new folder
+- **Fix:** 80bd29da shipped the gate; re-verified at fb152e98 — `routes_admin.go:202-223`
+  loads `curTarget`, requires admin on `curFolder`, and requires admin on the new
+  folder too when the target moves. `handleRouteDelete` (`:270-283`) resolves the
+  folder from the stored row, so the sibling path never had the hole. The fix had
+  NO regression test; added `dashd/routes_admin_test.go` (4 cases: cross-folder
+  PATCH denied, donate-to-unowned denied, own-folder PATCH allowed, cross-folder
+  DELETE denied). Mutation-checked — removing the `curFolder` gate turns the two
+  deny cases from 403 into 204.
 
-## [SEC] invites: raw token exposed in revoke URL (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] invites: raw token exposed in revoke URL (2026-06-18)
 
 `invites.go:56`: token is a path param in the revoke form action — leaks live bearer into request
 logs, browser history, and proxy access logs.
@@ -2146,9 +2171,14 @@ logs, browser history, and proxy access logs.
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved a51989cc — stale entry, verified 2026-07-12: revoke URL
   carries `inviteRef` (sha256 of token); handler resolves ref→token server-side
-- **Fix:** revoke by opaque row ID, not token
+- **Fix:** a51989cc; re-verified at fb152e98 — the revoke form posts to
+  `/dash/invites/{ref}/revoke` (`invites.go:57-61`) and `handleInviteRevoke` (`:155`)
+  calls `RevokeInviteByRef(ref)`. `ref` is `store.TokenRef(token)` = sha256 hex
+  (`store/invites_test.go:22`), so it is one-way — a log or history leak of the URL
+  yields no redeemable bearer. The raw token appears once, in the create-response
+  BODY (`:143-149`), never in a URL.
 
-## [SEC] route_tokens: encodeJID/decodeJID not reversible; webhook label unvalidated (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] route_tokens: encodeJID/decodeJID not reversible; webhook label unvalidated (2026-06-18)
 
 `route_tokens.go:131`: `decodeJID` maps every `--` back to `/`, so a label containing `--` revokes
 the wrong JID. `route_tokens.go:43`: label is unvalidated — can contain `/` or control chars that
@@ -2160,9 +2190,15 @@ break JID namespace.
 - **Status:** resolved — label validated against `[a-zA-Z0-9._-]+` (80bd29da);
   encodeJID collision fixed a51989cc, verified 2026-07-13: `encodeJID` =
   `url.PathEscape` (reversible), `decodeJID` deleted (mux PathValue unescapes)
-- **Fix:** use `url.PathEscape`; validate label against `[a-zA-Z0-9._-]+`
+- **Fix:** 80bd29da + a51989cc; re-verified at fb152e98 — `encodeJID` is `url.PathEscape`
+  (`route_tokens.go:143`), the lossy `decodeJID` is gone, and `handleTokensRevoke`
+  (`:116-121`) reads the mux-unescaped `{jid}` PathValue. Labels are gated by
+  `webhookLabelRe = ^[a-zA-Z0-9._-]+$` (`:15`, enforced `:56`) before composing
+  `hook:<folder>/<label>`. Revoke is also folder-bound —
+  `RevokeRouteToken(jid, folder)` (`:133`) after `requireAdmin(folder)` — so even a
+  crafted jid cannot revoke another folder's token.
 
-## [SEC] chat: raw bearer tokens visible to read-scoped dashboard users (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] chat: raw bearer tokens visible to read-scoped dashboard users (2026-06-18)
 
 `chat.go:152,262`: session list renders raw chat bearer tokens in Continue links. Any read-scoped
 user who can see the portal sees a reusable write-capable token, bypassing the admin gate on token
@@ -2175,9 +2211,17 @@ minting.
   continue links render only for folders the caller admins (`callerAdmins` map
   in the portal, `admin` gate on the group page; `folderSessionTokens` fetched
   only when admin) — read-scoped viewers see rows without tokens
-- **Fix:** restrict session listing to admins, or hide the raw token from non-admin views
+- **Fix:** a51989cc; re-verified at fb152e98 — the portal builds `admin[folder]` from
+  `callerAdmins` (`chat.go:81`) and `writeConvGroups` (`:255-259`) emits the
+  `/chat/<token>/` anchor ONLY when `admin[s.folder]`; otherwise a plain `<div>` with
+  no token. Per-folder, `writeFolderConversations` (`:331-333`) fetches
+  `folderSessionTokens` only when admin, so a read-scoped viewer's rows render
+  `cont = "—"`. `callerAdmins` (`:235`) is the non-writing twin of `requireAdmin`,
+  so both surfaces resolve through the same `auth.Authorize` decision — no second
+  inline check. Covered by `chat_test.go` `TestHandleChatPortal_hidesTokenFromNonAdmin`
+  and `TestHandleChatGroup_tokenAdminOnly`.
 
-## [SEC] routd/runed: retry + kill endpoints missing CSRF protection (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] routd/runed: retry + kill endpoints missing CSRF protection (2026-06-18)
 
 `routd_page.go:106`: POST /dash/routd/retry gated by `requireOperator` only — no same-origin
 check. `runed_page.go:135`: POST /dash/runed/kill same issue, higher impact (terminates live runs).
@@ -2186,9 +2230,13 @@ check. `runed_page.go:135`: POST /dash/runed/kill same issue, higher impact (ter
 - **Scope:** dashd/routd_page.go:106, dashd/runed_page.go:135
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — `requireSameOrigin` added to both (1dc9b356)
-- **Fix:** add `requireSameOrigin` to both write endpoints
+- **Fix:** 1dc9b356; re-verified at fb152e98 — `handleRoutdRetry` (`routd_page.go:117`)
+  and `handleRunedKill` (`runed_page.go:156`) each call `requireSameOrigin` right after
+  `requireOperator`. Same guard, not a second mechanism: `requireAdmin` also embeds it
+  (`authz.go:212`), so every dashd write goes through one CSRF check.
+  Covered by `authz_test.go` (missing Origin passes, matching passes, cross-origin 403).
 
-## [SEC] grants: effect silently defaults to allow; nil adminDB in POST paths (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] grants: effect silently defaults to allow; nil adminDB in POST paths (2026-06-18)
 
 `grants_admin.go:184`: invalid `effect` value silently creates an allow grant. `grants_admin.go:46`
 guards GET but not POST — nil adminDB panics on add/revoke.
@@ -2197,7 +2245,16 @@ guards GET but not POST — nil adminDB panics on add/revoke.
 - **Scope:** dashd/grants_admin.go:184,:46
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — invalid effect → 400; nil adminDB guard on add + revoke (91159586)
-- **Fix:** reject invalid effect with 400; nil-guard adminDB in POST handlers
+- **Fix:** 91159586; re-verified at fb152e98 — the ADD path rejects an unknown effect
+  with 400 (`grants_admin.go:189-193`: empty → `allow`, anything not allow/deny → 400),
+  so a typo can no longer mint an allow grant. `adminDB()` is nil-guarded on GET (`:46`),
+  add-POST (`:170`) and revoke-POST (`:236`).
+  Noted while verifying, NOT part of this entry and not fixed: the revoke path
+  (`:253`) still defaults a blank effect to `allow` without the 400 check, and
+  `RemoveACLRow` reports no rows-affected — a revoke whose fields don't match any row
+  redirects as success. That fails CLOSED (the grant stays) and the form is
+  dashd-rendered from the row itself (`:64`), so it is a fail-loud gap, not an
+  escalation. Worth its own entry if the queue wants it.
 
 ## ✅ FIXED 2026-08-15 — tasks: new tasks have no next_run; cron not validated on create (2026-06-18, open)
 
@@ -2229,7 +2286,7 @@ invalid cron/interval strings stored silently; timed logs warning and task stays
   0 rows affected → 409.
 - **Fix:** enforce valid transitions in SQL or code; recompute next_run on resume
 
-## groups: delete parent leaves orphaned child rows; not atomic (2026-06-18, open)
+## ✅ FIXED 2026-08-15 groups: delete parent leaves orphaned child rows; not atomic (2026-06-18)
 
 `groups_admin.go:403`: deleting `corp` removes ACL/routes for the whole subtree and purges files,
 but leaves `corp/eng` rows in `groups`. Orphaned child groups become invisible but persistent.
@@ -2239,7 +2296,13 @@ Also not atomic — if ACL cleanup fails after groups DELETE, stale rows resurfa
 - **Scope:** dashd/groups_admin.go:403
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — delete wrapped in transaction; descendant group rows purged atomically (91159586)
-- **Fix:** delete descendant groups rows in same transaction; forbid non-leaf delete or wrap all in tx
+- **Fix:** 91159586; re-verified at fb152e98 — `groups_admin.go:431` opens a tx and every
+  step runs inside it: the folder row (`:437`), descendants
+  (`DELETE FROM groups WHERE folder LIKE ?||'/%'`, `:450`), `acl` by scope + subtree
+  (`:457`), `routes` by target/`#`/subtree (`:464`), and the audit row via
+  `audit.EmitInTx` (`:471`) — every failure path `tx.Rollback()`s, and one
+  `tx.Commit()` (`:486`) makes it atomic. No orphaned child rows, no half-applied
+  cleanup.
 
 ## ✅ FIXED 2026-08-15 — groups: observe-window and max_children forms corrupt defaults on save (2026-06-18, open)
 
@@ -2257,7 +2320,7 @@ nothing) or "0 max_children" (spawning disabled).
   the field itself was removed, so that half of the entry is moot rather than fixed.
 - **Fix:** render -1/NULL as blank; treat submitted 0 as clear-to-default in POST handler
 
-## main: writeTaskRows and activity feed apply LIMIT before visibility filter (2026-06-18, open)
+## ✅ FIXED 2026-08-15 (tasks; activity residual documented) main: writeTaskRows and activity feed apply LIMIT before visibility filter (2026-06-18)
 
 `main.go:730`: `writeTaskRows` fetches LIMIT 500 then filters in Go — scoped users miss tasks that
 sort after row 500. `main.go:808`: activity feed fetches 1000 rows then filters — same class.
@@ -2270,9 +2333,20 @@ sort after row 500. `main.go:808`: activity feed fetches 1000 rows then filters 
   fall back to a 5000 over-fetch). Activity deliberately over-fetches 1000 for
   non-operators (visibility needs Go-side `jidFolder` route resolution, not
   SQL-expressible); residual: scoped rows older than the newest 1000 stay hidden
-- **Fix:** push visibility filter into SQL; or page until N visible rows found
+- **Fix:** a51989cc; re-verified at fb152e98 — `writeTaskRows` (`main.go:981-1001`) pushes
+  the owner filter into SQL via `ownerVisibleSQL` (`:963`), so the LIMIT counts only
+  visible rows; a grant carrying a `*` is inexpressible in that predicate, so it
+  returns `ok=false` and the query falls back to `ORDER BY owner, id LIMIT 5000` with
+  the Go-side `visible()` filter. No concrete grants → the predicate is literal `0`
+  (fail-closed, nothing visible).
+  Residual, deliberate: the activity feed still over-fetches 1000 and filters in Go,
+  because visibility there needs `jidFolder` route resolution that SQL cannot express.
+  Both directions of the residual only HIDE rows from an under-privileged caller —
+  neither leaks — so this closes as a completeness limit, not a security defect. If the
+  operator-visible gap ("my task/event is older than the newest 1000") is worth fixing,
+  it wants keyset pagination, which is a redesign and needs its own entry.
 
-## main: memory write/delete broken for nested group folders (2026-06-18, open)
+## ✅ FIXED 2026-08-15 main: memory write/delete broken for nested group folders (2026-06-18)
 
 `main.go:1073`: `parseMemoryPath` splits on first `/` after `/dash/memory/`. For
 `corp/eng`, folder="corp" and rel="eng/MEMORY.md" — fails allowlist. Read page shows nested groups
@@ -2281,8 +2355,16 @@ correctly but mutations don't work.
 - **Severity:** medium
 - **Scope:** dashd/main.go:1073
 - **Source:** codex audit 2026-06-18
-- **Status:** resolved — parseMemoryPath scans split points right-to-left; nested folders work (91159586)
-- **Fix:** route mutations through a wildcard `{folder...}` path param or parse from suffix
+- **Status:** resolved — parseMemoryPath scans split points; nested folders work (91159586)
+- **Fix:** 91159586 shipped it; re-verified at fb152e98 — `main.go:1354-1368` walks every
+  `/` split point (left-to-right, first `rel` passing `memoryPathAllowed` wins), so
+  `corp/eng/MEMORY.md` resolves to folder=`corp/eng`. Both mutators authorize on the
+  PARSED folder (`main.go:1414`, `:1459`), so the scan cannot reach another tenant.
+  (The old status line said "right-to-left"; the scan is left-to-right — same result,
+  wrong description, corrected here.) The fix had NO nested test — `setupMemoryTest`
+  only ever used flat `g1`. Added `dashd/memory_nested_test.go`: parseMemoryPath table
+  (nested, 3-deep, diary, .claude, non-allowlisted, traversal) + nested write/diary/delete
+  + an ungranted-caller 403.
 
 ## ✅ FIXED 2026-08-15 — audit: pagination cursor off by one (2026-06-18, open)
 
@@ -2299,7 +2381,7 @@ correctly but mutations don't work.
   `merged[:auditPageSize]` slice) — no lookahead-row leak.
 - **Fix:** capture cursor from row 50, not the lookahead row
 
-## routd: retry clears errored on all messages, not just errored=1 (2026-06-18, open)
+## ✅ FIXED 2026-08-15 routd: retry clears errored on all messages, not just errored=1 (2026-06-18)
 
 `routd_page.go:123`: `UPDATE messages SET errored=0 WHERE chat_jid=?` resets all rows, including
 non-errored history.
@@ -2308,7 +2390,10 @@ non-errored history.
 - **Scope:** dashd/routd_page.go:123
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — `AND errored=1` added (1dc9b356)
-- **Fix:** `UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1`
+- **Fix:** 1dc9b356; re-verified at fb152e98 — `routd_page.go:133` is exactly
+  `UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1`, so a retry touches
+  only errored rows and `RowsAffected` reports the true cleared count into the audit
+  event (`:139-150`) instead of the chat's whole history.
 
 ## ✅ FIXED 2026-08-15 — services: davd probe path wrong; timeout classified as unknown (2026-06-18, open)
 
