@@ -70,26 +70,3 @@ func (s *Store) LogSecretUse(r SecretUseRow) error {
 	}
 	return tx.Commit()
 }
-
-// LookupSecret returns the DECRYPTED value for (scope, scopeID, key) or "" +
-// false when no row exists or the keyring cannot open it. Distinct from
-// GetSecret which returns ErrSecretNotFound; the broker treats "missing" as a
-// normal flow. It decrypts through the same open() every other read uses: it
-// returned the raw column until writes started sealing unconditionally, so it
-// would have handed the caller a "v2:" ciphertext (BUGS S2).
-func (s *Store) LookupSecret(scope SecretScope, scopeID, key string) (string, bool) {
-	var v string
-	err := s.db.QueryRow(
-		`SELECT value FROM secrets
-		 WHERE scope_kind = ? AND scope_id = ? AND key = ?`,
-		string(scope), scopeID, key,
-	).Scan(&v)
-	if err != nil {
-		return "", false
-	}
-	plain, err := s.open(v)
-	if err != nil {
-		return "", false
-	}
-	return plain, true
-}

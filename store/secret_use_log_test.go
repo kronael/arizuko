@@ -90,19 +90,3 @@ func TestLogSecretUse_AutoTimestamp(t *testing.T) {
 		t.Errorf("ts not RFC3339Nano: %q (%v)", ts, err)
 	}
 }
-
-func TestLookupSecret_HitAndMiss(t *testing.T) {
-	s := openMemSealed(t)
-
-	if err := s.SetSecret(ScopeUser, "github:alice", "GITHUB_TOKEN", "ghp_xxx"); err != nil {
-		t.Fatal(err)
-	}
-	v, ok := s.LookupSecret(ScopeUser, "github:alice", "GITHUB_TOKEN")
-	if !ok || v != "ghp_xxx" {
-		t.Errorf("hit: v=%q ok=%v want ghp_xxx,true", v, ok)
-	}
-	_, ok = s.LookupSecret(ScopeUser, "github:alice", "NOPE")
-	if ok {
-		t.Error("miss: ok=true, want false")
-	}
-}

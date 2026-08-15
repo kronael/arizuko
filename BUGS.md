@@ -2480,7 +2480,7 @@ is recorded rather than done.
 - **Source:** `store/secrets.go` `EncryptPlaintextSecrets`
 - **Status:** open — needs sign-off on where the migration runs
 
-## L17 — `store.LookupSecret` has no non-test callers (2026-08-11, open)
+## ✅ FIXED 2026-08-15 L17 — `store.LookupSecret` has no non-test callers (2026-08-11)
 
 Found while fixing `S2`. `LookupSecret` never decrypted — it returned the raw
 column, a bug that plaintext-at-rest hid completely. It now opens through the
@@ -2494,7 +2494,25 @@ written against it.
 - **Scope:** dead read path
 - **Affected:** store
 - **Source:** `store/secret_use_log.go` `LookupSecret`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — dead, deleted (the `spawn_logs` precedent,
+  `F72`).
+- **Fix:** the "surface that ought to use it" question resolves to NO: the
+  broker's one resolution body is `DB.folderSecretsForUser` →
+  `store.FolderSecretsResolvedForUser` (`routd/sibling_db.go:151`), which
+  resolves user-over-folder in one pass AND returns the per-key scope
+  provenance `secret_use_log` records. `LookupSecret` answers a strictly weaker
+  question (one exact `(scope, scope_id, key)` row, no overlay, no provenance),
+  so wiring it in would have been a SECOND reader beside the one that exists —
+  the drift this repo bans. Its own doc comment already described a caller that
+  is not there ("the broker treats missing as a normal flow"); the broker never
+  called it. Function and `TestLookupSecret_HitAndMiss` both deleted.
+  `LogSecretUse`, its file-mate, is NOT dead — `routd/mcp.go:523` calls it.
+
+**NOT the same story as `L16`, checked before writing either fix.** They share
+a file neighbourhood and the S2 aftermath, nothing else: `L17` is a redundant
+READER of a path that already exists (delete it), `L16` is a needed WRITER with
+no home (deciding where it runs is the open question). One deletion cannot
+close both, and bundling them would have hidden that `L16` still needs sign-off.
 
 ## Web docs claim URL↔kind binding on route tokens; shipped code accepts any token at either URL (2026-07-12, fixed, LOW)
 
