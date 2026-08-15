@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -211,6 +212,8 @@ func (d *dockerRuntime) steerInto(ipcDir, containerName string) func(batch strin
 			return false
 		}
 		if err := writeIPCInput(ipcDir, batch); err != nil {
+			slog.Error("steerInto: writeIPCInput failed; falling through to a fresh spawn like the documented SIGUSR1 race, but this is a disk-write failure, not a race",
+				"container", containerName, "err", err)
 			return false
 		}
 		return d.signal(containerName) == nil

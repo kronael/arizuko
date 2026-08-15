@@ -297,7 +297,10 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		// turn_context done so a re-fed poll (or recoverPending after a restart)
 		// sees it terminal and skips re-dispatch — else it re-runs as a fresh
 		// spawn and duplicates the output.
-		_ = l.db.SetTurnState(turnID, "done")
+		if err := l.db.SetTurnState(turnID, "done"); err != nil {
+			slog.Error("processGroupMessages: SetTurnState(done) failed on steer; turn may appear stuck and be re-dispatched, duplicating output",
+				"turn_id", turnID, "err", err)
+		}
 		_ = l.db.SetRunReturned(turnID)
 		return true, true, false, nil
 	}
@@ -346,7 +349,10 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			}
 			_, _ = l.deliver.Send(chatJID, notice, "", topic, "", "fail-"+turnID)
 		}
-		_ = l.db.SetTurnState(turnID, "done")
+		if err := l.db.SetTurnState(turnID, "done"); err != nil {
+			slog.Error("processGroupMessages: SetTurnState(done) failed on terminal failure; turn may appear stuck in-progress",
+				"turn_id", turnID, "err", err)
+		}
 		// The breaker rides only on the run that trips it (runed reports
 		// BreakerOpen on that run's outcome). When set, prune the chat's errored
 		// rows + clear the folder session.
@@ -376,7 +382,10 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 	}
 	obs.SetCircuitBreakerState(folder, 0) // 0=closed: a clean run clears the breaker
-	_ = l.db.SetTurnState(turnID, "done")
+	if err := l.db.SetTurnState(turnID, "done"); err != nil {
+		slog.Error("processGroupMessages: SetTurnState(done) failed on clean completion; turn may appear stuck in-progress",
+			"folder", folder, "turn_id", turnID, "err", err)
+	}
 	return out.Outcome != runedv1.OutcomeSilent, false, false, nil
 }
 

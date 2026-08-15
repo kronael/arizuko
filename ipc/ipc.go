@@ -399,12 +399,12 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoo
 				if expectedUID > 0 {
 					cred, err := peerCred(c)
 					if err != nil {
-						slog.Warn("mcp peer cred read failed",
+						slog.Error("mcp peer cred read failed; connection rejected, group gets no tool calls",
 							"folder", folder, "err", err)
 						return
 					}
 					if int(cred.Uid) != expectedUID {
-						slog.Warn("mcp peer uid mismatch",
+						slog.Error("mcp peer uid mismatch; connection rejected, group gets no tool calls",
 							"folder", folder,
 							"want", expectedUID, "got", cred.Uid,
 							"pid", cred.Pid)

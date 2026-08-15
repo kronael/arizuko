@@ -81,30 +81,30 @@ func (r *Registry) flushLocked() {
 	}
 	data, err := json.Marshal(out)
 	if err != nil {
-		slog.Warn("registry: marshal", "err", err)
+		slog.Error("registry: marshal; egress allowlist change not persisted, will revert on restart", "err", err)
 		return
 	}
 	dir := filepath.Dir(r.path)
 	tmp, err := os.CreateTemp(dir, ".registry-*.json")
 	if err != nil {
-		slog.Warn("registry: tmp create", "dir", dir, "err", err)
+		slog.Error("registry: tmp create; egress allowlist change not persisted, will revert on restart", "dir", dir, "err", err)
 		return
 	}
 	tmpPath := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		os.Remove(tmpPath)
-		slog.Warn("registry: tmp write", "err", err)
+		slog.Error("registry: tmp write; egress allowlist change not persisted, will revert on restart", "err", err)
 		return
 	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpPath)
-		slog.Warn("registry: tmp close", "err", err)
+		slog.Error("registry: tmp close; egress allowlist change not persisted, will revert on restart", "err", err)
 		return
 	}
 	if err := os.Rename(tmpPath, r.path); err != nil {
 		os.Remove(tmpPath)
-		slog.Warn("registry: rename", "err", err)
+		slog.Error("registry: rename; egress allowlist change not persisted, will revert on restart", "err", err)
 	}
 }
 

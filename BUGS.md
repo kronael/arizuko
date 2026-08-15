@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## Error-hygiene sweep: swallowed / mis-levelled errors in the hot path (2026-07-11, 2 FIXED, rest OPEN)
+## Error-hygiene sweep: swallowed / mis-levelled errors in the hot path (2026-07-11, 8 FIXED, rest OPEN)
 
 Sweep for the same class as the no-reply bug below (an error swallowed as
 Warn/`_ =` while execution continues → silent degradation). Two shapes recur:
@@ -50,17 +50,50 @@ bookkeeping writes that matter next turn.
   opaque `v`, so a proper JSON-RPC error frame needs the request id threaded
   in — design, not a log-add.
 - `ipc/ipc.go:348-361` — peer-cred/UID mismatch on MCP accept only `Warn`; gates
-  every tool call for the group. (MED)
+  every tool call for the group. **FIXED 2026-08-15** — both the peer-cred
+  read failure and the UID mismatch are now `slog.Error` with the "connection
+  rejected, group gets no tool calls" symptom (log-add only, no control-flow
+  change).
 - `crackbox/pkg/admin/registry.go:84-107` `flushLocked` — `Warn`+return on
   disk-persist failure inside a void fn; handler still ACKs 200 → stale egress
-  allowlist can reappear after restart. (MED)
+  allowlist can reappear after restart. **FIXED 2026-08-15** — all five
+  failure branches (marshal/tmp-create/tmp-write/tmp-close/rename) elevated to
+  `slog.Error` naming the "egress allowlist change not persisted, will revert
+  on restart" symptom.
 - `routd/turns.go:670-676` `recordTurnResult` — discards `PutMessage`/`PutSession`
-  errors (this path historically broke all replies post-split — verify first). (MED)
-- `runed/manager.go:212-214`, `runed/docker.go:66` (steer silently no-ops),
-  `ipc/ipc.go:340-345` (conn-limit reject, no error frame),
-  `routd/dispatch.go:263,305,320` (terminal SetTurnState unlogged),
-  `crackbox/pkg/host/host.go:130-132`, `routd/budget.go:32-43` (spend caps fail
-  open on a DB hiccup). (MED/LOW)
+  errors (this path historically broke all replies post-split — verify first).
+  **FIXED 2026-08-15** — verified safe (log-add only, the delivery itself is
+  already done via `appendAndDeliver` before the discarded `PutMessage`, so
+  logging doesn't touch the reply path that broke in the 2026-06-08 outage).
+  `PutMessage`, `PutSession`, `PutCost` (per-model), and `SetTurnState("done")`
+  now each log `slog.Error` naming their specific symptom (missing from
+  history/audit, lost session continuity, missing cost attribution, turn
+  stuck in-progress).
+- `runed/docker.go:66` `steerInto` — **FIXED 2026-08-15**: `writeIPCInput`
+  failure now logs `slog.Error`, distinguishing a real disk-write failure from
+  the documented SIGUSR1 race the function's doc comment describes (both
+  previously returned `false` silently).
+- `routd/dispatch.go:263,305,320` (renumbered ~300/349/379 at HEAD) terminal
+  `SetTurnState("done")` unlogged — **FIXED 2026-08-15**, all three call
+  sites (steered, terminal-failure, clean-completion) now log `slog.Error`
+  naming "turn may appear stuck in-progress" (or, for the steer site, "may be
+  re-dispatched, duplicating output").
+- **Still open, unverified:**
+  - `runed/manager.go` (steer-related discards near the admit/spawn path,
+    line numbers drifted from the original 212-214 citation — not
+    independently re-audited this pass).
+  - `ipc/ipc.go:340-345` (conn-limit reject, no error frame) — already logs
+    `slog.Warn`, so not silent; the gap is a missing JSON-RPC error frame to
+    the caller, which needs the request id threaded through `writeJSON` —
+    design work, not a log-add.
+  - `routd/budget.go:32-43` spend caps fail open on a DB hiccup — already
+    logs `slog.Warn` on `FolderCap`/`UserCap` read failure, so not silent
+    either; the open question is whether failing OPEN (allow the turn) is the
+    right policy when the cap check itself errors, vs. failing closed — a
+    policy call, not a log-add.
+  - `crackbox/pkg/host/host.go:130-132` — egress-proxy unregister failure on
+    VM stop logs to stderr via `fmt.Fprintf`, not `slog` — inconsistent
+    structured-logging but not silent. Low priority, left open.
 
 Adapters (teled/discd/slakd/mastd/bskyd/reditd/emaid/chanlib) swept clean for
 this class.

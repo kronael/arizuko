@@ -699,19 +699,31 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 		isolated := strings.HasPrefix(tc.Trigger, "timed-isolated:")
 		if req.Result != "" && !isolated && !s.db.TurnHasBotReply(turnID) {
 			if _, _, row := s.appendAndDeliver(turnID, tc.ChatJID, req.Result, "", true); row != nil {
-				_ = s.db.PutMessage(*row)
+				if err := s.db.PutMessage(*row); err != nil {
+					slog.Error("recordTurnResult: PutMessage failed; reply was delivered but not persisted, will be missing from history/audit",
+						"folder", tc.Folder, "turn_id", turnID, "err", err)
+				}
 			}
 		}
 		if req.SessionID != "" {
-			_ = s.db.PutSession(tc.Folder, tc.Topic, req.SessionID)
+			if err := s.db.PutSession(tc.Folder, tc.Topic, req.SessionID); err != nil {
+				slog.Error("recordTurnResult: PutSession failed; next turn in this topic loses session continuity",
+					"folder", tc.Folder, "turn_id", turnID, "err", err)
+			}
 		}
 		userSub := callerSubOfMsg(tc.Trigger)
 		for model, c := range req.Models {
-			_ = s.db.PutCost(tc.Folder, turnID, userSub, model, c.Input, c.Output, c.CostCents)
+			if err := s.db.PutCost(tc.Folder, turnID, userSub, model, c.Input, c.Output, c.CostCents); err != nil {
+				slog.Error("recordTurnResult: PutCost failed; cost attribution for this turn is missing",
+					"folder", tc.Folder, "turn_id", turnID, "model", model, "err", err)
+			}
 			obs.RecordModelTokens(model, tc.Folder, "in", c.Input)
 			obs.RecordModelTokens(model, tc.Folder, "out", c.Output)
 		}
-		_ = s.db.SetTurnState(turnID, "done")
+		if err := s.db.SetTurnState(turnID, "done"); err != nil {
+			slog.Error("recordTurnResult: SetTurnState(done) failed; turn may appear stuck in-progress",
+				"folder", tc.Folder, "turn_id", turnID, "err", err)
+		}
 		if s.loop != nil {
 			s.loop.publishRoundDone(strings.TrimPrefix(tc.ChatJID, "web:"), turnID)
 		}
