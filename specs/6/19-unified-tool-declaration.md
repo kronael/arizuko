@@ -100,12 +100,14 @@ execution shapes; only the declaration unifies.
 3. **Typed secret entries as the shared vocabulary.** `secrets` becomes
    a list of `{ key, type, ... }` where `rest`'s current auth-method
    enum is the `http` type's mode field, and the vocabulary is the SAME
-   one `6/17`'s proxy rules use (`http` replace/inject, `hmac_sign`,
-   `aws_auth`) — so a credential either rides the broker (this file) or
-   the proxy (`6/17`) but is described identically in both. `hosts` on
-   a declaration is the seed `6/17` §per-tool rules consume; for
-   broker-side transports it is documentation and audit context only
-   (connector subprocesses run on the host, outside crackbox).
+   one `6/17`'s residual proxy rules use (`http` replace/inject only —
+   `6/17` declined the vendor-signing types `aws_auth`/`hmac_sign`;
+   signing rides its request tool / `credential_process` tiers) — so a
+   credential either rides the broker (this file) or the proxy (`6/17`)
+   but is described identically in both. `hosts` on a declaration is
+   the seed `6/17`'s renderer consumes; for broker-side transports it
+   is documentation and audit context only (connector subprocesses run
+   on the host, outside the egress path).
 
 ## Cost
 
