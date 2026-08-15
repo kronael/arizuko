@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -89,6 +90,63 @@ func TestActivityFullPage(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in body: %s", want, body)
 		}
+	}
+}
+
+// TestActivityPagination: a page past activityPageSize rows renders an
+// "older" link, whose target shows the next page and stays static (no
+// auto-refresh hx-trigger, so it doesn't get polled back to the newest page).
+func TestActivityPagination(t *testing.T) {
+	db := routdDB(t)
+	defer db.Close()
+	const total = activityPageSize + 5
+	for i := range total {
+		ts := fmt.Sprintf("2026-01-01T00:%02d:%02dZ", i/60, i%60)
+		if _, err := db.Exec(
+			`INSERT INTO messages(id, chat_jid, sender, content, timestamp, source, verb)
+			 VALUES(?, 'c1', 's1', 'msg', ?, 'tel', 'say')`,
+			fmt.Sprintf("m%d", i), ts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := &dash{dbRoutd: db}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := asOperator(httptest.NewRequest("GET", "/dash/activity/", nil))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	body := w.Body.String()
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if !strings.Contains(body, `href="/dash/activity/?before=`) {
+		t.Fatalf("expected an older-page link with %d rows: %s", total, body)
+	}
+	if !strings.Contains(body, `hx-trigger="every 10s"`) {
+		t.Errorf("first page should still auto-refresh: %s", body)
+	}
+
+	// Extract the cursor and fetch the older page.
+	start := strings.Index(body, `href="/dash/activity/?before=`) + len(`href="/dash/activity/?before=`)
+	end := strings.Index(body[start:], `"`)
+	cursor := body[start : start+end]
+
+	req2 := asOperator(httptest.NewRequest("GET", "/dash/activity/?before="+cursor, nil))
+	w2 := httptest.NewRecorder()
+	mux.ServeHTTP(w2, req2)
+	body2 := w2.Body.String()
+	if w2.Code != 200 {
+		t.Fatalf("older page status = %d", w2.Code)
+	}
+	if strings.Contains(body2, `hx-trigger="every 10s"`) {
+		t.Errorf("an older page must not auto-refresh (would poll back to newest): %s", body2)
+	}
+	if !strings.Contains(body2, "2026-01-01T00:00:00Z") {
+		t.Errorf("oldest message should appear on the second page: %s", body2)
+	}
+	if got := strings.Count(body2, "<td><abbr"); got != 5 {
+		t.Errorf("second page rows = %d, want 5 (55 total - 50 on page one)", got)
 	}
 }
 

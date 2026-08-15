@@ -1055,49 +1055,75 @@ func (d *dash) writeTaskRows(w http.ResponseWriter, allowed []string, operator b
 	}
 }
 
+// activityPageSize is the rendered window for one activity page.
+const activityPageSize = 50
+
 func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
+	before := strings.TrimSpace(r.URL.Query().Get("before"))
 	pageTopFor(w, r, "Activity")
-	fmt.Fprint(w, `<p class="dim">Last 50 messages across all channels. Auto-refreshes every 10s.</p>`)
-	fmt.Fprint(w, `<table hx-get="/dash/activity/x/recent" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">`+
+	fmt.Fprint(w, `<p class="dim">Last 50 messages across all channels.</p>`)
+	// Auto-refresh only the live (first) page: polling an "older" page back to
+	// the newest 50 would silently discard the operator's pagination.
+	tableAttrs := ""
+	if before == "" {
+		tableAttrs = ` hx-get="/dash/activity/x/recent" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML"`
+	}
+	fmt.Fprintf(w, `<table%s>`+
 		`<thead><tr><th>Time</th><th>Source</th><th>Chat</th><th>Sender</th><th>Verb</th><th>Content</th></tr></thead>`+
-		`<tbody>`)
-	d.writeActivityRows(w, allowed, operator)
+		`<tbody>`, tableAttrs)
+	older := d.writeActivityRows(w, allowed, operator, before)
 	fmt.Fprint(w, `</tbody></table>`)
+	if older != "" {
+		fmt.Fprintf(w, `<p><a class="btn" href="/dash/activity/?before=%s">older &rarr;</a></p>`, url.QueryEscape(older))
+	}
 	pageClose(w, r)
 }
 
 func (d *dash) handleActivityPartial(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	d.writeActivityRows(w, allowed, operator)
+	d.writeActivityRows(w, allowed, operator, "")
 }
 
-func (d *dash) writeActivityRows(w http.ResponseWriter, allowed []string, operator bool) {
+// writeActivityRows renders up to activityPageSize rows older than the before
+// cursor (a raw timestamp string; empty = newest). It returns the cursor for
+// the next "older" page, or "" when there is nothing further back.
+func (d *dash) writeActivityRows(w http.ResponseWriter, allowed []string, operator bool, before string) string {
 	if d.adminDB() == nil {
 		fmt.Fprint(w, `<tr><td colspan=6 class="empty">backend unavailable</td></tr>`)
-		return
+		return ""
 	}
-	// Non-operators may filter out most of the newest 50; over-fetch so a
-	// scoped view still fills the table. Operators read exactly 50.
-	limit := 50
+	// Non-operators may filter out most of the newest page; over-fetch so a
+	// scoped view still fills the table. Operators read one past the page size
+	// so we can tell "exactly 50" from "more behind it".
+	limit := activityPageSize + 1
 	if !operator {
 		limit = 1000
 	}
-	rows, err := d.adminDB().Query(
-		`SELECT timestamp, source, chat_jid, sender, verb, substr(content,1,80)
-		 FROM messages ORDER BY timestamp DESC LIMIT ?`, limit)
+	query := `SELECT timestamp, source, chat_jid, sender, verb, substr(content,1,80)
+		 FROM messages`
+	args := []any{}
+	if before != "" {
+		query += ` WHERE timestamp < ?`
+		args = append(args, before)
+	}
+	query += ` ORDER BY timestamp DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := d.adminDB().Query(query, args...)
 	if err != nil {
 		slog.Warn("activity: query", "err", err)
 		fmt.Fprintf(w, `<tr><td colspan=6 class="empty">error: %s</td></tr>`, esc(err.Error()))
-		return
+		return ""
 	}
 	defer rows.Close()
 	var n int
-	const maxShown = 50
+	var lastTS string
+	var more bool
 	folderOf := map[string]string{} // memoize chat_jid → folder across rows
 	for rows.Next() {
-		if n >= maxShown {
+		if n >= activityPageSize {
+			more = true
 			break
 		}
 		var ts, source, chatJID, sender, content string
@@ -1128,17 +1154,23 @@ func (d *dash) writeActivityRows(w http.ResponseWriter, allowed []string, operat
 			esc(verb.String),
 			esc(content),
 		)
+		lastTS = ts
 		n++
 	}
 	if err := rows.Err(); err != nil {
 		slog.Warn("activity: rows", "err", err)
 		fmt.Fprintf(w, `<tr><td colspan=6 class="empty">rows error: %s</td></tr>`,
 			esc(err.Error()))
-		return
+		return ""
 	}
 	if n == 0 {
 		fmt.Fprint(w, `<tr><td colspan=6 class="empty">No messages yet.</td></tr>`)
+		return ""
 	}
+	if !more {
+		return ""
+	}
+	return lastTS
 }
 
 // dispatchGroupsGet routes GET /dash/groups/{folder...}. The trailing

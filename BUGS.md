@@ -2061,7 +2061,7 @@ caller who knows a task ID can read its full prompt and owner. Both list pages f
   design (nil → degraded 503s, comment main.go:223)
 - **Fix:** make routd.db open failure fatal, or nil-check in adminDB() and return 503
 
-## Activity page: no relative timestamps and no pagination (2026-06-16, open)
+## ✅ FIXED 2026-08-15 — Activity page: no relative timestamps and no pagination (2026-06-16, open)
 
 `writeActivityRows` emits raw ISO8601 nanosecond timestamps (dashd/main.go:688). No "N min ago"
 rendering anywhere in dashd. Activity hard-caps at 50 rows with no "older" affordance. During an
@@ -2071,9 +2071,15 @@ incident you cannot scroll back past 50 events and must parse UTC strings by eye
 - **Scope:** dashd/main.go activity handler
 - **Affected:** operators during incident response
 - **Source:** dashd/main.go:688, 628-639
-- **Status:** partial — relative timestamps added (`relativeTS`, abbr tooltip still shows ISO full);
-  pagination not yet implemented
-- **Fix:** `relativeTS` function + writeActivityRows updated (2026-06-16)
+- **Status:** relative timestamps were already fixed (`relativeTS`, abbr tooltip shows ISO full).
+  Pagination was genuinely still missing — verified 2026-08-15 (`writeActivityRows` hard-capped
+  at `maxShown = 50` with no cursor). Added `before=<timestamp>` cursor pagination:
+  `handleActivity` reads `?before=`, `writeActivityRows` filters `WHERE timestamp < ?` and
+  returns the next cursor, an "older →" link renders when more rows exist. The auto-refresh
+  `hx-trigger="every 10s"` now applies ONLY to the first (newest) page — a paginated older page
+  is static, so the 10s poll can't silently snap the operator back to page 1 mid-review.
+- **Fix:** dashd/main.go (handleActivity, handleActivityPartial, writeActivityRows) — this commit.
+  Test: `dashd/coverage_test.go TestActivityPagination`.
 
 ---
 
