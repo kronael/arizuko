@@ -2498,7 +2498,7 @@ mirror the manifests, so the drift shows up in docs too.
   real skill set (`/find` + `/recall-memories`) sometime after this entry was filed. No
   code change.
 
-## Suffixed web chat token mints a JID that routes nowhere (2026-07-09, OPEN)
+## ✅ FIXED 2026-08-15 — Suffixed web chat token mints a JID that routes nowhere (2026-07-09)
 
 `arizuko token <inst> issue chat <folder> <suffix>` builds
 `jid = "web:"+folder+"/"+suffix` (`cmd/arizuko/token.go:60`). A group's auto route
@@ -2514,6 +2514,16 @@ avoid the suffix as a workaround.
 - **Source:** `cmd/arizuko/token.go:55-62`; route match `room=<folder>`
 - **Status:** OPEN — needs a routing repro to confirm whether `web:X/sub` resolves
 - **Found:** product-docs refine pass (fable), 2026-07-09
+- **Closed 2026-08-15** — fixed by the L4 `route_tokens.target_folder` work
+  (`store/migrations/0086-route-token-target-folder.sql`,
+  `routd/migrations/0035`): `store.RouteToken.Folder()`
+  (`store/route_tokens.go:41-47`) now reads the mint-recorded `TargetFolder`
+  first — set unconditionally to `folder` regardless of suffix by
+  `cmd/arizuko/token.go:104` (`TargetFolder: folder`) — and only falls back
+  to parsing the ambiguous suffixed JID for a pre-migration token. A
+  suffixed `web:<folder>/<suffix>` chat token now resolves to `<folder>`
+  exactly like the unsuffixed form. `go test ./routd/... ./webd/...
+  ./tests/... ./store/...`: all pass.
 
 ## howto/webhooks.html claims hook headers are delivered; ingest forwards body only (2026-07-09, OPEN)
 
