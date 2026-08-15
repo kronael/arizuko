@@ -2175,7 +2175,7 @@ minting.
   inline check. Covered by `chat_test.go` `TestHandleChatPortal_hidesTokenFromNonAdmin`
   and `TestHandleChatGroup_tokenAdminOnly`.
 
-## [SEC] routd/runed: retry + kill endpoints missing CSRF protection (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] routd/runed: retry + kill endpoints missing CSRF protection (2026-06-18)
 
 `routd_page.go:106`: POST /dash/routd/retry gated by `requireOperator` only — no same-origin
 check. `runed_page.go:135`: POST /dash/runed/kill same issue, higher impact (terminates live runs).
@@ -2184,7 +2184,11 @@ check. `runed_page.go:135`: POST /dash/runed/kill same issue, higher impact (ter
 - **Scope:** dashd/routd_page.go:106, dashd/runed_page.go:135
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — `requireSameOrigin` added to both (1dc9b356)
-- **Fix:** add `requireSameOrigin` to both write endpoints
+- **Fix:** 1dc9b356; re-verified at fb152e98 — `handleRoutdRetry` (`routd_page.go:117`)
+  and `handleRunedKill` (`runed_page.go:156`) each call `requireSameOrigin` right after
+  `requireOperator`. Same guard, not a second mechanism: `requireAdmin` also embeds it
+  (`authz.go:212`), so every dashd write goes through one CSRF check.
+  Covered by `authz_test.go` (missing Origin passes, matching passes, cross-origin 403).
 
 ## [SEC] grants: effect silently defaults to allow; nil adminDB in POST paths (2026-06-18, open)
 
