@@ -2407,7 +2407,7 @@ Note what that writer implies more broadly: routd still opens the frozen
 `messages.db` at every boot to copy legacy rows forward. That is the real
 blocker for retiring `messages.db`, and it is bigger than any single table.
 
-## E1 — five adapters keep state in unmounted paths; it dies on every recreate (2026-08-03, open)
+## ✅ FIXED 2026-08-15 (CLOSED-STALE — fixed in 32b180da, entry never closed) — E1 — five adapters keep state in unmounted paths; it dies on every recreate (2026-08-03)
 
 Found by the mount audit. `teled`, `bskyd`, `reditd`, `linkd` and `emaid` each
 persist state under a data-dir path, and their compose fragments declare
@@ -2450,10 +2450,33 @@ adapters is a per-fragment edit, not one code change.
 - **Scope:** compose fragment volumes for channel adapters
 - **Affected:** `template/services/{teled,bskyd,reditd,linkd,emaid}.yml`,
   `teled/bot.go:60`
-- **Fix:** give each fragment the narrow rw mount it needs (`whapd.yml:9` and
-  `twitd.yml:9` already show the pattern — a single subpath, not the data dir),
-  set `DATA_DIR` where absent, and make `loadOffset` fail loud instead of
-  swallowing the read error.
+- **Fix:** 32b180da — give each fragment the narrow rw mount it needs
+  (`whapd.yml:9` and `twitd.yml:9` already show the pattern — a single subpath,
+  not the data dir), set `DATA_DIR` where absent, and make `loadOffset` fail
+  loud instead of swallowing the read error.
+
+**CLOSED-STALE 2026-08-15. Every claim in this entry is false at HEAD: the fix
+landed in `32b180da` and the entry was simply never closed.** Re-verified point
+by point:
+
+- `grep -c 'volumes:'` on
+  `template/services/{teled,bskyd,reditd,linkd,emaid}.yml` returns **1 for
+  each**, where the entry says "declares `volumes:` zero times". Each is the
+  narrow subpath the fix line prescribed, e.g.
+  `${DATA_DIR}/store/teled:/srv/app/home/store/teled`.
+- All five fragments now set `DATA_DIR` explicitly, including the two the entry
+  singled out as not even having it (`reditd`, `emaid`), and all five daemons
+  carry a matching code default (`chanlib.EnvOr("DATA_DIR", …)`).
+- `loadOffset` no longer swallows the read error. It separates the three cases
+  (absent file → genuine first run, offset 0; unreadable → error; unparseable →
+  error), and `teled/main.go` returns that error out of `Start` with the
+  comment saying why, so `chanlib.Run` exits rather than polling from offset 0
+  and re-answering Telegram's ~24h backlog.
+
+The LIVE half is a different entry and stays open: deployed instances include
+their OWN `/srv/data/arizuko_<inst>/services/*.yml`, not `template/`, so krons
+still runs the pre-fix fragment. That is `F53` (and `R1` finding 1) — fragment
+relink on deployed instances, not this repo's templates.
 
 ## R1 — codex review of the 2026-08-03 fix batch: six gaps (2026-08-03, 5 of 6 closed 2026-08-15; 1 open on live-state only)
 
