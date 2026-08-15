@@ -1087,7 +1087,7 @@ more than one field.
 - **Status:** proposed
 - **Fix:**
 
-## Release announcement is over-delivered: every group blasts all its routes, once per server-per-group — no opt-in, no main-channel, no mute (2026-07-14, OPEN, proposal)
+## ✅ FIXED 2026-08-15 Release announcement is over-delivered: every group blasts all its routes, once per server-per-group — no opt-in, no main-channel, no mute
 
 The `/migrate` skill step (e) (`ant/skills/migrate/SKILL.md:224-289`) is run
 per-group by each behind group's own agent. It sends the release line to EVERY
@@ -1119,14 +1119,21 @@ symptom to the "broadcast silently lost / no channel for jid" entry below —
 both need the announce target-resolution audited together.
 
 - **Severity:** low-medium (noise/duplicate pings, no data loss)
-- **Status:** IMPLEMENTED (code+skill, 2026-07-14), pending release plumbing +
-  deploy. Mechanism signed off = `#announce` route fragment. `ParseRouteTarget`
-  (`core/types.go`) reserves `announce` (inbound-neutral); `router.Describe`
-  annotates `announce`; migrate skill step (e) sends only to `#announce`
-  routes, deduped per server (web/slink/wildcard skipped). To reach live
-  agents: bump `MIGRATION_VERSION` + rebuild ant image + redeploy. Residual:
-  cross-group global dedup is still per-group — two groups tagging the same
-  server double-post (operator-controlled: tag one channel per server).
+- **Status:** IMPLEMENTED (code+skill, 2026-07-14), mechanism signed off =
+  `#announce` route fragment. `ParseRouteTarget` (`core/types.go`) reserves
+  `announce` (inbound-neutral); `router.Describe` annotates `announce`;
+  migrate skill step (e) sends only to `#announce` routes, deduped per
+  server (web/slink/wildcard skipped). Residual: cross-group global dedup is
+  still per-group — two groups tagging the same server double-post
+  (operator-controlled: tag one channel per server).
+- **Re-verified 2026-08-15:** deploy plumbing landed —
+  `ant/skills/self/migrations/175-v0.59.0-announce.md` shipped the mechanism
+  with `MIGRATION_VERSION` at the time; `CHANGELOG.md` v0.59.0 (2026-07-15)
+  headlines "announcements you opt into". Current `MIGRATION_VERSION` is 200
+  (this entry's migration was 175), so every instance following the normal
+  bump/rebuild/redeploy cadence since has already picked it up. No open
+  action remains; the per-group double-post residual is operator-controlled
+  by design, not a defect.
 
 ## L23 — PROPOSED, needs sign-off (verified still open 2026-08-15) — a dead-lettered message is countable but not readable (2026-08-11)
 
