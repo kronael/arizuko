@@ -248,13 +248,15 @@ func (d *chanDeliverer) FetchHistory(jid string, before time.Time, limit int) ([
 	return ch.FetchHistory(ctx, jid, before, limit)
 }
 
-// RoundDone posts the turn-closed notice to the web adapter owning the folder's
-// web: chat so the /chat SSE client stops waiting. A folder with no web channel
-// (most chats) is a silent no-op.
-func (d *chanDeliverer) RoundDone(folder, turnID, status, errMsg string) error {
-	ch := d.resolve("", "web:"+folder)
+// RoundDone posts the turn-closed notice to the adapter owning chatJID so the
+// /chat SSE client stops waiting. The JID travels verbatim — webd's hub keys
+// on it as-is (BUGS L30). A chat whose adapter lacks /v1/round_done (every
+// platform adapter) is a no-op via PostRoundDone's 404 rule; a chat with no
+// adapter at all is a silent no-op here.
+func (d *chanDeliverer) RoundDone(chatJID, turnID, status, errMsg string) error {
+	ch := d.resolve("", chatJID)
 	if ch == nil {
 		return nil
 	}
-	return ch.PostRoundDone(folder, turnID, status, errMsg)
+	return ch.PostRoundDone(chatJID, turnID, status, errMsg)
 }

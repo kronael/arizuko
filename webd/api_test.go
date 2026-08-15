@@ -12,15 +12,16 @@ import (
 )
 
 // POST /v1/round_done resolves turn_id→topic and publishes round_done to the
-// folder/topic key the SSE subscriber listens on. This drives every SSE
-// turn-close, so a regression hangs the chat widget. (The routd→webd auth gate
-// itself — ES256 service:routd — is covered in chanlib/auth_test.go.)
+// chatJID/topic key the SSE subscriber listens on — the wire carries the chat
+// JID verbatim (BUGS L30). This drives every SSE turn-close, so a regression
+// hangs the chat widget. (The routd→webd auth gate itself — ES256
+// service:routd — is covered in chanlib/auth_test.go.)
 func TestHandleRoundDone(t *testing.T) {
 	s, _, st := newTestServer(t)
 	seedGroup(t, st, "main", "Main")
 
 	// Seed the turn message so turn_id→topic resolves, then assert publish lands
-	// on the matching folder/topic key.
+	// on the matching chatJID/topic key.
 	turnID := "turn-rd"
 	if err := st.PutMessage(core.Message{
 		ID: turnID, ChatJID: "web:main", Content: "q",
@@ -28,10 +29,10 @@ func TestHandleRoundDone(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PutMessage: %v", err)
 	}
-	ch, unsub := s.hub.subscribe("main", "tt")
+	ch, unsub := s.hub.subscribe("web:main", "tt")
 	defer unsub()
 
-	body := `{"turn_id":"` + turnID + `","folder":"main","status":"ok"}`
+	body := `{"turn_id":"` + turnID + `","chat_jid":"web:main","status":"ok"}`
 	req := httptest.NewRequest("POST", "/v1/round_done", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	s.handleRoundDone(w, req)
@@ -45,7 +46,43 @@ func TestHandleRoundDone(t *testing.T) {
 			t.Errorf("round_done frame wrong: %s", frame)
 		}
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("no round_done publish on the turn's folder/topic key")
+		t.Fatal("no round_done publish on the turn's chatJID/topic key")
+	}
+}
+
+// A hook: chat JID must round-trip the round_done path untouched: topic lookup
+// AND hub key use the wire chat_jid verbatim. The old handler rebuilt
+// "web:"+folder, so a hook chat's topic lookup missed and the event published
+// under an empty-topic key nobody subscribes to (BUGS L30).
+func TestHandleRoundDone_HookJID(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "acme", "Acme")
+
+	turnID := "turn-hook"
+	if err := st.PutMessage(core.Message{
+		ID: turnID, ChatJID: "hook:acme/stripe", Content: "q",
+		Timestamp: time.Now(), Topic: "tt", TurnID: turnID,
+	}); err != nil {
+		t.Fatalf("PutMessage: %v", err)
+	}
+	ch, unsub := s.hub.subscribe("hook:acme/stripe", "tt")
+	defer unsub()
+
+	body := `{"turn_id":"` + turnID + `","chat_jid":"hook:acme/stripe","status":"ok"}`
+	req := httptest.NewRequest("POST", "/v1/round_done", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handleRoundDone(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	select {
+	case frame := <-ch:
+		if !strings.Contains(frame, `"turn_id":"`+turnID+`"`) ||
+			!strings.Contains(frame, "round_done") {
+			t.Errorf("round_done frame wrong: %s", frame)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("no round_done publish on the hook chat's chatJID/topic key")
 	}
 }
 
@@ -170,7 +207,8 @@ func TestHandleSend(t *testing.T) {
 	seedGroup(t, st, "main", "Main")
 
 	// Subscribe to hub before send so we can assert publish happened.
-	ch, unsub := s.hub.subscribe("main", "")
+	// The key is the chat JID verbatim.
+	ch, unsub := s.hub.subscribe("web:main", "")
 	defer unsub()
 
 	body := `{"chat_jid":"web:main","content":"bot reply"}`

@@ -280,7 +280,7 @@ it is a one-time copy.
   managed path, keeping dirty-detection only where a carve-out survives.
 - **Fix:**
 
-## L30 — the SSE hub key is an unwritten string convention both ends re-derive (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L30 — the SSE hub key is an unwritten string convention both ends re-derive (2026-08-15)
 
 `webd/turn.go` was fixed on 2026-08-15 to subscribe on the real chat JID rather
 than the route token's `target_folder` (spec `5/J`). The fix is correct and
@@ -311,13 +311,16 @@ Four remaining sites, all verified at `8ef52f47`:
   chat
 - **Source:** `routd/turns.go:716`; `webd/channel.go:59`;
   `webd/route_token.go:195,382,419,435`; contrast the fixed `webd/turn.go:125-140`
-- **Status:** open, and the honest fix is a REDESIGN needing sign-off: give the
-  key ONE renderer — a `store` helper that turns a chat JID into a hub key —
-  and make both daemons call it instead of each spelling the convention. Patching
-  the four sites individually re-creates exactly the drift that produced them.
-  Same class as [`L4`](#l4) and the `5/J` fix; see the identity-derived-not-read
+- **Status:** fixed by redesign (signed off): the derivation is ELIMINATED, not
+  centralized — the hub key IS the chat JID verbatim (`webd/hub.go`), and the
+  routd→webd wire (`/v1/round_done`, `/send`) carries `chat_jid` untouched.
+  Every publisher/subscriber passes the JID it already holds (token row, turn
+  context, wire field); `/chat/stream` now binds to the token record, so the
+  client `group=` param no longer picks a key. A helper both ends must
+  remember to call was rejected — a convention with an owner is still a
+  convention. Same class as [`L4`](#l4); see the identity-derived-not-read
   rule in `CLAUDE.md`.
-- **Fix:**
+- **Fix:** 30a0bf3a
 
 ## L27 — five channel platforms ship no output-style file, so their agents format blind (2026-08-15, open)
 

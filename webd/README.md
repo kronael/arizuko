@@ -13,7 +13,7 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
 
 - Register as channel `web` with caps `send_text` + `typing` (`main.go`).
 - Run the SSE hub that fans agent output to subscribers, keyed on
-  `folder/topic` (`hub.go`).
+  the chat JID verbatim + topic (`hub.go`).
 - Serve guest chat pages: public widget, token-scoped chat at
   `/chat/<token>/`, fire-and-forget webhooks at `/hook/<token>`
   (`route_token.go`, `pages.go`). At ingest webd stamps the sender —
@@ -140,7 +140,7 @@ delivered messages.
 ## Files
 
 - `main.go`, `server.go` — wiring + routes + auth middleware
-- `hub.go` — SSE fan-out keyed on `folder/topic`
+- `hub.go` — SSE fan-out keyed on chat JID + topic
 - `channel.go` — routd→webd callbacks (`/send`, `/typing`, `/v1/round_done`)
 - `route_token.go` — route-token lookup + `/chat/<token>` + `/hook/<token>` handlers
 - `chat_mcp.go` — chat-MCP transport at `POST /chat/<token>/mcp`

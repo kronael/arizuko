@@ -18,17 +18,22 @@ membership; there is no per-sender scoping inside a group, because that
 fights the shared-context model every group is built on. "Can you access
 this group" is the only auth question the public surface answers.
 
-**Subscriptions key on `folder/topic`, not on a connection or a user**
-(`webd/hub.go:17`). A round is `(folder, topic)`, so any number of
-viewers of the same conversation get the same frames and a reconnect
-re-attaches to the live round instead of starting a new one.
+**Subscriptions key on the chat JID VERBATIM + topic, not on a
+connection or a user** (`webd/hub.go`). A round is `(chat JID, topic)`,
+so any number of viewers of the same conversation get the same frames
+and a reconnect re-attaches to the live round instead of starting a new
+one. No end may derive the key: publisher (routd, via the `chat_jid`
+field on `/send` and `/v1/round_done`) and subscriber (webd, from the
+token row's `JID` / the turn context) both pass the JID they already
+hold. The key used to be a folder each end re-derived with string
+surgery (`TrimPrefix`, `"web:"+folder`, the client's `group=` param);
+the two ends disagreed for every suffixed and `hook:` chat and the
+widget hung three separate times (BUGS L30, L4 class).
 
-**`round_done` is published on the CHAT JID's folder, not the routing
-target.** When a rule maps `web:X/submissions → groupY` those differ, and
-keying on the target means the browser never learns the round closed and
-the form UI hangs. Fixed in `routd/turns.go:707` —
-`strings.TrimPrefix(tc.ChatJID, "web:")`. This was a live bug; the
-subscriber side (`groupfolder.JidFolder`) has always keyed on the chat.
+**`round_done` carries the CHAT JID, not the routing target.** When a
+rule maps `web:X/submissions → groupY` those differ, and keying on the
+target means the browser never learns the round closed and the form UI
+hangs (`routd/turns.go` recordTurnResult).
 
 **Slow clients are dropped, not backpressured.** Each subscriber gets a
 16-frame buffer; a client that can't keep up loses frames rather than
@@ -49,7 +54,8 @@ that mangles SSE use it without a second delivery path existing.
 - `GET /chat/<token>/<turn_id>/status` — status + counts, no frames.
 - `GET /chat/<token>/<turn_id>/sse` — frame stream for one turn, closes
   on `round_done`.
-- `GET /chat/stream` — the `(folder, topic)` stream.
+- `GET /chat/stream` — the `(token, topic)` stream; the token row
+  decides the chat JID and folder, never a client param.
 - `POST /chat/<token>/mcp` — `send_message` / `get_round` /
   `get_round_status` (`webd/chat_mcp.go`).
 

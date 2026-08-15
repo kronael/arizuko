@@ -50,7 +50,8 @@ func anonSender(r *http.Request) string {
 	return fmt.Sprintf("anon:%x", sum[:4])
 }
 
-// lookupRouteToken fetches the row or writes 404 and returns ok=false.
+// lookupRouteToken fetches the row for token (URL path or query, per surface)
+// or writes 404 and returns ok=false.
 // route_tokens lives in routd.db (stRoutd) — split ownership.
 //
 // A token whose target folder no longer exists is refused HERE, at ingress. Let
@@ -59,8 +60,7 @@ func anonSender(r *http.Request) string {
 // for a JID no human will ever redeem — the payload is lost in a queue instead
 // of being rejected (BUGS L5). The caller still gets a plain 404: which tokens
 // exist is not something this surface discloses. The operator gets the reason.
-func (s *server) lookupRouteToken(w http.ResponseWriter, r *http.Request) (store.RouteToken, bool) {
-	token := r.PathValue("token")
+func (s *server) lookupRouteToken(w http.ResponseWriter, r *http.Request, token string) (store.RouteToken, bool) {
 	row, ok := s.stRoutd.LookupRouteToken(token)
 	if !ok {
 		slog.Warn("route token not found",
@@ -87,7 +87,7 @@ func (s *server) groupExists(folder string) bool {
 // GET /chat/<token>/  → built-in widget.
 // Hook tokens hitting /chat/ still serve the widget (kind is metadata).
 func (s *server) handleChatTokenRoot(w http.ResponseWriter, r *http.Request) {
-	row, ok := s.lookupRouteToken(w, r)
+	row, ok := s.lookupRouteToken(w, r, r.PathValue("token"))
 	if !ok {
 		return
 	}
@@ -102,7 +102,7 @@ func (s *server) handleChatTokenRoot(w http.ResponseWriter, r *http.Request) {
 
 // GET /chat/<token>/config — JSON bootstrap for the SDK.
 func (s *server) handleChatTokenConfig(w http.ResponseWriter, r *http.Request) {
-	row, ok := s.lookupRouteToken(w, r)
+	row, ok := s.lookupRouteToken(w, r, r.PathValue("token"))
 	if !ok {
 		return
 	}
@@ -125,7 +125,7 @@ func (s *server) handleChatTokenConfig(w http.ResponseWriter, r *http.Request) {
 // and topic, oldest→newest, capped at the last 100 (store ceiling). Powers
 // the widget's history-on-open. Empty/unknown topic → empty list (not error).
 func (s *server) handleChatTokenHistory(w http.ResponseWriter, r *http.Request) {
-	row, ok := s.lookupRouteToken(w, r)
+	row, ok := s.lookupRouteToken(w, r, r.PathValue("token"))
 	if !ok {
 		return
 	}
@@ -161,7 +161,7 @@ func (s *server) handleChatTokenHistory(w http.ResponseWriter, r *http.Request) 
 // Accept header drives response shape: text/event-stream → SSE,
 // text/html → HTMX bubble, anything else → JSON.
 func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
-	row, ok := s.lookupRouteToken(w, r)
+	row, ok := s.lookupRouteToken(w, r, r.PathValue("token"))
 	if !ok {
 		return
 	}
@@ -212,7 +212,10 @@ func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
 	var ch <-chan string
 	var unsub func()
 	if wantSSE || wait > 0 {
-		ch, unsub = s.hub.subscribe(folder, topic)
+		// Key on the token's chat JID, not its target folder — they differ for
+		// suffixed and hook: tokens, and the assistant frame arrives keyed on
+		// the chat JID (BUGS L30).
+		ch, unsub = s.hub.subscribe(row.JID, topic)
 		defer unsub()
 	}
 
@@ -257,7 +260,7 @@ func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
 // POST /hook/<token>  — append the body verbatim as an inbound message.
 // Fire-and-forget; no response channel. Returns 204.
 func (s *server) handleHookTokenPost(w http.ResponseWriter, r *http.Request) {
-	row, ok := s.lookupRouteToken(w, r)
+	row, ok := s.lookupRouteToken(w, r, r.PathValue("token"))
 	if !ok {
 		return
 	}
@@ -399,25 +402,32 @@ func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderN
 		"created_at": m.Timestamp.Format(time.RFC3339),
 	}
 	payloadJSON, _ := json.Marshal(payload)
-	s.hub.publish(folder, topic, "message", string(payloadJSON))
+	s.hub.publish(jid, topic, "message", string(payloadJSON))
 	return m, payload, nil
 }
 
-// GET /chat/stream?token=<t>&group=<folder>&topic=<t>
-// Authenticated by user sig (operator viewing widget) OR by valid
-// route-token + matching folder header — same shape as the legacy slink
-// stream but reading from route_tokens.
+// GET /chat/stream?token=<t>&topic=<t>
+// Authenticated by user sig (operator viewing widget) OR by proxyd chat
+// transit (X-Folder stamped from the same token). The token ROW decides the
+// chat JID and folder — a client param must never pick the subscription key
+// (BUGS L30: a `group=` param chose the key, so a suffixed chat was
+// unreachable and the caller could aim the subscription). The widget's
+// legacy `group=` param is ignored.
 func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) {
-	folder := r.URL.Query().Get("group")
 	topic := r.URL.Query().Get("topic")
-	if folder == "" || topic == "" {
-		http.Error(w, "group and topic required", http.StatusBadRequest)
+	if topic == "" {
+		http.Error(w, "topic required", http.StatusBadRequest)
 		return
 	}
 	if len(topic) > maxTopicLen {
 		http.Error(w, "topic too long", http.StatusBadRequest)
 		return
 	}
+	row, ok := s.lookupRouteToken(w, r, r.URL.Query().Get("token"))
+	if !ok {
+		return
+	}
+	folder := row.Folder()
 
 	okChat := s.chatTransit(r) && r.Header.Get("X-Folder") == folder
 	okUser := s.identified(r) && userAllowedFolder(userGroups(r), folder)
@@ -436,8 +446,8 @@ func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) 
 
 	// messages lives in routd.db (stRoutd) — split ownership
 	if lastID := r.Header.Get("Last-Event-Id"); lastID != "" {
-		if t, ok := s.stRoutd.MessageTimestampByID(lastID, "web:"+folder); ok {
-			msgs, _ := s.stRoutd.MessagesSinceTopic(folder, topic, t, 50)
+		if t, ok := s.stRoutd.MessageTimestampByID(lastID, row.JID); ok {
+			msgs, _ := s.stRoutd.MessagesSinceTopic(row.JID, topic, t, 50)
 			flusher, _ := w.(http.Flusher)
 			for _, m := range msgs {
 				data, _ := json.Marshal(map[string]any{
@@ -452,7 +462,7 @@ func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	ch, unsub := s.hub.subscribe(folder, topic)
+	ch, unsub := s.hub.subscribe(row.JID, topic)
 	defer unsub()
 	serveSSE(w, r, ch)
 }

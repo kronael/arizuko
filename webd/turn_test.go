@@ -68,8 +68,8 @@ func TestTurnSnapshot_CrossTokenIsolation(t *testing.T) {
 
 // A route token minted with a jid suffix has JID "web:main/widget" but
 // target folder "main". The per-turn SSE stream must key its topic lookup
-// and hub subscription on the chat JID's path ("main/widget" — what routd
-// publishes round_done on), not the target folder. Deriving from the
+// and hub subscription on the chat JID verbatim ("web:main/widget" — what
+// routd publishes round_done on), not the target folder. Deriving from the
 // target folder 500s the topic lookup and, even past that, subscribes on
 // a key round_done never reaches — the widget hangs forever.
 func TestTurnSSE_JidSuffixToken(t *testing.T) {
@@ -113,8 +113,8 @@ func TestTurnSSE_JidSuffixToken(t *testing.T) {
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		// routd publishes on TrimPrefix(chatJID, "web:") — the suffixed path.
-		s.hub.publish("main/widget", "tt", "round_done", `{"turn_id":"turnS","status":"ok"}`)
+		// routd publishes on the chat JID verbatim — the suffixed JID.
+		s.hub.publish("web:main/widget", "tt", "round_done", `{"turn_id":"turnS","status":"ok"}`)
 	}()
 
 	r := bufio.NewReader(resp.Body)
@@ -173,10 +173,10 @@ func TestTurnSSE_RoundDoneFilteredByTurnID(t *testing.T) {
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		// Wrong turn's round_done — must be ignored by this stream.
-		s.hub.publish("main", "tt", "round_done", `{"turn_id":"turnB","status":"ok"}`)
+		s.hub.publish("web:main", "tt", "round_done", `{"turn_id":"turnB","status":"ok"}`)
 		time.Sleep(50 * time.Millisecond)
 		// This turn's round_done — must close the stream.
-		s.hub.publish("main", "tt", "round_done", `{"turn_id":"turnA","status":"ok"}`)
+		s.hub.publish("web:main", "tt", "round_done", `{"turn_id":"turnA","status":"ok"}`)
 	}()
 
 	r := bufio.NewReader(resp.Body)

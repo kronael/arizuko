@@ -14,7 +14,11 @@ const (
 	sseWriteTimeout = 10 * time.Second
 )
 
-// hub is the SSE broker keyed by "folder/topic".
+// hub is the SSE broker keyed by "chatJID/topic". The chat JID is passed
+// VERBATIM — the JID the caller already holds (token row, turn context, wire
+// chat_jid) — never a folder derived from it. Both ends re-deriving the key
+// with string surgery is what hung suffixed and hook: chats three times
+// (BUGS L30); with the JID as the key there is no derivation to disagree on.
 type hub struct {
 	mu   sync.Mutex
 	subs map[string][]chan string
@@ -30,9 +34,9 @@ func (h *hub) canSubscribe() bool {
 	return len(h.subs) < maxHubKeys
 }
 
-func (h *hub) subscribe(folder, topic string) (<-chan string, func()) {
+func (h *hub) subscribe(chatJID, topic string) (<-chan string, func()) {
 	ch := make(chan string, 16)
-	k := folder + "/" + topic
+	k := chatJID + "/" + topic
 	h.mu.Lock()
 	if len(h.subs[k]) >= maxSubsPerKey {
 		h.mu.Unlock()
@@ -59,8 +63,8 @@ func (h *hub) subscribe(folder, topic string) (<-chan string, func()) {
 	return ch, unsub
 }
 
-func (h *hub) publish(folder, topic, event, data string) {
-	k := folder + "/" + topic
+func (h *hub) publish(chatJID, topic, event, data string) {
+	k := chatJID + "/" + topic
 	msg := fmt.Sprintf("event: %s\ndata: %s\n\n", event, data)
 	h.mu.Lock()
 	defer h.mu.Unlock()

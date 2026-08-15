@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -57,15 +58,12 @@ func TestRouteToken_ResolvedInProcess(t *testing.T) {
 	}
 }
 
-// TestRouteTokenStream_FolderMismatchForbidden is the adversarial half of the
-// /chat/stream containment check. proxyd stamps X-Folder from the token it
-// resolved; the caller supplies ?group= independently, so the two must be
-// compared or a valid token for folder A streams folder B's traffic.
-//
-// The honest case (group == the token's folder) passes even with the
-// comparison deleted — TestSlinkStream_SlinkSigOK sends only that, which is
-// why the mismatch case below is the one that actually discriminates.
-func TestRouteTokenStream_FolderMismatchForbidden(t *testing.T) {
+// TestRouteTokenStream_BoundToRecord is the containment check for
+// /chat/stream: the token ROW decides both the auth folder and the
+// subscription key. The client's legacy ?group= param is inert — before the
+// fix it CHOSE the subscription key, so a caller could aim the subscription
+// and a suffixed chat was unreachable (BUGS L30).
+func TestRouteTokenStream_BoundToRecord(t *testing.T) {
 	s, _, st := newTestServer(t)
 	seedGroup(t, st, "acme", "Acme")
 	seedGroup(t, st, "victim", "Victim")
@@ -73,31 +71,156 @@ func TestRouteTokenStream_FolderMismatchForbidden(t *testing.T) {
 	srv := httptest.NewServer(s.handler())
 	defer srv.Close()
 
-	get := func(group string) int {
+	get := func(group string, hdr map[string]string) (*http.Response, context.CancelFunc) {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		req, _ := http.NewRequestWithContext(ctx, "GET",
-			srv.URL+"/chat/stream?group="+group+"&topic=tt", nil)
-		for k, v := range signChatHeaders(tok, "acme") {
+		url := srv.URL + "/chat/stream?token=" + tok + "&topic=tt"
+		if group != "" {
+			url += "&group=" + group
+		}
+		req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+		for k, v := range hdr {
 			req.Header.Set(k, v)
 		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			t.Fatalf("do(%s): %v", group, err)
+			cancel()
+			t.Fatalf("do(group=%s): %v", group, err)
 		}
-		resp.Body.Close()
-		return resp.StatusCode
+		return resp, cancel
 	}
 
-	// Control: the token's own folder streams. Without this the test could
-	// pass on a surface that forbids everything.
-	if code := get("acme"); code != 200 {
-		t.Fatalf("group=acme status = %d, want 200 — the token's own folder must stream", code)
+	// A lying ?group= neither redirects the key nor widens auth: the stream
+	// opens on the TOKEN's folder (proxyd stamped X-Folder from the same
+	// token) and receives frames published on the token's chat JID.
+	resp, cancel := get("victim", signChatHeaders(tok, "acme"))
+	defer cancel()
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200 — the record, not ?group=, authorizes", resp.StatusCode)
 	}
-	// Adversarial: same valid token + honest X-Folder, but a foreign ?group=.
-	if code := get("victim"); code != http.StatusForbidden {
-		t.Errorf("group=victim status = %d, want 403 — a token for acme streamed victim's folder", code)
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		s.hub.publish("web:acme", "tt", "message", `{"role":"assistant","id":"b1"}`)
+	}()
+	r := bufio.NewReader(resp.Body)
+	got := false
+	deadline := time.Now().Add(1500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			break
+		}
+		if strings.Contains(line, `"id":"b1"`) {
+			got = true
+			break
+		}
+	}
+	if !got {
+		t.Error("frame on the token's chat JID never arrived — subscription not bound to the record")
+	}
+
+	// An identified user whose grants cover only the CLAIMED group, not the
+	// token's folder, must be refused: auth binds to the record.
+	resp2, cancel2 := get("victim", signUserHeaders(map[string]string{
+		"X-User-Sub":    "user:mallory",
+		"X-User-Groups": `["victim"]`,
+	}))
+	defer cancel2()
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403 — a grant on the claimed ?group= must not authorize the token's folder", resp2.StatusCode)
+	}
+}
+
+// Publish/subscribe agreement for a SUFFIXED chat token (jid_suffix mint):
+// chat JID "web:main/widget" differs from "web:"+target_folder ("web:main").
+// The POST wait= subscriber and routd's /send callback (which carries the
+// chat JID verbatim) must land on the same hub key — before the fix the POST
+// subscribed on the target folder and never saw its own reply (BUGS L30).
+func TestChatTokenPost_WaitSuffixedToken(t *testing.T) {
+	s, mr, st := newTestServer(t)
+	seedGroup(t, st, "main", "Main")
+	raw := store.GenRouteToken()
+	if err := st.InsertRouteToken(raw, store.RouteToken{
+		JID: "web:main/widget", OwnerFolder: "main", TargetFolder: "main",
+	}); err != nil {
+		t.Fatalf("InsertRouteToken: %v", err)
+	}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	assertWaitSeesReply(t, s, mr, srv.URL+"/chat/"+raw, "web:main/widget")
+}
+
+// Same agreement for a HOOK token used on the /chat surface (kind is
+// metadata, spec 5/W): chat JID "hook:main/github" has no "web:" prefix, so
+// every prefix-stripping derivation is a no-op on one end and a mangle on the
+// other (BUGS L30). Verbatim-JID keying makes both ends meet.
+func TestChatTokenPost_WaitHookToken(t *testing.T) {
+	s, mr, st := newTestServer(t)
+	seedGroup(t, st, "main", "Main")
+	raw := store.GenRouteToken()
+	if err := st.InsertRouteToken(raw, store.RouteToken{
+		JID: "hook:main/github", OwnerFolder: "main", TargetFolder: "main",
+	}); err != nil {
+		t.Fatalf("InsertRouteToken: %v", err)
+	}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	assertWaitSeesReply(t, s, mr, srv.URL+"/chat/"+raw, "hook:main/github")
+}
+
+// assertWaitSeesReply drives the end-to-end hub agreement: POST ?wait= holds
+// the subscription while a goroutine plays routd's /send callback with the
+// chat JID exactly as it appears on the inbound wire. The wait response must
+// contain the assistant frame.
+func assertWaitSeesReply(t *testing.T, s *server, mr *mockRouter, chatURL, wantJID string) {
+	t.Helper()
+	go func() {
+		// Wait for the inbound to reach the mock router, then reply the way
+		// routd does: /send with the chat JID it holds (verbatim).
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if sent := mr.sent(); len(sent) == 1 {
+				if sent[0].ChatJID != wantJID {
+					t.Errorf("inbound chat JID = %q, want %q", sent[0].ChatJID, wantJID)
+				}
+				payload, _ := json.Marshal(map[string]string{
+					"chat_jid": sent[0].ChatJID, "content": "pong", "reply_to": sent[0].ID,
+				})
+				req := httptest.NewRequest("POST", "/send", bytes.NewReader(payload))
+				w := httptest.NewRecorder()
+				s.handleSend(w, req)
+				if w.Code != 200 {
+					t.Errorf("/send status = %d: %s", w.Code, w.Body.String())
+				}
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Error("inbound never reached the router")
+	}()
+
+	payload, _ := json.Marshal(map[string]string{"content": "ping", "topic": "tw"})
+	req, _ := http.NewRequest("POST", chatURL+"?wait=5", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	a, _ := out["assistant"].(map[string]any)
+	if a == nil || a["content"] != "pong" {
+		t.Fatalf("wait= missed the assistant frame (hub keys disagree): %v", out)
 	}
 }
 

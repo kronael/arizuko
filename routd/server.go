@@ -66,8 +66,9 @@ type Deliverer interface {
 	SetSuggestions(jid string, prompts []core.PanePrompt) error
 	SetName(jid, title string) error
 	// RoundDone notifies the web SSE channel that a turn closed, so a /chat
-	// client stops waiting. folder is the web-chat folder (web: prefix stripped).
-	RoundDone(folder, turnID, status, errMsg string) error
+	// client stops waiting. chatJID is the turn's chat JID VERBATIM — webd's
+	// hub keys on it as-is, no prefix stripping on either end (BUGS L30).
+	RoundDone(chatJID, turnID, status, errMsg string) error
 	// FetchHistory proxies to the owning adapter's GET /v1/history (the
 	// fetch_history MCP tool's platform-truth source). Returns the raw JSON
 	// HistoryResponse bytes; any error (no adapter owns the jid, it lacks the

@@ -36,8 +36,8 @@ type recDeliverer struct {
 	// viaChannels records the explicit adapter pin of every SendVia call
 	// (spec 5/34 outbound resolution step 1).
 	viaChannels []string
-	// roundDones records every RoundDone call's folder key (the SSE subscriber
-	// key), to assert publishRoundDone keys on the chat-JID folder.
+	// roundDones records every RoundDone call's chat JID (the SSE subscriber
+	// key, verbatim), to assert publishRoundDone passes it underived.
 	roundDones []string
 	// history is the canned HistoryResponse JSON the FetchHistory fake returns;
 	// historyErr forces the adapter-failed branch (→ cache fallback). Empty
@@ -102,8 +102,8 @@ func (d *recDeliverer) Repost(_, _ string) (string, error)                 { ret
 func (d *recDeliverer) Dislike(_, _ string) error                          { d.dislikes++; return nil }
 func (d *recDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error { return nil }
 func (d *recDeliverer) SetName(_, _ string) error                          { return nil }
-func (d *recDeliverer) RoundDone(folder, _, _, _ string) error {
-	d.roundDones = append(d.roundDones, folder)
+func (d *recDeliverer) RoundDone(chatJID, _, _, _ string) error {
+	d.roundDones = append(d.roundDones, chatJID)
 	return nil
 }
 func (d *recDeliverer) FetchHistory(_ string, _ time.Time, _ int) ([]byte, error) {
@@ -946,13 +946,14 @@ func TestAppendAndFinishAtomic(t *testing.T) {
 	}
 }
 
-// TestRoundDoneKeysOnChatJIDFolder guards the SSE-key-mismatch bug-class:
-// publishRoundDone must key on the CHAT-JID folder (the webd SSE subscriber's
-// key), not the routing-target folder. A turn whose ChatJID is
-// "web:alice/submissions" gets routed to group "bob"; the round_done notice must
-// reach "alice/submissions" (where the form UI subscribes), never "bob" — else
-// the web form hangs waiting for a notice that landed on the wrong key.
-func TestRoundDoneKeysOnChatJIDFolder(t *testing.T) {
+// TestRoundDoneKeysOnChatJID guards the SSE-key-mismatch bug-class (BUGS L30):
+// publishRoundDone must pass the CHAT JID VERBATIM (the webd SSE subscriber's
+// key) — not the routing-target folder, and not a prefix-stripped derivation.
+// A turn whose ChatJID is "web:alice/submissions" gets routed to group "bob";
+// the round_done notice must carry "web:alice/submissions" (where the form UI
+// subscribes), never "bob" — else the web form hangs waiting for a notice that
+// landed on the wrong key.
+func TestRoundDoneKeysOnChatJID(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -978,8 +979,40 @@ func TestRoundDoneKeysOnChatJIDFolder(t *testing.T) {
 	if len(dl.roundDones) != 1 {
 		t.Fatalf("RoundDone fired %d times, want 1: %+v", len(dl.roundDones), dl.roundDones)
 	}
-	if got := dl.roundDones[0]; got != "alice/submissions" {
-		t.Fatalf("RoundDone keyed on %q, want alice/submissions (the SSE subscriber key, not target bob)", got)
+	if got := dl.roundDones[0]; got != "web:alice/submissions" {
+		t.Fatalf("RoundDone keyed on %q, want web:alice/submissions (the chat JID verbatim, not target bob)", got)
+	}
+}
+
+// A hook: chat JID has no "web:" prefix, so the old
+// strings.TrimPrefix(chatJID, "web:") was a silent no-op that LOOKED right but
+// proved the derivation had no owner (BUGS L30). The notice must carry the
+// hook JID verbatim so webd's hub key matches its subscribers.
+func TestRoundDoneHookJIDVerbatim(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.PutGroup(core.Group{Folder: "acme"})
+
+	dl := &recDeliverer{}
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl})
+	loop.StopQueue()
+	srv := NewServer(db, loop, dl, nil, 0, "")
+	loop.BindServer(srv)
+	h := srv.Handler()
+
+	db.PutTurnContext("t2", "acme", "", "hook:acme/stripe", "u1", "")
+
+	doJSON(t, h, "POST", "/v1/turns/t2/result", "",
+		apiv1.TurnResult{TurnID: "t2", SessionID: "sY", Status: "success"})
+
+	if len(dl.roundDones) != 1 {
+		t.Fatalf("RoundDone fired %d times, want 1: %+v", len(dl.roundDones), dl.roundDones)
+	}
+	if got := dl.roundDones[0]; got != "hook:acme/stripe" {
+		t.Fatalf("RoundDone keyed on %q, want hook:acme/stripe (the chat JID verbatim)", got)
 	}
 }
 
