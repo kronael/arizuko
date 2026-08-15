@@ -167,7 +167,7 @@ func TestWebRoutesMCP_DeleteFolderBound(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "world/eng"})
 	_ = db.PutGroup(core.Group{Folder: "world/ops"})
 	// Delegate world/eng the delete tool, scoped exactly to itself.
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:world/eng", Action: "mcp:del_web_route",
 		Scope: "world/eng", Effect: "allow",
 	}); err != nil {
@@ -260,7 +260,7 @@ func TestWebRoutesMCP_GateDenies(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", "set_web_route")
 	// A deny row on the same (tool, scope) wins over the allow — visible, uncallable.
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:hq", Action: "mcp:set_web_route", Scope: "hq/**", Effect: "deny",
 	}); err != nil {
 		t.Fatalf("AddACLRow: %v", err)

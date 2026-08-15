@@ -148,27 +148,6 @@ func (d *DB) GroupExists(folder string) bool {
 	return n == 1
 }
 
-// GroupByFolder returns the full group identity (Config decoded from the
-// container_config JSON TEXT) for folder, or (zero, false) when absent.
-// Unknown keys in container_config are ignored — live rows still carry the
-// MaxChildren key from the removed prototype spawn.
-func (d *DB) GroupByFolder(folder string) (core.Group, bool) {
-	var g core.Group
-	var added string
-	var c sql.NullString
-	err := d.db.QueryRow(
-		"SELECT folder, added_at, product, COALESCE(json_extract(config, '$.model'), ''), container_config FROM groups WHERE folder=?",
-		folder).Scan(&g.Folder, &added, &g.Product, &g.Model, &c)
-	if err != nil {
-		return core.Group{}, false
-	}
-	g.AddedAt, _ = time.Parse(time.RFC3339Nano, added)
-	if c.Valid && c.String != "" {
-		_ = json.Unmarshal([]byte(c.String), &g.Config)
-	}
-	return g, true
-}
-
 // DeleteGroup removes the group, then cascades its routes + engagement so a
 // deleted folder never lingers as a ghost route/engagement target (GB1 L4b).
 // Without the cascade a later message to that route dispatches to a folder with
@@ -244,13 +223,6 @@ func (d *DB) AllGroups() map[string]core.Group {
 // SetGroupOpen toggles the group's open flag (ambient turn admission).
 func (d *DB) SetGroupOpen(folder string, open bool) error {
 	return store.New(d.db).SetGroupOpen(folder, open)
-}
-
-// SetThreadReplies sets the group's thread_replies preference: whether a
-// reply roots a new platform thread on its trigger message. nil removes the
-// key (default: group chats thread, DMs do not).
-func (d *DB) SetThreadReplies(folder string, on *bool) error {
-	return store.New(d.db).SetThreadReplies(folder, on)
 }
 
 // ThreadReplies reads the group's thread_replies preference; an unset key
@@ -342,13 +314,6 @@ func (d *DB) AppendAndFinish(msg *core.Message, endpoint, key string, status int
 		return err
 	}
 	return tx.Commit()
-}
-
-// MessageExists reports whether a message id is stored.
-func (d *DB) MessageExists(id string) bool {
-	var n int
-	d.db.QueryRow("SELECT 1 FROM messages WHERE id=?", id).Scan(&n)
-	return n == 1
 }
 
 // NewMessages returns rows with timestamp > since across all chats, plus the new
@@ -670,37 +635,6 @@ func (d *DB) AddRoute(r core.Route) (int64, error) {
 		return 0, err
 	}
 	return res.LastInsertId()
-}
-
-// SetRoutes replaces the routes whose target (sans #fragment) is `folder` or
-// under `folder/`, returning the new count. An empty folder (open mode) replaces
-// the whole table. The folder-scoped delete keeps a scoped caller from wiping
-// another folder's routes.
-func (d *DB) SetRoutes(folder string, routes []core.Route) (int, error) {
-	tx, err := d.db.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-	if folder == "" {
-		if _, err := tx.Exec("DELETE FROM routes"); err != nil {
-			return 0, err
-		}
-	} else if _, err := tx.Exec(
-		`DELETE FROM routes WHERE target = ? OR target LIKE ?||'#%' OR target LIKE ?||'/%'`,
-		folder, folder, folder); err != nil {
-		return 0, err
-	}
-	for _, r := range routes {
-		if _, err := tx.Exec(`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars)
-			VALUES(?,?,?,?,?)`, r.Seq, r.Match, r.Target, nz(r.ObserveWindowMessages), nz(r.ObserveWindowChars)); err != nil {
-			return 0, err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return len(routes), nil
 }
 
 // ErrNotFound signals an absent row to the HTTP layer (404).

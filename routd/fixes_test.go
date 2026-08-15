@@ -671,7 +671,7 @@ func TestIngressIdempotencyKey(t *testing.T) {
 	if ack.ID != "adapter-kk" {
 		t.Fatalf("minted id=%q want adapter-kk", ack.ID)
 	}
-	if !db.MessageExists("adapter-kk") {
+	if !messageExists(db, "adapter-kk") {
 		t.Fatal("minted row not stored")
 	}
 }

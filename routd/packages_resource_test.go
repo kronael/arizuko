@@ -82,7 +82,7 @@ func servePackagesMCP(t *testing.T, db *DB, folder, callerSub string) string {
 // the containment tests turn (own subtree vs the whole tree).
 func grantAt(t *testing.T, db *DB, principal, action, scope string) {
 	t.Helper()
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: principal, Action: action, Scope: scope, Effect: "allow",
 	}); err != nil {
 		t.Fatalf("grant %s@%s to %s: %v", action, scope, principal, err)
@@ -210,7 +210,7 @@ func packagesREST(t *testing.T, db *DB, sub string) func(path string) (int, stri
 // `**`) reads both endpoints through the SAME handler the agent tools use.
 func TestInstalledPackagesREST_OperatorReads(t *testing.T) {
 	db := packagesFixture(t)
-	if err := db.AddMembership("user:op", "role:operator", "seed"); err != nil {
+	if err := addMembership(db, "user:op", "role:operator", "seed"); err != nil {
 		t.Fatal(err)
 	}
 	get := packagesREST(t, db, "user:op")
@@ -282,7 +282,7 @@ func TestInstalledPackagesInRoutdOpenAPI(t *testing.T) {
 // behind it, this test is what fails.
 func TestInstalledPackagesREST_NoWriteFace(t *testing.T) {
 	db := packagesFixture(t)
-	if err := db.AddMembership("user:op", "role:operator", "seed"); err != nil {
+	if err := addMembership(db, "user:op", "role:operator", "seed"); err != nil {
 		t.Fatal(err)
 	}
 	verify := verifierFunc(func(*http.Request) (string, []string, string, error) {

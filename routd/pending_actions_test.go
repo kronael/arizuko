@@ -37,7 +37,7 @@ func TestPendingAction_RoundTrip(t *testing.T) {
 	if err := d.PutPendingAction(p); err != nil {
 		t.Fatalf("PutPendingAction: %v", err)
 	}
-	got, ok := d.PendingAction("a1")
+	got, ok := pendingActionRow(d, "a1")
 	if !ok {
 		t.Fatal("row not found")
 	}
@@ -63,7 +63,7 @@ func TestConsumeApprovedAction_OneShot(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.ResolvePendingAction("a1", PendingApproved, "google:op", ""); err != nil {
+	if _, err := resolvePending(d, "a1", PendingApproved, "google:op", ""); err != nil {
 		t.Fatalf("ResolvePendingAction: %v", err)
 	}
 	if _, ok := d.ConsumeApprovedAction("atlas", "mcp:delete", hash); !ok {
@@ -72,7 +72,7 @@ func TestConsumeApprovedAction_OneShot(t *testing.T) {
 	if _, ok := d.ConsumeApprovedAction("atlas", "mcp:delete", hash); ok {
 		t.Fatal("second re-issue must NOT be released — one-shot")
 	}
-	got, _ := d.PendingAction("a1")
+	got, _ := pendingActionRow(d, "a1")
 	if got.Status != PendingReleased {
 		t.Fatalf("status = %q, want released", got.Status)
 	}
@@ -86,7 +86,7 @@ func TestConsumeApprovedAction_ArgsDeviationMisses(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.ResolvePendingAction("a1", PendingApproved, "google:op", ""); err != nil {
+	if _, err := resolvePending(d, "a1", PendingApproved, "google:op", ""); err != nil {
 		t.Fatal(err)
 	}
 	other := ArgsHash(map[string]any{"target": "prod"})
@@ -103,7 +103,7 @@ func TestConsumeApprovedAction_FolderBound(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.ResolvePendingAction("a1", PendingApproved, "google:op", ""); err != nil {
+	if _, err := resolvePending(d, "a1", PendingApproved, "google:op", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := d.ConsumeApprovedAction("other", "mcp:delete", hash); ok {
@@ -118,17 +118,17 @@ func TestResolvePendingAction_OnlyHeldMoves(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.ResolvePendingAction("a1", PendingApproved, "op", ""); err != nil {
+	if _, err := resolvePending(d, "a1", PendingApproved, "op", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.ResolvePendingAction("a1", PendingRejected, "op2", ""); err == nil {
+	if _, err := resolvePending(d, "a1", PendingRejected, "op2", ""); err == nil {
 		t.Fatal("a resolved row must not be re-resolved")
 	}
 }
 
 func TestResolvePendingAction_RejectsUnknownVerdict(t *testing.T) {
 	d := memDB(t)
-	if _, err := d.ResolvePendingAction("a1", "maybe", "op", ""); err == nil {
+	if _, err := resolvePending(d, "a1", "maybe", "op", ""); err == nil {
 		t.Fatal("only approved/rejected are verdicts")
 	}
 }
@@ -141,7 +141,7 @@ func TestPendingAction_ExpiryIsLazy(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := d.PendingAction("a1")
+	got, _ := pendingActionRow(d, "a1")
 	if got.Status != PendingExpired {
 		t.Fatalf("status = %q, want expired without any GC job", got.Status)
 	}
@@ -191,7 +191,7 @@ func TestStringArgs_SkipsNonScalars(t *testing.T) {
 func TestHoldGate_HoldApproveRelease(t *testing.T) {
 	d := memDB(t)
 	srv := &Server{db: d}
-	if err := d.AddACLRow(core.ACLRow{
+	if err := addACLRow(d, core.ACLRow{
 		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
 		Scope: "atlas", Effect: "allow",
 	}); err != nil {
@@ -207,7 +207,7 @@ func TestHoldGate_HoldApproveRelease(t *testing.T) {
 	if !held || id == "" {
 		t.Fatal("a matching hold rule must suspend the call")
 	}
-	row, ok := d.PendingAction(id)
+	row, ok := pendingActionRow(d, id)
 	if !ok || row.Tool != "mcp:delete" || row.GroupFolder != "atlas" {
 		t.Fatalf("held row not recorded: %+v", row)
 	}
@@ -216,7 +216,7 @@ func TestHoldGate_HoldApproveRelease(t *testing.T) {
 		t.Fatal("an unheld tool must run inline")
 	}
 
-	if _, err := d.ResolvePendingAction(id, PendingApproved, "google:op", ""); err != nil {
+	if _, err := resolvePending(d, id, PendingApproved, "google:op", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, held := gate("mcp:delete", args); held {
@@ -273,7 +273,7 @@ func TestConsumeApprovedAction_ConcurrentSingleWinner(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.ResolvePendingAction("a1", PendingApproved, "op", ""); err != nil {
+	if _, err := resolvePending(d, "a1", PendingApproved, "op", ""); err != nil {
 		t.Fatal(err)
 	}
 	const n = 16
@@ -327,7 +327,7 @@ func TestResolvePendingAction_ConcurrentDoubleApprove(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := d.ResolvePendingAction("a1", PendingApproved, "op", ""); err == nil {
+			if _, err := resolvePending(d, "a1", PendingApproved, "op", ""); err == nil {
 				mu.Lock()
 				oks++
 				mu.Unlock()
@@ -382,7 +382,7 @@ func TestHoldGate_UnrecordableHoldBlocksAndReports(t *testing.T) {
 	d := memDB(t)
 	dl := &recDeliverer{}
 	srv := &Server{db: d, deliver: dl}
-	if err := d.AddACLRow(core.ACLRow{
+	if err := addACLRow(d, core.ACLRow{
 		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
 		Scope: "atlas", Effect: "allow",
 	}); err != nil {

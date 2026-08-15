@@ -493,9 +493,20 @@ func TestSteeredPartialBatchNoRedispatch(t *testing.T) {
 	}
 }
 
+// doSetRoutes replaces the whole route table through setRoutesTx, the writer
+// the routes resource uses. routd.DB's SetRoutes twin had no production caller
+// and is gone (BUGS L14).
 func doSetRoutes(t *testing.T, db *DB, routes []core.Route) {
 	t.Helper()
-	if _, err := db.SetRoutes("", routes); err != nil {
+	tx, err := db.SQL().Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback()
+	if err := setRoutesTx(context.Background(), tx, "", routes, "test", "test"); err != nil {
 		t.Fatalf("set routes: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit routes: %v", err)
 	}
 }

@@ -538,7 +538,7 @@ answers "who used which secret" only to an operator with sqlite3 on the host.
   `secret_use_log writers=1 readers=0 resreg=0`. `grep -rn secret_use_log`
   → writer paths + migrate-split copy + docs only.
 
-## L14 — routd.DB accumulated eight production-dead wrapper methods (2026-08-11, open)
+## L14 — routd.DB accumulated eight production-dead wrapper methods (2026-08-11, FIXED 2026-08-15)
 
 Superseded seams kept alive only by tests: `DB.GroupByFolder` (:155),
 `DB.SetThreadReplies` (:252), `DB.MessageExists` (:348), `DB.SetRoutes` (:660)
@@ -559,7 +559,21 @@ test-only convenience.
 - **Scope:** wrapper atrophy on routd.DB (+1 stale comment in auth)
 - **Affected:** routd, auth
 - **Source:** `routd/db.go:155,252,348,660`, `routd/sibling_db.go:252,256`, `routd/pending_actions.go:137,207`, `auth/jwks.go:50`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — all eight are deleted. The COMPILER confirmed
+  the premise: with every one removed, `go build ./...` is clean, so no
+  production caller existed; only `go vet` (which builds tests) broke.
+  The 67 test call sites now use the live paths — `store.Store` for
+  `AddACLRow`/`PutMembership`/`SetThreadReplies`/`GroupByFolder`/`MessageByID`,
+  the `queryExecer` seam (`pendingActionOn`/`resolvePendingActionOn`) for the
+  two pending-action reads, and `setRoutesTx` for the bulk route replace —
+  through helpers in `routd/db_livepath_test.go` and the tests-package twin.
+  Two sites the sweep flagged were ALREADY on the live path: `operator_seed_test`
+  and `acl_overlay_test` call `store.Store.AddMembership`, not the routd wrapper.
+  `acl_overlay_test`'s own `addACL` helper stays as it is — it writes the acl row
+  with a raw INSERT on purpose, so it does not depend on `audit_log`.
+  The `auth.NewKeySet` comment is corrected: it no longer claims authd uses it,
+  and it now says WHY authd cannot — a live key set has to reject a token minted
+  after its kid was retired, which is `NewKeySetWithRetirement`.
 - **Evidence:** per-method grep excluding `_test.go` → definition-only hits for
   all eight; all flagged by `deadcode ./...` and absent from `deadcode -test`.
   `grep -rn "NewKeySet(" | grep -v _test` → authd/server.go:146 uses the

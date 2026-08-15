@@ -247,7 +247,7 @@ func TestScheduledTasksMCP_CrossFolderTaskDenied(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "world/a/c"}) // sibling
 	// The operator delegates cancel_task scoped EXACTLY to the caller's own folder —
 	// so the tool is held and visible, and only the per-task target can still deny.
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:world/a/b", Action: "mcp:cancel_task",
 		Scope: "world/a/b", Effect: "allow",
 	}); err != nil {
@@ -342,7 +342,7 @@ func TestScheduledTasksMCP_GateDenies(t *testing.T) {
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "hq"}})
 	grantMCPTools(t, db, "hq", "schedule_task")
 	// A deny row on the same (tool, scope) wins over the allow — visible, uncallable.
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:hq", Action: "mcp:schedule_task", Scope: "hq/**", Effect: "deny",
 	}); err != nil {
 		t.Fatalf("AddACLRow: %v", err)

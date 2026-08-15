@@ -345,7 +345,7 @@ func TestSplitFederation_InboundToTurnRoundTrip(t *testing.T) {
 	if rec.StatusCode != 200 {
 		t.Fatalf("authorized ingest status=%d", rec.StatusCode)
 	}
-	if !f.routdDB.MessageExists("wamid.1") {
+	if !messageExists(f.routdDB, "wamid.1") {
 		t.Fatal("inbound not stored after authorized ingest")
 	}
 
@@ -387,7 +387,7 @@ func TestSplitFederation_InboundViaServiceToken(t *testing.T) {
 	if rec.StatusCode != 200 {
 		t.Fatalf("ingest with service:teled token = %d, want 200", rec.StatusCode)
 	}
-	if !f.routdDB.MessageExists("svc.1") {
+	if !messageExists(f.routdDB, "svc.1") {
 		t.Fatal("inbound not stored after authorized service-token ingest")
 	}
 }
@@ -411,7 +411,7 @@ func TestSplitFederation_InboundRejectsBadToken(t *testing.T) {
 	if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", weak, "", in); rec.StatusCode != 403 {
 		t.Fatalf("ingest without messages:write = %d, want 403", rec.StatusCode)
 	}
-	if f.routdDB.MessageExists("bad.1") {
+	if messageExists(f.routdDB, "bad.1") {
 		t.Fatal("a rejected ingest must not store the inbound row")
 	}
 }

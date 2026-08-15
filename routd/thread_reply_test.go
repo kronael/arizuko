@@ -85,7 +85,7 @@ func TestReplyThreadRootSuppressed(t *testing.T) {
 		t.Fatal(err)
 	}
 	bFalse := false
-	if err := db.SetThreadReplies("demo", &bFalse); err != nil {
+	if err := setThreadReplies(db, "demo", &bFalse); err != nil {
 		t.Fatal(err)
 	}
 	threadTurn(t, db, "t-off", "demo", jid, "root-3")
@@ -96,7 +96,7 @@ func TestReplyThreadRootSuppressed(t *testing.T) {
 
 	// Preference on beats the DM default.
 	bTrue := true
-	if err := db.SetThreadReplies("demo", &bTrue); err != nil {
+	if err := setThreadReplies(db, "demo", &bTrue); err != nil {
 		t.Fatal(err)
 	}
 	threadTurn(t, db, "t-on", "demo", dm, "root-4")
@@ -230,7 +230,7 @@ func TestReplyThreadPrefOffKeepsThreadID(t *testing.T) {
 		t.Fatal(err)
 	}
 	atlFalse := false
-	if err := db.SetThreadReplies("atlas", &atlFalse); err != nil {
+	if err := setThreadReplies(db, "atlas", &atlFalse); err != nil {
 		t.Fatal(err)
 	}
 	// Turn is IN a thread: topic = existing thread_ts.

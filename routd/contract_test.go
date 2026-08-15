@@ -83,7 +83,7 @@ func TestContractRoundTrip(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("ingest status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !db.MessageExists("m1") {
+	if !messageExists(db, "m1") {
 		t.Fatal("inbound row not stored")
 	}
 
