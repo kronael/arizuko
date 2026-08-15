@@ -268,6 +268,89 @@ instead silently dedup a legitimately re-armed one-shot.
 - **Status:** open
 - **Fix:**
 
+## L35 — `tasks.toml` is a product payload nothing reads (2026-08-15, open)
+
+`specs/5/21:56` says a product ships "`tasks.toml` (seed scheduled tasks)", and
+`5/28`'s blend table gives it a union rule. **No code reads it.** The only
+mention of the filename in any `.go` or `.ts` file is `container/blend.go:83`,
+the classify rule that decides where to COPY it. There is no parser, no schema
+type, no `seedTasks`, nothing.
+
+Scheduled tasks are the `scheduled_tasks` resreg resource
+(`resreg/resources/scheduled_tasks.go`) — DB rows created through the MCP tool,
+the REST face, or the CLI. A file has never been an input to them.
+
+So a product author following `5/21` writes a `tasks.toml`, `arizuko products
+apply` reports success, the file lands in the group home, and no task is ever
+scheduled. Found while building a reference product for the docs: I wrote one,
+then went looking for the schema to document and there was none.
+
+This is the third instance of one class, and the other two were both closed by
+refusing the payload: `mcpServers` in `settings.json` (`J15`) and a product's
+`migrations/` (`5/28`, refused 2026-08-15). The rule those set is that a payload
+which applies cleanly and reaches no consumer is an authoring error, not an
+asset.
+
+- **Severity:** medium — silent no-op on an operator-facing path, and a spec
+  actively instructs people to use it
+- **Scope:** `5/28` composition, `5/21` product manifest
+- **Affected:** any product author following `5/21`; no corpus product ships one
+  today (asserted by `container/product_seed_test.go`)
+- **Source:** `container/blend.go:83`; `specs/5/21-products.md:56`;
+  `specs/5/28-packages.md:206`
+- **Status:** open. Two honest exits, and the choice is the operator's: REFUSE
+  the payload as the other two were, or BUILD the seeding path (read the file at
+  `SetupGroup`/apply time and insert `scheduled_tasks` rows through the owning
+  handler, never a direct DB write). Refusing is consistent and costs nothing —
+  nobody ships one. Building it is the only option that makes `5/21`'s sentence
+  true, and it is the only one of the three payloads where seeding is plausibly
+  wanted, because a product's daily-digest task is real product content.
+  Whichever wins, `5/21:56` must stop claiming the behaviour it claims today.
+- **Fix:**
+
+## L34 — handing an asset between two products in one mix DELETES it (2026-08-15, open)
+
+Reproduced end to end in the product lab, from a clean group:
+
+1. Mix is `[pa]`; `pa` ships `skills/shared/SKILL.md`. Apply → the file is at
+   `.claude/skills/shared/SKILL.md`. Correct.
+2. `pa` drops the skill, `pb` ships the **identical** file, mix becomes
+   `[pa, pb]`. Apply → **the file is gone from the group.**
+3. Apply again → `pb` writes it back.
+
+So the asset vanishes for the whole window between two applies, and nothing
+re-applies routinely. Worse, the apply that deleted it reported `pb unchanged`
+— the operator gets no signal at all, and `installed_packages` records `pb` as
+owning a file that is not on disk.
+
+Cause: `BlendProducts` runs `blendSkills` first (pb's content is byte-identical,
+so `writeIfDifferent` correctly writes nothing), then calls `dropStale` **per
+product with only that product's own hashes**
+(`container/blend.go`, `dropStale(groupDir, prior[mix[i].Name], out[i].AssetHashes)`).
+`pa`'s prior hashes contain the path, its current hashes do not, and the on-disk
+bytes still match `pa`'s recorded hash — because pb ships the same bytes. So
+`dropStale` classifies it as "clean and no longer shipped" and removes it.
+`dropStale` cannot see that another product in the SAME mix now owns the path.
+
+The same shape produces a false warning when the contents differ: applying the
+two-product mix in the lab printed "`.claude/skills/triage/SKILL.md` is no
+longer shipped but was edited locally — left in place" when nobody had edited
+anything; `oncall` had simply taken ownership from `helpdesk`.
+
+- **Severity:** medium — silent asset loss on a supported operation (changing
+  which product in a mix provides an asset), self-healing only on the next apply.
+- **Scope:** `5/28` composition, `container/blend.go` `dropStale`
+- **Affected:** any group whose `products.toml` mix moves an asset between
+  providers; no live instance runs a multi-product mix yet
+- **Source:** `container/blend.go` `BlendProducts` → `dropStale`; reproduced
+  2026-08-15 with `arizuko products <inst> apply`
+- **Status:** open. The fix is contained and does not need a redesign: compute
+  the union of every product's `AssetHashes` for the mix, and let `dropStale`
+  treat a path owned by ANY current provider as still-shipped. That also removes
+  the false "edited locally" warning, because ownership handoff stops looking
+  like a local edit.
+- **Fix:**
+
 ## L31 — a product never really updates: four of six payload kinds are seed-once (2026-08-15, proposal — needs sign-off)
 
 `arizuko packages upgrade` / `sync` re-apply exactly two payload kinds: skills
