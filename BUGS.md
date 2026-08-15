@@ -1012,7 +1012,7 @@ merely LOOKS right is what put the failing one in three skills), and
 an unverified form into all three skills would replace a known-broken
 instruction with an unknown one.
 
-## M2 — elevated (/root) turns bound by static-tier STRUCTURAL gates (2026-07-16, fixed 2026-07-20 except route_tokens)
+## ✅ FIXED 2026-08-15 M2 — elevated (/root) turns bound by static-tier STRUCTURAL gates — CLOSED-STALE, premise gone
 
 The 2026-07-16 elevation fix widened both halves of the per-tool grant
 (`ServeTurnMCP` rules → `*`, `turnAuthorize` → allow-all), but the resource
@@ -1030,26 +1030,29 @@ either) — now routed through the shared `toolGrant`. Operator-gated: cmdRoot
 elevates only for `IsOperator(sender)`. Test:
 `TestNetworkRulesMCP_RootElevationManagesEgress`.
 
-**Residual (open):** `route_tokens` mint cap lives in the HANDLER
-(`authorizeRouteTokenMint(auth.Resolve(folder), …)` inside `routeTokensHandler`),
-not the postBuild Gate — the handler can't see `elevated` without the
-Caller/Execution carrying the effective identity. So under /root a tier ≤2 folder
-still can't point a token OUTSIDE its subtree, and tier ≥3 can't mint. Only
-cross-subtree mint degrades; own-folder /root mint works. Deferred — plumb the
-effective identity into `resreg.Execution` (a small resreg contract change).
+**Both residuals below are now moot — the whole tier system this entry
+describes is gone.** `auth.Identity` (`auth/identity.go`) carries only
+`Folder`/`IsRoot`, no tier field; `AuthorizeStructural` no longer exists
+(only stale comments reference it). The 5/33 redesign replaced every
+static-tier check with `auth.Authorize`/acl grant rows.
 
-**Residual 2 (open, HIGH — wider blast radius, fable-found 2026-07-21):** the
-SAME elevation-blind pattern lives in the hand-rolled `ipc/ipc.go:831`
-`buildMCPServer` — `identity := auth.Resolve(folder)` derived once, blind to
-`t.elevated`, for every tool NOT yet migrated to resreg. Under `/root` from a
-tier-2+ folder these stay capped: `fork_topic` (own/descendant), the
-`inspect_messages`/JID-routing guards, `set_work`'s tier≤2 **registration** gate
-(the tool never even appears in `tools/list`), `get_web_presence`. Fix (proposal,
-needs sign-off): thread `t.elevated`/`callerID` into `ipc.ServeMCP` →
-`buildMCPServer` so `identity` is elevation-aware there too — a change to the
-`ipc` package's public signature + every caller/test, so bigger than route_tokens
-and out of the d452d6ef scope. This is the remaining half of the class; the
-resreg gates are done, the pre-resreg hand-rolled path is not.
+- `route_tokens`: `routeTokensHandler` (`routd/route_tokens_resource.go:107`)
+  has no `authorizeRouteTokenMint` call left. Containment now runs through
+  `routeTokensPostBuild`'s injected Gate (`turnAuthorize`/`turnIdentity`,
+  `routd/agent_gate.go`), which IS elevation-aware — `turnIdentity` sets
+  `IsRoot` under `/root`, and `turnAuthorize(elevated)` returns an allow-all
+  fn when elevated. Mint containment against the target folder rides the
+  same uniform evaluator as every other resource, own- or cross-subtree.
+- `ipc/ipc.go` `buildMCPServer` (line 957) now takes `isRoot bool` directly
+  (`identity.IsRoot = identity.IsRoot || isRoot`), and `authorizeCall`/
+  `visible` route through `db.Authorize`/`db.Visible` — the same evaluator,
+  not a tier check. The caller (`ipc.go:374`) threads `isRoot` through.
+  `fork_topic`, `inspect_messages`, `set_work`, `get_web_presence` are
+  elevation-aware via this shared path; no per-tool residual remains.
+
+**Fix:** none needed — closed by the unrelated 5/33 tiers-removal redesign,
+verified against `auth/identity.go`, `routd/agent_gate.go`,
+`routd/route_tokens_resource.go`, `ipc/ipc.go` at HEAD `0d376586`.
 
 ## M4 — `vited` runs the Vite DEV server in production (2026-07-16, partly fixed 2026-07-18)
 
