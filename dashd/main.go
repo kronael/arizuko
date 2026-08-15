@@ -209,7 +209,13 @@ func main() {
 
 	slog.Info("dashd started", "db", dsn, "port", port)
 
-	appDir := os.Getenv("HOST_APP_DIR")
+	// APP_SRC_DIR is the container-side path to ant/ (routd/runed read stock
+	// skills the same way); HOST_APP_DIR is a HOST path and unusable from
+	// inside the container unless mounted (BUGS F54).
+	appDir := os.Getenv("APP_SRC_DIR")
+	if appDir == "" {
+		appDir = os.Getenv("HOST_APP_DIR")
+	}
 
 	// guard admits a request that PROVES it transited proxyd (an authd-minted
 	// ES256 service:proxyd bearer, verified against authd's JWKS), then trusts the
@@ -386,7 +392,7 @@ type dash struct {
 	// the /dash/runed/ runs view reads them here directly (FS-access discipline).
 	dbPath    string
 	groupsDir string
-	appDir    string                                // HOST_APP_DIR; used to enumerate stock skills
+	appDir    string                                // APP_SRC_DIR (container path to ant/); used to enumerate stock skills
 	ks        *auth.KeySet                          // authd JWKS; verifies proxyd's ES256 transit bearer (nil → local dev open)
 	svc       func(context.Context) (string, error) // service:dashd token for the whapd re-pair proxy (nil → local dev)
 	runedURL  string                                // runed's /v1 face; target of the /dash/runed/kill operator-kill proxy. backendURL defaults it to the compose service name, so it is empty only in tests ("" → kill 503s)

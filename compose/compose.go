@@ -1103,6 +1103,12 @@ func onbodService(app, flavor, dataDir string) string {
 }
 
 func dashdService(app, flavor, dataDir string, env map[string]string) string {
+	// dashd's stock-skills picker enumerates ant/skills/ (groups_admin.go
+	// stockSkills) the same way routd/runed read ant/ — through appSrc, not
+	// the HOST_APP_DIR host path (BUGS F54: dashd had no source mount at all,
+	// so the picker read a host path from inside the container and silently
+	// returned nothing).
+	vol, src := appSrc(env)
 	def := svcDef{
 		name:       "dashd",
 		app:        app,
@@ -1129,7 +1135,11 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 			"ONBOD_DB_PATH": containerOwnerDB(store.OwnerOnbod),
 			"RUNED_DB_PATH": containerOwnerDB(store.OwnerRuned),
 			"DASH_PORT":     fmt.Sprintf("%d", core.DefaultAPIPort),
+			"APP_SRC_DIR":   src,
 		},
+	}
+	if vol != "" {
+		def.volumes = []string{vol}
 	}
 	if dashPort := envOr(env, "DASH_PORT", ""); dashPort != "" {
 		def.ports = []string{dashPort + ":8080"}

@@ -1053,7 +1053,7 @@ that are still identical catalog copies.
 - **Source:** deployed `services/teled.yml` vs `template/services/teled.yml`; `teled/main.go:69,78`
 - **Status:** open
 
-## F54 — dashd's stock-skills picker is dead in every deployed container (2026-08-07, open)
+## F54 — dashd's stock-skills picker is dead in every deployed container (2026-08-07, FIXED 2026-08-15)
 
 `dashd/groups_admin.go:187` reads `<HOST_APP_DIR>/ant/skills`. `env/dashd.env`
 sets `HOST_APP_DIR=/home/onvos/app/arizuko`, but `dashdService` attaches no
@@ -1062,9 +1062,16 @@ returns nil silently (`:184-186`), so the picker renders empty and no error
 reaches the operator.
 
 - **Source:** `dashd/groups_admin.go:184-187`; `compose/compose.go:1039`
-- **Status:** open
-- **Fix:** mount the source read-only (routd and runed already get
-  `HOST_APP_DIR:ro`), or read the skills from a path dashd actually has.
+- **Status:** FIXED 2026-08-15
+- **Fix:** wired dashd onto the EXISTING `appSrc()` mechanism routd/runed
+  already use (`compose/compose.go`) instead of inventing a second one:
+  `dashdService` now sets `APP_SRC_DIR` and, under `APP_SRC_DEV`, the same
+  read-only host bind. `dashd/main.go`'s `appDir` reads `APP_SRC_DIR` falling
+  back to `HOST_APP_DIR`, matching `routd/cmd/routd/main.go`'s pattern.
+  `stockSkills()`'s own join logic was already correct — only the container
+  path it read from was wrong. Tests: `TestAppSrcDefaultsToTheBakedCopy` and
+  `TestAppSrcDevMountsTheHostCheckout` (`compose/compose_test.go`) extended to
+  cover dashd alongside routd/runed.
 
 ## ✅ FIXED 2026-08-09 — F43 — routd hands the agent a scheme-less pairing URL (2026-08-06)
 
