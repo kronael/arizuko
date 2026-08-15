@@ -2393,7 +2393,7 @@ callers (and accurate UI hint displays) see nothing.
 
 ---
 
-## Nav chrome: no identity/scope signal (2026-06-16, open)
+## ✅ FIXED 2026-08-15 — Nav chrome: no identity/scope signal (2026-06-16, open)
 
 The persistent nav (`dashNavFor`) shows no identity, no folder scope, no operator badge. The only
 tell for operator status is whether `services`/`invites` links appear. For a console that gates
@@ -2404,7 +2404,10 @@ away (profile page). CTO audit criterion: auth trust signal always on screen.
 - **Scope:** dashd/main.go dashNavFor
 - **Affected:** all dashd pages
 - **Source:** dashd/main.go:362-376
-- **Status:** resolved — name + ◆ operator badge added to nav as profile link (2026-06-16)
+- **Status:** resolved — name + ◆ operator badge added to nav as profile link (2026-06-16).
+  Re-verified 2026-08-15: `dashNavFor` (dashd/main.go:692-733) resolves the display
+  name from `X-User-Name`/`X-User-Sub`, appends " ◆" when `**` is in the caller's
+  groups, and renders it as an always-visible badge on every page's nav.
 - **Fix:** `dashNavFor` identity badge using X-User-Name/X-User-Sub + operator flag
 
 ## `arizuko apply`/`plan`/`export`/`get` operate on the frozen messages.db post-split (2026-07-01, open)
