@@ -268,6 +268,49 @@ instead silently dedup a legitimately re-armed one-shot.
 - **Status:** open
 - **Fix:**
 
+## L37 — a product's skill is dead when seeded by `--product`, live when blended (2026-08-15, open)
+
+The two seeders disagree about the one payload kind that relocates, so a product
+shipping `skills/<name>/` works one way and silently does not the other.
+Reproduced on a throwaway instance:
+
+| Path | Where the skill lands | Agent loads it? |
+| ---- | --------------------- | --------------- |
+| `arizuko products <inst> apply <folder>` (blend) | `.claude/skills/triage/SKILL.md` | yes |
+| `arizuko group add … --product helpdesk` (verbatim `SetupGroup`) | `skills/triage/SKILL.md` | **no** |
+
+`container.blend.go` relocates a product's `skills/<n>/` under `skillsRel`
+(`.claude/skills`) because that is where the agent looks; `seedSkills` then
+layers the stock tree in beside it. The verbatim path copies the product tree as
+it stands — by design, and locked byte-for-byte by `TestProductSeedIsVerbatim` —
+so the directory stays at the group root, where nothing reads it.
+
+Consequence: `arizuko create <name> --product <p>` and `group add --product <p>`
+— the commands the whole product catalog tells operators to run — seed a skill
+into a dead location. No corpus product shipped `skills/` until 2026-08-15, which
+is why this never surfaced: the divergence existed the whole time with nothing to
+expose it.
+
+Found by running the command I had just written into
+`products/helpdesk/setup.html`, which claimed both paths "end with the same files
+in the same places". They do not.
+
+- **Severity:** medium — a shipped payload kind silently reaches no consumer on
+  the more prominent of the two paths
+- **Scope:** `5/28` composition vs `5/21` product seeding
+- **Affected:** any product shipping `skills/`; today only the `helpdesk`
+  reference product
+- **Source:** `container/blend.go` (`skillsRel` relocation) vs
+  `container/runner.go` `SetupGroup` → `chanlib.CopyDirNoSymlinks`
+- **Status:** open, and it is a one-renderer question rather than a patch. The
+  honest fix is that both seeders share one payload placement rule, so a product
+  means the same thing however it is applied — which likely means the verbatim
+  path stops being verbatim for this one kind, and `TestProductSeedIsVerbatim`
+  grows the same relocation exemption the mix lock just grew. The alternative —
+  teaching the agent to also read a group-root `skills/` — adds a second lookup
+  path for one payload and should not win.
+- **Fix:**
+
 ## L36 — `packages install` applies grants without saying so (2026-08-15, open)
 
 Installing a package that ships `<name>-grants.json` prints:

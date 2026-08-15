@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Helpdesk setup — arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/" aria-current="page">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../aws-devops/">AWS DevOps agent (Argus)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">Helpdesk</a> &rsaquo; setup</p>
+      <h1>Helpdesk setup</h1>
+
+      <p>
+        Two paths. Seed a new group from the product, or blend it into a
+        group you already have.
+      </p>
+
+      <div class="note">
+        <strong>Use the blend path for this product.</strong> The two
+        seeders currently disagree about one payload kind: a product's
+        <code>skills/</code> directory is relocated under
+        <code>.claude/</code> by <code>products apply</code>, where the
+        agent reads it, but copied to the group root verbatim by
+        <code>--product</code>, where nothing does. Helpdesk ships a
+        skill, so <code>--product helpdesk</code> seeds it into a dead
+        location until this is fixed. Tracked as <code>L37</code>.
+      </div>
+
+      <h2>1. Prerequisites</h2>
+
+      <ul>
+        <li>A running instance (<a href="../../howto/">getting started</a>).</li>
+        <li>One channel adapter, so support messages can reach the agent
+          &mdash; <a href="../../howto/slack.html">Slack</a> is the usual
+          choice for a support queue.</li>
+        <li>Nothing else. The product ships no sidecar, no image
+          extension and no external credential.</li>
+      </ul>
+
+      <h2>2. Seed a new group from it</h2>
+
+      <pre><code>arizuko group &lt;instance&gt; add slack:acme/support support --product helpdesk</code></pre>
+
+      <p>
+        That copies the product tree into <code>groups/support/</code>
+        once. From then on the files are the group&rsquo;s own state:
+        edit the persona, add facts, and nothing re-writes them.
+      </p>
+
+      <h2>3. Or blend it into an existing group</h2>
+
+      <p>
+        A group can run several products at once. Write the mix into the
+        group&rsquo;s <code>products.toml</code> and apply it:
+      </p>
+
+      <pre><code>[[product]]
+source = "ant/examples/helpdesk"</code></pre>
+
+      <pre><code>arizuko products &lt;instance&gt; apply support</code></pre>
+
+      <p>
+        Re-applying an unchanged mix writes nothing and reports
+        <code>unchanged</code>. A file you edited yourself is reported
+        dirty and skipped rather than overwritten.
+      </p>
+
+      <h2>4. Point escalations somewhere</h2>
+
+      <p>
+        The product declares one optional variable, and declaring it is a
+        hint rather than a gate &mdash; a missing value warns, it does not
+        stop the apply.
+      </p>
+
+      <pre><code>HELPDESK_ESCALATION_CHANNEL=acme/billing</code></pre>
+
+      <p>
+        Escalation is a routing decision, so the durable form is a route
+        to the folder that owns billing. See
+        <a href="../../concepts/routing.html">routing</a>.
+      </p>
+
+      <h2>5. Seed the knowledge</h2>
+
+      <p>
+        <code>facts/sla.md</code> ships with one line so the shape is
+        obvious. Replace it with what your team actually promises, and
+        add a file per topic &mdash; refund window, supported versions,
+        escalation rota. The agent answers from these; anything not in
+        them it will escalate rather than invent.
+      </p>
+
+      <h2>6. Verify</h2>
+
+      <pre><code>arizuko send &lt;instance&gt; support "I was charged twice for March, ticket 4417" --wait</code></pre>
+
+      <p>
+        A correct answer escalates rather than resolving, and quotes the
+        ticket id. If it offers a refund, the <code>CLAUDE.md</code>
+        region did not land &mdash; check that
+        <code>groups/support/CLAUDE.md</code> contains an
+        <code>arizuko:package:helpdesk</code> marked region.
+      </p>
+
+      <h2>7. Tuning</h2>
+
+      <ul>
+        <li><strong>Voice</strong> &mdash; edit <code>PERSONA.md</code>.</li>
+        <li><strong>Rules</strong> &mdash; edit inside the marked region
+          in <code>CLAUDE.md</code>, or write your own rules outside it;
+          text outside the markers is never touched.</li>
+        <li><strong>Triage categories</strong> &mdash; edit
+          <code>.claude/skills/triage/SKILL.md</code>. Note it lives
+          under <code>.claude/</code> in the group even though the product
+          ships it at <code>skills/triage/</code>.</li>
+        <li><strong>Turn a skill off</strong> &mdash; drop a
+          <code>.disabled</code> file in its directory.</li>
+      </ul>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/helpdesk/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>
