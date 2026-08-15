@@ -98,7 +98,7 @@ bookkeeping writes that matter next turn.
 Adapters (teled/discd/slakd/mastd/bskyd/reditd/emaid/chanlib) swept clean for
 this class.
 
-## Root-owned group home → agent runs config-less, silently never replies ("typing but no reply") (2026-07-11, ROOT CAUSE FIXED on krons, HARDENING OPEN)
+## Root-owned group home → agent runs config-less, silently never replies ("typing but no reply") (2026-07-11, ROOT CAUSE FIXED, HARDENING 2/3 DONE, spawn-abort residual OPEN)
 
 Symptom (user-reported): the bot shows a typing indicator then never replies,
 intermittently. Reproduced on krons folder `krons/content`: 4 turns (5729–5732)
@@ -119,13 +119,30 @@ adshaus, happy, krons, krons/public/marble, mayai, rhias, rhias/content,
 rhias/nemo). Fixed live: `chown -R 1000:1000 groups/krons/content`; uid-1000 can
 now write `.claude`. Pending end-to-end confirm on next inbound.
 
-**Hardening (OPEN).** Both write-failure sites swallow the error as `WARN` and
-continue, producing a silently dead agent — violates CLAUDE.md "strict, not
-magical / no silent fallbacks." Fix: when the group home is not writable (mkdir
-`.claude` = permission denied, or settings.json write fails), fail LOUD — log
-`ERROR` with the folder AND abort the spawn / deliver an error turn, rather than
-running a config-less container. Also consider refusing to dispatch a folder with
-no `groups` row (ghost-group guard) or auto-`chown` a fresh home to the run uid.
+**Hardening — two of three pieces now DONE, re-verified 2026-08-15:**
+
+- **Fail loud on write failure — DONE** (`01a61a07`). `container/runner.go`
+  `seedSettings`'s `os.WriteFile` failure now logs `slog.Error` naming the
+  exact symptom: "group home not writable — agent will run config-less and
+  not reply; chown the home to the run uid" (`runner.go:899`).
+- **Ghost-group guard — DONE** (`c9979e78`, GB1 L4a). `routd/dispatch.go:147`
+  `runTurn` now refuses to dispatch when `!l.db.GroupExists(folder)`: logs
+  `slog.Error("dispatch refused: unregistered group", ...)`, sends
+  `ghostGroupNotice` to the chat, and consumes the batch instead of spawning.
+  This directly closes the reproduced `krons/content` scenario (a ghost,
+  routed-to but not in `groups`) — that exact case can no longer reach a
+  config-less spawn.
+- **Abort spawn / deliver an error turn on write failure — still OPEN.**
+  `seedSettings` (void fn) and `cpDirImpl` (still `slog.Warn`, not `Error`,
+  for its own mkdir/readdir/lstat/read failures) log and `return`;
+  `buildMounts`/`container.Run` still have no error return, so a
+  **registered** group whose home is nonetheless mis-owned (permission drift
+  unrelated to being a ghost) still spawns config-less silently past the
+  loud log — an operator watching logs catches it, one polling only
+  `turn_results` does not. Propagating a write failure into an aborted spawn
+  + delivered error turn crosses the `container`→`runed`→`routd` call chain
+  (`Input`/`RunResult` contract change) — a redesign, needs sign-off, not
+  attempted here.
 
 ## F5 — `store.UserScopes` decides folder visibility without action or deny (2026-08-05, PARTIALLY FIXED 2026-08-05)
 
