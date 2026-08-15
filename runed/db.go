@@ -1,6 +1,6 @@
 // Package runed is the execution plane carved out of gated (spec 5/P): the
-// work queue, the per-spawn container lifecycle, and the brokering of
-// downscoped capability tokens. It is a pure container-spawner — routd hosts
+// work queue and the per-spawn container lifecycle. It is a pure
+// container-spawner — routd hosts
 // the agent MCP socket in-process and is the sole message appender; authd is
 // the sole token signer. runed mounts the ipc dir routd's socket lives in into
 // each spawn (container.Input.ExternalMCP) and manages spawn/steer/kill.

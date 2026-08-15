@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
-	"github.com/kronael/arizuko/types"
 )
 
 func newTestRuned(t *testing.T, rt Runtime) (*DB, *Server) {
@@ -20,7 +19,6 @@ func newTestRuned(t *testing.T, rt Runtime) (*DB, *Server) {
 	}
 	t.Cleanup(func() { db.Close() })
 	mgr := NewManager(db, rt, ManagerConfig{
-		Scopes:   []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 		Instance: "test",
 	})
 	return db, NewServer(mgr, db, nil)
@@ -46,9 +44,8 @@ func TestContractRun(t *testing.T) {
 	rec := doRun(t, h, runedv1.RunRequest{
 		Folder: "demo", ChatJID: "slack:T/C/U", TurnID: "wamid.X",
 		MessageBatch: "rendered prompt", CallerSub: "user:u1",
-		Model:            "claude-opus-4-8",
-		ContainerConfig:  map[string]any{"MaxChildren": 2},
-		CapabilityScopes: []types.Scope{"messages:send:own_group"},
+		Model:           "claude-opus-4-8",
+		ContainerConfig: map[string]any{"MaxChildren": 2},
 	})
 	if rec.Code != 200 {
 		t.Fatalf("run status=%d body=%s", rec.Code, rec.Body.String())

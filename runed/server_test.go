@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
-	"github.com/kronael/arizuko/types"
 )
 
 // fakeVerifier returns a fixed (sub, scope, folder) for any request — stands
@@ -41,7 +40,7 @@ func serverWith(t *testing.T, rt Runtime, v Verifier) (*DB, *Server) {
 	}
 	t.Cleanup(func() { db.Close() })
 	mgr := NewManager(db, rt, ManagerConfig{
-		Scopes: []types.Scope{"messages:send:own_group"}, Instance: "test", MaxConcurrent: 5,
+		Instance: "test", MaxConcurrent: 5,
 	})
 	return db, NewServer(mgr, db, v)
 }

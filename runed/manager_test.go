@@ -19,7 +19,6 @@ func newMgr(t *testing.T, rt Runtime, max int) (*DB, *Manager) {
 	}
 	t.Cleanup(func() { db.Close() })
 	mgr := NewManager(db, rt, ManagerConfig{
-		Scopes:        []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 		Instance:      "test",
 		MaxConcurrent: max,
 	})
@@ -401,22 +400,5 @@ func TestTrippingRunEmitsBreakerOpen(t *testing.T) {
 		if want && out.Error == "" {
 			t.Fatalf("tripping run carries empty error; want a breaker message")
 		}
-	}
-}
-
-// TestIntersectFailClosed: empty or disjoint requested scope yields the
-// EMPTY brokered scope, never the full ceiling (spec 5/P § brokering;
-// bugs.md should-fix fail-open).
-func TestIntersectFailClosed(t *testing.T) {
-	ceiling := []types.Scope{"messages:send:own_group", "chats:read:own_group"}
-	if got := intersect(ceiling, nil); len(got) != 0 {
-		t.Fatalf("empty want → %v, want empty (fail closed, not full ceiling)", got)
-	}
-	if got := intersect(ceiling, []types.Scope{"admin:everything"}); len(got) != 0 {
-		t.Fatalf("disjoint want → %v, want empty", got)
-	}
-	got := intersect(ceiling, []types.Scope{"chats:read:own_group", "admin:everything"})
-	if len(got) != 1 || got[0] != "chats:read:own_group" {
-		t.Fatalf("overlap want → %v, want [chats:read:own_group]", got)
 	}
 }

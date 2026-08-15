@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
-	"github.com/kronael/arizuko/types"
 )
 
 // specRecorder is a Runtime that captures the LAST RunSpec it was handed and
@@ -45,13 +44,12 @@ func TestHTTPRunThreadsFullRunSpec(t *testing.T) {
 		Folder: "acme/eng", Topic: "incident", ChatJID: "telegram:42",
 		Channel: "telegram", SessionID: "resume-me", MessageBatch: "rendered",
 		TriggerSender: "user:trig", CallerSub: "user:caller", TurnID: "wamid.Z",
-		CapabilityScopes: []types.Scope{"messages:send:own_group", "admin:everything"},
-		Model:            "claude-opus-4-8",
-		ContainerConfig:  map[string]any{"MaxChildren": 4},
-		ShareReadOnly:    true,
-		Egress:           true,
-		WebPublish:       true,
-		EgressAllowlist:  []string{"api.acme.com", "github.com"},
+		Model:           "claude-opus-4-8",
+		ContainerConfig: map[string]any{"MaxChildren": 4},
+		ShareReadOnly:   true,
+		Egress:          true,
+		WebPublish:      true,
+		EgressAllowlist: []string{"api.acme.com", "github.com"},
 	})
 	if got.Code != 200 {
 		t.Fatalf("run = %d want 200 (body=%s)", got.Code, got.Body.String())

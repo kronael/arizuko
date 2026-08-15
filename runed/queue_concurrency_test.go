@@ -187,7 +187,7 @@ func TestBreakerPersistsToDB(t *testing.T) {
 	mgr2 := NewManager(db, FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
 	}}, ManagerConfig{
-		Scopes: []types.Scope{"messages:send:own_group"}, Instance: "test", MaxConcurrent: 5,
+		Instance: "test", MaxConcurrent: 5,
 	})
 
 	// New manager reads existing failure count. A successful run resets it.
@@ -212,7 +212,7 @@ func TestActiveSpawnsPersistAcrossRestart(t *testing.T) {
 
 	// New manager reads state from DB.
 	mgr2 := NewManager(db, FakeRuntime{}, ManagerConfig{
-		Scopes: []types.Scope{"messages:send:own_group"}, Instance: "test", MaxConcurrent: 3,
+		Instance: "test", MaxConcurrent: 3,
 	})
 
 	// ActiveCount should return 2 (the two live spawns).
