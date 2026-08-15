@@ -1248,7 +1248,7 @@ than loudly — worse than a crash.
   configuration, not new crypto code, and `boto3` works unmodified in the
   container. Decision between (a)/(b)/(c) remains the user's.
 
-## X3 — runed gets `SECRETS_KEY` and never reads it (2026-08-09, open)
+## ✅ FIXED 2026-08-15 X3 — runed gets `SECRETS_KEY` and never reads it (2026-08-09)
 
 `compose/compose.go:178` ships `SECRETS_KEY` to runed. Nothing in `runed/` or
 `container/` reads it: routd decrypts and sends plaintext in
@@ -1259,10 +1259,36 @@ the daemon that spawns agent containers. Found while closing `X1`.
 - **Severity:** low (runed is a trusted daemon on the compose network; this
   widens the blast radius of a runed compromise, it does not create one)
 - **Source:** compose/compose.go:178; no reader in runed/ or container/
-- **Status:** open — record only. Dropping the key is a one-line compose change,
-  but it regenerates every instance's `env/runed.env`, and that regeneration is
-  exactly what caused the fleet-wide `/login` outage after v0.62. Wants a
-  deliberate deploy, not a drive-by.
+- **Fix:** `SECRETS_KEY` removed from `daemonKeys["runed"]` in
+  `compose/compose.go`. routd and dashd keep it (they seal/unseal rows); runed
+  gets already-decrypted credentials in `RunRequest.Secrets` and opens no
+  secrets table.
+
+**Why this regeneration is NOT the v0.62 `/login` outage (`M1`).** That outage
+happened because the model credentials (`ANTHROPIC_API_KEY`,
+`CLAUDE_CODE_OAUTH_TOKEN`, …) vanished from a regenerated `env/runed.env`. Those
+keys do not come from `daemonKeys["runed"]` at all — `writeEnvFiles` appends
+`store.EnvProfileKeys` for runed separately (`compose/compose.go`), so editing
+the runed key list cannot drop them. `TestModelCredentialsScopedToRuned` pins
+that, and it still passes.
+
+**OPERATOR ACTION ON DEPLOY.** This changes generated output, so it only takes
+effect where the compose env is regenerated:
+
+1. Regenerate, then diff `env/runed.env` before restarting. The ONLY expected
+   change is the `SECRETS_KEY=` line disappearing. If any `ANTHROPIC_API_KEY` /
+   `CLAUDE_CODE_OAUTH_TOKEN` / `OPENAI_API_KEY` / `CODEX_API_KEY` line also
+   disappeared, STOP — that is `M1` recurring, not this change.
+2. Leave `SECRETS_KEY` in the instance's top-level `.env`. It is still required:
+   routd refuses to start without it, and `env/routd.env` + `env/dashd.env`
+   still carry it. Removing it from `.env` crash-loops the instance
+   (`deploy_secrets_key_landmine`).
+3. `sudo systemctl restart arizuko_<instance>` and confirm a real turn replies
+   end-to-end — runed injecting model credentials is the path this touches.
+
+- **Verified:** `compose.TestSplitScopesSecretsKey` now asserts routd + dashd
+  carry the key and runed does not; `TestModelCredentialsScopedToRuned` (the M1
+  guard) unchanged and green.
 
 ## M1 — `mcpc` socat-connect form 502s since mcpc 0.3.0 (2026-07-16, open)
 

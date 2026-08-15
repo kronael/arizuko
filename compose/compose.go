@@ -174,10 +174,14 @@ var daemonKeys = map[string][]string{
 		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX", "EGRESS_CRACKBOX",
 		"CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL", "CRACKBOX_ADMIN_SECRET",
 		"HOST_CODEX_DIR",
-		// runed spawns the agent and injects the model credentials routd already
-		// resolved and decrypted (RunRequest.Secrets). It reads no secret rows and
-		// no keyring, so this key is inert here — see BUGS X3.
-		"SECRETS_KEY",
+		// NO SECRETS_KEY. runed spawns the agent and injects the model credentials
+		// routd already resolved and DECRYPTED (RunRequest.Secrets); it opens no
+		// secrets table and builds no keyring, so the fleet's decryption key had no
+		// reader here — only a wider blast radius on the one daemon holding
+		// docker.sock (BUGS X3). The model credentials runed does need are appended
+		// separately from store.EnvProfileKeys in writeEnvFiles, so they are
+		// unaffected by this removal — that separation is what keeps this from
+		// repeating the v0.62 /login outage (BUGS M1).
 	},
 	// onbod reads AUTH_BASE_URL (redirect base + cookie Secure flag) and nothing
 	// else from the auth block: authd took OAuth in a56202d4, so the provider
