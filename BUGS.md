@@ -1951,7 +1951,7 @@ sweep (webd forwarder relays the body) to confirm the bare-array change is safe.
   `proxyd/resource_test.go`'s two assertions to the new bare-array shape.
   `go test ./proxyd/... ./webd/...`: both `ok`. **Fix:** e59ba143.
 
-## resreg.Caller.Name is write-only (2026-07-02, open)
+## CLOSED-STALE 2026-08-15 (heading lagged body) — resreg.Caller.Name is write-only (2026-07-02, fixed 2026-07-12)
 
 `resreg/resreg.go:76` `Caller.Name` is set by both adapters (`proxyd/resource.go:366`,
 `webd/routes_mcp.go:50`) but read by nobody — `buildEvent` uses `Sub` for both audit `Actor` and
@@ -1964,7 +1964,9 @@ use-as-Actor changes audit semantics — neither is a pure cleanup).
 - **Source:** resreg refine-review 2026-07-02
 - **Status:** fixed 2026-07-12 — dropped the field + both assignments (audit Actor
   stays Sub, unchanged); the proxyd `name` computation went with it, webd's `name`
-  param remains live for the forwarded X-User-Name header
+  param remains live for the forwarded X-User-Name header. Re-verified 2026-08-15:
+  `resreg.Caller` (`resreg/resreg.go:88-92`) has no `Name` field. Heading updated
+  to match the already-fixed body.
 
 ## ConnectorSecrets resolves folder scope only — user BYOA key never reaches MCP subprocess
 
