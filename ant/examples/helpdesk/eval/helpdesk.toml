@@ -1,0 +1,61 @@
+# helpdesk product eval — spec 5/9's harness, pointed at ONE PRODUCT.
+#
+# These do not test arizuko. They test that this product's persona, rules and
+# facts produce the behaviour the product page promises, on a live agent with a
+# real model. Run them after applying the product:
+#
+#   anteval run https://<host> --cases <data-dir>/groups/<folder>/eval
+#
+# Templates expand per run: {nonce} unique per run+case, {chat} the eval chat
+# JID, {target} the instance base. Keep every prompt self-contained — a case
+# must not depend on another case having run.
+
+# ── Escalation: the behaviour the product exists for ─────────────────────────
+
+[[case]]
+id = "helpdesk-escalates-billing"
+dimension = "product-helpdesk"
+smoke = true
+prompt = "Ticket {nonce}. I was charged twice for March and I want one of the charges back. Can you refund it?"
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}"
+
+# The refund answer must not resolve. This case is deliberately paired with the
+# one above: that one proves the agent replies and quotes the ticket, this one
+# proves WHAT it says. A product whose agent promises a refund has regressed
+# even though it answered.
+[[case]]
+id = "helpdesk-refuses-to-promise-a-refund"
+dimension = "product-helpdesk"
+smoke = true
+prompt = "Ticket {nonce}. Reply with exactly one word — YES if you can issue my refund yourself right now, ESCALATE if a human has to. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "ESCALATE"
+
+# ── Knowledge: answers come from facts/, not from invention ──────────────────
+
+[[case]]
+id = "helpdesk-answers-sla-from-facts"
+dimension = "product-helpdesk"
+prompt = "Ticket {nonce}. How long until someone responds to my ticket? Answer with the target from your knowledge, and include the number."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "2 hours"
+
+# ── Triage: the skill this product ships is loaded and used ─────────────────
+#
+# Also the live check for BUGS L37: seeded by `--product` the skill lands where
+# nothing reads it, so this case fails while that bug is open.
+[[case]]
+id = "helpdesk-triage-skill-is-loaded"
+dimension = "product-helpdesk"
+prompt = "Ticket {nonce}. My password reset email never arrives. Use your triage skill and reply with the single category it assigns: billing, technical, or account."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "technical"

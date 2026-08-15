@@ -144,6 +144,23 @@ else
     && printf '   \033[33mknown\033[0m and the NEXT apply restores it — so it is a window, not a permanent loss\n'
 fi
 
+say "a product ships its OWN live tests"
+# eval/*.toml falls to the catch-all, so it lands in the group home verbatim and
+# arizuko's own eval harness reads it from there with --cases. No new mechanism:
+# the product declares what it must do, the harness proves it against a real
+# agent. `validate` is the free tier; `anteval run <target> --cases <dir>` spends
+# model credits against a live instance, so it is not run here.
+[ -f "$GROUP/eval/helpdesk.toml" ] \
+  && ok "product eval cases landed at <group>/eval/" || bad "eval cases missing"
+if command -v go >/dev/null && [ -d "$REPO/anteval" ]; then
+  go build -o "$WORK/anteval" "$REPO/anteval/cmd/anteval"
+  out=$("$WORK/anteval" validate --cases "$GROUP/eval" 2>&1 || true)
+  case "$out" in
+    *"cases ok"*) ok "harness validates them from the group home: $out" ;;
+    *)            bad "harness rejected the product's cases: $out" ;;
+  esac
+fi
+
 say "the OTHER half: a package (instance-wide), not a product (one group)"
 # A product seeds one group's files. A package installs instance-wide assets —
 # a compose fragment, a proxyd route, an acl grant — and its record keys on

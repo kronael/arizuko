@@ -240,7 +240,7 @@ func TestProductCorpusPayloadKinds(t *testing.T) {
 	// has a consumer, so the blend table is no longer hypothetical for skills or
 	// settings. Assert it keeps doing that — a reference that quietly loses a
 	// payload stops being one.
-	for _, rel := range []string{".claude/settings.json", "skills/triage/SKILL.md", "facts/sla.md"} {
+	for _, rel := range []string{".claude/settings.json", "skills/triage/SKILL.md", "facts/sla.md", "eval/helpdesk.toml"} {
 		if _, err := os.Stat(filepath.Join(examplesDir, "helpdesk", rel)); err != nil {
 			t.Errorf("helpdesk is the reference product and no longer ships %s: %v", rel, err)
 		}

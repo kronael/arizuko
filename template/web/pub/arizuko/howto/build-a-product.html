@@ -229,6 +229,55 @@ source = "github.com/org/our-brand"  # or a git source, pinned to a revision</co
         move an asset between products in a mix.
       </div>
 
+      <h2>Ship tests with it</h2>
+
+      <p>
+        A product is a claim about behaviour, so it should carry the
+        check. Put <code>eval/*.toml</code> in the product; it lands in
+        the group home like any unnamed payload, and arizuko&rsquo;s own
+        eval harness reads it from there:
+      </p>
+
+      <pre><code># free — schema and template check, no model spend
+anteval validate --cases &lt;data-dir&gt;/groups/&lt;folder&gt;/eval
+
+# live — real turns against a running instance, spends model credits
+anteval run https://&lt;host&gt; --cases &lt;data-dir&gt;/groups/&lt;folder&gt;/eval</code></pre>
+
+      <p>
+        A case gives the agent one prompt and asserts an externally
+        observable effect. For a product the useful check is usually
+        <code>rest_reply</code> &mdash; the bot&rsquo;s own reply must
+        contain a string:
+      </p>
+
+      <pre><code>[[case]]
+id = "helpdesk-refuses-to-promise-a-refund"
+dimension = "product-helpdesk"
+smoke = true
+prompt = "Ticket {nonce}. Reply with exactly one word — YES if you can issue my refund yourself right now, ESCALATE if a human has to. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "ESCALATE"</code></pre>
+
+      <p>
+        That is the difference worth drawing: this does not test arizuko,
+        it tests that <em>your persona, rules and facts</em> produce the
+        behaviour your product page promises. An agent that answers
+        politely and offers the refund has regressed even though every
+        daemon is healthy. <code>{nonce}</code> is unique per run, so a
+        case never matches a previous run&rsquo;s reply.
+      </p>
+
+      <p>
+        Other check kinds: <code>callback</code> (the agent must hit a
+        URL), <code>http_status</code> (a page must return a code),
+        <code>rest_observe</code>, <code>mcp_roundtrip</code>,
+        <code>parity_sentinel</code>. Mark the cases you would gate a
+        release on with <code>smoke = true</code>.
+      </p>
+
       <h2>Where the record lives</h2>
 
       <p>

@@ -268,6 +268,35 @@ instead silently dedup a legitimately re-armed one-shot.
 - **Status:** open
 - **Fix:**
 
+## L38 — the product catalog and the product corpus are two different sets (2026-08-15, open)
+
+`ant/examples/` ships 11 products; `template/web/pub/arizuko/products/` documents
+9. They are not the same 9.
+
+- **Shipped, undocumented (6):** `creator`, `personal`, `pm`, `socials`,
+  `strategy`, `support`. An operator running `arizuko products <inst> list` sees
+  names that appear nowhere on the site.
+- **Documented, unshipped (4):** `company-brain`, `discord-team`, `marble`,
+  `supermarket`. Pages describe products with no tree behind them. `supermarket`
+  at least says so ("No template ships for this one yet"); the other three read
+  like something you could install.
+
+Only 5 exist on both sides. `template/web/CLAUDE.md` §"Adding a new product"
+already prescribes the two-page + grid-row ritual, so the process exists and was
+not followed — this is drift, not a missing convention.
+
+- **Severity:** low — nothing breaks, but the catalog is the first thing a new
+  operator reads and roughly half of it is wrong in one direction or the other
+- **Scope:** product catalog docs vs `ant/examples/`
+- **Affected:** anyone choosing a product from the site
+- **Source:** `ls ant/examples` vs `ls template/web/pub/arizuko/products`
+- **Status:** open. Either write the six missing page pairs or drop the products
+  from the corpus, and mark the four documented-only pages as shapes rather than
+  templates. A test asserting the two sets match would stop it recurring —
+  `container/product_seed_test.go` already asserts corpus counts and is the
+  natural home.
+- **Fix:**
+
 ## L37 — a product's skill is dead when seeded by `--product`, live when blended (2026-08-15, open)
 
 The two seeders disagree about the one payload kind that relocates, so a product
