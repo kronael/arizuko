@@ -94,23 +94,84 @@ source = "ant/examples/helpdesk"</code></pre>
         dirty and skipped rather than overwritten.
       </p>
 
-      <h2>4. Point escalations somewhere</h2>
+      <h2>4. Route the requests to it</h2>
 
       <p>
-        The product declares one optional variable, and declaring it is a
+        A product with no route is an agent nobody can reach. Binding a
+        chat to a folder <em>is</em> the routing step &mdash;
+        <code>group add</code> writes the route for you, so the common
+        case needs no second command:
+      </p>
+
+      <pre><code>arizuko group &lt;instance&gt; add slack:acme/support acme/support --product helpdesk
+arizuko route &lt;instance&gt; list</code></pre>
+
+      <pre><code>ID  SEQ  MATCH               TARGET
+1   0    room=acme/support   acme/support</code></pre>
+
+      <p>
+        Every message in that Slack channel now reaches the
+        <code>acme/support</code> agent. Add a second channel by adding a
+        second group; add a webhook or a public chat link by minting a
+        route token (<a href="../../howto/webhooks.html">webhooks</a>,
+        <a href="../../howto/chat-link.html">chat link</a>) &mdash; all
+        four ingresses land in the same folder and the same agent.
+      </p>
+
+      <h2>5. Escalation is a second agent, not a mailbox</h2>
+
+      <p>
+        The product escalates billing and account questions. Escalating
+        to a <em>human</em> is a message; escalating to another
+        <em>agent</em> is a delegation, and that is the interesting
+        shape:
+      </p>
+
+      <pre><code>arizuko group &lt;instance&gt; add slack:acme/billing acme/billing</code></pre>
+
+      <p>
+        The support agent then calls <code>delegate_group</code> with the
+        billing folder and the request. The billing agent runs its own
+        turn, in its own container, with its own grants and its own
+        egress allowlist &mdash; it is a peer, not a subroutine. Nothing
+        auto-creates the target: delegating to a folder that does not
+        exist fails and names the tool that would create it.
+      </p>
+
+      <div class="note">
+        <strong>The delegating agent needs the grant.</strong>
+        <code>delegate_group</code> is not in the <code>role:member</code>
+        floor, so an operator delegates it to the support folder before
+        escalation works. Until then the agent will say it cannot
+        escalate &mdash; which is the correct failure, not a bug.
+      </div>
+
+      <p>
+        If you would rather the billing agent simply <em>watch</em> the
+        support channel instead of being handed tickets, give it a
+        watch-only route on the same chat:
+      </p>
+
+      <pre><code>arizuko route &lt;instance&gt; add 'slack:acme/support' 'acme/billing#observe' --seq 2</code></pre>
+
+      <p>
+        <code>#observe</code> means the billing agent sees the traffic and
+        does not reply. Two agents, one channel, one of them silent.
+        See <a href="../../concepts/routing.html">routing</a> for the
+        full match and fragment grammar.
+      </p>
+
+      <h2>6. Point escalations somewhere</h2>
+
+      <p>
+        The product declares one optional variable. Declaring it is a
         hint rather than a gate &mdash; a missing value warns, it does not
         stop the apply.
       </p>
 
       <pre><code>HELPDESK_ESCALATION_CHANNEL=acme/billing</code></pre>
 
-      <p>
-        Escalation is a routing decision, so the durable form is a route
-        to the folder that owns billing. See
-        <a href="../../concepts/routing.html">routing</a>.
-      </p>
-
-      <h2>5. Seed the knowledge</h2>
+      <h2>7. Seed the knowledge</h2>
 
       <p>
         <code>facts/sla.md</code> ships with one line so the shape is
@@ -120,7 +181,7 @@ source = "ant/examples/helpdesk"</code></pre>
         them it will escalate rather than invent.
       </p>
 
-      <h2>6. Verify</h2>
+      <h2>8. Verify</h2>
 
       <pre><code>arizuko send &lt;instance&gt; support "I was charged twice for March, ticket 4417" --wait</code></pre>
 
@@ -132,7 +193,7 @@ source = "ant/examples/helpdesk"</code></pre>
         <code>arizuko:package:helpdesk</code> marked region.
       </p>
 
-      <h2>7. Tuning</h2>
+      <h2>9. Tuning</h2>
 
       <ul>
         <li><strong>Voice</strong> &mdash; edit <code>PERSONA.md</code>.</li>
