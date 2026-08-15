@@ -516,7 +516,7 @@ while leaving the no-producer gap.
   → definitions only. `git log -S RecordEgressRequest` → born 82031d44, never
   called since. All three flagged by `deadcode ./...`.
 
-## L13 — `secret_use_log` is write-only: no read surface on any face (2026-08-11, open)
+## L13 — `secret_use_log` is write-only: no read surface on any face (2026-08-11, proposed 2026-08-15 — needs sign-off)
 
 The table (routd/migrations/0008-secrets.sql) is written on every resolved
 secret (`routd/mcp.go:503`, `store/secret_use_log.go:38`) and read by nothing:
@@ -532,7 +532,29 @@ answers "who used which secret" only to an operator with sqlite3 on the host.
 - **Scope:** secret-use forensic log read surface
 - **Affected:** routd, store
 - **Source:** `store/secret_use_log.go:38`, `routd/migrations/0008-secrets.sql`
-- **Status:** open
+- **Status:** PROPOSED, not built — the premise is CONFIRMED at 28d20228
+  (readers are four test files and nothing else; no `Table:` declaration, no
+  REST handler, no dashd page, no CLI verb), but the fix is a new wire contract,
+  which this pass does not ship unreviewed.
+  Why it is not a mechanical registration: in this codebase a resource's name IS
+  its wire identity, and `5/17` derives the MCP tool from the same declaration
+  that serves REST. Registering `secret_use_log` therefore publishes a new
+  `/v1/secret_use_log` path AND a new agent-visible tool in one move, and the
+  question "may an AGENT read which secrets were used, by whom, with which
+  tool?" is a security decision the operator owns, not a detail of the wiring.
+  Recommended shape, for approval:
+  - Owner routd (it owns the table, routd migration `0008`), read-only: `list`
+    with folder containment, no create/update/delete — the writer stays
+    `store/secret_use_log.go`, the single one.
+  - RowType mirroring the columns already written (`key`, `scope`,
+    `scope_kind`, `tool`, `caller_sub`, `spawn_id`, `ts`), so the doc and the
+    handler read one struct.
+  - Gate: operator scope on REST. On the agent MCP face, either omit it
+    entirely (operator-only forensics, the safer default and my
+    recommendation) or bind it to the caller's own folder — never a plain
+    `mcp:` grant with the default target resolver.
+  - `F35`'s onbod `audit_log` resource is the precedent to copy for the
+    read-only shape.
 - **Evidence:** table writer/reader sweep over all migrations
   (`INSERT INTO|UPDATE` vs `FROM <table>` vs `Table:` resreg decls) →
   `secret_use_log writers=1 readers=0 resreg=0`. `grep -rn secret_use_log`
