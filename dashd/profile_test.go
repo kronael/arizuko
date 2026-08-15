@@ -37,9 +37,8 @@ func TestProfile_NoIdentity(t *testing.T) {
 	}
 }
 
-// The signed-in sub's own provider is the only one hidden: the profile page no
-// longer reads a linked-account list (user_profiles.linked_to_sub is gone —
-// nothing ever wrote it), so every other provider offers a link button.
+// The signed-in sub's own provider is the only one hidden; every other
+// provider offers a link button.
 func TestProfile_HidesOwnProviderOffersRest(t *testing.T) {
 	d := profileTestDB(t)
 	seedAuthUser(t, d, "google:alice", "Alice")

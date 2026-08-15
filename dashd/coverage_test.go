@@ -13,11 +13,6 @@ import (
 
 // --- data-path tests for row-rendering functions ---
 
-// Channels widget was removed when the channels SQL table was dropped
-// (migration 0065). Production registry is in-memory chanreg fed by
-// adapter HTTP self-registration; dashd no longer reads channels.
-// TestStatusWithChannels + TestStatusNoChannelsErrBanner removed.
-
 func TestTasksPartialRows(t *testing.T) {
 	db := routdDB(t)
 	defer db.Close()
@@ -527,7 +522,6 @@ func TestPortalAllDotsOk(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	body := w.Body.String()
-	// each dot span should have class "dot dot-ok"
 	if !strings.Contains(body, `dot dot-ok`) {
 		t.Errorf("expected 'dot dot-ok' classes: %s", body)
 	}
@@ -576,6 +570,3 @@ func TestPortalRejectsNonRoot(t *testing.T) {
 		t.Errorf("expected 404 for non-root under /dash/, got %d", w.Code)
 	}
 }
-
-// TestStatusChannelsLimit500 removed alongside the channels widget
-// (migration 0065 dropped the channels table; dashd no longer reads it).

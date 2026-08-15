@@ -50,7 +50,6 @@ func TestDash_WhatsappPair_NonAdminDenied(t *testing.T) {
 }
 
 func TestDash_WhatsappPairStart_AdminProxiesAndAudits(t *testing.T) {
-	// Spin a mock whapd that returns a code.
 	mockWhapd := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/pair/start" {
 			w.Header().Set("Content-Type", "application/json")

@@ -15,8 +15,7 @@ import (
 // that routd's chain cannot supply: onbod owns it and onbod is package main, so
 // its migration FS is unreachable from outside — the same constraint
 // cmd/arizuko's onbodSchema constant works around. acl, acl_membership and
-// audit_log used to be restated here too; they are routd's and now come from
-// routd's own migrations (BUGS F44).
+// audit_log are routd's, from routd's own migrations (BUGS F44).
 func testDBWithInvites(t *testing.T) *sql.DB {
 	t.Helper()
 	db := routdDB(t)

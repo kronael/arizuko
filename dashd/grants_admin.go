@@ -89,7 +89,6 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 		"No grants for this group.",
 	))
 
-	// Gather known principals for datalist autocomplete.
 	var principalOpts strings.Builder
 	principalOpts.WriteString(`<datalist id="principals">`)
 	if uRows, err := d.adminDB().Query(
@@ -106,7 +105,6 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// Membership principals already in acl_membership.
 	if mRows, err := d.adminDB().Query(
 		`SELECT DISTINCT child FROM acl_membership WHERE child NOT LIKE 'role:%' ORDER BY child`); err == nil {
 		defer mRows.Close()
@@ -119,9 +117,9 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	}
 	principalOpts.WriteString(`</datalist>`)
 
-	// Gather scope select: only the current folder and its descendants. The
-	// POST handler rejects anything else (no widening to ** or siblings), so the
-	// UI must not offer options the server would reject.
+	// Scope options are the current folder and its descendants only — the POST
+	// handler rejects anything else (no widening to ** or siblings), so the UI
+	// must not offer options the server would reject.
 	var scopeSelect strings.Builder
 	scopeSelect.WriteString(`<select name="scope">`)
 	fmt.Fprintf(&scopeSelect, `<option value="%s" selected>%s (this folder)</option>`, esc(folder), esc(folder))
@@ -137,7 +135,6 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	}
 	scopeSelect.WriteString(`</select>`)
 
-	// Action select.
 	var actionSelect strings.Builder
 	actionSelect.WriteString(`<select name="action">`)
 	for _, a := range commonActions {

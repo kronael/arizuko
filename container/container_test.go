@@ -633,27 +633,22 @@ func TestSeedSkillsClaudeJSON_UserIDDerivedFromFolder(t *testing.T) {
 func TestSeedSkills_MergeBase(t *testing.T) {
 	claudeDir := t.TempDir()
 	appDir := t.TempDir()
-	// Stock skill: ant/skills/foo/SKILL.md
 	skillSrc := filepath.Join(appDir, "ant", "skills", "foo")
 	os.MkdirAll(skillSrc, 0o755)
 	os.WriteFile(filepath.Join(skillSrc, "SKILL.md"), []byte("stock-foo"), 0o644)
-	// Stock CLAUDE.md
 	os.WriteFile(filepath.Join(appDir, "ant", "CLAUDE.md"), []byte("stock-claude"), 0o644)
 
 	cfg := &core.Config{HostAppDir: appDir}
 	seedSkills(cfg, claudeDir, "g")
 
-	// .merge-base/CLAUDE.md matches source
 	bClaude, err := os.ReadFile(filepath.Join(claudeDir, ".merge-base", "CLAUDE.md"))
 	if err != nil || string(bClaude) != "stock-claude" {
 		t.Errorf(".merge-base/CLAUDE.md: %q err=%v", bClaude, err)
 	}
-	// .merge-base/skills/foo/SKILL.md matches source
 	bSkill, err := os.ReadFile(filepath.Join(claudeDir, ".merge-base", "skills", "foo", "SKILL.md"))
 	if err != nil || string(bSkill) != "stock-foo" {
 		t.Errorf(".merge-base/skills/foo/SKILL.md: %q err=%v", bSkill, err)
 	}
-	// Live copy also present
 	live, _ := os.ReadFile(filepath.Join(claudeDir, "skills", "foo", "SKILL.md"))
 	if string(live) != "stock-foo" {
 		t.Errorf("live skill: %q", live)
@@ -683,11 +678,9 @@ func TestSeedSkills_DotDisabled(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(tgt, "SKILL.md")); !os.IsNotExist(err) {
 		t.Error("SKILL.md should be removed when .disabled present")
 	}
-	// Operator files preserved.
 	if data, err := os.ReadFile(filepath.Join(tgt, "operator.md")); err != nil || string(data) != "op" {
 		t.Errorf("operator.md should be preserved: %q err=%v", data, err)
 	}
-	// Stock helper must NOT have been seeded.
 	if _, err := os.Stat(filepath.Join(tgt, "helper.md")); !os.IsNotExist(err) {
 		t.Error("helper.md should not have been seeded for disabled skill")
 	}
@@ -709,7 +702,6 @@ func TestSeedSkills_PreservesOursOnRerun(t *testing.T) {
 	cfg := &core.Config{HostAppDir: appDir}
 	seedSkills(cfg, claudeDir, "g")
 
-	// Operator edits ours after first seed.
 	liveSkill := filepath.Join(claudeDir, "skills", "foo", "SKILL.md")
 	liveClaude := filepath.Join(claudeDir, "CLAUDE.md")
 	os.WriteFile(liveSkill, []byte("operator-edit"), 0o644)
@@ -726,7 +718,6 @@ func TestSeedSkills_PreservesOursOnRerun(t *testing.T) {
 	if data, _ := os.ReadFile(liveClaude); string(data) != "operator-claude" {
 		t.Errorf("ours CLAUDE.md clobbered: %q", data)
 	}
-	// Merge-base must mirror upstream-v2.
 	bSkill, _ := os.ReadFile(filepath.Join(claudeDir, ".merge-base", "skills", "foo", "SKILL.md"))
 	if string(bSkill) != "upstream-v2" {
 		t.Errorf("merge-base skill not refreshed: %q", bSkill)
@@ -760,7 +751,6 @@ func TestSeedSkills_MergeBaseMirrorsUpstream(t *testing.T) {
 	os.WriteFile(filepath.Join(skillSrc, "helper2.md"), []byte("h2"), 0o644)
 	seedSkills(cfg, claudeDir, "g")
 
-	// Old helper.md must be GONE from merge-base.
 	if _, err := os.Stat(baseHelper); !os.IsNotExist(err) {
 		t.Error("merge-base helper.md should have been removed (upstream renamed it)")
 	}
@@ -805,13 +795,11 @@ func TestSeedSkills_DisabledRemovesMergeBase(t *testing.T) {
 	cfg := &core.Config{HostAppDir: appDir}
 	seedSkills(cfg, claudeDir, "g")
 
-	// Confirm merge-base exists.
 	base := filepath.Join(claudeDir, ".merge-base", "skills", "foo")
 	if _, err := os.Stat(base); err != nil {
 		t.Fatalf("merge-base not seeded: %v", err)
 	}
 
-	// Operator disables the skill.
 	tgt := filepath.Join(claudeDir, "skills", "foo")
 	os.WriteFile(filepath.Join(tgt, ".disabled"), []byte(""), 0o644)
 	seedSkills(cfg, claudeDir, "g")

@@ -169,7 +169,6 @@ func TestBotHandler_LikeDislike_Reditd(t *testing.T) {
 	if got := m.forms["/api/vote"].Get("id"); got != "t1_def" {
 		t.Errorf("/api/vote id = %q, want t1_def", got)
 	}
-	// at least two votes recorded
 	var voteCount int
 	for _, p := range m.paths {
 		if p == "/api/vote" {

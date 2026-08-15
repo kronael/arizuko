@@ -84,7 +84,6 @@ func TestSetup_WithEnv_FanOut(t *testing.T) {
 		slog.Info("fanout-record", "i", i)
 	}
 
-	// Shutdown flushes the batch processor.
 	shutdown()
 
 	final := got.Load()

@@ -69,8 +69,8 @@ func TestRouterClientRegister(t *testing.T) {
 	defer mr.close()
 
 	rc := chanlib.NewRouterClient(mr.srv.URL)
-	// Register now presents the adapter's service:<adapter> token (the bearer
-	// source), replacing CHANNEL_SECRET. The mock admits the token it expects.
+	// Register presents the adapter's service:<adapter> token (the bearer
+	// source). The mock admits the token it expects.
 	rc.SetServiceToken(func(context.Context) (string, error) { return "svc-jwt", nil })
 	token, err := rc.Register("telegram", "http://tg:9001",
 		[]string{"telegram:"}, map[string]bool{"send_text": true})

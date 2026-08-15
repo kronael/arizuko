@@ -479,7 +479,6 @@ func (s *server) handleMeFolderOrFiles(w http.ResponseWriter, r *http.Request) {
 // /me/chats/{folder...}/{topic} or /me/chats/{folder...}/{topic}/send.
 // The last path segment is the topic; everything before it is the folder.
 func meFolderTopic(r *http.Request) (folder, topic string) {
-	// path value "folder" contains "folder/topic" or "folder/topic/send" etc.
 	raw := strings.TrimPrefix(r.PathValue("folder"), "/")
 	// strip known suffixes used by sub-routes
 	for _, sfx := range []string{"/send", "/sse"} {

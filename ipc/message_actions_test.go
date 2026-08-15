@@ -210,7 +210,6 @@ func TestServeMCP_PinMessage_CrossFolderDenied(t *testing.T) {
 		// JID is routed to "other", not "world/a/b"
 		DefaultFolderForJID: func(jid string) string { return "other" },
 	}
-	// Tier-2 folder at world/a/b
 	stop, err := ServeMCP(sock, gated, db, "world/a/b", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)

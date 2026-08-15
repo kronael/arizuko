@@ -63,7 +63,6 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	srcOnbod := srcStores[resreg.SubsystemOnbod]
 	srcRoutd.SetSecretKeys([]byte("archive-round-trip-key"))
 
-	// Config: a group + a route.
 	c0 := routdChecksum(t, srcRoutd)
 	if _, err := resreg.Apply(ctx, srcRoutd.DB(), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"groups": []resources.GroupsRow{{Folder: "atlas", Product: "assistant"}},
@@ -73,7 +72,6 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	}
 	seedGroupFiles(t, srcDataDir, "atlas")
 
-	// Secrets.
 	if err := srcRoutd.SetSecret(store.ScopeFolder, "atlas", "API_KEY", "sk-source-secret"); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +86,6 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// invites.
 	if _, err := srcOnbod.DB().Exec(`INSERT INTO invites(ref, target_glob, issued_by_sub, issued_at, max_uses, used_count)
 		VALUES ('ref1', 'atlas/*', 'user:admin', '2026-01-01T00:00:00Z', 5, 0)`); err != nil {
 		t.Fatal(err)

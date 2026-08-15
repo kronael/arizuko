@@ -11,7 +11,6 @@ import (
 
 // requireUser returns sub when X-User-Sub is set; 401 when missing.
 func TestRequireUser(t *testing.T) {
-	// set
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("X-User-Sub", "alice@x")
 	w := httptest.NewRecorder()
@@ -20,7 +19,6 @@ func TestRequireUser(t *testing.T) {
 		t.Errorf("sub=%q ok=%v, want alice@x/true", sub, ok)
 	}
 
-	// missing
 	r2 := httptest.NewRequest("GET", "/", nil)
 	w2 := httptest.NewRecorder()
 	if _, ok := requireUser(w2, r2); ok {
@@ -34,7 +32,6 @@ func TestRequireUser(t *testing.T) {
 // requireSameOrigin: missing Origin passes; matching Origin passes;
 // cross-origin is rejected.
 func TestRequireSameOrigin(t *testing.T) {
-	// missing origin allowed
 	r := httptest.NewRequest("POST", "/", nil)
 	r.Host = "example.com"
 	w := httptest.NewRecorder()
@@ -42,7 +39,6 @@ func TestRequireSameOrigin(t *testing.T) {
 		t.Error("missing Origin should pass")
 	}
 
-	// same origin passes
 	r2 := httptest.NewRequest("POST", "/", nil)
 	r2.Host = "example.com"
 	r2.Header.Set("Origin", "https://example.com")
@@ -51,7 +47,6 @@ func TestRequireSameOrigin(t *testing.T) {
 		t.Error("matching Origin should pass")
 	}
 
-	// cross-origin rejected
 	r3 := httptest.NewRequest("POST", "/", nil)
 	r3.Host = "example.com"
 	r3.Header.Set("Origin", "https://attacker.com")

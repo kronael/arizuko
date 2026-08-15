@@ -42,7 +42,6 @@ func TestMintModesStampTyp(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 
-	// service
 	svc, err := a.MintForSubject("service:timed", "service", nil, []string{"tasks:read"}, "")
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +60,6 @@ func TestMintModesStampTyp(t *testing.T) {
 		t.Fatalf("OAuth session typ = %q want user", got)
 	}
 
-	// downscoped
 	parent := callerToken(t, a, "user:1", []string{"tasks:read", "tasks:write"}, "atlas/main")
 	psub, err := auth.VerifyToken(parent, a.LocalKeySet())
 	if err != nil {

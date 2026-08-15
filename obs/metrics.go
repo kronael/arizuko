@@ -142,8 +142,6 @@ func MetricsHandler() http.Handler {
 	return promhttp.HandlerFor(reg(), promhttp.HandlerOpts{})
 }
 
-// --- Recording helpers. One per instrumentation concern. ---
-
 // RecordTurn records a turn's duration + count under (folder, outcome).
 func RecordTurn(folder, outcome string, seconds float64) {
 	turnDuration.WithLabelValues(folder, outcome).Observe(seconds)

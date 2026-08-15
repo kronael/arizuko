@@ -19,7 +19,6 @@ func TestCheckAll_HealthyAdapter(t *testing.T) {
 	r := New()
 	r.Register("tg", srv.URL, []string{"tg:"}, nil)
 
-	// Override the package-level health client so it hits our test server
 	old := healthClient
 	healthClient = srv.Client()
 	defer func() { healthClient = old }()
@@ -36,7 +35,6 @@ func TestCheckAll_HealthyAdapter(t *testing.T) {
 }
 
 func TestCheckAll_BadURL_DeregistersAfterMaxFails(t *testing.T) {
-	// Server that always returns 500
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 	}))
@@ -49,7 +47,6 @@ func TestCheckAll_BadURL_DeregistersAfterMaxFails(t *testing.T) {
 	healthClient = srv.Client()
 	defer func() { healthClient = old }()
 
-	// First check: fails=1
 	r.checkAll()
 	e := r.Get("bad")
 	if e == nil {
@@ -59,7 +56,6 @@ func TestCheckAll_BadURL_DeregistersAfterMaxFails(t *testing.T) {
 		t.Errorf("health fails = %d, want 1", e.HealthFails)
 	}
 
-	// Second check: fails=2
 	r.checkAll()
 	e = r.Get("bad")
 	if e == nil {
@@ -69,7 +65,6 @@ func TestCheckAll_BadURL_DeregistersAfterMaxFails(t *testing.T) {
 		t.Errorf("health fails = %d, want 2", e.HealthFails)
 	}
 
-	// Third check: fails=3 → deregistered
 	r.checkAll()
 	e = r.Get("bad")
 	if e != nil {
@@ -95,7 +90,6 @@ func TestCheckAll_FailThenRecover(t *testing.T) {
 	healthClient = srv.Client()
 	defer func() { healthClient = old }()
 
-	// Fail twice
 	healthy = false
 	r.checkAll()
 	r.checkAll()
@@ -104,7 +98,6 @@ func TestCheckAll_FailThenRecover(t *testing.T) {
 		t.Fatalf("health fails = %d, want 2", e.HealthFails)
 	}
 
-	// Recover — health succeeds, counter resets
 	healthy = true
 	r.checkAll()
 	e = r.Get("flaky")

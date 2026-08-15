@@ -37,7 +37,6 @@ func TestOpenOwnedDB_SplitOpensOnbodDBNotMessages(t *testing.T) {
 	}
 	defer db.Close()
 
-	// owned tables exist
 	for _, tbl := range []string{"onboarding", "invites", "onboarding_gates", "audit_log"} {
 		var n int
 		if err := db.QueryRow(

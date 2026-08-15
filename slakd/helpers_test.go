@@ -14,10 +14,6 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
-// ---------------------------------------------------------------------------
-// chatNameFrom
-// ---------------------------------------------------------------------------
-
 func TestChatNameFrom_NormalChannel(t *testing.T) {
 	c := &slackConvInfo{Name: "general"}
 	got := chatNameFrom(c)
@@ -43,10 +39,6 @@ func TestChatNameFrom_EmptyName(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// paneTitle
-// ---------------------------------------------------------------------------
-
 func TestPaneTitle_WithAssistantName(t *testing.T) {
 	b := &bot{cfg: config{AssistantName: "atlas"}}
 	if got := b.paneTitle(); got != "atlas — chat" {
@@ -60,10 +52,6 @@ func TestPaneTitle_NoAssistantName(t *testing.T) {
 		t.Errorf("paneTitle = %q, want 'chat'", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// attachmentsFor
-// ---------------------------------------------------------------------------
 
 func TestAttachmentsFor_Empty(t *testing.T) {
 	b := &bot{}
@@ -150,10 +138,6 @@ func TestAttachmentsFor_FallsBackFilenameWhenEmpty(t *testing.T) {
 		t.Errorf("filename fallback wrong: %+v", atts)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// demangleMentions
-// ---------------------------------------------------------------------------
 
 // In-content mention tokens are rewritten to readable names before inbound
 // delivery so the agent never echoes raw ids ("@U0B70FBE7CG here's...").

@@ -392,21 +392,18 @@ func TestCreateWorldValidUsername(t *testing.T) {
 		t.Errorf("want 303, got %d", w.Code)
 	}
 
-	// Group created
 	var folder string
 	db.QueryRow(`SELECT folder FROM groups WHERE folder = 'alice'`).Scan(&folder)
 	if folder != "alice" {
 		t.Errorf("group not created")
 	}
 
-	// user_groups granted
 	var ug string
 	db.QueryRow(`SELECT scope FROM acl WHERE principal = 'github:new'`).Scan(&ug)
 	if ug != "alice/**" {
 		t.Errorf("creator grant should be subtree-scoped, got %q", ug)
 	}
 
-	// username updated
 	var un string
 	db.QueryRow(`SELECT username FROM user_profiles WHERE sub = 'github:new'`).Scan(&un)
 	if un != "alice" {
@@ -1049,7 +1046,6 @@ func TestInviteConsume(t *testing.T) {
 		t.Errorf("want redirect to /onboard, got %s", loc)
 	}
 
-	// user_groups row should exist
 	var folder string
 	db.QueryRow(`SELECT scope FROM acl WHERE principal = 'github:bob'`).Scan(&folder)
 	if folder != "alice" {
@@ -1065,7 +1061,6 @@ func TestInviteConsume(t *testing.T) {
 		t.Errorf("redemption wrote %d route(s) as a side effect; want 0", n)
 	}
 
-	// used_count should be incremented
 	var used int
 	db.QueryRow(`SELECT used_count FROM invites WHERE ref = ?`, store.TokenRef(token)).Scan(&used)
 	if used != 1 {

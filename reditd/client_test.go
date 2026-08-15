@@ -78,7 +78,6 @@ func TestFirstPollSkip(t *testing.T) {
 	router := chanlib.NewRouterClient(routerSrv.URL)
 
 	rc.pollSource("inbox", "/message/inbox.json", router)
-	// On first poll, skipFirst is set to true and no dispatch occurs
 	if !rc.skipFirst["inbox"] {
 		t.Error("skipFirst not set after first poll")
 	}
@@ -351,7 +350,6 @@ func TestFetchHistory_Subreddit(t *testing.T) {
 	if len(resp.Messages) != 2 {
 		t.Fatalf("messages=%d", len(resp.Messages))
 	}
-	// Oldest-first ordering.
 	if resp.Messages[0].ID != "t3_older" || resp.Messages[1].ID != "t3_newer" {
 		t.Errorf("order wrong: %q, %q", resp.Messages[0].ID, resp.Messages[1].ID)
 	}

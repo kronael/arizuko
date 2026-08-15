@@ -40,7 +40,6 @@ func callGate(ks *auth.KeySet, bearer string) int {
 	return w.Code
 }
 
-// TestAuthGateES256AdmitsRoutd: a valid service:routd token is admitted.
 func TestAuthGateES256AdmitsRoutd(t *testing.T) {
 	tok, ks := signToken(t, "k-routd", CallerRoutd, "service")
 	if got := callGate(ks, tok); got != 200 {
@@ -48,9 +47,8 @@ func TestAuthGateES256AdmitsRoutd(t *testing.T) {
 	}
 }
 
-// TestAuthGateES256RejectsOtherCaller: a valid token for a non-routd principal
-// (an adapter's own service:teled, or a user token) is 401 — only routd drives
-// an adapter's egress.
+// A valid token for a non-routd principal (an adapter's own service:teled, or
+// a user token) is 401 — only routd drives an adapter's egress.
 func TestAuthGateES256RejectsOtherCaller(t *testing.T) {
 	for _, c := range []struct {
 		name, sub, typ string
@@ -68,8 +66,7 @@ func TestAuthGateES256RejectsOtherCaller(t *testing.T) {
 	}
 }
 
-// TestAuthGateES256RejectsMissingAndGarbage: no bearer / a non-JWT string are
-// both 401 under the ES256 gate (no fail-open).
+// No bearer / a non-JWT string are both 401 under the ES256 gate (no fail-open).
 func TestAuthGateES256RejectsMissingAndGarbage(t *testing.T) {
 	_, ks := signToken(t, "k1", CallerRoutd, "service")
 	if got := callGate(ks, ""); got != 401 {
@@ -80,8 +77,8 @@ func TestAuthGateES256RejectsMissingAndGarbage(t *testing.T) {
 	}
 }
 
-// TestAuthGateNilKeysetOpen: with no keyset (ks==nil, local dev) the gate is
-// open — there is no shared secret to compare; any request passes.
+// With no keyset (ks==nil, local dev) the gate is open — there is no shared
+// secret to compare; any request passes.
 func TestAuthGateNilKeysetOpen(t *testing.T) {
 	if got := callGate(nil, "anything"); got != 200 {
 		t.Fatalf("nil keyset with bearer: status %d, want 200", got)

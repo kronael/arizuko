@@ -133,7 +133,6 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprint(w, `</div>`)
 
-	// Last 20 run logs.
 	fmt.Fprint(w, `<h2>Run history</h2>`)
 	rows, err := d.adminDB().Query(
 		`SELECT run_at, status, COALESCE(duration_ms,0), COALESCE(error,'')
@@ -280,7 +279,6 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate a short unique ID (timestamp-based like timed does).
 	var id string
 	if err := d.adminDB().QueryRow(`SELECT lower(hex(randomblob(6)))`).Scan(&id); err != nil {
 		slog.Warn("task create: gen id", "err", err)

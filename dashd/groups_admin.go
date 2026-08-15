@@ -136,7 +136,6 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
 	}
-	// Grant admin to creator on the new folder.
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO acl
 		(principal, action, scope, effect, params, predicate, granted_at, granted_by)
 		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'dashd')`,

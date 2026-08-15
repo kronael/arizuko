@@ -34,7 +34,6 @@ func TestCopySession_DuplicatesBytes(t *testing.T) {
 	if string(got) != string(want) {
 		t.Errorf("dst content drift\nwant: %q\n got: %q", want, got)
 	}
-	// Temp file must be cleaned up.
 	if _, err := os.Stat(filepath.Join(projDir, dstUUID+".jsonl.tmp")); !os.IsNotExist(err) {
 		t.Errorf("tmp file lingered: %v", err)
 	}
@@ -51,7 +50,6 @@ func TestCopySession_MissingParentReturnsNil(t *testing.T) {
 	if err := CopySession(dir, "absent-uuid", "child-uuid"); err != nil {
 		t.Errorf("CopySession with missing parent: %v, want nil", err)
 	}
-	// And no child file was created.
 	dst := filepath.Join(dir, ".claude", "projects", "-home-node", "child-uuid.jsonl")
 	if _, err := os.Stat(dst); !os.IsNotExist(err) {
 		t.Errorf("dst created from missing parent: %v", err)
@@ -63,7 +61,6 @@ func TestCopySession_MissingParentReturnsNil(t *testing.T) {
 func TestCopySession_CreatesProjDirOnDemand(t *testing.T) {
 	dir := t.TempDir()
 	projDir := filepath.Join(dir, ".claude", "projects", "-home-node")
-	// Set up src in a sibling dir, then remove dst structure.
 	if err := os.MkdirAll(projDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

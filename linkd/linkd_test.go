@@ -14,7 +14,6 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
-// stubBot for server HTTP tests.
 type stubBot struct {
 	chanlib.NoFileSender
 	chanlib.NoVoiceSender
@@ -253,7 +252,6 @@ func TestSendRefusesPublishByDefault(t *testing.T) {
 }
 
 func TestDeliverComment(t *testing.T) {
-	// Capture router deliveries.
 	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"ok":true}`))

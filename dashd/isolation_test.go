@@ -240,22 +240,18 @@ func TestIso_Operator_FullView(t *testing.T) {
 	seedTask(t, inst, "task-eng", folderEng)
 	seedTask(t, inst, "task-sales", folderSales)
 
-	// Groups: operator sees BOTH tenants.
 	_, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/groups/", nil), "op@x", "**"))
 	mustContain(t, body, folderEng, "operator sees corp/eng")
 	mustContain(t, body, folderSales, "operator sees corp/sales")
 
-	// Routes: both targets.
 	_, body = get(t, mux, as(httptest.NewRequest("GET", "/dash/routes/", nil), "op@x", "**"))
 	mustContain(t, body, "room=eng", "operator sees eng route")
 	mustContain(t, body, "room=sales", "operator sees sales route")
 
-	// Tasks: both owners.
 	_, body = get(t, mux, as(httptest.NewRequest("GET", "/dash/tasks/", nil), "op@x", "**"))
 	mustContain(t, body, "task-eng", "operator sees eng task")
 	mustContain(t, body, "task-sales", "operator sees sales task")
 
-	// Invites + channels reachable (not 403); nav shows invites.
 	code, _ := get(t, mux, as(httptest.NewRequest("GET", "/dash/invites/", nil), "op@x", "**"))
 	if code != 200 {
 		t.Errorf("operator invites = %d, want 200", code)
@@ -267,7 +263,6 @@ func TestIso_Operator_FullView(t *testing.T) {
 	_, body = get(t, mux, as(httptest.NewRequest("GET", "/dash/groups/", nil), "op@x", "**"))
 	mustContain(t, body, `href="/dash/invites/"`, "operator nav shows invites link")
 
-	// Cross-tenant per-folder GETs are reachable for the operator.
 	code, _ = get(t, mux, as(httptest.NewRequest("GET", "/dash/groups/corp/sales/settings", nil), "op@x", "**"))
 	if code != 200 {
 		t.Errorf("operator corp/sales settings = %d, want 200", code)

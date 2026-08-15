@@ -25,7 +25,6 @@ func TestReadRecentEpisodes_WithFiles(t *testing.T) {
 	eps := filepath.Join(dir, "episodes")
 	os.MkdirAll(eps, 0o755)
 
-	// write two day episodes and one week episode
 	for _, f := range []struct{ name, content string }{
 		{"20260314.md", "---\nsummary: day one\ntype: day\n---\n"},
 		{"20260315.md", "---\nsummary: day two\ntype: day\n---\n"},
@@ -53,7 +52,6 @@ func TestReadRecentEpisodes_MalformedFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	eps := filepath.Join(dir, "episodes")
 	os.MkdirAll(eps, 0o755)
-	// bad file + good file
 	os.WriteFile(filepath.Join(eps, "bad.md"), []byte("no frontmatter"), 0o644)
 	os.WriteFile(filepath.Join(eps, "good.md"), []byte("---\nsummary: ok\ntype: day\n---\n"), 0o644)
 
@@ -66,7 +64,6 @@ func TestReadRecentEpisodes_MalformedFrontmatter(t *testing.T) {
 func TestReadEpisodeSummary_BlockScalar(t *testing.T) {
 	dir := t.TempDir()
 
-	// block scalar with >
 	p := filepath.Join(dir, "ep.md")
 	os.WriteFile(p, []byte("---\nsummary: >\n  - shipped discord\n  - auth fix\ntype: week\n---\nbody"), 0o644)
 	summary, epType := readEpisodeSummary(p)

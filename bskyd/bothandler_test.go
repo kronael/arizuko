@@ -74,7 +74,6 @@ func TestBotHandler_Like(t *testing.T) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// Like creates a feed.like record.
 	if len(m.createRecords) != 1 {
 		t.Fatalf("createRecords = %d", len(m.createRecords))
 	}

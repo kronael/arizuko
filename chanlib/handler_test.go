@@ -140,10 +140,9 @@ func TestHandlerSendError(t *testing.T) {
 	}
 }
 
-// TestHandlerSendInvalidRequest asserts that when bot.Send returns
-// ErrInvalidRequest (a permanent caller error, e.g. thread_not_found), the
-// /send handler responds 400, not 502 — routd must not retry a request the
-// platform will never accept.
+// bot.Send returning ErrInvalidRequest (a permanent caller error, e.g.
+// thread_not_found) must produce 400, not 502 — routd must not retry a
+// request the platform will never accept.
 func TestHandlerSendInvalidRequest(t *testing.T) {
 	bot := &mockBot{sendErr: fmt.Errorf("%w: thread_not_found", ErrInvalidRequest)}
 	h := mux(bot)
@@ -423,8 +422,8 @@ func TestHandlerHealthDisconnectedBeatsStale(t *testing.T) {
 	}
 }
 
-// TestHandlerPostUnsupportedStructured asserts that when bot.Post returns
-// *UnsupportedError, the 501 body carries tool/platform/hint.
+// bot.Post returning *UnsupportedError must produce a 501 body carrying
+// tool/platform/hint.
 func TestHandlerPostUnsupportedStructured(t *testing.T) {
 	b := &mockBotPost{err: Unsupported("post", "test", "use send instead")}
 	h := mux(&mockBot{}) // need a fresh mux pointing at b
@@ -446,8 +445,8 @@ func TestHandlerPostUnsupportedStructured(t *testing.T) {
 	}
 }
 
-// TestHandlerPostUnsupportedPlain asserts that plain ErrUnsupported still
-// produces the legacy {"ok":false,"error":"unsupported"} body.
+// Plain ErrUnsupported still produces the legacy
+// {"ok":false,"error":"unsupported"} body.
 func TestHandlerPostUnsupportedPlain(t *testing.T) {
 	b := &mockBotPost{err: ErrUnsupported}
 	mux2 := NewAdapterMux("test", []string{"test:"}, b,
@@ -470,7 +469,6 @@ func TestHandlerPostUnsupportedPlain(t *testing.T) {
 	}
 }
 
-// TestUnsupportedErrorIs verifies errors.Is chain through structured value.
 func TestUnsupportedErrorIs(t *testing.T) {
 	e := Unsupported("forward", "bluesky", "no native primitive")
 	if !errors.Is(e, ErrUnsupported) {
@@ -514,10 +512,10 @@ func TestWriteBotResult_StatusByErrorClass(t *testing.T) {
 	}
 }
 
-// TestHandlerSend_BodyIsCapped: every verb caps the request body at
-// MaxAdapterJSONBody. Nothing covered that, so collapsing the ten handlers onto
-// one shared shape could have dropped the cap silently — an unauthenticated
-// POST would then stream unbounded JSON into the adapter's memory.
+// Every verb caps the request body at MaxAdapterJSONBody. Nothing covered
+// that, so collapsing the ten handlers onto one shared shape could have
+// dropped the cap silently — an unauthenticated POST would then stream
+// unbounded JSON into the adapter's memory.
 func TestHandlerSend_BodyIsCapped(t *testing.T) {
 	bot := &mockBot{}
 	h := mux(bot)

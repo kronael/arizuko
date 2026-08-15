@@ -68,9 +68,8 @@ type InboundMsg struct {
 	// Source is the adapter's channel name (CHANNEL_NAME — e.g. "telegram" or
 	// "telegram-rhias"). routd persists it on the row so a reply resolves back to
 	// the ORIGINATING bot/account: multi-account adapters share one
-	// service:<daemon> JWT, so auth alone can't disambiguate them (gated derived
-	// this from the per-adapter registration token; the split must carry it
-	// explicitly). Stamped from the registered channel name in SendMessage.
+	// service:<daemon> JWT, so auth alone can't disambiguate them. Stamped from
+	// the registered channel name in SendMessage.
 	Source string `json:"source,omitempty"`
 	// LinkContext is the route token's context snapshotted at ingest by webd
 	// (spec 5/W § link context): the issuer's per-link processing instructions.
@@ -85,9 +84,8 @@ type RouterClient struct {
 
 	// svcToken is the adapter's service:<daemon> ES256 JWT source
 	// (auth.TokenSource.Token). It is the credential for EVERY authenticated routd
-	// call — registration, /v1/messages, /v1/pane — replacing CHANNEL_SECRET (HMAC
-	// retire step 5). nil → local dev (no AUTHD_URL); calls go out with no bearer
-	// and routd's no-JWKS gate is open.
+	// call — registration, /v1/messages, /v1/pane. nil → local dev (no
+	// AUTHD_URL); calls go out with no bearer and routd's no-JWKS gate is open.
 	svcToken func(context.Context) (string, error)
 
 	// Saved for transparent re-register on 401 (router dropped channel while adapter was down).

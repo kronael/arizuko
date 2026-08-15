@@ -14,7 +14,7 @@ func TestStartSpan_TracesOff_Noop(t *testing.T) {
 	if got != ctx {
 		t.Error("StartSpan changed ctx while traces off")
 	}
-	end(nil) // no panic
+	end(nil)
 	end(errors.New("x"))
 }
 

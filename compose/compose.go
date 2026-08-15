@@ -469,7 +469,6 @@ func readFragments(servicesDir string) ([]string, error) {
 	return names, nil
 }
 
-// hasService reports whether the fragment set contains name.
 func hasService(services []string, name string) bool {
 	return slices.Contains(services, name)
 }

@@ -217,8 +217,8 @@ func main() {
 	var ks *auth.KeySet
 	// svcSrc is dashd's service:dashd ES256 token source, presented on the only
 	// daemon-to-daemon call dashd makes: the operator WhatsApp re-pair proxy to
-	// whapd's /v1/pair/* (HMAC retire step 5; no CHANNEL_SECRET remains). nil →
-	// local dev (no AUTHD_URL); the pair call goes out unauthenticated.
+	// whapd's /v1/pair/*. nil → local dev (no AUTHD_URL); the pair call goes out
+	// unauthenticated.
 	var svcSrc func(context.Context) (string, error)
 	if authdURL := strings.TrimRight(os.Getenv("AUTHD_URL"), "/"); authdURL != "" {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -568,7 +568,6 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/tasks/x/list", g(d.handleTasksPartial))
 	mux.HandleFunc("GET /dash/activity/x/recent", g(d.handleActivityPartial))
 
-	// Task detail, actions, create.
 	mux.HandleFunc("GET /dash/tasks/{id}", g(d.handleTaskDetail))
 	mux.HandleFunc("POST /dash/tasks/", g(d.handleTaskCreate))
 	mux.HandleFunc("POST /dash/tasks/{id}/{action}", g(d.handleTaskAction))
@@ -626,7 +625,6 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/chat/{folder...}", g(d.dispatchChatGet))
 	mux.HandleFunc("POST /dash/chat/{folder...}", g(d.handleChatNew))
 
-	// Route tokens — issue/revoke per folder.
 	mux.HandleFunc("GET /dash/tokens/{folder}/", g(d.handleTokensFolder))
 	mux.HandleFunc("POST /dash/tokens/{folder}/", g(d.handleTokensFolder))
 	mux.HandleFunc("POST /dash/tokens/{folder}/{jid}/revoke", g(d.handleTokensRevoke))
@@ -683,7 +681,6 @@ var navLinks = []struct {
 func dashNavFor(r *http.Request) string {
 	urlPath := r.URL.Path
 	operator := slices.Contains(callerGroups(r), "**")
-	// identity badge: name from X-User-Name, fallback to sub sans provider prefix.
 	name := r.Header.Get("X-User-Name")
 	if name == "" {
 		sub := r.Header.Get("X-User-Sub")
@@ -882,7 +879,6 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, htmlBannerRaw("warn", `No groups configured. <a href="/dash/groups/new">Create your first group.</a>`))
 	}
 
-	// Sessions breakdown — operator-only; group_folder → session count.
 	if operator && d.adminDB() != nil {
 		rows, err := d.adminDB().Query(
 			`SELECT group_folder, COUNT(*) FROM sessions GROUP BY group_folder ORDER BY group_folder`)

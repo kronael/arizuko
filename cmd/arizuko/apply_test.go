@@ -194,7 +194,6 @@ func TestApply_FullRebuild(t *testing.T) {
 	}
 	tx.Commit()
 	c0 := routdChecksum(t, st)
-	// Apply manifest with different rows.
 	_, err := resreg.Apply(context.Background(), st.DB(), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"routes": []resources.RoutesRow{
 			{Seq: 0, Match: "", Target: "ops"},

@@ -168,7 +168,6 @@ func TestHTTPChannelTypingPostsBody(t *testing.T) {
 		t.Errorf("typing body = %v", got)
 	}
 
-	// Also test on=false
 	if err := ch.Typing("tg:123", false); err != nil {
 		t.Fatal(err)
 	}
@@ -286,8 +285,7 @@ func TestHTTPChannelSendClassifiesPermanentVsTransient(t *testing.T) {
 	}
 }
 
-// TestHTTPChannelPost501JSON: 501 with structured body decodes into
-// *chanlib.UnsupportedError carrying hint.
+// 501 with structured body decodes into *chanlib.UnsupportedError carrying hint.
 func TestHTTPChannelPost501JSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -311,7 +309,7 @@ func TestHTTPChannelPost501JSON(t *testing.T) {
 	}
 }
 
-// TestHTTPChannelPost501Plain: 501 with empty body falls back to plain ErrUnsupported.
+// 501 with empty body falls back to plain ErrUnsupported.
 func TestHTTPChannelPost501Plain(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(501)

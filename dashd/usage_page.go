@@ -50,7 +50,6 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		totalCents += s.Cents7d
 	}
 
-	// Summary cards.
 	fmt.Fprintf(w, `<div class="cols-3">`+
 		`<div class="card"><h3>%d</h3><p class="dim">total messages</p></div>`+
 		`<div class="card"><h3>%s</h3><p class="dim">tokens / 7d</p></div>`+
@@ -58,7 +57,6 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		`</div>`,
 		totalMsgs, fmtTokens(totalTokens), fmtCents(totalCents))
 
-	// Per-group breakdown, sorted by 7-day token use.
 	fmt.Fprint(w, `<h2>Per-group</h2>`)
 	sort.Slice(summaries, func(i, j int) bool {
 		return summaries[i].Tokens7d > summaries[j].Tokens7d
@@ -113,8 +111,7 @@ type groupUsage struct {
 // groupUsageBulk returns one groupUsage per folder, joining routd.db's cost_log
 // (7d window) and messages (all-time count + last active) in Go. Both tables are
 // routd-owned: cost_log is keyed (folder, turn_id, model) with recorded_at /
-// input_tokens / output_tokens / cost_cents — the pre-split store schema used
-// ts / input_tok / cents, which is why this could never be a handle swap.
+// input_tokens / output_tokens / cost_cents.
 func (d *dash) groupUsageBulk(folders []string) ([]groupUsage, error) {
 	if len(folders) == 0 {
 		return nil, nil

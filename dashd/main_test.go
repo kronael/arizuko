@@ -331,7 +331,6 @@ func TestRenderMemorySectionSymlinkEscape(t *testing.T) {
 // of the guard. Not a traversal, but documents what is currently allowed.
 func TestRenderMemorySectionEmptyFolder(t *testing.T) {
 	groups := t.TempDir()
-	// place a MEMORY.md at the groupsDir root
 	if err := os.WriteFile(filepath.Join(groups, "MEMORY.md"), []byte("root-memory"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -678,7 +677,6 @@ func TestMemoryDeleteRejectsTraversal(t *testing.T) {
 
 func TestMemoryRejectsSymlink(t *testing.T) {
 	d, folder, mux := setupMemoryTest(t)
-	// Create a symlink MEMORY.md -> outside file
 	outside := filepath.Join(t.TempDir(), "secret")
 	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
 		t.Fatal(err)
@@ -694,7 +692,6 @@ func TestMemoryRejectsSymlink(t *testing.T) {
 	if w.Code == http.StatusNoContent {
 		t.Errorf("PUT to symlink should be rejected, got %d", w.Code)
 	}
-	// Verify outside file untouched
 	data, _ := os.ReadFile(outside)
 	if string(data) != "secret" {
 		t.Errorf("outside file modified: %q", data)

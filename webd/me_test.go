@@ -214,7 +214,6 @@ func TestMeSend_WritesMessage(t *testing.T) {
 	if !strings.Contains(body, `class="msg user"`) {
 		t.Errorf("fragment missing user msg class: %s", body)
 	}
-	// Message forwarded to router
 	sent := mr.sent()
 	if len(sent) == 0 {
 		t.Errorf("expected message sent to router")

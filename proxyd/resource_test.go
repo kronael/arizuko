@@ -98,7 +98,6 @@ func doJSON(t *testing.T, mux http.Handler, method, path string, body any) *http
 func TestRoutesResource_EndToEnd(t *testing.T) {
 	mux, rr, _ := testResourceMux(t, nil)
 
-	// create
 	w := doJSON(t, mux, "POST", "/v1/proxyd_routes", map[string]any{
 		"path": "/slack/", "backend": "http://slakd:8080", "auth": "public",
 		"preserve_headers": []string{"X-Slack-Signature"},
@@ -112,7 +111,6 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 		t.Errorf("rr.snapshot() = %+v", cur)
 	}
 
-	// list
 	w = doJSON(t, mux, "GET", "/v1/proxyd_routes", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET list = %d", w.Code)
@@ -133,7 +131,6 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 		t.Fatalf("GET one = %d body=%s", w.Code, w.Body.String())
 	}
 
-	// patch
 	w = doJSON(t, mux, "PATCH", "/v1/proxyd_routes/"+url.PathEscape("/slack/"), map[string]any{
 		"backend": "http://slakd2:8080",
 	})
@@ -145,7 +142,6 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 		t.Errorf("backend after patch = %+v", cur)
 	}
 
-	// delete
 	w = doJSON(t, mux, "DELETE", "/v1/proxyd_routes/"+url.PathEscape("/slack/"), nil)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("DELETE = %d", w.Code)

@@ -43,7 +43,6 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("routd page: group count", "err", err)
 	}
 
-	// Pending outbound — bot messages still queued for delivery.
 	pending := -1
 	if err := d.dbRoutd.QueryRow(
 		`SELECT COUNT(*) FROM messages WHERE status='pending' AND is_bot_message=1`,
@@ -67,7 +66,6 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 		statLabel("dead-lettered", deadLettered),
 	)
 
-	// Errored chats — group by chat, newest error first.
 	fmt.Fprint(w, `<h2>Errored chats</h2>`)
 	rows, err := d.dbRoutd.Query(
 		`SELECT chat_jid, COUNT(*) AS cnt, MAX(timestamp) AS last_err

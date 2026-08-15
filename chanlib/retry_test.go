@@ -190,7 +190,6 @@ func TestDoWithRetry_BodyRewound(t *testing.T) {
 	}
 }
 
-// sanity: strings.NewReader body wraps cleanly.
 // On exhausted 429s the caller gets the 429 response — no extra request beyond
 // the budget (len(backoffs)+1 total).
 func TestDoWithRetry_429Exhausted_NoExtraRequest(t *testing.T) {

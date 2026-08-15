@@ -153,7 +153,6 @@ func TestHookSender(t *testing.T) {
 
 // parseChatBody — form and JSON paths; empty content is rejected.
 func TestParseChatBody(t *testing.T) {
-	// form body
 	body := strings.NewReader("content=hello&topic=t1")
 	r := httptest.NewRequest("POST", "/chat/tok", body)
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -162,7 +161,6 @@ func TestParseChatBody(t *testing.T) {
 		t.Errorf("form: content=%q topic=%q err=%v", content, topic, err)
 	}
 
-	// JSON body
 	payload, _ := json.Marshal(map[string]string{"content": "hi json", "topic": "t2"})
 	r2 := httptest.NewRequest("POST", "/chat/tok", bytes.NewReader(payload))
 	r2.Header.Set("Content-Type", "application/json")
@@ -171,7 +169,6 @@ func TestParseChatBody(t *testing.T) {
 		t.Errorf("json: content=%q topic=%q err=%v", content, topic, err)
 	}
 
-	// empty content → error
 	r3 := httptest.NewRequest("POST", "/chat/tok", strings.NewReader("content="))
 	r3.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if _, _, err := parseChatBody(r3); err == nil {

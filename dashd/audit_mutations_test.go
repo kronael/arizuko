@@ -167,8 +167,8 @@ func TestGroupDelete_AuditRollsBackWithMutation(t *testing.T) {
 	}
 }
 
-// Route update and delete already audited before this change; keep them covered
-// so the actor stays attached as those handlers evolve.
+// Route update and delete are already audited; keep them covered so the actor
+// stays attached as those handlers evolve.
 func TestRouteDelete_Audited(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	var id int64

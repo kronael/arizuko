@@ -11,10 +11,6 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 )
 
-// ---------------------------------------------------------------------------
-// worldOf
-// ---------------------------------------------------------------------------
-
 func TestWorldOf(t *testing.T) {
 	cases := []struct {
 		folder   string
@@ -33,10 +29,6 @@ func TestWorldOf(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// PickIP — egress helper (pure, no docker)
-// ---------------------------------------------------------------------------
 
 func TestPickIP_ValidSubnet(t *testing.T) {
 	subnet := "10.42.7.0/24"
@@ -74,10 +66,6 @@ func TestPickIP_IPv6Rejected(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// EgressConfig.active()
-// ---------------------------------------------------------------------------
-
 func TestEgressConfigActive(t *testing.T) {
 	e := EgressConfig{}
 	if e.active() {
@@ -100,10 +88,6 @@ func TestEgressConfigActive(t *testing.T) {
 		t.Error("expected active with all fields set")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// buildArgs — egress path (network + ip injected)
-// ---------------------------------------------------------------------------
 
 func TestBuildArgsWithEgress(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
@@ -155,10 +139,6 @@ func TestBuildArgsDefaultProxyURL(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// hp() — edge: path equals ProjectRoot exactly
-// ---------------------------------------------------------------------------
-
 func TestHpPathEqualsProjectRoot(t *testing.T) {
 	cfg := &core.Config{
 		HostProjectRoot: "/host/inst",
@@ -170,10 +150,6 @@ func TestHpPathEqualsProjectRoot(t *testing.T) {
 		t.Errorf("hp(local=ProjectRoot) = %q, want /host/inst", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// SeedSettings tier 3+ — WEB_PREFIX should be ""
-// ---------------------------------------------------------------------------
 
 func TestSeedSettingsTier3NoWebPrefix(t *testing.T) {
 	d := t.TempDir()
@@ -225,10 +201,6 @@ func TestSeedSettingsPinsTranscriptRetention(t *testing.T) {
 		t.Errorf("cleanupPeriodDays = %v, want >= 3650 (retention pinned)", days)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// WriteTasksSnapshot / WriteGroupsSnapshot — non-root filtering
-// ---------------------------------------------------------------------------
 
 func TestWriteTasksSnapshot_NonRootFilters(t *testing.T) {
 	tmp := t.TempDir()

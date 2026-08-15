@@ -24,7 +24,6 @@ func hmacSHA256(key, msg []byte) string {
 var testSecret = []byte("test-secret-key-for-testing-only")
 
 func TestOAuthStateExpired(t *testing.T) {
-	// create state with timestamp 11 minutes in the past
 	ts := fmt.Sprintf("%d", time.Now().Add(-11*time.Minute).Unix())
 	mac := hmacSHA256(testSecret, []byte(ts))
 	state := ts + "." + mac
@@ -42,7 +41,6 @@ func TestOAuthStateCookie(t *testing.T) {
 	if !strings.Contains(state, ".") {
 		t.Fatal("state should contain timestamp.signature")
 	}
-	// simulate verification
 	r := httptest.NewRequest("GET", "/callback?state="+url.QueryEscape(state), nil)
 	r.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
 	if _, ok := VerifyState(testSecret, r); !ok {
@@ -58,7 +56,6 @@ func TestTelegramWidgetVerify(t *testing.T) {
 		"first_name": {"Test"},
 		"auth_date":  {authDate},
 	}
-	// compute valid hash
 	check := "auth_date=" + authDate + "\nfirst_name=Test\nid=12345"
 	secret := sha256sum([]byte(botToken))
 	h := hmacSHA256(secret[:], []byte(check))
@@ -67,7 +64,6 @@ func TestTelegramWidgetVerify(t *testing.T) {
 	if !VerifyTelegramWidget(form, botToken) {
 		t.Fatal("valid telegram widget should verify")
 	}
-	// stale auth_date should fail
 	staleForm := url.Values{
 		"id":         {"12345"},
 		"first_name": {"Test"},
@@ -85,7 +81,7 @@ func TestTelegramWidgetVerify(t *testing.T) {
 	}
 }
 
-// --- Identity (5/33: no tier, no world rank on the id) ---
+// Identity (5/33: no tier, no world rank on the id)
 
 func TestIdentityResolve(t *testing.T) {
 	// Only the empty "" folder resolves to root (the operator/service sentinel);

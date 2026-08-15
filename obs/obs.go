@@ -42,7 +42,6 @@ func Setup(daemon, instance string) func() {
 	ctx := context.Background()
 	exporter, err := otlploghttp.New(ctx)
 	if err != nil {
-		// Exporter init failed; fall back to stock and log once.
 		slog.SetDefault(slog.New(stock))
 		slog.Error("obs: otlp exporter init failed; OTLP disabled", "err", err)
 		return func() {}

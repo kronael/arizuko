@@ -132,7 +132,6 @@ type realDislikeBot struct{ fakeBot }
 func (realDislikeBot) Dislike(DislikeRequest) error { return errors.New("network") }
 
 func TestCapImplReport_AdvertisedStubFlagged(t *testing.T) {
-	// Advertise dislike on an all-stub bot → must be flagged.
 	drift := CapImplReport(fakeBot{}, map[string]bool{"dislike": true})
 	if len(drift) == 0 {
 		t.Fatal("advertising a stub verb should report drift")
@@ -143,7 +142,6 @@ func TestCapImplReport_AdvertisedStubFlagged(t *testing.T) {
 }
 
 func TestCapImplReport_RealUnadvertisedFlagged(t *testing.T) {
-	// Real dislike impl but cap not advertised → must be flagged.
 	drift := CapImplReport(realDislikeBot{}, map[string]bool{})
 	joined := strings.Join(drift, "\n")
 	if !strings.Contains(joined, "dislike: verb implemented but not advertised") {
@@ -152,7 +150,6 @@ func TestCapImplReport_RealUnadvertisedFlagged(t *testing.T) {
 }
 
 func TestCapImplReport_ConsistentIsEmpty(t *testing.T) {
-	// All-stub bot advertising nothing gated → no drift.
 	if drift := CapImplReport(fakeBot{}, map[string]bool{}); len(drift) != 0 {
 		t.Errorf("all-stub + no caps should be clean, got %v", drift)
 	}
@@ -373,7 +370,6 @@ func TestHandlerHistory_InvalidBefore(t *testing.T) {
 }
 
 func TestHandlerHistory_NotWiredForNonHistoryBot(t *testing.T) {
-	// A bot without FetchHistory should not expose /v1/history
 	bot := &fullBot{}
 	h := newMuxWith(bot)
 	req := httptest.NewRequest("GET", "/v1/history?jid=t:1", nil)
