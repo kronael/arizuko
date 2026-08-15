@@ -2175,7 +2175,7 @@ guards GET but not POST — nil adminDB panics on add/revoke.
 - **Status:** resolved — invalid effect → 400; nil adminDB guard on add + revoke (91159586)
 - **Fix:** reject invalid effect with 400; nil-guard adminDB in POST handlers
 
-## tasks: new tasks have no next_run; cron not validated on create (2026-06-18, open)
+## ✅ FIXED 2026-08-15 — tasks: new tasks have no next_run; cron not validated on create (2026-06-18, open)
 
 `tasks_admin.go:216`: tasks inserted with `status='active'` but no `next_run` — timed only fires
 rows with `next_run <= now`, so dashboard-created tasks never schedule. `tasks_admin.go:201`:
@@ -2184,7 +2184,10 @@ invalid cron/interval strings stored silently; timed logs warning and task stays
 - **Severity:** high
 - **Scope:** dashd/tasks_admin.go:201,:216
 - **Source:** codex audit 2026-06-18
-- **Status:** resolved — `taskNextRun` computes next_run at create; invalid cron → 400 (91159586)
+- **Status:** resolved — `taskNextRun` computes next_run at create; invalid cron → 400 (91159586).
+  Re-verified 2026-08-15 at `dashd/tasks_admin.go`: `taskNextRun` (mirrors timed's
+  `computeNextRun` via `robfig/cron`) is called on the create-form POST, `next_run` is
+  inserted with the row, and an unparseable cron 400s before the INSERT.
 - **Fix:** compute next_run at create time; validate cron using same parser as timed
 
 ## tasks: state-machine transitions not enforced (2026-06-18, open)
