@@ -306,7 +306,7 @@ not followed — this is drift, not a missing convention.
   dead end), a documented product with no tree MUST carry the shape note. Both
   halves checked to fail. `template/web/CLAUDE.md` §"Adding a new product" names
   the test and the nav step. Also dropped the stale `L37` warning from
-  `products/helpdesk/setup.html` — the two seeders now agree. SHA (this commit).
+  `products/helpdesk/setup.html` — the two seeders now agree. SHA 52254c51.
 
 ## ✅ FIXED 2026-08-15 L37 — a product's skill is dead when seeded by `--product`, live when blended (2026-08-15)
 
@@ -352,7 +352,7 @@ in the same places". They do not.
   and also asserts the file is NOT left at the group root — one placement rule,
   not two — and `TestBothSeedersPlaceAlike` pins the two seeders to the same
   destination set, checked to fail against the old copy. Spec `5/28` blend table
-  + §single-product updated. SHA a5f1eab5.
+  + §single-product updated. SHA adcbc223.
 
 ## ✅ FIXED 2026-08-15 L36 — `packages install` applies grants without saying so (2026-08-15)
 
@@ -384,7 +384,7 @@ kind that changes who can do what is the one the summary omits.
   unchanged, so `remove` still reverses exactly. Files and routes are inert
   until `generate`, a grant is live the moment it lands — that is why it is
   named and not counted. `TestPackageInstallSummaryNamesEachGrant` +
-  a lab assertion on the printed line. SHA (this commit).
+  a lab assertion on the printed line. SHA 9bc40ad4.
 
 ## ✅ FIXED 2026-08-15 L35 — `tasks.toml` is a product payload nothing reads (2026-08-15)
 
@@ -439,7 +439,7 @@ asset.
   cover blend and verbatim seeder; the product lab probes it beside the
   `migrations/` and `mcpServers` refusals. Specs `5/21` (sentence replaced with
   the refusal + the working route) and `5/28` (blend-table row + a
-  §"Seeding a product's `tasks.toml`" decision record). SHA (this commit).
+  §"Seeding a product's `tasks.toml`" decision record). SHA 84df9e82.
 
 ## ✅ FIXED 2026-08-15 L34 — handing an asset between two products in one mix DELETES it (2026-08-15)
 
@@ -485,7 +485,7 @@ anything; `oncall` had simply taken ownership from `helpdesk`.
   `TestBlendHandoffKeepsTheAsset` covers it (checked to fail against the
   per-product hashes) and asserts no warning; the product lab's L34 probe is now
   a pass/fail assertion instead of a known-bug note. Spec `5/28` states the
-  union rule. SHA (this commit).
+  union rule. SHA 4d40f601.
 
 ## L31 — a product never really updates: four of six payload kinds are seed-once (2026-08-15, proposal — needs sign-off)
 
