@@ -14,6 +14,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.64.0] — 2026-08-15
+
+> arizuko v0.64.0 — phase 5 closed, and the delivery paths that were quietly lying
+>
+> Every phase-5 spec is shipped and re-verified against the code. The fixes that
+> matter are the ones where a daemon reported success it had not earned.
+>
+> • The web chat no longer hangs — the SSE key is read from the chat, not derived from a token
+> • `inspect_routing` no longer shows an agent other folders' routes
+> • whapd stops reporting a WhatsApp send it never made; a rate limit now reaches you instead of silence
+> • Products carry their own live tests, run by arizuko's own eval harness
+> • A product may no longer ship payloads nothing reads — they refuse instead of applying silently
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Added
 
 - **HITL firewall: hold a tool call until a human approves it (spec `5/19`).**
