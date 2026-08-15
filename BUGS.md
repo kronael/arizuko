@@ -5257,7 +5257,7 @@ paths and belongs in its own commit with per-path tests, not smuggled into a rep
   ×2/`RevokeRouteToken` in route_tokens.go and chat.go, `AddRoute` in
   routes_admin.go) and `go test ./dashd/... -short` green.
 
-## Q3 — dashd tests wire a STORE-schema DB as routd.db (2026-08-05, open)
+## Q3 — dashd tests wire a STORE-schema DB as routd.db (2026-08-05, FIXED — heading was stale, body already said fixed 2026-08-05)
 
 `testutils.NewInstance` runs `store.Migrate` — the pre-split messages.db schema — and
 dashd tests pass that handle as `dbRoutd`. The two schemas overlap enough (messages,
@@ -5286,6 +5286,10 @@ routd.db; `store.Migrate` should stay only where the frozen schema is the subjec
   schema, which immediately caught three test rows production would reject.
   `splitAdminDash` now also calls `audit.Init` as dashd's main does, so handlers
   emitting through the package sink are actually observable in tests.
+
+  **Heading closed 2026-08-15**: only the entry's own heading had never been
+  updated to match this body — confirmed no `cost_log`/`createChatSessions`
+  in-line compensation remains and `go test ./dashd/... -short` green.
 
 ## Q4 — the same false "routd.db has no audit_log" justification survives in cmd/arizuko and onbod (2026-08-05, fixed)
 
