@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 // authorizeTurn is the data-isolation boundary between chat widgets: a turn is
@@ -62,6 +63,71 @@ func TestTurnSnapshot_CrossTokenIsolation(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("owner token status = %d, want 200", resp.StatusCode)
+	}
+}
+
+// A route token minted with a jid suffix has JID "web:main/widget" but
+// target folder "main". The per-turn SSE stream must key its topic lookup
+// and hub subscription on the chat JID's path ("main/widget" — what routd
+// publishes round_done on), not the target folder. Deriving from the
+// target folder 500s the topic lookup and, even past that, subscribes on
+// a key round_done never reaches — the widget hangs forever.
+func TestTurnSSE_JidSuffixToken(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "main", "Main")
+
+	raw := store.GenRouteToken()
+	rt := store.RouteToken{JID: "web:main/widget", OwnerFolder: "main", TargetFolder: "main"}
+	if err := st.InsertRouteToken(raw, rt); err != nil {
+		t.Fatalf("InsertRouteToken: %v", err)
+	}
+
+	now := time.Now()
+	if err := st.PutMessage(core.Message{
+		ID: "turnS", ChatJID: "web:main/widget", Content: "q",
+		Timestamp: now, Topic: "tt", TurnID: "turnS",
+	}); err != nil {
+		t.Fatalf("put turnS: %v", err)
+	}
+	if err := st.PutMessage(core.Message{
+		ID: "turnS-bot1", ChatJID: "web:main/widget", Content: "hi",
+		Timestamp: now.Add(time.Millisecond), Topic: "tt", TurnID: "turnS", BotMsg: true,
+	}); err != nil {
+		t.Fatalf("put turnS-bot1: %v", err)
+	}
+
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/chat/"+raw+"/turnS/sse", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200 (topic lookup must use the chat JID)", resp.StatusCode)
+	}
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		// routd publishes on TrimPrefix(chatJID, "web:") — the suffixed path.
+		s.hub.publish("main/widget", "tt", "round_done", `{"turn_id":"turnS","status":"ok"}`)
+	}()
+
+	r := bufio.NewReader(resp.Body)
+	closed := false
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := r.ReadString('\n'); err != nil {
+			closed = true
+			break
+		}
+	}
+	if !closed {
+		t.Error("stream did not close on round_done published on the chat-JID key")
 	}
 }
 

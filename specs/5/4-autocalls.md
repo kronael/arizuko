@@ -22,8 +22,11 @@ prompt-build time and paste it into the system message. Zero schema, one
 line.
 
 An autocall has **no agent-visible schema** — the agent sees only the
-resulting text. It must resolve in microseconds: no I/O, no locks, no
-network (`autocallCtx` is prebuilt facts, `routd/prompt.go`).
+resulting text. Most resolve in microseconds: no I/O, no locks, no
+network (`autocallCtx` is prebuilt facts, `routd/prompt.go`). One
+exception: `session` reads `c.SessionID`, populated by a `db.SessionID`
+SQLite `QueryRow` before the block renders — still no schema and no
+agent-visible round trip, but not I/O-free.
 
 ## When to autocall vs ship an MCP tool
 

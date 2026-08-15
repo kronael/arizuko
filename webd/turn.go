@@ -122,8 +122,10 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 	if folder == "" {
 		return
 	}
-	jid := "web:" + folder
-	topic := s.stRoutd.TopicByMessageID(turnID, jid)
+	// The hub is keyed by the chat JID's path (routd publishes round_done on
+	// strings.TrimPrefix(chatJID, "web:")), NOT the token's target folder — the
+	// two differ whenever the token was minted with a jid suffix.
+	topic := s.stRoutd.TopicByMessageID(turnID, chatJID)
 	if topic == "" {
 		http.Error(w, "turn topic missing", http.StatusInternalServerError)
 		return
@@ -134,7 +136,7 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ch, unsub := s.hub.subscribe(folder, topic)
+	ch, unsub := s.hub.subscribe(strings.TrimPrefix(chatJID, "web:"), topic)
 	defer unsub()
 
 	sseHeaders(w)

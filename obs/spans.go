@@ -1,6 +1,6 @@
 package obs
 
-// Tracing for the five span types in spec 5/O. StartSpan is a no-op when
+// Tracing for the four span types in spec 5/O. StartSpan is a no-op when
 // OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is unset: the TracerProvider is never
 // built, so StartSpan returns ctx unchanged and a no-op end func — zero
 // overhead. When set, spans export over OTLP http/protobuf and join the
@@ -64,15 +64,17 @@ func SetupTraces(daemon, instance string) func() {
 	}
 }
 
-// StartSpan opens a span named after one of the five span types
-// (turn/model_call/mcp_tool/container_spawn/cross_daemon). attrs are key/value
+// StartSpan opens a span named after one of the four span types
+// (turn/mcp_tool/container_spawn/cross_daemon). There is no model_call span:
+// the model call happens inside the agent container, not in a Go daemon, so a
+// Go span site cannot exist. attrs are key/value
 // string pairs (e.g. "folder", folder, "turn_id", id). The returned end func
 // records duration, maps err → an outcome attribute, sets span status, and
 // ends the span. When traces are off it returns ctx unchanged + a no-op end,
 // so call sites are unconditional.
 //
-//	ctx, end := obs.StartSpan(ctx, "model_call", "model", model, "folder", folder)
-//	resp, err := client.CreateMessage(ctx, req)
+//	ctx, end := obs.StartSpan(ctx, "container_spawn", "folder", folder)
+//	err := runner.Spawn(ctx, req)
 //	end(err)
 func StartSpan(ctx context.Context, name string, attrs ...string) (context.Context, func(error)) {
 	if !tracesOn {

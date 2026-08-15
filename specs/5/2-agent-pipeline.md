@@ -15,5 +15,7 @@ status: shipped
   Agent tool inside a single container, sharing context. Already works;
   nothing to add.
 
-Superseded for _declarative_ flows by
-[../13/6-workflows.md](22-self-learning.md).
+Revisited for _declarative_ flows by
+[`6/18-durable-workflows-decline.md`](../6/18-durable-workflows-decline.md),
+which reaffirms the same call: workflow stays an operating discipline, not
+a seventh primitive.

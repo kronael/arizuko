@@ -54,8 +54,11 @@ reads the DB, none is cached: exclusivity (`GetActiveSpawn`), the
 concurrency cap (`ActiveCount` vs `MAX_CONCURRENT_CONTAINERS`, default
 5), and the circuit breaker (`GetFailures` over the `circuit_breaker`
 table, 3 consecutive failures opens it). Admission is one atomic claim
-under `BEGIN IMMEDIATE` — insert a `running` row or reject
-(`runed/manager.go`, schema `runed/migrations/`).
+under `m.mu`, a Go mutex critical section around the read-decide-insert
+of a `running` row or reject (`runed/manager.go` `admit`) — single-process
+runed, so the mutex IS the `BEGIN IMMEDIATE` claim an equivalent
+multi-process design would need at the DB. There is no DB-level
+transaction enforcing this; the guarantee lives in the mutex.
 
 **WHY DB-stateless:** an in-memory admission map lies across a restart —
 a crashed container leaves a folder wedged with no row to reconcile, and

@@ -56,9 +56,13 @@ Non-goals: SIEM webhooks, file rotation, JSONL dumps, custom trace UIs.
   at the top of `main()`: `defer obs.Setup("routd", instance)()`.
 - `obs/spans.go` — `SetupTraces`, `StartSpan`. `StartSpan` returns the end
   function, so there is no exported `EndOutcome`; `outcomeOf` maps the
-  error to the outcome attribute inside it. Five span
-  names are defined (`turn`, `model_call`, `mcp_tool`, `container_spawn`,
-  `cross_daemon`); `outcome` ∈ `success|error|timeout|canceled`.
+  error to the outcome attribute inside it. Four span
+  names are defined (`turn`, `mcp_tool`, `container_spawn`,
+  `cross_daemon`); `outcome` ∈ `success|error|timeout|canceled`. There is
+  no `model_call` span: the model call happens inside the agent container,
+  not in a Go daemon, so a Go span site cannot exist (dead name deleted
+  2026-08-15). The `arizuko_model_call_duration_seconds` metric is still
+  registered.
 - `obs/metrics.go` — the metric registry. Fifteen families as of
   2026-08-02 (turn, model, container, HTTP, breaker, egress, token).
 - `obs/middleware.go` — `HTTPMiddleware(daemon)`: request metrics + the
@@ -67,12 +71,6 @@ Non-goals: SIEM webhooks, file rotation, JSONL dumps, custom trace UIs.
 - Span call sites: `routd/dispatch.go` (`turn`), `ipc/ipc.go` (`mcp_tool`),
   `runed/docker.go` (`container_spawn`), `obs/middleware.go`
   (`cross_daemon`).
-
-<!-- UNVERIFIED as of 2026-08-02: `model_call` has no call site — no
-`obs.StartSpan(ctx, "model_call", …)` exists outside the doc comment in
-obs/spans.go. The model call happens inside the agent container, not in a
-Go daemon, so the span may be unreachable by construction; the
-`arizuko_model_call_duration_seconds` metric is registered either way. -->
 
 ## Cross-references
 
