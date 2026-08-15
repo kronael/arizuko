@@ -2171,7 +2171,7 @@ more than one field.
 - **Status:** proposed
 - **Fix:**
 
-## M3 — FIXED 2026-08-15, <sha> — MCP send, reply, and send_file hide the platform ID their backends return (2026-07-15)
+## M3 — FIXED 2026-08-15, b0f1287b — MCP send, reply, and send_file hide the platform ID their backends return (2026-07-15)
 
 `reply`'s half was already stale — it already returned `toolJSON({"ok":
 true, "id": platformID})`, just under `id`, not the `messageId` the doc
