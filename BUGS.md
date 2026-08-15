@@ -1431,7 +1431,7 @@ routes (3195f867), tasks (0b6ca53e). Open:
    load but passes 5/5 in isolation. Pre-existing, unrelated to the 5/16/5/15 work. Needs a
    sync point or serialization in the test harness. Low priority (not a product bug).
 
-## ConnectorSecrets resolves folder scope only — user BYOA key never reaches MCP subprocess
+## ✅ FIXED 2026-08-15 ConnectorSecrets resolves folder scope only — user BYOA key never reaches MCP subprocess — re-verified fixed
 
 **Severity**: medium
 **Found**: 2026-06-26
@@ -1452,6 +1452,9 @@ Fix requires:
 Spec: `specs/5/14-credentials.md § ConnectorSecrets user-scope`.
 
 - **Status:** fixed 0d244973 (2026-06-26) — ConnectorSecrets now takes callerSub, calls FolderSecretsForUser
+- **Re-verified 2026-08-15:** `routd/sibling_db.go:194` `ConnectorSecrets(folder,
+  callerSub string, ...)` calls `connectorSecrets` → `folderSecretsForUser` at
+  HEAD `0d376586`. Still correct.
 
 ## dashd reads SQLite directly — spec 7/1 (formerly 6/1) says it shouldn't; code and CLAUDE.md say it should (2026-06-16, PROPOSED — spec/code conflict, needs sign-off, verified 2026-08-15)
 
