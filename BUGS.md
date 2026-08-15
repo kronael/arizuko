@@ -1600,7 +1600,7 @@ pre-fix queue path (WaitForRow timeout — no onboarding row), green after.
   of repo scope — OPERATOR: confirm krons is on an image built after
   9fcb0bce/5f102e0d/03b6949c.
 
-## Admin cannot log in to the krons dashboard (2026-07-12, OPEN, HIGH — needs root-cause)
+## OPERATIONAL 2026-08-15 — Admin cannot log in to the krons dashboard (2026-07-12, HIGH, config-not-code)
 
 Reported: an admin cannot get into krons (`/dash`/`/auth`). Facts gathered:
 `auth_users` in krons `auth.db` has **0 rows**; krons `.env` and
@@ -1647,6 +1647,12 @@ inventing a fallback.
   add `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` (and optionally
   `GOOGLE_ALLOWED_EMAILS`) to `/srv/data/arizuko_krons/.env`, then
   `sudo systemctl restart arizuko_krons`.
+
+  **2026-08-15 re-check:** OPERATIONAL — a live-instance login attempt, not
+  a repo-verifiable claim. Operator: run `sudo sqlite3
+  /srv/data/arizuko_krons/store/authd/auth.db "select sub, created_at from
+  auth_users;"` to confirm whether a login has since completed; if still 0
+  rows, follow the three numbered actions above. No further code change.
 
 ## Services hub: onbod + timed tiles are `Built=true` but their `/dash/` routes 404 (2026-07-10, OPEN)
 
