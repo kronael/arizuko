@@ -26,7 +26,7 @@ func TestSendTransientFailureRecordsPendingRow(t *testing.T) {
 		SendMessage: func(string, string) (string, error) { return "", fmt.Errorf("adapter down") },
 	}
 
-	err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "do not lose me", nil)
+	_, err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "do not lose me", nil)
 	if err == nil {
 		t.Fatal("internalSend returned nil on a failed send — the agent must get the error")
 	}
@@ -55,7 +55,7 @@ func TestSendPermanentFailureDeadLetters(t *testing.T) {
 		},
 	}
 
-	err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "the chat is gone", nil)
+	_, err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "the chat is gone", nil)
 	if err == nil {
 		t.Fatal("internalSend returned nil on a permanent refusal")
 	}
@@ -78,7 +78,7 @@ func TestSendFileFailureDeadLetters(t *testing.T) {
 		},
 	}
 
-	err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "the report",
+	_, err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "the report",
 		[]internalSendFile{{LocalPath: "/srv/x.pdf", Filename: "x.pdf", ReplyTo: "p1"}})
 	if err == nil {
 		t.Fatal("internalSend returned nil on a failed file send")
@@ -102,8 +102,12 @@ func TestSendSuccessRecordsSentRow(t *testing.T) {
 		SendMessage: func(string, string) (string, error) { return "pid-7", nil },
 	}
 
-	if err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "hello", nil); err != nil {
+	id, err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "hello", nil)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if id != "pid-7" {
+		t.Fatalf("id=%q want pid-7 — the caller must get the platform id back", id)
 	}
 	if len(rows) != 1 || rows[0].Status != core.MessageStatusSent || rows[0].PlatformID != "pid-7" {
 		t.Fatalf("rows=%+v want one sent row with platform_id pid-7", rows)

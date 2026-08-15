@@ -2171,23 +2171,24 @@ more than one field.
 - **Status:** proposed
 - **Fix:**
 
-## M3 — MCP send, reply, and send_file hide the platform ID their backends return (2026-07-15, open)
+## M3 — FIXED 2026-08-15, <sha> — MCP send, reply, and send_file hide the platform ID their backends return (2026-07-15)
 
-All three handlers receive and persist the created platform ID but return plain
-`ok`; `post`, `send_voice`, `forward`, `quote`, and `repost` return JSON IDs.
-This contradicts the agent self-doc that says `reply` returns `messageId` and
-prevents immediate explicit edit/delete/branch targeting without an extra
-message inspection. The stronger claim that sequential reply chaining is
-impossible is false: `recordOutbound` updates `SetLastReply`, and the next
-`reply` without `replyToId` reads that value, so root→child→grandchild works
-implicitly on adapters that return IDs.
+`reply`'s half was already stale — it already returned `toolJSON({"ok":
+true, "id": platformID})`, just under `id`, not the `messageId` the doc
+claimed (a second, smaller drift, fixed alongside).
 
-- **Severity:** medium
-- **Scope:** MCP messaging result contract
-- **Affected:** send, reply, send_file on all adapters
-- **Source:** ipc/ipc.go:607-680,1016-1123; ant/skills/self/mcp.md:5-13
-- **Status:** open
-- **Fix:**
+`send` and `send_file` were real: both go through `internalSend`, which
+received `platformID` from `gated.SendMessage`/`gated.SendDocument`, used it
+to record the outbound row, then discarded it — the handlers returned plain
+`toolOK()`.
+
+- **Fix:** `internalSend` now returns `(platformID string, err error)`; both
+  callers pass it through `toolJSON({"ok": true, "id": platformID})`, same
+  shape `reply` already used. `ant/skills/self/mcp.md` corrected to `id` (not
+  `messageId`) on all three rows.
+- **Source:** ipc/ipc.go (internalSend, send, send_file); ant/skills/self/mcp.md
+- **Tests:** `ipc.TestSendSuccessRecordsSentRow` now asserts the returned id;
+  `go test ./ipc/... -count=1 -short` green.
 
 ## X2 — X tweet replies are wired to an unreachable adapter endpoint (2026-07-15, open)
 

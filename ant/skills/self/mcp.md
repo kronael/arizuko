@@ -12,9 +12,9 @@ expect is missing, you were not granted it — ask, don't work around it.
 
 | Tool             | Description                                                               |
 | ---------------- | ------------------------------------------------------------------------- |
-| `send`           | Send a text message to a chat (use chatJid param to target)               |
-| `reply`          | Reply to current conversation (auto-injects replyTo); returns `messageId` |
-| `send_file`      | Send a file from workspace to user as platform-native attachment          |
+| `send`           | Send a text message to a chat (use chatJid param to target); returns `id` |
+| `reply`          | Reply to current conversation (auto-injects replyTo); returns `id`        |
+| `send_file`      | Send a file from workspace to user as platform-native attachment; returns `id` |
 | `send_voice`     | Synthesize text and deliver as voice (Telegram/WhatsApp PTT, Discord audio) |
 | `post`           | Create a new top-level post on a feed/timeline (bluesky, discord, …)     |
 | `like`           | Like/favourite/react to an existing message                               |

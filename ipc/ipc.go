@@ -768,31 +768,37 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 // durable row: a delivered send goes 'sent', a failed send goes 'pending' or
 // 'failed'. The error still returns to the agent — the row decides the retry,
 // not the report.
-func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files []internalSendFile) error {
+// internalSend returns the last platform-assigned message id it recorded, so
+// MCP callers (send, send_file) can hand it back to the agent the same way
+// reply already does — for edit/delete/branch targeting without an extra
+// inspection round-trip.
+func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files []internalSendFile) (string, error) {
 	if len(files) == 0 {
 		if gated.SendMessage == nil {
-			return fmt.Errorf("send not configured")
+			return "", fmt.Errorf("send not configured")
 		}
 		platformID, err := gated.SendMessage(jid, text)
 		if err != nil {
 			recordOutboundFailure(gated, db, jid, text, folder, "", true, err)
-			return err
+			return "", err
 		}
 		recordOutbound(gated, db, jid, text, platformID, folder)
-		return nil
+		return platformID, nil
 	}
 	if gated.SendDocument == nil {
-		return fmt.Errorf("send_file not configured")
+		return "", fmt.Errorf("send_file not configured")
 	}
+	var lastID string
 	for _, f := range files {
 		platformID, err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID)
 		if err != nil {
 			recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, false, err)
-			return err
+			return "", err
 		}
 		recordOutbound(gated, db, jid, text, platformID, folder)
+		lastID = platformID
 	}
-	return nil
+	return lastID, nil
 }
 
 type internalSendFile struct {
@@ -1188,10 +1194,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				snippet = snippet[:60]
 			}
 			slog.Info("send", "folder", folder, "jid", jid, "text", snippet)
-			if err := internalSend(gated, db, folder, jid, text, nil); err != nil {
+			platformID, err := internalSend(gated, db, folder, jid, text, nil)
+			if err != nil {
 				return toolErr(err.Error())
 			}
-			return toolOK()
+			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
 	registerRaw("reply", "THE DEFAULT way to respond — use this for virtually every answer to the user. Delivers your message into the thread of the conversation you're answering: on Slack/Discord it lands in a thread off the triggering message (started for you if one doesn't exist yet), keeping the channel clean. Omit replyToId to thread to the current conversation automatically, or pass it to target a specific earlier message. Only reach for `send` when you deliberately need a fresh top-level message in a channel that is NOT a reply. Returns the posted message's `id` — pass it to `edit` to update this message in place (a live status/checklist), or as the next `replyToId` to build a thread.",
@@ -1256,12 +1263,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				return toolErr("path outside group dir")
 			}
 			slog.Info("send_file", "folder", folder, "jid", jid, "path", localPath)
-			if err := internalSend(gated, db, folder, jid, caption,
+			platformID, err := internalSend(gated, db, folder, jid, caption,
 				[]internalSendFile{{LocalPath: localPath, Filename: name, ReplyTo: replyToID, ThreadID: threadID}},
-			); err != nil {
+			)
+			if err != nil {
 				return toolErr(err.Error())
 			}
-			return toolOK()
+			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
 	registerRaw("send_voice", "Deliver `text` as a synthesized voice message on the platform — push-to-talk on Telegram/WhatsApp, audio attachment on Discord. Use when the user sent voice and expects voice back, or when the persona is voice-first. Not for music/file delivery (use `send_file`). `voice` defaults to the persona's voice from PERSONA.md frontmatter or the instance default; pass an explicit voice name to override.",
