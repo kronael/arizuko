@@ -47,7 +47,7 @@ drive implementation, not the reverse. Confirm against `dashd/main.go`
 ### Nav order (all roles)
 
 ```
-arizuko · chat · status · tasks · activity · groups · routes · memory · profile
+arizuko · status · tasks · activity · groups · routes · memory · profile
 ```
 
 Additional links for operator (`**` grant):
@@ -85,9 +85,7 @@ Identity badge always right-aligned in nav: `{name} ◆` (operator) or
 │       ├── grants              ACL list + add/revoke
 │       └── tools               MCP tool browser
 ├── /dash/routes/                Full route table (CRUD)
-├── /dash/chat/                 Chat portal (group tiles)
-│   └── /dash/chat/{folder}/   Group chat page (sessions + new session)
-├── /dash/tokens/{folder}/      Web route tokens (issue + revoke)
+├── /dash/tokens/{folder}/      Web route tokens (list + revoke; no mint)
 ├── /dash/invites/              Onboarding invites (operator only)
 ├── /dash/proxyd/               proxyd route table (operator only)
 ├── /dash/channels/whatsapp/pair  WhatsApp re-pair (QR/code) (operator only)
@@ -102,6 +100,10 @@ External pages reached from the dashboard (not served by dashd):
 
 - `/dash/onbod/` — onboarding queue (onbod daemon)
 - `/dash/timed/` — scheduled message queue (timed daemon)
+- `/me/chats` — the conversation list and `+ new chat` (webd daemon). The
+  cockpit's `chat` tile and every folder link point here. dashd had its own
+  chat portal until it was deleted (BUGS `V2`): it duplicated this page and
+  persisted the RAW reusable route bearer to render "continue" links.
 - `/chat/{token}/` — web chat widget (webd daemon)
 - `/dav/{folder}/` — WebDAV workspace (davd daemon)
 
@@ -140,7 +142,7 @@ Navigation hub to every section.
 #### Layout
 
 ```
-[nav: arizuko · chat · status · tasks · activity · groups · routes · memory · profile · name ◆]  [theme toggle]
+[nav: arizuko · status · tasks · activity · groups · routes · memory · profile · name ◆]  [theme toggle]
 
 h1: arizuko         p.dim: {instance_name} operator dashboard
 
@@ -148,12 +150,13 @@ h1: arizuko         p.dim: {instance_name} operator dashboard
 
 [tiles grid — 3 columns auto-fit, minmax 200px]
   status     tasks      activity
-  groups     routes     chat
+  groups     routes     chat  (→ /me/chats, webd)
   memory     profile    services (operator only)
              invites    (operator only)
 ```
 
-Each tile: `h2: {name} [dot]` + `p.dim: {one-line description}`.
+Each tile: `h2: {name} [dot]` + `p.dim: {one-line description}`. Every tile
+but `chat` links inside dashd; `chat` leaves for webd's `/me/chats`.
 
 #### Data shown
 
@@ -821,222 +824,60 @@ p.dim: Route table. Higher seq = earlier match.
 
 ---
 
-### /dash/chat/ — Chat Portal
-
-#### Purpose
-
-ChatGPT-style conversation list. Shows every past chat session across all
-visible groups, grouped by recency. Entry point for continuing or starting
-a conversation with any group's agent.
-
-#### User stories
-
-- As an operator, I want to see all past conversations with their titles so I
-  can continue the right one without remembering a token URL.
-- As a group member, I want to start a new conversation for my group directly
-  from this page.
-- As an operator, I want to filter conversations by group or search title to
-  find a specific session quickly.
-
-#### Layout
-
-```
-h1: Chat
-
-[conv-new form]
-  <select name="_group">  {folder options}  </select>
-  <input name="label" placeholder="What's this about? (optional)">
-  [button.btn-primary: Start conversation]
-  (form action rewrites to /dash/chat/{folder}/ on select change)
-
-[conv-search form — GET /dash/chat/]
-  <input name="q" type=search placeholder="Search conversations">
-  <select name="group">  all groups | {folder options}  </select>
-  [button.btn-secondary: Search]
-  [× clear]  (shown when ?q or ?group active)
-
-[date-group sections — Today / Yesterday / Past 7 days / Older]
-  h3.conv-date-group: TODAY
-  <div.conv-list>
-    <a.conv-row href="/chat/{token}/">
-      <div.conv-meta>
-        <span.conv-folder><code>{folder}</code></span>
-        <span.conv-time><abbr title="{ISO}">{relative}</abbr></span>
-      </div>
-      <div.conv-title>{title}</div>
-    </a>
-    ...
-  </div>
-  h3.conv-date-group: YESTERDAY
-  ...
-```
-
-#### Data shown
-
-Sessions from `chat_sessions` (messages.db), newest first, up to 200 rows
-before filters:
-
-- folder — the group the session belongs to
-- title — label (if set), else first user message in that session (≤60 chars
-  from messages.db, joined in Go), else `"Chat · {date}"`
-- created_at as relative timestamp with ISO in `<abbr title>`
-- continue link — `/chat/{raw-token}/` (raw token stored at mint time)
-
-Filters: `?q` matches title or folder (case-insensitive substring);
-`?group` exact-matches folder.
-
-Operators see all groups' sessions; scoped users see only their visible
-folders.
-
-#### Actions
-
-- Start conversation → POST /dash/chat/{selected-folder}/ → mints token →
-  303 redirect to `/chat/{raw-token}/`
-- Search → GET /dash/chat/?q=&group=
-- Click session row → `/chat/{token}/` (continue)
-
-#### Edge cases / empty states
-
-- No groups accessible: form shows "No groups available. Ask an operator
-  for access." (no new-conv form rendered)
-- No sessions (or all filtered out): `<p class="empty">No conversations yet.
-Start one above.</p>`
-- Sessions predating chat_sessions table: not shown (no row = no continue link)
-
----
-
-### /dash/chat/{folder}/ — Group Chat Page
-
-#### Purpose
-
-Per-group view: list this group's web-chat conversations (from
-`store.Topics`), create a new session, and view recent web messages.
-Continue links appear for sessions that have a `chat_sessions` row.
-
-#### User stories
-
-- As an operator, I want to start a new chat session for a group and get a
-  shareable link so I can send it to a user.
-- As an operator, I want to see the group's past conversation threads so I can
-  continue one without knowing its token.
-- As an operator, I want to see recent web chat messages to verify the agent
-  is responding.
-
-#### Layout
-
-```
-crumbs: chat › {folder}
-h1: Chat — {folder}
-
-[section: Start a session]
-  <form method=post action=/dash/chat/{folder}/>
-    Label (optional): [input text, placeholder: design review]
-    [button.btn-primary: New chat session]
-  </form>
-  p.dim: Opens the chat widget in a new session. Share the link to let others join.
-
-[section: Conversations]
-  [table: Title | Messages | Last | ]
-    {first 60 chars of preview}  {n}  {abbr relative}  [continue] or —
-
-[section: Recent web messages]  (omitted when no web traffic)
-  [table: Time | Sender | Content]
-    {abbr ts}  <code>{sender}</code>  {first 80 chars}
-    (last 10 rows)
-```
-
-#### Data shown
-
-- Conversations from `store.Topics(folder)` (newest first), each with:
-  - Title: topic Preview (first user message), else topic ID
-  - Message count
-  - Last activity timestamp (relative + ISO abbr)
-  - Continue link: `/chat/{raw-token}/` when a matching `chat_sessions` row
-    exists (token looked up via first user message timestamp after session
-    created_at); "—" otherwise
-- Recent web messages: last 10 from `messages WHERE chat_jid='web:{folder}'`
-  (time, sender, first 80 chars)
-
-#### Actions
-
-- Create new session → POST /dash/chat/{folder}/ → mints route_token in
-  routd.db (hashed), records raw token in chat_sessions, 303 redirect to
-  `/chat/{raw-token}/`
-- Click continue → `/chat/{raw-token}/` (chat widget, webd)
-
-#### Token lifecycle note
-
-Raw token exposed only once — in the 303 redirect at mint time and stored in
-`chat_sessions` for the continue link. Revoke via `/dash/tokens/{folder}/`.
-
-#### Edge cases / empty states
-
-- Folder not visible: 403
-- DB unavailable: "read-only" on POST
-- No conversations yet: "No conversations yet. Start one above."
-- No recent messages: section omitted entirely
-- Topics predating chat_sessions: shown without continue link ("—")
-
----
-
 ### /dash/tokens/{folder}/ — Route Tokens
 
-**Read: requireVisible. Write: requireAdmin.**
+**Read: requireVisible. Revoke: requireAdmin.**
 
 #### Purpose
 
-List, issue, and revoke web chat and webhook tokens for a group.
+List and revoke a group's web chat and webhook tokens.
+
+**The cockpit mints nothing.** Issuance belongs to the resource owner —
+routd's `POST /v1/route_tokens/{chat,hook}`, the agent's `issue_chat_link` /
+`issue_webhook` / `issue_pairing_link`, and `arizuko token`. A mint form here
+was a second writer over `route_tokens` carrying its own label validation
+(BUGS `V2`; spec `7/3` §webd: "There is no token minting anywhere in the
+cockpit"). Revocation stays: it is the action an operator needs where the
+status is shown (design principle 6).
 
 #### User stories
 
-- As an operator, I want to issue a webhook token so an external system can
-  push messages to a group.
 - As an operator, I want to revoke a token that was compromised so access
   stops immediately.
-- As a group admin, I want to see which tokens are active so I know the
-  group's access surface.
+- As a group admin, I want to see which tokens are active, and with what
+  context, so I know the group's access surface.
 
 #### Layout
 
 ```
 h1: Tokens — {folder}
 
-[table: JID | Kind | Created | ]
-  web:alice   chat    2026-06-01 09:00  [revoke]
-  hook:alice/github  hook  2026-06-02 11:30  [revoke]
+[table: JID | Kind | Created | Context | ]
+  web:alice   chat    2026-06-01 09:00                      [revoke]
+  hook:alice/github  hook  2026-06-02 11:30  push events…   [revoke]
 
-[section: Issue new token]
-<form method=post action=/dash/tokens/{folder}/>
-  Kind:                [select: chat link | webhook]
-  Label (webhook only): [input text, placeholder: github]
-  [button.btn-primary: Issue]
-</form>
-```
-
-After successful issue:
-
-```
-[banner-ok: Token issued. Copy it now — it will not be shown again.
-  <code>{raw-token}</code>]
+[section: Issuing a token]
+  p.dim: Tokens are minted where they are owned, not here. Ask the agent
+  for a chat link or a webhook, POST /v1/route_tokens/chat or
+  /v1/route_tokens/hook, or run `arizuko token`. This page lists and revokes.
 ```
 
 #### Data shown
 
-- All route_tokens for folder: jid, kind (chat or hook), created_at UTC
-- JID displayed as `<code>`
+- All route_tokens for folder: jid, kind (chat or hook), created_at UTC,
+  context (spec 5/W link context)
+- JID displayed as `<code>`. The token VALUE is never shown — `route_tokens`
+  stores only its hash.
 
 #### Actions
 
-- Issue → POST /dash/tokens/{folder}/ → shows token in ok banner once
 - Revoke → POST /dash/tokens/{folder}/{jid}/revoke → redirect back
-- Kind=hook requires non-empty label; kind=chat uses `web:{folder}` JID
 
 #### Edge cases / empty states
 
-- No tokens: empty table (no explicit empty-state message currently — add:
-  "No tokens. Issue a chat link or webhook token above.")
+- No tokens: "No tokens for this group."
 - Revoke 0 rows: 500 error
-- Token shown once: banner after issue; page reload loses the raw value
+- POST to the page itself: not routed (405) — the mint route is gone
 
 ---
 
@@ -1359,7 +1200,7 @@ p.dim: {N} routes · {M} groups · {K} pending outbound
 
 h2: Errored chats
 [table: Chat | Errors | Last | ]
-  <a /dash/chat/{folder}/><code>{jid}</code></a>  {n}  {abbr ts}  [retry]
+  <a /me/chats?folder={folder}><code>{jid}</code></a>  {n}  {abbr ts}  [retry]
 ```
 
 Retry button is an inline `<form method=post action=/dash/routd/retry>` with
@@ -1373,7 +1214,7 @@ a hidden `chat_jid` input. After POST → 303 redirect back with `?msg=retried`.
 is_bot_message=1` on messages.db
 - Errored chats — `SELECT chat_jid, COUNT(*), MAX(timestamp) FROM messages
 WHERE errored=1 GROUP BY chat_jid ORDER BY last_err DESC LIMIT 50`
-- chat_jid renders as a link to `/dash/chat/{folder}/` when the folder is
+- chat_jid renders as a link to `/me/chats?folder={folder}` when the folder is
   resolvable (web:/hook: prefix, or via routes table); plain `<code>` otherwise
 
 #### Actions
@@ -1420,7 +1261,7 @@ h1: runed
 
 h2: Active runs
 [table: Folder | State | Age | Run | ]
-  <a /dash/chat/{folder}/>{folder}</a>
+  <a /me/chats?folder={folder}>{folder}</a>
   <span class="status-{ok|err|unknown}">{state}</span>
   {relative age (from created_at; running uses started_at)}
   <code>{run_id[:8]}</code>
@@ -1771,15 +1612,6 @@ From `theme/theme.go` (CSS classes) and `dashd/html_helpers.go`:
 | `.tool-card`                                   | Collapsible tool browser card                            |
 | `.btn`, `.btn-danger`, `.btn-secondary`        | Button variants                                          |
 | `.code-xl`                                     | Large monospace (1.4em, for tokens)                      |
-| `.conv-list`                                   | Flex column list container for conversation rows         |
-| `.conv-row`                                    | Hoverable conversation row (link, gold border on active) |
-| `.conv-meta`                                   | Row meta flex row (folder badge left, time right)        |
-| `.conv-folder`                                 | Small monospace folder label                             |
-| `.conv-time`                                   | Small dim timestamp                                      |
-| `.conv-title`                                  | Truncated session title (ellipsis overflow)              |
-| `.conv-date-group`                             | Uppercase section separator (TODAY, YESTERDAY, etc.)     |
-| `.conv-search`                                 | Search bar + group filter row flex container             |
-| `.conv-new`                                    | New conversation form container                          |
 | `.accent3`                                     | Sky blue used for h2 section headers (--accent3 CSS var) |
 | `<abbr title="{ISO}">`                         | Relative timestamp with ISO on hover                     |
 | `hx-get`, `hx-trigger`, `hx-target`, `hx-swap` | htmx auto-refresh                                        |

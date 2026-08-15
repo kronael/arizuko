@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/kronael/arizuko/audit"
@@ -166,8 +167,8 @@ func statLabel(label string, n int) string {
 // table), else as a plain <code> JID.
 func (d *dash) chatJIDCell(jid string) string {
 	if folder := d.jidFolder(jid); folder != "" {
-		return fmt.Sprintf(`<a href="/dash/chat/%s/"><code>%s</code></a>`,
-			folderPath(folder), esc(jid))
+		return fmt.Sprintf(`<a href="/me/chats?folder=%s"><code>%s</code></a>`,
+			url.QueryEscape(folder), esc(jid))
 	}
 	return `<code>` + esc(jid) + `</code>`
 }

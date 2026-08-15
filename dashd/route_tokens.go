@@ -4,79 +4,32 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"regexp"
 	"time"
 
 	"github.com/kronael/arizuko/store"
 )
 
-// webhookLabelRe constrains webhook labels to URL-safe identifier chars so the
-// composed hook: JID stays well-formed.
-var webhookLabelRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
-
-// Route tokens dashboard: per-folder list + issue + revoke.
-// Mounted at:
+// Route tokens dashboard: per-folder list + revoke. READ-AND-REVOKE ONLY —
+// the cockpit mints nothing. Mounted at:
 //
-//	GET  /dash/tokens/{folder}/     — folder-scoped list + issue form
-//	POST /dash/tokens/{folder}/     — issue new token (kind in form)
+//	GET  /dash/tokens/{folder}/             — folder-scoped list
 //	POST /dash/tokens/{folder}/{jid}/revoke — revoke by JID
+//
+// Minting lives with the resource owner: routd's route_tokens resource serves
+// both faces (POST /v1/route_tokens/{chat,hook} for operators, issue_chat_link
+// / issue_webhook / issue_pairing_link for agents), and `arizuko token` for the
+// CLI. A mint form here was a second writer over the same table with its own
+// label validation — the shape that drifts (BUGS V2, spec 7/3 §webd: "There is
+// no token minting anywhere in the cockpit").
 
 func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 	folder := r.PathValue("folder")
-	var sub string
-	if r.Method == http.MethodPost {
-		var ok bool
-		if sub, ok = d.requireAdmin(w, r, folder); !ok {
-			return
-		}
-	} else {
-		if !d.requireVisible(w, r, folder) {
-			return
-		}
+	if !d.requireVisible(w, r, folder) {
+		return
 	}
 	st := store.New(d.adminDB())
 
 	pageTopFor(w, r, "Tokens — "+folder)
-
-	if r.Method == http.MethodPost {
-		if d.adminDB() == nil {
-			fmt.Fprint(w, htmlBanner("err", "read-only mode"))
-			pageClose(w, r)
-			return
-		}
-		kind := r.FormValue("kind")
-		label := r.FormValue("label")
-		var jid string
-		switch kind {
-		case "chat":
-			jid = "web:" + folder
-		case "hook":
-			if label == "" {
-				fmt.Fprint(w, htmlBanner("err", "label required for webhook tokens"))
-			} else if !webhookLabelRe.MatchString(label) {
-				fmt.Fprint(w, htmlBanner("err", "invalid label: use letters, digits, . _ -"))
-			} else {
-				jid = "hook:" + folder + "/" + label
-			}
-		default:
-			fmt.Fprint(w, htmlBanner("err", "unknown kind"))
-		}
-		if jid != "" {
-			raw := store.GenRouteToken()
-			// InsertRouteToken, the audited writer: routd.db HAS had audit_log
-			// since routd migration 0016, so the mint and its audit row commit
-			// together. AsUser attributes the mint to the operator.
-			err := st.AsUser(sub).InsertRouteToken(raw, store.RouteToken{
-				JID: jid, OwnerFolder: folder, TargetFolder: folder,
-				Context: r.FormValue("context"),
-			})
-			if err != nil {
-				fmt.Fprint(w, htmlBanner("err", "insert error: "+err.Error()))
-			} else {
-				fmt.Fprint(w, htmlBannerRaw("ok", "Token issued. Copy it now — it will not be shown again.<br><code>"+esc(raw)+"</code>"))
-			}
-		}
-	}
 
 	tokens := st.ListRouteTokens(folder)
 	var tableRows [][]string
@@ -96,19 +49,13 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	fmt.Fprint(w, htmlTable([]string{"JID", "Kind", "Created", "Context", ""}, tableRows,
-		"No tokens. Issue a chat link or webhook token above."))
+		"No tokens for this group."))
 
-	fmt.Fprint(w, htmlSection("Issue new token",
-		fmt.Sprintf(`<form method="post" action="/dash/tokens/%s/">`, folderPath(folder))+
-			htmlFormRow("Kind", `<select name="kind">`+
-				`<option value="chat">chat link</option>`+
-				`<option value="hook">webhook</option>`+
-				`</select>`)+
-			htmlFormRow("Label (webhook only)", `<input name="label" type="text" placeholder="github">`)+
-			htmlFormRow("Context (optional)", `<textarea name="context" rows="2" `+
-				`placeholder="How the agent should handle this link's messages, e.g. bug reports; triage, don't chat"></textarea>`)+
-			`<p><button type="submit" class="btn btn-primary">Issue</button></p>`+
-			`</form>`))
+	fmt.Fprint(w, htmlSection("Issuing a token",
+		`<p class="dim">Tokens are minted where they are owned, not here. `+
+			`Ask the agent for a chat link or a webhook, `+
+			`POST <code>/v1/route_tokens/chat</code> or <code>/v1/route_tokens/hook</code>, `+
+			`or run <code>arizuko token</code>. This page lists and revokes.</p>`))
 
 	pageClose(w, r)
 }

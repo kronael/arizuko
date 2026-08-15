@@ -2172,7 +2172,7 @@ with Make.
      "no tests to run", with a comment naming the root Makefile's guard as its
      mirror. A selector matching zero tests can no longer pass as green.
 
-## V2 — dashd duplicates ~4,500 LOC of control planes phase 7 moves away (2026-08-04, proposal)
+## V2 — dashd duplicates control planes phase 7 moves away — CHAT PORTAL + MINT FORM DELETED 2026-08-15; the rest BLOCKED on `7/3` (2026-08-04, partial)
 
 Codex review of the dashd surface against the post-phase-5 end state. Almost
 nothing is *dead* — the identity deletions left only textual rot. The problem is
@@ -2181,9 +2181,9 @@ daemon's own `/dash/<daemon>/`.
 
 | target | LOC | why |
 | ------ | --- | ---- |
-| `chat.go` + test | ~1,019 | duplicates webd's `/me/chats/new`; **records the RAW reusable route bearer** (`chat.go:25,38,450`) |
-| routes / route_tokens / errored-retry | ~867 | duplicates routd's planned `/dash/routd/`. The mint form (`route_tokens.go:103`) should not survive anywhere — cockpit may list/revoke, minting belongs to webd and agent tools |
-| `runed_page.go` | 526 | reads `runed.db.spawns` directly and proxies kill; both are runed's |
+| ~~`chat.go` + test~~ **DONE** | ~1,019 (really 477 + 504 test) | duplicates webd's `/me/chats/new`; **records the RAW reusable route bearer** (`chat.go:25,38,450`) |
+| routes / route_tokens / errored-retry — **mint form DONE, rest blocked** | ~867 | duplicates routd's planned `/dash/routd/`. The mint form (`route_tokens.go:103`) should not survive anywhere — cockpit may list/revoke, minting belongs to webd and agent tools |
+| `runed_page.go` | 526 → **really 289** | reads `runed.db.spawns` directly and proxies kill; both are runed's |
 | tasks (`main.go:771`, `tasks_admin.go`) | ~505 | duplicates timed's dashboard, including a SECOND cron parser and next-run computation |
 | invites + whapd pairing | ~782 | belong on `/dash/onbod/` and `/dash/whapd/` |
 | usage / audit / packages | ~842 | usage reads the frozen `messages.db` (`usage_page.go:38`); audit reads only routd's `audit_log` while claiming to be global; packages duplicates the CLI |
@@ -2214,8 +2214,58 @@ offers an operator no action) and an archive page (`arizuko archive` is a CLI
 operation).
 
 - **Severity:** medium (duplication + one unused plaintext bearer store)
-- **Fix:** delete `chat.go` now; sequence the rest behind phase 7; add authority
-  provenance.
+- **Fix:** `f98f2f33` — chat portal + `chat_sessions` drop (routd `0036`) +
+  route-token mint form. The rest stays — see below.
+
+### Done 2026-08-15 — the two that were not sequenced
+
+**`chat.go` deleted** (477 lines + 504 of test, not the ~1,019 counted here —
+the count was of both files). Replacement verified live, not assumed: webd
+registers `GET`+`POST /me/chats/new` (`webd/server.go:130-131`) and proxyd
+routes `/me/` to it with `Auth: "user"` (`compose/compose.go`). `chat_sessions`
+— the RAW reusable bearer store at `chat.go:428` — is dropped by
+`routd/migrations/0036-drop-chat-sessions.sql`; 0029's own header records zero
+rows fleet-wide, so there was nothing to preserve. dashd's `chat` tile and
+both folder-link sites (`runed_page.go`, `routd_page.go`) now point at
+`/me/chats`, and the dead `.conv-*` CSS is out of `theme/theme.go`.
+
+**Route-token mint form deleted** (`route_tokens.go`, the `POST
+/dash/tokens/{folder}/` route with it). This one needed no replacement: routd's
+`route_tokens` resource already serves both faces —
+`POST /v1/route_tokens/{chat,hook}` for operators and `issue_chat_link` /
+`issue_webhook` / `issue_pairing_link` for agents
+(`resreg/resources/route_tokens.go:38-54`) — plus `arizuko token` for the CLI.
+List + revoke stay. `7/3` §webd already said it: "There is no token minting
+anywhere in the cockpit."
+
+### BLOCKED on `7/3` — do not delete these yet
+
+Verified against each daemon's route registration, not the spec's intention.
+No daemon but onbod and timed has a `/dash/` route at all
+(`compose/compose.go:367-370`); dashd answers `/dash/routd/` and `/dash/runed/`
+from the catch-all.
+
+| dashd surface                                        | LOC (verified)              | what `7/3` must ship first                                                                                                       |
+| ----------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| routes + tokens list/revoke + errored-retry           | 304 + 145 + 173 (`routd_page.go`) | routd's `/dash/routd/` — routd serves no `/dash/` namespace and compose has no route to it                                    |
+| `runed_page.go` runs + kill                           | **289**, not the 526 claimed | runed's `/dash/runed/` AND `GET /v1/runs?state=`. runed's mux is 8 routes and none lists runs (`runed/server.go:39-46`); there is no `ListSpawns` in the tree, so dashd's direct `spawns` read is the only run list |
+| tasks list/detail/create/pause/resume/cancel          | 323 (`tasks_admin.go`) + `main.go` list | timed's task + task-detail pages. `/dash/timed/` is ONE handler, the overview (`timed/split.go:42`), with no controls        |
+
+Deleting any of these today removes the capability outright. Order stands:
+build the per-daemon page, then delete dashd's copy.
+
+### The cron duplication is real and ALREADY DRIFTED
+
+Canonical is **timed's** (`timed/main.go:33-57`) — `7/3` §timed: "timed owns
+the fire runtime … and all cron/interval computation". There are three copies,
+not two, and the drift is live: routd's `parseTaskSchedule`
+(`scheduled_tasks_resource.go:285`) accepts an RFC3339 one-shot and computes in
+the process's local time; dashd's `taskNextRun` (`tasks_admin.go:20,36`)
+rejects that same expression with 400 and computes in `TZ`. So a schedule the
+agent accepts, the dashboard refuses. dashd's copy dies with its tasks page
+(blocked above); routd's needs to converge on timed's semantics when timed's
+pages land — filed as the follow-up, not fixed here, because it is a second
+concern.
 
 ## N2 — an operator can grant to a non-canonical alias, silently (2026-08-04, open)
 

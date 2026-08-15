@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -216,9 +217,11 @@ func (d *dash) killFolder(ctx context.Context, folder string) (bool, error) {
 	return out.Killed, nil
 }
 
-// folderLink renders a folder as a link to its chat page.
+// folderLink renders a folder as a link to its conversations in webd's user
+// portal — the one chat surface (V2). dashd's own chat portal was deleted with
+// its raw-token store; /me/chats reads route_tokens' hashes and mints nothing.
 func folderLink(folder string) string {
-	return fmt.Sprintf(`<a href="/dash/chat/%s/">%s</a>`, folderPath(folder), esc(folder))
+	return fmt.Sprintf(`<a href="/me/chats?folder=%s">%s</a>`, url.QueryEscape(folder), esc(folder))
 }
 
 // shortID truncates a run_id to its first 8 chars for compact display.

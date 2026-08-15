@@ -187,36 +187,29 @@ func TestRouteDelete_TargetsRoutdDB(t *testing.T) {
 	}
 }
 
-// TestRouteTokenIssue_TargetsRoutdDB: issuing a route token writes route_tokens
-// into routd.db and the issued token appears in the page.
-func TestRouteTokenIssue_TargetsRoutdDB(t *testing.T) {
+// TestRouteTokenList_ReadsRoutdDB: the tokens page reads route_tokens from
+// routd.db and renders the JID and its context, never a token value — the
+// stored column is a hash and the cockpit has no mint (BUGS V2).
+func TestRouteTokenList_ReadsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
+	if _, err := routd.Exec(
+		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind, context)
+		 VALUES (?, 'hook:team/github', 'team', '2026-08-15T00:00:00Z', 'route', 'push events; summarize')`,
+		[]byte("h1")); err != nil {
+		t.Fatal(err)
+	}
 	mux := newMux(d)
-
-	form := url.Values{"kind": {"chat"}}.Encode()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, adminReq("POST", "/dash/tokens/team/", form, "alice@x"))
-	if w.Code != 200 {
-		t.Fatalf("POST tokens = %d body=%q", w.Code, w.Body.String())
+	mux.ServeHTTP(w, adminReq("GET", "/dash/tokens/team/", "", "alice@x"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET tokens = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM route_tokens WHERE jid='web:team' AND owner_folder='team'`); n != 1 {
-		t.Errorf("routd.db route_token rows = %d, want 1", n)
+	body := w.Body.String()
+	if !strings.Contains(body, "hook:team/github") {
+		t.Error("tokens page did not render the routd.db row")
 	}
-
-	// Context form field (spec 5/W § link context) lands on the row; the
-	// context-less mint above stored NULL.
-	form = url.Values{"kind": {"hook"}, "label": {"github"},
-		"context": {"push events; summarize"}}.Encode()
-	w = httptest.NewRecorder()
-	mux.ServeHTTP(w, adminReq("POST", "/dash/tokens/team/", form, "alice@x"))
-	if w.Code != 200 {
-		t.Fatalf("POST tokens with context = %d body=%q", w.Code, w.Body.String())
-	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM route_tokens WHERE jid='hook:team/github' AND context='push events; summarize'`); n != 1 {
-		t.Errorf("context-bearing route_token rows = %d, want 1", n)
-	}
-	if n := count(t, routd, `SELECT COUNT(*) FROM route_tokens WHERE jid='web:team' AND context IS NULL`); n != 1 {
-		t.Errorf("context-less token should store NULL context")
+	if !strings.Contains(body, "push events; summarize") {
+		t.Error("tokens page did not render the row's context (spec 5/W link context)")
 	}
 }
 

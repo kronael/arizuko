@@ -23,8 +23,6 @@ func TestReadHandlers_nilAdminDB(t *testing.T) {
 		"/dash/activity/x/recent",
 		"/dash/status/",
 		"/dash/memory/",
-		"/dash/chat/",
-		"/dash/chat/eng/", // per-folder, gated by requireVisible
 		"/dash/tokens/eng/",
 		"/dash/profile/",
 	} {

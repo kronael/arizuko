@@ -24,7 +24,7 @@ const CSS = `
   --danger: #e5484d;
   --warn: #fa0;
   --ok: #4ade80;
-  --hover: rgba(212,175,55,.07);   /* subtle gold hover wash — used by .conv-row */
+  --hover: rgba(212,175,55,.07);   /* subtle gold hover wash — used by the current nav link */
   --shadow: 0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4);
   --shadow-lg: 0 4px 16px rgba(0,0,0,.6);
   --radius: 8px;
@@ -363,28 +363,6 @@ nav a:first-child { color: var(--accent); font-weight: 700; font-size: .95em; } 
 .tool-card summary { cursor: pointer; font-family: "SF Mono", "JetBrains Mono", Consolas, "Liberation Mono", monospace; font-weight: 600; }
 .tool-card p { margin: 0.4em 0 0.2em; }
 .tool-card pre { margin: 0.4em 0; font-size: 0.85em; }
-
-/* --- Chat portal (conversation list) --- */
-.conv-list { display: flex; flex-direction: column; gap: 2px; margin-top: .5rem; }
-.conv-row {
-  display: block; padding: .55rem .75rem; border-radius: 6px;
-  border: 1px solid transparent; text-decoration: none; color: var(--fg);
-  transition: background var(--transition), border-color var(--transition);
-}
-.conv-row:hover { background: var(--hover); border-color: var(--border); text-decoration: none; }
-.conv-row[aria-current="true"] { background: var(--hover); border-color: var(--accent); }
-.conv-meta { display: flex; justify-content: space-between; margin-bottom: .15rem; }
-.conv-folder { font-size: .75em; color: var(--dim); font-family: "SF Mono", monospace; }
-.conv-time { font-size: .75em; color: var(--dim); }
-.conv-title { font-size: .88em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.conv-date-group {
-  font-size: .72em; font-weight: 700; color: var(--dim);
-  margin: 1rem 0 .35rem; text-transform: uppercase; letter-spacing: .07em;
-}
-.conv-search { display: flex; gap: .5rem; margin-bottom: 1rem; align-items: center; }
-.conv-search select, .conv-search input[type=text], .conv-search input[type=search] { width: auto; flex: 1; }
-.conv-search select { flex: 0 0 auto; }
-.conv-new { margin-bottom: 1.2rem; }
 `
 
 // ThemeScript initializes the theme from localStorage or system preference.

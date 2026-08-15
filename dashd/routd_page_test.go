@@ -76,9 +76,9 @@ func TestRoutdErroredRows(t *testing.T) {
 	if !strings.Contains(body, `action="/dash/routd/retry"`) {
 		t.Errorf("missing retry form")
 	}
-	// web:alice carries a resolvable folder → rendered as a chat link.
-	if !strings.Contains(body, `href="/dash/chat/alice/"`) {
-		t.Errorf("web:alice should link to its chat page: %s", body)
+	// web:alice carries a resolvable folder → linked to webd's /me/chats.
+	if !strings.Contains(body, `href="/me/chats?folder=alice"`) {
+		t.Errorf("web:alice should link to its conversations: %s", body)
 	}
 	if !strings.Contains(body, "1 pending outbound") {
 		t.Errorf("pending outbound count wrong: %s", body)
