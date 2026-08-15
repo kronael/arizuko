@@ -47,6 +47,7 @@
   token_hash    BLOB PRIMARY KEY,
   jid           TEXT NOT NULL,
   owner_folder  TEXT NOT NULL,
+  target_folder TEXT,
   created_at    TEXT NOT NULL,
   context       TEXT
 );
@@ -54,8 +55,9 @@ CREATE INDEX route_tokens_jid ON route_tokens(jid);</code></pre>
 
     <dl>
       <dt>token_hash</dt><dd>sha256 of the raw token. The raw token is returned exactly once at issuance.</dd>
-      <dt>jid</dt><dd>Destination. <code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> for chat tokens, <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> for webhooks. <code>&lt;folder&gt;</code> is the destination folder, distinct from <code>owner_folder</code> (the issuer).</dd>
-      <dt>owner_folder</dt><dd>Folder of the issuing principal. Bounds revocation: <code>revoke_route_token</code> requires admin on this folder, not on the JID folder.</dd>
+      <dt>jid</dt><dd>The chat's name. <code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> for chat tokens, <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> for webhooks. Read it as a label, not as an address &mdash; once a suffix is present the folder cannot be recovered from it, which is why <code>target_folder</code> exists.</dd>
+      <dt>owner_folder</dt><dd>Folder of the issuing principal. Bounds revocation: <code>revoke_route_token</code> requires admin on this folder, not on the delivery folder.</dd>
+      <dt>target_folder</dt><dd>Where the token delivers. Recorded by the mint, because the JID alone is ambiguous: <code>web:team/forms</code> reads exactly like a plain token at a folder named <code>team/forms</code>, and <code>hook:a/b/c</code> reads as folder <code>a/b</code>. Routing, dashboard visibility and proxyd's <code>X-Folder</code> stamp all read this column. NULL on a token minted before it existed &mdash; those keep the old JID reading. Two folders cannot mint the same JID: the second mint returns <code>409</code>.</dd>
       <dt>created_at</dt><dd>RFC3339 timestamp.</dd>
       <dt>context</dt><dd>Optional. Free-text instructions from the issuer on how to process this link's inbound. Snapshotted onto each arriving message and rendered to the agent as <code>&lt;link-context&gt;</code>. NULL means no instructions &mdash; the pre-context behavior.</dd>
     </dl>
@@ -198,7 +200,7 @@ arizuko token &lt;instance&gt; revoke &lt;jid&gt; [&lt;owner_folder&gt;]</code><
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-05">2026-08-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 
