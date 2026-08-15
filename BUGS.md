@@ -1883,7 +1883,7 @@ blaming the caller for a proxyd bug — and now logs loud and answers 500.
   `routeSnapshot()` call inside the loop reproduces it — "4 of 58 matched
   requests found no backend". Full `go test ./proxyd/ -race` green (424s).
 
-## K1 — Security-sensitive identifier generators discard entropy failures (2026-07-30, proposed)
+## ✅ CLOSED-STALE 2026-08-15 K1 — Security-sensitive identifier generators discard entropy failures (2026-07-30)
 
 JWT JTIs, OAuth-state nonces, signing-key IDs, run IDs, and session UUIDs are
 returned after unchecked `crypto/rand.Read`. Entropy failure therefore emits
@@ -1895,9 +1895,42 @@ PKCE and refresh-token generators already return these errors correctly.
 - **Affected:** JWT lineage, OAuth state uniqueness, key rotation, run/session identity
 - **Source:** auth/es256.go:140-145; auth/oauth.go:160-164;
   authd/server.go:95-101; runed/manager.go:364-376
-- **Status:** proposed — correcting helper signatures and propagating errors
-  crosses authd/runed contracts and needs sign-off
-- **Fix:**
+- **Fix:** NONE — no code changed. The premise does not hold on this toolchain.
+
+**`crypto/rand.Read` cannot return a non-nil error.** Since Go 1.24 it is
+documented "It never returns an error, and always fills b entirely. Read calls
+io.ReadFull on Reader and CRASHES THE PROGRAM IRRECOVERABLY if an error is
+returned." `go.mod` declares `go 1.27`, so no supported build of this module
+gets the old behaviour.
+
+Verified empirically rather than from the doc comment, on `go1.27rc2`: a probe
+swapping in a always-failing `rand.Reader` does not return an error to the
+caller — it dies with `fatal error: crypto/rand: failed to read random data (see
+https://go.dev/issue/66821)`, unrecoverable, from `crypto/rand.fatal`.
+
+So the failure mode the entry describes — "entropy failure therefore emits
+predictable or duplicate identifiers instead of aborting" — has no reachable
+path. Every listed site is ALREADY maximally fail-loud: the process dies before
+a weak identifier can exist. All eight discarding sites (`auth/es256.go:152`,
+`auth/oauth.go:162`, `authd/server.go:101`, `routd/server.go:772`,
+`runed/manager.go:505,512`, `crackbox/pkg/run/run.go:168`) import
+`crypto/rand`, not `math/rand` — checked, not assumed.
+
+The entry's closing line has it backwards: the PKCE and refresh-token generators
+it praises for "returning these errors correctly" are the ones carrying
+UNREACHABLE branches. That is harmless and conventional, so it is left alone —
+deleting dead `if err != nil` across seven files would be churn with no
+behaviour change.
+
+**Checked for a real instance of the class while here, and found none.** The two
+`math/rand` users are not identifier generators in the security sense:
+`chanlib/retry.go:121` is backoff jitter, and `runed/docker.go:244` is a
+uniqueness suffix on a temp filename inside one folder's own private IPC dir. If
+either had minted a token or nonce it WOULD have been this bug for real, since
+`math/rand` genuinely is predictable.
+
+**Re-file only if** `go.mod`'s floor ever drops below `go 1.24`, or a
+security-sensitive identifier starts coming from `math/rand`.
 
 ## ✅ FIXED 2026-08-15 A4 — ACL read errors are indistinguishable from valid empty policy (2026-07-30)
 
