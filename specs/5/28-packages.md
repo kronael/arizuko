@@ -203,10 +203,11 @@ merge**:
 | `skills/<n>/`                       | → `.claude/skills/<n>/`; union by name, LAST product wins wholesale      | managed: `sync`    |
 | `PERSONA.md` / `SOUL.md`            | FIRST provider wins; later warned                                        | seed-once          |
 | `CLAUDE.md`                         | marked sections, in mix order                                            | seed-once          |
-| `facts/`, `tasks.toml`              | union; filename collision = refuse                                       | seed-once          |
+| `facts/`                            | union; filename collision = refuse                                       | seed-once          |
 | `settings.json`                     | key union; key collision = refuse. An `mcpServers` key REFUSES the apply | managed: `sync`    |
 | `Dockerfile.ant`                    | at most one in the mix                                                   | operator rebuilds  |
 | `migrations/NNN-*.md`               | **refused** — nothing runs a product's migrations (below)                | n/a                |
+| `tasks.toml`                        | **refused** — nothing reads a product's tasks.toml (below)               | n/a                |
 | **anything else** (`PRODUCT.md`, …) | **verbatim copy; FIRST provider wins**                                   | seed-once          |
 
 **The table is not a whitelist — the last row is what makes that true.** A
@@ -404,6 +405,40 @@ Reopening needs a mark field on the record AND a decision about who runs a
 product's migrations (the agent, as today, or the harness). No product in
 `ant/examples/` ships `migrations/` — asserted, not assumed, by
 `container/product_seed_test.go` — so the refusal costs the corpus nothing.
+
+### Seeding a product's `tasks.toml` — decided: refused, not built (2026-08-15)
+
+**Decided: a product may not ship `tasks.toml` at all.** `5/21` told authors it
+seeded scheduled tasks for the whole life of the payload; nothing ever read the
+file — no parser, no schema type, no seeder, the only mention of the filename in
+any source file being the classify rule that decided where to COPY it (BUGS
+`L35`). Same class as `mcpServers` (`J15`) and `migrations/` above, and the same
+exit, so the rule those set holds for all three: a payload that applies cleanly
+and reaches no consumer is an authoring error, not an asset. One
+`refusedPayloads` map now renders every refusal, so the two seeders cannot drift
+on what is refused and adding one is a row, not a second refusal path.
+
+The alternative — build the seeding path — was live and is rejected for three
+reasons, none of them "hard":
+
+- **It is not the product's to own.** A scheduled task is a `scheduled_tasks`
+  row with a real owning handler on all three faces (`schedule_task` on the
+  agent socket, dashd's form, `POST /v1/tasks`). A file input would be a fourth
+  writer of the same table whose only caller is the seeder — the shape this
+  spec forbids elsewhere ("one renderer, many sinks").
+- **The apply could not be reversed or re-applied.** `Manifest` maps an asset
+  kind to the identities it owns and `AssetHashes` to file content; a seeded row
+  is neither, so `products remove` could not withdraw it and an upgrade could not
+  re-apply it. That is `L31`'s open question, unsigned — a payload born into it
+  arrives already broken in the direction that bug names.
+- **The intent already has a route that works.** A product's daily-digest task
+  is real product content, and it stays expressible: the product's `CLAUDE.md`
+  region tells the agent to schedule it, and the agent has the tool. That is
+  the same escape hatch `migrations/` took.
+
+No product in `ant/examples/` ships one — asserted by
+`container/product_seed_test.go` — so the refusal costs the corpus nothing.
+Reopening needs an ownership record for a seeded row first, not a parser.
 
 ### Composition's design gaps — all closed
 

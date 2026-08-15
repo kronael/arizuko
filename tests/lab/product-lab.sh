@@ -76,6 +76,13 @@ case "$out" in
   *)                          bad "migrations/ was accepted: $out" ;;
 esac
 rm -rf "$PROD/migrations"
+printf '[[task]]\ncron = "0 9 * * *"\nprompt = "digest"\n' > "$PROD/tasks.toml"
+out=$("$BIN" products "$INST" apply main 2>&1 || true)
+case "$out" in
+  *"nothing reads a product"*) ok "tasks.toml refused (BUGS L35)" ;;
+  *)                           bad "tasks.toml was accepted: $out" ;;
+esac
+rm -f "$PROD/tasks.toml"
 cp "$PROD/.claude/settings.json" "$WORK/s.bak"
 echo '{"mcpServers":{"x":{"command":"y"}}}' > "$PROD/.claude/settings.json"
 out=$("$BIN" products "$INST" apply main 2>&1 || true)

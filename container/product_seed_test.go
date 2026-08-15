@@ -309,11 +309,12 @@ func TestProductCorpusPayloadKinds(t *testing.T) {
 			t.Errorf("helpdesk is the reference product and no longer ships %s: %v", rel, err)
 		}
 	}
-	// Kinds the blend table names that the corpus does not ship. `tasks.toml` is
-	// deliberate, not an oversight: nothing reads it (BUGS L35), so shipping one
-	// in the corpus would document a no-op as a feature. Paths are
-	// product-relative — `.claude/settings.json` is the settings payload; a
-	// root-level `settings.json` is an unnamed payload under the catch-all.
+	// Kinds the blend table names that the corpus does not ship. `tasks.toml` and
+	// `migrations/` are the two REFUSED payloads (BUGS L35, spec 5/28), so a
+	// corpus product shipping one would not apply at all — this is the assertion
+	// that keeps that true. Paths are product-relative — `.claude/settings.json`
+	// is the settings payload; a root-level `settings.json` is an unnamed payload
+	// under the catch-all.
 	for _, absent := range []string{"tasks.toml", "Dockerfile.ant", "migrations"} {
 		for _, p := range products {
 			if !p.IsDir() {

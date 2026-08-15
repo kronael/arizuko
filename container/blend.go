@@ -66,10 +66,11 @@ const (
 	paySkill                     // skills/<name>/ — union by name, LAST wins wholesale
 	payPersona                   // PERSONA.md / SOUL.md — FIRST wins, later warned
 	payClaude                    // CLAUDE.md — marked sections, in mix order
-	payUnion                     // facts/, tasks.toml — union, collision refuses
+	payUnion                     // facts/ — union, collision refuses
 	paySettings                  // .claude/settings.json — key union; mcpServers refused
 	payDockerfile                // Dockerfile.ant — at most one in the mix
 	payMigrations                // migrations/ — refused: nothing runs a product's migrations
+	payTasks                     // tasks.toml — refused: nothing reads a product's tasks.toml
 )
 
 // productDest maps a product-relative path to where it lands in the group home.
@@ -98,11 +99,12 @@ func classify(rel string) payload {
 		return payPersona
 	case rel == "CLAUDE.md":
 		return payClaude
-	case rel == "tasks.toml",
-		parts[0] == "facts" && len(parts) > 1:
+	case parts[0] == "facts" && len(parts) > 1:
 		return payUnion
 	case parts[0] == "migrations" && len(parts) > 1:
 		return payMigrations
+	case rel == "tasks.toml":
+		return payTasks
 	case rel == settingsRel:
 		return paySettings
 	case rel == "Dockerfile.ant":
@@ -111,17 +113,33 @@ func classify(rel string) payload {
 	return payVerbatim
 }
 
-// migrationsRefusal names why a product may not ship `migrations/`. Nothing runs
-// them: the one runner is MIGRATION_VERSION → /migrate (routd.checkMigrationVersion),
-// a single instance-wide counter over the skill tree with no per-product dimension,
-// and the installed-package record carries no per-product mark. Seeding the payload
-// anyway is the settings.json `mcpServers` no-op again (BUGS J15) — an asset that
-// applies cleanly and reaches no consumer. Spec 5/28 §"Running a product's
-// migrations/".
-func migrationsRefusal(product, rel string) error {
-	return fmt.Errorf("%s: %s ships it, and nothing runs a product's migrations/ — "+
+// refusedPayloads names the product payloads arizuko will not seed, each with
+// the route that does work. A payload that applies cleanly and reaches no
+// consumer is an authoring error, not an asset: it reports success and then does
+// nothing, which is the settings.json `mcpServers` no-op (BUGS J15). ONE map, so
+// the two seeders cannot drift on what is refused, and adding a refusal is a
+// row rather than a second refusal path.
+//
+// migrations/ — the one runner is MIGRATION_VERSION → /migrate
+// (routd.checkMigrationVersion), a single instance-wide counter over the skill
+// tree with no per-product dimension, and the installed-package record carries
+// no per-product mark. Spec 5/28 §"Running a product's migrations/".
+//
+// tasks.toml — a scheduled task is a scheduled_tasks ROW, created through the
+// resource's own handler (schedule_task on the agent socket, dashd's form, the
+// REST face). No parser, no schema type, no seeder ever existed; 5/21 claimed
+// otherwise for the whole life of the payload (BUGS L35). Spec 5/28
+// §"Seeding a product's tasks.toml".
+var refusedPayloads = map[payload]string{
+	payMigrations: "nothing runs a product's migrations/ — " +
 		"put the instructions in the product's CLAUDE.md or a skill, which the agent reads (spec 5/28)",
-		rel, product)
+	payTasks: "nothing reads a product's tasks.toml — " +
+		"a scheduled task is a scheduled_tasks row, so create it with schedule_task, the dashboard " +
+		"or POST /v1/tasks, or have the product's CLAUDE.md tell the agent to (spec 5/28)",
+}
+
+func refusePayload(product, rel string, kind payload) error {
+	return fmt.Errorf("%s: %s ships it, and %s", rel, product, refusedPayloads[kind])
 }
 
 // CheckProductAssets refuses a product tree carrying a payload no consumer reads.
@@ -134,8 +152,8 @@ func CheckProductAssets(product, dir string) error {
 		return err
 	}
 	for _, rel := range rels {
-		if classify(rel) == payMigrations {
-			return migrationsRefusal(product, rel)
+		if kind := classify(rel); refusedPayloads[kind] != "" {
+			return refusePayload(product, rel, kind)
 		}
 	}
 	return nil
@@ -254,8 +272,8 @@ func buildPlan(mix []Product) (*plan, error) {
 				p.union[rel] = i
 			case paySettings:
 				p.settings = append(p.settings, i)
-			case payMigrations:
-				return nil, migrationsRefusal(prod.Name, rel)
+			case payMigrations, payTasks:
+				return nil, refusePayload(prod.Name, rel, classify(rel))
 			case payDockerfile:
 				if p.dockerfile != -1 {
 					return nil, fmt.Errorf("Dockerfile.ant: both %s and %s ship one — at most one image extension per mix",

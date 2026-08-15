@@ -369,7 +369,7 @@ kind that changes who can do what is the one the summary omits.
   grant is a bigger fact than ten files.
 - **Fix:**
 
-## L35 — `tasks.toml` is a product payload nothing reads (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L35 — `tasks.toml` is a product payload nothing reads (2026-08-15)
 
 `specs/5/21:56` says a product ships "`tasks.toml` (seed scheduled tasks)", and
 `5/28`'s blend table gives it a union rule. **No code reads it.** The only
@@ -399,15 +399,30 @@ asset.
   today (asserted by `container/product_seed_test.go`)
 - **Source:** `container/blend.go:83`; `specs/5/21-products.md:56`;
   `specs/5/28-packages.md:206`
-- **Status:** open. Two honest exits, and the choice is the operator's: REFUSE
-  the payload as the other two were, or BUILD the seeding path (read the file at
-  `SetupGroup`/apply time and insert `scheduled_tasks` rows through the owning
-  handler, never a direct DB write). Refusing is consistent and costs nothing —
-  nobody ships one. Building it is the only option that makes `5/21`'s sentence
-  true, and it is the only one of the three payloads where seeding is plausibly
-  wanted, because a product's daily-digest task is real product content.
-  Whichever wins, `5/21:56` must stop claiming the behaviour it claims today.
-- **Fix:**
+- **Status:** FIXED — **REFUSED**, the same exit as `mcpServers` and
+  `migrations/`. Three reasons, in order of weight. (1) *It is not the product's
+  to own*: a scheduled task is a `scheduled_tasks` row with a real owning
+  handler on all three faces, so a file input would be a fourth writer of that
+  table whose only caller is the seeder — the one-renderer rule forbids it.
+  (2) *The apply could not be reversed or re-applied*: `Manifest` maps asset
+  kinds to identities and `AssetHashes` to file content, and a seeded ROW is
+  neither, so `products remove` could not withdraw it and upgrade could not
+  re-apply it — that is `L31`, still unsigned, and a new payload would be born
+  into it already broken. (3) *The intent keeps a route that works*: a product's
+  daily-digest task stays expressible through its `CLAUDE.md` region telling the
+  agent to schedule it, the same escape hatch `migrations/` took. Building it
+  would have made `5/21`'s sentence true at the cost of a fourth writer and a
+  known-broken lifecycle; deleting the sentence makes it true for free.
+- **Fix:** `classify` maps `tasks.toml` to a new `payTasks`, and BOTH refused
+  payloads now render through ONE `refusedPayloads` map — the old
+  `migrationsRefusal` is gone rather than joined by a twin, so a refusal is a
+  row and the two seeders cannot drift on what is refused. Every refusal must
+  name the route that works, asserted by `TestRefusedPayloadsNameARoute`.
+  `TestBlendRefusesProductTasks` + `TestCheckProductAssetsRefusesWhatTheBlendDoes`
+  cover blend and verbatim seeder; the product lab probes it beside the
+  `migrations/` and `mcpServers` refusals. Specs `5/21` (sentence replaced with
+  the refusal + the working route) and `5/28` (blend-table row + a
+  §"Seeding a product's `tasks.toml`" decision record). SHA (this commit).
 
 ## ✅ FIXED 2026-08-15 L34 — handing an asset between two products in one mix DELETES it (2026-08-15)
 
