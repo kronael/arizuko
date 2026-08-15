@@ -2190,7 +2190,7 @@ check. `runed_page.go:135`: POST /dash/runed/kill same issue, higher impact (ter
   (`authz.go:212`), so every dashd write goes through one CSRF check.
   Covered by `authz_test.go` (missing Origin passes, matching passes, cross-origin 403).
 
-## [SEC] grants: effect silently defaults to allow; nil adminDB in POST paths (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] grants: effect silently defaults to allow; nil adminDB in POST paths (2026-06-18)
 
 `grants_admin.go:184`: invalid `effect` value silently creates an allow grant. `grants_admin.go:46`
 guards GET but not POST — nil adminDB panics on add/revoke.
@@ -2199,7 +2199,16 @@ guards GET but not POST — nil adminDB panics on add/revoke.
 - **Scope:** dashd/grants_admin.go:184,:46
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — invalid effect → 400; nil adminDB guard on add + revoke (91159586)
-- **Fix:** reject invalid effect with 400; nil-guard adminDB in POST handlers
+- **Fix:** 91159586; re-verified at fb152e98 — the ADD path rejects an unknown effect
+  with 400 (`grants_admin.go:189-193`: empty → `allow`, anything not allow/deny → 400),
+  so a typo can no longer mint an allow grant. `adminDB()` is nil-guarded on GET (`:46`),
+  add-POST (`:170`) and revoke-POST (`:236`).
+  Noted while verifying, NOT part of this entry and not fixed: the revoke path
+  (`:253`) still defaults a blank effect to `allow` without the 400 check, and
+  `RemoveACLRow` reports no rows-affected — a revoke whose fields don't match any row
+  redirects as success. That fails CLOSED (the grant stays) and the form is
+  dashd-rendered from the row itself (`:64`), so it is a fail-loud gap, not an
+  escalation. Worth its own entry if the queue wants it.
 
 ## tasks: new tasks have no next_run; cron not validated on create (2026-06-18, open)
 
