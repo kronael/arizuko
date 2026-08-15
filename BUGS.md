@@ -7,6 +7,75 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L27 — five channel platforms ship no output-style file, so their agents format blind (2026-08-15, open)
+
+`specs/5/Y` says WhatsApp, Reddit, Bluesky, Twitter and LinkedIn "keep their
+single platform file". None of those files exists. `ant/output-styles/` ships
+`slack{,-dm,-channel,-thread,-pane}`, `telegram{,-dm,-group}`,
+`discord{,-dm,-channel}`, `email.md`, `web.md` and `README.md` — nothing else.
+(Mastodon is correctly absent: `mastd` was dropped 2026-08-15.)
+
+The picker does no host-side existence check by design (`5/Y` §"Name selection
+and file loading are separate concerns"), so it names `whatsapp` for a whapd
+turn, Claude Code's `readOutputStyle` finds no such file, and the agent answers
+with Claude Code's stock formatting — markdown a platform may not render, no
+length envelope, no per-surface shape.
+
+- **Severity:** medium — every reply on five live adapters is unstyled; whapd
+  and reditd both run today.
+- **Scope:** agent output formatting
+- **Affected:** whapd, reditd, bskyd, linkd, and the Twitter surface
+- **Source:** `ant/output-styles/` (14 files, none of the five);
+  `specs/5/Y-output-styles-per-surface.md:33-36`
+- **Status:** open. Two halves, and only the first is mechanical: the spec
+  sentence is false and must say those platforms ship no file today. Whether to
+  AUTHOR the five files is a content decision — each one is a real
+  length/markup envelope per platform, not a template — so it wants the user's
+  call before anyone writes prose into the agent's mouth.
+- **Fix:**
+
+## L28 — `routeTargetWithin` still parses three target prefixes no writer emits (2026-08-15, open)
+
+`routd/routes_resource.go:386-392` branches on `folder:`, `daemon:` and
+`builtin:` route-target prefixes. `specs/5/34` states route targets carry no
+such prefixes, and no live writer emits one. The branch is dead: the `folder:`
+arm strips a prefix that never arrives, and the `daemon:`/`builtin:` arm returns
+false for a shape nothing produces.
+
+Harmless today, but it is the kind of dead branch that reads as a live contract:
+the next person to add a target kind will follow the pattern and re-introduce a
+prefix vocabulary the spec deleted on purpose.
+
+- **Severity:** low — dead code, no user-visible failure
+- **Scope:** route target containment
+- **Affected:** nobody today
+- **Source:** `routd/routes_resource.go:386-392`; `specs/5/34-channel-protocol.md`
+- **Status:** open — delete the branch, keep `groupfolder.Contains`, and make
+  the spec's claim true rather than aspirational.
+- **Fix:**
+
+## L29 — the Helm chart still demands two secrets nothing reads (2026-08-15, open)
+
+`deploy/helm/arizuko` declares `CHANNEL_SECRET` and `PROXYD_HMAC_SECRET` as
+required values (`values.yaml:119,121`, `templates/secret.yaml:13,15`,
+`templates/adapters.yaml:68-71`, `README.md:118,120,126`). Both are HMAC-era
+identity secrets that `5/1` retired: adapters now exchange a service token as
+the daemon principal, and proxyd proves identity with a `service:proxyd` ES256
+bearer. Zero `.go` files read either name.
+
+A Helm-based operator generates, stores and rotates two secrets that reach no
+code, and — worse — reads the chart as the identity model, which it no longer
+is. Compose is the maintained deploy path; the chart drifted behind it.
+
+- **Severity:** low — no runtime failure, but it misstates the trust model to
+  the one audience most likely to ask about it.
+- **Scope:** Helm packaging
+- **Affected:** any Helm deployment
+- **Source:** `deploy/helm/arizuko/{values.yaml,templates/secret.yaml,templates/adapters.yaml,README.md}`
+- **Status:** open — drop both keys from the chart and its README. Check the
+  same chart for other post-split drift while in there; nothing verifies it.
+- **Fix:**
+
 ## L25 — slakd acks Slack before routd accepts, so a deploy silently drops messages (2026-08-15, proposed)
 
 `slakd.handleEvents` answers `200 OK` to Slack BEFORE calling routd
