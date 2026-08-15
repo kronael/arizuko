@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Domain researcher (Prometheus) &mdash; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../aws-devops/">AWS DevOps agent (Argus)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/" aria-current="page">Domain researcher (Prometheus)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Domain researcher (Prometheus)</p>
+      <h1>Domain researcher <span class="dim">(Prometheus)</span></h1>
+
+      <p class="lede">
+        Tracks one domain continuously and delivers a structured briefing
+        every week, plus deep dives on demand. Separates confirmed from
+        inferred from speculative, every time.
+      </p>
+
+      <h2>What it does</h2>
+
+      <p>
+        It watches the sources in <code>facts/watchlist.md</code>, and each
+        week produces the same four sections: executive summary, key
+        developments, signals to watch, recommended actions. Every finding
+        carries a confidence marker and an inline citation &mdash; URL,
+        publication, date. Briefings are stored in
+        <code>facts/reports/</code>, so the archive is a directory you can
+        grep.
+      </p>
+
+      <p>
+        The useful part is what it emphasises: what <em>changed</em> since
+        the last briefing, not a restatement of the domain. A weekly report
+        that reads like last week&rsquo;s is a report nobody opens twice.
+      </p>
+
+      <h2>A sample exchange</h2>
+
+      <pre><code>user   anything on the licensing change?
+
+agent  Confirmed: BSL 1.1 as of 2026-08-11 (vendor blog, 11 Aug).
+       Inferred: the managed-service carve-out targets one competitor —
+       wording matches their product, not the category.
+       Speculative: a fork within a quarter. Two of the three top
+       contributors have not signed the CLA.
+       Implications: (1) your redistribution clause needs review …</code></pre>
+
+      <h2>What it ships</h2>
+
+      <table>
+        <thead><tr><th>File</th><th>What it is</th></tr></thead>
+        <tbody>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, env hints</td></tr>
+          <tr><td><code>SOUL.md</code></td><td>who the agent is: analytical, marks confidence, cites inline</td></tr>
+          <tr><td><code>facts/domain.md</code></td><td>the domain, its key players, and what matters in it</td></tr>
+          <tr><td><code>facts/watchlist.md</code></td><td>the sources, companies and topics to track</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Who it is for</h2>
+
+      <p>
+        A team that needs to stay current in one domain and currently does
+        it by opening tabs. It is research-intensive rather than
+        conversational &mdash; the output is a document, and the chat is
+        where you ask it for one.
+      </p>
+
+      <p><a href="setup.html">Set it up &rsaquo;</a></p>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/strategy/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

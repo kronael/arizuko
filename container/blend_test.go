@@ -269,13 +269,13 @@ func TestBlendUnionCollisionRefuses(t *testing.T) {
 // filenames from different products all land.
 func TestBlendUnionKindsMerge(t *testing.T) {
 	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{"facts/a.md": "fa", "tasks.toml": "ta"})
+	a := mkProduct(t, root, "a", map[string]string{"facts/a.md": "fa", "facts/c.md": "fc"})
 	b := mkProduct(t, root, "b", map[string]string{"facts/b.md": "fb"})
 	group := filepath.Join(root, "group")
 	blendInto(t, group, []Product{a, b}, nil)
 
 	for rel, want := range map[string]string{
-		"facts/a.md": "fa", "facts/b.md": "fb", "tasks.toml": "ta",
+		"facts/a.md": "fa", "facts/b.md": "fb", "facts/c.md": "fc",
 	} {
 		if got := read(t, group, filepath.FromSlash(rel)); got != want {
 			t.Errorf("%s = %q, want %q", rel, got, want)
@@ -307,17 +307,59 @@ func TestBlendRefusesProductMigrations(t *testing.T) {
 	}
 }
 
-// The verbatim single-product seeder refuses the same payload as the blend:
-// one rule, both seeders, so neither accepts what the other rejects.
-func TestCheckProductAssetsRefusesMigrations(t *testing.T) {
+// TestBlendRefusesProductTasks locks BUGS L35's exit: `tasks.toml` is refused,
+// not seeded. Nothing ever read it — no parser, no schema, no seeder — while
+// 5/21 told authors it seeded scheduled tasks, so the file landed in the group
+// and no task was created. Third payload of the same class, third refusal
+// (mcpServers J15, migrations/ 5/28).
+func TestBlendRefusesProductTasks(t *testing.T) {
+	root := t.TempDir()
+	a := mkProduct(t, root, "a", map[string]string{
+		"tasks.toml": "[[task]]\ncron = \"0 9 * * *\"\n", "PRODUCT.md": "a",
+	})
+	group := filepath.Join(root, "group")
+
+	_, err := BlendProducts(group, []Product{a}, nil)
+	if err == nil {
+		t.Fatal("a product shipping tasks.toml applied cleanly and scheduled nothing")
+	}
+	for _, want := range []string{"tasks.toml", "schedule_task"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error must name %q so the author knows the working path; got %v", want, err)
+		}
+	}
+	if _, sErr := os.Stat(filepath.Join(group, "PRODUCT.md")); !os.IsNotExist(sErr) {
+		t.Error("a refused mix still wrote files")
+	}
+}
+
+// The verbatim single-product seeder refuses the same payloads as the blend:
+// one map, both seeders, so neither accepts what the other rejects.
+func TestCheckProductAssetsRefusesWhatTheBlendDoes(t *testing.T) {
 	root := t.TempDir()
 	ok := mkProduct(t, root, "ok", map[string]string{"PERSONA.md": "p", "facts/a.md": "f"})
 	if err := CheckProductAssets(ok.Name, ok.Dir); err != nil {
 		t.Fatalf("clean product refused: %v", err)
 	}
-	bad := mkProduct(t, root, "bad", map[string]string{"migrations/002-y.md": "m"})
-	if err := CheckProductAssets(bad.Name, bad.Dir); err == nil {
-		t.Fatal("verbatim seed accepted migrations/ the blend refuses")
+	for name, rel := range map[string]string{
+		"migrations": "migrations/002-y.md",
+		"tasks":      "tasks.toml",
+	} {
+		bad := mkProduct(t, root, "bad-"+name, map[string]string{rel: "x"})
+		if err := CheckProductAssets(bad.Name, bad.Dir); err == nil {
+			t.Errorf("verbatim seed accepted %s, which the blend refuses", rel)
+		}
+	}
+}
+
+// TestRefusedPayloadsNameARoute: every refusal must tell the author where the
+// intent DOES work. A bare "not supported" turns a fixable authoring error into
+// a dead end, which is the failure the refusals exist to avoid.
+func TestRefusedPayloadsNameARoute(t *testing.T) {
+	for kind, reason := range refusedPayloads {
+		if !strings.Contains(reason, "—") || !strings.Contains(reason, "spec 5/28") {
+			t.Errorf("refusal for payload %v must name the working route and its spec: %q", kind, reason)
+		}
 	}
 }
 
@@ -561,6 +603,43 @@ func TestBlendDropsStaleAsset(t *testing.T) {
 	}
 }
 
+// TestBlendHandoffKeepsTheAsset is BUGS L34: `a` drops an asset, `b` picks it up
+// with IDENTICAL bytes, both stay in the mix. The identical bytes are the whole
+// trap — the on-disk hash still matches `a`'s record, so against `a`'s own
+// hashes alone the file reads as clean-and-no-longer-mine and `a` deleted what
+// `b` had just written, while the apply reported `b unchanged`.
+func TestBlendHandoffKeepsTheAsset(t *testing.T) {
+	const body = "---\nname: shared\n---\nBody.\n"
+	root := t.TempDir()
+	a := mkProduct(t, root, "a", map[string]string{
+		"PRODUCT.md": "name = \"a\"\n", "skills/shared/SKILL.md": body,
+	})
+	group := filepath.Join(root, "group")
+	first := blendInto(t, group, []Product{a}, nil)
+
+	if err := os.Remove(filepath.Join(root, "a", "skills", "shared", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	b := mkProduct(t, root, "b", map[string]string{
+		"PRODUCT.md": "name = \"b\"\n", "skills/shared/SKILL.md": body,
+	})
+	out := blendInto(t, group, []Product{a, b},
+		map[string]map[string]string{"a": first[0].AssetHashes})
+
+	const rel = ".claude/skills/shared/SKILL.md"
+	if got := read(t, group, rel); got != body {
+		t.Errorf("%s = %q — the handoff deleted an asset another provider ships", rel, got)
+	}
+	if out[1].AssetHashes["file:"+rel] == "" {
+		t.Errorf("b's record does not own %s it wrote", rel)
+	}
+	for i, o := range out {
+		if len(o.Warnings) != 0 {
+			t.Errorf("out[%d] warned %v — ownership handoff is not a local edit", i, o.Warnings)
+		}
+	}
+}
+
 // TestClassifyCoversTheBlendTable pins each table row to the rule it selects, so
 // a future edit that quietly reroutes a payload (dropping PRODUCT.md into a
 // named rule, say) fails here rather than in a live group.
@@ -571,7 +650,7 @@ func TestClassifyCoversTheBlendTable(t *testing.T) {
 		"SOUL.md":               payPersona,
 		"CLAUDE.md":             payClaude,
 		"facts/x.md":            payUnion,
-		"tasks.toml":            payUnion,
+		"tasks.toml":            payTasks,
 		"migrations/001-x.md":   payMigrations,
 		".claude/settings.json": paySettings,
 		"Dockerfile.ant":        payDockerfile,

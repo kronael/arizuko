@@ -56,12 +56,17 @@ func walkFiles(t *testing.T, root string) map[string]string {
 // tree into the group folder byte-for-byte, every file, no filter.
 //
 // This is the regression bar for spec 5/28's composition blend. The blend table
-// names `skills/`, PERSONA.md, CLAUDE.md, facts/, tasks.toml, settings.json,
-// Dockerfile.ant and migrations/ — but the shipped corpus also ships
-// PRODUCT.md (10/10 products), SOUL.md (6/10) and BRANDING.md (2/10). A
+// names `skills/`, PERSONA.md, CLAUDE.md, facts/, settings.json,
+// Dockerfile.ant, tasks.toml and migrations/ — but the shipped corpus also ships
+// PRODUCT.md (11/11 products), SOUL.md (6/11) and BRANDING.md (3/11). A
 // table-strict blend that treats the table as a whitelist would silently DROP
 // those, which is a regression and not a simplification. If a future blend
-// engine replaces CopyDirNoSymlinks, this test must still pass.
+// engine replaces SeedProduct, this test must still pass.
+//
+// Verbatim is about BYTES, not about the author's directory layout: a skill
+// relocates under .claude/ here exactly as it does in the blend, because that is
+// the one place a skill is read (productDest, BUGS L37). Both seeders share that
+// rule, so both tests assert it the same way.
 func TestProductSeedIsVerbatim(t *testing.T) {
 	products, err := os.ReadDir(examplesDir)
 	if err != nil {
@@ -97,13 +102,17 @@ func TestProductSeedIsVerbatim(t *testing.T) {
 
 			got := walkFiles(t, filepath.Join(cfg.GroupsDir, "seeded"))
 			for rel, wantHash := range want {
-				gotHash, ok := got[rel]
+				dst := filepath.FromSlash(productDest(filepath.ToSlash(rel)))
+				gotHash, ok := got[dst]
 				if !ok {
-					t.Errorf("seed DROPPED %s", rel)
+					t.Errorf("seed DROPPED %s (expected at %s)", rel, dst)
 					continue
 				}
 				if gotHash != wantHash {
 					t.Errorf("seed altered %s: %s != %s", rel, gotHash, wantHash)
+				}
+				if dst != rel && got[rel] != "" {
+					t.Errorf("seed ALSO left %s at the group root — one placement rule, not two", rel)
 				}
 			}
 		})
@@ -166,7 +175,7 @@ func TestProductMixSeedsCorpusVerbatim(t *testing.T) {
 				// either payload. Every other payload is still byte-identical
 				// at its own path.
 				if strings.HasPrefix(rel, "skills/") {
-					moved := skillsRel + strings.TrimPrefix(rel, "skills")
+					moved := productDest(rel)
 					if got[moved] != wantHash {
 						t.Errorf("skill %s did not land verbatim at %s", rel, moved)
 					}
@@ -196,6 +205,61 @@ func TestProductMixSeedsCorpusVerbatim(t *testing.T) {
 	}
 	if seen == 0 {
 		t.Fatal("no products found — corpus path wrong, test would pass vacuously")
+	}
+}
+
+// TestBothSeedersPlaceAlike is BUGS L37's regression bar: the verbatim seed and
+// the blend must put a product's payload in the SAME place, because a product
+// that means one thing under `group add --product` and another under `products
+// apply` is two products. The skill is the file that broke it — the verbatim
+// path left it at the group root, where nothing reads it.
+func TestBothSeedersPlaceAlike(t *testing.T) {
+	prod := t.TempDir()
+	for rel, body := range map[string]string{
+		"PRODUCT.md":             "name = \"pp\"\n",
+		"skills/triage/SKILL.md": "---\nname: triage\n---\nBody.\n",
+		"facts/sla.md":           "Four hours.\n",
+	} {
+		path := filepath.Join(prod, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tmp := t.TempDir()
+	cfg := &core.Config{GroupsDir: filepath.Join(tmp, "groups"), IpcDir: filepath.Join(tmp, "ipc")}
+	if err := SetupGroup(cfg, "verbatim", prod); err != nil {
+		t.Fatalf("SetupGroup: %v", err)
+	}
+	seeded := walkFiles(t, filepath.Join(cfg.GroupsDir, "verbatim"))
+
+	blended := filepath.Join(t.TempDir(), "group")
+	if _, err := BlendProducts(blended, []Product{{Name: "pp", Dir: prod}}, nil); err != nil {
+		t.Fatalf("BlendProducts: %v", err)
+	}
+	mixed := walkFiles(t, blended)
+
+	// The skill is the whole point: assert its destination explicitly rather
+	// than only that the two agree, so both agreeing on the WRONG place fails.
+	const skill = ".claude/skills/triage/SKILL.md"
+	for path, set := range map[string]map[string]string{"verbatim seed": seeded, "blend": mixed} {
+		if set[skill] == "" {
+			t.Errorf("%s: skill did not land at %s", path, skill)
+		}
+		if set["skills/triage/SKILL.md"] != "" {
+			t.Errorf("%s: skill left at the group root, where nothing reads it", path)
+		}
+	}
+	for rel, h := range mixed {
+		if rel == "CLAUDE.md" {
+			continue // the blend's one concatenating payload; this product ships none
+		}
+		if seeded[rel] != h {
+			t.Errorf("blend put %s where the verbatim seed did not (seed has %q)", rel, seeded[rel])
+		}
 	}
 }
 
@@ -245,11 +309,12 @@ func TestProductCorpusPayloadKinds(t *testing.T) {
 			t.Errorf("helpdesk is the reference product and no longer ships %s: %v", rel, err)
 		}
 	}
-	// Kinds the blend table names that the corpus does not ship. `tasks.toml` is
-	// deliberate, not an oversight: nothing reads it (BUGS L35), so shipping one
-	// in the corpus would document a no-op as a feature. Paths are
-	// product-relative — `.claude/settings.json` is the settings payload; a
-	// root-level `settings.json` is an unnamed payload under the catch-all.
+	// Kinds the blend table names that the corpus does not ship. `tasks.toml` and
+	// `migrations/` are the two REFUSED payloads (BUGS L35, spec 5/28), so a
+	// corpus product shipping one would not apply at all — this is the assertion
+	// that keeps that true. Paths are product-relative — `.claude/settings.json`
+	// is the settings payload; a root-level `settings.json` is an unnamed payload
+	// under the catch-all.
 	for _, absent := range []string{"tasks.toml", "Dockerfile.ant", "migrations"} {
 		for _, p := range products {
 			if !p.IsDir() {
@@ -258,6 +323,75 @@ func TestProductCorpusPayloadKinds(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(examplesDir, p.Name(), absent)); err == nil {
 				t.Errorf("%s now ships %s — spec 5/28's corpus gap is stale", p.Name(), absent)
 			}
+		}
+	}
+}
+
+// productsWebDir is the operator-facing product catalog (template/web/CLAUDE.md
+// §"Adding a new product"). It is source-of-truth for the published site.
+const productsWebDir = "../template/web/pub/arizuko/products"
+
+// shapeMarker is how a catalog page declares it documents a shape assembled
+// from the primitives rather than a tree that ships. A page without it is
+// claiming `--product <id>` works.
+const shapeMarker = "This is a shape, not a template"
+
+// TestProductCatalogMatchesCorpus is BUGS L38: `ant/examples/` shipped 11
+// products, the catalog documented 9, and only 5 were in both — six templates an
+// operator could seed had no page, and four pages read like something you could
+// install. The ritual existed and was not followed, so the assertion is what
+// keeps the two sets together.
+//
+// The rule is directional, because the two directions fail differently. A
+// shipped product MUST have a page pair: `products list` prints its name, so a
+// name with no page is a dead end. A documented product with no tree is legal —
+// the catalog carries shapes on purpose — but only if its page SAYS so, because
+// silence there reads as a template.
+func TestProductCatalogMatchesCorpus(t *testing.T) {
+	shipped := map[string]bool{}
+	entries, err := os.ReadDir(examplesDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", examplesDir, err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			shipped[e.Name()] = true
+		}
+	}
+	documented := map[string]bool{}
+	pages, err := os.ReadDir(productsWebDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", productsWebDir, err)
+	}
+	for _, e := range pages {
+		if e.IsDir() {
+			documented[e.Name()] = true
+		}
+	}
+	if len(shipped) == 0 || len(documented) == 0 {
+		t.Fatal("one of the two sets is empty — a path is wrong and this would pass vacuously")
+	}
+
+	for name := range shipped {
+		for _, page := range []string{"index.html", "setup.html"} {
+			if _, err := os.Stat(filepath.Join(productsWebDir, name, page)); err != nil {
+				t.Errorf("product %q ships but has no catalog %s — `products list` names it and the site does not "+
+					"(template/web/CLAUDE.md §\"Adding a new product\")", name, page)
+			}
+		}
+	}
+	for name := range documented {
+		if shipped[name] {
+			continue
+		}
+		b, rerr := os.ReadFile(filepath.Join(productsWebDir, name, "index.html"))
+		if rerr != nil {
+			t.Errorf("catalog entry %q has no index.html: %v", name, rerr)
+			continue
+		}
+		if !strings.Contains(string(b), shapeMarker) {
+			t.Errorf("%q is documented but ships no tree, and its page does not say so — "+
+				"add the %q note or drop the page", name, shapeMarker)
 		}
 	}
 }

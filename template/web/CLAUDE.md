@@ -354,9 +354,16 @@ Discipline:
 ## Adding a new product
 
 1. Create `pub/products/<name>/index.html` (intro) and `setup.html`
-2. Add a row to the product grid in `pub/products/index.html`
+2. Add a row to the product grid in `pub/products/index.html`, and the entry
+   to the `nav-children` list in EVERY page under `pub/products/`
 3. Add a link to the landing page `go deeper` section if it's a flagship product
 4. Create `specs/7/product-<name>.md` (if not already there)
+
+`container/product_seed_test.go` `TestProductCatalogMatchesCorpus` gates steps
+1–2: every tree in `ant/examples/` must have both pages, and a page with no tree
+must carry the "This is a shape, not a template" note. The ritual existed and was
+skipped anyway — six shipped products had no page and four pages had no tree
+(BUGS `L38`), which is why it is a test now and not only a list.
 
 ## Adding a new component page
 

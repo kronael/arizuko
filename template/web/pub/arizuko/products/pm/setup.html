@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PM agent (Sloth) setup &mdash; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../aws-devops/">AWS DevOps agent (Argus)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/" aria-current="page">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">PM agent (Sloth)</a> &rsaquo; setup</p>
+      <h1>PM agent setup</h1>
+
+      <h2>1. Prerequisites</h2>
+
+      <ul>
+        <li>A running instance (<a href="../../howto/">getting started</a>).</li>
+        <li>One team channel. The product declares both
+          <code>TELEGRAM_BOT_TOKEN</code> and
+          <code>DISCORD_BOT_TOKEN</code> as optional &mdash; set at least
+          one, or the board has no way to reach anyone.</li>
+      </ul>
+
+      <h2>2. Seed a group from it</h2>
+
+      <pre><code>arizuko group &lt;instance&gt; add discord:acme/channel/992 pm --product pm</code></pre>
+
+      <h2>3. Fill in the team</h2>
+
+      <p>
+        <code>facts/team.md</code> is what makes an owner name meaningful:
+        without it the agent cannot tell whether &ldquo;mira&rdquo; is a
+        person or a service. List members, roles, and how to reach them.
+      </p>
+
+      <p>
+        <code>facts/tasks.md</code> can stay as it ships. The agent will
+        grow it, and starting empty avoids the usual import problem of a
+        board full of items nobody owns.
+      </p>
+
+      <h2>4. Verify</h2>
+
+      <pre><code>arizuko send &lt;instance&gt; pm "add a task: rotate route tokens, owner mira, due friday" --wait</code></pre>
+
+      <p>
+        A correct answer confirms owner and deadline back to you
+        <em>before</em> writing. If it writes immediately, the
+        <code>SOUL.md</code> did not land &mdash; check
+        <code>groups/pm/SOUL.md</code>.
+      </p>
+
+      <h2>5. Weekly status</h2>
+
+      <p>
+        Ask for it, or schedule it. A scheduled task is a
+        <code>scheduled_tasks</code> row created through the agent&rsquo;s
+        own tool &mdash; tell it &ldquo;post the status summary every Monday
+        at 9&rdquo; and it creates one. Products do not ship task files;
+        see <a href="../../concepts/tasks.html">scheduled tasks</a>.
+      </p>
+
+      <h2>6. Tuning</h2>
+
+      <ul>
+        <li><strong>Board shape</strong> &mdash; edit
+          <code>facts/tasks.md</code> directly. It is the source of truth,
+          not a cache of one.</li>
+        <li><strong>Escalation</strong> &mdash; the agent flags blocked and
+          overdue items; who it pings comes from
+          <code>facts/team.md</code>.</li>
+        <li><strong>Voice</strong> &mdash; edit <code>SOUL.md</code>.</li>
+      </ul>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/pm/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

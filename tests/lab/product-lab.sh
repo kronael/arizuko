@@ -76,6 +76,13 @@ case "$out" in
   *)                          bad "migrations/ was accepted: $out" ;;
 esac
 rm -rf "$PROD/migrations"
+printf '[[task]]\ncron = "0 9 * * *"\nprompt = "digest"\n' > "$PROD/tasks.toml"
+out=$("$BIN" products "$INST" apply main 2>&1 || true)
+case "$out" in
+  *"nothing reads a product"*) ok "tasks.toml refused (BUGS L35)" ;;
+  *)                           bad "tasks.toml was accepted: $out" ;;
+esac
+rm -f "$PROD/tasks.toml"
 cp "$PROD/.claude/settings.json" "$WORK/s.bak"
 echo '{"mcpServers":{"x":{"command":"y"}}}' > "$PROD/.claude/settings.json"
 out=$("$BIN" products "$INST" apply main 2>&1 || true)
@@ -116,12 +123,14 @@ case "$out" in
 esac
 rm -f "$SECOND/facts/sla.md"
 
-say "KNOWN BUG — BUGS L34: handing an asset between products deletes it"
+say "handing an asset between two products in one mix keeps it (BUGS L34)"
 # The condition is precise: A recorded the asset, A stops shipping it, and B
 # ships it with IDENTICAL bytes — so the on-disk hash still matches A's recorded
-# hash and A's dropStale reads it as clean-and-no-longer-mine. Both products must
-# stay in the mix; dropping A from the mix entirely does not reproduce it,
-# because A's record is then never processed.
+# hash. Against A's own hashes alone that reads as clean-and-no-longer-mine, and
+# A deleted what B had just written. dropStale now takes the mix's UNION, so a
+# path any current provider ships is still shipped. Both products must stay in
+# the mix; dropping A entirely does not exercise it, because A's record is then
+# never processed.
 "$BIN" group "$INST" add web:l34 l34 >/dev/null 2>&1
 LG="$DATA/groups/l34"
 PA="$WORK/products/pa"; PB="$WORK/products/pb"
@@ -134,15 +143,14 @@ printf '[[product]]\nsource = "%s"\n' "$PA" > "$LG/products.toml"
 [ -f "$LG/.claude/skills/shared/SKILL.md" ] || bad "setup: pa never owned the skill"
 rm -rf "$PA/skills"
 printf '[[product]]\nsource = "%s"\n\n[[product]]\nsource = "%s"\n' "$PA" "$PB" > "$LG/products.toml"
-"$BIN" products "$INST" apply l34 >/dev/null 2>&1
-if [ -f "$LG/.claude/skills/shared/SKILL.md" ]; then
-  ok "skill survived the handoff (L34 is FIXED — close it and simplify this probe)"
-else
-  printf '   \033[33mknown\033[0m L34 reproduced: pb ships the skill, pa'\''s dropStale deleted it\n'
-  "$BIN" products "$INST" apply l34 >/dev/null 2>&1
-  [ -f "$LG/.claude/skills/shared/SKILL.md" ] \
-    && printf '   \033[33mknown\033[0m and the NEXT apply restores it — so it is a window, not a permanent loss\n'
-fi
+out=$("$BIN" products "$INST" apply l34 2>&1)
+[ -f "$LG/.claude/skills/shared/SKILL.md" ] \
+  && ok "skill survived the handoff from pa to pb" \
+  || bad "L34 reproduced: pb ships the skill, pa's dropStale deleted it"
+case "$out" in
+  *"edited locally"*) bad "handoff reported as a local edit: $out" ;;
+  *)                  ok "no false 'edited locally' warning — ownership moved, the file did not" ;;
+esac
 
 say "a product ships its OWN live tests"
 # A product carries its own cases; the harness reads them with --cases. Contract:
@@ -176,7 +184,14 @@ printf '[{"path":"/helpbot/","backend":"http://helpbot:8080","auth":"user","stri
   > "$PKG/helpbot-routes.json"
 printf '[{"principal":"folder:main","action":"mcp:send","scope":"main","effect":"allow"}]\n' \
   > "$PKG/helpbot-grants.json"
-"$BIN" packages "$INST" install "$PKG" 2>/dev/null | tail -1
+# The summary names every grant: files and routes are inert until `generate`,
+# a grant is live the moment it lands, so it is named and not counted (BUGS L36).
+inst=$("$BIN" packages "$INST" install "$PKG" 2>/dev/null)
+printf '%s\n' "$inst" | tail -2 | sed 's/^/   /'
+case "$inst" in
+  *"folder:main mcp:send on main"*) ok "install summary names the grant it applied" ;;
+  *)                                bad "install summary hid the grant: $inst" ;;
+esac
 DB="$DATA/store/routd/routd.db"
 q() { sqlite3 "$DB" "$1"; }
 [ "$(q "select count(*) from acl where granted_by='package:helpbot';")" = 1 ] \

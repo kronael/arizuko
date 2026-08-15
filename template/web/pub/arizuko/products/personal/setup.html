@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Personal assistant (Fiu) setup &mdash; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../aws-devops/">AWS DevOps agent (Argus)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/" aria-current="page">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">Personal assistant (Fiu)</a> &rsaquo; setup</p>
+      <h1>Personal assistant setup</h1>
+
+      <h2>1. Prerequisites</h2>
+
+      <ul>
+        <li>A running instance (<a href="../../howto/">getting started</a>).</li>
+        <li><code>TELEGRAM_BOT_TOKEN</code> &mdash; the product declares it
+          required, because a personal assistant with no channel is a
+          directory.</li>
+      </ul>
+
+      <h2>2. Seed the instance from it</h2>
+
+      <pre><code>arizuko create fiu --product personal</code></pre>
+
+      <p>
+        That seeds the default group from the product tree. To add it to an
+        existing instance as one more group instead:
+      </p>
+
+      <pre><code>arizuko group &lt;instance&gt; add telegram:user/12345678 me --product personal</code></pre>
+
+      <h2>3. Set the token</h2>
+
+      <pre><code>TELEGRAM_BOT_TOKEN=...
+OPENAI_API_KEY=...   # optional: web search and oracle research</code></pre>
+
+      <h2>4. Seed what it should already know</h2>
+
+      <p>
+        <code>facts/preferences.md</code> is the difference between a
+        generic assistant and yours. Write the things you would otherwise
+        repeat: how you like drafts, what you are working on, timezone,
+        who the recurring names are. It is a file &mdash; edit it whenever
+        it is wrong.
+      </p>
+
+      <div class="note">
+        <strong>Memory is per folder.</strong> The diary and
+        <code>facts/</code> belong to the group, so a second group is a
+        second memory with nothing shared. That is the containment
+        guarantee, not a limitation to work around: see
+        <a href="../../concepts/scopes.html">scopes</a>.
+      </div>
+
+      <h2>5. Verify</h2>
+
+      <pre><code>arizuko send &lt;instance&gt; me "what do you know about how I like drafts?" --wait</code></pre>
+
+      <p>
+        A correct answer quotes your preferences file. A generic answer
+        means the seed did not land &mdash; check
+        <code>groups/me/facts/preferences.md</code>.
+      </p>
+
+      <h2>6. Tuning</h2>
+
+      <ul>
+        <li><strong>Voice</strong> &mdash; edit <code>SOUL.md</code>.</li>
+        <li><strong>What it remembers</strong> &mdash; the agent appends to
+          <code>facts/</code> itself; prune it when it drifts. Stale
+          preferences are the main failure mode of a memory product.</li>
+        <li><strong>Reminders</strong> &mdash; ask it to schedule one and it
+          creates a <a href="../../concepts/tasks.html">scheduled task</a>.
+          Tasks are DB rows, not a file in the folder.</li>
+      </ul>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/personal/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

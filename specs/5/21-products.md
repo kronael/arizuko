@@ -55,13 +55,14 @@ copied verbatim into the group dir: `PERSONA.md` (the agent's identity),
 `CLAUDE.md` (the per-group runbook read every session), `facts/` (seed
 knowledge). Most products ship both Markdown files.
 
-`tasks.toml` was listed here as "seed scheduled tasks" and **that is false** —
-nothing reads the file (BUGS `L35`, found 2026-08-15 while building the
-reference product). The blend copies it into the group and no task is ever
-created; scheduled tasks are `scheduled_tasks` rows written through the owning
-handler. Either the payload is refused like `migrations/` and `mcpServers`, or
-the seeding path gets built; until one of those happens the sentence stays
-deleted rather than aspirational.
+`tasks.toml` was listed here as "seed scheduled tasks" and that was false —
+nothing ever read the file (BUGS `L35`, found 2026-08-15 while building the
+reference product). **A product may no longer ship one:** both seeders refuse
+it, like `migrations/` and `mcpServers`. A scheduled task is a
+`scheduled_tasks` row created through the resource's own handler
+(`schedule_task` on the agent socket, the dashboard, `POST /v1/tasks`); a
+product that wants one says so in its `CLAUDE.md` region and the agent creates
+it. Decision and cost in `5/28` §"Seeding a product's `tasks.toml`".
 
 **Two kinds of skill, don't conflate them.** The `skills` LIST in
 `PRODUCT.md` is a whitelist SELECTING stock skills from the image —

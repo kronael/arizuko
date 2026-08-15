@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Domain researcher (Prometheus) setup &mdash; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../aws-devops/">AWS DevOps agent (Argus)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/" aria-current="page">Domain researcher (Prometheus)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">Domain researcher (Prometheus)</a> &rsaquo; setup</p>
+      <h1>Domain researcher setup</h1>
+
+      <h2>1. Prerequisites</h2>
+
+      <ul>
+        <li>A running instance (<a href="../../howto/">getting started</a>).</li>
+        <li><code>CODEX_API_KEY</code> &mdash; declared required. Synthesis
+          across long documents is the oracle skill&rsquo;s job; without it
+          the briefings degrade to link lists.</li>
+        <li>A delivery channel &mdash; <code>TELEGRAM_BOT_TOKEN</code> or
+          <code>DISCORD_BOT_TOKEN</code>.</li>
+        <li>Egress for the sources it must read. A default instance is
+          allowlisted, so add the domains or grant the folder open egress
+          before the first briefing (<a href="../../security/">egress and
+          isolation</a>).</li>
+      </ul>
+
+      <h2>2. Seed a group from it</h2>
+
+      <pre><code>arizuko group &lt;instance&gt; add telegram:group/-100123 research --product strategy</code></pre>
+
+      <h2>3. Define the domain and the watchlist</h2>
+
+      <p>
+        <code>facts/domain.md</code> says what the domain is, who the key
+        players are, and what counts as material. <code>facts/watchlist.md</code>
+        says where to look: sources, companies, topics. Both ship as
+        operator instructions rather than content &mdash; a researcher with
+        no beat produces a newsletter about nothing.
+      </p>
+
+      <h2>4. Schedule the briefing</h2>
+
+      <p>
+        Ask for it in chat &mdash; &ldquo;brief me every Monday at
+        07:00&rdquo; &mdash; and the agent creates the
+        <a href="../../concepts/tasks.html">scheduled task</a>. Products do
+        not ship task files; the row is created through the task tool, so
+        you can list, pause and cancel it like any other.
+      </p>
+
+      <h2>5. Verify</h2>
+
+      <pre><code>arizuko send &lt;instance&gt; research "what changed in the domain this week?" --wait</code></pre>
+
+      <p>
+        A correct answer marks each item confirmed, inferred or speculative
+        and cites sources inline. An unmarked wall of prose means
+        <code>SOUL.md</code> did not land.
+      </p>
+
+      <h2>6. Tuning</h2>
+
+      <ul>
+        <li><strong>Beat</strong> &mdash; edit
+          <code>facts/watchlist.md</code>. Everything else follows from
+          it.</li>
+        <li><strong>Archive</strong> &mdash; briefings accumulate in
+          <code>facts/reports/</code>. They are inputs to the next one, so
+          keep them.</li>
+        <li><strong>Depth</strong> &mdash; ask for a deep dive on one
+          question; the weekly shape is a default, not a limit.</li>
+      </ul>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/strategy/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

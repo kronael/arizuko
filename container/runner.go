@@ -1002,7 +1002,7 @@ func SetupGroup(cfg *core.Config, folder, seedDir string) error {
 		if err := CheckProductAssets(seedDir, seedDir); err != nil {
 			return err
 		}
-		if err := chanlib.CopyDirNoSymlinks(seedDir, groupDir); err != nil {
+		if err := SeedProduct(groupDir, seedDir); err != nil {
 			slog.Warn("setup group: copy seed dir", "folder", folder, "err", err)
 		}
 		return nil

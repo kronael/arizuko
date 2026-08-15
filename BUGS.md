@@ -268,7 +268,7 @@ instead silently dedup a legitimately re-armed one-shot.
 - **Status:** open
 - **Fix:**
 
-## L38 — the product catalog and the product corpus are two different sets (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L38 — the product catalog and the product corpus are two different sets (2026-08-15)
 
 `ant/examples/` ships 11 products; `template/web/pub/arizuko/products/` documents
 9. They are not the same 9.
@@ -290,14 +290,25 @@ not followed — this is drift, not a missing convention.
 - **Scope:** product catalog docs vs `ant/examples/`
 - **Affected:** anyone choosing a product from the site
 - **Source:** `ls ant/examples` vs `ls template/web/pub/arizuko/products`
-- **Status:** open. Either write the six missing page pairs or drop the products
-  from the corpus, and mark the four documented-only pages as shapes rather than
-  templates. A test asserting the two sets match would stop it recurring —
-  `container/product_seed_test.go` already asserts corpus counts and is the
-  natural home.
-- **Fix:**
+- **Status:** FIXED — pages written, not products dropped. Every shipped tree is
+  something an operator can seed today; deleting six working templates to make a
+  docs assertion pass would be the wrong direction.
+- **Fix:** six page pairs written (`support`, `personal`, `pm`, `creator`,
+  `socials`, `strategy`) from each product's `PRODUCT.md` + persona + facts, each
+  with an intro and a setup page; the six moved from the "Templates without a
+  page" list into the grid, and that section is gone. The four documented-only
+  products keep their pages and now carry a "This is a shape, not a template"
+  note at the top, so the page no longer reads like something you can install.
+  The `nav-children` list is identical across all 31 catalog pages. Landing-page
+  counts corrected ("all eight" → all fifteen).
+  `TestProductCatalogMatchesCorpus` is the gate, directional by design: a shipped
+  product MUST have both pages (a name `products list` prints with no page is a
+  dead end), a documented product with no tree MUST carry the shape note. Both
+  halves checked to fail. `template/web/CLAUDE.md` §"Adding a new product" names
+  the test and the nav step. Also dropped the stale `L37` warning from
+  `products/helpdesk/setup.html` — the two seeders now agree. SHA 52254c51.
 
-## L37 — a product's skill is dead when seeded by `--product`, live when blended (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L37 — a product's skill is dead when seeded by `--product`, live when blended (2026-08-15)
 
 The two seeders disagree about the one payload kind that relocates, so a product
 shipping `skills/<name>/` works one way and silently does not the other.
@@ -331,16 +342,19 @@ in the same places". They do not.
   reference product
 - **Source:** `container/blend.go` (`skillsRel` relocation) vs
   `container/runner.go` `SetupGroup` → `chanlib.CopyDirNoSymlinks`
-- **Status:** open, and it is a one-renderer question rather than a patch. The
-  honest fix is that both seeders share one payload placement rule, so a product
-  means the same thing however it is applied — which likely means the verbatim
-  path stops being verbatim for this one kind, and `TestProductSeedIsVerbatim`
-  grows the same relocation exemption the mix lock just grew. The alternative —
-  teaching the agent to also read a group-root `skills/` — adds a second lookup
-  path for one payload and should not win.
-- **Fix:**
+- **Status:** FIXED — both seeders now share one placement rule.
+- **Fix:** `container.productDest` is the single rule mapping a product-relative
+  path to its group destination; `blendSkills` and the new
+  `container.SeedProduct` both call it, and `SetupGroup` uses `SeedProduct`
+  instead of a plain `chanlib.CopyDirNoSymlinks` (same symlink discipline, same
+  bytes, one placement). Verbatim now means byte-identical, not
+  layout-identical. `TestProductSeedIsVerbatim` grew the relocation exemption
+  and also asserts the file is NOT left at the group root — one placement rule,
+  not two — and `TestBothSeedersPlaceAlike` pins the two seeders to the same
+  destination set, checked to fail against the old copy. Spec `5/28` blend table
+  + §single-product updated. SHA adcbc223.
 
-## L36 — `packages install` applies grants without saying so (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L36 — `packages install` applies grants without saying so (2026-08-15)
 
 Installing a package that ships `<name>-grants.json` prints:
 
@@ -361,12 +375,18 @@ kind that changes who can do what is the one the summary omits.
 - **Affected:** any package shipping `*-grants.json`
 - **Source:** the install summary line in `cmd/arizuko/packages.go`; contrast
   `applyPackageGrants`, which returns each applied row for the record
-- **Status:** open — count grants in the summary like files and routes, and
-  name the principal and scope for each rather than a bare count, since one
-  grant is a bigger fact than ten files.
-- **Fix:**
+- **Status:** FIXED.
+- **Fix:** the summary counts grants beside files and routes, then prints one
+  line per grant naming effect, principal, action and scope (plus params and
+  `WITH GRANT OPTION` when set) — `describeGrant` in `cmd/arizuko/packages.go`.
+  `applyPackageGrants` returns `[]core.ACLRow` instead of pre-marshalled JSON so
+  the caller can both record and report from one value; the record's bytes are
+  unchanged, so `remove` still reverses exactly. Files and routes are inert
+  until `generate`, a grant is live the moment it lands — that is why it is
+  named and not counted. `TestPackageInstallSummaryNamesEachGrant` +
+  a lab assertion on the printed line. SHA 9bc40ad4.
 
-## L35 — `tasks.toml` is a product payload nothing reads (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L35 — `tasks.toml` is a product payload nothing reads (2026-08-15)
 
 `specs/5/21:56` says a product ships "`tasks.toml` (seed scheduled tasks)", and
 `5/28`'s blend table gives it a union rule. **No code reads it.** The only
@@ -396,17 +416,32 @@ asset.
   today (asserted by `container/product_seed_test.go`)
 - **Source:** `container/blend.go:83`; `specs/5/21-products.md:56`;
   `specs/5/28-packages.md:206`
-- **Status:** open. Two honest exits, and the choice is the operator's: REFUSE
-  the payload as the other two were, or BUILD the seeding path (read the file at
-  `SetupGroup`/apply time and insert `scheduled_tasks` rows through the owning
-  handler, never a direct DB write). Refusing is consistent and costs nothing —
-  nobody ships one. Building it is the only option that makes `5/21`'s sentence
-  true, and it is the only one of the three payloads where seeding is plausibly
-  wanted, because a product's daily-digest task is real product content.
-  Whichever wins, `5/21:56` must stop claiming the behaviour it claims today.
-- **Fix:**
+- **Status:** FIXED — **REFUSED**, the same exit as `mcpServers` and
+  `migrations/`. Three reasons, in order of weight. (1) *It is not the product's
+  to own*: a scheduled task is a `scheduled_tasks` row with a real owning
+  handler on all three faces, so a file input would be a fourth writer of that
+  table whose only caller is the seeder — the one-renderer rule forbids it.
+  (2) *The apply could not be reversed or re-applied*: `Manifest` maps asset
+  kinds to identities and `AssetHashes` to file content, and a seeded ROW is
+  neither, so `products remove` could not withdraw it and upgrade could not
+  re-apply it — that is `L31`, still unsigned, and a new payload would be born
+  into it already broken. (3) *The intent keeps a route that works*: a product's
+  daily-digest task stays expressible through its `CLAUDE.md` region telling the
+  agent to schedule it, the same escape hatch `migrations/` took. Building it
+  would have made `5/21`'s sentence true at the cost of a fourth writer and a
+  known-broken lifecycle; deleting the sentence makes it true for free.
+- **Fix:** `classify` maps `tasks.toml` to a new `payTasks`, and BOTH refused
+  payloads now render through ONE `refusedPayloads` map — the old
+  `migrationsRefusal` is gone rather than joined by a twin, so a refusal is a
+  row and the two seeders cannot drift on what is refused. Every refusal must
+  name the route that works, asserted by `TestRefusedPayloadsNameARoute`.
+  `TestBlendRefusesProductTasks` + `TestCheckProductAssetsRefusesWhatTheBlendDoes`
+  cover blend and verbatim seeder; the product lab probes it beside the
+  `migrations/` and `mcpServers` refusals. Specs `5/21` (sentence replaced with
+  the refusal + the working route) and `5/28` (blend-table row + a
+  §"Seeding a product's `tasks.toml`" decision record). SHA 84df9e82.
 
-## L34 — handing an asset between two products in one mix DELETES it (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L34 — handing an asset between two products in one mix DELETES it (2026-08-15)
 
 Reproduced end to end in the product lab, from a clean group:
 
@@ -442,12 +477,15 @@ anything; `oncall` had simply taken ownership from `helpdesk`.
   providers; no live instance runs a multi-product mix yet
 - **Source:** `container/blend.go` `BlendProducts` → `dropStale`; reproduced
   2026-08-15 with `arizuko products <inst> apply`
-- **Status:** open. The fix is contained and does not need a redesign: compute
-  the union of every product's `AssetHashes` for the mix, and let `dropStale`
-  treat a path owned by ANY current provider as still-shipped. That also removes
-  the false "edited locally" warning, because ownership handoff stops looking
-  like a local edit.
-- **Fix:**
+- **Status:** FIXED.
+- **Fix:** `BlendProducts` computes the union of every product's `AssetHashes`
+  once and passes that one `shipped` set to every product's `dropStale`, so a
+  path any current provider ships is still shipped. The false "edited locally"
+  warning goes with it — ownership handoff stops looking like a local edit.
+  `TestBlendHandoffKeepsTheAsset` covers it (checked to fail against the
+  per-product hashes) and asserts no warning; the product lab's L34 probe is now
+  a pass/fail assertion instead of a known-bug note. Spec `5/28` states the
+  union rule. SHA 4d40f601.
 
 ## L31 — a product never really updates: four of six payload kinds are seed-once (2026-08-15, proposal — needs sign-off)
 

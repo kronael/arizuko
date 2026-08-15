@@ -217,11 +217,11 @@ Blending is per PAYLOAD KIND, never a content merge (two products share no
 merge base). `skills/` union by name with the last product winning wholesale;
 `PERSONA.md`/`SOUL.md` first-provider-wins; `CLAUDE.md` becomes one marked
 region per product (`<!-- arizuko:package:<name> BEGIN/END -->`) so operator
-text between regions is never touched; `facts/` and `tasks.toml` union and
-REFUSE a filename collision — but note `tasks.toml` reaches no consumer today
-(BUGS `L35`), so shipping one seeds a file and schedules nothing;
-`migrations/` REFUSES the apply outright, because nothing runs a product's
-migrations and seeding them would report success for instructions that never
+text between regions is never touched; `facts/` unions and
+REFUSES a filename collision; `tasks.toml` and
+`migrations/` REFUSE the apply outright, because nothing reads a product's
+tasks and nothing runs a product's
+migrations, and seeding them would report success for instructions that never
 execute (`5/28`); `.claude/settings.json`
 keys union and refuse a key collision, except `mcpServers`, which REFUSES the
 apply — no MCP server loads from that key, so ship third-party tools as an

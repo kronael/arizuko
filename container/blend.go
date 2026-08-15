@@ -22,6 +22,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/kronael/arizuko/chanlib"
 )
 
 // Product is one entry of a group's ordered mix. Name is PRODUCT.md's `name` —
@@ -64,11 +66,28 @@ const (
 	paySkill                     // skills/<name>/ — union by name, LAST wins wholesale
 	payPersona                   // PERSONA.md / SOUL.md — FIRST wins, later warned
 	payClaude                    // CLAUDE.md — marked sections, in mix order
-	payUnion                     // facts/, tasks.toml — union, collision refuses
+	payUnion                     // facts/ — union, collision refuses
 	paySettings                  // .claude/settings.json — key union; mcpServers refused
 	payDockerfile                // Dockerfile.ant — at most one in the mix
 	payMigrations                // migrations/ — refused: nothing runs a product's migrations
+	payTasks                     // tasks.toml — refused: nothing reads a product's tasks.toml
 )
+
+// productDest maps a product-relative path to where it lands in the group home.
+// ONE placement rule, shared by both seeders — the blend (blendSkills) and the
+// verbatim single-product seed (SeedProduct) — so a product means the same thing
+// however it is applied.
+//
+// Only skills relocate, and they must: seedSkills and the agent both read
+// .claude/skills, so a skills/<n>/ left at the group root reaches no consumer.
+// The verbatim path used to copy it there and report success (BUGS L37), which
+// is why the copy is no longer a plain CopyDirNoSymlinks.
+func productDest(rel string) string {
+	if classify(rel) == paySkill {
+		return skillsRel + strings.TrimPrefix(rel, "skills")
+	}
+	return rel
+}
 
 // classify maps a product-relative path (slash-separated) to its blend rule.
 func classify(rel string) payload {
@@ -80,11 +99,12 @@ func classify(rel string) payload {
 		return payPersona
 	case rel == "CLAUDE.md":
 		return payClaude
-	case rel == "tasks.toml",
-		parts[0] == "facts" && len(parts) > 1:
+	case parts[0] == "facts" && len(parts) > 1:
 		return payUnion
 	case parts[0] == "migrations" && len(parts) > 1:
 		return payMigrations
+	case rel == "tasks.toml":
+		return payTasks
 	case rel == settingsRel:
 		return paySettings
 	case rel == "Dockerfile.ant":
@@ -93,17 +113,33 @@ func classify(rel string) payload {
 	return payVerbatim
 }
 
-// migrationsRefusal names why a product may not ship `migrations/`. Nothing runs
-// them: the one runner is MIGRATION_VERSION → /migrate (routd.checkMigrationVersion),
-// a single instance-wide counter over the skill tree with no per-product dimension,
-// and the installed-package record carries no per-product mark. Seeding the payload
-// anyway is the settings.json `mcpServers` no-op again (BUGS J15) — an asset that
-// applies cleanly and reaches no consumer. Spec 5/28 §"Running a product's
-// migrations/".
-func migrationsRefusal(product, rel string) error {
-	return fmt.Errorf("%s: %s ships it, and nothing runs a product's migrations/ — "+
+// refusedPayloads names the product payloads arizuko will not seed, each with
+// the route that does work. A payload that applies cleanly and reaches no
+// consumer is an authoring error, not an asset: it reports success and then does
+// nothing, which is the settings.json `mcpServers` no-op (BUGS J15). ONE map, so
+// the two seeders cannot drift on what is refused, and adding a refusal is a
+// row rather than a second refusal path.
+//
+// migrations/ — the one runner is MIGRATION_VERSION → /migrate
+// (routd.checkMigrationVersion), a single instance-wide counter over the skill
+// tree with no per-product dimension, and the installed-package record carries
+// no per-product mark. Spec 5/28 §"Running a product's migrations/".
+//
+// tasks.toml — a scheduled task is a scheduled_tasks ROW, created through the
+// resource's own handler (schedule_task on the agent socket, dashd's form, the
+// REST face). No parser, no schema type, no seeder ever existed; 5/21 claimed
+// otherwise for the whole life of the payload (BUGS L35). Spec 5/28
+// §"Seeding a product's tasks.toml".
+var refusedPayloads = map[payload]string{
+	payMigrations: "nothing runs a product's migrations/ — " +
 		"put the instructions in the product's CLAUDE.md or a skill, which the agent reads (spec 5/28)",
-		rel, product)
+	payTasks: "nothing reads a product's tasks.toml — " +
+		"a scheduled task is a scheduled_tasks row, so create it with schedule_task, the dashboard " +
+		"or POST /v1/tasks, or have the product's CLAUDE.md tell the agent to (spec 5/28)",
+}
+
+func refusePayload(product, rel string, kind payload) error {
+	return fmt.Errorf("%s: %s ships it, and %s", rel, product, refusedPayloads[kind])
 }
 
 // CheckProductAssets refuses a product tree carrying a payload no consumer reads.
@@ -116,8 +152,30 @@ func CheckProductAssets(product, dir string) error {
 		return err
 	}
 	for _, rel := range rels {
-		if classify(rel) == payMigrations {
-			return migrationsRefusal(product, rel)
+		if kind := classify(rel); refusedPayloads[kind] != "" {
+			return refusePayload(product, rel, kind)
+		}
+	}
+	return nil
+}
+
+// SeedProduct copies ONE product tree into groupDir — the single-product seed
+// behind `arizuko create --product` and `group add --product`. It is
+// chanlib.CopyDirNoSymlinks plus productDest: same symlink discipline, same
+// bytes, but each file lands where its payload kind is read rather than where
+// the author happened to put it.
+func SeedProduct(groupDir, dir string) error {
+	rels, err := productFiles(dir)
+	if err != nil {
+		return err
+	}
+	for _, rel := range rels {
+		dst := filepath.Join(groupDir, filepath.FromSlash(productDest(rel)))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		if err := chanlib.CopyFile(filepath.Join(dir, filepath.FromSlash(rel)), dst); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -182,7 +240,8 @@ func buildPlan(mix []Product) (*plan, error) {
 		}
 		p.files[i] = rels
 		for _, rel := range rels {
-			switch classify(rel) {
+			kind := classify(rel)
+			switch kind {
 			case paySkill:
 				p.skill[strings.Split(rel, "/")[1]] = i
 			case payPersona:
@@ -214,8 +273,8 @@ func buildPlan(mix []Product) (*plan, error) {
 				p.union[rel] = i
 			case paySettings:
 				p.settings = append(p.settings, i)
-			case payMigrations:
-				return nil, migrationsRefusal(prod.Name, rel)
+			case payMigrations, payTasks:
+				return nil, refusePayload(prod.Name, rel, kind)
 			case payDockerfile:
 				if p.dockerfile != -1 {
 					return nil, fmt.Errorf("Dockerfile.ant: both %s and %s ship one — at most one image extension per mix",
@@ -261,11 +320,20 @@ func BlendProducts(groupDir string, mix []Product, prior map[string]map[string]s
 	if err := blendSettings(groupDir, mix, p, out); err != nil {
 		return nil, err
 	}
-	// Drop what a product owned last time and no longer ships. Only when the
-	// file still matches the recorded hash: an asset the operator edited is
-	// theirs, and deleting it is the same data loss as overwriting it.
+	// Drop what a product owned last time and no longer ships. "No longer
+	// shipped" is a property of the WHOLE mix, not of one product: handing an
+	// asset from A to B is a supported move, and against A's own hashes alone it
+	// reads as A dropping a clean file, so A deleted what B had just written
+	// (BUGS L34). The union is the shipped set; ownership moved, the file did
+	// not.
+	shipped := map[string]string{}
+	for i := range out {
+		for k, h := range out[i].AssetHashes {
+			shipped[k] = h
+		}
+	}
 	for i := range mix {
-		dropped, warns, err := dropStale(groupDir, prior[mix[i].Name], out[i].AssetHashes)
+		dropped, warns, err := dropStale(groupDir, prior[mix[i].Name], shipped)
 		if err != nil {
 			return nil, err
 		}
@@ -291,7 +359,7 @@ func blendSkills(groupDir string, mix []Product, p *plan, prior map[string]map[s
 		for _, rel := range p.files[i] {
 			if classify(rel) == paySkill && strings.Split(rel, "/")[1] == name {
 				files = append(files, [2]string{
-					skillsRel + strings.TrimPrefix(rel, "skills"),
+					productDest(rel),
 					filepath.Join(mix[i].Dir, filepath.FromSlash(rel)),
 				})
 			}
@@ -593,17 +661,19 @@ func writeIfDifferent(groupDir, rel string, b []byte) (bool, error) {
 	return true, os.WriteFile(path, b, 0o644)
 }
 
-// dropStale removes the files a product owned at its last apply and no longer
-// ships. A file whose bytes moved since then is the operator's: it is kept and
-// reported, because deleting it loses exactly as much as overwriting it would.
-func dropStale(groupDir string, recorded, current map[string]string) (bool, []string, error) {
+// dropStale removes the files a product owned at its last apply that NO product
+// in the current mix ships — `shipped` is the mix's union, so a path another
+// provider took over is still shipped and is left alone. A file whose bytes
+// moved since then is the operator's: it is kept and reported, because deleting
+// it loses exactly as much as overwriting it would.
+func dropStale(groupDir string, recorded, shipped map[string]string) (bool, []string, error) {
 	var stale []string
 	for k := range recorded {
 		rel, isFile := strings.CutPrefix(k, "file:")
 		if !isFile {
 			continue
 		}
-		if _, still := current[k]; !still {
+		if _, still := shipped[k]; !still {
 			stale = append(stale, rel)
 		}
 	}

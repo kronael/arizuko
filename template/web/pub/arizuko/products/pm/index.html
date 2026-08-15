@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PM agent (Sloth) &mdash; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../aws-devops/">AWS DevOps agent (Argus)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/" aria-current="page">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; PM agent (Sloth)</p>
+      <h1>PM agent <span class="dim">(Sloth)</span></h1>
+
+      <p class="lede">
+        Keeps the task board, writes the weekly status, and logs decisions
+        with their context. Moves slowly, forgets nothing, and never invents
+        scope.
+      </p>
+
+      <h2>What it does</h2>
+
+      <p>
+        The board is <code>facts/tasks.md</code> &mdash; a file, in the
+        group, that you can read and diff. Sloth updates it on explicit
+        instruction (&ldquo;mark X done&rdquo;, &ldquo;add Y, owner Z,
+        Friday&rdquo;), confirms owner and deadline before writing, and
+        flags what is blocked or overdue before anyone asks.
+      </p>
+
+      <p>
+        Decisions land in <code>facts/decisions/</code>, one file per
+        decision, with the context that produced it. That is the half most
+        task trackers lose: six weeks later the board says what was decided
+        and this says why.
+      </p>
+
+      <h2>A sample exchange</h2>
+
+      <pre><code>user   mark the migration task done
+
+agent  facts/tasks.md &mdash; "0034 outbound retry migration", owner mira,
+       due 2026-08-12. Mark it done as of today?
+
+user   yes
+
+agent  Done. Two tasks still blocked: "route token rotation" (waiting on
+       mira since the 9th) and "eval budget" (no owner). Want me to ping?</code></pre>
+
+      <h2>What it ships</h2>
+
+      <table>
+        <thead><tr><th>File</th><th>What it is</th></tr></thead>
+        <tbody>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, env hints</td></tr>
+          <tr><td><code>SOUL.md</code></td><td>who the agent is: precise, confirms before writing</td></tr>
+          <tr><td><code>facts/team.md</code></td><td>who is on the team, their roles and contacts</td></tr>
+          <tr><td><code>facts/tasks.md</code></td><td>the board itself &mdash; ships with the row format and no rows</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Who it is for</h2>
+
+      <p>
+        A small team that wants the board in the same channel as the work,
+        and is willing to keep it in Markdown. It does not execute anything
+        &mdash; no code, no infrastructure &mdash; by design: it tracks the
+        work, other agents do it.
+      </p>
+
+      <p><a href="setup.html">Set it up &rsaquo;</a></p>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/pm/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>
