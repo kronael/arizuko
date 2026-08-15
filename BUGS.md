@@ -5717,7 +5717,7 @@ service)` returns the env override when set and `http://<service>:8080`
   other — `service:dashd` missing from authd's `serviceGrants`, so the bearer
   was minted with empty scope — was fixed separately in `fd697e99`.
 
-## F22 — `/dash/me/env`'s three rejection messages disagree (2026-08-06, open)
+## F22 — `/dash/me/env`'s three rejection messages disagree (2026-08-06, FIXED 2026-08-15)
 
 `handleMeEnvCreate` rejects a capability key with
 
@@ -5741,6 +5741,11 @@ verbs, which is what the spec's "Write paths" section implies, and failed.
 - **Scope:** dashd env-profile handlers
 - **Affected:** API callers hitting PATCH/DELETE with a capability key
 - **Source:** dashd/me_env.go:208, :258; dashd/me_secrets.go:211, :260, :316
-- **Status:** open
-- **Fix:** give both the same suffix as the POST branch. One string constant for
-  all three so a fourth verb cannot invent a fifth wording.
+- **Status:** FIXED 2026-08-15
+- **Fix:** `notEnvProfileKeySuffix` const in `dashd/me_env.go`, used at all
+  three sites (`handleMeEnvCreate`/`Update`/`Delete`) so a fourth verb cannot
+  invent a fifth wording. `TestMeEnv_CrossGuard`
+  (`dashd/me_env_test.go`) previously documented the asymmetry as
+  intentional ("Only POST points... — BUGS F20"); updated to assert all
+  three verbs point at `/dash/me/secrets`. `go test ./dashd/... -short`
+  green.
