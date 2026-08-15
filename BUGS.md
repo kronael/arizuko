@@ -1666,7 +1666,7 @@ Same defect class as `auth/delegate.go`'s "used at spawn" header, fixed 2026-08-
 under `specs/5/5` R4. This one was left alone to keep that change's diff to a
 single file. One-line comment fix; no behavior change.
 
-## F59 — an `acl` row with a predicate can never match on the agent MCP socket, silently (2026-08-07, open)
+## F59 — an `acl` row with a predicate can never match on the agent MCP socket, silently (2026-08-07, FIXED 2026-08-15)
 
 `acl.predicate` is a real, evaluated column: `auth.Authorize` skips any row whose
 predicate fails (`auth/authorize.go:62` → `predicateMatches`, line 282),
@@ -1710,6 +1710,19 @@ symptom patch):
   should be decided there, not here.
 
 Found while costing `specs/5/5`'s open decisions; recorded, not fixed.
+
+**Resolved 2026-08-15 on option (a), with the premise corrected.** Two of the
+claims above are not reachable: `grantACLTx` (`routd/acl_resource.go`) writes
+`predicate=''` unconditionally, and dashd's grant form never parses the field
+(its revoke twin carries it only to key the DELETE), so **no operator surface
+can write a predicate at all** — the `POST /v1/acl` story never happened. The
+one writer that can is a package's grant asset (`pkgGrant.Predicate`), and
+`checkGrantPredicate` (`cmd/arizuko/packages.go`) now refuses a predicate on a
+`folder:` principal, naming why the row could never match and what to write
+instead. Option (b) stays unbuilt because it has nothing real to populate:
+`specs/5/5` §Open 2 decided the row shape (an `acl` predicate naming the guest,
+no new table) and recorded that `5/31` pairing must identify a guest to the turn
+before claims mean anything on the socket.
 
 ## F55 — `emaid` runs an undeclared SQLite DB with an inline schema and no migrations (2026-08-07, open)
 

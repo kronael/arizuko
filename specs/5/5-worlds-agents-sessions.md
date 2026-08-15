@@ -22,15 +22,14 @@ depends: [18-onboarding-model, S-jid-format, 15-surrogate-oauth]
 ## How to read this
 
 This spec shipped as a **decision record**. Six questions had accumulated on
-it; five were answered on 2026-08-07 and one is deliberately still open. Four
-of the five answers are decisions **not** to build, so `shipped` here does not
-mean a tier framework exists — it means the framework was costed and declined,
-and the reasoning is written down so nobody re-derives it.
+it; five were answered on 2026-08-07 and the last on 2026-08-15. Five of the
+six answers are decisions **not** to build, so `shipped` here does not mean a
+tier framework exists — it means the framework was costed and declined, and the
+reasoning is written down so nobody re-derives it.
 
 - **What is built** → [§Built](#built), and the tier sections that follow it.
-- **What was decided, and why** → [§Decisions (2026-08-07)](#decisions-2026-08-07).
-- **What is genuinely still open** → [§Still open](#still-open) — one item,
-  which blocks nothing here.
+- **What was decided, and why** → [§Decisions](#decisions-2026-08-07).
+- Nothing here is open.
 
 Depth used to be an authority axis (`tier = min(count("/"), 3)`); `5/33`
 deleted it, so depth confers no power anywhere. Deep folders still work as
@@ -191,8 +190,9 @@ that copies-and-registers behind one verb would be a second mechanism beside
   lets arizuko act _for_ them elsewhere.
 - **Delegated use** — within a session the agent may act **as** a guest with
   their linked credentials, gated by explicit rules: which actions, which
-  agents, consent, revocation, audited. The rule layer is the one item in
-  [§Still open](#still-open).
+  agents, consent, revocation, audited. The rule layer is an `acl` row with a
+  predicate naming the guest, and it is not writable until pairing identifies
+  that guest to the turn — [Open 2](#open-2--what-expresses-the-agent-may-act-as-this-guest-for-this).
 
 ## Topic kinds (unbuilt)
 
@@ -222,10 +222,11 @@ live instances.
 ## Decisions (2026-08-07)
 
 All six are recorded here as settled. R1 was already enforced in code; **R2,
-R3, R4 and R5 and Open 1 were signed off by the operator on 2026-08-07**,
-each accepting the option marked ✓ below. Costs were measured against the tree
-at `f1ed8e29`; the code pointers were re-verified against `2fb39720` when the
-sign-off was recorded.
+R3, R4 and R5 and Open 1 were signed off by the operator on 2026-08-07**, and
+**Open 2 on 2026-08-15**, each accepting the option marked ✓ below. Costs were
+measured against the tree at `f1ed8e29`; the code pointers were re-verified
+against `2fb39720` when the sign-off was recorded, and Open 2's against
+`1a8cff9e`.
 
 Rejected options are kept with their cost, one line each — that is the WHY,
 and it is the part that stops the question being reopened from scratch.
@@ -391,53 +392,59 @@ Rejected:
   for a unit that works fine outside the JID today, and still does not make
   runs addressable. Strictly worse than B.
 
-## Still open
-
-One item — Open 2. (Open 1 was answered on 2026-08-07 and moved to
-[§Decisions](#decisions-2026-08-07); the numbering is kept so older references
-still land.) It blocks nothing in this spec: delegated use is unbuilt, no
-built surface here depends on it, and its prerequisites are owned by other
-specs.
-
 ### Open 2 — what expresses "the agent may act as this guest, for this"?
 
 **Question.** When an agent acts at a third party with a guest's linked
 credential (`5/15`), what row says which actions, for which guest, for how
 long?
 
-**Why it is genuinely open, and why it is open _here_.** The premise it was
-filed under is stale: it used to offer "reuse `acl` rows, or add a predicate
-layer", but `acl` **already has** a `predicate` column
-(`routd/migrations/0007-acl.sql`), evaluated on every call
-(`auth/authorize.go:62` → `predicateMatches`, line 282) as comma-separated
-`key=glob` conjunctions against the caller's **JWT claims**. So the choice was
-never acl-vs-predicate. The live question is narrower and harder: **what can a
-predicate see on the agent socket?**
-
-The socket's gate is `routd/sibling_db.go:191`, which builds
-`auth.Caller{Principal: sub}` with **no Claims**. `caller.Claims` is therefore
-always nil there, `predicateMatches` returns false for any non-empty
-predicate, and a grant written through `/v1/acl` with a predicate is silently
-inert on the one surface it was written for. That is a bug, tracked as
-`BUGS.md` **F59**, and it fails closed — but the fix requires deciding **what
-a turn knows about a guest** (paired sub? run id? elevation?) and threading it
-through `ipc.Server.Authorize`, whose signature (`ipc/ipc.go:244`) has no
-claims parameter. That is an auth-model judgment, not a schema one, and it is
-this spec's to make — F59 option (b) defers to here on purpose.
-
-Direction, when it is taken up: **reuse `acl` as-is** — e.g.
+**✓ A — an `acl` row whose predicate names the guest. No new table, no second
+evaluator, no schema.** Decided 2026-08-15. The shape is
 `(principal=folder:<agent>, action=mcp:<tool>, scope=<folder>,
-params=host=api.github.com, predicate=onbehalf=<guest-sub>)` — zero schema,
-once Claims are populated. Add `expires_at` to `acl` only when a consent
-window is actually asked for; §Out of scope already lists it as additive, and
-a consent window IS that. **Never** a separate `delegations` table with its
-own evaluator — a second authorization evaluator beside `auth.Authorize` is
-the exact thing `5/32`+`5/33` spent a cutover collapsing into one.
+params=host=api.github.com, predicate=onbehalf=<guest-sub>)`. `acl.predicate`
+already exists (`routd/migrations/0007-acl.sql`) and is already evaluated on
+every call (`auth/authorize.go` → `predicateMatches`) as comma-separated
+`key=glob` conjunctions against the caller's **JWT claims**, so the row costs
+nothing to express. Add `expires_at` to `acl` only when a consent window is
+actually asked for; §Out of scope already lists it as additive, and a consent
+window IS that.
 
-**Prerequisites, both external to this spec:** `5/31` pairing must identify
-the guest to the turn before any predicate can name them, and `5/15` must
-resolve the credential per-guest rather than per-folder. Neither is a `5/5`
-deliverable, which is why this item does not hold `5/5` open.
+**And the row is refused where it cannot fire.** The decision is the shape, not
+a build: the predicate is unevaluable on the surface that would use it. The
+agent socket's gate (`routd/sibling_db.go` `Authorize`/`CheckHold`) builds
+`auth.Caller{Principal: sub}` with **no Claims**, and `ipc.Server.Authorize`
+has no claims parameter to thread them through. So a predicate on a `folder:`
+principal — the socket's own principal shape — can never match. It fails
+closed, so this is a silent no-op and not a leak, which is exactly why it
+needs a loud refusal rather than a comment.
+
+Two facts found while deciding, both narrowing `BUGS.md` **F59** from what it
+claimed:
+
+- **No operator surface can write a predicate at all.** `grantACLTx`
+  (`routd/acl_resource.go`) hardcodes `predicate=''`, and dashd's grant form
+  never parses one (`dashd/grants_admin.go` — its revoke twin carries the field
+  only to key the DELETE). F59's "an operator writes `POST /v1/acl` with
+  `predicate=…` and gets a 2xx" is not reachable.
+- **A package's grant asset is the one writer that can** (`pkgGrant.Predicate`,
+  `cmd/arizuko/packages.go`), and it now refuses a predicate on a `folder:`
+  principal, naming the reason (`checkGrantPredicate`). F59 closes on option
+  (a) — reject at write time — because option (b) has nothing real to populate
+  until the prerequisites below land.
+
+Rejected:
+
+- **B — a `delegations` table with its own evaluator:** a second authorization
+  evaluator beside `auth.Authorize`, which is the exact thing `5/32`+`5/33`
+  spent a cutover collapsing into one.
+- **C — leave the predicate writable and inert:** ships a grant that reads as
+  applied and never fires; the `mcpServers` no-op (`5/28` `J15`) in another
+  payload.
+
+**What lifts the refusal.** `5/31` pairing must identify the guest to the turn,
+and `ipc.Server.Authorize` must then carry claims; `5/15` must resolve the
+credential per-guest rather than per-folder. Both are owned elsewhere. When
+they land, the write is re-enabled and no row shape changes.
 
 ## Out of scope
 

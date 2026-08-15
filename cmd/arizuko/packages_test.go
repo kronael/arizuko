@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
@@ -594,5 +595,32 @@ func TestPackagesInstallSkills(t *testing.T) {
 	cmdPackages([]string{"sk", "remove", "skillpkg"})
 	if _, err := os.Stat(filepath.Join(dataDir, "skills", "mytool")); !os.IsNotExist(err) {
 		t.Fatal("skill dir not removed")
+	}
+}
+
+// A package grant carrying a predicate on a folder: principal is refused: the
+// agent socket is the only caller such a row can match and it passes no JWT
+// claims, so the grant would install and then never fire (spec 5/5 Open 2,
+// BUGS F59). A user: principal keeps its predicate — the HTTP gates do populate
+// claims.
+func TestCheckGrantPredicate(t *testing.T) {
+	inert := core.ACLRow{Principal: "folder:acme/ops", Action: "mcp:send",
+		Scope: "acme/ops", Effect: "allow", Predicate: "onbehalf=google:42"}
+	err := checkGrantPredicate(inert)
+	if err == nil {
+		t.Fatal("a predicate the agent socket can never evaluate was accepted")
+	}
+	for _, want := range []string{"folder:acme/ops", "onbehalf=google:42", "5/5"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error must name %q; got %v", want, err)
+		}
+	}
+	for _, ok := range []core.ACLRow{
+		{Principal: "google:42", Action: "admin", Predicate: "onbehalf=google:7"},
+		{Principal: "folder:acme/ops", Action: "mcp:send"},
+	} {
+		if err := checkGrantPredicate(ok); err != nil {
+			t.Errorf("evaluable grant %+v refused: %v", ok, err)
+		}
 	}
 }

@@ -171,6 +171,27 @@ func hasTable(rdb *routd.DB, name string) bool {
 		"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", name).Scan(&n) == nil
 }
 
+// checkGrantPredicate refuses a grant whose predicate can never be evaluated.
+// `acl.predicate` is matched against the CALLER'S JWT claims (auth.Authorize →
+// predicateMatches). A `folder:` principal is the agent MCP socket's own
+// principal, and that gate builds its Caller with no claims at all
+// (routd/sibling_db.go), so every non-empty predicate on such a row fails and
+// the grant is inert on the one surface it names. It fails closed, so this is a
+// silent no-op rather than a leak — the same class as a product declaring
+// `mcpServers`, and it gets the same answer: refuse the write instead of
+// reporting success for a row that does nothing. A package's grants are the only
+// writer of a non-empty predicate today (grantACLTx and dashd's grant form both
+// write ''). Spec 5/5 §Open 2, BUGS F59.
+func checkGrantPredicate(row core.ACLRow) error {
+	if row.Predicate == "" || !strings.HasPrefix(row.Principal, "folder:") {
+		return nil
+	}
+	return fmt.Errorf("grant %s %q carries predicate %q, and a folder: principal is only ever "+
+		"matched on the agent socket, which carries no JWT claims — the row would never match; "+
+		"drop the predicate or grant a user: principal (spec 5/5 Open 2)",
+		row.Principal, row.Action, row.Predicate)
+}
+
 // applyPackageGrants hot-applies every grant in the package's `*-grants.json`
 // files into routd.db's acl table (spec 5/28 acl asset kind). Grants are not
 // compose-fragment assets (not copied to services/), so this scans the source
@@ -206,6 +227,9 @@ func applyPackageGrants(rdb *routd.DB, name, dir string) []string {
 		}
 		for _, g := range grants {
 			row := g.row()
+			if err := checkGrantPredicate(row); err != nil {
+				die("Failed: %s: %v", n, err)
+			}
 			row.GrantedBy = "package:" + name
 			if err := st.AddACLRow(row); err != nil {
 				die("Failed: apply grant %s/%s: %v", row.Principal, row.Action, err)
