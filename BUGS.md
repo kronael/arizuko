@@ -415,7 +415,7 @@ length envelope, no per-surface shape.
   call before anyone writes prose into the agent's mouth.
 - **Fix:**
 
-## L28 — `routeTargetWithin` still parses three target prefixes no writer emits (2026-08-15, open)
+## ✅ FIXED 2026-08-15 L28 — `routeTargetWithin` still parses three target prefixes no writer emits (2026-08-15)
 
 `routd/routes_resource.go:386-392` branches on `folder:`, `daemon:` and
 `builtin:` route-target prefixes. `specs/5/34` states route targets carry no
@@ -431,9 +431,19 @@ prefix vocabulary the spec deleted on purpose.
 - **Scope:** route target containment
 - **Affected:** nobody today
 - **Source:** `routd/routes_resource.go:386-392`; `specs/5/34-channel-protocol.md`
-- **Status:** open — delete the branch, keep `groupfolder.Contains`, and make
-  the spec's claim true rather than aspirational.
-- **Fix:**
+- **Status:** FIXED 2026-08-15.
+- **Fix:** the branch is gone and `groupfolder.Contains` is the whole body. The
+  prefix vocabulary lived at THREE sites, not one — `routeTargetWithin`,
+  `isSelfDefault` (`routes_resource.go`) and `routeTargetOwned`
+  (`routes_http.go`, the REST twin, 2 live callers) each stripped `folder:` —
+  so removing only the named branch would have left the pattern to be copied
+  from either survivor. All three now take the target as the bare folder path
+  `5/34` defines. Verified no writer exists: repo-wide, `"daemon:"`/`"builtin:"`
+  appeared at exactly the one deleted arm, and every `"folder:"` occurrence is
+  either an ACL PRINCIPAL (`folder:<f>`, a different namespace) or one of these
+  three strips. Behaviour delta is confined to a prefixed target, which now
+  reads as "not a folder" instead of being silently rewritten into one —
+  pinned by the three helper tests (`TestRouteTargetOwned` is new).
 
 ## L29 — the Helm chart still demands two secrets nothing reads (2026-08-15, open)
 

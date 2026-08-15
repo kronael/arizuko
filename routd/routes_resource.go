@@ -45,7 +45,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -380,16 +379,12 @@ func deleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) error {
 }
 
 // routeTargetWithin reports whether a route's target folder is the caller's own
-// folder or a descendant. A folder:-prefixed target is compared after stripping the
-// prefix; daemon:/builtin: targets are never "within" a folder. Moved here from ipc
-// when the route tools migrated to resreg (set_routes was its only caller).
+// folder or a descendant. A route target is a bare folder path: spec 5/34 gives
+// targets no prefix vocabulary and no writer emits one, so a target carrying a
+// `folder:`/`daemon:`/`builtin:` prefix is not a folder and is not within one.
+// Moved here from ipc when the route tools migrated to resreg (set_routes was
+// its only caller).
 func routeTargetWithin(target, owner string) bool {
-	switch {
-	case strings.HasPrefix(target, "folder:"):
-		target = strings.TrimPrefix(target, "folder:")
-	case strings.HasPrefix(target, "daemon:"), strings.HasPrefix(target, "builtin:"):
-		return false
-	}
 	return groupfolder.Contains(owner, target)
 }
 
@@ -397,6 +392,5 @@ func routeTargetWithin(target, owner string) bool {
 // owner's own folder) — the route a group can't delete without orphaning its own
 // inbound traffic. Moved here from ipc with the route tools.
 func isSelfDefault(r core.Route, owner string) bool {
-	target := strings.TrimPrefix(r.Target, "folder:")
-	return r.Seq == 0 && target == owner
+	return r.Seq == 0 && r.Target == owner
 }
