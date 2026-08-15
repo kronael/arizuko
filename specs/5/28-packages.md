@@ -198,16 +198,16 @@ or a shallow git clone pinned to its resolved revision). Two providers
 share no merge base, so **blend is per PAYLOAD KIND, never a content
 merge**:
 
-| Payload                             | Blend                                                                    | On upstream update       |
-| ----------------------------------- | ------------------------------------------------------------------------ | ------------------------ |
-| `skills/`                           | union by name; LAST product wins wholesale                               | managed: `sync`          |
-| `PERSONA.md` / `SOUL.md`            | FIRST provider wins; later warned                                        | seed-once                |
-| `CLAUDE.md`                         | marked sections, in mix order                                            | seed-once                |
-| `facts/`, `tasks.toml`              | union; filename collision = refuse                                       | seed-once                |
-| `settings.json`                     | key union; key collision = refuse. An `mcpServers` key REFUSES the apply | managed: `sync`          |
-| `Dockerfile.ant`                    | at most one in the mix                                                   | operator rebuilds        |
-| `migrations/NNN-*.md`               | union; filename collision = refuse                                       | seed-once (see Deferred) |
-| **anything else** (`PRODUCT.md`, …) | **verbatim copy; FIRST provider wins**                                   | seed-once                |
+| Payload                             | Blend                                                                    | On upstream update |
+| ----------------------------------- | ------------------------------------------------------------------------ | ------------------ |
+| `skills/`                           | union by name; LAST product wins wholesale                               | managed: `sync`    |
+| `PERSONA.md` / `SOUL.md`            | FIRST provider wins; later warned                                        | seed-once          |
+| `CLAUDE.md`                         | marked sections, in mix order                                            | seed-once          |
+| `facts/`, `tasks.toml`              | union; filename collision = refuse                                       | seed-once          |
+| `settings.json`                     | key union; key collision = refuse. An `mcpServers` key REFUSES the apply | managed: `sync`    |
+| `Dockerfile.ant`                    | at most one in the mix                                                   | operator rebuilds  |
+| `migrations/NNN-*.md`               | **refused** — nothing runs a product's migrations (below)                | n/a                |
+| **anything else** (`PRODUCT.md`, …) | **verbatim copy; FIRST provider wins**                                   | seed-once          |
 
 **The table is not a whitelist — the last row is what makes that true.** A
 payload the table does not name is copied whole, first-provider-wins, exactly as
@@ -356,12 +356,13 @@ upgrade; shared-sidecar refcounting (declared deps + reverse-remove refusal
 suffice); arbitrary agent-setup actions during install; `arizuko-package`
 GitHub-topic discovery; the sidecar per-group `MCP.json` (dropped, `5/13`).
 
-### Running a product's `migrations/` — deferred, and why
+### Running a product's `migrations/` — decided: refused, not seeded (2026-08-15)
 
-The blend SEEDS `migrations/NNN-*.md` (union, filename collision refuses, so no
-provider's file is lost). Nothing RUNS them, and the table's old "run above the
-lock's mark" is retired rather than implemented, because it names a mechanism
-that does not exist anywhere:
+**Decided: a product may not ship `migrations/` at all.** Both seeders refuse
+it and name the route that works. The runner is not built, and the payload no
+longer applies-and-does-nothing while it isn't.
+
+The mechanism the old table row named does not exist anywhere:
 
 - the installed-package record has no mark — `Manifest` maps an asset kind to
   the identities it owns and `AssetHashes` to their content, neither of which is
@@ -372,11 +373,18 @@ that does not exist anywhere:
   would be a second migration system beside it — the shape this spec forbids for
   the merge lib for the same reason.
 
-Building it needs both a mark field on the record and a decision about who runs
-a product's migrations (the agent, as today, or the harness). That is a design
-call, not a build, so the row ships as seed-once and this stays deferred. No
-product in `ant/examples/` ships `migrations/` — asserted, not assumed, by
-`container/product_seed_test.go`.
+Seeding the files anyway was the `mcpServers` no-op in another payload
+(`J15`): the mix applied cleanly, the record listed the files as owned, and the
+instructions never ran. `container/blend.go` `migrationsRefusal` now stops the
+apply, and `CheckProductAssets` applies the identical rule to the verbatim
+single-product seed, so neither seeder accepts what the other rejects. A product
+that needs setup instructions puts them in its `CLAUDE.md` region or a skill —
+both of which the agent actually reads.
+
+Reopening needs a mark field on the record AND a decision about who runs a
+product's migrations (the agent, as today, or the harness). No product in
+`ant/examples/` ships `migrations/` — asserted, not assumed, by
+`container/product_seed_test.go` — so the refusal costs the corpus nothing.
 
 ### Composition's design gaps — all closed
 
@@ -425,7 +433,8 @@ sign-off-shaped decision rather than an implementation detail.
 - `cmd/arizuko/products.go` — the `products.toml` reader + `arizuko products
 <instance> apply <folder>`; the ONLY writer of a non-empty record folder
 - `container/blend.go` — the blend table as code (`classify` is the table's
-  left column; `BlendProducts` is the rest)
+  left column; `BlendProducts` is the rest); `CheckProductAssets` +
+  `migrationsRefusal` are the refused-payload rule both seeders share
 - `container/runner.go` `SetupGroup()` / `ComposeGroup()` — the two seeders,
   one verbatim tree and one blended mix, over one shared `setupGroup` skeleton
 - `container/product_seed_test.go` — the verbatim-seed lock (both seeders) +

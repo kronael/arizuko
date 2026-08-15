@@ -270,16 +270,54 @@ func TestBlendUnionCollisionRefuses(t *testing.T) {
 func TestBlendUnionKindsMerge(t *testing.T) {
 	root := t.TempDir()
 	a := mkProduct(t, root, "a", map[string]string{"facts/a.md": "fa", "tasks.toml": "ta"})
-	b := mkProduct(t, root, "b", map[string]string{"facts/b.md": "fb", "migrations/001-x.md": "m"})
+	b := mkProduct(t, root, "b", map[string]string{"facts/b.md": "fb"})
 	group := filepath.Join(root, "group")
 	blendInto(t, group, []Product{a, b}, nil)
 
 	for rel, want := range map[string]string{
-		"facts/a.md": "fa", "facts/b.md": "fb", "tasks.toml": "ta", "migrations/001-x.md": "m",
+		"facts/a.md": "fa", "facts/b.md": "fb", "tasks.toml": "ta",
 	} {
 		if got := read(t, group, filepath.FromSlash(rel)); got != want {
 			t.Errorf("%s = %q, want %q", rel, got, want)
 		}
+	}
+}
+
+// TestBlendRefusesProductMigrations locks spec 5/28 §"Running a product's
+// migrations/": no runner exists, so seeding the payload would report success
+// for an asset that never executes — the settings.json mcpServers no-op again.
+func TestBlendRefusesProductMigrations(t *testing.T) {
+	root := t.TempDir()
+	a := mkProduct(t, root, "a", map[string]string{
+		"migrations/001-x.md": "do the thing", "PRODUCT.md": "a",
+	})
+	group := filepath.Join(root, "group")
+
+	_, err := BlendProducts(group, []Product{a}, nil)
+	if err == nil {
+		t.Fatal("a product shipping migrations/ applied cleanly and ran nothing")
+	}
+	for _, want := range []string{"migrations/001-x.md", "CLAUDE.md"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error must name %q so the author knows the working path; got %v", want, err)
+		}
+	}
+	if _, sErr := os.Stat(filepath.Join(group, "PRODUCT.md")); !os.IsNotExist(sErr) {
+		t.Error("a refused mix still wrote files")
+	}
+}
+
+// The verbatim single-product seeder refuses the same payload as the blend:
+// one rule, both seeders, so neither accepts what the other rejects.
+func TestCheckProductAssetsRefusesMigrations(t *testing.T) {
+	root := t.TempDir()
+	ok := mkProduct(t, root, "ok", map[string]string{"PERSONA.md": "p", "facts/a.md": "f"})
+	if err := CheckProductAssets(ok.Name, ok.Dir); err != nil {
+		t.Fatalf("clean product refused: %v", err)
+	}
+	bad := mkProduct(t, root, "bad", map[string]string{"migrations/002-y.md": "m"})
+	if err := CheckProductAssets(bad.Name, bad.Dir); err == nil {
+		t.Fatal("verbatim seed accepted migrations/ the blend refuses")
 	}
 }
 
@@ -534,7 +572,7 @@ func TestClassifyCoversTheBlendTable(t *testing.T) {
 		"CLAUDE.md":             payClaude,
 		"facts/x.md":            payUnion,
 		"tasks.toml":            payUnion,
-		"migrations/001-x.md":   payUnion,
+		"migrations/001-x.md":   payMigrations,
 		".claude/settings.json": paySettings,
 		"Dockerfile.ant":        payDockerfile,
 		"PRODUCT.md":            payVerbatim,

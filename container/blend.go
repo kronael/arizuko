@@ -64,9 +64,10 @@ const (
 	paySkill                     // skills/<name>/ — union by name, LAST wins wholesale
 	payPersona                   // PERSONA.md / SOUL.md — FIRST wins, later warned
 	payClaude                    // CLAUDE.md — marked sections, in mix order
-	payUnion                     // facts/, tasks.toml, migrations/ — union, collision refuses
+	payUnion                     // facts/, tasks.toml — union, collision refuses
 	paySettings                  // .claude/settings.json — key union; mcpServers refused
 	payDockerfile                // Dockerfile.ant — at most one in the mix
+	payMigrations                // migrations/ — refused: nothing runs a product's migrations
 )
 
 // classify maps a product-relative path (slash-separated) to its blend rule.
@@ -80,15 +81,46 @@ func classify(rel string) payload {
 	case rel == "CLAUDE.md":
 		return payClaude
 	case rel == "tasks.toml",
-		parts[0] == "facts" && len(parts) > 1,
-		parts[0] == "migrations" && len(parts) > 1:
+		parts[0] == "facts" && len(parts) > 1:
 		return payUnion
+	case parts[0] == "migrations" && len(parts) > 1:
+		return payMigrations
 	case rel == settingsRel:
 		return paySettings
 	case rel == "Dockerfile.ant":
 		return payDockerfile
 	}
 	return payVerbatim
+}
+
+// migrationsRefusal names why a product may not ship `migrations/`. Nothing runs
+// them: the one runner is MIGRATION_VERSION → /migrate (routd.checkMigrationVersion),
+// a single instance-wide counter over the skill tree with no per-product dimension,
+// and the installed-package record carries no per-product mark. Seeding the payload
+// anyway is the settings.json `mcpServers` no-op again (BUGS J15) — an asset that
+// applies cleanly and reaches no consumer. Spec 5/28 §"Running a product's
+// migrations/".
+func migrationsRefusal(product, rel string) error {
+	return fmt.Errorf("%s: %s ships it, and nothing runs a product's migrations/ — "+
+		"put the instructions in the product's CLAUDE.md or a skill, which the agent reads (spec 5/28)",
+		rel, product)
+}
+
+// CheckProductAssets refuses a product tree carrying a payload no consumer reads.
+// Both seeders call it — the blend through buildPlan, the verbatim single-product
+// seed through SetupGroup — so neither path can quietly accept what the other
+// rejects.
+func CheckProductAssets(product, dir string) error {
+	rels, err := productFiles(dir)
+	if err != nil {
+		return err
+	}
+	for _, rel := range rels {
+		if classify(rel) == payMigrations {
+			return migrationsRefusal(product, rel)
+		}
+	}
+	return nil
 }
 
 // productFiles lists a product's regular files by slash-separated relative path.
@@ -182,6 +214,8 @@ func buildPlan(mix []Product) (*plan, error) {
 				p.union[rel] = i
 			case paySettings:
 				p.settings = append(p.settings, i)
+			case payMigrations:
+				return nil, migrationsRefusal(prod.Name, rel)
 			case payDockerfile:
 				if p.dockerfile != -1 {
 					return nil, fmt.Errorf("Dockerfile.ant: both %s and %s ship one — at most one image extension per mix",
@@ -302,7 +336,7 @@ func blendSkills(groupDir string, mix []Product, p *plan, prior map[string]map[s
 }
 
 // blendSeedOnce writes the payloads that become the group's own state at seed
-// time — persona, facts/tasks/migrations, the image extension, and every
+// time — persona, facts/tasks, the image extension, and every
 // unnamed payload the catch-all row copies verbatim. Each is written only when
 // nothing is there yet; none is ever re-written.
 func blendSeedOnce(groupDir string, mix []Product, p *plan, out []Blended) error {

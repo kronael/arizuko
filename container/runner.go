@@ -993,6 +993,12 @@ func SetupGroup(cfg *core.Config, folder, seedDir string) error {
 		if seedDir == "" {
 			return nil
 		}
+		// Fatal, unlike the copy warning below: a product shipping an asset no
+		// consumer reads is an authoring error, and seeding it reports success
+		// for a payload that then does nothing (spec 5/28).
+		if err := CheckProductAssets(seedDir, seedDir); err != nil {
+			return err
+		}
 		if err := chanlib.CopyDirNoSymlinks(seedDir, groupDir); err != nil {
 			slog.Warn("setup group: copy seed dir", "folder", folder, "err", err)
 		}
