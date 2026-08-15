@@ -1980,20 +1980,44 @@ Reaction IDs (`r.Item.TS + ":r:" + r.Reaction`) need the same treatment.
   `jid`, mirroring teled (`bot.go:291,209`). Raw-TS API targeting uses `TargetID`,
   not `InboundMsg.ID`, so prefixing is safe.
 
-## dashd reads SQLite directly — violates spec 6/1 read-path contract (2026-06-16, open)
+## dashd reads SQLite directly — spec 7/1 (formerly 6/1) says it shouldn't; code and CLAUDE.md say it should (2026-06-16, PROPOSED — spec/code conflict, needs sign-off, verified 2026-08-15)
 
-`dashd/main.go:106, 170-177, 182-191` opens `routd.db`, `onbod.db`, and `messages.db` directly.
-Spec 6/1 §"Read-path: /v1 only, no direct DB" forbids this. Direct DB reads miss all live process
-state (runed active runs, routd breaker/queue depth, adapter session health, timed next-tick) —
-state that only exists in daemon memory. The cockpit spec was written to force /v1 reads precisely
-because snapshots can't see that state.
+`dashd/main.go` opens `routd.db` (`dbRoutd`), `onbod.db` (`dbOnbod`) and `runed.db`
+(`dbRuned`, via `openSiblingOwner`) directly and queries them from most page handlers
+(groups, tasks, routes, activity, secrets, usage). The renamed spec (`6/1` →
+`specs/7/1-cockpit-index.md`, still `status: draft`) still says, verbatim: "Every
+datum a dashboard shows or mutates flows through the owning daemon's `/v1` surface.
+No dashboard — hub or per-daemon — reads a SQLite DB directly. This retires dashd's
+current direct reads of routd.db/onbod.db/messages.db."
+
+That is the OPPOSITE of root `CLAUDE.md`'s current "### Split write-discipline":
+"FS-mounted daemons (dashd, onbod, CLI) write owned tables directly to the owner's
+DB" — and the code comments agree with CLAUDE.md, not the spec: `dashd/main.go:385`
+"dbRoutd *sql.DB // routd.db handle — dashd's ONLY message/config store", `:417`
+"dashd IS FS-mounted on onbod.db (dbOnbod, for the invites page)". `openSiblingOwner`
+(`dashd/main.go:451`) is a THIRD documented pattern: dashd also opens `runed.db`
+read-only as a "sibling owner" for dashboard views it doesn't own.
+
+The one page that WAS moved off direct DB reads is `/dash/audit/`
+(`dashd/audit_page.go`), whose header comment explicitly frames the old direct-read
+pattern as "the recorded defect class that dashd/route_tokens.go already is" and
+fans out to each owner's `/v1/audit` instead. So the codebase is not uniform: one
+page adopted the spec's contract, most did not, and CLAUDE.md documents the
+NON-adoption as the shipped decision.
 
 - **Severity:** high
-- **Scope:** dashd, cockpit spec 6/1
-- **Affected:** all dashd pages (groups, status, invites, memory, tokens, activity)
-- **Source:** dashd/main.go:106,170-191; specs/7/1-cockpit-hub.md
-- **Status:** open
-- **Fix:**
+- **Scope:** dashd, spec 7/1 (draft, never shipped) vs. root CLAUDE.md (shipped)
+- **Affected:** all dashd pages (groups, status, invites, memory, tokens, activity, tasks, usage)
+- **Source:** dashd/main.go:385-451; dashd/audit_page.go:3-16; specs/7/1-cockpit-index.md:33-61;
+  root CLAUDE.md "### Split write-discipline"
+- **Status:** PROPOSED, not fixed — this is a spec-vs-implementation conflict, not a
+  contained bug: resolving it either means (a) implementing the full `/v1`-only
+  read-path for every dashd page the way `/dash/audit/` already does (cross-daemon
+  control-flow change, new `/v1` read endpoints per `specs/7/3`/`7/12`), or (b)
+  marking spec 7/1's "no direct DB" section declined/superseded and updating it to
+  document the FS-mounted direct-read pattern CLAUDE.md and the code already ship.
+  Either direction needs a decision, not a docs-only close. NOT fixed this pass.
+- **Fix:** needs sign-off — see Status.
 
 ## ✅ FIXED 2026-08-15 — No operator audit-log page (2026-06-16, open)
 
