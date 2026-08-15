@@ -2190,7 +2190,7 @@ invalid cron/interval strings stored silently; timed logs warning and task stays
   inserted with the row, and an unparseable cron 400s before the INSERT.
 - **Fix:** compute next_run at create time; validate cron using same parser as timed
 
-## tasks: state-machine transitions not enforced (2026-06-18, open)
+## ✅ FIXED 2026-08-15 — tasks: state-machine transitions not enforced (2026-06-18, open)
 
 `tasks_admin.go:145`: `resume` can revive cancelled/completed tasks without restoring `next_run`;
 `pause`/`cancel` can clobber a firing task. Produces zombie active tasks that never fire.
@@ -2198,7 +2198,11 @@ invalid cron/interval strings stored silently; timed logs warning and task stays
 - **Severity:** medium
 - **Scope:** dashd/tasks_admin.go:145
 - **Source:** codex audit 2026-06-18
-- **Status:** resolved — SQL-level guards on pause/resume/cancel; next_run recomputed on resume (91159586)
+- **Status:** resolved — SQL-level guards on pause/resume/cancel; next_run recomputed on resume (91159586).
+  Re-verified 2026-08-15: `pause` requires `status='active'`, `resume` requires
+  `status='paused'` (and recomputes next_run from the stored cron), `cancel`
+  requires `status IN ('active','paused')` — all in the UPDATE's WHERE clause,
+  0 rows affected → 409.
 - **Fix:** enforce valid transitions in SQL or code; recompute next_run on resume
 
 ## groups: delete parent leaves orphaned child rows; not atomic (2026-06-18, open)
