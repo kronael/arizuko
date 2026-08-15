@@ -1426,7 +1426,7 @@ prefix, and routd returns `no channel for jid`. A normal `room=` route tagged
 - **Severity:** medium (announcements silently lost on some groups; log noise)
 - **Status:** OPEN, record-only.
 
-## rate_limit is the top failure signal (195/2d) — verify it's surfaced to the user, not swallowed (2026-07-13, OPEN, needs verification)
+## ✅ FIXED 2026-08-15 — rate_limit is the top failure signal (195/2d) — verify it's surfaced to the user, not swallowed (2026-07-13)
 
 `rate_limit` was the single largest signal in the stop-responding eval (195 hits
 in 2 days across instances). The stale-session-adjacent BUGS note records the
@@ -1440,7 +1440,18 @@ dropped? If dropped, surface a terse user-facing notice (one delivery, not a
 retry loop). Distinct from the stale-session fix (that class is now closed).
 
 - **Severity:** medium (silent stop during throttling; most-frequent signal)
-- **Status:** OPEN — verify surfaced-vs-swallowed, then a small surface-the-notice fix.
+- **Status:** FIXED. Verified: the SDK emits `rate_limit_event` on every
+  usage-info update (`SDKRateLimitEvent.rate_limit_info.status`:
+  `allowed`/`allowed_warning`/`rejected` — the 195/2d is mostly `allowed`
+  informational pings, explaining the volume). `normalize()` mapped it to
+  `EventType: 'rate_limit'` (`ant/src/claude.ts:447-448`) but `runQuery`'s
+  event loop in `ant/src/index.ts` never switched on it — confirmed
+  swallowed. Fix: `ant/src/index.ts` now surfaces one terse `⏳` notice via
+  the existing `submitStatus` interim-status channel the first time a
+  `status: 'rejected'` event lands in a turn (not on `allowed`/
+  `allowed_warning`, and only once — no retry-loop spam). New exported
+  `isRateLimitRejected` + tests in `ant/src/index.test.ts`.
+  **Fix:** 79d0e390.
 
 ## ✅ FIXED 2026-08-07 — Resource identity (`Name`/`Table`) restated across the two `resreg.Resource` sites — residual drift the 5/16 single-source model retires (2026-07-13, sweep, record-only)
 
