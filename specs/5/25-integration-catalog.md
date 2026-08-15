@@ -127,9 +127,12 @@ new machinery.
 5. **Third-party templates carry the third-party trust problem.** A
    template's tool runs with the folder's real grants, secrets, and
    egress; folder containment bounds cross-tenant blast radius, not
-   in-tenant authority. Curated catalog first; third-party repos need
-   `6/17`'s third-party posture — skill-guard scan at add, explicit
-   confirm, and crackbox fail-CLOSED as the precondition.
+   in-tenant authority. Curated catalog first; a third-party repo needs the
+   skill-guard scan at add (`5/23`) plus an explicit confirm. The
+   crackbox fail-closed precondition this used to name is met — the
+   egress-fails-open entry closed 2026-08-15, `5/33` grants gate the `*`
+   bypass and the e2e suite proves deny. `6/17` never owned either half;
+   it owns the credential path.
 
 ## Ties
 
