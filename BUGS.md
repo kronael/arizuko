@@ -2190,21 +2190,14 @@ to record the outbound row, then discarded it — the handlers returned plain
 - **Tests:** `ipc.TestSendSuccessRecordsSentRow` now asserts the returned id;
   `go test ./ipc/... -count=1 -short` green.
 
-## X2 — X tweet replies are wired to an unreachable adapter endpoint (2026-07-15, open)
+## X2 — CLOSED-STALE 2026-08-15 — X tweet replies are wired to an unreachable adapter endpoint (2026-07-15)
 
-Routd implements every `reply` through `Deliverer.Send`, which always calls the
-adapter `/send` endpoint with `reply_to`. The X adapter accepts that field but
-ignores it: `/send` always invokes the DM-only verb and rejects tweet JIDs.
-Its working tweet-reply implementation is mounted separately at `/reply`, an
-endpoint no production routd/chanreg call uses. An agent replying to
-`twitter:tweet/<id>` therefore gets a 502 and posts nothing.
-
-- **Severity:** high
-- **Scope:** twitd outbound reply contract
-- **Affected:** X/Twitter tweet replies and reply chains
-- **Source:** routd/mcp.go:47-52,226-248; chanreg/httpchan.go:183-209; twitd/src/server.ts:7-20,123-147; twitd/src/verbs.ts:52-84
-- **Status:** open
-- **Fix:**
+Already fixed by `23e38efa` ("[twitd] /send honors reply_to so X replies
+thread") before this entry was re-verified: `twitd/src/server.ts`'s `/send`
+handler now dispatches to `v.reply(s, body.reply_to, body.content)` when
+`reply_to` is set, instead of always calling the DM-only `v.send`. Covered by
+`twitd/src/server.test.ts` (`reply_to`-carrying `/send` request); `bun test`
+in `twitd/` — 52/52 pass.
 
 ## Egress allowlist NOT enforced — crackbox allows non-allowlisted hosts (2026-07-14, OPEN, HIGH — security)
 
