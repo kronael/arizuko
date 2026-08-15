@@ -321,7 +321,13 @@ func (p *poller) handleMsg(
 		h := sha256.Sum256([]byte(rootMsgID))
 		threadID = fmt.Sprintf("%x", h[:6])
 	}
-	upsertThread(p.db, msgID, threadID, fromAddr, rootMsgID)
+	// Abort BEFORE delivery: a message delivered on a mapping that was never
+	// recorded reads as a broken conversation to the user (the next reply opens
+	// a second thread). Returning here leaves the UID unseen, so the next poll
+	// retries the whole message; the router dedups on msgID.
+	if err := upsertThread(p.db, msgID, threadID, fromAddr, rootMsgID); err != nil {
+		return fmt.Errorf("record thread mapping for %s: %w", msgID, err)
+	}
 
 	bodyRaw := msg.FindBodySection(&imap.FetchItemBodySection{})
 	body := ""

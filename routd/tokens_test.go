@@ -33,16 +33,15 @@ func TestRouteTokenResolve_RejectsPairingKind(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, _, err := db.ResolveRouteToken(pair); err != ErrNotFound {
-		t.Errorf("ResolveRouteToken(pairing) err = %v, want ErrNotFound", err)
+	if _, ok := resolveToken(db, pair); ok {
+		t.Error("a pairing token resolved as a delivery token")
 	}
 	rows, err := db.ListRouteTokens("acme")
 	if err != nil || len(rows) != 0 {
 		t.Errorf("ListRouteTokens = (%+v, %v), want empty", rows, err)
 	}
-	n, err := db.RevokeRouteTokens("telegram:user/1", "acme")
-	if err != nil || n != 0 {
-		t.Errorf("RevokeRouteTokens(pairing) = (%d, %v), want (0, nil)", n, err)
+	if n := revokeTokens(t, db, "telegram:user/1", "acme"); n != 0 {
+		t.Errorf("delivery revoke removed %d pairing rows, want 0", n)
 	}
 
 	// A delivery token still resolves. The two kinds now have one minter each
@@ -59,9 +58,9 @@ func TestRouteTokenResolve_RejectsPairingKind(t *testing.T) {
 	if err := tx2.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	jid, owner, _, err := db.ResolveRouteToken(route)
-	if err != nil || jid != "web:acme" || owner != "acme" {
-		t.Errorf("ResolveRouteToken(route) = (%q, %q, %v)", jid, owner, err)
+	row, ok := resolveToken(db, route)
+	if !ok || row.JID != "web:acme" || row.OwnerFolder != "acme" {
+		t.Errorf("resolve(route) = (%q, %q, %v)", row.JID, row.OwnerFolder, ok)
 	}
 }
 
@@ -80,18 +79,16 @@ func TestRouteTokenTargetConflict(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "a/b"})
 
 	// folder a mints hook:a/b/c as (source b, suffix c).
-	if _, _, err := db.IssueRouteToken("hook:a/b/c", "a", "a", ""); err != nil {
-		t.Fatalf("first mint: %v", err)
-	}
-	// folder a/b would mint the SAME jid as (source c) — rejected.
-	_, _, err = db.IssueRouteToken("hook:a/b/c", "a/b", "a/b", "")
+	mintToken(t, db, "hook:a/b/c", "a", "a", "")
+	// folder a/b would mint the SAME jid as (source c) — rejected. Minted
+	// through the live store writer so the guard's error reaches the test.
+	err = liveStore(db).InsertRouteToken(store.GenRouteToken(), store.RouteToken{
+		JID: "hook:a/b/c", OwnerFolder: "a/b", TargetFolder: "a/b"})
 	if !errors.Is(err, store.ErrRouteTokenTargetTaken) {
 		t.Fatalf("second folder minted the same jid: err = %v, want ErrRouteTokenTargetTaken", err)
 	}
 	// A second token for the same folder is still legal.
-	if _, _, err := db.IssueRouteToken("hook:a/b/c", "a", "a", ""); err != nil {
-		t.Fatalf("second token at the same folder: %v", err)
-	}
+	mintToken(t, db, "hook:a/b/c", "a", "a", "")
 	if target := db.RouteTokenTarget("hook:a/b/c"); target != "a" {
 		t.Fatalf("RouteTokenTarget = %q, want a", target)
 	}

@@ -27,7 +27,7 @@ import (
 func grantMCPTools(t *testing.T, db *DB, folder string, tools ...string) {
 	t.Helper()
 	for _, tl := range tools {
-		if err := db.AddACLRow(core.ACLRow{
+		if err := addACLRow(db, core.ACLRow{
 			Principal: "folder:" + folder, Action: "mcp:" + tl, Scope: folder + "/**", Effect: "allow",
 		}); err != nil {
 			t.Fatalf("grant %s to %s: %v", tl, folder, err)
@@ -205,7 +205,7 @@ func TestNetworkRulesMCP_Tier1SubtreeContainment(t *testing.T) {
 	// Operator delegates world/a egress management over its own subtree (world/a/**):
 	// covers the folder itself and every descendant, denies siblings/parent — 5/33
 	// containment is the grant scope.
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:world/a", Action: "mcp:network_allow",
 		Scope: "world/a/**", Effect: "allow",
 	}); err != nil {
@@ -256,7 +256,7 @@ func TestNetworkRulesMCP_ScopedGrantAllowsInScope(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "world/a/b"}) // depth 2 — no longer a cap
 	// Operator delegates egress management scoped to the folder's own subtree.
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:world/a/b", Action: "mcp:network_allow",
 		Scope: "world/a/b", Effect: "allow",
 	}); err != nil {
@@ -381,7 +381,7 @@ func TestNetworkRulesMCP_GateDenies(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", "network_allow")
 	// A deny row on the same (tool, scope) wins over the allow — visible, uncallable.
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:hq", Action: "mcp:network_allow", Scope: "hq/**", Effect: "deny",
 	}); err != nil {
 		t.Fatalf("AddACLRow: %v", err)

@@ -16,25 +16,21 @@ func TestFeature_RouteTokens(t *testing.T) {
 	// Raw token round-trips to its bound JID and owner; raw is returned once only.
 	t.Run("issue-and-resolve", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		raw, _, err := db.IssueRouteToken("web:demo", "demo", "demo", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		jid, owner, _, err := db.ResolveRouteToken(raw)
-		if err != nil || jid != "web:demo" || owner != "demo" {
-			t.Fatalf("resolve = (%q,%q,%v)", jid, owner, err)
+		raw := mintToken(t, db, "web:demo", "demo", "demo", "")
+		row, ok := resolveToken(db, raw)
+		if !ok || row.JID != "web:demo" || row.OwnerFolder != "demo" {
+			t.Fatalf("resolve = (%q,%q,%v)", row.JID, row.OwnerFolder, ok)
 		}
 	})
 
 	// Revoking all tokens for a JID makes the raw token unresolvable.
 	t.Run("revoke", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		raw, _, _ := db.IssueRouteToken("hook:demo/gh", "demo", "demo", "")
-		n, err := db.RevokeRouteTokens("hook:demo/gh", "demo")
-		if err != nil || n != 1 {
-			t.Fatalf("revoked = %d err=%v, want 1", n, err)
+		raw := mintToken(t, db, "hook:demo/gh", "demo", "demo", "")
+		if n := revokeTokens(t, db, "hook:demo/gh", "demo"); n != 1 {
+			t.Fatalf("revoked = %d, want 1", n)
 		}
-		if _, _, _, err := db.ResolveRouteToken(raw); err == nil {
+		if _, ok := resolveToken(db, raw); ok {
 			t.Fatal("resolve should fail after revoke")
 		}
 	})
@@ -43,16 +39,13 @@ func TestFeature_RouteTokens(t *testing.T) {
 	t.Run("list-and-bulk-revoke", func(t *testing.T) {
 		db := mustRoutdDB(t)
 		for range 3 {
-			if _, _, err := db.IssueRouteToken("hook:demo/ci", "demo", "demo", ""); err != nil {
-				t.Fatal(err)
-			}
+			mintToken(t, db, "hook:demo/ci", "demo", "demo", "")
 		}
 		tokens, err := db.ListRouteTokens("demo")
 		if err != nil || len(tokens) != 3 {
 			t.Fatalf("list = %d err=%v, want 3", len(tokens), err)
 		}
-		n, _ := db.RevokeRouteTokens("hook:demo/ci", "demo")
-		if n != 3 {
+		if n := revokeTokens(t, db, "hook:demo/ci", "demo"); n != 3 {
 			t.Fatalf("bulk revoke = %d, want 3", n)
 		}
 	})
@@ -105,16 +98,11 @@ func TestFeature_RouteTokens(t *testing.T) {
 	// through resolve and list; a context-less mint stays empty.
 	t.Run("issue-with-context", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		raw, _, err := db.IssueRouteToken("web:demo", "demo", "demo", "bug reports; triage, don't chat")
-		if err != nil {
-			t.Fatal(err)
+		raw := mintToken(t, db, "web:demo", "demo", "demo", "bug reports; triage, don't chat")
+		if row, ok := resolveToken(db, raw); !ok || row.Context != "bug reports; triage, don't chat" {
+			t.Fatalf("resolve context = (%q,%v)", row.Context, ok)
 		}
-		if _, _, linkCtx, err := db.ResolveRouteToken(raw); err != nil || linkCtx != "bug reports; triage, don't chat" {
-			t.Fatalf("resolve context = (%q,%v)", linkCtx, err)
-		}
-		if _, _, err := db.IssueRouteToken("hook:demo/gh", "demo", "demo", ""); err != nil {
-			t.Fatal(err)
-		}
+		mintToken(t, db, "hook:demo/gh", "demo", "demo", "")
 		rows, err := db.ListRouteTokens("demo")
 		if err != nil || len(rows) != 2 {
 			t.Fatalf("list = %d err=%v, want 2", len(rows), err)
@@ -202,13 +190,10 @@ func TestFeature_RouteTokens(t *testing.T) {
 	// the web:<folder> JID the portal posts on.
 	t.Run("web-chat-jid-binding", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		raw, _, err := db.IssueRouteToken("web:demo/submissions", "demo", "demo", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		jid, owner, _, err := db.ResolveRouteToken(raw)
-		if err != nil || jid != "web:demo/submissions" || owner != "demo" {
-			t.Fatalf("resolve = (%q,%q,%v)", jid, owner, err)
+		raw := mintToken(t, db, "web:demo/submissions", "demo", "demo", "")
+		row, ok := resolveToken(db, raw)
+		if !ok || row.JID != "web:demo/submissions" || row.OwnerFolder != "demo" {
+			t.Fatalf("resolve = (%q,%q,%v)", row.JID, row.OwnerFolder, ok)
 		}
 	})
 }

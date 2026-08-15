@@ -389,7 +389,7 @@ func TestRoutesMCP_GateDenies(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", "add_route")
 	// A deny row on the same (tool, scope) wins over the allow — visible, uncallable.
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:hq", Action: "mcp:add_route", Scope: "hq/**", Effect: "deny",
 	}); err != nil {
 		t.Fatalf("AddACLRow: %v", err)

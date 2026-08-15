@@ -1,27 +1,19 @@
 package queue
 
 import (
-	"fmt"
 	"log/slog"
-	"os/exec"
 	"slices"
 	"sync"
-
-	"github.com/kronael/arizuko/container"
 )
 
 const circuitBreakerThreshold = 3
 
 type groupState struct {
 	active              bool
-	containerName       string
-	groupFolder         string
 	consecutiveFailures int
 }
 
 type processMessagesFn func(groupJid string) (bool, error)
-type hasPendingFn func(groupJid string) bool
-type notifyErrorFn func(groupJid string, err error)
 type folderForJidFn func(groupJid string) string
 
 type GroupQueue struct {
@@ -32,38 +24,16 @@ type GroupQueue struct {
 	maxConcurrent   int
 	waitingGroups   []string
 	processMessages processMessagesFn
-	hasPending      hasPendingFn
-	notifyError     notifyErrorFn
 	folderForJid    folderForJidFn
 	shuttingDown    bool
-	ipcDir          string
-	// signalContainer triggers SIGUSR1 on a running container by name.
-	// Returns nil on success; non-nil if the container is not running
-	// (used to detect steer-into-dying-container race in SendMessages).
-	signalContainer func(name string) error
 }
 
-func New(maxConcurrent int, ipcDir string) *GroupQueue {
+func New(maxConcurrent int) *GroupQueue {
 	return &GroupQueue{
-		groups:          make(map[string]*groupState),
-		activeFolders:   make(map[string]string),
-		maxConcurrent:   maxConcurrent,
-		ipcDir:          ipcDir,
-		signalContainer: defaultSignalContainer,
+		groups:        make(map[string]*groupState),
+		activeFolders: make(map[string]string),
+		maxConcurrent: maxConcurrent,
 	}
-}
-
-func defaultSignalContainer(name string) error {
-	return exec.Command(container.Bin, "kill", "--signal=SIGUSR1", name).Run()
-}
-
-// SetSignalContainerForTest overrides the SIGUSR1 sender. Tests use this
-// to simulate the race (returns error → slot marked inactive) or the
-// happy path (returns nil → steer succeeds) without a live docker.
-func (q *GroupQueue) SetSignalContainerForTest(fn func(name string) error) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.signalContainer = fn
 }
 
 func (q *GroupQueue) getGroup(groupJid string) *groupState {
@@ -79,16 +49,6 @@ func (q *GroupQueue) SetProcessMessagesFn(fn processMessagesFn) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.processMessages = fn
-}
-func (q *GroupQueue) SetHasPendingFn(fn hasPendingFn) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.hasPending = fn
-}
-func (q *GroupQueue) SetNotifyErrorFn(fn notifyErrorFn) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.notifyError = fn
 }
 func (q *GroupQueue) SetFolderForJidFn(fn folderForJidFn) {
 	q.mu.Lock()
@@ -164,42 +124,14 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 	go q.runForGroup(groupJid)
 }
 
-func (q *GroupQueue) RegisterProcess(groupJid, containerName, groupFolder string) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	s := q.getGroup(groupJid)
-	s.containerName = containerName
-	if groupFolder != "" {
-		s.groupFolder = groupFolder
-	}
-}
-
-// SetActiveForTest simulates an active container without running docker.
-// Also installs a no-op signalContainer so SendMessages doesn't try to
-// SIGUSR1 a non-existent container; tests that want to simulate the
-// race override afterwards via SetSignalContainerForTest.
-func (q *GroupQueue) SetActiveForTest(groupJid, containerName, groupFolder string) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	s := q.getGroup(groupJid)
-	s.active = true
-	s.containerName = containerName
-	s.groupFolder = groupFolder
-	q.activeCount++
-	q.signalContainer = func(string) error { return nil }
-}
+// Shutdown stops admitting work. A live container is runed's to reap: the
+// queue paces dispatch and holds no container handle.
 func (q *GroupQueue) Shutdown() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.shuttingDown = true
-	var detached []string
-	for _, s := range q.groups {
-		if s.active && s.containerName != "" {
-			detached = append(detached, s.containerName)
-		}
-	}
 	slog.Info("GroupQueue shutting down (containers detached, not killed)",
-		"activeCount", q.activeCount, "detachedContainers", detached)
+		"activeCount", q.activeCount)
 }
 
 func (q *GroupQueue) runForGroup(groupJid string) {
@@ -215,7 +147,6 @@ func (q *GroupQueue) runForGroup(groupJid string) {
 
 	q.mu.Lock()
 	s := q.getGroup(groupJid)
-	notifyFn := q.notifyError
 	if err != nil {
 		// Only a real processing error counts toward the breaker. A clean return
 		// (err==nil) is success even with no output: silent no-ops (observe,
@@ -229,17 +160,12 @@ func (q *GroupQueue) runForGroup(groupJid string) {
 		if s.consecutiveFailures >= circuitBreakerThreshold {
 			slog.Error("circuit breaker open - too many consecutive failures",
 				"groupJid", groupJid, "failures", s.consecutiveFailures)
-			if notifyFn != nil {
-				go notifyFn(groupJid, fmt.Errorf("too many failures, send another message to retry"))
-			}
 		}
 	} else {
 		s.consecutiveFailures = 0
 	}
 
 	s.active = false
-	s.containerName = ""
-	s.groupFolder = ""
 	q.activeCount--
 	for f, owner := range q.activeFolders {
 		if owner == groupJid {
@@ -247,7 +173,7 @@ func (q *GroupQueue) runForGroup(groupJid string) {
 			break
 		}
 	}
-	if !q.shuttingDown && !q.startGroupLocked(groupJid) {
+	if !q.shuttingDown {
 		q.drainWaitingLocked()
 	}
 	q.mu.Unlock()
@@ -270,36 +196,8 @@ func (q *GroupQueue) drainWaitingLocked() {
 	}
 }
 
-func (q *GroupQueue) startGroupLocked(jid string) bool {
-	if q.hasPending == nil || !q.hasPending(jid) {
-		return false
-	}
-	folder := q.folderOf(jid)
-	if folder != "" {
-		if other, busy := q.activeFolders[folder]; busy && other != jid {
-			return false
-		}
-	}
-	q.activateLocked(jid, folder)
-	go q.runForGroup(jid)
-	return true
-}
-
 func (q *GroupQueue) ActiveCount() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.activeCount
-}
-
-func (q *GroupQueue) StopProcess(jid string) bool {
-	q.mu.Lock()
-	s := q.groups[jid]
-	if s == nil || !s.active || s.containerName == "" {
-		q.mu.Unlock()
-		return false
-	}
-	name := s.containerName
-	q.mu.Unlock()
-
-	return exec.Command(container.Bin, container.StopContainerArgs(name)...).Run() == nil
 }

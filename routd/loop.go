@@ -255,7 +255,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	if cfg.Proactive.Enabled {
 		l.modes = newModeCache(cfg.GroupsDir)
 	}
-	l.q = queue.New(cfg.MaxRuns, cfg.IpcDir)
+	l.q = queue.New(cfg.MaxRuns)
 	l.q.SetProcessMessagesFn(l.processGroupMessages)
 	l.q.SetFolderForJidFn(l.folderForJid)
 	return l
@@ -285,8 +285,9 @@ func (l *Loop) Enqueue(chatJID string) {
 	l.q.EnqueueMessageCheck(chatJID)
 }
 
-// StopQueue halts the per-folder queue (no new async dispatch). Used by
-// tests to drive processGroupMessages deterministically, and by shutdown.
+// StopQueue halts the per-folder queue (no new async dispatch). Tests use it
+// to drive processGroupMessages deterministically; the daemon's own shutdown
+// path is Run's ctx.Done, which calls q.Shutdown directly.
 func (l *Loop) StopQueue() {
 	if l != nil && l.q != nil {
 		l.q.Shutdown()

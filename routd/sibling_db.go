@@ -248,15 +248,6 @@ func (d *DB) UserScopes(sub string) []string {
 	return auth.UserScopes(d.aclEval(), sub)
 }
 
-// AddACLRow inserts one acl row.
-func (d *DB) AddACLRow(row core.ACLRow) error { return d.aclEval().AddACLRow(row) }
-
-// AddMembership inserts one (child→parent) acl_membership edge (the operator `**`
-// grant maps to role:operator membership; same self/cycle rejection).
-func (d *DB) AddMembership(child, parent, addedBy string) error {
-	return d.aclEval().PutMembership(child, parent, addedBy)
-}
-
 // Authorize is the per-call row-ACL check for an in-container agent tool call.
 // sub is the canonical agent principal (folder:<folder>). Magnitude comes from the
 // folder's role membership + operator grants; a no-match denies.

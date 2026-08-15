@@ -93,7 +93,7 @@ func TestRESTWebRouteScopedManage(t *testing.T) {
 		t.Fatalf("sibling create leaked a row: %+v", rows)
 	}
 	// scoped delete stays bound to the own folder: a sibling's route is untouched.
-	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/world/ops/x", Access: "public", Folder: "world/ops"})
+	putWebRoute(t, db, WebRouteRow{PathPrefix: "/pub/world/ops/x", Access: "public", Folder: "world/ops"})
 	if r := doJSON(t, h, "DELETE", "/v1/web_routes", "", webRouteReq{Folder: "world/ops", Path: "/pub/world/ops/x"}); r.Code != 403 {
 		t.Fatalf("cross-folder delete = %d want 403 body=%s", r.Code, r.Body.String())
 	}
@@ -111,7 +111,7 @@ func TestRESTWebRouteScopedManage(t *testing.T) {
 func TestRESTWebRouteRootDeletesAny(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:op", scope: []string{"routes:write"}, folder: ""})
 	_ = db.PutGroup(core.Group{Folder: "other"})
-	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/other/x", Access: "public", Folder: "other"})
+	putWebRoute(t, db, WebRouteRow{PathPrefix: "/pub/other/x", Access: "public", Folder: "other"})
 
 	if r := doJSON(t, h, "DELETE", "/v1/web_routes", "", webRouteReq{Path: "/pub/other/x"}); r.Code != 200 {
 		t.Fatalf("root operator delete = %d want 200 body=%s", r.Code, r.Body.String())
@@ -130,7 +130,7 @@ func TestRESTWebRouteTier0TenantNoCrossDelete(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:write:own_group"}, folder: "hq"})
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	_ = db.PutGroup(core.Group{Folder: "other"})
-	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/other/x", Access: "public", Folder: "other"})
+	putWebRoute(t, db, WebRouteRow{PathPrefix: "/pub/other/x", Access: "public", Folder: "other"})
 
 	if r := doJSON(t, h, "DELETE", "/v1/web_routes", "", webRouteReq{Path: "/pub/other/x"}); r.Code == 200 {
 		t.Fatalf("tier-0 tenant cross-tenant delete = 200, want non-200 body=%s", r.Body.String())
@@ -150,8 +150,8 @@ func TestRESTWebRouteScopedListNoLeak(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:read:own_group"}, folder: "alice"})
 	_ = db.PutGroup(core.Group{Folder: "alice"})
 	_ = db.PutGroup(core.Group{Folder: "bob"})
-	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/alice/a", Access: "public", Folder: "alice"})
-	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/bob/b", Access: "public", Folder: "bob"})
+	putWebRoute(t, db, WebRouteRow{PathPrefix: "/pub/alice/a", Access: "public", Folder: "alice"})
+	putWebRoute(t, db, WebRouteRow{PathPrefix: "/pub/bob/b", Access: "public", Folder: "bob"})
 
 	g := doJSON(t, h, "GET", "/v1/web_routes", "", nil)
 	if g.Code != 200 {
@@ -172,7 +172,7 @@ func TestRESTWebRouteScopedListNoLeak(t *testing.T) {
 func TestRESTWebRouteOwnerLookup(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:read:own_group"}, folder: "hq"})
 	_ = db.PutGroup(core.Group{Folder: "hq"})
-	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/shared", Access: "public", Folder: "hq"})
+	putWebRoute(t, db, WebRouteRow{PathPrefix: "/shared", Access: "public", Folder: "hq"})
 
 	r := doJSON(t, h, "GET", "/v1/web_routes/owner?path_prefix=/shared", "", nil)
 	if r.Code != 200 {

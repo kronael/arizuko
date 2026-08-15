@@ -78,13 +78,11 @@ When `METRICS_ENABLED=true`, daemons expose `GET /metrics` (Prometheus format).
 Metrics defined in the spec:
 
 - `arizuko_turn_duration_seconds` — turn latency
-- `arizuko_model_call_duration_seconds` — Anthropic API latency
 - `arizuko_model_tokens_total` — token usage
 - `arizuko_container_spawns_total` — spawn attempts
 - `arizuko_container_active` — running containers
 - `arizuko_requests_total` — HTTP requests per daemon
 - `arizuko_circuit_breaker_state` — breaker status
-- `arizuko_egress_requests_total` — proxied egress
 
 See spec for full list and label definitions.
 

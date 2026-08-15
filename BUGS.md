@@ -391,7 +391,7 @@ own check before anyone relies on it.
   → assignment only. `deadcode ./...` flags `runed/manager.go:510 intersect`;
   `git log -S "intersect(ceiling"` → born `b646ba93`, caller died `42657378`.
 
-## L9 — routd/tokens.go: all five DB methods are production-dead twins of the resource tx implementations (2026-08-11, open)
+## L9 — routd/tokens.go: all five DB methods are production-dead twins of the resource tx implementations (2026-08-11, FIXED 2026-08-15)
 
 `DB.IssueRouteToken`, `DB.ResolveRouteToken`, `DB.RevokeRouteTokens`,
 `DB.PutWebRoute`, `DB.DeleteWebRoute` have zero non-test callers. The live
@@ -410,13 +410,25 @@ test-only, so the two audits do not contradict each other.
 - **Scope:** duplicated route-token/web-route write scheme
 - **Affected:** routd
 - **Source:** `routd/tokens.go:20,39,79,98,132`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — the five are deleted and the "mirrors DB.X"
+  comments, which now named nothing, are gone with them. The premise understated
+  it: the scheme had THREE implementations, not two. `store.Store`
+  (InsertRouteToken / LookupRouteToken / RevokeRouteToken / SetWebRoute /
+  DelWebRoute) is the shared live library — webd and proxyd resolve with it,
+  dashd and the CLI mint and revoke with it — and routd's tx twins exist so the
+  mutation lands in `resreg.invoke`'s tx beside its audit row. Only
+  `routd/tokens.go`'s copies had no caller at all.
+  The 51 test call sites now go through `store.Store` (helpers in
+  `routd/route_tokens_livepath_test.go` + `tests/route_token_livepath_test.go`),
+  so a fixture exercises production code instead of becoming a fourth
+  implementation. `contract_test`'s comment claimed webd/proxyd call
+  `ResolveRouteToken`; they call `store.LookupRouteToken`, and it now says so.
 - **Evidence:** `grep -rn "IssueRouteToken\|ResolveRouteToken\|RevokeRouteTokens\|PutWebRoute\|DeleteWebRoute" --include="*.go" . | grep -v _test | grep -v routd/tokens.go`
   → only "mirrors …" comments in the two resource files. Test callers exist
   (`routd/route_tokens_resource_test.go`, `web_routes_rest_test.go` et al.), so
   `-test` hides all five.
 
-## L10 — queue/queue.go carries a dead pre-split process half, and its breaker notice + restart hook are wired to nil (2026-08-11, open)
+## L10 — queue/queue.go carries a dead pre-split process half, and its breaker notice + restart hook are wired to nil (2026-08-11, FIXED 2026-08-15)
 
 routd's only queue construction (`routd/loop.go:246-248`) sets
 `processMessages` + `folderForJid` and nothing else. Three consequences, all
@@ -442,13 +454,40 @@ dead remainder around it.
 - **Scope:** unwired half of the routd dispatch queue
 - **Affected:** queue, routd
 - **Source:** `queue/queue.go:167,294,56,39,83,88,274`; `routd/loop.go:276`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — queue.go is 306 lines down to 203. Gone:
+  `RegisterProcess`, `StopProcess`, `groupState.containerName`/`groupFolder`,
+  `signalContainer`/`defaultSignalContainer`/`SetSignalContainerForTest`, the
+  `ipcDir` field and the `New` parameter that fed it, `SetHasPendingFn` +
+  `hasPending` + `startGroupLocked`, and `SetNotifyErrorFn` + `notifyError` +
+  the unreachable breaker notice. Container steering is runed's
+  (`runed/docker.go steerInto`); the queue holds no container handle, and
+  `Shutdown` no longer pretends to list detached ones. Behavior is unchanged:
+  `startGroupLocked` returned false on every production call, so the drain path
+  it guarded already ran every time.
+  The entry's shutdown claim is CORRECTED: routd's main does more than stop the
+  HTTP server — `signal.Notify` then `cancel()`
+  (`routd/cmd/routd/main.go:280-283`) reaches `Run`'s `ctx.Done`, which calls
+  `q.Shutdown()` (`routd/loop.go:328`). What was wrong is `StopQueue`'s comment
+  ("and by shutdown"): `StopQueue` itself has only test callers. It now names
+  the path that really shuts the daemon down.
+  Deleted with the dead code: two `RegisterProcess` tests and three orphaned
+  comment blocks in the queue tests describing `SendMessages`, a method that no
+  longer exists. `TestEnqueueMessageCheckQueuesWhenActive` asserted the drain
+  only `hasPending` could trigger; `TestEnqueueMessageCheckCollapsesWhileActive`
+  replaces it, asserting what production does — a second enqueue while active is
+  collapsed, and the finished run does not restart itself.
+- **FOR THE USER, not fixed here:** deleting the breaker notice removes the last
+  code that would ever have told a USER their group stopped processing. It never
+  ran, so nothing regresses, but the gap is now explicit: breaker-open is
+  visible to the operator (slog Error, journald/OTLP) and to nobody else.
+  Wiring it to routd's Deliverer is a behavior change — new outbound messages on
+  failure, needing a re-notify policy — so it wants sign-off, not a silent fix.
 - **Evidence:** `grep -rn "RegisterProcess\|StopProcess\|SetNotifyErrorFn\|SetHasPendingFn" --include="*.go" . | grep -v queue/queue.go`
   → tests only, and zero anywhere for SetNotifyErrorFn.
   `grep -n "Shutdown\|StopQueue" routd/cmd/routd/main.go` → `httpd.Shutdown` only.
   `deadcode ./...` flags RegisterProcess/StopProcess/StopQueue.
 
-## L11 — the audit "messages" stream has no producer since the ingestion-chain deletion (2026-08-11, open)
+## L11 — the audit "messages" stream has no producer since the ingestion-chain deletion (2026-08-11, FIXED 2026-08-15)
 
 `Audit.emitMessage` (`audit/audit.go:346`) has ZERO callers — the only deadcode
 hit outside crackbox/test-helpers that stays dead even under `deadcode -test`.
@@ -467,13 +506,21 @@ callers).
 - **Scope:** audit messages stream (producer deleted, shell kept)
 - **Affected:** audit
 - **Source:** `audit/audit.go:346,365-401,61,303`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — the whole shell is deleted: `emitMessage`, the
+  `MessageEvent` type, the `Audit.messages` writer and its construction, the
+  `AUDIT_WEBHOOK_URL_MESSAGES` knob with its `Config.WebhookURLMessages` field,
+  and the `cursor` type with `loadCursor`/`get`/`set`/`save` plus its test.
+  `EmitSystem` and `EmitWeb` keep their producers and are untouched.
+  This also ANSWERS the "Not determined" question below: it no longer matters
+  whether a live instance sets `AUDIT_WEBHOOK_URL_MESSAGES`. The stream had no
+  producer, so the knob configured a webhook that could not fire either way —
+  an operator who set it was buying silence, not a feed.
 - **Evidence:** `grep -rn "emitMessage\|MessageEvent" --include="*.go" .` →
   definitions only, no caller in any file including tests.
   `deadcode -test ./...` retains `audit/audit.go:346`. `git log -S emitMessage
   -- audit/` → 806b0974 (add), 957ab5a3 (caller deletion).
 
-## L12 — three registered Prometheus metric families have no recorder (2026-08-11, open)
+## L12 — three registered Prometheus metric families have no recorder (2026-08-11, FIXED 2026-08-15)
 
 `obs.RecordModelCall`, `obs.RecordEgressRequest`, `obs.RecordEgressBytes` have
 zero non-test callers, yet their families —
@@ -492,12 +539,23 @@ while leaving the no-producer gap.
 - **Scope:** advertised-but-inert metrics
 - **Affected:** obs
 - **Source:** `obs/metrics.go:160,196,201`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — the three recorders and their three families
+  are deleted, so `/metrics` advertises only what a producer fills: 15 families
+  down to 12. `bucketsModel` went with `modelCallDuration`, its only user.
+  `RecordModelTokens` keeps its live caller (`routd/turns.go:711-712`) and is
+  untouched. Deleting beat wiring on both: the model call happens INSIDE the
+  agent container, so no Go site can time it (the same reason `5/O`'s
+  `model_call` span name was deleted on 2026-08-15), and the egress pair's
+  producer is the spec-only credential proxy of `specs/6/17`. Whoever builds
+  that proxy adds the family with the recorder, in one commit.
+  Docs synced in the same commit: `specs/5/O` no longer says the model-call
+  metric "is still registered" and its family count is now twelve; `obs/README`
+  drops the two families it listed.
 - **Evidence:** `grep -rn "RecordModelCall\|RecordEgressRequest\|RecordEgressBytes" --include="*.go" | grep -v _test`
   → definitions only. `git log -S RecordEgressRequest` → born 82031d44, never
   called since. All three flagged by `deadcode ./...`.
 
-## L13 — `secret_use_log` is write-only: no read surface on any face (2026-08-11, open)
+## L13 — `secret_use_log` is write-only: no read surface on any face (2026-08-11, proposed 2026-08-15 — needs sign-off)
 
 The table (routd/migrations/0008-secrets.sql) is written on every resolved
 secret (`routd/mcp.go:503`, `store/secret_use_log.go:38`) and read by nothing:
@@ -513,13 +571,35 @@ answers "who used which secret" only to an operator with sqlite3 on the host.
 - **Scope:** secret-use forensic log read surface
 - **Affected:** routd, store
 - **Source:** `store/secret_use_log.go:38`, `routd/migrations/0008-secrets.sql`
-- **Status:** open
+- **Status:** PROPOSED, not built — the premise is CONFIRMED at 28d20228
+  (readers are four test files and nothing else; no `Table:` declaration, no
+  REST handler, no dashd page, no CLI verb), but the fix is a new wire contract,
+  which this pass does not ship unreviewed.
+  Why it is not a mechanical registration: in this codebase a resource's name IS
+  its wire identity, and `5/17` derives the MCP tool from the same declaration
+  that serves REST. Registering `secret_use_log` therefore publishes a new
+  `/v1/secret_use_log` path AND a new agent-visible tool in one move, and the
+  question "may an AGENT read which secrets were used, by whom, with which
+  tool?" is a security decision the operator owns, not a detail of the wiring.
+  Recommended shape, for approval:
+  - Owner routd (it owns the table, routd migration `0008`), read-only: `list`
+    with folder containment, no create/update/delete — the writer stays
+    `store/secret_use_log.go`, the single one.
+  - RowType mirroring the columns already written (`key`, `scope`,
+    `scope_kind`, `tool`, `caller_sub`, `spawn_id`, `ts`), so the doc and the
+    handler read one struct.
+  - Gate: operator scope on REST. On the agent MCP face, either omit it
+    entirely (operator-only forensics, the safer default and my
+    recommendation) or bind it to the caller's own folder — never a plain
+    `mcp:` grant with the default target resolver.
+  - `F35`'s onbod `audit_log` resource is the precedent to copy for the
+    read-only shape.
 - **Evidence:** table writer/reader sweep over all migrations
   (`INSERT INTO|UPDATE` vs `FROM <table>` vs `Table:` resreg decls) →
   `secret_use_log writers=1 readers=0 resreg=0`. `grep -rn secret_use_log`
   → writer paths + migrate-split copy + docs only.
 
-## L14 — routd.DB accumulated eight production-dead wrapper methods (2026-08-11, open)
+## L14 — routd.DB accumulated eight production-dead wrapper methods (2026-08-11, FIXED 2026-08-15)
 
 Superseded seams kept alive only by tests: `DB.GroupByFolder` (:155),
 `DB.SetThreadReplies` (:252), `DB.MessageExists` (:348), `DB.SetRoutes` (:660)
@@ -540,7 +620,21 @@ test-only convenience.
 - **Scope:** wrapper atrophy on routd.DB (+1 stale comment in auth)
 - **Affected:** routd, auth
 - **Source:** `routd/db.go:155,252,348,660`, `routd/sibling_db.go:252,256`, `routd/pending_actions.go:137,207`, `auth/jwks.go:50`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — all eight are deleted. The COMPILER confirmed
+  the premise: with every one removed, `go build ./...` is clean, so no
+  production caller existed; only `go vet` (which builds tests) broke.
+  The 67 test call sites now use the live paths — `store.Store` for
+  `AddACLRow`/`PutMembership`/`SetThreadReplies`/`GroupByFolder`/`MessageByID`,
+  the `queryExecer` seam (`pendingActionOn`/`resolvePendingActionOn`) for the
+  two pending-action reads, and `setRoutesTx` for the bulk route replace —
+  through helpers in `routd/db_livepath_test.go` and the tests-package twin.
+  Two sites the sweep flagged were ALREADY on the live path: `operator_seed_test`
+  and `acl_overlay_test` call `store.Store.AddMembership`, not the routd wrapper.
+  `acl_overlay_test`'s own `addACL` helper stays as it is — it writes the acl row
+  with a raw INSERT on purpose, so it does not depend on `audit_log`.
+  The `auth.NewKeySet` comment is corrected: it no longer claims authd uses it,
+  and it now says WHY authd cannot — a live key set has to reject a token minted
+  after its kid was retired, which is `NewKeySetWithRetirement`.
 - **Evidence:** per-method grep excluding `_test.go` → definition-only hits for
   all eight; all flagged by `deadcode ./...` and absent from `deadcode -test`.
   `grep -rn "NewKeySet(" | grep -v _test` → authd/server.go:146 uses the
@@ -607,16 +701,18 @@ Production run: 149 hits. With `-test`: 56. Buckets and verdicts:
 
 # Not determined (UNVERIFIED)
 
-- Whether any live instance sets `AUDIT_WEBHOOK_URL_MESSAGES` (instance `.env`
-  is root-owned, not readable from this sandbox).
-- `authd/http.go:40-43`'s claim that service:runed's grants entry gates a
-  per-turn downscope — runed contains no issuer-mint call; the comment may
-  describe a third caller or nothing. Needs its own call-path check.
+- ~~Whether any live instance sets `AUDIT_WEBHOOK_URL_MESSAGES`~~ — MOOT
+  2026-08-15: the knob and its producer-less stream are deleted (`L11`). No
+  setting of it ever produced an event.
+- ~~`authd/http.go:40-43`'s claim that service:runed's grants entry gates a
+  per-turn downscope~~ — RESOLVED 2026-08-15 while fixing `L8`: the claim was
+  FALSE. runed calls `auth.ServiceToken` nowhere and mints nothing, so the
+  grant gated no call. Grant, comment and dead plumbing are deleted.
 - Whether the 2s poll fully substitutes for the queue's unwired
   same-group-restart (`hasPending`) in production load — behavior inference
   from code, not observed live.
 
-## L3 — emaid drops an email thread mapping on a write error and reports nothing (2026-08-11, open)
+## L3 — emaid drops an email thread mapping on a write error and reports nothing (2026-08-11, FIXED 2026-08-15)
 
 `upsertThread` (`emaid/store.go`) returns `void`. Every failure path — `Begin`,
 either `INSERT OR IGNORE`, `Commit` — logs at error level and returns, so the
@@ -638,7 +734,19 @@ message it is handling.
 - **Scope:** emaid thread persistence
 - **Affected:** emaid
 - **Source:** `emaid/store.go` `upsertThread`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — `upsertThread` returns an error on every
+  failure path (`Begin`, both inserts, `Commit`), each naming the message or
+  thread that was lost. Its one production caller, `handleMsg`, returns that
+  error BEFORE delivering and before mark-seen, so the UID stays unseen and the
+  next poll retries the whole message.
+  This is the mechanism already in the same function, extended, not a second
+  one: mark-seen failure was made to return for the same reason (the router
+  dedups on msgID, so a retry is safe; a silent loss is not). The question the
+  entry left to the caller — "what does a failed mapping mean for the message?"
+  — is therefore answered as "do not deliver it yet", which is the only answer
+  that does not show the user a split conversation.
+  `TestUpsertThreadSurfacesWriteFailure` drops `email_msg_ids` mid-flight and
+  fails if the write reports success.
 
 ## M1 — runed reads skills from the developer's working tree, not from a release (2026-08-09, FIXED 2026-08-09, c8c67f3c)
 
@@ -777,7 +885,7 @@ recorded here rather than patched.
   other with no error. `db_utils.checkVersions` now rejects a duplicate or
   gapped version set before applying anything.
 
-## L5 — a `hook:`/`web:` JID whose folder was deleted parks in onboarding (2026-08-11, open)
+## L5 — a `hook:`/`web:` JID whose folder was deleted parks in onboarding (2026-08-11, FIXED 2026-08-15)
 
 Pre-existing for `web:` and unchanged by `L1`'s fix. `resolve` step 1 requires
 `GroupExists(direct)`, so a token minted for a folder that an operator later
@@ -792,10 +900,32 @@ the folder is deleted is the other half.
 - **Severity:** low — needs an operator to delete a folder that still has live
   tokens.
 - **Scope:** route-token lifecycle
-- **Affected:** routd, onbod
-- **Status:** open
+- **Affected:** routd, onbod, webd
+- **Status:** FIXED 2026-08-15, and the premise was HALF STALE. The entry asks
+  for two halves; the second one already shipped, as a schema constraint rather
+  than code: `route_tokens.owner_folder` is
+  `TEXT REFERENCES groups(folder) ON DELETE CASCADE` (routd `0032` / store
+  `0083`), and every daemon opens its DB with `_pragma=foreign_keys(on)`, so
+  deleting the folder that MINTED a token already revokes it. A test written
+  for the entry as stated passes without any fix — the token is simply gone.
+  What survives is narrower and was not in the entry: `target_folder` carries
+  NO foreign key and MAY DIFFER from the owner — routd migration `0035` says so
+  in as many words ("owner_folder bounds revocation and may differ from the
+  delivery target"). Delete the TARGET folder of a token owned by a folder that
+  still exists and nothing cascades: `resolve` step 1 fails `GroupExists`, the
+  message falls through to the route miss, and onbod parks an admission row.
+  The fix refuses it at ingress, in `webd.lookupRouteToken` — the ONE funnel
+  every `/chat/` and `/hook/` handler already passes through, so all six
+  handlers are covered by one guard. The caller gets a 404, not a 410: this
+  surface's stated rule is that every error is a 404 so it never discloses which
+  tokens exist, and the reason belongs in the operator log, which now names the
+  jid, the folder and the token hash at ERROR level. Nothing reaches routd, so
+  no admission row is written.
+  `TestRouteToken_DeletedTargetFolderRefusedAtIngress` covers it and asserts the
+  gap it was written for still exists (it fails loudly if a future cascade
+  removes the row instead).
 
-## L2 — a delegated child ran but never called back; cause not yet isolated (2026-08-08, open)
+## L2 — a delegated child is never dispatched: its only message is a bot row (2026-08-08, CAUSE ISOLATED 2026-08-15, fix needs sign-off)
 
 Same live run, `child-delegate`. Unlike L1 this one is NOT root-caused, and it
 is recorded that way on purpose.
@@ -806,20 +936,61 @@ and delegated the task (`"send" folder=eval jid=web:eval/etjgjnv-child-delegate
 text="Task: run this exact command and report the result back here"`). So
 registration and delegation both work. The child never fired the callback.
 
-Candidate causes, none confirmed:
-- the child holds only the `role:member` floor, and the `egress` ACL row is
-  `folder:eval | egress | eval` — scope `eval` does not match
-  `eval/etjgjnv-child-delegate`, so the child's container-capability boolean is
-  false. Against this: `network_rules` has `eval|*` and `ResolveAllowlist` walks
-  ancestry, so the child may inherit the wildcard anyway. The two mechanisms
-  disagree about whether the child can reach the sink, and which one governs was
-  not established.
-- the child may never have been dispatched at all (no per-child dispatch line
-  was checked).
+**CAUSE ISOLATED 2026-08-15 by the call path.** No probe was needed and no
+capability is involved. Agent-to-agent delegation over `send` cannot wake the
+target folder, by construction:
 
-Next step is one probe, not a guess: re-run `--case child-delegate` and check
-for a `"dispatch run"` line on the child folder plus the child's crackbox
-allowlist. Recorded now so the eval's 6/8 is not read as "two agent failures".
+1. The parent's `send` reaches `ipc.internalSend` → `gated.SendMessage` →
+   `routd.mcpDeliver`, which delivers, and `ipc.putOutboundRow`, which persists
+   the row. That writer stamps EVERY agent-authored row `FromMe: true,
+   BotMsg: true` (`ipc/ipc.go` putOutboundRow) — there is no separate shape for
+   "addressed to another folder".
+2. The poll DOES see it: `DB.NewMessages` filters on timestamp only, so the
+   child chat is picked up and `resolve` succeeds (the child folder was
+   registered), and it is enqueued.
+3. `processGroupMessages` then drops it (`routd/dispatch.go:52-62`):
+
+       // Strip bot rows from the trigger batch (don't feed the agent its own
+       // output) but keep them in the rendered context.
+       for _, m := range msgs { if !m.BotMsg { trigger = append(trigger, m) } }
+       if len(trigger) == 0 { l.advance(chatJID, last); return false, nil }
+
+   The child's chat holds nothing BUT bot rows, so `trigger` is empty. The
+   cursor advances and the function returns `(false, nil)` — the "silent no-op"
+   that is deliberately NOT a failure, so it does not even trip the breaker.
+   No container is ever spawned for the child.
+
+Both recorded candidates are answered:
+- The `egress` ACL vs `network_rules` question is MOOT. No container starts, so
+  no egress decision is ever reached. The two mechanisms never got to disagree.
+- "the child may never have been dispatched at all" is CORRECT, and now
+  explained: it was enqueued and then dropped at the bot-row strip.
+
+- **Severity:** medium — agent-to-agent delegation silently does nothing.
+- **Scope:** message model — what may trigger a turn
+- **Affected:** routd (dispatch), ipc (outbound writer)
+- **Status:** NOT FIXED — the fix is a redesign and needs sign-off.
+
+**PROPOSAL, for the user, not built.** The bot-row strip is correct and must
+stay: it is what stops an agent re-triggering itself on its own output. The
+missing distinction is that a row authored by folder A and addressed to folder
+B is B's INBOUND, not B's own output. A fix has to say so explicitly, and that
+is a new contract on the message model plus a loop-safety rule:
+
+- Make the trigger test `m.BotMsg && m.Sender != <this folder>` rather than
+  `m.BotMsg` alone, so a row a DIFFERENT folder wrote can trigger. `Sender` is
+  already the author folder at this writer, so no new column is needed.
+- Bound it, or two agents ping-pong forever: a hop budget carried on the row, a
+  depth cap on the delegation chain, or a rule that only a registered CHILD
+  folder may be woken by its parent. This is the part that decides the shape,
+  and it is a product call, not a code call.
+- Decide whether the woken turn is credentialed as the child (socket folder) —
+  it is, since the socket is per-folder — and whether the parent needs an ACL
+  action to wake another folder at all.
+
+Until then, delegation should either be refused loudly at the `send` gate when
+the target folder is not the caller's own chat, or documented as not supported.
+Silently storing a row nobody will ever act on is the worst of the three.
 
 ## J1 — settings-defined MCP servers bypass the HITL firewall (2026-08-08, FIXED 2026-08-09)
 

@@ -71,7 +71,7 @@ func TestPairingMint_RoutedJID(t *testing.T) {
 	if err != nil || got != "telegram:user/42" {
 		t.Fatalf("PeekPairing = (%q, %v)", got, err)
 	}
-	if _, _, _, err := db.ResolveRouteToken(raw); err == nil {
+	if _, ok := resolveToken(db, raw); ok {
 		t.Error("a pairing token resolved as a delivery route token")
 	}
 

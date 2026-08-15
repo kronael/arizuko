@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewQueue(t *testing.T) {
-	q := New(3, t.TempDir())
+	q := New(3)
 	if q.maxConcurrent != 3 {
 		t.Fatalf("expected maxConcurrent 3, got %d", q.maxConcurrent)
 	}
@@ -19,7 +19,7 @@ func TestNewQueue(t *testing.T) {
 }
 
 func TestEnqueueMessageCheckStartsContainer(t *testing.T) {
-	q := New(5, t.TempDir())
+	q := New(5)
 
 	var called atomic.Bool
 	q.SetProcessMessagesFn(func(jid string) (bool, error) {
@@ -34,39 +34,44 @@ func TestEnqueueMessageCheckStartsContainer(t *testing.T) {
 	}
 }
 
-func TestEnqueueMessageCheckQueuesWhenActive(t *testing.T) {
-	q := New(5, t.TempDir())
+// A second enqueue for a group that is already running is COLLAPSED: the
+// running turn drains whatever arrived, and routd's poll re-feeds anything
+// left. The queue never self-restarts a group it just finished.
+func TestEnqueueMessageCheckCollapsesWhileActive(t *testing.T) {
+	q := New(5)
 
 	var calls atomic.Int32
 	started := make(chan struct{}, 1)
 	block := make(chan struct{})
 	q.SetProcessMessagesFn(func(jid string) (bool, error) {
-		n := calls.Add(1)
-		if n == 1 {
+		if calls.Add(1) == 1 {
 			started <- struct{}{}
 			<-block // only first call blocks
 		}
 		return true, nil
 	})
-	// DB says there are pending messages — drain should re-process
-	q.SetHasPendingFn(func(jid string) bool { return true })
 
 	q.EnqueueMessageCheck("g1")
 	<-started
 
-	// Second enqueue while active — no flag, but hasPending will trigger drain
 	q.EnqueueMessageCheck("g1")
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("enqueue while active started %d runs, want 1", n)
+	}
 
 	close(block)
 	time.Sleep(100 * time.Millisecond)
 
-	if calls.Load() < 2 {
-		t.Fatalf("expected >= 2 calls (initial + drain), got %d", calls.Load())
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("group ran %d times, want 1: the finished run must not restart itself", n)
+	}
+	if q.ActiveCount() != 0 {
+		t.Fatalf("activeCount = %d after the run, want 0", q.ActiveCount())
 	}
 }
 
 func TestConcurrencyLimit(t *testing.T) {
-	q := New(1, t.TempDir())
+	q := New(1)
 
 	started := make(chan struct{})
 	block := make(chan struct{})
@@ -102,7 +107,7 @@ func TestConcurrencyLimit(t *testing.T) {
 }
 
 func TestCircuitBreaker(t *testing.T) {
-	q := New(5, t.TempDir())
+	q := New(5)
 
 	var calls atomic.Int32
 	q.SetProcessMessagesFn(func(jid string) (bool, error) {
@@ -140,7 +145,7 @@ func TestCircuitBreaker(t *testing.T) {
 // NOT a failure — it must never trip the breaker. Counting no-output as failure
 // false-tripped discord channels after silent turns.
 func TestCircuitBreaker_SilentNoOpDoesNotTrip(t *testing.T) {
-	q := New(5, t.TempDir())
+	q := New(5)
 	q.SetProcessMessagesFn(func(jid string) (bool, error) {
 		return false, nil // success with no output (silent no-op)
 	})
@@ -159,7 +164,7 @@ func TestCircuitBreaker_SilentNoOpDoesNotTrip(t *testing.T) {
 }
 
 func TestShutdownBlocksEnqueue(t *testing.T) {
-	q := New(5, t.TempDir())
+	q := New(5)
 	q.SetProcessMessagesFn(func(jid string) (bool, error) {
 		return true, nil
 	})
@@ -179,26 +184,13 @@ func TestShutdownBlocksEnqueue(t *testing.T) {
 	}
 }
 
-// SendMessages drives mid-loop steering: writes one IPC file per
-// message and signals the container. Must be a no-op when no container
-// is active for the group.
-
-// Regression: when ant's runner exits ("Input empty, exiting") between
-// gated's queue check and the SIGUSR1, kill fails. Previously the error
-// was swallowed (`_ = exec.Command(...).Run()`) and SendMessages returned
-// true — the chat cursor advanced as if the steer succeeded, but the IPC
-// file was orphaned and no future poll would pick the message back up
-// until the user sent something else. Symptom on sloth 2026-05-10 20:23:
-// user message disappeared, no reply, no error logged. The fix marks the
-// slot inactive and returns false so the caller falls through to
-// EnqueueMessageCheck, spawning a fresh container that drains the orphan.
 // Two JIDs that map to the same folder must serialize: only one container
 // runs at a time, the other waits and starts after the first finishes.
 // Regression: at startup, recoverPendingMessages and checkMigrationVersion
 // would enqueue different JIDs (telegram:..., atlas) for the same
 // folder, spawning two parallel containers that double-narrated logs.
 func TestEnqueueSerializesByFolder(t *testing.T) {
-	q := New(5, t.TempDir())
+	q := New(5)
 	q.SetFolderForJidFn(func(jid string) string {
 		switch jid {
 		case "telegram:atlas", "atlas":
@@ -206,10 +198,6 @@ func TestEnqueueSerializesByFolder(t *testing.T) {
 		}
 		return ""
 	})
-
-	// hasPending=false so each finishing run does NOT self-restart;
-	// drainWaitingLocked is what we want to exercise here.
-	q.SetHasPendingFn(func(string) bool { return false })
 
 	var concurrent atomic.Int32
 	var maxSeen atomic.Int32
@@ -255,17 +243,3 @@ func TestEnqueueSerializesByFolder(t *testing.T) {
 		t.Fatalf("both JIDs must run; saw %v", seenJids)
 	}
 }
-
-// Regression: SendMessages' signal-fail teardown must not double-decrement
-// activeCount (or free a slot it no longer owns) when runForGroup finished
-// the same activation concurrently. We simulate that interleaving inside the
-// signalContainer hook (which runs with q.mu released): it performs exactly
-// what runForGroup's cleanup does — clear the slot, decrement, free the
-// folder, then start a fresh activation for the same folder. After the hook
-// returns an error, SendMessages re-locks; the fixed code sees s.active is
-// already false and leaves the new activation's bookkeeping untouched.
-// Regression: when SendMessages' signal-fail teardown frees the only slot,
-// any group parked in waitingGroups (here g2, queued because the concurrency
-// limit was hit) must be drained — exactly as runForGroup's cleanup does.
-// Without the drain, g2 starves: the steered g1 re-enqueues and retakes the
-// slot, leaving g2 stuck until an unrelated event happens to drain it.

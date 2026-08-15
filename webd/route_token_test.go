@@ -639,3 +639,68 @@ func TestHandleChatTokenHistory_WithMessages(t *testing.T) {
 		t.Errorf("msgs[1].role = %v, want assistant", msgs[1]["role"])
 	}
 }
+
+// A token outlives its TARGET folder. route_tokens.owner_folder carries
+// ON DELETE CASCADE, so deleting the folder that MINTED a token revokes it —
+// but target_folder has no foreign key and may differ from the owner (routd
+// migration 0035 says so outright). Delete that target and the token survives,
+// routd's resolve finds no group, and the payload falls through to a route miss
+// that parks an onbod admission row for a JID nobody can redeem.
+//
+// It is refused at ingress instead: a definite non-2xx to the caller and
+// nothing sent to routd (BUGS L5). The 404 matches this surface's no-leak rule
+// — the reason goes to the operator log, not to the caller.
+func TestRouteToken_DeletedTargetFolderRefusedAtIngress(t *testing.T) {
+	s, mr, st := newTestServer(t)
+	seedGroup(t, st, "keeper", "Keeper")
+	seedGroup(t, st, "doomed", "Doomed")
+
+	// keeper OWNS both tokens; both DELIVER to doomed.
+	hookTok := "hooktokdeleted"
+	if err := st.InsertRouteToken(hookTok, store.RouteToken{
+		JID: "hook:doomed/github", OwnerFolder: "keeper", TargetFolder: "doomed",
+	}); err != nil {
+		t.Fatalf("InsertRouteToken hook: %v", err)
+	}
+	chatTok := "chattokdeleted"
+	if err := st.InsertRouteToken(chatTok, store.RouteToken{
+		JID: "web:doomed", OwnerFolder: "keeper", TargetFolder: "doomed",
+	}); err != nil {
+		t.Fatalf("InsertRouteToken chat: %v", err)
+	}
+
+	// The operator deletes the delivery target. No cascade reaches these rows.
+	if err := st.DeleteGroup("doomed"); err != nil {
+		t.Fatalf("DeleteGroup: %v", err)
+	}
+	if _, ok := st.LookupRouteToken(hookTok); !ok {
+		t.Fatal("token vanished with the folder: this test no longer covers the gap it was written for")
+	}
+
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/hook/"+hookTok, strings.NewReader("event payload"))
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("hook status = %d, want 404: a token for a deleted folder must not be accepted", resp.StatusCode)
+	}
+
+	cfg, err := http.Get(srv.URL + "/chat/" + chatTok + "/config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Body.Close()
+	if cfg.StatusCode != http.StatusNotFound {
+		t.Errorf("chat config status = %d, want 404", cfg.StatusCode)
+	}
+
+	if sent := mr.sent(); len(sent) != 0 {
+		t.Errorf("%d message(s) reached routd; the payload must stop at ingress: %+v", len(sent), sent)
+	}
+}

@@ -72,11 +72,11 @@ func TestACLAddOperatorEndpoint(t *testing.T) {
 func TestACLRemoveEndpoint(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:dashd", scope: []string{"acl:write"}})
 
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: "u1", Action: "admin", Scope: "main", Effect: "allow", GrantedBy: "seed"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AddMembership("u1", "role:operator", "seed"); err != nil {
+	if err := addMembership(db, "u1", "role:operator", "seed"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -196,7 +196,7 @@ func TestACLRESTOperatorRootOnly(t *testing.T) {
 // is denied an out-of-subtree revoke, so the pre-seeded cross-world row survives.
 func TestACLRESTDeleteContainmentDenied(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:wa", scope: []string{"acl:write"}, folder: "world/a"})
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: "google:x", Action: "admin", Scope: "other/x", Effect: "allow", GrantedBy: "seed"}); err != nil {
 		t.Fatal(err)
 	}

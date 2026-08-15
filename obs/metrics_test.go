@@ -21,14 +21,11 @@ func TestMetricsHandler_EnabledExposesFamilies(t *testing.T) {
 
 	// Record one sample per family so the collector emits a line.
 	RecordTurn("solo/inbox", "success", 1.2)
-	RecordModelCall("opus", "solo/inbox", 0.8)
 	RecordModelTokens("opus", "solo/inbox", "in", 100)
 	RecordContainerSpawn("solo/inbox", "success", 3.0)
 	ContainerActiveInc()
 	RecordRequest("routd", "POST", "200", "/v1/messages", 0.01)
 	SetCircuitBreakerState("solo/inbox", 2)
-	RecordEgressRequest("solo/inbox", "api.example.com", "200")
-	RecordEgressBytes("solo/inbox", "out", 512)
 	RecordTokenMint("access")
 	RecordTokenRefresh("success")
 
@@ -41,7 +38,6 @@ func TestMetricsHandler_EnabledExposesFamilies(t *testing.T) {
 	want := []string{
 		"arizuko_turn_duration_seconds",
 		"arizuko_turns_total",
-		"arizuko_model_call_duration_seconds",
 		"arizuko_model_tokens_total",
 		"arizuko_container_spawns_total",
 		"arizuko_container_active",
@@ -49,8 +45,6 @@ func TestMetricsHandler_EnabledExposesFamilies(t *testing.T) {
 		"arizuko_requests_total",
 		"arizuko_request_duration_seconds",
 		"arizuko_circuit_breaker_state",
-		"arizuko_egress_requests_total",
-		"arizuko_egress_bytes_total",
 		"arizuko_token_mints_total",
 		"arizuko_token_refreshes_total",
 	}
@@ -65,5 +59,4 @@ func TestRecordModelTokens_IgnoresNonPositive(t *testing.T) {
 	// Should not panic or record; just exercises the guard.
 	RecordModelTokens("opus", "f", "in", 0)
 	RecordModelTokens("opus", "f", "in", -5)
-	RecordEgressBytes("f", "in", 0)
 }

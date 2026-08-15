@@ -47,7 +47,7 @@ func TestPendingActionsListFiltersStatus(t *testing.T) {
 	db, h := authSrv(t, nil)
 	seedHeld(t, db, "p1", "demo", "tg:9")
 	seedHeld(t, db, "p2", "demo", "tg:9")
-	if _, err := db.ResolvePendingAction("p2", PendingRejected, "op", ""); err != nil {
+	if _, err := resolvePending(db, "p2", PendingRejected, "op", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -79,7 +79,7 @@ func TestPendingActionsApprove(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("approve = %d body=%s", rec.Code, rec.Body.String())
 	}
-	row, ok := db.PendingAction("p1")
+	row, ok := pendingActionRow(db, "p1")
 	if !ok || row.Status != PendingApproved {
 		t.Fatalf("row = %+v, want approved", row)
 	}
@@ -123,7 +123,7 @@ func TestPendingActionsRejectWritesNoTrigger(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("reject = %d body=%s", rec.Code, rec.Body.String())
 	}
-	row, _ := db.PendingAction("p1")
+	row, _ := pendingActionRow(db, "p1")
 	if row.Status != PendingRejected {
 		t.Fatalf("status = %q, want rejected", row.Status)
 	}

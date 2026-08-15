@@ -52,6 +52,13 @@ func anonSender(r *http.Request) string {
 
 // lookupRouteToken fetches the row or writes 404 and returns ok=false.
 // route_tokens lives in routd.db (stRoutd) — split ownership.
+//
+// A token whose target folder no longer exists is refused HERE, at ingress. Let
+// it through and routd's resolve finds no group (its step 1 requires
+// GroupExists), falls through to a route miss, and onbod files an admission row
+// for a JID no human will ever redeem — the payload is lost in a queue instead
+// of being rejected (BUGS L5). The caller still gets a plain 404: which tokens
+// exist is not something this surface discloses. The operator gets the reason.
 func (s *server) lookupRouteToken(w http.ResponseWriter, r *http.Request) (store.RouteToken, bool) {
 	token := r.PathValue("token")
 	row, ok := s.stRoutd.LookupRouteToken(token)
@@ -61,7 +68,20 @@ func (s *server) lookupRouteToken(w http.ResponseWriter, r *http.Request) (store
 		http.Error(w, "not found", http.StatusNotFound)
 		return store.RouteToken{}, false
 	}
+	if folder := row.Folder(); !s.groupExists(folder) {
+		slog.Error("route token names a deleted folder; refusing at ingress",
+			"path", r.URL.Path, "jid", row.JID, "folder", folder,
+			"token_hash", chanlib.ShortHash(token))
+		http.Error(w, "not found", http.StatusNotFound)
+		return store.RouteToken{}, false
+	}
 	return row, true
+}
+
+// groupExists reports whether the folder still has a group row in routd.db.
+func (s *server) groupExists(folder string) bool {
+	_, ok := s.stRoutd.GroupByFolder(folder)
+	return ok
 }
 
 // GET /chat/<token>/  → built-in widget.

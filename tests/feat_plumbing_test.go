@@ -39,14 +39,16 @@ func TestFeature_IntegrationPlumbing(t *testing.T) {
 	// web_routes URL table: put → list → delete round-trip.
 	t.Run("web-routes-table", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		if err := db.PutWebRoute(routd.WebRouteRow{PathPrefix: "/pub/demo", Access: "public", Folder: "demo"}); err != nil {
+		if err := liveStore(db).SetWebRoute(store.WebRoute{
+			PathPrefix: "/pub/demo", Access: "public", Folder: "demo",
+			CreatedAt: time.Now()}); err != nil {
 			t.Fatal(err)
 		}
 		rows, err := db.WebRoutes("demo")
 		if err != nil || len(rows) != 1 || rows[0].Access != "public" {
 			t.Fatalf("web routes = %+v err=%v", rows, err)
 		}
-		ok, err := db.DeleteWebRoute("/pub/demo", "demo")
+		ok, err := liveStore(db).DelWebRoute("/pub/demo", "demo")
 		if err != nil || !ok {
 			t.Fatalf("delete web route = %v err=%v", ok, err)
 		}

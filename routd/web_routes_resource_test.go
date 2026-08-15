@@ -128,7 +128,7 @@ func TestWebRoutesMCP_SelfSlotAndPathClaim(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	_ = db.PutGroup(core.Group{Folder: "other"})
 	// other already owns a top-level prefix.
-	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/shared", Access: "public", Folder: "other"})
+	putWebRoute(t, db, WebRouteRow{PathPrefix: "/shared", Access: "public", Folder: "other"})
 	grantMCPTools(t, db, "hq", "set_web_route", "del_web_route", "list_web_routes")
 	sock := serveWebRoutesMCP(t, db, "hq", "folder:hq")
 
@@ -167,14 +167,14 @@ func TestWebRoutesMCP_DeleteFolderBound(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "world/eng"})
 	_ = db.PutGroup(core.Group{Folder: "world/ops"})
 	// Delegate world/eng the delete tool, scoped exactly to itself.
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:world/eng", Action: "mcp:del_web_route",
 		Scope: "world/eng", Effect: "allow",
 	}); err != nil {
 		t.Fatalf("AddACLRow: %v", err)
 	}
-	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/world/eng/x", Access: "public", Folder: "world/eng"})
-	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/world/ops/y", Access: "public", Folder: "world/ops"})
+	putWebRoute(t, db, WebRouteRow{PathPrefix: "/pub/world/eng/x", Access: "public", Folder: "world/eng"})
+	putWebRoute(t, db, WebRouteRow{PathPrefix: "/pub/world/ops/y", Access: "public", Folder: "world/ops"})
 	sock := serveWebRoutesMCP(t, db, "world/eng", "folder:world/eng")
 
 	// cross-folder delete: bound to world/eng → miss.
@@ -207,7 +207,7 @@ func TestWebRoutesMCP_DeleteTenantNoCrossTenant(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "acme"})
 	_ = db.PutGroup(core.Group{Folder: "globex"})
-	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/globex/landing", Access: "public", Folder: "globex"})
+	putWebRoute(t, db, WebRouteRow{PathPrefix: "/pub/globex/landing", Access: "public", Folder: "globex"})
 	// acme is a tenant granted del_web_route — so the delete is permitted by the grant
 	// gate and only folder-containment can still block the cross-tenant hit.
 	grantMCPTools(t, db, "acme", "del_web_route")
@@ -260,7 +260,7 @@ func TestWebRoutesMCP_GateDenies(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	grantMCPTools(t, db, "hq", "set_web_route")
 	// A deny row on the same (tool, scope) wins over the allow — visible, uncallable.
-	if err := db.AddACLRow(core.ACLRow{
+	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:hq", Action: "mcp:set_web_route", Scope: "hq/**", Effect: "deny",
 	}); err != nil {
 		t.Fatalf("AddACLRow: %v", err)

@@ -76,7 +76,7 @@ func TestRoutdMutationsAudit(t *testing.T) {
 	audit.Init(d.SQL(), "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
 
-	if err := d.AddACLRow(core.ACLRow{
+	if err := addACLRow(d, core.ACLRow{
 		Principal: "user:alice", Action: "admin", Scope: "atlas/eng", GrantedBy: "routd",
 	}); err != nil {
 		t.Fatalf("AddACLRow: %v", err)

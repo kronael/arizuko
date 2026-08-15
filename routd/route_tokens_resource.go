@@ -21,8 +21,8 @@ package routd
 //     handler on the REST face. revoke addresses a token
 //     by its JID but scopes the DELETE to owner_folder = the caller's folder, so a
 //     folder can only revoke tokens IT minted — a cross-folder JID matches zero rows
-//     (deleted=false), the exact ownership guard the deleted ipc body enforced via
-//     DB.RevokeRouteTokens' `owner_folder=?` predicate. There is no per-token owner
+//     (deleted=false), the exact ownership guard the deleted ipc body enforced with
+//     the same `owner_folder=?` predicate. There is no per-token owner
 //     READ (unlike scheduled_tasks' GetTask.Owner) because the owner is bound to the
 //     caller, never supplied — the WHERE clause IS the containment.
 //
@@ -191,7 +191,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		}
 		// Ownership containment: DELETE scoped to owner_folder = the caller's folder,
 		// so a cross-folder JID matches zero rows (deleted=false) — never another
-		// folder's token. Mirrors the deleted ipc body's DB.RevokeRouteTokens.
+		// folder's token.
 		deleted, err := revokeRouteTokenTx(ctx, x.Tx, jid, folder)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
@@ -298,8 +298,8 @@ func routeTokenJID(kind, targetFolder, sourceLabel, jidSuffix string) (jid, urlP
 }
 
 // issueRouteTokenTx mints a 32-byte hex DELIVERY token for jid under owner and
-// inserts sha256(token) on tx (mirrors DB.IssueRouteToken so the mutation lands
-// in resreg.invoke's tx alongside its audit_log row), returning the raw token
+// inserts sha256(token) on tx, so the mutation lands in resreg.invoke's tx
+// alongside its audit_log row. It returns the raw token
 // once. target is the folder the token delivers to, which the JID grammar
 // cannot recover once a suffix is present (spec 5/W § Resolution). context is
 // the optional per-link processing instructions; "" stores NULL. The pairing
@@ -326,8 +326,8 @@ func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, target, cont
 	return raw, nil
 }
 
-// revokeRouteTokenTx deletes delivery tokens for jid owned by owner on tx
-// (mirrors DB.RevokeRouteTokens), returning whether any row was removed. The
+// revokeRouteTokenTx deletes delivery tokens for jid owned by owner on tx,
+// returning whether any row was removed. The
 // owner_folder predicate is the ownership containment — a cross-folder jid
 // matches nothing.
 func revokeRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner string) (bool, error) {

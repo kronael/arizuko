@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -173,5 +174,28 @@ func TestConcurrentInsert(t *testing.T) {
 	got := getThreadByMsgID(db, "msg-dup@x.com")
 	if got == nil {
 		t.Fatal("expected thread after concurrent insert")
+	}
+}
+
+// A failed mapping write must REACH the caller. Losing it silently costs the
+// user a split conversation: with no email_msg_ids row, the next reply misses
+// in getThreadByMsgID and opens a second thread (BUGS L3).
+func TestUpsertThreadSurfacesWriteFailure(t *testing.T) {
+	db := newTestDB(t)
+	if err := upsertThread(db, "msg-1@x.com", "tid1", "alice@x.com", "msg-1@x.com"); err != nil {
+		t.Fatalf("healthy write returned %v, want nil", err)
+	}
+
+	// Drop the table the second INSERT needs: the write now fails mid-transaction.
+	if _, err := db.Exec(`DROP TABLE email_msg_ids`); err != nil {
+		t.Fatal(err)
+	}
+	err := upsertThread(db, "msg-2@x.com", "tid2", "bob@x.com", "msg-2@x.com")
+	if err == nil {
+		t.Fatal("a dropped mapping returned nil: the caller would deliver the " +
+			"message as if the thread had been recorded")
+	}
+	if !strings.Contains(err.Error(), "msg-2@x.com") {
+		t.Errorf("error %q does not name the message that was lost", err)
 	}
 }

@@ -184,7 +184,7 @@ func TestCmdStatusOperatorOnly(t *testing.T) {
 	dl := &recDeliverer{}
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "demo"})
-	_ = db.AddMembership("u", "role:operator", "test")
+	_ = addMembership(db, "u", "role:operator", "test")
 	if !steerOne(loop, "web:demo", "demo", "/status") {
 		t.Fatal("/status not consumed")
 	}
@@ -200,7 +200,7 @@ func TestCmdStatusErroredCount(t *testing.T) {
 	dl := &recDeliverer{}
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "demo"})
-	_ = db.AddMembership("u", "role:operator", "test")
+	_ = addMembership(db, "u", "role:operator", "test")
 	_ = db.MarkChatErrored("tg:99")
 	_ = steerOne(loop, "web:demo", "demo", "/status")
 	if !strings.Contains(lastAck(t, dl), "errored chats: 1") {
@@ -227,7 +227,7 @@ func TestCmdRootUsage(t *testing.T) {
 	dl := &recDeliverer{}
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "root/eng"})
-	_ = db.AddMembership("u", "role:operator", "test")
+	_ = addMembership(db, "u", "role:operator", "test")
 	_ = steerOne(loop, "web:root/eng", "root/eng", "/root")
 	if got := lastAck(t, dl); got != "Usage: /root <message>" {
 		t.Fatalf("/root ack=%q", got)
@@ -260,7 +260,7 @@ func TestCmdRootElevates(t *testing.T) {
 	dl := &recDeliverer{}
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "demo"})
-	_ = db.AddMembership("u", "role:operator", "test")
+	_ = addMembership(db, "u", "role:operator", "test")
 	if !steerOne(loop, "web:demo", "demo", "/root escalate this") {
 		t.Fatal("/root not consumed")
 	}
@@ -288,7 +288,7 @@ func TestWorkerSteersRootCommand(t *testing.T) {
 	dl := &recDeliverer{}
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "demo"})
-	_ = db.AddMembership("u", "role:operator", "test")
+	_ = addMembership(db, "u", "role:operator", "test")
 	_ = db.PutMessage(core.Message{ID: "m1", ChatJID: "web:demo", Sender: "u",
 		Content: "/root mint the token", Timestamp: time.Now().UTC()})
 
@@ -327,7 +327,7 @@ func TestCmdInviteFederation(t *testing.T) {
 	if got := lastAck(t, dl); got != "Permission denied: operator only." {
 		t.Fatalf("/invite non-operator ack=%q", got)
 	}
-	_ = db.AddMembership("u", "role:operator", "test")
+	_ = addMembership(db, "u", "role:operator", "test")
 	// bad arg → gated's usage message.
 	_ = steerOne(loop, "web:root", "root", "/invite zero")
 	if got := lastAck(t, dl); got != "Usage: /invite [max_uses]" {
@@ -352,7 +352,7 @@ func TestCmdGateFederation(t *testing.T) {
 	if got := lastAck(t, dl); got != "Permission denied: operator only." {
 		t.Fatalf("/gate non-operator ack=%q", got)
 	}
-	_ = db.AddMembership("u", "role:operator", "test")
+	_ = addMembership(db, "u", "role:operator", "test")
 	_ = steerOne(loop, "web:root", "root", "/gate bogus")
 	if got := lastAck(t, dl); got != "Usage: /gate [list|add|rm|enable|disable]" {
 		t.Fatalf("/gate bad-subcmd ack=%q", got)
@@ -421,7 +421,7 @@ func TestCmdInviteFederated(t *testing.T) {
 	fo := &fakeOnbod{}
 	loop.SetOnbodClient(fo)
 	_ = db.PutGroup(core.Group{Folder: "root"})
-	_ = db.AddMembership("u", "role:operator", "test")
+	_ = addMembership(db, "u", "role:operator", "test")
 
 	_ = steerOne(loop, "web:root", "root", "/invite 5")
 	if len(fo.created) != 1 || fo.created[0] != "root/" {
@@ -441,7 +441,7 @@ func TestCmdGateFederated(t *testing.T) {
 	fo := &fakeOnbod{gates: []GateRow{{Gate: "*", LimitPerDay: 10, Enabled: true}}}
 	loop.SetOnbodClient(fo)
 	_ = db.PutGroup(core.Group{Folder: "root"})
-	_ = db.AddMembership("u", "role:operator", "test")
+	_ = addMembership(db, "u", "role:operator", "test")
 
 	_ = steerOne(loop, "web:root", "root", "/gate list")
 	if got := lastAck(t, dl); !strings.Contains(got, "* 10/day enabled") {
@@ -490,7 +490,7 @@ func TestCmdApproveOperatorResolves(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
-	if err := db.AddMembership("u", "role:operator", "test"); err != nil {
+	if err := addMembership(db, "u", "role:operator", "test"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.PutPendingAction(PendingAction{
@@ -502,7 +502,7 @@ func TestCmdApproveOperatorResolves(t *testing.T) {
 	if !steerOne(loop, "tg:1", "demo", "/approve a1 looks fine") {
 		t.Fatal("/approve not consumed")
 	}
-	row, _ := db.PendingAction("a1")
+	row, _ := pendingActionRow(db, "a1")
 	if row.Status != PendingApproved {
 		t.Fatalf("status = %q, want approved", row.Status)
 	}
@@ -518,7 +518,7 @@ func TestCmdApproveTargetsHeldChat(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
-	if err := db.AddMembership("u", "role:operator", "test"); err != nil {
+	if err := addMembership(db, "u", "role:operator", "test"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.PutPendingAction(PendingAction{
@@ -548,7 +548,7 @@ func TestCmdApproveUnknownIDFailsLoudly(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
-	if err := db.AddMembership("u", "role:operator", "test"); err != nil {
+	if err := addMembership(db, "u", "role:operator", "test"); err != nil {
 		t.Fatal(err)
 	}
 	_ = steerOne(loop, "tg:1", "demo", "/approve nope")

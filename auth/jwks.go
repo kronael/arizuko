@@ -45,8 +45,9 @@ type KeySet struct {
 	retiredAt map[string]time.Time // kid -> retired_at; absent = active (no iat cap)
 }
 
-// NewKeySet builds a local KeySet from public keys — used in-process by authd
-// (which already holds the keys) and by tests. No network, no refresh.
+// NewKeySet builds a local KeySet from public keys, all of them active. No
+// network, no refresh. Tests only: authd calls NewKeySetWithRetirement, because
+// a live key set must reject a token minted after its kid was retired.
 func NewKeySet(pub map[string]*ecdsa.PublicKey) *KeySet {
 	return NewKeySetWithRetirement(pub, nil)
 }

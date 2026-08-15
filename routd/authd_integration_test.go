@@ -152,7 +152,7 @@ func TestInboundDispatchAuthorizedWithValidToken(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("authorized ingest status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !db.MessageExists("m1") {
+	if !messageExists(db, "m1") {
 		t.Fatal("inbound row not stored after authorized ingest")
 	}
 
@@ -197,7 +197,7 @@ func TestInboundDispatchDeniedMissingScope(t *testing.T) {
 	if rec.Code != 403 {
 		t.Fatalf("ingest with no messages:write must be 403, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	if db.MessageExists("m2") {
+	if messageExists(db, "m2") {
 		t.Fatal("a denied ingest must not store the inbound row")
 	}
 }
@@ -213,7 +213,7 @@ func TestInboundDispatchDeniedMissingToken(t *testing.T) {
 	if rec.Code != 401 {
 		t.Fatalf("ingest with no token must be 401, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	if db.MessageExists("m3") {
+	if messageExists(db, "m3") {
 		t.Fatal("an unauthenticated ingest must not store the inbound row")
 	}
 }
@@ -247,7 +247,7 @@ func TestInboundDispatchIngressFolderNotBound(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("CURRENT: ingress ignores folder binding, want 200; got %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !db.MessageExists("m9") {
+	if !messageExists(db, "m9") {
 		t.Fatal("CURRENT: message routing to a non-token folder is still stored at ingress")
 	}
 }

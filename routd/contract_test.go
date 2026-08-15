@@ -83,7 +83,7 @@ func TestContractRoundTrip(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("ingest status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !db.MessageExists("m1") {
+	if !messageExists(db, "m1") {
 		t.Fatal("inbound row not stored")
 	}
 
@@ -287,8 +287,8 @@ func TestResultRecordsOutcome(t *testing.T) {
 
 // TestRouteTokenRoundTrip checks a REST-minted token resolves. Resolution is
 // deliberately NOT an HTTP leg: webd and proxyd are FS-mounted on routd.db and
-// call ResolveRouteToken in-process, so that is what the round trip exercises
-// (spec 5/W § Resolution).
+// call store.LookupRouteToken in-process, so that is what the round trip
+// exercises (spec 5/W § Resolution).
 func TestRouteTokenRoundTrip(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -314,9 +314,9 @@ func TestRouteTokenRoundTrip(t *testing.T) {
 		t.Fatalf("issued=%+v", issued)
 	}
 
-	jid, owner, _, err := db.ResolveRouteToken(issued.Token)
-	if err != nil || jid != "web:acme" || owner != "acme" {
-		t.Fatalf("resolve: jid=%q owner=%q err=%v", jid, owner, err)
+	row, ok := resolveToken(db, issued.Token)
+	if !ok || row.JID != "web:acme" || row.OwnerFolder != "acme" {
+		t.Fatalf("resolve: jid=%q owner=%q ok=%v", row.JID, row.OwnerFolder, ok)
 	}
 }
 

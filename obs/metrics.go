@@ -17,9 +17,8 @@ import (
 
 // Bucket sets from spec 5/O § Histogram buckets.
 var (
-	bucketsTurn  = []float64{0.1, 0.5, 1, 5, 10, 30, 60, 120, 300, 600}
-	bucketsModel = []float64{0.1, 0.25, 0.5, 1, 2, 5, 10, 30}
-	bucketsHTTP  = []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5}
+	bucketsTurn = []float64{0.1, 0.5, 1, 5, 10, 30, 60, 120, 300, 600}
+	bucketsHTTP = []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5}
 )
 
 var (
@@ -38,12 +37,6 @@ var (
 		Name: "arizuko_silent_turns_total",
 		Help: "Clean runs that delivered neither a turn result nor a bot reply.",
 	}, []string{"folder"})
-
-	modelCallDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "arizuko_model_call_duration_seconds",
-		Help:    "Anthropic API call latency.",
-		Buckets: bucketsModel,
-	}, []string{"model", "folder"})
 
 	modelTokens = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "arizuko_model_tokens_total",
@@ -82,16 +75,6 @@ var (
 		Help: "0=closed, 1=half-open, 2=open.",
 	}, []string{"folder"})
 
-	egressRequests = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "arizuko_egress_requests_total",
-		Help: "Proxied egress requests.",
-	}, []string{"folder", "host", "status"})
-
-	egressBytes = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "arizuko_egress_bytes_total",
-		Help: "Bytes proxied (in/out).",
-	}, []string{"folder", "direction"})
-
 	tokenMints = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "arizuko_token_mints_total",
 		Help: "Tokens minted (access/refresh).",
@@ -114,11 +97,10 @@ func reg() *prometheus.Registry {
 		registry = prometheus.NewRegistry()
 		registry.MustRegister(
 			turnDuration, turnsTotal, silentTurns,
-			modelCallDuration, modelTokens,
+			modelTokens,
 			containerSpawns, containerActive, containerDuration,
 			requestsTotal, requestDuration,
 			circuitBreakerState,
-			egressRequests, egressBytes,
 			tokenMints, tokenRefreshes,
 		)
 	})
@@ -154,11 +136,6 @@ func RecordSilentTurn(folder string) {
 	silentTurns.WithLabelValues(folder).Inc()
 }
 
-// RecordModelCall records Anthropic call latency.
-func RecordModelCall(model, folder string, seconds float64) {
-	modelCallDuration.WithLabelValues(model, folder).Observe(seconds)
-}
-
 // RecordModelTokens adds n tokens for (model, folder, direction). direction is
 // one of in/out/cache_read/cache_write.
 func RecordModelTokens(model, folder, direction string, n int) {
@@ -188,19 +165,6 @@ func RecordRequest(daemon, method, status, path string, seconds float64) {
 // SetCircuitBreakerState sets the breaker gauge for a folder (0/1/2).
 func SetCircuitBreakerState(folder string, state int) {
 	circuitBreakerState.WithLabelValues(folder).Set(float64(state))
-}
-
-// RecordEgressRequest records a proxied egress request.
-func RecordEgressRequest(folder, host, status string) {
-	egressRequests.WithLabelValues(folder, host, status).Inc()
-}
-
-// RecordEgressBytes adds proxied bytes for (folder, direction in/out).
-func RecordEgressBytes(folder, direction string, n int64) {
-	if n <= 0 {
-		return
-	}
-	egressBytes.WithLabelValues(folder, direction).Add(float64(n))
 }
 
 // RecordTokenMint counts a minted token by type (access/refresh).

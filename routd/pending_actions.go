@@ -131,13 +131,6 @@ type queryExecer interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-// PendingAction reads one row. Expiry is applied on read: a held row past
-// expires_at reports `expired`, so no GC job has to run for the status to be
-// true.
-func (d *DB) PendingAction(id string) (PendingAction, bool) {
-	return pendingActionOn(d.db, id)
-}
-
 func pendingActionOn(q queryExecer, id string) (PendingAction, bool) {
 	p, err := scanPending(q.QueryRow(
 		`SELECT `+pendingCols+` FROM pending_actions WHERE id = ?`, id))
@@ -201,12 +194,6 @@ var (
 	ErrPendingNotFound = errors.New("not found")
 	ErrPendingResolved = errors.New("already resolved")
 )
-
-// ResolvePendingAction records a verdict. It moves only a `held` row, so a
-// second approval of the same id is a no-op rather than a re-arm.
-func (d *DB) ResolvePendingAction(id, status, reviewer, note string) (PendingAction, error) {
-	return resolvePendingActionOn(d.db, id, status, reviewer, note)
-}
 
 func resolvePendingActionOn(q queryExecer, id, status, reviewer, note string) (PendingAction, error) {
 	if status != PendingApproved && status != PendingRejected {

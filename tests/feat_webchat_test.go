@@ -10,24 +10,21 @@ func TestFeature_WebChat(t *testing.T) {
 	// A web: route token resolves to the bound JID and owner folder.
 	t.Run("chat-token-binding", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		raw, _, err := db.IssueRouteToken("web:demo/submissions", "demo", "demo", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		jid, owner, _, err := db.ResolveRouteToken(raw)
-		if err != nil || jid != "web:demo/submissions" || owner != "demo" {
-			t.Fatalf("resolve = (%q,%q,%v)", jid, owner, err)
+		raw := mintToken(t, db, "web:demo/submissions", "demo", "demo", "")
+		row, ok := resolveToken(db, raw)
+		if !ok || row.JID != "web:demo/submissions" || row.OwnerFolder != "demo" {
+			t.Fatalf("resolve = (%q,%q,%v)", row.JID, row.OwnerFolder, ok)
 		}
 	})
 
 	// Two tokens for the same JID are independent; revoking one kills all.
 	t.Run("multi-token-revoke", func(t *testing.T) {
 		db := mustRoutdDB(t)
-		raw1, _, _ := db.IssueRouteToken("web:demo/chat", "demo", "demo", "")
-		raw2, _, _ := db.IssueRouteToken("web:demo/chat", "demo", "demo", "")
-		db.RevokeRouteTokens("web:demo/chat", "demo")
+		raw1 := mintToken(t, db, "web:demo/chat", "demo", "demo", "")
+		raw2 := mintToken(t, db, "web:demo/chat", "demo", "demo", "")
+		revokeTokens(t, db, "web:demo/chat", "demo")
 		for _, raw := range []string{raw1, raw2} {
-			if _, _, _, err := db.ResolveRouteToken(raw); err == nil {
+			if _, ok := resolveToken(db, raw); ok {
 				t.Fatalf("token %q should be revoked", raw)
 			}
 		}
