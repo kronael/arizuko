@@ -2324,7 +2324,7 @@ the first key seals, the rest decrypt retired values.
 `TestSecret_NoKey_RefusesToWrite` and `TestStoreValue_NeverReturnsPlaintext`
 cover the refusal; reverting the guard fails both.
 
-## L20 — FIXED 2026-08-15, <short-sha> — whapd acks a send it has not sent, so routd records it as delivered (2026-08-11)
+## L20 — FIXED 2026-08-15, 1591ccbf — whapd acks a send it has not sent, so routd records it as delivered (2026-08-11)
 
 `whapd/src/server.ts:196-214` answered `/send` with `200 {ok:true, queued:true}`
 when the socket was absent or disconnected, and again in the `catch` around
