@@ -1719,7 +1719,7 @@ site (`:464`). `ant/src/index.test.ts` covers both functions; `bun test`
 (ant/): 86 pass, 0 fail. (b)/(c) not applied — (a) alone already closes both
 the error-flash and the context-loss symptoms this entry reported.
 
-## Chat-initiated onboarding still dead after the compose fix — InsertOnboarding never fires (2026-07-09, OPEN)
+## ✅ FIXED 2026-08-15 (re-verified) — Chat-initiated onboarding still dead after the compose fix — InsertOnboarding never fires (2026-07-09)
 
 A new group posts, hits a route miss, and **nothing happens** — no greeting, no
 admission-queue row. The operator must discover the JID out-of-band (grep
@@ -1779,6 +1779,10 @@ land compatibly with it.
   delivered to the chat (fail loud, fail-forward — cursor still advances, no
   poison replay). Tests: `TestQueuePathRouteMissInsertsOnboarding` (failed
   pre-fix), `TestRouteMissOnboardingFailureSurfaces`.
+
+  Re-verified 2026-08-15 (same fix as the "Onboarding recurs as a manual
+  operator chore" entry): `TestQueuePathRouteMissInsertsOnboarding` PASSes
+  against `routd/loop.go:602 routeMiss`.
 
 ## 5/16 invites fold — agent-forwarder half deferred (2026-07-07, by design)
 
