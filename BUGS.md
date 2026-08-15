@@ -2356,26 +2356,28 @@ adapter's — one retry mechanism, not two.
 - **Tests:** `whapd/src/server.test.ts` — `/send` returns 502 disconnected and
   on `sendMessage` throw; `bun test` 116/116 pass.
 
-## L22 — the outbound retry cap is ~5 minutes, so an adapter outage dead-letters real messages (2026-08-11, open)
+## L22 — FIXED 2026-08-15, <sha> — the outbound retry cap is ~5 minutes, so an adapter outage dead-letters real messages (2026-08-11)
 
-`MAX_OUTBOUND_RETRY` defaults to 10 and the sweep runs every 30s, so a row
-exhausts its budget about five minutes after the first failure. The 24h window
-it replaced was too generous and killed rows without attempting them (`L19`),
-but five minutes is short for the outages that actually happen: a whapd
-reconnect, an adapter container restart, a platform incident.
+`MAX_OUTBOUND_RETRY` defaulted to 10 and the sweep ran every 30s flat, so a
+row exhausted its budget about five minutes after the first failure —
+shorter than the outages that actually happen: a whapd reconnect, an
+adapter container restart, a platform incident.
 
-Those messages do not vanish — they land in the dead-letter state with
-`delivery_attempts` at the cap — but they stop being retried, and today nobody
-can read them back (`L23`).
-
-The fix is probably not a bigger number. Exponential backoff spends the same ten
-attempts across hours instead of minutes, which tolerates a real outage without
-letting one dead channel burn attempts every 30s. The cadence constant and the
-cap both live beside `maybeRetryOutbound`.
-
-- **Severity:** medium — a routine adapter restart can dead-letter live traffic.
-- **Scope:** outbound retry pacing
-- **Affected:** routd
+- **Fix:** `backoffDelay(attempts)` (`routd/loop.go`) doubles the required
+  gap since a row's own `timestamp` each time it fails — 30s, 1m, 2m, 4m,
+  ..., capped at `maxOutboundBackoff` (1h) — instead of retrying every
+  pending row on the same flat 30s clock regardless of how many times it had
+  already failed. `maybeRetryOutbound` now skips a row until
+  `now.Sub(m.Timestamp) >= backoffDelay(m.DeliveryAttempts)`. 10 attempts now
+  spend roughly an hour instead of five minutes before dead-lettering.
+  `delivery_attempts` (already written by `RecordDeliveryFailure`) is now
+  also READ — added to `core.Message`/`msgReadCols`/`scanMessages`, so this
+  also lays the groundwork `L23` needs to surface it.
+- **Source:** routd/loop.go (backoffDelay, maybeRetryOutbound); core/types.go;
+  routd/reads.go; routd/db.go
+- **Tests:** `routd.TestBackoffDelayGrowsAndCaps`,
+  `routd.TestOutboundRetryHonorsPerRowBackoff`; `go test ./routd/... -short`
+  and `go test ./store/... -short` green.
 - **Source:** `routd/loop.go` `maybeRetryOutbound`, `core/config.go` `MaxOutboundRetry`
 - **Status:** open
 

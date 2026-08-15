@@ -364,20 +364,44 @@ const (
 	gcEvery            = time.Hour
 
 	// defaultMaxOutboundRetry bounds the transient-failure retries on one
-	// pending bot row. At the 30s cadence, 10 attempts give the platform about
-	// 5 minutes to recover. MAX_OUTBOUND_RETRY raises it for a flaky platform.
+	// pending bot row. MAX_OUTBOUND_RETRY raises it for a flaky platform.
 	defaultMaxOutboundRetry = 10
+
+	// maxOutboundBackoff caps how far backoffDelay spreads a single retry
+	// gap. Doubling from outboundRetryAfter uncapped would spend
+	// defaultMaxOutboundRetry attempts over ~17h; capping at an hour still
+	// spreads them over ~1h instead of the flat 5 minutes a constant 30s
+	// cadence gave every row regardless of how many times it had already
+	// failed (L22 — that flat cadence dead-lettered live traffic mid a
+	// routine whapd reconnect / adapter container restart).
+	maxOutboundBackoff = time.Hour
 )
 
-// maybeRetryOutbound re-dispatches bot rows still 'pending' older than 30s. The
-// adapter dedups on the row's stable message_id, so a redelivered row never
-// creates a second platform message. No-op when no Deliverer is wired.
+// backoffDelay returns how long a pending row with attempts prior failures
+// must age past its own timestamp before the sweep retries it again.
+func backoffDelay(attempts int) time.Duration {
+	d := outboundRetryAfter
+	for range attempts {
+		d *= 2
+		if d >= maxOutboundBackoff {
+			return maxOutboundBackoff
+		}
+	}
+	return d
+}
+
+// maybeRetryOutbound re-dispatches bot rows still 'pending', each gated by its
+// own backoffDelay so a row that has already failed several times waits
+// longer than one on its first try. The adapter dedups on the row's stable
+// message_id, so a redelivered row never creates a second platform message.
+// No-op when no Deliverer is wired.
 //
 // Two bounds stop an endless retry. A permanent refusal (chanlib.ErrPermanent)
 // dead-letters the row at once and spends no attempt, because a retry cannot
 // repair it. A transient failure spends one attempt, and the row dead-letters
-// when the attempts reach maxOutboundRetry. There is no age bound: an age bound
-// killed a row that the sweep had never tried, which loses a message that no
+// when the attempts reach maxOutboundRetry. There is no OUTRIGHT age bound —
+// backoffDelay only postpones a retry, it never refuses one — because an age
+// bound once killed a row the sweep had never tried, losing a message no
 // platform ever refused.
 func (l *Loop) maybeRetryOutbound(now time.Time) {
 	if l.deliver == nil || now.Before(l.nextRetryAt) {
@@ -390,6 +414,12 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 		return
 	}
 	for _, m := range rows {
+		// backoffDelay grows with prior attempts, so a row that just failed
+		// waits longer than one on its first try — PendingOutbound's fixed
+		// 30s floor only bounds the youngest rows out of the query.
+		if now.Sub(m.Timestamp) < backoffDelay(m.DeliveryAttempts) {
+			continue
+		}
 		pid, derr := l.deliver.Send(m.ChatJID, m.Content, m.ReplyToID, m.Topic, "", m.ID)
 		switch {
 		case derr == nil:

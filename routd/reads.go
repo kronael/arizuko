@@ -22,7 +22,7 @@ const msgReadCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, ti
 	is_bot_message, COALESCE(reply_to_id,''), COALESCE(topic,''), COALESCE(routed_to,''),
 	COALESCE(verb,''), COALESCE(source,''), COALESCE(turn_id,''), COALESCE(status,''),
 	COALESCE(platform_id,''), COALESCE(chat_name,''), COALESCE(forwarded_from,''),
-	COALESCE(attachments,''), COALESCE(link_context,'')`
+	COALESCE(attachments,''), COALESCE(link_context,''), delivery_attempts`
 
 // MessagesBefore returns rows for one chat_jid older than `before`, oldest
 // first (inspect_messages). before="" → now.
