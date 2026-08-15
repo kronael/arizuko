@@ -2332,7 +2332,7 @@ correctly but mutations don't work.
 - **Status:** resolved — cursor taken from last displayed row (29e759f7)
 - **Fix:** capture cursor from row 50, not the lookahead row
 
-## routd: retry clears errored on all messages, not just errored=1 (2026-06-18, open)
+## ✅ FIXED 2026-08-15 routd: retry clears errored on all messages, not just errored=1 (2026-06-18)
 
 `routd_page.go:123`: `UPDATE messages SET errored=0 WHERE chat_jid=?` resets all rows, including
 non-errored history.
@@ -2341,7 +2341,10 @@ non-errored history.
 - **Scope:** dashd/routd_page.go:123
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — `AND errored=1` added (1dc9b356)
-- **Fix:** `UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1`
+- **Fix:** 1dc9b356; re-verified at fb152e98 — `routd_page.go:133` is exactly
+  `UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1`, so a retry touches
+  only errored rows and `RowsAffected` reports the true cleared count into the audit
+  event (`:139-150`) instead of the chat's whole history.
 
 ## services: davd probe path wrong; timeout classified as unknown (2026-06-18, open)
 
