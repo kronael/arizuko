@@ -2356,7 +2356,7 @@ adapter's — one retry mechanism, not two.
 - **Tests:** `whapd/src/server.test.ts` — `/send` returns 502 disconnected and
   on `sendMessage` throw; `bun test` 116/116 pass.
 
-## L22 — FIXED 2026-08-15, <sha> — the outbound retry cap is ~5 minutes, so an adapter outage dead-letters real messages (2026-08-11)
+## L22 — FIXED 2026-08-15, 15c5c08c — the outbound retry cap is ~5 minutes, so an adapter outage dead-letters real messages (2026-08-11)
 
 `MAX_OUTBOUND_RETRY` defaulted to 10 and the sweep ran every 30s flat, so a
 row exhausted its budget about five minutes after the first failure —
