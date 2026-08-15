@@ -731,10 +731,12 @@ func Generate(dataDir string) (string, error) {
 		}
 	}
 
-	// Per-daemon env files: non-fatal if it fails; log for triage.
-	// Written after the services scan so service-triggered env (TTS_*) lands.
+	// Per-daemon env files: fatal on failure. Written after the services scan so
+	// service-triggered env (TTS_*) lands. A silent failure here would let
+	// generation succeed while a daemon's env file goes stale or missing —
+	// runed reusing obsolete credentials is the `/login` outage class (BUGS C11).
 	if werr := writeEnvFiles(dataDir, env, perDaemon); werr != nil {
-		fmt.Fprintf(os.Stderr, "compose: writeEnvFiles: %v\n", werr)
+		return "", fmt.Errorf("write per-daemon env files: %w", werr)
 	}
 
 	// app-src/ holds the release's ant/, staged by runed for agent containers to

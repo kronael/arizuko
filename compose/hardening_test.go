@@ -63,6 +63,22 @@ func TestProxydRoutesRejectUnknownField(t *testing.T) {
 	}
 }
 
+// C11: a per-daemon env-file write failure must fail Generate loud, never
+// succeed with stale/missing daemon env files (the runed `/login` outage
+// class). Blocking MkdirAll("env") by pre-seeding a same-named file
+// reproduces the failure without touching permissions (portable in CI).
+func TestGenerateFailsLoudOnEnvWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "services"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(dir, ".env"), "ASSISTANT_NAME=test\n")
+	mustWrite(t, filepath.Join(dir, "env"), "not a directory")
+	if _, err := Generate(dir); err == nil {
+		t.Fatal("expected Generate to fail when per-daemon env files can't be written, got nil")
+	}
+}
+
 // C8: redirect_to (part of proxyd's shape) is now accepted.
 func TestProxydRoutesAcceptRedirectTo(t *testing.T) {
 	sd := filepath.Join(t.TempDir(), "services")
