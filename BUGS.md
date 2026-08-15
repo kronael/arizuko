@@ -2381,20 +2381,25 @@ adapter container restart, a platform incident.
 - **Source:** `routd/loop.go` `maybeRetryOutbound`, `core/config.go` `MaxOutboundRetry`
 - **Status:** open
 
-## L23 — a dead-lettered message is countable but not readable (2026-08-11, open)
+## L23 — PROPOSED, needs sign-off (verified still open 2026-08-15) — a dead-lettered message is countable but not readable (2026-08-11)
 
-`dashd/routd_page.go` shows a `dead-lettered` count on the routd stat line. There
-is no per-row list anywhere, on any surface: an operator can tell that messages
-were lost but not which ones, to whom, or with what content.
+Premise re-verified at this tree: `dashd/routd_page.go` still only shows a
+`dead-lettered` COUNT; grepped `resreg/` for any dead-letter resource —
+none exists. Still true: an operator can tell messages were lost but not
+which ones, to whom, or with what content, and nothing can replay them.
 
-A dead-letter queue you cannot read is not a queue — it is a counter. The point
-of dead-lettering rather than dropping is that a human can inspect and replay;
-neither is possible today.
+Not contained — this is a new resreg `Resource` (REST + MCP, per the
+CLAUDE.md "every cold-tier management entity is a resreg resource" rule),
+not a one-file fix, so it needs the redesign sign-off this pass doesn't
+have authority to give. Recommended shape, unchanged from the original
+report: `messages WHERE status='failed' AND is_bot_message=1` is already the
+durable, identifiable row set — read-only surface, no new state.
 
-The rows are already durable and already identifiable
-(`messages WHERE status='failed' AND is_bot_message=1`), so this is a read
-surface, not new state. Per the house rule it belongs on a resreg resource with
-both faces rather than a bespoke dashd page.
+L22 (this pass) added the one piece this needs that didn't exist yet:
+`delivery_attempts` is now readable (`core.Message.DeliveryAttempts` via
+`msgReadCols`/`scanMessages`), where before it was write-only. The
+resource itself — registration, REST handler, MCP annotation, a replay
+action — is still undone.
 
 - **Severity:** medium — the recovery path the dead-letter state exists for does not exist.
 - **Scope:** dead-letter visibility
