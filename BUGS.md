@@ -2348,7 +2348,7 @@ without an early message produce nondeterministic continue links.
   (`chat_sessions.topic` set once at first message, vs. `messages.session_id`).
 - **Fix:** push filter into SQL (done); persist topic-session linkage explicitly (proposed, open)
 
-## runed: dead session_id variable in run query (2026-06-18, open)
+## ✅ FIXED 2026-08-15 — runed: dead session_id variable in run query (2026-06-18, open)
 
 `runed_page.go:52`: `COALESCE(session_id,'')` selected and scanned but never used — dead code in
 the hot path.
@@ -2356,7 +2356,8 @@ the hot path.
 - **Severity:** low
 - **Scope:** dashd/runed_page.go:52
 - **Source:** codex audit 2026-06-18
-- **Status:** resolved — dropped from SELECT (1dc9b356)
+- **Status:** resolved — dropped from SELECT (1dc9b356). Re-verified 2026-08-15:
+  `grep -n session_id dashd/runed_page.go` has zero hits.
 - **Fix:** drop from SELECT and remove variable
 
 ## main: duplicate profile nav link + dead portal .Err field (2026-06-18, open)
