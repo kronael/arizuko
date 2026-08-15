@@ -1931,7 +1931,7 @@ change `resourcePaths` to emit from `Endpoints` (empty → schema-only) and the 
   across the container boundary). Fixed a stale doc line found in the same call path:
   `timed/README.md:22` still said `resreg.OpenAPIHandler("timed", ["scheduled_tasks"])`.
 
-## proxyd_routes list handler returns {routes:[]} envelope; OpenAPI documents a bare array (2026-07-02, open)
+## ✅ FIXED 2026-08-15 — proxyd_routes list handler returns {routes:[]} envelope; OpenAPI documents a bare array (2026-07-02)
 
 `proxyd/resource.go:187` returns `map[string]any{"routes": out}` but `resreg/openapi.go` documents
 list `200` as a bare `array<ProxydRoutes>`. The one resource whose paths are correct still serves a
@@ -1942,7 +1942,14 @@ sweep (webd forwarder relays the body) to confirm the bare-array change is safe.
 - **Severity:** low-medium (doc/handler drift on one resource)
 - **Scope:** proxyd/resource.go:187
 - **Source:** resreg refine-review 2026-07-02
-- **Status:** open
+- **Status:** FIXED. Confirmed the deferred consumer sweep is safe:
+  `webd/routes_mcp.go:74` (`routesForwarder`) relays the proxyd response
+  body verbatim as `json.RawMessage` to both its REST and MCP callers — no
+  unwrap of a `routes` key anywhere in-tree. Changed `ActionList` to return
+  the bare `[]Route` (matches every other resreg list handler's
+  convention, e.g. `routd/routes_resource.go`'s REST branch). Updated
+  `proxyd/resource_test.go`'s two assertions to the new bare-array shape.
+  `go test ./proxyd/... ./webd/...`: both `ok`. **Fix:** e59ba143.
 
 ## resreg.Caller.Name is write-only (2026-07-02, open)
 
