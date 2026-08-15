@@ -1674,7 +1674,7 @@ audit (`services.spec.ts:32`), 2026-07-10.
   `Built=false` for both; `go test ./dashd/... -run TestServicesBuiltFlagMatchesMountedRoutes`
   PASSes (guards the Built/mounted-route invariant in both directions).
 
-## Stale chat-bound session → `error_during_execution` + silent context loss (2026-07-10, OPEN)
+## ✅ FIXED 2026-08-15 — Stale chat-bound session → `error_during_execution` + silent context loss (2026-07-10)
 
 Symptom (reported as "agents dying after some minutes"): a long-lived group's
 agent briefly errors mid-turn and appears to "forget" the thread. **Not a
@@ -1708,6 +1708,16 @@ transcript file for the stored session ID; if missing, start fresh silently
 Claude Code `cleanupPeriodDays` in the container settings so referenced
 transcripts aren't pruned while `sessions` still points at them. (a)+(c) together
 close both the error-flash and the context loss.
+
+**Status (verified 2026-08-15):** candidate fix (a) is shipped —
+`resolveResumeSession` (`ant/src/index.ts:29-43`) stats the transcript via
+`transcriptPath` before `--resume`; a missing file or a non-UUID lineage
+placeholder starts fresh silently instead of resuming. `isSessionError`
+(`:49-51`) keeps a genuine `error_during_execution` off the delivered-result
+path so it's a retry signal, never a user-facing reply. Wired at the call
+site (`:464`). `ant/src/index.test.ts` covers both functions; `bun test`
+(ant/): 86 pass, 0 fail. (b)/(c) not applied — (a) alone already closes both
+the error-flash and the context-loss symptoms this entry reported.
 
 ## Chat-initiated onboarding still dead after the compose fix — InsertOnboarding never fires (2026-07-09, OPEN)
 
