@@ -1,5 +1,6 @@
 ---
-status: draft
+status: shipped
+shipped: 2026-08-15
 source: paradigmxyz/centaur@20f3021 (Apache-2.0) peel, 2026-08-10
 ---
 
