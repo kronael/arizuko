@@ -2525,7 +2525,7 @@ avoid the suffix as a workaround.
   exactly like the unsuffixed form. `go test ./routd/... ./webd/...
   ./tests/... ./store/...`: all pass.
 
-## howto/webhooks.html claims hook headers are delivered; ingest forwards body only (2026-07-09, OPEN)
+## CLOSED-STALE 2026-08-15 (heading lagged body) — howto/webhooks.html claims hook headers are delivered; ingest forwards body only (2026-07-09, fixed 2026-07-12)
 
 `template/web/pub/arizuko/howto/webhooks.html` documents a `"headers": {…}`
 envelope on hook ingest, but the route-token webhook path forwards the request
@@ -2537,7 +2537,9 @@ Product pages had the same claim removed; the howto page still carries it.
 - **Status:** fixed 2026-07-12 — verified `webd/route_token.go:handleHookIngest`
   builds `InboundMsg{Content: body}` only (no headers field exists on the type);
   removed all four headers-delivery claims from the howto page, security bullet
-  now states headers are dropped at ingest
+  now states headers are dropped at ingest. Re-verified 2026-08-15:
+  `template/web/pub/arizuko/howto/webhooks.html:147` still says "Request
+  headers are not forwarded." Heading updated to match the already-fixed body.
 - **Found:** product-docs refine pass (fable), 2026-07-09
 
 ## `arizuko token issue chat|webhook` writes route_tokens to frozen messages.db (2026-07-11, open)
