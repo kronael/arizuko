@@ -2090,7 +2090,7 @@ action. (2) Line 91: JS polling renders `expires_at`/`since` from whapd JSON dir
 - **Status:** resolved — pairAuth returns error + fail-closed; JS uses textContent/createTextNode (80bd29da)
 - **Fix:** (1) fail closed when svc token unavailable; (2) use `textContent` or escape fields
 
-## [SEC] routes: handleRouteUpdate authorizes new target, not existing row (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] routes: handleRouteUpdate authorizes new target, not existing row (2026-06-18)
 
 `routes_admin.go:194`: PATCH only requires admin on the new target folder. A caller who knows a
 route ID in another folder can PATCH it into a folder they own — changing match/seq/target on an
@@ -2100,7 +2100,14 @@ otherwise inaccessible rule.
 - **Scope:** dashd/routes_admin.go:194
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — loads existing row first, requires admin on old + new folder (80bd29da)
-- **Fix:** load current row first; require admin on both old and new folder
+- **Fix:** 80bd29da shipped the gate; re-verified at fb152e98 — `routes_admin.go:202-223`
+  loads `curTarget`, requires admin on `curFolder`, and requires admin on the new
+  folder too when the target moves. `handleRouteDelete` (`:270-283`) resolves the
+  folder from the stored row, so the sibling path never had the hole. The fix had
+  NO regression test; added `dashd/routes_admin_test.go` (4 cases: cross-folder
+  PATCH denied, donate-to-unowned denied, own-folder PATCH allowed, cross-folder
+  DELETE denied). Mutation-checked — removing the `curFolder` gate turns the two
+  deny cases from 403 into 204.
 
 ## [SEC] invites: raw token exposed in revoke URL (2026-06-18, open)
 
