@@ -94,8 +94,9 @@ scope_id, key, status, latency_ms)`, `scope_kind ∈ {user, folder, missing}`,
 values are never written.
 
 The writer fires at the broker resolve seam (`routd/mcp.go`
-`ResolveConnectorSecrets`, commit `c02b97c5`), emitting a `secret_use_log` row
-per resolved key which `audit/audit.go` polls into `audit_log`. This closed the
+`ResolveConnectorSecrets`, commit `c02b97c5`), calling `store.LogSecretUse`
+per resolved key, which writes the `secret_use_log` row AND the `audit_log`
+row in the same transaction — synchronous, no poller. This closed the
 M2 gap where the table and reader existed with no writer.
 
 `scope_kind` and `tool` are THREADED, never re-derived: the scope comes back

@@ -207,8 +207,9 @@ out of the table, so both are strict subsets of the reach it holds; what they
 buy is one page moving off the direct-DB path. `routes:read` exposes no secret
 either: its widest read, `ListRouteTokens`, selects
 jid/owner_folder/created_at/context and never the token value.
-`authd/service_dashd_test.go` pins the ceiling at exactly these three by count,
-so a fourth scope fails there whether or not anyone thought to blacklist it.
+`authd/service_dashd_test.go` pins `service:dashd`'s ceiling at exactly nine
+scopes by count (routes:read and routes:write among them), so a tenth scope
+fails there whether or not anyone thought to blacklist it.
 
 **Operator-only, and that is load-bearing.** dashd's service token carries an
 EMPTY folder claim, which is exactly the list-all key above — so the page shows

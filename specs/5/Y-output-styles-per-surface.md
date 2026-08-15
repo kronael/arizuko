@@ -31,9 +31,10 @@ platform-less surface keys. `ant/output-styles/` ships
 `slack-{dm,channel,thread,pane}`, `telegram-{dm,group}`,
 `discord-{dm,channel}`, `email.md`, `web.md`, plus the bare
 `<platform>.md` fallbacks. Platforms whose length envelope isn't
-interesting (WhatsApp, Reddit, Mastodon, Bluesky, Twitter, LinkedIn) keep
-their single platform file; a channel with no matching file gets no
-`outputStyle` override and Claude Code falls back to its default.
+interesting (WhatsApp, Reddit, Bluesky, Twitter, LinkedIn) ship no file
+today: the picker still names a style for them, Claude Code cannot
+resolve it, and the reply falls back to stock formatting — the same
+outcome as any channel with no matching file.
 Operators override per folder via `~/.claude/output-styles/` — Claude
 Code's own settings precedence, no arizuko mechanism.
 

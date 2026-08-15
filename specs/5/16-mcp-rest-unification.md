@@ -16,10 +16,10 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > refuses to boot rather than papering over it.
 >
 > **The mount `Name` now IMPORTS, and a literal cannot come back.** Every
-> resource name is spelled once, in `resreg/resources/names.go`, and all **37**
-> `resreg.Resource` declarations read it: the **17** catalog registrations in
-> `resreg/resources/*.go` and the **20** mounted handlers across routd (11),
-> onbod (3), authd (3), runed (1), proxyd (1) and webd (1). `Table` needed no
+> resource name is spelled once, in `resreg/resources/names.go`, and all **40**
+> `resreg.Resource` declarations read it: the **18** catalog registrations in
+> `resreg/resources/*.go` and the **22** mounted handlers across routd (12),
+> onbod (4), authd (3), runed (1), proxyd (1) and webd (1). `Table` needed no
 > change — it was never restated at a mount site; only the catalog sets it.
 >
 > The guard is `resreg/resources/name_source_test.go`'s
@@ -333,7 +333,7 @@ tests, each catching what the others cannot:
   registry publishes under it — an unregistered name and a drifted endpoint set
   both fail.
 - `resreg/resources/name_source_test.go`'s `TestResourceName_NoStringLiteral`
-  reads the SOURCE of all 37 declarations and rejects a `Name` string literal.
+  reads the SOURCE of all 40 declarations and rejects a `Name` string literal.
   This is not redundant with the one above: a literal with the CORRECT value
   passes every value-level test in the tree, and is precisely the state from
   which one of the two spellings later gets edited.

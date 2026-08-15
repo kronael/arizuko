@@ -17,8 +17,9 @@ conversation. **The decision is that this is a tool family, not `Bash`.**
 `Bash` is always available but wrong for this: it makes the agent know the
 instance name, the systemd unit format, and grep patterns; its output is
 unbounded and blows context; and a non-operator agent should not have
-`Bash` at all. `inspect_*` returns shaped JSON with built-in limit/offset
-and an opaque `cursor` — structure, not text.
+`Bash` at all. `inspect_*` returns shaped JSON: every tool takes `limit`,
+and `inspect_messages` adds `before` (RFC3339) to page backward — structure,
+not text.
 
 Read-only. `registerInspect` (`ipc/inspect.go`) takes the resolved
 `auth.Identity` and the caller's folder: root sees the instance, a named
