@@ -3949,7 +3949,7 @@ forbids. Options:
   surface==REST ownsFolder filter); CREATE stays dashd's `SetupGroup`. No second
   bare create door.
 
-## C11 — Compose generation succeeds after daemon env writes fail (2026-07-30, open)
+## C11 — Compose generation succeeds after daemon env writes fail (FIXED 2026-08-15, cd3fd616)
 
 `Generate` logs `writeEnvFiles` failure and continues, producing compose that
 references stale, partial, or missing daemon env files. For `runed`, this can
