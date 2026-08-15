@@ -320,7 +320,7 @@ Four remaining sites, all verified at `8ef52f47`:
   remember to call was rejected — a convention with an owner is still a
   convention. Same class as [`L4`](#l4); see the identity-derived-not-read
   rule in `CLAUDE.md`.
-- **Fix:** this commit
+- **Fix:** 30a0bf3a
 
 ## L27 — five channel platforms ship no output-style file, so their agents format blind (2026-08-15, open)
 
