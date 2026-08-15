@@ -226,6 +226,34 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L39 — whapd acks WhatsApp before routd accepts, the TS half of L25 (2026-08-15, open)
+
+Found while fixing `L25`, which named a sibling entry `L20` for this — `L20`
+does not exist in this file, and the in-memory queue it described
+(`whapd/src/queue.ts`) was deleted before that pass. The defect itself is real
+and still open.
+
+`whapd/src/main.ts` calls `sock.readMessages([msg.key])` — the WhatsApp read
+receipt — BEFORE `await rc.sendMessage(payload)`, and the `catch` around the
+send only logs `deliver failed`. Baileys will not hand the message over again,
+so a routd that is restarting loses it, exactly as slakd did.
+
+`L25` shipped the durable answer as `chanlib.RouterClient.RetainInbound` (a
+per-adapter `inbound_pending` table plus a sweep), wired into slakd and discd.
+whapd is TypeScript and cannot use it. The fix is the same shape in TS and
+should share whatever durable store `L32` picks for the outbound ledger — one
+adapter-local database, two tables, not two bespoke stores.
+
+- **Severity:** high — same class as `L25`, on the adapter krons runs as its
+  primary channel
+- **Scope:** whapd inbound durability
+- **Affected:** every WhatsApp message arriving while routd is restarting
+- **Source:** `whapd/src/main.ts` (`readMessages` then `rc.sendMessage` in a
+  log-only `catch`); contrast `chanlib/inbound.go`
+- **Status:** open — do it together with `L32`, which has to choose the same
+  durable store (node:22 has no stable `node:sqlite`).
+- **Fix:**
+
 ## L32 — whapd ignores `idempotency_key`: the one adapter still outside the D5 dedup contract (2026-08-15, open)
 
 Every Go adapter claims/settles routd's `idempotency_key` in a durable
@@ -572,7 +600,7 @@ length envelope, no per-surface shape.
   call before anyone writes prose into the agent's mouth.
 - **Fix:**
 
-## L25 — slakd acks Slack before routd accepts, so a deploy silently drops messages (2026-08-15, proposed)
+## ✅ FIXED 2026-08-15 — L25 — slakd acks Slack before routd accepts, so a deploy silently drops messages (2026-08-15)
 
 `slakd.handleEvents` answers `200 OK` to Slack BEFORE calling routd
 (`slakd/bot.go:405-406`, comment: "ack first; Slack retries on non-2xx, which we
@@ -595,21 +623,35 @@ next poll. The two adapters disagree on whether an inbound is durable.
 - **Affected:** every Slack message arriving while routd is restarting or down
 - **Source:** `slakd/bot.go:405-406,546-548`; `template/services/slakd.yml:23`;
   contrast `teled/bot.go:212-224`
-- **Status:** proposed — the fix is a REDESIGN and needs sign-off.
+- **Status:** FIXED — the redesign shipped as ONE mechanism in `chanlib`, not a
+  slakd-local patch. `RouterClient.RetainInbound(ctx, db)` writes a failed
+  inbound to the adapter's own `inbound_pending` table
+  (`chanlib/inbound.go`, `chanlib/migrations/0002-inbound-pending.sql`) and a
+  15s sweep re-delivers it with a 30s→15m backoff. The ack is untouched: Slack
+  still gets its 200 inside 3s.
 
-  Deferring the ack until after routd accepts is the obvious change and is
-  wrong: Slack requires the ack inside 3 seconds and retries on non-2xx, so a
-  slow routd would turn one message into several. The durable answer matches
-  what we established for outbound on 2026-08-15: slakd now owns `slakd.db`,
-  so an inbound that routd rejects should land in a local `inbound_pending`
-  table and be re-delivered by a sweep, exactly as `teled` re-polls. That is a
-  new mechanism and a new table, hence a proposal, not an inline fix.
+  Wired into the two adapters that CONSUME their platform event on arrival —
+  `slakd` (Slack's webhook ack) and `discd` (the gateway hands each event over
+  once). Deliberately NOT wired into `teled`, `bskyd`, `reditd`, `linkd` or
+  `emaid`: each already advances its cursor / seen-pointer / `\Seen` flag only
+  after routd answers 200, so the platform IS their queue and a second queue
+  beside a working one is a second thing to drift.
 
-  Sibling question for the same decision: every other adapter that acks a
-  platform webhook before calling routd has this shape. `whapd` already has a
-  filed instance (`L20` — it queues undelivered messages in memory and
-  200-acks). One durable-inbound mechanism in `chanlib`, one table per adapter
-  daemon, would answer both rather than two bespoke fixes.
+  Retention covers UNAVAILABILITY, not refusal: a 400/403/413/422 means routd
+  read the payload and rejected it, so the row is dropped with an ERROR line
+  rather than replayed forever (`permanentIngress`, keyed on the new
+  `chanlib.StatusError` rather than on matching error text). The retained row
+  carries the adapter's stable message id — routd's `messages` PK — so a
+  re-delivery of a row routd already took is an `INSERT OR IGNORE` no-op.
+  `GET /health` reports `pending_inbound` while the backlog is non-empty, so
+  the failure surfaces where an operator already looks.
+
+  **Correction to this entry's own sibling note.** `L20` does not exist in this
+  file — the reference is dangling, and `whapd/src/queue.ts` (the in-memory
+  queue it described) was deleted before this pass. whapd's inbound path DOES
+  still have the shape (`whapd/src/main.ts` calls `sock.readMessages` to ack,
+  then only logs a failed `rc.sendMessage`), but it is TypeScript and outside
+  this Go mechanism; filed fresh as `L39` rather than fixed here.
 - **Fix:**
 
 ## L26 — `make test-race`, the documented pre-tag gate, cannot finish (2026-08-15, open)

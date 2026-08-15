@@ -151,6 +151,41 @@ base64 in `attachments[].data` instead. teled proxies
 expire; discd uses CDN URLs directly. Outbound: multipart POST to the
 adapter's `/send-file` with an optional caption.
 
+## Inbound durability
+
+An inbound is delivered exactly once, and which side holds it while routd
+is unavailable depends on whether the adapter can ask the platform again.
+
+**Cursor-gated adapters make the platform the queue.** `teled`, `bskyd`,
+`reditd`, `linkd` and `emaid` advance their offset / seen-pointer / cursor
+/ IMAP `\Seen` flag ONLY after routd answers 200. A failure leaves the
+platform holding the message and the next poll re-fetches it. These
+adapters keep no local queue: a second queue beside a working one is a
+second thing to drift.
+
+**Consume-on-arrival adapters retain locally.** `slakd` must answer Slack
+`200 OK` within 3 seconds and Slack redelivers on non-2xx, so deferring
+the ack until routd accepts turns one slow routd into several copies of
+the message; `discd`'s gateway hands each event over exactly once. Both
+call `RouterClient.RetainInbound`, which writes a failed inbound to the
+adapter's own `inbound_pending` table (`chanlib/inbound.go`, schema
+`chanlib/migrations/0002`) and re-delivers it on a 15s sweep with a
+30s→15m backoff. The retained row carries the adapter's stable message
+id, which is routd's `messages` primary key, so a re-delivery of a row
+routd already took is an `INSERT OR IGNORE` no-op.
+
+Retention covers UNAVAILABILITY, not refusal. A routd answer of 400 /
+403 / 413 / 422 means routd read the payload and rejected it; the row is
+dropped with an ERROR line, because replaying it would fail identically
+forever. Everything else — a dial failure, a 401 while authd restarts, a
+5xx, a 429 — is retained. `GET /health` reports `pending_inbound` while
+the backlog is non-empty.
+
+Before this, `slakd` lost every message that arrived while routd was
+restarting — which the documented `systemctl restart arizuko_<instance>`
+deploy does on every release — with one ERROR line as the trace (BUGS
+`L25`).
+
 ## Outbound and adapter resolution
 
 Internal services (onbod, timed, dashd) are **not** channels — they never

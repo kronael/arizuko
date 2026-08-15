@@ -55,6 +55,11 @@ func main() {
 				slog.Error("adapter db open failed", "dir", cfg.DataDir, "err", err)
 				return nil, nil, err
 			}
+			// Inbound durability. handleEvent answers Slack 200 BEFORE routd is
+			// called (Slack wants the ack inside 3s and redelivers on non-2xx),
+			// so Slack will never hand the message over again and a routd that
+			// is restarting used to drop it (BUGS L25).
+			rc.RetainInbound(ctx, db)
 			srv := newServer(cfg, b, db, b.isConnected, b.LastInboundAt)
 			b.files = srv.files
 			if err := b.start(ctx, rc); err != nil {

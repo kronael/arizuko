@@ -26,7 +26,7 @@ func main() {
 		ListenURL:  cfg.ListenURL,
 		Prefixes:   []string{"discord:"},
 		Caps:       caps,
-		Start: func(_ context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
+		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)
 			if err != nil {
 				slog.Error("discord auth failed", "err", err)
@@ -42,6 +42,10 @@ func main() {
 				slog.Error("adapter db open failed", "dir", cfg.DataDir, "err", err)
 				return nil, nil, err
 			}
+			// Inbound durability. The Discord gateway hands each event over
+			// exactly once and offers no replay, so a routd that is restarting
+			// used to drop the message (BUGS L25).
+			rc.RetainInbound(ctx, db)
 			srv := newServer(cfg, b, db, b.isConnected, b.LastInboundAt)
 			b.files = srv.files
 			if err := b.start(rc); err != nil {

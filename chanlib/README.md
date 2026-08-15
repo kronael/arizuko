@@ -16,7 +16,16 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
 - `RunOpts` — name, router url, listen addr, listen url, prefixes, caps, start hook
 - `NewRouterClient(url) *RouterClient` — router calls with automatic service-token auth
 - `RouterClient.SetServiceToken(src)` — install service-token source (ES256 JWT from authd)
-- `NewAdapterMux(name, prefixes, bot, isConnected, lastInboundAt) *http.ServeMux`
+- `RouterClient.RetainInbound(ctx, db)` — durable inbound for adapters that
+  consume their platform event on arrival (slakd, discd). A failed
+  `SendMessage` lands in the adapter's `inbound_pending` table and a 15s sweep
+  re-delivers it; a routd REFUSAL (400/403/413/422) is dropped with an ERROR
+  line instead. Cursor-gated adapters (teled, bskyd, reditd, linkd, emaid) must
+  NOT wire it — the platform is already their queue. Spec `5/34`, BUGS `L25`.
+- `OpenAdapterDB(dataDir, service) *sql.DB` — opens `<dataDir>/<service>.db` and
+  applies chanlib's schema (`outbound_dedup`, `inbound_pending`)
+- `PendingInboundCount(db)` — undelivered inbound backlog; `/health` reports it
+- `NewAdapterMux(name, prefixes, bot, isConnected, lastInboundAt, db) *http.ServeMux`
   — standard handler tree: `/send`, `/send-file`, `/send-voice`,
   `/typing`, `/post`, `/like`, `/dislike`, `/delete`, `/forward`,
   `/quote`, `/repost`, `/edit`, `/pin`, `/unpin`, `/health`, `/v1/history`.
@@ -53,6 +62,10 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
 - `200 {status:"stale", last_inbound_at, stale_seconds}` when no inbound within the staleness threshold (5m default, 10m for email, 60m for reddit). Informational only — a quiet-but-connected channel is normal and must not 503. Real death surfaces through `isConnected()`.
 - `200 {status:"ok"}` otherwise.
 
+`pending_inbound` rides on any of the three when the adapter is holding inbound
+routd has not accepted yet. It does not change the status: the sweep is working
+through the backlog and the platform link itself is fine.
+
 Docker `HEALTHCHECK` marks containers `(unhealthy)` on 503.
 
 ## Dependencies
@@ -63,7 +76,9 @@ Docker `HEALTHCHECK` marks containers `(unhealthy)` on 503.
 ## Files
 
 - `run.go` — `Run` + `RunOpts`, service-token exchange
-- `chanlib.go` — `RouterClient`, inbound types, env/http helpers
+- `chanlib.go` — `RouterClient`, inbound types, `StatusError`, env/http helpers
+- `inbound.go` — `RetainInbound`, the `inbound_pending` sweep
+- `dedup.go` — `OpenAdapterDB`, the `outbound_dedup` claim/settle ledger
 - `handler.go` — `NewAdapterMux`, `BotHandler` interface, health, `CapImplReport`
 - `auth.go` — `Auth` middleware (ES256 service:routd verification)
 - `retry.go` — outbound retry policy
