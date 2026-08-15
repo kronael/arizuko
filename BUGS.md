@@ -2132,7 +2132,7 @@ logs, browser history, and proxy access logs.
   yields no redeemable bearer. The raw token appears once, in the create-response
   BODY (`:143-149`), never in a URL.
 
-## [SEC] route_tokens: encodeJID/decodeJID not reversible; webhook label unvalidated (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] route_tokens: encodeJID/decodeJID not reversible; webhook label unvalidated (2026-06-18)
 
 `route_tokens.go:131`: `decodeJID` maps every `--` back to `/`, so a label containing `--` revokes
 the wrong JID. `route_tokens.go:43`: label is unvalidated — can contain `/` or control chars that
@@ -2144,7 +2144,13 @@ break JID namespace.
 - **Status:** resolved — label validated against `[a-zA-Z0-9._-]+` (80bd29da);
   encodeJID collision fixed a51989cc, verified 2026-07-13: `encodeJID` =
   `url.PathEscape` (reversible), `decodeJID` deleted (mux PathValue unescapes)
-- **Fix:** use `url.PathEscape`; validate label against `[a-zA-Z0-9._-]+`
+- **Fix:** 80bd29da + a51989cc; re-verified at fb152e98 — `encodeJID` is `url.PathEscape`
+  (`route_tokens.go:143`), the lossy `decodeJID` is gone, and `handleTokensRevoke`
+  (`:116-121`) reads the mux-unescaped `{jid}` PathValue. Labels are gated by
+  `webhookLabelRe = ^[a-zA-Z0-9._-]+$` (`:15`, enforced `:56`) before composing
+  `hook:<folder>/<label>`. Revoke is also folder-bound —
+  `RevokeRouteToken(jid, folder)` (`:133`) after `requireAdmin(folder)` — so even a
+  crafted jid cannot revoke another folder's token.
 
 ## [SEC] chat: raw bearer tokens visible to read-scoped dashboard users (2026-06-18, open)
 
