@@ -1880,7 +1880,7 @@ should NOT be reattempted as written:
 
 - **Status:** closed — recorded to prevent a repeat, no action wanted
 
-## S1 — retired `CHANNEL_SECRET` still documented as the live adapter credential (2026-08-02, fixed; helm split to S1b)
+## ✅ FIXED 2026-08-15 S1 — retired `CHANNEL_SECRET` still documented as the live adapter credential — re-verified clean; helm split to S1b
 
 `CHANNEL_SECRET` is gone from the code — `chanlib.RouterClient.svcToken` carries
 a `service:<daemon>` ES256 JWT on every authenticated routd call, and five call
@@ -1930,6 +1930,12 @@ concern, not a spec one.
     snapshot of a retired topology makes it neither the old docs nor the new.
   - NOT deployed: `template/web/pub/` is source-of-truth, the `/pub` deploy is
     the operator's step (`template/web/CLAUDE.md`).
+
+**Re-verified 2026-08-15:** `grep -rn CHANNEL_SECRET --include=*.go .` finds
+zero live references (three comments note its retirement); `CLAUDE.md`,
+`security/index.html`, `reference/env.html`, `howto/index.html`,
+`reference/cli.html` are all clean. S1b (helm `gated` deploy) stays open,
+separately, as its own PROPOSED redesign entry.
 
 ## S1b — the helm chart deploys the deleted `gated` daemon (2026-08-05, PROPOSED — redesign, needs sign-off)
 
