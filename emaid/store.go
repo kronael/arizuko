@@ -3,7 +3,7 @@ package main
 import (
 	"database/sql"
 	"embed"
-	"log/slog"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -68,26 +68,29 @@ func getThreadByMsgID(db *sql.DB, msgID string) *emailThread {
 
 // upsertThread atomically records a message→thread mapping.
 // Concurrent polls on the same message ID are safe (INSERT OR IGNORE is idempotent).
-func upsertThread(db *sql.DB, msgID, threadID, fromAddress, rootMsgID string) {
+//
+// Every failure is returned, never just logged: without the email_msg_ids row
+// the next inbound reply misses in getThreadByMsgID and opens a SECOND thread,
+// so the user sees one conversation split in two. The caller aborts the message
+// instead, leaving it unseen for the next poll to retry.
+func upsertThread(db *sql.DB, msgID, threadID, fromAddress, rootMsgID string) error {
 	tx, err := db.Begin()
 	if err != nil {
-		slog.Error("upsertThread begin", "thread", threadID, "err", err)
-		return
+		return fmt.Errorf("begin thread %s: %w", threadID, err)
 	}
 	defer tx.Rollback()
 	if _, err = tx.Exec(
 		`INSERT OR IGNORE INTO email_threads (thread_id, from_address, root_msg_id) VALUES (?,?,?)`,
 		threadID, fromAddress, rootMsgID); err != nil {
-		slog.Error("upsertThread email_threads", "thread", threadID, "err", err)
-		return
+		return fmt.Errorf("insert email_threads %s: %w", threadID, err)
 	}
 	if _, err = tx.Exec(
 		`INSERT OR IGNORE INTO email_msg_ids (msg_id, thread_id) VALUES (?,?)`,
 		msgID, threadID); err != nil {
-		slog.Error("upsertThread email_msg_ids", "msg", msgID, "err", err)
-		return
+		return fmt.Errorf("insert email_msg_ids %s: %w", msgID, err)
 	}
 	if err := tx.Commit(); err != nil {
-		slog.Error("upsertThread commit", "thread", threadID, "err", err)
+		return fmt.Errorf("commit thread %s: %w", threadID, err)
 	}
+	return nil
 }

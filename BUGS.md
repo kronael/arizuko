@@ -651,7 +651,7 @@ Production run: 149 hits. With `-test`: 56. Buckets and verdicts:
   same-group-restart (`hasPending`) in production load — behavior inference
   from code, not observed live.
 
-## L3 — emaid drops an email thread mapping on a write error and reports nothing (2026-08-11, open)
+## L3 — emaid drops an email thread mapping on a write error and reports nothing (2026-08-11, FIXED 2026-08-15)
 
 `upsertThread` (`emaid/store.go`) returns `void`. Every failure path — `Begin`,
 either `INSERT OR IGNORE`, `Commit` — logs at error level and returns, so the
@@ -673,7 +673,19 @@ message it is handling.
 - **Scope:** emaid thread persistence
 - **Affected:** emaid
 - **Source:** `emaid/store.go` `upsertThread`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — `upsertThread` returns an error on every
+  failure path (`Begin`, both inserts, `Commit`), each naming the message or
+  thread that was lost. Its one production caller, `handleMsg`, returns that
+  error BEFORE delivering and before mark-seen, so the UID stays unseen and the
+  next poll retries the whole message.
+  This is the mechanism already in the same function, extended, not a second
+  one: mark-seen failure was made to return for the same reason (the router
+  dedups on msgID, so a retry is safe; a silent loss is not). The question the
+  entry left to the caller — "what does a failed mapping mean for the message?"
+  — is therefore answered as "do not deliver it yet", which is the only answer
+  that does not show the user a split conversation.
+  `TestUpsertThreadSurfacesWriteFailure` drops `email_msg_ids` mid-flight and
+  fails if the write reports success.
 
 ## M1 — runed reads skills from the developer's working tree, not from a release (2026-08-09, FIXED 2026-08-09, c8c67f3c)
 
