@@ -2649,7 +2649,7 @@ containment boundary — but that is the user's call, and either way `Resolve`
 must grow a distinguishable "could not answer" result instead of folding it
 into "unclaimed". Do not ship this inline.
 
-- **Fix:** built as recommended — fail-OPEN, both cases warned.
+- **Fix:** `22e16615` — built as recommended: fail-OPEN, both cases warned.
   `Server.nonCanonicalWarning` (`routd/acl_resource.go`) runs on the `add` case
   of the ONE shared `aclHandler`, so the agent's `add_acl` and the operator's
   `POST /v1/acl` get it from the same line. `IdentityResolver.Resolve` grew the
