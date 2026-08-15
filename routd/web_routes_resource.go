@@ -175,9 +175,9 @@ func argString(args resreg.Args, key string) string {
 	return s
 }
 
-// putWebRouteTx upserts a web_routes row on tx (mirrors DB.PutWebRoute so the
-// mutation lands in resreg.invoke's tx alongside its audit_log row). ON CONFLICT
-// keeps the original created_at, matching DB.PutWebRoute.
+// putWebRouteTx upserts a web_routes row on tx, so the mutation lands in
+// resreg.invoke's tx alongside its audit_log row. ON CONFLICT keeps the
+// original created_at.
 func putWebRouteTx(ctx context.Context, tx *sql.Tx, r WebRouteRow) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO web_routes(path_prefix, access, redirect_to, folder, created_at)
 		VALUES(?,?,?,?,?)

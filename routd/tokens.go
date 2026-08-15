@@ -1,10 +1,6 @@
 package routd
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"database/sql"
-	"encoding/hex"
 	"log/slog"
 	"time"
 
@@ -14,42 +10,6 @@ import (
 // route_tokens, web_routes, and the idempotency ledger. route tokens are the
 // /chat/ /hook/ widget bearer tokens routd owns outright — a distinct credential
 // family from authd capability tokens.
-
-// IssueRouteToken mints a 32-byte token for jid under owner_folder, stores
-// sha256(token), and returns the raw token once. targetFolder is the folder the
-// token delivers to (spec 5/W § Resolution); context is the optional per-link
-// processing instructions (spec 5/W § link context); "" stores NULL for either.
-func (d *DB) IssueRouteToken(jid, ownerFolder, targetFolder, context string) (string, string, error) {
-	if err := store.CheckRouteTokenTarget(d.db, jid, targetFolder); err != nil {
-		return "", "", err
-	}
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return "", "", err
-	}
-	token := hex.EncodeToString(raw)
-	h := sha256.Sum256([]byte(token))
-	created := nowTS()
-	_, err := d.db.Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context, kind, target_folder)
-		VALUES(?,?,?,?,?,?,?)`, h[:], jid, ownerFolder, created, nullStr(context), store.RouteTokenKindRoute, nullStr(targetFolder))
-	if err != nil {
-		return "", "", err
-	}
-	return token, created, nil
-}
-
-// ResolveRouteToken hashes the raw token and returns (jid, owner_folder,
-// context). Scoped to route-kind rows — a pairing token (spec 5/31) is not a
-// delivery credential and resolves to ErrNotFound here.
-func (d *DB) ResolveRouteToken(token string) (jid, owner, context string, err error) {
-	h := sha256.Sum256([]byte(token))
-	err = d.db.QueryRow("SELECT jid, owner_folder, COALESCE(context,'') FROM route_tokens WHERE token_hash=? AND kind=?",
-		h[:], store.RouteTokenKindRoute).Scan(&jid, &owner, &context)
-	if err == sql.ErrNoRows {
-		return "", "", "", ErrNotFound
-	}
-	return jid, owner, context, err
-}
 
 // RouteTokenTarget returns the folder the delivery tokens for jid route to, or
 // "" when no token records one. store.RouteTokenTargetByJID is the single
@@ -95,17 +55,6 @@ func (d *DB) ListRouteTokens(ownerFolder string) ([]RouteTokenRow, error) {
 	return out, rows.Err()
 }
 
-// RevokeRouteTokens deletes all delivery tokens for jid under ownerFolder;
-// returns the deleted count.
-func (d *DB) RevokeRouteTokens(jid, ownerFolder string) (int64, error) {
-	res, err := d.db.Exec("DELETE FROM route_tokens WHERE jid=? AND owner_folder=? AND kind=?",
-		jid, ownerFolder, store.RouteTokenKindRoute)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
-}
-
 // WebRouteRow is a URL-tree access entry.
 type WebRouteRow struct {
 	PathPrefix string
@@ -113,16 +62,6 @@ type WebRouteRow struct {
 	RedirectTo string
 	Folder     string
 	CreatedAt  string
-}
-
-// PutWebRoute upserts a web route.
-func (d *DB) PutWebRoute(r WebRouteRow) error {
-	_, err := d.db.Exec(`INSERT INTO web_routes(path_prefix, access, redirect_to, folder, created_at)
-		VALUES(?,?,?,?,?)
-		ON CONFLICT(path_prefix) DO UPDATE SET access=excluded.access,
-		redirect_to=excluded.redirect_to, folder=excluded.folder`,
-		r.PathPrefix, r.Access, r.RedirectTo, r.Folder, nowTS())
-	return err
 }
 
 // WebRoutes lists routes for a folder (or all when folder is empty).
@@ -147,16 +86,6 @@ func (d *DB) WebRoutes(folder string) ([]WebRouteRow, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
-}
-
-// DeleteWebRoute removes a web route by (path_prefix, folder).
-func (d *DB) DeleteWebRoute(pathPrefix, folder string) (bool, error) {
-	res, err := d.db.Exec("DELETE FROM web_routes WHERE path_prefix=? AND folder=?", pathPrefix, folder)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
 }
 
 // IdemRecord is a stored idempotent response.

@@ -83,8 +83,8 @@ func TestRouteTokensMCP_IssueListRevoke(t *testing.T) {
 	if chatURL != "https://x.test/chat/"+chatTok+"/" {
 		t.Fatalf("chat url = %q, want https://x.test/chat/<tok>/", chatURL)
 	}
-	if j, owner, _, e := db.ResolveRouteToken(chatTok); e != nil || j != "web:hq" || owner != "hq" {
-		t.Fatalf("resolve chat: jid=%q owner=%q err=%v", j, owner, e)
+	if row, ok := resolveToken(db, chatTok); !ok || row.JID != "web:hq" || row.OwnerFolder != "hq" {
+		t.Fatalf("resolve chat: jid=%q owner=%q ok=%v", row.JID, row.OwnerFolder, ok)
 	}
 
 	// issue_webhook: source_label github → jid hook:hq/github, url under /hook/.
@@ -131,7 +131,7 @@ func TestRouteTokensMCP_IssueListRevoke(t *testing.T) {
 	if rtext != `{"deleted":true}` {
 		t.Fatalf("revoke result = %q, want {\"deleted\":true}", rtext)
 	}
-	if _, _, _, e := db.ResolveRouteToken(chatTok); e == nil {
+	if _, ok := resolveToken(db, chatTok); ok {
 		t.Fatal("chat token still resolves after revoke")
 	}
 }
@@ -151,13 +151,13 @@ func TestRouteTokensMCP_IssueWithContext(t *testing.T) {
 
 	chatTok, _, _ := issueToken(t, sock, "issue_chat_link",
 		map[string]any{"context": "bug reports from the acme site; triage, don't chat"})
-	if _, _, linkCtx, e := db.ResolveRouteToken(chatTok); e != nil ||
-		linkCtx != "bug reports from the acme site; triage, don't chat" {
-		t.Fatalf("resolve context = (%q,%v)", linkCtx, e)
+	if row, ok := resolveToken(db, chatTok); !ok ||
+		row.Context != "bug reports from the acme site; triage, don't chat" {
+		t.Fatalf("resolve context = (%q,%v)", row.Context, ok)
 	}
 	hookTok, _, _ := issueToken(t, sock, "issue_webhook", map[string]any{"source_label": "github"})
-	if _, _, linkCtx, e := db.ResolveRouteToken(hookTok); e != nil || linkCtx != "" {
-		t.Fatalf("context-less mint got context (%q,%v)", linkCtx, e)
+	if row, ok := resolveToken(db, hookTok); !ok || row.Context != "" {
+		t.Fatalf("context-less mint got context (%q,%v)", row.Context, ok)
 	}
 
 	text, e := callToolText(t, sock, "list_tokens", nil)
@@ -198,10 +198,7 @@ func TestRouteTokensMCP_RevokeCrossFolderDenied(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "acme"})
 	_ = db.PutGroup(core.Group{Folder: "other"})
 	// acme mints its own token out-of-band.
-	acmeTok, _, err := db.IssueRouteToken("web:acme", "acme", "acme", "")
-	if err != nil {
-		t.Fatalf("seed acme token: %v", err)
-	}
+	acmeTok := mintToken(t, db, "web:acme", "acme", "acme", "")
 
 	// "other" (granted revoke_token) tries to revoke acme's token.
 	grantMCPTools(t, db, "other", "revoke_token")
@@ -213,8 +210,8 @@ func TestRouteTokensMCP_RevokeCrossFolderDenied(t *testing.T) {
 	if rtext != `{"deleted":false}` {
 		t.Fatalf("cross-folder revoke result = %q, want {\"deleted\":false}", rtext)
 	}
-	if j, owner, _, e := db.ResolveRouteToken(acmeTok); e != nil || j != "web:acme" || owner != "acme" {
-		t.Fatalf("acme token revoked cross-folder: jid=%q owner=%q err=%v", j, owner, e)
+	if row, ok := resolveToken(db, acmeTok); !ok || row.JID != "web:acme" || row.OwnerFolder != "acme" {
+		t.Fatalf("acme token revoked cross-folder: jid=%q owner=%q ok=%v", row.JID, row.OwnerFolder, ok)
 	}
 }
 
@@ -301,8 +298,8 @@ func TestServeTurnMCP_ElevatedMintsChatLink(t *testing.T) {
 	if jid != "web:hq" || url != "https://x.test/chat/"+tok+"/" {
 		t.Fatalf("elevated mint: jid=%q url=%q", jid, url)
 	}
-	if j, owner, _, e := db.ResolveRouteToken(tok); e != nil || j != "web:hq" || owner != "hq" {
-		t.Fatalf("resolve minted token: jid=%q owner=%q err=%v", j, owner, e)
+	if row, ok := resolveToken(db, tok); !ok || row.JID != "web:hq" || row.OwnerFolder != "hq" {
+		t.Fatalf("resolve minted token: jid=%q owner=%q ok=%v", row.JID, row.OwnerFolder, ok)
 	}
 }
 

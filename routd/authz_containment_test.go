@@ -156,7 +156,7 @@ func TestRESTWebRoutePutContainment(t *testing.T) {
 		t.Fatalf("cross-folder redirect = %d want 400 body=%s", r.Code, r.Body.String())
 	}
 	// first-claim: a top-level path bob already owns cannot be hijacked by alice.
-	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/shared", Access: "public", Folder: "bob"})
+	putWebRoute(t, db, WebRouteRow{PathPrefix: "/shared", Access: "public", Folder: "bob"})
 	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", webRouteReq{Folder: "alice", Path: "/shared", Access: "public"}); r.Code != 403 {
 		t.Fatalf("claim hijack = %d want 403", r.Code)
 	}

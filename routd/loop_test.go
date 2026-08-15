@@ -258,9 +258,7 @@ func TestSuffixedRouteTokenDispatchesToMintedFolder(t *testing.T) {
 			if err != nil {
 				t.Fatalf("mint jid: %v", err)
 			}
-			if _, _, err := db.IssueRouteToken(jid, c.target, c.target, ""); err != nil {
-				t.Fatalf("mint token: %v", err)
-			}
+			mintToken(t, db, jid, c.target, c.target, "")
 			_ = db.PutMessage(core.Message{ID: "m1", ChatJID: jid, Sender: "src",
 				Content: `{"event":"issue.created"}`, Timestamp: time.Now().UTC(), Verb: "message"})
 

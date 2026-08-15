@@ -352,7 +352,7 @@ own check before anyone relies on it.
   → assignment only. `deadcode ./...` flags `runed/manager.go:510 intersect`;
   `git log -S "intersect(ceiling"` → born `b646ba93`, caller died `42657378`.
 
-## L9 — routd/tokens.go: all five DB methods are production-dead twins of the resource tx implementations (2026-08-11, open)
+## L9 — routd/tokens.go: all five DB methods are production-dead twins of the resource tx implementations (2026-08-11, FIXED 2026-08-15)
 
 `DB.IssueRouteToken`, `DB.ResolveRouteToken`, `DB.RevokeRouteTokens`,
 `DB.PutWebRoute`, `DB.DeleteWebRoute` have zero non-test callers. The live
@@ -371,7 +371,19 @@ test-only, so the two audits do not contradict each other.
 - **Scope:** duplicated route-token/web-route write scheme
 - **Affected:** routd
 - **Source:** `routd/tokens.go:20,39,79,98,132`
-- **Status:** open
+- **Status:** FIXED 2026-08-15 — the five are deleted and the "mirrors DB.X"
+  comments, which now named nothing, are gone with them. The premise understated
+  it: the scheme had THREE implementations, not two. `store.Store`
+  (InsertRouteToken / LookupRouteToken / RevokeRouteToken / SetWebRoute /
+  DelWebRoute) is the shared live library — webd and proxyd resolve with it,
+  dashd and the CLI mint and revoke with it — and routd's tx twins exist so the
+  mutation lands in `resreg.invoke`'s tx beside its audit row. Only
+  `routd/tokens.go`'s copies had no caller at all.
+  The 51 test call sites now go through `store.Store` (helpers in
+  `routd/route_tokens_livepath_test.go` + `tests/route_token_livepath_test.go`),
+  so a fixture exercises production code instead of becoming a fourth
+  implementation. `contract_test`'s comment claimed webd/proxyd call
+  `ResolveRouteToken`; they call `store.LookupRouteToken`, and it now says so.
 - **Evidence:** `grep -rn "IssueRouteToken\|ResolveRouteToken\|RevokeRouteTokens\|PutWebRoute\|DeleteWebRoute" --include="*.go" . | grep -v _test | grep -v routd/tokens.go`
   → only "mirrors …" comments in the two resource files. Test callers exist
   (`routd/route_tokens_resource_test.go`, `web_routes_rest_test.go` et al.), so
