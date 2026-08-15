@@ -306,6 +306,14 @@ Not a containment boundary — Docker, the crackbox egress allowlist and the gat
 MCP socket are, and `SECURITY.md` states this. Recorded so the residual is not
 mistaken for coverage.
 
+**Re-verified 2026-08-15 at `bcb5bb83`: accurate as written, no action.** The
+demonstrated fix is present and is the one described — `logicalLines`
+(`ant/src/skillguard.ts:46`) joins a line ending in `\` with the next before
+scanning. The residual class is genuinely out of scope: closing it needs AST or
+dataflow analysis, which `specs/5/23` excludes by decision, so there is no
+contained fix to make and nothing to close. Left open deliberately as a
+recorded residual, which is what this entry is for.
+
 ## L31 — a product never really updates: four of six payload kinds are seed-once (2026-08-15, proposal — needs sign-off)
 
 `arizuko packages upgrade` / `sync` re-apply exactly two payload kinds: skills
