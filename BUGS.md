@@ -1812,7 +1812,7 @@ removing Kokoro while ttsd remains—makes the whole Compose model invalid.
 - **Fix:** `add` parses the fragment's `depends_on` and warns for any dep that is
   neither a base daemon nor an enabled package (e.g. `ttsd` → `kokoro`).
 
-## C6 — malformed compose-managed marker can erase `.env` tail (2026-07-28, open)
+## C6 — malformed compose-managed marker can erase `.env` tail (CLOSED-STALE 2026-08-15 — already fixed 4fa9553e, heading was stale)
 
 `writeManagedEnv` treats any prefix match as a marker and never checks marker
 balance. An unmatched begin marker causes every following operator line,
