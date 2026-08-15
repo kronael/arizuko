@@ -47,8 +47,9 @@ routd/    conversation/routing plane (sole message appender, token verifier)
 runed/    execution plane (the ONLY daemon wired to docker.sock + crackbox)
   ├── container     docker spawn, volume mounts, runtime
   │   └── groupfolder, mountsec
-  └── auth          verify; per-spawn token downscope via authd (broker.go)
-  runed.db: spawns, session_log, mcp_tokens
+  └── auth          verify only — the turn is credentialed by the MCP
+                    socket (SO_PEERCRED), not by a token
+  runed.db: spawns, session_log, circuit_breaker
 
 authd/    auth authority (sole ES256 signer, JWKS publisher, OAuth provider)
   └── auth          token mint/downscope, key rotation
@@ -71,8 +72,7 @@ db_utils/ SQL migration runner
 
 Every channel adapter, `webd`, and `proxyd` talk to `routd` over HTTP
 (`/v1/*`). `routd` dispatches each turn to `runed` (`POST /v1/runs`);
-`runed` brokers a per-spawn token from `authd` and spawns the agent
-container. The per-turn agent MCP socket is hosted in-process by
+`runed` spawns the agent container. The per-turn agent MCP socket is hosted in-process by
 `routd` (`ipc.ServeMCP`); `runed` only mounts the ipc dir.
 
 ## Integrations
@@ -127,7 +127,7 @@ Channel adapter → POST /v1/messages (routd) → PutMessage (sole appender)
   → routd stands up the per-turn MCP socket in-process (ipc.ServeMCP)
   → routd → runed: POST /v1/runs (dispatch the turn)
     → runed: steer into a live spawn (SIGUSR1 + IPC) OR new docker run --rm
-    → runed brokers a per-spawn token from authd, mounts the ipc dir
+    → runed mounts the ipc dir (the socket IS the turn credential)
   → agent runs the turn; per-turn results return over MCP (submit_turn)
     and the run outcome returns on the /v1/runs response
   → routd: chanreg Deliverer → POST <adapter>/send (channel egress)
@@ -291,10 +291,11 @@ standalone daemon owning its own DB:
   [`specs/5/E-routd.md`](specs/5/E-routd.md).
 - **`runed`** — execution plane. The only daemon wired to the docker
   socket, crackbox, and the per-folder agent networks. Owns the work
-  queue, circuit breaker, `MaxConcurrent` cap, run TTL, steer
-  (SIGUSR1), and a per-spawn token broker that downscopes its
-  `service:runed` token to a per-turn agent token. Owns `runed.db`
-  (`spawns`, `session_log`, `mcp_tokens`). Spec
+  queue, circuit breaker, `MaxConcurrent` cap, run TTL and steer
+  (SIGUSR1). It brokers no token: the agent is credentialed by the
+  per-turn MCP unix socket routd hosts, which `SO_PEERCRED` binds to the
+  spawned process. Owns `runed.db` (`spawns`, `session_log`,
+  `circuit_breaker`). Spec
   [`specs/5/P-runed.md`](specs/5/P-runed.md).
 - **`authd`** — auth authority. The sole ES256 token minter; serves
   JWKS so every daemon verifies offline via the `auth/` library. Acts
@@ -443,7 +444,7 @@ each daemon re-sequences its own `migrations/` from `0001`.
   `network_rules`, `web_routes`, `group_watchers`, `idempotency_keys`,
   `pane_sessions`, `installed_packages`.
 - **`runed.db`** (`runed/migrations/`): `spawns`, `session_log`,
-  `mcp_tokens`, `circuit_breaker`.
+  `circuit_breaker`, `audit_log`.
 - **`auth.db`** (`authd/migrations/`): `signing_keys`, `auth_users`,
   `oauth_identities`, `refresh_tokens`.
 - **`onbod.db`** (`onbod/migrations/`): `onboarding`, `onboarding_gates`,
@@ -478,8 +479,7 @@ each daemon re-sequences its own `migrations/` from `0001`.
 | `installed_packages` | (folder, name) PK — folder `''` = instance-wide — source, revision, manifest (JSON: asset-kind → owned identities), asset_hashes (JSON: asset-id → content hash), installed_at — one row per installed package; the record `upgrade`/`remove`/dirty-detection read (routd.db, migrations 0020 + 0031, spec 5/28)                                                     |
 | `audit_log`          | id (PK), created_at, category, action, actor, actor_sub, resource, scope, surface, outcome, duration_ms, turn_id, folder, instance — one identical table per owner DB (routd.db mig 0016, runed.db mig 0005, auth.db mig 0003, onbod.db mig 0002); correlation across them is `turn_id`. proxyd/webd/dashd own no audit DB and write via a sibling `routd.db` handle |
 | `session_log`        | id, group_folder, session_id, started_at, ended_at, result, error, message_count (runed.db)                                                                                                                                                                                                                                                                          |
-| `spawns`             | run_id (PK), folder, topic, container_name, session_log_id, mcp_token_jti, session_id, state, outcome, exit_code, created_at (runed.db)                                                                                                                                                                                                                              |
-| `mcp_tokens`         | jti (PK), run_id, parent_jti, folder, scope, issued_at, expires_at (runed.db)                                                                                                                                                                                                                                                                                        |
+| `spawns`             | run_id (PK), folder, topic, container_name, session_log_id, session_id, kind, state, outcome, exit_code, steered, created_at, started_at, ended_at (runed.db)                                                                                                                                                                                                        |
 | `circuit_breaker`    | folder (PK), failures, last_failure — per-folder consecutive-failure count, survives restarts (runed.db)                                                                                                                                                                                                                                                             |
 | `auth_users`         | user_id (PK), name, created_at (auth.db)                                                                                                                                                                                                                                                                                                                             |
 | `oauth_identities`   | user_id + provider (unique), provider_sub, linked_at (auth.db)                                                                                                                                                                                                                                                                                                       |

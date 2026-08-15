@@ -5,10 +5,10 @@ Execution plane: the work queue + per-spawn container lifecycle.
 ## Purpose
 
 Pure container-spawner. runed runs the agent work queue, starts one
-Docker container per spawn, enforces run timeouts, and brokers one
-downscoped capability token per spawn. It never appends a message
-(routd is the sole appender) and never signs a token (authd is the sole
-signer). The per-turn agent MCP socket is hosted in-process by **routd**
+Docker container per spawn and enforces run timeouts. It never appends a
+message (routd is the sole appender) and never signs or brokers a token —
+the turn is credentialed by the MCP unix socket, which `SO_PEERCRED` binds
+to the spawned process. The per-turn agent MCP socket is hosted in-process by **routd**
 (`Input.ExternalMCP=true`), so runed only mounts the ipc dir and does no
 in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
 
@@ -20,15 +20,13 @@ in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
   no agent turn can start in that folder until it is released.
 - Per-spawn Docker lifecycle: `docker run --rm`, egress allowlist,
   steer via `docker kill --signal=SIGUSR1`, kill via stop→kill→`rm -f`.
-- Enforce `RUNED_RUN_TIMEOUT` per run; hourly GC of expired spawns/tokens.
-- Broker a downscoped per-spawn token from authd (parent = runed's own
-  `service:runed` token); runed mints nothing.
+- Enforce `RUNED_RUN_TIMEOUT` per run; hourly GC of expired spawns.
 - Graceful shutdown detaches in-flight runs (containers outlive the daemon).
 
 ## Tables owned
 
 `runed.db` (separate from routd's `routd.db`): `spawns`, `session_log`,
-`mcp_tokens`, `circuit_breaker`, `audit_log` — runtime
+`circuit_breaker`, `audit_log` — runtime
 execution state with no home in routd. Migrations in
 `runed/migrations/`. These are runtime tables, not manifest-addressable
 config, so `/openapi.json` exposes only the `audit` read path (emitted also for
@@ -55,11 +53,11 @@ aggregator uniformity).
 
 - `auth` (offline token verify via authd JWKS; `ServiceToken` bootstrap)
 - `container` (docker runner), `core`, `groupfolder`, `obs`, `resreg`, `types`
-- `authd` (token broker + JWKS), `routd` (hosts the per-turn agent MCP socket)
+- `authd` (JWKS), `routd` (hosts the per-turn agent MCP socket)
 
 ## Configuration
 
-- `AUTHD_URL` — authd base URL; unset → verify open + static broker (local-dev)
+- `AUTHD_URL` — authd base URL; unset → verify open (local-dev)
 - `AUTHD_SERVICE_KEY` — exchanged for an auto-refreshing `service:runed`
   token; falls back to static `RUNED_SERVICE_TOKEN`
 - `RUNED_RUN_TIMEOUT` (default 20m) — the run ceiling: bounds BOTH the
@@ -73,7 +71,7 @@ aggregator uniformity).
 ## Health signal
 
 `GET /health` returns 200 once the process is up. Red flag: spawns stuck
-in `state=queued` (broker or docker unavailable).
+in `state=queued` (docker unavailable, or the concurrency cap is full).
 
 ## Observability
 
@@ -106,14 +104,13 @@ writes no `spawns` row at all. See `runed/audit.go`.
 
 ## Files
 
-- `cmd/runed/main.go` — daemon wiring, verifier/broker bootstrap, shutdown
+- `cmd/runed/main.go` — daemon wiring, verifier bootstrap, shutdown
 - `server.go` — HTTP surface + bearer/scope gate
 - `audit.go` — the run-slot audit renderer (what runed records, and why not turns)
 - `manager.go` — Manager: run lifecycle, concurrency, queue, circuit breaker
 - `runtime.go` — Runtime interface (Run, Kill); RunSpec
 - `docker.go` — dockerRuntime: spawn / steer / kill (ExternalMCP)
-- `broker.go` — per-spawn token brokering from authd
-- `db.go` — runed.db spawn/session/token persistence
+- `db.go` — runed.db spawn/session persistence
 
 ## Status
 

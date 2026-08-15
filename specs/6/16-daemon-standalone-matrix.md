@@ -111,11 +111,11 @@ something to file down. The wrong question is "can I ship `slakd` alone?"
 below in _Use-case clusters_, is "does one-daemon-per-channel serve the
 deployer's job?" — yes.
 
-| Daemon(s)                                                                        | Shape                                          | Daemon-per-X rationale                                 |
-| -------------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------ |
-| `slakd` `teled` `discd` `whapd` `mastd` `bskyd` `reditd` `linkd` `twitd` `emaid` | Platform ↔ `routd` bridge via `chanlib`        | one per platform: isolated failure, secrets, reconnect |
-| `timed`                                                                          | Scheduler — injects turns into the bus on cron | one cron plane; a tick is just another Event (`5/A`)   |
-| `ttsd`                                                                           | Text→speech HTTP proxy over a TTS backend      | one capability endpoint; near-generic like `vited`     |
+| Daemon(s)                                                                | Shape                                          | Daemon-per-X rationale                                 |
+| ------------------------------------------------------------------------ | ---------------------------------------------- | ------------------------------------------------------ |
+| `slakd` `teled` `discd` `whapd` `bskyd` `reditd` `linkd` `twitd` `emaid` | Platform ↔ `routd` bridge via `chanlib`        | one per platform: isolated failure, secrets, reconnect |
+| `timed`                                                                  | Scheduler — injects turns into the bus on cron | one cron plane; a tick is just another Event (`5/A`)   |
+| `ttsd`                                                                   | Text→speech HTTP proxy over a TTS backend      | one capability endpoint; near-generic like `vited`     |
 
 ## Package axis — import coupling (component candidates)
 
@@ -164,16 +164,16 @@ axis the 21 daemons collapse to **8 clusters**. The channel fleet is
 _one_ cluster, not ten decisions: that is why "most daemons are adapters"
 is a feature, not sprawl.
 
-| Cluster                | Daemons                                                                                 | Deployer's job                                | Optionality                   |
-| ---------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------- |
-| **Core plane**         | `authd` `routd` `runed`                                                                 | run agents at all                             | always required               |
-| **Channel presence**   | `slakd` `teled` `discd` `whapd` `mastd` `bskyd` `reditd` `linkd` `twitd` `emaid` `webd` | meet users where they are                     | ≥1; add/drop one daemon each  |
-| **Web + management**   | `proxyd` `vited` `davd` `dashd`                                                         | put the agent on the web, run/observe/control | the _servekit_ bundle (above) |
-| **Onboarding**         | `onbod`                                                                                 | let people join safely                        | optional                      |
-| **Scheduling**         | `timed`                                                                                 | wake the agent on a clock                     | optional                      |
-| **Isolation / egress** | `crackbox`                                                                              | contain what the agent can reach              | optional (security)           |
-| **Capabilities**       | `ttsd` (+ Whisper/OpenAI hooks)                                                         | give the agent voice / extra models           | optional                      |
-| **Observability**      | `obs` (library)                                                                         | see what happened                             | opt-in, zero-overhead unset   |
+| Cluster                | Daemons                                                                         | Deployer's job                                | Optionality                   |
+| ---------------------- | ------------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------- |
+| **Core plane**         | `authd` `routd` `runed`                                                         | run agents at all                             | always required               |
+| **Channel presence**   | `slakd` `teled` `discd` `whapd` `bskyd` `reditd` `linkd` `twitd` `emaid` `webd` | meet users where they are                     | ≥1; add/drop one daemon each  |
+| **Web + management**   | `proxyd` `vited` `davd` `dashd`                                                 | put the agent on the web, run/observe/control | the _servekit_ bundle (above) |
+| **Onboarding**         | `onbod`                                                                         | let people join safely                        | optional                      |
+| **Scheduling**         | `timed`                                                                         | wake the agent on a clock                     | optional                      |
+| **Isolation / egress** | `crackbox`                                                                      | contain what the agent can reach              | optional (security)           |
+| **Capabilities**       | `ttsd` (+ Whisper/OpenAI hooks)                                                 | give the agent voice / extra models           | optional                      |
+| **Observability**      | `obs` (library)                                                                 | see what happened                             | opt-in, zero-overhead unset   |
 
 This is the **deployer-facing** grouping — orthogonal to the
 import-coupling axis (Package axis, above) and the standalone verdict. A minimal

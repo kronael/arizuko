@@ -39,12 +39,12 @@ social verbs but no pins (email, linkd). Plumbing:
 
 ## Platform coverage
 
-| Verb      | slakd | teled  | discd | mastd | bskyd | reditd | whapd  | emaid |
-| --------- | ----- | ------ | ----- | ----- | ----- | ------ | ------ | ----- |
-| edit      | ✓     | ✓ ≤48h | ✓     | ✓     | ✗     | ✓      | ✓ ~15m | ✗     |
-| delete    | ✓ own | ✓ own  | ✓ own | ✓     | ✓     | ✓ own  | ✓      | ✗     |
-| pin/unpin | ✓     | ✓      | ✓     | ✗     | ✗     | ✗      | ✗      | ✗     |
-| unpin_all | ✓     | ✓      | ✗     | ✗     | ✗     | ✗      | ✗      | ✗     |
+| Verb      | slakd | teled  | discd | bskyd | reditd | whapd  | emaid |
+| --------- | ----- | ------ | ----- | ----- | ------ | ------ | ----- |
+| edit      | ✓     | ✓ ≤48h | ✓     | ✗     | ✓      | ✓ ~15m | ✗     |
+| delete    | ✓ own | ✓ own  | ✓ own | ✓     | ✓ own  | ✓      | ✗     |
+| pin/unpin | ✓     | ✓      | ✓     | ✗     | ✗      | ✗      | ✗     |
+| unpin_all | ✓     | ✓      | ✗     | ✗     | ✗      | ✗      | ✗     |
 
 Slack `pins.add`/`pins.remove`, unpin-all iterating `pins.list`; Discord
 `ChannelMessagePin`/`Unpin` with no bulk primitive; Telegram

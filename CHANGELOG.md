@@ -48,6 +48,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   parse is listed as broken rather than skipped, so a malformed manifest can't
   quietly read as "this product doesn't ship".
 
+### Removed
+
+- **Mastodon support is dropped.** The `mastd` adapter, its compose fragment,
+  its helm block and the `go-mastodon` dependency are deleted, and no
+  `mastodon:` JID exists any more. A routing rule that matches `mastodon:`
+  matches nothing — remove it or point it at a platform you still run.
+
 ### Changed
 
 - **An API token for a tool never enters the agent's environment.** Until now
@@ -136,6 +143,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **A webhook or chat link with a suffix reaches the folder it was minted for
+  (BUGS `L4`, spec `5/W`).** `route_tokens` now records `target_folder` at
+  issue time. Before this the folder was parsed back out of the JID, which
+  cannot be done once a suffix is present: `web:team/forms` reads exactly like
+  a plain token at a folder named `team/forms`, and `hook:a/b/c` reads as
+  folder `a/b`. Payloads landed in the onboarding queue — or, when the guessed
+  folder existed, in another tenant's chat. `list_tokens` returns
+  `target_folder` (where it delivers) beside `owner_folder` (who may revoke),
+  and two folders can no longer mint the same JID. Three surfaces read the
+  recorded folder now: routing, dashboard visibility and proxyd's `X-Folder`
+  stamp — the last two were the cross-tenant ones.
+- **A duplicate migration number is an error instead of a dropped migration.**
+  The runner skipped any file whose version was not greater than the last one
+  applied, so two files numbered `0084` applied the first and silently dropped
+  the second, on every instance. `db_utils` now rejects a duplicate or gapped
+  version set before applying anything.
 - **A failed message is recorded, retried a bounded number of times, then
   dead-lettered (BUGS `L21`, `L19`).** An agent `send`, `send_file` or `reply`
   that failed used to leave no row at all, so nothing ever retried it and the
