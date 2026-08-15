@@ -14,7 +14,7 @@ import (
 func TestInspectToolsRegistered(t *testing.T) {
 	now := time.Now()
 	db := StoreFns{
-		ListRoutes:          func(f string, r bool) []core.Route { return nil },
+		ListRoutes:          func(f string, r bool) ([]core.Route, error) { return nil, nil },
 		ListTasks:           func(f string, r bool) []core.Task { return nil },
 		DefaultFolderForJID: func(j string) string { return "world/a" },
 		JIDRoutedToFolder:   func(j, f string) bool { return f == "world/a" },

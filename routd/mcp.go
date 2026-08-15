@@ -409,6 +409,30 @@ func beforeStr(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }
 
+// scopeRoutes wraps an unscoped route-table reader with the same folder-
+// visibility filter store.Store.ListRoutes applies (target equals the folder,
+// or nests under it via `folder#...`/`folder/...`), and root sees every row.
+// Mirrors store/routes.go:214's WHERE clause since routd.DB's `routes` table
+// has no scoped query of its own (BUGS A3).
+func scopeRoutes(all func() ([]core.Route, error)) func(folder string, isRoot bool) ([]core.Route, error) {
+	return func(folder string, isRoot bool) ([]core.Route, error) {
+		routes, err := all()
+		if err != nil {
+			return nil, err
+		}
+		if isRoot || folder == "" {
+			return routes, nil
+		}
+		out := make([]core.Route, 0, len(routes))
+		for _, r := range routes {
+			if r.Target == folder || strings.HasPrefix(r.Target, folder+"#") || strings.HasPrefix(r.Target, folder+"/") {
+				out = append(out, r)
+			}
+		}
+		return out, nil
+	}
+}
+
 // buildStoreFns wires the read/manage agent tools to routd.DB. Read tools whose
 // state lives elsewhere federate over HTTP (identity → authd, session_log →
 // runed's GET /v1/sessions/recent; graceful-absent → empty).
@@ -439,10 +463,12 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		GetIdentityForSub: s.resolveIdentity,
 		// list_routes/add_route/set_routes/delete_route live on the routes resreg
 		// seam (spec 5/16); ListRoutes stays — inspect_routing still reads it.
-		ListRoutes: func(_ string, _ bool) []core.Route {
-			r, _ := s.db.Routes()
-			return r
-		},
+		// s.db.Routes() returns the WHOLE table unscoped (dispatch needs that);
+		// scope it here to folder visibility and propagate the DB error instead
+		// of swallowing it (BUGS A3 — an unscoped, truncated table let inspect
+		// see unrelated groups' routes and silently hid a real DB error as an
+		// empty list).
+		ListRoutes: scopeRoutes(func() ([]core.Route, error) { return s.db.Routes() }),
 		DefaultFolderForJID: s.db.DefaultFolderForJID,
 		RouteTokenTarget:    s.db.RouteTokenTarget,
 		JIDRoutedToFolder:   s.db.JIDRoutedToFolder,

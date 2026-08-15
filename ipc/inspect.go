@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -31,7 +32,10 @@ func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folde
 				out["jid"] = jid
 				out["resolved_folder"] = db.DefaultFolderForJID(jid)
 			}
-			routes := db.ListRoutes(folder, isRoot)
+			routes, err := db.ListRoutes(folder, isRoot)
+			if err != nil {
+				return toolErr(fmt.Sprintf("list routes: %v", err))
+			}
 			if len(routes) > limitVal {
 				routes = routes[:limitVal]
 			}

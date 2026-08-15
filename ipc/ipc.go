@@ -166,7 +166,7 @@ type PlatformHistory struct {
 type StoreFns struct {
 	GetTask             func(id string) (core.Task, bool)
 	ListTasks           func(folder string, isRoot bool) []core.Task
-	ListRoutes          func(folder string, isRoot bool) []core.Route
+	ListRoutes          func(folder string, isRoot bool) ([]core.Route, error)
 	DefaultFolderForJID func(jid string) string
 	// RouteTokenTarget returns the folder a web:/hook: token was MINTED to
 	// deliver to, or "" when no token records one. The JID grammar cannot

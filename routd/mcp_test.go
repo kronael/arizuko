@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,46 @@ func TestBuildGatedFnsSendReply(t *testing.T) {
 	}
 	if len(deliver.sends) != 1 || deliver.sends[0].text != "answer" {
 		t.Fatalf("deliver.sends=%+v want one 'answer'", deliver.sends)
+	}
+}
+
+// TestScopeRoutes: BUGS A3 — inspect_routing's ListRoutes must scope to the
+// caller's folder (own routes + nested `folder#...`/`folder/...` targets),
+// see the whole table only as root, and propagate a read error instead of
+// swallowing it into an empty list.
+func TestScopeRoutes(t *testing.T) {
+	all := []core.Route{
+		{ID: 1, Target: "world/a"},
+		{ID: 2, Target: "world/a#task"},
+		{ID: 3, Target: "world/a/sub"},
+		{ID: 4, Target: "world/b"},
+	}
+	scoped := scopeRoutes(func() ([]core.Route, error) { return all, nil })
+
+	got, err := scoped("world/a", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("folder scope: got %d routes, want 3 (ids 1,2,3): %+v", len(got), got)
+	}
+	for _, r := range got {
+		if r.ID == 4 {
+			t.Fatalf("unrelated group's route leaked into scoped result: %+v", got)
+		}
+	}
+
+	root, err := scoped("world/a", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(root) != len(all) {
+		t.Fatalf("root scope: got %d routes, want %d (whole table)", len(root), len(all))
+	}
+
+	failing := scopeRoutes(func() ([]core.Route, error) { return nil, errors.New("db gone") })
+	if _, err := failing("world/a", false); err == nil {
+		t.Fatal("expected a DB read error to propagate, got nil")
 	}
 }
 

@@ -60,7 +60,7 @@ func TestAllToolsRegistered(t *testing.T) {
 	db := StoreFns{
 		GetTask:             func(id string) (core.Task, bool) { return core.Task{}, false },
 		ListTasks:           func(f string, r bool) []core.Task { return nil },
-		ListRoutes:          func(f string, r bool) []core.Route { return nil },
+		ListRoutes:          func(f string, r bool) ([]core.Route, error) { return nil, nil },
 		DefaultFolderForJID: func(j string) string { return "" },
 	}
 
