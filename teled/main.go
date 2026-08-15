@@ -52,8 +52,16 @@ func main() {
 			// goroutine raced with stop() reading a still-nil b.cancel.
 			pollCtx, cancel := context.WithCancel(ctx)
 			b.cancel = cancel
+			// Outbound dedup is a delivery guarantee, not a nicety: without the
+			// DB routd's re-send of a still-pending row posts a second message.
+			db, err := chanlib.OpenAdapterDB(cfg.DataDir, "teled")
+			if err != nil {
+				slog.Error("adapter db open failed", "dir", cfg.DataDir, "err", err)
+				return nil, nil, err
+			}
 			go b.poll(pollCtx, rc, offset)
-			return newServer(cfg, b, b.isConnected, b.LastInboundAt).handler(), b.stop, nil
+			return newServer(cfg, b, db, b.isConnected, b.LastInboundAt).handler(),
+				func() { b.stop(); db.Close() }, nil
 		},
 	})
 }
@@ -70,6 +78,7 @@ type config struct {
 	Name, TelegramToken, RouterURL       string
 	ListenAddr, ListenURL, AssistantName string
 	StateFile                            string
+	DataDir                              string
 	MediaMaxBytes                        int64
 }
 
@@ -84,6 +93,7 @@ func loadConfig() config {
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://telegram:9001"),
 		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
 		StateFile:     dataDir + "/teled-offset-" + name,
+		DataDir:       dataDir,
 		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 	}
 }

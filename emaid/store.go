@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/db_utils"
 	_ "modernc.org/sqlite"
 )
@@ -40,6 +41,12 @@ func openDB(dataDir string) (*sql.DB, error) {
 		return nil, err
 	}
 	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
+		db.Close()
+		return nil, err
+	}
+	// chanlib's outbound_dedup lands in the SAME file: db_utils.Migrate keys on
+	// (service, version), so the two chains coexist and emaid keeps one DB.
+	if err := chanlib.MigrateAdapterDB(db); err != nil {
 		db.Close()
 		return nil, err
 	}

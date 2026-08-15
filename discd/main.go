@@ -35,13 +35,20 @@ func main() {
 			// Wire b.files BEFORE opening the websocket. Events fire as
 			// soon as Open returns; deferring this creates a race where an
 			// inbound message with attachments dereferences nil b.files.
-			srv := newServer(cfg, b, b.isConnected, b.LastInboundAt)
+			// Outbound dedup is a delivery guarantee, not a nicety: without the
+			// DB routd's re-send of a still-pending row posts a second message.
+			db, err := chanlib.OpenAdapterDB(cfg.DataDir, "discd")
+			if err != nil {
+				slog.Error("adapter db open failed", "dir", cfg.DataDir, "err", err)
+				return nil, nil, err
+			}
+			srv := newServer(cfg, b, db, b.isConnected, b.LastInboundAt)
 			b.files = srv.files
 			if err := b.start(rc); err != nil {
 				slog.Error("discord connect failed", "err", err)
 				return nil, nil, err
 			}
-			return srv.handler(), b.stop, nil
+			return srv.handler(), func() { b.stop(); db.Close() }, nil
 		},
 	})
 }
@@ -49,6 +56,7 @@ func main() {
 type config struct {
 	Name, DiscordToken, RouterURL        string
 	ListenAddr, ListenURL, AssistantName string
+	DataDir                              string
 	MediaMaxBytes                        int64
 	UserMode                             bool // true when authenticating as a user account, not a bot
 }
@@ -72,6 +80,7 @@ func loadConfig() config {
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9002"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://discord:9002"),
 		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
+		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/app/home/store/discd"),
 		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		UserMode:      userMode,
 	}

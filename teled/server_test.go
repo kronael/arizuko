@@ -37,11 +37,11 @@ func (b *stubBot) Typing(_ string, on bool) { b.typings = append(b.typings, on) 
 
 func stubHandler(secret string) (http.Handler, *stubBot) {
 	sb := &stubBot{}
-	return newServer(config{Name: "telegram"}, sb, func() bool { return true }, func() int64 { return time.Now().Unix() }).handler(), sb
+	return newServer(config{Name: "telegram"}, sb, nil, func() bool { return true }, func() int64 { return time.Now().Unix() }).handler(), sb
 }
 
 func testHandler(secret string) (http.Handler, *server) {
-	s := newServer(config{Name: "telegram"}, &stubBot{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "telegram"}, &stubBot{}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	return s.handler(), s
 }
 
@@ -128,7 +128,7 @@ func TestServerHealth(t *testing.T) {
 }
 
 func TestServerHealthDisconnected(t *testing.T) {
-	s := newServer(config{Name: "telegram"}, &stubBot{}, func() bool { return false }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "telegram"}, &stubBot{}, nil, func() bool { return false }, func() int64 { return time.Now().Unix() })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)

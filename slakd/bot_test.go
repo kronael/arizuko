@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"testing"
 	"time"
@@ -391,5 +394,57 @@ func TestToMrkdwn_Mentions(t *testing.T) {
 		if got := toMrkdwn(c.in, b.matchUserID); got != c.want {
 			t.Errorf("toMrkdwn(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// A 500 may mean Slack created the message and lost the answer, so a create
+// call is attempted once. An endpoint addressed by target id is safe to retry,
+// and still is (BUGS D5). A 429 is a different case — see the 429 test below.
+func TestPostFormDoesNotRetryACreateCallOn500(t *testing.T) {
+	for _, c := range []struct {
+		path  string
+		wantN int
+	}{
+		{"/chat.postMessage", 1},
+		{"/reactions.add", 3}, // chanlib.DoWithRetry: 2 backoffs + the first try
+	} {
+		t.Run(c.path, func(t *testing.T) {
+			var n int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				n++
+				w.WriteHeader(500)
+			}))
+			defer srv.Close()
+			b, err := newBotWithBase(config{Name: "slack", BotToken: "x"}, srv.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out map[string]any
+			_ = b.postForm(context.Background(), c.path, url.Values{}, &out)
+			if n != c.wantN {
+				t.Fatalf("%s attempted %d times, want %d", c.path, n, c.wantN)
+			}
+		})
+	}
+}
+
+// A 429 IS retried even for a create call: Slack refused it outright and says
+// when to try again, so nothing was posted and waiting is the documented fix.
+func TestPostFormRetriesACreateCallOn429(t *testing.T) {
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(429)
+	}))
+	defer srv.Close()
+	b, err := newBotWithBase(config{Name: "slack", BotToken: "x"}, srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	_ = b.postForm(context.Background(), "/chat.postMessage", url.Values{}, &out)
+	if n != 3 {
+		t.Fatalf("/chat.postMessage attempted %d times on 429, want 3", n)
 	}
 }

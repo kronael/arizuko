@@ -1,15 +1,21 @@
 # discd — Discord adapter. DISCORD_BOT_TOKEN arrives via env/discd.env;
 # DISCORD_USER_TOKEN is optional (user-account mode) and not scoped.
+# DATA_DIR is the narrow state mount: it holds discd.db, the outbound dedup
+# record. Losing it lets routd's re-send of a still-pending row post a second
+# Discord message.
 services:
   discd:
     container_name: ${APP}_discd_${FLAVOR}
     image: arizuko:latest
     entrypoint: ['discd']
+    volumes:
+      - '${DATA_DIR}/store/discd:/srv/app/home/store/discd'
     env_file: ['../env/discd.env']
     environment:
       ROUTER_URL: 'http://routd:8080'
       DISCORD_USER_TOKEN: '${DISCORD_USER_TOKEN}'
       LISTEN_ADDR: ':8080'
       LISTEN_URL: 'http://discd:8080'
+      DATA_DIR: '/srv/app/home/store/discd'
     depends_on: [routd]
     restart: on-failure

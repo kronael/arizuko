@@ -320,7 +320,6 @@ func newRouterMock(t *testing.T, st *store.Store) *routerMock {
 	return r
 }
 
-
 func (r *routerMock) snapshot() []chanlib.InboundMsg {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -358,7 +357,7 @@ func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 	b.teamID.Store("T012")
 	b.connected.Store(true)
 	// Ensure srv has a files cache plumbed through (file proxy path).
-	s := newServer(cfg, b, b.isConnected, b.LastInboundAt)
+	s := newServer(cfg, b, nil, b.isConnected, b.LastInboundAt)
 	b.files = s.files
 	return b, rm
 }
@@ -945,7 +944,7 @@ func TestEvents_URLVerification_FullChain(t *testing.T) {
 		BotToken:      "xoxb-test",
 		SigningSecret: "shh",
 	}
-	s := newServer(cfg, b, b.isConnected, b.LastInboundAt)
+	s := newServer(cfg, b, nil, b.isConnected, b.LastInboundAt)
 	s.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
 
 	body := `{"type":"url_verification","challenge":"hello"}`
@@ -1310,7 +1309,7 @@ func TestHealth_StaleStays200(t *testing.T) {
 	b.lastInboundAt.Store(time.Now().Add(-30 * time.Minute).Unix())
 
 	cfg := config{Name: "slack", BotToken: "xoxb-test", SigningSecret: "shh"}
-	s := newServer(cfg, b, b.isConnected, b.LastInboundAt)
+	s := newServer(cfg, b, nil, b.isConnected, b.LastInboundAt)
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -1333,7 +1332,7 @@ func TestHealth_FreshReturns200(t *testing.T) {
 	b.lastInboundAt.Store(time.Now().Unix())
 
 	cfg := config{Name: "slack", BotToken: "xoxb-test", SigningSecret: "shh"}
-	s := newServer(cfg, b, b.isConnected, b.LastInboundAt)
+	s := newServer(cfg, b, nil, b.isConnected, b.LastInboundAt)
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)

@@ -19,7 +19,7 @@ type fakeAdapter struct {
 	mu     sync.Mutex
 	hits   int // /send + /document hits (messaging)
 	reacts int // /like hits (reactions)
-	last   struct{ jid, content, turnID string }
+	last   struct{ jid, content, idemKey string }
 }
 
 func newFakeAdapter(t *testing.T, id string) *fakeAdapter {
@@ -30,12 +30,12 @@ func newFakeAdapter(t *testing.T, id string) *fakeAdapter {
 		var body struct {
 			ChatJID string `json:"chat_jid"`
 			Content string `json:"content"`
-			TurnID  string `json:"turn_id"`
+			IdemKey string `json:"idempotency_key"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
 		a.mu.Lock()
 		a.hits++
-		a.last.jid, a.last.content, a.last.turnID = body.ChatJID, body.Content, body.TurnID
+		a.last.jid, a.last.content, a.last.idemKey = body.ChatJID, body.Content, body.IdemKey
 		a.mu.Unlock()
 		json.NewEncoder(w).Encode(map[string]string{"id": id})
 	})
@@ -91,8 +91,8 @@ func TestDelivererSendsToResolvedAdapter(t *testing.T) {
 	if a.count() != 1 {
 		t.Fatalf("adapter hits=%d want 1", a.count())
 	}
-	if a.last.turnID != "out-1" {
-		t.Fatalf("turn_id=%q want out-1 (idempotency key threaded through)", a.last.turnID)
+	if a.last.idemKey != "out-1" {
+		t.Fatalf("idempotency_key=%q want out-1 (threaded through to the adapter)", a.last.idemKey)
 	}
 }
 

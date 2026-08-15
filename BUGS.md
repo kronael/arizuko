@@ -1248,7 +1248,7 @@ enumerations in `ARCHITECTURE.md` / `runed/README.md` / `specs/5/P` follow.
 `TestMigrationsDropRetiredTables` migrates a fresh DB and asserts both retired
 tables are absent while the written ones survive.
 
-## F78 — `ARCHITECTURE.md` still documents runed's deleted token broker (2026-08-09, open)
+## F78 — `ARCHITECTURE.md` still documents runed's deleted token broker (2026-08-09, FIXED 2026-08-13)
 
 Commit `42657378` deleted `runed/broker.go`, the `Broker` interface, the
 `mcp_tokens` table and `spawns.mcp_token_jti` on 2026-08-01. It amended `5/P`
@@ -1271,8 +1271,11 @@ enumerations (`F72`); left alone because it is a different removal's debt.
 - **Scope:** root architecture docs
 - **Affected:** readers of ARCHITECTURE.md, runed/README.md
 - **Source:** ARCHITECTURE.md:50 vs commit 42657378
-- **Status:** open
-- **Fix:**
+- **Status:** FIXED 2026-08-13. `ARCHITECTURE.md` and `runed/README.md` now say
+  the turn is credentialed by the MCP socket (`SO_PEERCRED`), not by a brokered
+  token; `mcp_tokens` and `spawns.mcp_token_jti` are out of both schema
+  enumerations, and the `spawns` row lists the columns migration `0004` left.
+- **Fix:** done
 
 ## F73 — turn retry treats container exit 125 as transient (2026-08-08, FIXED 2026-08-11)
 
@@ -4018,7 +4021,7 @@ is redelivered next sweep.
 
 `D5` is still open, so `5/34` and `5/Q` keep `status: defected`.
 
-## D5 — Stable delivery key is dropped before adapters, so ambiguous Slack success can double-post (2026-07-15, open)
+## D5 — Stable delivery key is dropped before adapters, so ambiguous Slack success can double-post (2026-07-15, FIXED 2026-08-15)
 
 Routd supplies a stable outbound row ID and `HTTPChannel` serializes it as
 `turn_id`, but `chanlib.SendRequest` has no matching field; JSON decoding drops
@@ -4035,8 +4038,33 @@ request carries no stable key.
 - **Scope:** outbound idempotency contract
 - **Affected:** Slack text immediately; all retried text/file adapters lack the promised key
 - **Source:** routd/turns.go:297-309,337; routd/loop.go:354-375; routd/deliver.go:123-132; chanreg/httpchan.go:183-221; chanlib/handler.go:17-27,328-345; chanlib/retry.go:22-27; slakd/bot.go:891-942,1441-1457
-- **Status:** open
-- **Fix:**
+- **Status:** FIXED 2026-08-15, in three layers.
+
+  1. **The key reaches the adapter.** The wire field is `idempotency_key`, not
+     the misnamed `turn_id`, and `chanlib.SendRequest` carries it. `/send-file`
+     carries it as a multipart field.
+  2. **The adapter enforces deliver-once, durably.** `NewAdapterMux` routes
+     `/send` and `/send-file` through `chanlib.deliverOnce`, which claims the
+     key in the adapter's OWN SQLite table BEFORE the platform call and settles
+     it after. A resend of a settled key returns the recorded platform id and
+     posts nothing. An unsettled claim returns `ErrDeliveryUnresolved` — the
+     adapter cannot tell a lost response from a lost request, so routd exhausts
+     its retries and dead-letters the row for an operator instead of doubling
+     the message. `ErrPermanent` frees the key, because that error proves
+     nothing was posted. chanlib ships the schema; each adapter daemon owns the
+     file (`store/<name>/<name>.db`), which is the durability rule — no library
+     owns a database. emaid keeps its single `emaid.db`; the two migration
+     chains coexist because `db_utils.Migrate` keys on `(service, version)`.
+  3. **A non-idempotent platform create is no longer retried in-process.**
+     `chanlib.RetryPolicy` splits "retry anything transient" from "retry a 429
+     only"; `slakd.postForm` names `/chat.postMessage` and
+     `/files.completeUploadExternal` and uses the second. A 429 is a documented
+     refusal with `Retry-After` — nothing was posted — while a 5xx or a dropped
+     connection may have posted already.
+
+  `5/E` is `shipped`; its outbound section now describes this contract instead
+  of claiming one that had no code.
+- **Fix:** done
 
 ## A2 — Release guard advances before announcement delivery, making partial failure permanent (2026-07-15, open)
 

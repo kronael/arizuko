@@ -1661,6 +1661,16 @@ func (b *bot) conversationsInfo(channelID string) (*slackConvInfo, error) {
 	return resp.Channel, nil
 }
 
+// slackNonIdempotent names the endpoints that CREATE something and take no
+// idempotency key of their own. They retry a 429 (a documented refusal, with
+// Retry-After) but never a 5xx or a dropped connection, which may have created
+// the message already (BUGS D5). Every other endpoint is a read or a mutation
+// addressed by target id, so a full retry is free.
+var slackNonIdempotent = map[string]bool{
+	"/chat.postMessage":             true,
+	"/files.completeUploadExternal": true,
+}
+
 func (b *bot) postForm(ctx context.Context, path string, form url.Values, out any) error {
 	req, err := http.NewRequestWithContext(ctx, "POST", b.api+path, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -1669,7 +1679,11 @@ func (b *bot) postForm(ctx context.Context, path string, form url.Values, out an
 	req.Header.Set("Authorization", "Bearer "+b.cfg.BotToken)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 	req.Header.Set("User-Agent", chanlib.UserAgent)
-	resp, err := chanlib.DoWithRetry(b.http, req)
+	policy := chanlib.RetryTransient
+	if slackNonIdempotent[path] {
+		policy = chanlib.RetryRateLimitOnly
+	}
+	resp, err := chanlib.DoWithPolicy(b.http, req, policy)
 	if err != nil {
 		return fmt.Errorf("slack %s: %w", path, err)
 	}

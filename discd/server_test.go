@@ -60,7 +60,7 @@ func (sb *stubBot) Typing(_ string, on bool) {
 func stubHandler(secret string) (http.Handler, *stubBot) {
 	sb := &stubBot{}
 	cfg := config{Name: "discord"}
-	return newServer(cfg, sb, func() bool { return true }, func() int64 { return time.Now().Unix() }).handler(), sb
+	return newServer(cfg, sb, nil, func() bool { return true }, func() int64 { return time.Now().Unix() }).handler(), sb
 }
 
 func TestServerPost(t *testing.T) {
@@ -198,7 +198,7 @@ func TestServerHealth(t *testing.T) {
 }
 
 func TestServerHealthDisconnected(t *testing.T) {
-	s := newServer(config{Name: "discord"}, &stubBot{}, func() bool { return false }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "discord"}, &stubBot{}, nil, func() bool { return false }, func() int64 { return time.Now().Unix() })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -234,7 +234,7 @@ func TestServerFileProxy(t *testing.T) {
 	}))
 	defer cdn.Close()
 
-	srv := newServer(config{Name: "discord"}, &stubBot{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	srv := newServer(config{Name: "discord"}, &stubBot{}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	id := srv.files.Put(cdn.URL + "/image.png")
 	h := srv.handler()
 
@@ -254,7 +254,7 @@ func TestServerFileProxy(t *testing.T) {
 }
 
 func TestServerFileProxyNotFound(t *testing.T) {
-	srv := newServer(config{Name: "discord"}, &stubBot{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	srv := newServer(config{Name: "discord"}, &stubBot{}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	h := srv.handler()
 	req := httptest.NewRequest("GET", "/files/missing", nil)
 	req.Header.Set("Authorization", "Bearer secret")

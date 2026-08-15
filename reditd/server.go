@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"io"
 	"net"
 	"net/http"
@@ -26,17 +27,18 @@ type server struct {
 	cfg           config
 	rc            chanlib.BotHandler
 	files         *chanlib.URLCache
+	db            *sql.DB
 	safeFetch     func(string) bool
 	isConnected   func() bool
 	lastInboundAt func() int64
 }
 
-func newServer(cfg config, rc chanlib.BotHandler, files *chanlib.URLCache, isConnected func() bool, lastInboundAt func() int64) *server {
-	return &server{cfg: cfg, rc: rc, files: files, safeFetch: isSafeFetchURL, isConnected: isConnected, lastInboundAt: lastInboundAt}
+func newServer(cfg config, rc chanlib.BotHandler, files *chanlib.URLCache, db *sql.DB, isConnected func() bool, lastInboundAt func() int64) *server {
+	return &server{cfg: cfg, rc: rc, files: files, db: db, safeFetch: isSafeFetchURL, isConnected: isConnected, lastInboundAt: lastInboundAt}
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"reddit:"}, s.rc, s.isConnected, s.lastInboundAt, nil)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"reddit:"}, s.rc, s.isConnected, s.lastInboundAt, s.db)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.handleFile))
 	return mux
 }

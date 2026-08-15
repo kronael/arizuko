@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -16,16 +17,18 @@ type server struct {
 	cfg           config
 	bot           *bot
 	files         *chanlib.URLCache
+	db            *sql.DB
 	isConnected   func() bool
 	lastInboundAt func() int64
 	now           func() time.Time
 }
 
-func newServer(cfg config, b *bot, isConnected func() bool, lastInboundAt func() int64) *server {
+func newServer(cfg config, b *bot, db *sql.DB, isConnected func() bool, lastInboundAt func() int64) *server {
 	return &server{
 		cfg:           cfg,
 		bot:           b,
 		files:         chanlib.NewURLCache(0),
+		db:            db,
 		isConnected:   isConnected,
 		lastInboundAt: lastInboundAt,
 		now:           time.Now,
@@ -33,7 +36,7 @@ func newServer(cfg config, b *bot, isConnected func() bool, lastInboundAt func()
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"slack:"}, s.bot, s.isConnected, s.lastInboundAt, nil)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"slack:"}, s.bot, s.isConnected, s.lastInboundAt, s.db)
 	// Events webhook is signature-verified, not chanlib.Auth-gated; file proxy adds Bearer xoxb upstream.
 	mux.HandleFunc("POST /slack/events", s.handleEvents)
 	mux.HandleFunc("GET /files/", chanlib.Auth(chanlib.FileProxyHandler(chanlib.FileProxyOpts{

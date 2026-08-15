@@ -46,7 +46,7 @@ func (s *stubCreator) Typing(string, bool)                      {}
 func testBskyServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "bluesky"}
-	return newServer(cfg, &stubCreator{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	return newServer(cfg, &stubCreator{}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 }
 
 func TestBskyHealth(t *testing.T) {
@@ -69,7 +69,7 @@ func TestBskyHealth(t *testing.T) {
 }
 
 func TestBskyHealthDisconnected(t *testing.T) {
-	s := newServer(config{Name: "bluesky"}, &stubCreator{}, func() bool { return false }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "bluesky"}, &stubCreator{}, nil, func() bool { return false }, func() int64 { return time.Now().Unix() })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -139,7 +139,7 @@ func TestBskyAuthNoSecret(t *testing.T) {
 }
 
 func TestBskySendError(t *testing.T) {
-	s := newServer(config{Name: "bluesky"}, &stubCreator{err: errors.New("boom")}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "bluesky"}, &stubCreator{err: errors.New("boom")}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]string{"chat_jid": "bluesky:1", "content": "hi"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -172,7 +172,7 @@ func TestBskyFileProxy(t *testing.T) {
 	}))
 	defer cdn.Close()
 
-	s := newServer(config{Name: "bluesky", Service: cdn.URL}, &stubCreator{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "bluesky", Service: cdn.URL}, &stubCreator{}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/did:plc:abc/bafkrei123", nil)
 	req.Header.Set("Authorization", "Bearer sec")
@@ -201,7 +201,7 @@ func TestBskyFileProxyMissingParts(t *testing.T) {
 		{"/files/did:plc:abc/", "empty cid"},
 	}
 	for _, tc := range cases {
-		s := newServer(config{Name: "bluesky"}, &stubCreator{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+		s := newServer(config{Name: "bluesky"}, &stubCreator{}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 		req := httptest.NewRequest("GET", tc.path, nil)
 		w := httptest.NewRecorder()
 		s.handler().ServeHTTP(w, req)
@@ -216,7 +216,7 @@ func TestBskyFileProxyCDNError(t *testing.T) {
 	}))
 	defer cdn.Close()
 
-	s := newServer(config{Name: "bluesky", Service: cdn.URL}, &stubCreator{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "bluesky", Service: cdn.URL}, &stubCreator{}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	req := httptest.NewRequest("GET", "/files/did:plc:abc/bafkrei123", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -227,7 +227,7 @@ func TestBskyFileProxyCDNError(t *testing.T) {
 
 func TestBskyPost(t *testing.T) {
 	stub := &stubCreator{postID: "at://did:plc:me/app.bsky.feed.post/abc"}
-	s := newServer(config{Name: "bluesky"}, stub, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "bluesky"}, stub, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "bluesky:did:plc:me", "content": "hello world"})
 	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -248,7 +248,7 @@ func TestBskyPost(t *testing.T) {
 
 func TestBskyLike(t *testing.T) {
 	stub := &stubCreator{}
-	s := newServer(config{Name: "bluesky"}, stub, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "bluesky"}, stub, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{
 		"chat_jid": "bluesky:did:plc:me", "target_id": "at://x/app.bsky.feed.post/y", "reaction": "like",
 	})
@@ -266,7 +266,7 @@ func TestBskyLike(t *testing.T) {
 
 func TestBskyDelete(t *testing.T) {
 	stub := &stubCreator{}
-	s := newServer(config{Name: "bluesky"}, stub, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "bluesky"}, stub, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{
 		"chat_jid": "bluesky:did:plc:me", "target_id": "at://did:plc:me/app.bsky.feed.post/abc",
 	})

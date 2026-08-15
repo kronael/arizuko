@@ -1,6 +1,5 @@
 ---
-status: defected
-defects: [D5]
+status: shipped
 depends:
   [
     Q-unified-routing,
@@ -173,10 +172,25 @@ is a future spec.
   PK `(folder, turn_id)` dedups duplicate `submit_turn` callbacks.
 - **Outbound is poll-reconciled.** A bot row is written `status='pending'`,
   delivered inline, marked `sent` on success; `maybeRetryOutbound`
-  (`loop.go:358`) re-dispatches rows older than 30s and fails them after
-  24h. **Dedup is the adapter's contract**: routd passes the bot row's
-  stable `message_id` as the delivery idempotency key on every resend.
-  Delivery never blocks the turn.
+  (`loop.go:358`) re-dispatches rows older than 30s, bounds the retries at
+  `MAX_OUTBOUND_RETRY` and then dead-letters. Delivery never blocks the turn.
+- **Dedup is the adapter's contract, and it is durable.** routd sends the bot
+  row's stable id as `idempotency_key` on every resend. The adapter mux claims
+  that key in its OWN SQLite table BEFORE the platform call and settles it
+  after (`chanlib/dedup.go`), so a resend of a delivered key returns the
+  recorded platform id and posts nothing.
+
+  A claim that never settled is refused with `ErrDeliveryUnresolved` rather
+  than retried. The adapter cannot tell a lost response from a lost request,
+  and Slack's `chat.postMessage` takes no key of its own, so a guess either
+  duplicates the message or drops it; routd exhausts its retries and
+  dead-letters the row for an operator instead. Visible beats doubled.
+
+  The key was serialized as `turn_id` and dropped by `SendRequest` before any
+  adapter saw it, which made this whole paragraph a claim with no code behind
+  it (BUGS `D5`). Retrying a non-idempotent platform create call inside the
+  adapter is the same defect one layer down — `slakd`'s `postForm` names those
+  endpoints and does not retry them.
 
 ## HTTP + MCP surface
 

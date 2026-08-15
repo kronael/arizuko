@@ -36,8 +36,15 @@ func main() {
 				slog.Error("linkedin connect failed", "err", err)
 				return nil, nil, err
 			}
+			// Outbound dedup is a delivery guarantee, not a nicety: without the
+			// DB routd's re-send of a still-pending row posts a second message.
+			db, err := chanlib.OpenAdapterDB(cfg.DataDir, "linkd")
+			if err != nil {
+				slog.Error("adapter db open failed", "dir", cfg.DataDir, "err", err)
+				return nil, nil, err
+			}
 			go lc.poll(ctx, rc)
-			return newServer(cfg, lc, lc.isConnected).handler(), nil, nil
+			return newServer(cfg, lc, db, lc.isConnected).handler(), func() { db.Close() }, nil
 		},
 	})
 }

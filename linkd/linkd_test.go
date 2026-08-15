@@ -34,7 +34,7 @@ func (s *stubBot) Send(r chanlib.SendRequest) (string, error) {
 func (s *stubBot) Typing(string, bool) {}
 
 func TestHealth(t *testing.T) {
-	s := newServer(config{Name: "linkedin"}, &stubBot{}, func() bool { return true })
+	s := newServer(config{Name: "linkedin"}, &stubBot{}, nil, func() bool { return true })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)

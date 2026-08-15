@@ -19,12 +19,32 @@ var retryBackoffs = []time.Duration{300 * time.Millisecond, 800 * time.Milliseco
 // retry loop to give up and return the response as-is.
 var retryMaxRetryAfter = 30 * time.Second
 
-// DoWithRetry retries on 5xx/429 with jittered backoff, max len(retryBackoffs)+1 total attempts.
-// Accepts double-post risk on non-idempotent requests — caller's choice.
+// RetryPolicy says which failures a request may be retried on.
+type RetryPolicy int
+
+const (
+	// RetryTransient retries 429, 5xx and transport errors. Correct for a read
+	// or for a mutation addressed by target id.
+	RetryTransient RetryPolicy = iota
+	// RetryRateLimitOnly retries ONLY a 429. Use it for a create call the
+	// platform gives no idempotency key for: a 429 is a documented refusal —
+	// nothing was created and Retry-After says when to try again — while a 5xx
+	// or a dropped connection may have created the thing already, so resending
+	// posts it twice (BUGS D5).
+	RetryRateLimitOnly
+)
+
+// DoWithRetry retries transient failures. See DoWithPolicy.
+func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error) {
+	return DoWithPolicy(client, req, RetryTransient)
+}
+
+// DoWithPolicy retries per policy with jittered backoff, max
+// len(retryBackoffs)+1 total attempts.
 // On 429, respects Retry-After header (seconds or HTTP-date) if present and <= 30s.
 // On 5xx, uses jittered exponential backoff: ~300ms, ~800ms.
 // Returns the final response or final error. Caller still closes Body.
-func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error) {
+func DoWithPolicy(client *http.Client, req *http.Request, policy RetryPolicy) (*http.Response, error) {
 	if req.Body != nil && req.GetBody == nil {
 		b, err := io.ReadAll(req.Body)
 		req.Body.Close()
@@ -48,7 +68,7 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 		}
 		resp, err := client.Do(req)
 		if err != nil {
-			if i == attempts-1 {
+			if i == attempts-1 || policy == RetryRateLimitOnly {
 				return nil, err
 			}
 			sleepJittered(retryBackoffs[i])
@@ -67,7 +87,7 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 			continue
 		}
 		if resp.StatusCode >= 500 {
-			if i == attempts-1 {
+			if i == attempts-1 || policy == RetryRateLimitOnly {
 				return resp, nil
 			}
 			resp.Body.Close()

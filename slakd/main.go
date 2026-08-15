@@ -48,13 +48,20 @@ func main() {
 				}
 				b.store = st
 			}
-			srv := newServer(cfg, b, b.isConnected, b.LastInboundAt)
+			// Outbound dedup is a delivery guarantee, not a nicety: without the
+			// DB routd's re-send of a still-pending row posts a second message.
+			db, err := chanlib.OpenAdapterDB(cfg.DataDir, "slakd")
+			if err != nil {
+				slog.Error("adapter db open failed", "dir", cfg.DataDir, "err", err)
+				return nil, nil, err
+			}
+			srv := newServer(cfg, b, db, b.isConnected, b.LastInboundAt)
 			b.files = srv.files
 			if err := b.start(ctx, rc); err != nil {
 				slog.Error("slack auth.test failed", "err", err)
 				return nil, nil, err
 			}
-			return srv.handler(), b.stop, nil
+			return srv.handler(), func() { b.stop(); db.Close() }, nil
 		},
 	})
 }
@@ -67,6 +74,7 @@ type config struct {
 	ListenAddr    string
 	ListenURL     string
 	AssistantName string
+	DataDir       string
 	MediaMaxBytes int64
 	CacheTTL      time.Duration
 	// StaleSeconds: inbound silence beyond this marks the link dead (/health 503,
@@ -90,6 +98,7 @@ func loadConfig() config {
 		RouterURL:      chanlib.MustEnv("ROUTER_URL"),
 		ListenAddr:     chanlib.EnvOr("LISTEN_ADDR", ":8080"),
 		ListenURL:      chanlib.EnvOr("LISTEN_URL", "http://slakd:8080"),
+		DataDir:        chanlib.EnvOr("DATA_DIR", "/srv/app/home/store/slakd"),
 		AssistantName:  chanlib.EnvOr("ASSISTANT_NAME", ""),
 		MediaMaxBytes:  chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		CacheTTL:       time.Duration(chanlib.EnvInt("SLAKD_USERS_CACHE_TTL", 900)) * time.Second,

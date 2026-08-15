@@ -11,6 +11,10 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/db_utils"
+	// OpenAdapterDB opens "sqlite" DSNs, so the driver registration belongs
+	// with the call — six adapter mains would each have to remember it, and the
+	// one that forgot would fail at boot with "unknown driver".
+	_ "modernc.org/sqlite"
 )
 
 //go:embed migrations/*.sql
@@ -36,11 +40,19 @@ func OpenAdapterDB(dataDir, service string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := db_utils.Migrate(db, dedupMigrations, "migrations", "chanlib"); err != nil {
+	if err := MigrateAdapterDB(db); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return db, nil
+}
+
+// MigrateAdapterDB applies chanlib's schema to an adapter-owned database.
+// db_utils.Migrate keys on (service, version), so the chain coexists with the
+// adapter's own migrations in one file — emaid keeps a single emaid.db rather
+// than growing a second one for the dedup table.
+func MigrateAdapterDB(db *sql.DB) error {
+	return db_utils.Migrate(db, dedupMigrations, "migrations", "chanlib")
 }
 
 // ErrDeliveryUnresolved reports a redelivery whose earlier attempt never
