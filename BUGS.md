@@ -2478,7 +2478,7 @@ the same "seed a default row" problem, not a property of seeding itself.
   Needs sign-off (schema + a content-hash semantics change), not attempted
   here.
 
-## F16 — the tier-drift sweep never scanned the web docs, and root docs still drift (2026-08-05, DISPROVED 2026-08-09 — re-checked both halves. Live web docs carry only hot-tier/cold-tier plus a CSS class named tier; numeric-tier language survives only in changelog/index.html, where history belongs. Root and per-package docs: zero hits for "tier N"/"role:tier". The predicted drift is not there)
+## ✅ FIXED 2026-08-15 F16 — the tier-drift sweep never scanned the web docs, and root docs still drift
 
 The sweep that removed numeric tiers from the docs reported taking stale
 references from 114 to 1. The measurement is not sound: its grep used
@@ -2499,11 +2499,29 @@ does not exist.
 The three specs the sweep named — `5/33`, `5/A`, `5/M` — read clean in full and
 keep `status: shipped`.
 
+Re-verified 2026-08-15: `CLAUDE.md`, `ARCHITECTURE.md`, `EXTENDING.md`,
+`SECURITY.md` are now clean of numeric-tier authority language (a prior pass
+fixed them; only `grep -i tier` hits left are `hot-tier`/`cold-tier`, a
+different and still-valid concept). The one straggler,
+`specs/4/P-personas.md:45` ("Tier 2/3: ro mounts over inherited files"),
+described an authority model that no longer exists — the actual mechanism is
+the `share_mount(readonly=true)` grant (5/33; `routd/dispatch.go:546`,
+`container/runner.go:571`) — fixed here to name that instead.
+
+Live (non-`legacy/`) web docs (`concepts/scopes.html`, `reference/mcp.html`,
+`reference/grants.html`, `concepts/autoviv.html`, `components/dashd.html`,
+`concepts/tokens.html`, `concepts/ant.html`) carry zero numeric-tier hits.
+`template/web/pub/arizuko/legacy/**` still has the old tier-1/tier-2 language,
+but that tree is an intentionally preserved historical snapshot (its own
+`index.html`/`legacy/` namespace), the same category as CHANGELOG history —
+not drift. `slack-team/setup.html`'s one "Tier 2 (rate-limited)" hit is
+Slack's own API rate-limit tier, unrelated to arizuko's auth model — false
+positive, not a doc bug.
+
 - **Severity:** low (docs describe a removed authority model)
 - **Scope:** root docs + web docs tier references
 - **Affected:** readers of CLAUDE/ARCHITECTURE/EXTENDING/SECURITY
-- **Source:** CLAUDE.md:54; ARCHITECTURE.md:332,594-595,864; EXTENDING.md:59; SECURITY.md:39,131; specs/4/P-personas.md:45
-- **Status:** open
-- **Fix:** re-run the sweep with `--include='*.html'` included, then fix the
-  root-doc sites. Note `CLAUDE.md` is a project-instruction file — that edit
-  wants the user's eye, not a bulk rewrite.
+- **Fix:** `specs/4/P-personas.md:45` rewritten
+  (`share_mount(readonly=true)` grant, not "Tier 2/3"). Root docs and live
+  web docs were already clean at HEAD `0d376586`; `legacy/` is an
+  intentional archive, out of scope.
