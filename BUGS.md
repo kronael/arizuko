@@ -1280,7 +1280,7 @@ its own text and shipped it deliberately, so the spec is accurate and the code
 matches it; what is open is a future policy choice, which is a backlog item.
 `5/31` returns to `shipped` and keeps this entry as the recorded question.
 
-## F39 — `SCREENS.md`'s page hierarchy is missing ten shipped dashd pages (2026-08-06, open)
+## F39 — `SCREENS.md`'s page hierarchy is missing ten shipped dashd pages (2026-08-06, FIXED 2026-08-15)
 
 Found while shipping `/dash/authd/`. `SCREENS.md` is the dashd page inventory —
 the document a design pass reads to know what screens exist — and its
@@ -1306,10 +1306,13 @@ tracked rather than swept.
 - **Scope:** `SCREENS.md`
 - **Affected:** contributors and design passes, not instances
 - **Source:** SCREENS.md:64-86, :217-218; dashd/main.go:499-603
-- **Fix:** rebuild the hierarchy from `dash.registerRoutes`, one entry per
-  operator-visible page, and keep it there — or delete the block and point at
-  `dashd/README.md`'s route list, which IS maintained, rather than keeping a
-  second inventory that drifts.
+- **Status:** FIXED 2026-08-15
+- **Fix:** rebuilt `### Page hierarchy` against `dashd/main.go`'s
+  `registerRoutes` directly (`sed -n '535,650p' dashd/main.go`), not the ten
+  the entry named. Two more had shipped since 2026-08-06 and were missing too
+  — `/dash/approvals/` and `/dash/channels/whatsapp/pair` — so all twelve are
+  now listed alongside the original fourteen, each with a one-line
+  description read off its handler's doc comment.
 
 ## F46 — `runed`, `routd` and `authd` all serve `GET /v1/sessions`, for different tables (2026-08-06, open — CORRECTED 2026-08-07: three daemons, not two)
 

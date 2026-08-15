@@ -64,6 +64,16 @@ Identity badge always right-aligned in nav: `{name} ◆` (operator) or
 ```
 /dash/                          Portal home (tile grid + health banner)
 ├── /dash/services/             Daemon health grid (operator only)
+├── /dash/packages/             Installed packages, read-only (operator only)
+├── /dash/audit/                Federated audit log, every daemon (operator only)
+├── /dash/approvals/            Held tool-call review queue (operator only)
+├── /dash/usage/                Instance-wide usage/cost cockpit (operator only)
+├── /dash/proactive/            Which groups may speak unprompted (operator only)
+├── /dash/engagement/           Active early-disengage windows + control (operator only)
+├── /dash/routd/                Message-router cockpit: errored chats + retry (operator only)
+│   └── retry                   Per-chat retry
+├── /dash/runed/                Container-runner cockpit: live/recent runs + kill (operator only)
+├── /dash/authd/                Identity cockpit: signing key, sessions, sign-out (operator only)
 ├── /dash/status/               Instance health summary
 ├── /dash/activity/             Live message feed (auto-refresh)
 ├── /dash/tasks/                Scheduled task list + create form
@@ -74,15 +84,18 @@ Identity badge always right-aligned in nav: `{name} ◆` (operator) or
 │       ├── settings            Model, open flag, observe window, skills
 │       ├── grants              ACL list + add/revoke
 │       └── tools               MCP tool browser
-├── /dash/routes/               Full route table (CRUD)
+├── /dash/routes/                Full route table (CRUD)
 ├── /dash/chat/                 Chat portal (group tiles)
 │   └── /dash/chat/{folder}/   Group chat page (sessions + new session)
 ├── /dash/tokens/{folder}/      Web route tokens (issue + revoke)
 ├── /dash/invites/              Onboarding invites (operator only)
 ├── /dash/proxyd/               proxyd route table (operator only)
-├── /dash/memory/               Agent memory file browser
-├── /dash/profile/              Account ID + add-a-provider + secrets
-└── /dash/me/secrets            Per-user secret CRUD
+├── /dash/channels/whatsapp/pair  WhatsApp re-pair (QR/code) (operator only)
+├── /dash/memory/                Agent memory file browser
+├── /dash/profile/               Account ID + add-a-provider + secrets
+├── /dash/me/secrets             Per-user capability-secret CRUD (GITHUB_TOKEN, etc.)
+├── /dash/me/env                 Per-user env-profile key CRUD (ANTHROPIC_API_KEY, etc.)
+└── /dash/me/connections         Per-user surrogate OAuth connections (connect/disconnect)
 ```
 
 External pages reached from the dashboard (not served by dashd):
