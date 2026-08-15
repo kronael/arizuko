@@ -36,6 +36,52 @@ Route registration follows `7/1`: core daemons get their
 timed are already there, ahead of the `/dash/` catch-all to dashd);
 packaged daemons ship a `services/<name>-routes.json`.
 
+## Migration state — what has left dashd (BUGS `V2`)
+
+dashd hosts control planes this spec moves to their owning daemon. A copy
+comes out of dashd only when the replacement is **live**; deleting one whose
+per-daemon page is unbuilt removes the operator's only way to do the thing.
+
+**Moved (2026-08-15).** dashd's chat portal (`chat.go`, 477 lines + 504 of
+test) is deleted. Its replacement is webd's `/me/chats` + `/me/chats/new`
+([`webd/server.go:128-141`](../../webd/server.go)), routed through proxyd at
+`/me/` ([`compose/compose.go`](../../compose/compose.go) `{Path: "/me/", …
+Auth: "user"}`). The portal also persisted the RAW reusable route bearer to
+`chat_sessions` so it could render "continue" links; that table is dropped
+([`routd/migrations/0036-drop-chat-sessions.sql`](../../routd/migrations/0036-drop-chat-sessions.sql)),
+so no arizuko table stores a route token in plaintext. dashd's `chat` tile and
+its folder links now point at `/me/chats`.
+
+**Removed outright, not moved.** The route-token **mint** form
+(`dashd/route_tokens.go`) is gone with no cockpit replacement, because
+§webd below already says there is none: minting is routd's
+`POST /v1/route_tokens/{chat,hook}`, the agent's `issue_chat_link` /
+`issue_webhook` / `issue_pairing_link`
+([`resreg/resources/route_tokens.go:38-54`](../../resreg/resources/route_tokens.go)),
+and `arizuko token`. `/dash/tokens/{folder}/` keeps list + revoke.
+
+**Still in dashd, blocked on this spec.** Each needs the per-daemon page
+built FIRST:
+
+| dashd surface                                                                     | blocked on                                                                                                                                                                                          |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/dash/routd/` errored + retry, `/dash/routes/` CRUD, `/dash/tokens/` list+revoke | routd's `/dash/routd/`. routd serves no `/dash/` namespace and `compose.go` has no route to it — dashd answers those paths from the `/dash/` catch-all                                              |
+| `/dash/runed/` runs + kill (`runed_page.go`, 289 lines)                           | runed's `/dash/runed/` AND `GET /v1/runs?state=` — runed's mux is 8 routes, none of them a run LIST ([`runed/server.go:39-46`](../../runed/server.go)); dashd reads `spawns` from runed.db directly |
+| `/dash/tasks/` list, detail, create, pause/resume/cancel                          | timed's task + task-detail pages. `/dash/timed/` ships the OVERVIEW only — one handler, `GET /dash/timed/` ([`timed/split.go:42`](../../timed/split.go)) — with no controls                         |
+
+**Canonical cron parser: timed's.** Per §timed below, timed owns all
+cron/interval computation
+([`timed/main.go:33-57`](../../timed/main.go) `computeNextRun`/`nextCron`).
+Two other copies exist and one has already drifted: routd's
+`parseTaskSchedule`
+([`routd/scheduled_tasks_resource.go:285`](../../routd/scheduled_tasks_resource.go))
+accepts an RFC3339 one-shot and computes in the process's local time, while
+dashd's `taskNextRun` ([`dashd/tasks_admin.go:20,36`](../../dashd/tasks_admin.go))
+rejects that same one-shot with 400 and computes in `TZ`. So the identical
+schedule is accepted by the agent and refused by the dashboard. dashd's copy
+dies with its tasks page; routd's must converge on timed's semantics when
+timed's pages land.
+
 ## Daemon-specific notes
 
 ### routd — two breakers, not one
