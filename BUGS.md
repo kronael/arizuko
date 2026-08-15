@@ -52,6 +52,17 @@ folders appear for existing users — a live authorization-behaviour change.
   carrying deny, so the gate has to move off the header entirely. Not shipped
   inline. Note the original entry overstated onbod: `onbod/dash.go`
   `requireOperator` only tests for `**`, it does no per-folder visibility.
+  **Re-verified 2026-08-15 at `bcb5bb83`; still exactly as described, still a
+  redesign.** `store.UserScopes` is gone — `store/acl.go:196` is now only a
+  pointer to `auth.UserScopes` — so the second READER really did close. The
+  live half is unchanged: `dashd.callerScope` (`dashd/authz.go:44`) reads the
+  `X-User-Groups` header, falls back to `auth.UserScopes(sub)`, and treats
+  `slices.Contains(allowed, "**")` as operator; `visible()` then decides
+  200/403 by `auth.MatchGroups` over that list. There is no `auth.Authorize`
+  anywhere in dashd's read path. Not fixed here: closing it picks which action
+  dashboard read requires and moves the gate off a `[]string` header that
+  cannot represent deny — an auth-model change, which is precisely the class
+  that ships only after sign-off.
 - **Found:** specs/5 frontmatter audit; `5/32` demoted to `partial`, now shipped.
 
 ## ✅ FIXED 2026-08-06 F6 — `5/K`'s backend contract claims more than `ant/` implements (2026-08-05, RESOLVED BY DELETION)
