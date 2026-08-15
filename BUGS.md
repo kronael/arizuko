@@ -1654,7 +1654,7 @@ inventing a fallback.
   auth_users;"` to confirm whether a login has since completed; if still 0
   rows, follow the three numbered actions above. No further code change.
 
-## Services hub: onbod + timed tiles are `Built=true` but their `/dash/` routes 404 (2026-07-10, OPEN)
+## ✅ FIXED 2026-08-15 (re-verified) — Services hub: onbod + timed tiles are `Built=true` but their `/dash/` routes 404 (2026-07-10)
 
 `dashd/services.go:35-36` marks `onbod` and `timed` `Built=true` (Dash=
 `/dash/onbod/`, `/dash/timed/`), so `handleServices` renders them as drill-in
@@ -1670,7 +1670,9 @@ audit (`services.spec.ts:32`), 2026-07-10.
 - **Status:** fixed 2026-07-11 — set `Built=false` on onbod+timed (restores the
   slice invariant: tiles show as probe-only status, no dead drill-in link).
   Shipping the two `/dash/` control-plane handlers stays a follow-up (flip back
-  to `true` then).
+  to `true` then). Re-verified 2026-08-15: `dashd/services.go:35-36` still
+  `Built=false` for both; `go test ./dashd/... -run TestServicesBuiltFlagMatchesMountedRoutes`
+  PASSes (guards the Built/mounted-route invariant in both directions).
 
 ## Stale chat-bound session → `error_during_execution` + silent context loss (2026-07-10, OPEN)
 
