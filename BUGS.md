@@ -2492,7 +2492,32 @@ is recorded rather than done.
 - **Scope:** secrets at-rest migration
 - **Affected:** store, routd
 - **Source:** `store/secrets.go` `EncryptPlaintextSecrets`
-- **Status:** open — needs sign-off on where the migration runs
+- **Status:** open — needs sign-off on where the migration runs.
+
+**Premise re-verified 2026-08-15 at `bcb5bb83`, and it holds exactly.**
+`EncryptPlaintextSecrets` has two callers and both are in
+`store/secrets_test.go`; no daemon boot path, no CLI verb, no migration
+references it. It is correct code (idempotent, `WHERE value NOT LIKE 'v2:%'`,
+re-seals in one transaction, no-ops without a key) with nowhere to run.
+
+**PROPOSED SHAPE — an explicit operator verb, NOT a boot hook.** Recommending
+`arizuko secret seal-legacy <instance>` (a `--dry-run` counting rows first)
+over wiring the call into routd's boot after `SetSecretKeys`, for two reasons
+this file already paid for:
+
+- The function it REPLACED, `PurgeUnencryptedSecrets`, was a boot-time mutation
+  of this same table, and it wiped every secret on each startup because writes
+  never wrote the prefix it keyed on (recorded in its own doc comment). A
+  second boot-time in-place rewrite of `secrets.value` is the same shape as the
+  outage.
+- `derived_vs_stored_migration` is the standing lesson: a data migration whose
+  rehearsal matches 0 rows is a red flag, not an all-clear. An operator verb
+  reports the count before and after; a boot hook runs silently on three
+  instances at once with the daemon's exit code as its only signal.
+
+Blast radius if wrong is total — this rewrites the column every credential
+lives in — so it does not ship inline, and it wants a rehearsal against a
+read-only `.backup` copy of each instance before the real run.
 
 ## ✅ FIXED 2026-08-15 L17 — `store.LookupSecret` has no non-test callers (2026-08-11)
 
