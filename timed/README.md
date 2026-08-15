@@ -19,7 +19,8 @@ of `routd`. Drives routd over HTTP; opens NO local DB.
 
 - Binary: `timed/main.go`
 - Listen: `:8080` — `/health` (always 200 `ok`) + `GET /openapi.json`
-  (`resreg.OpenAPIHandler("timed", ["scheduled_tasks"])`)
+  (`resreg.OpenAPIHandler("timed", mux)` — empty by derivation: timed mounts
+  no resource, it's a CLIENT of routd's `scheduled_tasks`, see `split.go`)
 - Config: `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `TZ`
 
 ## Configuration

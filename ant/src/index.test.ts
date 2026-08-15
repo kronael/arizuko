@@ -6,7 +6,7 @@
 
 import { test, expect } from 'bun:test';
 import path from 'path';
-import { resolveResumeSession, isSessionError, transcriptPath } from './index.js';
+import { resolveResumeSession, isSessionError, isRateLimitRejected, transcriptPath } from './index.js';
 import { claudeResultStatus } from './claude.js';
 
 const UUID = 'b6c2b287-0000-4000-8000-000000000000';
@@ -64,4 +64,20 @@ test('claudeResultStatus rejects the SDK login sentinel', () => {
 test('claudeResultStatus preserves normal result status', () => {
   expect(claudeResultStatus('success', 'completed')).toBe('success');
   expect(claudeResultStatus('error_max_turns', 'stopped')).toBe('error');
+});
+
+// BUGS: rate_limit is the top failure signal (195/2d) — rate_limit_event fires
+// on every usage-info update, most of them informational ('allowed'); only
+// 'rejected' means the turn actually stalled and needs a user-facing notice.
+test('isRateLimitRejected: rejected status needs a notice', () => {
+  expect(isRateLimitRejected({ rate_limit_info: { status: 'rejected' } })).toBe(true);
+});
+
+test('isRateLimitRejected: allowed/allowed_warning stay silent', () => {
+  expect(isRateLimitRejected({ rate_limit_info: { status: 'allowed' } })).toBe(false);
+  expect(isRateLimitRejected({ rate_limit_info: { status: 'allowed_warning' } })).toBe(false);
+});
+
+test('isRateLimitRejected: missing rate_limit_info stays silent', () => {
+  expect(isRateLimitRejected({})).toBe(false);
 });

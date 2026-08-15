@@ -1170,7 +1170,24 @@ more than one field.
 - **Status:** proposed
 - **Fix:**
 
-## Egress allowlist NOT enforced — crackbox allows non-allowlisted hosts (2026-07-14, OPEN, HIGH — security)
+## CLOSED-STALE 2026-08-15 — Egress allowlist NOT enforced — crackbox allows non-allowlisted hosts (2026-07-14, HIGH — security)
+
+**Closure evidence:** premise no longer holds. `admin.Registry.Allow`
+(`crackbox/pkg/admin/registry.go:135-144`) and `match.Host`
+(`crackbox/pkg/match/match.go`) fail CLOSED — an unregistered source IP or a
+host absent from the allowlist returns `ok=false` → the proxy 403s
+(`crackbox/pkg/proxy/proxy.go:65-70,107-112`). The one path that appends `"*"`
+(bypass) is `container/runner.go:184-192`, gated on `in.EgressOpen`, which
+routd sets ONLY when the folder holds the explicit `egress` grant
+(`routd/dispatch.go:547`: `egress := elevated || l.db.Authorize(sub, folder,
+"egress", nil)`) — the 5/33 grants redesign (`628b968b`, landed after this
+entry was filed) replaced the old tier-based default-open behavior a
+tightly-scoped folder without that grant gets exactly its resolved allowlist,
+nothing more. `crackbox/test/egress_e2e_test.go` Case2/Case4 assert the
+non-allowlisted-host 403 directly and pass:
+`go test ./crackbox/... -run TestE2E -v` → all PASS (2 SKIP, both
+kernel-level cases the proxy alone can't enforce, by design/comment).
+No code change.
 
 A contained-folder test (`libtest`, egress set to pypi-only) proved the
 per-folder egress allowlist is **not enforced**. crackbox's own logs:
@@ -1409,7 +1426,7 @@ prefix, and routd returns `no channel for jid`. A normal `room=` route tagged
 - **Severity:** medium (announcements silently lost on some groups; log noise)
 - **Status:** OPEN, record-only.
 
-## rate_limit is the top failure signal (195/2d) — verify it's surfaced to the user, not swallowed (2026-07-13, OPEN, needs verification)
+## ✅ FIXED 2026-08-15 — rate_limit is the top failure signal (195/2d) — verify it's surfaced to the user, not swallowed (2026-07-13)
 
 `rate_limit` was the single largest signal in the stop-responding eval (195 hits
 in 2 days across instances). The stale-session-adjacent BUGS note records the
@@ -1423,7 +1440,18 @@ dropped? If dropped, surface a terse user-facing notice (one delivery, not a
 retry loop). Distinct from the stale-session fix (that class is now closed).
 
 - **Severity:** medium (silent stop during throttling; most-frequent signal)
-- **Status:** OPEN — verify surfaced-vs-swallowed, then a small surface-the-notice fix.
+- **Status:** FIXED. Verified: the SDK emits `rate_limit_event` on every
+  usage-info update (`SDKRateLimitEvent.rate_limit_info.status`:
+  `allowed`/`allowed_warning`/`rejected` — the 195/2d is mostly `allowed`
+  informational pings, explaining the volume). `normalize()` mapped it to
+  `EventType: 'rate_limit'` (`ant/src/claude.ts:447-448`) but `runQuery`'s
+  event loop in `ant/src/index.ts` never switched on it — confirmed
+  swallowed. Fix: `ant/src/index.ts` now surfaces one terse `⏳` notice via
+  the existing `submitStatus` interim-status channel the first time a
+  `status: 'rejected'` event lands in a turn (not on `allowed`/
+  `allowed_warning`, and only once — no retry-loop spam). New exported
+  `isRateLimitRejected` + tests in `ant/src/index.test.ts`.
+  **Fix:** 79d0e390.
 
 ## ✅ FIXED 2026-08-07 — Resource identity (`Name`/`Table`) restated across the two `resreg.Resource` sites — residual drift the 5/16 single-source model retires (2026-07-13, sweep, record-only)
 
@@ -1525,7 +1553,7 @@ acl`; `setfacl -m u:1000:r …`) if the host gains other users; (2) if onvos's
   its own uid-1000 copy. Keeps operator creds untouched, survives host-side
   rewrites, no world-read. Redesign of the codex mount → record + sign-off.
 
-## Onboarding recurs as a manual operator chore — new chat → route-miss → silence → hand-run `arizuko group add` (2026-07-12, OPEN, HIGH)
+## ✅ FIXED 2026-08-15 (re-verified) — Onboarding recurs as a manual operator chore — new chat → route-miss → silence → hand-run `arizuko group add` (2026-07-12)
 
 This keeps popping up. Live datapoint: Nikol (`telegram:user/8177590051`) sent
 `/start` + a question at 08:01 2026-07-12 on krons, hit a route-miss, got NO
@@ -1562,11 +1590,17 @@ pre-fix queue path (WaitForRow timeout — no onboarding row), green after.
 
 - **Severity:** high (every new user needs manual operator intervention today)
 - **Scope:** routd/loop.go onboarding branch; gateway `/chatid`; e2e/anteval
-- **Status:** fixed 9fcb0bce (onboarding) + 5f102e0d (/chatid) + 03b6949c
-  (e2e) (2026-07-12). NOT yet deployed — ships with the next krons image
-  build + restart.
+- **Status:** FIXED, re-verified 2026-08-15 at `131b069d`+merge-to-`fb152e98`.
+  `routd/loop.go:602 routeMiss` is still the single shared handler
+  (`InsertOnboarding` at `:639`, fail-loud on error), `/chatid` still
+  intercepted pre-resolution. `go test ./routd/... -run
+  'TestRouteMissChatID|TestRouteMissOnboardingFailureSurfaces'` and
+  `go test ./tests/... -run TestOnboardingEndToEnd` all PASS. Deploy is a
+  live-instance action (`sudo systemctl restart arizuko_<instance>`), out
+  of repo scope — OPERATOR: confirm krons is on an image built after
+  9fcb0bce/5f102e0d/03b6949c.
 
-## Admin cannot log in to the krons dashboard (2026-07-12, OPEN, HIGH — needs root-cause)
+## OPERATIONAL 2026-08-15 — Admin cannot log in to the krons dashboard (2026-07-12, HIGH, config-not-code)
 
 Reported: an admin cannot get into krons (`/dash`/`/auth`). Facts gathered:
 `auth_users` in krons `auth.db` has **0 rows**; krons `.env` and
@@ -1614,7 +1648,13 @@ inventing a fallback.
   `GOOGLE_ALLOWED_EMAILS`) to `/srv/data/arizuko_krons/.env`, then
   `sudo systemctl restart arizuko_krons`.
 
-## Services hub: onbod + timed tiles are `Built=true` but their `/dash/` routes 404 (2026-07-10, OPEN)
+  **2026-08-15 re-check:** OPERATIONAL — a live-instance login attempt, not
+  a repo-verifiable claim. Operator: run `sudo sqlite3
+  /srv/data/arizuko_krons/store/authd/auth.db "select sub, created_at from
+  auth_users;"` to confirm whether a login has since completed; if still 0
+  rows, follow the three numbered actions above. No further code change.
+
+## ✅ FIXED 2026-08-15 (re-verified) — Services hub: onbod + timed tiles are `Built=true` but their `/dash/` routes 404 (2026-07-10)
 
 `dashd/services.go:35-36` marks `onbod` and `timed` `Built=true` (Dash=
 `/dash/onbod/`, `/dash/timed/`), so `handleServices` renders them as drill-in
@@ -1630,9 +1670,11 @@ audit (`services.spec.ts:32`), 2026-07-10.
 - **Status:** fixed 2026-07-11 — set `Built=false` on onbod+timed (restores the
   slice invariant: tiles show as probe-only status, no dead drill-in link).
   Shipping the two `/dash/` control-plane handlers stays a follow-up (flip back
-  to `true` then).
+  to `true` then). Re-verified 2026-08-15: `dashd/services.go:35-36` still
+  `Built=false` for both; `go test ./dashd/... -run TestServicesBuiltFlagMatchesMountedRoutes`
+  PASSes (guards the Built/mounted-route invariant in both directions).
 
-## Stale chat-bound session → `error_during_execution` + silent context loss (2026-07-10, OPEN)
+## ✅ FIXED 2026-08-15 — Stale chat-bound session → `error_during_execution` + silent context loss (2026-07-10)
 
 Symptom (reported as "agents dying after some minutes"): a long-lived group's
 agent briefly errors mid-turn and appears to "forget" the thread. **Not a
@@ -1667,7 +1709,17 @@ Claude Code `cleanupPeriodDays` in the container settings so referenced
 transcripts aren't pruned while `sessions` still points at them. (a)+(c) together
 close both the error-flash and the context loss.
 
-## Chat-initiated onboarding still dead after the compose fix — InsertOnboarding never fires (2026-07-09, OPEN)
+**Status (verified 2026-08-15):** candidate fix (a) is shipped —
+`resolveResumeSession` (`ant/src/index.ts:29-43`) stats the transcript via
+`transcriptPath` before `--resume`; a missing file or a non-UUID lineage
+placeholder starts fresh silently instead of resuming. `isSessionError`
+(`:49-51`) keeps a genuine `error_during_execution` off the delivered-result
+path so it's a retry signal, never a user-facing reply. Wired at the call
+site (`:464`). `ant/src/index.test.ts` covers both functions; `bun test`
+(ant/): 86 pass, 0 fail. (b)/(c) not applied — (a) alone already closes both
+the error-flash and the context-loss symptoms this entry reported.
+
+## ✅ FIXED 2026-08-15 (re-verified) — Chat-initiated onboarding still dead after the compose fix — InsertOnboarding never fires (2026-07-09)
 
 A new group posts, hits a route miss, and **nothing happens** — no greeting, no
 admission-queue row. The operator must discover the JID out-of-band (grep
@@ -1727,6 +1779,10 @@ land compatibly with it.
   delivered to the chat (fail loud, fail-forward — cursor still advances, no
   poison replay). Tests: `TestQueuePathRouteMissInsertsOnboarding` (failed
   pre-fix), `TestRouteMissOnboardingFailureSurfaces`.
+
+  Re-verified 2026-08-15 (same fix as the "Onboarding recurs as a manual
+  operator chore" entry): `TestQueuePathRouteMissInsertsOnboarding` PASSes
+  against `routd/loop.go:602 routeMiss`.
 
 ## 5/16 invites fold — agent-forwarder half deferred (2026-07-07, by design)
 
@@ -1813,7 +1869,7 @@ routes (3195f867), tasks (0b6ca53e). Open:
    load but passes 5/5 in isolation. Pre-existing, unrelated to the 5/16/5/15 work. Needs a
    sync point or serialization in the test harness. Low priority (not a product bug).
 
-## oracle skill + examples tell operators to folder-scope CODEX_API_KEY, which the store rejects (2026-07-02, open)
+## CLOSED-STALE 2026-08-15 (heading lagged body) — oracle skill + examples tell operators to folder-scope CODEX_API_KEY, which the store rejects (2026-07-02, resolved 2026-07-05)
 
 Spec 5/14 put `CODEX_API_KEY`/`OPENAI_API_KEY` in `store.EnvProfileKeys`, so `validateScope`
 (`store/secrets.go:128`) rejects them at `scope_kind='folder'` — model creds are user-only (BYOA)
@@ -1836,8 +1892,11 @@ is purely about whether folder-scope is allowed. Fixing the docs also requires a
   readSecrets carries all 4 keys). Only `oracle/SKILL.md` Path B claimed "folder secret" — fixed to
   env-profile. The `PRODUCT.md` examples were already correct (they use `[[env]]` = platform, not
   `[[secret]]` folder). NOTE: the SKILL.md fix reaches live agents only after an ant image rebuild.
+  Re-verified 2026-08-15: `ant/skills/oracle/SKILL.md:40` still says "platform-or-user, NEVER
+  folder"; `store/secrets.go:128-140` still rejects `ScopeFolder`. Heading updated to match the
+  body's already-resolved status.
 
-## OpenAPI convention emits phantom/divergent paths for hand-rolled resources (2026-07-02, open)
+## ✅ FIXED 2026-08-15 — OpenAPI convention emits phantom/divergent paths for hand-rolled resources (2026-07-02)
 
 `resreg/openapi.go:resourcePaths` synthesizes the 5/8 CRUD convention (`/v1/<name>`
 GET/POST/GET-one/PATCH/DELETE) from `(RowType, PKFields)`, ignoring each resource's real
@@ -1864,7 +1923,15 @@ change `resourcePaths` to emit from `Endpoints` (empty → schema-only) and the 
   still lists `scheduled_tasks` in its OpenAPI while serving only health/openapi/dash. Fix is
   a decision (Q8): emit an empty resource list for timed, or give timed a real `/v1` face.
 
-## proxyd_routes list handler returns {routes:[]} envelope; OpenAPI documents a bare array (2026-07-02, open)
+  **Closed 2026-08-15**: Q8 was decided — `timed/split.go:newTimedMux` mounts no resource
+  (`resreg.OpenAPIHandler("timed", mux)` with an empty mux, doc explicitly citing this same
+  BUGS class as `F32`), so timed's document is empty BY DERIVATION, not a hand-kept list.
+  `routd/README.md:69-75` documents `scheduled_tasks` as routd's resource served at
+  `/v1/tasks` (the one non-`/v1/<name>` path, by design, since timed calls that prefix
+  across the container boundary). Fixed a stale doc line found in the same call path:
+  `timed/README.md:22` still said `resreg.OpenAPIHandler("timed", ["scheduled_tasks"])`.
+
+## ✅ FIXED 2026-08-15 — proxyd_routes list handler returns {routes:[]} envelope; OpenAPI documents a bare array (2026-07-02)
 
 `proxyd/resource.go:187` returns `map[string]any{"routes": out}` but `resreg/openapi.go` documents
 list `200` as a bare `array<ProxydRoutes>`. The one resource whose paths are correct still serves a
@@ -1875,9 +1942,16 @@ sweep (webd forwarder relays the body) to confirm the bare-array change is safe.
 - **Severity:** low-medium (doc/handler drift on one resource)
 - **Scope:** proxyd/resource.go:187
 - **Source:** resreg refine-review 2026-07-02
-- **Status:** open
+- **Status:** FIXED. Confirmed the deferred consumer sweep is safe:
+  `webd/routes_mcp.go:74` (`routesForwarder`) relays the proxyd response
+  body verbatim as `json.RawMessage` to both its REST and MCP callers — no
+  unwrap of a `routes` key anywhere in-tree. Changed `ActionList` to return
+  the bare `[]Route` (matches every other resreg list handler's
+  convention, e.g. `routd/routes_resource.go`'s REST branch). Updated
+  `proxyd/resource_test.go`'s two assertions to the new bare-array shape.
+  `go test ./proxyd/... ./webd/...`: both `ok`. **Fix:** e59ba143.
 
-## resreg.Caller.Name is write-only (2026-07-02, open)
+## CLOSED-STALE 2026-08-15 (heading lagged body) — resreg.Caller.Name is write-only (2026-07-02, fixed 2026-07-12)
 
 `resreg/resreg.go:76` `Caller.Name` is set by both adapters (`proxyd/resource.go:366`,
 `webd/routes_mcp.go:50`) but read by nobody — `buildEvent` uses `Sub` for both audit `Actor` and
@@ -1890,7 +1964,9 @@ use-as-Actor changes audit semantics — neither is a pure cleanup).
 - **Source:** resreg refine-review 2026-07-02
 - **Status:** fixed 2026-07-12 — dropped the field + both assignments (audit Actor
   stays Sub, unchanged); the proxyd `name` computation went with it, webd's `name`
-  param remains live for the forwarded X-User-Name header
+  param remains live for the forwarded X-User-Name header. Re-verified 2026-08-15:
+  `resreg.Caller` (`resreg/resreg.go:88-92`) has no `Name` field. Heading updated
+  to match the already-fixed body.
 
 ## ConnectorSecrets resolves folder scope only — user BYOA key never reaches MCP subprocess
 
@@ -1962,7 +2038,7 @@ Fix: `cmdNetwork` should call `store.OpenRoutd(dataDir/store)` instead of `store
 - **Source:** cmd/arizuko/network.go:17 (`store.Open` → should be `store.OpenRoutd`)
 - **Status:** fixed 2026-06-21 (2dfa5670 — store.Open → store.OpenRoutd)
 
-## slakd message IDs are per-channel, not globally unique (2026-06-19, open)
+## CLOSED-STALE 2026-08-15 (heading lagged body) — slakd message IDs are per-channel, not globally unique (2026-06-19, fixed 2026-07-11)
 
 `slakd/bot.go:521` uses `m.TS` (Slack timestamp) as the `InboundMsg.ID`. Slack `ts` is unique
 within a channel but not across channels in the same workspace. Two channels posting at the same
@@ -1978,7 +2054,10 @@ Reaction IDs (`r.Item.TS + ":r:" + r.Reaction`) need the same treatment.
 - **Affected:** slakd/bot.go:521,567 — multi-channel Slack workspaces
 - **Status:** fixed 2026-07-11 — message + reaction IDs prefixed with the channel
   `jid`, mirroring teled (`bot.go:291,209`). Raw-TS API targeting uses `TargetID`,
-  not `InboundMsg.ID`, so prefixing is safe.
+  not `InboundMsg.ID`, so prefixing is safe. Re-verified 2026-08-15:
+  `slakd/bot.go:533` (`jid + "/" + m.TS`) and `:579`
+  (`jid + "/" + r.Item.TS + ":r:" + r.Reaction`) both still prefixed.
+  Heading updated to match the already-fixed body.
 
 ## dashd reads SQLite directly — spec 7/1 (formerly 6/1) says it shouldn't; code and CLAUDE.md say it should (2026-06-16, PROPOSED — spec/code conflict, needs sign-off, verified 2026-08-15)
 
@@ -2520,7 +2599,7 @@ away (profile page). CTO audit criterion: auth trust signal always on screen.
   groups, and renders it as an always-visible badge on every page's nav.
 - **Fix:** `dashNavFor` identity badge using X-User-Name/X-User-Sub + operator flag
 
-## `arizuko apply`/`plan`/`export`/`get` operate on the frozen messages.db post-split (2026-07-01, open)
+## ✅ FIXED 2026-08-15 — `arizuko apply`/`plan`/`export`/`get` operate on the frozen messages.db post-split (2026-07-01)
 
 The resreg YAML-manifest CLI (`cmd/arizuko/apply.go`) opens `store.Open(dataDir+"/store")`
 = **messages.db** and drives `resreg.Apply`/`Plan`/`Export`/`ConfigVersion` against it. But
@@ -2552,7 +2631,19 @@ metadata belongs in a dump.
   (2) the 5/8 token-exclusion gap — `resreg.Export` still scans every RowType including the
   raw invite `Token`, which now that the repoint has landed means a live-token export.
 
-## Product PRODUCT.md manifests declare a non-existent `facts` skill (2026-07-09, OPEN)
+  **Closed 2026-08-15** — both STILL OPEN items are now resolved, independently of this
+  entry: (1) the CAS mechanism was redesigned to a content-hash `Checksum` (recomputed
+  fresh from live rows, `resreg/engine.go:707`, doc comment "without a config_meta
+  table") — `cmd/arizuko/apply.go` calls `resreg.Checksum`, not `ConfigVersion`/
+  `config_meta`, so the orphan table is unused dead schema, not a functional gap.
+  (2) migration `store/migrations/0077-invites-hash-at-rest.sql` (I1) rekeyed
+  `invites` from a plaintext `token` PRIMARY KEY to `ref` (`hex(sha256(token))`);
+  `InvitesRow` (`resreg/resources/invites.go:23-30`) has no `Token` field at all —
+  "the raw bearer is never persisted, so there is no token field to leak here even
+  by omission-bug." `resreg.Export`/`GetResource` scan `RowType` verbatim, so there
+  is nothing left to leak. `go test ./cmd/arizuko/... ./resreg/...`: all `ok`.
+
+## CLOSED-STALE 2026-08-15 — Product PRODUCT.md manifests declare a non-existent `facts` skill (2026-07-09)
 
 9 of the `ant/examples/*/PRODUCT.md` manifests list `"facts"` in their `skills`
 array (personal, reality, socials, support, creator, pm, slack-team, strategy,
@@ -2566,8 +2657,14 @@ mirror the manifests, so the drift shows up in docs too.
 - **Source:** grep — no `ant/skills/facts`; 9 PRODUCT.md declare it
 - **Status:** OPEN — decide: rename to a real skill, add a `facts` skill, or drop from manifests
 - **Found:** product-docs refine pass (fable), 2026-07-09
+- **Closure evidence (2026-08-15):** `grep -rl '"facts"' ant/examples/*/PRODUCT.md` returns
+  nothing — no manifest declares `facts` anymore (e.g. `ant/examples/personal/PRODUCT.md:4`
+  now lists `["diary", "recall-memories", "compact-memories", "users", "web", "oracle"]`),
+  and `ant/skills/` still has no `facts/` directory. Manifests were already fixed to the
+  real skill set (`/find` + `/recall-memories`) sometime after this entry was filed. No
+  code change.
 
-## Suffixed web chat token mints a JID that routes nowhere (2026-07-09, OPEN)
+## ✅ FIXED 2026-08-15 — Suffixed web chat token mints a JID that routes nowhere (2026-07-09)
 
 `arizuko token <inst> issue chat <folder> <suffix>` builds
 `jid = "web:"+folder+"/"+suffix` (`cmd/arizuko/token.go:60`). A group's auto route
@@ -2583,8 +2680,18 @@ avoid the suffix as a workaround.
 - **Source:** `cmd/arizuko/token.go:55-62`; route match `room=<folder>`
 - **Status:** OPEN — needs a routing repro to confirm whether `web:X/sub` resolves
 - **Found:** product-docs refine pass (fable), 2026-07-09
+- **Closed 2026-08-15** — fixed by the L4 `route_tokens.target_folder` work
+  (`store/migrations/0086-route-token-target-folder.sql`,
+  `routd/migrations/0035`): `store.RouteToken.Folder()`
+  (`store/route_tokens.go:41-47`) now reads the mint-recorded `TargetFolder`
+  first — set unconditionally to `folder` regardless of suffix by
+  `cmd/arizuko/token.go:104` (`TargetFolder: folder`) — and only falls back
+  to parsing the ambiguous suffixed JID for a pre-migration token. A
+  suffixed `web:<folder>/<suffix>` chat token now resolves to `<folder>`
+  exactly like the unsuffixed form. `go test ./routd/... ./webd/...
+  ./tests/... ./store/...`: all pass.
 
-## howto/webhooks.html claims hook headers are delivered; ingest forwards body only (2026-07-09, OPEN)
+## CLOSED-STALE 2026-08-15 (heading lagged body) — howto/webhooks.html claims hook headers are delivered; ingest forwards body only (2026-07-09, fixed 2026-07-12)
 
 `template/web/pub/arizuko/howto/webhooks.html` documents a `"headers": {…}`
 envelope on hook ingest, but the route-token webhook path forwards the request
@@ -2596,10 +2703,12 @@ Product pages had the same claim removed; the howto page still carries it.
 - **Status:** fixed 2026-07-12 — verified `webd/route_token.go:handleHookIngest`
   builds `InboundMsg{Content: body}` only (no headers field exists on the type);
   removed all four headers-delivery claims from the howto page, security bullet
-  now states headers are dropped at ingest
+  now states headers are dropped at ingest. Re-verified 2026-08-15:
+  `template/web/pub/arizuko/howto/webhooks.html:147` still says "Request
+  headers are not forwarded." Heading updated to match the already-fixed body.
 - **Found:** product-docs refine pass (fable), 2026-07-09
 
-## `arizuko token issue chat|webhook` writes route_tokens to frozen messages.db (2026-07-11, open)
+## ✅ FIXED 2026-08-15 (re-verified) — `arizuko token issue chat|webhook` writes route_tokens to frozen messages.db (2026-07-11)
 
 Same class as the fixed `arizuko network` bug (2026-06-21, 2dfa5670): `cmd/arizuko/token.go`
 `cmdToken` opens the DB via `store.Open(dir/store)` → `messages.db`, but post-split
@@ -2621,10 +2730,12 @@ Fix: route `issue chat|webhook`/`list`/`revoke` through `store.OpenRoutd` (mirro
 - **Source:** cmd/arizuko/token.go:27 (`store.Open` → should be `store.OpenRoutd` for route_tokens)
 - **Status:** fixed 2026-07-12 — cmdToken opens routd.db via the existing
   `mustOpenACL` (one CLI open-path, no second `store.OpenRoutd` copy); guarded by
-  `TestTokenLandsInRoutdDB` (issue+revoke land in routd.db, messages.db stays empty)
-- **Fix:**
+  `TestTokenLandsInRoutdDB` (issue+revoke land in routd.db, messages.db stays empty).
+  Re-verified 2026-08-15: `cmd/arizuko/token.go:33` still `st := mustOpenACL(dataDir)`;
+  `go test ./cmd/arizuko/... -run TestTokenLandsInRoutdDB` PASSes.
+- **Fix:** 91630159
 
-## `arizuko group add`/`create` writes the group skeleton to CWD, not the data dir (2026-07-11, open)
+## ✅ FIXED 2026-08-15 (re-verified) — `arizuko group add`/`create` writes the group skeleton to CWD, not the data dir (2026-07-11)
 
 `core.LoadConfigFrom(dataDir)` loads the instance `.env` but resolves
 `root = envOr("DATA_DIR", mustCwd())` (`core/config.go:157`). Instance `.env` files don't set
@@ -2648,8 +2759,10 @@ users of `LoadConfigFrom` (`cmdCreate`, `cmdPair`, `cmdStatus`) for the same cwd
   (explicit env/.env still wins), fixing all four callers at the one cause site
   (cross-checked: create/group add/status/secret all pass `mustInstanceDir`);
   daemons use `LoadConfig()` directly, unaffected. Tests:
-  `TestLoadConfigFromDefaultsRootToDir` + `TestLoadConfigFromRespectsDataDirEnv`
-- **Fix:**
+  `TestLoadConfigFromDefaultsRootToDir` + `TestLoadConfigFromRespectsDataDirEnv`.
+  Re-verified 2026-08-15: `core/config.go:186-192` (`LoadConfigFrom`) still sets
+  `DATA_DIR` from `dir` before delegating to `LoadConfig()`; both tests PASS.
+- **Fix:** ae7277a9
 
 ## PROPOSAL — anteval `--mcp` parity face needs an inspect-read on a public MCP surface (2026-07-11, proposed)
 
@@ -2699,6 +2812,19 @@ next proxyd restart activates it).
 - **Source:** anteval webhook-in live run 2026-07-11; proxyd request log `status:302 path:/hook/...`
 - **Status:** open (row inserted on krons, awaits proxyd restart; re-seed/upsert path undesigned)
 - **Fix:**
+- **2026-08-15 re-check:** two separate facets, still both true. (a) OPERATIONAL,
+  live-krons-only — verify with `sudo curl -s -o /dev/null -w '%{http_code}\n'
+  https://krons.fiu.wtf/hook/<a-real-token>` (should NOT 302 to `/pub/...`) and
+  `sudo sqlite3 /srv/data/arizuko_krons/store/proxyd/proxyd_routes.db "select
+  path from proxyd_routes where path like '/hook%';"`. (b) code-level design
+  gap CONFIRMED still present: `proxyd/main.go:loadInitialRoutes` (`:238-273`)
+  still seeds `PROXYD_ROUTES_JSON` into `proxyd_routes` ONLY when the table has
+  zero rows ("Persistence wins when proxyd_routes has rows" — spec 6/2
+  Phase-3), so any pre-existing instance never gains a newly-added
+  `coreProxydRoutes` entry without a manual row insert. A durable fix is an
+  upsert-missing-core-routes-on-boot path — new boot behavior, cross-cutting
+  (every instance's route table), so this stays a PROPOSAL needing sign-off,
+  not a same-session fix.
 
 ## Positioning claims "diff, fork, git revert" but nothing versions agent folders (2026-07-14, open)
 
@@ -2718,7 +2844,7 @@ backup, git POSSIBLE (ant image ships git + commit skill).
   specs/9/3-git-as-truth scope creep; decide there, not ad hoc.
 - **Status:** open — wording fix in flight; the make-it-true decision belongs to 9/3
 
-## Two hub.js in template — release stamps the one pages don't load (2026-07-14, open)
+## ✅ FIXED 2026-08-15 — Two hub.js in template — release stamps the one pages don't load (2026-07-14)
 
 `template/web/pub/assets/hub.js` and `template/web/pub/arizuko/assets/hub.js` are
 byte-identical twins except `ARIZUKO_VERSION`. The docs pages reference relative
@@ -2733,7 +2859,20 @@ for hub.css.
   decide whether the top-level assets/ serves any non-arizuko hub page before
   deleting); (b) release script bumps both (band-aid, applied 2026-07-14 in
   CLAUDE.md wording).
-- **Status:** open — versions synced at v0.58.0; collapse decision pending
+- **Status:** FIXED — the entry's own open decision ("decide whether the
+  top-level assets/ serves any non-arizuko hub page before deleting") is
+  answered by evidence: `grep -rn "assets/hub.js\|assets/hub.css\|assets/
+  arizuko-client.js" template/web/pub --include=*.html` outside `arizuko/`
+  returned zero hits — no page anywhere loads the top-level copy — and
+  `template/web/CLAUDE.md`'s own deploy procedure says the sync source is
+  `template/web/pub/arizuko/`, NOT the parent, so the top-level `assets/`
+  was never part of the deployed tree either. By 2026-08-15 the two copies
+  had also drifted FUNCTIONALLY (`wrapTables()` only in the loaded copy,
+  several CSS rules only in one file), not just on the version stamp —
+  confirming (a) collapse-to-one was the right call. Deleted
+  `template/web/pub/assets/{hub.js,hub.css,arizuko-client.js}` (option (a));
+  updated root `CLAUDE.md`'s Tagging step 3 to drop the twin-bump
+  instruction. **Fix:** cd7c9b06.
 
 ## P3 — Proxyd dispatch combines routes from two database snapshots (2026-07-30, proposed)
 
@@ -3456,7 +3595,7 @@ with Make.
      "no tests to run", with a comment naming the root Makefile's guard as its
      mirror. A selector matching zero tests can no longer pass as green.
 
-## authd `TestRefreshRotationRaceSingleWinner` is flaky (2026-08-03, open)
+## ✅ FIXED 2026-08-15 — authd `TestRefreshRotationRaceSingleWinner` is flaky (2026-08-03)
 
 Found while verifying the R1 fragment-relink fix (unrelated package —
 `compose`/`cmd/arizuko` are untouched by this test). Fails intermittently
@@ -3468,8 +3607,20 @@ family kill`. Timing-sensitive race assertion, not reproducible on demand.
   assertion that sometimes loses a real race in the test harness)
 - **Scope:** authd refresh-token rotation test
 - **Source:** authd/bugfix_test.go:168, TestRefreshRotationRaceSingleWinner
-- **Status:** open, record-only — needs a root-cause pass on the race timing,
-  not a fix on sight
+- **Status:** FIXED. Root cause (2026-08-15 pass): `claimAndRotateRefresh`
+  used to claim `used_at` and insert the successor as two separate writes;
+  a loser's `revokeFamily` (`authd/store.go:324-328`, a single `UPDATE ...
+  WHERE family_id=?`) could run in the window between the winner's claim
+  and its successor INSERT, missing the not-yet-existing successor row —
+  the exact intermittent "successor must be revoked" failure. Fixed
+  independently by `dfd4feb5` (2026-08-06, "claim and rotate a refresh
+  token in one transaction" — BUGS F36): `claimAndRotateRefresh`
+  (`authd/store.go:303-321`) now does `markRefreshUsed` + `insertRefresh` +
+  `Commit` as one tx, so by the time any loser observes `won=false` the
+  successor row is guaranteed to already exist, and `revokeFamily` always
+  catches it. Verified: `go test ./authd/... -run
+  TestRefreshRotationRaceSingleWinner -count=200` and `-count=50 -race`
+  both clean, 0 failures.
 
 ## V2 — dashd duplicates ~4,500 LOC of control planes phase 7 moves away (2026-08-04, proposal)
 

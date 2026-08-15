@@ -115,14 +115,12 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET list = %d", w.Code)
 	}
-	var listResp struct {
-		Routes []Route `json:"routes"`
-	}
+	var listResp []Route
 	if err := json.Unmarshal(w.Body.Bytes(), &listResp); err != nil {
 		t.Fatal(err)
 	}
-	if len(listResp.Routes) != 1 {
-		t.Errorf("list = %+v", listResp.Routes)
+	if len(listResp) != 1 {
+		t.Errorf("list = %+v", listResp)
 	}
 
 	// get — `/slack/` urlencoded
@@ -331,8 +329,8 @@ func TestRoutesResource_SingleHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(jsonOf(out), `"routes":`) {
-		t.Errorf("list out = %s", jsonOf(out))
+	if !strings.HasPrefix(jsonOf(out), "[") {
+		t.Errorf("list out = %s, want a bare array (matches OpenAPI's documented array<ProxydRoutes>)", jsonOf(out))
 	}
 }
 

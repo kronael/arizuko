@@ -50,6 +50,17 @@ export function isSessionError(subtype: string | undefined): boolean {
   return subtype === 'error_during_execution';
 }
 
+// isRateLimitRejected reports whether a normalized 'rate_limit' event's raw
+// SDKRateLimitEvent means the turn is actually throttled (status 'rejected'),
+// vs. an 'allowed'/'allowed_warning' informational usage update, which fires
+// far more often and needs no user-facing notice. BUGS: rate_limit was the
+// top failure signal (195/2d) — most of that volume is informational status
+// updates; only 'rejected' means the user's turn actually went silent.
+export function isRateLimitRejected(raw: Record<string, unknown>): boolean {
+  const info = raw.rate_limit_info as { status?: string } | undefined;
+  return info?.status === 'rejected';
+}
+
 interface ContainerInput {
   prompt: string;
   sessionId?: string;
@@ -341,6 +352,7 @@ async function runQuery(
   let sessionError = false;
   let lastProgressAt = Date.now();
   const seenStatuses = new Set<string>();
+  let rateLimitNotified = false;
 
   try {
     for await (const event of session.events()) {
@@ -362,6 +374,19 @@ async function runQuery(
       if (event.type === 'system_init') {
         newSessionId = event.sessionId;
         log(`Session initialized: ${newSessionId}`);
+      }
+
+      // rate_limit events fire on every usage-info update, most with
+      // status 'allowed' (informational, no action needed — the ~195/2d
+      // log volume BUGS.md's "rate_limit is the top failure signal" entry
+      // saw is mostly this). Only 'rejected' means the turn is actually
+      // throttled; that was previously logged (line above) and otherwise
+      // dropped, so the user's chat went silent with no explanation
+      // during throttling. Surface it once per turn via the existing
+      // interim-status channel, not a retry loop.
+      if (event.type === 'rate_limit' && !rateLimitNotified && isRateLimitRejected(event.raw)) {
+        rateLimitNotified = true;
+        await submitStatus({ turn_id: turnID, text: "⏳ Hit a rate limit — I'll continue shortly." });
       }
 
       if (event.type === 'result') {
