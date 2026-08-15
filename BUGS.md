@@ -1877,7 +1877,7 @@ after runed becomes ready. Live krons reproduced this fleet-wide at
 - **Fix:** gate queue replay on runed readiness, or keep transient connection
   failures outside the breaker budget until the execution plane is ready
 
-## T1 — stalled typing indicator on timed-out/errored turns (2026-07-26, open)
+## T1 — PROPOSED, needs sign-off (verified still open 2026-08-15) — stalled typing indicator on timed-out/errored turns (2026-07-26)
 
 Symptom (krons, telegram:user/1112184352, 2026-07-26): the agent shows "typing…"
 for ~20 min then goes silent with no reply. Recurring; the user recognises it as
@@ -1901,6 +1901,15 @@ unreliable and the backstop can't cover for it):
 Evidence: 4 query-timeouts + 3 `container exited with error` in 12h; last real
 bot reply 10:03 while user msgs at 16:11/16:12/16:13 went unanswered under a
 live-but-doomed 19.5-min browser-automation turn.
+
+Re-verified 2026-08-15, unchanged: `DefaultTypingMaxTTL` (`chanlib/typing.go`)
+is still `20*time.Minute`, `RUNED_RUN_TIMEOUT` (`runed/cmd/runed/main.go`)
+still defaults to the same `20*time.Minute`, and `dispatch.go`'s typing-clear
+still gates on `!out.Steered` with no run-end reconcile for an orphaned
+steered turn (`turns.go`'s `appendAndDeliver` is still the only other clear
+site). Not contained — routd turn-lifecycle change across dispatch.go +
+turns.go + the chanlib backstop, not one call path — so left unbuilt per the
+redesign sign-off gate.
 
 Fix (redesign — needs sign-off; routd turn-lifecycle + chanlib backstop):
 1. **Clear typing on every terminal turn outcome, including steered.** The
