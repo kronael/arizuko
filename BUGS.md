@@ -1474,7 +1474,7 @@ Blast radius if wrong is total — this rewrites the column every credential
 lives in — so it does not ship inline, and it wants a rehearsal against a
 read-only `.backup` copy of each instance before the real run.
 
-- **Fix:** the proposed shape, built as proposed. `arizuko secret <inst>
+- **Fix:** `33d4d277` — the proposed shape, built as proposed. `arizuko secret <inst>
   seal-legacy [--dry-run]` (`cmd/arizuko/secret.go` `runSealLegacy`) is the
   caller — an explicit operator verb, NOT a boot hook, for the two reasons
   recorded above. `store.CountPlaintextSecrets` is new and backs the dry run;
