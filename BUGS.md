@@ -2477,7 +2477,7 @@ metadata belongs in a dump.
   by omission-bug." `resreg.Export`/`GetResource` scan `RowType` verbatim, so there
   is nothing left to leak. `go test ./cmd/arizuko/... ./resreg/...`: all `ok`.
 
-## Product PRODUCT.md manifests declare a non-existent `facts` skill (2026-07-09, OPEN)
+## CLOSED-STALE 2026-08-15 — Product PRODUCT.md manifests declare a non-existent `facts` skill (2026-07-09)
 
 9 of the `ant/examples/*/PRODUCT.md` manifests list `"facts"` in their `skills`
 array (personal, reality, socials, support, creator, pm, slack-team, strategy,
@@ -2491,6 +2491,12 @@ mirror the manifests, so the drift shows up in docs too.
 - **Source:** grep — no `ant/skills/facts`; 9 PRODUCT.md declare it
 - **Status:** OPEN — decide: rename to a real skill, add a `facts` skill, or drop from manifests
 - **Found:** product-docs refine pass (fable), 2026-07-09
+- **Closure evidence (2026-08-15):** `grep -rl '"facts"' ant/examples/*/PRODUCT.md` returns
+  nothing — no manifest declares `facts` anymore (e.g. `ant/examples/personal/PRODUCT.md:4`
+  now lists `["diary", "recall-memories", "compact-memories", "users", "web", "oracle"]`),
+  and `ant/skills/` still has no `facts/` directory. Manifests were already fixed to the
+  real skill set (`/find` + `/recall-memories`) sometime after this entry was filed. No
+  code change.
 
 ## Suffixed web chat token mints a JID that routes nowhere (2026-07-09, OPEN)
 
