@@ -2077,7 +2077,7 @@ incident you cannot scroll back past 50 events and must parse UTC strings by eye
 
 ---
 
-## [SEC] channels: pairAuth fails open + innerHTML XSS in pair-status polling (2026-06-18, open)
+## ✅ FIXED 2026-08-15 [SEC] channels: pairAuth fails open + innerHTML XSS in pair-status polling (2026-06-18)
 
 Two issues in `channels.go`. (1) `pairAuth` at line 33: if service-token minting fails, dashd
 still sends the call to whapd without Authorization — auth bypass risk on a sensitive operator
@@ -2088,7 +2088,13 @@ action. (2) Line 91: JS polling renders `expires_at`/`since` from whapd JSON dir
 - **Scope:** dashd/channels.go:33, :91
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — pairAuth returns error + fail-closed; JS uses textContent/createTextNode (80bd29da)
-- **Fix:** (1) fail closed when svc token unavailable; (2) use `textContent` or escape fields
+- **Fix:** 80bd29da; re-verified at fb152e98 — (1) `pairAuth` (`channels.go:34-46`) returns
+  the exchange error and BOTH callers abort on it (`:177` pair-start → "service token
+  unavailable", `:205` pair-status → state "unreachable"); the request is never sent
+  unauthenticated. (2) the polling JS (`:104-114`) builds the status block from
+  `textContent` + `createTextNode`, so `expires_at`/`since` cannot inject markup; the
+  only `innerHTML` left (`:81`) is an hx-swap target attribute, not a sink.
+  Covered by `channels_test.go` (non-admin denied, admin proxies + audits).
 
 ## ✅ FIXED 2026-08-15 [SEC] routes: handleRouteUpdate authorizes new target, not existing row (2026-06-18)
 
