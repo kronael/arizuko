@@ -7,6 +7,60 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L31 — a product never really updates: four of six payload kinds are seed-once (2026-08-15, proposal — needs sign-off)
+
+`arizuko packages upgrade` / `sync` re-apply exactly two payload kinds: skills
+(and `blendSkills` REFUSES any skill whose hash moved, so a locally edited one
+is skipped) and `settings.json` keys not already present. `PERSONA.md`, the
+`CLAUDE.md` region, `facts/` and `tasks.toml` go through `blendSeedOnce`, which
+writes only when nothing is there yet and never rewrites
+(`container/blend.go` `seedOnce`).
+
+Consequence: a product author cannot fix anything they shipped. A typo in
+`PERSONA.md`, a wrong fact, a bad default task — every group that already
+installed the product keeps it forever, and the author has no channel to
+correct it. `5/28` calls itself a package manager; on four of six payload kinds
+it is a one-time copy.
+
+- **Severity:** medium — no failure, but the headline capability does not work
+- **Scope:** `5/28` composition, the blend table's "On upstream update" column
+- **Affected:** every installed product; nothing on the fleet has been upgraded
+  in place because there is no meaningful upgrade
+- **Source:** `container/blend.go` `blendSeedOnce` vs `blendSkills`;
+  `specs/5/28-packages.md` §Composition table
+- **Status:** proposal, operator-stated 2026-08-15. **A product is overwritten
+  on upgrade, like any software package; customization lives in the local
+  layer, not in the package's files.**
+
+  The local layer already exists and is already managed: the agent's memory and
+  `facts/`, the operator's `~/CLAUDE.md` overlay, `.disabled` to drop a skill.
+  The contract becomes two clean surfaces — product files are the product's,
+  local state is the group's — instead of one file with two owners and a
+  dirty-hash arbitration between them.
+
+  `CLAUDE.md` is the precedent, not an exception: marked regions already give a
+  product ownership of its own region while text outside it is never rewritten
+  (`<!-- arizuko:package:<name> BEGIN/END -->`). The proposal extends that
+  contract to the other payloads rather than inventing one.
+
+  **What it dissolves.** Per-product `migrations/` (`L?`, deferred then refused
+  2026-08-15) exists to transform state you cannot overwrite. If files are
+  replaced, the only state left to migrate is the agent's own memory, which the
+  agent curates. The deferred runner stops being owed.
+
+  **What it costs, and the one question to settle.** Everything edited in place
+  today needs a home in the local layer. `PERSONA.md` is the sharp case:
+  operators do tune a persona by editing the file, and under this rule that edit
+  is overwritten. Either a persona tweak becomes an overlay, or `PERSONA.md`
+  keeps a carve-out — that choice is the whole decision, and it should be made
+  before the table is rewritten. `tasks.toml` needs the same answer (an
+  operator-added task must not vanish on upgrade).
+
+  On sign-off this is a `5/28` spec edit first — the blend table's two right-hand
+  columns — then `container/blend.go` moves payloads from `blendSeedOnce` to the
+  managed path, keeping dirty-detection only where a carve-out survives.
+- **Fix:**
+
 ## L30 — the SSE hub key is an unwritten string convention both ends re-derive (2026-08-15, open)
 
 `webd/turn.go` was fixed on 2026-08-15 to subscribe on the real chat JID rather
