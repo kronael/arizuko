@@ -268,6 +268,32 @@ instead silently dedup a legitimately re-armed one-shot.
 - **Status:** open
 - **Fix:**
 
+## L36 — `packages install` applies grants without saying so (2026-08-15, open)
+
+Installing a package that ships `<name>-grants.json` prints:
+
+```
+installed helpbot@local (2 file(s), 1 route(s)) — run `arizuko generate lab` to apply
+```
+
+The grant IS applied and IS attributed (`acl.granted_by = 'package:helpbot'`,
+verified in the lab), and `Q5` already made the audit trail per-grant for exactly
+this reason: "a bundle row would say 'installed ttsd' and hide that the install
+handed somebody admin on a folder". The audit row is right; the operator's
+terminal is not. Files and routes are counted, grants are silent — the one asset
+kind that changes who can do what is the one the summary omits.
+
+- **Severity:** low — no wrong state, but the operator is not told about the
+  change most worth telling them about
+- **Scope:** `cmd/arizuko/packages.go` install reporting
+- **Affected:** any package shipping `*-grants.json`
+- **Source:** the install summary line in `cmd/arizuko/packages.go`; contrast
+  `applyPackageGrants`, which returns each applied row for the record
+- **Status:** open — count grants in the summary like files and routes, and
+  name the principal and scope for each rather than a bare count, since one
+  grant is a bigger fact than ten files.
+- **Fix:**
+
 ## L35 — `tasks.toml` is a product payload nothing reads (2026-08-15, open)
 
 `specs/5/21:56` says a product ships "`tasks.toml` (seed scheduled tasks)", and

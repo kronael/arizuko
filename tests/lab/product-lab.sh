@@ -144,6 +144,44 @@ else
     && printf '   \033[33mknown\033[0m and the NEXT apply restores it — so it is a window, not a permanent loss\n'
 fi
 
+say "the OTHER half: a package (instance-wide), not a product (one group)"
+# A product seeds one group's files. A package installs instance-wide assets —
+# a compose fragment, a proxyd route, an acl grant — and its record keys on
+# folder '' to say so.
+PKG="$WORK/pkgs/helpbot"; mkdir -p "$PKG"
+cat > "$PKG/helpbot.yml" <<'YML'
+services:
+  helpbot:
+    image: alpine:3.20
+    command: ["sleep", "3600"]
+    environment:
+      LISTEN_ADDR: ":8080"
+YML
+printf '[{"path":"/helpbot/","backend":"http://helpbot:8080","auth":"user","strip_prefix":true}]\n' \
+  > "$PKG/helpbot-routes.json"
+printf '[{"principal":"folder:main","action":"mcp:send","scope":"main","effect":"allow"}]\n' \
+  > "$PKG/helpbot-grants.json"
+"$BIN" packages "$INST" install "$PKG" 2>/dev/null | tail -1
+DB="$DATA/store/routd/routd.db"
+q() { sqlite3 "$DB" "$1"; }
+[ "$(q "select count(*) from acl where granted_by='package:helpbot';")" = 1 ] \
+  && ok "grant applied, attributed to package:helpbot" || bad "grant missing"
+[ "$(q "select count(*) from proxyd_routes where path='/helpbot/';")" = 1 ] \
+  && ok "proxyd route row written" || bad "route missing"
+[ "$(q "select folder from installed_packages where name='helpbot';")" = "" ] \
+  && ok "record folder is '' — instance-wide, not a group" || bad "record folder wrong"
+
+say "remove reverses exactly what the record names"
+"$BIN" packages "$INST" remove helpbot 2>/dev/null | tail -1
+[ "$(q "select count(*) from acl where granted_by='package:helpbot';")" = 0 ] \
+  && ok "grant revoked" || bad "grant survived remove"
+[ "$(q "select count(*) from proxyd_routes where path='/helpbot/';")" = 0 ] \
+  && ok "route deleted" || bad "route survived remove"
+[ "$(q "select count(*) from installed_packages where name='helpbot';")" = 0 ] \
+  && ok "record dropped" || bad "record survived remove"
+[ -z "$(ls "$DATA/services" 2>/dev/null | grep helpbot || true)" ] \
+  && ok "fragment files gone" || bad "fragment survived remove"
+
 if [ "$KEEP" = 1 ]; then
   printf '\ninstance kept at %s\n' "$DATA"
 else

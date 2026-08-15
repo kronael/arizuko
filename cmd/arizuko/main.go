@@ -49,6 +49,7 @@ func main() {
 		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
 		fmt.Println("  route    <instance> list | add <match> <target> [--seq|-s N] | rm <id>")
 		fmt.Println("  packages <instance> list | add <name> | remove <name>")
+		fmt.Println("  packages <instance> install <git-url-or-dir> | upgrade <name> | sync")
 		fmt.Println("  products <instance> list | apply <folder>  — the bundled catalog, or blend the group's ~/products.toml mix")
 		fmt.Println("  generate <instance>  — writes docker-compose.yml; also relinks any installed fragment that's still an identical catalog copy")
 		fmt.Println("  token    <instance> issue chat <folder> [<suffix>]")
