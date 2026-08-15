@@ -382,6 +382,13 @@ func (s *Server) ownsJID(tokenFolder, jid string) bool {
 		return true
 	}
 	target := s.db.DefaultFolderForJID(jid)
+	// No route row: read the folder the MINT recorded, never the JID grammar.
+	// `web:T/S` is byte-identical to a plain token at a folder named `T/S`, so
+	// the grammar hands ownership to a descendant (BUGS L4). The grammar stays
+	// the last resort, for a token minted before the mint recorded it.
+	if target == "" {
+		target = s.db.RouteTokenTarget(jid)
+	}
 	if target == "" {
 		if folder, ok := strings.CutPrefix(jid, "web:"); ok {
 			target = folder

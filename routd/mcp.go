@@ -444,6 +444,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			return r
 		},
 		DefaultFolderForJID: s.db.DefaultFolderForJID,
+		RouteTokenTarget:    s.db.RouteTokenTarget,
 		JIDRoutedToFolder:   s.db.JIDRoutedToFolder,
 		JIDRoutableToFolder: s.db.JIDRoutableToFolder,
 		MessagesBefore: func(jid string, before time.Time, limit int) ([]core.Message, error) {

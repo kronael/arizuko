@@ -64,3 +64,42 @@ func TestRecordOutbound_StoresPlatformID(t *testing.T) {
 		t.Fatalf("recordOutbound ReplyToID = %q, want empty (own TS belongs in platform_id)", got.ReplyToID)
 	}
 }
+
+// A suffixed web token belongs to the folder its MINT recorded, not to the
+// folder its JID spells. `web:acme/support` is byte-identical to a plain token
+// at a folder named `acme/support`, so reading the grammar lets an agent AT
+// `acme/support` reply into `acme`'s chat — a descendant writing into its
+// ancestor's conversation (BUGS L4). authorizeJID gates the agent's own
+// reply/send, so this is a write, not a read.
+func TestAuthorizeJID_SuffixedTokenBelongsToTheMintedFolder(t *testing.T) {
+	jid := "web:acme/support" // minted at folder acme with jid_suffix=support
+	db := StoreFns{
+		DefaultFolderForJID: func(string) string { return "" }, // no route row
+		RouteTokenTarget:    func(string) string { return "acme" },
+	}
+
+	owner := auth.Identity{Folder: "acme"}
+	if err := authorizeJID(owner, "reply", jid, db); err != nil {
+		t.Fatalf("authorizeJID(acme, reply, %s) = %v, want nil", jid, err)
+	}
+
+	// The folder the grammar names really exists and is a different tenant.
+	impostor := auth.Identity{Folder: "acme/support"}
+	if err := authorizeJID(impostor, "reply", jid, db); err == nil {
+		t.Fatalf("authorizeJID(acme/support, reply, %s) = nil, want forbidden "+
+			"(the grammar's reading, not the minted folder)", jid)
+	}
+}
+
+// A token minted before target_folder existed records nothing, so the grammar
+// stays the answer — an upgrade must not lock an agent out of its own chat.
+func TestAuthorizeJID_PreColumnTokenKeepsTheGrammar(t *testing.T) {
+	db := StoreFns{
+		DefaultFolderForJID: func(string) string { return "" },
+		RouteTokenTarget:    func(string) string { return "" },
+	}
+	own := auth.Identity{Folder: "acme/support"}
+	if err := authorizeJID(own, "reply", "web:acme/support", db); err != nil {
+		t.Fatalf("pre-column token: authorizeJID = %v, want nil", err)
+	}
+}

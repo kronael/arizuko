@@ -168,8 +168,12 @@ type StoreFns struct {
 	ListTasks           func(folder string, isRoot bool) []core.Task
 	ListRoutes          func(folder string, isRoot bool) []core.Route
 	DefaultFolderForJID func(jid string) string
-	PutMessage          func(m core.Message) error
-	GetLastReplyID      func(jid, topic string) string
+	// RouteTokenTarget returns the folder a web:/hook: token was MINTED to
+	// deliver to, or "" when no token records one. The JID grammar cannot
+	// answer it — see authorizeJID. May be nil in tests.
+	RouteTokenTarget func(jid string) string
+	PutMessage       func(m core.Message) error
+	GetLastReplyID   func(jid, topic string) string
 	// SetLastReply upserts last_reply_id and engaged_folder for (jid,
 	// topic). Always called on outbound; BumpEngagement is the separate
 	// timed-aware bump. Spec 5/G.
@@ -858,11 +862,15 @@ func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
 	if db.DefaultFolderForJID != nil {
 		target = db.DefaultFolderForJID(jid)
 	}
-	// Bare web:<folder> is a structural 1:1 binding to <folder> and carries no
-	// route row (gateway.folderForJid / the web-strict-1:1 contract). The route
-	// table still wins for routed web JIDs (web:X/sub → some group), so fall back
-	// to the 1:1 binding only when no route resolved — lets an agent reply to its
-	// own web-chat surface.
+	// No route row: fall back to the token's own binding so an agent can reply
+	// to its own web-chat surface. Read the folder the MINT recorded, never the
+	// JID grammar — `web:T/S` is byte-identical to a plain token at a folder
+	// named `T/S`, so the grammar hands containment to a descendant and a
+	// sub-folder agent writes into its ancestor's chat (BUGS L4). The grammar
+	// stays the last resort, for a token minted before the mint recorded it.
+	if target == "" && db.RouteTokenTarget != nil {
+		target = db.RouteTokenTarget(jid)
+	}
 	if target == "" {
 		if folder, ok := strings.CutPrefix(jid, "web:"); ok {
 			target = folder

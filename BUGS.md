@@ -535,7 +535,7 @@ dispatches to the folder AND no onboarding row appears. Reverting `directFolder`
 fails it with `turn_id="" want h1`. Verified at the Loop layer with onbod wired
 — the exact gap this entry named. NOT re-run live over webd→routd→runed HTTP.
 
-## L4 — a suffixed `hook:`/`web:` route token still parks in onboarding (2026-08-11, FIXED 2026-08-13)
+## L4 — a suffixed `hook:`/`web:` route token still parks in onboarding (2026-08-11, FIXED 2026-08-13, completed 2026-08-15)
 
 Found while fixing `L1`, and NOT fixed with it: the residue is a mint-grammar
 defect, not a resolution one.
@@ -574,10 +574,20 @@ recorded here rather than patched.
   token. `webd.senderFromJID`'s admitted heuristic is gone with it.
   `5/W` is `shipped` again.
 
-  Two sites the schema change exposed, both cross-tenant and both fixed
-  here: `dashd.jidFolder` gates who may SEE a message, and proxyd stamps
-  `X-Folder` onto webd's request — each read the grammar, so
-  `hook:a/b/c` served tenant `a`'s traffic to tenant `a/b`.
+  Four sites the schema change exposed, all cross-tenant. Two were found
+  landing it: `dashd.jidFolder` gates who may SEE a message, and proxyd stamps
+  `X-Folder` onto webd's request — each read the grammar, so `hook:a/b/c`
+  served tenant `a`'s traffic to tenant `a/b`.
+
+  The CTO audit the same day found the other two, and they are WRITES, not
+  reads: `ipc.authorizeJID` (the containment on the agent's own `reply`/`send`)
+  and `routd.ownsJID` both fell back to `strings.CutPrefix(jid, "web:")` when no
+  route row resolved. With a token minted `target_folder=T, jid_suffix=S` and a
+  real folder `T/S`, an agent at `T/S` passed containment for a chat belonging
+  to `T` — a descendant writing into its ancestor's conversation, reachable by
+  any tenant's agent. Declaring L4 closed before that check was an over-claim;
+  both now read `store.RouteTokenTargetByJID` through the same single reader,
+  with the grammar kept only as the pre-column fallback.
 
   Landing it also uncovered a silent migration-runner defect: `Migrate`
   skips any file whose version is not greater than the last applied one, so
