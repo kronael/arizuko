@@ -1259,7 +1259,7 @@ the daemon that spawns agent containers. Found while closing `X1`.
 - **Severity:** low (runed is a trusted daemon on the compose network; this
   widens the blast radius of a runed compromise, it does not create one)
 - **Source:** compose/compose.go:178; no reader in runed/ or container/
-- **Fix:** `SECRETS_KEY` removed from `daemonKeys["runed"]` in
+- **Fix:** `c7722184` — `SECRETS_KEY` removed from `daemonKeys["runed"]` in
   `compose/compose.go`. routd and dashd keep it (they seal/unseal rows); runed
   gets already-decrypted credentials in `RunRequest.Secrets` and opens no
   secrets table.
