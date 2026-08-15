@@ -1749,7 +1749,7 @@ not a one-off backfill.
 - **Status:** open — needs the producer identified before deciding delete-orphans
   vs relax-the-constraint. Do NOT rebuild `task_run_logs` until then.
 
-## C1 — package names can traverse outside `services/` (2026-07-28, open)
+## C1 — package names can traverse outside `services/` (CLOSED-STALE 2026-08-15 — already fixed 4fa9553e, heading was stale)
 
 `arizuko packages <instance> add|remove <name>` joins the unvalidated name
 directly into filesystem paths. `remove ../docker-compose` resolves to the
