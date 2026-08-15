@@ -226,6 +226,48 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L32 — whapd ignores `idempotency_key`: the one adapter still outside the D5 dedup contract (2026-08-15, open)
+
+Every Go adapter claims/settles routd's `idempotency_key` in a durable
+per-adapter ledger (`chanlib/dedup.go`), so a sweep resend of a delivered row
+posts nothing. whapd (TS, node:22) drops the field on the floor: a routd
+resend after a lost `/send` response double-posts on WhatsApp — exactly the
+D5 class, one adapter left. Spec `5/34` now names whapd as outside the
+contract. Fix shape: a durable claim/settle ledger in whapd's own state dir
+(node:22 has no stable `node:sqlite`, so file-per-key with `O_CREAT|O_EXCL`
+as the atomic claim, or a runtime bump), wired into `/send` before
+`sock.sendMessage`, plus a Baileys error taxonomy call — which of its errors
+prove nothing was sent (release the claim, per `chanlib.ErrNotDelivered`)
+vs ambiguous (hold). ~100 lines TS + tests; the taxonomy decision is why
+this needs a look rather than a mechanical port.
+
+- **Severity:** medium
+- **Scope:** outbound delivery / channel protocol
+- **Affected:** whapd (krons runs it as the primary channel)
+- **Source:** whapd/src/server.ts `/send` (no idempotency_key read)
+- **Status:** open
+- **Fix:**
+
+## L33 — a one-shot task's retry mints a fresh message id, so a lost response fires it twice (2026-08-15, open)
+
+`timed.fireSplit` enqueues each due task with `id = core.MsgID("sched-"+t.ID)`
+— a `UnixNano` suffix, fresh per attempt. When the `POST /v1/messages`
+response is lost but routd recorded the row, timed's error path reschedules a
+one-shot (`cron=""`) to fire again in 1 minute with a NEW id, and routd's
+id-PK dedup never matches: the task fires twice. Cron tasks are unaffected
+(the reschedule targets the next natural slot, which should fire anyway).
+The exact fix needs a stable per-fire identity that survives the reschedule —
+the claimed `next_run` carried through `/v1/tasks/due` and preserved on the
+error-path reschedule, or a fire_id column; a bare `sched-<taskID>` key would
+instead silently dedup a legitimately re-armed one-shot.
+
+- **Severity:** low
+- **Scope:** scheduled tasks / ingress idempotency
+- **Affected:** timed → routd
+- **Source:** timed/split.go:184 (`core.MsgID`), core/types.go:275
+- **Status:** open
+- **Fix:**
+
 ## L31 — a product never really updates: four of six payload kinds are seed-once (2026-08-15, proposal — needs sign-off)
 
 `arizuko packages upgrade` / `sync` re-apply exactly two payload kinds: skills
