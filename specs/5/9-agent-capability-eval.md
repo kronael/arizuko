@@ -129,7 +129,12 @@ because the chat-token MCP face lacks an inspect-read.
 ## Live-run preconditions (learned the hard way)
 
 - **Token**: `arizuko token <inst> issue bearer <folder> --scope
-messages:write,messages:read` (add `cost:read` for budgets).
+messages:write,messages:read` (add `cost:read` for budgets). Pass
+  `--ttl 6h`: the default is one hour, and a full suite outlives it, so
+  every remaining case 401s and the run reads as a total capability
+  failure.
+- **API base**: `--api http://localhost:<routd-port>`. The public host
+  serves no `/v1`, so pointing at it 404s every injected message.
 - **Eval folder**: `arizuko group <inst> add web:<folder> <folder>` —
   never a manual `mkdir`; `--chat web:<folder>` then routes 1:1.
 - **Subagent cases need a child that exists**: nothing auto-creates a
@@ -137,7 +142,12 @@ messages:write,messages:read` (add `cost:read` for budgets).
   `mcp:register_group`) before a child-delegate case can pass.
 - **Sink reachability**: bind `--sink-addr :PORT` on the eval host and
   pass the target's docker-gateway IP as `--sink http://<gateway-ip>:PORT`
-  — reachable from containers even on internal networks. crackbox
+  — reachable from containers even on internal networks. That gateway is
+  the agent's OWN per-folder network (`docker network inspect
+<inst>_<folder>`, e.g. `10.99.15.1`), never `docker0`'s `172.17.0.1`:
+  a container on a user-defined network cannot reach the default bridge,
+  so every callback case times out with an empty artifact URL and reads
+  as an agent failure. crackbox
   name-matching skips IP entries, so a name-based allowlist rule cannot
   cover it (a folder `*` rule can). The eval host must sit on the target
   folder's egress allowlist, or a default-deny refusal reads as a

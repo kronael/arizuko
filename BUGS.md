@@ -226,6 +226,53 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L40 — live krons cannot tell two anonymous visitors apart (2026-08-16, open — needs an infra decision)
+
+Found by anteval `chat-entrypoint`, which failed `429, want 200` on a freshly
+minted chat token. The code half is FIXED in `3e19ea3e` (the shield keyed on
+`r.RemoteAddr` instead of the existing `clientIP` helper). The deployment half
+is not, and no code change can close it.
+
+`proxyd` on krons logs exactly two source addresses over six hours:
+`127.0.0.1` (239) and `10.0.5.1` (18). `10.0.5.1` is the host's own default
+gateway (`enp0s2 10.0.5.2/30`), and `krons.fiu.wtf` resolves to `65.21.89.43`,
+which is not an address on this host. Every external visitor therefore reaches
+proxyd as one address. `TRUSTED_PROXIES` is unset, so `fixForwardedFor`
+correctly discards any inbound `X-Forwarded-For` and stamps the peer.
+
+Three mechanisms degrade together, silently until now:
+
+- the anon chat DoS shield (`CHAT_ANON_DOS_RPM`, default 10/min) is one bucket
+  for the whole world — one reader locks out the next, which is the 429
+  anteval hit;
+- the auth-denied log names the hop, not the scanner — the exact regression
+  `clientIP`'s comment says was already fixed once;
+- `webd.anonSender` hashes that address, so every anonymous chat visitor shares
+  one `anon:<hex>` identity.
+
+**Do not just set `TRUSTED_PROXIES`.** It is only safe once we know the edge
+overwrites `X-Forwarded-For` rather than appending to a client-supplied one:
+proxyd reads the left-most hop, so trusting an appending edge lets any caller
+forge their own source and bypass the shield. The commit adds a one-shot
+`untrusted edge proxy` warning per peer, which answers the question after the
+next deploy — if it never fires, the edge sends no `X-Forwarded-For` at all and
+only the infrastructure can fix this.
+
+Secondary, worth measuring once clients are distinguishable: `/chat/` has six
+routes and a page load spends root + config + history + POST, with a CORS
+preflight per POST for an embedded widget. A 10/min budget is then ~3 messages
+a minute for one visitor. Possibly the intended shield strength; currently
+untestable, because the budget is not per-visitor.
+
+- **Severity:** high — anonymous chat is the public entry surface
+- **Scope:** krons deployment (all instances behind the same edge)
+- **Affected:** every anonymous `/chat/` and `/hook/` caller
+- **Source:** `proxyd/main.go` `fixForwardedFor`; `TRUSTED_PROXIES` unset in
+  `/srv/data/arizuko_krons/.env`
+- **Status:** open — needs the edge's `X-Forwarded-For` behaviour confirmed
+  before anything is trusted
+- **Fix:**
+
 ## L39 — whapd acks WhatsApp before routd accepts, the TS half of L25 (2026-08-15, open)
 
 Found while fixing `L25`, which named a sibling entry `L20` for this — `L20`
@@ -910,10 +957,15 @@ Production run: 149 hits. With `-test`: 56. Buckets and verdicts:
   same-group-restart (`hasPending`) in production load — behavior inference
   from code, not observed live.
 
-## L2 — a delegated child is never dispatched: its only message is a bot row (2026-08-08, CAUSE ISOLATED 2026-08-15, fix needs sign-off)
+## L2 — a delegated child is never dispatched: its only message is a bot row (2026-08-08, CAUSE ISOLATED 2026-08-15, fix needs sign-off, REPRODUCED 2026-08-16 on v0.64.0)
 
 Same live run, `child-delegate`. Unlike L1 this one is NOT root-caused, and it
 is recorded that way on purpose.
+
+The v0.64.0 anteval run reproduces it unchanged (`no callback for
+etjty2l-child-delegate`). The harness prints "case needs `mcp:register_group`,
+`mcp:delegate_group`" on any timeout; that hint is generic and wrong here — the
+logs below show both calls succeeding.
 
 What is verified from the logs: the parent registered the child
 (`"group registered" jid=web:eval/etjgjnv-child-delegate folder=eval/etjgjnv-child-delegate`)
