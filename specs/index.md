@@ -70,3 +70,17 @@ order at all. `queued` is committed and waiting its turn; `drafting` is still
 being designed; `planned` is a placeholder with no specs written. Phase 5
 closed 2026-08-15 (its last two carve-outs, `5/5` Open 2 and `5/28`'s
 migrations, shipped as decisions); phase 6 took `active` the same day.
+
+**Open — a re-cut of 6 and 7 (2026-08-16, recorded, not applied).** Because
+phase 6 took `active` the day phase 5 closed, every later arrival landed there
+whatever its subject: 7 of its 11 specs are platform work, not adoption, and
+say so in their own frontmatter (`6/17` closes `8/Z`, phase 8's gap; `6/19`
+depends on `5/13`+`5/14`). The operator's re-cut is **6 = finish and harden the
+platform**, absorbing the phase-7 cockpit, and **7 = adoption** — contracts,
+conformance, ship-in-parts, cloud. Only four of today's phase-6 specs (`1`,
+`7`, `16`, `8`) belong to adoption. Not applied here because spec IDs are
+stable identifiers: they appear 222 times across 64 files including `BUGS.md`,
+`CHANGELOG.md` and diary history, and `6/1`/`7/1` collide, so moving them is a
+deliberate pass with its own verification. Also drifting: `specs/7/index.md`
+says `status: active` while the table above says `queued`. See
+[`6/index.md`](6/index.md) §"Open".
