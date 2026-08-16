@@ -17,20 +17,19 @@ on-ramp; emulation is rejected.
 
 ## Specs
 
-| Spec                                                               | Status  | Covers                                                                                                                                                                                                           |
-| ------------------------------------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [7-environment-contracts.md](7-environment-contracts.md)           | draft   | **the spine**: the agent contract (identity, home, envelope, idempotent delivery, unfrozen lifecycle seam) + the component contract; conformance = `anteval` per backend / a live probe                          |
-| [1-adoption-interop.md](1-adoption-interop.md)                     | draft   | adoption strategy: publish-the-contract thesis (Lambda analogy), the wrap demoted to on-ramp, the agentic reimplementation loop, the seven services, demand-class mode                                           |
-| [16-daemon-standalone-matrix.md](16-daemon-standalone-matrix.md)   | draft   | the four-layer model (surfaces / core / substrate / agent — `ant` is the first layer-4 occupant) + two standalone axes + the matrices; `servekit` retired; crackbox's ship gate cleared                          |
-| [8-crackbox-standalone.md](8-crackbox-standalone.md)               | shipped | crackbox — forward proxy with per-source allowlists; arizuko's per-folder egress consumer (was `12/9`)                                                                                                           |
-| [9-crackbox-sandboxing.md](9-crackbox-sandboxing.md)               | shipped | crackbox `pkg/host/` KVM/qemu sandbox library — **shipped but unwired**: no importer outside `crackbox/`; `runed` still spawns Docker (was `12/12`)                                                              |
-| [10-crackbox-dns-filter.md](10-crackbox-dns-filter.md)             | shipped | DNS NXDOMAIN filter on UDP/53; reuses `Registry`+`match.Host` (was `12/15`)                                                                                                                                      |
-| [12-mcp-firewall.md](12-mcp-firewall.md)                           | draft   | `mcpfw` — transparent MCP proxy for THIRD-PARTY MCP servers; deny-wins tool-call filter (was `12/17`)                                                                                                            |
-| [17-egress-credential-proxy.md](17-egress-credential-proxy.md)     | draft   | the opaque-client credential hole (`8/Z`), tiered: signing rides a host-side request tool; `credential_process` closes `X2`; MITM residue is allowlist + header injection, vendor signing DECLINED               |
-| [18-durable-workflows-decline.md](18-durable-workflows-decline.md) | shipped | costed DECLINE of a durable-execution engine — `5/A` decision 5 stands; reopen trigger + the four-table shape to copy if it fires                                                                                |
-| [19-unified-tool-declaration.md](19-unified-tool-declaration.md)   | draft   | collapse `[[ext]]`+`[[mcp_connector]]` into one `[[connector]]` block + the ordered-source shadow rule; timed to `5/13` shape 4                                                                                  |
-| [20-sandbox-lifecycle-decline.md](20-sandbox-lifecycle-decline.md) | shipped | costed DECLINE of the warm-pool sandbox lifecycle vs per-turn ephemeral containers; the mount-boundary blocker; `can_open_io`+reconcile survive for `6/9` KVM                                                    |
-| [21-storage-seam.md](21-storage-seam.md)                           | draft   | `6/7`'s missing half — the `Store` operation set behind the 534 uninterfaced SQL sites; folder as partition key; ensure-table migrations; FTS + rowid named as the two real gaps; ExtendDB/Dynoxide as CI oracle |
+| Spec                                                               | Status  | Covers                                                                                                                                                                                             |
+| ------------------------------------------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [7-environment-contracts.md](7-environment-contracts.md)           | draft   | **the spine**: the agent contract (identity, home, envelope, idempotent delivery, unfrozen lifecycle seam) + the component contract; conformance = `anteval` per backend / a live probe            |
+| [1-adoption-interop.md](1-adoption-interop.md)                     | draft   | adoption strategy: publish-the-contract thesis (Lambda analogy), the wrap demoted to on-ramp, the agentic reimplementation loop, the seven services, demand-class mode                             |
+| [16-daemon-standalone-matrix.md](16-daemon-standalone-matrix.md)   | draft   | the four-layer model (surfaces / core / substrate / agent — `ant` is the first layer-4 occupant) + two standalone axes + the matrices; `servekit` retired; crackbox's ship gate cleared            |
+| [8-crackbox-standalone.md](8-crackbox-standalone.md)               | shipped | crackbox — forward proxy with per-source allowlists; arizuko's per-folder egress consumer (was `12/9`)                                                                                             |
+| [9-crackbox-sandboxing.md](9-crackbox-sandboxing.md)               | shipped | crackbox `pkg/host/` KVM/qemu sandbox library — **shipped but unwired**: no importer outside `crackbox/`; `runed` still spawns Docker (was `12/12`)                                                |
+| [10-crackbox-dns-filter.md](10-crackbox-dns-filter.md)             | shipped | DNS NXDOMAIN filter on UDP/53; reuses `Registry`+`match.Host` (was `12/15`)                                                                                                                        |
+| [12-mcp-firewall.md](12-mcp-firewall.md)                           | draft   | `mcpfw` — transparent MCP proxy for THIRD-PARTY MCP servers; deny-wins tool-call filter (was `12/17`)                                                                                              |
+| [17-egress-credential-proxy.md](17-egress-credential-proxy.md)     | draft   | the opaque-client credential hole (`8/Z`), tiered: signing rides a host-side request tool; `credential_process` closes `X2`; MITM residue is allowlist + header injection, vendor signing DECLINED |
+| [18-durable-workflows-decline.md](18-durable-workflows-decline.md) | shipped | costed DECLINE of a durable-execution engine — `5/A` decision 5 stands; reopen trigger + the four-table shape to copy if it fires                                                                  |
+| [19-unified-tool-declaration.md](19-unified-tool-declaration.md)   | draft   | collapse `[[ext]]`+`[[mcp_connector]]` into one `[[connector]]` block + the ordered-source shadow rule; timed to `5/13` shape 4                                                                    |
+| [20-sandbox-lifecycle-decline.md](20-sandbox-lifecycle-decline.md) | shipped | costed DECLINE of the warm-pool sandbox lifecycle vs per-turn ephemeral containers; the mount-boundary blocker; `can_open_io`+reconcile survive for `6/9` KVM                                      |
 
 `7` owns the contracts; `1` owns the strategy; `16` owns the map (layers,
 axes, matrices). `8`–`10` (crackbox family) and `12` (`mcpfw`) are the
@@ -54,10 +53,7 @@ themselves argue:
 3. **crackbox as the first shipped component** — its fail-open gate
    cleared 2026-08-15 (`6/16`); "ship one, not seven" — get a stranger
    running it and let what they hit choose the next seam.
-4. **`6/21` the storage seam** — the component contract's missing half.
-   Standalone value (it deletes the 534-call-site coupling); a cloud or
-   NoSQL backend becomes an implementation rather than a rewrite.
-5. **Deferred by their own terms**: `19` waits for `5/13` shape 4; `12`
+4. **Deferred by their own terms**: `19` waits for `5/13` shape 4; `12`
    (mcpfw) waits for a third-party-MCP consumer; `17` tier 1 (MITM)
    waits for a consumer tier 0 cannot serve.
 

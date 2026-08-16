@@ -14,16 +14,25 @@ daemon, one hub.
 `/v1`-only read path, routing, auth, theme, non-goals. Every other spec
 points back at it and adds only what does not generalise.
 
+**This phase carries a second track (2026-08-16): the cloud one.**
+[`21-storage-seam.md`](21-storage-seam.md) lands here because putting arizuko
+in the cloud comes AFTER splitting it into parts, which is phase 6's job. The
+two tracks share a number and nothing else. They want separate phases, and that
+wants the renumber that BUGS `L43` currently blocks — 44 spec references in the
+live tree already resolve to nothing, so moving specs into occupied number
+space would turn dangling pointers into confidently wrong ones.
+
 ## Specs
 
-| Spec                                                     | Status  | Covers                                                                                                                        |
-| -------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| [1-cockpit-index.md](1-cockpit-index.md)                 | draft   | architecture, `/v1` read path, routing, auth, theme, non-goals                                                                |
-| [2-dashd-hub.md](2-dashd-hub.md)                         | draft   | the `dashd` hub + the cross-cutting operator pages that stay central                                                          |
-| [3-per-daemon-dashboards.md](3-per-daemon-dashboards.md) | partial | routd, runed, authd, proxyd, onbod, timed, crackbox, webd, davd, ttsd — one table plus the per-daemon reasoning that survives |
-| [11-adapter-contract.md](11-adapter-contract.md)         | draft   | the shared adapter dashboard grammar + health model, defined once                                                             |
-| [12-adapter-dashboards.md](12-adapter-dashboards.md)     | draft   | the ten channel adapters instantiating that contract                                                                          |
-| [41-social-adapter-model.md](41-social-adapter-model.md) | draft   | the boundary between social adapters (asymmetric visibility, selective engagement) and chat adapters (bidirectional, push)    |
+| Spec                                                     | Status  | Covers                                                                                                                                                                                                        |
+| -------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [1-cockpit-index.md](1-cockpit-index.md)                 | draft   | architecture, `/v1` read path, routing, auth, theme, non-goals                                                                                                                                                |
+| [2-dashd-hub.md](2-dashd-hub.md)                         | draft   | the `dashd` hub + the cross-cutting operator pages that stay central                                                                                                                                          |
+| [3-per-daemon-dashboards.md](3-per-daemon-dashboards.md) | partial | routd, runed, authd, proxyd, onbod, timed, crackbox, webd, davd, ttsd — one table plus the per-daemon reasoning that survives                                                                                 |
+| [11-adapter-contract.md](11-adapter-contract.md)         | draft   | the shared adapter dashboard grammar + health model, defined once                                                                                                                                             |
+| [12-adapter-dashboards.md](12-adapter-dashboards.md)     | draft   | the ten channel adapters instantiating that contract                                                                                                                                                          |
+| [41-social-adapter-model.md](41-social-adapter-model.md) | draft   | the boundary between social adapters (asymmetric visibility, selective engagement) and chat adapters (bidirectional, push)                                                                                    |
+| [21-storage-seam.md](21-storage-seam.md)                 | draft   | **the cloud track**: the `Store` operation set derived from DynamoDB and pruned; transactions kept (the invariants are multi-table); aggregates and FTS explicitly OUT of the layer; per-table partition keys |
 
 ## What is actually built
 
