@@ -1145,7 +1145,30 @@ entry already names (which tree is the single source, and whether the other
 becomes a symlink/reference rather than a second copy), which is a
 cross-cutting structural change to skill dispatch and wants sign-off.
 
-## F53 — live krons teled has no state mount, so its offset resets every recreate (2026-08-07, open)
+## ✅ FIXED 2026-08-16 — F53 — live krons teled has no state mount, so its offset resets every recreate (2026-08-07)
+
+Closed by `L41`, which this entry had already diagnosed a week earlier ("worth
+a fleet-wide fragment diff … relink only replaces fragments that are still
+identical catalog copies") and which then went unacted-on until tonight's whapd
+outage forced it. The generalisation, the shipped warning and the auto-repair
+proposal are all in `L41`.
+
+Live on krons 2026-08-16: the current template is installed, so the mount and
+`DATA_DIR` are present, and the fragment is now a symlink to the catalog rather
+than a copy that can fall behind again.
+
+    /srv/data/arizuko_krons/store/teled -> /srv/app/home/store/teled
+    DATA_DIR=/srv/app/home/store/teled
+    RUNED_RUN_TIMEOUT=20m
+
+The same install applied `T1`'s typing timeout, which had shipped to the
+template and never reached the instance, and moved ttsd/kokoro onto their
+scoped env files — kokoro, a third-party image, went from five instance
+secrets in its environment to none.
+
+**Note:** `teled-rhias.yml` is an operator variant and is deliberately never
+relinked, so it still has no state mount. Same symptom, and it needs its own
+`store/teled-rhias` mount added by hand.
 
 Deployed `/srv/data/arizuko_krons/services/teled.yml` carries neither a state
 mount nor `DATA_DIR`; the repo's `template/services/teled.yml` has both. teled's

@@ -16,6 +16,11 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **A compose fragment that has fallen behind the catalog now says so.** It was
+  only ever replaced when byte-identical, so a fragment written by an older
+  version looked like an operator edit and froze — every mount and env var
+  added since an instance was created silently never arrived. `generate` names
+  each frozen file now (BUGS `L41`, `F53`).
 - **One anonymous chat visitor no longer rate-limits the next.** The DoS shield
   on `/chat/` and `/hook/` keyed on the connection's peer address, which behind
   an edge proxy is the same value for everyone, so the whole world shared one
