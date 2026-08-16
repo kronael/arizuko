@@ -226,6 +226,41 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L43 — 44 stale spec references in the live tree, and they block the 6/7 renumber (2026-08-16, found while measuring the re-cut)
+
+A reference-graph check over tracked `.md`/`.go` (excluding `CHANGELOG.md`, which
+is history and correct as written) found **44 distinct spec IDs that no longer
+resolve**. They sit in the documents a reader trusts most:
+
+    ROUTING.md          6/F, 6/J, 10/17
+    SECURITY.md         6/J, 9/14, 10/17
+    ARCHITECTURE.md     5/H, 7/D, 7/F
+    README.md           8/Z, 9/3
+    BUGS.md             6/2, 8/3, 7/00 (this file)
+    core/types.go       5/U, 6/F        store/messages.go   6/F, 6/J
+    ipc/README.md       7/7, 7/Y, 8/Y   resreg/README.md    8/F
+
+Not all are errors: `8/Z` in `README.md` is a deliberate forward reference to a
+spec phase 8 named and never wrote (`6/17` cites it the same way). The rest are
+residue from earlier renumbers — the lettered phase-6 IDs (`6/B`, `6/D`, `6/E`,
+`6/F`, `6/J`, `6/R`, `6/Y`) are the largest family.
+
+**Why this blocks the renumber, and why it is the real finding.** A dangling
+reference is detectable: follow it, get nothing, notice. But the proposed re-cut
+moves the phase-7 cockpit specs INTO phase 6's number space, and stale `6/2`
+references already exist in `BUGS.md`, `proxyd/resource_test.go` and migration
+`119`. Renumbering `7/2-dashd-hub` to `6/2` makes every one of those resolve —
+to a spec about something else entirely. Dangling pointers become confidently
+wrong pointers, and the class stops being detectable at all.
+
+So the order is fixed: repair the graph first, renumber second. Repairing is
+cheap and independently worth doing; renumbering onto it is then safe.
+
+Recorded, not fixed — found during a general check (Bug Triage Protocol). The
+fix is per-reference judgement: each stale ID needs its intended target
+identified from context, and a few may be deliberate forward references to keep.
+
+
 ## L42 — krons WhatsApp is down: the paired session is invalidated (2026-08-16, BLOCKED on the operator's phone)
 
     whapd  error  session invalidated, delete auth dir and re-pair  code=401
