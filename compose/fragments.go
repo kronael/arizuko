@@ -87,10 +87,19 @@ func SymlinkFragment(servicesDir, hostCatalogDir, filename string) error {
 // generate` may run in cannot see the host checkout it just linked to — see
 // HostCatalogDir), so a fragment that is already a symlink is left exactly as
 // is on every later run, never re-read, never re-compared.
-func RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir string) (relinked []string, err error) {
+// diverged names every fragment kept as a real file because its bytes differ
+// from the catalog. That is indistinguishable here from an operator edit, and
+// it is also what a fragment written by an OLDER generator looks like — so the
+// instance silently keeps running a frozen copy. On krons that hid three live
+// faults at once: whapd's dedup mount (added with BUGS L32) never arrived and
+// the adapter crash-looped, teled's state mount (F53) and typing timeout (T1)
+// were absent, and ttsd/kokoro still loaded the whole instance .env instead of
+// their scoped env files. The caller must say so; converting automatically
+// would overwrite real operator edits and needs sign-off (BUGS L41).
+func RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir string) (relinked, diverged []string, err error) {
 	names, err := readFragments(servicesDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, name := range names {
 		if isSymlink(filepath.Join(servicesDir, name+".yml")) {
@@ -102,20 +111,21 @@ func RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir string) (reli
 		}
 		installed, rerr := os.ReadFile(filepath.Join(servicesDir, name+".yml"))
 		if rerr != nil {
-			return relinked, fmt.Errorf("read services/%s.yml: %w", name, rerr)
+			return relinked, diverged, fmt.Errorf("read services/%s.yml: %w", name, rerr)
 		}
 		if !bytes.Equal(installed, tmpl) {
-			continue // diverged from the catalog — a hand edit, keep it real
+			diverged = append(diverged, name) // a hand edit or an older generator
+			continue
 		}
 		if err := SymlinkFragment(servicesDir, hostCatalogDir, name+".yml"); err != nil {
-			return relinked, err
+			return relinked, diverged, err
 		}
 		relinked = append(relinked, name)
 		if err := relinkSidecarIfIdentical(servicesDir, readableCatalogDir, hostCatalogDir, name); err != nil {
-			return relinked, err
+			return relinked, diverged, err
 		}
 	}
-	return relinked, nil
+	return relinked, diverged, nil
 }
 
 // isSymlink reports whether path exists and is a symlink. False (not an

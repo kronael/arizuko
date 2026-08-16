@@ -752,13 +752,18 @@ func relinkCatalog(dataDir string) {
 		return
 	}
 	svcDir := filepath.Join(dataDir, "services")
-	relinked, err := compose.RelinkCatalog(svcDir, packageTemplates(dataDir), hostDir)
+	relinked, diverged, err := compose.RelinkCatalog(svcDir, packageTemplates(dataDir), hostDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "services: relink to catalog: %v\n", err)
 		return
 	}
 	for _, name := range relinked {
 		fmt.Printf("services/%s.yml now links to the bundled catalog (was an identical copy)\n", name)
+	}
+	for _, name := range diverged {
+		fmt.Fprintf(os.Stderr, "services: services/%s.yml differs from the catalog and is FROZEN — "+
+			"a mount or env var added to the template since it was written will never reach this "+
+			"instance; diff it against template/services/%s.yml (BUGS L41)\n", name, name)
 	}
 }
 

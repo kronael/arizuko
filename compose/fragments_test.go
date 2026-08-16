@@ -140,7 +140,7 @@ func TestRelinkCatalogClassifies(t *testing.T) {
 		})
 	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
 
-	relinked, err := RelinkCatalog(svcDir, tmplDir, hostDir)
+	relinked, _, err := RelinkCatalog(svcDir, tmplDir, hostDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestRelinkCatalogSparesVariant(t *testing.T) {
 		})
 	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
 
-	if _, err := RelinkCatalog(svcDir, tmplDir, hostDir); err != nil {
+	if _, _, err := RelinkCatalog(svcDir, tmplDir, hostDir); err != nil {
 		t.Fatal(err)
 	}
 	isRealFile(t, filepath.Join(svcDir, "teled-rhias.yml"))
@@ -185,7 +185,7 @@ func TestRelinkCatalogSparesHandEdit(t *testing.T) {
 		map[string]string{"teled.yml": edited})
 	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
 
-	relinked, err := RelinkCatalog(svcDir, tmplDir, hostDir)
+	relinked, _, err := RelinkCatalog(svcDir, tmplDir, hostDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,6 +202,42 @@ func TestRelinkCatalogSparesHandEdit(t *testing.T) {
 	}
 }
 
+// Sparing the fragment is right; staying quiet about it is not. A copy written
+// by an older generator looks exactly like a hand edit here, and on krons that
+// froze whapd's dedup mount, teled's state mount and ttsd's scoped env file on
+// a live instance with no signal at all (BUGS L41).
+func TestRelinkCatalogReportsDivergedFragment(t *testing.T) {
+	svcDir, tmplDir := seedCatalog(t,
+		map[string]string{"teled.yml": teledV2},
+		map[string]string{"teled.yml": "services:\n  teled:\n    image: arizuko:latest\n"})
+	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
+
+	_, diverged, err := RelinkCatalog(svcDir, tmplDir, hostDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diverged) != 1 || diverged[0] != "teled" {
+		t.Fatalf("diverged = %v, want [teled]", diverged)
+	}
+}
+
+// A variant fragment carries its own container_name by design, so reporting it
+// as diverged would cry wolf on every generate.
+func TestRelinkCatalogVariantIsNotDiverged(t *testing.T) {
+	svcDir, tmplDir := seedCatalog(t,
+		map[string]string{"teled.yml": teledV2},
+		map[string]string{"teled-rhias.yml": "services:\n  teled-rhias:\n    image: arizuko:latest\n"})
+	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
+
+	_, diverged, err := RelinkCatalog(svcDir, tmplDir, hostDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diverged) != 0 {
+		t.Fatalf("diverged = %v, want none (a variant is not drift)", diverged)
+	}
+}
+
 // A second relink must not even attempt to read through the fragment: on a
 // real deploy, hostCatalogDir is a HOST path the ephemeral generate container
 // cannot see (that's the whole reason it differs from readableCatalogDir), so
@@ -215,10 +251,10 @@ func TestRelinkCatalogIdempotent(t *testing.T) {
 	// generate container's view of a host-only catalog path.
 	hostDir := filepath.Join(t.TempDir(), "unreadable-from-here", "template", "services")
 
-	if _, err := RelinkCatalog(svcDir, tmplDir, hostDir); err != nil {
+	if _, _, err := RelinkCatalog(svcDir, tmplDir, hostDir); err != nil {
 		t.Fatal(err)
 	}
-	relinked, err := RelinkCatalog(svcDir, tmplDir, hostDir)
+	relinked, _, err := RelinkCatalog(svcDir, tmplDir, hostDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +273,7 @@ func TestRelinkCatalogLinksMatchingSidecar(t *testing.T) {
 		map[string]string{"slakd.yml": "services:\n  slakd:\n    image: arizuko:latest\n", "slakd-routes.json": routes})
 	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
 
-	if _, err := RelinkCatalog(svcDir, tmplDir, hostDir); err != nil {
+	if _, _, err := RelinkCatalog(svcDir, tmplDir, hostDir); err != nil {
 		t.Fatal(err)
 	}
 	isSymlinkTo(t, filepath.Join(svcDir, "slakd-routes.json"), filepath.Join(hostDir, "slakd-routes.json"))

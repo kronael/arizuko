@@ -226,6 +226,61 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L41 — an instance's compose fragments freeze forever once they differ by a byte (2026-08-16, LOUD NOW, auto-repair needs sign-off)
+
+Found when tonight's `L32` whapd fix crash-looped krons' primary channel:
+
+    Error: EACCES: permission denied, mkdir '/srv/data/store/whapd/outbound-dedup'
+
+`template/services/whapd.yml` carries the mount the ledger needs. The instance
+copy at `/srv/data/arizuko_krons/services/whapd.yml`, dated 2026-07-28, does
+not. `env/` regenerates on every restart; `services/` does not.
+
+`R1` already fixed this class: `compose.RelinkCatalog` replaces an installed
+fragment with a symlink at the catalog, so a template edit reaches every
+instance. **It only converts a BYTE-IDENTICAL copy.** krons' fragments were
+written by an older generator (`# Converted from services/whapd.toml by
+'arizuko generate'` — a header today's template does not have), so every one is
+classified as an operator hand-edit and skipped, silently, on every generate
+since. The R1 fix reaches only instances that did not need it.
+
+Three live faults on krons traced to this one cause:
+
+- **whapd crash-looped** — the `L32` dedup mount never arrived. WhatsApp, the
+  primary channel, was down. FIXED live 2026-08-16 by adding the mount and
+  `WHAPD_STATE_DIR` to the instance fragment (additively — the instance copy
+  carries a `CHANNEL_SECRET` the template does not, so no overwrite).
+- **`F53` is this bug** — teled's `${DATA_DIR}/store/teled` mount and `DATA_DIR`
+  are in the template and absent live, which is exactly why the getUpdates
+  offset resets on every recreate. `T1`'s `RUNED_RUN_TIMEOUT` is missing too.
+- **ttsd and kokoro read the whole instance `.env`** — the template scopes them
+  to `env/ttsd.env` / `env/kokoro.env` precisely so they do not. kokoro is a
+  third-party image, and it currently receives `SECRETS_KEY`, `AUTH_SECRET`,
+  `CLAUDE_CODE_OAUTH_TOKEN` and every bot token.
+
+**SHIPPED**: `RelinkCatalog` now returns the diverged set and `generate` prints
+a per-fragment warning naming the frozen file. That is the loud half — it would
+have surfaced all three above at the first restart after the template changed.
+
+**PROPOSAL, needs sign-off.** The check cannot tell "the operator edited this"
+from "we wrote this two versions ago", and it must, or the warning is the only
+thing that ever happens. Our own output is positively identifiable by its
+generated header, so the byte-compare can consult it: a fragment carrying the
+`# Converted from services/<x>.toml by 'arizuko generate'` marker is ours and
+may be relinked; anything else stays an operator edit and is only reported.
+Shipping that auto-repairs every instance created before the catalog moved —
+which is also why it is not shipping without a decision.
+
+- **Severity:** high — it silently withholds every adapter mount and env var
+  added since an instance was created, and it caused a live channel outage
+- **Scope:** compose fragment installation
+- **Affected:** every instance whose `services/*.yml` predate the current
+  catalog (krons: whapd, teled, ttsd, kokoro)
+- **Source:** `compose/fragments.go` `RelinkCatalog` (byte-identical gate);
+  `cmd/arizuko/packages.go` `relinkCatalog`
+- **Status:** warning shipped; auto-repair proposed
+- **Fix:**
+
 ## L40 — live krons cannot tell two anonymous visitors apart (2026-08-16, open — needs an infra decision)
 
 Found by anteval `chat-entrypoint`, which failed `429, want 200` on a freshly
