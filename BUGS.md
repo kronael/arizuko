@@ -226,6 +226,27 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L42 — krons WhatsApp is down: the paired session is invalidated (2026-08-16, BLOCKED on the operator's phone)
+
+    whapd  error  session invalidated, delete auth dir and re-pair  code=401
+
+whapd restart-loops on it, so krons' primary channel delivers nothing. This is
+not a code fault and nothing in the repo fixes it — WhatsApp expired the paired
+session and only a re-pair restores it.
+
+It was masked until tonight: whapd was crash-looping earlier on `L41`'s missing
+mount and never reached the login, so the 401 is the fault underneath. It is
+referenced in passing elsewhere in this file as "the known whapd re-pair loop"
+and has never had an entry, which is why it has stayed unaddressed.
+
+Use the pairing-code path, not QR (recipe in the operator's notes): whapd
+`--pair <phone>`. The QR path is the one that does not work here.
+
+- **Severity:** high — the primary channel is dead
+- **Scope:** operational, krons
+- **Status:** blocked — needs the operator's phone, nothing else
+- **Fix:**
+
 ## L41 — an instance's compose fragments freeze forever once they differ by a byte (2026-08-16, LOUD NOW, auto-repair needs sign-off)
 
 Found when tonight's `L32` whapd fix crash-looped krons' primary channel:
@@ -1167,8 +1188,9 @@ scoped env files — kokoro, a third-party image, went from five instance
 secrets in its environment to none.
 
 **Note:** `teled-rhias.yml` is an operator variant and is deliberately never
-relinked, so it still has no state mount. Same symptom, and it needs its own
-`store/teled-rhias` mount added by hand.
+relinked, so it needed the same mount by hand. Added live 2026-08-16 —
+`store/teled-rhias` plus `DATA_DIR` and `RUNED_RUN_TIMEOUT`. A variant carries
+this cost permanently: no catalog change will ever reach it.
 
 Deployed `/srv/data/arizuko_krons/services/teled.yml` carries neither a state
 mount nor `DATA_DIR`; the repo's `template/services/teled.yml` has both. teled's
