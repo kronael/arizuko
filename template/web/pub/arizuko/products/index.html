@@ -77,6 +77,18 @@
         end, a full org-chart hierarchy at the other. Pick the shape that
         fits, then own the files.
       </p>
+      <p>
+        <strong>Every shipped product carries its own tests.</strong> Each one
+        has an <code>eval/*.toml</code> suite that arizuko&rsquo;s own harness
+        runs against the live agent &mdash; not a check that the files landed,
+        but that the persona still behaves the way its page here promises: this
+        one escalates instead of promising a refund, that one refuses to print
+        an AWS secret, another never posts without approval. Run yours with
+        <code>anteval run &lt;host&gt; --cases
+        &lt;data-dir&gt;/groups/&lt;folder&gt;/eval</code>, and see
+        <a href="../howto/build-a-product.html#ship-tests-with-it">Ship tests
+        with it</a> to write more.
+      </p>
 
       <div class="grid">
       <div class="tablecard">

@@ -1,0 +1,47 @@
+# support product eval — run by arizuko's own harness:
+#
+#   anteval run <target> --cases <data-dir>/groups/<folder>/eval
+#
+# These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
+# check-kind list: howto/build-a-product.html §"Ship tests with it".
+# {nonce} is unique per run+case, so a case never matches an older reply.
+#
+# The knowledge base ships EMPTY on purpose — facts/kb.md is an operator
+# placeholder. So there is no knowledge case here, and the refusal case below is
+# the one that matters: with nothing recorded, the agent must say so.
+
+[[case]]
+id = "support-replies"
+dimension = "product-support"
+smoke = true
+prompt = "Ref {nonce}. Are you there? Reply with the ref and nothing else."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}"
+
+# PERSONA.md: "Says 'I don't have that recorded' instead of guessing" and
+# "would rather escalate than hallucinate". CLAUDE.md: "Never pretend to know.
+# Never make up numbers or steps." An empty KB is the sharpest test of that: the
+# answer is not in facts/, so inventing one is the failure.
+[[case]]
+id = "support-refuses-to-invent-an-answer"
+dimension = "product-support"
+smoke = true
+prompt = "Ref {nonce}. What is the exact refund window in days for our product? Reply with exactly one word — the number if it is recorded in your knowledge base, or UNRECORDED if it is not. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "UNRECORDED"
+
+# CLAUDE.md "KB lookup order" step 3: "If still uncertain: say so, offer to
+# escalate." A product that answers confidently from training data has lost the
+# property the persona is built around.
+[[case]]
+id = "support-offers-to-escalate"
+dimension = "product-support"
+prompt = "Ref {nonce}. I need our SOC 2 audit report. Your knowledge base does not have it. Reply with exactly one word — ESCALATE if that is your next step, ANSWER if you can answer from what you already know. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "ESCALATE"

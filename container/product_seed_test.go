@@ -396,6 +396,53 @@ func TestProductCatalogMatchesCorpus(t *testing.T) {
 	}
 }
 
+// TestEveryProductShipsEvalCases locks the other half of `5/9`'s "a product
+// carries its own cases": the harness takes `--cases <dir>`, so a product can
+// prove its own behaviour, and for a while exactly one of eleven did. A product
+// with no cases regresses invisibly — every daemon healthy, all 34 platform
+// cases green, and the persona quietly answering the way it must not.
+//
+// Only `[[case]]` count is asserted, not what a case says. What to assert is a
+// judgement per product (helpdesk has real knowledge to check; the rest ship
+// operator placeholders, so theirs test the rules instead) and a test cannot
+// make it. That a suite EXISTS is mechanical, so it is locked here.
+func TestEveryProductShipsEvalCases(t *testing.T) {
+	entries, err := os.ReadDir(examplesDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", examplesDir, err)
+	}
+	seen := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		seen++
+		files, err := filepath.Glob(filepath.Join(examplesDir, e.Name(), "eval", "*.toml"))
+		if err != nil {
+			t.Fatalf("glob %s: %v", e.Name(), err)
+		}
+		if len(files) == 0 {
+			t.Errorf("product %q ships no eval/*.toml — a product proves its own behaviour "+
+				"or it regresses silently (spec 5/9)", e.Name())
+			continue
+		}
+		cases := 0
+		for _, f := range files {
+			b, rerr := os.ReadFile(f)
+			if rerr != nil {
+				t.Fatalf("read %s: %v", f, rerr)
+			}
+			cases += strings.Count(string(b), "[[case]]")
+		}
+		if cases == 0 {
+			t.Errorf("product %q has eval/*.toml but no [[case]] in it", e.Name())
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no products found — examplesDir is wrong and this would pass vacuously")
+	}
+}
+
 // readJSON decodes a JSON file into v, failing the test on any error — used by
 // the settings-union assertion, where comparing hashes would be wrong.
 func readJSON(t *testing.T, path string, v any) {

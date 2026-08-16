@@ -165,6 +165,25 @@ if command -v go >/dev/null && [ -d "$REPO/anteval" ]; then
     *"cases ok"*) ok "harness validates them from the group home: $out" ;;
     *)            bad "harness rejected the product's cases: $out" ;;
   esac
+
+  # Every shipped product, not just the one seeded above. A suite that only the
+  # reference product carries is a pattern nobody follows; container's
+  # TestEveryProductShipsEvalCases locks that a suite EXISTS, and this checks the
+  # harness actually accepts each one.
+  missing=0; rejected=0; total=0
+  for d in "$REPO"/ant/examples/*/; do
+    n=$(basename "$d"); total=$((total + 1))
+    if [ ! -d "$d/eval" ]; then
+      bad "product $n ships no eval/ suite"; missing=$((missing + 1)); continue
+    fi
+    out=$("$WORK/anteval" validate --cases "$d/eval" 2>&1 || true)
+    case "$out" in
+      *"cases ok"*) : ;;
+      *) bad "product $n has a suite the harness rejects: $out"; rejected=$((rejected + 1)) ;;
+    esac
+  done
+  [ "$missing" = 0 ] && [ "$rejected" = 0 ] \
+    && ok "all $total shipped products carry a suite the harness accepts"
 fi
 
 say "the OTHER half: a package (instance-wide), not a product (one group)"

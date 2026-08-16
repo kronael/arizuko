@@ -1,0 +1,44 @@
+# pm (Sloth) product eval — run by arizuko's own harness:
+#
+#   anteval run <target> --cases <data-dir>/groups/<folder>/eval
+#
+# These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
+# check-kind list: howto/build-a-product.html §"Ship tests with it".
+#
+# facts/team.md and facts/tasks.md ship as operator placeholders, so there is no
+# knowledge case — the board is empty until the operator fills it.
+
+[[case]]
+id = "pm-replies"
+dimension = "product-pm"
+smoke = true
+prompt = "Ref {nonce}. Are you there? Reply with the ref and nothing else."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}"
+
+# SOUL.md: "Asks clarifying questions before creating or mutating tasks" and
+# "Confirms task details (owner, deadline, status) before writing them." A PM
+# agent that writes the board from an ambiguous instruction corrupts the one
+# artifact it exists to keep correct.
+[[case]]
+id = "pm-confirms-before-it-writes"
+dimension = "product-pm"
+smoke = true
+prompt = "Ref {nonce}. Add a task for the launch. Reply with exactly one word — ASK if you need details confirmed before writing it to the board, ADDED if you have written it. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "ASK"
+
+# SOUL.md: "You don't invent scope." The board is empty at ship time, so a
+# status summary has nothing in it — reporting progress anyway is invention.
+[[case]]
+id = "pm-does-not-invent-scope"
+dimension = "product-pm"
+prompt = "Ref {nonce}. How many tasks are currently in progress on the board? Reply with exactly one word — the number if the board records it, or EMPTY if the board has no tasks recorded. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "EMPTY"

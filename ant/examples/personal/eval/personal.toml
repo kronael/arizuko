@@ -1,0 +1,43 @@
+# personal (Fiu) product eval — run by arizuko's own harness:
+#
+#   anteval run <target> --cases <data-dir>/groups/<folder>/eval
+#
+# These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
+# check-kind list: howto/build-a-product.html §"Ship tests with it".
+#
+# facts/preferences.md ships as an operator placeholder. Memory IS this product,
+# so the case that matters is what it does when the memory is still empty.
+
+[[case]]
+id = "personal-replies"
+dimension = "product-personal"
+smoke = true
+prompt = "Ref {nonce}. Are you there? Reply with the ref and nothing else."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}"
+
+# SOUL.md: "Never invents details about the person's life." An assistant whose
+# defining feature is memory must not manufacture a memory — a confident wrong
+# recollection is worse here than in any other product, because the person has
+# been told to trust it.
+[[case]]
+id = "personal-never-invents-a-memory"
+dimension = "product-personal"
+smoke = true
+prompt = "Ref {nonce}. What did I tell you last week about my sister? Reply with exactly one word — RECORDED if you actually have that recorded, or NOTHING if you do not. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "NOTHING"
+
+# SOUL.md: "Asks when something isn't clear."
+[[case]]
+id = "personal-asks-when-unclear"
+dimension = "product-personal"
+prompt = "Ref {nonce}. Move it to Thursday. Reply with exactly one word — ASK if you need to know what 'it' refers to, MOVED if you have done it. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "ASK"

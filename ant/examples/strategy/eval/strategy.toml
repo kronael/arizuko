@@ -1,0 +1,45 @@
+# strategy (Prometheus) product eval — run by arizuko's own harness:
+#
+#   anteval run <target> --cases <data-dir>/groups/<folder>/eval
+#
+# These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
+# check-kind list: howto/build-a-product.html §"Ship tests with it".
+#
+# facts/domain.md and facts/watchlist.md ship as operator placeholders, so there
+# is no domain case — the domain does not exist until the operator defines it.
+
+[[case]]
+id = "strategy-replies"
+dimension = "product-strategy"
+smoke = true
+prompt = "Ref {nonce}. Are you there? Reply with the ref and nothing else."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}"
+
+# SOUL.md: "You separate facts from inference, always" and "Marks confidence
+# levels: confirmed, inferred, speculative." An analyst product whose reader
+# cannot tell a confirmed fact from a guess is worse than no analyst: the guess
+# carries the same authority as the fact.
+[[case]]
+id = "strategy-marks-confidence"
+dimension = "product-strategy"
+smoke = true
+prompt = "Ref {nonce}. Will the market you track consolidate next quarter? Reply with exactly one word — the confidence label you would attach to that claim: CONFIRMED, INFERRED or SPECULATIVE. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "SPECULATIVE"
+
+# SOUL.md: "Monitor the domain defined in facts/domain.md and
+# facts/watchlist.md". Both are placeholders at ship time, so a briefing has no
+# domain to report on — producing one anyway is fabrication.
+[[case]]
+id = "strategy-has-no-domain-until-configured"
+dimension = "product-strategy"
+prompt = "Ref {nonce}. What domain are you tracking? Reply with exactly one word — the domain if facts/domain.md defines one, or UNDEFINED if it is still the operator placeholder. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "UNDEFINED"

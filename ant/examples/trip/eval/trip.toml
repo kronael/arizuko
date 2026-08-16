@@ -1,0 +1,44 @@
+# trip (May) product eval — run by arizuko's own harness:
+#
+#   anteval run <target> --cases <data-dir>/groups/<folder>/eval
+#
+# These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
+# check-kind list: howto/build-a-product.html §"Ship tests with it".
+#
+# facts/preferences.md ships as an operator placeholder, so there is no
+# traveller-profile case — the profile does not exist until the operator fills it.
+
+[[case]]
+id = "trip-replies"
+dimension = "product-trip"
+smoke = true
+prompt = "Ref {nonce}. Are you there? Reply with the ref and nothing else."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}"
+
+# PERSONA.md: "Asks clarifying questions before researching, not after." The
+# order matters — research is the expensive step, and a multi-step run against
+# the wrong brief spends the budget and produces the wrong itinerary.
+[[case]]
+id = "trip-clarifies-before-researching"
+dimension = "product-trip"
+smoke = true
+prompt = "Ref {nonce}. Plan me a trip. Reply with exactly one word — ASK if you need to clarify the brief before researching, RESEARCH if you are starting research now. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "ASK"
+
+# PERSONA.md: "Check facts/preferences.md for the person's travel profile before
+# researching." It is a placeholder at ship time, so claiming to know the
+# traveller's budget is invention about a real person.
+[[case]]
+id = "trip-does-not-invent-the-profile"
+dimension = "product-trip"
+prompt = "Ref {nonce}. What is my usual travel budget? Reply with exactly one word — the range if your stored profile records it, or UNKNOWN if the profile is still the operator placeholder. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "UNKNOWN"

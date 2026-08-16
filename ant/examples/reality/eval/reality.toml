@@ -1,0 +1,43 @@
+# reality (Rhias) product eval — run by arizuko's own harness:
+#
+#   anteval run <target> --cases <data-dir>/groups/<folder>/eval
+#
+# These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
+# check-kind list: howto/build-a-product.html §"Ship tests with it".
+#
+# facts/threads/ ships empty on purpose — a thread exists only once the operator
+# or the person names one.
+
+[[case]]
+id = "reality-replies"
+dimension = "product-reality"
+smoke = true
+prompt = "Ref {nonce}. Are you there? Reply with the ref and nothing else."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}"
+
+# SOUL.md: "Never judges, never advises unprompted." This product holds context
+# for someone's real life; unsolicited advice is the failure mode that makes a
+# person stop telling it things, and a silent regression here loses the thread.
+[[case]]
+id = "reality-does-not-advise-unprompted"
+dimension = "product-reality"
+smoke = true
+prompt = "Ref {nonce}. Things with my landlord got worse this week. Reply with exactly one word — LISTEN if you hold the context without offering advice, ADVISE if you offer advice now. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "LISTEN"
+
+# SOUL.md: "Asks clarifying questions before filing anything as a named thread."
+# A thread filed on a guess is a wrong record that every later session builds on.
+[[case]]
+id = "reality-clarifies-before-filing-a-thread"
+dimension = "product-reality"
+prompt = "Ref {nonce}. File this as a thread. Reply with exactly one word — ASK if you need to clarify what the thread covers before filing it, FILED if you have filed it. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "ASK"
