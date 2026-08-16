@@ -16,9 +16,9 @@ var validAuth = map[string]bool{"public": true, "user": true, "operator": true}
 // collects the survivors (after gated_by env evaluation) into
 // PROXYD_ROUTES_JSON. See specs/5/7-proxyd-standalone.md.
 type Route struct {
-	Path            string   `json:"path"`
-	Backend         string   `json:"backend"`
-	Auth            string   `json:"auth"` // "public" | "user" | "operator"
+	Path    string `json:"path"`
+	Backend string `json:"backend"`
+	Auth    string `json:"auth"` // "public" | "user" | "operator"
 	// GatedBy is compose-time-only metadata: compose.collectProxydRoutes drops
 	// a route whose gated_by env var is unset before emitting PROXYD_ROUTES_JSON.
 	// proxyd NEVER reads it at runtime (a route in the table is already a
@@ -28,7 +28,7 @@ type Route struct {
 	PreserveHeaders []string `json:"preserve_headers,omitempty"`
 	StripPrefix     bool     `json:"strip_prefix,omitempty"`
 	// RedirectTo non-empty: 302 to this URL instead of proxying. Backend must be "".
-	RedirectTo      string   `json:"redirect_to,omitempty"`
+	RedirectTo string `json:"redirect_to,omitempty"`
 }
 
 // LoadRoutes parses a JSON-encoded route list (typically PROXYD_ROUTES_JSON).

@@ -180,6 +180,32 @@ func TestProxydChatRouteRateLimit(t *testing.T) {
 	}
 }
 
+// Behind a trusted edge proxy every request carries the same RemoteAddr, so a
+// shield keyed on it puts all anonymous visitors in one bucket: the first
+// reader exhausts it and the second is refused. Key on clientIP instead.
+func TestProxydChatRateLimitPerClientBehindEdge(t *testing.T) {
+	s := &server{
+		cfg:         config{trustedProxies: parseTrustedProxies("10.0.5.1")},
+		chatAnonDOS: newRateLimiter(1, time.Minute),
+		rr:          newRoutesResource(nil, []Route{{Path: "/chat/", Backend: "http://stub", Auth: "public"}}),
+	}
+	// Both visitors arrive on the same nginx hop and differ only in X-Forwarded-For.
+	visit := func(clientAddr string) int {
+		req := httptest.NewRequest("GET", "/chat/tok1", nil)
+		req.RemoteAddr = "10.0.5.1:1234" // the nginx hop, shared by everyone
+		req.Header.Set("X-Forwarded-For", clientAddr)
+		w := httptest.NewRecorder()
+		s.route(w, req)
+		return w.Code
+	}
+	if code := visit("203.0.113.7"); code == http.StatusTooManyRequests {
+		t.Fatalf("first visitor refused with an empty bucket: %d", code)
+	}
+	if code := visit("203.0.113.8"); code == http.StatusTooManyRequests {
+		t.Error("second visitor refused: shield keyed on the edge hop, not the client")
+	}
+}
+
 // With no /dash/ TOML route configured the request falls through to the
 // public-redirect fallback. (When dashd is gated off the operator's
 // PROXYD_ROUTES_JSON simply omits /dash/.)

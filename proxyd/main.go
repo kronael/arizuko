@@ -115,6 +115,16 @@ type server struct {
 	svc         *auth.TokenSource      // service:proxyd token presented to backends (nil → local dev, X-User-* unsigned)
 	chatAnonDOS *rateLimiter           // anon DoS shield, IP-keyed (not metering)
 	pubRedir    *pubRedirect
+	warnedEdges sync.Map // peer → struct{}, so an untrusted edge warns once, not per request
+}
+
+// untrustedEdgeOnce reports a forwarding peer missing from TRUSTED_PROXIES.
+func (s *server) untrustedEdgeOnce(peer string) {
+	if _, seen := s.warnedEdges.LoadOrStore(peer, struct{}{}); seen {
+		return
+	}
+	slog.Warn("untrusted edge proxy: X-Forwarded-For discarded, client identity is the hop",
+		"peer", peer, "fix", "add "+peer+" to TRUSTED_PROXIES")
 }
 
 // routeSnapshot returns ONE consistent view of the route table and the proxies
@@ -410,7 +420,10 @@ func (s *server) handler(aud *audit.Audit) http.Handler {
 // clientIP is the real client address: the left-most X-Forwarded-For hop when
 // present (the edge proxy sets it), else the direct peer. Without it the
 // auth-denied log recorded only the edge-proxy hop (10.0.5.1), hiding the real
-// source of a credential-scanning campaign across all three instances.
+// source of a credential-scanning campaign across all three instances. Every
+// per-source decision uses it — the anon chat DoS shield read RemoteAddr
+// instead, so behind nginx all anonymous visitors shared one 10/min bucket and
+// a second reader 429'd the first (caught by anteval 2026-08-16).
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if left := strings.TrimSpace(strings.SplitN(xff, ",", 2)[0]); left != "" {
@@ -466,6 +479,14 @@ func (s *server) fixForwardedFor(r *http.Request) {
 				return
 			}
 		}
+	} else if r.Header.Get("X-Forwarded-For") != "" {
+		// An edge proxy is forwarding but we do not trust it, so its own address
+		// replaces the client's below. Every per-source decision then keys on one
+		// value fleet-wide: the anon chat shield shares a single bucket, the
+		// auth-denied log names the hop instead of the scanner, and webd's
+		// anonSender collapses all visitors into one identity. Silent until
+		// anteval hit the shared bucket (2026-08-16), so say it once per peer.
+		s.untrustedEdgeOnce(peer)
 	}
 	if peer == "" {
 		r.Header.Del("X-Forwarded-For")
@@ -724,8 +745,7 @@ func (s *server) dispatchRouteToken(rp *httputil.ReverseProxy, w http.ResponseWr
 	if a := s.tryAuth(r); a != nil {
 		r = a
 	} else {
-		remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
-		if !s.chatAnonDOS.allow(remoteIP) {
+		if !s.chatAnonDOS.allow(clientIP(r)) {
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}
