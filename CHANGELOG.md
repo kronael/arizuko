@@ -16,6 +16,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **One anonymous chat visitor no longer rate-limits the next.** The DoS shield
+  on `/chat/` and `/hook/` keyed on the connection's peer address, which behind
+  an edge proxy is the same value for everyone, so the whole world shared one
+  `CHAT_ANON_DOS_RPM` bucket. It keys on the client now. A forwarding peer
+  missing from `TRUSTED_PROXIES` also warns once, instead of silently
+  collapsing the shield, the audit source IP and the anonymous sender identity
+  into a single value (BUGS `L40`, found by anteval).
 - **A product's skill lands where the agent reads it, on both seed paths.**
   `--product` copied `skills/<n>/` to the group root and `products apply`
   relocated it under `.claude/`, so the more prominent command seeded a dead

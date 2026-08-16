@@ -250,13 +250,27 @@ Three mechanisms degrade together, silently until now:
 - `webd.anonSender` hashes that address, so every anonymous chat visitor shares
   one `anon:<hex>` identity.
 
-**Do not just set `TRUSTED_PROXIES`.** It is only safe once we know the edge
-overwrites `X-Forwarded-For` rather than appending to a client-supplied one:
-proxyd reads the left-most hop, so trusting an appending edge lets any caller
-forge their own source and bypass the shield. The commit adds a one-shot
-`untrusted edge proxy` warning per peer, which answers the question after the
-next deploy — if it never fires, the edge sends no `X-Forwarded-For` at all and
-only the infrastructure can fix this.
+**ANSWERED 2026-08-16 by the deployed warning.** The edge DOES forward a
+client address:
+
+    WARN untrusted edge proxy: X-Forwarded-For discarded, client identity is
+    the hop  peer=10.0.5.1  fix="add 10.0.5.1 to TRUSTED_PROXIES"
+
+So the real client IP arrives at proxyd on every request and is thrown away.
+One env var recovers it.
+
+**Do not set `TRUSTED_PROXIES` before one test.** proxyd reads the LEFT-most
+hop, so trusting an edge that appends to a client-supplied header lets any
+caller forge their own source, bypass the shield and poison the audit log.
+Decide it empirically: set `TRUSTED_PROXIES=10.0.5.1` on krons, restart, then
+compare two requests — one plain, one carrying `X-Forwarded-For: 1.2.3.4`.
+
+- both log the same real client address → the edge overwrites; keep the setting
+- the second logs `1.2.3.4` → the edge appends; revert, and fix the edge to
+  send `$remote_addr` rather than `$proxy_add_x_forwarded_for`
+
+This is a live-host security posture change on infrastructure we do not own
+here, so it is the operator's call, not a code fix.
 
 Secondary, worth measuring once clients are distinguishable: `/chat/` has six
 routes and a page load spends root + config + history + POST, with a CORS
