@@ -74,7 +74,7 @@ func TestGenerateFailsLoudOnEnvWriteFailure(t *testing.T) {
 	}
 	mustWrite(t, filepath.Join(dir, ".env"), "ASSISTANT_NAME=test\n")
 	mustWrite(t, filepath.Join(dir, "env"), "not a directory")
-	if _, err := Generate(dir); err == nil {
+	if _, _, err := Generate(dir); err == nil {
 		t.Fatal("expected Generate to fail when per-daemon env files can't be written, got nil")
 	}
 }

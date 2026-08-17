@@ -73,9 +73,10 @@ proxyd carries one route per daemon dashboard, registered statically
 Packaged daemons (channel adapters, ttsd, crackbox) ship their
 `/dash/<daemon>/` entry in a `template/services/<daemon>-routes.json`
 array beside their `.yml` compose fragment; compose collects the
-survivors after `gated_by` evaluation into `PROXYD_ROUTES_JSON`
+survivors after `gated_by` evaluation
 ([`compose/compose.go`](../../compose/compose.go)
-`collectProxydRoutes`) — no edit to `proxyd/main.go`. Core daemons
+`collectProxydRoutes`) and `arizuko generate` writes them into
+`proxyd_routes` — no edit to `proxyd/main.go`. Core daemons
 (routd, runed, authd, proxyd, onbod, timed, dashd) register in
 `coreProxydRoutes` in the same file; `/dash/onbod/` and `/dash/timed/`
 are already there, ordered ahead of the `/dash/` catch-all because

@@ -206,9 +206,9 @@ func TestProxydChatRateLimitPerClientBehindEdge(t *testing.T) {
 	}
 }
 
-// With no /dash/ TOML route configured the request falls through to the
-// public-redirect fallback. (When dashd is gated off the operator's
-// PROXYD_ROUTES_JSON simply omits /dash/.)
+// With no /dash/ route in the table the request falls through to the
+// public-redirect fallback. (When dashd is gated off, generate omits /dash/
+// from the rows it writes.)
 func TestProxydDashNoRouteRedirectsToPub(t *testing.T) {
 	s := testServer()
 	req := httptest.NewRequest("GET", "/dash/status/", nil)
@@ -1602,7 +1602,7 @@ func TestDavAllow(t *testing.T) {
 	}
 }
 
-// TOML-route dispatch tests: exercise the PROXYD_ROUTES_JSON code path
+// Route-table dispatch tests: exercise the proxyd_routes code path
 // end-to-end via server.route.
 
 // installRoute is a tiny helper for tests that wires one TOML route into

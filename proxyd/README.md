@@ -25,9 +25,10 @@ headers with a service bearer (`service:proxyd`) verifiable by backends.
 The route table is built from each package's
 `services/<name>-routes.json` plus a static core-route slice in
 `compose/compose.go` (`coreProxydRoutes` — dashd, webd, davd, onbod).
-`compose.go` collects survivors after `gated_by` env filtering,
-serializes to JSON, and injects as `PROXYD_ROUTES_JSON` on proxyd.
-proxyd reads the env at startup and dispatches via longest-prefix match.
+`compose.go` collects the survivors after `gated_by` env filtering and
+`arizuko generate` writes them into `proxyd_routes` as rows owned by
+`arizuko` (`store.SyncProxydRoutes`). proxyd reads the table per request
+and dispatches via longest-prefix match.
 
 Sources of truth:
 
@@ -76,14 +77,24 @@ PATCH  /v1/proxyd_routes/{path}       # body: any subset of the create fields
 DELETE /v1/proxyd_routes/{path}       # idempotent (204 either way)
 ```
 
-**Precedence**: routes persist to `proxyd_routes` in routd.db (proxyd
+**Precedence**: `proxyd_routes` in routd.db is the only source (proxyd
 opens routd.db read/write for `proxyd_routes`/`acl`/`route_tokens`; it
 does not own or migrate it — see "Why proxyd reads routd.db directly"
-below). On first
-boot, if the table is empty AND `PROXYD_ROUTES_JSON` is set, proxyd
-seeds the table from the env var. Thereafter the table is authoritative
-and the env var is ignored. Runtime mutations are visible immediately
-(no row cache, spec 5/8) and durable across restarts.
+below). proxyd never seeds and never reads route config from env.
+
+Each row carries an `owner`:
+
+- `arizuko` — written by `arizuko generate` from the release's core routes
+  plus the installed packages' route assets. **Authoritative**: every
+  generate rewrites them, which is how a route added to a release reaches
+  an existing instance. `PATCH` on one is refused with 409 — an edit here
+  survives only until the next deploy.
+- `operator` — created through this API. Generate never touches these, at
+  any path.
+
+**Overriding a shipped route**: `DELETE` it, then `POST` your own. The
+created row is operator-owned and generate hands the path off for good.
+Runtime mutations are visible immediately (no row cache, spec 5/8).
 
 **Authorization**: operator-only surface. The ACL gate is an empty scope
 (`auth.Authorize(caller, "proxyd_routes.<action>", "", nil)`) matched by an
@@ -148,7 +159,6 @@ Endpoints:
 
 - `PROXYD_LISTEN` (default `:8080`)
 - `VITE_ADDR` (default `http://vited:8080`) — backend for `/pub/*`, `/priv/*`
-- `PROXYD_ROUTES_JSON` — JSON list of routes; seeds DB on first boot if table empty
 - `AUTH_SECRET` — HS256 JWT verify secret
 - `AUTHD_URL` — authd endpoint for ES256 JWKs + `/auth/*` redirects
 - `AUTHD_SERVICE_KEY` — proxyd's service key for ES256 bearer minting

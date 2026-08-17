@@ -20,11 +20,15 @@ import (
 // blob columns force a hook. We keep the public field shape natural
 // (`[]string`, `bool`) and pay the conversion in two short hooks.
 type ProxydRoutesRow struct {
-	Path               string   `db:"path"             yaml:"path"             json:"path"`
-	Backend            string   `db:"backend"          yaml:"backend"          json:"backend"`
-	Auth               string   `db:"auth"             yaml:"auth"             json:"auth"`
-	GatedBy            string   `db:"gated_by"         yaml:"gated_by,omitempty"         json:"gated_by,omitempty"`
-	RedirectTo         string   `db:"redirect_to"      yaml:"redirect_to,omitempty"      json:"redirect_to,omitempty"`
+	Path       string `db:"path"             yaml:"path"             json:"path"`
+	Backend    string `db:"backend"          yaml:"backend"          json:"backend"`
+	Auth       string `db:"auth"             yaml:"auth"             json:"auth"`
+	GatedBy    string `db:"gated_by"         yaml:"gated_by,omitempty"         json:"gated_by,omitempty"`
+	RedirectTo string `db:"redirect_to"      yaml:"redirect_to,omitempty"      json:"redirect_to,omitempty"`
+	// Owner is who may rewrite the row: "arizuko" (every `arizuko generate`
+	// does) or "operator" (generate never touches it). Read-only — the writer
+	// stamps it, which is why it appears in no MCPArgs list below.
+	Owner              string   `db:"owner"            yaml:"owner,omitempty"            json:"owner,omitempty"`
 	PreserveHeadersRaw string   `db:"preserve_headers" yaml:"-"                json:"-"`
 	StripPrefixRaw     int      `db:"strip_prefix"     yaml:"-"                json:"-"`
 	PreserveHeaders    []string `db:"-"                yaml:"preserve_headers,omitempty" json:"preserve_headers,omitempty"`

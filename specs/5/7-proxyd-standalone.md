@@ -23,12 +23,24 @@ surface for agents that manage routes.
   firewall, not a service mesh (backends are static URLs, no discovery, no
   internal mTLS), not a TLS terminator (something upstream handles TLS),
   and not a token issuer.
-- **Boot config vs runtime mutation.** Boot routes arrive as one
-  `PROXYD_ROUTES_JSON` env var; runtime changes go through the
-  `proxyd_routes` resource. No file-watch, no hot-reload of declarations.
-  **Persistence wins:** once the `proxyd_routes` table has any row, the env
-  var stops being authoritative, so operator mutations survive restart
-  (`proxyd/main.go:238` `loadInitialRoutes`).
+- **The table is the only config.** `proxyd_routes` in routd.db is where a
+  route lives; proxyd reads it per request and reads no route config from
+  env. `arizuko generate` writes the release's routes into it
+  (`store.SyncProxydRoutes`), runtime changes go through the `proxyd_routes`
+  resource. No file-watch, no hot-reload of declarations.
+  Routes used to arrive as a `PROXYD_ROUTES_JSON` env var that proxyd read
+  only while the table was empty — once it had a row the env var was ignored
+  for the life of the instance, so seven routes arizuko shipped never reached
+  krons and every health check stayed green (BUGS `L45`). Generated env
+  config stops applying and looks healthy; a row does not.
+- **Ownership decides who rewrites a row.** `proxyd_routes.owner` is
+  `arizuko` (written by generate; **authoritative** — every generate rewrites
+  it, and PATCH on one answers 409) or `operator` (created through the
+  resource; generate never touches it, at any path). Editing an
+  arizuko-owned row is not an override — taking a shipped path over is
+  DELETE then POST, and the row you create is operator-owned. Generate
+  writes only paths it ships, so an operator route at any other path is
+  never read, rewritten or deleted.
 - **Rate limiting is in-memory only.** Multi-instance horizontal scaling
   would trigger a redis-backed swap; not v1.
 - **Audience enforcement** via `require_audience` per route; default is
@@ -38,14 +50,15 @@ surface for agents that manage routes.
 
 Routes live beside each adapter's compose fragment as
 `template/services/<name>-routes.json`; the compose generator collects
-them, evaluates `gated_by` against the operator's `.env`, drops disabled
-routes, and emits the survivors as one `PROXYD_ROUTES_JSON` env var
-(`compose/compose.go:284,991`).
+them, evaluates `gated_by` against the operator's `.env` and drops disabled
+routes; `Generate` returns the survivors and `arizuko generate` writes them
+into `proxyd_routes` (`compose/compose.go` `collectProxydRoutes`,
+`cmd/arizuko/routes.go` `syncProxydRoutes`).
 
 **One renderer, many sinks**: each daemon owns its routing entry next to
 its package, and proxyd's table is derived, never hand-edited. Routes stay
-out of the compose fragment itself because proxyd takes ONE env var — a
-single assembled table, not per-service YAML
+out of the compose fragment itself because proxyd, not docker, is their
+consumer — one assembled table, not per-service YAML
 ([`27-compose-native-packaging.md`](27-compose-native-packaging.md)). v1
 ships a plain JSON array; the `{"routes":[…]}` envelope was dropped during
 implementation as redundant.
@@ -95,8 +108,8 @@ check); no per-route `rate_limit` (slink's limiter stays hardcoded); no
 
 Core daemons rendered directly by `compose.go` (dashd, webd, davd, onbod,
 vited) contribute their routes from `compose.go` rather than a declaration
-file. Either home honours the invariant: **proxyd reads
-`PROXYD_ROUTES_JSON` and the `proxyd_routes` table, nothing else.**
+file. Either home honours the invariant: **proxyd reads the
+`proxyd_routes` table, nothing else.**
 
 ## Management surface
 
@@ -142,7 +155,8 @@ list and is deferred with the auth spec's revocation work.
 ## Code pointers
 
 - `proxyd/main.go` — entry, route dispatch, identity stamping.
-- `proxyd/routes.go` — `PROXYD_ROUTES_JSON` parsing.
+- `proxyd/routes.go` — the in-memory `Route` shape + longest-prefix match.
 - `proxyd/resource.go` — the `proxyd_routes` resreg resource.
-- `compose/compose.go` — collects `*-routes.json`, emits the env var.
+- `compose/compose.go` — collects `*-routes.json`, returns the route table.
+- `store/proxyd_routes.go` — `SyncProxydRoutes`, the generate-time writer.
 - `auth/` — mint + verify primitives proxyd consumes.

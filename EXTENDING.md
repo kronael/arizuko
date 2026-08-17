@@ -317,9 +317,10 @@ web path = one JSON file, no Go edits:
 `path` with a trailing `/` matches longest-prefix; `auth` is
 `public` | `user` | `operator`; `gated_by` drops the route when that
 env var is unset; `preserve_headers` passes listed headers verbatim.
-`compose.go` evaluates `gated_by` against the operator's `.env`, drops
-disabled routes, and emits the survivors as `PROXYD_ROUTES_JSON` on
-proxyd. Reference: `specs/5/7-proxyd-standalone.md`,
+`compose.go` evaluates `gated_by` against the operator's `.env` and drops
+disabled routes; `arizuko generate` writes the survivors into
+`proxyd_routes` as arizuko-owned rows, so a route added to a later release
+reaches an existing instance. Reference: `specs/5/7-proxyd-standalone.md`,
 `template/services/slakd-routes.json`.
 
 ## Adding an MCP connector

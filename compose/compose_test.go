@@ -3,6 +3,7 @@ package compose
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -39,11 +40,26 @@ func read(t *testing.T, dir, rel string) string {
 
 func gen(t *testing.T, dir string) string {
 	t.Helper()
-	out, err := Generate(dir)
+	out, _, err := Generate(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return out
+}
+
+// genRoutes is gen for the other half of Generate's output: the proxyd route
+// table the run decided on, which the CLI writes into proxyd_routes.
+func genRoutes(t *testing.T, dir string) []ProxydRoute {
+	t.Helper()
+	_, routes, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return routes
+}
+
+func hasRoute(routes []ProxydRoute, path string) bool {
+	return slices.ContainsFunc(routes, func(r ProxydRoute) bool { return r.Path == path })
 }
 
 // The split plane (authd/routd/runed) is the only topology: emitted in every
@@ -195,43 +211,56 @@ func TestIncludeFragments(t *testing.T) {
 func TestFragmentFilenameValidated(t *testing.T) {
 	dir := seed(t, "")
 	write(t, dir, "services/bad name.yml", "services: {}\n")
-	if _, err := Generate(dir); err == nil {
+	if _, _, err := Generate(dir); err == nil {
 		t.Error("expected error for invalid fragment filename")
 	}
 }
 
 func TestGenerateNoServicesDir(t *testing.T) {
-	if _, err := Generate(t.TempDir()); err == nil {
+	if _, _, err := Generate(t.TempDir()); err == nil {
 		t.Error("expected error for missing services dir")
 	}
 }
 
-// PROXYD_ROUTES_JSON is assembled in Go (one env var on proxyd): core routes
-// plus each fragment's sibling routes file, gated_by filtered.
+// Generate returns the route table: core routes plus each fragment's sibling
+// routes file, gated_by filtered. The CLI writes it into proxyd_routes — it is
+// NOT config on the compose file. A `PROXYD_ROUTES_JSON` env var was read once,
+// on the first boot of an empty table, and ignored for the life of the instance
+// after that (BUGS L45), so proxyd's block must carry no route config at all.
 func TestProxydRoutesAssembled(t *testing.T) {
 	dir := seed(t, "WEB_PORT=8095\nAPI_PORT=8080\nSLACK_BOT_TOKEN=tok\n")
 	write(t, dir, "services/slakd.yml", "services:\n  slakd:\n    image: arizuko:latest\n")
 	write(t, dir, "services/slakd-routes.json",
 		`[{"path":"/slack/","backend":"http://slakd:8080","auth":"public","gated_by":"SLACK_BOT_TOKEN"}]`)
-	out := gen(t, dir)
-	proxyd := serviceBlock(out, "proxyd")
-	if !strings.Contains(proxyd, "PROXYD_ROUTES_JSON") {
-		t.Fatal("proxyd missing PROXYD_ROUTES_JSON")
+	out, routes, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, want := range []string{
-		`\"path\":\"/slack/\"`, `\"backend\":\"http://slakd:8080\"`, // per-service
-		`\"path\":\"/chat/\"`, `\"path\":\"/dash/\"`, // core
-		`\"path\":\"/dav/\"`, // WEBDAV_ENABLED defaults on
+	if proxyd := serviceBlock(out, "proxyd"); strings.Contains(proxyd, "PROXYD_ROUTES_JSON") {
+		t.Errorf("proxyd still carries PROXYD_ROUTES_JSON; got:\n%s", proxyd)
+	}
+	want := map[string]ProxydRoute{
+		"/slack/": {Path: "/slack/", Backend: "http://slakd:8080", Auth: "public", GatedBy: "SLACK_BOT_TOKEN"},
+		"/chat/":  {Path: "/chat/", Backend: "http://webd:8080", Auth: "public"},
+		"/dash/":  {Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
 		// Pairing (spec 5/31): auth `user` so an anonymous visitor is bounced
 		// through OAuth before the confirm page renders.
-		`{\"path\":\"/pair/\",\"backend\":\"http://webd:8080\",\"auth\":\"user\"}`,
-	} {
-		if !strings.Contains(proxyd, want) {
-			t.Errorf("PROXYD_ROUTES_JSON missing %s; got:\n%s", want, proxyd)
+		"/pair/": {Path: "/pair/", Backend: "http://webd:8080", Auth: "user"},
+	}
+	got := map[string]ProxydRoute{}
+	for _, r := range routes {
+		got[r.Path] = r
+	}
+	for path, w := range want {
+		if !reflect.DeepEqual(got[path], w) {
+			t.Errorf("route %s = %+v, want %+v", path, got[path], w)
 		}
 	}
+	if !hasRoute(routes, "/dav/") {
+		t.Error("/dav/ missing (WEBDAV_ENABLED defaults on)")
+	}
 	// ONBOARDING_ENABLED unset → onbod routes dropped.
-	if strings.Contains(proxyd, `\"path\":\"/invite/\"`) {
+	if hasRoute(routes, "/invite/") {
 		t.Error("/invite/ route must be dropped when ONBOARDING_ENABLED is unset")
 	}
 }
@@ -240,25 +269,20 @@ func TestProxydRoutesAssembled(t *testing.T) {
 // lists /me among the globally-served reserved prefixes, but coreProxydRoutes
 // never declared it, so proxyd's MatchRoute missed and the final catch-all
 // turned every /me/* request into a /pub/me/* redirect. Assert the exact
-// emitted objects — path, backend and auth in one shape — and that no gate
-// can drop them: a portal that only appears when some env var is set is the
-// same dead surface again.
+// routes — path, backend and auth in one shape — and that no gate can drop
+// them: a portal that only appears when some env var is set is the same dead
+// surface again.
 func TestProxydRoutesUserPortal(t *testing.T) {
 	// Onboarding/WebDAV off, no service fragments: the barest instance still
 	// serves /me.
-	proxyd := serviceBlock(gen(t, seed(t, "WEB_PORT=8095\nWEBDAV_ENABLED=false\n")), "proxyd")
-	for _, want := range []string{
-		`{\"path\":\"/me\",\"backend\":\"http://webd:8080\",\"auth\":\"user\"}`,
-		`{\"path\":\"/me/\",\"backend\":\"http://webd:8080\",\"auth\":\"user\"}`,
+	routes := genRoutes(t, seed(t, "WEB_PORT=8095\nWEBDAV_ENABLED=false\n"))
+	for _, want := range []ProxydRoute{
+		{Path: "/me", Backend: "http://webd:8080", Auth: "user"},
+		{Path: "/me/", Backend: "http://webd:8080", Auth: "user"},
 	} {
-		if !strings.Contains(proxyd, want) {
-			t.Errorf("PROXYD_ROUTES_JSON missing %s; got:\n%s", want, proxyd)
+		if !slices.ContainsFunc(routes, func(r ProxydRoute) bool { return reflect.DeepEqual(r, want) }) {
+			t.Errorf("routes missing %+v; got:\n%+v", want, routes)
 		}
-	}
-	// The portal is per-user, gated by webd's requireUser. Routing it public
-	// would hand an unauthenticated caller straight to those handlers.
-	if strings.Contains(proxyd, `\"path\":\"/me\",\"backend\":\"http://webd:8080\",\"auth\":\"public\"`) {
-		t.Error("/me must not be a public route")
 	}
 }
 
@@ -275,8 +299,7 @@ func TestProxydRoutesGating(t *testing.T) {
 			dir := seed(t, tc.env)
 			write(t, dir, "services/slakd.yml", "services:\n  slakd:\n    image: arizuko:latest\n")
 			write(t, dir, "services/slakd-routes.json", routesJSON)
-			out := gen(t, dir)
-			if got := strings.Contains(out, `\"path\":\"/slack/\"`); got != tc.want {
+			if got := hasRoute(genRoutes(t, dir), "/slack/"); got != tc.want {
 				t.Errorf("route present=%v, want %v", got, tc.want)
 			}
 		})
@@ -284,12 +307,12 @@ func TestProxydRoutesGating(t *testing.T) {
 }
 
 func TestProxydRoutesOnboardingAndWebDAVGates(t *testing.T) {
-	on := gen(t, seed(t, "WEB_PORT=8095\nONBOARDING_ENABLED=true\n"))
-	if !strings.Contains(on, `\"path\":\"/invite/\"`) {
+	on := genRoutes(t, seed(t, "WEB_PORT=8095\nONBOARDING_ENABLED=true\n"))
+	if !hasRoute(on, "/invite/") {
 		t.Error("/invite/ route missing when ONBOARDING_ENABLED=true")
 	}
-	off := gen(t, seed(t, "WEB_PORT=8095\nWEBDAV_ENABLED=false\n"))
-	if strings.Contains(off, `\"path\":\"/dav/\"`) {
+	off := genRoutes(t, seed(t, "WEB_PORT=8095\nWEBDAV_ENABLED=false\n"))
+	if hasRoute(off, "/dav/") {
 		t.Error("/dav/ route must be dropped when WEBDAV_ENABLED=false")
 	}
 }

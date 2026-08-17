@@ -160,10 +160,14 @@ func generateCompose(dataDir string) string {
 	// Same reasoning, same place, for the store/<owner>/ layout the compose
 	// below binds: put the tree in it BEFORE writing the file that assumes it.
 	migrateStoreLayout(dataDir)
-	yml, err := compose.Generate(dataDir)
+	yml, routes, err := compose.Generate(dataDir)
 	if err != nil {
 		die("Failed: %v", err)
 	}
+	// The release's route table is rows, not env. Written before the compose
+	// file so a `docker compose up` never starts proxyd against a table this
+	// run failed to reconcile.
+	syncProxydRoutes(dataDir, routes)
 	outPath := filepath.Join(dataDir, "docker-compose.yml")
 	// Atomic write: tempfile in the same dir + rename. Prevents a partial
 	// YAML on mid-write crash (which would break `docker compose up`).

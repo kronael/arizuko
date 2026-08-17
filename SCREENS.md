@@ -1320,8 +1320,7 @@ backend behind it, and who may open it — with add and delete. proxyd owns
 
 - As an operator, I want to see every public address this instance serves so
   I can spot one that should not be open.
-- As an operator, I want to point a path at a backend without editing
-  `PROXYD_ROUTES_JSON` and redeploying.
+- As an operator, I want to point a path at a backend without redeploying.
 - As an operator, I want to withdraw an address immediately when it should
   stop answering.
 
@@ -1377,7 +1376,12 @@ operator. dashd emits no audit row of its own — one mutation, one row.
 
 `redirect_to` and `preserve_headers` are shown but not editable: proxyd's
 PATCH cannot set `redirect_to` at all, so a half-editable field would be a
-trap. Those still arrive via `PROXYD_ROUTES_JSON`.
+trap. Those arrive with the release, written into `proxyd_routes` by
+`arizuko generate`.
+
+Arizuko-owned rows (`owner: arizuko`) are rewritten by every generate, so
+PATCH on one answers 409. To take a shipped path over, delete it and add
+your own — the row you create is operator-owned and generate leaves it.
 
 #### Edge cases / empty states
 
@@ -1386,8 +1390,8 @@ trap. Those still arrive via `PROXYD_ROUTES_JSON`.
   form withheld (a form that cannot show the current table invites a
   duplicate path)
 - 403 from proxyd's ACL: banner names the missing operator grant
-- No routes: "No routes. proxyd is answering 404 for every address — check
-  `PROXYD_ROUTES_JSON` in the instance .env."
+- No routes: "No routes. proxyd is answering 404 for every address — run
+  `arizuko generate <instance>`, which writes the release's route table."
 - Non-operator: 403, and dashd makes no upstream call
 
 ---

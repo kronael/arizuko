@@ -186,10 +186,10 @@ services/<adapter>-routes.json ────────────────�
                                                    ├─► compose.collectProxydRoutes
 compose.coreProxydRoutes (dashd/webd/davd/onbod) ──┘             │
                                                                   ▼
-                                              PROXYD_ROUTES_JSON env on proxyd
+                                   arizuko generate → proxyd_routes rows
                                                                   │
                                                                   ▼
-                                       proxyd.loadConfig parses → []Route
+                                    proxyd reads the table → []Route
                                                                   │
                                                                   ▼
                                   dispatchRoute longest-prefix match

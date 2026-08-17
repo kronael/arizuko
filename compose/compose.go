@@ -346,9 +346,9 @@ const healthBlock = "    healthcheck:\n" +
 	"      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n"
 
 // ProxydRoute mirrors proxyd's Route shape. Adapters declare theirs in a
-// sibling `services/<name>-routes.json` array; compose collects survivors
-// (after gated_by env evaluation) into PROXYD_ROUTES_JSON. JSON tags match
-// proxyd/routes.go.
+// sibling `services/<name>-routes.json` array; compose collects the survivors
+// (after gated_by env evaluation) and Generate returns them, for the caller to
+// write into proxyd_routes. JSON tags match proxyd/routes.go.
 type ProxydRoute struct {
 	Path            string   `json:"path"`
 	Backend         string   `json:"backend"`
@@ -419,10 +419,11 @@ func gatedByOn(env map[string]string, key string) bool {
 // collectProxydRoutes returns surviving routes after gated_by filtering. Core
 // routes come first, then per-service routes in service-name order. A service
 // declares routes in `services/<name>-routes.json` (an array of ProxydRoute);
-// routes cannot live in the compose fragment because they are assembled into
-// ONE env var on proxyd. Per spec (specs/5/7-proxyd-standalone.md "Field
-// semantics") a route whose GatedBy env is unset or empty at generate time is
-// dropped.
+// routes cannot live in the compose fragment because proxyd, not docker, is
+// their consumer. Per spec (specs/5/7-proxyd-standalone.md "Field semantics") a
+// route whose GatedBy env is unset or empty at generate time is dropped — it is
+// never written to proxyd_routes, so a surface whose daemon is off is not
+// routed at a dead backend.
 func collectProxydRoutes(servicesDir string, services []string, env map[string]string) ([]ProxydRoute, error) {
 	var out []ProxydRoute
 	for _, r := range coreProxydRoutes {
@@ -589,7 +590,12 @@ func writeManagedEnv(dataDir, app, flavor string, profiles []string) error {
 	return nil
 }
 
-func Generate(dataDir string) (string, error) {
+// Generate renders the instance's docker-compose.yml and returns it together
+// with the proxyd route table the same run decided on. Two artifacts, one
+// decision: the routes are NOT config on the compose file (a `PROXYD_ROUTES_JSON`
+// env var seeded proxyd_routes once and was then ignored forever — BUGS L45),
+// they are rows the caller writes into routd.db through store.SyncProxydRoutes.
+func Generate(dataDir string) (string, []ProxydRoute, error) {
 	env, _ := godotenv.Read(filepath.Join(dataDir, ".env"))
 	if env == nil {
 		env = map[string]string{}
@@ -610,10 +616,10 @@ func Generate(dataDir string) (string, error) {
 	project := filepath.Base(dataDir)
 	app, flavor, _ := strings.Cut(project, "_")
 	if !identRE.MatchString(app) {
-		return "", fmt.Errorf("invalid compose project app %q (derived from data dir basename)", app)
+		return "", nil, fmt.Errorf("invalid compose project app %q (derived from data dir basename)", app)
 	}
 	if flavor != "" && !identRE.MatchString(flavor) {
-		return "", fmt.Errorf("invalid instance flavor %q (derived from data dir basename)", flavor)
+		return "", nil, fmt.Errorf("invalid instance flavor %q (derived from data dir basename)", flavor)
 	}
 	// ARIZUKO_INSTANCE is the operator-facing instance identifier used as
 	// the OTLP service.instance.id resource attribute (spec 5/O). Default
@@ -704,7 +710,7 @@ func Generate(dataDir string) (string, error) {
 	servicesDir := filepath.Join(dataDir, "services")
 	services, err := readFragments(servicesDir)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// Channel adapters present in services/ each get a service:<adapter> key so
@@ -740,7 +746,7 @@ func Generate(dataDir string) (string, error) {
 	// generation succeed while a daemon's env file goes stale or missing —
 	// runed reusing obsolete credentials is the `/login` outage class (BUGS C11).
 	if werr := writeEnvFiles(dataDir, env, perDaemon); werr != nil {
-		return "", fmt.Errorf("write per-daemon env files: %w", werr)
+		return "", nil, fmt.Errorf("write per-daemon env files: %w", werr)
 	}
 
 	// app-src/ holds the release's ant/, staged by runed for agent containers to
@@ -754,12 +760,12 @@ func Generate(dataDir string) (string, error) {
 
 	routes, err := collectProxydRoutes(servicesDir, services, env)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	// Fatal on failure: without the managed block every fragment interpolates to
 	// an empty container name and an empty host mount.
 	if err := writeManagedEnv(dataDir, app, flavor, activeProfiles(env)); err != nil {
-		return "", fmt.Errorf("write .env compose block: %w", err)
+		return "", nil, fmt.Errorf("write .env compose block: %w", err)
 	}
 
 	var b strings.Builder
@@ -780,14 +786,14 @@ func Generate(dataDir string) (string, error) {
 	b.WriteString(routdService(app, flavor, dataDir, env))
 	b.WriteString(runedService(app, flavor, dataDir, env))
 	b.WriteString(webdService(app, flavor, dataDir))
-	b.WriteString(proxydService(app, flavor, dataDir, env, routes))
+	b.WriteString(proxydService(app, flavor, dataDir, env))
 	b.WriteString(vitedService(app, flavor, dataDir))
 	b.WriteString(dashdService(app, flavor, dataDir, env))
 	b.WriteString(timedService(app, flavor, env))
 	b.WriteString(onbodService(app, flavor, dataDir))
 	b.WriteString(davdService(app, flavor, dataDir, env))
 	b.WriteString(crackboxService(app, flavor, dataDir))
-	return b.String(), nil
+	return b.String(), routes, nil
 }
 
 // crackboxService emits the crackbox proxy service. No `agents` network
@@ -1153,12 +1159,11 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 	return writeSvc(def)
 }
 
-func proxydService(app, flavor, dataDir string, env map[string]string, routes []ProxydRoute) string {
+// proxydService emits proxyd's compose block. It carries no route config: the
+// route table is rows in routd.db, written by the same generate run (see
+// Generate), and proxyd reads them live per request.
+func proxydService(app, flavor, dataDir string, env map[string]string) string {
 	webPort := envOr(env, "WEB_PORT", "8095")
-	environment := map[string]string{}
-	if b, err := json.Marshal(routes); err == nil {
-		environment["PROXYD_ROUTES_JSON"] = string(b)
-	}
 	ports := []string{webPort + ":8080"}
 	if aliases := envOr(env, "WEB_PORT_ALIASES", ""); aliases != "" {
 		for a := range strings.SplitSeq(aliases, ",") {
@@ -1182,7 +1187,6 @@ func proxydService(app, flavor, dataDir string, env map[string]string, routes []
 		dataSubdirs: []string{storeSub(store.OwnerRoutd)},
 		profile:     "web",
 		ports:       ports,
-		environment: environment,
 		dependsOn:   "routd, dashd, webd",
 	})
 }

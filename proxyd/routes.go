@@ -1,66 +1,34 @@
 package main
 
-import (
-	"encoding/json"
-	"fmt"
-	"strings"
-)
+import "strings"
 
 // validAuth is the set of accepted `auth` values for a Route. `operator`
 // today resolves to `user` plus a daemon-side grant check; capability
 // tokens (specs/5/1-auth-standalone.md) will distinguish later.
 var validAuth = map[string]bool{"public": true, "user": true, "operator": true}
 
-// Route is one entry in proxyd's TOML-declared route table. The JSON shape
-// matches `[[proxyd_route]]` in `template/services/*.toml`; compose.go
-// collects the survivors (after gated_by env evaluation) into
-// PROXYD_ROUTES_JSON. See specs/5/7-proxyd-standalone.md.
+// Route is one row of proxyd_routes in memory. `arizuko generate` writes the
+// release's routes into that table (compose.collectProxydRoutes → store.
+// SyncProxydRoutes) and the /v1/proxyd_routes surface writes the operator's;
+// proxyd only ever reads. See specs/5/7-proxyd-standalone.md.
 type Route struct {
 	Path    string `json:"path"`
 	Backend string `json:"backend"`
 	Auth    string `json:"auth"` // "public" | "user" | "operator"
-	// GatedBy is compose-time-only metadata: compose.collectProxydRoutes drops
-	// a route whose gated_by env var is unset before emitting PROXYD_ROUTES_JSON.
-	// proxyd NEVER reads it at runtime (a route in the table is already a
-	// survivor) — it is round-tripped through CRUD only to preserve the route's
-	// declared shape. It does NOT gate request authz; Auth does.
+	// GatedBy is generate-time-only metadata: compose.collectProxydRoutes drops
+	// a route whose gated_by env var is unset before the row is written. proxyd
+	// NEVER reads it at runtime (a route in the table is already a survivor) —
+	// it is round-tripped through CRUD only to preserve the route's declared
+	// shape. It does NOT gate request authz; Auth does.
 	GatedBy         string   `json:"gated_by,omitempty"`
 	PreserveHeaders []string `json:"preserve_headers,omitempty"`
 	StripPrefix     bool     `json:"strip_prefix,omitempty"`
 	// RedirectTo non-empty: 302 to this URL instead of proxying. Backend must be "".
 	RedirectTo string `json:"redirect_to,omitempty"`
-}
-
-// LoadRoutes parses a JSON-encoded route list (typically PROXYD_ROUTES_JSON).
-// Empty input → empty slice (no error). Malformed JSON or invalid route → error.
-// Validation enforces the contract at the boundary: leading-slash paths, known
-// `auth` value, non-empty backend.
-func LoadRoutes(raw string) ([]Route, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, nil
-	}
-	var routes []Route
-	if err := json.Unmarshal([]byte(raw), &routes); err != nil {
-		return nil, err
-	}
-	seen := make(map[string]bool, len(routes))
-	for i, r := range routes {
-		if !strings.HasPrefix(r.Path, "/") {
-			return nil, fmt.Errorf("route[%d] path %q: must start with '/'", i, r.Path)
-		}
-		if r.Backend == "" && r.RedirectTo == "" {
-			return nil, fmt.Errorf("route[%d] path %q: backend or redirect_to is required", i, r.Path)
-		}
-		if !validAuth[r.Auth] {
-			return nil, fmt.Errorf("route[%d] path %q: auth %q not in {public,user,operator}", i, r.Path, r.Auth)
-		}
-		if seen[r.Path] {
-			return nil, fmt.Errorf("route[%d] path %q: duplicate path", i, r.Path)
-		}
-		seen[r.Path] = true
-	}
-	return routes, nil
+	// Owner says who may rewrite this row: store.RouteOwnerArizuko (generate
+	// rewrites it every run) or store.RouteOwnerOperator (generate never touches
+	// it). Read-only on the wire — the writer stamps it, never the caller.
+	Owner string `json:"owner,omitempty"`
 }
 
 // MatchRoute selects the route whose Path is the longest prefix of `path`.

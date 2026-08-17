@@ -300,11 +300,12 @@ issues the prior one couldn't see.
   definition, so it belongs in the owning daemon's DB — never in a generated
   env var. Cross-daemon reach is federation: each daemon owns its table and
   serves it on its own `/v1`; nobody reads another's env.
-  Cost: `PROXYD_ROUTES_JSON` is seed-once — once `proxyd_routes` has a row the
-  env var is ignored forever, so **7 of the 18 routes arizuko ships never
+  Cost: `PROXYD_ROUTES_JSON` was seed-once — once `proxyd_routes` had a row the
+  env var was ignored forever, so **7 of the 18 routes arizuko ships never
   reached krons**, including `/invite/`, `/pair/` and the federated
-  `/dash/onbod/` (BUGS `L45`). Generated-env config silently stops applying
-  and looks healthy; a row does not.
+  `/dash/onbod/` (BUGS `L45`, fixed 2026-08-17: `arizuko generate` writes the
+  rows). Generated-env config silently stops applying and looks healthy; a row
+  does not.
 - **Adding a channel adapter**: ship a `template/services/<daemon>.yml`
   (a partial compose file — docker `include`s it verbatim) + a
   `<daemon>-routes.json` if it needs inbound web paths. No edit to

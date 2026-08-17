@@ -16,6 +16,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **A route shipped in a release now reaches an instance that already exists.**
+  proxyd's route table arrived as a `PROXYD_ROUTES_JSON` env var that proxyd
+  read only while the table was empty; once an instance had booted once, every
+  route added to a later release was ignored forever. krons was running 12 of
+  the 18 routes arizuko ships — `/invite/`, `/pair/`, `/me`, `/me/`, `/panel/`,
+  `/dash/onbod/` and `/dash/timed/` all answered as if they did not exist, with
+  every health check green. `arizuko generate` now writes the routes as rows and
+  the env var is gone. Each row records an owner: the ones arizuko ships are
+  rewritten by every generate, and a route you create through
+  `/v1/proxyd_routes` (or the `/dash/proxyd/` page) is yours — generate leaves
+  it alone, at any path. To take a shipped path over, delete it and add your
+  own; editing arizuko's row in place is refused with 409, because that edit
+  would only survive until the next deploy (BUGS `L45`).
 - **A compose fragment that has fallen behind the catalog now says so.** It was
   only ever replaced when byte-identical, so a fragment written by an older
   version looked like an operator edit and froze — every mount and env var

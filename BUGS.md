@@ -226,7 +226,7 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
-## L45 — proxyd routes shipped in a release never reach an existing instance (2026-08-17, CONFIRMED live on krons)
+## L45 — proxyd routes shipped in a release never reach an existing instance (2026-08-17, FIXED)
 
 `loadInitialRoutes` (`proxyd/main.go:248`) is seed-once: if `proxyd_routes` has
 any row, `PROXYD_ROUTES_JSON` is ignored. There is no reconcile — the env var is
@@ -270,6 +270,21 @@ upserting by path so an operator's own routes and edits survive, and
 `PROXYD_ROUTES_JSON` is deleted as a config source. One authority, no seed-once
 window. Ties to `L44`, which removes the parallel `*-routes.json` format feeding
 the same env var.
+
+**FIXED 2026-08-17.** `arizuko generate` writes the route table into
+`proxyd_routes` (`store.SyncProxydRoutes`, called from
+`cmd/arizuko/routes.go`); `compose.Generate` returns the routes instead of
+emitting them, and `PROXYD_ROUTES_JSON` is gone from both compose and proxyd's
+boot path — `loadInitialRoutes` reads rows only. A new `owner` column carries
+the authority: `arizuko` rows are rewritten by every generate, `operator` rows
+are never touched at any path. The override is ownership, not editing — PATCH on
+an arizuko-owned row answers 409 naming the way through (DELETE, then POST,
+which stamps `operator`). Migration `routd/0038` (mirrored in `store/0087`)
+backfills existing rows to `arizuko`, so the shipped paths get reclaimed while a
+hand-added route at a path arizuko does not ship (krons `/arizuko`) is never
+read. Residual, recorded deliberately: generate never deletes, so a route that
+stops being shipped, or whose `gated_by` is later turned off, stays until the
+operator removes it.
 
 **This is also the unlock for `6/16`'s recorded direction** — "shrink toward
 off-the-shelf and publish the grant-scoped mount contract", where proxyd is

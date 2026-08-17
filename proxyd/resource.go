@@ -131,6 +131,7 @@ func toStoreRoute(r Route) store.ProxydRoute {
 		Path: r.Path, Backend: r.Backend, Auth: r.Auth,
 		GatedBy: r.GatedBy, PreserveHeaders: r.PreserveHeaders,
 		StripPrefix: r.StripPrefix, RedirectTo: r.RedirectTo,
+		Owner: r.Owner,
 	}
 }
 
@@ -139,6 +140,7 @@ func fromStoreRoute(r store.ProxydRoute) Route {
 		Path: r.Path, Backend: r.Backend, Auth: r.Auth,
 		GatedBy: r.GatedBy, PreserveHeaders: r.PreserveHeaders,
 		StripPrefix: r.StripPrefix, RedirectTo: r.RedirectTo,
+		Owner: r.Owner,
 	}
 }
 
@@ -213,6 +215,11 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		if err := validateRoute(r, routes, false); err != nil {
 			return nil, err
 		}
+		// Creating a route here IS the claim: a row declared on the operator
+		// surface is the operator's, and generate never rewrites it again. The
+		// caller does not get to pick — a body carrying `owner` would otherwise
+		// let an agent hand its own route to arizuko, or to nobody.
+		r.Owner = store.RouteOwnerOperator
 		if err := insertProxydRouteTx(ctx, x.Tx, toStoreRoute(r)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "persist: %v", err)
 		}
@@ -233,6 +240,16 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		}
 		if idx < 0 {
 			return nil, resreg.Errorf(http.StatusNotFound, "route %q not found", path)
+		}
+		// Editing an arizuko-owned row is not an override — the next `arizuko
+		// generate` rewrites it from the release. Refusing here is the "must be
+		// told" half of that decision: an edit that silently survives until the
+		// next deploy and then vanishes is the failure this whole change removes
+		// (BUGS L45). The named alternative takes the path over for good.
+		if routes[idx].Owner == store.RouteOwnerArizuko {
+			return nil, resreg.Errorf(http.StatusConflict,
+				"route %q is owned by arizuko and is rewritten by every `arizuko generate`; "+
+					"DELETE it and POST your own to take the path over", path)
 		}
 		merged := routes[idx]
 		if v, ok := x.Args["backend"].(string); ok && v != "" {
@@ -376,12 +393,15 @@ func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 func insertProxydRouteTx(ctx context.Context, tx *sql.Tx, r store.ProxydRoute) error {
 	headers, strip := proxydRouteJSON(r)
 	_, err := tx.ExecContext(ctx, `INSERT INTO proxyd_routes
-		(path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		r.Path, r.Backend, r.Auth, r.GatedBy, headers, strip, r.RedirectTo)
+		(path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to, owner)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Path, r.Backend, r.Auth, r.GatedBy, headers, strip, r.RedirectTo, r.Owner)
 	return err
 }
 
+// updateProxydRouteTx writes the mutable fields. `owner` is not among them:
+// ownership is stamped by whoever created the row, so an update can never
+// change who may rewrite it.
 func updateProxydRouteTx(ctx context.Context, tx *sql.Tx, r store.ProxydRoute) error {
 	headers, strip := proxydRouteJSON(r)
 	res, err := tx.ExecContext(ctx, `UPDATE proxyd_routes

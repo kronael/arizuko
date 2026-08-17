@@ -35,7 +35,6 @@ type config struct {
 	pubRedirectURL string
 	authSecret     string
 	authdURL       string // soak: dual-verify ES256 bearers + 302 /auth/* to authd
-	routesJSON     string
 	trustedProxies []*net.IPNet
 	chatAnonDosRPM int
 	hostingDomain  string            // world W reached at W.<hostingDomain> → 302 /pub/W/
@@ -52,7 +51,6 @@ func loadConfig() config {
 		viteAddr:       chanlib.EnvOr("VITE_ADDR", "http://vited:8080"),
 		pubRedirectURL: strings.TrimRight(chanlib.EnvOr("PUB_REDIRECT_URL", ""), "/"),
 		authdURL:       strings.TrimRight(os.Getenv("AUTHD_URL"), "/"),
-		routesJSON:     os.Getenv("PROXYD_ROUTES_JSON"),
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
 		chatAnonDosRPM: chanlib.EnvInt("CHAT_ANON_DOS_RPM", 10),
 		hostingDomain:  strings.ToLower(strings.TrimSuffix(chanlib.EnvOr("HOSTING_DOMAIN", ""), ".")),
@@ -221,7 +219,7 @@ func (p *pubRedirect) reachable() bool {
 }
 
 func newServer(cfg config, stRoutd *store.Store, ks *auth.KeySet, svc *auth.TokenSource) *server {
-	routes := loadInitialRoutes(cfg.routesJSON, stRoutd)
+	routes := loadInitialRoutes(stRoutd)
 	rr := newRoutesResource(stRoutd, routes)
 	var ap *httputil.ReverseProxy
 	if cfg.authdURL != "" {
@@ -240,51 +238,26 @@ func newServer(cfg config, stRoutd *store.Store, ks *auth.KeySet, svc *auth.Toke
 	}
 }
 
-// loadInitialRoutes picks the boot route table. Persistence wins when
-// proxyd_routes has rows; otherwise seed from PROXYD_ROUTES_JSON into
-// the table. The env var stops being authoritative as soon as the
-// table has any row (operator mutations are durable across restarts).
-// Spec 6/2 Phase-3 §"Boot config vs runtime mutation".
-func loadInitialRoutes(routesJSON string, st *store.Store) []Route {
-	if st != nil {
-		stored, err := st.AllProxydRoutes()
-		if err != nil {
-			slog.Error("read proxyd_routes", "err", err)
-			os.Exit(1)
-		}
-		if len(stored) > 0 {
-			out := make([]Route, 0, len(stored))
-			for _, r := range stored {
-				out = append(out, fromStoreRoute(r))
-			}
-			slog.Info("proxyd routes loaded from db", "count", len(out))
-			return out
-		}
+// loadInitialRoutes reads the boot route table. proxyd_routes is the only
+// source: `arizuko generate` writes the release's routes into it
+// (store.SyncProxydRoutes) and proxyd re-reads it per request. There is no env
+// var and no seeding, so there is no window in which config stops applying —
+// PROXYD_ROUTES_JSON was seed-once and cost krons seven routes (BUGS L45).
+//
+// The returned table is used for the boot log and the backend check; dispatch
+// takes a fresh snapshot per request (spec 5/8 no-cache).
+func loadInitialRoutes(st *store.Store) []Route {
+	if st == nil {
+		return nil
 	}
-	routes, err := LoadRoutes(routesJSON)
+	stored, err := st.AllProxydRoutes()
 	if err != nil {
-		slog.Error("PROXYD_ROUTES_JSON parse failed", "err", err)
+		slog.Error("read proxyd_routes", "err", err)
 		os.Exit(1)
 	}
-	if st != nil && len(routes) > 0 {
-		ctx := context.Background()
-		tx, err := st.DB().BeginTx(ctx, nil)
-		if err != nil {
-			slog.Error("seed proxyd_routes", "err", err)
-			os.Exit(1)
-		}
-		for _, r := range routes {
-			if err := insertProxydRouteTx(ctx, tx, toStoreRoute(r)); err != nil {
-				tx.Rollback()
-				slog.Error("seed proxyd_routes", "path", r.Path, "err", err)
-				os.Exit(1)
-			}
-		}
-		if err := tx.Commit(); err != nil {
-			slog.Error("seed proxyd_routes", "err", err)
-			os.Exit(1)
-		}
-		slog.Info("proxyd routes seeded from env", "count", len(routes))
+	routes := make([]Route, 0, len(stored))
+	for _, r := range stored {
+		routes = append(routes, fromStoreRoute(r))
 	}
 	for _, r := range routes {
 		if r.RedirectTo != "" {
@@ -295,6 +268,7 @@ func loadInitialRoutes(routesJSON string, st *store.Store) []Route {
 			os.Exit(1)
 		}
 	}
+	slog.Info("proxyd routes loaded from db", "count", len(routes))
 	return routes
 }
 

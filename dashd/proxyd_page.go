@@ -30,6 +30,7 @@ type proxydRoute struct {
 	PreserveHeaders []string `json:"preserve_headers,omitempty"`
 	StripPrefix     bool     `json:"strip_prefix,omitempty"`
 	RedirectTo      string   `json:"redirect_to,omitempty"`
+	Owner           string   `json:"owner,omitempty"`
 }
 
 // proxydCall performs one authenticated request against proxyd's /v1 face.
@@ -160,7 +161,7 @@ func (d *dash) writeProxydRoutes(w http.ResponseWriter, r *http.Request) bool {
 	fmt.Fprint(w, htmlTable(
 		[]string{"Path", "Goes to", "Who can open it", "Notes", ""},
 		rows,
-		"No routes. proxyd is answering 404 for every address — check PROXYD_ROUTES_JSON in the instance .env."))
+		"No routes. proxyd is answering 404 for every address — run `arizuko generate <instance>`, which writes the release's route table."))
 	return true
 }
 
@@ -201,6 +202,11 @@ func proxydAuthClass(a string) string {
 // reaches the backend. Empty when the route is plain.
 func proxydFlagsCell(rt proxydRoute) string {
 	var parts []string
+	// An operator who edits an arizuko route gets a 409 from proxyd; saying so
+	// on the row is cheaper than finding out at the attempt (BUGS L45).
+	if rt.Owner == "arizuko" {
+		parts = append(parts, "ships with arizuko &mdash; rewritten on every deploy")
+	}
 	if rt.StripPrefix {
 		parts = append(parts, "path prefix removed")
 	}
@@ -218,8 +224,8 @@ func proxydFlagsCell(rt proxydRoute) string {
 
 // writeProxydAddForm renders the add-route form. Redirect routes and header
 // allowlists are not offered — proxyd cannot PATCH `redirect_to` at all, so a
-// half-editable field would be a trap; those still arrive via the instance's
-// PROXYD_ROUTES_JSON.
+// half-editable field would be a trap; those arrive with the release, written
+// into proxyd_routes by `arizuko generate`.
 func writeProxydAddForm(w http.ResponseWriter) {
 	fmt.Fprint(w, htmlSection("Add route",
 		`<form method="post" action="/dash/proxyd/">`+

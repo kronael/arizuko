@@ -62,13 +62,15 @@ base adapter's scoped env file, so per-daemon secret isolation extends
 across accounts. Converting it to a symlink at the base template would
 collide two services on one `container_name`.
 
-Routes stay out of the fragment on purpose: proxyd takes ONE
-`PROXYD_ROUTES_JSON` env var, so `collectProxydRoutes` merges the core
-slice with each package's routes file at generate time.
+Routes stay out of the fragment on purpose: proxyd, not docker, is their
+consumer, so `collectProxydRoutes` merges the core slice with each
+package's routes file at generate time and `Generate` hands the result back
+for `arizuko generate` to write into `proxyd_routes`.
 
 ## Public API
 
-- `Generate(dataDir string) (string, error)` — returns the compose YAML
+- `Generate(dataDir string) (string, []ProxydRoute, error)` — the compose
+  YAML plus the proxyd route table the same run decided on
 - `ProxydRoute` — one entry of a `<name>-routes.json`
 - `HostCatalogDir(dataDir) (string, bool)` — the host-resolvable catalog
   dir from `.env`'s `HOST_APP_DIR`, for use as a symlink target

@@ -356,3 +356,81 @@ func TestRoutesResource_SnapshotDBError(t *testing.T) {
 		t.Errorf("webSnapshot on DB error = %+v, want nil", wr)
 	}
 }
+
+// The operator surface is where a route becomes the operator's. A route created
+// here is stamped `operator` whatever the body claims, and generate then leaves
+// the path alone for good — that is the deliberate override.
+func TestRoutesResource_CreateClaimsTheRouteForTheOperator(t *testing.T) {
+	mux, _, st := testResourceMux(t, nil)
+
+	w := doJSON(t, mux, "POST", "/v1/proxyd_routes", map[string]any{
+		"path": "/my/", "backend": "http://mine:8080", "auth": "user",
+		"owner": store.RouteOwnerArizuko, // a caller must not be able to pick
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("POST = %d body=%s", w.Code, w.Body.String())
+	}
+	all, err := st.AllProxydRoutes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all[0].Owner != store.RouteOwnerOperator {
+		t.Fatalf("row = %+v, want owner %q", all, store.RouteOwnerOperator)
+	}
+
+	// And a generate over the same path must not take it back.
+	written, kept, err := st.SyncProxydRoutes([]store.ProxydRoute{
+		{Path: "/my/", Backend: "http://arizuko:8080", Auth: "public"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written != 0 || kept != 1 {
+		t.Fatalf("sync written=%d kept=%d, want 0/1", written, kept)
+	}
+	all, _ = st.AllProxydRoutes()
+	if all[0].Backend != "http://mine:8080" {
+		t.Errorf("route = %+v, want the operator's backend kept", all[0])
+	}
+}
+
+// Editing an arizuko-owned row is NOT how an operator overrides one: the next
+// `arizuko generate` rewrites it. The edit is refused with the mechanism named,
+// because an edit that survives until the next deploy and then silently
+// disappears is the failure class L45 is about.
+func TestRoutesResource_UpdateRefusedOnArizukoOwnedRoute(t *testing.T) {
+	mux, _, st := testResourceMux(t, nil)
+	if _, _, err := st.SyncProxydRoutes([]store.ProxydRoute{
+		{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	w := doJSON(t, mux, "PATCH", "/v1/proxyd_routes/"+url.PathEscape("/dash/"), map[string]any{
+		"backend": "http://mine:8080",
+	})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("PATCH = %d body=%s, want 409", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "DELETE") {
+		t.Errorf("409 body must name the way to take the path over; got %s", w.Body.String())
+	}
+	all, _ := st.AllProxydRoutes()
+	if all[0].Backend != "http://dashd:8080" {
+		t.Errorf("route = %+v, want unchanged", all[0])
+	}
+
+	// The named way through: delete arizuko's row, declare your own.
+	if w := doJSON(t, mux, "DELETE", "/v1/proxyd_routes/"+url.PathEscape("/dash/"), nil); w.Code != http.StatusNoContent {
+		t.Fatalf("DELETE = %d", w.Code)
+	}
+	if w := doJSON(t, mux, "POST", "/v1/proxyd_routes", map[string]any{
+		"path": "/dash/", "backend": "http://mine:8080", "auth": "user",
+	}); w.Code != http.StatusCreated {
+		t.Fatalf("POST = %d body=%s", w.Code, w.Body.String())
+	}
+	all, _ = st.AllProxydRoutes()
+	if all[0].Owner != store.RouteOwnerOperator || all[0].Backend != "http://mine:8080" {
+		t.Errorf("route = %+v, want the operator's own row", all[0])
+	}
+}
