@@ -226,6 +226,56 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L46 — a package may grant itself operator authority and claim core routes (2026-08-17, found in review)
+
+`arizuko packages install <git-url>` applies a package's declared grants and
+routes with **no bound on what it may ask for**.
+
+**Grants.** `applyPackageGrants` (`cmd/arizuko/packages.go:210`) validates only
+`checkGrantPredicate(row)` — the predicate SYNTAX — then stamps
+`GrantedBy = "package:<name>"` and writes the row. Scope and action are never
+checked. A package shipping
+
+    [{"principal":"folder:evil","action":"*","scope":"**","effect":"allow"}]
+
+gets instance-wide authority over every folder, because `auth/authorize.go:231`
+matches `**` against everything and operator-ness in arizuko is emergent from
+exactly that row (there is no operator role to check against).
+
+**Routes.** `applyPackageRoutes` applies any path. A package declaring `/dash/`
+or `/mcp` re-points the operator console or the agent socket surface at its own
+backend. `collectProxydRoutes` will happily emit it.
+
+**Owner.** After `L45`, `store.ProxydRoute` has an `owner` field and the package
+decoder is lenient, so a package can stamp `operator` and opt out of ever being
+rewritten by generate. (Flagged by the L45 implementation, deliberately left.)
+
+**Severity.** Not remotely exploitable — it needs the operator to run `install`.
+This is supply chain, `curl | bash` class. What makes it a bug rather than a
+known property is that packages are DOCUMENTED as a bounded, reversible unit
+("remove reverses exactly what the record names"), and the install summary
+prints the grants it applies as if they were routine. Nothing signals that
+installing a package is equivalent to handing over the instance.
+
+**The rule that is missing** (operator, 2026-08-17): some ground is reserved for
+core arizuko and core packages. A package's authority must be bounded by what
+the operator granted THE PACKAGE, never by what the package asks for.
+
+Proposal (needs sign-off):
+
+1. **Reserved route paths.** A package may not claim `/dash/`, `/chat/`,
+   `/hook/`, `/mcp`, `/v1/`, `/onboard`, `/me` or any other core-shipped prefix.
+   Install fails loudly naming the path.
+2. **Bounded grant scope.** A package may not declare `**` or `*`, nor any scope
+   outside the folder(s) the operator named at install time. Subset-of-held is
+   already the delegation model (`5/33`) — apply it here.
+3. **A third owner value.** Package rows are `owner = "package:<name>"`, never
+   `arizuko` or `operator`, and the decoder rejects the other two rather than
+   accepting them leniently. Closes the `L45` hole in the same change.
+
+Recorded, not fixed — found during a general check (Bug Triage Protocol).
+
+
 ## L45 — proxyd routes shipped in a release never reach an existing instance (2026-08-17, FIXED)
 
 `loadInitialRoutes` (`proxyd/main.go:248`) is seed-once: if `proxyd_routes` has
