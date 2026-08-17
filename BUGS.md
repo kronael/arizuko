@@ -226,6 +226,44 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L44 — packages invent a second declaration format for what the manifest already carries (2026-08-17, found in review)
+
+`5/8` states the manifest carries an instance's cold-tier config: "ACL, routes,
+secrets metadata, scheduled tasks, proxyd routes, web routes, network rules,
+group ...". `arizuko apply` consumes it, `export` produces it, `plan` diffs it,
+and `resreg.Apply` is the engine underneath.
+
+Packages then declare the same two things in their own format:
+
+    <name>-grants.json   → applyPackageGrants  (cmd/arizuko/packages.go:195)
+    <name>-routes.json   → applyPackageRoutes  (cmd/arizuko/packages.go:266)
+
+Both are hand-parsed with their own `json.Unmarshal` into their own types, and
+both hot-apply through code that duplicates what `apply` already does. Root
+`CLAUDE.md`: "Before adding a mechanism, grep for an existing one. If it exists,
+fix/extend the ORIGINAL; NEVER add a parallel second path — two paths drift."
+
+**Partial defense, and only partial.** `compose/compose.go:434` also reads
+`<name>-routes.json` at COMPOSE-GENERATION time, when no instance is running and
+no API exists to apply against. That path genuinely cannot use `apply`. But the
+hot-apply path (`applyPackageRoutes`) runs against a live instance and has no
+such excuse, and `<name>-grants.json` has no compose-time reader at all.
+
+**Cost already visible**: the two formats express overlapping-but-different
+subsets, so a package cannot declare anything the manifest supports and the
+sidecars do not — scheduled tasks, network rules, web routes, secrets metadata.
+A package author who needs one of those has no route at all, while the same
+declaration sits one directory away in a format `apply` already understands.
+
+Proposal (needs sign-off — this is a redesign, not a patch): a package ships ONE
+`<name>.yaml` manifest fragment in the `5/8` schema, installed through the same
+`apply` path, with `installed_packages` recording the rows it owns exactly as it
+does now. The compose-time routes sidecar survives as the one legitimate second
+reader, generated FROM the manifest rather than authored beside it.
+
+Recorded, not fixed — found during a general check (Bug Triage Protocol).
+
+
 ## L43 — 44 stale spec references in the live tree, and they block the 6/7 renumber (2026-08-16, found while measuring the re-cut)
 
 A reference-graph check over tracked `.md`/`.go` (excluding `CHANGELOG.md`, which
