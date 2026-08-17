@@ -226,43 +226,48 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
-## L44 — packages invent a second declaration format for what the manifest already carries (2026-08-17, found in review)
+## L44 — packages declare in two bespoke formats what the manifest already carries (2026-08-17, found in review)
 
-`5/8` states the manifest carries an instance's cold-tier config: "ACL, routes,
-secrets metadata, scheduled tasks, proxyd routes, web routes, network rules,
-group ...". `arizuko apply` consumes it, `export` produces it, `plan` diffs it,
-and `resreg.Apply` is the engine underneath.
-
-Packages then declare the same two things in their own format:
+`5/8`'s manifest carries "ACL, routes, secrets metadata, scheduled tasks, proxyd
+routes, web routes, network rules" and `apply` installs it. Packages re-declare
+two of those in their own formats, each hand-parsed with its own types:
 
     <name>-grants.json   → applyPackageGrants  (cmd/arizuko/packages.go:195)
     <name>-routes.json   → applyPackageRoutes  (cmd/arizuko/packages.go:266)
+                         → collectProxydRoutes (compose/compose.go:434)
 
-Both are hand-parsed with their own `json.Unmarshal` into their own types, and
-both hot-apply through code that duplicates what `apply` already does. Root
-`CLAUDE.md`: "Before adding a mechanism, grep for an existing one. If it exists,
-fix/extend the ORIGINAL; NEVER add a parallel second path — two paths drift."
+Root `CLAUDE.md`: "If it exists, fix/extend the ORIGINAL; NEVER add a parallel
+second path — two paths drift."
 
-**Partial defense, and only partial.** `compose/compose.go:434` also reads
-`<name>-routes.json` at COMPOSE-GENERATION time, when no instance is running and
-no API exists to apply against. That path genuinely cannot use `apply`. But the
-hot-apply path (`applyPackageRoutes`) runs against a live instance and has no
-such excuse, and `<name>-grants.json` has no compose-time reader at all.
+**Three costs, all live:**
 
-**Cost already visible**: the two formats express overlapping-but-different
-subsets, so a package cannot declare anything the manifest supports and the
-sidecars do not — scheduled tasks, network rules, web routes, secrets metadata.
-A package author who needs one of those has no route at all, while the same
-declaration sits one directory away in a format `apply` already understands.
+1. **A package cannot declare what the manifest supports** — no scheduled task,
+   network rule, web route or secrets metadata, though `apply` understands all
+   four.
+2. **Install is not transactional.** `applyPackageGrants` calls `die()` inside
+   its loop, so grant 3 of 5 failing leaves 1 and 2 applied and the process
+   gone. `apply` already has per-subsystem transactions with **pre-image
+   rollback** (`5/8`) — packages hand-roll a worse version beside it.
+3. **Routes land in two places** — a generate-time env var via the JSON sidecar,
+   and `proxyd_routes` rows via hot-apply.
 
-Proposal (needs sign-off — this is a redesign, not a patch): a package ships ONE
-`<name>.yaml` manifest fragment in the `5/8` schema, installed through the same
-`apply` path, with `installed_packages` recording the rows it owns exactly as it
-does now. The compose-time routes sidecar survives as the one legitimate second
-reader, generated FROM the manifest rather than authored beside it.
+**Proposal (needs sign-off — redesign, not patch).** A package ships two files,
+both in formats that already exist:
+
+    <name>.yml     docker's compose fragment (not our format; unchanged)
+    <name>.yaml    the 5/8 manifest — grants, routes, tasks, network rules
+
+Delete both JSON formats and their parsers. `apply` installs the rows and brings
+transactional install plus rollback with it. Compose generation reads routes
+from the manifest instead of the sidecar — the routes still become one proxyd
+env var at generate time (`collectProxydRoutes` documents why they must), so
+this is one declaration with two readers, which is the project's own
+one-renderer-many-sinks rule rather than a second path.
+
+`installed_packages` is unchanged: it already records owned rows (`Manifest`)
+and content hashes (`AssetHashes`), which is the dpkg half arizuko got right.
 
 Recorded, not fixed — found during a general check (Bug Triage Protocol).
-
 
 ## L43 — 44 stale spec references in the live tree, and they block the 6/7 renumber (2026-08-16, found while measuring the re-cut)
 
