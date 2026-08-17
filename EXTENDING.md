@@ -269,6 +269,30 @@ Generic HTTP webhook ingest is the same path: any caller can POST
 webhooks through proxyd via the receiving daemon's routes file. No
 separate "webhook adapter" abstraction.
 
+## Checking a component against the contract
+
+Any daemon — yours, or one shipped from outside this repo — is checked
+against the component contract (`specs/6/7-environment-contracts.md`) by
+probing it while it runs:
+
+```bash
+arizuko probe http://localhost:8081
+arizuko probe https://host --token <bearer> --foreign-folder <someone-elses>
+```
+
+It verifies that `/openapi.json` answers **without** credentials (mounted
+before auth, or nothing can discover you), that the document is OpenAPI
+3.x, that every path it advertises is actually served, that non-public
+paths refuse an unauthenticated request, and — with the two flags — that a
+folder param is bound to the caller rather than honoured as given.
+
+An empty document passes: a component that owns no `/v1` resource (dashd
+serves only `/dash/` pages) truthfully advertises nothing. What the probe
+cannot see is the opposite drift — a resource mounted but not advertised.
+Probing cannot establish that, because proxyd answers every path from a
+`/` catch-all; in-repo that direction is a Go test
+(`resregtest.AssertServesNoForeignResource`).
+
 ## Adding a proxyd route
 
 `proxyd`'s route table is built from each package's
