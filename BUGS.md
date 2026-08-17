@@ -226,6 +226,59 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L47 — a package's skills never reach a group that already existed (2026-08-17, found by the frozen-config sweep)
+
+`seedSkills` (`container/runner.go:1125`) copies a package's `skills/<n>/` into a
+group's `~/.claude/skills/`. It has exactly one non-test caller:
+`container.SetupGroup` (`runner.go:1076`). `SetupGroup` is reached only from
+group/instance CREATION — `cmdCreate` (`cmd/arizuko/main.go:335`), `cmdGroup`
+(`:448`), `onbod/main.go:869`, `dashd/groups_admin.go:114` — and from
+archive-apply. **`cmdGenerate` is not among them.**
+
+So a package's skill lands in a group only if the package was already installed
+when that group was created. Verified by walking the call graph, not inferred.
+
+`packages install` / `upgrade` / `sync` all print "run `arizuko generate
+<instance>` to apply" (`cmd/arizuko/packages.go:521,588,622,678`). The operator
+does exactly that, sees success, and no group that already existed ever receives
+the skill — on first install or on any later revision.
+
+Doubly closed: `cpDirFresh` (`runner.go:1271`) skips files that already exist,
+so even if `seedSkills` did run again it could not UPDATE a skill, only create
+absent ones.
+
+**The spec says the opposite.** `specs/5/28-packages.md:203` lists `skills/<n>/`
+as `managed: sync`, and `packages.go:323`'s own comment says "seedSkills layers
+into every group". Code, spec and comment disagree, and the code loses.
+
+**No reconcile exists** — checked before claiming. Stock skills have two: the
+`MIGRATION_VERSION` comparison in `prepareInput` annotates the prompt "[pending
+migration]" every turn, and `/migrate` does a real 3-way merge against
+`/opt/arizuko/ant/`. Neither covers packages: `/opt/arizuko/ant/` is the baked
+image, not the host `<datadir>/skills/` tree, and that tree is never
+bind-mounted into any container, so the agent-side merge cannot see it.
+
+**Severity: high, and structurally worse than `L41`/`L45`.** Same shape — an
+operator-facing "apply this" command that silently does not — but `L41` had a
+partial reconcile on a later generate and `L45` at least reached new deploys.
+Here there is no path at all, ever, for a group that predates the install. A
+package shipping a skill fix, a corrected instruction, or new capability wording
+freezes at whatever content existed when each group was created.
+
+Untested as well as unnoticed: `TestSeedSkillsPackageLayer`
+(`container/container_test.go:938`) calls `seedSkills` directly and proves only
+the first copy. The update-into-an-existing-group case has no test.
+
+Proposal (needs sign-off): `generate` reseeds package skills for every existing
+group, using overwrite-not-fresh semantics for package-owned skill directories
+(they are upstream-managed per `5/28`; operator edits belong to `ours`, which is
+a different tree). Alternatively wire it to the same `MIGRATION_VERSION` signal
+stock skills already use, so a stale group announces itself instead of going
+quiet.
+
+Recorded, not fixed — found during a sweep (Bug Triage Protocol).
+
+
 ## L46 — a package may grant itself operator authority and claim core routes (2026-08-17, found in review)
 
 `arizuko packages install <git-url>` applies a package's declared grants and
