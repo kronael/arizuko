@@ -39,6 +39,20 @@ them on each request.
 - **One renderer, many sinks**: when N paths feed one consumer, exactly
   one renderer produces its input. Two paths drift silently. Same for
   skill schemas, prompt-build sites, output formatters.
+- **One declaration, many readers** — the dual of the rule above, and the
+  one that actually gets violated. When a second consumer needs the same
+  facts at a different TIME (compose-generation before any DB exists) or
+  in a different SHAPE (an env var, not rows), that justifies a second
+  **reader**, never a second **format**. Ask "who else reads this?", not
+  "what file do I need?". Cost: packages declare grants and proxyd routes
+  in `*-grants.json` / `*-routes.json` while `5/8`'s manifest already
+  carries both, so a package cannot express a scheduled task or a network
+  rule and its install is not transactional — beside an apply engine that
+  has pre-image rollback (BUGS `L44`).
+- **A format is a coupling; keep the parts orthogonal.** A package ships
+  docker's compose fragment AND arizuko's manifest — two files because
+  they answer to two owners, not one file that knows about both. Split by
+  who defines the format, never by what is convenient to parse together.
 - **Strict, not magical**: no silent fallbacks for missing data
   (PERSONA.md without frontmatter returns empty, not "guess from body").
   No parent-folder inheritance for group-scoped files. Operator data
