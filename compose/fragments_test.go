@@ -264,19 +264,19 @@ func TestRelinkCatalogIdempotent(t *testing.T) {
 	isSymlinkTo(t, filepath.Join(svcDir, "teled.yml"), filepath.Join(hostDir, "teled.yml"))
 }
 
-// A route-table sidecar carries the same drift risk as its base fragment and
-// links alongside it when both sides match.
+// A package's manifest fragment carries the same drift risk as its base compose
+// fragment and links alongside it when both sides match.
 func TestRelinkCatalogLinksMatchingSidecar(t *testing.T) {
-	routes := `[{"path":"/slack/","backend":"http://slakd:8080","auth":"public"}]`
+	manifest := "proxyd_routes:\n  - path: /slack/\n    backend: http://slakd:8080\n    auth: public\n"
 	svcDir, tmplDir := seedCatalog(t,
-		map[string]string{"slakd.yml": "services:\n  slakd:\n    image: arizuko:latest\n", "slakd-routes.json": routes},
-		map[string]string{"slakd.yml": "services:\n  slakd:\n    image: arizuko:latest\n", "slakd-routes.json": routes})
+		map[string]string{"slakd.yml": "services:\n  slakd:\n    image: arizuko:latest\n", "slakd.yaml": manifest},
+		map[string]string{"slakd.yml": "services:\n  slakd:\n    image: arizuko:latest\n", "slakd.yaml": manifest})
 	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
 
 	if _, _, err := RelinkCatalog(svcDir, tmplDir, hostDir); err != nil {
 		t.Fatal(err)
 	}
-	isSymlinkTo(t, filepath.Join(svcDir, "slakd-routes.json"), filepath.Join(hostDir, "slakd-routes.json"))
+	isSymlinkTo(t, filepath.Join(svcDir, "slakd.yaml"), filepath.Join(hostDir, "slakd.yaml"))
 }
 
 // HostCatalogDir must never fall back to this process's own directory — a

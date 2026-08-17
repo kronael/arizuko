@@ -110,7 +110,7 @@ DISCORD_CLIENT_SECRET=…</code></pre>
       </ul>
       <p>
         The <code>/slack/</code> path is wired into proxyd by
-        <code>template/services/slakd-routes.json</code> &mdash; nothing to edit in
+        <code>template/services/slakd.yaml</code> &mdash; nothing to edit in
         compose generation. Slack's request signature is verified by
         <code>slakd</code> using the signing secret.
       </p>
@@ -295,7 +295,7 @@ arizuko invite acme list</code></pre>
         <code>envFileName</code>) &mdash; per-workspace tokens go in
         the fragment's <code>environment:</code> block, not in
         <code>.env</code>. The route lives in a sibling
-        <code>slakd-beta-routes.json</code>.
+        <code>slakd-beta.yaml</code>.
       </p>
       <pre><code># /srv/data/arizuko_acme/services/slakd-beta.yml
 services:
@@ -313,16 +313,15 @@ services:
       LISTEN_URL: 'http://slakd-beta:8080'
     depends_on: [routd]
     restart: on-failure</code></pre>
-      <pre><code>// /srv/data/arizuko_acme/services/slakd-beta-routes.json
-[
-  {
-    "path": "/slack-beta/",
-    "backend": "http://slakd-beta:8080",
-    "auth": "public",
-    "gated_by": "SLACK_BOT_TOKEN",
-    "preserve_headers": ["X-Slack-Signature", "X-Slack-Request-Timestamp"]
-  }
-]</code></pre>
+      <pre><code># /srv/data/arizuko_acme/services/slakd-beta.yaml
+proxyd_routes:
+  - path: /slack-beta/
+    backend: http://slakd-beta:8080
+    auth: public
+    gated_by: SLACK_BOT_TOKEN
+    preserve_headers:
+      - X-Slack-Signature
+      - X-Slack-Request-Timestamp</code></pre>
       <p>
         Set the second Slack App's Event Subscription URL to
         <code>https://&lt;WEB_HOST&gt;/slack-beta/events</code> &mdash;

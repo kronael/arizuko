@@ -1,8 +1,6 @@
 package compose
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +13,8 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -345,10 +345,11 @@ const healthBlock = "    healthcheck:\n" +
 	"      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:8080/health']\n" +
 	"      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n"
 
-// ProxydRoute mirrors proxyd's Route shape. Adapters declare theirs in a
-// sibling `services/<name>-routes.json` array; compose collects the survivors
-// (after gated_by env evaluation) and Generate returns them, for the caller to
-// write into proxyd_routes. JSON tags match proxyd/routes.go.
+// ProxydRoute mirrors proxyd's Route shape. Adapters declare theirs in the
+// `proxyd_routes` block of their `services/<name>.yaml` manifest; compose
+// collects the survivors (after gated_by env evaluation) and Generate returns
+// them, for the caller to write into proxyd_routes. JSON tags match
+// proxyd/routes.go.
 type ProxydRoute struct {
 	Path            string   `json:"path"`
 	Backend         string   `json:"backend"`
@@ -418,12 +419,17 @@ func gatedByOn(env map[string]string, key string) bool {
 
 // collectProxydRoutes returns surviving routes after gated_by filtering. Core
 // routes come first, then per-service routes in service-name order. A service
-// declares routes in `services/<name>-routes.json` (an array of ProxydRoute);
-// routes cannot live in the compose fragment because proxyd, not docker, is
-// their consumer. Per spec (specs/5/7-proxyd-standalone.md "Field semantics") a
-// route whose GatedBy env is unset or empty at generate time is dropped — it is
-// never written to proxyd_routes, so a surface whose daemon is off is not
-// routed at a dead backend.
+// declares routes in the `proxyd_routes` block of `services/<name>.yaml`, its
+// 5/8 manifest fragment; routes cannot live in the compose fragment because
+// proxyd, not docker, is their consumer. Per spec
+// (specs/5/7-proxyd-standalone.md "Field semantics") a route whose GatedBy env
+// is unset or empty at generate time is dropped — it is never written to
+// proxyd_routes, so a surface whose daemon is off is not routed at a dead
+// backend.
+//
+// This is the generate-time READER of the manifest a package also installs
+// through `arizuko apply`: routes are needed before any daemon (or DB) exists,
+// which justifies a second reader, never a second format (BUGS L44).
 func collectProxydRoutes(servicesDir string, services []string, env map[string]string) ([]ProxydRoute, error) {
 	var out []ProxydRoute
 	for _, r := range coreProxydRoutes {
@@ -432,25 +438,58 @@ func collectProxydRoutes(servicesDir string, services []string, env map[string]s
 		}
 	}
 	for _, name := range services {
-		b, err := os.ReadFile(filepath.Join(servicesDir, name+"-routes.json"))
-		if os.IsNotExist(err) {
-			continue
-		}
+		routes, err := ManifestRoutes(filepath.Join(servicesDir, name+".yaml"))
 		if err != nil {
-			return nil, fmt.Errorf("read %s-routes.json: %w", name, err)
-		}
-		// Strict decode: a misspelled optional field (`strip_prefx`) must error,
-		// not silently emit a valid-looking but behaviorally wrong route.
-		var routes []ProxydRoute
-		dec := json.NewDecoder(bytes.NewReader(b))
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&routes); err != nil {
-			return nil, fmt.Errorf("parse %s-routes.json: %w", name, err)
+			return nil, err
 		}
 		for _, r := range routes {
 			if gatedByOn(env, r.GatedBy) {
 				out = append(out, r)
 			}
+		}
+	}
+	return out, nil
+}
+
+// ManifestRoutes reads one 5/8 manifest fragment and returns its proxyd_routes
+// rows. A missing file is not an error — most packages declare no route.
+//
+// Parsing goes through resreg.ParseYAML, the same decoder `arizuko apply`
+// uses, so a typo rejects identically on both readers: an unknown resource key
+// or an unknown row field fails generate instead of silently emitting a
+// valid-looking but behaviorally wrong route.
+func ManifestRoutes(path string) ([]ProxydRoute, error) {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", filepath.Base(path), err)
+	}
+	docs, err := resreg.SplitDocuments(b)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
+	}
+	var out []ProxydRoute
+	for _, doc := range docs {
+		manifest, _, perr := resreg.ParseYAML(doc)
+		if perr != nil {
+			return nil, fmt.Errorf("parse %s: %w", filepath.Base(path), perr)
+		}
+		rows, ok := manifest[resources.ProxydRoutesName].([]resources.ProxydRoutesRow)
+		if !ok {
+			continue
+		}
+		for _, r := range rows {
+			out = append(out, ProxydRoute{
+				Path:            r.Path,
+				Backend:         r.Backend,
+				Auth:            r.Auth,
+				GatedBy:         r.GatedBy,
+				PreserveHeaders: r.PreserveHeaders,
+				StripPrefix:     r.StripPrefix,
+				RedirectTo:      r.RedirectTo,
+			})
 		}
 	}
 	return out, nil

@@ -50,16 +50,33 @@ func TestManagedEnvPreservesTailAfterBlock(t *testing.T) {
 	}
 }
 
-// C8: a route sidecar with a misspelled field must error, not emit a
-// behaviorally wrong route.
+// C8: a package manifest with a misspelled field must error, not emit a
+// behaviorally wrong route. The strictness is resreg.ParseYAML's, the same
+// decoder `arizuko apply` uses — one parser, so the two readers of a package's
+// one declaration cannot disagree about what is valid (BUGS L44).
 func TestProxydRoutesRejectUnknownField(t *testing.T) {
 	sd := filepath.Join(t.TempDir(), "services")
 	if err := os.MkdirAll(sd, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mustWrite(t, filepath.Join(sd, "slakd-routes.json"), `[{"path":"/slack/","backend":"http://slakd:8080","auth":"public","strip_prefx":true}]`)
+	mustWrite(t, filepath.Join(sd, "slakd.yaml"),
+		"proxyd_routes:\n  - path: /slack/\n    backend: http://slakd:8080\n    auth: public\n    strip_prefx: true\n")
 	if _, err := collectProxydRoutes(sd, []string{"slakd"}, map[string]string{}); err == nil {
 		t.Fatal("expected error on unknown route field, got nil")
+	}
+}
+
+// A misspelled RESOURCE key is the same class one level up: a package that
+// meant `scheduled_tasks` and wrote `scheduled_task` must fail generate, not
+// install a manifest half of which does nothing.
+func TestProxydRoutesRejectUnknownResource(t *testing.T) {
+	sd := filepath.Join(t.TempDir(), "services")
+	if err := os.MkdirAll(sd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(sd, "x.yaml"), "scheduled_task:\n  - id: t1\n")
+	if _, err := collectProxydRoutes(sd, []string{"x"}, map[string]string{}); err == nil {
+		t.Fatal("expected error on unknown resource key, got nil")
 	}
 }
 
@@ -85,7 +102,8 @@ func TestProxydRoutesAcceptRedirectTo(t *testing.T) {
 	if err := os.MkdirAll(sd, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mustWrite(t, filepath.Join(sd, "x-routes.json"), `[{"path":"/x/","backend":"http://x:8080","auth":"public","redirect_to":"/y/"}]`)
+	mustWrite(t, filepath.Join(sd, "x.yaml"),
+		"proxyd_routes:\n  - path: /x/\n    backend: http://x:8080\n    auth: public\n    redirect_to: /y/\n")
 	routes, err := collectProxydRoutes(sd, []string{"x"}, map[string]string{})
 	if err != nil {
 		t.Fatal(err)

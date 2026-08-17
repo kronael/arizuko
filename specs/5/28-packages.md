@@ -49,13 +49,34 @@ One manifest, and it is the **shipped `PRODUCT.md`** (`5/21`) — NOT a second
 | Asset kind       | What it is                                                    | Owner handler                                     |
 | ---------------- | ------------------------------------------------------------- | ------------------------------------------------- |
 | skills           | `skills/<name>/` → `<datadir>/skills/`, layered by seedSkills | `seedSkills` (+ `/migrate` 3-way merge for stock) |
-| compose fragment | `<name>.yml` (+ `<name>-routes.json`)                         | `5/27` (a file)                                   |
-| proxyd route     | a `proxyd_routes` row, keyed by path                          | `store.PutProxydRoute` (live)                     |
-| grant            | an `acl` row, keyed by identity                               | `store.PutACLRow`                                 |
+| compose fragment | `<name>.yml`, docker's format, included verbatim              | `5/27` (a file)                                   |
+| config manifest  | `<name>.yaml`, a `5/8` manifest document                      | `resreg.Apply` via `arizuko apply`'s own path     |
 | image extension  | `Dockerfile.ant` (`FROM arizuko-ant` + system deps)           | operator builds explicitly, never automatic       |
 
-**Trust follows what's touched.** Skills, compose fragments, routes, and
-grants above are agent/operator space, updatable via the lock. An image
+**Rows are one asset kind, not one per table.** A package used to declare
+grants in `<name>-grants.json` and routes in `<name>-routes.json`, each with
+its own hand-written parser and its own hot-apply loop beside the manifest
+engine that already understood both — so a package could not declare a
+scheduled task, a network rule or a web route at all, and its install was not
+transactional (BUGS `L44`, signed off 2026-08-17: hard cutover, no dual-read).
+It now ships ONE `<name>.yaml` carrying any resource `apply` writes:
+`proxyd_routes`, `acl`, `scheduled_tasks`, `network_rules`, `web_routes`,
+`routes`, `groups`.
+
+Install merges those rows onto the subsystem's live projection
+(`resreg.Resource.MergeRows`) and applies the whole document, because apply
+rebuilds a resource from the document it is given. That is what buys the
+transaction and the pre-image rollback: **a package installs whole or not at
+all.** The rows it added are recorded by PK, so `remove` subtracts exactly
+those (`DropRows`) and an operator's own row at another key survives.
+
+A resource with `SkipApplyRebuild` (`secrets`, `route_tokens`, `invites`,
+`onboarding`, `installed_packages`) is REFUSED at install, not accepted:
+apply never writes them, so the rows would be a reported success that did
+nothing — the same answer a package declaring `mcpServers` gets.
+
+**Trust follows what's touched.** Skills, compose fragments and manifest rows
+above are agent/operator space, updatable via the lock. An image
 extension changes what software exists INSIDE the sandbox only — mounts,
 egress, and grants stay platform-set regardless of image, so the trust
 decision is supply-chain, made once, explicitly, by the operator building

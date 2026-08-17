@@ -71,7 +71,7 @@ proxyd carries one route per daemon dashboard, registered statically
 ```
 
 Packaged daemons (channel adapters, ttsd, crackbox) ship their
-`/dash/<daemon>/` entry in a `template/services/<daemon>-routes.json`
+`/dash/<daemon>/` entry in a `template/services/<daemon>.yaml`
 array beside their `.yml` compose fragment; compose collects the
 survivors after `gated_by` evaluation
 ([`compose/compose.go`](../../compose/compose.go)
@@ -210,6 +210,6 @@ beyond "use theme" — point back here.
   HTML page is a third face on the same `/v1` handler set.
 - [`specs/5/7-proxyd-standalone.md`](../5/7-proxyd-standalone.md) —
   route field semantics and `gated_by` evaluation. Registration is a
-  `services/<daemon>-routes.json` array or `coreProxydRoutes`; the
+  `services/<daemon>.yaml` manifest or `coreProxydRoutes`; the
   `.toml` converter it describes is retired (root `CLAUDE.md`
   "Adding a channel adapter" is current).

@@ -135,13 +135,14 @@ func isSymlink(path string) bool {
 	return err == nil && fi.Mode()&os.ModeSymlink != 0
 }
 
-// relinkSidecarIfIdentical links <name>-routes.json alongside its base
-// fragment when both the catalog and the instance carry one and they match —
-// the same drift risk applies to a package's route table as to its compose
-// fragment. Silently skipped (not an error) when either side has no sidecar,
-// the installed one has diverged, or it is already linked.
+// relinkSidecarIfIdentical links <name>.yaml — the package's 5/8 manifest
+// fragment — alongside its base compose fragment when both the catalog and the
+// instance carry one and they match; the same drift risk applies to a package's
+// declared rows as to its compose fragment. Silently skipped (not an error)
+// when either side has no manifest, the installed one has diverged, or it is
+// already linked.
 func relinkSidecarIfIdentical(servicesDir, readableCatalogDir, hostCatalogDir, name string) error {
-	sidecar := name + "-routes.json"
+	sidecar := name + ".yaml"
 	if isSymlink(filepath.Join(servicesDir, sidecar)) {
 		return nil
 	}

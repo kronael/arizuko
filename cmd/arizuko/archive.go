@@ -489,7 +489,7 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 		if bad := preflightFolders(stores, configDocs); len(bad) > 0 {
 			return fmt.Errorf("archive references folders that are not groups: %w", errors.Join(bad...))
 		}
-		lines, err := applyDocs(ctx, stores, configDocs, force, "archive-apply", "")
+		lines, err := applyDocs(ctx, stores, configDocs, force, "archive-apply", "", nil)
 		for _, l := range lines {
 			fmt.Fprintf(&report, "%s\n", l)
 		}

@@ -12,19 +12,28 @@ import (
 	"github.com/kronael/arizuko/routd"
 )
 
-// A package apply mutates many acl rows at once, so it needs a verdict of its
-// own: ONE audit row for the bundle, or N for the grants? N (BUGS.md Q5). A
-// bundle row would say "installed grantpkg" and hide that the install handed
-// @ops admin on a folder — the question an audit trail answers is per-grant, and
-// installed_packages already records the bundle. Each row carries the package in
-// granted_by, so N rows still read as one act. `packages remove` was already
-// per-grant (audited RemoveACLRow); install now matches it.
+// A package apply mutates many rows at once, so it needs a verdict of its own:
+// ONE audit row for the bundle, or N for the grants? It is now ONE — install
+// goes through `arizuko apply`, whose contract is one row per apply (spec 5/8
+// §"CAS implementation" (3)), and a second per-row trail beside it would be the
+// parallel path BUGS L44 exists to delete.
 //
-// Falsifiable: revert applyPackageGrants to st.PutACLRow and the acl rows still
-// land, but aclAuditRows returns none. Drop the granted_by ParamsSummary entry
-// and the provenance case fails while the count case passes — which is the whole
-// difference between a per-row trail that is useful and one that is merely
-// truthful. Drop AsCLI and the actor falls back to the granted_by string.
+// That only stays honest if the one row NAMES what it wrote. BUGS.md Q5 refused
+// a bundle row because it would say "installed grantpkg" and hide that the
+// install handed @ops admin on a folder; the answer is not N rows, it is a row
+// carrying the row IDENTITIES (resreg.ApplyOpts.Extra). An acl PK is
+// principal|action|scope|params|predicate|effect, so for the grant half the
+// identity IS the grant. Each acl row also carries granted_by=package:<name>,
+// so the provenance survives in the table too.
+//
+// Identities, not whole rows: audit.marshalParams caps params_summary at 512
+// bytes, and a row-valued summary collapsed to {"_truncated":true}, which
+// answers nothing at all.
+//
+// Falsifiable: drop ApplyOpts.Extra from emitApplyAudit and the rows still land
+// and the count case still passes, but the scope cases fail — the whole
+// difference between a trail that is useful and one that is merely truthful.
+// Drop cliActor() and the actor assertion fails.
 
 // aclAuditRows returns (actor, surface, params_summary) of every audit_log row
 // for action in dir/routd.db, oldest first.
@@ -71,11 +80,7 @@ func installGrantPkg(t *testing.T, osUser string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	has := hasTable(rdb, "acl")
 	rdb.Close()
-	if !has {
-		t.Skip("routd.Open db has no acl table")
-	}
 	src := filepath.Join(base, "grantpkg")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
@@ -84,60 +89,89 @@ func installGrantPkg(t *testing.T, osUser string) string {
 		[]byte("services:\n  grantpkg:\n    image: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "grantpkg-grants.json"),
-		[]byte(`[{"principal":"@ops","action":"reply","scope":"eng/*"},`+
-			`{"principal":"@ops","action":"admin","scope":"eng/tts"}]`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "grantpkg.yaml"), []byte(
+		"acl:\n"+
+			"  - principal: '@ops'\n    action: reply\n    scope: eng/*\n    effect: allow\n"+
+			"  - principal: '@ops'\n    action: admin\n    scope: eng/tts\n    effect: allow\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cmdPackages([]string{"gaudit", "install", src})
 	return storeDir
 }
 
-// One row per grant, not one for the bundle: an operator auditing the install
-// must see WHICH authority it handed out, on which scope.
-func TestPackageGrantsAuditedPerRow(t *testing.T) {
+// One row for the apply, and it names every grant it handed out. A count alone
+// would hide that the install gave @ops admin on eng/tts.
+func TestPackageGrantsAuditedInOneApplyRow(t *testing.T) {
 	dir := installGrantPkg(t, "alice")
 
-	rows := aclAuditRows(t, dir, "acl.add")
-	if len(rows) != 2 {
-		t.Fatalf("acl.add rows = %d, want 2 (one per grant, not one per bundle)", len(rows))
+	rows := aclAuditRows(t, dir, "config.apply")
+	if len(rows) != 1 {
+		t.Fatalf("config.apply rows = %d, want 1 (packages install goes through apply)", len(rows))
 	}
-	for i, r := range rows {
-		if r[0] != "cli:alice" || r[1] != "cli" {
-			t.Errorf("row %d actor/surface = (%q, %q), want (cli:alice, cli)", i, r[0], r[1])
+	if rows[0][0] != "cli:alice" || rows[0][1] != "cli" {
+		t.Errorf("actor/surface = (%q, %q), want (cli:alice, cli)", rows[0][0], rows[0][1])
+	}
+	for _, want := range []string{"@ops|reply|eng/*", "@ops|admin|eng/tts"} {
+		if !strings.Contains(rows[0][2], want) {
+			t.Errorf("params_summary does not name %s: %q", want, rows[0][2])
 		}
-	}
-	if !strings.Contains(rows[0][2], `"scope":"eng/*"`) ||
-		!strings.Contains(rows[1][2], `"scope":"eng/tts"`) {
-		t.Errorf("rows do not name the individual scopes: %q, %q", rows[0][2], rows[1][2])
 	}
 }
 
-// The rows must also say the grants came from a package rather than from an
+// The row must also say the grants came from a package rather than from an
 // operator typing `arizuko grant` — the actor is the same person either way.
 func TestPackageGrantsAuditNamesPackage(t *testing.T) {
 	dir := installGrantPkg(t, "alice")
 
-	for i, r := range aclAuditRows(t, dir, "acl.add") {
-		if !strings.Contains(r[2], `"granted_by":"package:grantpkg"`) {
-			t.Errorf("row %d params_summary = %q, want granted_by package:grantpkg", i, r[2])
+	rows := aclAuditRows(t, dir, "config.apply")
+	if len(rows) != 1 {
+		t.Fatalf("config.apply rows = %d, want 1", len(rows))
+	}
+	if !strings.Contains(rows[0][2], `"package":"grantpkg"`) {
+		t.Errorf("params_summary = %q, want the package name", rows[0][2])
+	}
+	// The provenance also survives in the table the grants landed in, which is
+	// what an operator reading `acl` sees without joining audit_log.
+	rows2, err := store.New(mustSQL(t, dir)).ListACL("@ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows2) != 2 {
+		t.Fatalf("acl rows for @ops = %d, want 2", len(rows2))
+	}
+	for _, r := range rows2 {
+		if r.GrantedBy != "package:grantpkg" {
+			t.Errorf("acl row %+v granted_by = %q, want package:grantpkg", r, r.GrantedBy)
 		}
 	}
 }
 
-// Remove already used the audited RemoveACLRow; it must now name the operator
-// too, so install and remove are one symmetric trail.
+// mustSQL opens dir's routd.db for a read-only assertion.
+func mustSQL(t *testing.T, dir string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", store.OwnerDBPath(dir, store.OwnerRoutd))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+// Withdrawal records too, through the same engine: a second config.apply row
+// naming the package. A trail that shows authority landing and never leaving
+// reads as "still granted" for a grant that is gone.
 func TestPackageGrantsRemovalAudited(t *testing.T) {
 	dir := installGrantPkg(t, "alice")
 	cmdPackages([]string{"gaudit", "remove", "grantpkg"})
 
-	rows := aclAuditRows(t, dir, "acl.remove")
+	rows := aclAuditRows(t, dir, "config.apply")
 	if len(rows) != 2 {
-		t.Fatalf("acl.remove rows = %d, want 2", len(rows))
+		t.Fatalf("config.apply rows = %d, want 2 (install + remove)", len(rows))
 	}
-	for i, r := range rows {
-		if r[0] != "cli:alice" || r[1] != "cli" {
-			t.Errorf("row %d actor/surface = (%q, %q), want (cli:alice, cli)", i, r[0], r[1])
-		}
+	if rows[1][0] != "cli:alice" || rows[1][1] != "cli" {
+		t.Errorf("removal actor/surface = (%q, %q), want (cli:alice, cli)", rows[1][0], rows[1][1])
+	}
+	if !strings.Contains(rows[1][2], `"removed"`) || !strings.Contains(rows[1][2], `"package":"grantpkg"`) {
+		t.Errorf("removal params_summary = %q, want the package and what it withdrew", rows[1][2])
 	}
 }

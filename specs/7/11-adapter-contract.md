@@ -135,7 +135,7 @@ Per [`7/1`](1-cockpit-index.md): proxyd `auth: "user"` transit +
 daemon-side `auth.ProxydTransit` verify of the `service:proxyd` bearer
 (then trust the stamped `X-User-*`) + `auth/dashauth.go` operator
 gate, CSRF on writes. Each adapter ships its own `/dash/<adapter>/`
-entry in `template/services/<adapter>-routes.json`, beside its `.yml`
+entry in `template/services/<adapter>.yaml`, beside its `.yml`
 compose fragment (root `CLAUDE.md` "Adding a channel adapter").
 
 Two callers, one function: the existing `/v1` verb routes keep

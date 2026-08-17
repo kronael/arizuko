@@ -131,7 +131,7 @@ func TestRetarget_AppliesUnderTheNewFolder(t *testing.T) {
 		t.Fatalf("the retargeted manifest declares its own group, so the preflight must pass: %v", bad)
 	}
 	// force: a retargeted manifest's checksum can never match, by construction.
-	if _, err := applyDocs(context.Background(), stores, docs, true, "test", ""); err != nil {
+	if _, err := applyDocs(context.Background(), stores, docs, true, "test", "", nil); err != nil {
 		t.Fatalf("applyDocs: %v", err)
 	}
 

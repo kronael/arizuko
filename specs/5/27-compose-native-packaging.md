@@ -15,8 +15,14 @@ per-adapter Go builder function, and a YAML emitter for something Docker's
 own YAML loader already does. Every new adapter cost Go code. Now a channel
 adapter ships `template/services/<name>.yml` — a valid partial compose
 service that Docker `include`s verbatim — plus an optional
-`<name>-routes.json` ([`7-proxyd-standalone.md`](7-proxyd-standalone.md)).
+`<name>.yaml`, its `5/8` config manifest
+([`7-proxyd-standalone.md`](7-proxyd-standalone.md),
+[`8-yaml-manifests.md`](8-yaml-manifests.md)).
 **Adding an adapter touches no Go.**
+
+Two files, not one, and the split is by OWNER of the format: `.yml` answers
+to docker's schema and `.yaml` to arizuko's. A single file that knew about
+both would couple the two schemas for the convenience of one `os.ReadFile`.
 
 ## Opt-in by omission
 

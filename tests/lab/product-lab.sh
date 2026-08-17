@@ -187,9 +187,11 @@ if command -v go >/dev/null && [ -d "$REPO/anteval" ]; then
 fi
 
 say "the OTHER half: a package (instance-wide), not a product (one group)"
-# A product seeds one group's files. A package installs instance-wide assets —
-# a compose fragment, a proxyd route, an acl grant — and its record keys on
-# folder '' to say so.
+# A product seeds one group's files. A package installs instance-wide assets and
+# its record keys on folder '' to say so. It ships exactly two files, split by
+# who owns the format: helpbot.yml is docker's compose fragment, helpbot.yaml is
+# arizuko's 5/8 manifest — the same document `arizuko apply` takes, so a package
+# can declare anything the manifest carries (BUGS L44).
 PKG="$WORK/pkgs/helpbot"; mkdir -p "$PKG"
 cat > "$PKG/helpbot.yml" <<'YML'
 services:
@@ -199,10 +201,21 @@ services:
     environment:
       LISTEN_ADDR: ":8080"
 YML
-printf '[{"path":"/helpbot/","backend":"http://helpbot:8080","auth":"user","strip_prefix":true}]\n' \
-  > "$PKG/helpbot-routes.json"
-printf '[{"principal":"folder:main","action":"mcp:send","scope":"main","effect":"allow"}]\n' \
-  > "$PKG/helpbot-grants.json"
+cat > "$PKG/helpbot.yaml" <<'YAML'
+proxyd_routes:
+  - path: /helpbot/
+    backend: http://helpbot:8080
+    auth: user
+    strip_prefix: true
+acl:
+  - principal: folder:main
+    action: mcp:send
+    scope: main
+    effect: allow
+network_rules:
+  - folder: main
+    target: helpbot.example.com
+YAML
 # The summary names every grant: files and routes are inert until `generate`,
 # a grant is live the moment it lands, so it is named and not counted (BUGS L36).
 inst=$("$BIN" packages "$INST" install "$PKG" 2>/dev/null)
@@ -217,6 +230,10 @@ q() { sqlite3 "$DB" "$1"; }
   && ok "grant applied, attributed to package:helpbot" || bad "grant missing"
 [ "$(q "select count(*) from proxyd_routes where path='/helpbot/';")" = 1 ] \
   && ok "proxyd route row written" || bad "route missing"
+# The row kind the old *-grants.json / *-routes.json pair could not express at
+# all: the manifest carries it, so the package can ship it (BUGS L44).
+[ "$(q "select count(*) from network_rules where folder='main' and target='helpbot.example.com';")" = 1 ] \
+  && ok "egress rule installed — a kind the JSON sidecars could not declare" || bad "network rule missing"
 [ "$(q "select folder from installed_packages where name='helpbot';")" = "" ] \
   && ok "record folder is '' — instance-wide, not a group" || bad "record folder wrong"
 
@@ -226,6 +243,8 @@ say "remove reverses exactly what the record names"
   && ok "grant revoked" || bad "grant survived remove"
 [ "$(q "select count(*) from proxyd_routes where path='/helpbot/';")" = 0 ] \
   && ok "route deleted" || bad "route survived remove"
+[ "$(q "select count(*) from network_rules where target='helpbot.example.com';")" = 0 ] \
+  && ok "egress rule withdrawn" || bad "network rule survived remove"
 [ "$(q "select count(*) from installed_packages where name='helpbot';")" = 0 ] \
   && ok "record dropped" || bad "record survived remove"
 [ -z "$(ls "$DATA/services" 2>/dev/null | grep helpbot || true)" ] \

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
@@ -85,7 +85,8 @@ func TestPackagesInstallRemove(t *testing.T) {
 		[]byte("services:\n  teledpkg:\n    image: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "teledpkg-routes.json"), []byte("[]"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "teledpkg.yaml"),
+		[]byte("proxyd_routes:\n  - path: /tp/\n    backend: http://teledpkg:8080\n    auth: public\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -411,10 +412,9 @@ func TestPackagesInstallGit(t *testing.T) {
 }
 
 // TestPackagesInstallRoutesHotApply is P2 (spec 5/28, fixes 5/27 C2): install
-// writes a package's route straight into the live proxyd_routes table and
-// records the path; remove deletes it. Skips if a fresh routd.Open db lacks the
-// (daemon-migrated) proxyd_routes table — the mechanism is covered by
-// store.TestPutDeleteProxydRoute.
+// writes a package manifest's route straight into the live proxyd_routes table
+// and records its PK; remove deletes it. proxyd reads that table per request, so
+// the route is live without a restart.
 func TestPackagesInstallRoutesHotApply(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
@@ -430,19 +430,9 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 		[]byte("services:\n  routepkg:\n    image: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "routepkg-routes.json"),
-		[]byte(`[{"path":"/rp/","backend":"http://routepkg:8080","auth":"public"}]`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "routepkg.yaml"),
+		[]byte("proxyd_routes:\n  - path: /rp/\n    backend: http://routepkg:8080\n    auth: public\n"), 0o644); err != nil {
 		t.Fatal(err)
-	}
-
-	rdb0, err := routd.Create(filepath.Join(dataDir, "store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	has := hasTable(rdb0, "proxyd_routes")
-	rdb0.Close()
-	if !has {
-		t.Skip("routd.Open db has no proxyd_routes; P2 mechanism covered by store.TestPutDeleteProxydRoute")
 	}
 
 	cmdPackages([]string{"r", "install", src})
@@ -456,7 +446,7 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 		t.Fatal("route not hot-applied to proxyd_routes")
 	}
 	rec, _, _ := rdb.InstalledPackage(routd.InstanceWide, "routepkg")
-	if len(rec.Manifest["proxyd_route"]) != 1 || rec.Manifest["proxyd_route"][0] != "/rp/" {
+	if len(rec.Manifest["proxyd_routes"]) != 1 || rec.Manifest["proxyd_routes"][0] != "/rp/|" {
 		rdb.Close()
 		t.Fatalf("route path not recorded: %+v", rec)
 	}
@@ -489,22 +479,13 @@ func routePresent(t *testing.T, rdb *routd.DB, path string) bool {
 }
 
 // TestPackagesInstallGrants: the acl asset kind (spec 5/28) — install applies a
-// package's *-grants.json into acl and records them; remove reverses exactly.
+// package manifest's acl block and records the rows; remove reverses exactly.
 func TestPackagesInstallGrants(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_gr")
 	if err := db_utils.CreateDBFile(store.OwnerDBPath(filepath.Join(dataDir, "store"), store.OwnerRoutd)); err != nil {
 		t.Fatal(err)
-	}
-	rdb0, err := routd.Create(filepath.Join(dataDir, "store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	has := hasTable(rdb0, "acl")
-	rdb0.Close()
-	if !has {
-		t.Skip("routd.Open db has no acl table")
 	}
 	src := filepath.Join(base, "grantpkg")
 	if err := os.MkdirAll(src, 0o755); err != nil {
@@ -514,8 +495,8 @@ func TestPackagesInstallGrants(t *testing.T) {
 		[]byte("services:\n  grantpkg:\n    image: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "grantpkg-grants.json"),
-		[]byte(`[{"principal":"@ops","action":"reply","scope":"eng/*"}]`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "grantpkg.yaml"),
+		[]byte("acl:\n  - principal: '@ops'\n    action: reply\n    scope: eng/*\n    effect: allow\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -540,7 +521,7 @@ func TestPackagesInstallGrants(t *testing.T) {
 	if !found {
 		t.Fatal("grant not applied to acl")
 	}
-	if len(rec.Manifest["grant"]) != 1 {
+	if len(rec.Manifest["acl"]) != 1 {
 		t.Fatalf("grant not recorded: %+v", rec)
 	}
 
@@ -611,7 +592,7 @@ func TestPackagesInstallSkills(t *testing.T) {
 // BUGS F59). A user: principal keeps its predicate — the HTTP gates do populate
 // claims.
 func TestCheckGrantPredicate(t *testing.T) {
-	inert := core.ACLRow{Principal: "folder:acme/ops", Action: "mcp:send",
+	inert := resources.ACLRow{Principal: "folder:acme/ops", Action: "mcp:send",
 		Scope: "acme/ops", Effect: "allow", Predicate: "onbehalf=google:42"}
 	err := checkGrantPredicate(inert)
 	if err == nil {
@@ -622,7 +603,7 @@ func TestCheckGrantPredicate(t *testing.T) {
 			t.Errorf("error must name %q; got %v", want, err)
 		}
 	}
-	for _, ok := range []core.ACLRow{
+	for _, ok := range []resources.ACLRow{
 		{Principal: "google:42", Action: "admin", Predicate: "onbehalf=google:7"},
 		{Principal: "folder:acme/ops", Action: "mcp:send"},
 	} {

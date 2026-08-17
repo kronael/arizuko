@@ -77,7 +77,7 @@ endpoints as "to add" when they ship; `8` listed routd's `/v1/tasks`
 CRUD as "to add" when `mountTasks` serves it; and `1`, `5`, `9`, `10`
 and `11` registered dashboards via `[[proxyd_route]]` in a
 `template/services/<daemon>.toml`, a packaging format that no longer
-exists — registration is a `services/<name>-routes.json` array or
+exists — registration is a `services/<name>.yaml` manifest or
 `coreProxydRoutes`.
 
 This phase superseded the former `11/18-daemon-dashboards.md`, deleted

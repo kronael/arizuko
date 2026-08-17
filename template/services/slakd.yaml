@@ -1,0 +1,8 @@
+proxyd_routes:
+  - path: /slack/
+    backend: http://slakd:8080
+    auth: public
+    gated_by: SLACK_BOT_TOKEN
+    preserve_headers:
+      - X-Slack-Signature
+      - X-Slack-Request-Timestamp

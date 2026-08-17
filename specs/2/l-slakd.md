@@ -7,7 +7,7 @@ status: shipped
 Bot-token, single-workspace. Same shape as `discd` / `teled`: registers
 with routd via `chanlib.RouterClient`, exposes `/send`, `/like`,
 `/delete`, `/upload`, `/health`. Ships as
-`template/services/slakd.yml` + `slakd-routes.json`.
+`template/services/slakd.yml` + `slakd.yaml`.
 
 ## Decisions worth keeping
 

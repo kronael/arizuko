@@ -36,7 +36,8 @@ is derived from the feature flags (`WEB_PORT`, `WEBDAV_ENABLED`,
 ## Packages
 
 A package is `services/<name>.yml` (a partial compose file defining one
-service) plus an optional `services/<name>-routes.json`. Fragment paths
+service) plus an optional `services/<name>.yaml` (its 5/8 manifest, whose
+`proxyd_routes` block this package reads). Fragment paths
 resolve against `services/`, so a fragment reads `../env/<name>.env`.
 
 `services/<name>.yml` is a SYMLINK at the bundled catalog
@@ -71,7 +72,9 @@ for `arizuko generate` to write into `proxyd_routes`.
 
 - `Generate(dataDir string) (string, []ProxydRoute, error)` — the compose
   YAML plus the proxyd route table the same run decided on
-- `ProxydRoute` — one entry of a `<name>-routes.json`
+- `ProxydRoute` — one route of a `<name>.yaml` manifest
+- `ManifestRoutes(path) ([]ProxydRoute, error)` — the `proxyd_routes` block of
+  one 5/8 manifest fragment, parsed by `resreg.ParseYAML`
 - `HostCatalogDir(dataDir) (string, bool)` — the host-resolvable catalog
   dir from `.env`'s `HOST_APP_DIR`, for use as a symlink target
 - `RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir)

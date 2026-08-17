@@ -58,8 +58,7 @@ arizuko packages &lt;instance&gt; list</code></pre>
         <thead><tr><th>Kind</th><th>File</th><th>Applied to</th></tr></thead>
         <tbody>
           <tr><td>compose fragment</td><td><code>&lt;name&gt;.yml</code></td><td><code>services/</code>, up on <code>generate</code></td></tr>
-          <tr><td>proxyd route</td><td><code>&lt;name&gt;-routes.json</code></td><td>live <code>proxyd_routes</code> table — <strong>no restart</strong></td></tr>
-          <tr><td>grant</td><td><code>&lt;name&gt;-grants.json</code></td><td>the <code>acl</code> table</td></tr>
+          <tr><td>config manifest</td><td><code>&lt;name&gt;.yaml</code></td><td>the rows it names — <code>proxyd_routes</code>, <code>acl</code>, <code>scheduled_tasks</code>, <code>network_rules</code>, <code>web_routes</code> — applied live in one transaction, <strong>no restart</strong></td></tr>
           <tr><td>skills</td><td><code>skills/&lt;name&gt;/</code></td><td>layered into every group like stock skills</td></tr>
         </tbody>
       </table>
@@ -70,12 +69,16 @@ arizuko packages &lt;instance&gt; list</code></pre>
         resolved revision + owned identities + a per-asset content hash).</li>
         <li><code>upgrade</code> compares the current content hash against the record;
         a <strong>locally edited (dirty) asset is refused</strong>, not overwritten.</li>
+        <li>An install is <strong>whole or nothing</strong>: the manifest is validated
+        before the first write and its rows land in one transaction with pre-image
+        rollback, so a package whose third grant is bad leaves the first two unwritten.</li>
         <li><code>remove</code> deletes exactly the identities the record owns —
-        routes are withdrawn before the fragment is dropped.</li>
+        rows are withdrawn before the fragment is dropped, and a route or grant you
+        added yourself at another key is untouched.</li>
         <li><code>upgrade</code> and <code>sync</code> run the same updater, so
         the refuse-a-dirty-asset rule is identical by construction. They rewrite
-        only the fragment half of the record; the routes, grants and skills it
-        owns stay recorded, so <code>remove</code> can still find them.</li>
+        only the file half of the record; the rows and skills it owns stay
+        recorded, so <code>remove</code> can still find them.</li>
       </ul>
 
       <h2 id="blending-several-products-into-one-group">Blending several products into one group</h2>

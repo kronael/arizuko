@@ -14,24 +14,24 @@ extension points. See
 
 ## Extension points
 
-| Point         | Location                               | Extensible by  | Mechanism                                     |
-| ------------- | -------------------------------------- | -------------- | --------------------------------------------- |
-| Channels      | external containers                    | Developer      | HTTP protocol (latest: `slakd/`)              |
-| Proxyd routes | `template/services/<name>-routes.json` | Daemon author  | JSON route array, no Go edits                 |
-| Slink         | `webd/slink*.go`                       | External agent | Chat UI + MCP transport at `/slink/<token>`   |
-| Slink SDK     | `webd/assets/arizuko-client.js`        | Page author    | Embedded JS served at `/assets/`              |
-| Actions       | MCP tools                              | Agent/Plugin   | Registry + MCP                                |
-| Autocalls     | `routd/prompt.go`                      | Router dev     | Registry slice                                |
-| Routing rules | `router/`                              | Agent          | MCP tools; `target=<folder>[#mode]` fragment  |
-| Mounts        | `container/`                           | Agent          | Container config                              |
-| Skills        | `ant/skills/`                          | Agent          | File-based                                    |
-| Tasks         | `timed/`                               | Agent          | IPC actions                                   |
-| Diary         | `diary/`                               | Agent          | File-based                                    |
-| Network rules | `store/network.go`                     | Operator       | CLI + DB rows                                 |
-| Web routes    | `store/web_routes.go`                  | Agent          | MCP tools (`set_web_route` / `del_web_route`) |
-| Public pages  | `template/web/pub/`                    | Operator       | Plain HTML, copied into `<data-dir>/web/pub/` |
-| Output styles | `ant/output-styles/`                   | Channel author | `<channel>-<surface>.md`; picked per-session  |
-| Agent harness | the ant protocol (MCP socket)          | Developer      | Replace ant with a process that speaks it     |
+| Point         | Location                        | Extensible by  | Mechanism                                          |
+| ------------- | ------------------------------- | -------------- | -------------------------------------------------- |
+| Channels      | external containers             | Developer      | HTTP protocol (latest: `slakd/`)                   |
+| Proxyd routes | `template/services/<name>.yaml` | Daemon author  | `proxyd_routes` block of the manifest, no Go edits |
+| Slink         | `webd/slink*.go`                | External agent | Chat UI + MCP transport at `/slink/<token>`        |
+| Slink SDK     | `webd/assets/arizuko-client.js` | Page author    | Embedded JS served at `/assets/`                   |
+| Actions       | MCP tools                       | Agent/Plugin   | Registry + MCP                                     |
+| Autocalls     | `routd/prompt.go`               | Router dev     | Registry slice                                     |
+| Routing rules | `router/`                       | Agent          | MCP tools; `target=<folder>[#mode]` fragment       |
+| Mounts        | `container/`                    | Agent          | Container config                                   |
+| Skills        | `ant/skills/`                   | Agent          | File-based                                         |
+| Tasks         | `timed/`                        | Agent          | IPC actions                                        |
+| Diary         | `diary/`                        | Agent          | File-based                                         |
+| Network rules | `store/network.go`              | Operator       | CLI + DB rows                                      |
+| Web routes    | `store/web_routes.go`           | Agent          | MCP tools (`set_web_route` / `del_web_route`)      |
+| Public pages  | `template/web/pub/`             | Operator       | Plain HTML, copied into `<data-dir>/web/pub/`      |
+| Output styles | `ant/output-styles/`            | Channel author | `<channel>-<surface>.md`; picked per-session       |
+| Agent harness | the ant protocol (MCP socket)   | Developer      | Replace ant with a process that speaks it          |
 
 ## Adding an output-style file
 
@@ -170,18 +170,42 @@ routing.
 ## Installing packages
 
 `arizuko packages <instance> install | upgrade | remove` manages packages
-(spec `5/28`). A package is a git source or local dir shipping any subset of
-asset kinds:
+(spec `5/28`). A package is a git source or local dir shipping **two file
+kinds**, split by who owns the format:
 
-- **compose fragment** — `<name>.yml` (+ `<name>-routes.json`) → copied to
-  `services/`, brought up on `arizuko generate`.
-- **proxyd route** — `<name>-routes.json` → hot-applied to the live
-  `proxyd_routes` table; proxyd reads it per request, so it takes effect with
-  **no restart**.
-- **grant** — `<name>-grants.json` (array of `{principal, action, scope}`) →
-  applied to `acl`.
+- **compose fragment** — `<name>.yml`, docker's format, included verbatim →
+  copied to `services/`, brought up on `arizuko generate`.
+- **manifest** — `<name>.yaml`, arizuko's `5/8` config manifest → applied
+  through the same engine as `arizuko apply`: one transaction per owner DB
+  with pre-image rollback, so a package installs whole or not at all. Every
+  resource `apply` writes is available to a package — `proxyd_routes`, `acl`,
+  `scheduled_tasks`, `network_rules`, `web_routes`, `routes`, `groups`. Rows
+  land live (proxyd reads `proxyd_routes` per request, so a route takes effect
+  with **no restart**); the compose fragment waits for `generate`.
 - **skills** — `skills/<name>/` → copied to `<datadir>/skills/`, layered into
   every group by `seedSkills` at spawn.
+
+```yaml
+# helpbot.yaml — a package manifest
+proxyd_routes:
+  - path: /helpbot/
+    backend: http://helpbot:8080
+    auth: user
+acl:
+  - principal: folder:main
+    action: mcp:send
+    scope: main
+    effect: allow
+network_rules:
+  - folder: main
+    target: helpbot.example.com
+```
+
+`installed_packages` records the PK of every row the package owns, so `remove`
+withdraws exactly those and leaves an operator's own rows at other keys alone.
+Resources `apply` never rebuilds (`secrets`, `route_tokens`, `invites`,
+`onboarding`, `installed_packages`) are refused at install rather than accepted
+as a silent no-op.
 
 ```bash
 arizuko packages krons install github.com/org/pkg   # or a local dir
@@ -257,8 +281,8 @@ via-`reactions.add`). Steps:
    for platform I/O, and a JID parser/formatter.
 2. Add `template/services/<name>d.yml` — a partial compose file
    defining one service. If you need inbound webhooks via proxyd, add
-   `template/services/<name>d-routes.json` (see below) — no
-   `compose.go` edits.
+   `template/services/<name>d.yaml` with a `proxyd_routes` block (see
+   below) — no `compose.go` edits.
 3. Implement only the verbs the platform supports natively; return
    `chanlib.Unsupported(tool, platform, hint)` for the rest.
 4. Spec under `specs/2/<letter>-<name>.md`; per-platform native
@@ -295,23 +319,20 @@ Probing cannot establish that, because proxyd answers every path from a
 
 ## Adding a proxyd route
 
-`proxyd`'s route table is built from each package's
-`services/<name>-routes.json`, collected at compose-generate time, plus
-a static core-route slice in `compose/compose.go` (`coreProxydRoutes`,
-for dashd/webd/davd/onbod). Routes cannot live in the compose fragment
-— they are assembled into ONE env var on proxyd. Adding a new inbound
-web path = one JSON file, no Go edits:
+`proxyd`'s route table is built from the `proxyd_routes` block of each
+package's `services/<name>.yaml`, read at compose-generate time, plus a
+static core-route slice in `compose/compose.go` (`coreProxydRoutes`, for
+dashd/webd/davd/onbod). Routes cannot live in the compose fragment —
+proxyd, not docker, is their consumer. Adding a new inbound web path =
+one manifest block, no Go edits:
 
-```json
-[
-  {
-    "path": "/<prefix>/",
-    "backend": "http://<name>d:8080",
-    "auth": "public",
-    "gated_by": "<ENV_VAR>",
-    "preserve_headers": ["X-Webhook-Sig"]
-  }
-]
+```yaml
+proxyd_routes:
+  - path: /<prefix>/
+    backend: http://<name>d:8080
+    auth: public
+    gated_by: <ENV_VAR>
+    preserve_headers: [X-Webhook-Sig]
 ```
 
 `path` with a trailing `/` matches longest-prefix; `auth` is
@@ -320,8 +341,14 @@ env var is unset; `preserve_headers` passes listed headers verbatim.
 `compose.go` evaluates `gated_by` against the operator's `.env` and drops
 disabled routes; `arizuko generate` writes the survivors into
 `proxyd_routes` as arizuko-owned rows, so a route added to a later release
-reaches an existing instance. Reference: `specs/5/7-proxyd-standalone.md`,
-`template/services/slakd-routes.json`.
+reaches an existing instance.
+
+That file is the SAME manifest `arizuko packages install` applies — one
+declaration with two readers, because generate needs the routes before any
+daemon or DB exists. It is never a second format (BUGS `L44`), and both
+readers parse it with `resreg.ParseYAML`, so a typo is rejected identically
+by each. Reference: `specs/5/7-proxyd-standalone.md`,
+`template/services/slakd.yaml`.
 
 ## Adding an MCP connector
 

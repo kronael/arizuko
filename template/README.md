@@ -15,7 +15,8 @@ scaffold that `vited` serves in dev.
 - `services/*.yml` — bundled adapter packages (partial compose files):
   `teled`, `discd`, `slakd`, `bskyd`, `reditd`, `emaid`,
   `whapd`, `twitd`, `linkd`, `ttsd`, `kokoro`. A package with inbound
-  web paths ships `<name>-routes.json` beside it (see `slakd`)
+  web paths ships `<name>.yaml` beside it — its 5/8 manifest, carrying a
+  `proxyd_routes` block (see `slakd`)
 - `web/` — Vite project (`pub/`, `priv/`, `secret/` path regions,
   `vite.config.ts`, `package.json`)
 

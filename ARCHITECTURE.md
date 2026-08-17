@@ -182,7 +182,7 @@ Routes are declared in two source-of-truth places and merged into the
 serialized table proxyd loads at startup:
 
 ```
-services/<adapter>-routes.json ────────────────────┐
+services/<adapter>.yaml (proxyd_routes block) ─────┐
                                                    ├─► compose.collectProxydRoutes
 compose.coreProxydRoutes (dashd/webd/davd/onbod) ──┘             │
                                                                   ▼
@@ -206,8 +206,8 @@ Hand-wired in `proxyd/main.go` outside this table: `/auth/*`, `/health`,
 ordinary route — the 301→`/chat/<token>/` redirect is issued by webd,
 `handleSlinkRedirect`), `/chat/*` and `/hook/*` (route-token bearer),
 `/dav/*` (`davAllow` + group-scope). All other routes flow
-through the JSON route declaration → JSON env → dispatcher path. Adding
-an adapter means dropping a `<name>-routes.json` file (via `arizuko
+through the manifest declaration → `proxyd_routes` rows → dispatcher path.
+Adding an adapter means dropping a `<name>.yaml` manifest (via `arizuko
 packages add`); no proxyd or compose.go edits.
 
 ## Auth Hardening
@@ -735,7 +735,7 @@ offline verification by the rest.
 
 Bundled catalog at `template/services/` (ships in image, Ansible extracts to
 `/srv/app/arizuko/template/services/`): `teled.yml`, `whapd.yml`, `discd.yml`,
-`slakd.yml` (+ `slakd-routes.json`), `bskyd.yml`, `reditd.yml`,
+`slakd.yml` (+ `slakd.yaml`), `bskyd.yml`, `reditd.yml`,
 `linkd.yml`, `emaid.yml`, `twitd.yml`, `ttsd.yml`, `kokoro.yml`.
 
 Fragment format — a plain partial compose file:
@@ -755,9 +755,10 @@ services:
 
 Container naming: `<app>_<service>_<flavor>` (e.g. `arizuko_teled_krons`).
 `arizuko packages <instance> add <name>` copies a fragment (plus its
-`<name>-routes.json`, if any) into `/srv/data/arizuko_<flavor>/services/`;
-Ansible via `arizuko_instances[].extra_services`. `.yml` is the only
-package format; a fragment is a partial compose file docker `include`s.
+`<name>.yaml` manifest, if any) into `/srv/data/arizuko_<flavor>/services/`;
+Ansible via `arizuko_instances[].extra_services`. A package ships exactly two
+file kinds: `.yml`, a partial compose file docker `include`s, and `.yaml`, the
+`5/8` manifest whose rows `arizuko apply` installs.
 
 All Go daemons listen on :8080 internally except ttsd at :8880 —
 historical default that predates the invariant.

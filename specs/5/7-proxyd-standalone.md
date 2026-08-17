@@ -48,23 +48,29 @@ surface for agents that manage routes.
 
 ## Per-daemon route declarations
 
-Routes live beside each adapter's compose fragment as
-`template/services/<name>-routes.json`; the compose generator collects
-them, evaluates `gated_by` against the operator's `.env` and drops disabled
-routes; `Generate` returns the survivors and `arizuko generate` writes them
-into `proxyd_routes` (`compose/compose.go` `collectProxydRoutes`,
+Routes live beside each adapter's compose fragment, in the `proxyd_routes`
+block of `template/services/<name>.yaml` — the adapter's `5/8` config
+manifest. The compose generator reads them, evaluates `gated_by` against the
+operator's `.env` and drops disabled routes; `Generate` returns the survivors
+and `arizuko generate` writes them into `proxyd_routes`
+(`compose/compose.go` `collectProxydRoutes` → `ManifestRoutes`,
 `cmd/arizuko/routes.go` `syncProxydRoutes`).
 
 **One renderer, many sinks**: each daemon owns its routing entry next to
 its package, and proxyd's table is derived, never hand-edited. Routes stay
 out of the compose fragment itself because proxyd, not docker, is their
 consumer — one assembled table, not per-service YAML
-([`27-compose-native-packaging.md`](27-compose-native-packaging.md)). v1
-ships a plain JSON array; the `{"routes":[…]}` envelope was dropped during
-implementation as redundant.
+([`27-compose-native-packaging.md`](27-compose-native-packaging.md)).
 
-Shape: `template/services/slakd-routes.json` (the only shipped example).
-Parser: `proxyd/routes.go`.
+**One declaration, two readers.** The same file is what `arizuko packages
+install` applies through `resreg.Apply`. Generate needs the routes before any
+daemon or DB exists, which justifies a second READER; it never justified the
+second FORMAT the retired `<name>-routes.json` was (BUGS `L44`). Both readers
+call `resreg.ParseYAML`, so a misspelled field is refused identically by each.
+
+Shape: `template/services/slakd.yaml` (the only shipped example).
+Parser: `resreg.ParseYAML` → `resources.ProxydRoutesRow`; proxyd's own
+in-memory `Route` shape is `proxyd/routes.go`.
 
 ### Field semantics
 
@@ -157,6 +163,6 @@ list and is deferred with the auth spec's revocation work.
 - `proxyd/main.go` — entry, route dispatch, identity stamping.
 - `proxyd/routes.go` — the in-memory `Route` shape + longest-prefix match.
 - `proxyd/resource.go` — the `proxyd_routes` resreg resource.
-- `compose/compose.go` — collects `*-routes.json`, returns the route table.
+- `compose/compose.go` — reads each `<name>.yaml`, returns the route table.
 - `store/proxyd_routes.go` — `SyncProxydRoutes`, the generate-time writer.
 - `auth/` — mint + verify primitives proxyd consumes.

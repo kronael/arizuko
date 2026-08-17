@@ -419,6 +419,104 @@ func (r *Resource) Retarget(rows any, newFolder string) (any, error) {
 	return out.Interface(), nil
 }
 
+// rowSlice coerces rows to a reflect.Value of `[]RowType`. A nil `rows`
+// becomes an empty slice, so a caller holding "the resource this manifest
+// never mentioned" needs no special case.
+func (r *Resource) rowSlice(rows any) (reflect.Value, error) {
+	if r.meta == nil {
+		return reflect.Value{}, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
+	}
+	if rows == nil {
+		return reflect.MakeSlice(reflect.SliceOf(r.meta.rowType), 0, 0), nil
+	}
+	rv := reflect.ValueOf(rows)
+	if rv.Kind() != reflect.Slice || rv.Type().Elem() != r.meta.rowType {
+		return reflect.Value{}, fmt.Errorf("resreg: %s wants a []%s, got %T", r.Name, r.meta.rowType, rows)
+	}
+	return rv, nil
+}
+
+// Scopes returns the distinct scope values across rows (a `[]RowType`), or nil
+// when the resource declares no ScopeSpec. It is the exported half of
+// manifestScopes, and a caller that REMOVES rows needs it.
+//
+// A scoped resource derives the folders it DELETEs from the rows the document
+// still mentions, so dropping the last row in a folder makes that folder vanish
+// from the document — and apply then deletes nothing there. `packages remove`
+// hit exactly that: a package's egress rule was the only `network_rules` row in
+// its folder, so remove reported success and left the rule live. Feed these
+// into `ApplyOpts.PruneScopes` alongside the reduced rows.
+func (r *Resource) Scopes(rows any) []string { return r.manifestScopes(rows) }
+
+// PKs returns the primary-key string of every row in rows (a `[]RowType`), in
+// slice order. This is the identity `arizuko packages install` records, so a
+// later `remove` names exactly the rows the install added and nothing else.
+func (r *Resource) PKs(rows any) ([]string, error) {
+	rv, err := r.rowSlice(rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, rv.Len())
+	for i := range rv.Len() {
+		out = append(out, r.pkKey(rv.Index(i)))
+	}
+	return out, nil
+}
+
+// MergeRows returns base (a `[]RowType`) with overlay's rows added, overlay
+// winning on a PK collision.
+//
+// Apply rebuilds a resource from the document it is handed, so a caller that
+// holds a FRAGMENT — a package's two routes, not the instance's whole route
+// table — merges it onto the live projection here and hands Apply the complete
+// document. That keeps ONE apply path with its transaction and pre-image
+// rollback, instead of a partial-document mode in the engine or a second
+// hot-apply writer beside it (BUGS L44).
+func (r *Resource) MergeRows(base, overlay any) (any, error) {
+	bv, err := r.rowSlice(base)
+	if err != nil {
+		return nil, err
+	}
+	ov, err := r.rowSlice(overlay)
+	if err != nil {
+		return nil, err
+	}
+	replaced := map[string]bool{}
+	for i := range ov.Len() {
+		replaced[r.pkKey(ov.Index(i))] = true
+	}
+	out := reflect.MakeSlice(bv.Type(), 0, bv.Len()+ov.Len())
+	for i := range bv.Len() {
+		if replaced[r.pkKey(bv.Index(i))] {
+			continue
+		}
+		out = reflect.Append(out, bv.Index(i))
+	}
+	return reflect.AppendSlice(out, ov).Interface(), nil
+}
+
+// DropRows returns base (a `[]RowType`) without the rows whose PK string is in
+// pks — the inverse of MergeRows, and how `packages remove` subtracts exactly
+// the rows the installed-package record names from the live projection.
+func (r *Resource) DropRows(base any, pks []string) (any, error) {
+	bv, err := r.rowSlice(base)
+	if err != nil {
+		return nil, err
+	}
+	drop := make(map[string]bool, len(pks))
+	for _, pk := range pks {
+		drop[pk] = true
+	}
+	out := reflect.MakeSlice(bv.Type(), 0, bv.Len())
+	for i := range bv.Len() {
+		if drop[r.pkKey(bv.Index(i))] {
+			continue
+		}
+		out = reflect.Append(out, bv.Index(i))
+	}
+	return out.Interface(), nil
+}
+
 // ParseRows decodes a YAML node (sequence of mappings) into a `[]RowType`.
 // Strict per spec 5/8 §"Apply lifecycle" step 1: unknown row fields
 // reject (an operator typo on a field name must error, not silently
@@ -662,6 +760,16 @@ type ApplyOpts struct {
 	// scope and re-inserting the pre-image restores that scope exactly.
 	// Ignored by resources with no ScopeSpec (they rebuild wholesale anyway).
 	PruneScopes []string
+
+	// Extra carries caller context into the apply's single audit row, beside
+	// the per-resource counts. `arizuko packages` puts the package name and the
+	// PK of every row it added or withdrew there: one row per apply that says
+	// only "2 acl added" hides WHICH authority the install handed out, and that
+	// is the question the trail exists to answer (BUGS Q5/F2/L36). Keep values
+	// short — audit.marshalParams caps the whole summary at 512 bytes. The
+	// three engine keys (manifest_digest, checksum, resources) always win a
+	// name collision.
+	Extra map[string]any
 }
 
 // ManifestScopes returns every scope value a manifest's rows mention across
@@ -869,18 +977,21 @@ func applyCounts(db *sql.DB, subsystem string, manifestRows map[string]any) (map
 // (spec 5/8 §"CAS implementation" (3)): actor, manifest digest,
 // per-resource add/update/delete counts, final checksum.
 func emitApplyAudit(ctx context.Context, tx *sql.Tx, opts *ApplyOpts, counts map[string]any, newChecksum string) error {
+	params := map[string]any{}
+	for k, v := range opts.Extra {
+		params[k] = v
+	}
+	params["manifest_digest"] = opts.ManifestDigest
+	params["checksum"] = newChecksum
+	params["resources"] = counts
 	return audit.EmitInTx(ctx, tx, audit.Event{
-		Category: audit.CategoryMutation,
-		Action:   "config.apply",
-		Actor:    opts.Actor,
-		Surface:  audit.SurfaceCLI,
-		Resource: "manifest",
-		Outcome:  audit.OutcomeOK,
-		ParamsSummary: map[string]any{
-			"manifest_digest": opts.ManifestDigest,
-			"checksum":        newChecksum,
-			"resources":       counts,
-		},
+		Category:      audit.CategoryMutation,
+		Action:        "config.apply",
+		Actor:         opts.Actor,
+		Surface:       audit.SurfaceCLI,
+		Resource:      "manifest",
+		Outcome:       audit.OutcomeOK,
+		ParamsSummary: params,
 	})
 }
 

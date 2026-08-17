@@ -11,15 +11,23 @@ import (
 // ACLRow mirrors the acl table: full composite PK + nullable granted_by.
 // `granted_by` is read via COALESCE so the Go field can stay `string`
 // (empty = NULL); same shape as existing store/acl.go scanACLRow.
+//
+// EVERY column, not just the interesting ones. acl has no folder scope, so
+// apply rebuilds it wholesale (DELETE + INSERT of the manifest's rows) — a
+// column missing here is a column silently reset to its DEFAULT by any apply
+// that mentions acl. `grant_option` (spec 5/33, WITH GRANT OPTION) was that
+// column: absent from the row type, so a rebuild dropped every holder's right
+// to re-delegate.
 type ACLRow struct {
-	Principal string `db:"principal" yaml:"principal" json:"principal"`
-	Action    string `db:"action"    yaml:"action"    json:"action"`
-	Scope     string `db:"scope"     yaml:"scope"     json:"scope"`
-	Effect    string `db:"effect"    yaml:"effect"    json:"effect,omitempty"`
-	Params    string `db:"params"    yaml:"params"    json:"params,omitempty"`
-	Predicate string `db:"predicate" yaml:"predicate" json:"predicate,omitempty"`
-	GrantedBy string `db:"granted_by" yaml:"granted_by,omitempty" json:"granted_by,omitempty"`
-	GrantedAt string `db:"granted_at" yaml:"granted_at,omitempty" json:"granted_at,omitempty"`
+	Principal   string `db:"principal" yaml:"principal" json:"principal"`
+	Action      string `db:"action"    yaml:"action"    json:"action"`
+	Scope       string `db:"scope"     yaml:"scope"     json:"scope"`
+	Effect      string `db:"effect"    yaml:"effect"    json:"effect,omitempty"`
+	Params      string `db:"params"    yaml:"params"    json:"params,omitempty"`
+	Predicate   string `db:"predicate" yaml:"predicate" json:"predicate,omitempty"`
+	GrantOption bool   `db:"grant_option" yaml:"grant_option,omitempty" json:"grant_option,omitempty"`
+	GrantedBy   string `db:"granted_by" yaml:"granted_by,omitempty" json:"granted_by,omitempty"`
+	GrantedAt   string `db:"granted_at" yaml:"granted_at,omitempty" json:"granted_at,omitempty"`
 }
 
 // ACLEndpoints is the single owner of the acl endpoint set: routd's mountACL

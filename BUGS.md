@@ -401,7 +401,7 @@ calls per request — `auth.MatchSlot` folder scoping, which is the one thing
 daemon doing all three.
 
 
-## L44 — packages declare in two bespoke formats what the manifest already carries (2026-08-17, found in review)
+## L44 — packages declare in two bespoke formats what the manifest already carries (2026-08-17, FIXED)
 
 `5/8`'s manifest carries "ACL, routes, secrets metadata, scheduled tasks, proxyd
 routes, web routes, network rules" and `apply` installs it. Packages re-declare
@@ -444,6 +444,42 @@ and content hashes (`AssetHashes`), which is the dpkg half arizuko got right.
 
 **SIGNED OFF 2026-08-17.** Hard cutover: existing installs are rewritten and
 adapted. No dual-read, no backwards compatibility anywhere.
+
+**FIXED 2026-08-17.** A package ships `<name>.yml` (docker's, unchanged) and
+`<name>.yaml` (a `5/8` manifest). Both JSON formats and both parsers are gone,
+along with `applyPackageGrants` / `applyPackageRoutes`.
+
+- **Install goes through the `apply` path.** `installPkgRows` merges the
+  package's rows onto the subsystem's live projection
+  (`resreg.Resource.MergeRows`, new) and hands the whole document to the same
+  `applyDocs` `arizuko apply` uses — one transaction per owner DB, pre-image
+  rollback, in-tx checksum CAS. The manifest is parsed and validated before the
+  first byte is written, and a refusal after that unwinds the fragment files, so
+  an install is whole or nothing. `remove` is the mirror: `DropRows` of exactly
+  the PKs the record names, so an operator's own row at another key survives.
+- **The record is uniform.** `installed_packages.manifest` keys on the resreg
+  resource name (`acl`, `proxyd_routes`, `scheduled_tasks`, …) with the PK
+  strings of the rows the package owns; `compose_fragment` and `skill` are the
+  only non-resource keys. The old `grant` / `proxyd_route` keys are gone — a
+  record still carrying them makes `remove` refuse loudly and name the reason
+  rather than under-remove.
+- **Compose reads the same file.** `collectProxydRoutes` →
+  `compose.ManifestRoutes` parses `services/<name>.yaml` with
+  `resreg.ParseYAML`, so generate and install share one parser and one
+  declaration. `template/services/slakd-routes.json` became `slakd.yaml`.
+- **Two knock-on findings.** (1) `resources.ACLRow` omitted `grant_option`, and
+  acl has no folder scope, so ANY apply mentioning acl rebuilt the table and
+  reset every holder's WITH GRANT OPTION to 0 — a pre-existing `arizuko apply`
+  hole this change would have put on the package path. The column is in the row
+  type now. (2) The per-grant / per-route audit rows (`Q5`, `F2`) collapse into
+  the one `config.apply` row apply emits; `resreg.ApplyOpts.Extra` (new) carries
+  the package name and the PK of every row added or withdrawn, so the row still
+  names what it handed out. Whole rows do not fit — `params_summary` caps at 512
+  bytes.
+- **Not done, deliberately:** `L46`. The merge is a single choke point, so
+  bounding what a package may ask for is one hook at
+  `cmd/arizuko/packages.go:parsePkgManifests`, and `ManifestRoutes` already
+  drops the `owner` column on the compose side.
 
 ## L43 — 44 stale spec references in the live tree, and they block the 6/7 renumber (2026-08-16, found while measuring the re-cut)
 

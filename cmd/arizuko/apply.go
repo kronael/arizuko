@@ -63,6 +63,12 @@ func openSubsystemStores(dataDir string) (map[string]*store.Store, error) {
 	}, nil
 }
 
+// cliActor is the audit actor every CLI-driven apply stamps. One renderer, so
+// `arizuko apply` and `arizuko packages install` — which now share the engine —
+// cannot name the same operator two different ways. Matches store.AsCLI's
+// `cli:<user>` form.
+func cliActor() string { return "cli:" + os.Getenv("USER") }
+
 func closeStores(stores map[string]*store.Store) {
 	for _, s := range stores {
 		s.Close()
@@ -78,6 +84,14 @@ type parsedDoc struct {
 	subsystem string
 	checksum  string
 	manifest  map[string]any
+
+	// pruneScopes names scope values this document's scoped resources must
+	// DELETE even though its rows no longer mention them. A scoped resource
+	// derives its delete set from the rows present, so REMOVING the last row
+	// in a folder makes that folder invisible and the live row survives —
+	// `packages remove` left an egress rule behind exactly that way. Only the
+	// package path sets it; nil everywhere else.
+	pruneScopes []string
 }
 
 // parseDocs splits and parses every document of a manifest file. Empty
@@ -171,7 +185,11 @@ type committed struct {
 // swap would discard messages that arrived and memory a turn wrote during the
 // apply window. Message history and filesystem trees are outside the
 // projection and have their own recovery stories.
-func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parsedDoc, force bool, actor, digest string) ([]string, error) {
+//
+// extra is caller context for the apply's single audit row (`arizuko packages`
+// puts the package name and the rows it owns there); nil for a plain apply.
+func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parsedDoc, force bool,
+	actor, digest string, extra map[string]any) ([]string, error) {
 	pre := map[string]map[string]any{}
 	for _, d := range docs {
 		st, ok := stores[d.subsystem]
@@ -190,7 +208,7 @@ func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parse
 	for _, d := range docs {
 		st := stores[d.subsystem]
 		newSum, aerr := resreg.Apply(ctx, st.DB(), d.subsystem, d.checksum, force, d.manifest,
-			&resreg.ApplyOpts{Actor: actor, ManifestDigest: digest})
+			&resreg.ApplyOpts{Actor: actor, ManifestDigest: digest, Extra: extra, PruneScopes: d.pruneScopes})
 		if aerr != nil {
 			if rerr := rollback(ctx, stores, done, actor); rerr != nil {
 				return report, fmt.Errorf("apply %s: %w; ROLLBACK ALSO FAILED, the instance is half-applied: %v",
@@ -297,7 +315,7 @@ func cmdApply(args []string) {
 	// manifest digest + per-resource counts + final checksum), spec 5/8
 	// §"CAS implementation" (3). No separate auditCLI — one row per apply.
 	report, aerr := applyDocs(context.Background(), stores, docs, force,
-		os.Getenv("USER"), hex.EncodeToString(digest[:]))
+		cliActor(), hex.EncodeToString(digest[:]), nil)
 	for _, line := range report {
 		fmt.Printf("applied %s — %s\n", file, line)
 	}

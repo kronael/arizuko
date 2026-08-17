@@ -44,11 +44,12 @@ them on each request.
   facts at a different TIME (compose-generation before any DB exists) or
   in a different SHAPE (an env var, not rows), that justifies a second
   **reader**, never a second **format**. Ask "who else reads this?", not
-  "what file do I need?". Cost: packages declare grants and proxyd routes
+  "what file do I need?". Cost: packages declared grants and proxyd routes
   in `*-grants.json` / `*-routes.json` while `5/8`'s manifest already
-  carries both, so a package cannot express a scheduled task or a network
-  rule and its install is not transactional — beside an apply engine that
-  has pre-image rollback (BUGS `L44`).
+  carried both, so a package could not express a scheduled task or a network
+  rule and its install was not transactional — beside an apply engine that
+  has pre-image rollback (BUGS `L44`, fixed 2026-08-17: a package ships one
+  `<name>.yaml` manifest that install applies and generate reads).
 - **A format is a coupling; keep the parts orthogonal.** A package ships
   docker's compose fragment AND arizuko's manifest — two files because
   they answer to two owners, not one file that knows about both. Split by
@@ -308,7 +309,8 @@ issues the prior one couldn't see.
   does not.
 - **Adding a channel adapter**: ship a `template/services/<daemon>.yml`
   (a partial compose file — docker `include`s it verbatim) + a
-  `<daemon>-routes.json` if it needs inbound web paths. No edit to
+  `<daemon>.yaml` (its 5/8 manifest, `proxyd_routes` block) if it needs
+  inbound web paths. No edit to
   `proxyd/main.go` or `compose/compose.go`. Specs:
   `specs/5/7-proxyd-standalone.md`, `specs/5/27-compose-native-packaging.md`.
 - **Daemon HTTP port: `:8080` inside the container, always.** Every

@@ -230,8 +230,8 @@ func TestGenerateNoServicesDir(t *testing.T) {
 func TestProxydRoutesAssembled(t *testing.T) {
 	dir := seed(t, "WEB_PORT=8095\nAPI_PORT=8080\nSLACK_BOT_TOKEN=tok\n")
 	write(t, dir, "services/slakd.yml", "services:\n  slakd:\n    image: arizuko:latest\n")
-	write(t, dir, "services/slakd-routes.json",
-		`[{"path":"/slack/","backend":"http://slakd:8080","auth":"public","gated_by":"SLACK_BOT_TOKEN"}]`)
+	write(t, dir, "services/slakd.yaml",
+		"proxyd_routes:\n  - path: /slack/\n    backend: http://slakd:8080\n    auth: public\n    gated_by: SLACK_BOT_TOKEN\n")
 	out, routes, err := Generate(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -287,7 +287,7 @@ func TestProxydRoutesUserPortal(t *testing.T) {
 }
 
 func TestProxydRoutesGating(t *testing.T) {
-	routesJSON := `[{"path":"/slack/","backend":"http://slakd:8080","auth":"public","gated_by":"SLACK_BOT_TOKEN"}]`
+	routesYAML := "proxyd_routes:\n  - path: /slack/\n    backend: http://slakd:8080\n    auth: public\n    gated_by: SLACK_BOT_TOKEN\n"
 	for _, tc := range []struct {
 		name, env string
 		want      bool
@@ -298,7 +298,7 @@ func TestProxydRoutesGating(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := seed(t, tc.env)
 			write(t, dir, "services/slakd.yml", "services:\n  slakd:\n    image: arizuko:latest\n")
-			write(t, dir, "services/slakd-routes.json", routesJSON)
+			write(t, dir, "services/slakd.yaml", routesYAML)
 			if got := hasRoute(genRoutes(t, dir), "/slack/"); got != tc.want {
 				t.Errorf("route present=%v, want %v", got, tc.want)
 			}

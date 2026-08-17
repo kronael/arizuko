@@ -33,8 +33,8 @@ var ttsdRecord = InstalledPackage{
 	Source:   "github.com/kronael/ttsd",
 	Revision: "9f1c2ab",
 	Manifest: map[string][]string{
-		"compose_fragment": {"ttsd.yml", "ttsd-routes.json"},
-		"proxyd_route":     {"/tts/"},
+		"compose_fragment": {"ttsd.yml", "ttsd.yaml"},
+		"proxyd_routes":    {"/tts/|"},
 	},
 	AssetHashes: map[string]string{"file:ttsd.yml": "deadbeef"},
 	InstalledAt: "2026-08-05T10:00:00Z",
@@ -115,8 +115,8 @@ func TestInstalledPackagesMCP_ListAndGet(t *testing.T) {
 	if len(listed) != 1 || listed[0].Name != "ttsd" || listed[0].Revision != "9f1c2ab" {
 		t.Fatalf("list_packages = %s, want the one ttsd@9f1c2ab row", text)
 	}
-	if got := listed[0].Manifest["proxyd_route"]; len(got) != 1 || got[0] != "/tts/" {
-		t.Fatalf("manifest proxyd_route = %v, want [/tts/]", got)
+	if got := listed[0].Manifest["proxyd_routes"]; len(got) != 1 || got[0] != "/tts/|" {
+		t.Fatalf("manifest proxyd_routes = %v, want [/tts/|]", got)
 	}
 	if listed[0].AssetHashes["file:ttsd.yml"] != "deadbeef" {
 		t.Fatalf("asset_hashes = %v, want file:ttsd.yml=deadbeef", listed[0].AssetHashes)

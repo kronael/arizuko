@@ -22,8 +22,8 @@ headers with a service bearer (`service:proxyd`) verifiable by backends.
 
 ## Routes are file-declared
 
-The route table is built from each package's
-`services/<name>-routes.json` plus a static core-route slice in
+The route table is built from the `proxyd_routes` block of each package's
+`services/<name>.yaml` plus a static core-route slice in
 `compose/compose.go` (`coreProxydRoutes` — dashd, webd, davd, onbod).
 `compose.go` collects the survivors after `gated_by` env filtering and
 `arizuko generate` writes them into `proxyd_routes` as rows owned by
@@ -33,7 +33,7 @@ and dispatches via longest-prefix match.
 Sources of truth:
 
 - Core routes: `compose/compose.go` → `coreProxydRoutes`
-- Per-service routes: `template/services/<name>-routes.json` (copied into
+- Per-service routes: `template/services/<name>.yaml` (copied into
   the data dir by `arizuko packages add`)
 
 Bespoke handling for `/chat/`, `/hook/` (route-token resolver + anon DoS
@@ -149,7 +149,7 @@ Endpoints:
 - `/dav/*` — WebDAV (auth-gated, group-scoped, write-blocked)
 - `/chat/<token>/`, `/hook/<token>` — route-token surfaces
 - `/v1/proxyd_routes` — operator REST + MCP resource (runtime route mutation)
-- JSON-declared routes (e.g. `/dash/`, `/api/`; from `<name>-routes.json` + the core slice)
+- Manifest-declared routes (e.g. `/dash/`, `/api/`; from `<name>.yaml` + the core slice)
 
 ## Dependencies
 
