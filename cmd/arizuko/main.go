@@ -69,6 +69,7 @@ func main() {
 		fmt.Println("  archive  export <instance> [file] [--quiesced]  — full backup: config+secrets+messages+group trees")
 		fmt.Println("  archive  apply  <instance> <archive.tar> [--force]")
 		fmt.Println("  migrate-split <instance> [--dry-run]  — populate routd.db + runed.db from messages.db (CUTOVER_SPLIT)")
+		fmt.Println("  probe    <base-url> [--token|-t T] [--foreign-folder|-f F]  — check a live component against the 6/7 contract")
 		os.Exit(1)
 	}
 
@@ -97,6 +98,7 @@ func main() {
 		"export":        cmdExport,  // spec 5/8
 		"archive":       cmdArchive, // spec 5/8
 		"migrate-split": cmdMigrateSplit,
+		"probe":         cmdProbe, // spec 6/7 component contract
 	}
 	fn, ok := cmds[os.Args[1]]
 	if !ok {

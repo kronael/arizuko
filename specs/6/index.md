@@ -45,9 +45,10 @@ standalone.
 The phase is `active` (2026-08-15). What ships, in the order the specs
 themselves argue:
 
-1. **The `6/7` contracts made real** — the component probe (until it
-   exists, that half is documentation) and the `anteval` gate run per
-   backend, with `pi` as the second agent-slot occupant.
+1. **The `6/7` contracts made real** — the component probe **shipped
+   2026-08-17** (`arizuko probe <base-url>`); routd and proxyd pass 5/5
+   live, dashd 3/3. What remains is the `anteval` gate run per backend,
+   with `pi` as the second agent-slot occupant.
 2. **`6/17` tier 0** — the `credential_process` helper closes BUGS `X2`
    with no new trust surface; the request tool carries signing.
 3. **crackbox as the first shipped component** — its fail-open gate
@@ -68,7 +69,7 @@ specs argue adoption — `1` (strategy), `7` (the contracts), `16` (ship-in-
 parts), `8` (crackbox as the first shipped part). The rest are platform work,
 and their own frontmatter says so: `17` closes `8/Z`, a gap **phase 8** named;
 `19` depends on `5/13`+`5/14` and is timed to `5/13` shape 4; `12` has no
-consumer; `18`, `20` and `21` are runtime and storage decisions; `9` and `10`
+consumer; `18` and `20` are runtime decisions (`21` left for `7/21`); `9` and `10`
 are crackbox internals.
 
 The operator's re-cut: **6 = finish and harden the platform** (absorbing the

@@ -138,11 +138,32 @@ already — this is a statement of what is true, not a proposal.
 |                                     | write an `audit_log` row in the mutation's own tx                       |
 
 **Conformance is a probe, not a checklist.** An in-repo daemon is checked by a
-Go test; anything out-of-repo can only be checked against a running process —
-does it answer on `:8080`, does `/openapi.json` list exactly what its mux
-mounts, does a mutation leave an audit row, does a foreign folder's param get
-refused. The probe is the deliverable that makes this contract real; until it
-exists this section is documentation.
+Go test; anything out-of-repo can only be checked against a running process.
+**Shipped 2026-08-17 as `arizuko probe <base-url>`** (`cmd/arizuko/probe.go`),
+so this section is no longer documentation:
+
+| Check                                  | What a failure means                                                                    |
+| -------------------------------------- | --------------------------------------------------------------------------------------- |
+| `openapi.json` answers unauthenticated | it is mounted behind auth, so nothing can discover the component                        |
+| the document is OpenAPI 3.x            | not a contract any consumer can read                                                    |
+| every advertised path is served        | the doc names a resource the mux does not mount — a published lie                       |
+| non-public paths require auth          | a `/v1` resource ships ungated                                                          |
+| a foreign folder is refused            | the handler never binds its folder param to the caller (`--token` + `--foreign-folder`) |
+
+**What the probe cannot see, stated so a pass is not over-read**: it detects
+paths the doc advertises and the mux does not serve, never the reverse.
+Deriving the mounted SET by probing is the mistake `F33` records — proxyd
+answers every path from a `/` catch-all, so "it responded" never proves "this
+resource is mounted here". That direction stays a Go test
+(`resregtest.AssertServesNoForeignResource`).
+
+An **empty** document is conforming, not a failure: `dashd` mounts only
+`/dash/` pages and owns no `/v1` resource, so it truthfully advertises nothing.
+A component owes an honest doc, not a non-empty one — the probe's first live run
+failed `dashd` on that and the check was corrected, not the daemon.
+
+The audit-row half of this table is not yet probed: it needs the component to
+expose its own `audit_log` as a resource, which is not required of it today.
 
 ## Out of scope
 
