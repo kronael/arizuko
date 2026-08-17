@@ -260,7 +260,12 @@ Routes are business config — operators mutate them at runtime — so they were
 never env-var material. The operator states the general form: **the DB is
 authoritative and the only way to persist; env is for purely static config.**
 
-Proposal (needs sign-off): `arizuko generate` writes core routes as rows,
+**SIGNED OFF 2026-08-17.** Arizuko- and package-owned routes are authoritative
+and overwrite on regenerate — an operator does NOT get to edit them in place,
+and must be told so. A separate override mechanism is required so an operator
+can still win deliberately; editing the row is not that mechanism.
+
+Proposal: `arizuko generate` writes core routes as rows,
 upserting by path so an operator's own routes and edits survive, and
 `PROXYD_ROUTES_JSON` is deleted as a config source. One authority, no seed-once
 window. Ties to `L44`, which removes the parallel `*-routes.json` format feeding
@@ -319,7 +324,8 @@ one-renderer-many-sinks rule rather than a second path.
 `installed_packages` is unchanged: it already records owned rows (`Manifest`)
 and content hashes (`AssetHashes`), which is the dpkg half arizuko got right.
 
-Recorded, not fixed — found during a general check (Bug Triage Protocol).
+**SIGNED OFF 2026-08-17.** Hard cutover: existing installs are rewritten and
+adapted. No dual-read, no backwards compatibility anywhere.
 
 ## L43 — 44 stale spec references in the live tree, and they block the 6/7 renumber (2026-08-16, found while measuring the re-cut)
 
