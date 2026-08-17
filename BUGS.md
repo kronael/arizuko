@@ -226,6 +226,47 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L45 — proxyd routes shipped in a release never reach an existing instance (2026-08-17, CONFIRMED live on krons)
+
+`loadInitialRoutes` (`proxyd/main.go:248`) is seed-once: if `proxyd_routes` has
+any row, `PROXYD_ROUTES_JSON` is ignored. There is no reconcile — the env var is
+read at that one call site and nowhere else. So every route arizuko has added to
+`coreProxydRoutes` since an instance first booted is absent from it forever.
+
+**Live on krons.** 12 rows in `proxyd_routes`; `coreProxydRoutes` ships 18.
+Missing: `/dash/onbod/`, `/dash/timed/`, `/invite/`, `/me`, `/me/`, `/pair/`,
+`/panel/`.
+
+Confirmed with a control rather than inferred. An unrouted path falls through to
+the static site:
+
+    /definitely-not-a-route-xyz/  302 → /pub/krons/definitely-not-a-route-xyz/
+    /invite/                      302 → /pub/krons/invite/      (same = unrouted)
+    /panel/                       302 → /pub/krons/panel/       (same = unrouted)
+    /slink/                       404                            (routed; backend answers)
+
+So the invite surface, device pairing, `/me`, the panel and the federated
+onbod/timed dashboards are silently absent on the deploy target. Same class as
+`L41`: a config path that stops applying and looks healthy.
+
+**The design intent is legitimate** — the comment says "operator mutations are
+durable across restarts", and clobbering an operator's runtime route on every
+redeploy would be worse. The fault is the mechanism, not the goal.
+
+**The rule it breaks already exists.** Root `CLAUDE.md`: "Business features
+(gates, grants, onboarding) are DB-backed with CLI + chat command for
+management. Infra (ports, timeouts, images, paths) stays as env vars in `.env`."
+Routes are business config — operators mutate them at runtime — so they were
+never env-var material. The operator states the general form: **the DB is
+authoritative and the only way to persist; env is for purely static config.**
+
+Proposal (needs sign-off): `arizuko generate` writes core routes as rows,
+upserting by path so an operator's own routes and edits survive, and
+`PROXYD_ROUTES_JSON` is deleted as a config source. One authority, no seed-once
+window. Ties to `L44`, which removes the parallel `*-routes.json` format feeding
+the same env var.
+
+
 ## L44 — packages declare in two bespoke formats what the manifest already carries (2026-08-17, found in review)
 
 `5/8`'s manifest carries "ACL, routes, secrets metadata, scheduled tasks, proxyd
