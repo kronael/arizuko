@@ -137,10 +137,39 @@ already — this is a statement of what is true, not a proposal.
 |                                     | mount `GET /openapi.json`, public, before auth                          |
 |                                     | write an `audit_log` row in the mutation's own tx                       |
 
-**Conformance is a probe, not a checklist.** An in-repo daemon is checked by a
-Go test; anything out-of-repo can only be checked against a running process.
-**Shipped 2026-08-17 as `arizuko probe <base-url>`** (`cmd/arizuko/probe.go`),
-so this section is no longer documentation:
+### Who this contract is for — capabilities federate, infrastructure conforms
+
+Corrected 2026-08-17, because the earlier framing oversold it. **A stranger
+adding a capability does not use this contract and should not.** `5/13` ships
+that path already: the service runs anywhere, in any language, on anyone's
+infra; arizuko holds the credential, the agent calls a tool by name, an `acl`
+row decides whether this folder may call it, and the call is audited. Federating
+a credential is the right answer for a capability, and it is strictly more
+flexible than conforming.
+
+This contract is for parts in the **data path or the trust path**, where "remote
+service holding a token" is not a weaker variant of the design but a broken one.
+crackbox is the case: it is the egress proxy, every container's traffic goes
+through it, and it is what _enforces_ the per-folder allowlist. A remote
+crackbox is defeated by anything that can reach the network without presenting
+the token — and the thing being contained is exactly the thing with network
+access. A filter you can route around is not a filter. Same for `mcpfw`
+(filters MCP calls in transit) and `authd` (the trust root).
+
+So the honest scope is arizuko splitting **its own** parts out without each
+split reinventing auth, audit and deployment. That is worth doing. It is not,
+by itself, an adoption strategy, and `6/1`'s plan item — get _a_ stranger, one,
+running crackbox — is the measure that matters.
+
+### Conformance
+
+An in-repo daemon is checked by Go tests. Those read the source, so they check
+the **code**. `arizuko probe <base-url>` (`cmd/arizuko/probe.go`, shipped
+2026-08-17) checks the **deployed instance**, which no test can: a daemon passes
+every test and still ships with `openapi.json` behind auth or a gate unwired.
+Read it as an operator's deployment check first, and a foreign component's
+conformance check second — that second use is real but rare, per the scope
+above.
 
 | Check                                  | What a failure means                                                                    |
 | -------------------------------------- | --------------------------------------------------------------------------------------- |

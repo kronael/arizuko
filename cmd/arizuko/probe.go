@@ -11,15 +11,16 @@ import (
 	"time"
 )
 
-// The component-contract probe (spec 6/7). The agent half of that contract has
-// teeth — anteval runs a case set per backend. The component half was prose:
-// "conformance is a probe, not a checklist ... until it exists this section is
-// documentation." This is it.
+// The component-contract probe (spec 6/7).
 //
-// An in-repo daemon is checked by Go tests (resregtest.AssertServesNoForeignResource,
-// TestResourceName_NoStringLiteral). A component shipped from outside the repo
-// can only be checked against a running process, over HTTP, which is what this
-// does.
+// Primarily an OPERATOR DEPLOYMENT CHECK. Go tests read the source, so they
+// check the code; this checks the deployed instance, which no test can — a
+// daemon passes every test and still ships with openapi.json behind auth, or a
+// gate unwired. Nothing else in arizuko catches that.
+//
+// Secondarily a conformance check for a component whose source you do not have.
+// Real but rare: per 6/7 "capabilities federate, infrastructure conforms", a
+// stranger adding a capability uses 5/13 and never touches this contract.
 //
 // What it CANNOT do, stated so nobody reads a pass as more than it is: it
 // detects paths the doc advertises and the mux does not serve, never the
