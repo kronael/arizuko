@@ -266,6 +266,17 @@ upserting by path so an operator's own routes and edits survive, and
 window. Ties to `L44`, which removes the parallel `*-routes.json` format feeding
 the same env var.
 
+**This is also the unlock for `6/16`'s recorded direction** — "shrink toward
+off-the-shelf and publish the grant-scoped mount contract", where proxyd is
+called "the commodity half — Caddy/Traefik plus Authelia's job, and the weakest
+position in the repo". That decomposition needs routes to be rows first. With
+them: the routing TABLE is data, the PROXY is off-the-shelf with its config
+rendered from those rows (one more reader, per the `one declaration, many
+readers` rule), and what stays arizuko's is the forward-auth endpoint the proxy
+calls per request — `auth.MatchSlot` folder scoping, which is the one thing
+`6/16` names irreplaceable. Three orthogonal pieces instead of one 1,591-line
+daemon doing all three.
+
 
 ## L44 — packages declare in two bespoke formats what the manifest already carries (2026-08-17, found in review)
 
