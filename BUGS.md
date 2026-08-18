@@ -252,15 +252,39 @@ The shape:
   the spawn, so per-folder and per-user cost attribution is a read, not an
   estimate.
 
-Candidates:
+**OAuth is a hard requirement, not a preference.** `store.EnvProfileKeys`
+already carries `CLAUDE_CODE_OAUTH_TOKEN` beside the API keys, and subscription
+billing is flat-rate where API keys bill per token — at arizuko's turn volume
+the API-key path is impractically costly. A gateway that only speaks API keys is
+disqualified.
 
-- **LiteLLM** — MIT, 100+ providers, virtual keys, budgets, spend tracking. The
-  reference feature set, and exactly this model. Python + Postgres; heavy for a
-  solo instance, which "simple stays simple" cares about.
-- **Bifrost** (Maxim AI) — single Go binary, multi-provider, substantially
-  faster. Matches arizuko's stack and the minimal requirement. **Verify its
-  key-scoped budgets and revocation before committing** — LiteLLM is the one
-  explicitly credited with that model.
+Candidates (verified 2026-08-18):
+
+- **Bifrost** (Maxim AI) — Apache-2.0, single Go binary, self-hosted.
+  Purpose-built for Claude Code: `ANTHROPIC_BASE_URL` points the CLI at it,
+  `ANTHROPIC_AUTH_TOKEN` carries the virtual key (sent as `Authorization:
+  Bearer` automatically). Four-tier budget hierarchy, per-request token counts,
+  per-virtual-key cost attribution, 20+ providers with failover, ~11µs overhead.
+  Documented to detect an Anthropic MAX account instead of API-key auth and work
+  with it out of the box. Matches arizuko's stack and the minimal requirement.
+- **LiteLLM** — MIT, 100+ providers, the reference virtual-key/budget model.
+  Handles subscription auth by FORWARDING the client's OAuth header upstream
+  (`forward_client_headers_to_llm_api`). Python + Postgres; heavy for a solo
+  instance.
+
+**THE ONE THING TO VERIFY BEFORE COMMITTING — where the OAuth credential
+lives.** It decides whether this proposal is a security change or only a
+visibility one:
+
+- Credential **at the gateway**, spawn gets a revocable virtual key → this
+  entry's actual goal: isolation AND metering, subscription billing preserved.
+- Credential **forwarded from the client** → the container still holds the real
+  token. Metering and cost attribution, but the security half evaporates.
+
+LiteLLM's documented mechanism is explicitly the second. Bifrost's phrasing
+suggests the first, but "detects if you're using a MAX account" comes from a
+vendor summary, not its docs. Read Bifrost's own documentation on MAX-account
+configuration before building anything.
 
 **NOT iron-proxy.** That is an egress MITM proxy for injecting credentials into
 arbitrary HTTP — a different mechanism at a different point in the path. It
