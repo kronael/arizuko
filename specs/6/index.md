@@ -54,9 +54,15 @@ themselves argue:
    with `pi` as the second agent-slot occupant.
 2. **`6/17` tier 0** — the `credential_process` helper closes BUGS `X2`
    with no new trust surface; the request tool carries signing.
-3. **crackbox as the first shipped component** — its fail-open gate
-   cleared 2026-08-15 (`6/16`); "ship one, not seven" — get a stranger
-   running it and let what they hit choose the next seam.
+3. **crackbox cut to its lightest** (`6/24`) — a static per-spawn forward
+   proxy, ~250 lines, with `pkg/host` split out and `crackbox` surviving
+   as the tool that composes them. **Demoted 2026-08-18**: the earlier
+   framing was "get a stranger running it", but Anthropic ships
+   sandboxing and network restriction inside Claude Code, so a standalone
+   egress proxy competes with a free bundled feature. Do it for the
+   internal reasons — 1,221 of ~1,700 lines serve an abandoned
+   shared-proxy model, and `6/8`'s unregister invariant is a real leak.
+   The composition is the product, not the parts.
 4. **Deferred by their own terms**: `19` waits for `5/13` shape 4; `12`
    (mcpfw) waits for a third-party-MCP consumer; `17` tier 1 (MITM)
    waits for a consumer tier 0 cannot serve.

@@ -113,17 +113,59 @@ It also matches what `6/16` means by shipping one part: a stranger who
 wants egress filtering downloads a forward proxy, not a KVM library
 bundled with it.
 
-## What a stranger gets
+## The resulting layout
 
-A single Go binary, forward proxy, static allowlist from a config file or
-flags, no admin surface, no state. Reads in an afternoon. That is the
-thing `6/16`'s "get one stranger running it" is actually asking for —
-today's 2,400-line version with a registry and a source-IP trust model
-is not.
+Three directories where there is one, all still inside arizuko's single
+`go.mod` (root `CLAUDE.md` — siblings share the module; orthogonality is
+enforced by the import graph, not by module boundaries):
 
-Packaging friction is separate and unfixed: crackbox shares arizuko's
-`go.mod` by design (root `CLAUDE.md`), so a stranger cannot `go install`
-it and must clone arizuko or pull the image.
+```
+egress/            the proxy: forward-only, static allowlist
+  proxy.go         parse CONNECT, dial, splice          (from pkg/proxy)
+  match/           allowlist globbing                   (from pkg/match, unchanged)
+  cmd/egress/      the standalone binary
+sandbox/           the KVM/qemu lifecycle library       (from crackbox/pkg/host)
+crackbox/          the TOOL that composes both
+  cmd/crackbox/    `crackbox run --kvm` — sandbox + filtered egress
+```
+
+Deleted outright, because only the shared model needed them:
+`pkg/admin` (572), `pkg/client` (175), `pkg/proxy/peek.go` (279),
+`pkg/proxy/transparent.go` + `origdst_*.go` (195). `pkg/dns` (753) goes
+with them — a DNS NXDOMAIN filter is a second enforcement point for a
+single-tenant proxy that already sees every destination in the CONNECT
+line, and a rule expressed twice is a rule that can disagree with itself.
+
+`runed` changes from "register the spawn's IP against a shared proxy" to
+"start the spawn's proxy with its allowlist, set `HTTP_PROXY`". The
+`EgressConfig` it already builds at spawn (`runed/docker.go:127`) is
+exactly the input, unchanged.
+
+## Why this is worth doing — corrected 2026-08-18
+
+**Not for the stranger.** `6/16`'s plan item is "get one stranger running
+crackbox", and that item is weak: Anthropic ships sandboxing and network
+restriction inside Claude Code itself, plus the Agent SDK and hosted
+Managed Agents. A standalone egress-filtering proxy competes with a
+feature the stranger already has, free, in the tool they are already
+using. Packaging polish does not fix that.
+
+Do it for the internal reasons, which stand on their own:
+
+- **1,221 of ~1,700 non-test lines exist only to serve a shared-proxy
+  model this spec abandons.** Deleting them is not a refactor, it is
+  removing the implementation of a design decision that was reversed.
+- **It removes a real leak** — `6/8`'s consumer-held unregister invariant
+  (above), which no amount of care makes safe while it is a convention.
+- **The boundary gets honest**: a proxy that proxies, a sandbox library
+  that sandboxes, and a tool that composes them. Today one directory
+  claims to be one component and is two.
+
+What arizuko has that Anthropic does not is the COMPOSITION — folder
+multitenancy with per-folder egress, ACL, secrets, memory and web mounts,
+across ten-plus channels, self-hosted on the operator's own data. The
+parts are not the product. That is the reason to make the parts small and
+boring rather than to market them.
 
 ## Ties
 
