@@ -226,6 +226,45 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L51 — every turn waits ~1s for a poll tick that could be a channel send (2026-08-18)
+
+`routd/loop.go:325` drives dispatch from `time.NewTicker(l.pollEvery)`, and
+`pollEvery` defaults to **2 seconds** (`routd/pending_actions_http.go:12`
+documents it). There is no push path — grepping `loop.go` for a channel, a
+notify or a wake finds nothing.
+
+So an inbound message lands in `messages`, and then nothing happens for up to 2s
+(≈1s average) until the next tick reads it. That latency is paid on **every
+turn**, before the container is even spawned, and it is invisible: no log, no
+metric, nothing that says "we sat here".
+
+For scale: the per-spawn proxy readiness poll costs ~10ms and I declined a
+push-callback for it as not worth the machinery. This is ~100x that, and it
+already has the machinery.
+
+**A channel, not a webhook.** routd's ingest handler and its dispatch loop are
+the same binary — the handler that writes the row can signal the loop directly.
+An HTTP callback would add a listener, a retry policy and a delivery guarantee
+to cross a process boundary that does not exist. Webhook is cross-process push;
+this is in-process push.
+
+Shape: a buffered `chan struct{}` of size 1, non-blocking send after the message
+row commits, and the loop selects on it alongside the ticker. The ticker STAYS —
+it is the self-healing path for anything that writes a row without signalling
+(a migration, a direct DB write, a future daemon), which is exactly the property
+that makes polling forgiving. Push for latency, poll for correctness.
+
+Other tickers checked and deliberately NOT included: `runed` hourly
+housekeeping, `timed`'s 60s scheduler tick (inherently time-driven),
+`webd/hub.go` SSE keepalive, `webd/turn.go` 15s status. None of them sit on the
+per-turn hot path.
+
+Not yet measured end to end — before building, instrument one turn to confirm
+the tick is really the dominant wait rather than container spawn. If spawn is
+300ms and the tick is 1000ms, this is the biggest single latency item in the
+system.
+
+
 ## L50 — LoadConfigFrom leaks one instance's .env into the process (2026-08-18, found while fixing L47)
 
 `core.LoadConfigFrom` (`core/config.go:185`) does two things a loader should not:
