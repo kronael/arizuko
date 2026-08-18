@@ -84,12 +84,36 @@ or changing.
 The per-spawn proxy is not Docker-shaped. Where it ATTACHES differs; what
 it is does not.
 
-**Container (today).** Start the proxy container first, then the agent
-with `--network container:<proxy>` — Docker's own pod primitive, already
-one flag away since `container/runner.go:700` passes `--network`. The
-agent borrows the proxy's network namespace, so it has no interface of
-its own and no second path to take. Isolation is a Linux namespace: the
-kernel is shared, and a kernel escape defeats it.
+**Container (today).** Egress is enforced by TOPOLOGY, not by the proxy.
+Verified on live krons 2026-08-18: a per-folder agent network
+(`arizuko_krons_fiu`) has `internal=true` — no external route at all —
+and the crackbox container is attached to every per-folder network plus
+the default, making it the only dual-homed thing. The agent cannot reach
+the internet because it has no route, not because a proxy declines.
+
+So the per-spawn shape keeps that topology and only replaces the shared
+proxy:
+
+1. the agent network stays `--internal` (`container/network.go:165`
+   already creates it that way);
+2. the per-spawn proxy attaches to BOTH that internal network and an
+   external one;
+3. the agent attaches to the internal network ONLY;
+4. `HTTP_PROXY`/`HTTPS_PROXY` name the proxy's address on the internal
+   network.
+
+**Docker's `--network container:<proxy>` is REJECTED**, and the reasoning
+is recorded because it is an attractive wrong answer. It looks like the
+pod primitive and would make `HTTP_PROXY=127.0.0.1` work. But the proxy
+must be dual-homed to forward at all, so sharing its namespace hands the
+agent the external route directly and reduces `HTTP_PROXY` to advice: a
+raw socket, an IP literal, or any client ignoring the variable walks
+straight out. `egress_e2e_test.go` case 6 states the underlying fact —
+"crackbox is not a kernel firewall … mitigated by Docker's `--internal`
+network … there is no kernel route off the confined bridge."
+
+Isolation here is a Linux namespace either way: the kernel is shared, and
+a kernel escape defeats it.
 
 **VM (`6/9`, shipped but unwired).** A guest has exactly one virtual NIC —
 a tap the host created. Put the proxy on the host side of that tap and
