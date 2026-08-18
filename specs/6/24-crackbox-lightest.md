@@ -95,17 +95,23 @@ importer outside `crackbox/` uses** and that the proxy binary does not
 link (`go list -deps` finds zero references). "Ship one component" is
 currently shipping two.
 
-**Open decision for the operator** — this spec does not settle it:
+**DECIDED 2026-08-18 — split, and crackbox survives as the tool that
+combines them.** Three things where there is one today:
 
-- **A**: split `pkg/host/` into its own component. The proxy ships as a
-  proxy; the sandbox library ships (or waits) as its own thing.
-- **B**: keep both under `crackbox/`, accept that its README must lead
-  with "two halves", and that a stranger wanting egress filtering
-  downloads a KVM library too.
+| Piece            | Is                                                            |
+| ---------------- | ------------------------------------------------------------- |
+| the egress proxy | a library + its own small binary: forward, static, ~250 lines |
+| `pkg/host`       | its own component — the KVM/qemu sandbox library (`6/9`)      |
+| **`crackbox`**   | a standalone TOOL that composes both, and nothing else        |
 
-`6/16` says ship one and let a real user choose the next seam. That
-argues for A, but the packaging cost (a second name, a second README, a
-second image) is real and only the operator can price it.
+This keeps the name and the convenience — `crackbox run --kvm` still
+spawns a sandboxed VM behind a filtered egress path — while letting
+someone take just the proxy, or just the sandbox library, without the
+other. The composition is the product; neither half has to be.
+
+It also matches what `6/16` means by shipping one part: a stranger who
+wants egress filtering downloads a forward proxy, not a KVM library
+bundled with it.
 
 ## What a stranger gets
 
