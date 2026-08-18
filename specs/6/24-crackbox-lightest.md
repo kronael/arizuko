@@ -127,6 +127,81 @@ importer outside `crackbox/` uses** and that the proxy binary does not
 link (`go list -deps` finds zero references). "Ship one component" is
 currently shipping two.
 
+**DECIDED 2026-08-18 — split three ways, and `crackbox` becomes a local
+development command.**
+
+| Piece       | Is                                                                                        | Used by                                 |
+| ----------- | ----------------------------------------------------------------------------------------- | --------------------------------------- |
+| `egress/`   | the forward proxy: library + small binary                                                 | `runed`, per spawn, in production       |
+| `sandbox/`  | the KVM/qemu lifecycle library (`6/9`)                                                    | whatever wires VMs, when something does |
+| `crackbox/` | **a user-facing command that stands up parts of the arizuko stack for local development** | a developer working on one piece        |
+
+The first two are what production consumes: runed starts an `egress`
+proxy per spawn and never runs `crackbox` at all. `crackbox` is the
+developer's tool — stand up a sandboxed VM with filtered egress on your
+own machine, or bring up a subset of the stack without the full
+twenty-daemon compose.
+
+**This retires the packaging problem rather than solving it.** crackbox
+shares arizuko's `go.mod`, so a stranger cannot `go install` it — fatal
+for a component meant to ship outward, irrelevant for a command used by
+people who have already cloned the repo. The friction only existed
+because the tool was pointed at the wrong audience.
+
+It also settles the stranger question the same way the Anthropic finding
+does (below): nothing here is shipped outward. `egress` and `sandbox` are
+libraries this codebase consumes; `crackbox` is how a developer runs them
+locally. If an outside consumer ever appears, they take a library, not a
+bundle.
+
+## Two substrates, one design
+
+The per-spawn proxy is not Docker-shaped. Where it ATTACHES differs; what
+it is does not.
+
+**Container (today).** Start the proxy container first, then the agent
+with `--network container:<proxy>` — Docker's own pod primitive, already
+one flag away since `container/runner.go:700` passes `--network`. The
+agent borrows the proxy's network namespace, so it has no interface of
+its own and no second path to take. Isolation is a Linux namespace: the
+kernel is shared, and a kernel escape defeats it.
+
+**VM (`6/9`, shipped but unwired).** A guest has exactly one virtual NIC —
+a tap the host created. Put the proxy on the host side of that tap and
+the guest's only route is through it, enforced below the kernel it runs.
+Stronger than the namespace case by a category, not a degree.
+
+**The VM case is also the simpler one**: there is nothing to register,
+because the tap IS the identity. A registry exists to answer "which
+tenant is this source IP?", and that question does not arise when the
+answer is "the one on the other end of this tap".
+
+Note `crackbox/pkg/host` already carries `EgressProxy` and registers the
+VM with the shared registry on spawn (`host.go:104`), unregistering on
+stop — so **the KVM path inherits the same unregister leak** described
+above. Per-spawn removes it on both substrates.
+
+Wiring KVM into `runed` is separate work and out of scope here: `runed`
+spawns Docker today, `6/9` records `pkg/host` as shipped-but-unwired, and
+`6/20` declined the warm-pool lifecycle that neighbours it. This spec only
+requires that the design not foreclose the VM path — it does not.
+
+## MITM stays declined
+
+`6/17` declined interception (2026-08-18): header injection was the only
+thing requiring it, and it was withdrawn. This cut depends on that. A
+forward proxy that never terminates TLS has no CA, no key material and
+no request-body access — which is what keeps 250 lines auditable by
+someone who does not trust us.
+
+## Split the two halves
+
+crackbox today is two orthogonal things in one directory: the egress
+proxy, and `pkg/host/` — a KVM/qemu sandbox library (`6/9`) that **no
+importer outside `crackbox/` uses** and that the proxy binary does not
+link (`go list -deps` finds zero references). "Ship one component" is
+currently shipping two.
+
 **DECIDED 2026-08-18 — split, and crackbox survives as the tool that
 combines them.** Three things where there is one today:
 
