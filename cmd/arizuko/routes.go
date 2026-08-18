@@ -39,6 +39,7 @@ func syncProxydRoutes(dataDir string, routes []compose.ProxydRoute) {
 			PreserveHeaders: r.PreserveHeaders,
 			StripPrefix:     r.StripPrefix,
 			RedirectTo:      r.RedirectTo,
+			Owner:           r.Owner,
 		})
 	}
 	written, kept, err := st.SyncProxydRoutes(rows)

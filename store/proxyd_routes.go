@@ -8,23 +8,35 @@ import (
 	"github.com/kronael/arizuko/audit"
 )
 
-// Route ownership (BUGS L45). Every proxyd_routes row is written by one of two
-// authorities, and `owner` records which:
+// Route ownership (BUGS L45, L46). Every proxyd_routes row is written by one of
+// three authorities, and `owner` records which:
 //
 //	RouteOwnerArizuko  — `arizuko generate` derived the row from the release's
-//	                     core route table plus the installed packages' route
-//	                     assets. Generate rewrites these on every run, so a
-//	                     route added to a release reaches an existing instance.
+//	                     core route table. Generate rewrites these on every run,
+//	                     so a route added to a release reaches an existing
+//	                     instance.
+//	RouteOwnerPackage  — `package:<name>` — an installed package's manifest
+//	                     declared it. Generate rewrites these too, from the
+//	                     package's own `services/<name>.yaml`, so an upgraded
+//	                     package's new backend reaches proxyd.
 //	RouteOwnerOperator — the row was declared through proxyd's
 //	                     /v1/proxyd_routes surface. Generate never touches it.
 //
-// Editing an arizuko-owned row is not an override — the next generate rewrites
-// it. Taking a path over is DELETE then POST on /v1/proxyd_routes; the created
-// row is operator-owned and generate hands the path off for good.
+// Editing an arizuko- or package-owned row is not an override — the next
+// generate rewrites it. Taking a path over is DELETE then POST on
+// /v1/proxyd_routes; the created row is operator-owned and generate hands the
+// path off for good.
 const (
-	RouteOwnerArizuko  = "arizuko"
-	RouteOwnerOperator = "operator"
+	RouteOwnerArizuko       = "arizuko"
+	RouteOwnerOperator      = "operator"
+	RouteOwnerPackagePrefix = "package:"
 )
+
+// RouteOwnerPackage is the owner value for a row an installed package declared.
+// A package may never write `arizuko` or `operator` itself (BUGS L46): the
+// first would let it pass as core-shipped, the second would opt it out of every
+// later generate, so an upgraded package could not correct its own route.
+func RouteOwnerPackage(name string) string { return RouteOwnerPackagePrefix + name }
 
 // ProxydRoute mirrors proxyd's `Route` shape for persistence. Kept here
 // without importing proxyd so the store stays a leaf. proxyd converts
@@ -101,7 +113,16 @@ func putProxydRouteTx(tx *sql.Tx, r ProxydRoute) error {
 //
 // Two rules, and they are the whole contract:
 //   - a path whose row is RouteOwnerOperator is SKIPPED, whatever it points at;
-//   - every other shipped path is overwritten and stamped RouteOwnerArizuko.
+//   - every other shipped path is overwritten, keeping the owner the caller
+//     stamped (`package:<name>` for a route an installed package declared) and
+//     defaulting to RouteOwnerArizuko for the release's own table.
+//
+// A package route falls on the ARIZUKO side of that split, not the operator
+// one: it is re-derived from the package's `services/<name>.yaml` on every
+// generate exactly as a core route is re-derived from the release table, so
+// leaving it alone would freeze an upgraded package at its first backend. The
+// operator side stays the only hands-off one, because only the operator's
+// /v1/proxyd_routes row has no upstream to be re-derived from (BUGS L46).
 //
 // It writes only paths it ships. A route the operator added at a path arizuko
 // does not ship is not in `routes`, so it is never read, rewritten or deleted.
@@ -124,7 +145,9 @@ func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err e
 				kept++
 				continue
 			}
-			r.Owner = RouteOwnerArizuko
+			if r.Owner == "" {
+				r.Owner = RouteOwnerArizuko
+			}
 			if err := putProxydRouteTx(tx, r); err != nil {
 				return audit.Event{}, fmt.Errorf("write route %q: %w", r.Path, err)
 			}

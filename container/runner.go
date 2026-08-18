@@ -1122,6 +1122,75 @@ func chownR(root string, uid, gid int) error {
 	return firstErr
 }
 
+// PackageSkillsDir is the instance-wide tree `arizuko packages install` writes a
+// package's `skills/<name>/` into, and `remove` deletes from. Nothing else
+// writes it, which is what makes the tree upstream-managed rather than the
+// operator's (spec 5/28 skills asset kind).
+func PackageSkillsDir(cfg *core.Config) string {
+	return filepath.Join(filepath.Dir(cfg.GroupsDir), "skills")
+}
+
+// SeedPackageSkills layers the instance's package skills into one group's
+// `~/.claude/skills/` and returns how many it wrote. Two callers: group setup,
+// and `arizuko generate` — which is what reaches a group that already existed
+// when the package was installed (BUGS L47).
+//
+// OVERWRITE, unlike the stock skills seedSkills lays down first, and the two
+// trees are why. A stock skill is `ours`: the operator may edit it, `/migrate`
+// 3-way merges the next release against `.merge-base`, and cpDirFresh must not
+// clobber the edit. A package skill has no `.merge-base` entry and no operator
+// authoring path — the package owns the directory NAME and `remove` deletes the
+// whole dir — so it is upstream-managed (`5/28` `managed: sync`) and a fix in the
+// package has to reach the group. Before this it could not: seedSkills ran only
+// at group creation, and cpDirFresh skipped every file that already existed, so
+// a package's skill froze at whatever content existed when each group was made.
+//
+// Two things the overwrite must NOT take with it, both already operator-owned:
+// a `.disabled` marker (the same escape hatch stock skills have, surfaced by
+// dashd's per-group skill toggle), and a name a stock skill already holds — the
+// package layer sits on top of the `ours` tree, so overwriting there would let a
+// package edit a shipped skill.
+func SeedPackageSkills(cfg *core.Config, folder string) (int, error) {
+	r := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
+	groupDir, err := r.GroupPath(folder)
+	if err != nil {
+		return 0, fmt.Errorf("invalid group folder: %w", err)
+	}
+	src := PackageSkillsDir(cfg)
+	pkgs, err := os.ReadDir(src)
+	if err != nil {
+		return 0, nil // no package ships a skill on this instance
+	}
+	stock := map[string]bool{}
+	if entries, serr := os.ReadDir(filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "skills")); serr == nil {
+		for _, e := range entries {
+			stock[e.Name()] = true
+		}
+	}
+	dst := filepath.Join(groupDir, ".claude", "skills")
+	var n int
+	for _, e := range pkgs {
+		if !e.IsDir() || !skillNameRe.MatchString(e.Name()) {
+			continue
+		}
+		if stock[e.Name()] {
+			slog.Warn("package skill shadows a shipped skill; not seeded",
+				"skill", e.Name(), "folder", folder)
+			continue
+		}
+		d := filepath.Join(dst, e.Name())
+		if _, err := os.Stat(filepath.Join(d, ".disabled")); err == nil {
+			continue
+		}
+		cpDirOverwrite(filepath.Join(src, e.Name()), d)
+		// generate usually runs as root while the agent runs as uid 1000; a
+		// skill file it cannot read is a skill it does not have.
+		warnChown(d)
+		n++
+	}
+	return n, nil
+}
+
 func seedSkills(cfg *core.Config, claudeDir, folder string) {
 	src := filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "skills")
 	dst := filepath.Join(claudeDir, "skills")
@@ -1159,17 +1228,8 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 		cpDirOverwrite(s, baseDir)
 	}
 
-	// Layer per-instance package skills (spec 5/28 skills asset kind): a package
-	// installs its skills into <datadir>/skills/<name>/ (sibling of GroupsDir);
-	// they seed into every group like stock skills. Additive + inert when no
-	// skills-package is installed (ReadDir errors → skip).
-	pkgSkills := filepath.Join(filepath.Dir(cfg.GroupsDir), "skills")
-	if pkgs, err := os.ReadDir(pkgSkills); err == nil {
-		for _, e := range pkgs {
-			if e.IsDir() && skillNameRe.MatchString(e.Name()) {
-				cpDirFresh(filepath.Join(pkgSkills, e.Name()), filepath.Join(dst, e.Name()))
-			}
-		}
+	if _, err := SeedPackageSkills(cfg, folder); err != nil {
+		slog.Warn("seed package skills", "folder", folder, "err", err)
 	}
 
 	mdSrc := filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "CLAUDE.md")

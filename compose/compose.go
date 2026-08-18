@@ -358,6 +358,10 @@ type ProxydRoute struct {
 	PreserveHeaders []string `json:"preserve_headers,omitempty"`
 	StripPrefix     bool     `json:"strip_prefix,omitempty"`
 	RedirectTo      string   `json:"redirect_to,omitempty"`
+	// Owner is who may rewrite the row (store.RouteOwner*). Generate stamps it
+	// from where the route came from — never from the manifest file, which a
+	// package writes (BUGS L46).
+	Owner string `json:"owner,omitempty"`
 }
 
 // coreProxydRoutes are the always-emitted routes for core daemons rendered
@@ -445,12 +449,65 @@ func collectProxydRoutes(servicesDir string, services []string, env map[string]s
 			return nil, err
 		}
 		for _, r := range routes {
+			// Checked HERE as well as at install because generate is the
+			// SECOND reader of the same manifest (one declaration, many
+			// readers): `packages upgrade` rewrites the fragment file without
+			// re-applying its rows, so a revision that added `/dash/` would
+			// otherwise reach proxyd_routes through this path alone (BUGS L46).
+			if claimed := ReservedRouteClaim(r.Path); claimed != "" {
+				return nil, fmt.Errorf("%s.yaml declares route %q, which claims the core surface %q; "+
+					"a package may not serve core arizuko's own paths (BUGS L46)", name, r.Path, claimed)
+			}
 			if gatedByOn(env, r.GatedBy) {
+				// The fragment's own name is the package's, so generate can
+				// re-derive the row without losing which package declared it.
+				// Stamped HERE rather than trusted from the file: a package
+				// that could write `owner` itself would pass as core-shipped
+				// or opt out of every later generate.
+				r.Owner = store.RouteOwnerPackage(name)
 				out = append(out, r)
 			}
 		}
 	}
 	return out, nil
+}
+
+// ReservedRoutePaths returns every path core arizuko serves from its own route
+// table — the ground a package may not claim (BUGS L46). Derived from
+// coreProxydRoutes so there is no second list to drift: a route added to the
+// core table is reserved from the same commit that ships it.
+//
+// Gates are deliberately ignored. A path core ships behind ONBOARDING_ENABLED
+// is core's whether the gate is on or not, and a package allowed to take it
+// while the gate was off would front-door the surface the moment an operator
+// turned it on.
+func ReservedRoutePaths() []string {
+	out := make([]string, 0, len(coreProxydRoutes))
+	for _, r := range coreProxydRoutes {
+		out = append(out, r.Path)
+	}
+	return out
+}
+
+// ReservedRouteClaim returns the core path that `path` would take over, or ""
+// when it claims none.
+//
+// proxyd matches the LONGEST prefix, with a trailing-slash path matching as a
+// prefix and a bare path exactly (proxyd/routes.go MatchRoute). So a package
+// takes core ground two ways: by declaring a core path verbatim (the row is
+// upserted by path, replacing core's backend), or by declaring anything INSIDE
+// a core prefix — `/dash/mine/` is longer than `/dash/`, so it wins and the
+// operator console answers from the package's backend.
+func ReservedRouteClaim(path string) string {
+	for _, reserved := range ReservedRoutePaths() {
+		if path == reserved {
+			return reserved
+		}
+		if strings.HasSuffix(reserved, "/") && strings.HasPrefix(path, reserved) {
+			return reserved
+		}
+	}
+	return ""
 }
 
 // ManifestRoutes reads one 5/8 manifest fragment and returns its proxyd_routes

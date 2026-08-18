@@ -146,7 +146,7 @@ func TestFailedInstallLeavesNoPartialRows(t *testing.T) {
 			"  - principal: 'folder:eng'\n    action: mcp:send\n    scope: eng\n    effect: allow\n"+
 			"    predicate: onbehalf=google:42\n")
 
-	if code := runPkgExpectingDeath(t, []string{"pf", "install", src}); code == 0 {
+	if code := runPkgExpectingDeath(t, []string{"pf", "install", src, "--folder", "eng/**"}); code == 0 {
 		t.Fatal("install with an unevaluable grant must fail")
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "services", "partpkg.yml")); err == nil {
@@ -183,7 +183,7 @@ func TestFailedInstallUnwindsWrittenFiles(t *testing.T) {
 		"acl:\n  - principal: '@late'\n    action: reply\n    scope: eng/*\n    effect: allow\n"+
 			"web_routes:\n  - path_prefix: /late/\n    access: public\n    folder: nosuchgroup\n")
 
-	if code := runPkgExpectingDeath(t, []string{"uw", "install", src}); code == 0 {
+	if code := runPkgExpectingDeath(t, []string{"uw", "install", src, "--folder", "eng/**"}); code == 0 {
 		t.Fatal("install naming a folder that is not a group must fail")
 	}
 
@@ -233,7 +233,7 @@ func TestRemoveReversesOnlyRecordedRows(t *testing.T) {
 	src := writePkg(t, base, "rvpkg",
 		"proxyd_routes:\n  - path: /rv/\n    backend: http://rvpkg:8080\n    auth: public\n"+
 			"acl:\n  - principal: '@rv'\n    action: reply\n    scope: eng/*\n    effect: allow\n")
-	cmdPackages([]string{"rv", "install", src})
+	cmdPackages([]string{"rv", "install", src, "--folder", "eng/**"})
 	cmdPackages([]string{"rv", "remove", "rvpkg"})
 
 	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
@@ -302,7 +302,7 @@ func TestPackageInstallPreservesGrantOption(t *testing.T) {
 
 	src := writePkg(t, base, "gopkg",
 		"acl:\n  - principal: '@other'\n    action: reply\n    scope: ops\n    effect: allow\n")
-	cmdPackages([]string{"go2", "install", src})
+	cmdPackages([]string{"go2", "install", src, "--folder", "ops"})
 
 	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {

@@ -17,6 +17,11 @@ func generateInstance(t *testing.T, env string) string {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_g")
+	// core.LoadConfigFrom pins DATA_DIR process-wide on its FIRST call and
+	// godotenv-Loads the instance .env into the process env, where compose's
+	// envOr reads it as a fallback. One CLI command is one process, so this
+	// only bites a test binary running many instances — pin it per test.
+	t.Setenv("DATA_DIR", dataDir)
 	if err := os.MkdirAll(filepath.Join(dataDir, "services"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +82,9 @@ func TestGenerateWritesProxydRoutes(t *testing.T) {
 // all: a path routed at a daemon this instance does not run answers 502 instead
 // of falling through to the static site.
 func TestGenerateSkipsGatedOffRoute(t *testing.T) {
+	// "unset" has to mean unset in the PROCESS too: compose's envOr falls back
+	// to os.Getenv, and an earlier test's .env reaches it through godotenv.Load.
+	t.Setenv("ONBOARDING_ENABLED", "")
 	dataDir := generateInstance(t, "WEB_PORT=8095\nWEBDAV_ENABLED=false\n")
 	generateCompose(dataDir)
 

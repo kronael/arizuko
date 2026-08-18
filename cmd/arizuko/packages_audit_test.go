@@ -95,7 +95,7 @@ func installGrantPkg(t *testing.T, osUser string) string {
 			"  - principal: '@ops'\n    action: admin\n    scope: eng/tts\n    effect: allow\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmdPackages([]string{"gaudit", "install", src})
+	cmdPackages([]string{"gaudit", "install", src, "--folder", "eng/**"})
 	return storeDir
 }
 

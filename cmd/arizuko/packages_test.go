@@ -500,7 +500,7 @@ func TestPackagesInstallGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmdPackages([]string{"gr", "install", src})
+	cmdPackages([]string{"gr", "install", src, "--folder", "eng/**"})
 
 	rdb, err := routd.Create(filepath.Join(dataDir, "store"))
 	if err != nil {

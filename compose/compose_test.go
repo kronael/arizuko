@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/store"
 )
 
 // seed writes a data dir with the given .env body and an empty services/.
@@ -240,7 +242,10 @@ func TestProxydRoutesAssembled(t *testing.T) {
 		t.Errorf("proxyd still carries PROXYD_ROUTES_JSON; got:\n%s", proxyd)
 	}
 	want := map[string]ProxydRoute{
-		"/slack/": {Path: "/slack/", Backend: "http://slakd:8080", Auth: "public", GatedBy: "SLACK_BOT_TOKEN"},
+		// A package's route carries the third owner value; a core route's stays
+		// unset so SyncProxydRoutes defaults it to arizuko (BUGS L46).
+		"/slack/": {Path: "/slack/", Backend: "http://slakd:8080", Auth: "public",
+			GatedBy: "SLACK_BOT_TOKEN", Owner: store.RouteOwnerPackage("slakd")},
 		// `optional`, not `public`: proxyd identifies a caller who offers a
 		// bearer so webd can attribute the message, and forwards everyone else
 		// anonymously with the transit proof (specs/6/22 step 1).

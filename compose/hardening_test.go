@@ -102,9 +102,11 @@ func TestProxydRoutesAcceptRedirectTo(t *testing.T) {
 	if err := os.MkdirAll(sd, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mustWrite(t, filepath.Join(sd, "x.yaml"),
-		"proxyd_routes:\n  - path: /x/\n    backend: http://x:8080\n    auth: public\n    redirect_to: /y/\n")
-	routes, err := collectProxydRoutes(sd, []string{"x"}, map[string]string{})
+	// The path has to be the package's OWN ground: `/x/` is a core surface, and
+	// a package declaring one is refused before redirect_to is parsed (L46).
+	mustWrite(t, filepath.Join(sd, "xpkg.yaml"),
+		"proxyd_routes:\n  - path: /xpkg/\n    backend: http://x:8080\n    auth: public\n    redirect_to: /y/\n")
+	routes, err := collectProxydRoutes(sd, []string{"xpkg"}, map[string]string{})
 	if err != nil {
 		t.Fatal(err)
 	}

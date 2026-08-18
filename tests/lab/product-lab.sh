@@ -218,7 +218,7 @@ network_rules:
 YAML
 # The summary names every grant: files and routes are inert until `generate`,
 # a grant is live the moment it lands, so it is named and not counted (BUGS L36).
-inst=$("$BIN" packages "$INST" install "$PKG" 2>/dev/null)
+inst=$("$BIN" packages "$INST" install "$PKG" --folder main 2>/dev/null)
 printf '%s\n' "$inst" | tail -2 | sed 's/^/   /'
 case "$inst" in
   *"folder:main mcp:send on main"*) ok "install summary names the grant it applied" ;;

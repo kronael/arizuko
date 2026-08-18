@@ -168,6 +168,9 @@ func generateCompose(dataDir string) string {
 	// file so a `docker compose up` never starts proxyd against a table this
 	// run failed to reconcile.
 	syncProxydRoutes(dataDir, routes)
+	// The other half a package installs that no group creation will ever reach
+	// again: its skills, into the groups that already exist (BUGS L47).
+	syncPackageSkills(dataDir)
 	outPath := filepath.Join(dataDir, "docker-compose.yml")
 	// Atomic write: tempfile in the same dir + rename. Prevents a partial
 	// YAML on mid-write crash (which would break `docker compose up`).

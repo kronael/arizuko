@@ -46,12 +46,12 @@ One manifest, and it is the **shipped `PRODUCT.md`** (`5/21`) — NOT a second
 `package.yaml`. A package declares any SUBSET of asset kinds (no
 `skill|agent|sidecar` type enum — presence of an asset is the behaviour):
 
-| Asset kind       | What it is                                                    | Owner handler                                     |
-| ---------------- | ------------------------------------------------------------- | ------------------------------------------------- |
-| skills           | `skills/<name>/` → `<datadir>/skills/`, layered by seedSkills | `seedSkills` (+ `/migrate` 3-way merge for stock) |
-| compose fragment | `<name>.yml`, docker's format, included verbatim              | `5/27` (a file)                                   |
-| config manifest  | `<name>.yaml`, a `5/8` manifest document                      | `resreg.Apply` via `arizuko apply`'s own path     |
-| image extension  | `Dockerfile.ant` (`FROM arizuko-ant` + system deps)           | operator builds explicitly, never automatic       |
+| Asset kind       | What it is                                                       | Owner handler                                                      |
+| ---------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------ |
+| skills           | `skills/<name>/` → `<datadir>/skills/`, layered into every group | `container.SeedPackageSkills` (+ `/migrate` 3-way merge for stock) |
+| compose fragment | `<name>.yml`, docker's format, included verbatim                 | `5/27` (a file)                                                    |
+| config manifest  | `<name>.yaml`, a `5/8` manifest document                         | `resreg.Apply` via `arizuko apply`'s own path                      |
+| image extension  | `Dockerfile.ant` (`FROM arizuko-ant` + system deps)              | operator builds explicitly, never automatic                        |
 
 **Rows are one asset kind, not one per table.** A package used to declare
 grants in `<name>-grants.json` and routes in `<name>-routes.json`, each with
@@ -82,6 +82,51 @@ egress, and grants stay platform-set regardless of image, so the trust
 decision is supply-chain, made once, explicitly, by the operator building
 it. **Never** package-modifiable: daemons, cross-folder grants, host
 `connectors.toml`, platform settings keys.
+
+**A package's authority is what the operator handed it.** Install applied
+whatever a package declared until `L46` (signed off 2026-08-17), which is
+supply-chain equivalence with handing over the instance while the summary read
+as routine. Three bounds, all checked in `parsePkgManifests` — the one place a
+package's rows enter — before the first byte is written:
+
+- **Core route paths are reserved.** A package may not declare a path core
+  arizuko serves, nor one inside a core prefix: proxyd takes the longest prefix,
+  so `/dash/mine/` front-doors the operator console. The reserved set is DERIVED
+  from `compose.coreProxydRoutes` (`compose.ReservedRoutePaths`), gates ignored,
+  so a route added to a release is reserved by the same commit. `generate` is the
+  second reader of the same manifest and applies the same rule, because
+  `upgrade` rewrites a fragment without re-applying its rows.
+- **Grants are bounded by `--folder`.** `arizuko packages <instance> install
+  <source> [--folder <scope>]...` names the ground the package may grant within.
+  `**` and `*` are refused whatever the operator named — operator-ness is
+  emergent from exactly such a row — and every other scope must be a subset of
+  the bound, decided by `auth.MatchGroups`, the one folder-containment matcher
+  (`5/33` decision 8). No `--folder` is a bound of NOTHING, not a bound of
+  everything: a package declaring any grant is refused, naming the flag it needs.
+- **`owner` is stamped, never declared.** A package's `proxyd_routes` rows are
+  `owner = package:<name>` (`store.RouteOwnerPackage`); a manifest that sets
+  `owner` itself is refused. `arizuko` would let the row pass as core-shipped and
+  `operator` would opt it out of every later generate, so an upgraded package
+  could not correct its own route. `package:*` falls on the ARIZUKO side of
+  `SyncProxydRoutes` — rewritten every run, keeping its attribution — because
+  generate re-derives it from the package's own fragment. The operator side stays
+  the only hands-off one: only an operator's `/v1/proxyd_routes` row has no
+  upstream to be re-derived from.
+
+**A package skill is delivered by `generate`, and it OVERWRITES.** The seeder
+ran only at group creation, so a package's skill reached a group only if the
+package was installed before that group existed, and the copy skipped files that
+were already there, so no later revision could update one — while every package
+verb printed "run `arizuko generate` to apply" (`L47`, signed off 2026-08-17).
+`generate` now layers `<datadir>/skills/<n>/` into EVERY existing group, and the
+package layer overwrites where the stock layer beneath it does not. The two trees
+differ in who owns them: a stock skill is `ours` — the operator edits it and
+`/migrate` 3-way merges the next release against `.merge-base` — while
+`<datadir>/skills/` is written only by install and deleted only by remove, has no
+merge-base entry, and the package owns the directory NAME. Two things the
+overwrite does not take: a group's `.disabled` marker (dashd's per-group toggle,
+the same escape hatch stock skills have) and a name a shipped skill already
+holds.
 
 A **group seed is NOT a package-install asset** — a package installs
 instance-wide, but seeding a group is inherently create-a-specific-group.

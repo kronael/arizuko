@@ -938,7 +938,10 @@ func TestPersonaAndSystemMdMissing(t *testing.T) {
 func TestSeedSkillsPackageLayer(t *testing.T) {
 	dataDir := t.TempDir()
 	appDir := t.TempDir()
-	claudeDir := t.TempDir()
+	// The group's own .claude, not a free-standing dir: the package layer
+	// resolves it from the folder, so a test that passed an unrelated path was
+	// asserting on a placement the real caller never produces.
+	claudeDir := filepath.Join(dataDir, "groups", "g", ".claude")
 	if err := os.MkdirAll(filepath.Join(appDir, "ant", "skills"), 0o755); err != nil {
 		t.Fatal(err)
 	}

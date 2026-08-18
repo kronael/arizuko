@@ -226,6 +226,35 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L50 — LoadConfigFrom leaks one instance's .env into the process (2026-08-18, found while fixing L47)
+
+`core.LoadConfigFrom` (`core/config.go:185`) does two things a loader should not:
+
+- `godotenv.Load(dir/.env)` writes every var of THAT instance's `.env` into the
+  process env, and nothing ever unsets them;
+- `os.Setenv("DATA_DIR", dir)` fires only when `DATA_DIR` is empty, so the FIRST
+  instance a process touches pins the data root for every later call.
+
+`compose.envOr` (`compose/compose.go:1344`) falls back to `os.Getenv`, so the
+leaked vars become silent fallbacks for a LATER `compose.Generate` — a route
+gated on `ONBOARDING_ENABLED` can be emitted for an instance whose own `.env`
+never mentions it.
+
+Not currently reachable in production: one CLI command is one process, one
+instance. It is reachable the moment anything loops over instances in-process,
+and it is already reachable in the test binary — wiring `syncPackageSkills`
+(`L47`) into `generate` made `TestGenerateSkipsGatedOffRoute` fail from a
+neighbouring test's `.env`. Worked around there by pinning `DATA_DIR` and
+`ONBOARDING_ENABLED` per test, which is a test fix, not the cause fix.
+
+Cause fix (redesign, needs sign-off): a non-mutating loader — read the `.env`
+into a map like compose already does, resolve the Config from it, and let a
+caller that genuinely wants process env opt in. Touches every `LoadConfigFrom`
+caller, so it is a contract change, not an inline patch.
+
+Recorded, not fixed (Bug Triage Protocol).
+
+
 ## L49 — proposal: an LLM gateway, so the container never holds the real model key (2026-08-18, operator's idea, needs sign-off)
 
 **Today the agent container holds the real provider key.** `ANTHROPIC_API_KEY`
@@ -405,7 +434,7 @@ Not considered in `6/8`, `6/9` or `6/20`. Worth costing before any further work
 on the registry, because it would delete the registry rather than improve it.
 
 
-## L47 — a package's skills never reach a group that already existed (2026-08-17, found by the frozen-config sweep)
+## L47 — a package's skills never reach a group that already existed (2026-08-17, FIXED)
 
 `seedSkills` (`container/runner.go:1125`) copies a package's `skills/<n>/` into a
 group's `~/.claude/skills/`. It has exactly one non-test caller:
@@ -448,17 +477,37 @@ Untested as well as unnoticed: `TestSeedSkillsPackageLayer`
 (`container/container_test.go:938`) calls `seedSkills` directly and proves only
 the first copy. The update-into-an-existing-group case has no test.
 
-Proposal (needs sign-off): `generate` reseeds package skills for every existing
-group, using overwrite-not-fresh semantics for package-owned skill directories
-(they are upstream-managed per `5/28`; operator edits belong to `ours`, which is
-a different tree). Alternatively wire it to the same `MIGRATION_VERSION` signal
-stock skills already use, so a stale group announces itself instead of going
-quiet.
+**SIGNED OFF 2026-08-17, fixed 2026-08-18.** `generate` reseeds package skills
+into every existing group (`cmd/arizuko/skills.go:syncPackageSkills`, the
+delivery half that `syncProxydRoutes` is for routes), and the package layer is
+extracted out of `seedSkills` into `container.SeedPackageSkills` so both callers
+run ONE implementation. `MIGRATION_VERSION` was not used: that signal announces
+staleness to the agent and asks it to merge, which is right for `ours` content
+and wrong here — nothing needs merging when the operator owns no copy.
 
-Recorded, not fixed — found during a sweep (Bug Triage Protocol).
+The overwrite boundary, verified before choosing it rather than assumed:
+`<datadir>/skills/<n>/` is written ONLY by `packages install` and deleted only by
+`remove` — no operator authoring path, no `.merge-base` entry, so `/migrate`
+never touches it and the package owns the directory NAME. That makes it
+upstream-managed (`5/28` `managed: sync`) and `cpDirOverwrite` correct for it.
+`cpDirFresh` is unchanged and still guards the stock `ours` tree beside it.
+
+Two guards the overwrite needed, neither in the original entry:
+
+- **`.disabled` is honoured**, as it is for stock skills. dashd's per-group skill
+  toggle already writes the marker for package skills and nothing acted on it;
+  under skip-existing that was merely ineffective, under overwrite it would have
+  made disabling impossible.
+- **a package skill whose name a shipped skill holds is skipped, loudly.** The
+  package layer copies into the same `.claude/skills/` tree, so overwrite alone
+  would let a package edit a shipped skill — a shadowing hole skip-existing had
+  been hiding.
+
+`TestSeedSkillsPackageLayer` was also asserting on a placement the real caller
+never produces (a free-standing `claudeDir`, not the group's own); corrected.
 
 
-## L46 — a package may grant itself operator authority and claim core routes (2026-08-17, found in review)
+## L46 — a package may grant itself operator authority and claim core routes (2026-08-17, FIXED)
 
 `arizuko packages install <git-url>` applies a package's declared grants and
 routes with **no bound on what it may ask for**.
@@ -493,19 +542,38 @@ installing a package is equivalent to handing over the instance.
 core arizuko and core packages. A package's authority must be bounded by what
 the operator granted THE PACKAGE, never by what the package asks for.
 
-Proposal (needs sign-off):
+**SIGNED OFF 2026-08-17, fixed 2026-08-18.** All three bounds land in
+`parsePkgManifests` — the one place a package's rows enter the instance — before
+the first byte is written, so a refusal leaves no partial state (the `L44`
+guarantee). Spec `5/28` §"A package's authority is what the operator handed it".
 
-1. **Reserved route paths.** A package may not claim `/dash/`, `/chat/`,
-   `/hook/`, `/mcp`, `/v1/`, `/onboard`, `/me` or any other core-shipped prefix.
-   Install fails loudly naming the path.
-2. **Bounded grant scope.** A package may not declare `**` or `*`, nor any scope
-   outside the folder(s) the operator named at install time. Subset-of-held is
-   already the delegation model (`5/33`) — apply it here.
-3. **A third owner value.** Package rows are `owner = "package:<name>"`, never
-   `arizuko` or `operator`, and the decoder rejects the other two rather than
-   accepting them leniently. Closes the `L45` hole in the same change.
+1. **Reserved route paths.** `compose.ReservedRoutePaths` DERIVES the set from
+   `coreProxydRoutes` (no second list to drift) and `ReservedRouteClaim` applies
+   proxyd's own matching rule, so `/dash/mine/` is refused as well as `/dash/` —
+   longest-prefix wins, so a sub-path front-doors the console. Gates are ignored:
+   `/onboard` is core's whether ONBOARDING_ENABLED is on or not.
+2. **Bounded grant scope.** `install` takes `--folder <scope>` (repeatable). `**`
+   and `*` are refused whatever the operator named; every other scope must be a
+   subset of the bound, decided by `auth.MatchGroups` — the one containment
+   matcher — applied to witness paths, since both sides are patterns. No
+   `--folder` is a bound of NOTHING, so a package declaring a grant is refused
+   with the flag it needs.
+3. **A third owner value.** `store.RouteOwnerPackage(name)` → `package:<name>`,
+   stamped by install and by generate; a manifest declaring `owner` is refused.
+   `package:*` is rewritten by `SyncProxydRoutes` like an arizuko row (generate
+   re-derives it from the package's fragment) but keeps its attribution — only
+   the operator's own row stays hands-off.
 
-Recorded, not fixed — found during a general check (Bug Triage Protocol).
+Two corrections to this entry, found while implementing:
+
+- `applyPackageGrants` / `applyPackageRoutes` no longer exist — `L44` replaced
+  them with `parsePkgManifests` + the apply engine. The substance held.
+- `/v1/` is NOT in `coreProxydRoutes`, so the derived reserved set does not cover
+  it, nor the prefixes proxyd hand-wires before `MatchRoute` (`/pub/`, `/auth/`,
+  `/health`, `/`). A package route there is dead rather than a hijack — proxyd
+  dispatches those first — so it is a truthfulness gap, not an authority one.
+  Closing it needs those prefixes declared somewhere derivable; a hardcoded
+  second list in `compose` is the wrong answer. Not fixed here.
 
 
 ## L45 — proxyd routes shipped in a release never reach an existing instance (2026-08-17, FIXED)

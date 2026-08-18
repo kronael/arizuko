@@ -11,10 +11,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/compose"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
@@ -45,6 +47,40 @@ var baseDaemons = map[string]bool{
 	"authd": true, "routd": true, "runed": true, "proxyd": true, "webd": true,
 	"vited": true, "timed": true, "onbod": true, "davd": true, "dashd": true,
 	"crackbox": true,
+}
+
+// parseInstallFlags splits `install`'s args into the source and the grant bound
+// the operator handed the package: `--folder <scope>`, repeatable.
+//
+// A package's authority is what the OPERATOR named, never what the package asks
+// for (BUGS L46), and this is where the operator names it. No `--folder` is not
+// "unbounded" — it is a bound of nothing, so a package declaring any grant is
+// refused with the flag it needs. A package declaring no grant needs no flag.
+func parseInstallFlags(args []string, usage string) (origin string, bound []string) {
+	var rest []string
+	for i := 0; i < len(args); i++ {
+		name, val, inline := strings.Cut(args[i], "=")
+		switch name {
+		case "--folder", "-folder":
+			if !inline {
+				i++
+				if i >= len(args) {
+					die("Failed: --folder needs a scope\n%s", usage)
+				}
+				val = args[i]
+			}
+			if val == "" {
+				die("Failed: --folder needs a scope\n%s", usage)
+			}
+			bound = append(bound, val)
+		default:
+			rest = append(rest, args[i])
+		}
+	}
+	if len(rest) != 1 {
+		die("Failed: install takes exactly one source\n%s", usage)
+	}
+	return rest[0], bound
 }
 
 // mustPkgName rejects a package name that could escape services/.
@@ -180,6 +216,93 @@ func checkGrantPredicate(row resources.ACLRow) error {
 		row.Principal, row.Action, row.Predicate)
 }
 
+// checkGrantScope refuses a grant scope a package may not ask for (BUGS L46).
+//
+// Two rules. `**` and `*` are refused whatever the operator named: operator-ness
+// in arizuko is emergent from exactly such a row — there is no operator role to
+// check against — so a package able to declare one hands itself the instance.
+// Every other scope must lie inside the folder(s) the operator named at install.
+// That is subset-of-held, the delegation model `5/33` already applies to a
+// person re-granting: a package holds only what it was handed, and an empty
+// bound holds nothing.
+func checkGrantScope(bound []string, row resources.ACLRow) error {
+	switch row.Scope {
+	case "**", "*":
+		return fmt.Errorf("grant %s %q declares scope %q, which reaches every folder — "+
+			"instance-wide authority is not a package's to ask for (spec 5/33, BUGS L46)",
+			row.Principal, row.Action, row.Scope)
+	case "":
+		return fmt.Errorf("grant %s %q declares no scope, and an unscoped row is not a bounded one",
+			row.Principal, row.Action)
+	}
+	if len(bound) == 0 {
+		return fmt.Errorf("grant %s %q declares scope %q, but this install named no folder — "+
+			"re-run with --folder <scope> to hand the package the ground it may grant within (BUGS L46)",
+			row.Principal, row.Action, row.Scope)
+	}
+	if !scopeWithin(bound, row.Scope) {
+		return fmt.Errorf("grant %s %q declares scope %q, which reaches outside the installed bound %s",
+			row.Principal, row.Action, row.Scope, strings.Join(bound, ", "))
+	}
+	return nil
+}
+
+// scopeWithin reports whether every folder `scope` can reach is also covered by
+// `bound`.
+//
+// `auth.MatchGroups` answers pattern-against-PATH and both sides here are
+// patterns, so the package's scope is turned into the paths hardest for a bound
+// to cover — its witnesses — and each is put through that one matcher.
+// Containment is still decided in exactly one place (5/33 decision 8); this
+// only chooses what to ask it.
+func scopeWithin(bound []string, scope string) bool {
+	if slices.Contains(bound, scope) {
+		return true // what the operator wrote verbatim needs no witness
+	}
+	for _, w := range scopeWitnesses(bound, scope) {
+		if !auth.MatchGroups(bound, w) {
+			return false
+		}
+	}
+	return true
+}
+
+// scopeWitnessSeg is a path segment no folder can equal (folder names are
+// validated by groupfolder), so a literal bound segment cannot match it while a
+// wildcard one can — which is exactly the distinction a subset test needs.
+const scopeWitnessSeg = "\x00"
+
+// scopeWitnesses returns concrete paths `scope` matches, chosen so a bound that
+// covers all of them covers the whole pattern. Every wildcard segment becomes a
+// sentinel, and `**` is expanded BOTH to nothing and to one segment deeper than
+// the longest bound — so `eng/**` fails a bound of `eng/*` (it reaches deeper)
+// and fails a bound of `eng/*` at the shallow end too (it also covers `eng`),
+// while `eng/*` passes a bound of `eng/**`.
+func scopeWitnesses(bound []string, scope string) []string {
+	depth := 1
+	for _, b := range bound {
+		if n := len(strings.Split(b, "/")); n >= depth {
+			depth = n + 1
+		}
+	}
+	var shallow, deep []string
+	for _, seg := range strings.Split(scope, "/") {
+		switch {
+		case seg == "**":
+			for i := 0; i < depth; i++ {
+				deep = append(deep, scopeWitnessSeg)
+			}
+		case strings.ContainsAny(seg, "*?["):
+			shallow = append(shallow, scopeWitnessSeg)
+			deep = append(deep, scopeWitnessSeg)
+		default:
+			shallow = append(shallow, seg)
+			deep = append(deep, seg)
+		}
+	}
+	return []string{strings.Join(shallow, "/"), strings.Join(deep, "/")}
+}
+
 // describeGrant is the operator-facing line for one applied grant: WHO may do
 // WHAT, WHERE. A bare count hides the fact the install handed somebody admin on
 // a folder — the same reason the audit row names every row it wrote (BUGS
@@ -220,8 +343,13 @@ type pkgFragment struct {
 // install touches the instance.
 //
 // acl rows are stamped `granted_by = package:<name>` whatever the file says, so
-// the row itself names where the authority came from and `remove` can find it.
-func parsePkgManifests(name, dir string, files []string) []pkgFragment {
+// the row itself names where the authority came from and `remove` can find it,
+// and proxyd_routes rows `owner = package:<name>` for the same reason.
+//
+// This is the one place a package's rows enter the instance, so it is also where
+// a package is held to what the operator handed it: no core route path, no scope
+// outside `bound`, no self-chosen owner (BUGS L46).
+func parsePkgManifests(name, dir string, files []string, bound []string) []pkgFragment {
 	bySubsystem := map[string]map[string]any{}
 	var order []string
 	for _, n := range files {
@@ -258,8 +386,11 @@ func parsePkgManifests(name, dir string, files []string) []pkgFragment {
 					die("Failed: %s declares %s, which `apply` never writes — it is managed "+
 						"imperatively (spec 5/8 §Secret safety); the rows would install as a silent no-op", n, res)
 				}
-				if res == resources.ACLName {
-					rows = stampPkgGrants(name, n, rows)
+				switch res {
+				case resources.ACLName:
+					rows = stampPkgGrants(name, n, bound, rows)
+				case resources.ProxydRoutesName:
+					rows = stampPkgRoutes(name, n, rows)
 				}
 				merged, merr := r.MergeRows(bySubsystem[subsystem][res], rows)
 				if merr != nil {
@@ -278,8 +409,9 @@ func parsePkgManifests(name, dir string, files []string) []pkgFragment {
 }
 
 // stampPkgGrants sets granted_by on every acl row a package declares and
-// refuses the ones the agent socket could never evaluate.
-func stampPkgGrants(name, file string, rows any) any {
+// refuses the ones the agent socket could never evaluate or the operator never
+// handed it.
+func stampPkgGrants(name, file string, bound []string, rows any) any {
 	grants, ok := rows.([]resources.ACLRow)
 	if !ok {
 		die("Failed: %s: acl rows have unexpected type %T", file, rows)
@@ -288,9 +420,40 @@ func stampPkgGrants(name, file string, rows any) any {
 		if err := checkGrantPredicate(grants[i]); err != nil {
 			die("Failed: %s: %v", file, err)
 		}
+		if err := checkGrantScope(bound, grants[i]); err != nil {
+			die("Failed: %s: %v", file, err)
+		}
 		grants[i].GrantedBy = "package:" + name
 	}
 	return grants
+}
+
+// stampPkgRoutes sets owner on every proxyd route a package declares, refuses
+// the ones that claim core arizuko's own surfaces, and refuses a package that
+// names its own owner (BUGS L46).
+//
+// The owner is stamped, never read from the file: `arizuko` would let the row
+// pass as core-shipped, and `operator` would opt it out of every later generate
+// so an upgraded package could not correct its own route — the hole L45 left
+// open deliberately.
+func stampPkgRoutes(name, file string, rows any) any {
+	routes, ok := rows.([]resources.ProxydRoutesRow)
+	if !ok {
+		die("Failed: %s: proxyd_routes rows have unexpected type %T", file, rows)
+	}
+	owner := store.RouteOwnerPackage(name)
+	for i := range routes {
+		if routes[i].Owner != "" {
+			die("Failed: %s: route %q declares owner %q — a package never names its own owner; "+
+				"install stamps %q (BUGS L46)", file, routes[i].Path, routes[i].Owner, owner)
+		}
+		if claimed := compose.ReservedRouteClaim(routes[i].Path); claimed != "" {
+			die("Failed: %s: route %q claims the core surface %q — a package may not serve "+
+				"core arizuko's own paths (BUGS L46)", file, routes[i].Path, claimed)
+		}
+		routes[i].Owner = owner
+	}
+	return routes
 }
 
 // pkgSubsystemStores opens one *store.Store per named subsystem. routd is
@@ -527,9 +690,10 @@ func copyTree(src, dst string) error {
 
 // applyPackageSkills installs a package's `skills/<name>/` dirs into the
 // per-instance `<datadir>/skills/<name>/` (spec 5/28 skills asset kind), which
-// seedSkills layers into every group. Returns the installed skill names for the
-// record. Instance-wide by design (like stock skills); per-agent targeting is a
-// future refinement.
+// `generate` layers into every EXISTING group — not just the ones created after
+// this install, which was every group a package skill could reach before BUGS
+// L47. Returns the installed skill names for the record. Instance-wide by design
+// (like stock skills); per-agent targeting is a future refinement.
 func applyPackageSkills(dataDir, dir string) []string {
 	src := filepath.Join(dir, "skills")
 	entries, err := os.ReadDir(src)
@@ -651,7 +815,8 @@ func listFragments(dir string) []string {
 // bundled catalog into <dataDir>/services/. `arizuko generate` includes every
 // fragment it finds there.
 func cmdPackages(args []string) {
-	usage := "arizuko packages <instance> list | add <name> | install <source-dir> | upgrade <name> | sync | remove <name>"
+	usage := "arizuko packages <instance> list | add <name> | install <source-dir> [--folder <scope>]... | " +
+		"upgrade <name> | sync | remove <name>"
 	need(args, 2, usage)
 	dataDir := mustInstanceDir(args[0])
 	tmplDir := packageTemplates(dataDir)
@@ -732,8 +897,7 @@ func cmdPackages(args []string) {
 		// who owns the format: `<name>.yml` is docker's compose fragment,
 		// `<name>.yaml` is arizuko's 5/8 manifest — grants, routes, tasks,
 		// network rules, web routes — applied through `apply`'s own engine.
-		need(args, 3, usage)
-		origin := args[2]
+		origin, bound := parseInstallFlags(args[2:], usage)
 		name := packageName(origin)
 		mustPkgName(name)
 		dir, revision, cleanup := fetchSource(origin)
@@ -744,9 +908,10 @@ func cmdPackages(args []string) {
 		}
 		// Parse and validate the whole manifest BEFORE a byte is written: a
 		// package installs whole or not at all, and every refusal this path can
-		// raise (unknown resource, bad row field, inert grant predicate) belongs
-		// on the near side of the first write.
-		frags := parsePkgManifests(name, dir, files)
+		// raise (unknown resource, bad row field, inert grant predicate, a grant
+		// wider than --folder, a route on core ground) belongs on the near side
+		// of the first write.
+		frags := parsePkgManifests(name, dir, files, bound)
 		if err := os.MkdirAll(svcDir, 0o755); err != nil {
 			die("Failed: mkdir services: %v", err)
 		}
