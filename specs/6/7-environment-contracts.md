@@ -123,19 +123,14 @@ rather than a hypothetical one.
 
 ## The component contract
 
-What a daemon gets, and what it must provide in return. Every item ships
-already — this is a statement of what is true, not a proposal.
-
-| Provided                            | Required                                                                |
-| ----------------------------------- | ----------------------------------------------------------------------- |
-| a per-owner DB directory            | own and migrate your schema; touch no other DB                          |
-| compose generation + env            | listen on `:8080`, always                                               |
-| `obs` (audit_log / journald / OTLP) | `defer obs.Setup(name, instance)()` in `main()`                         |
-| `resreg` two-face registration      | a management entity is a resource, not a bespoke tool                   |
-| an injected authz `Gate`            | bind every `jid`/`folder`/`run_id` param to the caller's folder         |
-| a compose fragment slot             | ship `template/services/<name>.yml`; no edit to proxyd or the generator |
-|                                     | mount `GET /openapi.json`, public, before auth                          |
-|                                     | write an `audit_log` row in the mutation's own tx                       |
+The eight rules a daemon owes — own and migrate your own schema, listen on
+`:8080`, `obs.Setup` in `main()`, register a management entity as a resource,
+bind every `jid`/`folder`/`run_id` to the caller, ship a compose fragment, mount
+a public `/openapi.json`, write the audit row in the mutation's own tx — are
+stated in root `CLAUDE.md` and are NOT restated here. They were, and a table
+that duplicates a rule is a second copy to drift. `CLAUDE.md` is the one a
+developer reads; this spec says who the rules are FOR and how conformance is
+checked.
 
 ### Who this contract is for — capabilities federate, infrastructure conforms
 
