@@ -285,6 +285,27 @@ not.** Two reasons:
 The credential and the lifetime become the same scope, which is what makes the
 injection half safe rather than merely possible.
 
+**Shape, measured (2026-08-18).** Running one per turn means it must be tiny,
+and it nearly is already. `pkg/proxy` is 638 non-test lines — `peek.go` 279 (SNI
+extraction, the hard part), `proxy.go` 164 (CONNECT + HTTP splice),
+`transparent.go` 106 and `origdst_*.go` 89 (transparent mode). The registry
+coupling is one constructor parameter, `func New(allow *admin.Registry)`; for a
+single-tenant proxy that becomes a plain allowlist.
+
+Drop transparent mode — a sidecar does not need it, the container gets
+`HTTP_PROXY` pointing at its own proxy, so nothing is intercepted — and the
+whole thing is **peek + splice + match, roughly 450 lines.**
+
+So: SHRINK rather than adopt. tinyproxy is smaller in C, but not smaller
+operationally once a config renderer and a second build language are counted,
+and it does nothing the 450 lines cannot. Go suits the per-turn model —
+millisecond start, a few MB resident.
+
+It also improves the "ship one component to a stranger" story (`6/16`): a
+450-line single-tenant proxy with a static allowlist can be read in an afternoon
+and trusted. A 2,400-line system with a registry, an admin API and a source-IP
+trust model cannot.
+
 Not considered in `6/8`, `6/9` or `6/20`. Worth costing before any further work
 on the registry, because it would delete the registry rather than improve it.
 
