@@ -13,7 +13,7 @@ skills  = ["diary", "recall-memories", "users", "issues", "find", "bash", "commi
 # 1. Build the binary + agent image (make build; sudo make images; sudo make agent).
 # 2. Set the .env keys below (ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, WEB_HOST).
 # 3. Open AWS egress for the group. One entry covers every regional
-#    endpoint — crackbox matches subdomains (crackbox/pkg/match/match.go):
+#    endpoint — the egress proxy matches subdomains (egress/match/match.go):
 #      arizuko network <instance> allow main amazonaws.com
 #      arizuko network <instance> allow main pypi.org
 #      arizuko network <instance> allow main files.pythonhosted.org

@@ -50,7 +50,7 @@ The user opens it by dragging onto excalidraw.com.
 
 The bundled script encrypts and uploads to excalidraw.com (no account)
 and prints a shareable URL. Requires the `cryptography` package and
-`excalidraw.com` on your crackbox egress allowlist:
+`excalidraw.com` on your egress allowlist:
 
 ```bash
 uv pip install --system cryptography -q

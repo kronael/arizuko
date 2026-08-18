@@ -26,7 +26,7 @@ REST APIs (need egress), or a pure-Unicode fallback. No API keys required.
   NOT — install per-turn as shown, or fall back to a remote API or the
   Unicode palette (Tool 9).
 - Remote APIs (`asciified.thelicato.io`, `ascii.co.uk`, `qrenco.de`,
-  `wttr.in`) need the host on your crackbox egress allowlist. A 403 on
+  `wttr.in`) need the host on your egress allowlist. A 403 on
   every path = host not allowed, not the API being down — ask root/world
   to `network_allow` it, or use a local tool instead.
 - Run commands with `Bash`. Deliver multi-line art with `send_file` (a

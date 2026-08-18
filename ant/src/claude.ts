@@ -303,7 +303,7 @@ export class ClaudeSession {
           // No allowedTools allowlist: under bypassPermissions every tool is
           // available with no prompt (allowedTools is only an auto-approve hint,
           // not a restriction). arizuko gates side effects at the gated MCP
-          // socket + crackbox egress, never Claude Code's permission layer.
+          // socket + the egress proxy, never Claude Code's permission layer.
           // sandbox off for the same reason — the container IS the sandbox.
           sandbox: { enabled: false },
           env: cfg.env,

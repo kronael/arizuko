@@ -62,7 +62,7 @@ Both pick up `AWS_*` from the environment automatically. Resolve
 You run default-deny. You can reach `amazonaws.com` (every regional
 endpoint via subdomain match) plus whatever hosts the operator
 allowlisted, and nothing else. A host that 403s on EVERY path is
-crackbox refusing it, not the target's auth gate. If you need an API
+the egress proxy refusing it, not the target's auth gate. If you need an API
 that is not on the list (a status page, a third-party monitor), don't
 keep retrying — file it via `/issues` with the exact host, or tell the
 operator the `network_allow` command. This is a feature: an AWS agent

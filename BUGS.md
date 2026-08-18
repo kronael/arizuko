@@ -250,9 +250,12 @@ unrevokable by its documented command unless the operator happens to know to
 pass the owner folder as a second argument. A token that cannot be revoked is a
 standing credential.
 
-**This is the [identity_derived_not_read] class**: the owner folder is a
-column on the `route_tokens` row (`owner_folder`), and the command parses it out
-of the JID instead of reading it. The cause fix reads the row — `RevokeRouteToken`
+**This is the [identity_derived_not_read] class**, and it is a leftover of the
+fix that already closed the same class elsewhere: migration `200` added
+`target_folder` and states "nothing parses it back out of the JID any more".
+The mint stopped parsing; `revoke` did not. The owner folder is a column on the
+`route_tokens` row (`owner_folder`), and the command parses it out of the JID
+instead of reading it. The cause fix reads the row — `RevokeRouteToken`
 already looks the token up, so the folder need not be supplied at all when the
 caller is the operator CLI. Do NOT "fix" `JidFolder` to strip a segment: `web:`
 JIDs for folder-level chats have no suffix, so stripping would break the
