@@ -79,6 +79,38 @@ question to answer. It does not require MITM either; a forward proxy
 reads the destination from the CONNECT line whether its rules are fixed
 or changing.
 
+## Two substrates, one design
+
+The per-spawn proxy is not Docker-shaped. Where it ATTACHES differs; what
+it is does not.
+
+**Container (today).** Start the proxy container first, then the agent
+with `--network container:<proxy>` — Docker's own pod primitive, already
+one flag away since `container/runner.go:700` passes `--network`. The
+agent borrows the proxy's network namespace, so it has no interface of
+its own and no second path to take. Isolation is a Linux namespace: the
+kernel is shared, and a kernel escape defeats it.
+
+**VM (`6/9`, shipped but unwired).** A guest has exactly one virtual NIC —
+a tap the host created. Put the proxy on the host side of that tap and
+the guest's only route is through it, enforced below the kernel it runs.
+Stronger than the namespace case by a category, not a degree.
+
+**The VM case is also the simpler one**: there is nothing to register,
+because the tap IS the identity. A registry exists to answer "which
+tenant is this source IP?", and that question does not arise when the
+answer is "the one on the other end of this tap".
+
+Note `crackbox/pkg/host` already carries `EgressProxy` and registers the
+VM with the shared registry on spawn (`host.go:104`), unregistering on
+stop — so **the KVM path inherits the same unregister leak** described
+above. Per-spawn removes it on both substrates.
+
+Wiring KVM into `runed` is separate work and out of scope here: `runed`
+spawns Docker today, `6/9` records `pkg/host` as shipped-but-unwired, and
+`6/20` declined the warm-pool lifecycle that neighbours it. This spec only
+requires that the design not foreclose the VM path — it does not.
+
 ## MITM stays declined
 
 `6/17` declined interception (2026-08-18): header injection was the only
