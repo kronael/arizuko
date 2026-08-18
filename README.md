@@ -174,7 +174,7 @@ Documents can be mounted or written into a group's workspace; agents can read th
 ## Security model
 
 - **Container isolation**: each group runs in a separate Docker container on a separate network. Sibling groups never share a context window.
-- **Egress isolation**: `crackbox` enforces default-deny on agent outbound traffic via per-source-IP allowlists. Credential/placeholder swap at the boundary (`egred` HTTPS-MITM, `specs/8/Z-egred-mitm.md`) is planned, not shipped.
+- **Egress isolation**: `crackbox` enforces default-deny on agent outbound traffic from a per-folder allowlist. Credential swap at the egress boundary (HTTPS MITM) is **declined**, not planned — `specs/6/17` withdrew it 2026-08-18, because header injection was the only thing requiring TLS interception and a CA inside every container was too high a price for it. Credentials reach an opaque in-container client through `credential_process` instead.
 - **ACL**: `auth.Authorize` — one `acl` table, deny-wins, no fallback. Capability comes from granted rows, never from a folder's depth; `role:member` is the seeded default and everything above it is delegated. MCP tools gated per-action per-principal.
 - **Secret injection**: secrets are AES-256-GCM encrypted at rest. Only model credentials reach the container env — an API token for a tool is resolved on the host for the one call that needs it and never crosses into the agent's environment.
 - **Identity relay**: `proxyd` stamps `X-User-*` headers, proving the channel with a `service:proxyd` ES256 bearer (verified via `auth.ProxydTransit`); backends trust the headers only when that proof holds. Client-supplied `X-User-*` headers are stripped.
