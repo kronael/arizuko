@@ -286,6 +286,27 @@ suggests the first, but "detects if you're using a MAX account" comes from a
 vendor summary, not its docs. Read Bifrost's own documentation on MAX-account
 configuration before building anything.
 
+**Coverage is bounded, and the gap is the worst-isolated path.** A gateway can
+front a provider only where BOTH hooks exist: a base-URL override and a token in
+env. arizuko's two subscription routes differ exactly there:
+
+- **Claude Code** — `CLAUDE_CODE_OAUTH_TOKEN` in env + `ANTHROPIC_BASE_URL`.
+  Both hooks present; a gateway fronts it.
+- **Codex on ChatGPT-OAuth** — `ant/skills/oracle/SKILL.md:39` documents it as a
+  HOST MOUNT: `HOST_CODEX_DIR` bind-mounted to `/home/node/.codex`, "no env vars
+  needed". No token to swap, no base-URL redirect. A gateway cannot front it.
+
+So metering would cover the Anthropic subscription and every API-key provider,
+and MISS codex-on-ChatGPT-OAuth. Its meterable alternative
+(`CODEX_API_KEY`/`OPENAI_API_KEY`) is the per-token billing this entry exists to
+avoid.
+
+Worth noting the host-mount path is also the weakest isolation arizuko has — a
+bind-mounted `~/.codex` gives the container the operator's whole ChatGPT
+session, not a scoped token — and it is the one case a gateway structurally
+cannot improve, because nothing in the request path can be intercepted or
+replaced. That is its own problem, not this entry's.
+
 **NOT iron-proxy.** That is an egress MITM proxy for injecting credentials into
 arbitrary HTTP — a different mechanism at a different point in the path. It
 meters nothing.
