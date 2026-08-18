@@ -267,6 +267,24 @@ Costs, honestly:
 - Network plumbing per pair, unless the proxy runs as a sidecar in the agent's
   own netns, which avoids most of it.
 
+**"Static config precludes the MITM/header-injection work" — checked, it does
+not.** Two reasons:
+
+- **Nothing dynamic exists to preclude.** `runed/docker.go:127` builds the
+  EgressConfig "from runed's own config + that static per-folder list", once, at
+  spawn. There is no re-register and no mid-run update anywhere. The registry's
+  dynamism serves MULTIPLEXING one proxy across many containers — not live rule
+  changes. Per-spawn removes the multiplexing, which is all it was doing.
+- **Per-spawn is BETTER for `6/17` tier 1, not worse.** Header injection needs
+  this tenant's credential; a shared proxy must map source IP → whose secret,
+  the same fragile keying that causes the leak above. One proxy per spawn has
+  exactly one tenant and no mapping. TLS interception needs a CA trusted inside
+  the container — per-spawn that CA can be minted for one turn, instead of a
+  fleet-wide MITM CA whose leak compromises every container ever spawned.
+
+The credential and the lifetime become the same scope, which is what makes the
+injection half safe rather than merely possible.
+
 Not considered in `6/8`, `6/9` or `6/20`. Worth costing before any further work
 on the registry, because it would delete the registry rather than improve it.
 
