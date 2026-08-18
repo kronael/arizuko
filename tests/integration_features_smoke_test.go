@@ -203,8 +203,13 @@ func TestSmoke_ContainerHealth(t *testing.T) {
 func TestSmoke_EgressImage(t *testing.T) {
 	inst := smokeInstance()
 	env, err := os.ReadFile("/srv/data/arizuko_" + inst + "/.env")
-	if err != nil {
-		t.Skipf("instance %q: read .env: %v", inst, err)
+	switch {
+	case os.IsNotExist(err):
+		t.Skipf("instance %q is not deployed on this host", inst)
+	case err != nil:
+		// The .env is root-owned. A Skip here would read as a pass and hide
+		// the one check that catches a redeploy with no egress image.
+		t.Fatalf("instance %q: read .env: %v — run this tier with sudo", inst, err)
 	}
 	image := envValue(string(env), "EGRESS_IMAGE")
 	if image == "" {
@@ -242,7 +247,7 @@ func TestSmoke_EndToEnd(t *testing.T) {
 
 	// 1) send_message → turn_id (one MCP call over the chat token).
 	turnID := chatMCPCall(t, base, "send_message", map[string]any{
-		"text": "smoke: reply with the single word ACK",
+		"content": "smoke: reply with the single word ACK",
 	})["turn_id"]
 	if turnID == nil {
 		t.Fatal("send_message returned no turn_id")
@@ -284,6 +289,10 @@ func chatMCPCall(t *testing.T, base, tool string, args map[string]any) map[strin
 	var env struct {
 		Result struct {
 			StructuredContent map[string]any `json:"structuredContent"`
+			IsError           bool           `json:"isError"`
+			Content           []struct {
+				Text string `json:"text"`
+			} `json:"content"`
 		} `json:"result"`
 		Error json.RawMessage `json:"error"`
 	}
@@ -293,5 +302,29 @@ func chatMCPCall(t *testing.T, base, tool string, args map[string]any) map[strin
 	if len(env.Error) > 0 {
 		t.Fatalf("%s: rpc error: %s", tool, env.Error)
 	}
-	return env.Result.StructuredContent
+	// A tool-level failure is isError+content, not a JSON-RPC error. Reading
+	// past it reports the wrong cause: a rejected call looks like a missing
+	// field in the result.
+	if env.Result.IsError {
+		msg := ""
+		if len(env.Result.Content) > 0 {
+			msg = env.Result.Content[0].Text
+		}
+		t.Fatalf("%s: tool error: %s", tool, msg)
+	}
+	if env.Result.StructuredContent != nil {
+		return env.Result.StructuredContent
+	}
+	// No structuredContent: this server returns the JSON payload as the text
+	// of the first content block. Reading only structuredContent yields an
+	// empty map, and the caller then blames a missing field for a call that
+	// in fact succeeded.
+	if len(env.Result.Content) == 0 {
+		t.Fatalf("%s: empty result: %s", tool, out.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(env.Result.Content[0].Text), &payload); err != nil {
+		t.Fatalf("%s: decode content %q: %v", tool, env.Result.Content[0].Text, err)
+	}
+	return payload
 }

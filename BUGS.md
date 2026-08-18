@@ -226,6 +226,40 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L52 — `arizuko token revoke <jid>` cannot revoke a suffixed chat token (2026-08-18)
+
+`cmd/arizuko/token.go:222` derives the owner folder with
+`groupfolder.JidFolder(jid)` when the operator does not pass one, and
+`groupfolder/folder.go:110` implements the `web:` case as
+`strings.CutPrefix(jid, "web:")` — the whole remainder is returned as the
+folder.
+
+But `token issue chat <folder> [<suffix>]` mints `web:<folder>/<suffix>`. So for
+every token that has a suffix the derived folder is `<folder>/<suffix>`, which
+is not a folder at all, `RevokeRouteToken` matches no row, and the command dies
+with **"token not found or wrong owner"** — a message that names the wrong
+cause. Measured live on krons while verifying the `6/24` deploy: revoking
+`web:eval/egress624` failed, and the same command with `eval` passed explicitly
+succeeded on the same row.
+
+The `hook:` branch immediately below it already strips the last path segment
+(`folder.go:114`). The `web:` branch does not, and that asymmetry is the bug.
+
+**Severity: medium, operator-facing.** Every suffixed chat token is
+unrevokable by its documented command unless the operator happens to know to
+pass the owner folder as a second argument. A token that cannot be revoked is a
+standing credential.
+
+**This is the [identity_derived_not_read] class**: the owner folder is a
+column on the `route_tokens` row (`owner_folder`), and the command parses it out
+of the JID instead of reading it. The cause fix reads the row — `RevokeRouteToken`
+already looks the token up, so the folder need not be supplied at all when the
+caller is the operator CLI. Do NOT "fix" `JidFolder` to strip a segment: `web:`
+JIDs for folder-level chats have no suffix, so stripping would break the
+common case and merely move the asymmetry.
+
+Not fixed: separate concern from the `6/24` egress split it was found during.
+
 ## L51 — every turn waits ~1s for a poll tick that could be a channel send (2026-08-18)
 
 `routd/loop.go:325` drives dispatch from `time.NewTicker(l.pollEvery)`, and
