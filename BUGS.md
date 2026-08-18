@@ -226,6 +226,51 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L48 — proposal: one proxy per spawn, instead of one registry keyed by source IP (2026-08-18, operator's idea, needs sign-off)
+
+`6/8` §"Security invariants" makes egress safety depend on an ordering the
+consumer must honour:
+
+> Consumers MUST register before the spawned container starts outbound traffic,
+> and MUST unregister on exit. The "register before traffic" ordering is the
+> consumer's invariant, not egred's — egred just enforces "no entry → deny".
+
+Late registration fails closed, which is fine. **Late UNregistration does not.**
+Docker reuses source IPs; if runed dies between a container exiting and
+`/v1/unregister`, the stale `(source_ip, id, allowlist)` entry survives and the
+next tenant on that IP inherits the previous folder's allowlist. A cross-folder
+egress leak held off by a convention, which root `CLAUDE.md` says to replace
+with a design that makes the bad state impossible.
+
+**The proposal: give each spawn its own proxy instance**, configured with that
+folder's allowlist at spawn time and dying with the turn. No registry, no IP
+keying, no ordering obligation, nothing to reuse. The allowlist is static for
+the proxy's whole life.
+
+What it buys beyond the leak:
+
+1. **An off-the-shelf proxy becomes usable unmodified.** The one thing that
+   ruled out Squid and tinyproxy was needing dynamic per-source rules without a
+   restart; a per-spawn proxy never needs a rule change at all. Envoy's control
+   plane stops being necessary too.
+2. **~890 lines of arizuko-specific code stop existing** — `pkg/admin` (572),
+   `pkg/match` (144), `pkg/client` (175) are all in service of the registry.
+3. **The failure domain shrinks to one turn** instead of every container.
+
+Costs, honestly:
+
+- One more process per turn. Note `6/20` already DECLINED warm pools, so
+  per-turn ephemeral is the accepted shape and the spawn machinery exists.
+- The proxy must be listening before the agent's first egress — an ordering
+  problem, but a local one inside a single spawn rather than a distributed one
+  across a shared registry.
+- Network plumbing per pair, unless the proxy runs as a sidecar in the agent's
+  own netns, which avoids most of it.
+
+Not considered in `6/8`, `6/9` or `6/20`. Worth costing before any further work
+on the registry, because it would delete the registry rather than improve it.
+
+
 ## L47 — a package's skills never reach a group that already existed (2026-08-17, found by the frozen-config sweep)
 
 `seedSkills` (`container/runner.go:1125`) copies a package's `skills/<n>/` into a
