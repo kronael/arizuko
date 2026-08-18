@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
@@ -36,6 +37,7 @@ type server struct {
 	ks          *auth.KeySet // ES256 JWKs; nil → HMAC-only (local dev)
 	requireUser func(http.HandlerFunc) http.HandlerFunc
 	limiter     *rateLimiter
+	anonDOS     *anonShield // anon DoS shield for /chat/ + /hook/, client-IP keyed
 }
 
 func newServer(cfg config, stRoutd *store.Store, h *hub, rc *chanlib.RouterClient, ks *auth.KeySet, svc *auth.TokenSource) *server {
@@ -44,6 +46,7 @@ func newServer(cfg config, stRoutd *store.Store, h *hub, rc *chanlib.RouterClien
 		proxyd:  newProxydClient(cfg.proxydURL, svc),
 		ks:      ks,
 		limiter: newRateLimiter(cfg.rateHookPerMin, cfg.rateWebPerMin),
+		anonDOS: newAnonShield(cfg.anonDosRPM, time.Minute),
 	}
 	s.requireUser = s.requireIdentified
 	return s
@@ -93,26 +96,28 @@ func (s *server) handler() http.Handler {
 	// Route tokens (spec 5/W). Two URL prefixes share one set of
 	// handlers; kind metadata is for the agent, not a URL gate. Both
 	// /chat/* and /hook/* paths get permissive CORS — the route token
-	// IS the public credential.
-	withCORS := func(pattern string, h http.HandlerFunc) {
-		mux.Handle(pattern, chatCORS(h))
+	// IS the public credential — and the anon DoS shield proxyd ran ahead of
+	// them until specs/6/22 step 1 moved the surface here. CORS wraps the
+	// shield so a 429 still carries the headers the widget needs to read it.
+	tokenSurface := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, chatCORS(s.shieldAnon(h)))
 	}
 	// /chat/<token>/ — human chat widget + SSE.
-	withCORS("GET /chat/{token}/{$}", s.handleChatTokenRoot)
-	withCORS("GET /chat/{token}/config", s.handleChatTokenConfig)
-	withCORS("POST /chat/{token}", s.handleChatTokenPost)
-	withCORS("POST /chat/{token}/", s.handleChatTokenPost)
-	withCORS("POST /chat/{token}/mcp", s.handleChatTokenMCP)
-	withCORS("GET /chat/{token}/{topic}/messages", s.handleChatTokenHistory)
-	withCORS("GET /chat/stream", s.handleRouteTokenStream)
-	withCORS("GET /chat/{token}/{id}", s.handleTurnSnapshot)
-	withCORS("GET /chat/{token}/{id}/status", s.handleTurnStatus)
-	withCORS("GET /chat/{token}/{id}/sse", s.handleTurnSSE)
+	tokenSurface("GET /chat/{token}/{$}", s.handleChatTokenRoot)
+	tokenSurface("GET /chat/{token}/config", s.handleChatTokenConfig)
+	tokenSurface("POST /chat/{token}", s.handleChatTokenPost)
+	tokenSurface("POST /chat/{token}/", s.handleChatTokenPost)
+	tokenSurface("POST /chat/{token}/mcp", s.handleChatTokenMCP)
+	tokenSurface("GET /chat/{token}/{topic}/messages", s.handleChatTokenHistory)
+	tokenSurface("GET /chat/stream", s.handleRouteTokenStream)
+	tokenSurface("GET /chat/{token}/{id}", s.handleTurnSnapshot)
+	tokenSurface("GET /chat/{token}/{id}/status", s.handleTurnStatus)
+	tokenSurface("GET /chat/{token}/{id}/sse", s.handleTurnSSE)
 	// /hook/<token> — fire-and-forget webhook ingest.
-	withCORS("POST /hook/{token}", s.handleHookTokenPost)
+	tokenSurface("POST /hook/{token}", s.handleHookTokenPost)
 	// Preflight covers both prefixes.
-	mux.Handle("OPTIONS /chat/", chatCORS(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})))
-	mux.Handle("OPTIONS /hook/", chatCORS(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})))
+	tokenSurface("OPTIONS /chat/", func(http.ResponseWriter, *http.Request) {})
+	tokenSurface("OPTIONS /hook/", func(http.ResponseWriter, *http.Request) {})
 	// Legacy /slink/<token>/... → 301 to /chat/<token>/...
 	mux.HandleFunc("GET /slink/{token}/{rest...}", s.handleSlinkRedirect)
 	mux.HandleFunc("POST /slink/{token}/{rest...}", s.handleSlinkRedirect)
@@ -261,17 +266,17 @@ func (s *server) identified(r *http.Request) bool {
 	return auth.ProxydTransit(r, s.ks)
 }
 
-// chatTransit reports whether the X-Chat-Token / X-Folder headers were stamped
-// by proxyd (route-token → folder binding, spec 5/W). proxyd is the sole setter
-// — it strips any client-supplied X-Chat-* on ingress, resolves the token to a
-// folder from route_tokens, stamps both, and proves the request transited it
-// with its service:proxyd bearer. The caller then checks X-Folder matches the
-// requested folder. ks nil (local dev, no proxyd) trusts the header, matching
-// identified(). Replaces the X-Chat-Sig HMAC (HMAC retire step 5).
-func (s *server) chatTransit(r *http.Request) bool {
-	if r.Header.Get("X-Chat-Token") == "" || r.Header.Get("X-Folder") == "" {
-		return false
-	}
+// transited reports whether the request came through proxyd's front door,
+// regardless of who (if anyone) it belongs to. proxyd attaches its service:proxyd
+// bearer to every request on an `optional` route, so this is true for anonymous
+// visitors too. ks nil (local dev, no proxyd) trusts it, matching identified().
+//
+// This replaces chatTransit, which asked the same question by a longer route:
+// "did proxyd resolve a route token to this same folder?", read off the
+// X-Chat-Token / X-Folder pair proxyd stamped. proxyd no longer resolves route
+// tokens — webd does, once, in lookupRouteToken — so the stamp is gone and the
+// proof underneath it is the whole answer (specs/6/22 step 1).
+func (s *server) transited(r *http.Request) bool {
 	if s.ks == nil {
 		return true // local dev
 	}

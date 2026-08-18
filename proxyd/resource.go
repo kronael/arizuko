@@ -152,7 +152,7 @@ func validateRoute(r Route, existing []Route, isUpdate bool) error {
 		return resreg.Errorf(http.StatusBadRequest, "backend or redirect_to is required")
 	}
 	if !validAuth[r.Auth] {
-		return resreg.Errorf(http.StatusBadRequest, "auth %q not in {public,user,operator}", r.Auth)
+		return resreg.Errorf(http.StatusBadRequest, "auth %q not in {public,optional,user,operator}", r.Auth)
 	}
 	if !isUpdate {
 		for _, e := range existing {

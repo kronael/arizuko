@@ -36,7 +36,6 @@ type config struct {
 	authSecret     string
 	authdURL       string // soak: dual-verify ES256 bearers + 302 /auth/* to authd
 	trustedProxies []*net.IPNet
-	chatAnonDosRPM int
 	hostingDomain  string            // world W reached at W.<hostingDomain> → 302 /pub/W/
 	vhostAliases   map[string]string // host→world where the label ≠ world name (fab.krons.cx→atlas)
 }
@@ -52,7 +51,6 @@ func loadConfig() config {
 		pubRedirectURL: strings.TrimRight(chanlib.EnvOr("PUB_REDIRECT_URL", ""), "/"),
 		authdURL:       strings.TrimRight(os.Getenv("AUTHD_URL"), "/"),
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
-		chatAnonDosRPM: chanlib.EnvInt("CHAT_ANON_DOS_RPM", 10),
 		hostingDomain:  strings.ToLower(strings.TrimSuffix(chanlib.EnvOr("HOSTING_DOMAIN", ""), ".")),
 		vhostAliases:   groupfolder.ParseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
 	}
@@ -83,8 +81,12 @@ func parseTrustedProxies(s string) []*net.IPNet {
 	return out
 }
 
-// stripClientHeaders deletes proxyd-owned headers on entry; they are
-// repopulated only after auth or chat-token resolution.
+// stripClientHeaders deletes proxyd-owned headers on entry; X-User-* is
+// repopulated only after auth. The X-Chat-* / X-Folder group has no reader
+// left — proxyd stopped resolving route tokens (specs/6/22 step 1) — but the
+// strip stays: owning the invariant "no client-supplied identity header
+// survives ingress" is proxyd's job, so a future backend that reads one cannot
+// be fed it from outside.
 func stripClientHeaders(r *http.Request) {
 	for _, h := range []string{
 		"X-User-Sub", "X-User-Name", "X-User-Groups", "X-User-Sig",
@@ -105,13 +107,12 @@ func proxy(target string) *httputil.ReverseProxy {
 
 type server struct {
 	cfg         config
-	stRoutd     *store.Store    // routd.db: proxyd_routes, acl, user_profiles, route_tokens (split ownership; scope lookup reads one DB)
+	stRoutd     *store.Store    // routd.db: proxyd_routes, acl, user_profiles (split ownership; scope lookup reads one DB)
 	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/8 no-cache)
 	viteProxy   *httputil.ReverseProxy
 	authdProxy  *httputil.ReverseProxy // nil when AUTHD_URL unset (local dev)
 	ks          *auth.KeySet           // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
 	svc         *auth.TokenSource      // service:proxyd token presented to backends (nil → local dev, X-User-* unsigned)
-	chatAnonDOS *rateLimiter           // anon DoS shield, IP-keyed (not metering)
 	pubRedir    *pubRedirect
 	warnedEdges sync.Map // peer → struct{}, so an untrusted edge warns once, not per request
 }
@@ -226,15 +227,14 @@ func newServer(cfg config, stRoutd *store.Store, ks *auth.KeySet, svc *auth.Toke
 		ap = proxy(cfg.authdURL)
 	}
 	return &server{
-		cfg:         cfg,
-		stRoutd:     stRoutd,
-		rr:          rr,
-		viteProxy:   proxy(cfg.viteAddr),
-		authdProxy:  ap,
-		ks:          ks,
-		svc:         svc,
-		chatAnonDOS: newRateLimiter(cfg.chatAnonDosRPM, time.Minute),
-		pubRedir:    newPubRedirect(cfg.pubRedirectURL),
+		cfg:        cfg,
+		stRoutd:    stRoutd,
+		rr:         rr,
+		viteProxy:  proxy(cfg.viteAddr),
+		authdProxy: ap,
+		ks:         ks,
+		svc:        svc,
+		pubRedir:   newPubRedirect(cfg.pubRedirectURL),
 	}
 }
 
@@ -312,59 +312,6 @@ func buildRouteProxy(r Route) *httputil.ReverseProxy {
 		}
 	}
 	return rp
-}
-
-// sweepEvery bounds the full stale-bucket sweep to once per N allow() calls.
-// Sweeping every call made allow() O(all-keys): a distinct-IP flood turned
-// each anon request into a walk of every live bucket. Amortizing to 1/N keeps
-// the hot path O(1) while still reclaiming dead keys often enough to bound the
-// map under sustained flood.
-const sweepEvery = 256
-
-type rateLimiter struct {
-	mu      sync.Mutex
-	limit   int
-	window  time.Duration
-	buckets map[string][]time.Time
-	calls   int
-}
-
-func newRateLimiter(limit int, window time.Duration) *rateLimiter {
-	return &rateLimiter{limit: limit, window: window, buckets: make(map[string][]time.Time)}
-}
-
-func (rl *rateLimiter) allow(key string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	now := time.Now()
-	cutoff := now.Add(-rl.window)
-
-	// Reclaim stale buckets once per sweepEvery calls, not every call.
-	rl.calls++
-	if rl.calls >= sweepEvery {
-		rl.calls = 0
-		for k, hits := range rl.buckets {
-			if len(hits) == 0 || hits[len(hits)-1].Before(cutoff) {
-				delete(rl.buckets, k)
-			}
-		}
-	}
-
-	hits := rl.buckets[key]
-	n := 0
-	for _, t := range hits {
-		if t.After(cutoff) {
-			hits[n] = t
-			n++
-		}
-	}
-	hits = hits[:n]
-	if len(hits) >= rl.limit {
-		rl.buckets[key] = hits
-		return false
-	}
-	rl.buckets[key] = append(hits, now)
-	return true
 }
 
 // mux builds proxyd's routing table, catch-all included. Split out of handler
@@ -686,11 +633,7 @@ func (s *server) dispatchRoute(rt *Route, proxies map[string]*httputil.ReversePr
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	switch rt.Path {
-	case "/chat/", "/hook/":
-		s.dispatchRouteToken(rp, w, r)
-		return
-	case "/dav/":
+	if rt.Path == "/dav/" {
 		s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 			s.davRoute(rp, w, r)
 		})(w, r)
@@ -699,58 +642,26 @@ func (s *server) dispatchRoute(rt *Route, proxies map[string]*httputil.ReversePr
 	switch rt.Auth {
 	case "public":
 		rp.ServeHTTP(w, r)
+	case "optional":
+		// Identify when the caller offers a credential, forward anonymously when
+		// they do not — the route-token surface (`/chat/`, `/hook/`), where the
+		// token is the credential and a stamped sub only decides attribution.
+		// Either way the request carries proxyd's transit proof, so the backend
+		// can tell a front-door request from one aimed straight at it.
+		// This used to be a `switch rt.Path` arm naming those two prefixes; it
+		// is a property of the route, not a path proxyd hardcodes (6/22 step 1).
+		if a := s.tryAuth(r); a != nil {
+			r = a
+		} else {
+			r = s.attachTransit(r)
+		}
+		rp.ServeHTTP(w, r)
 	default:
 		// `operator` is not yet a distinct gate (spec note: capability tokens
 		// pending in 1-auth-standalone.md). Today it resolves to `user` and
 		// the daemon enforces operator status via grant check.
 		s.requireAuth(rp.ServeHTTP)(w, r)
 	}
-}
-
-// dispatchRouteToken resolves the URL's route token to a folder and
-// stamps X-Folder/X-Group-Name/X-Chat-Token before forwarding (the
-// service:proxyd transit bearer proves the stamp to webd — proxyd is
-// the sole setter and strips any inbound X-Chat-*). Spec 5/W. Auth is
-// optional; a valid JWT stamps user
-// identity. Anon callers pass through an IP-keyed DoS shield (not
-// metering — cost-cap governance handles spend per spec 11/19);
-// authenticated callers skip the throttle entirely.
-func (s *server) dispatchRouteToken(rp *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
-	if a := s.tryAuth(r); a != nil {
-		r = a
-	} else {
-		if !s.chatAnonDOS.allow(clientIP(r)) {
-			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
-			return
-		}
-	}
-	// Path shapes: /chat/<token>/..., /hook/<token>, /chat/stream?token=...
-	var token string
-	if r.URL.Path == "/chat/stream" {
-		token = r.URL.Query().Get("token")
-	} else {
-		for _, prefix := range []string{"/chat/", "/hook/"} {
-			if after, ok := strings.CutPrefix(r.URL.Path, prefix); ok {
-				token = strings.SplitN(after, "/", 2)[0]
-				break
-			}
-		}
-	}
-	// route_tokens lives in routd.db (stRoutd) — split ownership
-	if token != "" && s.stRoutd != nil {
-		if row, ok := s.stRoutd.LookupRouteToken(token); ok {
-			// row.Folder(), not the JID grammar: the mint records the
-			// delivery folder because a suffixed JID cannot be parsed back
-			// into one (BUGS L4). Stamping the grammar's answer sends
-			// `hook:a/b/c` to folder `a/b` — another tenant.
-			folder := row.Folder()
-			r = r.Clone(r.Context())
-			r.Header.Set("X-Folder", folder)
-			r.Header.Set("X-Group-Name", groupfolder.NameOf(folder))
-			r.Header.Set("X-Chat-Token", token)
-		}
-	}
-	rp.ServeHTTP(w, r)
 }
 
 func (s *server) davRoute(rp *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
@@ -842,7 +753,7 @@ func davAllow(method, rest string) bool {
 // the headers go unsigned: backends with no JWKS configured pass them through as
 // local-dev, exactly as an unsigned request always was.
 func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []string) *http.Request {
-	r2 := r.Clone(r.Context())
+	r2 := s.attachTransit(r)
 	r2.Header.Set("X-User-Sub", sub)
 	r2.Header.Set("X-User-Name", name)
 	groupsJSON := "null"
@@ -851,11 +762,24 @@ func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []stri
 	}
 	r2.Header.Set("X-User-Groups", groupsJSON)
 	r2.Header.Del("X-User-Sig")
-	// Clear the caller's inbound Authorization unconditionally: identity now
-	// rides X-User-*, and proxyd's own service token is the channel proof. If we
-	// left the caller's bearer in place, a backend behind RequireSignedOrBearer
-	// would re-derive identity FROM that bearer (clobbering the stamped sub) —
-	// and on the no-service-token path it must truly forward unsigned.
+	return r2
+}
+
+// attachTransit replaces the caller's Authorization with proxyd's own
+// service:proxyd bearer — the proof a backend checks (auth.ProxydTransit)
+// before trusting anything proxyd stamped. Clearing the inbound header is
+// unconditional: identity rides X-User-*, so a backend behind
+// RequireSignedOrBearer that re-derived identity FROM the caller's bearer would
+// clobber the stamped sub, and on the no-service-token path (local dev,
+// AUTHD_URL/key unset) the request must truly forward unsigned.
+//
+// It runs for identified AND anonymous callers on `optional` routes. It used to
+// run only inside setUserHeaders, so an anonymous /chat/ request reached webd
+// with no proof it had transited proxyd at all — and webd's stream gate demands
+// that proof, which is why the chat widget's live stream answered 403 to every
+// visitor on any instance with a JWKS (specs/6/22 step 1).
+func (s *server) attachTransit(r *http.Request) *http.Request {
+	r2 := r.Clone(r.Context())
 	r2.Header.Del("Authorization")
 	if s.svc != nil {
 		if tok, err := s.svc.Token(r2.Context()); err == nil {

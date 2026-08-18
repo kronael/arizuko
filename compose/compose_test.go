@@ -241,8 +241,11 @@ func TestProxydRoutesAssembled(t *testing.T) {
 	}
 	want := map[string]ProxydRoute{
 		"/slack/": {Path: "/slack/", Backend: "http://slakd:8080", Auth: "public", GatedBy: "SLACK_BOT_TOKEN"},
-		"/chat/":  {Path: "/chat/", Backend: "http://webd:8080", Auth: "public"},
-		"/dash/":  {Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
+		// `optional`, not `public`: proxyd identifies a caller who offers a
+		// bearer so webd can attribute the message, and forwards everyone else
+		// anonymously with the transit proof (specs/6/22 step 1).
+		"/chat/": {Path: "/chat/", Backend: "http://webd:8080", Auth: "optional"},
+		"/dash/": {Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
 		// Pairing (spec 5/31): auth `user` so an anonymous visitor is bounced
 		// through OAuth before the confirm page renders.
 		"/pair/": {Path: "/pair/", Backend: "http://webd:8080", Auth: "user"},

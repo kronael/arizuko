@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -37,12 +36,11 @@ var (
 	errRouteTokenRouter = fmt.Errorf("route-token: router unavailable")
 )
 
-// anonSender derives a stable "anon:<hex>" from the client IP.
+// anonSender derives a stable "anon:<hex>" from the client IP. Same address the
+// anon DoS shield keys on — one derivation (clientIP), two readers, so a
+// visitor's identity and their rate bucket can never disagree.
 func anonSender(r *http.Request) string {
-	ip := strings.TrimSpace(strings.SplitN(r.Header.Get("X-Forwarded-For"), ",", 2)[0])
-	if ip == "" {
-		ip, _, _ = net.SplitHostPort(r.RemoteAddr)
-	}
+	ip := clientIP(r)
 	if ip == "" {
 		ip = "unknown"
 	}
@@ -407,12 +405,21 @@ func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderN
 }
 
 // GET /chat/stream?token=<t>&topic=<t>
-// Authenticated by user sig (operator viewing widget) OR by proxyd chat
-// transit (X-Folder stamped from the same token). The token ROW decides the
-// chat JID and folder — a client param must never pick the subscription key
-// (BUGS L30: a `group=` param chose the key, so a suffixed chat was
-// unreachable and the caller could aim the subscription). The widget's
+// The token IS the credential (spec 5/W), exactly as for the sibling
+// /chat/<token>/<topic>/messages read that returns the same messages. The token
+// ROW decides the chat JID and folder — a client param must never pick the
+// subscription key (BUGS L30: a `group=` param chose the key, so a suffixed
+// chat was unreachable and the caller could aim the subscription). The widget's
 // legacy `group=` param is ignored.
+//
+// A subscription is long-lived, so this surface asks for one thing its
+// fire-and-forget siblings do not: the request must have come through proxyd
+// (transited). It used to ask for that proof indirectly — proxyd's X-Folder
+// stamp matching the folder webd resolved — but proxyd attached the underlying
+// bearer only on the AUTHENTICATED path, so with a JWKS configured (every real
+// instance) no anonymous visitor could satisfy it and the widget's live stream
+// answered 403 to everyone. specs/6/22 step 1 moved token resolution here and
+// left proxyd proving the one thing only proxyd knows.
 func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) {
 	topic := r.URL.Query().Get("topic")
 	if topic == "" {
@@ -427,18 +434,13 @@ func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	folder := row.Folder()
-
-	okChat := s.chatTransit(r) && r.Header.Get("X-Folder") == folder
-	okUser := s.identified(r) && userAllowedFolder(userGroups(r), folder)
-	if !okChat && !okUser {
-		slog.Warn("chat stream forbidden", "folder", folder,
-			"sub", r.Header.Get("X-User-Sub"),
+	if !s.transited(r) {
+		slog.Warn("chat stream forbidden: no proxyd transit proof",
+			"folder", row.Folder(),
 			"token_hash", chanlib.ShortHash(r.URL.Query().Get("token")))
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-
 	if !s.hub.canSubscribe() {
 		http.Error(w, "too many subscriptions", http.StatusServiceUnavailable)
 		return

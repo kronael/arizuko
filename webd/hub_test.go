@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -130,10 +132,22 @@ func TestHub_Concurrent(t *testing.T) {
 	wg.Wait()
 }
 
-// GET /chat/stream with a valid token but no auth (no user sig, no chat
-// transit) → 403.
+// GET /chat/stream with a valid token but no proxyd transit proof → 403.
+// Holding the token is not enough to open a subscription: the request must have
+// come through the front door. With a JWKS configured this is the only thing
+// separating a widget visitor from a caller aimed straight at webd's port.
+//
+// It used to assert the same 403 for a request with no headers at all, which
+// passed only because the fixture's nil KeySet made the old chatTransit gate
+// fail on the MISSING stamp rather than on a missing proof. Configure the
+// KeySet, and the test now fails if the proof stops being required.
 func TestSlinkStream_Forbidden(t *testing.T) {
 	s, _, st := newTestServer(t)
+	k, err := auth.NewSigningKey("k1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.ks = auth.NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
 	seedGroup(t, st, "main", "Main")
 	tok := seedChatToken(t, st, "main")
 	srv := httptest.NewServer(s.handler())
@@ -146,6 +160,39 @@ func TestSlinkStream_Forbidden(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 403 {
 		t.Fatalf("status = %d, want 403", resp.StatusCode)
+	}
+}
+
+// The same request WITH proxyd's transit bearer streams. Anonymous — no
+// X-User-*, no grant — which is the widget's ordinary case and the one that
+// answered 403 on every instance until specs/6/22 step 1.
+func TestChatStream_AnonThroughProxydAllowed(t *testing.T) {
+	s, _, st := newTestServer(t)
+	k, err := auth.NewSigningKey("k1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.ks = auth.NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
+	transit, err := k.Sign(auth.TokenClaims{Sub: "service:proxyd", Typ: "service"}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedGroup(t, st, "main", "Main")
+	tok := seedChatToken(t, st, "main")
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/chat/stream?token="+tok+"&topic=t", nil)
+	req.Header.Set("Authorization", "Bearer "+transit)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200 — an anonymous visitor through proxyd must stream", resp.StatusCode)
 	}
 }
 
@@ -203,9 +250,6 @@ func TestSlinkStream_SlinkSigOK(t *testing.T) {
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET",
 		srv.URL+"/chat/stream?token="+tok+"&topic=tt", nil)
-	for k, v := range signChatHeaders(tok, "main") {
-		req.Header.Set(k, v)
-	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("do: %v", err)
@@ -303,9 +347,6 @@ func TestSlinkStream_Replay(t *testing.T) {
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET",
 		srv.URL+"/chat/stream?token="+tok+"&topic=tt-replay", nil)
-	for k, v := range signChatHeaders(tok, "main") {
-		req.Header.Set(k, v)
-	}
 	req.Header.Set("Last-Event-Id", "anchor")
 
 	resp, err := http.DefaultClient.Do(req)

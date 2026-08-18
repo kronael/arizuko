@@ -91,9 +91,9 @@ func TestRouteTokenStream_BoundToRecord(t *testing.T) {
 	}
 
 	// A lying ?group= neither redirects the key nor widens auth: the stream
-	// opens on the TOKEN's folder (proxyd stamped X-Folder from the same
-	// token) and receives frames published on the token's chat JID.
-	resp, cancel := get("victim", signChatHeaders(tok, "acme"))
+	// opens on the TOKEN's folder and receives frames published on the token's
+	// chat JID.
+	resp, cancel := get("victim", nil)
 	defer cancel()
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
@@ -120,16 +120,42 @@ func TestRouteTokenStream_BoundToRecord(t *testing.T) {
 		t.Error("frame on the token's chat JID never arrived — subscription not bound to the record")
 	}
 
-	// An identified user whose grants cover only the CLAIMED group, not the
-	// token's folder, must be refused: auth binds to the record.
+	// ?group= must not WIDEN reach either. mallory holds an acme token and
+	// claims victim; the stream she gets is acme's, and no frame published on
+	// victim's chat JID ever reaches it.
+	//
+	// This half used to assert 403 for a caller whose grants covered only the
+	// claimed group. That gate consulted grants because proxyd resolved the
+	// token and webd compared its stamp; with resolution here (specs/6/22 step
+	// 1) grants no longer enter the decision, so the containment is asserted
+	// directly on the frames instead of on a status code.
 	resp2, cancel2 := get("victim", signUserHeaders(map[string]string{
 		"X-User-Sub":    "user:mallory",
 		"X-User-Groups": `["victim"]`,
 	}))
 	defer cancel2()
-	resp2.Body.Close()
-	if resp2.StatusCode != http.StatusForbidden {
-		t.Errorf("status = %d, want 403 — a grant on the claimed ?group= must not authorize the token's folder", resp2.StatusCode)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200 — the token authorizes, ?group= is inert", resp2.StatusCode)
+	}
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		s.hub.publish("web:victim", "tt", "message", `{"role":"assistant","id":"leak"}`)
+		s.hub.publish("web:acme", "tt", "message", `{"role":"assistant","id":"b2"}`)
+	}()
+	r2 := bufio.NewReader(resp2.Body)
+	deadline = time.Now().Add(1500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		line, err := r2.ReadString('\n')
+		if err != nil {
+			break
+		}
+		if strings.Contains(line, `"id":"leak"`) {
+			t.Fatal("frame from the CLAIMED group arrived — ?group= aimed the subscription")
+		}
+		if strings.Contains(line, `"id":"b2"`) {
+			break
+		}
 	}
 }
 

@@ -30,6 +30,7 @@ type config struct {
 	authdURL       string // soak: dual-accept ES256 bearers alongside HMAC; unset → HMAC-only
 	rateHookPerMin int    // per-token req/min ceiling for hook: JIDs
 	rateWebPerMin  int    // per-token req/min ceiling for web: JIDs
+	anonDosRPM     int    // per-client-IP req/min ceiling for anonymous route-token callers
 }
 
 func loadConfig() config {
@@ -48,6 +49,7 @@ func loadConfig() config {
 		authdURL:       strings.TrimRight(os.Getenv("AUTHD_URL"), "/"),
 		rateHookPerMin: chanlib.EnvInt("WEBHOOK_RATE_HOOK", 60),
 		rateWebPerMin:  chanlib.EnvInt("WEBHOOK_RATE_WEB", 20),
+		anonDosRPM:     chanlib.EnvInt("CHAT_ANON_DOS_RPM", 10),
 	}
 }
 

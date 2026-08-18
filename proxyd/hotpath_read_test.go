@@ -11,12 +11,11 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// proxyd reads routd's `acl` and `route_tokens` directly, per request, instead
-// of calling routd's HTTP face. Spec 5/16 § "The hot-path exception" decides
-// that stays. These two tests pin the property the decision rests on, so the
-// rejected design fails a test instead of passing review. Each is the only
-// test in the package that fails for its own bug — the rest of proxyd's
-// DB-lookup coverage passes both variants.
+// proxyd reads routd's `acl` directly, per request, instead of calling routd's
+// HTTP face. Spec 5/16 § "The hot-path exception" decides that stays. This test
+// pins the property the decision rests on, so the rejected design fails a test
+// instead of passing review. (`route_tokens` was the other hot-path read;
+// specs/6/22 step 1 moved that resolution to webd.)
 
 // A grant revoked in `acl` is denied on the very next request, even though the
 // caller's still-valid JWT carries the folder in its login-time Scope claim.
@@ -66,38 +65,5 @@ func TestGroupsForSub_RevokedGrantDeniedDespiteTokenScope(t *testing.T) {
 		t.Fatalf("status = %d, want 403: the acl row is gone, so the revocation "+
 			"must bite now. A 200 means groups came from the token's stale Scope "+
 			"claim, not from routd.db (spec 5/16 § The hot-path exception)", w.Code)
-	}
-}
-
-// An unknown token stamps nothing: the folder comes from the row, so a token
-// with no row must not yield a folder. Guards the inverse of the test above —
-// without it, a handler that stamped X-Folder from the URL would pass.
-func TestDispatchRouteToken_UnknownTokenStampsNoFolder(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-
-	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Seen-Folder", r.Header.Get("X-Folder"))
-		w.WriteHeader(200)
-	}))
-	defer up.Close()
-
-	s := &server{
-		cfg:         config{},
-		stRoutd:     st,
-		chatAnonDOS: newRateLimiter(10, time.Minute),
-		rr:          newRoutesResource(nil, []Route{{Path: "/chat/", Backend: up.URL, Auth: "public"}}),
-	}
-
-	req := httptest.NewRequest("GET", "/chat/nosuchtoken/", nil)
-	req.RemoteAddr = "10.0.0.8:2222"
-	w := httptest.NewRecorder()
-	s.route(w, req)
-
-	if got := w.Header().Get("X-Seen-Folder"); got != "" {
-		t.Errorf("X-Folder = %q, want empty for an unknown token", got)
 	}
 }

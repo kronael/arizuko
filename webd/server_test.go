@@ -24,15 +24,6 @@ func signUserHeaders(h map[string]string) map[string]string {
 	return h
 }
 
-// signChatHeaders supplies the proxyd-stamped route-token headers webd's
-// chatTransit gate trusts (nil KeySet → trusted directly).
-func signChatHeaders(token, folder string) map[string]string {
-	return map[string]string{
-		"X-Chat-Token": token,
-		"X-Folder":     folder,
-	}
-}
-
 // mockRouter is a minimal fake of the router API used by webd. When st is
 // non-nil, inbound messages are persisted to simulate routd's behavior; tests
 // can then read them back from the store (matching production where routd

@@ -39,11 +39,10 @@ func newIntegProxy(t *testing.T, secret string) (*server, *httptest.Server, *tes
 
 	panelRoute := Route{Path: "/panel/", Backend: up.URL, Auth: "user"}
 	s := &server{
-		cfg:         config{authSecret: secret},
-		stRoutd:     st,
-		viteProxy:   httputil.NewSingleHostReverseProxy(u),
-		chatAnonDOS: newRateLimiter(100, 0),
-		rr:          newRoutesResource(nil, []Route{panelRoute}),
+		cfg:       config{authSecret: secret},
+		stRoutd:   st,
+		viteProxy: httputil.NewSingleHostReverseProxy(u),
+		rr:        newRoutesResource(nil, []Route{panelRoute}),
 	}
 	return s, up, inst
 }

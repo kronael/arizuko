@@ -5,9 +5,13 @@ Reverse proxy: public `/pub/`, auth-gated everything else.
 ## Purpose
 
 Single entry point for web traffic. Handles authentication (JWT +
-refresh-token cookie), rate limits anon route-token traffic (`/chat/`,
-`/hook/`), routes by path prefix to backends. Stamps forwarded identity
-headers with a service bearer (`service:proxyd`) verifiable by backends.
+refresh-token cookie) and routes by path prefix to backends. Stamps forwarded
+identity headers with a service bearer (`service:proxyd`) verifiable by
+backends.
+
+proxyd does not serve the route-token surface. `/chat/<token>` and
+`/hook/<token>` are ordinary rows pointing at webd, which resolves the token
+and owns the anon DoS shield (`specs/6/22-proxyd-cut.md` step 1).
 
 ## Responsibilities
 
@@ -36,9 +40,10 @@ Sources of truth:
 - Per-service routes: `template/services/<name>.yaml` (copied into
   the data dir by `arizuko packages add`)
 
-Bespoke handling for `/chat/`, `/hook/` (route-token resolver + anon DoS
-shield) and `/dav/` (group-scoped routing + davAllow write-block) lives
-in `dispatchRoute`'s switch in `main.go`.
+Bespoke handling for `/dav/` (group-scoped routing + davAllow write-block)
+lives in `dispatchRoute` in `main.go` — the last path proxyd names. `/chat/`
+and `/hook/` used to sit beside it; they are now plain rows whose `auth:
+optional` value carries what proxyd still contributes (below).
 
 Routes not in the declared table (hand-wired in `main.go`): `/auth/*`
 (login flow), `/health`, `/pub/*` (vited fallback + external redirect),
@@ -78,7 +83,7 @@ DELETE /v1/proxyd_routes/{path}       # idempotent (204 either way)
 ```
 
 **Precedence**: `proxyd_routes` in routd.db is the only source (proxyd
-opens routd.db read/write for `proxyd_routes`/`acl`/`route_tokens`; it
+opens routd.db read/write for `proxyd_routes`/`acl`; it
 does not own or migrate it — see "Why proxyd reads routd.db directly"
 below). proxyd never seeds and never reads route config from env.
 
@@ -96,6 +101,12 @@ Each row carries an `owner`:
 created row is operator-owned and generate hands the path off for good.
 Runtime mutations are visible immediately (no row cache, spec 5/8).
 
+**`auth` values**: `public` (forward as-is), `optional` (identify a caller who
+offers a bearer, forward everyone else anonymously — either way with proxyd's
+transit proof), `user` / `operator` (bounce to `/auth/login` without one).
+`optional` is what `/chat/` and `/hook/` carry: the route token is the
+credential, and a stamped sub only decides message attribution.
+
 **Authorization**: operator-only surface. The ACL gate is an empty scope
 (`auth.Authorize(caller, "proxyd_routes.<action>", "", nil)`) matched by an
 operator ACL row like `(google:op, '*', '**')`. The `**` marker in
@@ -105,16 +116,18 @@ so the call is denied (spec 5/17, spec 5/32 §"Operator implicit").
 
 ## Why proxyd reads routd.db directly
 
-routd owns `acl` and `route_tokens`; the standing rule is that another daemon
+routd owns `acl`; the standing rule is that another daemon
 reaches an owner's rows over the owner's HTTP face. proxyd is the one named
 exception, decided 2026-08-07 (spec
 [`5/16`](../specs/5/16-mcp-rest-unification.md) §"The hot-path exception"):
 **FS-mounted on the owner's DB, and reading it on the per-request hot path.**
 
-Both of its cross-owner reads qualify — `store.LookupRouteToken` on every
-`/chat/` and `/hook/` request, `auth.UserScopes` via `groupsForSub` on every
-ES256-authenticated request. The alternative considered and rejected was not an
-HTTP hop but trusting the login-time `Scope` snapshot in the JWT, which would
+One cross-owner read remains and qualifies: `auth.UserScopes` via
+`groupsForSub` on every ES256-authenticated request. (`store.LookupRouteToken`
+on every `/chat/` and `/hook/` request was the other; specs/6/22 step 1 moved
+that resolution to webd, which is FS-mounted on routd.db anyway, leaving one
+reader of the row instead of two.) The alternative considered and rejected was
+not an HTTP hop but trusting the login-time `Scope` snapshot in the JWT, which would
 let a revoked grant keep working until the caller's next token refresh (15
 minutes, `accessTTL`). Reading `acl` per request is what makes revocation take
 effect on the next request. `proxyd/hotpath_read_test.go` pins both halves.
@@ -147,7 +160,6 @@ Endpoints:
 - `/pub/*` — public files (vited or external redirect)
 - `/priv/*` — auth-gated private files (vited)
 - `/dav/*` — WebDAV (auth-gated, group-scoped, write-blocked)
-- `/chat/<token>/`, `/hook/<token>` — route-token surfaces
 - `/v1/proxyd_routes` — operator REST + MCP resource (runtime route mutation)
 - Manifest-declared routes (e.g. `/dash/`, `/api/`; from `<name>.yaml` + the core slice)
 
@@ -164,7 +176,6 @@ Endpoints:
 - `AUTHD_SERVICE_KEY` — proxyd's service key for ES256 bearer minting
 - `AUTHD_SERVICE_NAME` (default `proxyd`)
 - `TRUSTED_PROXIES` — comma-separated CIDRs; bare IPs get `/32` or `/128`
-- `CHAT_ANON_DOS_RPM` (default `10`) — anon IP rate limit on `/chat/`, `/hook/`
 - `HOSTING_DOMAIN` — derive world vhosts from `<world>.<HOSTING_DOMAIN>`
 - `WEB_VHOST_ALIASES` — override vhost→world mapping (spec 5/V)
 - `PUB_REDIRECT_URL` — optional. When set + probe succeeds, `/pub/*` returns `302` to

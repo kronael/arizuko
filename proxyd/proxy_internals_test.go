@@ -332,7 +332,7 @@ func TestProxydAuthStarGated(t *testing.T) {
 
 // requireAuth sets auth_return cookie with the target path for redirect.
 func TestRequireAuth_SetsReturnCookie(t *testing.T) {
-	s := &server{cfg: config{authSecret: "testsecret"}, chatAnonDOS: newRateLimiter(10, time.Minute)}
+	s := &server{cfg: config{authSecret: "testsecret"}}
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	req := httptest.NewRequest("GET", "/dash/status?x=1", nil)
 	w := httptest.NewRecorder()
@@ -353,7 +353,7 @@ func TestRequireAuth_SetsReturnCookie(t *testing.T) {
 
 // requireAuth does not set auth_return cookie for /auth/* paths.
 func TestRequireAuth_NoReturnCookieForAuthPaths(t *testing.T) {
-	s := &server{cfg: config{authSecret: "testsecret"}, chatAnonDOS: newRateLimiter(10, time.Minute)}
+	s := &server{cfg: config{authSecret: "testsecret"}}
 	h := s.requireAuth(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	req := httptest.NewRequest("GET", "/auth/logout", nil)
 	w := httptest.NewRecorder()
@@ -389,10 +389,9 @@ func TestPriv_FolderScopedGrant(t *testing.T) {
 	k, ks := es256KeySet(t)
 
 	s := &server{
-		cfg:         config{authSecret: "testsecret", authdURL: "http://authd"},
-		ks:          ks,
-		chatAnonDOS: newRateLimiter(10, time.Minute),
-		viteProxy:   httputil.NewSingleHostReverseProxy(bu),
+		cfg:       config{authSecret: "testsecret", authdURL: "http://authd"},
+		ks:        ks,
+		viteProxy: httputil.NewSingleHostReverseProxy(bu),
 	}
 
 	cases := []struct {

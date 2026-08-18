@@ -373,11 +373,13 @@ var coreProxydRoutes = []ProxydRoute{
 	{Path: "/dash/timed/", Backend: "http://timed:8080", Auth: "user"},
 	// /dash/ catch-all → dashd (hub + cross-cutting pages).
 	{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
-	// /chat/ — bespoke handler in proxyd (dispatchRouteToken). Token in
-	// path → public; no token segment (operator panel moved to /panel/)
-	// → handler routes by presence. Spec 5/W.
-	{Path: "/chat/", Backend: "http://webd:8080", Auth: "public"},
-	{Path: "/hook/", Backend: "http://webd:8080", Auth: "public"},
+	// /chat/ + /hook/ — the route-token surface, served end to end by webd
+	// (spec 5/W). `optional`: proxyd identifies a caller who offers a bearer so
+	// webd can attribute the message to them, and forwards everyone else
+	// anonymously — the token is the credential. These were proxyd's own
+	// dispatchRouteToken arm until specs/6/22 step 1 made them ordinary rows.
+	{Path: "/chat/", Backend: "http://webd:8080", Auth: "optional"},
+	{Path: "/hook/", Backend: "http://webd:8080", Auth: "optional"},
 	// /pair/ — identity pairing (spec 5/31). `user` so an anonymous visitor is
 	// bounced through OAuth with the pairing URL as the return path; the human
 	// must be signed in before the confirm page is even rendered.

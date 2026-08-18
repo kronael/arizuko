@@ -4,8 +4,11 @@ import "strings"
 
 // validAuth is the set of accepted `auth` values for a Route. `operator`
 // today resolves to `user` plus a daemon-side grant check; capability
-// tokens (specs/5/1-auth-standalone.md) will distinguish later.
-var validAuth = map[string]bool{"public": true, "user": true, "operator": true}
+// tokens (specs/5/1-auth-standalone.md) will distinguish later. `optional`
+// identifies the caller when they offer a credential and forwards anonymously
+// otherwise — the route-token surface, where the token is the credential and a
+// stamped sub only decides attribution (specs/6/22 step 1).
+var validAuth = map[string]bool{"public": true, "user": true, "operator": true, "optional": true}
 
 // Route is one row of proxyd_routes in memory. `arizuko generate` writes the
 // release's routes into that table (compose.collectProxydRoutes → store.

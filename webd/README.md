@@ -95,9 +95,18 @@ Planned per `specs/5/17-openapi-mcp.md`:
   confirm step is the security boundary (`SECURITY.md` §"Pairing:
   consent is the boundary").
 - `/chat/<token>/*` and `/hook/<token>` stay unauthenticated; the URL
-  route-token IS the capability (looked up in `route_tokens`, resolved to
-  folder via proxyd's `X-Chat-Token` + `X-Folder` stamps verified via
-  `chatTransit`).
+  route-token IS the capability. webd resolves it (`lookupRouteToken` →
+  `route_tokens`), and is the ONLY resolver: proxyd used to resolve the same
+  token and stamp `X-Chat-Token` + `X-Folder` beside it, two readers of one row
+  (specs/6/22 step 1 cut the second). proxyd's route carries `auth: optional`,
+  so a caller who offers a bearer arrives identified and gets the message
+  attributed to them; everyone else arrives anonymous.
+- `GET /chat/stream` asks for one thing more: `transited(r)`, proxyd's
+  `service:proxyd` bearer. A subscription is long-lived, so it must have come
+  through the front door — but holding the token is the only credential.
+- The anon DoS shield (`CHAT_ANON_DOS_RPM`) lives here too, keyed on the
+  `X-Forwarded-For` client proxyd resolved. NEVER key it on `RemoteAddr`: webd's
+  peer is always proxyd, so that puts every visitor in one bucket (BUGS L40).
 - That lookup is **in-process and deliberately not an HTTP call to
   routd**: webd is FS-mounted on `store/`, so split write-discipline
   permits the direct read, and a per-request hop would only add a failure
@@ -129,6 +138,7 @@ reads to routd.
 - `AUTHD_URL` — when set, enables ES256 bearer verification via JWKS; unset → HMAC-only (local dev)
 - `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME` (default `webd`) — service token for routd + proxyd calls
 - `WEBHOOK_RATE_HOOK` (default 60), `WEBHOOK_RATE_WEB` (default 20) — per-token req/min rate limits
+- `CHAT_ANON_DOS_RPM` (default 10) — per-client-IP req/min shield on `/chat/*` + `/hook/*` for anonymous callers; non-positive disables it
 - `ARIZUKO_INSTANCE` — instance name for audit/observability
 
 ## Health signal
@@ -155,6 +165,7 @@ delivered messages.
 - `assets.go` — embedded static asset serving (`/static/*`, `/assets/*`)
 - `pair.go` — identity-pairing confirm + redemption (`/pair/<token>`)
 - `ratelimit.go` — per-token rate limiter for `/chat/*` and `/hook/*`
+- `anonshield.go` — per-client-IP anon DoS shield + `clientIP` (moved from proxyd, specs/6/22)
 
 ## Related docs
 

@@ -31,6 +31,7 @@ on-ramp; emulation is rejected.
 | [19-unified-tool-declaration.md](19-unified-tool-declaration.md)   | draft   | collapse `[[ext]]`+`[[mcp_connector]]` into one `[[connector]]` block + the ordered-source shadow rule; timed to `5/13` shape 4                                                                            |
 | [20-sandbox-lifecycle-decline.md](20-sandbox-lifecycle-decline.md) | shipped | costed DECLINE of the warm-pool sandbox lifecycle vs per-turn ephemeral containers; the mount-boundary blocker; `can_open_io`+reconcile survive for `6/9` KVM                                              |
 | [22-proxyd-cut.md](22-proxyd-cut.md)                               | draft   | cut proxyd to its irreplaceable half — move the misfiled token handlers out (step 1, standalone), routes as rows (step 2, `L45`), forward-auth split (step 3, unsigned). Does NOT remove proxyd            |
+| [23-llm-gateway.md](23-llm-gateway.md)                             | draft   | adopt Bifrost so the container holds a per-spawn virtual key, not the real model credential; cost measured at the boundary instead of self-reported by the agent                                           |
 
 `7` owns the contracts; `1` owns the strategy; `16` owns the map (layers,
 axes, matrices). `8`–`10` (crackbox family) and `12` (`mcpfw`) are the

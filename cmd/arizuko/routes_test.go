@@ -155,7 +155,7 @@ func TestGenerateRewritesChangedArizukoRoute(t *testing.T) {
 	generateCompose(dataDir)
 
 	got := instanceRoutes(t, dataDir)["/chat/"]
-	if got.Backend != "http://webd:8080" || got.Auth != "public" {
+	if got.Backend != "http://webd:8080" || got.Auth != "optional" {
 		t.Errorf("/chat/ = %+v, want the release's definition", got)
 	}
 }
