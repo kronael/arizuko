@@ -173,6 +173,42 @@ line, and a rule expressed twice is a rule that can disagree with itself.
 `EgressConfig` it already builds at spawn (`runed/docker.go:127`) is
 exactly the input, unchanged.
 
+## Setup, and what changes for a live instance
+
+Today an instance runs ONE long-lived container — `arizuko_crackbox_<inst>`
+is live on krons, sloth and marinade — wired by a compose fragment, with
+its admin URL and secret in the instance `.env`. runed registers each
+spawn's IP against it.
+
+After the cut there is **no long-lived crackbox container**. runed starts
+a proxy per spawn from the same image and stops it with the turn.
+
+| Piece                               | Today                          | After                                    |
+| ----------------------------------- | ------------------------------ | ---------------------------------------- |
+| `arizuko_crackbox_<inst>` container | always up                      | gone                                     |
+| compose fragment                    | defines the service            | not needed; the image is pulled, not run |
+| `CRACKBOX_ADMIN_URL` / `_SECRET`    | how runed reaches the registry | gone with the registry                   |
+| `network_rules` table               | source of the allowlist        | **unchanged** — same rows, same meaning  |
+| per-folder semantics                | glob per folder, `*` = open    | **unchanged**                            |
+
+The operator-visible surface is therefore _smaller_, not different: the
+same `arizuko network allow/deny` commands write the same rows, and the
+same folders get the same reach. Live krons rules today include
+instance-global `anthropic.com` / `api.anthropic.com` and per-folder
+entries, some of which are `*` (open) — all of which mean exactly what
+they mean now.
+
+**Migration on upgrade**: stop and remove the instance's crackbox
+container, drop the fragment, drop the two `.env` vars. Nothing in the
+data dir changes. A rollback is re-adding the fragment, because the rows
+were never touched.
+
+**The inert path stays inert.** An instance with no crackbox image
+configured spawns exactly as today, unfiltered — `EgressConfig.active()`
+gates the whole path. Filtering must remain opt-in at the same point it
+is opt-in now, or upgrading silently changes what existing instances can
+reach.
+
 ## Why this is worth doing — corrected 2026-08-18
 
 **Not for the stranger.** `6/16`'s plan item is "get one stranger running
