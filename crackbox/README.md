@@ -8,8 +8,10 @@ Egress-filtering proxy + KVM sandbox library. Two halves:
   - [`specs/6/10`](../specs/6/10-crackbox-dns-filter.md).
 - **`pkg/host/`** — Go library for KVM/qemu sandbox lifecycle (shipped;
   see [`specs/6/9`](../specs/6/9-crackbox-sandboxing.md)). Spawns VMs,
-  manages privileges, integrates proxy registration. Imported by
-  arizuko's container runner and by `crackbox run --kvm` for standalone use.
+  manages privileges, integrates proxy registration. Used by
+  `crackbox run --kvm`. **Not yet wired into arizuko** — `runed` still
+  spawns Docker, and the only importers are inside `crackbox/` (spec `6/9`
+  records this; this README claimed the opposite until 2026-08-18).
 
 Both halves ship together. Proxy is production; host library is complete but
 not yet wired into arizuko's spawn path.
