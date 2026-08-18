@@ -1,9 +1,11 @@
-// Package run is the convenience wrapper for the `crackbox run` subcommand:
-// spin up a Docker network + crackbox proxy daemon container + register the
-// allowlist + run the user's command in a container with HTTPS_PROXY set,
-// tear down on exit. This is sugar — there is no separate single-shot proxy
-// implementation. The proxy that runs is the same daemon as `crackbox proxy
-// serve`; we just kill it when the user's command exits.
+// Package run is what crackbox IS: the composition of the two halves it
+// ships separately — the egress proxy and the sandbox — into one command.
+//
+//	crackbox run --allow a,b -- cmd     container sandbox, egress filtered by the proxy
+//	crackbox run --kvm --allow a,b      KVM sandbox, egress filtered on its tap
+//
+// Neither half needs the other. Take egress/ for a forward proxy, sandbox/
+// for a KVM library; this package is the convenience of having both.
 package run
 
 import (
@@ -11,8 +13,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -20,98 +22,125 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kronael/arizuko/crackbox/pkg/client"
+	"github.com/kronael/arizuko/egress"
+	"github.com/kronael/arizuko/sandbox"
+)
+
+const (
+	proxyPort    = 3128
+	readyTimeout = 15 * time.Second
+	readyPoll    = 20 * time.Millisecond
 )
 
 type Args struct {
-	Image     string   // user's container image
-	Cmd       []string // command + args inside the container
+	Image     string   // user's container image (docker mode)
+	Cmd       []string // command + args inside the sandbox
 	Allow     []string // allowlist
 	ID        string   // optional, generated if empty
-	ProxyImg  string   // crackbox proxy image (default: crackbox:latest)
-	NetSubnet string   // default 10.88.0.0/16
-	Quiet     bool     // suppress non-error log output
+	ProxyImg  string   // image holding the egress binary
+	NetSubnet string   // sandbox network CIDR (docker mode)
+	Uplink    string   // docker network giving the proxy its route out
+	KVM       bool     // run the command in a KVM VM instead of a container
+	DataDir   string   // VM state root (KVM mode)
+	Quiet     bool     // suppress crackbox-prefixed status lines
 }
 
-// Run orchestrates the full single-shot lifecycle. Blocks until the user
-// command exits, then tears down all created Docker resources.
+// Run executes the command in a sandbox with filtered egress and returns its
+// exit code. Blocks until the command exits, then tears everything down.
 func Run(a Args) (int, error) {
-	if a.Image == "" {
-		return 2, fmt.Errorf("image required")
-	}
-	if a.ProxyImg == "" {
-		a.ProxyImg = "crackbox:latest"
-	}
-	if a.NetSubnet == "" {
-		a.NetSubnet = "10.88.0.0/16"
+	if len(a.Cmd) == 0 && !a.KVM {
+		return 2, fmt.Errorf("command required")
 	}
 	if a.ID == "" {
 		a.ID = "crackbox-" + randTag()
 	}
+	if a.KVM {
+		return runKVM(a)
+	}
+	return runContainer(a)
+}
 
-	// Share one tag across the network + both containers so they're easy to
-	// grep together in `docker ps` / `docker network ls`.
+// runContainer composes egress + docker: the sandbox goes on an --internal
+// network with no route out, and its own proxy — holding the allowlist and
+// pinned to its address — is the only way through.
+func runContainer(a Args) (int, error) {
+	if a.Image == "" {
+		return 2, fmt.Errorf("image required")
+	}
+	if a.ProxyImg == "" {
+		a.ProxyImg = "arizuko-egress:latest"
+	}
+	if a.NetSubnet == "" {
+		a.NetSubnet = "10.88.0.0/24"
+	}
+	if a.Uplink == "" {
+		a.Uplink = "bridge"
+	}
+
 	tag := randTag()
 	netName := "crackbox-" + tag
 	proxyName := "crackbox-proxy-" + tag
 	userName := "crackbox-user-" + tag
 
+	// --internal is half the enforcement: without it the sandbox reaches the
+	// internet directly and the proxy is decoration.
 	logf(a, "creating network %s", netName)
-	if err := docker("network", "create", "--internal=false", "--subnet", a.NetSubnet, netName); err != nil {
+	if err := docker("network", "create", "--internal",
+		"--subnet", a.NetSubnet, netName); err != nil {
 		return 1, fmt.Errorf("network create: %w", err)
 	}
-	defer docker("network", "rm", netName)
+	defer docker("network", "rm", netName) //nolint:errcheck // teardown
 
-	logf(a, "starting proxy %s", proxyName)
+	// Both addresses are assigned before either container starts, so the proxy
+	// can be pinned to the sandbox's address from the moment it binds.
+	userIP, proxyIP, err := pickPair(a.NetSubnet)
+	if err != nil {
+		return 1, fmt.Errorf("pick addresses: %w", err)
+	}
+
+	logf(a, "starting proxy %s @ %s", proxyName, proxyIP)
 	if err := docker("run", "-d", "--rm",
-		"--name", proxyName, "--network", netName,
-		a.ProxyImg, "proxy", "serve"); err != nil {
+		"--name", proxyName, "--network", netName, "--ip", proxyIP,
+		"--cap-drop", "ALL", "--read-only",
+		a.ProxyImg,
+		"--listen", fmt.Sprintf(":%d", proxyPort),
+		"--client", userIP,
+		"--allow", strings.Join(a.Allow, ",")); err != nil {
 		return 1, fmt.Errorf("proxy run: %w", err)
 	}
-	defer docker("kill", proxyName)
+	defer docker("rm", "-f", proxyName) //nolint:errcheck // teardown
 
-	proxyIP, err := waitForIP(proxyName, netName, 5*time.Second)
+	// The uplink is the proxy's route out — and the only one in the sandbox's
+	// reach, since the sandbox is not attached to it.
+	if err := docker("network", "connect", a.Uplink, proxyName); err != nil {
+		return 1, fmt.Errorf("proxy uplink %s: %w", a.Uplink, err)
+	}
+	uplinkIP, err := containerIP(proxyName, a.Uplink)
 	if err != nil {
-		return 1, fmt.Errorf("proxy ip: %w", err)
+		return 1, fmt.Errorf("proxy uplink ip: %w", err)
+	}
+	// Start the sandbox only once the proxy answers. A sleep would race; a
+	// TCP connect would pass before the handler serves.
+	if err := waitHealthy(fmt.Sprintf("http://%s%s",
+		net.JoinHostPort(uplinkIP, fmt.Sprint(proxyPort)), egress.HealthPath)); err != nil {
+		return 1, fmt.Errorf("proxy not ready: %w", err)
 	}
 
-	cli := client.New(fmt.Sprintf("http://%s:3129", proxyIP), "")
-
-	// Wait for the admin listener to actually answer. Without this, a
-	// --quiet run races (no sleep) and the first Register hits a closed
-	// port. Poll instead of sleeping a fixed duration.
-	if err := waitHealthy(cli, 5*time.Second); err != nil {
-		return 1, fmt.Errorf("proxy health: %w", err)
-	}
-
-	// Pre-assign the user container's IP so we can register it before the
-	// container starts. Otherwise IP is only known post-start, and a
-	// fast-running command can fire (and fail) traffic before register
-	// completes.
-	userIP, err := pickUserIP(a.NetSubnet)
-	if err != nil {
-		return 1, fmt.Errorf("pick user ip: %w", err)
-	}
-	logf(a, "registering %s -> %v", userIP, a.Allow)
-	if err := cli.Register(userIP, a.ID, a.Allow); err != nil {
-		return 1, fmt.Errorf("register: %w", err)
-	}
-
-	logf(a, "creating user container %s @ %s", userName, userIP)
+	proxyURL := fmt.Sprintf("http://%s:%d", proxyIP, proxyPort)
+	logf(a, "creating sandbox %s @ %s (proxy %s)", userName, userIP, proxyURL)
 	createArgs := []string{"create",
 		"--name", userName, "--network", netName, "--ip", userIP,
-		"--dns", proxyIP,
 		"-i",
-		"-e", fmt.Sprintf("HTTP_PROXY=http://%s:3128", proxyIP),
-		"-e", fmt.Sprintf("HTTPS_PROXY=http://%s:3128", proxyIP),
+		"-e", "HTTP_PROXY=" + proxyURL,
+		"-e", "HTTPS_PROXY=" + proxyURL,
 		"-e", "NO_PROXY=localhost,127.0.0.1",
 		a.Image,
 	}
 	createArgs = append(createArgs, a.Cmd...)
 	if err := docker(createArgs...); err != nil {
-		return 1, fmt.Errorf("user create: %w", err)
+		return 1, fmt.Errorf("sandbox create: %w", err)
 	}
-	defer docker("rm", "-f", userName)
+	defer docker("rm", "-f", userName) //nolint:errcheck // teardown
 
 	logf(a, "starting + attaching")
 	cmd := exec.Command("docker", "start", "-a", userName)
@@ -123,7 +152,7 @@ func Run(a Args) (int, error) {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-stop
-		logf(a, "interrupt — killing user container")
+		logf(a, "interrupt — killing sandbox")
 		_ = exec.Command("docker", "kill", userName).Run()
 	}()
 
@@ -136,31 +165,84 @@ func Run(a Args) (int, error) {
 	return 0, nil
 }
 
-func docker(args ...string) error {
-	cmd := exec.Command("docker", args...)
-	out, err := cmd.CombinedOutput()
+// runKVM composes the other half: a qemu VM whose outbound traffic is
+// filtered by netfilter rules on its own tap device, from the same allowlist
+// the proxy would match. Needs KVM, qemu and root.
+func runKVM(a Args) (int, error) {
+	if a.DataDir == "" {
+		return 2, fmt.Errorf("--data-dir required for --kvm")
+	}
+	h, err := sandbox.New(strings.ReplaceAll(a.ID, "-", "_"), a.DataDir)
 	if err != nil {
-		slog.Debug("docker fail", "args", args, "out", string(out), "err", err)
+		return 1, fmt.Errorf("sandbox: %w", err)
+	}
+	logf(a, "spawning vm (allow %v)", a.Allow)
+	handle, err := h.Spawn(sandbox.VMConfig{AllowList: a.Allow})
+	if err != nil {
+		return 1, fmt.Errorf("spawn vm: %w", err)
+	}
+	defer func() {
+		if err := h.Stop(handle); err != nil {
+			fmt.Fprintf(os.Stderr, "crackbox: stop vm %s: %v\n", handle.ID, err)
+		}
+	}()
+	logf(a, "vm %s up @ %s", handle.ID, handle.IP)
+	if len(a.Cmd) == 0 {
+		return 0, nil
+	}
+	code, stdout, stderr, err := h.Exec(handle, a.Cmd, os.Stdin)
+	os.Stdout.Write(stdout)
+	os.Stderr.Write(stderr)
+	if err != nil {
+		return 1, fmt.Errorf("exec in vm: %w", err)
+	}
+	return code, nil
+}
+
+func docker(args ...string) error {
+	out, err := exec.Command("docker", args...).CombinedOutput()
+	if err != nil {
 		return fmt.Errorf("docker %s: %s", strings.Join(args, " "), strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
-func waitForIP(name, network string, deadline time.Duration) (string, error) {
-	end := time.Now().Add(deadline)
-	for time.Now().Before(end) {
-		out, err := exec.Command("docker", "inspect", "-f",
-			fmt.Sprintf(`{{(index .NetworkSettings.Networks %q).IPAddress}}`, network),
-			name).Output()
-		if err == nil {
-			ip := strings.TrimSpace(string(out))
-			if ip != "" && ip != "<no value>" {
-				return ip, nil
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
+func containerIP(name, network string) (string, error) {
+	out, err := exec.Command("docker", "inspect", "-f",
+		fmt.Sprintf(`{{(index .NetworkSettings.Networks %q).IPAddress}}`, network),
+		name).Output()
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("timed out waiting for ip on %s", name)
+	ip := strings.TrimSpace(string(out))
+	if ip == "" || ip == "<no value>" {
+		return "", fmt.Errorf("no address on %s", network)
+	}
+	return ip, nil
+}
+
+// waitHealthy polls the proxy's /health until it answers 200.
+func waitHealthy(url string) error {
+	c := &http.Client{Timeout: 2 * time.Second}
+	end := time.Now().Add(readyTimeout)
+	var last error
+	for time.Now().Before(end) {
+		resp, err := c.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+			last = fmt.Errorf("health %s", resp.Status)
+		} else {
+			last = err
+		}
+		time.Sleep(readyPoll)
+	}
+	if last == nil {
+		last = fmt.Errorf("timed out")
+	}
+	return last
 }
 
 func randTag() string {
@@ -169,10 +251,27 @@ func randTag() string {
 	return hex.EncodeToString(b)
 }
 
-// pickUserIP returns a random host IP within the IPv4 subnet, avoiding
-// the network address, the gateway (.1), and the broadcast address.
-// Rejects IPv6 and any prefix that yields fewer than 8 host addresses.
-func pickUserIP(subnet string) (string, error) {
+// pickPair returns two distinct host addresses in subnet.
+func pickPair(subnet string) (userIP, proxyIP string, _ error) {
+	userIP, err := pickIP(subnet)
+	if err != nil {
+		return "", "", err
+	}
+	for range 8 {
+		proxyIP, err = pickIP(subnet)
+		if err != nil {
+			return "", "", err
+		}
+		if proxyIP != userIP {
+			return userIP, proxyIP, nil
+		}
+	}
+	return "", "", fmt.Errorf("subnet %s: no second free address", subnet)
+}
+
+// pickIP returns a random host address in subnet, avoiding the network
+// address, the gateway (.1), .2 (docker's first auto-assign) and broadcast.
+func pickIP(subnet string) (string, error) {
 	_, n, err := net.ParseCIDR(subnet)
 	if err != nil {
 		return "", fmt.Errorf("parse subnet %q: %w", subnet, err)
@@ -182,50 +281,21 @@ func pickUserIP(subnet string) (string, error) {
 		return "", fmt.Errorf("ipv6 subnet not supported: %s", subnet)
 	}
 	ones, bits := n.Mask.Size()
-	if bits != 32 {
-		return "", fmt.Errorf("non-ipv4 mask in %s", subnet)
-	}
 	hostBits := bits - ones
 	if hostBits < 3 {
 		return "", fmt.Errorf("subnet %s too small (need /29 or larger)", subnet)
 	}
 	size := uint32(1) << uint(hostBits)
-	// reserve .0 (network), .1 (gateway), broadcast (size-1), and avoid .2
-	// which docker often assigns to the first attached container.
 	const reservedLow = 3
 	usable := size - reservedLow - 1
-	if usable < 1 {
-		return "", fmt.Errorf("subnet %s yields no usable host addresses", subnet)
-	}
 	var rb [4]byte
 	if _, err := rand.Read(rb[:]); err != nil {
 		return "", fmt.Errorf("rand: %w", err)
 	}
 	off := reservedLow + binary.BigEndian.Uint32(rb[:])%usable
-	base := binary.BigEndian.Uint32(ip4)
 	out := make(net.IP, 4)
-	binary.BigEndian.PutUint32(out, base+off)
+	binary.BigEndian.PutUint32(out, binary.BigEndian.Uint32(ip4)+off)
 	return out.String(), nil
-}
-
-// waitHealthy polls the admin /health endpoint until it answers 2xx or
-// the deadline elapses. Replaces the racy fixed sleep that --quiet
-// previously skipped entirely.
-func waitHealthy(cli *client.Client, deadline time.Duration) error {
-	end := time.Now().Add(deadline)
-	var lastErr error
-	for time.Now().Before(end) {
-		if err := cli.Health(); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("timed out")
-	}
-	return lastErr
 }
 
 func logf(a Args, format string, args ...any) {

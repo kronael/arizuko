@@ -169,7 +169,6 @@ func TestEnsureFolderNetworkConcurrency(t *testing.T) {
 
 	var (
 		creates  atomic.Int32
-		connects atomic.Int32
 		inspects atomic.Int32
 	)
 	// First inspect (creates==0) returns nothing & exits 1 (network missing).
@@ -186,9 +185,6 @@ func TestEnsureFolderNetworkConcurrency(t *testing.T) {
 			case "create":
 				creates.Add(1)
 				return exec.Command("/bin/true")
-			case "connect":
-				connects.Add(1)
-				return exec.Command("/bin/true")
 			}
 		}
 		return exec.Command("/bin/true")
@@ -200,8 +196,7 @@ func TestEnsureFolderNetworkConcurrency(t *testing.T) {
 	for range n {
 		wg.Go(func() {
 			_, _, err := ensureFolderNetwork(
-				"arizuko_test", "arizuko_crackbox_test",
-				"10.99.0.0/16", "atlas/support")
+				"arizuko_test", "10.99.0.0/16", "atlas/support")
 			errs <- err
 		})
 	}
@@ -216,17 +211,16 @@ func TestEnsureFolderNetworkConcurrency(t *testing.T) {
 	if c := creates.Load(); c > 1 {
 		t.Errorf("network create called %d times, want 1", c)
 	}
-	if connects.Load() < 1 {
-		t.Errorf("network connect not called")
+	if inspects.Load() < 1 {
+		t.Errorf("network inspect not called")
 	}
 }
 
-// TestEnsureFolderNetworkRequiresPrefix — empty prefix or container is rejected.
+// TestEnsureFolderNetworkRequiresPrefix — an empty prefix is rejected. The
+// prefix is what keeps two instances on one docker host off each other's
+// folder networks, so a missing one must fail rather than default.
 func TestEnsureFolderNetworkRequiresPrefix(t *testing.T) {
-	if _, _, err := ensureFolderNetwork("", "cb", "10.99.0.0/16", "f"); err == nil {
+	if _, _, err := ensureFolderNetwork("", "10.99.0.0/16", "f"); err == nil {
 		t.Error("expected error for empty prefix")
-	}
-	if _, _, err := ensureFolderNetwork("p", "", "10.99.0.0/16", "f"); err == nil {
-		t.Error("expected error for empty crackbox container")
 	}
 }

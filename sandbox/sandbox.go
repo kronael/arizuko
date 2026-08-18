@@ -1,18 +1,20 @@
-// Package host is the public KVM sandbox library.
-// It wraps internal.Manager with InstanceID namespacing and optional egred
-// proxy registration via pkg/client.
-package host
+// Package sandbox is the KVM/qemu sandbox library: create, start, exec into
+// and destroy a VM. Its outbound traffic is filtered by netfilter rules on
+// the VM's own tap device, matched against the same allowlist the egress
+// proxy uses (egress/match).
+//
+// This is one half of what crackbox composes; egress is the other. Nothing
+// here talks to a proxy, a registry or an admin API (spec 6/24).
+package sandbox
 
 import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"regexp"
 
-	"github.com/kronael/arizuko/crackbox/pkg/client"
-	"github.com/kronael/arizuko/crackbox/pkg/host/internal"
+	"github.com/kronael/arizuko/sandbox/internal"
 )
 
 var instanceIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)
@@ -33,12 +35,11 @@ type Mount struct {
 
 // VMConfig holds the configuration for a VM to be spawned.
 type VMConfig struct {
-	Image       string   // path to base qcow2; empty = default Alpine download
-	Memory      string   // e.g. "2G"; empty = default
-	CPUs        int      // 0 = default (2)
-	Mounts      []Mount  // virtio-fs mounts
-	EgressProxy string   // egred admin URL; empty = no proxy
-	AllowList   []string // host allowlist pushed to egred on Spawn
+	Image     string   // path to base qcow2; empty = default Alpine download
+	Memory    string   // e.g. "2G"; empty = default
+	CPUs      int      // 0 = default (2)
+	Mounts    []Mount  // virtio-fs mounts
+	AllowList []string // host allowlist enforced by netfilter on the VM's tap
 }
 
 // Handle is a reference to a running VM.
@@ -70,8 +71,8 @@ func New(instanceID, dataDir string) (*Host, error) {
 	return &Host{instanceID: instanceID, dataDir: dataDir, mgr: mgr}, nil
 }
 
-// Spawn creates and starts a VM, registers it with egred if EgressProxy is set,
-// and returns a Handle with the VM's IP.
+// Spawn creates and starts a VM and returns a Handle with the VM's IP.
+// The allowlist becomes netfilter rules on the VM's tap device.
 func (h *Host) Spawn(cfg VMConfig) (Handle, error) {
 	mounts := make([]internal.Mount, len(cfg.Mounts))
 	for i, m := range cfg.Mounts {
@@ -79,12 +80,11 @@ func (h *Host) Spawn(cfg VMConfig) (Handle, error) {
 	}
 
 	id, err := h.mgr.Create(internal.CreateOpts{
-		Image:       cfg.Image,
-		Memory:      cfg.Memory,
-		CPUs:        cfg.CPUs,
-		Mounts:      mounts,
-		EgressProxy: cfg.EgressProxy,
-		AllowList:   cfg.AllowList,
+		Image:     cfg.Image,
+		Memory:    cfg.Memory,
+		CPUs:      cfg.CPUs,
+		Mounts:    mounts,
+		AllowList: cfg.AllowList,
 	})
 	if err != nil {
 		return Handle{}, fmt.Errorf("create vm: %w", err)
@@ -101,22 +101,10 @@ func (h *Host) Spawn(cfg VMConfig) (Handle, error) {
 		return Handle{}, fmt.Errorf("get vm meta after start: %w", err)
 	}
 
-	if cfg.EgressProxy != "" {
-		c := client.New(cfg.EgressProxy, os.Getenv("CRACKBOX_ADMIN_SECRET"))
-		if err := c.Health(); err != nil {
-			h.mgr.Stop(id) //nolint:errcheck
-			return Handle{}, fmt.Errorf("egred health: %w", err)
-		}
-		if err := c.Register(meta.IP, id, cfg.AllowList); err != nil {
-			h.mgr.Stop(id) //nolint:errcheck
-			return Handle{}, fmt.Errorf("egred register: %w", err)
-		}
-	}
-
 	return Handle{ID: id, IP: meta.IP}, nil
 }
 
-// Stop unregisters the VM from egred (best-effort) and shuts down QEMU.
+// Stop shuts down QEMU and tears the VM's tap + netfilter rules down.
 func (h *Host) Stop(handle Handle) error {
 	meta, err := h.mgr.Get(handle.ID)
 	if err != nil {
@@ -125,14 +113,6 @@ func (h *Host) Stop(handle Handle) error {
 	if meta == nil {
 		return fmt.Errorf("vm not found: %s", handle.ID)
 	}
-
-	if meta.EgressProxy != "" {
-		c := client.New(meta.EgressProxy, os.Getenv("CRACKBOX_ADMIN_SECRET"))
-		if err := c.Unregister(meta.IP); err != nil {
-			fmt.Fprintf(os.Stderr, "crackbox: egred unregister %s: %v\n", meta.IP, err)
-		}
-	}
-
 	return h.mgr.Stop(handle.ID)
 }
 

@@ -192,13 +192,17 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		}
 	}
 
-	egressNet, egressIP, eerr := registerEgress(in.Egress, in.Folder)
+	// This spawn's own egress proxy, started and proved healthy BEFORE the
+	// agent container exists. A failure here fails the whole spawn: starting
+	// the agent anyway would put an unfiltered container on the network,
+	// the exact inversion of the property egress exists for.
+	eg, eerr := startEgressProxy(in.Egress, in.Folder, containerName)
 	if eerr != nil {
-		return Output{Status: "error", Error: "egress register: " + eerr.Error()}
+		return Output{Status: "error", Error: "egress proxy: " + eerr.Error()}
 	}
-	defer unregisterEgress(in.Egress, egressIP)
+	defer eg.Stop()
 
-	args := buildArgs(cfg, mounts, containerName, in.Egress, egressNet, egressIP, in.Model, in.QueryTimeoutMs)
+	args := buildArgs(cfg, mounts, containerName, eg, in.Model, in.QueryTimeoutMs)
 
 	logsDir := filepath.Join(groupDir, "logs")
 	os.MkdirAll(logsDir, 0o755)
@@ -672,7 +676,7 @@ func buildMounts(
 }
 
 func buildArgs(
-	cfg *core.Config, mounts []volumeMount, name string, egress EgressConfig, network, ip string,
+	cfg *core.Config, mounts []volumeMount, name string, eg egressSpawn,
 	model string, queryTimeoutMs int64,
 ) []string {
 	args := []string{
@@ -692,19 +696,13 @@ func buildArgs(
 	if queryTimeoutMs > 0 {
 		args = append(args, "-e", "ARIZUKO_QUERY_TIMEOUT_MS="+strconv.FormatInt(queryTimeoutMs, 10))
 	}
-	if network != "" {
-		proxy := egress.ProxyURL
-		if proxy == "" {
-			proxy = "http://crackbox:3128"
-		}
-		args = append(args, "--network", network)
-		if ip != "" {
-			args = append(args, "--ip", ip)
-		}
-		args = append(args,
-			"-e", "HTTP_PROXY="+proxy,
-			"-e", "HTTPS_PROXY="+proxy,
-			"-e", "NO_PROXY=localhost,127.0.0.1,gated,routd,crackbox",
+	// The network is --internal, so this is the whole egress story: the only
+	// route out is eg.ProxyURL, and that proxy answers eg.IP and no other.
+	if eg.Network != "" {
+		args = append(args, "--network", eg.Network, "--ip", eg.IP,
+			"-e", "HTTP_PROXY="+eg.ProxyURL,
+			"-e", "HTTPS_PROXY="+eg.ProxyURL,
+			"-e", "NO_PROXY=localhost,127.0.0.1",
 			"-e", "NODE_OPTIONS=--require=/app/proxy-shim.js")
 	}
 

@@ -108,16 +108,15 @@ type Config struct {
 	TTSModel   string
 	TTSTimeout time.Duration
 
-	// Egress isolation (crackbox). Enabled when EgressAPI is non-empty.
-	// No separate EGRESS_ISOLATION switch — set the API URL or don't.
+	// Egress isolation (spec 6/24). Enabled when EgressImage is non-empty.
+	// No separate EGRESS_ISOLATION switch — name the image or don't.
 	// Per-folder networks are created lazily under EgressNetworkPrefix
-	// with /24s carved from EgressParentSubnet.
+	// with /24s carved from EgressParentSubnet; each spawn gets its own
+	// proxy container from EgressImage, with its allowlist baked in.
 	EgressNetworkPrefix string // e.g. "arizuko_krons" — folder networks are <prefix>_<sanitized-folder>
-	EgressCrackbox      string // crackbox container name (attached to every folder network)
-	EgressAPI           string // crackbox admin HTTP API base URL (e.g. http://crackbox:3129)
-	EgressProxyURL      string // HTTP(S)_PROXY value for the agent (e.g. http://crackbox:3128)
+	EgressImage         string // image holding the `egress` binary (e.g. arizuko-egress:latest)
+	EgressUplinkNetwork string // network giving each spawn's proxy its route out (compose project default)
 	EgressParentSubnet  string // parent CIDR carved into per-folder /24s (default 10.99.0.0/16)
-	EgressAdminSecret   string // optional bearer token for crackbox admin API mutations
 
 	// Cost caps (spec 11/19). Enabled by default; pre-spawn gate consults
 	// per-folder + per-user caps in store/cost_log. Set false to bypass
@@ -261,11 +260,9 @@ func LoadConfig() (*Config, error) {
 		TTSTimeout: envDur("TTS_TIMEOUT", 15*time.Second),
 
 		EgressNetworkPrefix: envOr("EGRESS_NETWORK_PREFIX", ""),
-		EgressCrackbox:      envOr("EGRESS_CRACKBOX", ""),
-		EgressAPI:           envOr("CRACKBOX_ADMIN_API", ""),
-		EgressProxyURL:      envOr("CRACKBOX_PROXY_URL", "http://crackbox:3128"),
+		EgressImage:         envOr("EGRESS_IMAGE", ""),
+		EgressUplinkNetwork: envOr("EGRESS_UPLINK_NETWORK", ""),
 		EgressParentSubnet:  envOr("EGRESS_SUBNET", "10.99.0.0/16"),
-		EgressAdminSecret:   envOr("CRACKBOX_ADMIN_SECRET", ""),
 
 		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
 
@@ -275,9 +272,9 @@ func LoadConfig() (*Config, error) {
 		SecretsKey: envOr("SECRETS_KEY", ""),
 	}
 
-	// Validation of EgressNetworkPrefix / EgressCrackbox lives in runed
-	// (the only daemon that uses egress isolation, in docker.go), not here —
-	// other daemons call LoadConfig too and must not fail when egress is on.
+	// Validation of the egress vars lives in runed (the only daemon that uses
+	// egress isolation, in docker.go), not here — other daemons call
+	// LoadConfig too and must not fail when egress is on.
 
 	// ASSISTANT_NAME and data dir basename end up in container_name and
 	// YAML scalars unquoted — reject anything that would break them.

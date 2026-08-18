@@ -1,5 +1,6 @@
 ---
-status: draft
+status: shipped
+shipped: 2026-08-18
 depends:
   [
     8-crackbox-standalone,
@@ -9,6 +10,11 @@ depends:
 ---
 
 # specs/6/24 — crackbox, lightest
+
+> Shipped 2026-08-18. Supersedes the shared-proxy half of `6/8`. Two
+> corrections the build forced are marked in place: `--network container:`
+> is an open bypass (measured), and a per-spawn proxy needs `--client` to
+> stop a neighbour borrowing an allowlist it was not granted.
 
 `6/8` ships crackbox as one shared forward proxy holding a registry of
 `(source_ip, id, allowlist)` entries, with a transparent mode and an
@@ -84,36 +90,25 @@ or changing.
 The per-spawn proxy is not Docker-shaped. Where it ATTACHES differs; what
 it is does not.
 
-**Container (today).** Egress is enforced by TOPOLOGY, not by the proxy.
-Verified on live krons 2026-08-18: a per-folder agent network
-(`arizuko_krons_fiu`) has `internal=true` — no external route at all —
-and the crackbox container is attached to every per-folder network plus
-the default, making it the only dual-homed thing. The agent cannot reach
-the internet because it has no route, not because a proxy declines.
+**Container (today).** Start the proxy container first, wait for its
+`/health`, then start the agent on the folder's `--internal` network with
+`HTTP_PROXY` pointing at the proxy's address there. The proxy is attached
+to that network AND to an uplink; the agent is attached to the internal
+network only. Enforcement is topological: the agent's network has no route
+out, so the proxy is not what stops it — the missing route is.
 
-So the per-spawn shape keeps that topology and only replaces the shared
-proxy:
-
-1. the agent network stays `--internal` (`container/network.go:165`
-   already creates it that way);
-2. the per-spawn proxy attaches to BOTH that internal network and an
-   external one;
-3. the agent attaches to the internal network ONLY;
-4. `HTTP_PROXY`/`HTTPS_PROXY` name the proxy's address on the internal
-   network.
-
-**Docker's `--network container:<proxy>` is REJECTED**, and the reasoning
-is recorded because it is an attractive wrong answer. It looks like the
-pod primitive and would make `HTTP_PROXY=127.0.0.1` work. But the proxy
-must be dual-homed to forward at all, so sharing its namespace hands the
-agent the external route directly and reduces `HTTP_PROXY` to advice: a
-raw socket, an IP literal, or any client ignoring the variable walks
-straight out. `egress_e2e_test.go` case 6 states the underlying fact —
-"crackbox is not a kernel firewall … mitigated by Docker's `--internal`
-network … there is no kernel route off the confined bridge."
-
-Isolation here is a Linux namespace either way: the kernel is shared, and
-a kernel escape defeats it.
+> **`--network container:<proxy>` does NOT work here — measured, not
+> reasoned.** Sharing the proxy's network namespace was proposed as the pod
+> primitive that removes the ordering race. It removes the enforcement
+> instead: the proxy must reach the internet to forward, so its namespace
+> carries a default route, and everything sharing that namespace inherits
+> it. On this docker host, a container run with
+> `--network container:<proxy>` and NO proxy environment fetched
+> `http://example.com` directly, exit 0. `HTTP_PROXY` would become
+> advisory — any raw socket, any IP literal, any client ignoring the env
+> var walks straight out. The `--internal` network is the enforcement and
+> must stay; the agent must never share the proxy's namespace or hold a
+> second interface.
 
 **VM (`6/9`, shipped but unwired).** A guest has exactly one virtual NIC —
 a tap the host created. Put the proxy on the host side of that tap and
@@ -178,72 +173,6 @@ libraries this codebase consumes; `crackbox` is how a developer runs them
 locally. If an outside consumer ever appears, they take a library, not a
 bundle.
 
-## Two substrates, one design
-
-The per-spawn proxy is not Docker-shaped. Where it ATTACHES differs; what
-it is does not.
-
-**Container (today).** Start the proxy container first, then the agent
-with `--network container:<proxy>` — Docker's own pod primitive, already
-one flag away since `container/runner.go:700` passes `--network`. The
-agent borrows the proxy's network namespace, so it has no interface of
-its own and no second path to take. Isolation is a Linux namespace: the
-kernel is shared, and a kernel escape defeats it.
-
-**VM (`6/9`, shipped but unwired).** A guest has exactly one virtual NIC —
-a tap the host created. Put the proxy on the host side of that tap and
-the guest's only route is through it, enforced below the kernel it runs.
-Stronger than the namespace case by a category, not a degree.
-
-**The VM case is also the simpler one**: there is nothing to register,
-because the tap IS the identity. A registry exists to answer "which
-tenant is this source IP?", and that question does not arise when the
-answer is "the one on the other end of this tap".
-
-Note `crackbox/pkg/host` already carries `EgressProxy` and registers the
-VM with the shared registry on spawn (`host.go:104`), unregistering on
-stop — so **the KVM path inherits the same unregister leak** described
-above. Per-spawn removes it on both substrates.
-
-Wiring KVM into `runed` is separate work and out of scope here: `runed`
-spawns Docker today, `6/9` records `pkg/host` as shipped-but-unwired, and
-`6/20` declined the warm-pool lifecycle that neighbours it. This spec only
-requires that the design not foreclose the VM path — it does not.
-
-## MITM stays declined
-
-`6/17` declined interception (2026-08-18): header injection was the only
-thing requiring it, and it was withdrawn. This cut depends on that. A
-forward proxy that never terminates TLS has no CA, no key material and
-no request-body access — which is what keeps 250 lines auditable by
-someone who does not trust us.
-
-## Split the two halves
-
-crackbox today is two orthogonal things in one directory: the egress
-proxy, and `pkg/host/` — a KVM/qemu sandbox library (`6/9`) that **no
-importer outside `crackbox/` uses** and that the proxy binary does not
-link (`go list -deps` finds zero references). "Ship one component" is
-currently shipping two.
-
-**DECIDED 2026-08-18 — split, and crackbox survives as the tool that
-combines them.** Three things where there is one today:
-
-| Piece            | Is                                                            |
-| ---------------- | ------------------------------------------------------------- |
-| the egress proxy | a library + its own small binary: forward, static, ~250 lines |
-| `pkg/host`       | its own component — the KVM/qemu sandbox library (`6/9`)      |
-| **`crackbox`**   | a standalone TOOL that composes both, and nothing else        |
-
-This keeps the name and the convenience — `crackbox run --kvm` still
-spawns a sandboxed VM behind a filtered egress path — while letting
-someone take just the proxy, or just the sandbox library, without the
-other. The composition is the product; neither half has to be.
-
-It also matches what `6/16` means by shipping one part: a stranger who
-wants egress filtering downloads a forward proxy, not a KVM library
-bundled with it.
-
 ## The resulting layout
 
 Three directories where there is one, all still inside arizuko's single
@@ -251,13 +180,14 @@ Three directories where there is one, all still inside arizuko's single
 enforced by the import graph, not by module boundaries):
 
 ```
-egress/            the proxy: forward-only, static allowlist
-  proxy.go         parse CONNECT, dial, splice          (from pkg/proxy)
-  match/           allowlist globbing                   (from pkg/match, unchanged)
-  cmd/egress/      the standalone binary
-sandbox/           the KVM/qemu lifecycle library       (from crackbox/pkg/host)
-crackbox/          the TOOL that composes both
-  cmd/crackbox/    `crackbox run --kvm` — sandbox + filtered egress
+egress/            the proxy: forward-only, static allowlist, one client
+  proxy.go         parse CONNECT, match, splice; /health (from pkg/proxy)
+  match/           allowlist globbing                    (from pkg/match, unchanged)
+  cmd/egress/      the binary runed starts per spawn
+  test/            end-to-end over real sockets          (from crackbox/test)
+sandbox/           the KVM/qemu lifecycle library        (from crackbox/pkg/host)
+crackbox/          the local-development command
+  cmd/crackbox/    `crackbox run [--kvm]` — a sandbox + filtered egress
 ```
 
 Deleted outright, because only the shared model needed them:
@@ -272,6 +202,30 @@ line, and a rule expressed twice is a rule that can disagree with itself.
 `EgressConfig` it already builds at spawn (`runed/docker.go:127`) is
 exactly the input, unchanged.
 
+### Two things the build added, and why
+
+**`--client <ip>`: the proxy serves exactly one address.** Per-spawn
+proxies share the folder's network with the folder's other spawns, and
+those spawns do NOT all hold the same allowlist — `elevated` is per-turn
+and one-shot (`routd/dispatch.go:123`), so a concurrent elevated turn has
+an unrestricted `*`. Without the pin, a non-elevated spawn could send its
+CONNECT to the elevated spawn's proxy and inherit it. The shared model
+closed this by keying on source IP; per-spawn has to close it too. This is
+a bind scope, not a registry: nothing is registered or looked up, and a
+second client is refused rather than served from another rule set.
+
+**`GET /health`, and the start order it buys.** The proxy answers 200 only
+once its listener is bound and its allowlist loaded. runed polls it and
+starts the agent ONLY on a 200; on timeout the spawn fails. A TCP connect
+would not do — it succeeds the moment the port is bound. The probe is
+answered before the `--client` check, since runed is not the client, and
+origin-form `GET /health` is unambiguously a probe: proxy traffic arrives
+in absolute form.
+
+An orphan proxy would hold a live allowlist on a folder network, so runed
+sweeps them by label at startup — a runed that died mid-turn cannot have
+run its own teardown.
+
 ## Setup, and what changes for a live instance
 
 Today an instance runs ONE long-lived container — `arizuko_crackbox_<inst>`
@@ -282,13 +236,17 @@ spawn's IP against it.
 After the cut there is **no long-lived crackbox container**. runed starts
 a proxy per spawn from the same image and stops it with the turn.
 
-| Piece                               | Today                          | After                                    |
-| ----------------------------------- | ------------------------------ | ---------------------------------------- |
-| `arizuko_crackbox_<inst>` container | always up                      | gone                                     |
-| compose fragment                    | defines the service            | not needed; the image is pulled, not run |
-| `CRACKBOX_ADMIN_URL` / `_SECRET`    | how runed reaches the registry | gone with the registry                   |
-| `network_rules` table               | source of the allowlist        | **unchanged** — same rows, same meaning  |
-| per-folder semantics                | glob per folder, `*` = open    | **unchanged**                            |
+| Piece                               | Today                          | After                                       |
+| ----------------------------------- | ------------------------------ | ------------------------------------------- |
+| `arizuko_crackbox_<inst>` container | always up                      | gone                                        |
+| compose service                     | emitted, profile-gated         | not emitted; the image is run, not served   |
+| `CRACKBOX_ADMIN_API` / `_SECRET`    | how runed reaches the registry | gone with the registry                      |
+| `EGRESS_CRACKBOX` / `_PROXY_URL`    | container name, proxy URL      | gone; each spawn's proxy has its own        |
+| `EGRESS_IMAGE`                      | —                              | **new, and the master switch**              |
+| `EGRESS_UPLINK_NETWORK`             | —                              | **new**; compose writes `<project>_default` |
+| `EGRESS_NETWORK_PREFIX` / `_SUBNET` | per-folder networks            | **unchanged**                               |
+| `network_rules` table               | source of the allowlist        | **unchanged** — same rows, same meaning     |
+| per-folder semantics                | glob per folder, `*` = open    | **unchanged**                               |
 
 The operator-visible surface is therefore _smaller_, not different: the
 same `arizuko network allow/deny` commands write the same rows, and the
@@ -297,12 +255,28 @@ instance-global `anthropic.com` / `api.anthropic.com` and per-folder
 entries, some of which are `*` (open) — all of which mean exactly what
 they mean now.
 
-**Migration on upgrade**: stop and remove the instance's crackbox
-container, drop the fragment, drop the two `.env` vars. Nothing in the
-data dir changes. A rollback is re-adding the fragment, because the rows
-were never touched.
+**Migration on upgrade**, in order — all three live instances (krons,
+sloth, marinade) set `CRACKBOX_ADMIN_API` today, so all three need it:
 
-**The inert path stays inert.** An instance with no crackbox image
+1. `make images` — builds `arizuko-egress`. Do this FIRST: without the
+   image every spawn fails.
+2. In the instance `.env`, replace `CRACKBOX_ADMIN_API=...` with
+   `EGRESS_IMAGE=arizuko-egress:latest`.
+3. `arizuko generate` — rewrites `env/runed.env` and drops the crackbox
+   service from the compose file.
+4. `sudo systemctl restart arizuko_<inst>` — compose removes the
+   now-undeclared `arizuko_crackbox_<inst>` container.
+
+Nothing in the data dir changes and `network_rules` is never touched, so a
+rollback is restoring the two `.env` lines.
+
+**A stale `.env` cannot silently disable filtering.** `EGRESS_IMAGE` unset
+reads as "egress not configured", so an instance upgraded without step 2
+would spawn unfiltered while looking healthy. runed therefore REFUSES TO
+START when `CRACKBOX_ADMIN_API` is set and `EGRESS_IMAGE` is not, naming
+both vars. Loud, once, at deploy — not per turn, and never silent.
+
+**The inert path stays inert.** An instance with no egress image
 configured spawns exactly as today, unfiltered — `EgressConfig.active()`
 gates the whole path. Filtering must remain opt-in at the same point it
 is opt-in now, or upgrading silently changes what existing instances can

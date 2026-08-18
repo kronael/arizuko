@@ -171,8 +171,8 @@ var daemonKeys = map[string][]string{
 		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
 		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
-		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX", "EGRESS_CRACKBOX",
-		"CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL", "CRACKBOX_ADMIN_SECRET",
+		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX",
+		"EGRESS_IMAGE", "EGRESS_UPLINK_NETWORK",
 		"HOST_CODEX_DIR",
 		// NO SECRETS_KEY. runed spawns the agent and injects the model credentials
 		// routd already resolved and DECRYPTED (RunRequest.Secrets); it opens no
@@ -232,7 +232,6 @@ var daemonKeys = map[string][]string{
 	"emaid":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST", "EMAIL_ACCOUNT", "EMAIL_PASSWORD", "EMAIL_IMAP_PORT", "EMAIL_SMTP_PORT"},
 	"whapd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
 	"twitd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
-	"crackbox": {"CRACKBOX_PROXY_ADDR", "CRACKBOX_ADMIN_ADDR", "CRACKBOX_ADMIN_SECRET", "CRACKBOX_STATE_PATH"},
 	// ttsd reads exactly TTSD_ADDR, TTS_BACKEND_URL and LOG_LEVEL (ttsd/main.go,
 	// ttsd/README.md "Config"), and its fragment sets all three in `environment:`,
 	// which outranks env_file. So it needs no scoped key of its own — the entry
@@ -597,10 +596,6 @@ func activeProfiles(env map[string]string) []string {
 	if envOr(env, "ONBOARDING_ENABLED", "false") == "true" {
 		p = append(p, "onbod")
 	}
-	// CRACKBOX_ADMIN_API is the master switch for egress isolation.
-	if envOr(env, "CRACKBOX_ADMIN_API", "") != "" {
-		p = append(p, "crackbox")
-	}
 	sort.Strings(p)
 	return p
 }
@@ -730,10 +725,15 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 			env["ARIZUKO_INSTANCE"] = app
 		}
 	}
-	// CRACKBOX_ADMIN_API is the master switch for egress: when set, the
-	// crackbox profile is active and runed gets the per-folder network
-	// derivations it needs. No separate EGRESS_ISOLATION boolean.
-	if envOr(env, "CRACKBOX_ADMIN_API", "") != "" {
+	// EGRESS_IMAGE is the master switch for egress isolation: name the image
+	// holding the `egress` binary and runed starts one proxy per spawn from
+	// it, with that folder's allowlist baked in. No separate EGRESS_ISOLATION
+	// boolean, and no long-lived proxy service to declare (spec 6/24).
+	//
+	// The uplink network is written here, never derived at runtime: it is the
+	// compose project's default network, which is both the proxy's route out
+	// and runed's path to probe its /health before the spawn starts.
+	if envOr(env, "EGRESS_IMAGE", "") != "" {
 		if _, ok := env["EGRESS_NETWORK_PREFIX"]; !ok {
 			if flavor != "" {
 				env["EGRESS_NETWORK_PREFIX"] = app + "_" + flavor
@@ -741,12 +741,8 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 				env["EGRESS_NETWORK_PREFIX"] = app
 			}
 		}
-		if _, ok := env["EGRESS_CRACKBOX"]; !ok {
-			if flavor != "" {
-				env["EGRESS_CRACKBOX"] = app + "_crackbox_" + flavor
-			} else {
-				env["EGRESS_CRACKBOX"] = app + "_crackbox"
-			}
+		if _, ok := env["EGRESS_UPLINK_NETWORK"]; !ok {
+			env["EGRESS_UPLINK_NETWORK"] = project + "_default"
 		}
 	}
 
@@ -890,33 +886,10 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	b.WriteString(timedService(app, flavor, env))
 	b.WriteString(onbodService(app, flavor, dataDir))
 	b.WriteString(davdService(app, flavor, dataDir, env))
-	b.WriteString(crackboxService(app, flavor, dataDir))
+	// No egress proxy service: there is no long-lived shared proxy to declare.
+	// runed starts one proxy container per spawn from EGRESS_IMAGE and kills it
+	// with the turn (spec 6/24).
 	return b.String(), routes, nil
-}
-
-// crackboxService emits the crackbox proxy service. No `agents` network
-// here — folder networks are created at runtime by runed and crackbox is
-// attached to each via `docker network connect`. Crackbox stays on the
-// compose default bridge so it has outbound internet access.
-func crackboxService(app, flavor, dataDir string) string {
-	var b strings.Builder
-	b.WriteString("  crackbox:\n")
-	fmt.Fprintf(&b, "    container_name: %s_crackbox_%s\n", app, flavor)
-	b.WriteString("    image: crackbox:latest\n")
-	b.WriteString("    profiles: ['crackbox']\n")
-	b.WriteString("    command: ['proxy', 'serve']\n")
-	b.WriteString("    volumes:\n")
-	fmt.Fprintf(&b, "      - %s/crackbox:/data/crackbox\n", dataDir)
-	b.WriteString(envFileFor("crackbox"))
-	b.WriteString("    environment:\n")
-	writeEnv(&b, map[string]string{
-		"CRACKBOX_STATE_PATH": "/data/crackbox/state.json",
-	})
-	b.WriteString("    healthcheck:\n")
-	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:3129/health']\n")
-	b.WriteString("      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n")
-	b.WriteString("    restart: on-failure\n")
-	return b.String()
 }
 
 type svcDef struct {

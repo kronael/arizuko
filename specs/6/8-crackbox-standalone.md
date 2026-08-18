@@ -1,20 +1,29 @@
 ---
-status: shipped
+status: superseded
 shipped: 2026-04-29
+superseded_by: 24-crackbox-lightest
 ---
 
 # Egred — forward proxy with per-source allowlists
 
-> One daemon, one registry, one matchHost. The egress proxy
-> ("egred") ships as the `crackbox proxy serve` subcommand of the
-> single `crackbox` binary; that binary's `pkg/host/` adds VM
-> sandboxing ([`6/9`](9-crackbox-sandboxing.md)).
+> **Superseded 2026-08-18 by [`6/24`](24-crackbox-lightest.md).** The
+> shared model this spec describes is gone: no registry, no admin API, no
+> client library, no transparent mode, no SNI peek, no DNS filter, and no
+> `crackbox proxy serve`. One proxy per spawn, allowlist fixed at start,
+> started by runed and stopped with the turn — the binary is `egress`.
+>
+> What survives, and where: the CONNECT/HTTP splice is `egress/proxy.go`,
+> the matcher is `egress/match` (unchanged), and per-folder allowlist
+> semantics — including `*` — mean exactly what they meant here.
+>
+> Read this for WHY the shared design existed and what its consumer-held
+> unregister invariant cost. Do not read it as the current shape.
 
 ## Status
 
-Shipped 2026-04-29 as the proxy half of crackbox. There is no
-separate `egred` binary — "egred" names the proxy role in code and
-in this spec; the shipped entrypoint is `crackbox proxy serve`.
+Shipped 2026-04-29 as the proxy half of crackbox; superseded 2026-08-18.
+There is no separate `egred` binary — "egred" names the proxy role in code
+and in this spec; the shipped entrypoint was `crackbox proxy serve`.
 
 ## What it does
 

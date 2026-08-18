@@ -133,18 +133,16 @@ func TestEnvHelpers(t *testing.T) {
 }
 
 // TestLoadConfigEgress pins every egress-related field to its env var
-// name. Today's krons outage was caused by `EgressCrackbox` reading
-// `CRACKBOX_CONTAINER` while compose wrote `EGRESS_CRACKBOX` — gated
+// name. A krons outage was caused by the container-name field reading
+// `CRACKBOX_CONTAINER` while compose wrote `EGRESS_CRACKBOX` — the reader
 // silently saw the field empty. A field-by-field assertion catches that
 // class of mismatch before it ships.
 func TestLoadConfigEgress(t *testing.T) {
 	envs := map[string]string{
 		"EGRESS_NETWORK_PREFIX": "myapp_test",
-		"EGRESS_CRACKBOX":       "myapp_crackbox_test",
+		"EGRESS_IMAGE":          "arizuko-egress:test",
+		"EGRESS_UPLINK_NETWORK": "myapp_test_default",
 		"EGRESS_SUBNET":         "10.42.0.0/16",
-		"CRACKBOX_PROXY_URL":    "http://crackbox:9999",
-		"CRACKBOX_ADMIN_API":    "http://crackbox:9998",
-		"CRACKBOX_ADMIN_SECRET": "topsecret",
 		"ARIZUKO_DEV":           "true",
 	}
 	for k, v := range envs {
@@ -165,20 +163,18 @@ func TestLoadConfigEgress(t *testing.T) {
 		field, want, got string
 	}{
 		{"EgressNetworkPrefix", "myapp_test", cfg.EgressNetworkPrefix},
-		{"EgressCrackbox", "myapp_crackbox_test", cfg.EgressCrackbox},
+		{"EgressImage", "arizuko-egress:test", cfg.EgressImage},
+		{"EgressUplinkNetwork", "myapp_test_default", cfg.EgressUplinkNetwork},
 		{"EgressParentSubnet", "10.42.0.0/16", cfg.EgressParentSubnet},
-		{"EgressProxyURL", "http://crackbox:9999", cfg.EgressProxyURL},
-		{"EgressAPI", "http://crackbox:9998", cfg.EgressAPI},
-		{"EgressAdminSecret", "topsecret", cfg.EgressAdminSecret},
 	}
 	for _, c := range cases {
 		if c.got != c.want {
 			t.Errorf("%s: got %q, want %q", c.field, c.got, c.want)
 		}
 	}
-	// Egress is "on" when EgressAPI is set — no separate boolean.
-	if cfg.EgressAPI == "" {
-		t.Error("EgressAPI is the master switch — must be non-empty when CRACKBOX_ADMIN_API is set")
+	// Egress is "on" when EgressImage is set — no separate boolean.
+	if cfg.EgressImage == "" {
+		t.Error("EgressImage is the master switch — must be non-empty when EGRESS_IMAGE is set")
 	}
 }
 

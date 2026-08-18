@@ -1,4 +1,5 @@
-// Package match holds the pure host-matching primitives used by the proxy.
+// Package match holds the pure host-matching primitives used by the egress
+// proxy and the sandbox netfilter rules.
 // Ported from crackbox/internal/vm/{proxy,netfilter}.go (the original
 // crackbox VM project). No state, no I/O.
 package match

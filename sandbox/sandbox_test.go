@@ -1,10 +1,10 @@
-package host
+package sandbox
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/crackbox/pkg/host/internal"
+	"github.com/kronael/arizuko/sandbox/internal"
 )
 
 func TestValidateInstanceID(t *testing.T) {

@@ -9,9 +9,9 @@ import (
 	"sync"
 )
 
-// netMgr serializes folder-network creation + crackbox attachment. The outer
-// mutex guards the map; per-folder mutexes guard the docker calls so parallel
-// spawns on different folders don't block each other.
+// netMgr serializes folder-network creation. The outer mutex guards the map;
+// per-folder mutexes guard the docker calls so parallel spawns on different
+// folders don't block each other.
 type netMgr struct {
 	outer     sync.Mutex
 	perFolder map[string]*sync.Mutex
@@ -92,14 +92,14 @@ func pickFolderSubnet(mgr *netMgr, parent, folder string) (string, error) {
 	return "", fmt.Errorf("parent subnet %q: all %d /24 slots exhausted", parent, slots)
 }
 
-// ensureFolderNetwork creates the per-folder network if missing, attaches
-// crackbox, and returns (network name, /24 cidr). Idempotent, serialized per folder.
-func ensureFolderNetwork(prefix, crackbox, parent, folder string) (string, string, error) {
+// ensureFolderNetwork creates the per-folder network if missing and returns
+// (network name, /24 cidr). Idempotent, serialized per folder. The network is
+// --internal: a spawn on it has no route out except its own egress proxy,
+// which this function does NOT attach — one proxy per spawn, attached by
+// startEgressProxy and gone with the turn (spec 6/24).
+func ensureFolderNetwork(prefix, parent, folder string) (string, string, error) {
 	if prefix == "" {
 		return "", "", fmt.Errorf("network prefix empty")
-	}
-	if crackbox == "" {
-		return "", "", fmt.Errorf("crackbox container name empty")
 	}
 	mu := defaultNetMgr.folderLock(folder)
 	mu.Lock()
@@ -109,9 +109,6 @@ func ensureFolderNetwork(prefix, crackbox, parent, folder string) (string, strin
 
 	if existingSubnet, ok := inspectNetworkSubnet(netName); ok {
 		defaultNetMgr.markAllocated(existingSubnet)
-		if err := connectCrackbox(crackbox, netName); err != nil {
-			return "", "", err
-		}
 		return netName, existingSubnet, nil
 	}
 
@@ -138,9 +135,6 @@ func ensureFolderNetwork(prefix, crackbox, parent, folder string) (string, strin
 		return "", "", fmt.Errorf("could not find a free subnet for folder %q in parent %s", folder, parent)
 	}
 	defaultNetMgr.markAllocated(subnet)
-	if err := connectCrackbox(crackbox, netName); err != nil {
-		return "", "", err
-	}
 	return netName, subnet, nil
 }
 
@@ -172,24 +166,4 @@ func createNetwork(name, subnet string) error {
 		return nil
 	}
 	return fmt.Errorf("network create %s: %w (%s)", name, err, strings.TrimSpace(s))
-}
-
-func connectCrackbox(crackbox, network string) error {
-	// --alias crackbox: Docker's embedded DNS resolves "crackbox" per-network.
-	// Without it HTTPS_PROXY=http://crackbox:3128 fails DNS — compose
-	// service aliases only apply to the project's default network.
-	out, err := execCommand(Bin, "network", "connect",
-		"--alias", "crackbox", network, crackbox).CombinedOutput()
-	if err == nil {
-		slog.Info("egress crackbox attached", "container", crackbox, "network", network)
-		return nil
-	}
-	s := string(out)
-	if strings.Contains(s, "already exists in network") ||
-		strings.Contains(s, "is already connected to network") ||
-		strings.Contains(s, "endpoint with name "+crackbox+" already exists") {
-		return nil
-	}
-	return fmt.Errorf("network connect %s -> %s: %w (%s)",
-		crackbox, network, err, strings.TrimSpace(s))
 }

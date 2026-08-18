@@ -47,6 +47,18 @@ func main() {
 		slog.Error("load config", "err", err)
 		os.Exit(1)
 	}
+	// A .env still naming the shared crackbox proxy would silently spawn
+	// unfiltered containers: the admin API it points at no longer exists and
+	// EGRESS_IMAGE — the new switch — would be empty, so egress would read as
+	// "not configured". Refusing to start is the loud version of that, and it
+	// happens once at deploy instead of per turn (spec 6/24).
+	if v := os.Getenv("CRACKBOX_ADMIN_API"); v != "" && cfg.EgressImage == "" {
+		slog.Error("CRACKBOX_ADMIN_API is set but the shared crackbox proxy was removed (spec 6/24); "+
+			"egress is now one proxy per spawn: set EGRESS_IMAGE=arizuko-egress:latest "+
+			"(build it with `make images`) and drop CRACKBOX_ADMIN_API, or drop both to run without egress filtering",
+			"crackbox_admin_api", v)
+		os.Exit(1)
+	}
 	listenAddr := envOr("LISTEN_ADDR", ":8080")
 	authdURL := os.Getenv("AUTHD_URL")
 	runTTL := durOr("RUNED_RUN_TIMEOUT", 20*time.Minute)

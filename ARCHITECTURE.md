@@ -19,9 +19,8 @@ New integrations are added via the extension points described in
   capability hooks (Whisper transcription via `WHISPER_BASE_URL`, TTS
   via `ttsd` + `TTS_BASE_URL` (`specs/5/T-voice-synthesis.md`), oracle
   skill in `ant/skills/oracle/` driving the `codex` CLI
-  (`specs/5/H-call-llm-mcp.md`), crackbox egress isolation
-  (`CRACKBOX_ADMIN_API set`), sandbox backend choice (Docker today, KVM
-  via `crackbox/pkg/host/`)).
+  (`specs/5/H-call-llm-mcp.md`), egress isolation (`EGRESS_IMAGE` set),
+  sandbox backend choice (Docker today, KVM via `sandbox/`)).
 
 A minimal deployment runs core plus one channel adapter; a maxed-out
 deployment runs all of them.
@@ -44,7 +43,8 @@ routd/    conversation/routing plane (sole message appender, token verifier)
   └── diary, groupfolder
   routd.db: messages, routes, chats, secrets, acl, cost, tasks, sessions, pane
 
-runed/    execution plane (the ONLY daemon wired to docker.sock + crackbox)
+runed/    execution plane (the ONLY daemon wired to docker.sock + the
+        per-spawn egress proxies)
   ├── container     docker spawn, volume mounts, runtime
   │   └── groupfolder, mountsec
   └── auth          verify only — the turn is credentialed by the MCP
@@ -84,10 +84,13 @@ teled/ discd/ slakd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/
 
 sidecar/ whisper-cpp container; routd calls Whisper for inbound
         voice when VOICE_TRANSCRIPTION_ENABLED=true
-crackbox/ optional egress-isolation proxy + KVM sandbox library; pulled
-        in when CRACKBOX_ADMIN_API set (see "Compose Containers" below).
-        Wired to runed (the execution plane) only. Shippable separately;
-        specs/6/7-orthogonal-components.md
+egress/   forward proxy, one static allowlist, one client. runed starts
+        one per spawn when EGRESS_IMAGE is set and stops it with the
+        turn (see "Compose Containers" below); specs/6/24
+sandbox/  KVM/qemu sandbox lifecycle library; shipped, not wired into
+        the spawn path; specs/6/9
+crackbox/ local-development command composing egress + sandbox; production
+        never runs it; specs/6/24
 anteval/  agent-capability gate: a black-box prober that runs real tasks
         through the public surfaces (REST/HTTP/MCP + a callback sink) against
         a LIVE instance and grades observable effects, not prose. Zero
@@ -287,10 +290,11 @@ standalone daemon owning its own DB:
   resolves routing rules, runs the orchestration loop, and dispatches
   each turn to `runed` (`POST /v1/runs`). Hosts the per-turn agent MCP
   socket in-process (`ipc.ServeMCP`) and builds the agent prompt. No
-  docker socket, no crackbox. Spec
+  docker socket, no egress proxies. Spec
   [`specs/5/E-routd.md`](specs/5/E-routd.md).
 - **`runed`** — execution plane. The only daemon wired to the docker
-  socket, crackbox, and the per-folder agent networks. Owns the work
+  socket, the per-spawn egress proxies, and the per-folder agent
+  networks. Owns the work
   queue, circuit breaker, `MaxConcurrent` cap, run TTL and steer
   (SIGUSR1). It brokers no token: the agent is credentialed by the
   per-turn MCP unix socket routd hosts, which `SO_PEERCRED` binds to the
@@ -476,7 +480,7 @@ each daemon re-sequences its own `migrations/` from `0001`.
 | `turn_context`       | turn_id (PK), folder, topic, chat_jid, trigger_sender, started_at, run_id, state (routd.db)                                                                                                                                                                                                                                                                          |
 | `turn_results`       | folder + turn_id (PK), session_id, status, recorded_at (routd.db)                                                                                                                                                                                                                                                                                                    |
 | `cost_log`           | folder + turn_id + model (PK), input_tokens, output_tokens, cost_cents, recorded_at (routd.db)                                                                                                                                                                                                                                                                       |
-| `network_rules`      | folder + target (PK), created_at, created_by — crackbox egress allowlist (routd.db, migration 0005)                                                                                                                                                                                                                                                                  |
+| `network_rules`      | folder + target (PK), created_at, created_by — the per-folder egress allowlist (routd.db, migration 0005)                                                                                                                                                                                                                                                            |
 | `web_routes`         | path_prefix (PK), access, redirect_to, folder (FK → groups), created_at (routd.db)                                                                                                                                                                                                                                                                                   |
 | `group_watchers`     | observer + source (PK) (routd.db)                                                                                                                                                                                                                                                                                                                                    |
 | `idempotency_keys`   | endpoint + key (PK), request_hash, status, response, created_at, expires_at (routd.db)                                                                                                                                                                                                                                                                               |
@@ -718,13 +722,13 @@ flag) is settled.
 1. **Built-in** — every core stanza is ALWAYS emitted; `profiles:` decides
    what docker starts. `authd`+`routd`+`runed` carry no profile (the three
    planes, always up); `webd`+`proxyd`+`vited`+`dashd` are `web`, then
-   `timed`, `onbod`, `davd`, `crackbox`.
+   `timed`, `onbod`, `davd`.
 2. **Extra** — one `include: ./services/<name>.yml` per package fragment in
    `<dataDir>/services/`; docker loads them, compose.go never parses them.
 
 `COMPOSE_PROFILES` in the data dir's `.env` is the single gate. Generate
 derives it from the feature flags (`WEB_PORT`, `WEBDAV_ENABLED`,
-`ONBOARDING_ENABLED`, `CRACKBOX_ADMIN_API`) and rewrites it, with
+`ONBOARDING_ENABLED`, `EGRESS_IMAGE`) and rewrites it, with
 `APP`/`FLAVOR`/`DATA_DIR`, inside a `# --- compose-managed` block that leaves
 operator lines untouched. Fragments interpolate those three for their
 container name and host mount — identity is configured, never derived.
@@ -763,15 +767,17 @@ file kinds: `.yml`, a partial compose file docker `include`s, and `.yaml`, the
 All Go daemons listen on :8080 internally except ttsd at :8880 —
 historical default that predates the invariant.
 
-`crackbox` (sibling component, see `specs/6/7-orthogonal-components.md`)
-runs when `CRACKBOX_ADMIN_API` is set (its compose profile). Per-folder agent networks
-are created at runtime by `runed`, which attaches crackbox to each via
-`docker network connect`; crackbox stays on the compose default bridge
-for outbound internet access. `runed` spawns agent containers on the
-per-folder network and registers their per-spawn IP with crackbox via
-the admin API. crackbox enforces the per-folder allowlist by host name
-on every CONNECT/HTTP request. See `crackbox/README.md` and
-`SECURITY.md` (Network egress isolation).
+Egress isolation runs when `EGRESS_IMAGE` is set. There is no long-lived
+proxy service in the compose file: `runed` starts ONE `egress` proxy
+container per spawn with that folder's allowlist baked in, and stops it
+with the turn (spec `6/24`). Per-folder agent networks are created at
+runtime by `runed` and are `--internal` — no route out at all. Each
+spawn's proxy is attached to that network AND to `EGRESS_UPLINK_NETWORK`
+(the compose project's default bridge, which is also how runed polls its
+`/health` before starting the agent); the agent is attached to the
+internal network only, so the proxy is its single route out. The proxy
+serves that one spawn's address and refuses every other peer. See
+`egress/README.md` and `SECURITY.md` (Network egress isolation).
 
 ## Onboarding (onbod/)
 

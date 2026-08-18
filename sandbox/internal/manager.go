@@ -41,23 +41,21 @@ type Mount struct {
 
 // CreateOpts are the options for creating a new VM.
 type CreateOpts struct {
-	Image       string
-	Memory      string
-	CPUs        int
-	Mounts      []Mount
-	EgressProxy string
-	AllowList   []string
-	Name        string
-	SSHKeys     string
+	Image     string
+	Memory    string
+	CPUs      int
+	Mounts    []Mount
+	AllowList []string
+	Name      string
+	SSHKeys   string
 }
 
 // ListEntry is returned by Manager.List().
 type ListEntry struct {
-	ID          string
-	IP          string
-	State       VMState
-	EgressProxy string
-	AllowList   []string
+	ID        string
+	IP        string
+	State     VMState
+	AllowList []string
 }
 
 // Create allocates resources and persists initial Meta. Returns the new VM id.
@@ -82,14 +80,13 @@ func (m *Manager) Create(opts CreateOpts) (string, error) {
 		}
 
 		meta := &Meta{
-			ID:          id,
-			Name:        name,
-			NetIndex:    netIndex,
-			SSHPort:     sshPort,
-			CreatedAt:   time.Now().UnixMilli(),
-			SSHKeys:     opts.SSHKeys,
-			EgressProxy: opts.EgressProxy,
-			AllowList:   opts.AllowList,
+			ID:        id,
+			Name:      name,
+			NetIndex:  netIndex,
+			SSHPort:   sshPort,
+			CreatedAt: time.Now().UnixMilli(),
+			SSHKeys:   opts.SSHKeys,
+			AllowList: opts.AllowList,
 		}
 
 		if err := m.saveMeta(meta); err != nil {
@@ -254,11 +251,10 @@ func (m *Manager) List() ([]ListEntry, error) {
 			continue
 		}
 		out = append(out, ListEntry{
-			ID:          meta.ID,
-			IP:          meta.IP,
-			State:       VMStateRunning,
-			EgressProxy: meta.EgressProxy,
-			AllowList:   meta.AllowList,
+			ID:        meta.ID,
+			IP:        meta.IP,
+			State:     VMStateRunning,
+			AllowList: meta.AllowList,
 		})
 	}
 	return out, nil

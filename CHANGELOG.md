@@ -56,6 +56,30 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- **Every agent turn now gets its own egress proxy, holding only that
+  folder's allowlist.** One shared proxy used to serve every container,
+  telling them apart by source IP from a registry runed wrote to at spawn
+  and deleted from at exit. If runed died in between, the entry outlived
+  the container — and Docker reuses addresses, so the next tenant on that
+  address inherited the previous folder's reach. There is no registry now,
+  so there is nothing to go stale: the allowlist is baked into a proxy that
+  is started before the container exists and dies with the turn. A proxy
+  that fails to start fails the spawn; nothing falls through to an
+  unfiltered container. Your `network_rules` are untouched and mean exactly
+  what they meant. **Upgrading an instance that runs crackbox today**: run
+  `make images`, replace `CRACKBOX_ADMIN_API=...` with
+  `EGRESS_IMAGE=arizuko-egress:latest` in its `.env`, then
+  `arizuko generate` and restart — runed refuses to start on the old var
+  rather than quietly spawning unfiltered. Spec `specs/6/24`.
+
+- **crackbox is now a local-development command, not a proxy daemon.** The
+  proxy it used to run is its own piece (`egress/`), the KVM sandbox
+  library it carried is another (`sandbox/`), and `crackbox run` is what
+  composes them on your own machine. Production runs `egress` and never
+  runs `crackbox`. Gone with the shared design: `crackbox proxy serve`,
+  `crackbox state`, the admin API, the client library, transparent
+  interception, SNI peeking, the DNS filter and `~/.crackboxrc`.
+
 - **A product may no longer ship `tasks.toml`** — it is refused like
   `migrations/` and an `mcpServers` key. Nothing ever read it, while `5/21`
   told authors it seeded scheduled tasks. A scheduled task is a

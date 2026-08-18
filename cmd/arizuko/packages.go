@@ -46,7 +46,6 @@ var pkgNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$`)
 var baseDaemons = map[string]bool{
 	"authd": true, "routd": true, "runed": true, "proxyd": true, "webd": true,
 	"vited": true, "timed": true, "onbod": true, "davd": true, "dashd": true,
-	"crackbox": true,
 }
 
 // parseInstallFlags splits `install`'s args into the source and the grant bound

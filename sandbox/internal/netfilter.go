@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/kronael/arizuko/crackbox/pkg/match"
+	"github.com/kronael/arizuko/egress/match"
 )
 
 // filterChain returns the iptables chain name for this manager's instance.

@@ -119,7 +119,7 @@ func TestOptionalDaemonsCarryProfiles(t *testing.T) {
 
 	want := map[string]string{
 		"webd": "web", "proxyd": "web", "vited": "web", "dashd": "web",
-		"timed": "timed", "onbod": "onbod", "davd": "davd", "crackbox": "crackbox",
+		"timed": "timed", "onbod": "onbod", "davd": "davd",
 	}
 	for svc, profile := range want {
 		blk := serviceBlock(out, svc)
@@ -150,7 +150,7 @@ func TestManagedEnvBlock(t *testing.T) {
 		{"web", "WEB_PORT=8095\n", "davd,timed,web"},
 		{"web no dav", "WEB_PORT=8095\nWEBDAV_ENABLED=false\n", "timed,web"},
 		{"onboarding", "WEB_PORT=8095\nONBOARDING_ENABLED=true\n", "davd,onbod,timed,web"},
-		{"egress", "CRACKBOX_ADMIN_API=http://crackbox:3129\n", "crackbox,timed"},
+		{"egress", "EGRESS_IMAGE=arizuko-egress:latest\n", "timed"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -521,28 +521,35 @@ func TestTimedWiring(t *testing.T) {
 	}
 }
 
-// Egress isolation: crackbox is emitted (profile-gated) and gets its scoped env;
+// Egress isolation: EGRESS_IMAGE is the switch, and compose declares NO proxy
+// service — runed starts one per spawn and stops it with the turn (spec 6/24).
+// The names runed needs are written into its env, never derived at runtime;
 // folder networks stay runtime-managed, never declared in compose.
 func TestEgressIsolation(t *testing.T) {
-	dir := seed(t, "CRACKBOX_ADMIN_API=http://crackbox:3129\n")
+	dir := seed(t, "EGRESS_IMAGE=arizuko-egress:latest\n")
 	out := gen(t, dir)
-	if !strings.Contains(serviceBlock(out, "crackbox"), "image: crackbox:latest") {
-		t.Error("crackbox service missing")
+	if strings.Contains(out, "  crackbox:\n") {
+		t.Error("compose must not declare a long-lived proxy service")
 	}
 	if strings.Contains(out, "\nnetworks:\n") {
 		t.Error("compose must not declare networks — folder networks are runtime-managed")
 	}
 	runedEnv := read(t, dir, "env/runed.env")
-	if !strings.Contains(runedEnv, "CRACKBOX_ADMIN_API=http://crackbox:3129") {
-		t.Error("runed env missing CRACKBOX_ADMIN_API")
+	if !strings.Contains(runedEnv, "EGRESS_IMAGE=arizuko-egress:latest") {
+		t.Error("runed env missing EGRESS_IMAGE")
 	}
-	if !strings.Contains(runedEnv, "EGRESS_CRACKBOX=") || !strings.Contains(runedEnv, "EGRESS_NETWORK_PREFIX=") {
-		t.Errorf("runed env missing derived egress names; got:\n%s", runedEnv)
+	if !strings.Contains(runedEnv, "EGRESS_NETWORK_PREFIX=") {
+		t.Errorf("runed env missing derived network prefix; got:\n%s", runedEnv)
+	}
+	// The uplink is the proxy's route out. Written by compose (which owns the
+	// project name), never guessed by runed from a filesystem path.
+	if !strings.Contains(runedEnv, "EGRESS_UPLINK_NETWORK="+filepath.Base(dir)+"_default") {
+		t.Errorf("runed env missing derived uplink network; got:\n%s", runedEnv)
 	}
 	for _, svc := range []string{"routd", "authd"} {
 		env := read(t, dir, "env/"+svc+".env")
-		if strings.Contains(env, "CRACKBOX") || strings.Contains(env, "EGRESS") {
-			t.Errorf("%s env must NOT carry crackbox/egress vars", svc)
+		if strings.Contains(env, "EGRESS") {
+			t.Errorf("%s env must NOT carry egress vars", svc)
 		}
 	}
 }

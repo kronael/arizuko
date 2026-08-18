@@ -39,7 +39,11 @@ type dockerRuntime struct {
 }
 
 // NewDockerRuntime builds the production Runtime around the docker runner.
+// It reaps any egress proxies a previous runed left behind: an orphan holds a
+// live allowlist — possibly an elevated turn's unrestricted one — on a folder
+// network where a later spawn could reach it.
 func NewDockerRuntime(cfg *core.Config, folders *groupfolder.Resolver) Runtime {
+	container.SweepEgressProxies(cfg.EgressNetworkPrefix)
 	return &dockerRuntime{
 		cfg: cfg, folders: folders, runner: container.DockerRunner{},
 		signal: func(name string) error {
@@ -124,22 +128,22 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 	}
 }
 
-// egress builds the per-spawn crackbox EgressConfig from runed's own config +
-// the allowlist routd resolved (RunRequest.EgressAllowlist). AllowlistFn returns
-// that static per-folder list. EgressConfig.active() still gates on the crackbox
-// admin URL/network/container, so on a non-crackbox instance (EgressAPI empty)
-// this is inert; on a crackbox instance registerEgress attaches the spawn to the
-// isolated network with the allowlist. Was the gap that left split spawns on the
-// default network = open internet (bugs.md egress soak-blocker).
+// egress builds the per-spawn EgressConfig from runed's own config + the
+// allowlist routd resolved (RunRequest.EgressAllowlist). AllowlistFn returns
+// that static per-folder list — it is exactly the input the spawn's own proxy
+// is started with (spec 6/24). EgressConfig.active() gates on EgressImage, so
+// on an instance with no egress configured this is inert and the spawn runs
+// unchanged; where it IS configured, startEgressProxy runs this spawn's proxy
+// and puts the spawn on an --internal network whose only route out is that
+// proxy. Was the gap that left split spawns on the default network = open
+// internet (bugs.md egress soak-blocker).
 func (d *dockerRuntime) egress(allowlist []string) container.EgressConfig {
 	return container.EgressConfig{
-		NetworkPrefix:     d.cfg.EgressNetworkPrefix,
-		CrackboxContainer: d.cfg.EgressCrackbox,
-		ParentSubnet:      d.cfg.EgressParentSubnet,
-		ProxyURL:          d.cfg.EgressProxyURL,
-		AdminURL:          d.cfg.EgressAPI,
-		AdminSecret:       d.cfg.EgressAdminSecret,
-		AllowlistFn:       func(string) ([]string, error) { return allowlist, nil },
+		NetworkPrefix: d.cfg.EgressNetworkPrefix,
+		ParentSubnet:  d.cfg.EgressParentSubnet,
+		Image:         d.cfg.EgressImage,
+		UplinkNetwork: d.cfg.EgressUplinkNetwork,
+		AllowlistFn:   func(string) ([]string, error) { return allowlist, nil },
 	}
 }
 

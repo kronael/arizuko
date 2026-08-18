@@ -71,15 +71,15 @@ func TestEgressConfigActive(t *testing.T) {
 	if e.active() {
 		t.Error("zero EgressConfig should not be active")
 	}
-	e.AdminURL = "http://crackbox:3129"
+	e.Image = "arizuko-egress:latest"
 	if e.active() {
 		t.Error("still inactive without NetworkPrefix")
 	}
 	e.NetworkPrefix = "arizuko_krons"
 	if e.active() {
-		t.Error("still inactive without CrackboxContainer")
+		t.Error("still inactive without UplinkNetwork")
 	}
-	e.CrackboxContainer = "arizuko_crackbox"
+	e.UplinkNetwork = "arizuko_krons_default"
 	if e.active() {
 		t.Error("still inactive without AllowlistFn")
 	}
@@ -91,8 +91,12 @@ func TestEgressConfigActive(t *testing.T) {
 
 func TestBuildArgsWithEgress(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
-	egress := EgressConfig{ProxyURL: "http://crackbox:3128"}
-	args := buildArgs(cfg, nil, "c1", egress, "net-atlas", "10.99.5.42", "claude-fable-5", 1800000)
+	eg := egressSpawn{
+		Network:  "net-atlas",
+		IP:       "10.99.5.42",
+		ProxyURL: "http://10.99.5.7:3128",
+	}
+	args := buildArgs(cfg, nil, "c1", eg, "claude-fable-5", 1800000)
 	joined := strings.Join(args, " ")
 
 	if !strings.Contains(joined, "--network net-atlas") {
@@ -101,10 +105,10 @@ func TestBuildArgsWithEgress(t *testing.T) {
 	if !strings.Contains(joined, "--ip 10.99.5.42") {
 		t.Errorf("missing --ip: %s", joined)
 	}
-	if !strings.Contains(joined, "HTTP_PROXY=http://crackbox:3128") {
+	if !strings.Contains(joined, "HTTP_PROXY=http://10.99.5.7:3128") {
 		t.Errorf("missing HTTP_PROXY: %s", joined)
 	}
-	if !strings.Contains(joined, "NO_PROXY=localhost,127.0.0.1,gated,routd,crackbox") {
+	if !strings.Contains(joined, "NO_PROXY=localhost,127.0.0.1") {
 		t.Errorf("missing NO_PROXY: %s", joined)
 	}
 	// model + query timeout MUST reach ant as real container env (-e), not just
@@ -119,7 +123,7 @@ func TestBuildArgsWithEgress(t *testing.T) {
 
 func TestBuildArgsNoModelNoTimeout(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
-	args := buildArgs(cfg, nil, "c3", EgressConfig{}, "", "", "", 0)
+	args := buildArgs(cfg, nil, "c3", egressSpawn{}, "", 0)
 	joined := strings.Join(args, " ")
 	if strings.Contains(joined, "ARIZUKO_MODEL") {
 		t.Errorf("empty model must omit -e ARIZUKO_MODEL: %s", joined)
@@ -129,13 +133,19 @@ func TestBuildArgsNoModelNoTimeout(t *testing.T) {
 	}
 }
 
-func TestBuildArgsDefaultProxyURL(t *testing.T) {
+// TestBuildArgsNoEgressIsUnchangedSpawn — the inert path. An instance with no
+// egress configured gets no network, no proxy env and no --ip: exactly the
+// spawn it had before egress existed. There is no default proxy URL to fall
+// back to, because a spawn pointed at a proxy that was never started would
+// fail every request while looking configured.
+func TestBuildArgsNoEgressIsUnchangedSpawn(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
-	// ProxyURL empty → falls back to default
-	args := buildArgs(cfg, nil, "c2", EgressConfig{}, "net-x", "10.0.0.5", "", 0)
+	args := buildArgs(cfg, nil, "c2", egressSpawn{}, "", 0)
 	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "HTTP_PROXY=http://crackbox:3128") {
-		t.Errorf("expected default proxy URL: %s", joined)
+	for _, forbidden := range []string{"--network", "--ip", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"} {
+		if strings.Contains(joined, forbidden) {
+			t.Errorf("inert egress must not add %s: %s", forbidden, joined)
+		}
 	}
 }
 

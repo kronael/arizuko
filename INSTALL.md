@@ -138,7 +138,7 @@ rebuilding all:
 ```bash
 sudo make agent             # just arizuko-ant:latest (Claude Code agent)
 sudo make -C whapd image    # just WhatsApp adapter
-sudo make -C crackbox image # just egress sandbox
+sudo DOCKER_BUILDKIT=1 docker build -t arizuko-egress -f egress/Dockerfile . # just the egress proxy
 ```
 
 ## Create instance

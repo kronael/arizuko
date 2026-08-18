@@ -1,8 +1,9 @@
 DAEMONS = authd routd runed onbod dashd proxyd webd timed teled discd emaid bskyd reditd linkd slakd ttsd
-# COMPONENTS are sibling tools shipped alongside arizuko (see specs/11/b).
-# They live in this monorepo but are orthogonal: their code does not import
-# arizuko-internal packages. Each has its own Makefile, README, and image.
-COMPONENTS = crackbox anteval
+# COMPONENTS are sibling pieces with their own Makefile and README. They live
+# in this monorepo but are orthogonal: their code does not import
+# arizuko-internal packages. egress is what runed starts per spawn; crackbox is
+# the local-development command that composes egress + sandbox (spec 6/24).
+COMPONENTS = egress crackbox anteval
 
 # DOCKER may be overridden by the caller for hosts where the invoking user is
 # in the docker group (then `make images DOCKER=docker`). Default is
@@ -94,7 +95,7 @@ test-dash: play
 .PHONY: test-dash
 
 # smoke: post-deploy liveness of a running instance — every container healthy
-# (adapters degraded by a down platform link warn, not fail) + crackbox egress.
+# (adapters degraded by a down platform link warn, not fail) + egress isolation.
 # This is the FREE tier of tests/integration_features_smoke_test.go (no model
 # credits); the credit-spending end-to-end tier there is opt-in. Single source:
 # the smoke logic lives in one place, run here and by `go test` directly.
@@ -103,7 +104,7 @@ SMOKE_INSTANCE ?= krons
 smoke:
 	SMOKE_INSTANCE=$(SMOKE_INSTANCE) SMOKE_DOCKER='$(DOCKER)' \
 	  go test ./tests/ -tags smoke -count=1 -v \
-	  -run 'TestSmoke_ContainerHealth|TestSmoke_CrackboxEgress'
+	  -run 'TestSmoke_ContainerHealth|TestSmoke_EgressImage'
 .PHONY: smoke
 
 clean:
@@ -117,7 +118,7 @@ images:
 	$(DOCKER_BUILD) -t arizuko .
 	$(DOCKER_BUILD) -t arizuko-whatsapp -f whapd/Dockerfile .
 	$(DOCKER_BUILD) -t arizuko-twitter -f twitd/Dockerfile .
-	$(DOCKER_BUILD) -t crackbox -f crackbox/Dockerfile .
+	$(DOCKER_BUILD) -t arizuko-egress -f egress/Dockerfile .
 	$(DOCKER_BUILD) -t arizuko-davd -f davd/Dockerfile .
 	$(DOCKER_BUILD) -t arizuko-ttsd -f ttsd/Dockerfile .
 	make -C ant image DOCKER="$(DOCKER)"

@@ -33,8 +33,8 @@ What's isolated per group:
   (`groupfolder/folder.go`, `container/runner.go` `buildMounts`).
 - **Network namespace** — agent container attaches to a Docker
   `internal: true` network with no default route; egress passes
-  through `crackbox` against the per-folder allowlist
-  (`container/egress.go`, `crackbox/`).
+  through that spawn's own proxy against the per-folder allowlist
+  (`container/egress.go`, `egress/`).
 - **DB view** — the MCP socket at `ipc/<folder>/gated.sock` carries
   the group's identity (`SO_PEERCRED` + socket-path folder); every
   tool call resolves through `auth.Authorize` against that folder,
@@ -100,8 +100,7 @@ tenant's routes or tasks.
 | Secrets at rest     | AES-256-GCM encrypted (`v2:` prefix, key=SHA-256(`SECRETS_KEY`); required — routd refuses to start without it, no `AUTH_SECRET` fallback); comma keyring for rotation; legacy plaintext rows sealed in place by the explicit `arizuko secret <inst> seal-legacy` verb (never on boot, never deleted)                                                           | `store/secrets.go`, `cmd/arizuko/secret.go`, migration `0034-secrets.sql`                                                       |
 | Secret injection    | Container env carries model credentials ONLY: operator anchors from host `.env`, overridden by the triggering user's own `store.EnvProfileKeys` (BYOA). Capability credentials are broker-only — resolved on the host per tool call, narrowed to the keys that call declares, scrubbed from the result (`specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`). | `routd/sibling_db.go` (`EnvProfileSecrets`), `container/runner.go` (`mergeSecrets`), `routd/mcp.go` (`ResolveConnectorSecrets`) |
 | Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                                                                                                                                                                                                                                                             | `onbod/main.go` (`admitFromQueue`)                                                                                              |
-| Network egress      | Default-deny; per-folder allowlist enforced by forward proxy                                                                                                                                                                                                                                                                                                   | `crackbox/`, `store/network.go`, `container/egress.go`                                                                          |
-| DNS filter          | UDP/53 listener returns NXDOMAIN for non-allowlisted hostnames; REFUSED for ANY                                                                                                                                                                                                                                                                                | `crackbox/pkg/dns/`, `specs/6/10-crackbox-dns-filter.md`                                                                        |
+| Network egress      | Default-deny; the spawn's network has no route out and its own proxy holds the per-folder allowlist, serving that spawn's address only                                                                                                                                                                                                                         | `egress/`, `store/network.go`, `container/egress.go`                                                                            |
 
 Anything not in this table is not a security boundary. In particular:
 socket filesystem permissions alone do not separate containers, and
@@ -238,7 +237,7 @@ retry blindly.
 - Nothing outside `~/.claude/` is scanned; the group home and both web
   slots are data, gated by the mounts and the web tree instead.
 - **Fails open.** A scanner crash or an unrecognised tool shape allows the
-  write. This is not a containment boundary — Docker, the crackbox egress
+  write. This is not a containment boundary — Docker, the egress
   allowlist and the gated MCP socket are. It raises the cost of one
   specific move: persisting a malicious instruction into next session.
 
@@ -285,19 +284,32 @@ Two consequences we state rather than paper over:
 
 ## Network egress isolation
 
-When `CRACKBOX_ADMIN_API` is set and `crackbox:latest` is running,
-agent containers attach to a Docker `internal: true` network with no
-default route to the internet. The only path out is via `crackbox`,
-which runs on both the internal network and the project default bridge.
+When `EGRESS_IMAGE` is set, agent containers attach to a Docker
+`internal: true` network with no default route to the internet. The only
+path out is that spawn's OWN proxy container, which runed starts before
+the agent exists and stops with the turn (spec `6/24`). The proxy runs on
+both the internal network and `EGRESS_UPLINK_NETWORK`; the agent runs on
+the internal network only.
 
-- Agent containers receive `HTTPS_PROXY=http://crackbox:3128` at spawn
+- Agent containers receive `HTTPS_PROXY=http://<that proxy>:3128` at spawn
   plus `NODE_OPTIONS=--require=/app/proxy-shim.js` so Node's built-in
   fetch honors the proxy (curl/wget/pip/go/npm honor it natively).
-  crackbox forwards HTTP and CONNECT-tunnels HTTPS without decrypting.
+  The proxy forwards HTTP and CONNECT-tunnels HTTPS without decrypting.
 - Non-cooperating clients fail closed: the internal Docker network
   has no default route, so a client that ignores `HTTPS_PROXY` cannot
-  reach the internet at all.
-- Per-source-IP allowlist populated by runed at container spawn from
+  reach the internet at all. This is the enforcement; the proxy is what
+  filters WHICH allowed hosts, not what confines. Never give the agent a
+  second interface, and never let it share the proxy's namespace
+  (`--network container:`) — the proxy is dual-homed by necessity, so its
+  namespace carries the route out (measured: a container sharing a
+  proxy's namespace reached an unlisted host directly).
+- The proxy serves ONE address — the spawn's — and 403s every other peer,
+  including the folder's other spawns. Without that, a spawn could borrow
+  a concurrent elevated turn's unrestricted allowlist off the shared
+  folder network.
+- A proxy that fails to start or never reports healthy FAILS THE SPAWN.
+  There is no fallback to an unfiltered container.
+- Allowlist baked into the proxy by runed at container spawn from
   `store.ResolveAllowlist(folder)` (folder ancestry walk + dedupe).
 - Default seed: `anthropic.com`, `api.anthropic.com`. Operators add
   rules via `arizuko network <instance> allow <folder> <target>`.
@@ -328,17 +340,11 @@ Caveats:
   the same shape. OAuth-bound connector flows remain deferred (spec 9/14).
 - IPv6 is not redirected by the entrypoint script.
 
-**DNS filter** (`crackbox/pkg/dns/`,
-`specs/6/10-crackbox-dns-filter.md`). The crackbox-side UDP/53
-listener is shipped: runed allowlisted hostnames forward to the
-upstream resolver; denied hostnames return NXDOMAIN; `QTYPE=ANY`
-returns REFUSED; malformed/multi-question packets drop silently.
-**Pending:** arizuko-side wiring (passing `--dns <crackbox-ip>` from
-`container.Run` to `docker create`) under
-`specs/6/10-crackbox-dns-filter.md`; today agent containers still use
-the default Docker resolver, so the DNS path is additive defense
-rather than the primary gate. The HTTP/CONNECT 403 in
-`crackbox/pkg/proxy/` remains the enforced path.
+**No DNS filter.** The UDP/53 NXDOMAIN listener was deleted with the
+shared proxy (spec `6/24` supersedes `6/10`). It was never wired into
+`container.Run`, and a single-tenant proxy already sees every destination
+in the CONNECT line — a rule expressed twice is a rule that can disagree
+with itself. The HTTP/CONNECT 403 in `egress/` is the enforced path.
 
 ## Per-daemon docs
 

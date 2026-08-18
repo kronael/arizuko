@@ -115,7 +115,7 @@ arizuko run foo                            # generate compose + docker compose u
 
 Full walkthrough — prerequisites, blocker fixes, per-adapter tokens, troubleshooting: [INSTALL.md](INSTALL.md).
 
-A first deployment runs the core plane — `authd` (token authority), `routd` (conversation/router), `runed` (agent execution) — plus one adapter (`teled`, `slakd`, `discd`, `webd`, or `emaid`). Core runs standalone with no channel adapter at all — `routd`, `dashd`, `onbod` and `timed` are reachable over REST and MCP on their own; an adapter is what adds a chat surface, not a requirement to run. Add `dashd` for operator UI, `timed` for scheduled tasks, `onbod` for invite flows, `crackbox` for default-deny egress. Each adapter ships as a package — `template/services/<name>.yml`, added with `arizuko packages <instance> add <name>`; no Go edits required. `arizuko packages <instance> install <git-or-dir>` installs a third-party package (compose fragment, proxyd route, grant, or skills) onto a running instance, with `upgrade`/`remove` tracked by an `installed_packages` record. One group can be built from several products at once — list them in `~/products.toml` and run `arizuko products <instance> apply <folder>`; blending is per kind of file, and two products claiming the same file stops the apply rather than quietly dropping one. See [EXTENDING.md](EXTENDING.md) for wiring new channels and packages.
+A first deployment runs the core plane — `authd` (token authority), `routd` (conversation/router), `runed` (agent execution) — plus one adapter (`teled`, `slakd`, `discd`, `webd`, or `emaid`). Core runs standalone with no channel adapter at all — `routd`, `dashd`, `onbod` and `timed` are reachable over REST and MCP on their own; an adapter is what adds a chat surface, not a requirement to run. Add `dashd` for operator UI, `timed` for scheduled tasks, `onbod` for invite flows, and `EGRESS_IMAGE` for default-deny egress. Each adapter ships as a package — `template/services/<name>.yml`, added with `arizuko packages <instance> add <name>`; no Go edits required. `arizuko packages <instance> install <git-or-dir>` installs a third-party package (compose fragment, proxyd route, grant, or skills) onto a running instance, with `upgrade`/`remove` tracked by an `installed_packages` record. One group can be built from several products at once — list them in `~/products.toml` and run `arizuko products <instance> apply <folder>`; blending is per kind of file, and two products claiming the same file stops the apply rather than quietly dropping one. See [EXTENDING.md](EXTENDING.md) for wiring new channels and packages.
 
 A tar of `/srv/data/arizuko_<name>/` is a complete instance backup — the per-daemon SQLite databases (`routd.db`, `runed.db`, `auth.db`, … WAL), group folders, per-user memory, secrets, agent files.
 
@@ -126,7 +126,7 @@ adapter (teled/discd/slakd/…) --HTTP--> routd (conversation plane)
                                           │     └── routd.db (WAL)
                                           │     └── hosts agent MCP socket in-process (ipc)
                                           ├──HTTP--> runed (execution plane)
-                                          │           └── runed.db; docker.sock + crackbox
+                                          │           └── runed.db; docker.sock + per-spawn egress
                                           │           └── spawns the agent container per turn
                                           └──HTTP--> authd (token authority)
                                                       └── auth.db; ES256 minter + JWKS
@@ -174,7 +174,7 @@ Documents can be mounted or written into a group's workspace; agents can read th
 ## Security model
 
 - **Container isolation**: each group runs in a separate Docker container on a separate network. Sibling groups never share a context window.
-- **Egress isolation**: `crackbox` enforces default-deny on agent outbound traffic from a per-folder allowlist. Credential swap at the egress boundary (HTTPS MITM) is **declined**, not planned — `specs/6/17` withdrew it 2026-08-18, because header injection was the only thing requiring TLS interception and a CA inside every container was too high a price for it. Credentials reach an opaque in-container client through `credential_process` instead.
+- **Egress isolation**: every spawn gets its own `egress` proxy holding its folder's allowlist, on a network with no other route out. Default-deny; the proxy never terminates TLS (MITM declined, `specs/6/17`). Spec `specs/6/24`.
 - **ACL**: `auth.Authorize` — one `acl` table, deny-wins, no fallback. Capability comes from granted rows, never from a folder's depth; `role:member` is the seeded default and everything above it is delegated. MCP tools gated per-action per-principal.
 - **Secret injection**: secrets are AES-256-GCM encrypted at rest. Only model credentials reach the container env — an API token for a tool is resolved on the host for the one call that needs it and never crosses into the agent's environment.
 - **Identity relay**: `proxyd` stamps `X-User-*` headers, proving the channel with a `service:proxyd` ES256 bearer (verified via `auth.ProxydTransit`); backends trust the headers only when that proof holds. Client-supplied `X-User-*` headers are stripped.

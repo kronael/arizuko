@@ -1,8 +1,16 @@
 ---
-status: shipped
+status: superseded
 shipped: 2026-05-13
+superseded_by: 24-crackbox-lightest
 depends: [8-crackbox-standalone, 9-crackbox-sandboxing]
 ---
+
+> **Superseded 2026-08-18 by [`6/24`](24-crackbox-lightest.md), which
+> DELETED `pkg/dns`.** The filter was a second enforcement point keyed on
+> the same registry as the proxy. A single-tenant proxy already sees every
+> destination in the CONNECT line, and a rule expressed twice is a rule
+> that can disagree with itself. Read this for why NXDOMAIN was chosen
+> over REFUSED, not as the current shape.
 
 # Crackbox DNS filter — NXDOMAIN for non-allowlisted hostnames
 

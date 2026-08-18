@@ -7,7 +7,7 @@
 // The default run is FREE: it only reads container health and hits /health
 // endpoints. It spawns NO agent turns and spends NO model credits.
 //
-//	# everything free (container health + daemon /health + crackbox egress):
+//	# everything free (container health + daemon /health + egress image):
 //	go test ./tests/ -tags smoke -run TestSmoke -v
 //
 //	# pick a different instance (default krons):
@@ -20,7 +20,7 @@
 // out of habit. Each tier is an independent top-level test:
 //
 //	-run TestSmoke_ContainerHealth   # touched compose / a Dockerfile / a daemon boot / a daemon's /health
-//	-run TestSmoke_CrackboxEgress    # touched crackbox / egress rules
+//	-run TestSmoke_EgressImage       # touched egress / the per-spawn proxy
 //	-run TestSmoke_EndToEnd          # touched routing / dispatch / the agent (SEE BELOW)
 //
 // ─── The credit-spending tier ────────────────────────────────────────────────
@@ -193,23 +193,37 @@ func TestSmoke_ContainerHealth(t *testing.T) {
 	}
 }
 
-// TestSmoke_CrackboxEgress proves the egress proxy answers, exec'd from runed
-// (the only daemon on crackbox's network). Skips when the instance runs no
-// crackbox (CRACKBOX_ADMIN_API unset in its .env). FREE.
-func TestSmoke_CrackboxEgress(t *testing.T) {
+// TestSmoke_EgressImage proves the instance can still start a spawn's egress
+// proxy. There is no long-lived proxy container to probe any more — runed
+// starts one per spawn and stops it with the turn (spec 6/24) — so the
+// post-deploy question is whether the image it starts them FROM is present.
+// A missing image fails every spawn, which is exactly the outage a redeploy
+// that forgot `make images` would cause. Skips when the instance configures
+// no egress (EGRESS_IMAGE unset in its .env). FREE.
+func TestSmoke_EgressImage(t *testing.T) {
 	inst := smokeInstance()
 	env, err := os.ReadFile("/srv/data/arizuko_" + inst + "/.env")
-	if err != nil || !strings.Contains(string(env), "CRACKBOX_ADMIN_API=") {
-		t.Skipf("instance %q has no crackbox configured", inst)
-	}
-	runed := "arizuko_runed_" + inst
-	out, err := docker(t, "exec", runed, "wget", "-qO-", "--timeout=3", "http://crackbox:3129/health")
 	if err != nil {
-		t.Fatalf("crackbox /health via %s: %v", runed, err)
+		t.Skipf("instance %q: read .env: %v", inst, err)
 	}
-	if !strings.Contains(out, `"status":"ok"`) {
-		t.Errorf("crackbox /health = %q, want ok", out)
+	image := envValue(string(env), "EGRESS_IMAGE")
+	if image == "" {
+		t.Skipf("instance %q has no egress configured", inst)
 	}
+	if _, err := docker(t, "image", "inspect", image); err != nil {
+		t.Fatalf("egress image %q missing on this host — every spawn would fail: %v", image, err)
+	}
+}
+
+// envValue reads KEY=value out of a .env body. Returns "" when unset.
+func envValue(env, key string) string {
+	for line := range strings.SplitSeq(env, "\n") {
+		line = strings.TrimSpace(line)
+		if v, ok := strings.CutPrefix(line, key+"="); ok {
+			return strings.Trim(strings.TrimSpace(v), `"'`)
+		}
+	}
+	return ""
 }
 
 // TestSmoke_EndToEnd sends ONE real message through a chat token and waits for

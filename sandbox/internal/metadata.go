@@ -14,18 +14,17 @@ import (
 
 // Meta is the on-disk representation of VM metadata (YAML).
 type Meta struct {
-	ID          string   `yaml:"id"`
-	Name        string   `yaml:"name"`
-	NetIndex    int      `yaml:"net_index"`
-	SSHPort     int      `yaml:"ssh_port,omitempty"`
-	IP          string   `yaml:"ip,omitempty"`
-	CreatedAt   int64    `yaml:"created_at"`
-	DeletedAt   int64    `yaml:"deleted_at,omitempty"`
-	SSHKeys     string   `yaml:"ssh_keys,omitempty"`
-	SSHKeyPath  string   `yaml:"ssh_key_path,omitempty"`
-	EgressProxy string   `yaml:"egress_proxy,omitempty"`
-	AllowList   []string `yaml:"allowlist,omitempty"`
-	AllowAll    bool     `yaml:"allow_all,omitempty"`
+	ID         string   `yaml:"id"`
+	Name       string   `yaml:"name"`
+	NetIndex   int      `yaml:"net_index"`
+	SSHPort    int      `yaml:"ssh_port,omitempty"`
+	IP         string   `yaml:"ip,omitempty"`
+	CreatedAt  int64    `yaml:"created_at"`
+	DeletedAt  int64    `yaml:"deleted_at,omitempty"`
+	SSHKeys    string   `yaml:"ssh_keys,omitempty"`
+	SSHKeyPath string   `yaml:"ssh_key_path,omitempty"`
+	AllowList  []string `yaml:"allowlist,omitempty"`
+	AllowAll   bool     `yaml:"allow_all,omitempty"`
 }
 
 func (m *Manager) vmDir(id string) string {
