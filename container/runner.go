@@ -91,7 +91,7 @@ type Input struct {
 	// ShareReadOnly/EgressOpen/WebPublish are the 5/33 container-capability grant
 	// decisions routd resolved from the folder's acl rows (mounts/egress/web are
 	// grants, not tier). ShareReadOnly downgrades /var/lib/share to RO; EgressOpen
-	// appends "*" to the crackbox allowlist (unconstrained network); WebPublish mounts
+	// appends "*" to the egress allowlist (unconstrained network); WebPublish mounts
 	// the web surfaces (/var/lib/www RO + public_html/private_html RW). All default
 	// false. (EgressOpen is distinct from the Egress EgressConfig field below.)
 	ShareReadOnly bool   `json:"-"`
@@ -179,8 +179,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 
 	// 5/33: the `egress` grant (resolved by routd, /root or an operator delegation)
-	// appends "*" so the spawn passes crackbox unconstrained while still benefiting
-	// from logging/secret injection. No grant → the inherited allowlist only.
+	// appends "*" so the spawn's own proxy allows every host. No grant → the
+	// inherited allowlist only.
 	if in.EgressOpen && in.Egress.AllowlistFn != nil {
 		base := in.Egress.AllowlistFn
 		in.Egress.AllowlistFn = func(id string) ([]string, error) {
@@ -858,10 +858,10 @@ func seedSettings(
 	settings["env"] = env
 
 	// Claude Code's permission + sandbox layer is asserted by the platform,
-	// not the agent. arizuko already isolates via crackbox egress + Docker +
+	// not the agent. arizuko already isolates via the egress proxy + Docker +
 	// the gated MCP socket, so the agent runs with all tools allowed and the
 	// SDK's own sandbox off. Write both authoritatively every spawn: a stray
-	// agent-added permissions block (web egress lives in crackbox, never here)
+	// agent-added permissions block (web egress lives in the proxy, never here)
 	// must not accumulate, and a future SDK default can't silently re-enable
 	// the sandbox.
 	settings["permissions"] = map[string]any{"defaultMode": "bypassPermissions"}

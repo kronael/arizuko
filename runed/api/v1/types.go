@@ -43,7 +43,7 @@ type RunRequest struct {
 	// resolved from the folder's acl grants (5/33: mounts/egress/web are grants, not
 	// tier). runed forwards them to container.Input so buildMounts downgrades the
 	// share to RO, appends "*" to the egress allowlist, and mounts the web surfaces —
-	// each only when its grant holds. EgressAllowlist is the resolved crackbox
+	// each only when its grant holds. EgressAllowlist is the resolved egress
 	// allowlist (network_rules ancestry); runed wires it into EgressConfig.AllowlistFn.
 	// routd is the authz plane; runed has no store (spec 5/E).
 	ShareReadOnly   bool     `json:"share_read_only,omitempty"`

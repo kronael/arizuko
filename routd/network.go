@@ -36,7 +36,7 @@ func (d *DB) ListNetworkRules(folder string) ([]NetworkRule, error) {
 // ResolveAllowlist returns the egress allowlist for folder: every network_rules
 // target for the folder and all its ancestors (the folder=” base inherited by
 // all). routd resolves this at dispatch and ships it to runed in
-// RunRequest.EgressAllowlist, which runed wires into the crackbox EgressConfig.
+// RunRequest.EgressAllowlist, which runed bakes into this spawn's own proxy.
 func (d *DB) ResolveAllowlist(folder string) ([]string, error) {
 	folders := folderAncestry(folder)
 	ph := strings.TrimSuffix(strings.Repeat("?,", len(folders)), ",")

@@ -102,7 +102,7 @@ var daemonKeys = map[string][]string{
 	// timed: scheduler. Federates the fire loop over routd (ROUTER_URL) with a
 	// service:timed token exchanged from AUTHD_SERVICE_KEY at AUTHD_URL.
 	"timed": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "ROUTER_URL"},
-	// authd: auth authority. auth.db only; no message DB, no docker, no crackbox.
+	// authd: auth authority. auth.db only; no message DB, no docker, no egress.
 	// Serves JWKS; seeded with the service keys (AUTHD_SERVICE_KEYS, hashed at
 	// compare time inside authd) + OAuth provider config.
 	"authd": {
@@ -113,7 +113,7 @@ var daemonKeys = map[string][]string{
 		"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ALLOWED_EMAILS",
 	},
 	// routd: conversation state. routd.db + adapters (/v1/send) + calls runed.
-	// Verifies via authd JWKS. NO crackbox, NO docker socket.
+	// Verifies via authd JWKS. NO egress proxy, NO docker socket.
 	"routd": {
 		"AUTHD_URL", "AUTHD_SERVICE_KEY", "ONBOD_URL",
 		// RUNED_RUN_TIMEOUT: routd reads it (routd/cmd/routd/main.go:106) to size
@@ -156,7 +156,7 @@ var daemonKeys = map[string][]string{
 		"SURROGATE_GITHUB_CLIENT_ID", "SURROGATE_GITHUB_CLIENT_SECRET",
 	},
 	// runed: execution plane. The ONLY daemon wired to docker.sock +
-	// crackbox + the per-folder agent networks.
+	// the per-spawn egress proxies + the per-folder agent networks.
 	"runed": {
 		"AUTHD_URL", "AUTHD_SERVICE_KEY",
 		"CONTAINER_IMAGE", "CONTAINER_TIMEOUT",
@@ -254,7 +254,7 @@ var foreignImages = map[string]bool{"kokoro": true}
 // adapterDaemons is the set of message-posting channel adapters. In the split
 // each authenticates to routd's /v1/messages with a service:<adapter> JWT
 // exchanged from its own AUTHD_SERVICE_KEY (spec 5/1), not the shared
-// CHANNEL_SECRET. Non-message daemons (ttsd/davd/vited/crackbox/kokoro) are not
+// CHANNEL_SECRET. Non-message daemons (ttsd/davd/vited/kokoro) are not
 // here — they never post inbound. Multi-account adapters (`<adapter>-<label>`)
 // resolve to the base adapter via envFileFor's `-` split, so they share the
 // base principal. Keep in sync with authd serviceGrants.
@@ -874,7 +874,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	// The split daemons (spec 5/E + 5/P) are the conversation/auth/execution
 	// plane — authd (auth.db) + routd (routd.db, the router every adapter/webd/
 	// proxyd talks to) + runed (runed.db, the ONLY daemon wired to docker.sock +
-	// crackbox + per-folder agent networks). This is the only topology, so they
+	// per-spawn egress proxies + per-folder agent networks). This is the only topology, so they
 	// carry no profile. Everything below them is profile-gated.
 	b.WriteString(authdService(app, flavor, dataDir))
 	b.WriteString(routdService(app, flavor, dataDir, env))
@@ -1050,7 +1050,7 @@ func writeSvc(def svcDef) string {
 }
 
 // authdService emits the auth authority. auth.db only — NO message DB, NO
-// docker socket, NO crackbox. Serves JWKS to every verifier; reads its own
+// docker socket, NO egress proxy. Serves JWKS to every verifier; reads its own
 // service keys + OAuth provider config from env/authd.env. No depends_on:
 // authd is the authority, nothing it relies on must come up first.
 // store/authd/ is its only mount: authd opens <DATA_DIR>/store/authd/auth.db
@@ -1078,7 +1078,7 @@ func authdService(app, flavor, dataDir string) string {
 
 // routdService emits the conversation-state daemon — the canonical router.
 // routd.db + adapters (/v1/send) + calls runed; verifies via authd JWKS. NO
-// crackbox, NO docker socket. Depends on authd (verifier keyset) + runed (run
+// egress proxy, NO docker socket. Depends on authd (verifier keyset) + runed (run
 // dispatch). Publishes API_PORT:8080 to the host: the host CLI reaches the
 // router's /v1/channels here (arizuko status/send).
 func routdService(app, flavor, dataDir string, env map[string]string) string {
@@ -1104,7 +1104,7 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 }
 
 // runedService emits the execution plane — the ONLY daemon wired to the docker
-// socket + crackbox + the per-folder agent networks (uid 1000, group_add into
+// socket + the per-spawn egress proxies + the per-folder agent networks (uid 1000, group_add into
 // docker gid, docker.sock mount, the read-only HOST_APP_DIR source mount).
 // Depends on authd (broker downscope).
 func runedService(app, flavor, dataDir string, env map[string]string) string {

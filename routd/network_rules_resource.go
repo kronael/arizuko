@@ -88,7 +88,7 @@ func (s *Server) networkRulesHandler(ctx context.Context, x resreg.Execution) (a
 
 	case networkActionAllow:
 		folder := networkTargetFolder(x.Args, x.Caller.Folder)
-		// Accept *.example.com — crackbox already suffix-matches a bare domain to
+		// Accept *.example.com — the egress proxy already suffix-matches a bare domain to
 		// all its subdomains, so normalize the glob to the apex and store that.
 		// Bare * (allow-all) stays rejected: opening all egress is an operator
 		// decision, not an agent grant.

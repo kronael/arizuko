@@ -226,6 +226,34 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L53 — the secret broker writes `surface: "crackbox"` on every secret read (2026-08-18)
+
+`store/secret_use_log.go:57` stamps `audit.SurfaceCrackbox` on the `audit_log`
+row it emits per secret read, and `audit/log.go:34` defines that constant as the
+string `"crackbox"`.
+
+The secret never went near crackbox. `LogSecretUse` is called by the MCP broker
+middleware — the resolver `ipc/ipc.go:247` calls the audit seam — so the surface
+is `mcp`. The label was wrong before `6/24` and is now worse: it names a
+component production does not run at all, so an operator filtering
+`surface = 'crackbox'` in `audit_log` finds secret reads and nothing else,
+while filtering `surface = 'mcp'` misses them.
+
+**Severity: low, but it corrupts the one query an audit table exists for.**
+Nothing breaks; the answer is just wrong.
+
+**Why this is not an inline fix.** `surface` is a closed enum whose values are
+written into `audit_log` rows and kept. Changing the constant makes historical
+rows and new rows disagree about the same event, and the spec that defines the
+closed set is `specs/5/I`. Either the write changes and old rows stay (a query
+must then union two values), or a migration rewrites them. That is a data
+decision, so it is recorded here for sign-off rather than shipped.
+
+Recommended: change the write to `audit.SurfaceMCP`, delete `SurfaceCrackbox`
+from the enum, and migrate existing rows — the string appears on exactly one
+write path, so the rewrite is `UPDATE audit_log SET surface='mcp' WHERE
+surface='crackbox'` with no ambiguity about which rows are meant.
+
 ## L52 — `arizuko token revoke <jid>` cannot revoke a suffixed chat token (2026-08-18)
 
 `cmd/arizuko/token.go:222` derives the owner folder with

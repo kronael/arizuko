@@ -593,7 +593,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	}
 	// Resolve the per-folder grant rules + egress allowlist HERE (routd is the
 	// authz plane; runed has neither store) and ship them so runed can attach the
-	// spawn to the crackbox network + honor share_mount. nil allowlist on error
+	// spawn to its own egress network + honor share_mount. nil allowlist on error
 	// is fine — runed treats empty as no-extra-constraint.
 	allowlist, _ := l.db.ResolveAllowlist(folder)
 	// Container env carries the trigger user's OWN model credentials (BYOA) and
