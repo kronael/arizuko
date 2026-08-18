@@ -226,6 +226,56 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L49 — proposal: an LLM gateway, so the container never holds the real model key (2026-08-18, operator's idea, needs sign-off)
+
+**Today the agent container holds the real provider key.** `ANTHROPIC_API_KEY`
+is in `store.EnvProfileKeys` (`store/secrets.go:115`), which `5/14` defines as
+the one table-backed credential class that reaches container env by design. The
+agent can read its own environment. There is also **no base-URL override
+anywhere in the tree** — no `ANTHROPIC_BASE_URL`, no seam to point model traffic
+elsewhere.
+
+**A gateway is not a proxy, and that is the point.** Egress proxying cannot
+meter model calls without MITM, which `L48` argues we should drop entirely. A
+gateway avoids interception: the client is CONFIGURED to call it
+(`ANTHROPIC_BASE_URL`), so the gateway IS the endpoint. No TLS termination, no
+CA in the container, nothing spliced.
+
+The shape:
+
+- arizuko mints a **per-spawn virtual key** with a budget and a TTL, and emits
+  it plus the base URL into the container.
+- The gateway holds the real provider keys. The container never sees one.
+- **Revocation is deleting the virtual key** — immediate, and it needs no
+  cooperation from a running turn.
+- **Metering is per-key by construction**: tokens, cost and limits land against
+  the spawn, so per-folder and per-user cost attribution is a read, not an
+  estimate.
+
+Candidates:
+
+- **LiteLLM** — MIT, 100+ providers, virtual keys, budgets, spend tracking. The
+  reference feature set, and exactly this model. Python + Postgres; heavy for a
+  solo instance, which "simple stays simple" cares about.
+- **Bifrost** (Maxim AI) — single Go binary, multi-provider, substantially
+  faster. Matches arizuko's stack and the minimal requirement. **Verify its
+  key-scoped budgets and revocation before committing** — LiteLLM is the one
+  explicitly credited with that model.
+
+**NOT iron-proxy.** That is an egress MITM proxy for injecting credentials into
+arbitrary HTTP — a different mechanism at a different point in the path. It
+meters nothing.
+
+Wiring cost is small: emit `ANTHROPIC_BASE_URL` and the virtual key as `-e` in
+`buildArgs`. Note the trap — anything not emitted there is silently dead in the
+container (three prior instances: `ARIZUKO_MODEL`, `RUNED_RUN_TIMEOUT`,
+`ARIZUKO_BACKEND`).
+
+Ties: `5/14` (credential tiers — this moves the model key OUT of the env tier),
+`L48` (the egress proxy stays MITM-free because metering does not live there),
+`X2` (the same "container must not hold the raw secret" argument, other half).
+
+
 ## L48 — proposal: one proxy per spawn, instead of one registry keyed by source IP (2026-08-18, operator's idea, needs sign-off)
 
 `6/8` §"Security invariants" makes egress safety depend on an ordering the
