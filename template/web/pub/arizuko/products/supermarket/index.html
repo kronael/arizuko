@@ -159,8 +159,9 @@
         <li>
           <strong>Default outbound paths.</strong> The configured channel
           (Telegram or web chat) for bot traffic; Anthropic for model calls.
-          Web search egress via <a href="../../components/crackbox.html">crackbox</a>
-          &mdash; allowlist the retailer domains you want the agent to reach.
+          Web search egress through the spawn&rsquo;s own
+          <a href="../../components/egress.html">egress</a> proxy &mdash; allowlist
+          the retailer domains you want the agent to reach.
         </li>
         <li>
           <strong>No user data collected.</strong> There are no per-user memory
@@ -198,7 +199,7 @@ arizuko run shop</code></pre>
           single catch-all rule works; route table match keys
         </li>
         <li>
-          <a href="../../components/crackbox.html">crackbox</a> &mdash; per-folder
+          <a href="../../components/egress.html">egress</a> &mdash; per-folder
           egress allowlist for retailer domains
         </li>
         <li>

@@ -22,10 +22,10 @@
             <li><a href="authd.html">authd</a></li>
             <li><a href="bskyd.html">bskyd</a></li>
             <li><a href="channels.html">channel adapters</a></li>
-            <li><a href="crackbox.html">crackbox</a></li>
             <li><a href="dashd.html">dashd</a></li>
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
+            <li><a href="egress.html">egress</a></li>
             <li><a href="emaid.html">emaid</a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -39,6 +39,7 @@
             <li><a href="tokens.html">route tokens</a></li>
             <li><a href="ttsd.html">ttsd</a></li>
             <li><a href="twitd.html">twitd</a></li>
+            <li><a href="vited.html">vited</a></li>
             <li><a href="webd.html">webd</a></li>
             <li><a href="whapd.html">whapd</a></li>
           </ul>
@@ -71,7 +72,8 @@
         |  POST /v1/runs   (scope runs:run)
         v
       runed   broker downscoped per-spawn token  &lt;-- authd
-        |     docker run --rm  (egress allowlist, ipc dir mounted)
+        |     docker run the spawn's own egress proxy, wait for /health
+        |     docker run --rm  (--internal net, HTTP_PROXY, ipc dir mounted)
         v
       arizuko-ant container   runs one turn, then exits
         |     agent tools  --&gt;  routd /v1/turns/{turn_id}/*
@@ -81,7 +83,7 @@
 
     <p>Inputs: <code>POST /v1/runs</code> from routd (the routd&harr;runed contract); a <code>service:runed</code> token from authd it uses as the parent when brokering each spawn token. Outputs: a running container; status and kill over <code>/v1/runs/{run_id}</code>; spawn and session rows in <code>runed.db</code>.</p>
 
-    <p>Hard deps: the Docker socket on the host; <a href="authd.html">authd</a> as the token broker and JWKS source; <a href="routd.html">routd</a>, which hosts the per-turn MCP socket and receives the agent&rsquo;s tool calls. The agent runs inside <a href="crackbox.html">crackbox</a> &mdash; the containment boundary whose egress allowlist runed enforces.</p>
+    <p>Hard deps: the Docker socket on the host; <a href="authd.html">authd</a> as the token broker and JWKS source; <a href="routd.html">routd</a>, which hosts the per-turn MCP socket and receives the agent&rsquo;s tool calls. When <code>EGRESS_IMAGE</code> is set, runed also starts one <a href="egress.html">egress</a> proxy per spawn from that image, on the folder&rsquo;s <code>--internal</code> network, and stops it with the turn.</p>
 
     <h2>Timeouts and shutdown</h2>
     <p><code>RUNED_RUN_TIMEOUT</code> (default 20m) is the run ceiling, and it bounds two things at once: the container hard-kill, and the in-container agent query timeout (<code>ARIZUKO_QUERY_TIMEOUT_MS</code> = <code>RUNED_RUN_TIMEOUT &minus; 30s</code>). The 30-second gap lets the agent abort and deliver a graceful summary before runed kills the container under it. On graceful shutdown runed detaches in-flight runs, so containers outlive the daemon and a restart doesn&rsquo;t murder a turn mid-sentence.</p>
@@ -107,7 +109,7 @@ export CONTAINER_IMAGE=arizuko-ant:latest
     <h2>Go deeper</h2>
     <ul>
       <li><a href="../concepts/primitives.html">concepts/primitives</a> &mdash; the Turn primitive: one ephemeral container run per event.</li>
-      <li><a href="crackbox.html">components/crackbox</a> &mdash; the box the agent runs in, whose egress allowlist runed enforces.</li>
+      <li><a href="egress.html">components/egress</a> &mdash; the per-spawn proxy runed starts, and why the missing route is what confines the agent.</li>
       <li><a href="../reference/env.html#split">reference/env &mdash; split daemons</a> &mdash; the wiring vars; container spawn vars under <a href="../reference/env.html#container">container</a>.</li>
       <li><a href="routd.html">components/routd</a> &mdash; sends the run, hosts the MCP socket the container calls back on.</li>
       <li><code>runed/README.md</code> &mdash; the run contract, timeout math, file map.</li>
@@ -121,7 +123,7 @@ export CONTAINER_IMAGE=arizuko-ant:latest
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/runed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-13">2026-08-13</time>
       </div>
     </main>
 

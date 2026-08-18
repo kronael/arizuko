@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Arizuko Research — Architecture, Security, Patterns, Skills</title>
   <meta name="description" content="Technical research hub for arizuko multi-tenant agent platform. Architecture, security model, coordination patterns, skill development.">
-  <meta name="keywords" content="arizuko, multi-tenant agents, Claude, MCP, crackbox, agent coordination, routing, security model, agent patterns, skills">
+  <meta name="keywords" content="arizuko, multi-tenant agents, Claude, MCP, egress filtering, agent coordination, routing, security model, agent patterns, skills">
   <link rel="stylesheet" href="../assets/hub.css" />
   <style>
     /* Research-page components (arizuko palette via shared vars) */
@@ -133,7 +133,7 @@
           <span class="jump-icon">🔒</span>
           <span class="jump-text">
             <span class="jump-text-main">Security</span>
-            <span class="jump-text-sub">Crackbox, DNS filtering, MCP isolation</span>
+            <span class="jump-text-sub">Egress filtering, MCP isolation</span>
           </span>
         </a>
         <a href="#patterns" class="jump-link">
@@ -323,7 +323,7 @@
         </tr>
         <tr>
           <td>Network</td>
-          <td>Crackbox DNS filtering + allowlist</td>
+          <td>Per-spawn proxy on an <code>internal</code> network + host allowlist</td>
           <td>Exfiltration, C2 communication</td>
         </tr>
         <tr>
@@ -338,20 +338,20 @@
         </tr>
       </table>
 
-      <h3>Crackbox</h3>
+      <h3>Egress filtering</h3>
       <p>
-        Per-folder egress sandbox. Wraps each container with:
+        Per-folder allowlist, enforced by a proxy started fresh for each spawn:
       </p>
       <ul>
-        <li><strong>DNS filtering:</strong> allowlist of permitted hostnames per folder</li>
-        <li><strong>HTTPS via CONNECT:</strong> proxy intercepts TLS, validates hostname</li>
-        <li><strong>Seccomp + Landlock:</strong> syscall filtering, filesystem isolation</li>
-        <li><strong>No new privileges:</strong> <code>--security-opt no-new-privileges</code></li>
+        <li><strong>No route out:</strong> the spawn's network is created <code>--internal</code>, so the proxy is its only path anywhere</li>
+        <li><strong>Host matching:</strong> exact, subdomain-aware and case-insensitive, read from the request line</li>
+        <li><strong>CONNECT tunnelling:</strong> HTTPS is spliced, never decrypted &mdash; no CA, no key material, no request bodies</li>
+        <li><strong>One client:</strong> the proxy answers that spawn's address and 403s every other peer, including sibling spawns</li>
       </ul>
       <p>
-        Agent can only reach what operator explicitly permits. Example allowlist:
-        <code>["api.anthropic.com", "*.github.com", "pypi.org"]</code>.
-        See <a href="../components/crackbox.html">crackbox docs</a> and
+        The agent reaches only what the operator permitted. Example allowlist:
+        <code>["api.anthropic.com", "github.com", "pypi.org"]</code>.
+        See <a href="../components/egress.html">egress docs</a> and
         <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">SECURITY.md</a>.
       </p>
 

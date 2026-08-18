@@ -108,7 +108,7 @@ GITHUB_CLIENT_SECRET=…</code></pre>
       <h2>3. open AWS egress</h2>
       <p>
         The agent container is default-deny &mdash; it can reach nothing until
-        you allowlist a host. crackbox matches subdomains, so a single
+        you allowlist a host. Matching is subdomain-aware, so a single
         <code>amazonaws.com</code> entry covers <em>every</em> regional endpoint
         (<code>ec2.us-east-1.amazonaws.com</code>, <code>s3.amazonaws.com</code>,
         <code>sts.amazonaws.com</code>, …):
@@ -261,7 +261,7 @@ $EDITOR /srv/data/arizuko_acme/groups/main/facts/rds-failover.md</code></pre>
           and wait, not run it.</li>
         <li>From the container, a non-allowlisted host must 403 on every path.
           A quick check: <code>@argus curl -sI https://example.com/</code>
-          returns a crackbox 403; <code>https://ec2.us-east-1.amazonaws.com</code>
+          returns a 403 from the proxy; <code>https://ec2.us-east-1.amazonaws.com</code>
           connects.</li>
       </ul>
 
@@ -294,9 +294,9 @@ arizuko secret acme set main/staging AWS_DEFAULT_REGION --value us-west-2</code>
         no user key and is falling back to the tight folder role.</dd>
 
         <dt><strong>A host 403s on every path.</strong></dt>
-        <dd>crackbox is refusing the host, not the site rejecting auth. Add it
-        with <code>arizuko network acme allow main &lt;host&gt;</code> and
-        restart. A real auth gate gives mixed codes (200 on public paths); an
+        <dd>The proxy is refusing the host, not the site rejecting auth. Add it
+        with <code>arizuko network acme allow main &lt;host&gt;</code>; the next turn
+        starts its proxy with the new rule, so no restart is needed. A real auth gate gives mixed codes (200 on public paths); an
         egress block is a uniform 403.</dd>
 
         <dt><strong>The agent runs as the folder key, not mine.</strong></dt>
@@ -318,7 +318,7 @@ arizuko secret acme set main/staging AWS_DEFAULT_REGION --value us-west-2</code>
         <li><a href="../../products/aws-devops/">AWS DevOps agent &mdash; intro</a> &mdash; what the team sees</li>
         <li><a href="../../concepts/secrets.html">secrets</a> &mdash; folder vs user scope, the BYOA overlay</li>
         <li><a href="../../concepts/grants.html">grants</a> &mdash; the <code>bash</code> grant and action gating</li>
-        <li><a href="../../components/crackbox.html">crackbox</a> &mdash; default-deny egress</li>
+        <li><a href="../../components/egress.html">egress</a> &mdash; default-deny egress</li>
         <li><a href="../../reference/cli.html">CLI reference</a> &mdash; <code>secret</code>, <code>user-secret</code>, <code>network</code>, <code>group</code></li>
         <li><a href="../../security/">security model</a> &mdash; tenant boundary, ephemeral containers, secret injection</li>
       </ul>

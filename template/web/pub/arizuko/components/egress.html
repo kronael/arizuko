@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>egress &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="authd.html">authd</a></li>
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="egress.html">egress</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="routd.html">routd</a></li>
+            <li><a href="runed.html">runed</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="vited.html">vited</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; egress</p>
+      <h1>egress</h1>
+
+    <h2>What it is</h2>
+    <p><code>egress</code> is a forward HTTP/CONNECT proxy that allows one fixed list of hosts, for one client. It reads the destination out of the request the client sends, matches it against the allowlist, and either splices the connection or answers <code>403</code>. That is the whole program.</p>
+
+    <p>runed starts one of these per spawned agent container, with that folder&rsquo;s allowlist baked into the process at start, and kills it when the turn ends. There is no long-lived proxy, no registry of who is who, and no admin API &mdash; every one of those existed so that <em>one</em> proxy could serve <em>many</em> tenants, and one proxy per spawn needs none of them (<a href="https://github.com/kronael/arizuko/blob/main/specs/6/24-crackbox-lightest.md"><code>specs/6/24</code></a>).</p>
+
+    <h2>Why it exists</h2>
+    <p>An agent runs generated code with the network open. You want it to reach <code>github.com</code> and <code>api.anthropic.com</code> &mdash; not your internal services, not a crypto miner shipped in a compromised npm package, not wherever a prompt injection points it. A network-level firewall doesn&rsquo;t know which folder is calling. Per-process iptables is fiddly. The proxy sits in the one place that knows both: the single path this spawn has out.</p>
+
+    <p>Per-spawn is also what removes a leak the shared model could not close. A shared proxy keyed tenants by source IP, so it depended on the consumer unregistering when a container exited. Docker reuses source addresses; if runed died between a container exiting and the unregister call, the stale entry survived and the next tenant on that address inherited the previous folder&rsquo;s allowlist. Per-spawn deletes the registry, so there is nothing to go stale.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>runed spawn
+  |
+  | 1. create/reuse the folder network  (docker network --internal)
+  | 2. docker run the proxy on it, --client &lt;spawn ip&gt;, allowlist baked in
+  | 3. docker network connect &lt;uplink&gt; &lt;proxy&gt;
+  | 4. poll the proxy's /health until 200   <-- the spawn does not exist yet
+  | 5. docker run the agent, HTTP_PROXY -> the proxy
+  v
+agent  --internal net-->  its proxy  --uplink-->  allowed hosts only</code></pre>
+    </div>
+
+    <p><strong>The proxy is not what confines the agent &mdash; the missing route is.</strong> The folder network is created with <code>--internal</code>, so it has no route to the internet at all. The proxy is the only container attached to both that network and <code>EGRESS_UPLINK_NETWORK</code> (the compose project&rsquo;s default bridge). The agent is attached to the internal network only. An agent that ignores <code>HTTPS_PROXY</code> and opens a raw socket to an IP literal reaches nothing, because there is nowhere for the packet to go.</p>
+
+    <div class="callout">
+      <strong>Never let the agent share the proxy&rsquo;s network namespace.</strong>
+      <code>--network container:&lt;proxy&gt;</code> looks like it removes a startup race and instead removes the enforcement: the proxy has to reach the internet to forward, so its namespace carries a default route, and everything sharing it inherits that route. Measured on a live docker host &mdash; a container run that way, with no proxy environment at all, fetched an unlisted host directly and exited 0. Same rule for a second interface on the agent.
+    </div>
+
+    <p><strong>Order is enforced, not hoped for.</strong> The proxy answers <code>GET /health</code> with 200 only once its listener is bound and its allowlist is loaded. runed polls that (15s ceiling) and starts the agent only on a 200; a TCP connect would not do, since it succeeds the moment the port is bound. A proxy that fails to start, fails to connect to the uplink, or never reports healthy <strong>fails the spawn</strong>. There is no fallback to an unfiltered container.</p>
+
+    <p><strong>The proxy serves exactly one address.</strong> <code>--client</code> is the spawn&rsquo;s address; every other peer gets a 403, including the folder&rsquo;s other spawns on the same network. That matters because concurrent spawns in one folder do not all hold the same list &mdash; an elevated <code>/root</code> turn&rsquo;s is unrestricted &mdash; so without the pin a plain spawn could send its CONNECT to a neighbour&rsquo;s proxy and borrow rules it was never granted. It is a bind scope, not a lookup: nothing is registered, and a second client is refused rather than served from some other rule set.</p>
+
+    <p>Inputs: the resolved allowlist for the folder (<code>store.ResolveAllowlist</code> walks the folder ancestry over <code>network_rules</code> and dedupes) plus runed&rsquo;s four <code>EGRESS_*</code> values. Outputs: one proxy container per spawn, and a <code>403</code> for anything off the list.</p>
+
+    <h3>Matching</h3>
+    <p>Host names only &mdash; exact, subdomain-aware (<code>--allow github.com</code> covers <code>api.github.com</code>), case-insensitive, trailing dot stripped. A bare <code>*</code> allows everything. IP entries in the list are skipped: the filter works on the NAME, because the name is what the client puts in the request line. No path rules, no method rules.</p>
+
+    <p>An empty allowlist denies everything. That is a legitimate rule &mdash; a folder with no network grants &mdash; so the proxy starts and logs a warning rather than refusing to run.</p>
+
+    <p>The wildcard <code>*</code> is appended only when the folder holds the <code>egress</code> grant, or the turn is an elevated <code>/root</code> turn. The default <code>role:member</code> does not carry it, at any folder depth.</p>
+
+    <h3>What it doesn&rsquo;t do</h3>
+    <ul>
+      <li>no TLS termination, no CA, no key material &mdash; CONNECT is tunnelled, never decrypted</li>
+      <li>no request or response body access, no content filtering, no secret injection</li>
+      <li>no registry, no admin API, no client library</li>
+      <li>no transparent interception and no SNI peeking &mdash; forward mode reads the destination from the request line, so it never needed either</li>
+      <li>no DNS filter &mdash; a single-tenant proxy already sees every destination, and a rule expressed twice can disagree with itself</li>
+      <li>no supervision &mdash; the spawn&rsquo;s lifetime is the proxy&rsquo;s lifetime, and runed owns both</li>
+    </ul>
+    <p>Interception stays declined (<code>specs/6/17</code>): a proxy that never terminates TLS has nothing to leak if it is compromised, which is what keeps it small enough to audit.</p>
+
+    <h2>Standalone usage</h2>
+    <p>Yes. <code>egress</code> is a plain Go binary with three flags and no dependency on anything else in arizuko.</p>
+
+    <pre><code># build the image (repo root)
+make images                 # produces arizuko-egress
+
+# or the bare binary
+make -C egress build        # produces ./egress/egress
+
+# run it: allow two hosts, serve one client
+./egress/egress --listen :3128 --allow api.anthropic.com,github.com --client 10.99.4.7</code></pre>
+
+    <table>
+      <tr><th>flag</th><th>env</th><th>default</th><th>meaning</th></tr>
+      <tr><td><code>--listen</code></td><td><code>EGRESS_LISTEN</code></td><td><code>:3128</code></td><td>listen address</td></tr>
+      <tr><td><code>--allow</code></td><td><code>EGRESS_ALLOW</code></td><td>(empty)</td><td>comma-separated allowlist; a bare <code>*</code> allows all</td></tr>
+      <tr><td><code>--client</code></td><td><code>EGRESS_CLIENT</code></td><td>(empty)</td><td>the only peer address served; empty accepts any peer</td></tr>
+    </table>
+
+    <p>The allowlist is fixed for the life of the process. To change the rules, start a new proxy &mdash; which is what a per-spawn proxy does on every turn anyway.</p>
+
+    <p><code>GET /health</code> returns 200 <code>{"status":"ok"}</code> once the listener is bound and the allowlist loaded, 503 <code>{"status":"starting"}</code> before. It is answered before the <code>--client</code> check, because whoever starts the sandbox is not the client. Proxy requests arrive in absolute form (<code>GET http://host/path</code>), so an origin-form <code>GET /health</code> is unambiguously a probe of this process rather than traffic to forward.</p>
+
+    <h3>Running something in a box locally</h3>
+    <p><code>crackbox</code> is the local-development command that composes <code>egress</code> with a sandbox so you can try the same shape on your own machine. Production never runs it &mdash; runed starts <code>egress</code> directly.</p>
+
+    <pre><code>crackbox run --allow github.com,api.anthropic.com -- curl https://github.com
+crackbox run --image python:3 --allow pypi.org,files.pythonhosted.org -- pip install requests</code></pre>
+
+    <p><code>crackbox run --kvm</code> swaps the container for a qemu VM using the <code>sandbox/</code> library, where the allowlist becomes netfilter rules on the VM&rsquo;s tap device instead of a proxy hop. That library is shipped but <strong>not wired into the arizuko spawn path</strong> &mdash; runed spawns Docker containers, and <code>crackbox run --kvm</code> is its only consumer today.</p>
+
+    <h2>Key env vars</h2>
+    <p>These are read by runed, not by the proxy binary. Naming <code>EGRESS_IMAGE</code> is the whole switch &mdash; there is no separate enable flag.</p>
+    <ul>
+      <li><code>EGRESS_IMAGE</code> &mdash; the image holding the <code>egress</code> binary, e.g. <code>arizuko-egress:latest</code>. Empty means egress isolation is off and spawns run unfiltered.</li>
+      <li><code>EGRESS_NETWORK_PREFIX</code> &mdash; prefix for the per-folder docker networks. <code>arizuko generate</code> writes <code>&lt;app&gt;_&lt;flavor&gt;</code>.</li>
+      <li><code>EGRESS_UPLINK_NETWORK</code> &mdash; the network giving each proxy its route out, and runed its path to the <code>/health</code> probe. <code>arizuko generate</code> writes <code>&lt;project&gt;_default</code>.</li>
+      <li><code>EGRESS_SUBNET</code> &mdash; parent CIDR carved into per-folder <code>/24</code>s. Default <code>10.99.0.0/16</code>.</li>
+    </ul>
+
+    <p>Full list and defaults in <a href="../reference/env.html#EGRESS_IMAGE">reference/env</a>. If a <code>.env</code> still sets the retired <code>CRACKBOX_ADMIN_API</code> while <code>EGRESS_IMAGE</code> is empty, runed refuses to start and names both variables &mdash; an upgraded instance must not spawn unfiltered while looking healthy.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../security/">security</a> &mdash; where egress sits among the other agent-run controls.</li>
+      <li><a href="runed.html">components/runed</a> &mdash; the daemon that starts the proxy and the agent, in that order.</li>
+      <li><a href="../reference/cli.html">reference/cli</a> &mdash; <code>arizuko network allow / deny / list / resolve</code>, which write the rules the proxy is started with.</li>
+      <li><code>egress/README.md</code>, <code>crackbox/README.md</code>, <code>sandbox/README.md</code> &mdash; the three directories and what each one is.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/24-crackbox-lightest.md"><code>specs/6/24</code></a> &mdash; the cut: what the shared model cost and why per-spawn is safer, not just smaller.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/9-crackbox-sandboxing.md"><code>specs/6/9</code></a> &mdash; the KVM/qemu sandbox library.</li>
+    </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="discd.html">&larr; discd</a>
+        <a rel="next" href="emaid.html">emaid &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/egress.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

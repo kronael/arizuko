@@ -113,14 +113,14 @@ arizuko acl myagent add alice@example.com "eng/**" "**"</code></pre>
 
       <h3>Internet</h3>
       <pre><code>arizuko token myagent create --jid web:support</code></pre>
-      <p>A route token lets anonymous visitors in. Add <code>ONBOARDING_ADMISSION=queue</code> to gate new users, <code>CRACKBOX_ENABLED=true</code> to sandbox egress. See <a href="tokens.html">tokens</a> and <a href="onboarding.html">onboarding</a>.</p>
+      <p>A route token lets anonymous visitors in. Add <code>ONBOARDING_ADMISSION=queue</code> to gate new users, and <code>EGRESS_IMAGE=arizuko-egress:latest</code> to put every spawn behind its own filtered proxy. See <a href="tokens.html">tokens</a> and <a href="onboarding.html">onboarding</a>.</p>
 
       <h2>Where isolation comes from</h2>
       <p>Tenants share a single SQLite WAL file, a single set of daemons, a single container image. Isolation comes from three things:</p>
       <ul>
         <li><strong>Folder containment.</strong> A group's agent runs in a container whose home is <code>groups/&lt;folder&gt;/</code>. It cannot see sibling folders' files. <a href="scopes.html">Scopes</a> explains the rules.</li>
         <li><strong>Grant resolution.</strong> Every MCP call checks <code>(caller, action, target)</code> against the ACL. A folder holding only the default role can <code>send</code> but not <code>register_group</code>. <a href="grants.html">Grants</a> explains the rows.</li>
-        <li><strong>Egress sandbox.</strong> Public-facing agents run through <code>crackbox</code>, which limits outbound network to an allowlist. Sensitive deployments sandbox every folder.</li>
+        <li><strong>Egress filtering.</strong> Each spawn gets its own <code>egress</code> proxy holding that folder&rsquo;s allowlist, on a network with no other route out. It is instance-wide once <code>EGRESS_IMAGE</code> is set, and the rules are per folder.</li>
       </ul>
       <p>Cross-tenant read is structurally impossible: the container mount, the grant gate, and the egress proxy all bind to the folder. A bug in one group's skill doesn't leak into another group's context.</p>
 
@@ -136,7 +136,7 @@ arizuko acl myagent add alice@example.com "eng/**" "**"</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/scaling.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-06">2026-08-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
       </div>
     </main>
 

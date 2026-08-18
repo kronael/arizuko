@@ -622,7 +622,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"updated": true, "count": &lt;n&gt;}</code>.</p>
 
     <h2 id="egress">egress</h2>
-    <p>Manage the egress allowlist crackbox enforces. The proxy is default-deny &mdash; a folder only reaches hosts it (or an ancestor) has been allowed. Rules cascade down the tree: a rule at a parent folder opens the host for every descendant. All three require the matching <code>mcp:network_*</code> grant, re-checked with the <code>folder</code> argument as the scope &mdash; so you can only manage egress inside the subtree your grant covers. No grant, no egress management. Backed by the <code>network_rules</code> table. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/16-mcp-rest-unification.md">5/16</a> (<code>network_rules</code>). Agent-only by design &mdash; there is no REST twin, and <code>network_rules</code> isn&rsquo;t mounted at <code>/v1/network_rules</code> or listed in routd&rsquo;s <code>/openapi.json</code>.</p>
+    <p>Manage the egress allowlist each spawn&rsquo;s own <a href="../components/egress.html">egress</a> proxy is started with. The proxy is default-deny &mdash; a folder only reaches hosts it (or an ancestor) has been allowed. Rules cascade down the tree: a rule at a parent folder opens the host for every descendant. All three require the matching <code>mcp:network_*</code> grant, re-checked with the <code>folder</code> argument as the scope &mdash; so you can only manage egress inside the subtree your grant covers. No grant, no egress management. Backed by the <code>network_rules</code> table. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/16-mcp-rest-unification.md">5/16</a> (<code>network_rules</code>). Agent-only by design &mdash; there is no REST twin, and <code>network_rules</code> isn&rsquo;t mounted at <code>/v1/network_rules</code> or listed in routd&rsquo;s <code>/openapi.json</code>.</p>
 
     <h3 id="network_allow"><code>network_allow</code></h3>
     <p>Append an allowlist rule so <code>folder</code> and every descendant can reach <code>host</code>. Use when an agent needs a host the default-deny proxy blocks &mdash; a vendor API, say. <code>host</code> is a bare hostname (no scheme, no path), e.g. <code>example.com</code>. The rule cascades to all children.</p>
@@ -879,7 +879,7 @@ base = "https://api.cloudflare.com/client/v4"
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-09">2026-08-09</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-13">2026-08-13</time>
       </div>
     </main>
 

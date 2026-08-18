@@ -412,7 +412,7 @@ arizuko budget krons show user google:alice@example.com</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L43"><code>cmd/arizuko/budget.go:43</code></a></p>
 
     <h2 id="network" class="group-h2">Network allowlist</h2>
-    <p>Per-folder egress rules consumed by the crackbox proxy. Walks the folder ancestry on resolve. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go#L12"><code>network.go:12</code></a>.</p>
+    <p>Per-folder egress rules. Each spawn&rsquo;s own <a href="../components/egress.html">egress</a> proxy is started with the resolved list baked in. Walks the folder ancestry on resolve. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go#L12"><code>network.go:12</code></a>.</p>
 
     <h3 id="network-allow"><span class="sig">arizuko network &lt;instance&gt; allow &lt;folder&gt; &lt;target&gt;</span></h3>
     <p>Add an allow rule binding a folder to a hostname (or other target form supported by <code>store.AddNetworkRule</code>). <code>created_by</code> is set to the literal <code>"cli"</code>.</p>
@@ -435,7 +435,7 @@ arizuko network krons list corp/eng</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go#L40"><code>cmd/arizuko/network.go:40</code></a></p>
 
     <h3 id="network-resolve"><span class="sig">arizuko network &lt;instance&gt; resolve &lt;folder&gt;</span></h3>
-    <p>Print the fully resolved allowlist for a folder &mdash; walks ancestry, dedupes, includes default seeds (<code>anthropic.com</code>, <code>api.anthropic.com</code> from migration 0037). One target per line. Useful for verifying what crackbox will accept for a given folder.</p>
+    <p>Print the fully resolved allowlist for a folder &mdash; walks ancestry, dedupes, includes the root seeds (<code>anthropic.com</code>, <code>api.anthropic.com</code>, from <a href="https://github.com/kronael/arizuko/blob/main/routd/migrations/0005-network-rules.sql"><code>routd/migrations/0005-network-rules.sql</code></a>). One target per line. Useful for verifying what a folder&rsquo;s proxy will accept.</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko network krons resolve corp/eng/sre</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go#L66"><code>cmd/arizuko/network.go:66</code></a></p>
@@ -532,7 +532,7 @@ arizuko secret krons set main CF_API_TOKEN --value cf_xxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-13">2026-08-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-17">2026-08-17</time>
       </div>
     </main>
 

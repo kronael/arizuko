@@ -132,7 +132,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <ul>
         <li><strong>Isolation that keeps memory.</strong> Each folder has its
           own persona, memory, and secrets, and runs in fresh per-turn
-          containers; with <a href="components/crackbox.html">crackbox</a>
+          containers; with <a href="components/egress.html">egress</a>
           enabled, outbound traffic is allowlist-only. A support agent can
           face strangers on a public channel and still remember its own
           history &mdash; another folder&rsquo;s home is never mounted into
@@ -256,10 +256,10 @@ arizuko run demo                       # compose up; @mention the bot in a chann
         <li><strong>The split is the topology.</strong> A minimal deploy is
           the three core daemons (<code>authd</code>, <code>routd</code>,
           <code>runed</code>) plus one channel adapter; <code>dashd</code>,
-          <code>timed</code>, <code>onbod</code>, <code>crackbox</code> are
-          add-ons you attach as needed.</li>
+          <code>timed</code> and <code>onbod</code> are add-ons you attach
+          as needed, and <code>egress</code> is a switch you set.</li>
         <li><strong>Default-deny egress.</strong> With
-          <a href="components/crackbox.html"><code>crackbox</code></a>, an
+          <a href="components/egress.html"><code>egress</code></a> on, an
           agent reaches only the hosts you allowlist &mdash; a compromised
           turn can only call hosts you already approved.</li>
         <li><strong>MCP first, REST converging.</strong> Every platform
@@ -298,7 +298,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <p class="dim" style="margin-top: 2em; font-size: 0.9em">
         MIT &middot; Go + SQLite (WAL) + Docker.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>

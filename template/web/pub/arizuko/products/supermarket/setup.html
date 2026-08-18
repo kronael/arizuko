@@ -139,13 +139,13 @@ EOF</code></pre>
       <h2>4. configure egress</h2>
       <p>
         The agent needs outbound access to the retailer domains and a search
-        engine. Allow them via <a href="../../components/crackbox.html">crackbox</a>:
+        engine. Allow them via <a href="../../components/egress.html">egress</a>:
       </p>
       <pre><code>arizuko network shop allow supermarket tesco.com
 arizuko network shop allow supermarket sainsburys.co.uk
 arizuko network shop allow supermarket lidl.co.uk</code></pre>
       <p>
-        Without an egress allowlist, crackbox blocks all outbound. The
+        Without an egress allowlist, the proxy blocks all outbound. The
         agent will say it couldn&rsquo;t reach the site rather than
         silently returning stale data.
       </p>
@@ -210,7 +210,7 @@ arizuko network shop allow supermarket lidl.co.uk</code></pre>
       <h2>go deeper</h2>
       <ul>
         <li><a href="../../products/supermarket/">Supermarket price agent &mdash; intro</a></li>
-        <li><a href="../../components/crackbox.html">crackbox</a> &mdash; egress allowlist</li>
+        <li><a href="../../components/egress.html">egress</a> &mdash; egress allowlist</li>
         <li><a href="../../concepts/tokens.html">tokens</a> &mdash; web-chat and hook token minting</li>
         <li><a href="../../howto/chat-sdk.html">chat SDK</a> &mdash; embedding the chat widget</li>
         <li><a href="../../reference/cli.html">CLI reference</a> &mdash; full command list</li>

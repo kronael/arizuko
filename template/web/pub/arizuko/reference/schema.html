@@ -495,7 +495,7 @@
 
     <div class="tablecard">
       <h3><code>network_rules</code></h3>
-      <p>Per-folder egress allowlist; resolved root-to-folder by <code>store.ResolveAllowlist</code> at container spawn and consumed by crackbox.</p>
+      <p>Per-folder egress allowlist. Resolved root-to-folder at spawn (<code>ResolveAllowlist</code> walks the ancestry and dedupes), then baked into that spawn&rsquo;s own <a href="../components/egress.html">egress</a> proxy, which dies with the turn.</p>
       <table>
         <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
         <tr><td><code>folder</code></td><td>TEXT NOT NULL</td><td></td><td>folder path; <code>''</code> = root seed</td></tr>
@@ -633,7 +633,7 @@
 
     <div class="tablecard">
       <h3><code>audit_log</code></h3>
-      <p>Unified source of truth for security events and state changes across MCP / REST / CLI / gateway / cron / crackbox / agent surfaces (spec 5/I). Round-2 of the audit coverage plan; supersedes the split <code>cli_audit</code> / <code>ipc_audit</code> tables, which stop receiving writes but remain until every writer is on <code>audit.EmitInTx</code>.</p>
+      <p>Unified source of truth for security events and state changes across MCP / REST / CLI / cron / agent surfaces (spec 5/I). <code>surface</code> is a stored string: the secret broker still writes the literal <code>crackbox</code>, which now names a component production does not run &mdash; filed, not rewritten, because the value is already on disk. Round-2 of the audit coverage plan; supersedes the split <code>cli_audit</code> / <code>ipc_audit</code> tables, which stop receiving writes but remain until every writer is on <code>audit.EmitInTx</code>.</p>
       <table>
         <tr><th>column</th><th>type</th><th>meaning</th></tr>
         <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td></td></tr>
