@@ -61,12 +61,16 @@ regression watch — not only in the build.
 ## Cases
 
 Data, not spec: the case registry is `anteval/cases/anteval.toml`
-(34 cases as of 2026-08-02; `smoke = true` tags the release-gate basis).
+(35 cases as of 2026-08-20; `smoke = true` tags the release-gate basis).
 Do not mirror the case list here — it drifts the moment a case lands.
 
-Eight dimensions: self-modification · subagents + privileges · web
+Nine dimensions: self-modification · subagents + privileges · web
 publishing · online chat apps · reach via REST + MCP · composites ·
-routing · egress, plus a **fabricate-vs-surface** family added 2026-07-12
+routing · egress · continuity (added 2026-08-20: the group-knowledge
+layer must carry a fact to a transcript-less isolated turn — the
+`specs/6/7` portability claim; what stays live-unmeasured and why is in
+`anteval/README.md` §"Continuity coverage"), plus a
+**fabricate-vs-surface** family added 2026-07-12
 (evidence-ranked from ~50 candidates mined from cross-project memory, live
 `journalctl`, and doc anti-patterns) where the agent gives a confident
 wrong answer instead of surfacing a real failure.
@@ -95,13 +99,13 @@ whole mechanism:
 - `anteval run <target> --cases <data-dir>/groups/<folder>/eval` runs it
   against the live agent, and costs model credits like any other run.
 
-**What a product case asserts is different in kind from the 34 above.**
+**What a product case asserts is different in kind from the 35 above.**
 Those certify the PLATFORM's capability — can an agent modify itself,
 publish, reach REST. A product's case certifies that ITS persona, rules
 and facts produce the behaviour its page promises: `rest_reply` with the
 string the answer must contain is the usual shape. An agent that replies
 politely and offers the refund has regressed even though every daemon is
-healthy and all 34 platform cases pass.
+healthy and all 35 platform cases pass.
 
 Reference product: `ant/examples/helpdesk/eval/helpdesk.toml` (4 cases).
 One of them — the triage skill being loaded — doubles as the live check

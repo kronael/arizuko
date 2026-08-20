@@ -305,6 +305,32 @@ max_wall_ms = 180000
 [case.check]
 kind = "callback"
 
+# ── Continuity ───────────────────────────────────────────────────────────────
+# Context reaches a turn in layers with different owners: the harness-owned
+# transcript (seconds-hours, disposable), the platform observed window
+# (minutes, routd), and the platform group files — diary/episodes/work.md,
+# injected into EVERY spawn by container prepareInput regardless of harness
+# (days-months). The portability claim (specs/6/7) is that an agent with NO
+# transcript still answers from the group layers; that is what a second
+# harness occupant has to pass. This case pins it: the fact goes into group
+# knowledge, then a contextMode='isolated' follow-up — no `--resume` by
+# definition (specs/4/8), so the transcript CANNOT help — must recover it.
+# Self-report caveat, same as every {nonce}/-x case: an agent that embeds the
+# fact in the scheduled prompt or fabricates an answer false-passes; the sink
+# judges reporting, the LLM judges itself.
+# NOT measurable here: layer-1 resume across turns. A scheduled fire carries
+# no topic (timed/split.go), so a group-context follow-up resumes the ROOT
+# session while every case runs in its own topic — the fork/resume contract
+# is pinned at the integration tier instead (tests/feat_continuity_test.go).
+[[case]]
+id = "knowledge-outlives-transcript"
+dimension = "continuity"
+requires = ["mcp:schedule_task"]
+prompt = "Record in your group diary (~/diary/, the diary skill) that the anteval-{nonce} launch decision is HOLD. Do not write it anywhere else, do not reply with it, and do not repeat the decision inside any scheduled prompt. Then schedule a one-shot task to yourself ~60s from now with contextMode='isolated' whose prompt is exactly: \"From your group knowledge only: what is the anteval-{nonce} launch decision? If you find it recorded, run curl -s '{sink}/cb/{nonce}?decision=<what you found>'; if you cannot find it recorded anywhere, run curl -s {sink}/cb/{nonce}-lost.\" The isolated run starts with no conversation transcript, so only what you recorded can answer it."
+max_wall_ms = 240000
+[case.check]
+kind = "callback"
+
 # ── Top-impact silent-failure cases (2026-07-12) ─────────────────────────────
 # Selected from ~50 candidates mined by three read-only subs (cross-project
 # memory, live journalctl on krons/sloth/marinade, and doc/skill anti-patterns),

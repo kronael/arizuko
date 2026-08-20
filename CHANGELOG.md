@@ -16,6 +16,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **anteval cases stopped inheriting the eval chat's history.** The topic-fork
+  repair (BUGS `L54`) made every case topic's first turn fork the eval
+  folder's main session, so each case answered in front of every prior run's
+  transcript — the cross-case contamination per-case topics had removed came
+  back. `anteval run` now requires `--folder` and resets the root session
+  before every case (a steer-consumed `/new`, held until the session is
+  observably gone); a baseline that will not clear aborts the run loudly. A
+  new `continuity` dimension (`knowledge-outlives-transcript`) proves group
+  knowledge reaches a transcript-less isolated turn, and the fork/resume
+  contract routd shares with the agent is pinned end-to-end in
+  `tests/feat_continuity_test.go`.
+
 - **A route shipped in a release now reaches an instance that already exists.**
   proxyd's route table arrived as a `PROXYD_ROUTES_JSON` env var that proxyd
   read only while the table was empty; once an instance had booted once, every

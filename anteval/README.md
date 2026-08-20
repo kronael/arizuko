@@ -24,7 +24,7 @@ arizuko token krons issue bearer eval --scope messages:write,messages:read,cost:
   --folder eval \                # folder owning --chat; anchors the root-session reset
   --sink-addr :9099 \            # local bind for the callback sink (routable iface)
   --sink  http://172.22.0.1:9099 \# URL the agent containers call back to (docker-gateway IP works host-local)
-  --smoke                         # gate subset; omit for all 19
+  --smoke                         # gate subset; omit for all 35
 # selectors: --dimension web | --case pub-200 ; output: --md report.md --json report.json
 ./anteval dash report.json      # re-render a saved report
 make validate                     # load+validate the case catalog (no target)
@@ -120,6 +120,37 @@ The callback sink binds locally; the agent containers must be able to reach
 `--sink`, so the eval host has to be on the target folder's crackbox egress
 allowlist (or run on an already-allowed host). A default-deny refusal there is a
 deploy gap, not a capability failure.
+
+## Continuity coverage — what is and is not measured live
+
+The `continuity` dimension (`knowledge-outlives-transcript`) proves the
+platform's group-knowledge layer carries a fact to a turn that has NO
+conversation transcript (a `contextMode='isolated'` scheduled follow-up —
+isolated means no `--resume` by definition). Run it by hand like any case:
+
+```bash
+./anteval run <target> --api ... --token ... --chat web:eval --folder eval \
+  --case knowledge-outlives-transcript --sink-addr :9099 --sink http://<gw>:9099
+```
+
+Two continuity properties stay UNMEASURED live, deliberately:
+
+- **Transcript resume across turns (layer 1).** A scheduled fire carries no
+  topic (`timed/split.go`), so a group-context follow-up resumes the ROOT
+  session while every case runs in its own topic; injecting a case into the
+  root topic would contaminate the baseline the driver just established. The
+  one-inject case model cannot express "learn in turn 1, recall in turn 2 of
+  the same session".
+- **The fork path (a topic born from a reply).** `Inject` posts
+  `{chat_jid, topic, content, sender}` and deliberately does not set
+  `reply_to_id`; adding it would be harness machinery for a single case.
+
+Both are pinned at the integration tier instead:
+`tests/feat_continuity_test.go` drives a real fork through ingest → poll →
+dispatch and asserts the shipped session id passes ant's own resume guard
+(pattern extracted from `ant/src/index.ts`, so the Go copy cannot drift),
+the child transcript exists restamped, and the observed-cursor trade holds
+on both axes.
 
 ## v1 limits
 
