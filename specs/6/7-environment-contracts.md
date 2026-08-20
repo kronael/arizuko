@@ -353,6 +353,41 @@ discovery disabled so nothing the agent writes is ever consulted:
   pi's help is explicit that explicit `-e` paths still load when discovery is
   off, which is precisely the combination wanted.
 
+**Three owners, not two. Normal setup is the operator's, and it must keep
+working.**
+
+The split above says "system or agent", which is too few — it leaves no room
+for ordinary configuration, and a design that makes a group unconfigurable is
+not safer, only unusable. Harness setup has three owners:
+
+| owner                    | sets                                                                                                      | writable by                             |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| **system** (the release) | the policy that makes arizuko arizuko: the gated MCP server map, the guard bindings, the steering binding | nobody                                  |
+| **operator**             | ordinary setup: model, extra MCP connectors, mounts, egress, per-group overrides                          | the operator, through existing surfaces |
+| **agent / group**        | content: skills it writes, diary, facts, workspace, transcripts, rollouts                                 | the agent                               |
+
+The operator layer already exists and must be reused rather than reinvented:
+`<data_dir>/connectors.toml` for MCP connectors (`routd/ext.go:132`) and the
+`groups.container_config` column for per-group container settings. Harness
+setup joins those surfaces; it does NOT become a file the operator edits inside
+`/home/node`, because anything editable there is editable by the agent.
+
+**One renderer, one file, mounted read-only.** The three layers merge in one
+place — the same "one renderer, many sinks" rule `blendSettings` already
+follows — and the OUTPUT is what gets mounted. Precedence is system over
+operator over agent, and only the system layer may set the policy keys. An
+operator who wants a different model, another connector or an extra mount sets
+it where they already set such things and it lands in the rendered file. The
+agent's own file is still read for CONTENT; it is simply not consulted for the
+keys that decide what the agent may do.
+
+**Where the line falls for the awkward cases.** A skill is content: the agent
+writes it, the guard scans it, it stays in the group dir. An extension or a
+package is CODE that runs with the harness's authority, so it is operator-owned
+even though the harness's normal convention puts it under `$HOME`. That is the
+one place arizuko departs from a harness's default layout, and it departs for
+the same reason `strictMcpConfig` exists.
+
 **Discovery stays ON. Two kinds of discovery, only one is a hazard.**
 
 - **Content discovery** — `CLAUDE.md` / `AGENTS.md`, skills, prompt templates.
