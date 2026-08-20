@@ -26,6 +26,10 @@ type Target interface {
 	// see runCase for why sharing the chat default topic broke a live run.
 	Inject(chat, topic, prompt string) (turnID string, err error)
 	Cost(turnID string) (int, error)
+	// Session reads the stored resume-session id for (folder, topic); "" =
+	// none. The baseline reset (ensurePristineRoot) reads the ROOT topic
+	// through this.
+	Session(folder, topic string) (string, error)
 }
 
 // Config parameterizes a run.
@@ -35,16 +39,27 @@ type Config struct {
 	Nonce      string        // run nonce; per-case nonce is Nonce+"-"+case.ID
 	TargetBase string        // public base URL of the instance (templated as {target})
 	Chat       string        // eval agent chat JID; every task is injected here (templated as {chat})
+	Folder     string        // eval folder owning Chat (baseline session reset); empty skips the reset — cmdRun requires it, so only pure-fake unit runs skip
 	SinkBind   string        // local bind addr for the callback sink (default 127.0.0.1:0; live: :PORT on a routable iface)
 	SinkURL    string        // externally reachable sink base URL agents call back to; empty = local bind addr
 	Poll       time.Duration // await interval (default 2s)
+
+	// baselineWait bounds how long one /new reset may take before the run
+	// aborts (a running turn on the eval chat delays consumption). Tests
+	// shrink it; zero = 90s.
+	baselineWait time.Duration
 }
 
 // Drive runs every selected case and returns results. It binds the callback
-// sink for the lifetime of the run.
-func Drive(cfg Config) []report.Result {
+// sink for the lifetime of the run. A baseline failure aborts the run — the
+// results so far come back with the error; everything after would have
+// measured inherited history, not the agent.
+func Drive(cfg Config) ([]report.Result, error) {
 	if cfg.Poll <= 0 {
 		cfg.Poll = 2 * time.Second
+	}
+	if cfg.baselineWait <= 0 {
+		cfg.baselineWait = 90 * time.Second
 	}
 	bind := cfg.SinkBind
 	if bind == "" {
@@ -58,9 +73,61 @@ func Drive(cfg Config) []report.Result {
 	}
 	out := make([]report.Result, 0, len(cfg.Cases))
 	for _, c := range cfg.Cases {
+		if err := ensurePristineRoot(cfg); err != nil {
+			return out, fmt.Errorf("case %s: %w", c.ID, err)
+		}
 		out = append(out, runCase(cfg, s, c))
 	}
-	return out
+	return out, nil
+}
+
+// ensurePristineRoot guarantees the eval folder's ROOT topic holds no session
+// before a case is injected. Each case runs in its own fresh topic, and the
+// first turn of any non-main topic forks main's session (specs/5/F) — so a
+// root session means the case inherits every prior conversation in the chat.
+// That is the contamination `5067cfdf` removed by per-case topics, silently
+// restored the day the fork started working (BUGS L54 "Known consequence").
+//
+// The reset is `/new`: routd's steer consumes a bare /new before any turn —
+// it deletes the root sessions row, spawns nothing, and acks out of band — so
+// the reset cannot re-create what it clears. The poll below is the proof the
+// reset LANDED: /new is only consumed when it is the newest pending message,
+// so anteval must not inject the first case until the root session is
+// observably gone.
+//
+// Checked before EVERY case, not once per run: a group-context scheduled
+// follow-up (the state-persist pattern) fires topic-less on the ROOT topic
+// and persists its session there mid-run.
+func ensurePristineRoot(cfg Config) error {
+	if cfg.Folder == "" {
+		return nil
+	}
+	sid, err := cfg.Target.Session(cfg.Folder, "")
+	if err != nil {
+		return fmt.Errorf("baseline: read root session: %w", err)
+	}
+	if sid == "" {
+		return nil
+	}
+	if _, err := cfg.Target.Inject(cfg.Chat, "", "/new"); err != nil {
+		return fmt.Errorf("baseline: inject /new: %w", err)
+	}
+	deadline := time.Now().Add(cfg.baselineWait)
+	for {
+		time.Sleep(cfg.Poll)
+		sid, err = cfg.Target.Session(cfg.Folder, "")
+		if err != nil {
+			return fmt.Errorf("baseline: read root session: %w", err)
+		}
+		if sid == "" {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf(
+				"baseline: root session %s survived /new for %s — quiesce the eval chat; a case injected now would fork this session (specs/5/F) and score its history",
+				sid, cfg.baselineWait)
+		}
+	}
 }
 
 func runCase(cfg Config, s *sink, c spec.Case) report.Result {

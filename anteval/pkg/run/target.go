@@ -106,6 +106,28 @@ func (t *HTTPTarget) RestMessages(chat string) ([]check.Msg, error) { return t.m
 // loudly rather than false-pass.
 func (t *HTTPTarget) McpMessages(chat string) ([]check.Msg, error) { return t.messages(t.MCPURL, chat) }
 
+// Session reads the persisted resume-session id for (folder, topic) via routd
+// GET /v1/topic_sessions (needs a read scope on the folder; messages:read —
+// already in the documented mint — qualifies). "" = no session stored.
+func (t *HTTPTarget) Session(folder, topic string) (string, error) {
+	resp, err := t.do(http.MethodGet, t.API+"/v1/topic_sessions?folder="+
+		url.QueryEscape(folder)+"&topic="+url.QueryEscape(topic), nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("session %s/%q: %d", folder, topic, resp.StatusCode)
+	}
+	var out struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	return out.SessionID, nil
+}
+
 // Cost reports the turn's token spend via routd GET /v1/cost?turn_id= (the
 // token needs cost:read). 404 = no cost recorded (turn still running, or a
 // routd predating the endpoint) → 0, not an error; other failures surface.

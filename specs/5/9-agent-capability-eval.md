@@ -152,10 +152,43 @@ messages:write,messages:read` (add `cost:read` for budgets). Pass
   cover it (a folder `*` rule can). The eval host must sit on the target
   folder's egress allowlist, or a default-deny refusal reads as a
   capability failure.
-- **Sequential cases share one agent session**: a case that blows its wall
+- **Sequential cases share one chat worker**: a case that blows its wall
   budget leaves the agent mid-task and the backlog bleeds into the next
-  case's window. Per-case latencies are honest only when the prior turn
-  finished; `--case` re-runs isolate cleanly.
+  case's window (routd serializes turns per chat). Per-case latencies are
+  honest only when the prior turn finished; `--case` re-runs isolate
+  cleanly.
+
+## Session isolation
+
+Each case injects into its own fresh topic, so each case gets its own
+Claude session — sharing the chat's default topic made case 1's refusal
+the context of cases 2–8 on the 2026-08-08 live run.
+
+Per-case topics alone stopped being isolation the day topic forking was
+repaired (BUGS L54): the first turn of any non-main topic forks the
+folder's MAIN session (`5/F`), so a root session — prior runs, operator
+chat — sits in front of every case. The driver therefore establishes a
+pristine baseline itself, before EVERY case (`--folder` names the root):
+
+1. Read `GET /v1/topic_sessions?folder=<folder>&topic=`. Empty → inject
+   the case.
+2. Otherwise send a bare `/new` to the chat (steer-consumed: deletes the
+   root sessions row, spawns no turn) and poll until the root session is
+   observably gone. Only then inject — steer consumes `/new` only as the
+   newest pending message, so injecting a case early can turn the `/new`
+   into literal trigger text on a root turn, re-creating the session.
+3. A root session that will not clear aborts the run loudly; a run
+   against a contaminated baseline scores the history, not the agent.
+
+Per-case (not per-run) because a group-context scheduled follow-up fires
+topic-less on the ROOT topic and re-persists a session there mid-run.
+With main sessionless, a case topic's fork copies nothing and clears its
+observed cursor (`5/F` unchanged); the case's ambient window holds only
+`is_observed=1` rows, which injected case prompts never are — so cases
+cannot leak into each other through the observed window either.
+
+`5/F`'s fork rule itself does not change for anteval — the eval measures
+the platform as shipped; the harness owns its baseline.
 
 ## Component shape
 

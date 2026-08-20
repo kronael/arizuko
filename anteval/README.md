@@ -21,6 +21,7 @@ arizuko token krons issue bearer eval --scope messages:write,messages:read,cost:
   --api   http://localhost:8081 \ # routd /v1 base reachable from the eval host
   --token "$AGENTEVAL_TOKEN" \    # bearer minted above, for the eval folder
   --chat  web:eval \              # chat JID tasks are injected into (folder must own it)
+  --folder eval \                # folder owning --chat; anchors the root-session reset
   --sink-addr :9099 \            # local bind for the callback sink (routable iface)
   --sink  http://172.22.0.1:9099 \# URL the agent containers call back to (docker-gateway IP works host-local)
   --smoke                         # gate subset; omit for all 19
@@ -32,6 +33,30 @@ make validate                     # load+validate the case catalog (no target)
 Live preconditions (spec § "Live-run preconditions"): the eval folder exists
 (`arizuko group <inst> add web:eval eval`), its `MaxChildren` is raised for the
 subagent cases, and the sink URL is reachable from agent containers.
+
+**anteval is a manual, operator-invoked tool.** It needs a live instance and a
+minted token, and it drives a real agent at real cost. Never wire it into CI,
+a git hook, a cron, a scheduled task, or any `make test*`/`make smoke` gate —
+`make validate` (catalog load + schema check, no target) is the only anteval
+step that belongs in an automated pipeline.
+
+**Session isolation** — why `--folder` is required: each case runs in its own
+topic, and the first turn of any non-main topic forks the folder's MAIN
+session (`specs/5/F`). A root session left by prior runs or operator chat
+would therefore sit in front of every case — the cross-case contamination the
+per-case topics were built to remove, reintroduced through the fork (BUGS
+L54 "Known consequence"). Before every case the driver reads
+`GET /v1/topic_sessions?folder=<folder>&topic=` and, when a root session
+exists, sends a bare `/new` to the chat and waits until the session is
+observably gone; only then is the case injected (steer consumes `/new` only
+as the newest pending message, so injecting early could leak it into a root
+turn as literal text). It re-checks per case because a group-context
+scheduled follow-up (the `state-persist` pattern) fires topic-less on the
+ROOT topic and re-persists a session there mid-run. A root session that will
+not clear aborts the run loudly — quiesce the eval chat (no concurrent
+operator conversation, no stray group-context crons) and re-run. A sticky
+`#topic` set on the eval chat also breaks isolation (it overrides every
+case's topic); leave the eval chat unpinned.
 
 **Grant the eval folder the tools its cases need, or half the run measures your
 grant table instead of the agent.** The `role:member` floor is messaging only

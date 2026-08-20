@@ -310,7 +310,7 @@ a transcript holding nothing but the cron. Both writers now skip an isolated tur
 - **Deploy:** routd only. Existing chat transcripts keep the cron turns already
   written into them; only new runs stop adding to them.
 
-### Known consequence: the fork fix turns anteval's case isolation OFF (OPEN)
+### ✅ FIXED 2026-08-20 Known consequence: the fork fix turned anteval's case isolation OFF
 
 `5067cfdf` (2026-08-08) fixed cross-case contamination in anteval by giving each
 case its own topic: eight smoke cases had shared one conversation, so case 1
@@ -323,6 +323,21 @@ folder's main, so with the fork repaired every anteval case now inherits the eva
 chat's root transcript. On krons `sessions(eval, "")` holds `56952d01` at 167 KB
 of prior eval runs. The contamination `5067cfdf` removed comes back on the next
 run, and anteval scores the history again.
+
+**Fix (2026-08-20):** `5/F` unchanged; anteval establishes a pristine baseline
+itself. Before EVERY case the driver reads `GET /v1/topic_sessions` for the
+root topic (`--folder`, now required) and, when a session exists, sends a bare
+`/new` (steer-consumed: deletes the root sessions row, spawns no turn) and
+holds case injection until the session is observably gone — per-case because a
+group-context scheduled follow-up (state-persist) fires topic-less on the ROOT
+topic and re-persists a session mid-run. A root session that will not clear
+aborts the run loudly. Verified while fixing: with main sessionless the fork
+copies nothing and clears the case topic's observed cursor, and the ambient
+window cannot carry one case into another — `ObservedSince` takes only
+`is_observed=1` rows and `PutMessage` hard-codes injected rows to 0 — so there
+is no second hole. Tests:
+`anteval/pkg/run.TestDrive{ResetsDirtyRootBeforeCases,PristineRootSendsNoNew,AbortsWhenRootWontClear,ResetsRootDirtiedMidRun}`,
+`TestHTTPTargetSession`. Spec: `5/9` §"Session isolation".
 
 Litter this also quantifies: `groups/eval/.claude/projects/-home-node/` holds **38
 orphaned `sess-*.jsonl` copies, 7.9 MB**, one per forked topic — every one a

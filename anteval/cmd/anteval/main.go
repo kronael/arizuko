@@ -62,6 +62,7 @@ func cmdRun(args []string) {
 	mcp := fs.String("mcp", "", "inspect-compatible MCP-over-HTTP base (enables mcp/parity checks)")
 	token := fs.String("token", os.Getenv("AGENTEVAL_TOKEN"), "bearer token for the eval root folder")
 	chat := fs.String("chat", "", "eval agent chat JID to inject tasks into (e.g. web:eval)")
+	folder := fs.String("folder", "", "eval folder owning --chat (e.g. eval); the run resets its root session so no case inherits prior history")
 	sinkAddr := fs.String("sink-addr", "", "local bind for the callback sink (e.g. :9099; default 127.0.0.1:0)")
 	sink := fs.String("sink", "", "externally reachable sink base URL agents call back to (default local bind)")
 	nonce := fs.String("nonce", "", "run nonce (default timestamp)")
@@ -84,6 +85,13 @@ func cmdRun(args []string) {
 		*nonce = "e" + strconv.FormatInt(time.Now().Unix(), 36)
 	}
 
+	// --folder is required: without it the root-session baseline reset cannot
+	// run, and every case topic forks the folder's main session (specs/5/F) —
+	// the run would silently score the chat's history instead of the agent.
+	if *folder == "" {
+		fatal(fmt.Errorf("--folder is required (the eval folder owning --chat); it anchors the root-session reset that keeps cases from inheriting prior history"))
+	}
+
 	cases, err := spec.Load(*casesDir)
 	if err != nil {
 		fatal(err)
@@ -94,10 +102,15 @@ func cmdRun(args []string) {
 	}
 
 	tgt := &run.HTTPTarget{API: *api, MCPURL: *mcp, Token: *token}
-	results := run.Drive(run.Config{
+	results, err := run.Drive(run.Config{
 		Target: tgt, Cases: cases, Nonce: *nonce, TargetBase: base, Chat: *chat,
-		SinkBind: *sinkAddr, SinkURL: *sink,
+		Folder: *folder, SinkBind: *sinkAddr, SinkURL: *sink,
 	})
+	if err != nil {
+		// Print what DID run before the abort — those results are valid.
+		fmt.Print(report.Markdown(results))
+		fatal(err)
+	}
 
 	md := report.Markdown(results)
 	fmt.Print(md)

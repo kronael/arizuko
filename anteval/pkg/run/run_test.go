@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/anteval/pkg/check"
+	"github.com/kronael/arizuko/anteval/pkg/report"
 	"github.com/kronael/arizuko/anteval/pkg/spec"
 )
 
@@ -39,11 +40,12 @@ func (a *agentSim) Inject(_, _, prompt string) (string, error) {
 func (a *agentSim) RestMessages(string) ([]check.Msg, error) { return a.msgs, nil }
 func (a *agentSim) McpMessages(string) ([]check.Msg, error)  { return a.msgs, nil }
 func (a *agentSim) Cost(string) (int, error)                 { return 7, nil }
+func (a *agentSim) Session(string, string) (string, error)   { return "", nil }
 
 func TestDriveCallback(t *testing.T) {
 	c := spec.Case{ID: "self-skill", Dimension: "self", Prompt: "curl {sink}/cb/{nonce}",
 		Check: spec.Check{Kind: "callback"}}
-	res := Drive(Config{Target: &agentSim{}, Cases: []spec.Case{c}, Nonce: "R",
+	res := mustDrive(t, Config{Target: &agentSim{}, Cases: []spec.Case{c}, Nonce: "R",
 		Poll: 5 * time.Millisecond})
 	if len(res) != 1 || !res[0].Pass {
 		t.Fatalf("want pass, got %+v", res)
@@ -65,7 +67,7 @@ func TestDriveCbTokenExpand(t *testing.T) {
 	c := spec.Case{ID: "chat-entrypoint", Dimension: "chat",
 		Prompt: "mint a chat link, report it to {sink}/cb/{nonce}",
 		Check:  spec.Check{Kind: "http_status", URL: "{target}/chat/{cb.token}/", Want: 200}}
-	res := Drive(Config{Target: &agentSim{token: "TKN"}, Cases: []spec.Case{c},
+	res := mustDrive(t, Config{Target: &agentSim{token: "TKN"}, Cases: []spec.Case{c},
 		Nonce: "R", TargetBase: srv.URL, Poll: 5 * time.Millisecond})
 	if !res[0].Pass {
 		t.Fatalf("want pass via {cb.token} expansion, got %+v", res[0])
@@ -87,7 +89,7 @@ func TestDriveStatusSeesRedirect(t *testing.T) {
 	defer srv.Close()
 	c := spec.Case{ID: "priv-401", Dimension: "web", Prompt: "publish gated",
 		Check: spec.Check{Kind: "http_status", URL: "{target}/priv/x", Want: 303}}
-	res := Drive(Config{Target: &agentSim{}, Cases: []spec.Case{c},
+	res := mustDrive(t, Config{Target: &agentSim{}, Cases: []spec.Case{c},
 		Nonce: "R", TargetBase: srv.URL, Poll: 5 * time.Millisecond})
 	if !res[0].Pass {
 		t.Fatalf("want 303 observed as 303, got %+v", res[0])
@@ -100,11 +102,12 @@ func (silentTarget) Inject(_, _, _ string) (string, error)    { return "t", nil 
 func (silentTarget) RestMessages(string) ([]check.Msg, error) { return nil, nil }
 func (silentTarget) McpMessages(string) ([]check.Msg, error)  { return nil, nil }
 func (silentTarget) Cost(string) (int, error)                 { return 0, nil }
+func (silentTarget) Session(string, string) (string, error)   { return "", nil }
 
 func TestDriveTokenBudget(t *testing.T) {
 	c := spec.Case{ID: "b", Prompt: "curl {sink}/cb/{nonce}", MaxTokens: 5,
 		Check: spec.Check{Kind: "callback"}}
-	res := Drive(Config{Target: &agentSim{}, Cases: []spec.Case{c}, Nonce: "R",
+	res := mustDrive(t, Config{Target: &agentSim{}, Cases: []spec.Case{c}, Nonce: "R",
 		Poll: 5 * time.Millisecond})
 	if res[0].Pass {
 		t.Fatalf("want fail on token budget (cost 7 > 5), got %+v", res[0])
@@ -116,7 +119,7 @@ func TestDriveTokenBudget(t *testing.T) {
 
 func TestDriveTimeout(t *testing.T) {
 	c := spec.Case{ID: "x", Prompt: "noop", MaxWallMs: 40, Check: spec.Check{Kind: "callback"}}
-	res := Drive(Config{Target: silentTarget{}, Cases: []spec.Case{c}, Nonce: "R",
+	res := mustDrive(t, Config{Target: silentTarget{}, Cases: []spec.Case{c}, Nonce: "R",
 		Poll: 5 * time.Millisecond})
 	if res[0].Pass {
 		t.Fatalf("want fail on timeout, got %+v", res[0])
@@ -136,7 +139,7 @@ func TestRequiresHint_NamesTheMissingGrantOnTimeout(t *testing.T) {
 		Requires: []string{"mcp:issue_webhook"},
 		Check:    spec.Check{Kind: "callback"},
 	}
-	res := Drive(Config{Target: silentTarget{}, Cases: []spec.Case{c}, Nonce: "R",
+	res := mustDrive(t, Config{Target: silentTarget{}, Cases: []spec.Case{c}, Nonce: "R",
 		Poll: 5 * time.Millisecond})
 	if len(res) != 1 || res[0].Pass {
 		t.Fatalf("want one failing result, got %+v", res)
@@ -149,7 +152,7 @@ func TestRequiresHint_NamesTheMissingGrantOnTimeout(t *testing.T) {
 // A case with no declared requirement must not grow a trailing hint.
 func TestRequiresHint_SilentWhenNothingDeclared(t *testing.T) {
 	c := spec.Case{ID: "y", Prompt: "noop", MaxWallMs: 40, Check: spec.Check{Kind: "callback"}}
-	res := Drive(Config{Target: silentTarget{}, Cases: []spec.Case{c}, Nonce: "R",
+	res := mustDrive(t, Config{Target: silentTarget{}, Cases: []spec.Case{c}, Nonce: "R",
 		Poll: 5 * time.Millisecond})
 	if len(res) != 1 {
 		t.Fatalf("want one result, got %+v", res)
@@ -170,7 +173,7 @@ func TestEachCaseGetsItsOwnTopic(t *testing.T) {
 		{ID: "a", Prompt: "x", MaxWallMs: 20, Check: spec.Check{Kind: "callback"}},
 		{ID: "b", Prompt: "x", MaxWallMs: 20, Check: spec.Check{Kind: "callback"}},
 	}
-	Drive(Config{Target: rec, Cases: cases, Nonce: "R", Poll: 5 * time.Millisecond})
+	mustDrive(t, Config{Target: rec, Cases: cases, Nonce: "R", Poll: 5 * time.Millisecond})
 	if len(rec.topics) != 2 {
 		t.Fatalf("got %d injections, want 2", len(rec.topics))
 	}
@@ -190,4 +193,131 @@ type topicRecorder struct {
 func (r *topicRecorder) Inject(_, topic, _ string) (string, error) {
 	r.topics = append(r.topics, topic)
 	return "t", nil
+}
+
+// mustDrive is Drive for tests that expect no baseline abort.
+func mustDrive(t *testing.T, cfg Config) []report.Result {
+	t.Helper()
+	res, err := Drive(cfg)
+	if err != nil {
+		t.Fatalf("Drive: %v", err)
+	}
+	return res
+}
+
+// rootedTarget simulates routd's session store + steer: the ROOT topic starts
+// with rootSession, and injecting a bare "/new" clears it (cmdNew's
+// DeleteSession) — unless stuck, which models a chat whose root keeps a
+// session no matter what (a turn mid-write, a broken steer).
+type rootedTarget struct {
+	silentTarget
+	rootSession string
+	stuck       bool
+	injects     [][2]string // (topic, prompt) in order
+}
+
+func (r *rootedTarget) Inject(_, topic, prompt string) (string, error) {
+	r.injects = append(r.injects, [2]string{topic, prompt})
+	if topic == "" && prompt == "/new" && !r.stuck {
+		r.rootSession = ""
+	}
+	return "t", nil
+}
+
+func (r *rootedTarget) Session(_, topic string) (string, error) {
+	if topic == "" {
+		return r.rootSession, nil
+	}
+	return "", nil
+}
+
+// TestDriveResetsDirtyRootBeforeCases: the fork fix (BUGS L54) made every
+// case topic's first turn inherit the folder's MAIN session (specs/5/F), so a
+// root session left by prior runs put 167 KB of history in front of every
+// case. Drive must clear it — send /new to the ROOT topic and hold case
+// injection until the root session is observably gone — before any case runs.
+func TestDriveResetsDirtyRootBeforeCases(t *testing.T) {
+	rec := &rootedTarget{rootSession: "56952d01"}
+	c := spec.Case{ID: "a", Prompt: "x", MaxWallMs: 20, Check: spec.Check{Kind: "callback"}}
+	mustDrive(t, Config{Target: rec, Cases: []spec.Case{c}, Nonce: "R",
+		Folder: "eval", Poll: time.Millisecond})
+	if len(rec.injects) != 2 {
+		t.Fatalf("got %d injections %v, want [/new, case]", len(rec.injects), rec.injects)
+	}
+	if rec.injects[0] != [2]string{"", "/new"} {
+		t.Fatalf("first injection = %v, want a bare /new on the ROOT topic", rec.injects[0])
+	}
+	if rec.injects[1][0] == "" {
+		t.Fatalf("case injected into the root topic; it must get its own")
+	}
+}
+
+// A pristine root must NOT get a /new: steer only consumes /new when it is the
+// newest pending message, so an unneeded one risks leaking into a root turn as
+// literal text — recreating the very session the reset exists to remove.
+func TestDrivePristineRootSendsNoNew(t *testing.T) {
+	rec := &rootedTarget{}
+	c := spec.Case{ID: "a", Prompt: "x", MaxWallMs: 20, Check: spec.Check{Kind: "callback"}}
+	mustDrive(t, Config{Target: rec, Cases: []spec.Case{c}, Nonce: "R",
+		Folder: "eval", Poll: time.Millisecond})
+	if len(rec.injects) != 1 || rec.injects[0][1] == "/new" {
+		t.Fatalf("injections = %v, want only the case", rec.injects)
+	}
+}
+
+// A root session that survives /new means every case would score inherited
+// history — the run must abort loudly with no case results, not measure it.
+func TestDriveAbortsWhenRootWontClear(t *testing.T) {
+	rec := &rootedTarget{rootSession: "56952d01", stuck: true}
+	c := spec.Case{ID: "a", Prompt: "x", MaxWallMs: 20, Check: spec.Check{Kind: "callback"}}
+	res, err := Drive(Config{Target: rec, Cases: []spec.Case{c}, Nonce: "R",
+		Folder: "eval", Poll: time.Millisecond, baselineWait: 30 * time.Millisecond})
+	if err == nil {
+		t.Fatal("want a baseline error, got none")
+	}
+	if !strings.Contains(err.Error(), "56952d01") {
+		t.Errorf("error %q does not name the surviving session", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("got %d results from an aborted run, want 0", len(res))
+	}
+}
+
+// The reset runs before EVERY case, not once per run: a group-context
+// scheduled follow-up (the state-persist pattern) fires topic-less on the
+// ROOT topic mid-run and persists its session there.
+func TestDriveResetsRootDirtiedMidRun(t *testing.T) {
+	rec := &redirtyTarget{}
+	cases := []spec.Case{
+		{ID: "a", Prompt: "x", MaxWallMs: 20, Check: spec.Check{Kind: "callback"}},
+		{ID: "b", Prompt: "x", MaxWallMs: 20, Check: spec.Check{Kind: "callback"}},
+	}
+	mustDrive(t, Config{Target: rec, Cases: cases, Nonce: "R",
+		Folder: "eval", Poll: time.Millisecond})
+	var news int
+	for _, in := range rec.injects {
+		if in == [2]string{"", "/new"} {
+			news++
+		}
+	}
+	if news != 1 {
+		t.Fatalf("injections %v: want exactly one /new (before case b, whose baseline case a dirtied)", rec.injects)
+	}
+	if last := rec.injects[len(rec.injects)-1]; last[1] == "/new" {
+		t.Fatalf("run ended on a /new; the reset must precede a case, not trail it")
+	}
+}
+
+// redirtyTarget starts pristine and writes a root session on every CASE
+// injection — the scheduled-follow-up contamination in miniature.
+type redirtyTarget struct {
+	rootedTarget
+}
+
+func (r *redirtyTarget) Inject(chat, topic, prompt string) (string, error) {
+	id, err := r.rootedTarget.Inject(chat, topic, prompt)
+	if topic != "" {
+		r.rootSession = "cron-" + topic
+	}
+	return id, err
 }
