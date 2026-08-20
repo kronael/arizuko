@@ -307,16 +307,52 @@ file it owns and the `PostToolUse` binding reads it — the claude SDK already
 works this way, so claude keeps its existing gate and merely reads the file
 instead of a closure. `Harness.run` then needs no `steer` argument at all.
 
-**Self-grant discipline — the part that must not be got wrong.** The agent
-writes `$HOME`, so every one of these configs is agent-authorable: a
-`hooks.json` it writes itself would run its own commands, and a discovered
-`~/.pi/extensions/*` would register its own tools. The existing pattern already
-answers this and must be applied uniformly — disable discovery
-(`--ignore-user-config`, `--no-extensions`) and supply ant's own by explicit
-path, read-only overmounted the way `auth.json` and `config.toml` already are
-(`container/runner.go:612`). codex additionally needs
-`--dangerously-bypass-hook-trust`, which is only safe BECAUSE the file is a
-read-only mount the agent cannot author.
+**Ownership: the system owns harness setup, the group owns its content.**
+This is the rule the rest follows from, and today's layout breaks it. The group
+dir mounts RW at `/home/node`, and harness configuration lives inside it —
+`.claude/settings.json`, `.codex/hooks.json`, `~/.pi/agent/extensions/`. The
+agent therefore authors the files that decide what it is allowed to do. Every
+current defence is a patch on that inversion: `seedSettings` rewrites six keys
+of `settings.json` every spawn (and `hooks` is not one of them), `auth.json`
+and `config.toml` are read-only overmounted one file at a time, and
+`strictMcpConfig` exists to make the SDK ignore a server map the agent can
+write.
+
+**`/opt/arizuko` is already the right home for it.** It mounts read-only from
+the release image (`container/runner.go:559`) and already carries `ant/`'s
+skills, `CLAUDE.md` and output styles. Harness setup is global setup — it is
+versioned with the code, identical for every group, and never the agent's to
+edit. It belongs there:
+
+```
+/opt/arizuko/harness/     (RO, image-baked)
+  settings.json           claude
+  hooks.json              codex — same schema, same event names
+  pi-extension.js         pi — tools + guard + steering in one module
+  policy/                 the ONE implementation the three bindings call
+/home/node/               (RW, the group's own)
+  diary/ facts/ users/ workspace/ public_html/
+  .claude/skills/<custom>/  .claude/projects/  .codex/sessions/
+```
+
+Each harness is then pointed at the system copy by explicit path, with its own
+discovery disabled so nothing the agent writes is ever consulted:
+
+- **claude** — `settingSources: []` plus programmatic settings, so no
+  filesystem settings file is read at all. This is strictly better than
+  rewriting six keys, and it closes the `hooks` key without enumerating keys.
+- **codex** — `/opt/arizuko/harness/hooks.json` read-only overmounted onto
+  `~/.codex/hooks.json`, exactly as `auth.json` already is. Then
+  `--dangerously-bypass-hook-trust` is safe: the trust ledger exists to prove
+  provenance, and a read-only mount the agent cannot author proves it better.
+- **pi** — `--no-extensions` plus `-e /opt/arizuko/harness/pi-extension.js`.
+  pi's help is explicit that explicit `-e` paths still load when discovery is
+  off, which is precisely the combination wanted.
+
+The group keeps everything that is genuinely its own: its custom skills, its
+transcripts, its rollouts, its content. The test is authorship — if the agent
+may edit it, it lives in the group dir; if editing it would change what the
+agent is permitted to do, it lives in `/opt/arizuko/harness` and is read-only.
 
 **Order.** The seam inversion first — the `<status>` bug is live and the fix
 falls out of it. Then the guard, which has the clearest security payoff and
