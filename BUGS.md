@@ -722,7 +722,7 @@ not.** Two reasons:
   spawn. There is no re-register and no mid-run update anywhere. The registry's
   dynamism serves MULTIPLEXING one proxy across many containers — not live rule
   changes. Per-spawn removes the multiplexing, which is all it was doing.
-- **Per-spawn is BETTER for `6/17` tier 1, not worse.** Header injection needs
+- **Per-spawn is BETTER for header injection, not worse.** Injection needs
   this tenant's credential; a shared proxy must map source IP → whose secret,
   the same fragile keying that causes the leak above. One proxy per spawn has
   exactly one tenant and no mapping. TLS interception needs a CA trusted inside
@@ -1066,7 +1066,7 @@ resolve**. They sit in the documents a reader trusts most:
     ipc/README.md       7/7, 7/Y, 8/Y   resreg/README.md    8/F
 
 Not all are errors: `8/Z` in `README.md` is a deliberate forward reference to a
-spec phase 8 named and never wrote (`6/17` cites it the same way). The rest are
+spec phase 8 named and never wrote. The rest are
 residue from earlier renumbers — the lettered phase-6 IDs (`6/B`, `6/D`, `6/E`,
 `6/F`, `6/J`, `6/R`, `6/Y`) are the largest family.
 
@@ -2483,8 +2483,8 @@ than loudly — worse than a crash.
   key prefix into spawn env, which reopens exactly the hole `X1` closed and
   should be refused unless (a) is proven impossible; (c) retire the product.
   Until one is chosen, `ant/examples/aws-devops/` must not ship.
-- **DECISION 2026-08-20 — option (c), retire the product.** `specs/6/17` is
-  closed as a decline of every tier: arizuko serves credentials through the MCP
+- **DECISION 2026-08-20 — option (c), retire the product.** The egress-credential
+  spec is deleted and every tier of it declined: arizuko serves credentials through the MCP
   broker or not at all, and an opaque in-container client is out of scope by
   decision. That removes (a) as an option and (b) was always refusable. Verified
   the same day: `--product aws-devops` is still a shipped flag
@@ -2492,7 +2492,7 @@ than loudly — worse than a crash.
   **zero groups on krons, sloth or marinade use it** — so retiring costs nothing
   live. REMAINING WORK: delete the flag value + the example dir, and the six
   claims in `specs/17/product-aws-devops.md` that assert the removed behavior.
-- **Superseded proposal note (2026-08-11):** `specs/6/17-egress-credential-proxy.md`
+- **Superseded proposal note (2026-08-11):** the egress-credential spec (deleted 2026-08-20)
   (rewritten) is the concrete mechanism for (a): iron-proxy's `aws_auth`
   transform re-signs SigV4 host-side from the same credential store —
   configuration, not new crypto code, and `boto3` works unmodified in the

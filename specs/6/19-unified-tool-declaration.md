@@ -1,7 +1,7 @@
 ---
 status: draft
 source: paradigmxyz/centaur@20f3021 (Apache-2.0) peel, 2026-08-10
-depends: [../5/13-ext-mcp, ../5/14-credentials, 17-egress-credential-proxy]
+depends: [../5/13-ext-mcp, ../5/14-credentials]
 ---
 
 # specs/6/19 — one declaration shape for external tools
@@ -9,7 +9,7 @@ depends: [../5/13-ext-mcp, ../5/14-credentials, 17-egress-credential-proxy]
 Proposal: collapse the two `connectors.toml` block shapes into one
 `[[connector]]` declaration with a `transport` discriminator, adopt a
 typed secret-entry vocabulary shared with the egress proxy
-([`6/17`](17-egress-credential-proxy.md)), and add the one loader rule
+(an egress credential proxy — declined 2026-08-20), and add the one loader rule
 both shapes miss today: ordered sources, later shadows earlier, loud
 warn. Execution shapes stay exactly as `5/13` ships them — this unifies
 the DECLARATION, never the dispatch.
@@ -100,12 +100,12 @@ execution shapes; only the declaration unifies.
 3. **Typed secret entries as the shared vocabulary.** `secrets` becomes
    a list of `{ key, type, ... }` where `rest`'s current auth-method
    enum is the `http` type's mode field, and the vocabulary is the SAME
-   one `6/17`'s residual proxy rules use (`http` replace/inject only —
-   `6/17` declined the vendor-signing types `aws_auth`/`hmac_sign`;
+   one the declined proxy rules would have used (`http` replace/inject only —
+   the vendor-signing types `aws_auth`/`hmac_sign` are DECLINED (2026-08-15);
    signing rides its request tool / `credential_process` tiers) — so a
-   credential either rides the broker (this file) or the proxy (`6/17`)
+   credential rides the broker (this file); the proxy alternative is declined
    but is described identically in both. `hosts` on a declaration is
-   the seed `6/17`'s renderer consumes; for broker-side transports it
+   the seed a proxy renderer would have consumed; for broker-side transports it
    is documentation and audit context only (connector subprocesses run
    on the host, outside the egress path).
 

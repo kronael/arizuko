@@ -192,7 +192,7 @@ expose its own `audit_log` as a resource, which is not required of it today.
 ## Out of scope
 
 The tool list itself (grants already express it), per-vendor credential
-mechanics (`6/17`), and the substrate's reap policy (its own decision). This
+mechanics (a credential proxy — declined 2026-08-20), and the substrate's reap policy (its own decision). This
 spec says what must stay true across those, not how any of them works.
 
 ## Ties

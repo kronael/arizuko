@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [../5/14-credentials, 17-egress-credential-proxy]
+depends: [../5/14-credentials]
 ---
 
 # specs/6/23 — the model gateway
@@ -46,7 +46,7 @@ already produces unmetered turns.
 (`ANTHROPIC_BASE_URL`) and the gateway IS the endpoint. No TLS
 termination, no CA inside the container, nothing spliced.
 
-That is precisely why this works where `6/17`'s MITM tier did not, and
+That is precisely why this works where the declined MITM tier did not, and
 why declining that tier (2026-08-18) costs nothing here. Metering model
 traffic never needed interception — it needed the client to be told where
 to send it.
@@ -144,12 +144,12 @@ resolve INTO a gateway virtual key rather than into container env.
 ## Out of scope
 
 Replacing crackbox's egress filtering (different concern, different
-path), any form of interception (declined, `6/17`), and the codex
+path), any form of interception (declined 2026-08-18), and the codex
 host-mount path (above).
 
 ## Ties
 
-`5/14` credential tiers · `6/17` (MITM declined — metering never needed
+`5/14` credential tiers · MITM declined 2026-08-18 (metering never needed
 it) · `6/16` adopt-the-mechanism · BUGS `L49` (the proposal and its
 verification notes) · `X2` (the same "container must not hold the raw
 secret" argument, other half).

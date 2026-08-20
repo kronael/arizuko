@@ -66,7 +66,7 @@ Non-goals: SIEM webhooks, file rotation, JSONL dumps, custom trace UIs.
 - `obs/metrics.go` — the metric registry. Twelve families as of 2026-08-15
   (turn, model tokens, container, HTTP, breaker, token). Every family has a
   recorder; the three that never had one — model-call latency and the egress
-  pair, whose producer (the egress credential proxy, specs/6/17) is spec-only —
+  pair, whose producer (an egress credential proxy) was DECLINED 2026-08-20 —
   are deleted rather than advertised empty (BUGS `L12`).
 - `obs/middleware.go` — `HTTPMiddleware(daemon)`: request metrics + the
   `cross_daemon` span, mounted before auth so `/metrics` stays public.

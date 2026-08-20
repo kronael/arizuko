@@ -20,7 +20,7 @@ import (
 // confusing. Resolving once and dialling the resolved address closes both.
 //
 // Nothing here decrypts or inspects anything. This is address hygiene, not
-// interception; spec 6/17 tier 1 stays declined and spec 6/25 decision 1 is
+// interception; MITM stays declined (2026-08-18) and spec 6/25 decision 1 is
 // what this implements.
 
 // blockedIP reports whether ip is a class the proxy must never reach on a

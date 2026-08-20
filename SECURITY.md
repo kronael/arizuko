@@ -275,7 +275,9 @@ Two consequences we state rather than paper over:
 - **Shrinking the raw-socket surface is a security measure**, not just tidiness.
   Every capability that becomes a declared connector gains all four properties
   at once. That is why the connector path is the primary one and the egress
-  proxy (`6/17`) covers the residue.
+  proxy covers the residue — DECLINED 2026-08-20 along with every other
+  tier of it: credentials reach a client through the MCP broker or not at all,
+  and an opaque in-container client is out of scope by decision.
 - **Scrubbing is substring replacement** (`ipc/connector.go` `scrubResult`).
   It protects against a credential appearing incidentally in output; it is not
   a defence against a caller that chooses its own command and encodes the value.

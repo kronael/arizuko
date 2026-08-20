@@ -1,12 +1,7 @@
 ---
 status: shipped
 shipped: 2026-08-18
-depends:
-  [
-    8-crackbox-standalone,
-    16-daemon-standalone-matrix,
-    17-egress-credential-proxy,
-  ]
+depends: [8-crackbox-standalone, 16-daemon-standalone-matrix]
 ---
 
 # specs/6/24 — crackbox, lightest
@@ -132,7 +127,7 @@ requires that the design not foreclose the VM path — it does not.
 
 ## MITM stays declined
 
-`6/17` declined interception (2026-08-18): header injection was the only
+Interception is DECLINED (2026-08-18, reaffirmed 2026-08-20): header injection was the only
 thing requiring it, and it was withdrawn. This cut depends on that. A
 forward proxy that never terminates TLS has no CA, no key material and
 no request-body access — which is what keeps 250 lines auditable by
@@ -311,5 +306,5 @@ boring rather than to market them.
 ## Ties
 
 `6/8` (the current design this cuts) · `6/9` (`pkg/host`, the other half)
-· `6/16` (ship one, not seven) · `6/17` (MITM declined — this depends on
+· `6/16` (ship one, not seven) · MITM declined (this depends on
 it) · BUGS `L48` (the proposal and its measurements).

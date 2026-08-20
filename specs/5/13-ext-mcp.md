@@ -162,7 +162,7 @@ so agents can list them and operators manage via dashd — tracked in `5/16`.
   `MCPTool.SecretScopes` if a consumer appears.
 - HSM / KMS integration.
 - Opaque in-container HTTP clients (`aws`, `gh`, `boto3`) — the gap this
-  spec named `8/Z`. Written as [`6/17`](../6/17-egress-credential-proxy.md),
+  spec named `8/Z`. DECLINED 2026-08-20 —
   which closes it with `credential_process` plus a host-side request tool.
   MITM-isolated egress was DECLINED there (2026-08-18): header injection
   was the only thing needing TLS interception, and a CA inside every

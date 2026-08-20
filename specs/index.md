@@ -76,7 +76,7 @@ migrations, shipped as decisions); phase 6 took `active` the same day.
 **Open — a re-cut of 6 and 7 (2026-08-16, recorded, not applied).** Because
 phase 6 took `active` the day phase 5 closed, every later arrival landed there
 whatever its subject: 7 of its 11 specs are platform work, not adoption, and
-say so in their own frontmatter (`6/17` closes `8/Z`, phase 8's gap; `6/19`
+say so in their own frontmatter (`6/19`
 depends on `5/13`+`5/14`). The operator's re-cut is **6 = finish and harden the
 platform**, absorbing the phase-7 cockpit, and **7 = adoption** — contracts,
 conformance, ship-in-parts, cloud. Refined 2026-08-16 to the order the work

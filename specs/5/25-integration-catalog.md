@@ -131,7 +131,7 @@ new machinery.
    skill-guard scan at add (`5/23`) plus an explicit confirm. The
    crackbox fail-closed precondition this used to name is met — the
    egress-fails-open entry closed 2026-08-15, `5/33` grants gate the `*`
-   bypass and the e2e suite proves deny. `6/17` never owned either half;
+   bypass and the e2e suite proves deny. the declined egress-credential proxy never owned either half;
    it owns the credential path.
 
 ## Ties
