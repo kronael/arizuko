@@ -33,7 +33,18 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	last := msgs[len(msgs)-1]
-	r := l.resolve(chatJID, last)
+	// Route and steer both read the newest USER row, never the newest row.
+	// A `verb=mention` route matches on the message's verb, and a bot reply
+	// carries no mention — so resolving on a bot row turns the user's @mention
+	// into a route miss and archives it as context, silently, on the shipped
+	// mention-only Slack/Discord config. The steer half of the same mistake was
+	// BUGS L56; this is its twin one line up. An all-bot batch routes nothing.
+	steerMsg, hasUser := newestUserMsg(msgs)
+	if !hasUser {
+		l.advance(chatJID, last)
+		return false, nil
+	}
+	r := l.resolve(chatJID, steerMsg)
 	if !r.ok {
 		l.routeMiss(chatJID, msgs, r)
 		return false, nil
@@ -56,7 +67,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// on krons (BUGS L56); the same hole loses a user's /stop or /root in any
 	// chat busy enough to answer before the next poll. Advance past the steered
 	// row only: anything newer has not been consumed.
-	if steerMsg, ok := newestUserMsg(msgs); ok && l.steer(chatJID, steerMsg, folder) {
+	if l.steer(chatJID, steerMsg, folder) {
 		l.advance(chatJID, steerMsg)
 		return true, nil
 	}
