@@ -226,6 +226,90 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## ✅ FIXED 2026-08-20 L54 — every forked topic answered its first turn with no context (2026-06-01)
+
+Reported from the sloth desk 2026-08-19 19:45Z, verbatim: *"Vidí nějak tu diskusi,
+nebo vždy začíná znovu bez kontextu?"* — "Does it see the discussion at all, or does
+it always start over without context?" It did start over. A user replying inside a
+Discord thread opens a new topic, and the first turn on that topic carried no
+transcript and no observed window: the bare @mention and nothing else.
+
+Three faults on one call path, each hiding the next:
+
+1. `core.NewSessionID()` minted `sess-<unixnano>`. `claude --resume` takes a UUID
+   and nothing else, so `ant/src/index.ts` `resolveResumeSession` refused the id
+   and started fresh.
+2. `copyParentSession` had already copied the parent transcript to
+   `sess-<nano>.jsonl` — 934 KB on the live case — a file the agent could never
+   open. The fork's whole purpose, silently void.
+3. `EnsureTopicLineage` stamps `observed_cursor = now` so the child reads only
+   post-fork context. Correct when it inherits the transcript; with (1) and (2)
+   it removed the last source of context the child had.
+
+Dead since `dcf29e03` (2026-06-01), which added the UUID guard to stop `--resume`
+burning a turn on the retry. That fixed the symptom and left the cause: routd kept
+minting an id the agent would always reject. The guard then logged the loss at
+INFO and answered anyway — a user-facing failure that never surfaced.
+
+Live proof (sloth, 2026-08-19): 19:40:02 topic `""` resumes `a2fb6376` with the
+full 10-message observed window; 19:44:58 topic `1539720616280727582` forks;
+19:45:01 `session id sess-1787168698153112071 is not a resumable UUID (arizuko
+placeholder) — starting fresh`; 19:45:02 new session `dcac785c`, prompt = one
+`<message>`, no `<observed>`. The complaint lands at 19:45:17.
+
+- **Severity:** high (fleet-wide, user-visible; krons 26 hits/7d, sloth 4/3d)
+- **Source:** core/types.go:282; routd/dispatch.go:411-455; routd/mcp.go:97;
+  container/runner.go:1298; ant/src/index.ts:21-42
+- **Fix:** `NewSessionID` returns a UUIDv4, so a minted id is resumable by
+  construction and ant's guard goes back to being a safety net for a pruned
+  transcript. `CopySession` restamps `"sessionId":"<src>"` → `"<dst>"` on every
+  line so the child transcript names the child. `CopySession` reports whether it
+  copied, and `ensureTopicWithFork` clears the child's `observed_cursor` when it
+  did not — no fork can start with zero context on both axes.
+- **Tests:** `core.TestNewSessionIDIsResumable` pins the id against ant's own
+  regexp; `container.TestCopySession_RestampsSessionID`;
+  `routd.TestEnsureTopicWithFork_{NoParentSessionKeepsObservedWindow,CopiedSessionKeepsForkCursor}`.
+- **Deploy:** routd + the agent image both carry half of this. Rebuild and restart
+  both. Topic rows already holding a `sess-<nano>` id keep starting fresh once
+  each — the next turn stores the real UUID, so no migration is needed.
+
+### The other half: an isolated task resumed the chat it was isolated from
+
+The same report also covers *"context is bad"*, and that is a second defect found
+in the same transcript. `specs/4/8` §"Implemented beyond base spec" defines
+`context_mode`: `"group"` resumes the session, `"isolated"` means **no
+`--resume`**. `routd/dispatch.go` passed `SessionID: l.db.SessionID(folder,
+topic)` unconditionally and set `Isolated` only as a separate flag, which
+suppressed the `session_log` row and the container reuse but never the resume.
+
+So every isolated cron opened the chat's transcript, ran, and appended its whole
+tool-heavy turn to it. sloth's `main/trading` transcript holds 13 turns: **8
+crons** (`/migrate`, `/compact-memories` ×6, the MacroHype monitor) against **4
+human ones**, at 1 MB. Claude Code compacts a transcript that size, and it was
+compacting a conversation that was mostly cron.
+
+All 10 of sloth's active tasks already declare `context_mode = 'isolated'`. The
+operator asked for this and the code did not do it.
+
+The write-back is the same defect mirrored, and closing only the read half makes
+it worse: runed mints a throwaway session for a spawn that arrives with none, and
+both `dispatchRun`'s backstop and `recordTurnResult` then installed that id as the
+topic's session. Before the fix an isolated cron already replaced the chat's
+session with whatever it ended in; after a read-only fix it would replace it with
+a transcript holding nothing but the cron. Both writers now skip an isolated turn.
+
+- **Source:** routd/dispatch.go:637,384 (was); routd/turns.go:708 (was);
+  specs/4/8-scheduler-service.md:39-41
+- **Fix:** `dispatchRun` resolves `isolated` once and sends `SessionID: ""`.
+  The backstop moved into `persistSessionBackstop`, which skips an isolated
+  trigger, and `recordTurnResult` applies the same rule on its own path.
+- **Tests:** `routd.TestDispatchRun_{IsolatedTaskGetsNoSession,GroupTaskResumesSession}`
+  assert on the `RunRequest` routd builds, not on the call site;
+  `routd.TestPersistSessionBackstop_{IsolatedDoesNotOverwriteSession,ChatTurnPersistsSession,RecordedTurnWins}`
+  cover the write-back.
+- **Deploy:** routd only. Existing chat transcripts keep the cron turns already
+  written into them; only new runs stop adding to them.
+
 ## L53 — the secret broker writes `surface: "crackbox"` on every secret read (2026-08-18)
 
 `store/secret_use_log.go:57` stamps `audit.SurfaceCrackbox` on the `audit_log`
