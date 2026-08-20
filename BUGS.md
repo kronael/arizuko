@@ -310,6 +310,36 @@ a transcript holding nothing but the cron. Both writers now skip an isolated tur
 - **Deploy:** routd only. Existing chat transcripts keep the cron turns already
   written into them; only new runs stop adding to them.
 
+### Known consequence: the fork fix turns anteval's case isolation OFF (OPEN)
+
+`5067cfdf` (2026-08-08) fixed cross-case contamination in anteval by giving each
+case its own topic: eight smoke cases had shared one conversation, so case 1
+answered "I can't, that tool is root-only" and cases 2-8 inherited it — the run
+scored 4/8 off history rather than off the live tool list.
+
+That fix worked only because a new topic started blind, which is the defect above.
+`specs/5/F:48` is explicit that the first turn in any non-main topic forks the
+folder's main, so with the fork repaired every anteval case now inherits the eval
+chat's root transcript. On krons `sessions(eval, "")` holds `56952d01` at 167 KB
+of prior eval runs. The contamination `5067cfdf` removed comes back on the next
+run, and anteval scores the history again.
+
+Litter this also quantifies: `groups/eval/.claude/projects/-home-node/` holds **38
+orphaned `sess-*.jsonl` copies, 7.9 MB**, one per forked topic — every one a
+transcript routd copied and the agent then refused to open. The fix stops new ones
+accruing; the existing 38 are dead files.
+
+- **Severity:** medium (no live agent affected; it silently invalidates the one
+  tool that certifies the agent)
+- **Source:** routd/dispatch.go:173-177; specs/5/F-topic-lineage.md:48;
+  anteval/pkg/run/run.go (topic per case, `5067cfdf`)
+- **Status:** OPEN, needs a decision. anteval must isolate explicitly instead of
+  relying on a broken fork. Cheapest option with no contract change: clear the eval
+  chat's root session before a run, so main holds no transcript and each case forks
+  from nothing. The alternative — a topic that declares "do not inherit" — amends
+  `5/F` and needs sign-off.
+- **Do NOT** run anteval and trust the score until this is settled.
+
 ## L53 — the secret broker writes `surface: "crackbox"` on every secret read (2026-08-18)
 
 `store/secret_use_log.go:57` stamps `audit.SurfaceCrackbox` on the `audit_log`
