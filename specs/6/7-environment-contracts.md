@@ -338,9 +338,13 @@ edit. It belongs there:
 Each harness is then pointed at the system copy by explicit path, with its own
 discovery disabled so nothing the agent writes is ever consulted:
 
-- **claude** — `settingSources: []` plus programmatic settings, so no
-  filesystem settings file is read at all. This is strictly better than
-  rewriting six keys, and it closes the `hooks` key without enumerating keys.
+- **claude** — NOT `settingSources: []`. The SDK couples the two discoveries:
+  "Must include `'project'` to load CLAUDE.md files" (`sdk.d.ts:1800`), so
+  disabling settings discovery would also stop the group's `CLAUDE.md` being
+  read. Keep `settingSources: ['project', 'user']` and make the FILE
+  un-authorable instead — read-only overmount `~/.claude/settings.json`, the
+  same mechanism as codex's hooks.json. That closes the `hooks` key without
+  enumerating keys and without costing CLAUDE.md.
 - **codex** — `/opt/arizuko/harness/hooks.json` read-only overmounted onto
   `~/.codex/hooks.json`, exactly as `auth.json` already is. Then
   `--dangerously-bypass-hook-trust` is safe: the trust ledger exists to prove
@@ -349,10 +353,37 @@ discovery disabled so nothing the agent writes is ever consulted:
   pi's help is explicit that explicit `-e` paths still load when discovery is
   off, which is precisely the combination wanted.
 
+**Discovery stays ON. Two kinds of discovery, only one is a hazard.**
+
+- **Content discovery** — `CLAUDE.md` / `AGENTS.md`, skills, prompt templates.
+  The group legitimately owns these, the agent may write them, and every
+  harness must keep finding them. Nothing here is disabled.
+- **Config discovery** — settings, hooks, extensions, MCP server maps. These
+  decide what the agent MAY DO, so they must never be read from a path the
+  agent can write.
+
+The separating mechanism is therefore the MOUNT, not a flag: flags are too
+coarse (claude's `settingSources` would take CLAUDE.md with it; codex's
+`--ignore-user-config` was measured NOT to stop skill discovery, which is the
+behaviour wanted). Every config path is overmounted read-only from a
+system-owned source; every content path stays writable in the group dir and is
+discovered normally.
+
+System-owned has two tiers, and both are read-only to the agent:
+
+1. **Image-baked, identical for every group** — `hooks.json`,
+   `pi-extension.js`, the policy module. Ships in `/opt/arizuko/harness/`.
+2. **Platform-generated per turn** — `settings.json`, which must carry
+   per-group values (`ARIZUKO_GROUP_FOLDER`, `WEB_PREFIX`, `outputStyle`,
+   `ARIZUKO_IS_ROOT`). runed writes it OUTSIDE the group dir and mounts it
+   read-only in. `seedSettings` keeps computing exactly what it computes today;
+   only its output path changes, so the agent stops being able to edit the
+   result.
+
 The group keeps everything that is genuinely its own: its custom skills, its
 transcripts, its rollouts, its content. The test is authorship — if the agent
 may edit it, it lives in the group dir; if editing it would change what the
-agent is permitted to do, it lives in `/opt/arizuko/harness` and is read-only.
+agent is permitted to do, it is written elsewhere and mounted read-only.
 
 **Order.** The seam inversion first — the `<status>` bug is live and the fix
 falls out of it. Then the guard, which has the clearest security payoff and
