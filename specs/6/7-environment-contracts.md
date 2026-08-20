@@ -167,8 +167,8 @@ shrinks but does not erase that gap.
 | arizuko MCP tools (`reply`/`send`/…)   | yes                      | yes (`mcp_servers` → socat)                    | **no** — pi has no MCP client; the terminal frame is its only delivery |
 | mid-turn steering (IPC → active query) | yes (PostToolUse drain)  | no — between-turn only                         | no — between-turn only                                                 |
 | interim `<status>` streaming           | yes                      | yes (`agent_message` events)                   | yes (`message_end` events)                                             |
-| session resume (layer 1)               | yes (`--resume`)         | no — fresh each turn                           | no — fresh each turn (`--no-session`)                                  |
-| skills                                 | native                   | prompt index (connector)                       | native (`--skill`)                                                     |
+| session resume (layer 1)               | yes (`--resume`)         | yes (`exec resume <thread_id>`)                | available (`--session <path>`), NOT wired                              |
+| skills                                 | native                   | native ($HOME) + a redundant connector index   | native (`--skill`)                                                     |
 | skill-guard (`5/23`)                   | write-time hook          | load-time scan                                 | load-time scan                                                         |
 | per-model usage accounting             | tokens + cost            | tokens only, cost 0                            | tokens + cost                                                          |
 | model credential                       | subscription OAuth / env | `~/.codex` or `OPENAI_API_KEY`/`CODEX_API_KEY` | provider API key env                                                   |
@@ -178,6 +178,31 @@ empty, not layer 1 at all. A backend without MCP reach passes only the cases
 whose observable effect its own tools (shell, files, egress) can produce —
 the matrix row IS the expected anteval delta, and a truthful delta beats a
 parity claim.
+
+**Conformant is not the same as correct, and this matrix said "no" where it
+meant "we did not wire it."** Measured against codex-cli 0.147.0 and pi 0.51.6
+on 2026-08-20:
+
+- **codex resumes.** A persisted turn returns a `thread_id`; `codex exec resume
+<id>` continues that rollout and recalled a word given only in the prior turn,
+  reading 29,184 cached input tokens. The connector passed `--ephemeral`, which
+  writes no rollout, so there was nothing to resume — a connector choice stated
+  as a harness limit. Now wired: `resolveResume` returns the stored id, and a
+  missing rollout retries fresh through the runtime's existing `sessionError`
+  path. codex exits **0** with an empty stdout when the rollout is gone, so the
+  signal is the stderr text, never the exit code.
+- **pi has sessions too** — `--session <path>`, `--session-dir`, `--continue`,
+  `PI_CODING_AGENT_DIR`. The connector passes `--no-session`. Unwired, not
+  unavailable; `--session <path>` is the better shape here, because routd hands
+  out the id and a path needs no resumable-UUID contract (the `L54` class).
+- **codex discovers skills natively** from `$HOME/.claude/skills`, which in the
+  container IS the group's skills dir (`runner.go:552` mounts the group at
+  `/home/node`). Confirmed by a skill placed in `cwd/.claude/skills` NOT being
+  loaded while every `$HOME` skill was. The connector's prompt index therefore
+  re-does what codex already does — and, worse, the load-time guard cannot gate
+  what codex loads, because codex has no flag to restrict discovery. Recorded
+  as `L59`; the index stays until that is decided, since deleting it would
+  remove the only place the guard's verdict is visible.
 
 ### Delivery — idempotent everywhere, not just at the end
 

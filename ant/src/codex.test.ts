@@ -3,7 +3,7 @@
 // the event shapes are fixtures, not guesses.
 
 import { test, expect } from 'bun:test';
-import { CodexTurn, codexArgs, codexPrompt, tomlValue } from './codex.js';
+import { CodexTurn, codexArgs, codexBackend, codexPrompt, tomlValue } from './codex.js';
 import type { Event, SessionConfig } from './backend.js';
 
 // Recorded verbatim: codex exec --json "Reply with exactly: pong"
@@ -112,4 +112,56 @@ test('codexPrompt: system text and skills index precede the untouched envelope',
     systemPrompt: { type: 'preset', preset: 'claude_code' },
   };
   expect(codexPrompt(preset, '')).toBe('p');
+});
+
+// Layer 1 for codex. Verified against codex-cli 0.147.0 on 2026-08-20: a
+// persisted turn returned thread_id 01a02008-…, and `codex exec resume
+// <id>` recalled a word given only in the earlier turn, reading 29,184
+// cached input tokens. `--ephemeral` (which the connector used to pass
+// unconditionally) writes no rollout, so there is nothing to resume.
+test('codexArgs: no resume target keeps the fresh-session shape', () => {
+  const args = codexArgs({ prompt: 'p', cwd: '/home/node' });
+  expect(args[0]).toBe('exec');
+  expect(args).not.toContain('resume');
+  expect(args).not.toContain('--ephemeral');
+  expect(args.slice(args.indexOf('--cd'))).toEqual(['--cd', '/home/node', '-']);
+});
+
+test('codexArgs: a resume target becomes `exec resume <id>` and drops --cd', () => {
+  const id = '01a02008-eeb1-7221-b72e-53a67645fb0c';
+  const args = codexArgs({ prompt: 'p', cwd: '/home/node', resume: id });
+  expect(args.slice(0, 2)).toEqual(['exec', 'resume']);
+  // `codex exec resume` rejects --cd outright ("unexpected argument '--cd'
+  // found") — passing it fails every resumed turn at argv parse.
+  expect(args).not.toContain('--cd');
+  expect(args.slice(-2)).toEqual([id, '-']);
+});
+
+test('codexArgs: mcp overrides survive a resumed turn', () => {
+  const args = codexArgs({
+    prompt: 'p',
+    resume: '01a02008-eeb1-7221-b72e-53a67645fb0c',
+    mcpServers: { arizuko: { command: 'socat', args: ['-'] } },
+  });
+  expect(args).toContain('mcp_servers.arizuko.command="socat"');
+});
+
+// codex exits 0 and prints nothing on stdout when the rollout is gone, so the
+// exit code cannot be the signal — only the stderr text can.
+test('CodexTurn.finish: a missing rollout is a session error, never a reply', () => {
+  const t = new CodexTurn();
+  const ev = t.finish(0, 'Error: thread/resume: thread/resume failed: '
+    + 'no rollout found for thread id 11111111-2222-4333-8444-555555555555 (code -32600)');
+  expect(ev).not.toBeNull();
+  expect((ev!.raw as { subtype?: string }).subtype).toBe('session_not_found');
+  expect(codexBackend.isSessionError('session_not_found')).toBe(true);
+  // The diagnostic must not reach the user as the turn's answer.
+  expect(ev!.text).toBeUndefined();
+});
+
+test('codexBackend: resolveResume passes the stored id through', () => {
+  const id = '01a02008-eeb1-7221-b72e-53a67645fb0c';
+  expect(codexBackend.resolveResume(id)).toBe(id);
+  expect(codexBackend.resolveResume(undefined)).toBeUndefined();
+  expect(codexBackend.isSessionError('other')).toBe(false);
 });

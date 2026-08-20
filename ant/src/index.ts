@@ -442,8 +442,9 @@ async function main(): Promise<void> {
       const backend = selectBackend(process.env.ARIZUKO_BACKEND);
       log(`backend: ${backend.name}`);
       // Resolve the resume target through the backend: a lineage placeholder
-      // or a pruned transcript starts fresh silently (claude); the CLI
-      // backends always start fresh — layer 1 is disposable by contract.
+      // or a pruned transcript starts fresh silently (claude); codex resumes
+      // its own rollout and falls back to fresh via the sessionError retry
+      // below; pi starts fresh every turn.
       sessionId = backend.resolveResume(sessionId);
       while (true) {
         log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);

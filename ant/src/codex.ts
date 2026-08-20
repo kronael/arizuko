@@ -1,7 +1,10 @@
 // codex.ts — the codex backend: drives `codex exec --json` as a subprocess
-// (spec 6/7 § "The connector seam"). Every turn is fresh — layer-1 continuity
-// is the group layer's job, and the contract requires correctness with an
-// empty transcript. arizuko tools reach codex through its native MCP client:
+// (spec 6/7 § "The connector seam"). codex resumes layer 1 natively: a turn
+// persists a rollout under CODEX_HOME and `codex exec resume <thread_id>`
+// continues it, verified 2026-08-20 against codex-cli 0.147.0. The group layer
+// still carries continuity on its own — the contract requires correctness with
+// an empty transcript — but throwing a working transcript away costs the
+// provider cache every turn. arizuko tools reach codex through its native MCP client:
 // cfg.mcpServers (the single declaration, mcp-servers.ts) is rendered into
 // -c mcp_servers.* overrides, so every tool call still crosses the gated
 // socket. Skills arrive as a prompt index (skills-scan.ts) — codex has no
@@ -40,15 +43,12 @@ export function tomlValue(v: string | string[] | Record<string, string>): string
 // codexArgs builds one turn's argv. The prompt travels on stdin (`-`), never
 // argv — an envelope with episodes + diary can exceed the per-arg kernel cap.
 export function codexArgs(cfg: SessionConfig): string[] {
-  const args = [
-    'exec',
+  const args = cfg.resume ? ['exec', 'resume'] : ['exec'];
+  args.push(
     // The container is the perimeter (Docker + egress proxy + gated socket);
     // codex's own bwrap sandbox fails on no-userns kernels and guards nothing
     // the platform doesn't already.
     '--dangerously-bypass-approvals-and-sandbox',
-    // No rollout files: the group home persists, and a per-turn session dump
-    // would grow it forever.
-    '--ephemeral',
     '--skip-git-repo-check',
     // The agent writes $HOME, so $HOME/.codex/config.toml is agent-authored
     // config — an [mcp_servers] block there would be dialled straight from
@@ -56,8 +56,7 @@ export function codexArgs(cfg: SessionConfig): string[] {
     // closes for claude (BUGS J14); auth still resolves from CODEX_HOME.
     '--ignore-user-config',
     '--json',
-    '--cd', cfg.cwd ?? HOME,
-  ];
+  );
   if (cfg.model) args.push('-m', cfg.model);
   for (const [name, s] of Object.entries(cfg.mcpServers ?? {})) {
     args.push('-c', `mcp_servers.${name}.command=${tomlValue(s.command)}`);
@@ -66,6 +65,11 @@ export function codexArgs(cfg: SessionConfig): string[] {
       args.push('-c', `mcp_servers.${name}.env=${tomlValue(s.env)}`);
     }
   }
+  // `codex exec resume` REJECTS --cd ("unexpected argument '--cd' found"): the
+  // rollout records its own working root. The child is spawned with cwd either
+  // way, so the resumed turn still runs in the group home.
+  if (cfg.resume) args.push(cfg.resume);
+  else args.push('--cd', cfg.cwd ?? HOME);
   args.push('-');
   return args;
 }
@@ -92,6 +96,10 @@ interface CodexUsage {
 // {thread_id} · turn.started · item.completed {item:{type,text}} ·
 // turn.completed {usage}. A state machine, pure so the fixture tests cover
 // the load-bearing mapping without spawning the CLI.
+// RESUME_MISS matches codex's stderr when the requested rollout is gone —
+// a folder whose stored id was minted by another backend, or a pruned home.
+const RESUME_MISS = /no rollout found for thread id/;
+
 export class CodexTurn {
   private lastText: string | undefined;
   private lastError: string | undefined;
@@ -139,9 +147,24 @@ export class CodexTurn {
   }
 
   // finish covers a stream that ended without a terminal event (auth failure,
-  // crash): the turn still produces exactly one result — never silence.
+  // crash, a resume target that is gone): the turn still produces exactly one
+  // result — never silence.
+  //
+  // A missing rollout is the one case that must NOT be delivered. codex writes
+  // `no rollout found for thread id <id>` to stderr, emits nothing on stdout
+  // and **exits 0**, so the exit code cannot be the signal. It is marked with
+  // the subtype the runtime already switches on (index.ts:355), which retries
+  // the turn fresh instead of replying with a harness diagnostic.
   finish(exitCode: number | null, stderrTail: string): Event | null {
     if (this.terminal) return null;
+    if (RESUME_MISS.test(stderrTail)) {
+      return {
+        type: 'result',
+        raw: { type: 'result', subtype: 'session_not_found' },
+        final: true,
+        status: 'error',
+      };
+    }
     const ok = exitCode === 0 && this.lastText !== undefined;
     const err = this.lastError ?? (stderrTail.trim() || `codex exited ${exitCode}`);
     return {
@@ -239,10 +262,12 @@ function exited(child: ChildProcess): Promise<number | null> {
 
 export const codexBackend: Backend = {
   name: 'codex',
-  // Fresh every turn: codex session ids are not resumed (layer 1 is
-  // disposable by contract). The thread_id still flows back through
-  // system_init so routd's lineage rows stay truthful.
-  resolveResume: () => undefined,
-  isSessionError: () => false,
+  // codex resumes by its own thread_id, which system_init already round-trips
+  // into routd's lineage row — so the id stored for a codex folder was minted
+  // by codex. No shape check here: an id from another backend fails as a
+  // missing rollout and retries fresh, which is the same outcome a check would
+  // reach and one fewer place to disagree about what a valid id looks like.
+  resolveResume: (sessionId) => sessionId,
+  isSessionError: (subtype) => subtype === 'session_not_found',
   spawn: (cfg: SessionConfig, _drain: DrainIpcInput) => new CodexSession(cfg),
 };
