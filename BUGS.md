@@ -226,43 +226,51 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
-## L56 — `web:eval`'s cursor has been stuck since 2026-08-15, so anteval cannot run (2026-08-20)
+## ✅ FIXED 2026-08-20 L56 — a bot reply swallows the user's slash command
 
-`chats.agent_cursor` for `web:eval` on krons reads `2026-08-15T21:32:31Z` — five
-days stale — while every neighbouring chat is current to the minute, including
-its own child `web:eval/etk2gpt-priv-grant-g` at `12:08:47Z`. The chat is
-specifically stuck, not the instance.
+**First diagnosis was WRONG and is kept here as the correction.** `web:eval`'s
+`agent_cursor` read `2026-08-15T21:32:31Z` while its neighbours were current, and
+that looked like a permanently stuck chat. It was not stuck — it was lagging one
+long batch. Once the last anteval case finished, the cursor advanced to
+`12:16:58Z` on its own. Correct measurement, wrong interpretation.
 
-Two consequences, both measured on 2026-08-20:
+The real fault is narrower and much more general. `processGroupMessages` steered
+the batch's **newest** row:
 
-- **anteval cannot establish its baseline.** The run injects a bare `/new` and
-  polls for the root session to disappear. The `/new` rows land
-  (`11:58:42`, `12:08:29`, `topic=''`) and are never consumed: no
-  `"Session cleared."` ack is ever delivered, so `steer` → `handleCommand` →
-  `cmdNew` never ran, and `sessions(eval,"")` still holds `948b6564-…` across
-  both attempts. The `L54` baseline guard then aborts — correctly, refusing to
-  score a case that would fork inherited history.
-- **The idle-reset log storms.** `sessionIdleExpired` reads this same cursor, so
-  a five-day-old value is always past the two-day threshold: `session: resetting
-  on idle expiry` fired 270 times in 15 minutes, once per re-fed dispatch, for
-  eval topics that had just been created.
+```go
+last := msgs[len(msgs)-1]
+…
+if l.steer(chatJID, last, folder) { … }
+```
 
-The stuck date is when the last successful anteval run happened, which suggests
-the cursor stops advancing on something that run leaves behind — a candidate is
-`route-observe-silent`, the case that makes the eval chat observe-only and never
-reverts it (found 2026-08-20, unfixed). NOT confirmed: the route table shows no
-`#observe` row for `web:eval` today, so the mechanism is still open.
+A slash command is consumed by `steer` and nowhere else, and `handleCommand`
+refuses a bot row (`msg.BotMsg` → false). So whenever the agent answers between
+the command and the next poll, `steer` inspects the reply, refuses it, and the
+command falls through into the turn as plain text. Nothing logs.
 
-- **Severity:** medium (no user-facing agent is affected; it makes the one tool
-  that certifies the agent unrunnable, and it is invisible — everything logs INFO)
-- **Source:** `chats.agent_cursor` for `web:eval` (krons);
-  routd `steer`/`handleCommand` never reached; `sessionIdleExpired`
-  (`routd/loop.go:797`) reading the same value
-- **Status:** OPEN. Do NOT hand-edit the cursor on a live instance to unblock a
-  run — that hides the cause. Find why it stopped advancing first.
-- **What this is really evidence for:** a conformance run whose validity depends
-  on one live chat's cursor being healthy does not belong on a production
-  instance. `6/25` decision 4 and the disposable-instance harness are the fix.
+Measured on krons, `web:eval`, both attempts identical in shape:
+
+| time     | row                        |
+| -------- | -------------------------- |
+| 11:58:42 | user `/new`                |
+| 12:04:20 | **bot** "Page is published…" |
+| 12:08:29 | user `/new`                |
+| 12:12:20 | **bot** "⏳ publishing…"     |
+
+Neither `/new` was consumed — no `"Session cleared."` ack was ever delivered, and
+`sessions(eval,"")` moved from `948b6564` to `675edf03` because a turn replaced
+it rather than `cmdNew` clearing it. anteval's baseline guard then aborted,
+correctly.
+
+This is not an anteval quirk: the same hole loses a user's `/stop`, `/root`,
+`/gate` or a sticky `#topic` in any chat busy enough to answer first.
+
+- **Severity:** medium (silent; a user's command is executed as chat text)
+- **Source:** routd/dispatch.go — `steer(chatJID, last, folder)` on the batch's
+  newest row
+- **Fix:** steer the newest NON-bot row (`newestUserMsg`), and advance past that
+  row only — anything newer has not been consumed.
+- **Tests:** `routd.TestNewestUserMsg_{SkipsBotRowsAfterACommand,TakesTheLatestUserRow,AllBotBatchSteersNothing}`
 
 ## L55 — a restart starves the instance: 4,704 dispatches produced 18 spawns (2026-08-20)
 

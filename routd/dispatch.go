@@ -48,8 +48,16 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// (marinade atlas, 2026-07-16). A consumed message advances the cursor and
 	// never spawns; cmdRoot re-injects its arg, which the next worker pass runs
 	// elevated.
-	if l.steer(chatJID, last, folder) {
-		l.advance(chatJID, last)
+	// Steer the newest USER message, not the newest message. A slash command is
+	// consumed here and nowhere else, and handleCommand refuses a bot row — so
+	// when the agent's own reply lands after the command and before this poll,
+	// steer inspects the reply, refuses it, and the command falls through to the
+	// turn as plain text. anteval's `/new` was swallowed exactly that way twice
+	// on krons (BUGS L56); the same hole loses a user's /stop or /root in any
+	// chat busy enough to answer before the next poll. Advance past the steered
+	// row only: anything newer has not been consumed.
+	if steerMsg, ok := newestUserMsg(msgs); ok && l.steer(chatJID, steerMsg, folder) {
+		l.advance(chatJID, steerMsg)
 		return true, nil
 	}
 	// Strip bot rows from the trigger batch (don't feed the agent its own
@@ -107,6 +115,17 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	}
 	l.advance(chatJID, last)
 	return hadAny, nil
+}
+
+// newestUserMsg returns the newest non-bot message in a batch. ok=false when the
+// batch is all bot rows, which nothing may steer on.
+func newestUserMsg(msgs []core.Message) (core.Message, bool) {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if !msgs[i].BotMsg {
+			return msgs[i], true
+		}
+	}
+	return core.Message{}, false
 }
 
 // runTurn dispatches ONE turn for a trigger batch (already bot-stripped),
