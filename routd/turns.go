@@ -705,7 +705,11 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 				}
 			}
 		}
-		if req.SessionID != "" {
+		// An isolated turn holds no session lineage — it neither resumes the
+		// topic's transcript nor becomes it. Writing its id back would hand the
+		// chat a throwaway transcript the cron ran in, which is the same context
+		// loss from the other direction (BUGS L54).
+		if req.SessionID != "" && !isolated {
 			if err := s.db.PutSession(tc.Folder, tc.Topic, req.SessionID); err != nil {
 				slog.Error("recordTurnResult: PutSession failed; next turn in this topic loses session continuity",
 					"folder", tc.Folder, "turn_id", turnID, "err", err)

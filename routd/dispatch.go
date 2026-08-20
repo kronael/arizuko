@@ -380,10 +380,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	}
 	// Clean turn-boundary outcome.
 	recorded := l.db.TurnResultRecorded(folder, turnID)
-	// Persist session_id backstop UNLESS submit_turn already recorded one (its wins).
-	if out.SessionID != "" && !recorded {
-		_ = l.db.PutSession(folder, topic, out.SessionID)
-	}
+	l.persistSessionBackstop(folder, topic, turnID, last.Sender, out, recorded)
 	// Silent turn: a clean run that recorded neither a result nor a bot reply
 	// delivered nothing — the user saw typing then silence. Deliberate silence
 	// still records a result (ant calls deliverTurn on every result event,
@@ -466,6 +463,24 @@ func (l *Loop) copyParentSession(folder, parent, childUUID string) bool {
 		return false
 	}
 	return copied
+}
+
+// persistSessionBackstop records the session runed reported as the topic's
+// session, so the next turn resumes it. Two cases skip the write: submit_turn
+// already recorded one (the agent's value wins), and an isolated run — which
+// resumes nothing and so becomes nothing. runed mints a throwaway session for an
+// isolated spawn, and installing that would hand the chat the transcript a cron
+// ran in (BUGS L54). recordTurnResult applies the same rule on its own path.
+func (l *Loop) persistSessionBackstop(
+	folder, topic, turnID, trigger string, out runedv1.RunOutcome, recorded bool,
+) {
+	if out.SessionID == "" || recorded || strings.HasPrefix(trigger, "timed-isolated:") {
+		return
+	}
+	if err := l.db.PutSession(folder, topic, out.SessionID); err != nil {
+		slog.Error("persistSessionBackstop: PutSession failed; the next turn in this topic loses session continuity",
+			"folder", folder, "topic", topic, "turn_id", turnID, "err", err)
+	}
 }
 
 // consecutiveRuns splits msgs into consecutive same-key runs, preserving causal
@@ -610,6 +625,17 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		defer cancel()
 	}
 	caller := types.UserSub(turnCallerSub(trigger))
+	// An isolated scheduled task runs with NO `--resume` (specs/4/8
+	// §"Implemented beyond base spec"). Passing the group's session id anyway
+	// resumed the chat transcript and then appended the task's whole tool-heavy
+	// run to it, so a folder's crons wrote themselves into the conversation the
+	// people in that chat were having, and Claude Code compacted the humans out
+	// first. sloth's #trading transcript was 8 cron turns to 4 human ones.
+	isolated := strings.HasPrefix(trigger, "timed-isolated:")
+	sessionID := ""
+	if !isolated {
+		sessionID = l.db.SessionID(folder, topic)
+	}
 	model, containerCfg := l.db.GroupConfig(folder)
 	if model == "" {
 		model = l.defaultModel
@@ -657,14 +683,14 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		// → default style; SplitN would wrongly return the whole folder path as a
 		// bogus style name, so use jidScheme.
 		Channel:         jidScheme(chatJID),
-		SessionID:       l.db.SessionID(folder, topic),
+		SessionID:       sessionID,
 		MessageBatch:    batch,
 		TriggerSender:   trigger,
 		CallerSub:       caller,
 		TurnID:          turnID,
 		Model:           model,
 		ContainerConfig: containerCfg,
-		Isolated:        strings.HasPrefix(trigger, "timed-isolated:"),
+		Isolated:        isolated,
 		Elevated:        elevated,
 		ShareReadOnly:   shareRO,
 		Egress:          egress,
