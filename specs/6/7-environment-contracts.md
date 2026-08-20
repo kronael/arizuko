@@ -247,6 +247,84 @@ loop, no behaviour change, and the existing tests are the safety net — they
 assert argv and frame shapes, both of which survive. Do it before a fourth
 occupant arrives, not after.
 
+### Proposed: ant owns the capabilities, each harness renders the hooks
+
+**Status: proposal, unsigned.** Companion to the seam inversion above; the two
+ship together or not at all.
+
+**The defect.** arizuko's per-turn capabilities live inside `claude.ts`, so two
+of three occupants get none of them. Measured today:
+
+| capability                    | where it lives now                   | codex         | pi                |
+| ----------------------------- | ------------------------------------ | ------------- | ----------------- |
+| skill guard (`5/23`)          | claude `PreToolUse` callback         | advisory scan | advisory scan     |
+| tool log                      | claude `PreToolUse`/`PostToolUse`    | —             | —                 |
+| mid-turn steering             | claude `PostToolUse` drain closure   | —             | —                 |
+| `<status>` streaming (`5/24`) | runtime re-parses claude's raw shape | **broken**    | works by accident |
+
+The `<status>` row is a live bug, not a gap: `index.ts` calls
+`assistantText(event.raw)`, which reads `raw.message.content[]` — claude's
+message shape. codex sets `raw` to `{item:{text}}`, so the parse returns empty
+and **codex streams no interim status at all**, while pi works only because its
+`message_end` payload happens to have the same nesting. The seam inversion fixes
+this by making the runtime read `frame.text`, which every connector already sets.
+
+**Every harness has the gates. This was measured, not assumed.**
+
+| gate                | claude               | codex                                    | pi                                               |
+| ------------------- | -------------------- | ---------------------------------------- | ------------------------------------------------ |
+| block a write       | `PreToolUse` hook    | `$CODEX_HOME/hooks.json` `PreToolUse`    | `pi.on("tool_call")` → `{ block: true, reason }` |
+| inject after a tool | `PostToolUse` hook   | `hooks.json` `PostToolUse`               | `pi.on("tool_result")` → returns new content     |
+| turn boundaries     | `PreCompact`, `Stop` | `PreCompact`, `Stop`, `UserPromptSubmit` | `turn_start`, `turn_end`, `context`, `session_*` |
+| register a tool     | MCP                  | MCP                                      | `pi.registerTool()`                              |
+
+codex's `hooks.json` uses the SAME event names and the same
+`{type:"command", command, timeout}` shape as Claude Code's settings hooks, so
+one declaration renders to both with no translation. pi's hooks are in-process
+TypeScript — and ant is TypeScript, so an ant extension imports the same policy
+module rather than shelling out.
+
+This retires two claims made earlier the same day and recorded here so the
+correction travels with the text: codex was said to have no way to gate skill
+loading (`L59` — it has `PreToolUse`), and pi was called the weakest occupant.
+pi is in fact the most integrable: `pi.registerTool()` closes its MCP gap by
+registering arizuko's verbs directly against the gated socket, `--mode rpc`
+offers a bidirectional stdin/stdout protocol, and `AgentSession` is importable
+in-process from the same npm package. Its only true gap was the MCP client, and
+that gap has a door.
+
+**The shape.** ant declares each capability ONCE as a policy module, plus a
+table naming which event it binds to. Three renderers emit the harness-native
+form:
+
+- **claude** — SDK callbacks (today's `guardPreToolUse` / `guardPostToolUse`).
+- **codex** — a generated `hooks.json` whose commands invoke a small ant CLI.
+- **pi** — a generated extension file that imports the same policy module.
+
+Mid-turn steering stops being a seam parameter. Today `DrainIpcInput` is passed
+to all three occupants and used by one. Instead ant writes queued messages to a
+file it owns and the `PostToolUse` binding reads it — the claude SDK already
+works this way, so claude keeps its existing gate and merely reads the file
+instead of a closure. `Harness.run` then needs no `steer` argument at all.
+
+**Self-grant discipline — the part that must not be got wrong.** The agent
+writes `$HOME`, so every one of these configs is agent-authorable: a
+`hooks.json` it writes itself would run its own commands, and a discovered
+`~/.pi/extensions/*` would register its own tools. The existing pattern already
+answers this and must be applied uniformly — disable discovery
+(`--ignore-user-config`, `--no-extensions`) and supply ant's own by explicit
+path, read-only overmounted the way `auth.json` and `config.toml` already are
+(`container/runner.go:612`). codex additionally needs
+`--dangerously-bypass-hook-trust`, which is only safe BECAUSE the file is a
+read-only mount the agent cannot author.
+
+**Order.** The seam inversion first — the `<status>` bug is live and the fix
+falls out of it. Then the guard, which has the clearest security payoff and
+turns `L59` from a hole into a shipped gate. Then the tool log and steering,
+which are behaviour parity rather than new capability. Skill and package
+management last: codex and pi both discover skills natively, so the question
+there is which loader wins, and that deserves its own decision.
+
 ### Skills across backends — one scanner, two hook points
 
 A skill is a named instruction file plus a trigger: `SKILL.md` with
