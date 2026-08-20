@@ -226,6 +226,45 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L58 — a re-fed turn loses its observed window: the cursor advances before the container spawns (2026-08-20, open)
+
+`routd/prompt.go:38` advances the per-topic observed cursor inside
+`buildAgentPrompt`, immediately after `ObservedSince` reads the rows and
+**before** anything spawns. Nothing rolls it back. The prompt is built at
+`dispatch.go:283`; every failure after that point discards the rendered prompt
+and re-feeds the batch on the next 2s poll (`dispatch.go:117` transport
+failure, `:126` the growing backoff, `:211` runed rejecting admission at
+capacity). The re-fed turn calls `buildAgentPrompt` again — and now
+`ObservedSince` returns nothing, because the first attempt already consumed the
+watermark.
+
+The trigger messages survive (their cursor advances separately, on success).
+The **ambient observed context does not**: it is read once and lost for that
+topic forever.
+
+- **The comment states the opposite of the code.** `prompt.go:20-25` says
+  "at-least-once — the cursor advance is not transactional with the turn; on
+  crash recovery a topic may re-see an observed message, which is benign".
+  Read-then-advance-then-spawn is at-MOST-once, and the failure is a silent
+  loss, not a benign duplicate. A comment is a claim, not evidence.
+- **`L55` made this constant.** The starved instance produced 4,704 dispatch
+  runs against 18 spawns. Nearly every one of those was a re-feed, and every
+  re-feed burned whatever observed rows had arrived since the last one.
+  Candidate second cause for the sloth "context is bad or even missing"
+  reports — `L54` was the fork half; this is the ambient half. Not yet proven
+  against a live transcript.
+- **Backend-independent, and worse without a transcript.** For `claude` an
+  attempt that reached the model leaves the rows in the resumed transcript, so
+  the loss is partial. `pi` runs `--no-session` (`ant/src/pi.ts`), so layer 1
+  is always empty and nothing covers it.
+- **Source:** `routd/prompt.go:27-39`; re-feed paths in `routd/dispatch.go`.
+- **Shape of a fix (not applied):** advance the cursor where the turn's own
+  cursor advances — after a recorded outcome — rather than at render time.
+  That is the `serialization_point` move: do not add a second bookkeeping
+  point beside the existing one, put this on it. `ClearObservedCursor`
+  (`prompt_db.go:113`) already exists as the rollback primitive if the
+  render-time advance is kept instead.
+
 ## L57 — the resreg routes face re-implements the route INSERT without the web-JID guard (2026-08-20, open)
 
 `store.AddRoute`/`SetRoutes`/`UpdateRoute` all refuse a `chat_jid=web:*`
