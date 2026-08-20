@@ -95,6 +95,84 @@ correct turn with layer 1 empty.** This is what makes a second occupant cheap:
 a new backend replays nothing, because continuity across a harness swap is
 carried by the group layer, which no backend owns.
 
+### What `ant` is
+
+`ant` is the **harness chassis**: the one process in the container that arizuko
+wrote. Everything else in there — claude, codex, pi, the shell the agent drives
+— is a guest. ant turns an arizuko turn into a harness run, enforces arizuko's
+per-turn policy at whatever gate that harness offers, and turns the run back
+into arizuko frames.
+
+It is not a harness, not a router, and not a policy authority. It is the
+adapter that makes any coding agent behave like an arizuko occupant.
+
+**What ant must accomplish.** Seven things, and nothing else:
+
+1. **Read the turn.** The envelope arrives as JSON on stdin. The envelope is
+   the contract and ant never edits it.
+2. **Put the setup in place.** Render the system / operator / agent layers and
+   write every path in the harness's `configPaths`, per turn, before the
+   harness exists (§ "The mechanism").
+3. **Run the harness.** Select by `ARIZUKO_BACKEND`, fail loudly on an unknown
+   name rather than silently running the wrong one.
+4. **Bind arizuko's policy to the harness's gates.** One implementation of the
+   skill guard, the tool log and the steering drain; three bindings
+   (§ "ant owns the capabilities").
+5. **Normalise the output** into `Frame`s that carry meaning, so nothing
+   downstream parses a harness payload.
+6. **Deliver.** Interim `<status>` immediately; exactly one terminal frame per
+   turn through `submit_turn`, idempotent, never silence.
+7. **Report continuity** so the next turn can resume.
+
+**What ant does NOT own.** Model choice, routing and grants belong to routd and
+runed. Tool authorisation belongs to the gated socket — ant carries calls, it
+never decides them. Content belongs to the group. The harness's own behaviour
+belongs to the harness.
+
+**How a run works.**
+
+```
+routd  ──envelope JSON on stdin──▶  ant
+                                     │  1. parse the turn
+                                     │  2. write configPaths (3 layers merged)
+                                     │  3. select harness by ARIZUKO_BACKEND
+                                     ▼
+                                   harness process
+                                     │  tools ──▶ socat ──▶ /run/ipc/gated.sock
+                                     │            (grant check · audit · CheckHold)
+                                     │  gates ──▶ ant's policy module
+                                     │
+                                     ▼  frames
+                                   ant
+                                     │  status  ──▶ submit_status  (immediate)
+                                     │  result  ──▶ submit_turn    (exactly one)
+                                     │  continuity ──▶ stored for the next turn
+                                     ▼
+                                   routd
+```
+
+Steering and the close sentinel arrive out of band, in `/run/ipc/input/`, and
+are drained on the turn path — mid-turn where the harness has a gate to inject
+at, between turns otherwise.
+
+**The interface — there are two, and keeping them apart is the point.**
+
+The **outer** interface is arizuko ↔ ant, and it is a process boundary that
+predates any harness: envelope on stdin, tools on the gated socket,
+`submit_turn` for every frame, IPC dir for steering. Anything that speaks it
+replaces ant entirely. It is versioned by the four sentences in § "The lifecycle
+seam".
+
+The **inner** interface is ant ↔ harness, and it is the thing this document
+proposes rewriting: `Turn` in, `Frame`s out, one `run()` method, plus a
+`HarnessProfile` declaring which capabilities that occupant actually has. It is
+stated as arizuko's requirements so that a harness may evolve — new flags, new
+config files, new events — without the seam moving.
+
+A new occupant is therefore one file: a `run()`, a profile, and the bindings
+that attach ant's policy to that harness's gates. If adding one requires
+touching `index.ts`, the seam is wrong.
+
 ### The connector seam
 
 The contract is the process boundary — envelope on stdin, tools on the MCP
