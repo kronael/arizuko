@@ -195,6 +195,24 @@ on 2026-08-20:
   `PI_CODING_AGENT_DIR`. The connector passes `--no-session`. Unwired, not
   unavailable; `--session <path>` is the better shape here, because routd hands
   out the id and a path needs no resumable-UUID contract (the `L54` class).
+  **Certified in a container, 2026-08-20.** The rebuilt `arizuko-ant` image
+  (codex-cli 0.148.0) with the group dir bind-mounted at `/home/node` and
+  `ARIZUKO_BACKEND=codex`:
+
+1. Turn 1 minted `01a02014-484c-7792-b7b7-8c6c40f586dd` and wrote
+   `.codex/sessions/2026/08/20/rollout-…-01a02014-….jsonl` to the HOST mount.
+2. Turn 2, given that id, resumed it and answered with a word supplied only in
+   turn 1 — so the rollout survives between spawns, which is the property the
+   bind mount exists for.
+3. Turn 3, given an id with no rollout, produced `subtype=session_not_found`,
+   retried fresh through the runtime loop, and delivered the new turn's answer.
+   The harness diagnostic never reached the user.
+
+The stream shape is stable across the version skew between host (0.147.0) and
+image (0.148.0); both were exercised. `submit_turn` was the only failure in
+that harness, because the bare `docker run` has no gated socket — the MCP path
+is unchanged by this work and is covered by the `mcp_servers` overrides.
+
 - **codex discovers skills natively** from `$HOME/.claude/skills`, which in the
   container IS the group's skills dir (`runner.go:552` mounts the group at
   `/home/node`). Confirmed by a skill placed in `cwd/.claude/skills` NOT being
