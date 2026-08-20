@@ -528,9 +528,10 @@ sign-off-shaped decision rather than an implementation detail.
    (`compose/compose.go`) including BUGS `C6`'s fail-loud-on-malformed rule. The
    comment syntax differs because `#` is a markdown heading; the rules do not.
 4. **The corpus mismatch** — closed by the table's catch-all row, then closed
-   again from the other side. Counts at 2026-08-15: `PRODUCT.md` 11/11,
-   `SOUL.md` **6/11** (an earlier draft said 7), `PERSONA.md` 4/11,
-   `BRANDING.md` 3/11, `CLAUDE.md` 4/11. Asserted by
+   again from the other side. Counts at 2026-08-20 (`aws-devops` retired that
+   day, BUGS `X2` option (c) — it was one of the four carrying a `CLAUDE.md`):
+   `PRODUCT.md` 10/10, `SOUL.md` **6/10** (an earlier draft said 7),
+   `PERSONA.md` 4/10, `BRANDING.md` 3/10, `CLAUDE.md` 3/10. Asserted by
    `container/product_seed_test.go`, so the corpus cannot drift from this
    paragraph silently.
 
