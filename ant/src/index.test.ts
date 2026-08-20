@@ -1,83 +1,21 @@
-// Resume-guard + delivery-gate contracts for the stale chat-bound session bug
-// (BUGS: "Stale chat-bound session → error_during_execution + silent context
-// loss"). resolveResumeSession must start fresh — never attempt --resume — when
-// a stored UUID has no transcript on disk; isSessionError must classify a resume
-// miss as a retry signal, so runQuery skips deliverTurn for it.
+// The chassis <status> pipeline: statusBlocks is THE one extraction site —
+// every harness's status frames flow through it, so a harness only has to put
+// its assistant text on the frame (the pre-seam runtime read claude's raw
+// message shape instead, and codex streamed no interim status at all).
 
 import { test, expect } from 'bun:test';
-import path from 'path';
-import { isRateLimitRejected } from './index.js';
-import { claudeResultStatus, isSessionError, resolveResumeSession, transcriptPath } from './claude.js';
+import { statusBlocks } from './index.js';
 
-const UUID = 'b6c2b287-0000-4000-8000-000000000000';
-const never = () => false;
-const always = () => true;
-
-test('resolveResumeSession: UUID with a transcript on disk resumes it', () => {
-  expect(resolveResumeSession(UUID, always)).toBe(UUID);
+test('statusBlocks: extracts each trimmed block in order', () => {
+  expect(statusBlocks('a <status>reading files…</status> b <status> two </status>'))
+    .toEqual(['reading files…', 'two']);
 });
 
-test('resolveResumeSession: UUID with NO transcript starts fresh (no --resume)', () => {
-  // The pruned/never-persisted case — must not be passed to --resume, which
-  // would return "No conversation found" → error_during_execution.
-  expect(resolveResumeSession(UUID, never)).toBeUndefined();
+test('statusBlocks: empty blocks and tagless text yield nothing', () => {
+  expect(statusBlocks('<status>  </status>')).toEqual([]);
+  expect(statusBlocks('no tags here')).toEqual([]);
 });
 
-test('resolveResumeSession: non-UUID placeholder starts fresh even if a file exists', () => {
-  expect(resolveResumeSession('sess-123abc', always)).toBeUndefined();
-});
-
-test('resolveResumeSession: undefined session id stays undefined', () => {
-  expect(resolveResumeSession(undefined, always)).toBeUndefined();
-});
-
-test('resolveResumeSession: a non-UUID short-circuits before the disk check', () => {
-  // The UUID shape is the cheap guard; a lineage placeholder must never cost a
-  // stat call, and must never be resumed regardless of what is on disk.
-  let calls = 0;
-  const counting = () => { calls++; return true; };
-  expect(resolveResumeSession('sess-placeholder', counting)).toBeUndefined();
-  expect(calls).toBe(0);
-});
-
-test('transcriptPath uses the fixed -home-node slug', () => {
-  expect(transcriptPath(UUID)).toBe(
-    path.join('/home/node', '.claude', 'projects', '-home-node', `${UUID}.jsonl`),
-  );
-});
-
-test('isSessionError: error_during_execution is a retry signal (never delivered as a reply)', () => {
-  // runQuery delivers a turn only when !isSessionError(subtype); a resume miss
-  // is not a user-facing error.
-  expect(isSessionError('error_during_execution')).toBe(true);
-});
-
-test('isSessionError: a real result subtype is delivered', () => {
-  expect(isSessionError('success')).toBe(false);
-  expect(isSessionError(undefined)).toBe(false);
-});
-
-test('claudeResultStatus rejects the SDK login sentinel', () => {
-  expect(claudeResultStatus('success', 'Not logged in · Please run /login')).toBe('error');
-});
-
-test('claudeResultStatus preserves normal result status', () => {
-  expect(claudeResultStatus('success', 'completed')).toBe('success');
-  expect(claudeResultStatus('error_max_turns', 'stopped')).toBe('error');
-});
-
-// BUGS: rate_limit is the top failure signal (195/2d) — rate_limit_event fires
-// on every usage-info update, most of them informational ('allowed'); only
-// 'rejected' means the turn actually stalled and needs a user-facing notice.
-test('isRateLimitRejected: rejected status needs a notice', () => {
-  expect(isRateLimitRejected({ rate_limit_info: { status: 'rejected' } })).toBe(true);
-});
-
-test('isRateLimitRejected: allowed/allowed_warning stay silent', () => {
-  expect(isRateLimitRejected({ rate_limit_info: { status: 'allowed' } })).toBe(false);
-  expect(isRateLimitRejected({ rate_limit_info: { status: 'allowed_warning' } })).toBe(false);
-});
-
-test('isRateLimitRejected: missing rate_limit_info stays silent', () => {
-  expect(isRateLimitRejected({})).toBe(false);
+test('statusBlocks: multiline block content survives', () => {
+  expect(statusBlocks('<status>line one\nline two</status>')).toEqual(['line one\nline two']);
 });

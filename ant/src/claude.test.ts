@@ -1,42 +1,104 @@
-// The Claude Code harness drives every production turn, and its event mapping
-// was covered only indirectly (BUGS F6.3). The surrounding path runs inside the
-// SDK's query(), which needs real credentials, so the coverage is a direct test
-// of normalize() — the load-bearing part.
+// The Claude Code harness drives every production turn, and its message
+// mapping was covered only indirectly (BUGS F6.3). The surrounding path runs
+// inside the SDK's query(), which needs real credentials, so the coverage is a
+// direct test of ClaudeTurn — the load-bearing part — plus the continuity
+// token pack and the resume guard for the stale chat-bound session bug.
 
 import { test, expect } from 'bun:test';
-import { normalize } from './claude.js';
+import path from 'path';
+import {
+  ClaudeTurn,
+  claudeResultStatus,
+  isRateLimitRejected,
+  packContinuity,
+  resolveResumeSession,
+  transcriptPath,
+  unpackContinuity,
+} from './claude.js';
 
-// One case per SDK message shape normalize recognises. The runtime switches on
-// Event.type alone (ant/src/index.ts runQuery), so a wrong mapping here
-// silently drops a whole class of message.
-test('normalize maps system/init to system_init and carries the session id', () => {
-  const ev = normalize({ type: 'system', subtype: 'init', session_id: 'abc-123' });
-  expect(ev).not.toBeNull();
-  expect(ev!.type).toBe('system_init');
-  expect(ev!.sessionId).toBe('abc-123');
-  // runQuery assigns newSessionId from this and nothing else; final must be
-  // falsy or the turn would end on init.
-  expect(ev!.final).toBeFalsy();
+const UUID = 'b6c2b287-0000-4000-8000-000000000000';
+const MSG_UUID = 'a1a1a1a1-0000-4000-8000-000000000000';
+const never = () => false;
+const always = () => true;
+
+// --- continuity token ---------------------------------------------------
+
+test('packContinuity/unpackContinuity round-trip the pair', () => {
+  const token = packContinuity(UUID, MSG_UUID);
+  expect(token).toBe(`${UUID}#${MSG_UUID}`);
+  expect(unpackContinuity(token)).toEqual({ sessionId: UUID, resumeAt: MSG_UUID });
 });
 
-test('normalize maps assistant and user messages to assistant / tool_result', () => {
-  const a = normalize({ type: 'assistant', uuid: 'u1', message: { content: [] } });
-  expect(a!.type).toBe('assistant');
-  // runQuery reads uuid off raw for resumeAt — raw must be the message verbatim.
-  expect((a!.raw as { uuid?: string }).uuid).toBe('u1');
-
-  const u = normalize({ type: 'user', message: { content: [] } });
-  expect(u!.type).toBe('tool_result');
+test('unpackContinuity: a bare platform id is a valid token (cross-spawn shape)', () => {
+  // routd hands back the plain sessionId a continuity frame carried; the
+  // harness must accept it as a token with no resume point.
+  expect(unpackContinuity(UUID)).toEqual({ sessionId: UUID });
+  expect(unpackContinuity(undefined)).toEqual({});
 });
 
-test('normalize maps rate_limit_event and drops unknown message types', () => {
-  expect(normalize({ type: 'rate_limit_event' })!.type).toBe('rate_limit');
-  expect(normalize({ type: 'stream_event', delta: 'partial' })).toBeNull();
-  expect(normalize({ noType: true })).toBeNull();
+// --- resume guard (stale chat-bound session) -----------------------------
+
+test('resolveResumeSession: UUID with a transcript on disk resumes it', () => {
+  expect(resolveResumeSession(UUID, always)).toBe(UUID);
 });
 
-test('normalize maps a success result to a final ok event with usage', () => {
-  const ev = normalize({
+test('resolveResumeSession: UUID with NO transcript starts fresh (no --resume)', () => {
+  // The pruned/never-persisted case — must not be passed to --resume, which
+  // would return "No conversation found" → error_during_execution.
+  expect(resolveResumeSession(UUID, never)).toBeUndefined();
+});
+
+test('resolveResumeSession: non-UUID placeholder starts fresh even if a file exists', () => {
+  expect(resolveResumeSession('sess-123abc', always)).toBeUndefined();
+});
+
+test('resolveResumeSession: a non-UUID short-circuits before the disk check', () => {
+  // The UUID shape is the cheap guard; a lineage placeholder must never cost a
+  // stat call, and must never be resumed regardless of what is on disk.
+  let calls = 0;
+  const counting = () => { calls++; return true; };
+  expect(resolveResumeSession('sess-placeholder', counting)).toBeUndefined();
+  expect(calls).toBe(0);
+});
+
+test('transcriptPath uses the fixed -home-node slug', () => {
+  expect(transcriptPath(UUID)).toBe(
+    path.join('/home/node', '.claude', 'projects', '-home-node', `${UUID}.jsonl`),
+  );
+});
+
+// --- ClaudeTurn: one frame class per SDK message shape -------------------
+
+test('ClaudeTurn: system/init yields a continuity frame with the bare id', () => {
+  const t = new ClaudeTurn();
+  const frames = t.push({ type: 'system', subtype: 'init', session_id: UUID });
+  expect(frames).toEqual([{ kind: 'continuity', token: UUID, sessionId: UUID }]);
+});
+
+test('ClaudeTurn: an assistant message packs the resume point and carries its text', () => {
+  const t = new ClaudeTurn();
+  t.push({ type: 'system', subtype: 'init', session_id: UUID });
+  const frames = t.push({
+    type: 'assistant',
+    uuid: MSG_UUID,
+    message: { content: [{ type: 'text', text: '<status>working…</status>' }] },
+  });
+  expect(frames).toEqual([
+    { kind: 'continuity', token: `${UUID}#${MSG_UUID}`, sessionId: UUID },
+    { kind: 'status', text: '<status>working…</status>' },
+  ]);
+});
+
+test('ClaudeTurn: tool_result and unknown message types yield nothing', () => {
+  const t = new ClaudeTurn();
+  expect(t.push({ type: 'user', message: { content: [] } })).toEqual([]);
+  expect(t.push({ type: 'stream_event', delta: 'partial' })).toEqual([]);
+  expect(t.push({ noType: true })).toEqual([]);
+});
+
+test('ClaudeTurn: a success result is an ok frame with usage', () => {
+  const t = new ClaudeTurn();
+  const frames = t.push({
     type: 'result',
     subtype: 'success',
     result: 'the answer',
@@ -48,38 +110,81 @@ test('normalize maps a success result to a final ok event with usage', () => {
       },
     },
   });
-  expect(ev).not.toBeNull();
-  expect(ev!.type).toBe('result');
-  expect(ev!.final).toBe(true);
-  expect(ev!.status).toBe('success');
-  expect(ev!.text).toBe('the answer');
+  expect(frames).toHaveLength(1);
+  const r = frames[0];
+  if (r.kind !== 'result') throw new Error('expected result frame');
+  expect(r.ok).toBe(true);
+  expect(r.text).toBe('the answer');
+  expect(r.retryFresh).toBeUndefined();
   // costUSD → cost_cents is × 100 then ROUNDED (spec 11/19). 0.0456 → 4.56 → 5;
   // truncation would give 4, so this value discriminates the two. The cache
   // fields cross names — cacheReadInputTokens → cache_read,
   // cacheCreationInputTokens → cache_write — and 7 ≠ 3 catches a swap.
-  expect(ev!.models?.['claude-opus-5']).toEqual({
+  expect(r.usage?.['claude-opus-5']).toEqual({
     input: 100, output: 20, cache_read: 7, cache_write: 3, cost_cents: 5,
   });
 });
 
-test('normalize maps error_during_execution to a final error event', () => {
-  // runQuery keys its session-reset retry off raw.subtype (isSessionError), so
-  // the subtype must survive into raw, and the event must still be final.
-  const ev = normalize({ type: 'result', subtype: 'error_during_execution' });
-  expect(ev!.type).toBe('result');
-  expect(ev!.final).toBe(true);
-  expect(ev!.status).toBe('error');
-  expect((ev!.raw as { subtype?: string }).subtype).toBe('error_during_execution');
+test('ClaudeTurn: error_during_execution is a retryFresh error frame — never a reply', () => {
+  // The resume-miss ("No conversation found") case: the chassis retries the
+  // turn with no continuity instead of delivering the harness diagnostic
+  // (BUGS: stale chat-bound session).
+  const frames = new ClaudeTurn().push({ type: 'result', subtype: 'error_during_execution' });
+  expect(frames).toHaveLength(1);
+  const r = frames[0];
+  if (r.kind !== 'result') throw new Error('expected result frame');
+  expect(r.ok).toBe(false);
+  expect(r.retryFresh).toBe(true);
 });
 
-// index.test.ts already covers claudeResultStatus itself. What is untested is
-// that normalize WIRES it in: a logged-out harness returns subtype 'success'
-// with the /login prompt as its result text, and an event that carried
-// status:'success' would deliver that prompt to the user as the agent's answer
-// — the shape of the fleet-wide outage after the v0.62 env regeneration.
-test('normalize routes the not-logged-in result through claudeResultStatus', () => {
-  const ev = normalize({ type: 'result', subtype: 'success', result: 'Not logged in · Please run /login' });
-  expect(ev!.status).toBe('error');
+test('claudeResultStatus rejects the SDK login sentinel', () => {
+  expect(claudeResultStatus('success', 'Not logged in · Please run /login')).toBe('error');
+});
+
+test('claudeResultStatus preserves normal result status', () => {
+  expect(claudeResultStatus('success', 'completed')).toBe('success');
+  expect(claudeResultStatus('error_max_turns', 'stopped')).toBe('error');
+});
+
+// The logged-out harness returns subtype 'success' with the /login prompt as
+// its result text; a frame that carried ok:true would deliver that prompt to
+// the user as the agent's answer — the shape of the fleet-wide outage after
+// the v0.62 env regeneration.
+test('ClaudeTurn routes the not-logged-in result through claudeResultStatus', () => {
+  const frames = new ClaudeTurn().push({
+    type: 'result', subtype: 'success', result: 'Not logged in · Please run /login',
+  });
+  const r = frames[0];
+  if (r.kind !== 'result') throw new Error('expected result frame');
+  expect(r.ok).toBe(false);
   // Still delivered as text, so the operator sees WHY the turn failed.
-  expect(ev!.text).toBe('Not logged in · Please run /login');
+  expect(r.text).toBe('Not logged in · Please run /login');
+});
+
+// --- rate limit ----------------------------------------------------------
+
+// BUGS: rate_limit is the top failure signal (195/2d) — rate_limit_event fires
+// on every usage-info update, most of them informational ('allowed'); only
+// 'rejected' means the turn actually stalled and needs a user-facing notice.
+test('isRateLimitRejected: rejected status needs a notice', () => {
+  expect(isRateLimitRejected({ rate_limit_info: { status: 'rejected' } })).toBe(true);
+});
+
+test('isRateLimitRejected: allowed/allowed_warning and missing info stay silent', () => {
+  expect(isRateLimitRejected({ rate_limit_info: { status: 'allowed' } })).toBe(false);
+  expect(isRateLimitRejected({ rate_limit_info: { status: 'allowed_warning' } })).toBe(false);
+  expect(isRateLimitRejected({})).toBe(false);
+});
+
+test('ClaudeTurn: a rejected rate limit becomes one <status> notice frame', () => {
+  const t = new ClaudeTurn();
+  expect(t.push({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } })).toEqual([]);
+  const frames = t.push({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected' } });
+  expect(frames).toHaveLength(1);
+  const f = frames[0];
+  if (f.kind !== 'status') throw new Error('expected status frame');
+  // Wrapped in <status> so it rides the one interim pipeline; the chassis's
+  // seen-set dedups a repeat to once per turn.
+  expect(f.text).toContain('<status>');
+  expect(f.text).toContain('rate limit');
 });

@@ -1,24 +1,53 @@
-// Backend selection contract (spec 6/7 § "The connector seam"): unset
+// Harness selection contract (spec 6/7 § "The harness seam"): unset
 // ARIZUKO_BACKEND runs claude; an unknown value throws so the spawn fails
-// loudly to the user instead of silently running the wrong harness.
+// loudly to the user instead of silently running the wrong harness. The
+// profiles are the declared capability matrix — a rendering of the code, not
+// prose beside it.
 
 import { test, expect } from 'bun:test';
 import { Readable } from 'stream';
-import { jsonLines, selectBackend } from './backend.js';
+import { jsonLines, selectHarness } from './backend.js';
 
-test('selectBackend: unset defaults to claude', () => {
-  expect(selectBackend(undefined).name).toBe('claude');
-  expect(selectBackend('').name).toBe('claude');
+test('selectHarness: unset defaults to claude', () => {
+  expect(selectHarness(undefined).name).toBe('claude');
+  expect(selectHarness('').name).toBe('claude');
 });
 
-test('selectBackend: each occupant by name', () => {
-  expect(selectBackend('claude').name).toBe('claude');
-  expect(selectBackend('codex').name).toBe('codex');
-  expect(selectBackend('pi').name).toBe('pi');
+test('selectHarness: each occupant by name', () => {
+  expect(selectHarness('claude').name).toBe('claude');
+  expect(selectHarness('codex').name).toBe('codex');
+  expect(selectHarness('pi').name).toBe('pi');
 });
 
-test('selectBackend: unknown value throws — no silent fallback', () => {
-  expect(() => selectBackend('gemini')).toThrow('unknown ARIZUKO_BACKEND');
+test('selectHarness: unknown value throws — no silent fallback', () => {
+  expect(() => selectHarness('gemini')).toThrow('unknown ARIZUKO_BACKEND');
+});
+
+// The conformance matrix rows of spec 6/7 that are capability declarations.
+// A capability that disappears must show up as a changed value here, not as a
+// feature quietly not happening.
+test('profiles declare the measured capability matrix', () => {
+  expect(selectHarness('claude').profile).toEqual({
+    continuity: 'native',
+    tools: 'mcp',
+    guard: 'write-time',
+    steering: 'mid-turn',
+    status: 'streaming',
+  });
+  expect(selectHarness('codex').profile).toEqual({
+    continuity: 'native',
+    tools: 'mcp',
+    guard: 'load-time',
+    steering: 'between-turn',
+    status: 'streaming',
+  });
+  expect(selectHarness('pi').profile).toEqual({
+    continuity: 'none',
+    tools: 'none',
+    guard: 'load-time',
+    steering: 'between-turn',
+    status: 'streaming',
+  });
 });
 
 test('jsonLines: parses JSONL, skips non-JSON banners, keeps an unterminated tail', async () => {

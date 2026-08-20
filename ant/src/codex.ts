@@ -1,29 +1,25 @@
-// codex.ts — the codex backend: drives `codex exec --json` as a subprocess
-// (spec 6/7 § "The connector seam"). codex resumes layer 1 natively: a turn
+// codex.ts — the codex harness: drives `codex exec --json` as a subprocess
+// (spec 6/7 § "The harness seam"). codex resumes layer 1 natively: a turn
 // persists a rollout under CODEX_HOME and `codex exec resume <thread_id>`
 // continues it, verified 2026-08-20 against codex-cli 0.147.0. The group layer
 // still carries continuity on its own — the contract requires correctness with
 // an empty transcript — but throwing a working transcript away costs the
-// provider cache every turn. arizuko tools reach codex through its native MCP client:
-// cfg.mcpServers (the single declaration, mcp-servers.ts) is rendered into
+// provider cache every turn. arizuko tools reach codex through its native MCP
+// client: turn.tools (the single declaration, mcp-servers.ts) is rendered into
 // -c mcp_servers.* overrides, so every tool call still crosses the gated
 // socket. Skills arrive as a prompt index (skills-scan.ts) — codex has no
 // native skill mechanism.
 
-import { spawn, ChildProcess } from 'child_process';
 import {
-  Backend,
-  DrainIpcInput,
-  Event,
-  Session,
-  SessionConfig,
-  jsonLines,
+  driveCli,
+  Frame,
+  Harness,
+  ResultFrame,
+  Steer,
+  Turn,
 } from './backend.js';
 import { renderSkillsIndex, scanSkills } from './skills-scan.js';
 import type { ModelUsage } from './mcp.js';
-
-const HOME = '/home/node';
-const QUERY_TIMEOUT_MS = Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || 15 * 60_000;
 
 function log(message: string): void {
   console.error(`[ant:codex] ${message}`);
@@ -42,8 +38,9 @@ export function tomlValue(v: string | string[] | Record<string, string>): string
 
 // codexArgs builds one turn's argv. The prompt travels on stdin (`-`), never
 // argv — an envelope with episodes + diary can exceed the per-arg kernel cap.
-export function codexArgs(cfg: SessionConfig): string[] {
-  const args = cfg.resume ? ['exec', 'resume'] : ['exec'];
+// The continuity token IS codex's thread id — codex packs nothing else into it.
+export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'continuity' | 'tools'>): string[] {
+  const args = turn.continuity ? ['exec', 'resume'] : ['exec'];
   args.push(
     // The container is the perimeter (Docker + egress proxy + gated socket);
     // codex's own bwrap sandbox fails on no-userns kernels and guards nothing
@@ -57,8 +54,8 @@ export function codexArgs(cfg: SessionConfig): string[] {
     '--ignore-user-config',
     '--json',
   );
-  if (cfg.model) args.push('-m', cfg.model);
-  for (const [name, s] of Object.entries(cfg.mcpServers ?? {})) {
+  if (turn.model) args.push('-m', turn.model);
+  for (const [name, s] of Object.entries(turn.tools ?? {})) {
     args.push('-c', `mcp_servers.${name}.command=${tomlValue(s.command)}`);
     args.push('-c', `mcp_servers.${name}.args=${tomlValue(s.args ?? [])}`);
     if (s.env && Object.keys(s.env).length > 0) {
@@ -68,19 +65,22 @@ export function codexArgs(cfg: SessionConfig): string[] {
   // `codex exec resume` REJECTS --cd ("unexpected argument '--cd' found"): the
   // rollout records its own working root. The child is spawned with cwd either
   // way, so the resumed turn still runs in the group home.
-  if (cfg.resume) args.push(cfg.resume);
-  else args.push('--cd', cfg.cwd ?? HOME);
+  if (turn.continuity) args.push(turn.continuity);
+  else args.push('--cd', turn.cwd);
   args.push('-');
   return args;
 }
 
 // codexPrompt joins the system text, the load-time-scanned skills index and
 // the envelope. The envelope itself is untouched — it IS the contract.
-export function codexPrompt(cfg: SessionConfig, skillsIndex: string): string {
+export function codexPrompt(
+  turn: Pick<Turn, 'prompt' | 'systemPrompt'>,
+  skillsIndex: string,
+): string {
   const parts: string[] = [];
-  if (typeof cfg.systemPrompt === 'string') parts.push(cfg.systemPrompt);
+  if (turn.systemPrompt) parts.push(turn.systemPrompt);
   if (skillsIndex) parts.push(skillsIndex);
-  parts.push(cfg.prompt);
+  parts.push(turn.prompt);
   return parts.join('\n\n');
 }
 
@@ -91,7 +91,7 @@ interface CodexUsage {
   output_tokens?: number;
 }
 
-// CodexTurn reduces the `codex exec --json` JSONL stream to Events. Recorded
+// CodexTurn reduces the `codex exec --json` JSONL stream to frames. Recorded
 // stream shape (codex-cli 0.147.0, fixture 2026-08-20): thread.started
 // {thread_id} · turn.started · item.completed {item:{type,text}} ·
 // turn.completed {usage}. A state machine, pure so the fixture tests cover
@@ -109,17 +109,22 @@ export class CodexTurn {
     return this.terminal;
   }
 
-  push(obj: Record<string, unknown>): Event[] {
+  push(obj: Record<string, unknown>): Frame[] {
     const type = obj.type as string | undefined;
     if (type === 'thread.started') {
       const id = obj.thread_id as string | undefined;
-      return [{ type: 'system_init', raw: obj, sessionId: id }];
+      // The thread id is both the platform session id and the whole
+      // continuity token — codex resumes by it verbatim.
+      return id ? [{ kind: 'continuity', token: id, sessionId: id }] : [];
     }
     if (type === 'item.completed') {
       const item = obj.item as { type?: string; text?: string } | undefined;
       if (item?.type === 'agent_message' && item.text) {
         this.lastText = item.text;
-        return [{ type: 'assistant', raw: obj, text: item.text }];
+        // The chassis extracts <status> blocks from this text — before the
+        // seam inversion it re-parsed claude's raw shape instead, so codex
+        // streamed no interim status at all (spec 6/7, the live bug).
+        return [{ kind: 'status', text: item.text }];
       }
       return [];
     }
@@ -127,17 +132,15 @@ export class CodexTurn {
       this.terminal = true;
       const usage = obj.usage as CodexUsage | undefined;
       return [{
-        type: 'result',
-        raw: obj,
+        kind: 'result',
+        ok: true,
         text: this.lastText,
-        final: true,
-        status: 'success',
-        models: usage ? { codex: usageOf(usage) } : undefined,
+        usage: usage ? { codex: usageOf(usage) } : undefined,
       }];
     }
     if (type === 'turn.failed') {
       this.terminal = true;
-      return [{ type: 'result', raw: obj, text: this.lastText, final: true, status: 'error' }];
+      return [{ kind: 'result', ok: false, text: this.lastText }];
     }
     if (type === 'error') {
       this.lastError = (obj.message as string | undefined) ?? 'codex error';
@@ -152,28 +155,18 @@ export class CodexTurn {
   //
   // A missing rollout is the one case that must NOT be delivered. codex writes
   // `no rollout found for thread id <id>` to stderr, emits nothing on stdout
-  // and **exits 0**, so the exit code cannot be the signal. It is marked with
-  // the subtype the runtime already switches on (index.ts:355), which retries
-  // the turn fresh instead of replying with a harness diagnostic.
-  finish(exitCode: number | null, stderrTail: string): Event | null {
+  // and **exits 0**, so the exit code cannot be the signal. retryFresh marks
+  // it: the chassis retries the turn fresh instead of replying with a harness
+  // diagnostic. (Pre-seam this fabricated a claude-shaped subtype — the
+  // defect spec 6/7's inversion records.)
+  finish(exitCode: number | null, stderrTail: string): ResultFrame | null {
     if (this.terminal) return null;
     if (RESUME_MISS.test(stderrTail)) {
-      return {
-        type: 'result',
-        raw: { type: 'result', subtype: 'session_not_found' },
-        final: true,
-        status: 'error',
-      };
+      return { kind: 'result', ok: false, retryFresh: true };
     }
     const ok = exitCode === 0 && this.lastText !== undefined;
     const err = this.lastError ?? (stderrTail.trim() || `codex exited ${exitCode}`);
-    return {
-      type: 'result',
-      raw: { type: 'result', exit_code: exitCode },
-      text: ok ? this.lastText : err,
-      final: true,
-      status: ok ? 'success' : 'error',
-    };
+    return { kind: 'result', ok, text: ok ? this.lastText : err };
   }
 }
 
@@ -189,85 +182,35 @@ function usageOf(u: CodexUsage): ModelUsage {
   };
 }
 
-class CodexSession implements Session {
-  private child: ChildProcess | undefined;
-  private timedOut = false;
-
-  constructor(private cfg: SessionConfig) {}
-
-  async *events(): AsyncIterable<Event> {
-    const cfg = this.cfg;
-    const scan = scanSkills(`${cfg.cwd ?? HOME}/.claude/skills`);
-    for (const x of scan.excluded) log(`skill excluded by load-time guard: ${x}`);
-
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(cfg.env ?? process.env)) {
-      if (v !== undefined) env[k] = v;
-    }
-
-    const child = spawn('codex', codexArgs(cfg), {
-      env,
-      cwd: cfg.cwd ?? HOME,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    this.child = child;
-    let stderrTail = '';
-    child.stderr?.setEncoding('utf8');
-    child.stderr?.on('data', (chunk: string) => {
-      stderrTail = (stderrTail + chunk).slice(-2000);
-    });
-    child.stdin?.end(codexPrompt(cfg, renderSkillsIndex(scan.clean)));
-
-    const timer = setTimeout(() => {
-      log(`query timeout (${QUERY_TIMEOUT_MS}ms) reached, killing codex`);
-      this.timedOut = true;
-      child.kill('SIGTERM');
-    }, QUERY_TIMEOUT_MS);
-
-    const turn = new CodexTurn();
-    try {
-      for await (const obj of jsonLines(child.stdout!)) {
-        for (const ev of turn.push(obj)) yield ev;
-        if (turn.done) break;
-      }
-      const exitCode = await exited(child);
-      if (this.timedOut && !turn.done) {
-        yield {
-          type: 'result',
-          raw: { type: 'result', timed_out: true },
-          text: 'Hit the time limit on this turn — narrow the request or ask me to continue.',
-          final: true,
-          status: 'success',
-          timedOut: true,
-        };
-      } else {
-        const tail = turn.finish(exitCode, stderrTail);
-        if (tail) yield tail;
-      }
-    } finally {
-      clearTimeout(timer);
-      if (child.exitCode === null) child.kill('SIGKILL');
-    }
-  }
-
-  async close(): Promise<void> {
-    this.child?.kill('SIGTERM');
-  }
+async function* runCodex(turn: Turn, _steer: Steer): AsyncGenerator<Frame> {
+  const scan = scanSkills(`${turn.cwd}/.claude/skills`);
+  for (const x of scan.excluded) log(`skill excluded by load-time guard: ${x}`);
+  yield* driveCli(
+    'codex',
+    codexArgs(turn),
+    {
+      cwd: turn.cwd,
+      env: turn.env,
+      stdin: codexPrompt(turn, renderSkillsIndex(scan.clean)),
+      signal: turn.signal,
+    },
+    new CodexTurn(),
+    log,
+  );
 }
 
-function exited(child: ChildProcess): Promise<number | null> {
-  if (child.exitCode !== null) return Promise.resolve(child.exitCode);
-  return new Promise((resolve) => child.once('close', (code) => resolve(code)));
-}
-
-export const codexBackend: Backend = {
+export const codexHarness: Harness = {
   name: 'codex',
-  // codex resumes by its own thread_id, which system_init already round-trips
-  // into routd's lineage row — so the id stored for a codex folder was minted
-  // by codex. No shape check here: an id from another backend fails as a
-  // missing rollout and retries fresh, which is the same outcome a check would
-  // reach and one fewer place to disagree about what a valid id looks like.
-  resolveResume: (sessionId) => sessionId,
-  isSessionError: (subtype) => subtype === 'session_not_found',
-  spawn: (cfg: SessionConfig, _drain: DrainIpcInput) => new CodexSession(cfg),
+  // continuity 'native': the stored thread id resumes verbatim — an id minted
+  // by another backend fails as a missing rollout and retries fresh, the same
+  // outcome a shape check would reach and one fewer place to disagree about
+  // what a valid id looks like.
+  profile: {
+    continuity: 'native',
+    tools: 'mcp',
+    guard: 'load-time',
+    steering: 'between-turn',
+    status: 'streaming',
+  },
+  run: runCodex,
 };

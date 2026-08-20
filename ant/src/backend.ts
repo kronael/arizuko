@@ -1,101 +1,124 @@
-// backend.ts — the connector seam (spec 6/7 § "The connector seam"). The
-// contract stays the process boundary: envelope on stdin, tools on the gated
-// MCP socket, submit_turn for every frame — anything speaking that replaces
-// the whole occupant. This file is the chassis-side seam so a CLI harness
-// reuses ant's runtime half (index.ts: stdin parse, IPC steering, idempotent
-// submit_turn) instead of reimplementing it: one interface, one file per
-// backend (claude.ts, codex.ts, pi.ts).
+// backend.ts — the harness seam (spec 6/7 § "The harness seam"). The contract
+// stays the process boundary: envelope on stdin, tools on the gated MCP
+// socket, submit_turn for every frame — anything speaking that replaces the
+// whole occupant. This file is the inner seam, stated as arizuko's
+// REQUIREMENTS of an occupant, never as one SDK's options object: Turn in,
+// Frames out, one run() per harness, a profile declaring capabilities as
+// data. One interface, one file per harness (claude.ts, codex.ts, pi.ts).
 
+import { spawn, ChildProcess } from 'child_process';
 import type { Readable } from 'stream';
 import type { ModelUsage } from './mcp.js';
 import type { McpServerConfig } from './mcp-servers.js';
-import { claudeBackend } from './claude.js';
-import { codexBackend } from './codex.js';
-import { piBackend } from './pi.js';
+import { claudeHarness } from './claude.js';
+import { codexHarness } from './codex.js';
+import { piHarness } from './pi.js';
 
-// EventType is the category index.ts switches on. One per normalized message
-// shape — nothing else reaches the runtime.
-export type EventType =
-  | 'system_init'   // session ready
-  | 'assistant'     // assistant text
-  | 'tool_result'   // a tool returned
-  | 'result'        // turn-terminating result
-  | 'rate_limit';   // the harness reported a rate-limit
-
-// Event is one normalized harness message. `raw` preserves the harness payload
-// verbatim so callers keep full fidelity.
-export interface Event {
-  type: EventType;
-  raw: Record<string, unknown>; // harness payload, verbatim
-  text?: string;                // best-effort extracted assistant text
-  final?: boolean;              // true on the turn-terminating event
-  // sessionId is set on system_init events: the harness's session id.
-  sessionId?: string;
-  // status is set on result events: how the turn ended.
-  status?: 'success' | 'error';
-  // models is per-model token/cost accounting, set on result events when the
-  // harness reports it. Snake_case to match the submit_turn payload (spec 11/19).
-  models?: Record<string, ModelUsage>;
-  // timedOut marks a result synthesised after the query-timeout deadline
-  // (graceful summary, not a normal completion). routd logs a WARN.
-  timedOut?: boolean;
+// Turn is one arizuko turn, in chassis facts only. Anything a single harness
+// needs beyond this (extra dirs, an SDK preset, an archival hook name) is that
+// harness's wiring, derived inside its own file — the old SessionConfig
+// carried four claude-only fields and claude's own systemPrompt union, which
+// is how the seam came to describe an implementation.
+export interface Turn {
+  prompt: string; // the envelope, untouched — it IS the contract
+  cwd: string; // the group home
+  // turnID is arizuko's turn id — chassis-derived per inner-loop turn
+  // (messageId:N), so it can only travel here; the 5/24 TodoWrite hook keys
+  // the live ⏳ checklist by it.
+  turnID: string;
+  model?: string; // backend-native id, verbatim
+  continuity?: string; // opaque token from the last turn; undefined = fresh
+  systemPrompt?: string; // rendered text; absent = the harness's own default
+  // tools is the assembled MCP server map (injectMcpEnv — the single
+  // declaration). claude renders it into SDK options; codex into -c
+  // mcp_servers.* overrides; pi has no MCP client and cannot read it.
+  tools?: Record<string, McpServerConfig>;
+  env: Record<string, string>;
+  // signal is the platform winding the turn down (close sentinel). A harness
+  // maps it to its own graceful stop; the chassis keeps consuming frames.
+  signal?: AbortSignal;
 }
 
-// SessionConfig is what index.ts hands Backend.spawn for one turn. Chassis
-// facts; each backend uses what its harness can express and ignores the rest.
-export interface SessionConfig {
-  prompt: string;                 // the initial user turn
-  model?: string;                 // backend-native model id, verbatim
-  cwd?: string;
-  resume?: string;                // session id to resume (claude)
-  resumeAt?: string;              // resume at a specific point (claude)
-  systemPrompt?: string | { type: 'preset'; preset: 'claude_code' };
-  addDirs?: string[];
-  env?: Record<string, string | undefined>;
-  // mcpServers is the assembled MCP server map (injectMcpEnv output — the
-  // single declaration). claude renders it into SDK options; codex renders it
-  // into -c mcp_servers.* overrides; pi has no MCP client and cannot read it.
-  mcpServers?: Record<string, McpServerConfig>;
-  // assistantName threads through to the PreCompact archival hook (claude).
-  assistantName?: string;
-  // turnID is the arizuko turn id, threaded to the TodoWrite status hook so it
-  // keys the live-edited ⏳ message (spec 5/24). Empty → the hook no-ops.
-  turnID?: string;
+// Frame is one normalized harness output. Nothing downstream ever parses a
+// harness payload — the <status> bug lived exactly there (index.ts read
+// claude's raw.message.content[] shape, so codex streamed no interim status).
+export type Frame =
+  // continuity: token is OPAQUE — the chassis hands it to the next run() and
+  // never interprets it (claude packs a sessionId#resumeAt pair, codex its
+  // thread id). sessionId is the harness-native session id for routd's
+  // lineage row, carried separately because the platform is NOT opaque about
+  // it: topic fork copies the transcript file named by it (CopySession — the
+  // L54 class), so a packed token in that field would fork every topic blind.
+  | { kind: 'continuity'; token: string; sessionId: string }
+  // status: interim assistant text. The chassis extracts <status> blocks from
+  // it — ONE extraction site for every harness.
+  | { kind: 'status'; text: string }
+  | {
+      kind: 'result';
+      ok: boolean;
+      text?: string;
+      usage?: Record<string, ModelUsage>;
+      // retryFresh: the resume target was unusable. Never delivered as a
+      // reply; the chassis retries the turn with no continuity. Replaces the
+      // isSessionError(subtype) hole codex had to fabricate a subtype for.
+      retryFresh?: boolean;
+      // timedOut marks the graceful query-timeout summary, not a normal
+      // completion. routd logs a WARN.
+      timedOut?: boolean;
+    };
+
+// ResultFrame is the terminal variant — what a reducer's finish() synthesizes
+// and the chassis delivers.
+export type ResultFrame = Extract<Frame, { kind: 'result' }>;
+
+// HarnessProfile declares how an occupant meets each requirement, as a value —
+// never a flag name (flags are one adapter's detail and change without
+// notice). A capability that disappears becomes a named value change instead
+// of a feature quietly not happening. configPaths/contentPaths land with the
+// setup writer (spec 6/7, next increment).
+export interface HarnessProfile {
+  continuity: 'native' | 'none'; // can a turn resume the last one
+  tools: 'mcp' | 'bridged' | 'none'; // how arizuko verbs arrive
+  guard: 'write-time' | 'load-time' | 'none';
+  steering: 'mid-turn' | 'between-turn';
+  status: 'streaming' | 'terminal-only';
 }
 
-// DrainIpcInput is provided by the runtime so a backend that can steer
-// mid-turn pulls queued user messages into the active query. Backends that
-// cannot steer ignore it; the runtime's between-turn loop still drains.
-export type DrainIpcInput = () => string[];
+// Steer pulls queued user messages into a running turn. Used by harnesses
+// whose profile says steering: 'mid-turn'; the chassis's between-turn loop
+// drains for the rest.
+export type Steer = () => string[];
 
-// Session is one running turn.
-export interface Session {
-  events(): AsyncIterable<Event>;
-  close(): Promise<void>;
-}
-
-// Backend is the seam: the harness half of one occupant. resolveResume and
-// isSessionError keep harness-specific session semantics out of index.ts.
-export interface Backend {
+// Harness is the seam: one occupant. run() is one turn — it unpacks the
+// continuity token, drives its process, and yields frames.
+export interface Harness {
   name: string;
-  // resolveResume maps a stored session id to what this backend can resume;
-  // undefined = start fresh. Layer-1 policy is the backend's own (spec 6/7:
-  // a conformant backend works with layer 1 empty).
-  resolveResume(sessionId: string | undefined): string | undefined;
-  // isSessionError reports a result subtype meaning the resume target was
-  // unusable — a retry-fresh signal, never delivered as a reply.
-  isSessionError(subtype: string | undefined): boolean;
-  spawn(cfg: SessionConfig, drain: DrainIpcInput): Session;
+  profile: HarnessProfile;
+  run(turn: Turn, steer: Steer): AsyncIterable<Frame>;
 }
 
-// selectBackend maps ARIZUKO_BACKEND to an occupant. Unset defaults to
+// QUERY_TIMEOUT_MS bounds one harness run; each harness ends the turn
+// gracefully at the deadline (timeoutFrame), never a silent code-1 exit.
+export const QUERY_TIMEOUT_MS = Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || 15 * 60_000;
+
+// timeoutFrame is the one reply a timed-out turn still delivers.
+export function timeoutFrame(): ResultFrame {
+  return {
+    kind: 'result',
+    ok: true,
+    text: 'Hit the time limit on this turn — narrow the request or ask me to continue.',
+    timedOut: true,
+  };
+}
+
+// selectHarness maps ARIZUKO_BACKEND to an occupant. Unset defaults to
 // claude; an unknown value throws so a misconfigured spawn fails loudly to
 // the user instead of silently running the wrong harness.
-export function selectBackend(name: string | undefined): Backend {
+export function selectHarness(name: string | undefined): Harness {
   switch (name || 'claude') {
-    case 'claude': return claudeBackend;
-    case 'codex': return codexBackend;
-    case 'pi': return piBackend;
+    case 'claude': return claudeHarness;
+    case 'codex': return codexHarness;
+    case 'pi': return piHarness;
     default:
       throw new Error(`unknown ARIZUKO_BACKEND ${JSON.stringify(name)} (claude|codex|pi)`);
   }
@@ -124,5 +147,68 @@ export async function* jsonLines(stream: Readable): AsyncGenerator<Record<string
     try {
       yield JSON.parse(tail) as Record<string, unknown>;
     } catch { /* not JSON — skip */ }
+  }
+}
+
+// CliReducer is the pure half of a subprocess harness: JSONL objects in,
+// frames out, one synthesized terminal at process exit when the stream never
+// produced one (auth failure, crash, missing resume target) — exactly one
+// result per turn, never silence.
+export interface CliReducer {
+  push(obj: Record<string, unknown>): Frame[];
+  finish(exitCode: number | null, stderrTail: string): ResultFrame | null;
+  readonly done: boolean;
+}
+
+// driveCli owns the process plumbing every subprocess harness shares: spawn,
+// stderr tail, the query timeout, the abort signal, SIGKILL on the way out.
+// codex.ts and pi.ts each carried a copy of all of it; the reducers stay
+// per-harness because the stream shapes differ.
+export async function* driveCli(
+  command: string,
+  args: string[],
+  opts: { cwd: string; env: Record<string, string>; stdin?: string; signal?: AbortSignal },
+  reducer: CliReducer,
+  log: (msg: string) => void,
+): AsyncGenerator<Frame> {
+  const child: ChildProcess = spawn(command, args, {
+    env: opts.env,
+    cwd: opts.cwd,
+    stdio: [opts.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+  });
+  let stderrTail = '';
+  child.stderr?.setEncoding('utf8');
+  child.stderr?.on('data', (chunk: string) => {
+    stderrTail = (stderrTail + chunk).slice(-2000);
+  });
+  if (opts.stdin !== undefined) child.stdin?.end(opts.stdin);
+
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    log(`query timeout (${QUERY_TIMEOUT_MS}ms) reached, killing ${command}`);
+    timedOut = true;
+    child.kill('SIGTERM');
+  }, QUERY_TIMEOUT_MS);
+  const onAbort = () => child.kill('SIGTERM');
+  opts.signal?.addEventListener('abort', onAbort, { once: true });
+
+  try {
+    for await (const obj of jsonLines(child.stdout!)) {
+      for (const f of reducer.push(obj)) yield f;
+      if (reducer.done) break;
+    }
+    const exitCode = child.exitCode !== null
+      ? child.exitCode
+      : await new Promise<number | null>((resolve) => child.once('close', (code) => resolve(code)));
+    if (timedOut && !reducer.done) {
+      yield timeoutFrame();
+    } else {
+      const tail = reducer.finish(exitCode, stderrTail);
+      if (tail) yield tail;
+    }
+  } finally {
+    clearTimeout(timer);
+    opts.signal?.removeEventListener('abort', onAbort);
+    if (child.exitCode === null) child.kill('SIGKILL');
   }
 }

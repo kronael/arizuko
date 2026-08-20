@@ -1,4 +1,4 @@
-// pi backend mapping, tested against RECORDED `pi -p --mode json` streams
+// pi harness mapping, tested against RECORDED `pi -p --mode json` streams
 // (pi 0.51.6, captured 2026-08-20). Both live captures errored (the serve
 // endpoints were down — itself a recorded failure shape); the success shape
 // is constructed from pi-ai's published types (StopReason "stop", content
@@ -6,7 +6,7 @@
 
 import { test, expect } from 'bun:test';
 import { PiTurn, piArgs } from './pi.js';
-import type { Event, SessionConfig } from './backend.js';
+import type { Frame } from './backend.js';
 
 // Recorded verbatim (trimmed to the load-bearing fields): the codex-serve
 // endpoint answering 404 — stopReason "error" with an errorMessage.
@@ -46,36 +46,41 @@ const OK_ASSISTANT = {
   stopReason: 'stop',
 };
 
-function play(turn: PiTurn, lines: Array<Record<string, unknown>>): Event[] {
-  const out: Event[] = [];
+function play(turn: PiTurn, lines: Array<Record<string, unknown>>): Frame[] {
+  const out: Frame[] = [];
   for (const l of lines) out.push(...turn.push(l));
   return out;
 }
 
 test('PiTurn: the recorded error stream ends as one error result — even on exit 0', () => {
   const turn = new PiTurn();
-  const events = play(turn, ERR_FIXTURE);
+  const frames = play(turn, ERR_FIXTURE);
   // No assistant text ever streamed; only the session init surfaced.
-  expect(events.map((e) => e.type)).toEqual(['system_init']);
-  expect(events[0].sessionId).toBe('7b1c6bc5-8b45-4edd-acb9-c7bbd9deb90c');
+  expect(frames).toEqual([{
+    kind: 'continuity',
+    token: '7b1c6bc5-8b45-4edd-acb9-c7bbd9deb90c',
+    sessionId: '7b1c6bc5-8b45-4edd-acb9-c7bbd9deb90c',
+  }]);
   // pi exits 0 after a failed retry loop; the terminal must still be an error.
   const result = turn.finish(0, '');
-  expect(result.status).toBe('error');
+  expect(result.ok).toBe(false);
   expect(result.text).toContain('404');
 });
 
-test('PiTurn: a success stream yields assistant text and one success result with usage', () => {
+test('PiTurn: a success stream yields status text and one ok result with usage', () => {
   const turn = new PiTurn();
-  const events = play(turn, [
+  const frames = play(turn, [
     { type: 'session', id: 's-1' },
     { type: 'message_end', message: OK_ASSISTANT },
   ]);
-  expect(events.map((e) => e.type)).toEqual(['system_init', 'assistant']);
-  expect(events[1].text).toBe('pong');
+  expect(frames.map((f) => f.kind)).toEqual(['continuity', 'status']);
+  const status = frames[1];
+  if (status.kind !== 'status') throw new Error('expected status frame');
+  expect(status.text).toBe('pong');
   const result = turn.finish(0, '');
-  expect(result.status).toBe('success');
+  expect(result.ok).toBe(true);
   expect(result.text).toBe('pong');
-  expect(result.models).toEqual({
+  expect(result.usage).toEqual({
     'claude-serve/haiku': { input: 12, output: 3, cache_read: 4, cache_write: 1, cost_cents: 2 },
   });
 });
@@ -89,18 +94,21 @@ test('PiTurn: a retried attempt that finally succeeds delivers the last text', (
     { type: 'auto_retry_start', attempt: 1 },
     { type: 'message_end', message: OK_ASSISTANT },
   ]);
-  expect(turn.finish(0, '').status).toBe('success');
+  expect(turn.finish(0, '').ok).toBe(true);
 });
 
 test('PiTurn: non-zero exit is an error result carrying stderr', () => {
   const result = new PiTurn().finish(1, 'boom\n');
-  expect(result.status).toBe('error');
+  expect(result.ok).toBe(false);
   expect(result.text).toBe('boom');
 });
 
 test('piArgs: no session, no self-granted extensions, scanned skills only, @file prompt', () => {
-  const cfg: SessionConfig = { prompt: 'p', model: 'claude-serve/sonnet', systemPrompt: 'SYS' };
-  const args = piArgs(cfg, '/tmp/prompt.md', ['/home/node/.claude/skills/diary']);
+  const args = piArgs(
+    { model: 'claude-serve/sonnet', systemPrompt: 'SYS' },
+    '/tmp/prompt.md',
+    ['/home/node/.claude/skills/diary'],
+  );
   expect(args).toContain('--no-session');
   // ~/.pi extensions are agent-authored tool registrations (J14 class);
   // --no-skills drops pi's own discovery while explicit --skill still loads.
@@ -114,7 +122,8 @@ test('piArgs: no session, no self-granted extensions, scanned skills only, @file
   expect(args.at(-1)).toBe('@/tmp/prompt.md');
 });
 
-test('piArgs: the claude_code preset is claude-specific — pi keeps its own default', () => {
-  const cfg: SessionConfig = { prompt: 'p', systemPrompt: { type: 'preset', preset: 'claude_code' } };
-  expect(piArgs(cfg, '/tmp/p.md', [])).not.toContain('--system-prompt');
+test('piArgs: no rendered system text keeps pi\'s own default', () => {
+  // The claude_code preset is claude wiring and never crosses the seam; an
+  // absent systemPrompt must not become a --system-prompt flag.
+  expect(piArgs({}, '/tmp/p.md', [])).not.toContain('--system-prompt');
 });

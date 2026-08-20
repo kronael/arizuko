@@ -1,21 +1,15 @@
+// index.ts — the chassis runtime half every occupant shares: stdin envelope
+// parse, IPC steering + close sentinel, the <status> pipeline, idempotent
+// submit_turn, the inner turn loop. The harness half lives behind the seam in
+// backend.ts (spec 6/7 § "The harness seam").
+
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
-import { Backend, Session, SessionConfig, selectBackend } from './backend.js';
-
-// isRateLimitRejected reports whether a normalized 'rate_limit' event's raw
-// SDKRateLimitEvent means the turn is actually throttled (status 'rejected'),
-// vs. an 'allowed'/'allowed_warning' informational usage update, which fires
-// far more often and needs no user-facing notice. BUGS: rate_limit was the
-// top failure signal (195/2d) — most of that volume is informational status
-// updates; only 'rejected' means the user's turn actually went silent.
-export function isRateLimitRejected(raw: Record<string, unknown>): boolean {
-  const info = raw.rate_limit_info as { status?: string } | undefined;
-  return info?.status === 'rejected';
-}
+import { Harness, Turn, selectHarness } from './backend.js';
 
 interface ContainerInput {
   prompt: string;
@@ -35,8 +29,7 @@ interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
-  // Per-model usage harvested from the SDK's result message (Anthropic
-  // usage only; oracle/codex skill captures separately). Spec 11/19.
+  // Per-model usage harvested from the harness's result frame (spec 11/19).
   models?: Record<string, import('./mcp.js').ModelUsage>;
   // timedOut marks a result that is the graceful query-timeout summary.
   timedOut?: boolean;
@@ -50,11 +43,12 @@ const MAX_STDIN_BYTES = 1024 * 1024;
 
 const PROGRESS_INTERVAL_MS = 90_000;
 
-function buildSystemPrompt(ci: ContainerInput):
-    string | { type: 'preset'; preset: 'claude_code' } {
+// buildSystemPrompt renders the text layers the chassis owns (system MD, soul,
+// output style). undefined means "no rendered text" — each harness supplies
+// its own default (claude's claude_code preset is claude wiring, not seam).
+function buildSystemPrompt(ci: ContainerInput): string | undefined {
   const parts = [ci.systemMd, ci.soul, readOutputStyle()].filter(Boolean);
-  if (parts.length > 0) return parts.join('\n\n');
-  return { type: 'preset' as const, preset: 'claude_code' as const };
+  return parts.length > 0 ? parts.join('\n\n') : undefined;
 }
 
 function readOutputStyle(): string | null {
@@ -140,26 +134,27 @@ function nudgeProgress(): void {
 // the user sees ⏳ progress on a long turn instead of nothing until the end.
 const STATUS_RE = /<status>([\s\S]*?)<\/status>/g;
 
-// assistantText flattens an SDK assistant message's text parts, mirroring
-// parseTranscript's assistant branch.
-function assistantText(raw: Record<string, unknown>): string {
-  const content = (raw as { message?: { content?: unknown } }).message?.content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((p: { type?: string }) => p.type === 'text')
-    .map((p: { text?: string }) => p.text || '')
-    .join('');
-}
-
-// streamStatuses forwards any <status> blocks in an intermediate assistant
-// message to routd (delivered immediately as ⏳ interim notices). seen dedups
-// across the turn so a status that also lands in the final result isn't
-// double-delivered — the final result flows through submit_turn separately.
-async function streamStatuses(turnID: string, text: string, seen: Set<string>): Promise<void> {
-  if (!turnID) return;
+// statusBlocks extracts the trimmed non-empty <status> blocks from one chunk
+// of interim assistant text. THE one extraction site: every harness's status
+// frame flows through here — before the seam inversion this ran on claude's
+// raw message shape only, so codex streamed no interim status at all.
+export function statusBlocks(text: string): string[] {
+  const out: string[] = [];
   for (const m of text.matchAll(STATUS_RE)) {
     const s = m[1].trim();
-    if (!s || seen.has(s)) continue;
+    if (s) out.push(s);
+  }
+  return out;
+}
+
+// streamStatuses forwards <status> blocks from a status frame to routd
+// (delivered immediately as ⏳ interim notices). seen dedups across the turn
+// so a status that also lands in the final result isn't double-delivered —
+// the final result flows through submit_turn separately.
+async function streamStatuses(turnID: string, text: string, seen: Set<string>): Promise<void> {
+  if (!turnID) return;
+  for (const s of statusBlocks(text)) {
+    if (seen.has(s)) continue;
     seen.add(s);
     try {
       await submitStatus({ turn_id: turnID, text: s });
@@ -234,64 +229,49 @@ function checkIpcMessage(): string | null {
   return messages.length > 0 ? messages.join('\n') : null;
 }
 
-// buildSessionConfig assembles one turn's SessionConfig from the container
-// input: extra mounted dirs, the assembled MCP server map, the system prompt.
-function buildSessionConfig(
-  prompt: string,
-  sessionId: string | undefined,
-  containerInput: ContainerInput,
-  sdkEnv: Record<string, string | undefined>,
-  turnID: string,
-  resumeAt?: string,
-): SessionConfig {
-  const extraDirs: string[] = [];
-  // 4/R: root is an operator /root elevation, NOT a folder shape — a top-level world
-  // has no slash but is NOT root. Read the elevation marker the gateway sets, never
-  // derive it from the path (a named world would wrongly skip /var/lib/share).
-  const isRoot = process.env.ARIZUKO_IS_ROOT === '1';
-  if (!isRoot && fs.existsSync('/var/lib/share')) extraDirs.push('/var/lib/share');
-  try {
-    for (const e of fs.readdirSync('/mnt')) {
-      const p = path.join('/mnt', e);
-      if (fs.statSync(p).isDirectory()) extraDirs.push(p);
-    }
-  } catch { /* /mnt absent */ }
-
-  return {
-    prompt,
-    model: sdkEnv['ARIZUKO_MODEL'] || undefined,
-    cwd: HOME,
-    resume: sessionId,
-    resumeAt,
-    systemPrompt: buildSystemPrompt(containerInput),
-    addDirs: extraDirs,
-    env: sdkEnv,
-    mcpServers: injectMcpEnv(sdkEnv),
-    assistantName: containerInput.assistantName,
-    turnID,
-  };
+interface TurnResult {
+  // token is the harness's latest continuity token, opaque to us — handed to
+  // the next run() verbatim.
+  token?: string;
+  // sessionId is the harness-native session id for routd's lineage row.
+  sessionId?: string;
+  closedDuringQuery: boolean;
+  retryFresh: boolean;
 }
 
-async function runQuery(
-  backend: Backend,
+// runTurn drives one harness run and consumes its frames: status frames feed
+// the <status> pipeline, continuity frames update the resume state, the result
+// frame is delivered. retryFresh results are never delivered — the caller
+// retries with no continuity.
+async function runTurn(
+  harness: Harness,
   prompt: string,
-  sessionId: string | undefined,
+  continuity: string | undefined,
   containerInput: ContainerInput,
-  sdkEnv: Record<string, string | undefined>,
+  env: Record<string, string>,
   turnID: string,
-  resumeAt?: string,
-): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; sessionError: boolean }> {
-  const cfg = buildSessionConfig(prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
-  const session: Session = backend.spawn(cfg, drainIpcInput);
+): Promise<TurnResult> {
+  const controller = new AbortController();
+  const turn: Turn = {
+    prompt,
+    cwd: HOME,
+    turnID,
+    model: env.ARIZUKO_MODEL || undefined,
+    continuity,
+    systemPrompt: buildSystemPrompt(containerInput),
+    tools: injectMcpEnv(env),
+    env,
+    signal: controller.signal,
+  };
 
   let ipcPolling = true;
   let closedDuringQuery = false;
   const pollIpcDuringQuery = () => {
     if (!ipcPolling) return;
     if (shouldClose()) {
-      log('Close sentinel detected during query, ending stream');
+      log('Close sentinel detected during query, winding the turn down');
       closedDuringQuery = true;
-      void session.close();
+      controller.abort();
       ipcPolling = false;
       wakeup = null;
       return;
@@ -302,85 +282,65 @@ async function runQuery(
   };
   setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
 
-  let newSessionId: string | undefined;
-  let lastAssistantUuid: string | undefined;
-  let messageCount = 0;
+  // The nudge asks the agent for a <status> report; the steering drain feeds
+  // it into the active query (claude's mid-turn gate; discarded after the run
+  // for harnesses that only steer between turns). Wall-clock, so a long
+  // tool-heavy stretch still nudges even when no frame arrives.
+  const nudgeTimer = setInterval(nudgeProgress, PROGRESS_INTERVAL_MS);
+
+  const out: TurnResult = { closedDuringQuery: false, retryFresh: false };
+  let frameCount = 0;
   let resultCount = 0;
-  let sessionError = false;
-  let lastProgressAt = Date.now();
   const seenStatuses = new Set<string>();
-  let rateLimitNotified = false;
 
   try {
-    for await (const event of session.events()) {
-      messageCount++;
-      log(`[msg #${messageCount}] type=${event.type}`);
+    for await (const frame of harness.run(turn, drainIpcInput)) {
+      frameCount++;
+      log(`[frame #${frameCount}] kind=${frame.kind}`);
 
-      if (event.type === 'assistant') {
-        const uuid = (event.raw as { uuid?: string }).uuid;
-        if (uuid) lastAssistantUuid = uuid;
-        await streamStatuses(turnID, assistantText(event.raw), seenStatuses);
-      }
-
-      const now = Date.now();
-      if (now - lastProgressAt >= PROGRESS_INTERVAL_MS || messageCount % 500 === 0) {
-        nudgeProgress();
-        lastProgressAt = now;
-      }
-
-      if (event.type === 'system_init') {
-        newSessionId = event.sessionId;
-        log(`Session initialized: ${newSessionId}`);
-      }
-
-      // rate_limit events fire on every usage-info update, most with
-      // status 'allowed' (informational, no action needed — the ~195/2d
-      // log volume BUGS.md's "rate_limit is the top failure signal" entry
-      // saw is mostly this). Only 'rejected' means the turn is actually
-      // throttled; that was previously logged (line above) and otherwise
-      // dropped, so the user's chat went silent with no explanation
-      // during throttling. Surface it once per turn via the existing
-      // interim-status channel, not a retry loop.
-      if (event.type === 'rate_limit' && !rateLimitNotified && isRateLimitRejected(event.raw)) {
-        rateLimitNotified = true;
-        await submitStatus({ turn_id: turnID, text: "⏳ Hit a rate limit — I'll continue shortly." });
-      }
-
-      if (event.type === 'result') {
+      if (frame.kind === 'continuity') {
+        out.token = frame.token;
+        if (!out.sessionId) log(`Session initialized: ${frame.sessionId}`);
+        out.sessionId = frame.sessionId;
+      } else if (frame.kind === 'status') {
+        await streamStatuses(turnID, frame.text, seenStatuses);
+      } else {
         resultCount++;
-        const subtype = (event.raw as { subtype?: string }).subtype;
-        const textResult = event.text ?? null;
-        const models = event.models;
-        log(`Result #${resultCount}: subtype=${subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}${models ? ` models=${Object.keys(models).join(',')}` : ''}`);
-        if (backend.isSessionError(subtype)) {
+        log(`Result #${resultCount}: ok=${frame.ok}${frame.retryFresh ? ' retryFresh' : ''}${frame.text ? ` text=${frame.text.slice(0, 200)}` : ''}${frame.usage ? ` models=${Object.keys(frame.usage).join(',')}` : ''}`);
+        if (frame.retryFresh) {
           log('Session error, will retry without session');
-          sessionError = true;
+          out.retryFresh = true;
         } else {
-          await deliverTurn(turnID, { status: event.status ?? 'success', result: textResult || null, newSessionId, models, timedOut: event.timedOut });
+          await deliverTurn(turnID, {
+            status: frame.ok ? 'success' : 'error',
+            result: frame.text || null,
+            newSessionId: out.sessionId,
+            models: frame.usage,
+            timedOut: frame.timedOut,
+          });
         }
       }
     }
   } catch (err) {
     if (resultCount > 0) {
-      log(`SDK threw after result (ignored): ${err instanceof Error ? err.message : String(err)}`);
+      log(`Harness threw after result (ignored): ${err instanceof Error ? err.message : String(err)}`);
     } else {
-      await session.close();
       throw err;
     }
+  } finally {
+    ipcPolling = false;
+    wakeup = null;
+    clearInterval(nudgeTimer);
   }
-
-  ipcPolling = false;
-  wakeup = null;
-  await session.close();
 
   const discarded = discardNudges();
   if (discarded > 0) {
     log(`Discarded ${discarded} stale progress nudges after query`);
   }
 
-  log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
-
-  return { newSessionId, lastAssistantUuid, closedDuringQuery, sessionError };
+  out.closedDuringQuery = closedDuringQuery;
+  log(`Turn done. Frames: ${frameCount}, results: ${resultCount}, sessionId: ${out.sessionId || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
+  return out;
 }
 
 async function main(): Promise<void> {
@@ -410,14 +370,17 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    const sdkEnv: Record<string, string | undefined> = { ...process.env };
+    // The seam's env is Record<string,string>: process.env filtered once here
+    // instead of once per harness.
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined) env[k] = v;
+    }
     for (const [key, value] of Object.entries(containerInput.secrets || {})) {
-      sdkEnv[key] = value;
+      env[key] = value;
     }
 
-    let sessionId = containerInput.sessionId;
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
-
     try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
 
     let prompt = containerInput.prompt;
@@ -433,43 +396,38 @@ async function main(): Promise<void> {
       prompt += '\n' + pending.join('\n');
     }
 
+    // The platform hands back the sessionId a continuity frame carried; it is
+    // a valid token for the harness that minted it (claude/codex accept a bare
+    // id; pi ignores continuity). The harness unpacks and validates — a
+    // placeholder or a pruned transcript starts fresh inside run().
+    let continuity = containerInput.sessionId;
+    let lastSessionId = containerInput.sessionId;
     const seedTurnID = containerInput.messageId || `boot-${Date.now()}`;
     let turnIndex = 0;
-    let resumeAt: string | undefined;
     try {
       // Selected inside the delivering try: an unknown ARIZUKO_BACKEND fails
       // this turn loudly to the user, never a silent exit (spec 6/7).
-      const backend = selectBackend(process.env.ARIZUKO_BACKEND);
-      log(`backend: ${backend.name}`);
-      // Resolve the resume target through the backend: a lineage placeholder
-      // or a pruned transcript starts fresh silently (claude); codex resumes
-      // its own rollout and falls back to fresh via the sessionError retry
-      // below; pi starts fresh every turn.
-      sessionId = backend.resolveResume(sessionId);
+      const harness = selectHarness(process.env.ARIZUKO_BACKEND);
+      log(`backend: ${harness.name}`);
       while (true) {
-        log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
+        log(`Starting turn (continuity: ${continuity || 'fresh'})...`);
 
         const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
-        const queryResult = await runQuery(backend, prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
-        if (queryResult.sessionError && sessionId) {
-          log(`Session error on resume, retrying with fresh session (was: ${sessionId})`);
-          sessionId = undefined;
-          resumeAt = undefined;
+        const r = await runTurn(harness, prompt, continuity, containerInput, env, turnID);
+        if (r.retryFresh && continuity) {
+          log(`Session error on resume, retrying with fresh session (was: ${continuity})`);
+          continuity = undefined;
           continue;
         }
-        if (queryResult.newSessionId) {
-          sessionId = queryResult.newSessionId;
-        }
-        if (queryResult.lastAssistantUuid) {
-          resumeAt = queryResult.lastAssistantUuid;
-        }
+        if (r.token) continuity = r.token;
+        if (r.sessionId) lastSessionId = r.sessionId;
 
-        if (queryResult.closedDuringQuery) {
+        if (r.closedDuringQuery) {
           log('Close sentinel consumed during query, exiting');
           break;
         }
 
-        log('Query ended, checking for next IPC message...');
+        log('Turn ended, checking for next IPC message...');
 
         const nextMessage = checkIpcMessage();
         if (nextMessage === null) {
@@ -478,7 +436,7 @@ async function main(): Promise<void> {
         }
 
         turnIndex++;
-        log(`Got new message (${nextMessage.length} chars), starting new query (turn ${turnIndex})`);
+        log(`Got new message (${nextMessage.length} chars), starting new turn (turn ${turnIndex})`);
         prompt = nextMessage;
       }
     } catch (err) {
@@ -488,7 +446,7 @@ async function main(): Promise<void> {
       await deliverTurn(turnID, {
         status: 'error',
         result: null,
-        newSessionId: sessionId,
+        newSessionId: lastSessionId,
         error: errorMessage,
       });
       process.exit(1);
