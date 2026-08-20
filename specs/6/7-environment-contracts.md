@@ -385,6 +385,54 @@ transcripts, its rollouts, its content. The test is authorship — if the agent
 may edit it, it lives in the group dir; if editing it would change what the
 agent is permitted to do, it is written elsewhere and mounted read-only.
 
+**Evolution: the seam names requirements, each adapter DECLARES its mechanisms.**
+
+The three harnesses move under us — codex gained a hook system, pi gained
+skills and an RPC mode, claude gained plugins. A seam that hard-codes today's
+mechanism goes stale silently, and a matrix maintained by hand goes stale
+loudly: this document's own conformance table was wrong on three rows within a
+day of being written (codex resume, codex's gate, codex `<status>`), every time
+because a human asserted a capability instead of the code reporting it.
+
+So the seam states only what arizuko REQUIRES, and each adapter declares how it
+meets each requirement, as a value:
+
+```ts
+interface HarnessProfile {
+  name: string;
+  continuity: 'native' | 'none'; // can a turn resume the last one
+  tools: 'mcp' | 'bridged' | 'none'; // how arizuko verbs arrive
+  guard: 'write-time' | 'load-time' | 'none';
+  steering: 'mid-turn' | 'between-turn';
+  status: 'streaming' | 'terminal-only';
+  // configPaths are the paths this harness reads that decide what the agent
+  // MAY DO. runner.go overmounts exactly this list read-only. A harness that
+  // adds a config file adds one entry here and the mount follows.
+  configPaths: string[];
+  // contentPaths stay writable and discovered — the group's own.
+  contentPaths: string[];
+}
+```
+
+Three things follow, and each removes a way to go stale:
+
+1. **The mount list is derived, not hand-written.** `configPaths` IS what the
+   platform makes read-only. A new codex config file is one profile entry, not
+   a remembered edit in `runner.go`.
+2. **The conformance matrix is a rendering of the profiles**, not prose beside
+   them. It cannot claim a capability the adapter does not declare.
+3. **A downgrade is a named value change.** This is `6/25` decision 3
+   (`effectiveEgressEnforcement`) applied to harnesses rather than sandboxes:
+   a capability that disappears shows up as `'none'` in a declared field and is
+   logged, instead of a feature quietly not happening — the failure mode this
+   repository keeps paying for (`L54` at INFO for eleven weeks, `L45`'s env var
+   that stopped applying and looked healthy).
+
+What the profile must NOT contain is a flag name. `--ephemeral`,
+`--no-session`, `settingSources` and `--ignore-user-config` are implementation
+detail of one adapter and change without notice; the profile records the
+CAPABILITY, and the adapter's own file records how it currently obtains it.
+
 **Order.** The seam inversion first — the `<status>` bug is live and the fix
 falls out of it. Then the guard, which has the clearest security payoff and
 turns `L59` from a hole into a shipped gate. Then the tool log and steering,
