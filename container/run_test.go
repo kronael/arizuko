@@ -221,7 +221,12 @@ func TestRun_CodexDirMountWhenSet(t *testing.T) {
 	}
 }
 
-func TestRun_CodexDirMountSkippedWhenUnset(t *testing.T) {
+// The group's .codex dir carries the rollouts `codex exec resume` reads, so it
+// mounts whether or not shared host credentials exist — a deployment that
+// authenticates with OPENAI_API_KEY still resumes. Only the credential
+// overmounts are conditional. Gating the whole block on HostCodexDir made
+// resume silently impossible for exactly that deployment.
+func TestRun_CodexGroupDirMountsWithoutHostCreds(t *testing.T) {
 	cfg, folders, _ := makeCfg(t)
 	// HostCodexDir intentionally empty (default).
 
@@ -233,7 +238,11 @@ func TestRun_CodexDirMountSkippedWhenUnset(t *testing.T) {
 		Prompt: "p", ChatJID: "tg:1", Folder: "g", Name: "arizuko-nocodex",
 	})
 	cmd := captured[0]
-	if strings.Contains(cmd, "/home/node/.codex") {
-		t.Errorf("did not expect codex dir mount when HostCodexDir is empty:\n%s", cmd)
+	wantGroup := filepath.Join(cfg.GroupsDir, "g", ".codex") + ":/home/node/.codex"
+	if !strings.Contains(cmd, wantGroup) {
+		t.Errorf("group codex mount %q missing — rollouts would die with the container:\n%s", wantGroup, cmd)
+	}
+	if strings.Contains(cmd, "auth.json") || strings.Contains(cmd, "config.toml") {
+		t.Errorf("credential overmounts must stay gated on HostCodexDir:\n%s", cmd)
 	}
 }

@@ -605,10 +605,17 @@ func buildMounts(
 	// Layered codex mount: per-group writable dir first, then RO file
 	// overmounts for shared creds. Order matters for docker volume layering.
 	// No os.Stat — HOST paths are resolved by the docker daemon at spawn time.
+	//
+	// The group dir mounts UNCONDITIONALLY: it holds the group's own codex
+	// state, including the rollouts `codex exec resume` reads (spec 6/7). It
+	// used to be gated on HostCodexDir, which silently broke resume for anyone
+	// authenticating with OPENAI_API_KEY instead of a mounted auth.json —
+	// codex ran, wrote its rollout to a container-local path, and every resume
+	// afterwards found nothing. Credentials and group state are two concerns.
+	groupCodex := filepath.Join(groupDir, ".codex")
+	os.MkdirAll(groupCodex, 0o755)
+	m = append(m, volumeMount{Host: hp(cfg, groupCodex), Container: containerHome + "/.codex"})
 	if cfg.HostCodexDir != "" {
-		groupCodex := filepath.Join(groupDir, ".codex")
-		os.MkdirAll(groupCodex, 0o755)
-		m = append(m, volumeMount{Host: hp(cfg, groupCodex), Container: containerHome + "/.codex"})
 		m = append(m, volumeMount{
 			Host: filepath.Join(cfg.HostCodexDir, "auth.json"), Container: containerHome + "/.codex/auth.json", RO: true,
 		})
