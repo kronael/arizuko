@@ -226,6 +226,34 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L59 — the `5/23` skill-guard cannot gate what codex loads (2026-08-20, open)
+
+`codex` discovers skills natively from `$HOME/.claude/skills`. In the container
+the group dir IS `$HOME` (`container/runner.go:552` mounts it at `/home/node`),
+so codex loads the group's skills whether the connector wants it to or not.
+Measured on codex-cli 0.147.0 (2026-08-20): a skill written to
+`cwd/.claude/skills` was NOT loaded, every `$HOME/.claude/skills` entry WAS,
+and `--ignore-user-config` did not change it. codex exposes no flag to restrict
+or disable that discovery.
+
+`ant/src/codex.ts` runs `scanSkills` and renders `scan.clean` into a prompt
+index. That index is duplicate work — codex already read those files — and the
+guard's verdict is advisory: a skill the scan EXCLUDES is still loaded by codex,
+it is merely absent from the index the connector appends.
+
+- **The agent writes `$HOME`.** A SKILL.md the agent writes itself is loaded on
+  the next turn. That is the self-grant class `strictMcpConfig` closes for
+  claude and `--ignore-user-config` / `--no-extensions` close for codex config
+  and pi extensions. Skills are the hole left open.
+- **Deleting the index is not the fix.** It would remove the only place the
+  guard's verdict is visible without changing what codex loads. The choices are
+  (a) quarantine — the connector moves a failing skill dir aside before spawn
+  and restores it after, (b) refuse the turn loudly when the scan excludes
+  anything, or (c) accept it and say so in `5/23`. Each is a contract change,
+  so this is a proposal, not an inline fix.
+- **Source:** `ant/src/codex.ts` `CodexSession.events`; `ant/src/skills-scan.ts`;
+  `specs/5/23`; the matrix note in `specs/6/7-environment-contracts.md`.
+
 ## L58 — a re-fed turn loses its observed window: the cursor advances before the container spawns (2026-08-20, open)
 
 `routd/prompt.go:38` advances the per-topic observed cursor inside
