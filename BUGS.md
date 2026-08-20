@@ -245,12 +245,25 @@ it is merely absent from the index the connector appends.
   the next turn. That is the self-grant class `strictMcpConfig` closes for
   claude and `--ignore-user-config` / `--no-extensions` close for codex config
   and pi extensions. Skills are the hole left open.
-- **Deleting the index is not the fix.** It would remove the only place the
-  guard's verdict is visible without changing what codex loads. The choices are
-  (a) quarantine — the connector moves a failing skill dir aside before spawn
-  and restores it after, (b) refuse the turn loudly when the scan excludes
-  anything, or (c) accept it and say so in `5/23`. Each is a contract change,
-  so this is a proposal, not an inline fix.
+- **CORRECTION 2026-08-20, same day: codex HAS a gate — I missed it.** The
+  entry above reasoned "no flag to restrict discovery, therefore no gate".
+  codex ships a full hook system: `$CODEX_HOME/hooks.json` declares
+  `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `PreCompact` and `Stop`,
+  using the SAME schema as Claude Code's settings hooks (`matcher` plus
+  `{type:"command", command, timeout}`), gated by hook trust
+  (`--dangerously-bypass-hook-trust` for vetted automation). So the `5/23`
+  guard can be a WRITE-TIME gate for codex exactly as it is for claude — a
+  `PreToolUse` matcher on the write tools — rather than the advisory load-time
+  scan. The absence of a `--skill` flag was never the relevant question.
+  Same error shape as [[our-flag-their-limit]] filed an hour earlier: I
+  concluded a capability was missing without looking for the mechanism that
+  provides it.
+- **The real fix is one hook set, rendered per harness.** ant declares the guard
+  (and the mid-turn steering drain) ONCE and renders it into each harness's
+  native config: claude's settings/SDK callbacks, codex's `hooks.json`, pi's
+  extensions. One declaration, many readers — not three guards. That subsumes
+  options (a)/(b)/(c) above and is tracked with the seam inversion in
+  `specs/6/7` § "Proposed: invert the seam".
 - **Source:** `ant/src/codex.ts` `CodexSession.events`; `ant/src/skills-scan.ts`;
   `specs/5/23`; the matrix note in `specs/6/7-environment-contracts.md`.
 
