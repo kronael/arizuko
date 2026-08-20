@@ -182,6 +182,28 @@ export function validateFrontmatter(text: string): Finding[] {
   return findings;
 }
 
+// blockingVerdict is THE verdict on one guarded file: the blocking findings
+// for its text. Every gate calls this — the write-time hook, the Bash rescan
+// (guards.ts) and the codex/pi load-time scan (skills-scan.ts). Before it
+// existed the same three primitives were composed at those three sites and had
+// already drifted on when frontmatter gets validated.
+//
+// Frontmatter is validated only when BOTH hold:
+//   - the file is a SKILL.md — name/description is the dispatch contract for
+//     skills; no other file under ~/.claude carries a frontmatter contract,
+//     so validating one would refuse legitimate helper files;
+//   - `whole` — the text is the file as it will exist, not a fragment. A
+//     fragment (an Edit whose target could not be read) has no frontmatter to
+//     judge; validating it reports frontmatter_missing on every legitimate
+//     body edit, which is how the write gate first shipped wrong.
+// The load-time scan and the rescan always hold whole files, so they pass
+// whole=true and inherit the SKILL.md half of the condition.
+export function blockingVerdict(path: string, text: string, whole: boolean): Finding[] {
+  const findings = scanContent(text);
+  if (path.endsWith('SKILL.md') && whole) findings.push(...validateFrontmatter(text));
+  return blockingFindings(findings);
+}
+
 // blockingFindings is the set that refuses a write: any `critical` threat
 // pattern, plus EVERY structural finding whatever its severity.
 //
@@ -305,24 +327,15 @@ export function createSkillGuardHook(): HookCallback {
       const path = String(toolInput.file_path ?? '');
       if (!path || !isGuardedPath(path)) return {};
 
-      // Frontmatter is a property of the WHOLE FILE. The hook now scans the
-      // file the write would PRODUCE rather than the fragment it carries
-      // (BUGS J9), so an Edit's outcome carries frontmatter too and is
-      // validated like a Write — but only when the resulting file was actually
-      // reconstructed. An unreadable file leaves us holding a fragment, and a
-      // fragment has no frontmatter to judge.
+      // The hook scans the file the write would PRODUCE, not the fragment it
+      // carries (BUGS J9). An unreadable file leaves us holding a fragment
+      // (whole=false), and blockingVerdict then skips frontmatter — a fragment
+      // has none to judge. An empty whole SKILL.md still blocks: the most
+      // complete frontmatter failure there is (BUGS J11).
       const { text, whole } = resultingText(pre.tool_name, toolInput, (p) =>
         fs.readFileSync(p, 'utf-8'),
       );
-      const validatesFrontmatter = path.endsWith('SKILL.md') && whole;
-      // Empty text used to return here, which skipped validation entirely — so
-      // `Write` of an EMPTY SKILL.md, the most complete frontmatter failure
-      // there is, sailed through (BUGS J11).
-      if (!text && !validatesFrontmatter) return {};
-
-      const findings = scanContent(text);
-      if (validatesFrontmatter) findings.push(...validateFrontmatter(text));
-      const blocking = blockingFindings(findings);
+      const blocking = blockingVerdict(path, text, whole);
       if (blocking.length === 0) return {};
 
       return {

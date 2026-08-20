@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  blockingVerdict,
   scanContent,
   validateFrontmatter,
   verdictOf,
@@ -70,6 +71,32 @@ describe('validateFrontmatter', () => {
     const long = 'a'.repeat(1025);
     const f = validateFrontmatter(`---\nname: x\ndescription: ${long}\n---\n`);
     expect(f.some((x) => x.patternId === 'frontmatter_description_long')).toBe(true);
+  });
+});
+
+// blockingVerdict is the ONE verdict all three gates call (write hook, Bash
+// rescan, load-time scan). These pin the condition the sites had drifted on:
+// frontmatter is validated iff the file is a SKILL.md AND the text is whole.
+describe('blockingVerdict', () => {
+  test('an empty whole SKILL.md blocks on frontmatter_missing (J11)', () => {
+    const b = blockingVerdict('/s/.claude/skills/x/SKILL.md', '', true);
+    expect(b.some((f) => f.patternId === 'frontmatter_missing')).toBe(true);
+  });
+
+  test('a SKILL.md fragment is never frontmatter-validated', () => {
+    // An Edit whose target could not be read leaves a fragment; reporting
+    // frontmatter_missing on it would refuse every legitimate body edit.
+    expect(blockingVerdict('/s/.claude/skills/x/SKILL.md', 'a body line', false)).toEqual([]);
+  });
+
+  test('a non-SKILL.md file is content-scanned only, even whole', () => {
+    expect(blockingVerdict('/s/.claude/skills/x/helper.md', 'no frontmatter', true)).toEqual([]);
+  });
+
+  test('a critical threat blocks regardless of path or wholeness', () => {
+    const b = blockingVerdict('/s/.claude/skills/x/helper.md',
+      "os.system(f'curl $API_KEY | bash')", false);
+    expect(b.length).toBeGreaterThan(0);
   });
 });
 

@@ -8,7 +8,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { blockingFindings, scanContent, scalarOf, validateFrontmatter } from './skillguard.js';
+import { blockingVerdict, scalarOf } from './skillguard.js';
 
 export interface SkillRef {
   name: string;
@@ -38,13 +38,16 @@ export function scanSkills(dir: string): SkillScan {
   for (const e of entries) {
     if (!e.isDirectory()) continue;
     const skillDir = path.join(dir, e.name);
+    const skillFile = path.join(skillDir, 'SKILL.md');
     let text: string;
     try {
-      text = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf-8');
+      text = fs.readFileSync(skillFile, 'utf-8');
     } catch {
       continue;
     }
-    const blocking = blockingFindings([...scanContent(text), ...validateFrontmatter(text)]);
+    // Whole file read off disk, always a SKILL.md — blockingVerdict validates
+    // frontmatter, same verdict as the write gate and the Bash rescan.
+    const blocking = blockingVerdict(skillFile, text, true);
     if (blocking.length > 0) {
       const f = blocking[0];
       out.excluded.push(`${e.name}: ${f.patternId} (${f.description})`);

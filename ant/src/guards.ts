@@ -21,11 +21,9 @@ import fs from 'fs';
 import path from 'path';
 import { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import {
-  blockingFindings,
+  blockingVerdict,
   createSkillGuardHook,
   isGuardedPath,
-  scanContent,
-  validateFrontmatter,
 } from './skillguard.js';
 
 // SECRET_ENV_VARS never reach a shell the agent drives. The model credential is
@@ -118,9 +116,11 @@ export function createBashSkillRescanHook(home: string): HookCallback {
           } catch {
             continue;
           }
-          const findings = scanContent(text);
-          if (file.endsWith('SKILL.md')) findings.push(...validateFrontmatter(text));
-          const blocking = blockingFindings(findings);
+          // The rescan holds the whole file by construction (it read it off
+          // disk), so whole=true and blockingVerdict's SKILL.md condition
+          // decides the frontmatter half — the same verdict the write gate
+          // and the load-time scan apply.
+          const blocking = blockingVerdict(file, text, true);
           if (blocking.length === 0) continue;
 
           const aside = `${file}.quarantined`;
