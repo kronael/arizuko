@@ -115,6 +115,15 @@ clean:
 
 images:
 	$(DOCKER) image prune -f
+	# Bound the BUILD cache, which `image prune` does not touch. A full rebuild
+	# leaves 15-22GB of BuildKit cache that nothing ever collects, so the third
+	# rebuild on a busy host dies at 99% disk — twice on 2026-08-18, twice more
+	# on 2026-08-20. --keep-storage caps it WITHOUT going cold: an unbounded
+	# `builder prune -f` would reclaim the same space and then make every
+	# subsequent build recompile every layer. `builder prune` is also the safe
+	# verb: `image prune -a` deletes arizuko-ant, which has no container
+	# between turns to protect it, and every spawn then 403s.
+	$(DOCKER) builder prune -f --keep-storage 8GB
 	$(DOCKER_BUILD) -t arizuko .
 	$(DOCKER_BUILD) -t arizuko-whatsapp -f whapd/Dockerfile .
 	$(DOCKER_BUILD) -t arizuko-twitter -f twitd/Dockerfile .
