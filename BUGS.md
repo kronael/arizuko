@@ -226,6 +226,30 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L57 — the resreg routes face re-implements the route INSERT without the web-JID guard (2026-08-20, open)
+
+`store.AddRoute`/`SetRoutes`/`UpdateRoute` all refuse a `chat_jid=web:*`
+match (`ErrWebJIDRouted`, store/routes.go:48,150,170) because web JIDs are
+direct-addressed and the route table never applies to them. The agent/REST
+face on the routes resreg resource does NOT: `addRouteTx` and `setRoutesTx`
+(routd/routes_resource.go) are their own INSERTs on resreg's tx and carry no
+`matchesWebJID` check, so an agent's `add_route` accepts a `chat_jid=web:*`
+rule that `resolve()` will never consult (direct address precedes the table).
+The rule lands, `inspect_routing` annotates it as if it governed, and the
+agent believes a web chat is redirected or observe-silenced when nothing
+changed — the exact silent-message-loss confusion the skill doc closes with
+"`chat_jid=web:*` is rejected" (ant/skills/self/chat-routing.md), which is now
+true on only one of the two write paths. Classic one-renderer violation: two
+writers of `routes`, one guarded. Found while defusing the anteval
+`route-observe-silent` landmine.
+
+- **Severity:** medium
+- **Scope:** routd routes resource / store write-discipline
+- **Affected:** agent `add_route`/`set_routes`, REST `/v1/routes` add/set
+- **Source:** routd/routes_resource.go `addRouteTx`/`setRoutesTx` vs store/routes.go:48
+- **Status:** open
+- **Fix:**
+
 ## ✅ FIXED 2026-08-20 L56 — a bot reply swallows the user's slash command
 
 **First diagnosis was WRONG and is kept here as the correction.** `web:eval`'s

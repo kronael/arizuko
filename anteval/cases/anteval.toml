@@ -227,16 +227,25 @@ kind = "callback"
 # ── Routing ──────────────────────────────────────────────────────────────────
 
 # Doc: ant/skills/self/chat-routing.md — "Misreading a bare target as observe is
-# the classic mistake" (migration 157). The agent configures THIS chat
-# observe-only, then reads it back with inspect_routing (whose mig-157
-# annotation reports fires_turn) and self-reports. Correct config+read →
-# {nonce}; a channel that still fires (the classic mistake) → {nonce}-fires.
+# the classic mistake" (migration 157). The agent adds an #observe rule, reads
+# it back with inspect_routing (whose mig-157 annotation reports fires_turn),
+# then DELETES it and confirms it is gone — both directions of route hygiene.
+# Correct add+read+delete → {nonce}; annotation says the rule still fires (the
+# classic mistake) → {nonce}-fires; the rule survives the delete → {nonce}-stuck.
+# The rule matches a THROWAWAY chat_jid (evalx:{nonce}) the case owns, never the
+# eval chat: a leaked observe rule on a route-table-resolved eval chat stores
+# every later inject as silent context and fires no turn, so the cases ordered
+# after this one time out as fake agent failures (found 2026-08-20). The delete
+# instruction alone cannot carry that invariant — an agent that dies mid-case
+# leaks the rule — so the throwaway JID guarantees it by construction. Pinned
+# by spec.TestCatalogRouteMutationHygiene.
 # CAVEAT: tests configure-AND-read-correctly, not live turn-suppression (the
 # faithful version needs a 2nd inject the single-inject harness lacks).
 [[case]]
 id = "route-observe-silent"
 dimension = "routing"
-prompt = "Make THIS chat observe-only: a plain message here must be stored as context and fire NO turn (add_route with #observe on this exact chat_jid). Then read the rule back with inspect_routing and report by curling exactly ONE marker: if its annotation confirms this chat will NOT fire a turn on a plain message, `curl -s {sink}/cb/{nonce}`; if it says the chat still fires a turn, `curl -s {sink}/cb/{nonce}-fires`."
+requires = ["mcp:add_route", "mcp:delete_route", "mcp:inspect_routing"]
+prompt = "Route-table observe check on a throwaway chat this case owns — do NOT touch the routing of the chat you are answering in. Step 1: add_route a rule matching chat_jid=evalx:{nonce} whose target is your own folder with #observe (a plain message on that chat must be stored as context and fire NO turn). Step 2: read the rule back with inspect_routing. Step 3: delete_route that same rule and read the table back again. Report by curling exactly ONE marker: if the annotation confirmed the rule fires NO turn AND the rule is gone after your delete, `curl -s {sink}/cb/{nonce}`; if the annotation said the rule still fires a turn, `curl -s {sink}/cb/{nonce}-fires`; if the rule is still present after your delete, `curl -s {sink}/cb/{nonce}-stuck`."
 max_wall_ms = 120000
 [case.check]
 kind = "callback"
