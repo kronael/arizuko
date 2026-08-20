@@ -492,3 +492,20 @@ max_wall_ms = 90000
 kind = "rest_reply"
 chat = "{chat}"
 text = "{nonce}"
+
+# ── Backend contract (6/7) ───────────────────────────────────────────────────
+
+# Layer-1-empty guarantee (spec 6/7 § "Context — three layers"): /new resets
+# the session in the same inbound, so the turn that fires the callback runs on
+# an EMPTY transcript. A backend that needs its own session store for basic
+# operation fails here; group-layer continuity must be enough. Certifying a
+# backend = running the whole catalog with the instance's ARIZUKO_BACKEND set
+# to it (claude | codex | pi) — this case is the floor every backend must pass.
+[[case]]
+id = "fresh-context"
+dimension = "contract"
+smoke = true
+prompt = "/new Your session was just reset — that is expected, not an error. Run `curl -s {sink}/cb/{nonce}` and reply done."
+max_wall_ms = 120000
+[case.check]
+kind = "callback"

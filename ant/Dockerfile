@@ -169,6 +169,7 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 ENV ARIZUKO_MCP_SOCKET=/run/ipc/gated.sock
 
 RUN npm install -g bun agent-browser @anthropic-ai/claude-code @apify/mcpc @openai/codex \
+    @mariozechner/pi-coding-agent \
     && bun install -g @biomejs/biome prettier svgo \
        @marp-team/marp-cli htmlhint
 

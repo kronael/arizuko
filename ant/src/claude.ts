@@ -1,9 +1,10 @@
-// Drives Claude Code via @anthropic-ai/claude-agent-sdk query() — the harness
-// ant wraps. ant never implements an agent loop itself: model calls, tool
-// execution, retries and session state all live in the harness; this module
-// only spawns it, normalizes its event stream, and hands the turn back to
-// index.ts, which reports it once over submit_turn. The replaceable seam is
-// the MCP socket at the process boundary, not an interface in this file
+// Drives Claude Code via @anthropic-ai/claude-agent-sdk query() — the claude
+// backend, and the default occupant. ant never implements an agent loop
+// itself: model calls, tool execution, retries and session state all live in
+// the harness; this module only spawns it, normalizes its event stream, and
+// hands the turn back to index.ts, which reports it once over submit_turn.
+// The seam it implements is backend.ts (spec 6/7 § "The connector seam"); the
+// canonical replaceable seam stays the MCP socket at the process boundary
 // (spec 5/P § "The container model").
 
 import fs from 'fs';
@@ -18,56 +19,53 @@ import { createToolLogPreHook, createToolLogPostHook } from './tool-log.js';
 import { createTodoStatusHook } from './todo-status.js';
 import { guardPreToolUse, guardPostToolUse } from './guards.js';
 import type { ModelUsage } from './mcp.js';
-
-// EventType is the category index.ts switches on. One per SDK message shape
-// normalize() recognises — nothing else reaches the runtime.
-export type EventType =
-  | 'system_init'   // session ready (SDK system/init)
-  | 'assistant'     // assistant text
-  | 'tool_result'   // a tool returned
-  | 'result'        // turn-terminating result
-  | 'rate_limit';   // the harness reported a rate-limit
-
-// Event is one normalized SDK message. `raw` preserves the SDK payload verbatim
-// so callers keep full fidelity (thinking blocks, tool-use shapes, usage stats).
-export interface Event {
-  type: EventType;
-  raw: Record<string, unknown>; // SDK payload, verbatim
-  text?: string;                // best-effort extracted assistant text
-  final?: boolean;              // true on the turn-terminating event
-  // sessionId is set on system_init events: the harness's session id.
-  sessionId?: string;
-  // status is set on result events: how the turn ended.
-  status?: 'success' | 'error';
-  // models is per-model token/cost accounting, set on result events when the
-  // harness reports it. Snake_case to match the submit_turn payload (spec 11/19).
-  models?: Record<string, ModelUsage>;
-  // timedOut marks a result synthesised after the query-timeout deadline
-  // (graceful summary, not a normal completion). routd logs a WARN.
-  timedOut?: boolean;
-}
-
-// SessionConfig is what index.ts hands spawnSession for one turn.
-export interface SessionConfig {
-  prompt: string;                 // the initial user turn
-  model?: string;
-  cwd?: string;
-  resume?: string;                // session id to resume
-  resumeAt?: string;              // resume at a specific point
-  systemPrompt?: string | { type: 'preset'; preset: 'claude_code' };
-  addDirs?: string[];
-  env?: Record<string, string | undefined>;
-  // mcpServers is the assembled MCP server map (injectMcpEnv output), rendered
-  // into the harness's native MCP-client config.
-  mcpServers?: Record<string, import('./mcp-servers.js').McpServerConfig>;
-  // assistantName threads through to the PreCompact archival hook.
-  assistantName?: string;
-  // turnID is the arizuko turn id, threaded to the TodoWrite status hook so it
-  // keys the live-edited ⏳ message (spec 5/24). Empty → the hook no-ops.
-  turnID?: string;
-}
+import type { Backend, DrainIpcInput, Event, SessionConfig } from './backend.js';
 
 const HOME = '/home/node';
+
+// A resumable Claude Code session id is a UUID. arizuko's lineage placeholders
+// (sess-<nano>, fork hex) are not, and `claude --resume` rejects them — so they
+// must be treated as "no session yet" (start fresh), not passed to --resume.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// transcriptPath is the on-disk SDK transcript for a Claude session id. Every
+// container mounts the group home at $HOME=/home/node, so Claude Code slugifies
+// the projects dir to a fixed "-home-node" (matches runner.go CopySession).
+export function transcriptPath(sessionId: string): string {
+  return path.join(HOME, '.claude', 'projects', '-home-node', `${sessionId}.jsonl`);
+}
+
+// resolveResumeSession maps a stored session id to what `--resume` should get,
+// returning undefined ("start fresh") when the id is not resumable:
+//  - an id that is not a UUID is an arizuko lineage placeholder
+//    (sess-<nano> / fork hex) — `claude --resume` rejects it;
+//  - a UUID whose transcript is absent on disk (never persisted, or pruned by
+//    Claude Code retention) — resuming it returns "No conversation found" →
+//    error_during_execution + silent context loss (BUGS: stale chat-bound
+//    session). Start fresh silently instead of burning a turn on the resume miss.
+export function resolveResumeSession(
+  sessionId: string | undefined,
+  hasTranscript: (id: string) => boolean,
+): string | undefined {
+  if (!sessionId) return sessionId;
+  if (!UUID_RE.test(sessionId)) {
+    log(`session id ${sessionId} is not a resumable UUID (arizuko placeholder) — starting fresh`);
+    return undefined;
+  }
+  if (!hasTranscript(sessionId)) {
+    log(`session id ${sessionId} has no transcript on disk (pruned or never persisted) — starting fresh`);
+    return undefined;
+  }
+  return sessionId;
+}
+
+// isSessionError reports whether an SDK result subtype means the resume target
+// was unusable ("No conversation found"). Such a result is a retry signal, NEVER
+// a user-facing reply — deliverTurn is skipped for it (a resume miss is not a
+// user error). BUGS: stale chat-bound session.
+export function isSessionError(subtype: string | undefined): boolean {
+  return subtype === 'error_during_execution';
+}
 const MAX_QUEUE = 100;
 const QUERY_TIMEOUT_MS = Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || 15 * 60_000;
 // Standard-context Opus is the platform default — subscription-covered, never
@@ -214,12 +212,9 @@ function createPreCompactHook(assistantName?: string): HookCallback {
   };
 }
 
-// drainIpcInput is provided by the runtime so the IPC-steering PostToolUse
-// hook can pull mid-turn user messages into the active query. The claude
-// backend owns the hook wiring (it's claude-SDK-specific); the runtime owns
-// the IPC mechanism.
-export type DrainIpcInput = () => string[];
-
+// The IPC-steering PostToolUse hook pulls mid-turn user messages into the
+// active query. The claude backend owns the hook wiring (it's
+// claude-SDK-specific); the runtime owns the IPC mechanism (DrainIpcInput).
 function createIpcDrainHook(drain: DrainIpcInput): HookCallback {
   return async (_input, _toolUseId, _context) => {
     const messages = drain();
@@ -456,8 +451,11 @@ export function normalize(message: unknown): Event | null {
   return null;
 }
 
-// spawnSession starts one harness session. drain is the runtime's IPC-input
-// reader, which the PostToolUse steering hook pulls mid-turn messages from.
-export function spawnSession(cfg: SessionConfig, drain: DrainIpcInput): ClaudeSession {
-  return new ClaudeSession(cfg, drain);
-}
+// claudeBackend is the default occupant (spec 6/7 § "The connector seam").
+export const claudeBackend: Backend = {
+  name: 'claude',
+  resolveResume: (sessionId) =>
+    resolveResumeSession(sessionId, (id) => fs.existsSync(transcriptPath(id))),
+  isSessionError,
+  spawn: (cfg, drain) => new ClaudeSession(cfg, drain),
+};

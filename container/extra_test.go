@@ -121,6 +121,26 @@ func TestBuildArgsWithEgress(t *testing.T) {
 	}
 }
 
+// The backend selector must reach ant as real container env — the first
+// ARIZUKO_BACKEND died precisely because buildArgs never emitted it
+// (spec 6/7 § "Why this document exists").
+func TestBuildArgsAgentBackend(t *testing.T) {
+	cfg := &core.Config{Timezone: "UTC", Image: "img:latest", AgentBackend: "codex"}
+	args := buildArgs(cfg, nil, "c4", egressSpawn{}, "", 0)
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "ARIZUKO_BACKEND=codex") {
+		t.Errorf("missing ARIZUKO_BACKEND -e: %s", joined)
+	}
+}
+
+func TestBuildArgsNoBackendOmitsVar(t *testing.T) {
+	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
+	args := buildArgs(cfg, nil, "c5", egressSpawn{}, "", 0)
+	if strings.Contains(strings.Join(args, " "), "ARIZUKO_BACKEND") {
+		t.Errorf("empty backend must omit -e ARIZUKO_BACKEND: %s", strings.Join(args, " "))
+	}
+}
+
 func TestBuildArgsNoModelNoTimeout(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
 	args := buildArgs(cfg, nil, "c3", egressSpawn{}, "", 0)

@@ -31,7 +31,7 @@ import (
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
-// antResumeRE extracts UUID_RE from ant/src/index.ts — the ACTUAL guard the
+// antResumeRE extracts UUID_RE from ant/src/claude.ts — the ACTUAL guard the
 // agent applies to a session id before `claude --resume`. Compiling ant's own
 // pattern (not a Go copy that can drift) makes these tests fail if either
 // side moves: ant tightening the guard, or routd minting something the guard
@@ -39,13 +39,13 @@ import (
 // go stale.
 func antResumeRE(t *testing.T) *regexp.Regexp {
 	t.Helper()
-	src, err := os.ReadFile(filepath.Join("..", "ant", "src", "index.ts"))
+	src, err := os.ReadFile(filepath.Join("..", "ant", "src", "claude.ts"))
 	if err != nil {
-		t.Fatalf("read ant/src/index.ts: %v", err)
+		t.Fatalf("read ant/src/claude.ts: %v", err)
 	}
 	m := regexp.MustCompile(`(?m)^const UUID_RE = /(.+)/(\w*);`).FindSubmatch(src)
 	if m == nil {
-		t.Fatal("ant/src/index.ts no longer declares `const UUID_RE = /…/;` — update this extractor to ant's current resume guard")
+		t.Fatal("ant/src/claude.ts no longer declares `const UUID_RE = /…/;` — update this extractor to ant's current resume guard")
 	}
 	pattern := string(m[1])
 	if strings.Contains(string(m[2]), "i") {

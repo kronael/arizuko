@@ -111,7 +111,7 @@ const MAX_DESCRIPTION = 1024;
 // its length check measured `>` rather than the prose, so no block-scalar
 // description could ever be too long (BUGS J11). One helper for both keys —
 // `name:` had the same hole.
-function scalarOf(body: string, key: string): string | null {
+export function scalarOf(body: string, key: string): string | null {
   const m = new RegExp(`^${key}:[ \\t]*(.*)$`, 'm').exec(body);
   if (!m) return null;
   const inline = m[1].trim();

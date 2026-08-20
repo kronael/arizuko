@@ -14,6 +14,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **The agent contract has a second and third occupant: `codex` and `pi`
+  backends.** Spec `6/7`'s connector seam is now real code: `ant/src/backend.ts`
+  is one interface (resolveResume / isSessionError / spawn → event stream) with
+  one file per backend. `codex.ts` drives `codex exec --json` — arizuko tools
+  reach it through its native MCP client (`-c mcp_servers.*` → the gated
+  socket), skills through a prompt index. `pi.ts` drives `pi -p --mode json` —
+  native Agent-Skills loading via `--skill`, no MCP client, so the terminal
+  frame is its only delivery. Both run fresh every turn: continuity across a
+  harness swap is the group layer (episodes/diary/work), which the platform
+  owns and no backend replays. The `5/23` skill-guard moves to load time for
+  both (`skills-scan.ts` — same pattern table, second hook point): a blocked
+  skill is excluded from what the connector loads. Select with
+  `ARIZUKO_BACKEND=codex|pi` in the instance `.env` — `buildArgs` now emits it
+  as real container env, closing the omission that killed the first
+  second-backend slot; unknown values fail the turn loudly. The `pi` CLI is
+  baked into the agent image (codex already was). anteval gains a `contract`
+  dimension (`fresh-context`, smoke): `/new` in the case prompt itself proves a
+  turn works on an empty transcript. Conformance matrix — what each backend
+  can and cannot do — in `specs/6/7` § "The connector seam".
+
 ### Fixed
 
 - **anteval cases stopped inheriting the eval chat's history.** The topic-fork

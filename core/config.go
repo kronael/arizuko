@@ -30,6 +30,11 @@ type Config struct {
 	Name                string
 	TelegramToken       string
 	Image               string
+	// AgentBackend selects the container occupant (spec 6/7 "The connector
+	// seam"): claude (default, empty), codex, pi. Static infra config — a
+	// backend exists only if its CLI is baked into Image — so it lives in the
+	// instance .env, never the DB.
+	AgentBackend string
 	Timeout             time.Duration
 	IdleTimeout         time.Duration
 	MaxContainers       int
@@ -205,6 +210,7 @@ func LoadConfig() (*Config, error) {
 		Name:                name,
 		TelegramToken:       envOr("TELEGRAM_BOT_TOKEN", ""),
 		Image:               envOr("CONTAINER_IMAGE", DefaultImage),
+		AgentBackend:        envOr("ARIZUKO_BACKEND", ""),
 		Timeout:             envDur("CONTAINER_TIMEOUT", 60*time.Minute),
 		IdleTimeout:         envDur("IDLE_TIMEOUT", 60*time.Minute),
 		MaxContainers:       envInt("MAX_CONCURRENT_CONTAINERS", 5),

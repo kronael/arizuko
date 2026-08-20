@@ -4,51 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
-import { ClaudeSession, SessionConfig, spawnSession } from './claude.js';
-
-// A resumable Claude Code session id is a UUID. arizuko's lineage placeholders
-// (sess-<nano>, fork hex) are not, and `claude --resume` rejects them — so they
-// must be treated as "no session yet" (start fresh), not passed to --resume.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// transcriptPath is the on-disk SDK transcript for a Claude session id. Every
-// container mounts the group home at $HOME=/home/node, so Claude Code slugifies
-// the projects dir to a fixed "-home-node" (matches runner.go CopySession).
-export function transcriptPath(sessionId: string): string {
-  return path.join(HOME, '.claude', 'projects', '-home-node', `${sessionId}.jsonl`);
-}
-
-// resolveResumeSession maps a stored session id to what `--resume` should get,
-// returning undefined ("start fresh") when the id is not resumable:
-//  - an id that is not a UUID is an arizuko lineage placeholder
-//    (sess-<nano> / fork hex) — `claude --resume` rejects it;
-//  - a UUID whose transcript is absent on disk (never persisted, or pruned by
-//    Claude Code retention) — resuming it returns "No conversation found" →
-//    error_during_execution + silent context loss (BUGS: stale chat-bound
-//    session). Start fresh silently instead of burning a turn on the resume miss.
-export function resolveResumeSession(
-  sessionId: string | undefined,
-  hasTranscript: (id: string) => boolean,
-): string | undefined {
-  if (!sessionId) return sessionId;
-  if (!UUID_RE.test(sessionId)) {
-    log(`session id ${sessionId} is not a resumable UUID (arizuko placeholder) — starting fresh`);
-    return undefined;
-  }
-  if (!hasTranscript(sessionId)) {
-    log(`session id ${sessionId} has no transcript on disk (pruned or never persisted) — starting fresh`);
-    return undefined;
-  }
-  return sessionId;
-}
-
-// isSessionError reports whether an SDK result subtype means the resume target
-// was unusable ("No conversation found"). Such a result is a retry signal, NEVER
-// a user-facing reply — deliverTurn is skipped for it (a resume miss is not a
-// user error). BUGS: stale chat-bound session.
-export function isSessionError(subtype: string | undefined): boolean {
-  return subtype === 'error_during_execution';
-}
+import { Backend, Session, SessionConfig, selectBackend } from './backend.js';
 
 // isRateLimitRejected reports whether a normalized 'rate_limit' event's raw
 // SDKRateLimitEvent means the turn is actually throttled (status 'rejected'),
@@ -317,6 +273,7 @@ function buildSessionConfig(
 }
 
 async function runQuery(
+  backend: Backend,
   prompt: string,
   sessionId: string | undefined,
   containerInput: ContainerInput,
@@ -325,7 +282,7 @@ async function runQuery(
   resumeAt?: string,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; sessionError: boolean }> {
   const cfg = buildSessionConfig(prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
-  const session: ClaudeSession = spawnSession(cfg, drainIpcInput);
+  const session: Session = backend.spawn(cfg, drainIpcInput);
 
   let ipcPolling = true;
   let closedDuringQuery = false;
@@ -395,7 +352,7 @@ async function runQuery(
         const textResult = event.text ?? null;
         const models = event.models;
         log(`Result #${resultCount}: subtype=${subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}${models ? ` models=${Object.keys(models).join(',')}` : ''}`);
-        if (isSessionError(subtype)) {
+        if (backend.isSessionError(subtype)) {
           log('Session error, will retry without session');
           sessionError = true;
         } else {
@@ -458,13 +415,7 @@ async function main(): Promise<void> {
       sdkEnv[key] = value;
     }
 
-    // Resolve the resume target: a lineage placeholder (non-UUID) or a UUID whose
-    // transcript is gone (pruned / never persisted) both start fresh silently,
-    // never surfacing error_during_execution as a delivered result.
-    let sessionId = resolveResumeSession(
-      containerInput.sessionId,
-      id => fs.existsSync(transcriptPath(id)),
-    );
+    let sessionId = containerInput.sessionId;
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
     try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
@@ -486,11 +437,19 @@ async function main(): Promise<void> {
     let turnIndex = 0;
     let resumeAt: string | undefined;
     try {
+      // Selected inside the delivering try: an unknown ARIZUKO_BACKEND fails
+      // this turn loudly to the user, never a silent exit (spec 6/7).
+      const backend = selectBackend(process.env.ARIZUKO_BACKEND);
+      log(`backend: ${backend.name}`);
+      // Resolve the resume target through the backend: a lineage placeholder
+      // or a pruned transcript starts fresh silently (claude); the CLI
+      // backends always start fresh — layer 1 is disposable by contract.
+      sessionId = backend.resolveResume(sessionId);
       while (true) {
         log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
         const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
-        const queryResult = await runQuery(prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
+        const queryResult = await runQuery(backend, prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
         if (queryResult.sessionError && sessionId) {
           log(`Session error on resume, retrying with fresh session (was: ${sessionId})`);
           sessionId = undefined;

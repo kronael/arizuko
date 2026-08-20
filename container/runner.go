@@ -697,6 +697,12 @@ func buildArgs(
 	if queryTimeoutMs > 0 {
 		args = append(args, "-e", "ARIZUKO_QUERY_TIMEOUT_MS="+strconv.FormatInt(queryTimeoutMs, 10))
 	}
+	// The backend selector must also be real container env: the first
+	// ARIZUKO_BACKEND died because ant read the var and nothing ever emitted
+	// it here (spec 6/7 § "Why this document exists").
+	if cfg.AgentBackend != "" {
+		args = append(args, "-e", "ARIZUKO_BACKEND="+cfg.AgentBackend)
+	}
 	// The network is --internal, so this is the whole egress story: the only
 	// route out is eg.ProxyURL, and that proxy answers eg.IP and no other.
 	if eg.Network != "" {

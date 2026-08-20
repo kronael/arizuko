@@ -27,14 +27,18 @@ harness, normalize its event stream (`normalize()`), report the turn
 once over `submit_turn`. Model calls, tool execution, retries and
 session state are all the harness's, never ant's.
 
-Harness independence lives at the **process boundary**, not in an
-interface here: the agent tool surface + `submit_turn` on the unix
-socket routd serves is a wire protocol, so a different harness replaces
-ant as its own process without touching arizuko. There is no in-process
-backend abstraction — one was tried, had a single implementation, and
-its selection env var never reached the container. Spec `5/P`
-§ "ant wraps a harness, it never is one"; extension recipe in
-`EXTENDING.md` § "Swapping the agent harness".
+Harness independence lives at the **process boundary**: the agent tool
+surface + `submit_turn` on the unix socket routd serves is a wire
+protocol, so a different harness replaces ant as its own process without
+touching arizuko. Inside ant, `src/backend.ts` is the connector seam
+(spec `6/7`): the runtime half is shared, and one file per backend
+drives a harness — `claude.ts` (default), `codex.ts` (`codex exec
+--json`, MCP via `-c mcp_servers.*`), `pi.ts` (`pi -p --mode json`,
+native skills, no MCP client). `ARIZUKO_BACKEND` selects; unknown
+values fail the turn loudly. Skills reach codex/pi through the
+load-time guard in `src/skills-scan.ts` — the same skillguard table,
+a different hook point. Spec `5/P` § "ant wraps a harness, it never is
+one"; extension recipe in `EXTENDING.md` § "Swapping the agent harness".
 
 - **`arizuko` core server** — socat bridge to `/run/ipc/gated.sock`,
   `alwaysLoad: true` so `send`/`reply`/`inspect_*`/`send_file` stay

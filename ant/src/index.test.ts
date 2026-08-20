@@ -6,8 +6,8 @@
 
 import { test, expect } from 'bun:test';
 import path from 'path';
-import { resolveResumeSession, isSessionError, isRateLimitRejected, transcriptPath } from './index.js';
-import { claudeResultStatus } from './claude.js';
+import { isRateLimitRejected } from './index.js';
+import { claudeResultStatus, isSessionError, resolveResumeSession, transcriptPath } from './claude.js';
 
 const UUID = 'b6c2b287-0000-4000-8000-000000000000';
 const never = () => false;

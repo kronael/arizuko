@@ -19,10 +19,10 @@ prose in root `CLAUDE.md`, and nothing fails when they are violated — compare
 `TestResourceName_NoStringLiteral`, which IS a contract because breaking it
 breaks the build.
 
-| Environment   | Who occupies it             | Conformance                    |
-| ------------- | --------------------------- | ------------------------------ |
-| **Agent**     | `ant` today, `pi` next      | `anteval` platform case set    |
-| **Component** | a daemon or sibling library | a probe against a live process |
+| Environment   | Who occupies it                                  | Conformance                    |
+| ------------- | ------------------------------------------------ | ------------------------------ |
+| **Agent**     | `ant` chassis: `claude` (default), `codex`, `pi` | `anteval` platform case set    |
+| **Component** | a daemon or sibling library                      | a probe against a live process |
 
 ## Why this document exists
 
@@ -31,7 +31,8 @@ declares what occupying a slot requires:
 
 - **A second backend.** `ARIZUKO_BACKEND` existed, was never emitted as `-e` in
   the spawn args, and died silently. Nothing said what a backend must provide,
-  so nothing noticed it provided nothing.
+  so nothing noticed it provided nothing. (Closed 2026-08-20: §"The connector
+  seam" below is the declaration, and `buildArgs` now emits the var.)
 - **The substrate change.** Warm-per-group containers rewrite the turn
   lifecycle, and `16/1`'s durable streams rewrite it again. Without a contract
   each rewrite is a guess about what may move.
@@ -77,6 +78,107 @@ parses this. Defining a narrower payload for backend two would be a second wire
 format for one consumer — the duplication this codebase spends its effort
 deleting.
 
+### Context — three layers, three time constants
+
+| Layer                                | Owner       | Lifetime                | Where it comes from                                             |
+| ------------------------------------ | ----------- | ----------------------- | --------------------------------------------------------------- |
+| 1. transcript                        | the harness | one session, disposable | the backend's own session store                                 |
+| 2. observed window                   | platform    | minutes                 | `<observed>` in the envelope                                    |
+| 3. episodes / diary / work / persona | platform    | days–months             | group files, rendered by `prepareInput` (`container/runner.go`) |
+
+arizuko does not own conversation history. The harness owns its transcript;
+the platform owns the group. Layers 2 and 3 are rendered into the envelope by
+Go before any backend runs: `<episodes>` from `groups/<folder>/episodes/`
+(`container/episodes.go`), 14 days of diary, `<knowledge layer="work">` and
+the persona, all in `prepareInput`. **A conformant backend must produce a
+correct turn with layer 1 empty.** This is what makes a second occupant cheap:
+a new backend replays nothing, because continuity across a harness swap is
+carried by the group layer, which no backend owns.
+
+### The connector seam
+
+The contract is the process boundary — envelope on stdin, tools on the MCP
+unix socket, `submit_turn` for every frame. Anything that speaks it replaces
+the whole container occupant, in any language, with no arizuko code change.
+That stays canonical; the `5/K` removal (CHANGELOG, migration `0023` era)
+deleted an in-process `Backend` interface precisely because it duplicated the
+wire protocol's genericity while being unreachable.
+
+What ant ships now is not that interface back. It is a **connector chassis**:
+the runtime half every occupant needs (stdin envelope parse, IPC steering,
+idempotent `submit_turn`, `<status>` streaming) implemented once, with a seam
+of one interface plus one file per backend for the harness half:
+
+```ts
+interface Backend {
+  name: string;
+  // undefined = start fresh. Layer-1 policy is the backend's own.
+  resolveResume(sessionId: string | undefined): string | undefined;
+  // true = the resume target was unusable; retry fresh, never deliver.
+  isSessionError(subtype: string | undefined): boolean;
+  spawn(cfg: SessionConfig, drain: DrainIpcInput): Session; // one turn
+}
+interface Session {
+  events(): AsyncIterable<Event>; // system_init | assistant | tool_result | result | rate_limit
+  close(): Promise<void>;
+}
+```
+
+`ant/src/backend.ts` owns the types and the selector; `claude.ts`, `codex.ts`
+and `pi.ts` each implement one backend. Selection is `ARIZUKO_BACKEND`
+(`claude` | `codex` | `pi`), an instance `.env` infra toggle — static by the
+dynamic-vs-static test, because a backend exists only if its CLI is baked into
+the agent image. `container/runner.go buildArgs` emits it as real container
+env (`-e`); the omission of exactly that emission is what killed the first
+second-backend slot. An unknown value fails the spawn loudly — no silent
+fallback to claude.
+
+### Skills across backends — one scanner, two hook points
+
+A skill is a named instruction file plus a trigger: `SKILL.md` with
+frontmatter `name`/`description` (the Agent Skills format). The group's
+installed set lives in `~/.claude/skills/`.
+
+- **claude** — native discovery; the `5/23` skill-guard runs as a PreToolUse
+  hook on writes into `~/.claude/**`. The gate sits at WRITE time.
+- **pi** — implements the Agent Skills format natively; the connector passes
+  each skill dir via `--skill`. No hook mechanism.
+- **codex** — no skill mechanism; the connector renders an index
+  (name — description — path) into the prompt, and the model reads the
+  `SKILL.md` on match.
+
+codex and pi cannot run the write-time hook, so the connector moves the SAME
+scanner (`skillguard.ts`, the hermes pattern table — one table, never a
+second copy) to LOAD time: at session start every skill is scanned, and a
+skill with blocking findings is excluded from pi's `--skill` list and from
+codex's index. Stated honestly: load-time scanning gates what the connector
+loads, not what the model reads by path afterwards — it is narrower coverage
+than the write-time gate, not parity. The bash secret scrub
+(`guards.ts`) also does not run on codex/pi; the credential it scrubs
+(the Anthropic OAuth token) is not present in those backends' env, which
+shrinks but does not erase that gap.
+
+### Conformance matrix (2026-08-20)
+
+| Capability                             | claude                   | codex                                          | pi                                                                     |
+| -------------------------------------- | ------------------------ | ---------------------------------------------- | ---------------------------------------------------------------------- |
+| envelope parse (prompt in)             | yes                      | yes                                            | yes                                                                    |
+| terminal frame via `submit_turn`       | yes                      | yes (connector)                                | yes (connector)                                                        |
+| arizuko MCP tools (`reply`/`send`/…)   | yes                      | yes (`mcp_servers` → socat)                    | **no** — pi has no MCP client; the terminal frame is its only delivery |
+| mid-turn steering (IPC → active query) | yes (PostToolUse drain)  | no — between-turn only                         | no — between-turn only                                                 |
+| interim `<status>` streaming           | yes                      | yes (`agent_message` events)                   | yes (`message_end` events)                                             |
+| session resume (layer 1)               | yes (`--resume`)         | no — fresh each turn                           | no — fresh each turn (`--no-session`)                                  |
+| skills                                 | native                   | prompt index (connector)                       | native (`--skill`)                                                     |
+| skill-guard (`5/23`)                   | write-time hook          | load-time scan                                 | load-time scan                                                         |
+| per-model usage accounting             | tokens + cost            | tokens only, cost 0                            | tokens + cost                                                          |
+| model credential                       | subscription OAuth / env | `~/.codex` or `OPENAI_API_KEY`/`CODEX_API_KEY` | provider API key env                                                   |
+
+Fresh-each-turn is conformant: the contract requires correctness with layer 1
+empty, not layer 1 at all. A backend without MCP reach passes only the cases
+whose observable effect its own tools (shell, files, egress) can produce —
+the matrix row IS the expected anteval delta, and a truthful delta beats a
+parity claim.
+
 ### Delivery — idempotent everywhere, not just at the end
 
 **Every message and every MCP call carries the guarantee.** This is the part
@@ -115,11 +217,24 @@ one of those four sentences becomes false.
 ### Conformance: `anteval`, per backend
 
 A backend is arizuko-compatible to the degree it passes the platform case set
-(`5/9`, 34 cases, `smoke = true` marking the gate basis). This replaces a prose
-list of required-versus-optional behaviours: what is required is what the cases
-assert, and the score is the compatibility statement. `pi` is the intended
-second occupant, so the contract is written against a real second backend
-rather than a hypothetical one.
+(`5/9`, `smoke = true` marking the gate basis). This replaces a prose list of
+required-versus-optional behaviours: what is required is what the cases
+assert, and the score is the compatibility statement. Certification is the
+same set run once per backend, by hand, against an instance whose `.env` sets
+that backend:
+
+    ARIZUKO_BACKEND=codex  # instance .env; restart; then, manually:
+    anteval run --cases ./anteval/cases ...
+
+anteval never runs automatically — no CI, no cron; `make -C anteval validate`
+(catalog validation, no live run) is the only pipeline-safe step. The
+`fresh-context` case asserts the layer-1-empty guarantee directly: `/new`
+resets the session in the same inbound, so the turn that fires the callback
+ran with an empty transcript. **As of 2026-08-20 only `claude` has a live
+anteval history; `codex` and `pi` connectors run a turn (recorded-fixture
+tests + a local CLI invocation) but are not yet live-certified.** The matrix
+above states what each backend can pass in principle; the live run per
+backend is the operator's step.
 
 ## The component contract
 
