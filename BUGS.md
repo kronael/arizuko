@@ -2455,7 +2455,7 @@ is silent.
   (`TurnHasBotReply`), are the two shapes worth costing.
 - **Fix:**
 
-## X2 — the aws-devops product's credential model died with X1 (2026-08-09, proposed)
+## X2 — the aws-devops product's credential model died with X1 (2026-08-09, DECIDED 2026-08-20: retire)
 
 `specs/17/product-aws-devops.md` sells one headline: each engineer's `AWS_*`
 keys reach `aws`/`boto3` **inside the container**, so CloudTrail attributes the
@@ -2483,7 +2483,16 @@ than loudly — worse than a crash.
   key prefix into spawn env, which reopens exactly the hole `X1` closed and
   should be refused unless (a) is proven impossible; (c) retire the product.
   Until one is chosen, `ant/examples/aws-devops/` must not ship.
-- **Proposal note (2026-08-11):** `specs/6/17-egress-credential-proxy.md`
+- **DECISION 2026-08-20 — option (c), retire the product.** `specs/6/17` is
+  closed as a decline of every tier: arizuko serves credentials through the MCP
+  broker or not at all, and an opaque in-container client is out of scope by
+  decision. That removes (a) as an option and (b) was always refusable. Verified
+  the same day: `--product aws-devops` is still a shipped flag
+  (`cmd/arizuko/main.go:231`) and `ant/examples/aws-devops/` still exists, but
+  **zero groups on krons, sloth or marinade use it** — so retiring costs nothing
+  live. REMAINING WORK: delete the flag value + the example dir, and the six
+  claims in `specs/17/product-aws-devops.md` that assert the removed behavior.
+- **Superseded proposal note (2026-08-11):** `specs/6/17-egress-credential-proxy.md`
   (rewritten) is the concrete mechanism for (a): iron-proxy's `aws_auth`
   transform re-signs SigV4 host-side from the same credential store —
   configuration, not new crypto code, and `boto3` works unmodified in the

@@ -26,7 +26,7 @@ on-ramp; emulation is rejected.
 | [9-crackbox-sandboxing.md](9-crackbox-sandboxing.md)               | shipped    | the KVM/qemu sandbox library, now `sandbox/` — **shipped but unwired**: `runed` still spawns Docker; its consumer is `crackbox run --kvm` (was `12/12`)                                                                                                                |
 | [10-crackbox-dns-filter.md](10-crackbox-dns-filter.md)             | superseded | DNS NXDOMAIN filter on UDP/53 — DELETED by `6/24`: a second enforcement point that can disagree with the CONNECT line (was `12/15`)                                                                                                                                    |
 | [12-mcp-firewall.md](12-mcp-firewall.md)                           | draft      | `mcpfw` — transparent MCP proxy for THIRD-PARTY MCP servers; deny-wins tool-call filter (was `12/17`)                                                                                                                                                                  |
-| [17-egress-credential-proxy.md](17-egress-credential-proxy.md)     | draft      | the opaque-client credential hole (`8/Z`): `credential_process` closes `X2`, signing rides a host-side request tool. MITM + header injection DECLINED 2026-08-18 — the allowlist never needed interception                                                             |
+| [17-egress-credential-proxy.md](17-egress-credential-proxy.md)     | shipped    | costed DECLINE of every tier of the opaque-client credential hole (2026-08-20): credentials reach a client through the MCP broker or not at all. Kept as the record `6/19`/`6/23`/`6/24`/`6/25` cite                                                                   |
 | [18-durable-workflows-decline.md](18-durable-workflows-decline.md) | shipped    | costed DECLINE of a durable-execution engine — `5/A` decision 5 stands; reopen trigger + the four-table shape to copy if it fires                                                                                                                                      |
 | [19-unified-tool-declaration.md](19-unified-tool-declaration.md)   | draft      | collapse `[[ext]]`+`[[mcp_connector]]` into one `[[connector]]` block + the ordered-source shadow rule; timed to `5/13` shape 4                                                                                                                                        |
 | [20-sandbox-lifecycle-decline.md](20-sandbox-lifecycle-decline.md) | shipped    | costed DECLINE of the warm-pool sandbox lifecycle vs per-turn ephemeral containers; the mount-boundary blocker; `can_open_io`+reconcile survive for `6/9` KVM                                                                                                          |
@@ -52,8 +52,11 @@ themselves argue:
    2026-08-17** (`arizuko probe <base-url>`); routd and proxyd pass 5/5
    live, dashd 3/3. What remains is the `anteval` gate run per backend,
    with `pi` as the second agent-slot occupant.
-2. **`6/17` tier 0** — the `credential_process` helper closes BUGS `X2`
-   with no new trust surface; the request tool carries signing.
+2. **`6/17` is closed as a DECLINE (2026-08-20)** — every tier, including
+   tier 0. arizuko serves credentials through one mechanism, the MCP broker;
+   an opaque in-container client is out of scope by decision, not by coverage.
+   Its only named consumer was `X2`, and zero groups on any instance run that
+   product, so `X2` closes as option (c): retire `--product aws-devops`.
 3. **crackbox cut to its lightest** (`6/24`) — a static per-spawn forward
    proxy, ~250 lines, with `pkg/host` split out and `crackbox` surviving
    as the tool that composes them. **Demoted 2026-08-18**: the earlier
