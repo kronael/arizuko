@@ -44,8 +44,17 @@ func hostPort(authority string) string {
 
 // Proxy is one sandbox's egress path.
 type Proxy struct {
-	// allow is the fixed allowlist, matched by match.Host.
+	// allow and deny are the fixed rule lists, decided by match.Allowed —
+	// deny FIRST, so a deny entry carves an exception out of a broad allow
+	// ("all of example.com except internal.example.com"). Both are validated
+	// by New: a rule that can never match is refused at construction, not
+	// silently carried (spec 6/25 1b).
 	allow []string
+	deny  []string
+	// allowAll permits every host NAME — the explicit mode that replaced the
+	// magic "*" list entry. The deny list and the address checks still apply:
+	// allow-all opens names, not blocked address classes.
+	allowAll bool
 	// client is the only peer address allowed to use this proxy. Empty
 	// accepts any peer.
 	//
@@ -89,10 +98,19 @@ func (p *Proxy) SetDenyPrivate(deny bool) { p.denyPrivate = deny }
 // SetAllowLoopback permits destinations on this host — local development only.
 func (p *Proxy) SetAllowLoopback(allow bool) { p.allowLoopback = allow }
 
-// New returns a proxy that allows exactly allow, for exactly client.
-// client is an IP address; empty accepts any peer.
-func New(allow []string, client string) *Proxy {
-	p := &Proxy{allow: allow, client: client}
+// SetAllowAll permits every host name; deny and the address checks still apply.
+func (p *Proxy) SetAllowAll(allow bool) { p.allowAll = allow }
+
+// New returns a proxy that allows exactly allow minus deny, for exactly
+// client (an IP address; empty accepts any peer). Both lists are validated:
+// an entry that can never match — a URL, a host:port, an IP, a stray
+// wildcard — is refused here, where the list is accepted, instead of
+// reading as protection at match time.
+func New(allow, deny []string, client string) (*Proxy, error) {
+	if err := match.ValidateLists(allow, deny); err != nil {
+		return nil, err
+	}
+	p := &Proxy{allow: allow, deny: deny, client: client}
 	p.lookup = func(ctx context.Context, host string) ([]net.IP, error) {
 		return net.DefaultResolver.LookupIP(ctx, "ip", host)
 	}
@@ -102,7 +120,13 @@ func New(allow []string, client string) *Proxy {
 		IdleConnTimeout:       90 * time.Second,
 		MaxIdleConnsPerHost:   16,
 	}
-	return p
+	return p, nil
+}
+
+// hostAllowed is the one name-policy decision for both the CONNECT tunnel
+// and the plain-HTTP forward: deny first, then allow-all, then the allowlist.
+func (p *Proxy) hostAllowed(host string) bool {
+	return match.Allowed(p.allow, p.deny, p.allowAll, host)
 }
 
 // httpClient forwards plain-HTTP requests through this proxy's checked dialer.
@@ -170,7 +194,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, src string
 	if err != nil {
 		host = r.Host
 	}
-	if !match.Host(p.allow, host) {
+	if !p.hostAllowed(host) {
 		slog.Info("deny connect", "src", src, "host", host)
 		http.Error(w, "denied", http.StatusForbidden)
 		return
@@ -214,7 +238,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 		host = h
 	}
 
-	if !match.Host(p.allow, host) {
+	if !p.hostAllowed(host) {
 		slog.Info("deny http", "src", src, "host", host)
 		http.Error(w, "denied", http.StatusForbidden)
 		return

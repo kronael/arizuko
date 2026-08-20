@@ -40,6 +40,50 @@ func TestNetworkRulesAddRemoveList(t *testing.T) {
 	}
 }
 
+// TestAddNetworkRuleValidates: the CLI write path had NO validation — a URL,
+// a host:port or an IP was stored and silently never matched (spec 6/25 1b).
+// Now the rule is refused where the operator writes it, with the reason; `*`
+// stays writable as the folder's allow-all row (live rows exist on krons and
+// marinade), and a *.glob lands normalized so deny-by-same-syntax works.
+func TestAddNetworkRuleValidates(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatalf("OpenMem: %v", err)
+	}
+	defer s.Close()
+
+	for _, target := range []string{
+		"https://example.com", "example.com:443", "example.com/path",
+		"user@example.com", "10.0.0.8", "10.0.0.0/8", "api.*.example.com", "",
+	} {
+		if err := s.AddNetworkRule("acme", target, "cli"); err == nil {
+			t.Errorf("AddNetworkRule(%q) accepted a rule that can never match", target)
+		}
+	}
+	if rules, _ := s.ListNetworkRules("acme"); len(rules) != 0 {
+		t.Fatalf("rejected targets must not persist: %+v", rules)
+	}
+
+	if err := s.AddNetworkRule("acme", "*", "cli"); err != nil {
+		t.Fatalf("the * allow-all row must stay writable by the operator: %v", err)
+	}
+	if err := s.AddNetworkRule("acme", "*.Api.Example.com.", "cli"); err != nil {
+		t.Fatalf("a *.glob is a valid rule: %v", err)
+	}
+	rules, _ := s.ListNetworkRules("acme")
+	if len(rules) != 2 || rules[0].Target != "*" || rules[1].Target != "api.example.com" {
+		t.Fatalf("want [* api.example.com] stored normalized, got %+v", rules)
+	}
+
+	// Remove by the glob syntax the operator used to add it.
+	if err := s.RemoveNetworkRule("acme", "*.api.example.com"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if rules, _ := s.ListNetworkRules("acme"); len(rules) != 1 || rules[0].Target != "*" {
+		t.Fatalf("glob-syntax remove must hit the normalized row: %+v", rules)
+	}
+}
+
 func TestResolveAllowlistAncestry(t *testing.T) {
 	s, err := OpenMem()
 	if err != nil {

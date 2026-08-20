@@ -26,12 +26,11 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/egress/match"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
@@ -88,16 +87,22 @@ func (s *Server) networkRulesHandler(ctx context.Context, x resreg.Execution) (a
 
 	case networkActionAllow:
 		folder := networkTargetFolder(x.Args, x.Caller.Folder)
-		// Accept *.example.com — the egress proxy already suffix-matches a bare domain to
-		// all its subdomains, so normalize the glob to the apex and store that.
-		// Bare * (allow-all) stays rejected: opening all egress is an operator
-		// decision, not an agent grant.
-		host := strings.TrimPrefix(argString(x.Args, "host"), "*.")
-		if !validHostname(host) {
+		// One rule grammar for every write path (match.ValidEntry — spec 6/25 1b):
+		// a rule that can never match (URL, host:port, IP — ValidVhostName let
+		// those through) is refused with its reason. The *.example.com glob
+		// normalizes onto its apex, which already covers subdomains. Bare *
+		// (allow-all) stays rejected here BEFORE the shared grammar: opening all
+		// egress is an operator decision, not an agent grant.
+		raw := argString(x.Args, "host")
+		if raw == "*" {
 			return nil, resreg.Errorf(http.StatusBadRequest,
-				"host must be a bare domain (example.com) or subdomain glob "+
-					"(*.example.com); no scheme/port/path. A bare domain already covers its subdomains.")
+				"opening all egress is an operator decision, not an agent grant")
 		}
+		if err := match.ValidEntry(raw); err != nil {
+			return nil, resreg.Errorf(http.StatusBadRequest,
+				"%v — write a bare domain (example.com) or subdomain glob (*.example.com)", err)
+		}
+		host := match.NormalizeEntry(raw)
 		if err := addNetworkRuleTx(ctx, x.Tx, folder, host, x.Caller.Sub); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -108,7 +113,7 @@ func (s *Server) networkRulesHandler(ctx context.Context, x resreg.Execution) (a
 		folder := networkTargetFolder(x.Args, x.Caller.Folder)
 		// Normalize the *.example.com glob the same way allow stores it, so a rule
 		// added as *.example.com can be removed by the same syntax.
-		host := strings.TrimPrefix(argString(x.Args, "host"), "*.")
+		host := match.NormalizeEntry(argString(x.Args, "host"))
 		if host == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "host required")
 		}
@@ -171,10 +176,4 @@ func addNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target, by string
 func removeNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target string) error {
 	_, err := tx.ExecContext(ctx, `DELETE FROM network_rules WHERE folder = ? AND target = ?`, folder, target)
 	return err
-}
-
-// validHostname keeps the network-rule call sites on their existing name while
-// groupfolder owns hostname validation.
-func validHostname(h string) bool {
-	return groupfolder.ValidVhostName(h)
 }

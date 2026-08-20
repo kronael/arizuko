@@ -2,10 +2,12 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/egress/match"
 )
 
 type NetworkRule struct {
@@ -15,7 +17,22 @@ type NetworkRule struct {
 	CreatedBy string
 }
 
+// AddNetworkRule validates target where the operator writes it — a rule that
+// can never match (a URL, a host:port, an IP) is refused with the reason, not
+// stored to read as protection (spec 6/25 1b). `*` is the one non-host row: a
+// folder's allow-all marker, which the spawn path translates into the egress
+// binary's explicit --allow-all mode. Writing it opens all egress, so it is
+// the operator CLI's to write; the agent's network_allow rejects it before
+// reaching the store. Targets are stored normalized (lowercase, `*.` glob
+// folded onto its apex), so a rule added as *.example.com is removed as
+// example.com.
 func (s *Store) AddNetworkRule(folder, target, by string) error {
+	if target != "*" {
+		if err := match.ValidEntry(target); err != nil {
+			return fmt.Errorf("network rule: %w", err)
+		}
+		target = match.NormalizeEntry(target)
+	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		_, err := tx.Exec(
 			`INSERT OR IGNORE INTO network_rules (folder, target, created_at, created_by)
@@ -42,7 +59,12 @@ func (s *Store) AddNetworkRule(folder, target, by string) error {
 	})
 }
 
+// RemoveNetworkRule normalizes target the same way AddNetworkRule stores it,
+// so a rule added as *.example.com is removable by the same syntax.
 func (s *Store) RemoveNetworkRule(folder, target string) error {
+	if target != "*" {
+		target = match.NormalizeEntry(target)
+	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		_, err := tx.Exec(
 			`DELETE FROM network_rules WHERE folder = ? AND target = ?`,

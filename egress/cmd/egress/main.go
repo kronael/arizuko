@@ -3,8 +3,11 @@
 //
 //	egress --listen :3128 --allow api.anthropic.com,github.com --client 10.99.4.7
 //
-// The allowlist is fixed for the life of the process. There is no admin
+// The rules are fixed for the life of the process. There is no admin
 // API and no registry: to change the rules, start a new proxy (spec 6/24).
+// A rule that can never match — a URL, a host:port, an IP, a stray
+// wildcard, a duplicate, a host in both lists — refuses to start rather
+// than reading as protection (spec 6/25 1b).
 package main
 
 import (
@@ -27,12 +30,14 @@ import (
 func main() {
 	fs := flag.NewFlagSet("egress", flag.ExitOnError)
 	listen := fs.String("listen", envOr("EGRESS_LISTEN", ":3128"), "proxy listen address")
-	allow := fs.String("allow", os.Getenv("EGRESS_ALLOW"), "comma-separated allowlist (a bare * allows everything)")
+	allow := fs.String("allow", os.Getenv("EGRESS_ALLOW"), "comma-separated allowlist of host names")
+	deny := fs.String("deny", os.Getenv("EGRESS_DENY"), "comma-separated denylist; deny beats allow, carving exceptions out of it")
+	allowAll := fs.Bool("allow-all", os.Getenv("EGRESS_ALLOW_ALL") != "", "allow every host name (--deny and the address checks still apply)")
 	client := fs.String("client", os.Getenv("EGRESS_CLIENT"), "the only peer IP allowed to use this proxy; empty accepts any peer")
 	denyPrivate := fs.Bool("deny-private", os.Getenv("EGRESS_DENY_PRIVATE") != "", "also refuse destinations resolving into a private range")
 	allowLoopback := fs.Bool("allow-loopback", os.Getenv("EGRESS_ALLOW_LOOPBACK") != "", "permit destinations on this host (local development)")
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, "usage: egress [--listen :3128] [--allow host,host] [--client ip] [--deny-private] [--allow-loopback]\n")
+		fmt.Fprint(os.Stderr, "usage: egress [--listen :3128] [--allow host,host] [--deny host,host] [--allow-all] [--client ip] [--deny-private] [--allow-loopback]\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(os.Args[1:])
@@ -42,7 +47,8 @@ func main() {
 	})))
 
 	allowlist := splitCSV(*allow)
-	if len(allowlist) == 0 {
+	denylist := splitCSV(*deny)
+	if len(allowlist) == 0 && !*allowAll {
 		// An empty allowlist denies everything. That is a valid rule but
 		// almost always a misconfiguration, so say so rather than serve a
 		// proxy that refuses every request without explanation.
@@ -52,7 +58,14 @@ func main() {
 	// Bind before reporting healthy. The caller starts the sandbox only once
 	// GET /health answers 200, so the sandbox cannot make a request that
 	// arrives before this proxy is serving with its allowlist loaded.
-	p := egress.New(allowlist, *client)
+	// New validates both lists: a rule that can never match refuses to
+	// start, loudly, instead of reading as protection (spec 6/25 1b).
+	p, err := egress.New(allowlist, denylist, *client)
+	if err != nil {
+		slog.Error("invalid rule list", "err", err)
+		os.Exit(1)
+	}
+	p.SetAllowAll(*allowAll)
 	p.SetDenyPrivate(*denyPrivate)
 	p.SetAllowLoopback(*allowLoopback)
 	lis, err := net.Listen("tcp", *listen)
@@ -62,8 +75,8 @@ func main() {
 	}
 	srv := p.Server(*listen)
 	p.SetReady(true)
-	slog.Info("egress up", "listen", lis.Addr().String(),
-		"client", *client, "rules", len(allowlist))
+	slog.Info("egress up", "listen", lis.Addr().String(), "client", *client,
+		"allow", len(allowlist), "deny", len(denylist), "allow_all", *allowAll)
 
 	errc := make(chan error, 1)
 	go func() {

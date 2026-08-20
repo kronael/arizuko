@@ -138,6 +138,19 @@ func startEgressProxy(cfg EgressConfig, id, spawnName string) (egressSpawn, erro
 	if err != nil {
 		return egressSpawn{}, fmt.Errorf("resolve allowlist: %w", err)
 	}
+	// Both producers of "allow everything" — a folder's `*` network_rules row
+	// and runner.go's elevated-egress append — spell it as a `*` list entry.
+	// The egress binary takes an explicit --allow-all mode instead of a magic
+	// string in a list (spec 6/25 1b), so this one seam translates.
+	allowAll := false
+	names := make([]string, 0, len(allowlist))
+	for _, e := range allowlist {
+		if e == "*" {
+			allowAll = true
+			continue
+		}
+		names = append(names, e)
+	}
 	spawnIP, proxyIP, err := pickPair(subnet)
 	if err != nil {
 		return egressSpawn{}, err
@@ -159,7 +172,10 @@ func startEgressProxy(cfg EgressConfig, id, spawnName string) (egressSpawn, erro
 		cfg.Image,
 		"--listen", fmt.Sprintf(":%d", egressPort),
 		"--client", spawnIP,
-		"--allow", strings.Join(allowlist, ","),
+		"--allow", strings.Join(names, ","),
+	}
+	if allowAll {
+		args = append(args, "--allow-all")
 	}
 	if out, err := execCommand(Bin, args...).CombinedOutput(); err != nil {
 		return egressSpawn{}, fmt.Errorf("egress proxy run %s: %w (%s)",
@@ -196,7 +212,7 @@ func startEgressProxy(cfg EgressConfig, id, spawnName string) (egressSpawn, erro
 
 	slog.Info("egress proxy up", "id", id, "container", name,
 		"network", netName, "spawn_ip", spawnIP, "proxy_ip", proxyIP,
-		"rules", len(allowlist))
+		"rules", len(names), "allow_all", allowAll)
 	return egressSpawn{
 		Network:  netName,
 		IP:       spawnIP,

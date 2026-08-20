@@ -32,8 +32,8 @@ import (
 
 // envFixture stands up one proxy plus loopback upstreams per case.
 // Upstreams listen on 127.0.0.1; test URLs use the "localhost" hostname so
-// the allowlist (host-name based) must match a NAME — match.Host skips IP
-// entries deliberately, so a test cannot allowlist "127.0.0.1".
+// the allowlist (host-name based) must match a NAME — an IP entry is refused
+// at construction, so a test cannot allowlist "127.0.0.1".
 type envFixture struct {
 	t            *testing.T
 	proxyURL     *url.URL
@@ -60,7 +60,10 @@ func newEnv(t *testing.T, allowlist []string) *envFixture {
 
 	// client "" — the peer pin is proved in the package's own tests; these
 	// cases are about the allowlist.
-	p := egress.New(allowlist, "")
+	p, err := egress.New(allowlist, nil, "")
+	if err != nil {
+		t.Fatalf("egress.New: %v", err)
+	}
 	// The upstreams are httptest servers on 127.0.0.1, so this harness is the
 	// local-development case the option exists for: the destination genuinely
 	// is this host. Everything else about the proxy stays default.

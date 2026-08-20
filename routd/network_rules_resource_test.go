@@ -10,7 +10,6 @@ package routd
 // egress management is a delegable scoped grant (TestNetworkRulesMCP_ScopedGrantAllowsInScope).
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -140,6 +139,18 @@ func TestNetworkRulesMCP_BadHostRejected(t *testing.T) {
 
 	if _, e := callToolText(t, sock, "network_allow", map[string]any{"host": "*"}); e == "" {
 		t.Fatal("bare * (allow-all egress) should be rejected")
+	}
+
+	// The classes the old validHostname let THROUGH (it allowed ':' and IPs) —
+	// rules that read as protection and never match (spec 6/25 1b). The full
+	// grammar table lives in egress/match; these pin the tool's wiring to it.
+	for _, host := range []string{"example.com:443", "10.0.0.8", "user@example.com"} {
+		if _, e := callToolText(t, sock, "network_allow", map[string]any{"host": host}); e == "" {
+			t.Fatalf("network_allow(%q) accepted a rule that can never match", host)
+		}
+	}
+	if got, _ := db.ListNetworkRules("hq"); len(got) != 1 {
+		t.Fatalf("rejected hosts must not persist; rules = %v", got)
 	}
 }
 
@@ -424,30 +435,6 @@ func TestNetworkRulesMCP_AuditRowLands(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("audit_log has %d network_rules:allow rows, want 1", n)
-	}
-}
-
-// TestValidHostname: moved from ipc when the network tools migrated to resreg
-// (network_allow was ipc.validHostname's only caller).
-func TestValidHostname(t *testing.T) {
-	cases := []struct {
-		in   string
-		want bool
-	}{
-		{"example.com", true},
-		{"localhost", true},
-		{"my-host.example.org", true},
-		{"host:8080", true},
-		{"", false},
-		{strings.Repeat("a", 254), false},
-		{"has space", false},
-		{"has/slash", false},
-		{"has@at", false},
-	}
-	for _, c := range cases {
-		if got := validHostname(c.in); got != c.want {
-			t.Errorf("validHostname(%q) = %v, want %v", c.in, got, c.want)
-		}
 	}
 }
 

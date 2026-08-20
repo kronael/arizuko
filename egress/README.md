@@ -4,9 +4,9 @@ A forward HTTP/CONNECT proxy that allows one fixed list of hosts, for one
 client. `runed` starts one per spawned container and stops it with the turn.
 
 What it does: read the destination out of the request the client sends,
-match the NAME against the allowlist, resolve it once, refuse the ADDRESS if
-it is a class no sandbox may reach, and dial exactly that address. That is all
-of it.
+match the NAME against the deny list first and the allowlist second, resolve
+it once, refuse the ADDRESS if it is a class no sandbox may reach, and dial
+exactly that address. That is all of it.
 
 What it does not do: terminate TLS, hold a CA, read request bodies, keep a
 registry, serve an admin API, intercept traffic addressed elsewhere, or
@@ -20,25 +20,49 @@ one proxy per sandbox needs none of them (spec
 egress --listen :3128 --allow api.anthropic.com,github.com --client 10.99.4.7
 ```
 
-| Flag               | Env                     | Default | Meaning                                                 |
-| ------------------ | ----------------------- | ------- | ------------------------------------------------------- |
-| `--listen`         | `EGRESS_LISTEN`         | `:3128` | listen address                                          |
-| `--allow`          | `EGRESS_ALLOW`          | (empty) | comma-separated allowlist; a bare `*` allows all        |
-| `--client`         | `EGRESS_CLIENT`         | (empty) | the only peer IP served; empty accepts any peer         |
-| `--deny-private`   | `EGRESS_DENY_PRIVATE`   | off     | also refuse destinations resolving into a private range |
-| `--allow-loopback` | `EGRESS_ALLOW_LOOPBACK` | off     | permit destinations on this host (local development)    |
+| Flag               | Env                     | Default | Meaning                                                        |
+| ------------------ | ----------------------- | ------- | -------------------------------------------------------------- |
+| `--listen`         | `EGRESS_LISTEN`         | `:3128` | listen address                                                 |
+| `--allow`          | `EGRESS_ALLOW`          | (empty) | comma-separated allowlist of host names                        |
+| `--deny`           | `EGRESS_DENY`           | (empty) | comma-separated denylist; deny beats allow                     |
+| `--allow-all`      | `EGRESS_ALLOW_ALL`      | off     | allow every host name; `--deny` and address checks still apply |
+| `--client`         | `EGRESS_CLIENT`         | (empty) | the only peer IP served; empty accepts any peer                |
+| `--deny-private`   | `EGRESS_DENY_PRIVATE`   | off     | also refuse destinations resolving into a private range        |
+| `--allow-loopback` | `EGRESS_ALLOW_LOOPBACK` | off     | permit destinations on this host (local development)           |
 
-The allowlist is fixed for the life of the process. To change the rules,
-start a new proxy — which is what a per-spawn proxy does anyway.
+The rules are fixed for the life of the process. To change them, start a
+new proxy — which is what a per-spawn proxy does anyway.
 
 An empty allowlist denies everything. That is a valid rule (a folder with no
 network grants), so it starts and logs a warning rather than refusing.
 
 ## Matching
 
-`match.Host` — exact, subdomain, case-insensitive, trailing dot stripped.
-A bare `*` allows everything. IP entries are skipped: filtering is by NAME,
-because the name is what the client puts in the request line.
+`match.Allowed` — deny first, then allow-all, then the allowlist. Entries
+match exact or subdomain, case-insensitive, trailing dot stripped; a
+`*.example.com` glob is one rule with its apex (a bare domain already covers
+its subdomains). Deny beating allow is what makes an exception expressible:
+allow `example.com`, deny `internal.example.com`, and the internal name plus
+its whole subtree stays refused while the rest of the domain flows.
+
+Filtering is by NAME, because the name is what the client puts in the
+request line; blocked address classes are the address check's job (below).
+
+## Validation
+
+A rule that can never match reads as protection and is not, so the boundary
+that accepts a list refuses it loudly (`match.ValidateLists`, spec 6/25 1b):
+the binary exits at start naming the bad rule, and the same grammar guards
+arizuko's write paths (`arizuko network allow`, the agent's `network_allow`)
+so a bad rule is refused when it is written. Rejected: schemes, ports,
+paths, credentials, IPs and CIDRs, wildcards other than one leading `*.`,
+duplicates, and a host present in both lists.
+
+A bare `*` is not a list entry: allow-everything is the explicit
+`--allow-all` mode. Inside arizuko a folder's `*` network_rules row (and an
+elevated turn's egress grant) still means allow-all — runed translates it to
+`--allow-all` when it starts the spawn's proxy, so the magic string never
+reaches a list.
 
 ## `--client`, and why it is not a registry
 
@@ -89,7 +113,7 @@ exit 0.
 ```
 egress/
   proxy.go        parse CONNECT, match, splice; /health
-  match/          Host(allowlist, host) bool, validators
+  match/          Allowed(allow, deny, allowAll, host), ValidateLists
   cmd/egress/     the binary
   test/           end-to-end over real sockets
   Dockerfile, Makefile
@@ -123,5 +147,5 @@ compose network with the daemons, so private is an ordinary neighbour here.
 `--deny-private` is for a deployment whose allowlist names nothing internal.
 
 Nothing is decrypted. This is address hygiene, not interception; MITM stays
-declined ([`6/17`](../specs/6/17-egress-credential-proxy.md) tier 1). Design:
+declined (2026-08-18). Design:
 [`6/25`](../specs/6/25-qm-adoptions.md) decision 1.

@@ -53,7 +53,7 @@ therefore no window to rebind into.
 **Adopt.** Resolve once in `handleConnect`, reject the address classes, dial
 the resolved IP rather than the name. `egress/` is 233 lines; this is tens.
 Keep the SNI-free design — nothing is decrypted, this is address hygiene, not
-inspection, and `6/17` tier 1 stays declined.
+inspection, and MITM stays declined (2026-08-18).
 
 ### 1b — the matcher is missing deny and missing validation
 
@@ -69,9 +69,29 @@ Two smaller defects the comparison exposed in `egress/match/match.go`:
   (`parseEgressPolicy` rejects schemes, wildcards, ports, paths, credentials,
   duplicates, and any host in both lists) and fails loudly at write time.
 
-**Adopt.** Deny-beats-allow, and validate the allowlist at the boundary that
-accepts it, not at match time. Keep `"*"` only if a caller still needs it, and
-if so make it an explicit named mode rather than a magic string in a list.
+**Shipped 2026-08-20.** Deny-beats-allow lives in the matcher
+(`egress/match.Allowed`: deny first, then allow-all, then the allowlist), and
+the binary takes `--deny`/`EGRESS_DENY`. One grammar (`match.ValidEntry` /
+`ValidateLists`) is enforced at every boundary that accepts a rule: the
+binary refuses to start naming the bad rule; `store.AddNetworkRule` guards
+the operator CLI (`arizuko network allow`, which had NO validation — a
+host:port or an IP was stored and silently dead); routd's `network_allow`
+MCP tool swapped `groupfolder.ValidVhostName` (which let `:` and IPs
+through) for the same grammar. Rejected: schemes, ports, paths, credentials,
+IPs/CIDRs, wildcards other than one leading `*.`, duplicates, a host in both
+lists.
+
+`"*"` IS still needed — live rows on krons (`eval`, `fiu`, `rhias/nemo`) and
+marinade (`atlas`, `atlas/support`), plus `container/runner.go`'s
+elevated-egress append — so it became the explicit mode the spec asked for:
+`--allow-all` / `Proxy.SetAllowAll`, with deny and the address checks still
+applying. The DB row `*` stays the operator's allow-all marker (no live-data
+migration); `container.startEgressProxy` is the one seam every producer
+passes through, and it translates the entry to the flag, so the magic string
+never reaches a matcher list. A deny list has no arizuko-side producer yet —
+`network_rules` has no deny kind, and the agent tool named `network_deny`
+already means "remove an allow row" — so deny is binary-level until a
+schema decision earns its own spec.
 
 ## 2 — the request carries its own policy
 
@@ -174,7 +194,7 @@ with it. 4 is continuous — one contract test per seam, as each seam is touched
 
 `6/24` (the per-spawn proxy this hardens) · `6/22` (step 3's forward-auth, which
 decision 2 unblocks) · `6/16` (the matrix decision 3 turns into a value) ·
-`6/17` (tier 1 stays declined — this is address hygiene, not interception) ·
+MITM declined 2026-08-18 (this is address hygiene, not interception) ·
 `5/9` (anteval, which decision 4 explicitly does not replace) · BUGS `L54`
 (the seam decision 4 exists to cover) · `L4` (identity from the credential,
 never from the transport — decision 2's precedent).

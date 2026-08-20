@@ -185,6 +185,48 @@ func TestStartEgressProxyBakesAllowlistAndPin(t *testing.T) {
 	if !strings.Contains(joined, "--network arizuko_test_atlas-support") {
 		t.Errorf("proxy not on the folder network: %s", joined)
 	}
+	if strings.Contains(joined, "--allow-all") {
+		t.Errorf("no * in the allowlist, yet allow-all was passed: %s", joined)
+	}
+}
+
+// TestStartEgressProxyTranslatesStarToAllowAll — the DB's `*` network_rules
+// row and runner.go's elevated-egress append both spell "allow everything" as
+// a `*` list entry; the binary takes an explicit --allow-all mode and refuses
+// `*` as a list entry (spec 6/25 1b). This seam must translate, or every
+// elevated turn and every `*`-row folder (krons eval, marinade atlas) fails
+// its spawn.
+func TestStartEgressProxyTranslatesStarToAllowAll(t *testing.T) {
+	resetNetMgr(t)
+	host, port := healthyProxy(t)
+	probeAt(t, port, 5*time.Second)
+	f := &fakeDocker{inspecIP: host}
+	f.install(t)
+
+	cfg := testConfig("api.anthropic.com", "*")
+	if _, err := startEgressProxy(cfg, "atlas", "arizuko-test-atlas-1"); err != nil {
+		t.Fatalf("startEgressProxy: %v", err)
+	}
+
+	var run []string
+	for _, c := range f.calls {
+		if c[0] == "run" {
+			run = c
+		}
+	}
+	if run == nil {
+		t.Fatal("no docker run for the proxy")
+	}
+	joined := strings.Join(run, " ")
+	if !strings.Contains(joined, "--allow api.anthropic.com ") && !strings.HasSuffix(joined, "--allow api.anthropic.com") {
+		t.Errorf("named rules must survive the translation: %s", joined)
+	}
+	if strings.Contains(joined, "*") {
+		t.Errorf("`*` must never reach the binary's list: %s", joined)
+	}
+	if !strings.Contains(joined, "--allow-all") {
+		t.Errorf("`*` entry must become the explicit --allow-all mode: %s", joined)
+	}
 }
 
 // TestStartEgressProxyFailsSpawnWhenProxyCannotStart — the security-critical

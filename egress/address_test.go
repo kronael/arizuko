@@ -13,7 +13,11 @@ var errStub = &net.DNSError{Err: "stub", IsNotFound: true}
 // resolver cannot be made to return the metadata address on demand, and the
 // policy worth testing is exactly what happens for a given ANSWER.
 func proxyResolving(answers map[string][]net.IP) *Proxy {
-	p := New([]string{"*"}, "")
+	p, err := New(nil, nil, "")
+	if err != nil {
+		panic(err)
+	}
+	p.SetAllowAll(true)
 	p.lookup = func(_ context.Context, host string) ([]net.IP, error) {
 		if ips, ok := answers[host]; ok {
 			return ips, nil
