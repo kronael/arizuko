@@ -388,6 +388,35 @@ even though the harness's normal convention puts it under `$HOME`. That is the
 one place arizuko departs from a harness's default layout, and it departs for
 the same reason `strictMcpConfig` exists.
 
+**The mechanism: ant writes the setup, per turn, before the harness starts.**
+
+Read-only overmounts work, but they scale badly: every config path a harness
+invents becomes another entry in `runner.go`, and a harness that moves its
+config file breaks quietly. ant is already the container entrypoint — the
+image's entrypoint compiles and runs `index.js`, and only then does any harness
+process exist. So ant can simply put the setup in place itself:
+
+1. container starts; ant runs;
+2. ant renders the three layers and WRITES each config file, overwriting
+   whatever the previous turn left behind;
+3. ant spawns the harness, which reads what ant just wrote.
+
+Anything the agent authored in an earlier turn is gone before the harness looks.
+This is the pattern `seedSettings` already uses, moved inside the container and
+applied to all three occupants instead of one — and it needs no mount plumbing,
+so a new config path is one more file ant writes, not a platform change.
+
+**Per TURN, not per container.** The lifecycle seam above admits a warm
+container serving N turns, and a warm container that wrote its setup only at
+start would let turn 1 author config that turn 2 obeys. The write belongs on the
+turn path, next to the envelope, so the property holds under every lifecycle
+shape the contract permits.
+
+**Mounts keep the cases they are actually better at:** host-supplied secrets
+(`auth.json`), which must never be written into the group dir at all, and
+anything that must be unwritable even to a compromised ant. Policy config is
+ant's to write; credentials stay mounts.
+
 **Discovery stays ON. Two kinds of discovery, only one is a hazard.**
 
 - **Content discovery** — `CLAUDE.md` / `AGENTS.md`, skills, prompt templates.
@@ -441,8 +470,8 @@ interface HarnessProfile {
   steering: 'mid-turn' | 'between-turn';
   status: 'streaming' | 'terminal-only';
   // configPaths are the paths this harness reads that decide what the agent
-  // MAY DO. runner.go overmounts exactly this list read-only. A harness that
-  // adds a config file adds one entry here and the mount follows.
+  // MAY DO. ant WRITES exactly this list before spawning, per turn, so a
+  // harness that adds a config file adds one entry here and nothing else.
   configPaths: string[];
   // contentPaths stay writable and discovered — the group's own.
   contentPaths: string[];
@@ -451,8 +480,8 @@ interface HarnessProfile {
 
 Three things follow, and each removes a way to go stale:
 
-1. **The mount list is derived, not hand-written.** `configPaths` IS what the
-   platform makes read-only. A new codex config file is one profile entry, not
+1. **The setup list is derived, not hand-written.** `configPaths` IS what ant
+   writes before each turn. A new codex config file is one profile entry, not
    a remembered edit in `runner.go`.
 2. **The conformance matrix is a rendering of the profiles**, not prose beside
    them. It cannot claim a capability the adapter does not declare.
