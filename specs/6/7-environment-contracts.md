@@ -133,6 +133,120 @@ env (`-e`); the omission of exactly that emission is what killed the first
 second-backend slot. An unknown value fails the spawn loudly — no silent
 fallback to claude.
 
+### Proposed: invert the seam — state what arizuko needs, not what claude does
+
+**Status: proposal, unsigned.** The seam ships as described above. This section
+records the redesign and its cost so it is decided once, not re-argued.
+
+**The defect.** `ant/src/backend.ts` describes one implementation and lets the
+others fit through it. Measured against the three occupants:
+
+| `SessionConfig` field                       | claude | codex | pi  |
+| ------------------------------------------- | ------ | ----- | --- |
+| `prompt` `model` `cwd` `systemPrompt` `env` | ✓      | ✓     | ✓   |
+| `resume`                                    | ✓      | ✓     | —   |
+| `mcpServers`                                | ✓      | ✓     | —   |
+| `resumeAt`                                  | ✓      | —     | —   |
+| `addDirs`                                   | ✓      | —     | —   |
+| `assistantName`                             | ✓      | —     | —   |
+| `turnID`                                    | ✓      | —     | —   |
+
+Four of eleven fields serve one occupant. `systemPrompt` carries claude's own
+SDK union (`{ type: 'preset'; preset: 'claude_code' }`) inside the neutral type.
+`DrainIpcInput` is handed to all three and used by one. And the clearest tell:
+`isSessionError(subtype)` takes claude's result **subtype**, so wiring codex's
+missing-rollout case meant **fabricating** `subtype: 'session_not_found'` — a
+field codex does not have, invented to pass through a claude-shaped hole. When a
+new occupant must invent a field to satisfy an interface, the interface is
+describing an implementation.
+
+**The principle.** The seam is derived from what arizuko needs of an occupant.
+Every harness adapts to that; none of it adapts to a harness. `ant` IS the
+abstract harness — the chassis that any coding agent drops into — so its seam
+must read as arizuko's requirements, not as one SDK's options object.
+
+**What arizuko actually needs.** Seven things, all already true today:
+
+1. Exactly one terminal frame per turn, never silence.
+2. Interim status frames, optional (the ⏳ message, `5/24`).
+3. Continuity by **opaque token**: arizuko hands one out, gets one back, and
+   never interprets it.
+4. Tool calls cross the gated socket — arizuko's verbs, MCP over unix.
+5. Steering, optional: pull queued user messages into a running turn.
+6. Per-model usage, honest about what it cannot report.
+7. A failed turn surfaces as that turn's result, never as a logged silence.
+
+**The shape.**
+
+```ts
+interface Turn {
+  prompt: string; // the envelope, untouched — it IS the contract
+  cwd: string; // the group home
+  model?: string; // backend-native id, verbatim
+  continuity?: string; // opaque; undefined = fresh
+  tools?: Record<string, McpServerConfig>;
+  env: Record<string, string>;
+}
+
+type Frame =
+  | { kind: 'continuity'; token: string }
+  | { kind: 'status'; text: string }
+  | {
+      kind: 'result';
+      ok: boolean;
+      text?: string;
+      usage?: Usage;
+      retryFresh?: boolean;
+    };
+
+interface Harness {
+  name: string;
+  run(turn: Turn, steer: () => string[]): AsyncIterable<Frame>;
+}
+```
+
+One method replaces four. `resolveResume` and `isSessionError` exist only so
+`index.ts` can make decisions the harness is better placed to make; folding them
+into `run` and `retryFresh` removes both the fabricated subtype and the
+claude-shaped argument.
+
+**Why this is richer, not merely smaller.** A continuity token is opaque, so it
+holds every shape the three harnesses actually use:
+
+- claude needs a **pair** (`sessionId` + a `resumeAt` message uuid);
+- codex needs a **UUID** (its rollout thread id);
+- pi needs a **path** (`--session <path>`).
+
+The current `resume?: string` + `resumeAt?: string` cannot express pi's path
+without a third field, and each new harness would add another. An opaque token
+that the harness packs and unpacks costs the seam nothing and ends that growth.
+This is the same rule as `L4`: identity is read from the credential, never
+re-derived — here, continuity is read from the token, never re-parsed.
+
+**What moves out.** `resumeAt` folds into the token. `addDirs`,
+`assistantName`, `turnID` and the `claude_code` preset are claude wiring and
+move into `claude.ts`, which reads them from the container input it already
+receives. Nothing is lost; it stops being everyone's business.
+
+**ant stays TypeScript — decided 2026-08-20, not to be re-argued.** The
+question is real: two of the three occupants are already plain subprocess
+connectors and need nothing from TS, and every other arizuko component is Go.
+The blocker is exactly one occupant. `claude.ts` drives
+`@anthropic-ai/claude-agent-sdk` in-process for three things a subprocess
+connector does not get: `PreToolUse`/`PostToolUse` hooks as callbacks (which
+carry the `5/23` skill-guard, the tool log and the `5/24` TodoWrite status),
+mid-turn steering through a hook, and `interrupt`. The claude CLI does expose
+`--print --output-format stream-json`, so a Go `ant` is reachable — it would
+trade in-process hooks for settings-declared external hook commands. That trade
+buys language uniformity and costs the write-time guard its directness. Not
+worth it now. Revisit only if a second in-process SDK appears, or if the guard
+moves out of the hook anyway (`L59`).
+
+**Cost.** Three files rewritten against the new interface plus `index.ts`'s turn
+loop, no behaviour change, and the existing tests are the safety net — they
+assert argv and frame shapes, both of which survive. Do it before a fourth
+occupant arrives, not after.
+
 ### Skills across backends — one scanner, two hook points
 
 A skill is a named instruction file plus a trigger: `SKILL.md` with
