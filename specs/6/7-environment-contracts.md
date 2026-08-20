@@ -484,6 +484,32 @@ This is the pattern `seedSettings` already uses, moved inside the container and
 applied to all three occupants instead of one — and it needs no mount plumbing,
 so a new config path is one more file ant writes, not a platform change.
 
+**No. A rendered config is an ARTIFACT, not a store — and the drop is loud.**
+
+"Overwrite whatever was there" is only safe if nothing of value was there.
+Three rules make that true:
+
+- **ant writes only `configPaths`.** Content paths — skills, diary, facts,
+  workspace, transcripts, rollouts — are never touched. Nothing the agent
+  legitimately authors lives in a config file.
+- **The file is an output of the three layers, not a place to keep things.**
+  Editing it is like editing generated compose: the next render wins, by
+  design. The operator's edits belong in the operator layer
+  (`connectors.toml`, `groups.container_config`), which IS an input and IS
+  preserved.
+- **Preserved keys are enumerated; everything else is dropped.** This is the
+  inversion that matters. `seedSettings` today enumerates what it OVERWRITES
+  (six keys) and lets the rest survive — which is exactly how a `hooks` key the
+  agent writes lives forever. Enumerate what survives instead, and an unknown
+  key is dropped rather than obeyed. Fail closed, not open.
+
+**A drop is logged, naming the key.** A config silently discarded is the same
+failure class as a config silently ignored (`L45`), so ant logs every key it
+drops and from which file. If an operator finds their setting being dropped
+turn after turn, that is a gap in the operator layer to close — not a reason to
+let a hand-edit inside `/home/node` survive, because anything editable there is
+editable by the agent.
+
 **Per TURN, not per container.** The lifecycle seam above admits a warm
 container serving N turns, and a warm container that wrote its setup only at
 start would let turn 1 author config that turn 2 obeys. The write belongs on the
