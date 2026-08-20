@@ -61,6 +61,10 @@ func newEnv(t *testing.T, allowlist []string) *envFixture {
 	// client "" — the peer pin is proved in the package's own tests; these
 	// cases are about the allowlist.
 	p := egress.New(allowlist, "")
+	// The upstreams are httptest servers on 127.0.0.1, so this harness is the
+	// local-development case the option exists for: the destination genuinely
+	// is this host. Everything else about the proxy stays default.
+	p.SetAllowLoopback(true)
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("proxy listen: %v", err)

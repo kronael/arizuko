@@ -4,7 +4,9 @@ A forward HTTP/CONNECT proxy that allows one fixed list of hosts, for one
 client. `runed` starts one per spawned container and stops it with the turn.
 
 What it does: read the destination out of the request the client sends,
-match it against the allowlist, splice or refuse. That is all of it.
+match the NAME against the allowlist, resolve it once, refuse the ADDRESS if
+it is a class no sandbox may reach, and dial exactly that address. That is all
+of it.
 
 What it does not do: terminate TLS, hold a CA, read request bodies, keep a
 registry, serve an admin API, intercept traffic addressed elsewhere, or
@@ -18,11 +20,13 @@ one proxy per sandbox needs none of them (spec
 egress --listen :3128 --allow api.anthropic.com,github.com --client 10.99.4.7
 ```
 
-| Flag       | Env             | Default | Meaning                                          |
-| ---------- | --------------- | ------- | ------------------------------------------------ |
-| `--listen` | `EGRESS_LISTEN` | `:3128` | listen address                                   |
-| `--allow`  | `EGRESS_ALLOW`  | (empty) | comma-separated allowlist; a bare `*` allows all |
-| `--client` | `EGRESS_CLIENT` | (empty) | the only peer IP served; empty accepts any peer  |
+| Flag               | Env                     | Default | Meaning                                                 |
+| ------------------ | ----------------------- | ------- | ------------------------------------------------------- |
+| `--listen`         | `EGRESS_LISTEN`         | `:3128` | listen address                                          |
+| `--allow`          | `EGRESS_ALLOW`          | (empty) | comma-separated allowlist; a bare `*` allows all        |
+| `--client`         | `EGRESS_CLIENT`         | (empty) | the only peer IP served; empty accepts any peer         |
+| `--deny-private`   | `EGRESS_DENY_PRIVATE`   | off     | also refuse destinations resolving into a private range |
+| `--allow-loopback` | `EGRESS_ALLOW_LOOPBACK` | off     | permit destinations on this host (local development)    |
 
 The allowlist is fixed for the life of the process. To change the rules,
 start a new proxy — which is what a per-spawn proxy does anyway.
@@ -96,3 +100,28 @@ egress/
 `make images` at the repo root builds `arizuko-egress`. runed starts spawn
 proxies from whatever `EGRESS_IMAGE` names; if that image is missing, every
 spawn fails loudly rather than running unfiltered.
+
+## The address check
+
+The allowlist names hosts, and a name is not a destination. The proxy resolves
+the matched name once and dials the address it got, so the address that passed
+the check is the address reached — dialling the name again would resolve a
+second time and the two answers need not agree.
+
+Refused whatever the allowlist says: loopback, link-local (which is where every
+cloud instance-metadata service lives, so `metadata.google.internal` is covered
+by its address rather than by a name list), the IPv6 IMDS address, unspecified,
+and multicast. A host is refused when ANY of its answers is blocked, so the
+outcome never depends on resolver ordering.
+
+Why here and not in the sandbox: the spawn's network is `--internal`, so the
+agent has nowhere to send a packet. This proxy is the one process on that path
+with an uplink, which makes it the deputy worth confusing.
+
+Private addresses are NOT refused by default — a per-spawn proxy shares the
+compose network with the daemons, so private is an ordinary neighbour here.
+`--deny-private` is for a deployment whose allowlist names nothing internal.
+
+Nothing is decrypted. This is address hygiene, not interception; MITM stays
+declined ([`6/17`](../specs/6/17-egress-credential-proxy.md) tier 1). Design:
+[`6/25`](../specs/6/25-qm-adoptions.md) decision 1.

@@ -29,8 +29,10 @@ func main() {
 	listen := fs.String("listen", envOr("EGRESS_LISTEN", ":3128"), "proxy listen address")
 	allow := fs.String("allow", os.Getenv("EGRESS_ALLOW"), "comma-separated allowlist (a bare * allows everything)")
 	client := fs.String("client", os.Getenv("EGRESS_CLIENT"), "the only peer IP allowed to use this proxy; empty accepts any peer")
+	denyPrivate := fs.Bool("deny-private", os.Getenv("EGRESS_DENY_PRIVATE") != "", "also refuse destinations resolving into a private range")
+	allowLoopback := fs.Bool("allow-loopback", os.Getenv("EGRESS_ALLOW_LOOPBACK") != "", "permit destinations on this host (local development)")
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, "usage: egress [--listen :3128] [--allow host,host] [--client ip]\n")
+		fmt.Fprint(os.Stderr, "usage: egress [--listen :3128] [--allow host,host] [--client ip] [--deny-private] [--allow-loopback]\n")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(os.Args[1:])
@@ -51,6 +53,8 @@ func main() {
 	// GET /health answers 200, so the sandbox cannot make a request that
 	// arrives before this proxy is serving with its allowlist loaded.
 	p := egress.New(allowlist, *client)
+	p.SetDenyPrivate(*denyPrivate)
+	p.SetAllowLoopback(*allowLoopback)
 	lis, err := net.Listen("tcp", *listen)
 	if err != nil {
 		slog.Error("listen", "addr", *listen, "err", err)

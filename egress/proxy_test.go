@@ -24,6 +24,10 @@ func upstream(t *testing.T) *httptest.Server {
 // serve starts p on loopback and returns its URL.
 func serve(t *testing.T, p *Proxy) *url.URL {
 	t.Helper()
+	// Every upstream in this file is an httptest server on 127.0.0.1, which is
+	// the local-development case SetAllowLoopback exists for. The address
+	// checks themselves are covered in address_test.go, on their own.
+	p.SetAllowLoopback(true)
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)

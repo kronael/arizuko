@@ -8,6 +8,7 @@
 package egress
 
 import (
+	"context"
 	"crypto/subtle"
 	"io"
 	"log/slog"
@@ -31,16 +32,14 @@ const (
 	httpReadHeader = 5 * time.Second
 )
 
-// defaultClient bounds upstream behavior: per-call total deadline, header
-// timeout, idle pool. Without this an unresponsive upstream pegs goroutines
-// and sockets indefinitely.
-var defaultClient = &http.Client{
-	Timeout: 60 * time.Second,
-	Transport: &http.Transport{
-		ResponseHeaderTimeout: 30 * time.Second,
-		IdleConnTimeout:       90 * time.Second,
-		MaxIdleConnsPerHost:   16,
-	},
+// hostPort normalizes a CONNECT authority to host:port. A CONNECT line
+// carries the port, but a client that omits it means 443 — the port only
+// selects the socket; the allowlist and the address check already ran.
+func hostPort(authority string) string {
+	if _, _, err := net.SplitHostPort(authority); err == nil {
+		return authority
+	}
+	return net.JoinHostPort(authority, "443")
 }
 
 // Proxy is one sandbox's egress path.
@@ -58,6 +57,23 @@ type Proxy struct {
 	// lookup: nothing is registered, nothing is looked up, and a second
 	// client is refused rather than served from a different rule set.
 	client string
+	// denyPrivate additionally refuses destinations that resolve into a
+	// private range. Off by default: a per-spawn proxy shares the compose
+	// network with the daemons, so private is normal here (see address.go).
+	denyPrivate bool
+	// allowLoopback permits destinations on this host. Off by default — a
+	// spawn's proxy has no business dialling its own container. On for local
+	// development, where the destination genuinely IS this machine (a service
+	// on the developer's laptop, an httptest upstream).
+	allowLoopback bool
+	// lookup resolves a name. A field so a test can answer without DNS: the
+	// policy worth testing here is what happens for a given ANSWER, and a real
+	// resolver cannot be made to return the metadata address on demand.
+	lookup func(ctx context.Context, host string) ([]net.IP, error)
+	// transport forwards plain HTTP. It carries the same dialAllowed as the
+	// CONNECT path so both reach the address that passed the check, not the
+	// name that passed it.
+	transport *http.Transport
 	// ready gates HealthPath. The binary sets it once the listener is bound;
 	// the allowlist is already fixed by then (New takes it), so a 200 means
 	// listening AND enforcing — never listening-but-not-yet-filtering.
@@ -67,10 +83,31 @@ type Proxy struct {
 // SetReady flips the health probe to 200. Call it after the listener binds.
 func (p *Proxy) SetReady(ready bool) { p.ready.Store(ready) }
 
+// SetDenyPrivate refuses destinations resolving into a private range.
+func (p *Proxy) SetDenyPrivate(deny bool) { p.denyPrivate = deny }
+
+// SetAllowLoopback permits destinations on this host — local development only.
+func (p *Proxy) SetAllowLoopback(allow bool) { p.allowLoopback = allow }
+
 // New returns a proxy that allows exactly allow, for exactly client.
 // client is an IP address; empty accepts any peer.
 func New(allow []string, client string) *Proxy {
-	return &Proxy{allow: allow, client: client}
+	p := &Proxy{allow: allow, client: client}
+	p.lookup = func(ctx context.Context, host string) ([]net.IP, error) {
+		return net.DefaultResolver.LookupIP(ctx, "ip", host)
+	}
+	p.transport = &http.Transport{
+		DialContext:           p.dialAllowed,
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConnsPerHost:   16,
+	}
+	return p
+}
+
+// httpClient forwards plain-HTTP requests through this proxy's checked dialer.
+func (p *Proxy) httpClient() *http.Client {
+	return &http.Client{Timeout: 60 * time.Second, Transport: p.transport}
 }
 
 func (p *Proxy) Server(addr string) *http.Server {
@@ -139,10 +176,13 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, src string
 		return
 	}
 
-	upstream, err := net.DialTimeout("tcp", r.Host, dialTimeout)
+	// Dial the ADDRESS the check resolved, never the name again: dialling the
+	// name here would resolve a second time and the answer that passed would
+	// not be the answer reached (spec 6/25 decision 1).
+	upstream, err := p.dialAllowed(r.Context(), "tcp", hostPort(r.Host))
 	if err != nil {
-		slog.Info("upstream dial", "host", r.Host, "err", err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		slog.Info("deny address", "src", src, "host", host, "err", err)
+		http.Error(w, "denied", http.StatusForbidden)
 		return
 	}
 	defer upstream.Close()
@@ -197,8 +237,9 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 			out.Header.Add(k, v)
 		}
 	}
-	resp, err := defaultClient.Do(out)
+	resp, err := p.httpClient().Do(out)
 	if err != nil {
+		slog.Info("deny or fail http", "src", src, "host", host, "err", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
