@@ -153,7 +153,7 @@ folder-scoped reviewer sets (v1 gates on `IsOperator`); Telegram `callback_data`
 ## Consumers
 
 `product-creator` (approve-before-publish) and `product-socials` unblock on
-this. `aws-devops`/argus turns its prose "read-before-write, wait for the
+this. a product persona turns its prose "read-before-write, wait for the
 operator's go" into real `hold:mcp:<destructive-tool>` rules.
 
 ## Acceptance
