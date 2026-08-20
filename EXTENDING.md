@@ -645,10 +645,12 @@ steering is the harness's own business — ant drains `/run/ipc/input` from
 a Claude Code `PostToolUse` hook (`ant/src/claude.ts`); another harness
 maps it to whatever its protocol offers.
 
-Short of a wholesale replacement, ant ships a **connector chassis**
-(spec [`6/7`](specs/6/7-environment-contracts.md) § "The connector
-seam"): its runtime half (stdin parse, IPC steering, idempotent
-`submit_turn`) is reused, and the harness half is one interface plus one
+Short of a wholesale replacement, ant ships a **harness chassis**
+(spec [`6/7`](specs/6/7-environment-contracts.md) § "The harness
+seam"): its runtime half (stdin parse, IPC steering, the `<status>`
+pipeline, idempotent `submit_turn`) is reused, and the harness half is
+one requirements-shaped interface (`Turn` in, `Frame`s out, one `run()`
+plus a capability profile) plus one
 file per backend — `ant/src/claude.ts` (default), `codex.ts`, `pi.ts`.
 Select with `ARIZUKO_BACKEND=codex|pi` in the instance `.env`; the CLI
 must be baked into the agent image. What each backend can and cannot do

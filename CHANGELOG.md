@@ -17,8 +17,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 ### Added
 
 - **The agent contract has a second and third occupant: `codex` and `pi`
-  backends.** Spec `6/7`'s connector seam is now real code: `ant/src/backend.ts`
-  is one interface (resolveResume / isSessionError / spawn → event stream) with
+  backends.** Spec `6/7`'s harness seam is now real code: `ant/src/backend.ts`
+  is one requirements-shaped interface (`Turn` in, `Frame`s out, one `run()`
+  per harness, a `HarnessProfile` declaring capabilities; continuity travels
+  as an opaque token, a resume miss as `retryFresh`) with
   one file per backend. `codex.ts` drives `codex exec --json` — arizuko tools
   reach it through its native MCP client (`-c mcp_servers.*` → the gated
   socket), skills through a prompt index. `pi.ts` drives `pi -p --mode json` —
@@ -34,9 +36,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   baked into the agent image (codex already was). anteval gains a `contract`
   dimension (`fresh-context`, smoke): `/new` in the case prompt itself proves a
   turn works on an empty transcript. Conformance matrix — what each backend
-  can and cannot do — in `specs/6/7` § "The connector seam".
+  can and cannot do — in `specs/6/7` § "The harness seam".
 
 ### Fixed
+
+- **codex streamed no interim `<status>` at all.** The runtime extracted
+  status text from claude's raw message shape (`message.content[]`), which
+  codex's `{item:{text}}` events do not have — so a long codex turn showed the
+  user nothing until the end. Interim text now rides the seam's status frame
+  and the chassis extracts `<status>` blocks at one site for every backend.
 
 - **anteval cases stopped inheriting the eval chat's history.** The topic-fork
   repair (BUGS `L54`) made every case topic's first turn fork the eval

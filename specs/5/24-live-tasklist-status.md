@@ -60,7 +60,7 @@ its manual-checklist paragraph.
 
 - `ant/src/todo-status.ts` — render + the `TodoWrite` PostToolUse hook.
 - `ant/src/claude.ts` — hook registration (`matcher: 'TodoWrite'`)
-  - the `SessionConfig.turnID` plumb.
+  - the `Turn.turnID` plumb.
 - `routd/mcp.go` `mcpSubmitStatus` — edit-or-send.
 - `routd/turns.go` `deliverStatus` — stamps `verb="status"`.
 - `routd/db.go` — `TurnHasBotReply` (excludes status),
