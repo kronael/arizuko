@@ -226,6 +226,44 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L56 — `web:eval`'s cursor has been stuck since 2026-08-15, so anteval cannot run (2026-08-20)
+
+`chats.agent_cursor` for `web:eval` on krons reads `2026-08-15T21:32:31Z` — five
+days stale — while every neighbouring chat is current to the minute, including
+its own child `web:eval/etk2gpt-priv-grant-g` at `12:08:47Z`. The chat is
+specifically stuck, not the instance.
+
+Two consequences, both measured on 2026-08-20:
+
+- **anteval cannot establish its baseline.** The run injects a bare `/new` and
+  polls for the root session to disappear. The `/new` rows land
+  (`11:58:42`, `12:08:29`, `topic=''`) and are never consumed: no
+  `"Session cleared."` ack is ever delivered, so `steer` → `handleCommand` →
+  `cmdNew` never ran, and `sessions(eval,"")` still holds `948b6564-…` across
+  both attempts. The `L54` baseline guard then aborts — correctly, refusing to
+  score a case that would fork inherited history.
+- **The idle-reset log storms.** `sessionIdleExpired` reads this same cursor, so
+  a five-day-old value is always past the two-day threshold: `session: resetting
+  on idle expiry` fired 270 times in 15 minutes, once per re-fed dispatch, for
+  eval topics that had just been created.
+
+The stuck date is when the last successful anteval run happened, which suggests
+the cursor stops advancing on something that run leaves behind — a candidate is
+`route-observe-silent`, the case that makes the eval chat observe-only and never
+reverts it (found 2026-08-20, unfixed). NOT confirmed: the route table shows no
+`#observe` row for `web:eval` today, so the mechanism is still open.
+
+- **Severity:** medium (no user-facing agent is affected; it makes the one tool
+  that certifies the agent unrunnable, and it is invisible — everything logs INFO)
+- **Source:** `chats.agent_cursor` for `web:eval` (krons);
+  routd `steer`/`handleCommand` never reached; `sessionIdleExpired`
+  (`routd/loop.go:797`) reading the same value
+- **Status:** OPEN. Do NOT hand-edit the cursor on a live instance to unblock a
+  run — that hides the cause. Find why it stopped advancing first.
+- **What this is really evidence for:** a conformance run whose validity depends
+  on one live chat's cursor being healthy does not belong on a production
+  instance. `6/25` decision 4 and the disposable-instance harness are the fix.
+
 ## L55 — a restart starves the instance: 4,704 dispatches produced 18 spawns (2026-08-20)
 
 Restarting `arizuko_krons` fires `routd.checkMigrationVersion` for every folder
