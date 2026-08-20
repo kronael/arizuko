@@ -3,6 +3,7 @@ package container
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -24,8 +25,12 @@ func TestCopySession_DuplicatesBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := CopySession(dir, srcUUID, dstUUID); err != nil {
+	copied, err := CopySession(dir, srcUUID, dstUUID)
+	if err != nil {
 		t.Fatalf("CopySession: %v", err)
+	}
+	if !copied {
+		t.Error("copied = false, want true")
 	}
 	got, err := os.ReadFile(filepath.Join(projDir, dstUUID+".jsonl"))
 	if err != nil {
@@ -39,16 +44,52 @@ func TestCopySession_DuplicatesBytes(t *testing.T) {
 	}
 }
 
-// Missing parent file = graceful no-op (returns nil). Child starts
-// fresh; gateway logs WARN. Without this, every brand-new folder's
-// first non-main topic would error because main has no session yet.
-func TestCopySession_MissingParentReturnsNil(t *testing.T) {
+// Every transcript line carries "sessionId":"<parent>". A copy that keeps the
+// parent id is a transcript two topics claim, so the child's own turns append
+// to a file whose history names another session. Restamp on copy.
+func TestCopySession_RestampsSessionID(t *testing.T) {
+	dir := t.TempDir()
+	projDir := filepath.Join(dir, ".claude", "projects", "-home-node")
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const src = "a2fb6376-30aa-498c-be8c-c13d58312ab1"
+	const dst = "dcac785c-1e7b-4fa2-83aa-69dc72ecdb2f"
+	body := `{"type":"user","sessionId":"` + src + `","message":{"role":"user","content":"hi"}}` + "\n" +
+		`{"type":"assistant","sessionId":"` + src + `","message":{"role":"assistant"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projDir, src+".jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := CopySession(dir, src, dst); err != nil {
+		t.Fatalf("CopySession: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(projDir, dst+".jsonl"))
+	if err != nil {
+		t.Fatalf("read dst: %v", err)
+	}
+	if strings.Contains(string(got), src) {
+		t.Errorf("child transcript still names the parent session %s:\n%s", src, got)
+	}
+	if n := strings.Count(string(got), `"sessionId":"`+dst+`"`); n != 2 {
+		t.Errorf("restamped %d lines, want 2:\n%s", n, got)
+	}
+}
+
+// Missing parent file = graceful no-op, reported as copied=false. The caller
+// (routd's fork path) reads that to hand the child back its ambient observed
+// window — without the signal the child's first turn carries no context at all.
+func TestCopySession_MissingParentReportsNotCopied(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".claude", "projects", "-home-node"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := CopySession(dir, "absent-uuid", "child-uuid"); err != nil {
+	copied, err := CopySession(dir, "absent-uuid", "child-uuid")
+	if err != nil {
 		t.Errorf("CopySession with missing parent: %v, want nil", err)
+	}
+	if copied {
+		t.Error("copied = true for a missing parent, want false")
 	}
 	dst := filepath.Join(dir, ".claude", "projects", "-home-node", "child-uuid.jsonl")
 	if _, err := os.Stat(dst); !os.IsNotExist(err) {
@@ -69,7 +110,7 @@ func TestCopySession_CreatesProjDirOnDemand(t *testing.T) {
 	}
 	// CopySession to the same projDir — already exists, just confirms
 	// MkdirAll is idempotent.
-	if err := CopySession(dir, "p", "c"); err != nil {
+	if _, err := CopySession(dir, "p", "c"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(projDir, "c.jsonl")); err != nil {

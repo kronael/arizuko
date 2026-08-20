@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Cross-boundary identity types live in the top-level types/ package
@@ -277,10 +279,15 @@ func MsgID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
-// NewSessionID mints a fresh session ID for a topic (spec 4/23,
-// extended by spec 6/F for forked children). Format: "sess-<nano>".
+// NewSessionID mints a fresh session ID for a topic (spec 4/23, extended by
+// spec 6/F for forked children). It MUST be a UUID: the id names the agent's
+// Claude Code transcript, and `claude --resume` accepts nothing else. A
+// "sess-<nano>" placeholder made every forked topic start blind — routd copied
+// the parent transcript to a filename the agent then refused to resume, so the
+// first turn of every new thread lost the whole conversation (2026-06-01 to
+// 2026-08-20).
 func NewSessionID() string {
-	return fmt.Sprintf("sess-%d", time.Now().UnixNano())
+	return uuid.New().String()
 }
 
 // ErrTopicExists signals a fork attempted to overwrite an existing

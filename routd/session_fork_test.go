@@ -122,3 +122,65 @@ func TestEnsureTopicWithFork_NoParentSessionIsNoOp(t *testing.T) {
 		t.Errorf("child jsonl created with no parent session: %v", err)
 	}
 }
+
+// A fork stamps observed_cursor=now so the child reads only post-fork context —
+// which is right when it inherits the parent transcript and wrong when it does
+// not. With no parent session there is nothing to inherit, so the child must
+// keep its ambient window; otherwise its first turn carries no context at all,
+// which is what users saw as "it starts over without context" (BUGS L54).
+func TestEnsureTopicWithFork_NoParentSessionKeepsObservedWindow(t *testing.T) {
+	db, loop := newForkLoop(t)
+	folder := "main"
+
+	loop.ensureTopicWithFork(folder, "#deploy", "")
+
+	line, ok := db.TopicLineage(folder, "#deploy")
+	if !ok {
+		t.Fatal("child lineage row missing")
+	}
+	if line.ObservedCursor != "" {
+		t.Errorf("observed cursor = %q; the child inherited no transcript, so it must still see ambient context",
+			line.ObservedCursor)
+	}
+}
+
+// The mirror case: the child DID inherit the parent transcript, so the fork
+// stamp stands and it does not re-read context the transcript already carries.
+func TestEnsureTopicWithFork_CopiedSessionKeepsForkCursor(t *testing.T) {
+	db, loop := newForkLoop(t)
+	folder := "main"
+
+	seedParentSession(t, loop, db, folder, "", "main-uuid", []byte("parent\n"))
+	loop.ensureTopicWithFork(folder, "#deploy", "")
+
+	line, ok := db.TopicLineage(folder, "#deploy")
+	if !ok {
+		t.Fatal("child lineage row missing")
+	}
+	if line.ObservedCursor == "" {
+		t.Error("observed cursor cleared even though the child inherited the parent transcript")
+	}
+}
+
+// The explicit fork_topic MCP tool forks through the same rule as an implicit
+// thread fork: both call inheritParentSession, so neither can drift into
+// stamping a cursor over a child that inherited nothing.
+func TestInheritParentSession_ExplicitForkWithNoParentKeepsObservedWindow(t *testing.T) {
+	db, loop := newForkLoop(t)
+	folder := "main"
+
+	childUUID := "child-uuid"
+	if err := db.ForkTopic(folder, "", "#deploy", childUUID, false); err != nil {
+		t.Fatalf("ForkTopic: %v", err)
+	}
+	loop.inheritParentSession(folder, "", "#deploy", childUUID)
+
+	line, ok := db.TopicLineage(folder, "#deploy")
+	if !ok {
+		t.Fatal("child lineage row missing")
+	}
+	if line.ObservedCursor != "" {
+		t.Errorf("observed cursor = %q; the child inherited no transcript, so it must still see ambient context",
+			line.ObservedCursor)
+	}
+}

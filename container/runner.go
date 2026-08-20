@@ -2,6 +2,7 @@ package container
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -1295,7 +1296,7 @@ func MigrationVersion(path string) int {
 // across folders. Pure file op: rename-after-write for atomicity.
 // Returns nil with WARN log when src is missing (caller gets a fresh
 // session, no parent context). Used by spec 5/F fork path.
-func CopySession(groupDir, srcUUID, dstUUID string) error {
+func CopySession(groupDir, srcUUID, dstUUID string) (bool, error) {
 	projDir := filepath.Join(groupDir, ".claude", "projects", "-home-node")
 	src := filepath.Join(projDir, srcUUID+".jsonl")
 	dst := filepath.Join(projDir, dstUUID+".jsonl")
@@ -1304,22 +1305,30 @@ func CopySession(groupDir, srcUUID, dstUUID string) error {
 		if os.IsNotExist(err) {
 			slog.Warn("CopySession: parent session file missing",
 				"src", src, "groupDir", groupDir)
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("read src: %w", err)
+		return false, fmt.Errorf("read src: %w", err)
 	}
 	if err := os.MkdirAll(projDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir: %w", err)
+		return false, fmt.Errorf("mkdir: %w", err)
 	}
+	// Restamp the transcript to the child id. Every line carries
+	// "sessionId":"<src>"; a copy that still names the parent is a transcript
+	// two topics claim, and Claude Code appends the child's new turns to a file
+	// whose history says otherwise. The token is exact (a UUID inside a fixed
+	// JSON key), so a byte replace beats re-encoding 1 MB of JSONL.
+	data = bytes.ReplaceAll(data,
+		[]byte(`"sessionId":"`+srcUUID+`"`),
+		[]byte(`"sessionId":"`+dstUUID+`"`))
 	tmp := dst + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("write tmp: %w", err)
+		return false, fmt.Errorf("write tmp: %w", err)
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		os.Remove(tmp)
-		return fmt.Errorf("rename: %w", err)
+		return false, fmt.Errorf("rename: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 func cpDirOverwrite(src, dst string) { cpDirImpl(src, dst, false) }

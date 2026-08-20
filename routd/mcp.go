@@ -98,11 +98,11 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			if err := s.db.ForkTopic(folder, parent, child, childUUID, force); err != nil {
 				return err
 			}
-			// Copy the parent topic's Claude session jsonl so the child resumes
-			// from the parent's tail instead of cold. loop is nil in pure REST
-			// tests — skip then.
+			// Give the child the parent's tail instead of a cold start — the
+			// transcript when there is one, its ambient window when there is
+			// not. loop is nil in pure REST tests — skip then.
 			if s.loop != nil {
-				s.loop.copyParentSession(folder, parent, childUUID)
+				s.loop.inheritParentSession(folder, parent, child, childUUID)
 			}
 			return nil
 		},

@@ -421,28 +421,51 @@ func (l *Loop) ensureTopicWithFork(folder, topic, parent string) {
 	if !inserted {
 		return
 	}
-	l.copyParentSession(folder, parent, childUUID)
+	l.inheritParentSession(folder, parent, topic, childUUID)
+}
+
+// inheritParentSession gives a freshly-forked topic its context. It copies the
+// parent's Claude Code transcript under childUUID and, when it cannot, clears
+// the child's observed cursor.
+//
+// Both halves are one rule: a fork stamps observed_cursor=now so the child reads
+// only post-fork context, which is right ONLY while the transcript carries the
+// rest. With no transcript that stamp leaves the child blind on both axes — the
+// first turn of every new thread answering with no history at all (BUGS L54).
+// Every fork path goes through here so the rule cannot drift.
+func (l *Loop) inheritParentSession(folder, parent, childTopic, childUUID string) {
+	if l.copyParentSession(folder, parent, childUUID) {
+		return
+	}
+	if err := l.db.ClearObservedCursor(folder, childTopic); err != nil {
+		slog.Warn("inheritParentSession: clearing the observed cursor failed — the child topic starts with no context",
+			"folder", folder, "topic", childTopic, "err", err)
+	}
 }
 
 // copyParentSession looks up the parent topic's session_id and copies its
-// Claude Code session jsonl to childUUID. No-op when the parent has no session
-// yet (cold-start main: child gets a fresh session). Failures log WARN and
-// proceed — the agent runs fine without forked context.
-func (l *Loop) copyParentSession(folder, parent, childUUID string) {
+// Claude Code session jsonl to childUUID. Reports whether the child now owns a
+// resumable transcript: false when the parent has no session yet (cold-start
+// main) or the copy failed. Failures log WARN and proceed — inheritParentSession
+// restores the child's observed window instead.
+func (l *Loop) copyParentSession(folder, parent, childUUID string) bool {
 	parentUUID, ok := l.db.GetSession(folder, parent)
 	if !ok || parentUUID == "" {
-		return
+		return false
 	}
 	groupDir, err := l.folders.GroupPath(folder)
 	if err != nil {
 		slog.Warn("copyParentSession: group path", "folder", folder, "err", err)
-		return
+		return false
 	}
-	if err := container.CopySession(groupDir, parentUUID, childUUID); err != nil {
+	copied, err := container.CopySession(groupDir, parentUUID, childUUID)
+	if err != nil {
 		slog.Warn("copyParentSession: cp failed",
 			"folder", folder, "parent", parent,
 			"parentUUID", parentUUID, "childUUID", childUUID, "err", err)
+		return false
 	}
+	return copied
 }
 
 // consecutiveRuns splits msgs into consecutive same-key runs, preserving causal

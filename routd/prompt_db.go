@@ -106,6 +106,17 @@ func (d *DB) UpdateObservedCursor(folder, topic, ts string) error {
 	return err
 }
 
+// ClearObservedCursor drops a topic's observed watermark, so the next prompt
+// fills the topic's ambient window from the cap instead of from a fork stamp.
+// The fork path calls it when the child could not inherit the parent transcript
+// — without it that child starts its first turn with no context at all.
+func (d *DB) ClearObservedCursor(folder, topic string) error {
+	_, err := d.db.Exec(
+		`UPDATE sessions SET observed_cursor = NULL
+		 WHERE group_folder = ? AND topic = ?`, folder, topic)
+	return err
+}
+
 // GroupObserveWindow returns the group's stored observe-window override as
 // (messages, chars). A NULL key yields -1 so the cfg default wins (only a
 // >= 0 value overrides). (-1,-1) when the group has no row.
