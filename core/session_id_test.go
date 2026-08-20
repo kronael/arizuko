@@ -6,7 +6,9 @@ import (
 )
 
 // ant/src/index.ts refuses to `claude --resume` any session id that is not a
-// UUID and starts the turn fresh instead. This regexp is that guard, copied.
+// UUID and starts the turn fresh instead. This regexp is that guard, copied —
+// a copy that can drift; tests.TestFeature_MintedSessionIsResumableByAnt
+// extracts the pattern from ant's source and is the no-drift guard.
 var antResumableRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // The id NewSessionID mints names the child topic's Claude Code transcript, so

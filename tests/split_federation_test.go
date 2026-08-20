@@ -193,6 +193,7 @@ type federation struct {
 	// agent's reply callback.
 	mu          sync.Mutex
 	ranFolders  map[string]string            // turnID -> routd-dispatched folder
+	ranSessions map[string]string            // turnID -> RunSpec.SessionID routd shipped (resume id)
 	ranSecrets  map[string]map[string]string // folder -> RunRequest.Secrets (container env)
 	replyStatus map[string]int               // turnID -> routd reply status
 }
@@ -207,6 +208,7 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 	t.Helper()
 	f := &federation{
 		ranFolders:  map[string]string{},
+		ranSessions: map[string]string{},
 		ranSecrets:  map[string]map[string]string{},
 		replyStatus: map[string]int{},
 	}
@@ -230,6 +232,7 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 	rt := runed.FakeRuntime{Fn: func(_ context.Context, spec runed.RunSpec) runed.RunResult {
 		f.mu.Lock()
 		f.ranFolders[spec.TurnID] = spec.Folder
+		f.ranSessions[spec.TurnID] = spec.SessionID
 		f.ranSecrets[spec.Folder] = spec.Secrets
 		f.mu.Unlock()
 		replyTok := f.authd.mintUser(t, "user:agent", spec.Folder)
@@ -302,6 +305,14 @@ func (f *federation) dispatchedFolder(turnID string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.ranFolders[turnID]
+}
+
+// dispatchedSession is the resume session id routd shipped in the turn's
+// RunSpec — what the agent would hand to `claude --resume`.
+func (f *federation) dispatchedSession(turnID string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ranSessions[turnID]
 }
 
 // dispatchedSecrets is the secret map routd shipped in RunRequest.Secrets for
