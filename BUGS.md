@@ -226,6 +226,50 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L55 — a restart starves the instance: 4,704 dispatches produced 18 spawns (2026-08-20)
+
+Restarting `arizuko_krons` fires `routd.checkMigrationVersion` for every folder
+below `MIGRATION_VERSION`, queueing an `auto-migrate-<folder>` turn each. krons
+runs `MAX_CONCURRENT_CONTAINERS=2`, so the queue drains two at a time while the
+dispatch loop re-feeds every waiting turn on its 2s poll (`L51`).
+
+Measured over 15 minutes after the 11:42Z restart:
+
+| signal                | count |
+| --------------------- | ----- |
+| `dispatch run`        | 4,704 |
+| `mcp server listening`| 4,704 |
+| `spawning container`  | **18** |
+
+A 260:1 ratio, and the re-feed is not free: every cycle resolves capabilities and
+**starts an MCP server**. In one 60s window four turns — `auto-migrate-mayai`,
+`-krons`, `-fiu`, `-eval/etjty2l-child-delegate` — were each dispatched 30 times,
+once per poll.
+
+Two things it broke, both diagnosed rather than assumed:
+
+- **anteval scored 0/5 with 0 tokens on every case.** The turns dispatched
+  (`topic=etk2gpt-*`, `trigger=user:anteval`) but never got one of the two slots
+  inside a case's 120-180s timeout. Not an agent failure and not a deploy defect.
+- **The `L54` per-case root reset could not win.** `auto-migrate-eval` runs on
+  `folder=eval, topic=""` and re-persists a root session; anteval's new baseline
+  guard correctly aborted rather than score inherited history — the guard worked,
+  the instance was simply not quiet.
+
+Also visible and separate: `session: resetting on idle expiry` logged 270 times
+in the window, once per re-fed dispatch for the same topic, because the reset
+decision is re-evaluated every poll on a chat whose cursor is weeks old.
+
+- **Severity:** medium (self-clearing, but it starves real user turns for minutes
+  after every restart and burns model budget on migrate turns nobody asked for)
+- **Source:** routd `checkMigrationVersion`; the 2s re-feed poll (`L51`);
+  `MAX_CONCURRENT_CONTAINERS=2` in `env/runed.env`
+- **Status:** OPEN, needs a decision. Shapes worth costing: back off a re-fed turn
+  instead of re-dispatching it every 2s (the `L51` push path would remove the busy
+  wait entirely); stagger or rate-limit the migrate wave rather than queueing every
+  folder at once; or gate auto-migrate behind an explicit operator trigger.
+- **Do NOT** read an anteval score taken while a migrate wave is draining.
+
 ## ✅ FIXED 2026-08-20 L54 — every forked topic answered its first turn with no context (2026-06-01)
 
 Reported from the sloth desk 2026-08-19 19:45Z, verbatim: *"Vidí nějak tu diskusi,
