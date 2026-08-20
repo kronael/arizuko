@@ -31,7 +31,7 @@ declares what occupying a slot requires:
 
 - **A second backend.** `ARIZUKO_BACKEND` existed, was never emitted as `-e` in
   the spawn args, and died silently. Nothing said what a backend must provide,
-  so nothing noticed it provided nothing. (Closed 2026-08-20: §"The connector
+  so nothing noticed it provided nothing. (Closed 2026-08-20: §"The harness
   seam" below is the declaration, and `buildArgs` now emits the var.)
 - **The substrate change.** Warm-per-group containers rewrite the turn
   lifecycle, and `16/1`'s durable streams rewrite it again. Without a contract
@@ -112,7 +112,7 @@ adapter that makes any coding agent behave like an arizuko occupant.
    the contract and ant never edits it.
 2. **Put the setup in place.** Render the system / operator / agent layers and
    write every path in the harness's `configPaths`, per turn, before the
-   harness exists (§ "The mechanism").
+   harness exists (§ "The mechanism" — next increment).
 3. **Run the harness.** Select by `ARIZUKO_BACKEND`, fail loudly on an unknown
    name rather than silently running the wrong one.
 4. **Bind arizuko's policy to the harness's gates.** One implementation of the
@@ -134,7 +134,7 @@ belongs to the harness.
 ```
 routd  ──envelope JSON on stdin──▶  ant
                                      │  1. parse the turn
-                                     │  2. write configPaths (3 layers merged)
+                                     │  2. write configPaths (3 layers merged; next increment)
                                      │  3. select harness by ARIZUKO_BACKEND
                                      ▼
                                    harness process
@@ -160,64 +160,36 @@ at, between turns otherwise.
 The **outer** interface is arizuko ↔ ant, and it is a process boundary that
 predates any harness: envelope on stdin, tools on the gated socket,
 `submit_turn` for every frame, IPC dir for steering. Anything that speaks it
-replaces ant entirely. It is versioned by the four sentences in § "The lifecycle
-seam".
+replaces ant entirely — in any language, with no arizuko code change. That
+stays canonical; the `5/K` removal (CHANGELOG, migration `0023` era) deleted an
+in-process `Backend` interface precisely because it duplicated the wire
+protocol's genericity while being unreachable. It is versioned by the four
+sentences in § "The lifecycle seam".
 
-The **inner** interface is ant ↔ harness, and it is the thing this document
-proposes rewriting: `Turn` in, `Frame`s out, one `run()` method, plus a
-`HarnessProfile` declaring which capabilities that occupant actually has. It is
-stated as arizuko's requirements so that a harness may evolve — new flags, new
-config files, new events — without the seam moving.
+The **inner** interface is ant ↔ harness: `Turn` in, `Frame`s out, one `run()`
+method, plus a `HarnessProfile` declaring which capabilities that occupant
+actually has. It is stated as arizuko's requirements so that a harness may
+evolve — new flags, new config files, new events — without the seam moving.
 
 A new occupant is therefore one file: a `run()`, a profile, and the bindings
 that attach ant's policy to that harness's gates. If adding one requires
 touching `index.ts`, the seam is wrong.
 
-### The connector seam
+### The harness seam — arizuko's requirements, not one SDK's options
 
-The contract is the process boundary — envelope on stdin, tools on the MCP
-unix socket, `submit_turn` for every frame. Anything that speaks it replaces
-the whole container occupant, in any language, with no arizuko code change.
-That stays canonical; the `5/K` removal (CHANGELOG, migration `0023` era)
-deleted an in-process `Backend` interface precisely because it duplicated the
-wire protocol's genericity while being unreachable.
+**Decided 2026-08-20; shipped with this spec.** `ant/src/backend.ts` owns the
+seam types and the selector; `claude.ts`, `codex.ts` and `pi.ts` each implement
+one harness. Selection is `ARIZUKO_BACKEND` (`claude` | `codex` | `pi`), an
+instance `.env` infra toggle — static by the dynamic-vs-static test, because a
+backend exists only if its CLI is baked into the agent image.
+`container/runner.go buildArgs` emits it as real container env (`-e`); the
+omission of exactly that emission is what killed the first second-backend
+slot. An unknown value fails the spawn loudly — no silent fallback to claude.
 
-What ant ships now is not that interface back. It is a **connector chassis**:
-the runtime half every occupant needs (stdin envelope parse, IPC steering,
-idempotent `submit_turn`, `<status>` streaming) implemented once, with a seam
-of one interface plus one file per backend for the harness half:
-
-```ts
-interface Backend {
-  name: string;
-  // undefined = start fresh. Layer-1 policy is the backend's own.
-  resolveResume(sessionId: string | undefined): string | undefined;
-  // true = the resume target was unusable; retry fresh, never deliver.
-  isSessionError(subtype: string | undefined): boolean;
-  spawn(cfg: SessionConfig, drain: DrainIpcInput): Session; // one turn
-}
-interface Session {
-  events(): AsyncIterable<Event>; // system_init | assistant | tool_result | result | rate_limit
-  close(): Promise<void>;
-}
-```
-
-`ant/src/backend.ts` owns the types and the selector; `claude.ts`, `codex.ts`
-and `pi.ts` each implement one backend. Selection is `ARIZUKO_BACKEND`
-(`claude` | `codex` | `pi`), an instance `.env` infra toggle — static by the
-dynamic-vs-static test, because a backend exists only if its CLI is baked into
-the agent image. `container/runner.go buildArgs` emits it as real container
-env (`-e`); the omission of exactly that emission is what killed the first
-second-backend slot. An unknown value fails the spawn loudly — no silent
-fallback to claude.
-
-### Proposed: invert the seam — state what arizuko needs, not what claude does
-
-**Status: proposal, unsigned.** The seam ships as described above. This section
-records the redesign and its cost so it is decided once, not re-argued.
-
-**The defect.** `ant/src/backend.ts` describes one implementation and lets the
-others fit through it. Measured against the three occupants:
+**The defect the seam replaced.** The first seam (`Backend.spawn` +
+`resolveResume` + `isSessionError` over a `SessionConfig`) described one
+implementation and let the others fit through it. Measured against the three
+occupants:
 
 | `SessionConfig` field                       | claude | codex | pi  |
 | ------------------------------------------- | ------ | ----- | --- |
@@ -229,10 +201,10 @@ others fit through it. Measured against the three occupants:
 | `assistantName`                             | ✓      | —     | —   |
 | `turnID`                                    | ✓      | —     | —   |
 
-Four of eleven fields serve one occupant. `systemPrompt` carries claude's own
+Four of eleven fields served one occupant. `systemPrompt` carried claude's own
 SDK union (`{ type: 'preset'; preset: 'claude_code' }`) inside the neutral type.
-`DrainIpcInput` is handed to all three and used by one. And the clearest tell:
-`isSessionError(subtype)` takes claude's result **subtype**, so wiring codex's
+`DrainIpcInput` was handed to all three and used by one. And the clearest tell:
+`isSessionError(subtype)` took claude's result **subtype**, so wiring codex's
 missing-rollout case meant **fabricating** `subtype: 'session_not_found'` — a
 field codex does not have, invented to pass through a claude-shaped hole. When a
 new occupant must invent a field to satisfy an interface, the interface is
@@ -254,57 +226,78 @@ must read as arizuko's requirements, not as one SDK's options object.
 6. Per-model usage, honest about what it cannot report.
 7. A failed turn surfaces as that turn's result, never as a logged silence.
 
-**The shape.**
+**The shape (as built).**
 
 ```ts
 interface Turn {
   prompt: string; // the envelope, untouched — it IS the contract
   cwd: string; // the group home
+  turnID: string; // arizuko's turn id (see "What moved out")
   model?: string; // backend-native id, verbatim
   continuity?: string; // opaque; undefined = fresh
+  systemPrompt?: string; // rendered text; absent = the harness's own default
   tools?: Record<string, McpServerConfig>;
   env: Record<string, string>;
+  signal?: AbortSignal; // the platform winding the turn down (close sentinel)
 }
 
 type Frame =
-  | { kind: 'continuity'; token: string }
-  | { kind: 'status'; text: string }
+  | { kind: 'continuity'; token: string; sessionId: string }
+  | { kind: 'status'; text: string } // interim assistant text; the chassis
+  //   extracts <status> blocks — ONE extraction site for all harnesses
   | {
       kind: 'result';
       ok: boolean;
       text?: string;
-      usage?: Usage;
-      retryFresh?: boolean;
+      usage?: Record<string, ModelUsage>;
+      retryFresh?: boolean; // the resume target was unusable; never deliver
+      timedOut?: boolean; // the graceful query-timeout summary
     };
 
 interface Harness {
   name: string;
+  profile: HarnessProfile;
   run(turn: Turn, steer: () => string[]): AsyncIterable<Frame>;
 }
 ```
 
-One method replaces four. `resolveResume` and `isSessionError` exist only so
-`index.ts` can make decisions the harness is better placed to make; folding them
-into `run` and `retryFresh` removes both the fabricated subtype and the
+One method replaces four. `resolveResume` and `isSessionError` existed only so
+`index.ts` could make decisions the harness is better placed to make; folding
+them into `run` and `retryFresh` removed both the fabricated subtype and the
 claude-shaped argument.
 
-**Why this is richer, not merely smaller.** A continuity token is opaque, so it
-holds every shape the three harnesses actually use:
+**Continuity is richer as a token, not merely smaller.** A continuity token is
+opaque, so it holds every shape the three harnesses actually use:
 
 - claude needs a **pair** (`sessionId` + a `resumeAt` message uuid);
 - codex needs a **UUID** (its rollout thread id);
 - pi needs a **path** (`--session <path>`).
 
-The current `resume?: string` + `resumeAt?: string` cannot express pi's path
+The old `resume?: string` + `resumeAt?: string` could not express pi's path
 without a third field, and each new harness would add another. An opaque token
 that the harness packs and unpacks costs the seam nothing and ends that growth.
 This is the same rule as `L4`: identity is read from the credential, never
 re-derived — here, continuity is read from the token, never re-parsed.
 
-**What moves out.** `resumeAt` folds into the token. `addDirs`,
-`assistantName`, `turnID` and the `claude_code` preset are claude wiring and
-move into `claude.ts`, which reads them from the container input it already
-receives. Nothing is lost; it stops being everyone's business.
+**Correction (found at implementation, 2026-08-20): the lineage row is not
+opaque.** routd stores `submit_turn`'s `session_id` and topic fork copies the
+transcript FILE named by it (`copyParentSession` → `container.CopySession`) —
+the `L54` class. A packed pair in that field would fork every topic blind. So
+the continuity frame carries both: `token` (opaque, handed to the next `run()`)
+and `sessionId` (the harness-native id, recorded in the lineage row). claude
+packs `sessionId#resumeAt` into the token intra-run and accepts a bare id from
+the platform across spawns.
+
+**What moved out, and one correction.** `resumeAt` folded into the token.
+`addDirs` and the `claude_code` preset moved into `claude.ts` (derived from the
+container environment: `/mnt`, `/var/lib/share`, `ARIZUKO_IS_ROOT`).
+`assistantName` moved into `claude.ts`, which reads it from the settings env
+block seedSettings writes (`ARIZUKO_ASSISTANT_NAME`) — the earlier text said
+"from the container input", which was wrong: harnesses never see the stdin
+JSON. `turnID` did NOT move: it is chassis-derived per inner-loop turn
+(`messageId:N`), exists in no env or file, and the `5/24` TodoWrite hook keys
+the live ⏳ message by it — so it stays a `Turn` field, a platform fact rather
+than claude wiring.
 
 **ant stays TypeScript — decided 2026-08-20, not to be re-argued.** The
 question is real: two of the three occupants are already plain subprocess
@@ -320,18 +313,15 @@ buys language uniformity and costs the write-time guard its directness. Not
 worth it now. Revisit only if a second in-process SDK appears, or if the guard
 moves out of the hook anyway (`L59`).
 
-**Cost.** Three files rewritten against the new interface plus `index.ts`'s turn
-loop, no behaviour change, and the existing tests are the safety net — they
-assert argv and frame shapes, both of which survive. Do it before a fourth
-occupant arrives, not after.
+### ant owns the capabilities, each harness renders the hooks
 
-### Proposed: ant owns the capabilities, each harness renders the hooks
+**Decided 2026-08-20. Shipped in the seam pass: the `<status>` fix, the one
+verdict function, the capability fields of `HarnessProfile`. Next increment:
+the per-harness hook rendering (codex `hooks.json`, the pi extension), the
+ant-writes-`configPaths` mechanism, and the three-layer config merge.**
 
-**Status: proposal, unsigned.** Companion to the seam inversion above; the two
-ship together or not at all.
-
-**The defect.** arizuko's per-turn capabilities live inside `claude.ts`, so two
-of three occupants get none of them. Measured today:
+**The defect.** arizuko's per-turn capabilities lived inside `claude.ts`, so
+two of three occupants got none of them. Measured 2026-08-20:
 
 | capability                    | where it lives now                   | codex         | pi                |
 | ----------------------------- | ------------------------------------ | ------------- | ----------------- |
@@ -340,12 +330,13 @@ of three occupants get none of them. Measured today:
 | mid-turn steering             | claude `PostToolUse` drain closure   | —             | —                 |
 | `<status>` streaming (`5/24`) | runtime re-parses claude's raw shape | **broken**    | works by accident |
 
-The `<status>` row is a live bug, not a gap: `index.ts` calls
+The `<status>` row was a live bug, not a gap: `index.ts` called
 `assistantText(event.raw)`, which reads `raw.message.content[]` — claude's
-message shape. codex sets `raw` to `{item:{text}}`, so the parse returns empty
-and **codex streams no interim status at all**, while pi works only because its
-`message_end` payload happens to have the same nesting. The seam inversion fixes
-this by making the runtime read `frame.text`, which every connector already sets.
+message shape. codex set `raw` to `{item:{text}}`, so the parse returned empty
+and **codex streamed no interim status at all**, while pi worked only because
+its `message_end` payload happens to have the same nesting. Fixed by the seam
+inversion (2026-08-20): the runtime reads the status frame's own text, which
+every harness sets.
 
 **Every harness has the gates. This was measured, not assumed.**
 
@@ -371,15 +362,15 @@ offers a bidirectional stdin/stdout protocol, and `AgentSession` is importable
 in-process from the same npm package. Its only true gap was the MCP client, and
 that gap has a door.
 
-**The shape.** ant declares each capability ONCE as a policy module, plus a
-table naming which event it binds to. Three renderers emit the harness-native
-form:
+**The shape (next increment).** ant declares each capability ONCE as a policy
+module, plus a table naming which event it binds to. Three renderers emit the
+harness-native form:
 
 - **claude** — SDK callbacks (today's `guardPreToolUse` / `guardPostToolUse`).
 - **codex** — a generated `hooks.json` whose commands invoke a small ant CLI.
 - **pi** — a generated extension file that imports the same policy module.
 
-Mid-turn steering stops being a seam parameter. Today `DrainIpcInput` is passed
+Mid-turn steering then stops being a seam parameter. Today `steer` is passed
 to all three occupants and used by one. Instead ant writes queued messages to a
 file it owns and the `PostToolUse` binding reads it — the claude SDK already
 works this way, so claude keeps its existing gate and merely reads the file
@@ -484,7 +475,7 @@ This is the pattern `seedSettings` already uses, moved inside the container and
 applied to all three occupants instead of one — and it needs no mount plumbing,
 so a new config path is one more file ant writes, not a platform change.
 
-**No. A rendered config is an ARTIFACT, not a store — and the drop is loud.**
+**A rendered config is an ARTIFACT, not a store — and the drop is loud.**
 
 "Overwrite whatever was there" is only safe if nothing of value was there.
 Three rules make that true:
@@ -510,7 +501,7 @@ turn after turn, that is a gap in the operator layer to close — not a reason t
 let a hand-edit inside `/home/node` survive, because anything editable there is
 editable by the agent.
 
-**Per TURN, not per container.** The lifecycle seam above admits a warm
+**Per TURN, not per container.** The lifecycle seam below admits a warm
 container serving N turns, and a warm container that wrote its setup only at
 start would let turn 1 author config that turn 2 obeys. The write belongs on the
 turn path, next to the envelope, so the property holds under every lifecycle
@@ -567,18 +558,15 @@ meets each requirement, as a value:
 
 ```ts
 interface HarnessProfile {
-  name: string;
   continuity: 'native' | 'none'; // can a turn resume the last one
   tools: 'mcp' | 'bridged' | 'none'; // how arizuko verbs arrive
   guard: 'write-time' | 'load-time' | 'none';
   steering: 'mid-turn' | 'between-turn';
   status: 'streaming' | 'terminal-only';
-  // configPaths are the paths this harness reads that decide what the agent
-  // MAY DO. ant WRITES exactly this list before spawning, per turn, so a
-  // harness that adds a config file adds one entry here and nothing else.
-  configPaths: string[];
-  // contentPaths stay writable and discovered — the group's own.
-  contentPaths: string[];
+  // Next increment, landing with the setup writer:
+  // configPaths — the paths this harness reads that decide what the agent
+  // MAY DO; ant WRITES exactly this list before spawning, per turn.
+  // contentPaths — stay writable and discovered, the group's own.
 }
 ```
 
@@ -601,12 +589,12 @@ What the profile must NOT contain is a flag name. `--ephemeral`,
 detail of one adapter and change without notice; the profile records the
 CAPABILITY, and the adapter's own file records how it currently obtains it.
 
-**Order.** The seam inversion first — the `<status>` bug is live and the fix
-falls out of it. Then the guard, which has the clearest security payoff and
-turns `L59` from a hole into a shipped gate. Then the tool log and steering,
-which are behaviour parity rather than new capability. Skill and package
-management last: codex and pi both discover skills natively, so the question
-there is which loader wins, and that deserves its own decision.
+**Order.** The seam inversion first — done 2026-08-20, and the `<status>` fix
+fell out of it. Then the guard rendering, which has the clearest security
+payoff and turns `L59` from a hole into a shipped gate. Then the tool log and
+steering, which are behaviour parity rather than new capability. Skill and
+package management last: codex and pi both discover skills natively, so the
+question there is which loader wins, and that deserves its own decision.
 
 ### Skills across backends — one scanner, two hook points
 
@@ -662,10 +650,10 @@ on 2026-08-20:
 <id>` continues that rollout and recalled a word given only in the prior turn,
   reading 29,184 cached input tokens. The connector passed `--ephemeral`, which
   writes no rollout, so there was nothing to resume — a connector choice stated
-  as a harness limit. Now wired: `resolveResume` returns the stored id, and a
-  missing rollout retries fresh through the runtime's existing `sessionError`
-  path. codex exits **0** with an empty stdout when the rollout is gone, so the
-  signal is the stderr text, never the exit code.
+  as a harness limit. Now wired: the stored id resumes, and a missing rollout
+  retries fresh through the seam's `retryFresh` frame. codex exits **0** with an
+  empty stdout when the rollout is gone, so the signal is the stderr text, never
+  the exit code.
 - **pi has sessions too** — `--session <path>`, `--session-dir`, `--continue`,
   `PI_CODING_AGENT_DIR`. The connector passes `--no-session`. Unwired, not
   unavailable; `--session <path>` is the better shape here, because routd hands
@@ -679,7 +667,7 @@ on 2026-08-20:
 2. Turn 2, given that id, resumed it and answered with a word supplied only in
    turn 1 — so the rollout survives between spawns, which is the property the
    bind mount exists for.
-3. Turn 3, given an id with no rollout, produced `subtype=session_not_found`,
+3. Turn 3, given an id with no rollout, produced the resume-miss stderr,
    retried fresh through the runtime loop, and delivered the new turn's answer.
    The harness diagnostic never reached the user.
 
@@ -827,6 +815,25 @@ expose its own `audit_log` as a resource, which is not required of it today.
 The tool list itself (grants already express it), per-vendor credential
 mechanics (a credential proxy — declined 2026-08-20), and the substrate's reap policy (its own decision). This
 spec says what must stay true across those, not how any of them works.
+
+## Open
+
+- **How opaque may lineage become?** The seam's continuity token is opaque,
+  but routd's lineage row is not: topic fork names the transcript file by the
+  stored `session_id` (`copyParentSession` → `CopySession`). The seam therefore
+  carries `sessionId` beside the token. Whether the platform should ever key
+  fork/copy on something token-opaque is undecided — it would move a claude
+  mechanism (transcript files) behind the seam, and that is a routd/runed
+  change, not an ant one.
+- **`ARIZUKO_IS_ROOT` never reaches ant.** `seedSettings` writes it into the
+  settings env block (which reaches the SDK subprocess), and nothing emits it
+  as `-e` container env — yet ant reads `process.env.ARIZUKO_IS_ROOT` to skip
+  `/var/lib/share` on elevated turns, so that check is always false (BUGS
+  `L60`). The three-layer render (next increment) is the natural fix; until
+  then the bug is recorded, not fixed.
+- **The rate-limit notice is claude-only.** codex and pi report throttling in
+  their own stream shapes; nothing maps them onto the notice the claude harness
+  emits. Parity belongs to the capabilities increment.
 
 ## Ties
 

@@ -226,6 +226,29 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L60 — `ARIZUKO_IS_ROOT` never reaches ant: the `/var/lib/share` skip is dead (2026-08-20, open)
+
+`ant/src/claude.ts` (`extraDirs`, moved 2026-08-20 from `index.ts:251`) reads
+`process.env.ARIZUKO_IS_ROOT` to keep an elevated `/root` turn from adding
+`/var/lib/share` to `additionalDirectories`. But `seedSettings` writes
+`ARIZUKO_IS_ROOT` only into the settings.json **env block**
+(`container/runner.go:838`), which reaches the SDK subprocess — never ant's own
+process.env; no `-e ARIZUKO_IS_ROOT` exists in `buildArgs`. So the check is
+always false and every elevated turn gets `/var/lib/share` as an extra dir
+anyway. Same class as `ARIZUKO_MODEL`/`RUNED_RUN_TIMEOUT`/`ARIZUKO_BACKEND`
+([ant_env_delivery]): a var ant reads that nothing emits is silently dead.
+
+- **Impact**: cosmetic-to-low — root already mounts `/var/lib/groups` RW; the
+  extra read-only context dir is redundant, not an escalation. The agent-side
+  `$ARIZUKO_IS_ROOT` doc claim ("echo $ARIZUKO_IS_ROOT shows privilege") holds
+  only inside the SDK's shells, not for ant.
+- **Fix shape**: either emit `-e ARIZUKO_IS_ROOT=` in `buildArgs` (one line,
+  symptom-level) or fold it into the three-layer config render
+  (`specs/6/7` § "ant owns the capabilities", next increment) where ant renders
+  the settings and therefore knows the flag. The render is the cause fix.
+- **Source:** `container/runner.go:694-728` (the `-e` list), `:838`;
+  `ant/src/claude.ts` `extraDirs`.
+
 ## L59 — the `5/23` skill-guard cannot gate what codex loads (2026-08-20, open)
 
 `codex` discovers skills natively from `$HOME/.claude/skills`. In the container
@@ -263,7 +286,8 @@ it is merely absent from the index the connector appends.
   native config: claude's settings/SDK callbacks, codex's `hooks.json`, pi's
   extensions. One declaration, many readers — not three guards. That subsumes
   options (a)/(b)/(c) above and is tracked with the seam inversion in
-  `specs/6/7` § "Proposed: invert the seam".
+  `specs/6/7` § "ant owns the capabilities" (next increment; the seam itself
+  shipped 2026-08-20).
 - **Source:** `ant/src/codex.ts` `CodexSession.events`; `ant/src/skills-scan.ts`;
   `specs/5/23`; the matrix note in `specs/6/7-environment-contracts.md`.
 
