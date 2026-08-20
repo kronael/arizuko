@@ -272,7 +272,7 @@ This is not an anteval quirk: the same hole loses a user's `/stop`, `/root`,
   row only — anything newer has not been consumed.
 - **Tests:** `routd.TestNewestUserMsg_{SkipsBotRowsAfterACommand,TakesTheLatestUserRow,AllBotBatchSteersNothing}`
 
-## L55 — a restart starves the instance: 4,704 dispatches produced 18 spawns (2026-08-20)
+## ✅ FIXED 2026-08-20 L55 — a restart starves the instance: 4,704 dispatches produced 18 spawns (2026-08-20)
 
 Restarting `arizuko_krons` fires `routd.checkMigrationVersion` for every folder
 below `MIGRATION_VERSION`, queueing an `auto-migrate-<folder>` turn each. krons
@@ -310,10 +310,24 @@ decision is re-evaluated every poll on a chat whose cursor is weeks old.
   after every restart and burns model budget on migrate turns nobody asked for)
 - **Source:** routd `checkMigrationVersion`; the 2s re-feed poll (`L51`);
   `MAX_CONCURRENT_CONTAINERS=2` in `env/runed.env`
-- **Status:** OPEN, needs a decision. Shapes worth costing: back off a re-fed turn
-  instead of re-dispatching it every 2s (the `L51` push path would remove the busy
-  wait entirely); stagger or rate-limit the migrate wave rather than queueing every
-  folder at once; or gate auto-migrate behind an explicit operator trigger.
+- **Status:** resolved-not-yet-removed. Of the shapes costed (backoff / stagger
+  the migrate wave / operator-gated auto-migrate / the `L51` push path), the
+  per-chat backoff shipped: it removes the busy-wait for EVERY starvation source
+  (migrate waves, task bursts, a slow folder), not just the restart one, and is
+  contained in routd — no new cross-daemon flow, no changed delivery semantics
+  (cursor and turn_context handling untouched; at-least-once holds).
+- **Fix:** `routd/dispatch.go` — a batch runed refuses as Busy retries on a
+  per-chat exponential backoff (4s base, ×2 per consecutive refusal of the same
+  batch, 60s cap) instead of every 2s poll; `busyDeferred` skips the re-feed
+  BEFORE the expensive setup (capability resolve, MCP socket, prompt build). A
+  new inbound message clears the backoff (fresh activity and slash commands are
+  never delayed); any cursor advance clears it too. The 15-minute krons window
+  drops from ~450 dispatch cycles per starved chat to ~19.
+- **Tests:** `routd.TestBusyOutcomeRetriesWithoutAdvanceOrBreaker` (a busy
+  result must not produce another dispatch on the very next poll; the same turn
+  completes after the window); `routd.TestBusyBackoffGrowsAndNewMessageBypasses`.
+- **Deploy:** routd only — rebuild + `systemctl restart`. The `session:
+resetting on idle expiry` re-log and the `L51` push path stay open as `L51`.
 - **Do NOT** read an anteval score taken while a migrate wave is draining.
 
 ## ✅ FIXED 2026-08-20 L54 — every forked topic answered its first turn with no context (2026-06-01)

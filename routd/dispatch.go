@@ -33,6 +33,15 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	last := msgs[len(msgs)-1]
+	// A batch runed refused as Busy retries on a growing backoff, not on
+	// every 2s poll: the re-feed below this line is the expensive part
+	// (capability resolve, MCP socket, prompt build). A new inbound message
+	// resets the backoff inside busyDeferred, so steering and fresh user
+	// turns are never delayed. Keyed on the true newest id — a bot row is
+	// still new activity worth resetting on.
+	if l.busyDeferred(chatJID, last.ID) {
+		return false, nil
+	}
 	// Route and steer both read the newest USER row, never the newest row.
 	// A `verb=mention` route matches on the message's verb, and a bot reply
 	// carries no mention — so resolving on a bot row turns the user's @mention
@@ -114,8 +123,10 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			// the global cap is hit) and keeps no internal queue. Busy is NOT an
 			// error (distinct from the route-miss above, which is a resolve
 			// failure): do NOT advance the cursor and do NOT return an err (which
-			// would trip the queue breaker). The batch is re-fed on the next poll —
-			// turn_context stays 'running' so the re-dispatch is live.
+			// would trip the queue breaker). The batch is re-fed after a growing
+			// per-chat backoff (noteBusy) — turn_context stays 'running' so the
+			// re-dispatch is live.
+			l.noteBusy(chatJID, last.ID)
 			return hadAny, nil
 		}
 		if steered {
@@ -137,6 +148,60 @@ func newestUserMsg(msgs []core.Message) (core.Message, bool) {
 		}
 	}
 	return core.Message{}, false
+}
+
+// Busy re-dispatch backoff: base delay for the first refused attempt,
+// doubling per consecutive refusal of the same batch, capped. At the cap a
+// starved chat probes runed once a minute instead of once per 2s poll — a
+// restart's migrate wave on krons burned 4,704 dispatches (each with a full
+// MCP-socket + prompt setup) for 18 spawns in 15 minutes (BUGS L55).
+const (
+	busyBackoffBase = 4 * time.Second
+	busyBackoffCap  = 60 * time.Second
+)
+
+// busyState is one chat's re-dispatch backoff after a runed Busy refusal.
+type busyState struct {
+	// until defers the next dispatch attempt.
+	until time.Time
+	// delay is the backoff applied at the last refusal; the next one doubles it.
+	delay time.Duration
+	// lastMsgID is the chat's newest message id at refusal time. A different
+	// newest id means fresh inbound activity: the backoff no longer applies.
+	lastMsgID string
+}
+
+// busyDeferred reports whether the chat's batch is inside its busy backoff
+// window and should not be re-dispatched this poll. A changed newest-message
+// id clears the backoff (new activity retries immediately); an expired window
+// lets the attempt through and keeps the entry so a repeat refusal doubles.
+func (l *Loop) busyDeferred(chatJID, lastMsgID string) bool {
+	v, ok := l.busyWait.Load(chatJID)
+	if !ok {
+		return false
+	}
+	st := v.(busyState)
+	if st.lastMsgID != lastMsgID {
+		l.busyWait.Delete(chatJID)
+		return false
+	}
+	return time.Now().Before(st.until)
+}
+
+// noteBusy records a runed Busy refusal for the chat's current batch,
+// doubling the backoff on a consecutive refusal of the same batch.
+func (l *Loop) noteBusy(chatJID, lastMsgID string) {
+	delay := busyBackoffBase
+	if v, ok := l.busyWait.Load(chatJID); ok {
+		if st := v.(busyState); st.lastMsgID == lastMsgID {
+			delay = min(st.delay*2, busyBackoffCap)
+		}
+	}
+	l.busyWait.Store(chatJID, busyState{
+		until:     time.Now().Add(delay),
+		delay:     delay,
+		lastMsgID: lastMsgID,
+	})
 }
 
 // runTurn dispatches ONE turn for a trigger batch (already bot-stripped),

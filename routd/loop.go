@@ -85,6 +85,15 @@ type Loop struct {
 	pendingElevation sync.Map // message_id → struct{}
 	nextScanAt       time.Time
 
+	// busyWait backs off the re-dispatch of a batch runed refused as Busy,
+	// per chat (chatJID → busyState). Without it a refused batch is re-fed
+	// on every 2s poll and each re-feed does the FULL pre-dispatch setup —
+	// capability resolve, MCP socket, prompt build — before runed refuses it
+	// again: a restart's migrate wave on krons produced 4,704 dispatches for
+	// 18 spawns in 15 minutes (BUGS L55). A new inbound message bypasses the
+	// backoff; any cursor advance clears it.
+	busyWait sync.Map // chatJID → busyState
+
 	// Maintenance cadence, loop-driven (no free tickers). nextRetryAt paces
 	// the outbound retry sweep (pending bot rows >30s); nextGCAt paces the
 	// hourly GC (expired stale running turns + idempotency-ledger sweep).
@@ -784,6 +793,8 @@ func (l *Loop) directFolder(jid string) string {
 // advance moves the chat's agent_cursor past the last seen row so the
 // poll loop doesn't re-feed it.
 func (l *Loop) advance(chatJID string, last core.Message) {
+	// Any cursor advance is progress past the batch a Busy refusal parked.
+	l.busyWait.Delete(chatJID)
 	_ = l.db.SetAgentCursor(chatJID, last.Timestamp.UTC().Format(time.RFC3339Nano))
 }
 

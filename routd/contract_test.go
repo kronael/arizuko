@@ -153,7 +153,24 @@ func TestBusyOutcomeRetriesWithoutAdvanceOrBreaker(t *testing.T) {
 		t.Fatalf("turn_context state=%q ok=%v want running (re-dispatchable)", tc.State, ok)
 	}
 
-	// (2) capacity frees; the next poll re-feeds and the SAME turn completes.
+	// (2) the very next poll must NOT re-dispatch: the busy backoff defers the
+	// re-feed, so the expensive pre-dispatch setup does not run every 2s
+	// (BUGS L55 — 4,704 dispatches for 18 spawns after a krons restart).
+	runner.gotTurn = ""
+	hadOutput, err = srv.loop.processGroupMessages("slack:T/C/U")
+	if err != nil {
+		t.Fatalf("deferred process: %v", err)
+	}
+	if hadOutput || runner.gotTurn != "" {
+		t.Fatalf("re-poll inside the busy backoff dispatched turn_id=%q; want no dispatch", runner.gotTurn)
+	}
+	if got := db.GetAgentCursor("slack:T/C/U"); got != cursorBefore {
+		t.Fatalf("cursor advanced during backoff: %q != %q", got, cursorBefore)
+	}
+
+	// (3) capacity frees; after the backoff window the SAME turn completes and
+	// the backoff entry is cleared by the cursor advance.
+	expireBusyWait(t, srv.loop, "slack:T/C/U")
 	runner.busy = false
 	hadOutput, err = srv.loop.processGroupMessages("slack:T/C/U")
 	if err != nil {
@@ -168,6 +185,82 @@ func TestBusyOutcomeRetriesWithoutAdvanceOrBreaker(t *testing.T) {
 	if db.GetAgentCursor("slack:T/C/U") == cursorBefore {
 		t.Fatal("cursor did not advance after the successful retry")
 	}
+	if _, ok := srv.loop.busyWait.Load("slack:T/C/U"); ok {
+		t.Fatal("busy backoff entry survived the successful retry; want cleared on advance")
+	}
+}
+
+// expireBusyWait rewinds a chat's busy-backoff window so a test can retry
+// without sleeping.
+func expireBusyWait(t *testing.T, l *Loop, chatJID string) {
+	t.Helper()
+	v, ok := l.busyWait.Load(chatJID)
+	if !ok {
+		t.Fatalf("no busy backoff recorded for %s", chatJID)
+	}
+	st := v.(busyState)
+	st.until = time.Now().Add(-time.Millisecond)
+	l.busyWait.Store(chatJID, st)
+}
+
+// TestBusyBackoffGrowsAndNewMessageBypasses: a consecutive refusal of the
+// same batch doubles the backoff; a NEW inbound message clears it so fresh
+// user activity (including slash commands, which steer before dispatch) is
+// never delayed behind a starved batch.
+func TestBusyBackoffGrowsAndNewMessageBypasses(t *testing.T) {
+	db, srv, runner := newTestRoutd(t)
+	runner.busy = true
+	h := srv.Handler()
+
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatalf("put group: %v", err)
+	}
+	doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": []apiv1.Route{{Seq: 0, Match: "platform=slack", Target: "demo"}}})
+	doJSON(t, h, "POST", "/v1/messages", "", apiv1.Message{ID: "m1", ChatJID: "slack:T/C/U", Sender: "u1", Content: "hi", Verb: "message"})
+
+	// First refusal: backoff at base.
+	if _, err := srv.loop.processGroupMessages("slack:T/C/U"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	st := loadBusyState(t, srv.loop, "slack:T/C/U")
+	if st.delay != busyBackoffBase {
+		t.Fatalf("first refusal delay=%v want %v", st.delay, busyBackoffBase)
+	}
+
+	// Second refusal of the SAME batch (window expired): backoff doubles.
+	expireBusyWait(t, srv.loop, "slack:T/C/U")
+	if _, err := srv.loop.processGroupMessages("slack:T/C/U"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	st = loadBusyState(t, srv.loop, "slack:T/C/U")
+	if st.delay != 2*busyBackoffBase {
+		t.Fatalf("second refusal delay=%v want %v", st.delay, 2*busyBackoffBase)
+	}
+
+	// A new inbound message bypasses the standing backoff: the next poll
+	// dispatches immediately (and, still refused, restarts the backoff at base).
+	doJSON(t, h, "POST", "/v1/messages", "", apiv1.Message{ID: "m2", ChatJID: "slack:T/C/U", Sender: "u1", Content: "again", Verb: "message"})
+	runner.gotTurn = ""
+	if _, err := srv.loop.processGroupMessages("slack:T/C/U"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if runner.gotTurn != "m2" {
+		t.Fatalf("new message did not bypass the backoff: dispatched turn_id=%q want m2", runner.gotTurn)
+	}
+	st = loadBusyState(t, srv.loop, "slack:T/C/U")
+	if st.delay != busyBackoffBase || st.lastMsgID != "m2" {
+		t.Fatalf("backoff after bypass delay=%v lastMsgID=%q; want base delay keyed on m2", st.delay, st.lastMsgID)
+	}
+}
+
+// loadBusyState fetches a chat's recorded busy backoff, failing when absent.
+func loadBusyState(t *testing.T, l *Loop, chatJID string) busyState {
+	t.Helper()
+	v, ok := l.busyWait.Load(chatJID)
+	if !ok {
+		t.Fatalf("no busy backoff recorded for %s", chatJID)
+	}
+	return v.(busyState)
 }
 
 // TestTurnReplyAppendsAndDelivers checks the sole-appender callback writes a
