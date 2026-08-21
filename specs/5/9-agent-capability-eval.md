@@ -61,12 +61,18 @@ regression watch — not only in the build.
 ## Cases
 
 Data, not spec: the case registry is `anteval/cases/anteval.toml`
-(35 cases as of 2026-08-20; `smoke = true` tags the release-gate basis).
-Do not mirror the case list here — it drifts the moment a case lands.
+(22 cases as of 2026-08-21, reduced from 35 — a case must earn its ~4 min
+of live model time per backend, so same-effect/same-path duplicates,
+want=404 shapes a total failure also satisfies, and cases whose success
+arm is unreachable on the documented web:eval chat were deleted, each
+with an in-place note; `smoke = true` tags the 9-case release-gate
+basis). Do not mirror the case list here — it drifts the moment a case
+lands.
 
-Nine dimensions: self-modification · subagents + privileges · web
+Ten dimensions: self-modification · subagents + privileges · web
 publishing · online chat apps · reach via REST + MCP · composites ·
-routing · egress · continuity (added 2026-08-20: the group-knowledge
+routing · egress · the backend contract floor (`6/7`) · continuity
+(added 2026-08-20: the group-knowledge
 layer must carry a fact to a transcript-less isolated turn — the
 `specs/6/7` portability claim; what stays live-unmeasured and why is in
 `anteval/README.md` §"Continuity coverage"), plus a
@@ -75,11 +81,13 @@ layer must carry a fact to a transcript-less isolated turn — the
 `journalctl`, and doc anti-patterns) where the agent gives a confident
 wrong answer instead of surfacing a real failure.
 
-The composites are the headline the suite certifies: _the agent builds an
-online app with chats, publishes it, and makes it reachable over REST and
-MCP — for a child agent it created and privileged._ The
-privilege-gate/revoke pair is the actual privilege-mediation boundary —
-behavior, not a row mutation.
+The composite is the headline the suite certifies: _the agent creates and
+privileges a child, and the child publishes an online app with a live
+chat entrypoint reachable from the public web._ The
+privilege-gate pair (grant → 200, deny → 404) is the actual
+privilege-mediation boundary — behavior, not a row mutation; the revoke
+twin was deleted 2026-08-21 as the same gate answer (a revoked and a
+never-granted folder both end at "no acl row").
 
 Scoring is **binary per case** (effect present or absent), aggregated to
 pass-rate per dimension. Partial credit is additive and out of scope for

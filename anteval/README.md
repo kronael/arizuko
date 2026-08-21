@@ -24,7 +24,7 @@ arizuko token krons issue bearer eval --scope messages:write,messages:read,cost:
   --folder eval \                # folder owning --chat; anchors the root-session reset
   --sink-addr :9099 \            # local bind for the callback sink (routable iface)
   --sink  http://172.22.0.1:9099 \# URL the agent containers call back to (docker-gateway IP works host-local)
-  --smoke                         # gate subset; omit for all 35
+  --smoke                         # gate subset (9 cases); omit for all 22
 # selectors: --dimension web | --case pub-200 ; output: --md report.md --json report.json
 ./anteval dash report.json      # re-render a saved report
 make validate                     # load+validate the case catalog (no target)
@@ -33,6 +33,14 @@ make validate                     # load+validate the case catalog (no target)
 Live preconditions (spec § "Live-run preconditions"): the eval folder exists
 (`arizuko group <inst> add web:eval eval`), its `MaxChildren` is raised for the
 subagent cases, and the sink URL is reachable from agent containers.
+
+**Tiers** (2026-08-21, reduced from 35 cases — the deletions and why are
+noted in place in `cases/anteval.toml`): `--smoke` is the per-release gate —
+9 cases, ~35–40 min at the measured ~4 min/case. The full catalog — 22
+cases, ~90 min per backend — runs before a tag and when certifying a
+backend (`ARIZUKO_BACKEND` = claude | codex | pi). A catalog too expensive
+to run certifies nothing; a case earns its slot only by evidence no cheaper
+tier can produce.
 
 **anteval is a manual, operator-invoked tool.** It needs a live instance and a
 minted token, and it drives a real agent at real cost. Never wire it into CI,
@@ -71,7 +79,7 @@ reader can tell an ungranted tool from a failed agent. To grant them:
 
 ```bash
 for a in mcp:register_group mcp:delegate_group mcp:issue_webhook \
-         mcp:issue_chat_token mcp:add_acl mcp:remove_acl mcp:web_route_set; do
+         mcp:issue_chat_token mcp:add_acl mcp:web_route_set; do
   arizuko group <inst> grant folder:eval 'eval/**' "$a"
 done
 ```
@@ -111,10 +119,12 @@ injecting token needs `messages:write` + read scope on the eval folder, and the
 
 `Cost()` reads routd `GET /v1/cost?turn_id=` (token needs `cost:read`); a 404
 — no cost recorded yet, or a routd predating the endpoint — reads as 0, other
-failures surface. One known gap (honest, not silent): `--mcp` expects an
-inspect-compatible MCP-over-HTTP face — unset, the `rest-mcp-parity` case
-fails loudly ("surface not configured") rather than false-pass; the platform's
-chat-token MCP face lacks an inspect-read (proposal in `BUGS.md`).
+failures surface. One known gap (honest, not silent): the platform's
+chat-token MCP face lacks an inspect-read (proposal in `BUGS.md`), so `--mcp`
+was never configurable against it and the `rest-mcp-parity` case failed every
+live run by construction — deleted 2026-08-21. The `parity_sentinel` checker
+and the `--mcp` flag remain for its return, and for product catalogs whose
+target has such a face.
 
 The callback sink binds locally; the agent containers must be able to reach
 `--sink`, so the eval host has to be on the target folder's crackbox egress
