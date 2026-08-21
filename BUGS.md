@@ -226,6 +226,32 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L61 — one stranded onboarding row re-logs at ERROR forever (2026-08-21, open)
+
+sloth carries an `onboarding` row for `telegram:user/1112184352` with
+`status='pending'`, which is not in `knownStatuses`
+(`awaiting_message`/`token_used`/`queued`/`approved`). `warnStrandedRows`
+(`onbod/main.go:387`) scans the whole table on a timer and logs one ERROR per
+unknown row per scan — 6 in a 60-second window after a restart.
+
+The warning is deliberate and correct: its comment says arizuko will not pick a
+status for a row of unknown provenance, because that is the operator's call,
+and "silence is what let them sit unnoticed". The defect is the CADENCE, not
+the decision. An operator-actionable data condition that cannot change without
+human action re-logs at ERROR indefinitely, which trains the reader to filter
+ERROR on the one daemon where onboarding failures surface.
+
+- **Not a code-path bug**: no turn, invite or grant is affected. The row simply
+  never advances, which is exactly what the log says.
+- **Fix shape**: log each stranded jid once per process (a seen-set), or once
+  per status transition, and keep the count on the existing health/metrics
+  surface. Loud once beats loud forever — the same distinction `L45` draws
+  between a config silently ignored and one whose drop is named.
+- **Operator fix for the live row**: decide what that jid should be and set it,
+  or delete the row if the onboarding attempt is abandoned. arizuko will not
+  guess it.
+- **Source:** `onbod/main.go:387-408`; live on sloth 2026-08-21.
+
 ## ✅ FIXED 2026-08-21 L60 — `ARIZUKO_IS_ROOT` never reached ant: the `/var/lib/share` skip was dead (2026-08-20)
 
 `ant/src/claude.ts` (`extraDirs`, moved 2026-08-20 from `index.ts:251`) reads
