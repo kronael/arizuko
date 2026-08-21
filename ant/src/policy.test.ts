@@ -2,9 +2,9 @@ import { describe, expect, test, beforeEach } from 'bun:test';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { bindings, matches, findBinding } from './policy.js';
+import { bindings, matches, runRows, runnableBy } from './policy.js';
 import { codexHomeDir, codexHooksConfig, codexRows, verdictToCodexJson, writeCodexHooks } from './codex.js';
-import { STEER_FILE, appendSteer, drainSteer, drainSteerMessages } from './steer.js';
+import { STEER_FILE, appendLines, drainLines } from './spool.js';
 
 const ctx = { home: '/home/node', turnID: 'turn-1' };
 
@@ -25,9 +25,13 @@ describe('the binding table is the whole capability surface', () => {
     ]);
   });
 
-  test('findBinding resolves the id codex puts on the hook command line', () => {
-    expect(findBinding(ctx, 'skill-guard')?.event).toBe('PreToolUse');
-    expect(findBinding(ctx, 'no-such-policy')).toBeUndefined();
+  test('a renderer that cannot honour a verdict refuses that row, loudly', () => {
+    const refused: string[] = [];
+    const kept = runnableBy(bindings(ctx), ['deny', 'inject'], (m) => refused.push(m));
+    expect(kept.map((b) => b.id)).not.toContain('bash-scrub');
+    expect(refused.join(' ')).toContain('bash-scrub');
+    // Observers declare no verdicts, so every renderer keeps them.
+    expect(kept.map((b) => b.id)).toContain('tool-log-pre');
   });
 });
 
@@ -69,18 +73,22 @@ describe('the codex renderer refuses what codex cannot honour', () => {
     expect(ids).toContain('steering');
   });
 
-  test('hooks.json carries codex 0.147.0 schema and the per-row command', () => {
+  test('hooks.json carries codex 0.147.0 schema and ONE command per event', () => {
     const cfg = codexHooksConfig(bindings(ctx), 'turn-9') as {
       version?: unknown;
       description: string;
-      hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ type: string; command: string }> }>>;
+      hooks: Record<string, Array<{ hooks: Array<{ type: string; command: string }> }>>;
     };
     // codex rejects any top-level field but description/hooks — a `version` key
     // failed the whole file to parse when this was first measured.
     expect(Object.keys(cfg).sort()).toEqual(['description', 'hooks']);
-    const guard = cfg.hooks.PreToolUse.find((h) => h.matcher === 'Write|Edit|MultiEdit')!;
-    expect(guard.hooks[0].type).toBe('command');
-    expect(guard.hooks[0].command).toBe('node /tmp/dist/policy-cli.js skill-guard turn-9');
+    expect(Object.keys(cfg.hooks).sort()).toEqual(['PostToolUse', 'PreToolUse']);
+    // One entry per event, not per row: a row-per-command spawns a node process
+    // per row per tool call, four where two do the same work.
+    expect(cfg.hooks.PreToolUse).toHaveLength(1);
+    expect(cfg.hooks.PreToolUse[0].hooks[0].type).toBe('command');
+    expect(cfg.hooks.PreToolUse[0].hooks[0].command).toBe('node /tmp/dist/policy-cli.js PreToolUse turn-9');
+    expect(cfg.hooks.PostToolUse[0].hooks[0].command).toBe('node /tmp/dist/policy-cli.js PostToolUse turn-9');
   });
 });
 
@@ -97,7 +105,7 @@ describe('the system layer is written before codex starts', () => {
 
     const written = JSON.parse(fs.readFileSync(file, 'utf-8'));
     expect(written.hooks.PreToolUse.length).toBeGreaterThan(0);
-    expect(JSON.stringify(written)).toContain('policy-cli.js skill-guard turn-3');
+    expect(JSON.stringify(written)).toContain('policy-cli.js PreToolUse turn-3');
   });
 
   // codex looks where CODEX_HOME says. Writing to <home>/.codex regardless
@@ -137,38 +145,41 @@ describe('a verdict becomes codex wire JSON in exactly one place', () => {
 
 // Steering became a file precisely so codex's hook subprocess could reach it.
 describe('the steering queue survives a process boundary', () => {
+  const post = { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: {} } as never;
+  const rows = () => bindings(ctx).filter((b) => b.id === 'steering');
+
   beforeEach(() => {
     try { fs.unlinkSync(STEER_FILE); } catch { /* not there */ }
   });
 
-  test('queued messages come back as one injected block', () => {
-    appendSteer(['first', 'second']);
-    const verdict = drainSteer();
+  test('queued messages come back as one injected block', async () => {
+    appendLines(STEER_FILE, ['first', 'second']);
+    const verdict = await runRows(rows(), 'PostToolUse', post);
     expect(verdict.kind).toBe('inject');
     expect(verdict.kind === 'inject' && verdict.context).toContain('<user-steering>');
     expect(verdict.kind === 'inject' && verdict.context).toContain('first\nsecond');
   });
 
-  test('a drain empties the queue — a message is delivered once, never replayed', () => {
-    appendSteer(['only once']);
-    expect(drainSteer().kind).toBe('inject');
-    expect(drainSteer().kind).toBe('allow');
+  test('a drain empties the queue — a message is delivered once, never replayed', async () => {
+    appendLines(STEER_FILE, ['only once']);
+    expect((await runRows(rows(), 'PostToolUse', post)).kind).toBe('inject');
+    expect((await runRows(rows(), 'PostToolUse', post)).kind).toBe('allow');
   });
 
   test('a message containing a newline survives the round trip', () => {
-    appendSteer(['line one\nline two']);
-    expect(drainSteerMessages()).toEqual(['line one\nline two']);
+    appendLines(STEER_FILE, ['line one\nline two']);
+    expect(drainLines(STEER_FILE)).toEqual(['line one\nline two']);
   });
 
-  test('an empty queue is not an error', () => {
-    expect(drainSteer().kind).toBe('allow');
+  test('an empty queue is not an error', async () => {
+    expect((await runRows(rows(), 'PostToolUse', post)).kind).toBe('allow');
   });
 });
 
 // The codex half only works if the CLI answers on stdout. Run the real thing.
 describe('policy-cli answers codex on stdout', () => {
-  const runCli = async (id: string, event: unknown, home: string): Promise<string> => {
-    const proc = Bun.spawn(['bun', path.join(import.meta.dir, 'policy-cli.ts'), id, 'turn-1'], {
+  const runCli = async (name: string, event: unknown, home: string): Promise<string> => {
+    const proc = Bun.spawn(['bun', path.join(import.meta.dir, 'policy-cli.ts'), name, 'turn-1'], {
       stdin: new TextEncoder().encode(JSON.stringify(event)),
       env: { ...process.env, HOME: home },
       stdout: 'pipe',
@@ -178,7 +189,7 @@ describe('policy-cli answers codex on stdout', () => {
 
   test('a dangerous skill write is refused, with the reason on stdout', async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'policycli-'));
-    const out = await runCli('skill-guard', {
+    const out = await runCli('PreToolUse', {
       hook_event_name: 'PreToolUse',
       tool_name: 'Write',
       tool_input: {
@@ -191,8 +202,17 @@ describe('policy-cli answers codex on stdout', () => {
     expect(JSON.parse(out).hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  test('an unknown binding id prints valid JSON rather than failing the tool call', async () => {
-    const out = await runCli('no-such-policy', { hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: {} }, os.tmpdir());
-    expect(out === '' || JSON.parse(out)).toBeTruthy();
+  test('an unknown event prints valid JSON rather than failing the tool call', async () => {
+    const out = await runCli('NoSuchEvent', { hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: {} }, os.tmpdir());
+    expect(JSON.parse(out)).toEqual({});
+  });
+
+  test('malformed stdin never blocks the agent', async () => {
+    const proc = Bun.spawn(['bun', path.join(import.meta.dir, 'policy-cli.ts'), 'PreToolUse', 'turn-1'], {
+      stdin: new TextEncoder().encode('not json at all'),
+      env: { ...process.env, HOME: os.tmpdir() },
+      stdout: 'pipe',
+    });
+    expect(JSON.parse(await new Response(proc.stdout).text())).toEqual({});
   });
 });

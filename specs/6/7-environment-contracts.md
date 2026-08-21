@@ -432,17 +432,27 @@ verdict, `tool-log.ts` keeps the line format. `guards.ts` stops being a list of
 `HookCallback`s and becomes the guard ROWS of that table — same job, which is to
 be the one place a refusal is registered.
 
+Merging is stated once, in `runRows`: a deny wins outright, otherwise the
+injected texts join, otherwise allow — the precedence claude's SDK already
+applies across several hooks, so codex's subprocess and pi's extension cannot
+drift from it. The refusal check is stated once too (`runnableBy`), so no
+renderer re-implements "which rows can I actually run".
+
 Three renderers read that one array:
 
 - **claude** — wraps each row in a `HookCallback` and builds today's `hooks`
   object. The only file that imports the SDK's hook types.
 - **codex** — writes `$CODEX_HOME/hooks.json` (the env var, never a guessed
   `<home>/.codex`: codex reads where the var points, and a file written
-  elsewhere is simply absent, with no error), one handler per row, each invoking
-  `node /tmp/dist/policy-cli.js <binding-id> <turn-id>`. That CLI reads the
-  event on stdin, runs the one function, prints the verdict. `entrypoint.sh`
-  already does `chmod -R a-w /tmp/dist`, so the code behind the hook is not the
-  agent's to edit.
+  elsewhere is simply absent, with no error). ONE command per EVENT, not per
+  row — `node /tmp/dist/policy-cli.js <event> <turn-id>` — because a command
+  per row spawns a node process per row per tool call, four where two do the
+  same work. The CLI reads the event on stdin, loops the rows itself (looping
+  is free once the process exists), and prints the merged verdict.
+  `entrypoint.sh` already does `chmod -R a-w /tmp/dist`, so the code behind the
+  hook is not the agent's to edit. If the file cannot be written the turn
+  FAILS: running unguarded and looking healthy is the one outcome worth
+  refusing.
 
   codex also SWALLOWS a hook's stderr — a marker written to fd 2 reaches neither
   its stdout nor its stderr (measured). Every policy already logs through

@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { canonicalToolName, registerWith } from './pi-extension.js';
-import { STEER_FILE, appendSteer } from './steer.js';
+import { STEER_FILE, appendLines } from './spool.js';
 
 // One row — skill-rescan — WALKS AND RENAMES files under <home>/.claude/skills.
 // Pass a sandbox home explicitly; the default export's os.homedir() would
@@ -68,7 +68,7 @@ describe('pi runs the same policy rows claude and codex do', () => {
   });
 
   test('queued steering rides back on the tool result — pi has no other channel', async () => {
-    appendSteer(['ship it']);
+    appendLines(STEER_FILE, ['ship it']);
     const out = await fakePi().onResult({ toolName: 'bash', toolCallId: 'tc-3', input: {}, content: 'ok' });
     const texts = (out?.content ?? []).map((c) => (c as { text: string }).text);
     expect(texts[0]).toBe('ok');

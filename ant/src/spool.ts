@@ -1,20 +1,24 @@
-// spool.ts — a line queue in a file, for the two places a closure cannot reach.
+// spool.ts — the two line-queues that cross codex's hook process boundary.
 //
-// codex runs each hook as its own process: it cannot be handed a callback, and
+// codex runs each hook as its own process. It cannot be handed a closure, and
 // it SWALLOWS the hook's stderr (measured 2026-08-21 — a marker written to fd 2
-// appears in neither codex's stdout nor its stderr). So both directions across
-// that boundary travel through a file: the chassis queues steering INTO the
-// hook, the hook queues log lines back OUT.
+// reaches neither codex's stdout nor its stderr). So both directions travel
+// through a file: the chassis queues STEERING in, the hook queues LOG LINES
+// back out. One format, two queues, no other state.
 //
-// One primitive, two users — never two half-identical file helpers.
+// Paths are compiled constants, never env vars: a var ant reads that nothing
+// emits as `-e` is silently dead, and that class already cost ARIZUKO_MODEL,
+// ARIZUKO_BACKEND and ARIZUKO_IS_ROOT (BUGS L60). /tmp is container-private and
+// per-spawn, so there is nothing to collide with.
 
 import fs from 'fs';
 
+export const STEER_FILE = '/tmp/arizuko-steer.jl';
+export const POLICY_LOG_FILE = '/tmp/arizuko-policy.jl';
+
 // encodeLines is THE on-disk format: one JSON string per line, so a message
-// containing a newline survives the round trip. Exported because policy-log.ts
-// writes the same format without going through appendLines — it must not call
-// console.error, which it has itself replaced.
-export function encodeLines(lines: string[]): string {
+// containing a newline survives the round trip.
+function encodeLines(lines: string[]): string {
   return lines.map((l) => JSON.stringify(l)).join('\n') + '\n';
 }
 
@@ -27,7 +31,7 @@ export function appendLines(file: string, lines: string[]): void {
   }
 }
 
-// drainLines reads the queue and empties it in one step. Truncate rather than
+// drainLines reads a queue and empties it in one step. Truncate rather than
 // unlink: an empty file is the same "nothing queued" state as an absent one,
 // and the reader may not own the directory entry.
 export function drainLines(file: string): string[] {
@@ -55,4 +59,22 @@ export function drainLines(file: string): string[] {
     }
   }
   return out;
+}
+
+// spoolStderr redirects console.error for the life of this process. Called only
+// by policy-cli.ts — an in-process harness must keep the real stderr.
+//
+// It writes the file directly rather than through appendLines: appendLines
+// reports its own failures on console.error, which this function has just
+// replaced, so the pair would recurse until the stack ran out.
+export function spoolStderr(): void {
+  const real = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    const line = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
+    try {
+      fs.appendFileSync(POLICY_LOG_FILE, encodeLines([line]));
+    } catch (err) {
+      real(`[ant] spool: ${err}`);
+    }
+  };
 }

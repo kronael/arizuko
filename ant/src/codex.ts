@@ -18,9 +18,8 @@ import {
   Turn,
 } from './backend.js';
 import { renderSkillsIndex, scanSkills } from './skills-scan.js';
-import { Binding, PolicyEvent, Verdict, bindings } from './policy.js';
-import { drainLines } from './spool.js';
-import { POLICY_LOG_FILE } from './policy-log.js';
+import { Binding, PolicyEvent, Verdict, bindings, runnableBy } from './policy.js';
+import { POLICY_LOG_FILE, drainLines } from './spool.js';
 import fs from 'fs';
 import path from 'path';
 import type { ModelUsage } from './mcp.js';
@@ -249,28 +248,28 @@ export function verdictToCodexJson(verdict: Verdict, event: PolicyEvent): string
   }
 }
 
-// codexRows is the renderer's contract check. A row codex cannot honour is
-// REFUSED loudly rather than rendered into a gate that quietly does nothing —
-// the failure mode this whole increment exists to remove.
+// CODEX_HONOURS is what codex can actually DO with a verdict: refuse the call
+// and inject context after it. Not rewrite — its PreToolUse decision is
+// approve|block|allow and updatedInput belongs to a different event.
+export const CODEX_HONOURS: Array<Verdict['kind']> = ['deny', 'inject'];
+
 export function codexRows(rows: Binding[]): Binding[] {
-  return rows.filter((b) => {
-    if (!b.returns.includes('rewrite')) return true;
-    log(`policy ${b.id} not rendered: codex cannot honour a 'rewrite' verdict`);
-    return false;
-  });
+  return runnableBy(rows, CODEX_HONOURS, log);
 }
 
-// codexHooksConfig renders the binding table into codex's hooks.json. The
-// schema is Claude Code's, minus a version key: { description, hooks: { Event:
-// [{ matcher, hooks: [{ type, command, timeout }] }] } } — measured against
-// codex-cli 0.147.0, which rejects any other top-level field.
+// codexHooksConfig renders the binding table into codex's hooks.json: ONE
+// command per event, which loops the rows itself. One command per ROW would
+// spawn a node process per row per tool call — four where two do the same work.
+//
+// The schema is Claude Code's, minus a version key: { description, hooks: {
+// Event: [{ hooks: [{ type, command, timeout }] }] } } — measured against
+// codex-cli 0.147.0, which rejects any other top-level field. No matcher is
+// emitted: the rows carry their own, and policy.ts applies them.
 export function codexHooksConfig(rows: Binding[], turnID: string): unknown {
+  const events = [...new Set(codexRows(rows).map((b) => b.event))];
   const hooks: Record<string, unknown[]> = {};
-  for (const b of codexRows(rows)) {
-    (hooks[b.event] ??= []).push({
-      ...(b.matcher ? { matcher: b.matcher } : {}),
-      hooks: [{ type: 'command', command: `node ${POLICY_CLI} ${b.id} ${turnID}`, timeout: 30 }],
-    });
+  for (const event of events) {
+    hooks[event] = [{ hooks: [{ type: 'command', command: `node ${POLICY_CLI} ${event} ${turnID}`, timeout: 30 }] }];
   }
   return { description: 'arizuko policy (spec 6/7) — generated per turn, do not edit', hooks };
 }
@@ -295,9 +294,10 @@ export function writeCodexHooks(home: string, turnID: string, env: Record<string
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(file, JSON.stringify(config, null, 2));
   } catch (err) {
-    // An unwritable hooks.json means the turn runs with NO guard, no tool log
-    // and no steering. Say so — this is the exact silence the increment closes.
-    console.error(`[ant:codex] FAILED to write ${file}: ${err} — this turn runs with no policy gates`);
+    // THROW, never log-and-continue. An unwritable hooks.json means the turn
+    // would run with no guard, no tool log and no steering, and look completely
+    // healthy doing it. Failing the turn is the loud option.
+    throw new Error(`cannot write ${file}: ${err} — refusing to run the turn with no policy gates`);
   }
 }
 
