@@ -217,8 +217,6 @@ function assistantNameFromSettings(): string | undefined {
 // read-only tree (skipped on an elevated /root turn, which mounts
 // /var/lib/groups instead) and every operator mount under /mnt. Claude wiring
 // — the SDK's additionalDirectories — so it lives here, not the seam.
-// NOTE: ARIZUKO_IS_ROOT is never emitted as container env, so the isRoot check
-// is currently always false (BUGS L60) — behavior preserved from index.ts.
 function extraDirs(env: Record<string, string>): string[] {
   const dirs: string[] = [];
   // 4/R: root is an operator /root elevation, NOT a folder shape — a top-level

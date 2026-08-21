@@ -226,7 +226,7 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
-## L60 — `ARIZUKO_IS_ROOT` never reaches ant: the `/var/lib/share` skip is dead (2026-08-20, open)
+## ✅ FIXED 2026-08-21 L60 — `ARIZUKO_IS_ROOT` never reached ant: the `/var/lib/share` skip was dead (2026-08-20)
 
 `ant/src/claude.ts` (`extraDirs`, moved 2026-08-20 from `index.ts:251`) reads
 `process.env.ARIZUKO_IS_ROOT` to keep an elevated `/root` turn from adding
@@ -248,6 +248,13 @@ anyway. Same class as `ARIZUKO_MODEL`/`RUNED_RUN_TIMEOUT`/`ARIZUKO_BACKEND`
   the settings and therefore knows the flag. The render is the cause fix.
 - **Source:** `container/runner.go:694-728` (the `-e` list), `:838`;
   `ant/src/claude.ts` `extraDirs`.
+- **Fixed 2026-08-21**: `buildArgs` takes `elevated` and always emits
+  `-e ARIZUKO_IS_ROOT=` (`"1"` or empty), so the value is present-and-false
+  rather than absent-and-ambiguous — the shape that made the first two
+  instances of this class hard to spot. Pinned by
+  `TestBuildArgs_EmitsIsRootBothWays`. The cause fix (ant renders the settings
+  itself and therefore knows the flag) still belongs to `specs/6/7`'s next
+  increment; this makes the documented behaviour true today.
 
 ## L59 — the `5/23` skill-guard cannot gate what codex loads (2026-08-20, open)
 

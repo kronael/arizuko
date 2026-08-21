@@ -203,7 +203,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 	defer eg.Stop()
 
-	args := buildArgs(cfg, mounts, containerName, eg, in.Model, in.QueryTimeoutMs)
+	args := buildArgs(cfg, mounts, containerName, eg, in.Model, in.QueryTimeoutMs, elevated)
 
 	logsDir := filepath.Join(groupDir, "logs")
 	os.MkdirAll(logsDir, 0o755)
@@ -685,7 +685,7 @@ func buildMounts(
 
 func buildArgs(
 	cfg *core.Config, mounts []volumeMount, name string, eg egressSpawn,
-	model string, queryTimeoutMs int64,
+	model string, queryTimeoutMs int64, elevated bool,
 ) []string {
 	args := []string{
 		"run", "-i", "--rm",
@@ -710,6 +710,16 @@ func buildArgs(
 	if cfg.AgentBackend != "" {
 		args = append(args, "-e", "ARIZUKO_BACKEND="+cfg.AgentBackend)
 	}
+	// Same reason, third instance (BUGS L60): seedSettings wrote ARIZUKO_IS_ROOT
+	// only into settings.json's env block, which the SDK subprocess sees and ant
+	// does not — so ant's elevation check read undefined on EVERY turn and the
+	// /var/lib/share skip never fired. Always emitted, "1" or "", so the value is
+	// present-and-false rather than absent-and-ambiguous.
+	isRoot := ""
+	if elevated {
+		isRoot = "1"
+	}
+	args = append(args, "-e", "ARIZUKO_IS_ROOT="+isRoot)
 	// The network is --internal, so this is the whole egress story: the only
 	// route out is eg.ProxyURL, and that proxy answers eg.IP and no other.
 	if eg.Network != "" {
