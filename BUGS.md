@@ -256,6 +256,40 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## L65 — `delegate_group` fails silently: no child turn, no error, agent falls back to a dead send (2026-08-21, open)
+
+Caught by anteval `child-delegate`, which is exactly what that suite is for.
+
+Evidence from krons routd.db + journald for run `etk57vv` (2026-08-21T23:29Z,
+eval turn `82bc4d61`):
+
+- `register_group` succeeded at 23:29:52 — the child folder
+  `eval/etk57vv-child-delegate` exists.
+- the agent called `delegate_group` at 23:29:56 — the tool-log PRE line is
+  there, and **no POST line**.
+- `ipc/ipc.go:1957`'s `"delegating to child"` INFO never fired; no child
+  message row, no child dispatch, no error surfaced at transcript-visible level.
+- the agent then fell back to a plain `send` to
+  `web:eval/etk57vv-child-delegate` (23:30:17). That writes a bot message, which
+  **wakes no turn**, so the child never ran and the callback never came.
+
+Reproduced 2026-08-21T23:52Z (`etk58og`): still FAIL, 150s cap, same shape.
+
+**Triage candidates** (not yet distinguished): the granted-row authz on the tool
+(scope glob vs the target folder), or the handler erroring before its first log
+statement. The tool log's `args_summary` is empty for this call, which hides the
+arguments and is its own small gap.
+
+**A wrong theory, recorded so it is not retried:** I proposed that the child had
+no `egress` capability because 5/33 says a path carries zero authorization. That
+is wrong for egress — egress is NOT an `acl` row. It lives in `network_rules`,
+and `routd/network.go` `ResolveAllowlist` walks the full ancestry at dispatch,
+so a child DOES inherit its parent's allowlist. Amending the case to grant the
+child egress did not fix it (the reproduction above ran with that prompt).
+
+- **Source:** `ipc/ipc.go:1957` `delegate_group`; `anteval/cases/anteval.toml`
+  `child-delegate`.
+
 ## ✅ FIXED 2026-08-21 L64 — isolated crons re-enter the chat through the ambient window (2026-08-21)
 
 `L54` closed the SESSION path: an isolated scheduled run gets its own one-off

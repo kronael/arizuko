@@ -56,17 +56,17 @@ kind = "callback"
 
 [[case]]
 id = "child-delegate"
-requires = ["mcp:register_group", "mcp:delegate_group", "mcp:add_acl"]
+requires = ["mcp:register_group", "mcp:delegate_group"]
 dimension = "subagents"
 smoke = true
-# The grant step is the case, not scaffolding. A child folder inherits NOTHING
-# (5/33: a path carries zero authorization), so a freshly delegated group has no
-# egress capability and its curl cannot leave the container. Measured 2026-08-21:
-# without it every run timed out with "no callback" and read as an agent failure
-# — eval/<nonce>-child-delegate existed with zero acl rows of its own. The case
-# now proves the whole chain an operator actually needs: register, grant, delegate,
-# and the child reaches out under its own authority.
-prompt = "Create a child group `eval/{nonce}`. It inherits no capabilities, so also grant it the `egress` capability on its own folder. Then delegate this task to it (the child, not you, must perform it): run `curl -s {sink}/cb/{nonce}`."
+# Do NOT add a "grant the child egress" step here. I proposed exactly that on
+# 2026-08-21, reasoning from 5/33 that a child inherits nothing — wrong for
+# egress: it is not an `acl` row. It lives in `network_rules`, and
+# routd/network.go ResolveAllowlist walks the full ancestry at dispatch, so a
+# child DOES inherit its parent's allowlist by design. The real cause of the
+# timeout was a silent delegate_group failure (BUGS L65), which is precisely
+# what this case exists to catch.
+prompt = "Create a child group `eval/{nonce}` and delegate this task to it (the child, not you, must perform it): run `curl -s {sink}/cb/{nonce}`."
 max_wall_ms = 150000
 [case.check]
 kind = "callback"
