@@ -89,7 +89,7 @@ export interface HarnessProfile {
 //
 // There is no `steer` argument: steering used to be a closure handed to all
 // three occupants and read by one, and a closure cannot cross into codex's hook
-// subprocess. The queue is a file now (steer.ts), so the `steering` policy row
+// subprocess. The queue is a spool directory now (spool.ts), so the `steering` policy row
 // reaches it on every harness (spec 6/7).
 export interface Harness {
   name: string;
@@ -181,7 +181,25 @@ export async function* driveCli(
   child.stderr?.on('data', (chunk: string) => {
     stderrTail = (stderrTail + chunk).slice(-2000);
   });
-  if (opts.stdin !== undefined) child.stdin?.end(opts.stdin);
+  // A spawn failure (the CLI missing from the image) emits 'error', which is
+  // an uncaught-exception crash without a listener — the turn would die with
+  // no result frame. Fold it into the stderr tail so finish() reports it, and
+  // resolve the exit wait, since 'close' is not guaranteed after 'error'.
+  const exited = new Promise<number | null>((resolve) => {
+    child.once('close', (code) => resolve(code));
+    child.once('error', (err) => {
+      stderrTail = (stderrTail + `\n${command}: ${err.message}`).slice(-2000);
+      resolve(child.exitCode);
+    });
+  });
+  if (opts.stdin !== undefined) {
+    // A child that exits before draining a large prompt EPIPEs the write; an
+    // unhandled stream 'error' would crash ant the same way.
+    child.stdin?.on('error', (err) => {
+      stderrTail = (stderrTail + `\nstdin: ${err.message}`).slice(-2000);
+    });
+    child.stdin?.end(opts.stdin);
+  }
 
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -193,13 +211,19 @@ export async function* driveCli(
   opts.signal?.addEventListener('abort', onAbort, { once: true });
 
   try {
-    for await (const obj of jsonLines(child.stdout!)) {
-      for (const f of reducer.push(obj)) yield f;
-      if (reducer.done) break;
+    try {
+      for await (const obj of jsonLines(child.stdout!)) {
+        for (const f of reducer.push(obj)) yield f;
+        if (reducer.done) break;
+      }
+    } catch (err) {
+      // A failed spawn closes stdout mid-iteration (bun raises
+      // ERR_STREAM_PREMATURE_CLOSE). The terminal still comes from finish() —
+      // fold the error into the tail it reports instead of crashing the turn.
+      const msg = err instanceof Error ? err.message : String(err);
+      stderrTail = (stderrTail + `\nstdout: ${msg}`).slice(-2000);
     }
-    const exitCode = child.exitCode !== null
-      ? child.exitCode
-      : await new Promise<number | null>((resolve) => child.once('close', (code) => resolve(code)));
+    const exitCode = child.exitCode !== null ? child.exitCode : await exited;
     if (timedOut && !reducer.done) {
       yield timeoutFrame();
     } else {

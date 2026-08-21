@@ -6,7 +6,8 @@
 
 import { test, expect } from 'bun:test';
 import { Readable } from 'stream';
-import { jsonLines, selectHarness } from './backend.js';
+import { driveCli, jsonLines, selectHarness } from './backend.js';
+import type { CliReducer, Frame, ResultFrame } from './backend.js';
 
 test('selectHarness: unset defaults to claude', () => {
   expect(selectHarness(undefined).name).toBe('claude');
@@ -41,10 +42,13 @@ test('profiles declare the measured capability matrix', () => {
     steering: 'between-turn',
     status: 'streaming',
   });
+  // pi's guard became write-time when the extension's input mapping was fixed
+  // (pi write is {path, content}, and the guard read `file_path` — so the
+  // tool_call deny never fired and only the load-time scan was real).
   expect(selectHarness('pi').profile).toEqual({
     continuity: 'none',
     tools: 'none',
-    guard: 'load-time',
+    guard: 'write-time',
     steering: 'between-turn',
     status: 'streaming',
   });
@@ -55,4 +59,52 @@ test('jsonLines: parses JSONL, skips non-JSON banners, keeps an unterminated tai
   const got: unknown[] = [];
   for await (const obj of jsonLines(stream)) got.push(obj);
   expect(got).toEqual([{ a: 1 }, { b: 2 }, { c: 3 }]);
+});
+
+// A reducer that only synthesizes the terminal at exit — the shape codex and
+// pi share, minus their stream mapping.
+function tailReducer(): CliReducer {
+  return {
+    done: false,
+    push: () => [],
+    finish: (code, tail): ResultFrame => ({
+      kind: 'result',
+      ok: false,
+      text: tail.trim() || `exited ${code}`,
+    }),
+  };
+}
+
+async function collect(gen: AsyncGenerator<Frame>): Promise<Frame[]> {
+  const out: Frame[] = [];
+  for await (const f of gen) out.push(f);
+  return out;
+}
+
+// A backend CLI missing from the image emits 'error' on the child, which is an
+// uncaught-exception CRASH without a listener — the turn died with no result
+// frame, the exact silence the seam forbids.
+test('driveCli: a spawn failure yields one error result naming the command', async () => {
+  const frames = await collect(driveCli(
+    'arizuko-no-such-cli', [], { cwd: '/tmp', env: {} }, tailReducer(), () => {},
+  ));
+  expect(frames).toHaveLength(1);
+  const f = frames[0];
+  if (f.kind !== 'result') throw new Error('expected result frame');
+  expect(f.ok).toBe(false);
+  expect(f.text).toContain('arizuko-no-such-cli');
+});
+
+// A child that exits before draining a large prompt EPIPEs the stdin write; an
+// unhandled stream 'error' crashed ant the same way.
+test('driveCli: a child that never reads a large stdin still finishes the turn', async () => {
+  const frames = await collect(driveCli(
+    'sh', ['-c', 'exit 3'],
+    { cwd: '/tmp', env: { PATH: '/usr/bin:/bin' }, stdin: 'x'.repeat(1 << 20) },
+    tailReducer(), () => {},
+  ));
+  expect(frames).toHaveLength(1);
+  const f = frames[0];
+  if (f.kind !== 'result') throw new Error('expected result frame');
+  expect(f.ok).toBe(false);
 });
