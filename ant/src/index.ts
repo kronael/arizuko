@@ -148,13 +148,22 @@ export function statusBlocks(text: string): string[] {
 // (delivered immediately as ⏳ interim notices). seen dedups across the turn
 // so a status that also lands in the final result isn't double-delivered —
 // the final result flows through submit_turn separately.
-async function streamStatuses(turnID: string, text: string, seen: Set<string>): Promise<void> {
+// send is injected for the same reason `deliver` is: the <status> pipeline is a
+// shipped contract (spec 5/24) and it broke silently once already — codex
+// streamed no interim status at all — so it needs a test that drives it, not
+// only a unit test of the extractor.
+async function streamStatuses(
+  turnID: string,
+  text: string,
+  seen: Set<string>,
+  send: typeof submitStatus = submitStatus,
+): Promise<void> {
   if (!turnID) return;
   for (const s of statusBlocks(text)) {
     if (seen.has(s)) continue;
     seen.add(s);
     try {
-      await submitStatus({ turn_id: turnID, text: s });
+      await send({ turn_id: turnID, text: s });
     } catch (err) {
       log(`submit_status failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -241,6 +250,7 @@ export async function runTurn(
   env: Record<string, string>,
   turnID: string,
   deliver: (turnID: string, output: ContainerOutput) => Promise<void> = deliverTurn,
+  sendStatus: typeof submitStatus = submitStatus,
 ): Promise<TurnResult> {
   const controller = new AbortController();
   const turn: Turn = {
@@ -298,7 +308,7 @@ export async function runTurn(
         if (!out.sessionId) log(`Session initialized: ${frame.sessionId}`);
         out.sessionId = frame.sessionId;
       } else if (frame.kind === 'status') {
-        await streamStatuses(turnID, frame.text, seenStatuses);
+        await streamStatuses(turnID, frame.text, seenStatuses, sendStatus);
       } else {
         resultCount++;
         log(`Result #${resultCount}: ok=${frame.ok}${frame.retryFresh ? ' retryFresh' : ''}${frame.text ? ` text=${frame.text.slice(0, 200)}` : ''}${frame.usage ? ` models=${Object.keys(frame.usage).join(',')}` : ''}`);

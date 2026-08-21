@@ -36,6 +36,17 @@ function scripted(frames: Frame[]): Harness {
 interface Delivered {
   status: string;
   error?: string;
+  result?: string | null;
+  models?: unknown;
+  timedOut?: boolean;
+  newSessionId?: string;
+}
+
+// statusSpy stands in for submit_status, the interim-⏳ half of the turn
+// contract (spec 5/24).
+function statusSpy(): { sent: string[]; send: (p: { turn_id: string; text: string }) => Promise<void> } {
+  const sent: string[] = [];
+  return { sent, send: async (p) => { sent.push(p.text); } };
 }
 
 function spy(): { deliveries: Delivered[]; deliver: (turnID: string, out: Delivered) => Promise<void> } {
@@ -101,4 +112,79 @@ test('checkIpcMessage: a stale progress nudge never starts a turn', () => {
   drainLines(STEER_SPOOL);
   appendLines(STEER_SPOOL, [NUDGE_TEXT]);
   expect(checkIpcMessage()).toBeNull();
+});
+
+
+// The <status> pipeline is the other half of the turn contract, and it failed
+// silently once already: the pre-seam runtime parsed claude's raw message shape,
+// so codex streamed no interim status at all. These drive it through runTurn.
+test('runTurn: a status frame reaches submit_status once, and repeats are dropped', async () => {
+  const d = spy();
+  const st = statusSpy();
+  await runTurn(
+    scripted([
+      { kind: 'status', text: 'thinking\n<status>reading files</status>' },
+      { kind: 'status', text: '<status>reading files</status><status>writing</status>' },
+      { kind: 'result', ok: true, text: 'done' },
+    ]),
+    'p', undefined, INPUT, {}, 't1', d.deliver, st.send,
+  );
+  // Deduped across frames: the repeated block is sent once, in order.
+  expect(st.sent).toEqual(['reading files', 'writing']);
+  expect(d.deliveries).toHaveLength(1);
+});
+
+test('runTurn: text with no status block sends nothing', async () => {
+  const st = statusSpy();
+  await runTurn(
+    scripted([{ kind: 'status', text: 'just prose' }, { kind: 'result', ok: true, text: 'done' }]),
+    'p', undefined, INPUT, {}, 't1', spy().deliver, st.send,
+  );
+  expect(st.sent).toEqual([]);
+});
+
+// continuity is opaque to the chassis — it must come back verbatim for the next
+// turn, with sessionId carried separately because topic fork copies the
+// transcript file named by it (the L54 class).
+test('runTurn: the continuity token and session id come back untouched', async () => {
+  const out = await runTurn(
+    scripted([
+      { kind: 'continuity', token: 'opaque#42', sessionId: 'sess-abc' },
+      { kind: 'result', ok: true, text: 'done' },
+    ]),
+    'p', undefined, INPUT, {}, 't1', spy().deliver, statusSpy().send,
+  );
+  expect(out.token).toBe('opaque#42');
+  expect(out.sessionId).toBe('sess-abc');
+});
+
+test('runTurn: a timed-out turn is delivered as a real reply, flagged', async () => {
+  const d = spy();
+  await runTurn(
+    scripted([{ kind: 'result', ok: true, text: 'ran out of time', timedOut: true }]),
+    'p', undefined, INPUT, {}, 't1', d.deliver, statusSpy().send,
+  );
+  expect(d.deliveries).toHaveLength(1);
+  expect(d.deliveries[0].status).toBe('success');
+  expect(d.deliveries[0].timedOut).toBe(true);
+});
+
+test('runTurn: per-model usage reaches the delivered turn — cost is not lost', async () => {
+  const d = spy();
+  const usage = { 'claude-opus-4-8': { input_tokens: 10, output_tokens: 2, cost_cents: 1 } } as never;
+  await runTurn(
+    scripted([{ kind: 'result', ok: true, text: 'done', usage }]),
+    'p', undefined, INPUT, {}, 't1', d.deliver, statusSpy().send,
+  );
+  expect(d.deliveries[0].models).toEqual(usage);
+});
+
+test('runTurn: a failed result is delivered as an error, not dropped', async () => {
+  const d = spy();
+  await runTurn(
+    scripted([{ kind: 'result', ok: false, text: 'the model refused' }]),
+    'p', undefined, INPUT, {}, 't1', d.deliver, statusSpy().send,
+  );
+  expect(d.deliveries).toHaveLength(1);
+  expect(d.deliveries[0].status).toBe('error');
 });
