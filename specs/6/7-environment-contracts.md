@@ -315,10 +315,13 @@ moves out of the hook anyway (`L59`).
 
 ### ant owns the capabilities, each harness renders the hooks
 
-**Decided 2026-08-20. Shipped in the seam pass: the `<status>` fix, the one
-verdict function, the capability fields of `HarnessProfile`. Next increment:
-the per-harness hook rendering (codex `hooks.json`, the pi extension), the
-ant-writes-`configPaths` mechanism, and the three-layer config merge.**
+**Decided 2026-08-20; the binding layer decided and MEASURED 2026-08-21 against
+both CLIs. Shipped in the seam pass: the `<status>` fix, the one verdict
+function, the capability fields of `HarnessProfile`. THIS increment: the policy
+module, the binding table, the three renderers, and the steering file that lets
+`Harness.run` drop its `steer` argument. NOT this increment: the operator layer
+and the three-way merge (§ "Three owners, not two") — a different concern,
+deferred whole rather than half-built.**
 
 **The defect.** arizuko's per-turn capabilities lived inside `claude.ts`, so
 two of three occupants got none of them. Measured 2026-08-20:
@@ -347,11 +350,40 @@ every harness sets.
 | turn boundaries     | `PreCompact`, `Stop` | `PreCompact`, `Stop`, `UserPromptSubmit` | `turn_start`, `turn_end`, `context`, `session_*` |
 | register a tool     | MCP                  | MCP                                      | `pi.registerTool()`                              |
 
-codex's `hooks.json` uses the SAME event names and the same
-`{type:"command", command, timeout}` shape as Claude Code's settings hooks, so
+codex's `hooks.json` uses the SAME event names, the same
+`{type:"command", command, timeout}` handler shape, and the same input payload
+as Claude Code's settings hooks — `session_id`, `cwd`, `hook_event_name`,
+`tool_name`, `tool_input` and `tool_use_id` arrive under those exact keys — so
 one declaration renders to both with no translation. pi's hooks are in-process
-TypeScript — and ant is TypeScript, so an ant extension imports the same policy
+TypeScript, and ant is TypeScript, so an ant extension imports the same policy
 module rather than shelling out.
+
+**What each occupant may RETURN differs, and this table was measured by running
+the CLIs** (codex 0.147.0, pi 0.51.6, 2026-08-21), not read off a document:
+
+| verdict           | claude                       | codex                             | pi                            |
+| ----------------- | ---------------------------- | --------------------------------- | ----------------------------- |
+| allow / observe   | `{}`                         | exit 0                            | return nothing                |
+| deny              | `permissionDecision: "deny"` | same key — refused the call       | `{ block: true, reason }`     |
+| inject after tool | `additionalContext`          | same key — reached the model      | `tool_result` returns content |
+| rewrite the input | `updatedInput`               | **no** — `PermissionRequest` only | **no**                        |
+
+Three of the four are universal. `rewrite` is claude-only: codex's
+`PreToolUseDecisionWire` is `approve|block|allow`, and `updatedInput` lives on
+its separate `PermissionRequest` event. Exactly one policy needs it — the
+credential scrub, which unsets `ANTHROPIC_API_KEY` ahead of a Bash call — and
+that policy is claude-specific anyway, because codex resolves its credential
+from `$CODEX_HOME/auth.json` and never from the environment. So the binding
+table declares which verdicts a policy may return, and a renderer that cannot
+honour one refuses to render that binding instead of dropping it silently.
+
+**Two codex flags are load-bearing, and one fails silently.**
+`--ignore-user-config` does NOT disable hooks: its scope is `config.toml`, and
+`$CODEX_HOME/hooks.json` still loads under it. `--dangerously-bypass-hook-trust`
+is required — without it the hook does not run and codex prints no warning, no
+error, nothing. An absent gate is therefore indistinguishable from a healthy
+turn, which is why the conformance case below asserts a REFUSAL and never the
+absence of an error.
 
 This retires two claims made earlier the same day and recorded here so the
 correction travels with the text: codex was said to have no way to gate skill
@@ -362,19 +394,60 @@ offers a bidirectional stdin/stdout protocol, and `AgentSession` is importable
 in-process from the same npm package. Its only true gap was the MCP client, and
 that gap has a door.
 
-**The shape (next increment).** ant declares each capability ONCE as a policy
-module, plus a table naming which event it binds to. Three renderers emit the
-harness-native form:
+**The shape.** One module, one table, three renderers. Nothing else moves.
 
-- **claude** — SDK callbacks (today's `guardPreToolUse` / `guardPostToolUse`).
-- **codex** — a generated `hooks.json` whose commands invoke a small ant CLI.
-- **pi** — a generated extension file that imports the same policy module.
+`ant/src/policy.ts` holds each capability as a harness-neutral function
+`(ToolEvent) => Verdict` — `ToolEvent` is the wire shape all three occupants
+already agree on, `Verdict` is the four-value union above. Beside them one
+exported `BINDINGS` array IS the table: each row names the policy, its event,
+its tool matcher, and the verdicts it may return.
 
-Mid-turn steering then stops being a seam parameter. Today `steer` is passed
-to all three occupants and used by one. Instead ant writes queued messages to a
-file it owns and the `PostToolUse` binding reads it — the claude SDK already
-works this way, so claude keeps its existing gate and merely reads the file
-instead of a closure. `Harness.run` then needs no `steer` argument at all.
+| binding        | event         | matcher                  | may return |
+| -------------- | ------------- | ------------------------ | ---------- |
+| `skill-guard`  | `PreToolUse`  | `Write\|Edit\|MultiEdit` | deny       |
+| `bash-scrub`   | `PreToolUse`  | `Bash`                   | rewrite    |
+| `tool-log`     | both          | —                        | observe    |
+| `skill-rescan` | `PostToolUse` | `Bash`                   | observe    |
+| `steering`     | `PostToolUse` | —                        | inject     |
+| `todo-status`  | `PostToolUse` | `TodoWrite`              | observe    |
+
+The scanners do not move. `skillguard.ts` keeps the pattern table and the
+verdict, `tool-log.ts` keeps the line format. `guards.ts` stops being a list of
+`HookCallback`s and becomes the guard ROWS of that table — same job, which is to
+be the one place a refusal is registered.
+
+Three renderers read that one array:
+
+- **claude** — wraps each row in a `HookCallback` and builds today's `hooks`
+  object. The only file that imports the SDK's hook types.
+- **codex** — writes `$CODEX_HOME/hooks.json`, one handler per row, each
+  invoking `node /tmp/dist/policy-cli.js <binding-id>`. That CLI reads the event
+  on stdin, runs the one function, prints the verdict. `entrypoint.sh` already
+  does `chmod -R a-w /tmp/dist`, so the code behind the hook is not the agent's
+  to edit.
+- **pi** — a static `pi-extension.js` in that same read-only tree, loaded with
+  `-e` beside the existing `--no-extensions`. It imports `BINDINGS` directly.
+  Nothing is generated.
+
+**Why writing `hooks.json` per turn suffices, without the merge.** codex reads
+the file when its process starts, and ant writes it immediately before spawning
+codex, on every turn. An agent that rewrites the file mid-turn changes nothing
+for that turn and is overwritten before the next. That is the whole system layer
+for this increment; the operator layer and precedence are the next one.
+
+**Mid-turn steering stops being a seam parameter.** Today `steer` is a closure
+handed to all three occupants and used by one — and a closure cannot cross into
+codex's hook subprocess. The chassis instead appends queued messages to a fixed
+path and the `steering` binding reads-and-truncates it. That path is a compiled
+constant, never an env var: a var ant reads that nothing emits as `-e` is
+silently dead, and that class has already cost three bugs (`ARIZUKO_MODEL`,
+`ARIZUKO_BACKEND`, and `ARIZUKO_IS_ROOT` — `L60`). `Harness.run` then takes
+`Turn` alone.
+
+**Conformance.** One `anteval` case per verdict that must hold on every
+occupant: a refused skill write, and an injected steering line that changes the
+reply. Each asserts the refusal or the effect — never the absence of an error,
+because a hook that never fired produces no error at all.
 
 **Ownership: the system owns harness setup, the group owns its content.**
 This is the rule the rest follows from, and today's layout breaks it. The group
@@ -825,15 +898,20 @@ spec says what must stay true across those, not how any of them works.
   fork/copy on something token-opaque is undecided — it would move a claude
   mechanism (transcript files) behind the seam, and that is a routd/runed
   change, not an ant one.
-- **`ARIZUKO_IS_ROOT` never reaches ant.** `seedSettings` writes it into the
-  settings env block (which reaches the SDK subprocess), and nothing emits it
-  as `-e` container env — yet ant reads `process.env.ARIZUKO_IS_ROOT` to skip
-  `/var/lib/share` on elevated turns, so that check is always false (BUGS
-  `L60`). The three-layer render (next increment) is the natural fix; until
-  then the bug is recorded, not fixed.
 - **The rate-limit notice is claude-only.** codex and pi report throttling in
   their own stream shapes; nothing maps them onto the notice the claude harness
-  emits. Parity belongs to the capabilities increment.
+  emits. That is frame mapping inside each harness file, not a hook binding, so
+  it is NOT part of the capabilities increment — it is its own small change.
+- **codex's credential is a file the agent can read.** The Bash scrub keeps
+  `ANTHROPIC_API_KEY` out of the agent's shell, but codex authenticates from
+  `$CODEX_HOME/auth.json` under the group's own `$HOME`, so the equivalent
+  secret is readable with `cat`. The scrub does not port and should not be made
+  to; the fix belongs to the ownership increment that moves harness setup out of
+  the group dir.
+
+Closed since: **`ARIZUKO_IS_ROOT` never reached ant** (BUGS `L60`) — fixed
+2026-08-21 by emitting it as real container env from `buildArgs`, always present
+so the value reads false rather than absent.
 
 ## Ties
 
