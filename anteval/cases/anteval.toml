@@ -12,12 +12,15 @@
 # key the checker never sees → timeout → fail. No checker modifiers: the LLM
 # reasons, the sink judges, the harness stays dumb.
 #
-# 2026-08-21 reduction (35 → 22): at the measured ~4 min of model time per
-# case per backend, the full catalog had stopped being run. Deleted: checks
-# asserting another case's observable effect on the same path, want=404
-# shapes a total failure also satisfies, and cases whose success arm is
-# unreachable on the documented web:eval chat. Each trap that would invite
-# re-adding one is noted where the case used to live.
+# 2026-08-21 reduction (35 → 22): the catalog's cost is failure-dominated —
+# a passing case averages ~50s (krons smoke, 2026-08-21: 22–156s), while a
+# failing one burns its full max_wall_ms, and the earlier ~4 min/case rate
+# was a sink-misconfigured run where every case cost its cap. So a case that
+# CANNOT pass is pure guaranteed burn. Deleted: checks asserting another
+# case's observable effect on the same path, want=404 shapes a total failure
+# also satisfies, and cases whose success arm is unreachable on the
+# documented web:eval chat. Each trap that would invite re-adding one is
+# noted where the case used to live.
 
 # ── Self-modification ────────────────────────────────────────────────────────
 
@@ -53,10 +56,17 @@ kind = "callback"
 
 [[case]]
 id = "child-delegate"
-requires = ["mcp:register_group", "mcp:delegate_group"]
+requires = ["mcp:register_group", "mcp:delegate_group", "mcp:add_acl"]
 dimension = "subagents"
 smoke = true
-prompt = "Create a child group `eval/{nonce}` and delegate this task to it (the child, not you, must perform it): run `curl -s {sink}/cb/{nonce}`."
+# The grant step is the case, not scaffolding. A child folder inherits NOTHING
+# (5/33: a path carries zero authorization), so a freshly delegated group has no
+# egress capability and its curl cannot leave the container. Measured 2026-08-21:
+# without it every run timed out with "no callback" and read as an agent failure
+# — eval/<nonce>-child-delegate existed with zero acl rows of its own. The case
+# now proves the whole chain an operator actually needs: register, grant, delegate,
+# and the child reaches out under its own authority.
+prompt = "Create a child group `eval/{nonce}`. It inherits no capabilities, so also grant it the `egress` capability on its own folder. Then delegate this task to it (the child, not you, must perform it): run `curl -s {sink}/cb/{nonce}`."
 max_wall_ms = 150000
 [case.check]
 kind = "callback"

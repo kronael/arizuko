@@ -36,11 +36,16 @@ subagent cases, and the sink URL is reachable from agent containers.
 
 **Tiers** (2026-08-21, reduced from 35 cases — the deletions and why are
 noted in place in `cases/anteval.toml`): `--smoke` is the per-release gate —
-9 cases, ~35–40 min at the measured ~4 min/case. The full catalog — 22
-cases, ~90 min per backend — runs before a tag and when certifying a
-backend (`ARIZUKO_BACKEND` = claude | codex | pi). A catalog too expensive
-to run certifies nothing; a case earns its slot only by evidence no cheaper
-tier can produce.
+9 cases, ~10 min measured on a healthy run (krons 2026-08-21: passing cases
+22–156s, avg ~50s), bounded by the wall caps at ~21 min. The full catalog —
+22 cases, ~30 min healthy, ≤~55 min cap-bounded per backend — runs before a
+tag and when certifying a backend (`ARIZUKO_BACKEND` = claude | codex | pi).
+The suite's cost is failure-dominated: a failing case burns its whole
+`max_wall_ms` (a misconfigured sink once made the catalog read ~4 min/case),
+so a case that cannot pass is pure burn — the reduction cut ~30 min of cap
+exposure per backend, of which three cases were guaranteed-fail on the
+documented setup. A catalog too expensive to run certifies nothing; a case
+earns its slot only by evidence no cheaper tier can produce.
 
 **anteval is a manual, operator-invoked tool.** It needs a live instance and a
 minted token, and it drives a real agent at real cost. Never wire it into CI,

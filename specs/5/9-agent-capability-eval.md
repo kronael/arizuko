@@ -61,8 +61,9 @@ regression watch — not only in the build.
 ## Cases
 
 Data, not spec: the case registry is `anteval/cases/anteval.toml`
-(22 cases as of 2026-08-21, reduced from 35 — a case must earn its ~4 min
-of live model time per backend, so same-effect/same-path duplicates,
+(22 cases as of 2026-08-21, reduced from 35 — a passing case costs ~50s
+live but a failing one burns its full wall cap, so the catalog's cost is
+failure-dominated and same-effect/same-path duplicates,
 want=404 shapes a total failure also satisfies, and cases whose success
 arm is unreachable on the documented web:eval chat were deleted, each
 with an in-place note; `smoke = true` tags the 9-case release-gate
