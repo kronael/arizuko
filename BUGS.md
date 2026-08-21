@@ -7,6 +7,36 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L62 — marinade's emaid IMAP login fails, unhealthy for 3 days (2026-08-21, open)
+
+`arizuko_emaid_marinade` has been `Up (unhealthy)` since 2026-08-18. Every IMAP
+IDLE cycle logs once a minute:
+
+```
+{"level":"ERROR","msg":"imap idle error","err":"login: imap: NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)"}
+```
+
+The daemon retries a NON-transient error forever — WISDOM says retry only
+transient failures, and an authentication rejection is a configuration fault,
+not a network blip. Two separate items:
+
+- **Operator:** the stored IMAP password is wrong or revoked. Email ingest on
+  marinade has been dead for three days and nothing surfaced it to a user.
+- **Code:** `AUTHENTICATIONFAILED` should stop the loop and surface once, not
+  re-log every 60s. Same cadence class as `L61`.
+
+- **Source:** `emaid/`, marinade instance `.env`.
+
+## L63 — krons whapd 401-loops, needs a phone re-pair (2026-08-21, open)
+
+`arizuko_whapd_krons` is `Restarting` continuously. Known cause: the WhatsApp
+link is gone and the pairing must be re-established from the user's phone
+(pairing-code path, not QR — the recipe is in the whapd pairing memory). Not a
+code defect; recorded so the fleet's one permanently-red container has an entry
+rather than being treated as normal.
+
+- **Source:** `whapd/`, operator action required.
+
 ## Error-hygiene sweep: swallowed / mis-levelled errors in the hot path (2026-07-11, 8 FIXED, rest OPEN)
 
 Sweep for the same class as the no-reply bug below (an error swallowed as
