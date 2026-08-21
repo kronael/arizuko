@@ -14,6 +14,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.65.0] — 2026-08-21
+
+> arizuko v0.65.0 — three agents, one contract
+>
+> Your group's container can now run Claude Code, codex or pi behind the same
+> arizuko contract, and two long-silent context bugs are fixed.
+>
+> • codex and pi join the agent contract — pick one per instance with ARIZUKO_BACKEND
+> • codex resumes its own session, so turn two is no longer blind
+> • codex shows interim ⏳ status — it showed none before
+> • a re-fed turn keeps its ambient context instead of losing it
+> • the guard that scans skills is now one function, not three that had drifted
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Added
 
 - **The agent contract has a second and third occupant: `codex` and `pi`
@@ -23,11 +38,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   as an opaque token, a resume miss as `retryFresh`) with
   one file per backend. `codex.ts` drives `codex exec --json` — arizuko tools
   reach it through its native MCP client (`-c mcp_servers.*` → the gated
-  socket), skills through a prompt index. `pi.ts` drives `pi -p --mode json` —
-  native Agent-Skills loading via `--skill`, no MCP client, so the terminal
-  frame is its only delivery. Both run fresh every turn: continuity across a
-  harness swap is the group layer (episodes/diary/work), which the platform
-  owns and no backend replays. The `5/23` skill-guard moves to load time for
+  socket), skills through a prompt index on top of codex's own `$HOME`
+  discovery. `pi.ts` drives `pi -p --mode json` — native Agent-Skills loading
+  via `--skill`, no MCP client, so the terminal frame is its only delivery.
+  **codex resumes its own rollout**: a turn persists one under `CODEX_HOME`
+  and `codex exec resume <thread_id>` continues it (measured against
+  codex-cli 0.147/0.148 — a resumed turn recalled a word given only in the
+  previous turn, on 29,184 cached input tokens). The group layer
+  (episodes/diary/work) remains the continuity that survives a harness swap,
+  because no backend replays another's transcript. The `5/23` skill-guard moves to load time for
   both (`skills-scan.ts` — same pattern table, second hook point): a blocked
   skill is excluded from what the connector loads. Select with
   `ARIZUKO_BACKEND=codex|pi` in the instance `.env` — `buildArgs` now emits it
@@ -39,6 +58,24 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   can and cannot do — in `specs/6/7` § "The harness seam".
 
 ### Fixed
+
+- **An elevated `/root` turn's own marker never reached the chassis.**
+  `ARIZUKO_IS_ROOT` was written only into `settings.json`'s env block, which
+  the SDK subprocess reads and `ant` does not, so the check that keeps a root
+  turn from adding the shared read-only tree read undefined on every turn.
+  `buildArgs` emits it as real container env now, always — `"1"` or empty — so
+  the value is present-and-false rather than absent-and-ambiguous, the shape
+  that hid the same class twice before (BUGS `L60`).
+
+- **A re-fed turn no longer loses its ambient context.** The per-topic observed
+  cursor advanced while the prompt was being rendered — before the container
+  spawned. Every failure after that point re-feeds the batch (transport
+  failure, the busy backoff, runed refusing admission at capacity), and the
+  re-fed turn rebuilt its prompt against a watermark the first attempt had
+  already consumed, so the observed window was read once and lost. Under
+  `L55`'s starvation that was near-constant. The render reports the watermark
+  now and writes nothing; the dispatch applies it on the same success path that
+  advances the message cursor (BUGS `L58`).
 
 - **codex streamed no interim `<status>` at all.** The runtime extracted
   status text from claude's raw message shape (`message.content[]`), which
