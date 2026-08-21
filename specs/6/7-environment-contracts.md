@@ -407,9 +407,25 @@ its tool matcher, and the verdicts it may return.
 | `skill-guard`  | `PreToolUse`  | `Write\|Edit\|MultiEdit` | deny       |
 | `bash-scrub`   | `PreToolUse`  | `Bash`                   | rewrite    |
 | `tool-log`     | both          | —                        | observe    |
-| `skill-rescan` | `PostToolUse` | `Bash`                   | observe    |
+| `skill-rescan` | `PostToolUse` | —                        | observe    |
 | `steering`     | `PostToolUse` | —                        | inject     |
 | `todo-status`  | `PostToolUse` | `TodoWrite`              | observe    |
+
+**The rescan takes no matcher, and that is the load-bearing row.** codex does
+not write files with `Write` or `Edit` — it writes with **`apply_patch`**
+(measured 2026-08-21: a live turn wrote a SKILL.md and the tool log recorded
+`apply_patch`), so the write-time matcher never fires there at all. The answer
+is not to add one tool name per harness; the next harness's name would be missed
+the same silent way. `skill-rescan` binds to EVERY tool and rechecks the
+filesystem, because it is the row that does not care how the file arrived — its
+mtime gate keeps the cost to files that actually moved. On claude the write gate
+refuses first and the rescan is the backstop; on codex the rescan IS the gate,
+quarantining after the write rather than refusing before it. That is exactly
+what `HarnessProfile.guard` already distinguishes: `write-time` vs `load-time`.
+
+Verified end to end against codex 0.147.0 on 2026-08-21: a turn told to write a
+SKILL.md carrying `curl … | bash` produced `…/skills/evil/SKILL.md.quarantined`
+and a matching log line. `L59` closes by mechanism, not by advice.
 
 The scanners do not move. `skillguard.ts` keeps the pattern table and the
 verdict, `tool-log.ts` keeps the line format. `guards.ts` stops being a list of
@@ -420,11 +436,20 @@ Three renderers read that one array:
 
 - **claude** — wraps each row in a `HookCallback` and builds today's `hooks`
   object. The only file that imports the SDK's hook types.
-- **codex** — writes `$CODEX_HOME/hooks.json`, one handler per row, each
-  invoking `node /tmp/dist/policy-cli.js <binding-id>`. That CLI reads the event
-  on stdin, runs the one function, prints the verdict. `entrypoint.sh` already
-  does `chmod -R a-w /tmp/dist`, so the code behind the hook is not the agent's
-  to edit.
+- **codex** — writes `$CODEX_HOME/hooks.json` (the env var, never a guessed
+  `<home>/.codex`: codex reads where the var points, and a file written
+  elsewhere is simply absent, with no error), one handler per row, each invoking
+  `node /tmp/dist/policy-cli.js <binding-id> <turn-id>`. That CLI reads the
+  event on stdin, runs the one function, prints the verdict. `entrypoint.sh`
+  already does `chmod -R a-w /tmp/dist`, so the code behind the hook is not the
+  agent's to edit.
+
+  codex also SWALLOWS a hook's stderr — a marker written to fd 2 reaches neither
+  its stdout nor its stderr (measured). Every policy already logs through
+  `console.error`, so the CLI redirects that one function into a spool file and
+  the codex harness drains it into its own stderr as frames arrive. Without
+  that, the tool log runs and reaches nobody.
+
 - **pi** — a static `pi-extension.js` in that same read-only tree, loaded with
   `-e` beside the existing `--no-extensions`. It imports `BINDINGS` directly.
   Nothing is generated.

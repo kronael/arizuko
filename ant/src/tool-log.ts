@@ -6,7 +6,7 @@
 // at the args_summary boundary: Bash.command is truncated to 200 chars,
 // Edit/Write/Read use file_path only, content bodies are never logged.
 
-import { HookCallback, PreToolUseHookInput, PostToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
+import { ALLOW, ToolEvent, Verdict } from './policy.js';
 
 const ARG_SUMMARY_MAX = 200;
 
@@ -126,29 +126,26 @@ function emit(line: ToolLogLine): void {
   }
 }
 
-export function createToolLogPreHook(): HookCallback {
-  return async (input, _toolUseId, _context) => {
-    try {
-      const pi = input as PreToolUseHookInput;
-      const now = Date.now();
-      recordStart(pi.tool_use_id, now);
-      emit(buildToolLogLine('pre', pi.tool_name, pi.tool_input, pi.session_id, pi.tool_use_id, now));
-    } catch {
-      // swallow
-    }
-    return {};
-  };
+export function toolLogPre(ev: ToolEvent): Verdict {
+  try {
+    const now = Date.now();
+    recordStart(ev.tool_use_id, now);
+    emit(buildToolLogLine('pre', ev.tool_name, ev.tool_input, ev.session_id, ev.tool_use_id, now));
+  } catch {
+    // swallow
+  }
+  return ALLOW;
 }
 
-export function createToolLogPostHook(): HookCallback {
-  return async (input, _toolUseId, _context) => {
-    try {
-      const pi = input as PostToolUseHookInput;
-      const now = Date.now();
-      emit(buildToolLogLine('post', pi.tool_name, pi.tool_input, pi.session_id, pi.tool_use_id, now, pi.tool_response));
-    } catch {
-      // swallow
-    }
-    return {};
-  };
+// duration_ms is omitted when the matching 'pre' ran in a different process —
+// codex's hooks are one process each, so startTimes is empty there. Both lines
+// still emit; only the correlation is lost.
+export function toolLogPost(ev: ToolEvent): Verdict {
+  try {
+    const now = Date.now();
+    emit(buildToolLogLine('post', ev.tool_name, ev.tool_input, ev.session_id, ev.tool_use_id, now, ev.tool_response));
+  } catch {
+    // swallow
+  }
+  return ALLOW;
 }

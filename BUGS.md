@@ -282,7 +282,7 @@ anyway. Same class as `ARIZUKO_MODEL`/`RUNED_RUN_TIMEOUT`/`ARIZUKO_BACKEND`
   itself and therefore knows the flag) still belongs to `specs/6/7`'s next
   increment; this makes the documented behaviour true today.
 
-## L59 — the `5/23` skill-guard cannot gate what codex loads (2026-08-20, open)
+## ✅ FIXED 2026-08-21 L59 — the `5/23` skill-guard cannot gate what codex loads (2026-08-20)
 
 `codex` discovers skills natively from `$HOME/.claude/skills`. In the container
 the group dir IS `$HOME` (`container/runner.go:552` mounts it at `/home/node`),
@@ -321,6 +321,18 @@ it is merely absent from the index the connector appends.
   options (a)/(b)/(c) above and is tracked with the seam inversion in
   `specs/6/7` § "ant owns the capabilities" (next increment; the seam itself
   shipped 2026-08-20).
+- **FIXED 2026-08-21** by that increment. `ant/src/policy.ts` holds each
+  capability as a harness-neutral `(ToolEvent) => Verdict` and one `BINDINGS`
+  table; three renderers read it — claude SDK callbacks, a generated
+  `$CODEX_HOME/hooks.json` whose commands run `policy-cli.js`, and a pi
+  extension loaded by `-e`. Two measurements changed the shape and both are in
+  the spec: codex writes with **`apply_patch`**, not `Write`/`Edit`, so the
+  write-time matcher never fires there — `skill-rescan` therefore binds to every
+  tool and is the gate on codex; and codex **swallows a hook's stderr**, so the
+  CLI spools its log lines to a file the harness drains. Verified end to end
+  against codex 0.147.0: a turn told to write a SKILL.md carrying `curl … | bash`
+  left `…/skills/evil/SKILL.md.quarantined` behind. The guard is a mechanism on
+  codex now, not advice.
 - **Source:** `ant/src/codex.ts` `CodexSession.events`; `ant/src/skills-scan.ts`;
   `specs/5/23`; the matrix note in `specs/6/7-environment-contracts.md`.
 

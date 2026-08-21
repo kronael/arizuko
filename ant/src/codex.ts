@@ -15,10 +15,14 @@ import {
   Frame,
   Harness,
   ResultFrame,
-  Steer,
   Turn,
 } from './backend.js';
 import { renderSkillsIndex, scanSkills } from './skills-scan.js';
+import { Binding, PolicyEvent, Verdict, bindings } from './policy.js';
+import { drainLines } from './spool.js';
+import { POLICY_LOG_FILE } from './policy-log.js';
+import fs from 'fs';
+import path from 'path';
 import type { ModelUsage } from './mcp.js';
 
 function log(message: string): void {
@@ -52,6 +56,11 @@ export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'continuity' | 'too
     // codex, never crossing ipc.serveConn. Same self-grant class strictMcpConfig
     // closes for claude (BUGS J14); auth still resolves from CODEX_HOME.
     '--ignore-user-config',
+    // Without this the hooks in $CODEX_HOME/hooks.json do not run and codex
+    // prints NOTHING — no warning, no error (measured 2026-08-21). The trust
+    // ledger exists to prove provenance; ant writes the file itself, one turn
+    // before the process starts, which proves it better.
+    '--dangerously-bypass-hook-trust',
     '--json',
   );
   if (turn.model) args.push('-m', turn.model);
@@ -182,10 +191,11 @@ function usageOf(u: CodexUsage): ModelUsage {
   };
 }
 
-async function* runCodex(turn: Turn, _steer: Steer): AsyncGenerator<Frame> {
+async function* runCodex(turn: Turn): AsyncGenerator<Frame> {
   const scan = scanSkills(`${turn.cwd}/.claude/skills`);
   for (const x of scan.excluded) log(`skill excluded by load-time guard: ${x}`);
-  yield* driveCli(
+  writeCodexHooks(turn.cwd, turn.turnID, turn.env);
+  for await (const frame of driveCli(
     'codex',
     codexArgs(turn),
     {
@@ -196,7 +206,99 @@ async function* runCodex(turn: Turn, _steer: Steer): AsyncGenerator<Frame> {
     },
     new CodexTurn(),
     log,
-  );
+  )) {
+    // codex swallows a hook's stderr, so the policies spool their log lines to
+    // a file instead. Drain it as frames arrive: near-live, and no line is lost
+    // when the turn ends.
+    for (const line of drainLines(POLICY_LOG_FILE)) console.error(line);
+    yield frame;
+  }
+  for (const line of drainLines(POLICY_LOG_FILE)) console.error(line);
+}
+
+// POLICY_CLI is where entrypoint.sh compiles ant to (`bunx tsc --outDir
+// /tmp/dist`), then makes read-only. The path is a constant on purpose: the
+// agent cannot edit the code behind its own gates, and codex needs a command
+// line it can run without knowing anything about ant's layout.
+const POLICY_CLI = '/tmp/dist/policy-cli.js';
+
+// verdictToCodexJson is the ONE place a Verdict becomes codex's wire shape.
+// codex reuses Claude Code's hook JSON verbatim for the two verdicts it
+// supports, so nothing is translated but the name of the event.
+export function verdictToCodexJson(verdict: Verdict, event: PolicyEvent): string {
+  switch (verdict.kind) {
+    case 'deny':
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: verdict.reason,
+        },
+      });
+    case 'inject':
+      return JSON.stringify({
+        hookSpecificOutput: { hookEventName: event, additionalContext: verdict.context },
+      });
+    case 'rewrite':
+      // Unreachable: codexRows drops any row that may rewrite, because codex's
+      // PreToolUse decision is approve|block|allow and updatedInput belongs to
+      // its separate PermissionRequest event.
+      return '{}';
+    case 'allow':
+      return '{}';
+  }
+}
+
+// codexRows is the renderer's contract check. A row codex cannot honour is
+// REFUSED loudly rather than rendered into a gate that quietly does nothing —
+// the failure mode this whole increment exists to remove.
+export function codexRows(rows: Binding[]): Binding[] {
+  return rows.filter((b) => {
+    if (!b.returns.includes('rewrite')) return true;
+    log(`policy ${b.id} not rendered: codex cannot honour a 'rewrite' verdict`);
+    return false;
+  });
+}
+
+// codexHooksConfig renders the binding table into codex's hooks.json. The
+// schema is Claude Code's, minus a version key: { description, hooks: { Event:
+// [{ matcher, hooks: [{ type, command, timeout }] }] } } — measured against
+// codex-cli 0.147.0, which rejects any other top-level field.
+export function codexHooksConfig(rows: Binding[], turnID: string): unknown {
+  const hooks: Record<string, unknown[]> = {};
+  for (const b of codexRows(rows)) {
+    (hooks[b.event] ??= []).push({
+      ...(b.matcher ? { matcher: b.matcher } : {}),
+      hooks: [{ type: 'command', command: `node ${POLICY_CLI} ${b.id} ${turnID}`, timeout: 30 }],
+    });
+  }
+  return { description: 'arizuko policy (spec 6/7) — generated per turn, do not edit', hooks };
+}
+
+// codexHomeDir resolves where codex will LOOK for hooks.json. Writing to
+// <home>/.codex would be wrong the moment an operator sets CODEX_HOME, and the
+// failure is silent: codex reads a file that is not there and runs with no
+// gates at all.
+export function codexHomeDir(home: string, env: Record<string, string>): string {
+  return env.CODEX_HOME || path.join(home, '.codex');
+}
+
+// writeCodexHooks puts the system layer in place before codex starts. Rewriting
+// it every turn is what makes it authoritative: codex reads the file when its
+// process starts, so an agent edit changes nothing for the turn it lands in and
+// is overwritten before the next one.
+export function writeCodexHooks(home: string, turnID: string, env: Record<string, string> = {}): void {
+  const dir = codexHomeDir(home, env);
+  const file = path.join(dir, 'hooks.json');
+  const config = codexHooksConfig(bindings({ home, turnID }), turnID);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(config, null, 2));
+  } catch (err) {
+    // An unwritable hooks.json means the turn runs with NO guard, no tool log
+    // and no steering. Say so — this is the exact silence the increment closes.
+    console.error(`[ant:codex] FAILED to write ${file}: ${err} — this turn runs with no policy gates`);
+  }
 }
 
 export const codexHarness: Harness = {

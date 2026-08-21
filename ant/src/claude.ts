@@ -15,12 +15,10 @@ import {
   HookCallback,
   PreCompactHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
-import { createToolLogPreHook, createToolLogPostHook } from './tool-log.js';
-import { createTodoStatusHook } from './todo-status.js';
-import { guardPreToolUse, guardPostToolUse } from './guards.js';
+import { Binding, PolicyEvent, ToolEvent, bindings } from './policy.js';
 import type { ModelUsage } from './mcp.js';
 import { QUERY_TIMEOUT_MS, timeoutFrame } from './backend.js';
-import type { Frame, Harness, ResultFrame, Steer, Turn } from './backend.js';
+import type { Frame, Harness, ResultFrame, Turn } from './backend.js';
 
 const HOME = '/home/node';
 
@@ -269,20 +267,43 @@ function createPreCompactHook(assistantName?: string): HookCallback {
   };
 }
 
-// The IPC-steering PostToolUse hook pulls mid-turn user messages into the
-// active query. The claude harness owns the hook wiring (it's
-// claude-SDK-specific); the chassis owns the IPC mechanism (Steer).
-function createIpcDrainHook(steer: Steer): HookCallback {
-  return async (_input, _toolUseId, _context) => {
-    const messages = steer();
-    if (messages.length === 0) return {};
-    log(`Piping ${messages.length} IPC messages into active query via PostToolUse hook`);
-    return {
-      hookSpecificOutput: {
-        hookEventName: 'PostToolUse',
-        additionalContext: `<user-steering>\n${messages.join('\n')}\n</user-steering>`,
-      },
-    };
+// claudeHooks is the claude RENDERER (spec 6/7): it turns policy.ts's binding
+// table into the SDK's hooks object. This is the only place ant translates a
+// Verdict into claude's wire shape — codex.ts and pi-extension.ts render the
+// same rows into theirs. claude honours all four verdicts, so no row is refused
+// here.
+function claudeHooks(rows: Binding[]): Record<PolicyEvent, Array<{ matcher?: string; hooks: HookCallback[] }>> {
+  const forEvent = (event: PolicyEvent) =>
+    rows
+      .filter((b) => b.event === event)
+      .map((b) => ({ ...(b.matcher ? { matcher: b.matcher } : {}), hooks: [asHookCallback(b)] }));
+  return { PreToolUse: forEvent('PreToolUse'), PostToolUse: forEvent('PostToolUse') };
+}
+
+function asHookCallback(b: Binding): HookCallback {
+  return async (input, _toolUseId, _context) => {
+    const verdict = await b.run(input as unknown as ToolEvent);
+    switch (verdict.kind) {
+      case 'allow':
+        return {};
+      case 'deny':
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'deny',
+            permissionDecisionReason: verdict.reason,
+          },
+        };
+      case 'rewrite':
+        return {
+          hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: verdict.input },
+        };
+      case 'inject':
+        log(`policy ${b.id}: injecting context after a tool call`);
+        return {
+          hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: verdict.context },
+        };
+    }
   };
 }
 
@@ -413,7 +434,7 @@ async function summarizeMaxTurns(resumeId: string | undefined): Promise<ResultFr
 
 // runClaude is one turn: unpack the continuity token, drive query(), reduce
 // the SDK stream to frames.
-async function* runClaude(turn: Turn, steer: Steer): AsyncGenerator<Frame> {
+async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
   const { sessionId, resumeAt } = unpackContinuity(turn.continuity);
   // A lineage placeholder or a pruned transcript starts fresh silently.
   const resume = resolveResumeSession(sessionId, (id) => fs.existsSync(transcriptPath(id)));
@@ -472,22 +493,13 @@ async function* runClaude(turn: Turn, steer: Steer): AsyncGenerator<Frame> {
         // connectors, both of which route through the arizuko socket.
         strictMcpConfig: true,
         mcpServers: turn.tools ?? {},
+        // PreCompact is a turn-boundary hook, not a tool policy, so it stays
+        // wired here. Everything tool-scoped comes from policy.ts's one table —
+        // read `bindings()` and you have the agent's whole capability surface,
+        // on every harness, not just this one.
         hooks: {
           PreCompact: [{ hooks: [createPreCompactHook(assistantNameFromSettings())] }],
-          // Guards first, then observers. guards.ts is the ONLY place a
-          // refusal is registered — read guardPreToolUse/guardPostToolUse and
-          // you have the agent's whole safety surface. Everything below them
-          // observes and never denies.
-          PreToolUse: [
-            ...guardPreToolUse(),
-            { hooks: [createToolLogPreHook()] },
-          ],
-          PostToolUse: [
-            ...guardPostToolUse(os.homedir()),
-            { hooks: [createIpcDrainHook(steer), createToolLogPostHook()] },
-            // TodoWrite → one live-edited ⏳ checklist per turn (spec 5/24).
-            { matcher: 'TodoWrite', hooks: [createTodoStatusHook(turn.turnID)] },
-          ],
+          ...claudeHooks(bindings({ home: os.homedir(), turnID: turn.turnID })),
         },
       },
     })) {

@@ -84,17 +84,17 @@ export interface HarnessProfile {
   status: 'streaming' | 'terminal-only';
 }
 
-// Steer pulls queued user messages into a running turn. Used by harnesses
-// whose profile says steering: 'mid-turn'; the chassis's between-turn loop
-// drains for the rest.
-export type Steer = () => string[];
-
 // Harness is the seam: one occupant. run() is one turn — it unpacks the
 // continuity token, drives its process, and yields frames.
+//
+// There is no `steer` argument: steering used to be a closure handed to all
+// three occupants and read by one, and a closure cannot cross into codex's hook
+// subprocess. The queue is a file now (steer.ts), so the `steering` policy row
+// reaches it on every harness (spec 6/7).
 export interface Harness {
   name: string;
   profile: HarnessProfile;
-  run(turn: Turn, steer: Steer): AsyncIterable<Frame>;
+  run(turn: Turn): AsyncIterable<Frame>;
 }
 
 // QUERY_TIMEOUT_MS bounds one harness run; each harness ends the turn

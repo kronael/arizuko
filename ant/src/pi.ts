@@ -15,11 +15,15 @@ import {
   Frame,
   Harness,
   ResultFrame,
-  Steer,
   Turn,
 } from './backend.js';
 import { scanSkills } from './skills-scan.js';
 import type { ModelUsage } from './mcp.js';
+
+// PI_EXTENSION mirrors codex.ts's POLICY_CLI: entrypoint.sh compiles ant to
+// /tmp/dist and makes it read-only, so the code behind the gates is not the
+// agent's to edit.
+const PI_EXTENSION = '/tmp/dist/pi-extension.js';
 
 function log(message: string): void {
   console.error(`[ant:pi] ${message}`);
@@ -39,6 +43,11 @@ export function piArgs(
   // class strictMcpConfig closes for claude (BUGS J14). --no-skills drops
   // pi's own discovery; the explicit --skill dirs below still load.
   args.push('--no-extensions', '--no-skills');
+  // Discovery is off, but an explicit -e path still loads (pi --help says so).
+  // That is exactly the combination wanted: arizuko's policy rows run, and
+  // nothing the agent wrote under ~/.pi does. The file sits in the read-only
+  // /tmp/dist entrypoint.sh compiles ant into, beside policy-cli.js.
+  args.push('-e', PI_EXTENSION);
   if (turn.model) args.push('--model', turn.model);
   if (turn.systemPrompt) args.push('--system-prompt', turn.systemPrompt);
   for (const d of skillDirs) args.push('--skill', d);
@@ -140,7 +149,7 @@ function usageOf(u: PiUsage): ModelUsage {
   };
 }
 
-async function* runPi(turn: Turn, _steer: Steer): AsyncGenerator<Frame> {
+async function* runPi(turn: Turn): AsyncGenerator<Frame> {
   const scan = scanSkills(`${turn.cwd}/.claude/skills`);
   for (const x of scan.excluded) log(`skill excluded by load-time guard: ${x}`);
 

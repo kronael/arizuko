@@ -117,6 +117,13 @@ test('codexArgs: renders turn.tools into -c overrides so tools cross the gated s
   expect(args.at(-1)).toBe('-');
 });
 
+// Measured 2026-08-21: without this flag the hooks in $CODEX_HOME/hooks.json
+// do not run and codex prints no warning at all, so the turn looks healthy with
+// every gate absent. Pin it — a silent removal is indistinguishable from a pass.
+test('codexArgs: the hook-trust bypass is present, or every policy is silently off', () => {
+  expect(codexArgs({ cwd: '/home/node' })).toContain('--dangerously-bypass-hook-trust');
+});
+
 test('codexArgs: model passes through verbatim only when set', () => {
   expect(codexArgs({ cwd: '/home/node', model: 'gpt-5.5' })).toContain('gpt-5.5');
   expect(codexArgs({ cwd: '/home/node' })).not.toContain('-m');

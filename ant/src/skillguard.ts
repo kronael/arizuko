@@ -8,7 +8,7 @@
 // with new gaps.
 
 import fs from 'fs';
-import { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
+import { ALLOW, ToolEvent, Verdict as PolicyVerdict } from './policy.js';
 import { THREAT_PATTERNS, ThreatPattern, Severity } from './skillguard-patterns.js';
 
 export interface Finding {
@@ -311,43 +311,34 @@ function report(path: string, findings: Finding[]): string {
     'Rewrite without the flagged content, or ask the operator to make the change.';
 }
 
-// createSkillGuardHook denies a write whose content scans `dangerous` — any
-// critical threat finding, or any structural one. `caution` passes: for a write
-// gate on the agent's own skills, blocking legitimate work is the more
-// expensive failure, so the false-positive budget is spent only on critical
-// patterns. See blockingFindings for why structural is not part of that budget.
+// skillGuard denies a write whose content scans `dangerous` — any critical
+// threat finding, or any structural one. `caution` passes: for a write gate on
+// the agent's own skills, blocking legitimate work is the more expensive
+// failure, so the false-positive budget is spent only on critical patterns. See
+// blockingFindings for why structural is not part of that budget.
 //
 // A crash in the scanner fails OPEN for the same reason — a guard that bricks
 // the agent when it throws is worse than the threat it was added for.
-export function createSkillGuardHook(): HookCallback {
-  return async (input, _toolUseId, _context) => {
-    try {
-      const pre = input as PreToolUseHookInput;
-      const toolInput = (pre.tool_input ?? {}) as Record<string, unknown>;
-      const path = String(toolInput.file_path ?? '');
-      if (!path || !isGuardedPath(path)) return {};
+export function skillGuard(ev: ToolEvent): PolicyVerdict {
+  try {
+    const toolInput = ev.tool_input ?? {};
+    const path = String(toolInput.file_path ?? '');
+    if (!path || !isGuardedPath(path)) return ALLOW;
 
-      // The hook scans the file the write would PRODUCE, not the fragment it
-      // carries (BUGS J9). An unreadable file leaves us holding a fragment
-      // (whole=false), and blockingVerdict then skips frontmatter — a fragment
-      // has none to judge. An empty whole SKILL.md still blocks: the most
-      // complete frontmatter failure there is (BUGS J11).
-      const { text, whole } = resultingText(pre.tool_name, toolInput, (p) =>
-        fs.readFileSync(p, 'utf-8'),
-      );
-      const blocking = blockingVerdict(path, text, whole);
-      if (blocking.length === 0) return {};
+    // The guard scans the file the write would PRODUCE, not the fragment it
+    // carries (BUGS J9). An unreadable file leaves us holding a fragment
+    // (whole=false), and blockingVerdict then skips frontmatter — a fragment
+    // has none to judge. An empty whole SKILL.md still blocks: the most
+    // complete frontmatter failure there is (BUGS J11).
+    const { text, whole } = resultingText(ev.tool_name, toolInput, (p) =>
+      fs.readFileSync(p, 'utf-8'),
+    );
+    const blocking = blockingVerdict(path, text, whole);
+    if (blocking.length === 0) return ALLOW;
 
-      return {
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'deny',
-          permissionDecisionReason: report(path, blocking),
-        },
-      };
-    } catch (err) {
-      console.error(`skillguard: scan failed, allowing write: ${err}`);
-      return {};
-    }
-  };
+    return { kind: 'deny', reason: report(path, blocking) };
+  } catch (err) {
+    console.error(`skillguard: scan failed, allowing write: ${err}`);
+    return ALLOW;
+  }
 }

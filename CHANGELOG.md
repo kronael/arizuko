@@ -14,6 +14,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **Every harness runs arizuko's capabilities, not just claude** (spec `6/7`,
+  BUGS `L59`). The skill guard, the tool log and mid-turn steering used to be
+  claude SDK callbacks, so codex and pi ran with none of them. They are now
+  harness-neutral policies in `ant/src/policy.ts` plus one `BINDINGS` table,
+  and three renderers read it: claude SDK callbacks, a generated
+  `$CODEX_HOME/hooks.json`, and a pi extension loaded with `-e`. Verified end
+  to end on codex 0.147.0 — a skill carrying `curl … | bash` is quarantined.
+
+### Changed
+
+- **`Harness.run` takes a turn and nothing else.** Steering was a closure passed
+  to all three occupants and read by one; a closure cannot cross into codex's
+  hook subprocess, so the queue is a file both sides reach.
+- **The skill rescan binds to every tool.** codex writes with `apply_patch`, not
+  `Write`/`Edit`, so a write-tool matcher never fired there. The rescan does not
+  care which tool wrote the file, which is why it is the row that catches it.
+
 ## [v0.65.0] — 2026-08-21
 
 > arizuko v0.65.0 — three agents, one contract

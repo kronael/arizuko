@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
 import { Harness, Turn, selectHarness } from './backend.js';
+import { appendSteer, drainSteerMessages } from './steer.js';
 
 interface ContainerInput {
   prompt: string;
@@ -268,6 +269,10 @@ async function runTurn(
   let closedDuringQuery = false;
   const pollIpcDuringQuery = () => {
     if (!ipcPolling) return;
+    // The chassis owns the IPC mechanism; the `steering` policy owns delivery.
+    // Queueing here rather than inside a hook is what lets codex reach it — its
+    // hooks are separate processes and cannot be handed a closure.
+    appendSteer(drainIpcInput());
     if (shouldClose()) {
       log('Close sentinel detected during query, winding the turn down');
       closedDuringQuery = true;
@@ -294,7 +299,7 @@ async function runTurn(
   const seenStatuses = new Set<string>();
 
   try {
-    for await (const frame of harness.run(turn, drainIpcInput)) {
+    for await (const frame of harness.run(turn)) {
       frameCount++;
       log(`[frame #${frameCount}] kind=${frame.kind}`);
 
@@ -390,7 +395,9 @@ async function main(): Promise<void> {
     if (containerInput.soul && !containerInput.systemMd) {
       prompt = containerInput.soul + '\n\n' + prompt;
     }
-    const pending = drainIpcInput();
+    // Both queues: what IPC holds now, plus anything the steering policy never
+    // got to deliver because the last turn stopped calling tools.
+    const pending = [...drainSteerMessages(), ...drainIpcInput()];
     if (pending.length > 0) {
       log(`Draining ${pending.length} pending IPC messages into initial prompt`);
       prompt += '\n' + pending.join('\n');

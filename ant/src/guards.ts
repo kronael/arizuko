@@ -1,5 +1,5 @@
-// guards.ts — THE guard layer. Every safety hook the agent runs under is
-// registered here and nowhere else.
+// guards.ts — the two guard POLICIES that live nowhere else. The table that
+// says where they bind, and every other capability's row, is policy.ts.
 //
 // Before this file the guards were scattered: the bash secret-scrub lived
 // inline in claude.ts, the skill scanner registered itself from skillguard.ts,
@@ -10,44 +10,35 @@
 // one place.
 //
 // The split: the SCANNERS are pure functions elsewhere (skillguard.ts owns the
-// pattern table and the verdict), this file owns the WIRING. One registry, many
-// hooks — never a second registration site.
+// pattern table and the verdict), this file owns the two policies that REFUSE,
+// and policy.ts owns the one table naming where each binds.
 //
-// Telemetry and UX hooks (tool-log, todo-status, ipc-drain, pre-compact) are
+// Telemetry and UX policies (tool-log, todo-status, steering, pre-compact) are
 // deliberately NOT here. They observe; they never refuse. Mixing them in would
 // blur the question this file exists to answer.
 
 import fs from 'fs';
 import path from 'path';
-import { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
-import {
-  blockingVerdict,
-  createSkillGuardHook,
-  isGuardedPath,
-} from './skillguard.js';
+import { ALLOW, ToolEvent, Verdict } from './policy.js';
+import { blockingVerdict, isGuardedPath } from './skillguard.js';
 
 // SECRET_ENV_VARS never reach a shell the agent drives. The model credential is
 // spent by the SDK subprocess itself; a Bash call has no business reading it.
 const SECRET_ENV_VARS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
 
-// createSanitizeBashHook prefixes every Bash command with an unset of the model
-// credentials. Moved here verbatim from claude.ts — same behavior, findable.
-export function createSanitizeBashHook(): HookCallback {
-  return async (input, _toolUseId, _context) => {
-    const preInput = input as PreToolUseHookInput;
-    const command = (preInput.tool_input as { command?: string })?.command;
-    if (!command) return {};
+// bashScrub prefixes every Bash command with an unset of the model credentials.
+// It is the one policy that returns 'rewrite', and rewrite is claude-only:
+// codex's PreToolUse decision is approve|block|allow and its updatedInput lives
+// on a different event. That costs nothing here — codex authenticates from
+// $CODEX_HOME/auth.json, so there is no credential in its environment to strip.
+export function bashScrub(ev: ToolEvent): Verdict {
+  const command = (ev.tool_input as { command?: string })?.command;
+  if (!command) return ALLOW;
 
-    const unsetPrefix = `unset ${SECRET_ENV_VARS.join(' ')} 2>/dev/null; `;
-    return {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        updatedInput: {
-          ...(preInput.tool_input as Record<string, unknown>),
-          command: unsetPrefix + command,
-        },
-      },
-    };
+  const unsetPrefix = `unset ${SECRET_ENV_VARS.join(' ')} 2>/dev/null; `;
+  return {
+    kind: 'rewrite',
+    input: { ...ev.tool_input, command: unsetPrefix + command },
   };
 }
 
@@ -89,14 +80,14 @@ function walkFiles(root: string, out: string[] = []): string[] {
 // Quarantine rather than delete: the agent's work is never destroyed, and the
 // operator can read what was refused. The rename is what matters — a skill only
 // runs if it is discoverable at its own path.
-export function createBashSkillRescanHook(home: string): HookCallback {
+export function bashSkillRescan(home: string): (ev: ToolEvent) => Verdict {
   // Starts at 0, not now: the first Bash call of a session sweeps the whole
   // tree. A file written by a session that died before its post-hook ran would
   // otherwise never be looked at again, and that file is exactly the one that
   // gets loaded next session. After the first sweep the mtime gate keeps the
   // cost to files that actually moved.
   let lastScan = 0;
-  return async (_input, _toolUseId, _context) => {
+  return (_ev: ToolEvent) => {
     const since = lastScan;
     lastScan = Date.now();
     try {
@@ -137,30 +128,8 @@ export function createBashSkillRescanHook(home: string): HookCallback {
       // throws is worse than the threat it was added for.
       console.error(`skillguard: rescan failed: ${err}`);
     }
-    return {};
+    return ALLOW;
   };
-}
-
-// guardPreToolUse / guardPostToolUse ARE the guard surface. Read these two
-// lists and you know every refusal the agent can hit.
-export function guardPreToolUse(): { matcher?: string; hooks: HookCallback[] }[] {
-  return [
-    // Bash: strip the model credential from every shell the agent drives.
-    { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
-    // A skill the agent writes today runs in its NEXT session, so this is the
-    // gate between authoring and executing (spec 5/23). It scans the file the
-    // write would PRODUCE, not the fragment it carries (BUGS J9).
-    { matcher: 'Write|Edit|MultiEdit', hooks: [createSkillGuardHook()] },
-  ];
-}
-
-export function guardPostToolUse(home: string): { matcher?: string; hooks: HookCallback[] }[] {
-  return [
-    // The write gate covers the write TOOLS. Bash reaches the same files
-    // without them, so the filesystem is rechecked after every shell command
-    // (BUGS J8).
-    { matcher: 'Bash', hooks: [createBashSkillRescanHook(home)] },
-  ];
 }
 
 export { isGuardedPath };

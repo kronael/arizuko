@@ -1,13 +1,13 @@
-// Live tasklist status: a PostToolUse hook on the SDK's TodoWrite tool renders
+// Live tasklist status: a PostToolUse policy on the TodoWrite tool renders
 // the whole task list into ONE "⏳ …" status message per turn (spec 5/24).
 // Progress reporting is deterministic bookkeeping over the agent's own todo
 // list — the harness emits it, so it never depends on the model remembering to
 // narrate progress (the old `progress` skill). routd edits the same message in
 // place on each update, so the user sees a live checklist, not a stream of pings.
 //
-// Hooks must never throw — all errors are swallowed.
+// A policy must never throw — all errors are swallowed.
 
-import { HookCallback, PostToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
+import { ALLOW, ToolEvent, Verdict } from './policy.js';
 import { submitStatus, type SubmitStatusPayload } from './mcp.js';
 
 export interface Todo {
@@ -49,23 +49,22 @@ export function extractTodos(toolInput: unknown): Todo[] | null {
 // forwards the rendered checklist to routd as a mid-turn status. turnID is the
 // arizuko turn id (empty → no-op). send is injectable for tests; defaults to the
 // real submit_status RPC.
-export function createTodoStatusHook(
+export function todoStatus(
   turnID: string,
   send: (p: SubmitStatusPayload) => Promise<void> = submitStatus,
-): HookCallback {
-  return async (input, _toolUseId, _context) => {
+): (ev: ToolEvent) => Promise<Verdict> {
+  return async (ev: ToolEvent) => {
     try {
-      const pi = input as PostToolUseHookInput;
-      if (pi.tool_name !== 'TodoWrite' || !turnID) return {};
-      const todos = extractTodos(pi.tool_input);
+      if (ev.tool_name !== 'TodoWrite' || !turnID) return ALLOW;
+      const todos = extractTodos(ev.tool_input);
       // Only a genuinely multi-step list earns a live checklist; a 1-item list is
       // noise (progress skill: "three milestones beat ten micro-updates").
-      if (!todos || todos.length < 2) return {};
+      if (!todos || todos.length < 2) return ALLOW;
       await send({ turn_id: turnID, text: renderTodos(todos) });
     } catch (err) {
       // never let a status update break a tool call
-      console.error(`[ant] todo-status hook failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[ant] todo-status failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-    return {};
+    return ALLOW;
   };
 }
