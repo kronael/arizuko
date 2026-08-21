@@ -207,6 +207,23 @@ OAuth-gated page: write under `~/private_html/admin/`, then `curl -sI "https://$
 
 **Elevated `/root`:** `~/public_html/` projects to `<data>/web/pub/` at the top level (no folder prefix); it can also write `/var/lib/www/` directly (RW, root-only) to stage content for any group.
 
+**`~/public_html` not writable, or missing? That is a MISSING GRANT, never a
+broken mount.** The platform bind-mounts `~/public_html` and `~/private_html`
+only when your folder holds `web:publish`. With no grant there is no mount, so
+you see a root-owned directory you cannot write, or none at all. Do NOT ask for
+a `chown`, do NOT hunt for a static-file source repo, do NOT report a broken
+container — none of those is the cause and the chown would write to a directory
+nothing serves. Say exactly this instead: "I need `web:publish` on
+`<your folder>`. Ask an operator: `/root arizuko group <inst> grant
+'folder:<your folder>' '<your folder>' web:publish`."
+
+The same shape applies to egress: a host that 403s on every path is your
+allowlist, and a grant scoped to a PARENT folder does not reach you — a path
+carries zero authorization (spec `5/33`), so `main` covers `main` and never
+`main/sub`. Cost: every subgroup on one instance silently lost egress and web
+publishing after the tier removal, and the agent that hit it filed a chown
+request four separate times.
+
 **Anti-patterns (each shipped to a real user):** announcing a URL from env vars without curl-verifying; writing to `/workspace/web/...` (gone — v0.45.11 renamed the mounts to FHS); treating `curl -sI` 4xx as transient (almost always the file isn't where you think, not slow DNS/cache).
 
 # Storage — persistent vs transient
