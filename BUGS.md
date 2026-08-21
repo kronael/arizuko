@@ -256,7 +256,15 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
-## L61 — one stranded onboarding row re-logs at ERROR forever (2026-08-21, open)
+## ✅ FIXED 2026-08-21 L61 — stranded onboarding rows re-log at ERROR forever (2026-08-21)
+
+**FIXED** by `warnedStranded` (a `sync.Map` in `onbod/main.go`): each
+`(jid, status)` pair is reported once per process, and a row whose status
+CHANGES warns again because that is a new fact. Confirmed on TWO instances, not
+one — `telegram:user/1112184352` on sloth and `telegram:user/1612831875` on
+marinade, 6 ERROR lines a minute each. The rows themselves still need an
+operator to set or delete them; arizuko will not guess a status for a row of
+unknown provenance. Test: `TestStrandedRowWarnsOncePerProcess`.
 
 sloth carries an `onboarding` row for `telegram:user/1112184352` with
 `status='pending'`, which is not in `knownStatuses`

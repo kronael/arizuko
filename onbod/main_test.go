@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"html"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -2143,5 +2144,41 @@ func TestKnownStatusesCoversEveryWriter(t *testing.T) {
 	// about — the same treatment 'pending' gets.
 	if knownStatuses["token_used"] {
 		t.Error("'token_used' has no writer after the fold; it must read as stranded")
+	}
+}
+
+// L61: the scan runs from promptUnprompted on a 10s poll, so an unrepairable
+// row logged at ERROR forever — 6 lines a minute on two production instances,
+// which buries real errors and makes a permanent condition read as a live
+// incident. Once per (jid, status) per process is the whole fix.
+func TestStrandedRowWarnsOncePerProcess(t *testing.T) {
+	db := testDB(t)
+	if _, err := db.Exec(
+		`INSERT INTO onboarding (jid, status) VALUES ('telegram:user/1', 'pending')`); err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})))
+	defer slog.SetDefault(prev)
+
+	warnStrandedRows(db)
+	warnStrandedRows(db)
+	warnStrandedRows(db)
+
+	if got := strings.Count(buf.String(), "stranded in an unknown status"); got != 1 {
+		t.Errorf("three scans logged %d times, want exactly 1", got)
+	}
+
+	// A row that moves to a DIFFERENT unknown status is a new fact, so it
+	// warns again — silence there would hide a real change.
+	if _, err := db.Exec(
+		`UPDATE onboarding SET status = 'wedged' WHERE jid = 'telegram:user/1'`); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	warnStrandedRows(db)
+	if got := strings.Count(buf.String(), "stranded in an unknown status"); got != 2 {
+		t.Errorf("a changed status logged %d times total, want 2", got)
 	}
 }

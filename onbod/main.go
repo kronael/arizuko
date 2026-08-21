@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -381,6 +382,14 @@ var knownStatuses = map[string]bool{
 	"refused":          true,
 }
 
+// warnedStranded remembers which (jid, status) pairs this process has already
+// reported, so a stranded row is ERROR once and not once per poll. The scan
+// runs from promptUnprompted on a 10s poll: unbounded repetition buried real
+// errors on two instances and made a permanent condition look like a live
+// incident (BUGS L61). A row whose status CHANGES warns again — that is a new
+// fact; the same row in the same state is not.
+var warnedStranded sync.Map
+
 // warnStrandedRows surfaces rows the state machine cannot move. It cannot
 // repair them — picking a status for a row of unknown provenance is the
 // operator's call — but silence is what let them sit unnoticed.
@@ -398,6 +407,9 @@ func warnStrandedRows(db *sql.DB) {
 			return
 		}
 		if !knownStatuses[status] {
+			if _, seen := warnedStranded.LoadOrStore(jid+"\x00"+status, true); seen {
+				continue
+			}
 			slog.Error("onboarding row stranded in an unknown status — it will never advance",
 				"jid", jid, "status", status, "known", "awaiting_message/token_used/queued/approved")
 		}
