@@ -35,7 +35,7 @@ func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 	}}
 
 	// No pane row → no hints.
-	if got := loop.buildAgentPrompt("main", "", trigger); strings.Contains(got, "slack-pane") {
+	if got, _ := loop.buildAgentPrompt("main", "", trigger); strings.Contains(got, "slack-pane") {
 		t.Errorf("non-pane jid emitted pane surface; prompt:\n%s", got)
 	}
 
@@ -45,7 +45,7 @@ func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 		 VALUES('T1','U99','1700.1','D0XY','2026-01-01T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
-	got := loop.buildAgentPrompt("main", "", trigger)
+	got, _ := loop.buildAgentPrompt("main", "", trigger)
 	if !strings.Contains(got, "<surface>slack-pane</surface>") {
 		t.Errorf("missing pane surface; prompt:\n%s", got)
 	}
@@ -57,14 +57,14 @@ func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 	if err := db.SetPaneContext("D0XY", "slack:T1/channel/C42"); err != nil {
 		t.Fatal(err)
 	}
-	got = loop.buildAgentPrompt("main", "", trigger)
+	got, _ = loop.buildAgentPrompt("main", "", trigger)
 	if !strings.Contains(got, `<pane-context jid="slack:T1/channel/C42" />`) {
 		t.Errorf("missing pane-context; prompt:\n%s", got)
 	}
 
 	// Non-slack jid → no hints even if pane exists.
 	trigger[0].ChatJID = "telegram:99"
-	if got := loop.buildAgentPrompt("main", "", trigger); strings.Contains(got, "slack-pane") {
+	if got, _ := loop.buildAgentPrompt("main", "", trigger); strings.Contains(got, "slack-pane") {
 		t.Errorf("non-slack jid leaked pane hint; prompt:\n%s", got)
 	}
 }
@@ -101,7 +101,7 @@ func TestBuildAgentPrompt_LinkContext(t *testing.T) {
 	if trigger[0].LinkContext != "bug reports; triage, don't chat" {
 		t.Fatalf("persisted link_context = %q", trigger[0].LinkContext)
 	}
-	got := loop.buildAgentPrompt("main", "tt", trigger)
+	got, _ := loop.buildAgentPrompt("main", "tt", trigger)
 	want := "<link-context>\nbug reports; triage, don't chat\n</link-context>\n"
 	if !strings.Contains(got, want) {
 		t.Errorf("missing link-context tag; prompt:\n%s", got)
@@ -112,7 +112,7 @@ func TestBuildAgentPrompt_LinkContext(t *testing.T) {
 		ID: "lc2", ChatJID: "web:main", Sender: "anon:2", Content: "hi",
 		Timestamp: time.Now(), Verb: "message",
 	}}
-	if got := loop.buildAgentPrompt("main", "tt", plain); strings.Contains(got, "<link-context>") {
+	if got, _ := loop.buildAgentPrompt("main", "tt", plain); strings.Contains(got, "<link-context>") {
 		t.Errorf("tokenless trigger emitted link-context; prompt:\n%s", got)
 	}
 
@@ -121,7 +121,7 @@ func TestBuildAgentPrompt_LinkContext(t *testing.T) {
 		ID: "lc3", ChatJID: "web:main", Sender: "anon:3", Content: "again",
 		Timestamp: time.Now(), Verb: "message", LinkContext: "stripe events; summarize daily",
 	})
-	got = loop.buildAgentPrompt("main", "tt", mixed)
+	got, _ = loop.buildAgentPrompt("main", "tt", mixed)
 	if !strings.Contains(got, "<link-context>\nstripe events; summarize daily\n</link-context>\n") {
 		t.Errorf("newest context should win; prompt:\n%s", got)
 	}
@@ -333,5 +333,70 @@ func TestSiblings_EmptyOwnDB(t *testing.T) {
 	}
 	if _, ok := db.PaneContextJID("D0XY"); ok {
 		t.Error("empty routd.db: want no pane")
+	}
+}
+
+// BUGS L58: buildAgentPrompt used to advance the observed cursor itself, at
+// render time — before the container spawns. Every failure after that point
+// re-feeds the batch (transport failure, busy backoff, runed at capacity), and
+// the re-fed turn rebuilt its prompt against a watermark the first attempt had
+// already consumed. The ambient window was read once and lost.
+//
+// The render must therefore be pure with respect to the cursor: it REPORTS the
+// watermark and writes nothing. Rendering twice must show the same context both
+// times, which is exactly what a re-fed turn does.
+func TestBuildAgentPrompt_DoesNotConsumeTheObservedWindow(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.PutGroup(core.Group{Folder: "main"})
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{
+		ObserveWindowMessages: 10, ObserveWindowChars: 4000,
+	})
+	loop.StopQueue()
+
+	now := time.Now()
+	if _, err := db.SQL().Exec(
+		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_observed, routed_to, verb)
+		 VALUES ('obs1','tg:9','someone','ambient chatter',?,1,'main','message')`,
+		now.UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+
+	trigger := []core.Message{{
+		ID: "t1", ChatJID: "tg:1", Sender: "u", Content: "hi",
+		Timestamp: now.Add(time.Second), Verb: "message",
+	}}
+
+	first, mark := loop.buildAgentPrompt("main", "", trigger)
+	if !strings.Contains(first, "ambient chatter") {
+		t.Fatalf("observed message absent from the first render:\n%s", first)
+	}
+	if mark == "" {
+		t.Fatal("render reported no watermark despite showing an observed message")
+	}
+
+	// The re-fed turn. Nothing was committed, so it must see the same window.
+	second, mark2 := loop.buildAgentPrompt("main", "", trigger)
+	if !strings.Contains(second, "ambient chatter") {
+		t.Errorf("re-fed turn lost the observed window — the render consumed it:\n%s", second)
+	}
+	if mark2 != mark {
+		t.Errorf("watermark moved between renders: %q then %q", mark, mark2)
+	}
+
+	// Only an explicit advance consumes it — the caller's job, on the same
+	// success path that advances the message cursor.
+	if err := db.UpdateObservedCursor("main", "", mark); err != nil {
+		t.Fatal(err)
+	}
+	third, mark3 := loop.buildAgentPrompt("main", "", trigger)
+	if strings.Contains(third, "ambient chatter") {
+		t.Errorf("observed message re-shown after an explicit advance:\n%s", third)
+	}
+	if mark3 != "" {
+		t.Errorf("empty window still reported a watermark: %q", mark3)
 	}
 }

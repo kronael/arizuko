@@ -104,6 +104,9 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	}
 
 	hadAny := false
+	// Pending per-topic observed watermarks, applied only if this dispatch
+	// reaches the advance below (BUGS L58).
+	var marks []observedAdvance
 	for _, batch := range groups {
 		bl := batch[len(batch)-1]
 		// A set sticky #topic overrides the message's own topic; a route-pinned
@@ -112,7 +115,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		if !strings.HasPrefix(chatJID, "web:") && r.Topic != "" {
 			topic = r.Topic
 		}
-		had, steered, busy, derr := l.runTurn(folder, topic, chatJID, bl.ID, batch)
+		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, batch)
 		if derr != nil {
 			// Transport failure: do NOT advance — re-fed next poll
 			// (at-least-once; turn_results dedups). State stays running.
@@ -133,11 +136,26 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			// Steer ack: the original run governs the batch; don't advance.
 			return true, nil
 		}
+		if mark != "" {
+			marks = append(marks, observedAdvance{topic: topic, ts: mark})
+		}
 		hadAny = hadAny || had
 	}
 	l.advance(chatJID, last)
+	// The observed watermark rides the SAME success path as the message cursor
+	// (BUGS L58). Every early return above re-feeds the batch, and a re-fed turn
+	// must still see the ambient context the failed attempt was shown.
+	for _, m := range marks {
+		if err := l.db.UpdateObservedCursor(folder, m.topic, m.ts); err != nil {
+			slog.Error("observed cursor advance failed — the topic re-sees this window next turn",
+				"folder", folder, "topic", m.topic, "ts", m.ts, "err", err)
+		}
+	}
 	return hadAny, nil
 }
+
+// observedAdvance is one topic's pending observed watermark for this dispatch.
+type observedAdvance struct{ topic, ts string }
 
 // newestUserMsg returns the newest non-bot message in a batch. ok=false when the
 // batch is all bot rows, which nothing may steer on.
@@ -209,7 +227,7 @@ func (l *Loop) noteBusy(chatJID, lastMsgID string) {
 // NOT advance the agent_cursor — processGroupMessages advances once past the
 // whole batch after all per-sender/per-topic turns close. busy=true means
 // runed rejected admission (at capacity); the caller must re-feed, not advance.
-func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (hadOutput, steered, busy bool, rerr error) {
+func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
 	last := trigger[len(trigger)-1]
 	// Elevation: a message cmdRoot registered in pendingElevation (operator-gated,
 	// unforgeable) raises THIS turn to root. One-shot — consumed here so a re-fed
@@ -248,7 +266,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		if l.deliver != nil {
 			_, _ = l.deliver.Send(chatJID, ghostGroupNotice, "", topic, "", "ghost-"+turnID)
 		}
-		return true, false, false, nil
+		return true, false, false, "", nil
 	}
 	// Pre-spawn budget gate. If today's folder spend hits the cap, deliver a
 	// channel-visible refusal (no run dispatched) and consume the batch — return
@@ -257,7 +275,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		if l.deliver != nil {
 			_, _ = l.deliver.Send(chatJID, msg, "", topic, "", "budget-"+turnID)
 		}
-		return true, false, false, nil
+		return true, false, false, "", nil
 	}
 	// Enqueue new_day / new_session system messages BEFORE building the prompt
 	// so buildAgentPrompt's FlushSysMsgs renders them this turn.
@@ -280,7 +298,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			l.enrichAttachments(ctx, &trigger[i], folder)
 		}
 	}
-	rendered := l.buildAgentPrompt(folder, topic, trigger)
+	rendered, observedMark := l.buildAgentPrompt(folder, topic, trigger)
 	// A proactive turn carries one ephemeral <proactive_reason> block ahead of
 	// the feed, dropped after it is consumed so a re-fed turn does not re-attach
 	// a stale reason.
@@ -299,13 +317,13 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// origin, not the child folder JID the run addresses.
 	live, err := l.db.PutTurnContext(turnID, folder, topic, chatJID, last.Sender, last.ForwardedFrom)
 	if err != nil {
-		return false, false, false, err
+		return false, false, false, "", err
 	}
 	if !live {
 		// The turn already completed (a re-fed batch whose run is done). Skip
 		// re-dispatch so a sibling batch's steer doesn't replay finished output;
 		// report no-output/not-steered so the loop advances past it.
-		return false, false, false, nil
+		return false, false, false, "", nil
 	}
 	// Record the trigger message id so a threaded reply can root a new
 	// platform thread on it (replyThreadRoot).
@@ -385,7 +403,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			// alone (BUGS C9); the batch re-feeds next poll either way.
 			derr = fmt.Errorf("%w: %w", queue.ErrDependencyDown, derr)
 		}
-		return false, false, false, derr
+		return false, false, false, "", derr
 	}
 	if out.Busy {
 		// runed rejected admission (folder busy with a dead container, or the
@@ -397,7 +415,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		// non-steered branch) since no container spawned; the next attempt re-flips
 		// it.
 		slog.Debug("dispatch run busy — runed at capacity, retry next poll", "folder", folder, "turn_id", turnID)
-		return false, false, true, nil
+		return false, false, true, "", nil
 	}
 	// Persist the runed-assigned run_id for reconciliation (turn_context.run_id).
 	if out.RunID != "" {
@@ -414,7 +432,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 				"turn_id", turnID, "err", err)
 		}
 		_ = l.db.SetRunReturned(turnID)
-		return true, true, false, nil
+		return true, true, false, "", nil
 	}
 	// POST /v1/runs has returned: close the callback surface so a late frame
 	// 409s, even if an early submit_turn already flipped state→done.
@@ -436,7 +454,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 					_ = l.db.ResetTurnForRetry(turnID)
 					l.Enqueue(chatJID)
 				})
-				return false, false, false, nil
+				return false, false, false, "", nil
 			}
 		}
 		// Final failure: all retries exhausted or agent did reply (partial is OK).
@@ -471,7 +489,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		if out.BreakerOpen {
 			l.onCircuitBreakerOpen(chatJID, folder)
 		}
-		return false, false, false, nil
+		return false, false, false, "", nil
 	}
 	// Clean turn-boundary outcome.
 	recorded := l.db.TurnResultRecorded(folder, turnID)
@@ -495,7 +513,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		slog.Error("processGroupMessages: SetTurnState(done) failed on clean completion; turn may appear stuck in-progress",
 			"folder", folder, "turn_id", turnID, "err", err)
 	}
-	return out.Outcome != runedv1.OutcomeSilent, false, false, nil
+	return out.Outcome != runedv1.OutcomeSilent, false, false, observedMark, nil
 }
 
 // ensureTopicWithFork ensures (folder, topic) has a sessions row and, when

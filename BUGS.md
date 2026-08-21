@@ -298,7 +298,7 @@ it is merely absent from the index the connector appends.
 - **Source:** `ant/src/codex.ts` `CodexSession.events`; `ant/src/skills-scan.ts`;
   `specs/5/23`; the matrix note in `specs/6/7-environment-contracts.md`.
 
-## L58 — a re-fed turn loses its observed window: the cursor advances before the container spawns (2026-08-20, open)
+## ✅ FIXED 2026-08-21 L58 — a re-fed turn lost its observed window: the cursor advanced before the container spawned (2026-08-20)
 
 `routd/prompt.go:38` advances the per-topic observed cursor inside
 `buildAgentPrompt`, immediately after `ObservedSince` reads the rows and
@@ -330,12 +330,17 @@ topic forever.
   the loss is partial. `pi` runs `--no-session` (`ant/src/pi.ts`), so layer 1
   is always empty and nothing covers it.
 - **Source:** `routd/prompt.go:27-39`; re-feed paths in `routd/dispatch.go`.
-- **Shape of a fix (not applied):** advance the cursor where the turn's own
-  cursor advances — after a recorded outcome — rather than at render time.
-  That is the `serialization_point` move: do not add a second bookkeeping
-  point beside the existing one, put this on it. `ClearObservedCursor`
-  (`prompt_db.go:113`) already exists as the rollback primitive if the
-  render-time advance is kept instead.
+- **Fixed 2026-08-21**: `buildAgentPrompt` is now pure with respect to the
+  cursor — it RETURNS the watermark and writes nothing. `processGroupMessages`
+  collects the per-topic marks and applies them after `l.advance(chatJID, last)`,
+  the one place a dispatch already commits its progress. That is the
+  `serialization_point` move: the second bookkeeping point was removed rather
+  than guarded. Every early return above that line (transport failure, busy
+  backoff, steer ack) now leaves the window intact for the re-fed turn, which
+  makes the read genuinely at-least-once as the comment always claimed.
+  A failed `UpdateObservedCursor` is logged, not swallowed. Pinned by
+  `TestBuildAgentPrompt_DoesNotConsumeTheObservedWindow`, which renders twice
+  and requires the same window both times.
 
 ## L57 — the resreg routes face re-implements the route INSERT without the web-JID guard (2026-08-20, open)
 

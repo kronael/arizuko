@@ -152,7 +152,7 @@ func TestBuildAgentPrompt_TopicEnvelope(t *testing.T) {
 	trigger := []core.Message{{ID: "t1", ChatJID: "tg:1", Sender: "alice",
 		Content: "hey", Timestamp: now, Verb: "message"}}
 
-	got := l.buildAgentPrompt("main", "#deploy", trigger)
+	got, _ := l.buildAgentPrompt("main", "#deploy", trigger)
 	if !strings.Contains(got, `<topic name="#deploy" />`) {
 		t.Errorf("missing <topic> envelope for #deploy; prompt:\n%s", got)
 	}
@@ -160,7 +160,7 @@ func TestBuildAgentPrompt_TopicEnvelope(t *testing.T) {
 		t.Errorf("<inherited> block must not appear; prompt:\n%s", got)
 	}
 
-	gotMain := l.buildAgentPrompt("main", "", trigger)
+	gotMain, _ := l.buildAgentPrompt("main", "", trigger)
 	if !strings.Contains(gotMain, `<topic name="" />`) {
 		t.Errorf("missing <topic name=\"\" /> envelope for main; prompt:\n%s", gotMain)
 	}

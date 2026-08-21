@@ -20,11 +20,19 @@ import (
 //
 // Per-topic observed cursor: each (folder, topic) tracks its own watermark over
 // is_observed=1 messages, so two topics in the same folder both see ambient
-// observed context without one consuming it for the other. At-least-once — the
-// cursor advance is not transactional with the turn; on crash recovery a topic
-// may re-see an observed message, which is benign because the <rule> below tells
-// the agent not to act on observed context.
-func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) string {
+// observed context without one consuming it for the other.
+//
+// The watermark is RETURNED, never written here (BUGS L58). Writing it at render
+// time made the read at-most-once: the prompt is built before the container
+// spawns, and every failure after that point re-feeds the batch — a transport
+// failure, the busy backoff, runed refusing admission at capacity. The re-fed
+// turn rebuilt its prompt against a watermark the first attempt had already
+// consumed, so the ambient context was read once and lost. The caller advances
+// it on the same success path that advances the message cursor, which makes it
+// genuinely at-least-once: a crash before that point re-shows an observed
+// message, which is benign because the <rule> below tells the agent not to act
+// on observed context.
+func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) (string, string) {
 	sysMsgs := l.db.FlushSysMsgs(folder)
 	maxN, maxC := l.observeWindow(folder)
 
@@ -33,9 +41,9 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) st
 		cursor = line.ObservedCursor
 	}
 	observed := l.db.ObservedSince(folder, cursor, maxN, maxC)
+	mark := ""
 	if len(observed) > 0 {
-		newest := observed[len(observed)-1].Timestamp.UTC().Format(time.RFC3339Nano)
-		_ = l.db.UpdateObservedCursor(folder, topic, newest)
+		mark = observed[len(observed)-1].Timestamp.UTC().Format(time.RFC3339Nano)
 	}
 
 	rules := ""
@@ -48,7 +56,7 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) st
 		l.personaBlock(folder) +
 		rules +
 		envelope +
-		router.FormatMessages(trigger, observed)
+		router.FormatMessages(trigger, observed), mark
 }
 
 // paneHints emits <surface>slack-pane</surface> and an optional
