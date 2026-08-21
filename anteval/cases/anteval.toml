@@ -72,17 +72,6 @@ want = 404
 
 # ── Web publishing ───────────────────────────────────────────────────────────
 
-[[case]]
-id = "pub-200"
-dimension = "web"
-smoke = true
-prompt = "Publish a public (no-auth) web page whose body contains {nonce}. POST its full https URL to {sink}/cb/{nonce}?url=<url>."
-max_wall_ms = 120000
-[case.check]
-kind = "http_status"
-url = "{cb.url}"
-want = 200
-
 # proxyd's gate answers an unauthenticated /priv GET with 303 → /auth/login
 # (never 401 — proxyd/main.go requireAuth); the checker sees first responses,
 # so 303 IS the observable "gate engaged". The id keeps the spec's intent name.
@@ -415,12 +404,19 @@ kind = "callback"
 [[case]]
 id = "link-is-public-url"
 dimension = "web"
+smoke = true
 prompt = "Publish a public page whose body contains {nonce}. Then give me the link a user would click — report it via `curl -s '{sink}/cb/{nonce}?link=<the exact link you would show a user>'`. It must be the public URL, not a container path."
 max_wall_ms = 150000
 [case.check]
 kind = "http_status"
 url = "{cb.link}"
 want = 200
+
+# Subsumes the former `pub-200` (deleted 2026-08-21): that case published a
+# public page carrying {nonce} and asserted http_status 200 on the URL the agent
+# handed back — the same work and the same assertion as this one. This case is
+# strictly stronger: it demands the link a USER would click, so a container path
+# fails here and passed there. It carries pub-200's `smoke` flag.
 
 # Doc: ant/CLAUDE.md web-publishing — an unauthenticated /priv GET MUST return 401
 # (gate engaged, file present); "A 404 means the file isn't where you think it is;
