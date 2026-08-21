@@ -15,7 +15,7 @@ import {
   HookCallback,
   PreCompactHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
-import { Binding, PolicyEvent, ToolEvent, bindings } from './policy.js';
+import { Binding, PolicyEvent, ToolEvent, bindings, runRow } from './policy.js';
 import type { ModelUsage } from './mcp.js';
 import { QUERY_TIMEOUT_MS, timeoutFrame } from './backend.js';
 import type { Frame, Harness, ResultFrame, Turn } from './backend.js';
@@ -282,7 +282,7 @@ function claudeHooks(rows: Binding[]): Record<PolicyEvent, Array<{ matcher?: str
 
 function asHookCallback(b: Binding): HookCallback {
   return async (input, _toolUseId, _context) => {
-    const verdict = await b.run(input as unknown as ToolEvent);
+    const verdict = await runRow(b, input as unknown as ToolEvent);
     switch (verdict.kind) {
       case 'allow':
         return {};

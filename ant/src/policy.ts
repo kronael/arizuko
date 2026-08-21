@@ -132,6 +132,20 @@ export function runnableBy(rows: Binding[], honours: Array<Verdict['kind']>, log
   });
 }
 
+// runRow is the ONE place a policy is executed, on every harness. A policy that
+// throws ALLOWS: a guard that bricks the turn when it throws is worse than the
+// threat it was added for, and pi would otherwise diverge — its docs make a
+// throwing `tool_call` handler block the tool, so an exception there would fail
+// closed while claude and codex fail open.
+export async function runRow(b: Binding, ev: ToolEvent): Promise<Verdict> {
+  try {
+    return await b.run(ev);
+  } catch (err) {
+    console.error(`[ant] policy ${b.id} threw, allowing: ${err instanceof Error ? err.message : String(err)}`);
+    return ALLOW;
+  }
+}
+
 // runRows applies every row bound to `event` and merges the answers: a deny
 // wins outright, otherwise the injected texts join, otherwise allow. That is
 // the precedence claude's SDK already applies across several hooks, stated
@@ -143,7 +157,7 @@ export async function runRows(rows: Binding[], event: PolicyEvent, ev: ToolEvent
   const injected: string[] = [];
   for (const b of rows) {
     if (b.event !== event || !matches(b, ev.tool_name)) continue;
-    const verdict = await b.run(ev);
+    const verdict = await runRow(b, ev);
     if (verdict.kind === 'deny') return verdict;
     if (verdict.kind === 'inject') injected.push(verdict.context);
   }

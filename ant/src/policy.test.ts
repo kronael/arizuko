@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach } from 'bun:test';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { bindings, matches, runRows, runnableBy } from './policy.js';
+import { bindings, matches, runRow, runRows, runnableBy } from './policy.js';
 import { codexHomeDir, codexHooksConfig, codexRows, verdictToCodexJson, writeCodexHooks } from './codex.js';
 import { STEER_FILE, appendLines, drainLines } from './spool.js';
 
@@ -117,6 +117,31 @@ describe('the system layer is written before codex starts', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codexenv-'));
     writeCodexHooks('/home/node', 'turn-4', { CODEX_HOME: root });
     expect(fs.existsSync(path.join(root, 'hooks.json'))).toBe(true);
+  });
+});
+
+// A guard that bricks the turn when it throws is worse than the threat it was
+// added for — and pi would otherwise diverge: its docs make a throwing
+// tool_call handler BLOCK the tool, so an exception there fails closed while
+// claude and codex fail open.
+describe('a policy that throws allows, on every harness', () => {
+  const boom = {
+    id: 'boom', event: 'PreToolUse', returns: ['deny'],
+    run: async () => { throw new Error('scanner exploded'); },
+  } as never;
+  const ev = { hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: {} } as never;
+
+  test('runRow swallows the throw and allows', async () => {
+    expect((await runRow(boom, ev)).kind).toBe('allow');
+  });
+
+  test('one throwing row does not stop the rows after it', async () => {
+    const denier = {
+      id: 'denier', event: 'PreToolUse', returns: ['deny'],
+      run: async () => ({ kind: 'deny', reason: 'still enforced' }),
+    } as never;
+    const verdict = await runRows([boom, denier], 'PreToolUse', ev);
+    expect(verdict.kind).toBe('deny');
   });
 });
 

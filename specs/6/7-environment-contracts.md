@@ -432,6 +432,12 @@ verdict, `tool-log.ts` keeps the line format. `guards.ts` stops being a list of
 `HookCallback`s and becomes the guard ROWS of that table — same job, which is to
 be the one place a refusal is registered.
 
+Execution is stated once too, in `runRow`: a policy that THROWS allows. A guard
+that bricks the turn when it throws is worse than the threat it was added for,
+and pi would otherwise diverge — its docs make a throwing `tool_call` handler
+block the tool, so an exception there fails closed while claude and codex fail
+open.
+
 Merging is stated once, in `runRows`: a deny wins outright, otherwise the
 injected texts join, otherwise allow — the precedence claude's SDK already
 applies across several hooks, so codex's subprocess and pi's extension cannot
