@@ -84,7 +84,7 @@ export class PiTurn {
   private lastText: string | undefined;
   private lastStop: string | undefined;
   private lastError: string | undefined;
-  private lastModels: Record<string, ModelUsage> | undefined;
+  private models: Record<string, ModelUsage> | undefined;
 
   // pi never terminates on a stream event — the process exit is the terminal.
   readonly done = false;
@@ -106,8 +106,12 @@ export class PiTurn {
       return [];
     }
     if (m.usage) {
+      // Each assistant message carries that ONE model call's usage (the
+      // recorded fixtures show it per message), so the turn total is the sum —
+      // keeping only the last message dropped every earlier call's tokens.
       const key = `${m.provider ?? 'pi'}/${m.model ?? 'unknown'}`;
-      this.lastModels = { [key]: usageOf(m.usage) };
+      this.models ??= {};
+      this.models[key] = addUsage(this.models[key], usageOf(m.usage));
     }
     const text = (m.content ?? [])
       .filter((p) => p.type === 'text')
@@ -132,20 +136,42 @@ export class PiTurn {
       kind: 'result',
       ok,
       text: ok ? this.lastText : err,
-      usage: ok ? this.lastModels : undefined,
+      usage: ok && this.models ? roundCosts(this.models) : undefined,
     };
   }
 }
 
+function addUsage(a: ModelUsage | undefined, b: ModelUsage): ModelUsage {
+  if (!a) return b;
+  return {
+    input: a.input + b.input,
+    output: a.output + b.output,
+    cache_read: a.cache_read + b.cache_read,
+    cache_write: a.cache_write + b.cache_write,
+    cost_cents: a.cost_cents + b.cost_cents,
+  };
+}
+
+// Cents are rounded once, on the SUM — rounding each message first zeroes a
+// turn of sub-cent calls.
+function roundCosts(models: Record<string, ModelUsage>): Record<string, ModelUsage> {
+  const out: Record<string, ModelUsage> = {};
+  for (const [k, u] of Object.entries(models)) {
+    out[k] = { ...u, cost_cents: Math.round(u.cost_cents) };
+  }
+  return out;
+}
+
 // usageOf maps pi's camelCase usage onto the submit_turn shape. cost.total is
-// dollars; cost_cents is × 100 rounded (same rule as the claude harness).
+// dollars; cost_cents stays fractional here and is rounded once on the summed
+// turn total (roundCosts) — the same × 100 rule as the claude harness.
 function usageOf(u: PiUsage): ModelUsage {
   return {
     input: u.input ?? 0,
     output: u.output ?? 0,
     cache_read: u.cacheRead ?? 0,
     cache_write: u.cacheWrite ?? 0,
-    cost_cents: Math.round((u.cost?.total ?? 0) * 100),
+    cost_cents: (u.cost?.total ?? 0) * 100,
   };
 }
 
@@ -173,7 +199,10 @@ export const piHarness: Harness = {
   profile: {
     continuity: 'none',
     tools: 'none',
-    guard: 'load-time',
+    // write-time: the extension's tool_call handler blocks a dangerous write
+    // before it lands (pi-extension.ts); the load-time scan in runPi stays as
+    // the backstop, same layering as claude.
+    guard: 'write-time',
     steering: 'between-turn',
     status: 'streaming',
   },

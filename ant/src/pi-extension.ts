@@ -7,6 +7,7 @@
 // names.
 
 import os from 'os';
+import path from 'path';
 import { PolicyContext, ToolEvent, Verdict, bindings, runRows, runnableBy } from './policy.js';
 
 // PI_HONOURS: pi can refuse a call ({block, reason}) and can rewrite a tool
@@ -42,11 +43,32 @@ export function canonicalToolName(name: string): string {
   return name ? name[0].toUpperCase() + name.slice(1) : name;
 }
 
+// canonicalInput maps pi's input keys onto the canonical (claude/codex) ones
+// the policy bodies read. pi's write is {path, content} and its edit is
+// {path, oldText, newText} (tools/write.d.ts, edit.d.ts — pi 0.51.6), so a
+// guard reading `file_path` got '' and ALLOWED every pi write — a gate that
+// silently did nothing, on the tool the skill-guard exists for. pi also
+// accepts paths relative to the session cwd; the guard's path check needs
+// them absolute, and process.cwd() here IS that cwd.
+export function canonicalInput(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
+  const abs = (p: unknown) => (typeof p === 'string' && p !== '' ? path.resolve(p) : '');
+  if (toolName === 'Write' || toolName === 'Read') {
+    const { path: p, ...rest } = input;
+    return { ...rest, file_path: abs(p) };
+  }
+  if (toolName === 'Edit') {
+    const { path: p, oldText, newText, ...rest } = input;
+    return { ...rest, file_path: abs(p), old_string: oldText, new_string: newText };
+  }
+  return input;
+}
+
 function toToolEvent(ev: PiToolCallEvent, event: ToolEvent['hook_event_name'], response?: unknown): ToolEvent {
+  const toolName = canonicalToolName(ev.toolName);
   return {
     hook_event_name: event,
-    tool_name: canonicalToolName(ev.toolName),
-    tool_input: ev.input ?? {},
+    tool_name: toolName,
+    tool_input: canonicalInput(toolName, ev.input ?? {}),
     tool_use_id: ev.toolCallId,
     // pi carries no session id on a tool event. The tool log keys on it only to
     // group lines, so an empty value costs grouping, never a refusal.
@@ -72,12 +94,11 @@ export function registerWith(pi: PiApi, ctx: PolicyContext): void {
     if (verdict.kind !== 'inject') return undefined;
     // pi's only channel back into the turn is the tool result itself, so the
     // injected context rides along with the output the model already reads.
-    return {
-      content: [
-        { type: 'text', text: String(ev.content ?? '') },
-        { type: 'text', text: verdict.context },
-      ],
-    };
+    // ev.content is pi's (TextContent|ImageContent)[] (types.d.ts, pi 0.51.6)
+    // and is kept verbatim — stringifying it printed "[object Object]" in
+    // place of the real tool output on every steering injection.
+    const existing = Array.isArray(ev.content) ? ev.content : [];
+    return { content: [...existing, { type: 'text', text: verdict.context }] };
   });
 }
 

@@ -85,6 +85,22 @@ test('PiTurn: a success stream yields status text and one ok result with usage',
   });
 });
 
+// Each assistant message carries that one model call's usage, so a
+// multi-message turn reports the SUM — keeping only the last message dropped
+// every earlier call's tokens, and per-message cent rounding zeroed a turn of
+// sub-cent calls.
+test('PiTurn: usage accumulates across assistant messages, rounded once', () => {
+  const turn = new PiTurn();
+  play(turn, [
+    { type: 'message_end', message: OK_ASSISTANT },
+    { type: 'message_end', message: OK_ASSISTANT },
+  ]);
+  expect(turn.finish(0, '').usage).toEqual({
+    // 2 × (12, 3, 4, 1); cost 2 × 2.34 cents rounds to 5, not 2 × round(2.34).
+    'claude-serve/haiku': { input: 24, output: 6, cache_read: 8, cache_write: 2, cost_cents: 5 },
+  });
+});
+
 test('PiTurn: a retried attempt that finally succeeds delivers the last text', () => {
   // auto_retry: agent_end fires once PER ATTEMPT; the terminal is process
   // exit, so an error attempt followed by a success attempt is a success.
