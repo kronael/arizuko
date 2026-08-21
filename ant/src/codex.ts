@@ -19,7 +19,7 @@ import {
 } from './backend.js';
 import { renderSkillsIndex, scanSkills } from './skills-scan.js';
 import { Binding, PolicyEvent, Verdict, bindings, runnableBy } from './policy.js';
-import { POLICY_LOG_FILE, drainLines } from './spool.js';
+import { POLICY_LOG_SPOOL, drainLines } from './spool.js';
 import fs from 'fs';
 import path from 'path';
 import type { ModelUsage } from './mcp.js';
@@ -148,7 +148,10 @@ export class CodexTurn {
     }
     if (type === 'turn.failed') {
       this.terminal = true;
-      return [{ kind: 'result', ok: false, text: this.lastText }];
+      // turn.failed carries {error:{message}}; dropping it would deliver an
+      // error result with no diagnostic when no assistant text preceded it.
+      const err = (obj.error as { message?: string } | undefined)?.message ?? this.lastError;
+      return [{ kind: 'result', ok: false, text: this.lastText ?? err }];
     }
     if (type === 'error') {
       this.lastError = (obj.message as string | undefined) ?? 'codex error';
@@ -209,10 +212,10 @@ async function* runCodex(turn: Turn): AsyncGenerator<Frame> {
     // codex swallows a hook's stderr, so the policies spool their log lines to
     // a file instead. Drain it as frames arrive: near-live, and no line is lost
     // when the turn ends.
-    for (const line of drainLines(POLICY_LOG_FILE)) console.error(line);
+    for (const line of drainLines(POLICY_LOG_SPOOL)) console.error(line);
     yield frame;
   }
-  for (const line of drainLines(POLICY_LOG_FILE)) console.error(line);
+  for (const line of drainLines(POLICY_LOG_SPOOL)) console.error(line);
 }
 
 // POLICY_CLI is where entrypoint.sh compiles ant to (`bunx tsc --outDir

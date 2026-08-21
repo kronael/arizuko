@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
 import { Harness, Turn, selectHarness } from './backend.js';
-import { STEER_FILE, appendLines, drainLines } from './spool.js';
+import { STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
 interface ContainerInput {
   prompt: string;
@@ -21,7 +21,6 @@ interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   secrets?: Record<string, string>;
-  soul?: string;
   systemMd?: string;
 }
 
@@ -44,11 +43,11 @@ const MAX_STDIN_BYTES = 1024 * 1024;
 
 const PROGRESS_INTERVAL_MS = 90_000;
 
-// buildSystemPrompt renders the text layers the chassis owns (system MD, soul,
+// buildSystemPrompt renders the text layers the chassis owns (system MD,
 // output style). undefined means "no rendered text" — each harness supplies
 // its own default (claude's claude_code preset is claude wiring, not seam).
 function buildSystemPrompt(ci: ContainerInput): string | undefined {
-  const parts = [ci.systemMd, ci.soul, readOutputStyle()].filter(Boolean);
+  const parts = [ci.systemMd, readOutputStyle()].filter(Boolean);
   return parts.length > 0 ? parts.join('\n\n') : undefined;
 }
 
@@ -113,21 +112,18 @@ function log(message: string): void {
   console.error(`[ant] ${message}`);
 }
 
+// NUDGE_TEXT is the chassis-generated progress prompt. It goes straight onto
+// the steer spool — it used to travel through the IPC dir, where drainIpcInput
+// filtered `source:'nudge'` out on the way to the spool, so every nudge was
+// consumed and dropped and the feature was silently dead. Between turns a
+// stale nudge is dropped by exact text (checkIpcMessage): it exists only to
+// steer a RUNNING turn, never to start one.
+export const NUDGE_TEXT =
+  'Report progress to the user now. Use <status>short summary of what you are doing</status>.';
+
 function nudgeProgress(): void {
-  const fp = path.join(IPC_INPUT_DIR, `${Date.now()}-progress.json`);
-  const payload = JSON.stringify({
-    type: 'message',
-    source: 'nudge',
-    text: 'Report progress to the user now. Use <status>short summary of what you are doing</status>.',
-  });
-  try {
-    fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
-    fs.writeFileSync(fp + '.tmp', payload);
-    fs.renameSync(fp + '.tmp', fp);
-    log('Nudged agent for progress report');
-  } catch (err) {
-    log(`Progress nudge write failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  appendLines(STEER_SPOOL, [NUDGE_TEXT]);
+  log('Nudged agent for progress report');
 }
 
 // STATUS_RE matches one <status>...</status> block. The agent emits these for
@@ -186,7 +182,7 @@ function drainIpcInput(): string[] {
       try {
         const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
         fs.unlinkSync(filePath);
-        if (data.source === 'self' || data.source === 'nudge') continue;
+        if (data.source === 'self') continue;
         if (data.type === 'message' && typeof data.text === 'string') {
           messages.push(data.text);
         }
@@ -202,31 +198,21 @@ function drainIpcInput(): string[] {
   }
 }
 
-function discardNudges(): number {
-  try {
-    fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
-    const files = fs.readdirSync(IPC_INPUT_DIR)
-      .filter(f => f.endsWith('.json'))
-      .sort();
-    const toDelete: string[] = [];
-    for (const file of files) {
-      const fp = path.join(IPC_INPUT_DIR, file);
-      try {
-        const data = JSON.parse(fs.readFileSync(fp, 'utf-8'));
-        if (data.source === 'nudge') toDelete.push(fp);
-      } catch { /* skip unreadable files */ }
-    }
-    let count = 0;
-    for (const fp of toDelete) {
-      try { fs.unlinkSync(fp); count++; } catch { /* ignore */ }
-    }
-    return count;
-  } catch { return 0; }
+// drainSteering empties the steer spool for a BETWEEN-turns read, dropping
+// stale progress nudges: a nudge steers a running turn, and one left over from
+// the last turn must never start a new one.
+function drainSteering(): string[] {
+  return drainLines(STEER_SPOOL).filter(l => l !== NUDGE_TEXT);
 }
 
-function checkIpcMessage(): string | null {
+// checkIpcMessage assembles the next inner-loop prompt from both queues — the
+// IPC dir AND the steer spool. Steering already drained from IPC into the
+// spool is delivered only when a tool call follows; a turn that stopped
+// calling tools would otherwise strand those messages here and the loop would
+// exit "input empty", losing them silently.
+export function checkIpcMessage(): string | null {
   if (shouldClose()) return null;
-  const messages = drainIpcInput();
+  const messages = [...drainSteering(), ...drainIpcInput()];
   return messages.length > 0 ? messages.join('\n') : null;
 }
 
@@ -243,14 +229,18 @@ interface TurnResult {
 // runTurn drives one harness run and consumes its frames: status frames feed
 // the <status> pipeline, continuity frames update the resume state, the result
 // frame is delivered. retryFresh results are never delivered — the caller
-// retries with no continuity.
-async function runTurn(
+// retries with no continuity. A retryFresh on a turn that was ALREADY fresh
+// has nothing to retry, so it delivers as an error instead: the caller would
+// not rerun it, and suppressing it too was a silent-turn path (claude maps
+// every error_during_execution to retryFresh, resume miss or not).
+export async function runTurn(
   harness: Harness,
   prompt: string,
   continuity: string | undefined,
   containerInput: ContainerInput,
   env: Record<string, string>,
   turnID: string,
+  deliver: (turnID: string, output: ContainerOutput) => Promise<void> = deliverTurn,
 ): Promise<TurnResult> {
   const controller = new AbortController();
   const turn: Turn = {
@@ -272,7 +262,7 @@ async function runTurn(
     // The chassis owns the IPC mechanism; the `steering` policy owns delivery.
     // Queueing here rather than inside a hook is what lets codex reach it — its
     // hooks are separate processes and cannot be handed a closure.
-    appendLines(STEER_FILE, drainIpcInput());
+    appendLines(STEER_SPOOL, drainIpcInput());
     if (shouldClose()) {
       log('Close sentinel detected during query, winding the turn down');
       closedDuringQuery = true;
@@ -312,14 +302,16 @@ async function runTurn(
       } else {
         resultCount++;
         log(`Result #${resultCount}: ok=${frame.ok}${frame.retryFresh ? ' retryFresh' : ''}${frame.text ? ` text=${frame.text.slice(0, 200)}` : ''}${frame.usage ? ` models=${Object.keys(frame.usage).join(',')}` : ''}`);
-        if (frame.retryFresh) {
+        if (frame.retryFresh && continuity !== undefined) {
           log('Session error, will retry without session');
           out.retryFresh = true;
         } else {
-          await deliverTurn(turnID, {
+          if (frame.retryFresh) log('Session error on an already-fresh turn, delivering as error');
+          await deliver(turnID, {
             status: frame.ok ? 'success' : 'error',
             result: frame.text || null,
             newSessionId: out.sessionId,
+            error: frame.retryFresh ? 'harness could not complete the turn on a fresh session' : undefined,
             models: frame.usage,
             timedOut: frame.timedOut,
           });
@@ -338,9 +330,18 @@ async function runTurn(
     clearInterval(nudgeTimer);
   }
 
-  const discarded = discardNudges();
-  if (discarded > 0) {
-    log(`Discarded ${discarded} stale progress nudges after query`);
+  // The seam's first requirement is exactly one terminal frame per turn, never
+  // silence. A harness that ends its stream without one (a reducer hole, an
+  // SDK terminal state with nothing to say) still owes the user a reply —
+  // enforce it here, at the one consumer, rather than trusting every occupant.
+  if (resultCount === 0 && !out.retryFresh && !closedDuringQuery) {
+    log('Harness produced no result frame, delivering an error turn');
+    await deliver(turnID, {
+      status: 'error',
+      result: null,
+      newSessionId: out.sessionId,
+      error: 'harness produced no result for this turn',
+    });
   }
 
   out.closedDuringQuery = closedDuringQuery;
@@ -392,12 +393,9 @@ async function main(): Promise<void> {
     if (containerInput.isScheduledTask) {
       prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
     }
-    if (containerInput.soul && !containerInput.systemMd) {
-      prompt = containerInput.soul + '\n\n' + prompt;
-    }
     // Both queues: what IPC holds now, plus anything the steering policy never
     // got to deliver because the last turn stopped calling tools.
-    const pending = [...drainLines(STEER_FILE), ...drainIpcInput()];
+    const pending = [...drainSteering(), ...drainIpcInput()];
     if (pending.length > 0) {
       log(`Draining ${pending.length} pending IPC messages into initial prompt`);
       prompt += '\n' + pending.join('\n');

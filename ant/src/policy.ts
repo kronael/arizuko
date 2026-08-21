@@ -19,7 +19,7 @@ import { bashScrub, bashSkillRescan } from './guards.js';
 import { skillGuard } from './skillguard.js';
 import { toolLogPost, toolLogPre } from './tool-log.js';
 import { todoStatus } from './todo-status.js';
-import { STEER_FILE, drainLines } from './spool.js';
+import { STEER_SPOOL, drainLines } from './spool.js';
 
 // ToolEvent is the input shape claude and codex ALREADY agree on — measured
 // 2026-08-21 by running codex 0.147.0: its hook stdin carries session_id, cwd,
@@ -105,7 +105,7 @@ export function bindings(ctx: PolicyContext): Binding[] {
 // queue is a file (spool.ts) because a closure cannot cross into codex's hook
 // subprocess.
 function steering(): Verdict {
-  const messages = drainLines(STEER_FILE);
+  const messages = drainLines(STEER_SPOOL);
   if (messages.length === 0) return ALLOW;
   return { kind: 'inject', context: `<user-steering>\n${messages.join('\n')}\n</user-steering>` };
 }
@@ -151,15 +151,22 @@ export async function runRow(b: Binding, ev: ToolEvent): Promise<Verdict> {
 // the precedence claude's SDK already applies across several hooks, stated
 // ONCE here so codex's subprocess and pi's extension cannot drift from it.
 //
+// Every matching row RUNS even when one denies — claude runs all hooks and
+// merges afterwards, so an early return here would drift: the tool log would
+// record a refused call on claude and miss it on codex and pi, losing exactly
+// the most interesting lines.
+//
 // A 'rewrite' cannot arrive: both callers filter those rows out first
 // (runnableBy), because neither harness can honour one.
 export async function runRows(rows: Binding[], event: PolicyEvent, ev: ToolEvent): Promise<Verdict> {
+  let deny: Verdict | undefined;
   const injected: string[] = [];
   for (const b of rows) {
     if (b.event !== event || !matches(b, ev.tool_name)) continue;
     const verdict = await runRow(b, ev);
-    if (verdict.kind === 'deny') return verdict;
+    if (verdict.kind === 'deny' && !deny) deny = verdict;
     if (verdict.kind === 'inject') injected.push(verdict.context);
   }
+  if (deny) return deny;
   return injected.length > 0 ? { kind: 'inject', context: injected.join('\n') } : ALLOW;
 }

@@ -89,6 +89,18 @@ test('CodexTurn: turn.failed is an error result carrying the last text', () => {
   expect(turn.done).toBe(true);
 });
 
+test('CodexTurn: turn.failed with no prior text carries the error message', () => {
+  const turn = new CodexTurn();
+  const frames = play(turn, [
+    { type: 'turn.failed', error: { message: 'model overloaded' } },
+  ]);
+  const result = frames.at(-1)!;
+  if (result.kind !== 'result') throw new Error('expected result frame');
+  expect(result.ok).toBe(false);
+  // Dropping the payload delivered an error with no diagnostic at all.
+  expect(result.text).toBe('model overloaded');
+});
+
 test('tomlValue: strings, arrays and tables render as TOML, never JSON', () => {
   expect(tomlValue('socat')).toBe('"socat"');
   expect(tomlValue(['STDIO', 'UNIX-CONNECT:/run/ipc/gated.sock']))

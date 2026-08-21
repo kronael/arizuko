@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { bindings, matches, runRow, runRows, runnableBy } from './policy.js';
 import { codexHomeDir, codexHooksConfig, codexRows, verdictToCodexJson, writeCodexHooks } from './codex.js';
-import { STEER_FILE, appendLines, drainLines } from './spool.js';
+import { STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
 const ctx = { home: '/home/node', turnID: 'turn-1' };
 
@@ -143,6 +143,24 @@ describe('a policy that throws allows, on every harness', () => {
     const verdict = await runRows([boom, denier], 'PreToolUse', ev);
     expect(verdict.kind).toBe('deny');
   });
+
+  // claude's SDK runs EVERY hook and merges afterwards, deny winning. An early
+  // return on deny drifted from that: on codex and pi the tool log skipped
+  // exactly the refused calls — the lines worth having.
+  test('a deny still lets the observer rows after it run', async () => {
+    const seen: string[] = [];
+    const denier = {
+      id: 'denier', event: 'PreToolUse', returns: ['deny'],
+      run: async () => ({ kind: 'deny', reason: 'no' }),
+    } as never;
+    const observer = {
+      id: 'observer', event: 'PreToolUse', returns: [],
+      run: async () => { seen.push('ran'); return { kind: 'allow' }; },
+    } as never;
+    const verdict = await runRows([denier, observer], 'PreToolUse', ev);
+    expect(verdict).toEqual({ kind: 'deny', reason: 'no' });
+    expect(seen).toEqual(['ran']);
+  });
 });
 
 describe('a verdict becomes codex wire JSON in exactly one place', () => {
@@ -174,11 +192,11 @@ describe('the steering queue survives a process boundary', () => {
   const rows = () => bindings(ctx).filter((b) => b.id === 'steering');
 
   beforeEach(() => {
-    try { fs.unlinkSync(STEER_FILE); } catch { /* not there */ }
+    drainLines(STEER_SPOOL); // empty whatever an earlier test queued
   });
 
   test('queued messages come back as one injected block', async () => {
-    appendLines(STEER_FILE, ['first', 'second']);
+    appendLines(STEER_SPOOL, ['first', 'second']);
     const verdict = await runRows(rows(), 'PostToolUse', post);
     expect(verdict.kind).toBe('inject');
     expect(verdict.kind === 'inject' && verdict.context).toContain('<user-steering>');
@@ -186,14 +204,14 @@ describe('the steering queue survives a process boundary', () => {
   });
 
   test('a drain empties the queue — a message is delivered once, never replayed', async () => {
-    appendLines(STEER_FILE, ['only once']);
+    appendLines(STEER_SPOOL, ['only once']);
     expect((await runRows(rows(), 'PostToolUse', post)).kind).toBe('inject');
     expect((await runRows(rows(), 'PostToolUse', post)).kind).toBe('allow');
   });
 
   test('a message containing a newline survives the round trip', () => {
-    appendLines(STEER_FILE, ['line one\nline two']);
-    expect(drainLines(STEER_FILE)).toEqual(['line one\nline two']);
+    appendLines(STEER_SPOOL, ['line one\nline two']);
+    expect(drainLines(STEER_SPOOL)).toEqual(['line one\nline two']);
   });
 
   test('an empty queue is not an error', async () => {
