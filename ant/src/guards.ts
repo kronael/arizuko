@@ -93,6 +93,10 @@ export function bashSkillRescan(home: string): (ev: ToolEvent) => Verdict {
     try {
       for (const root of guardedRoots(home)) {
         for (const file of walkFiles(root)) {
+          // A quarantined file is already out of discovery. Rescanning it
+          // renamed it AGAIN (x.quarantined.quarantined, …) on every sweep —
+          // and codex sweeps per tool call, since each hook is a new process.
+          if (file.endsWith('.quarantined')) continue;
           let st: fs.Stats;
           try {
             st = fs.statSync(file);
