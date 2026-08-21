@@ -55,6 +55,17 @@ const (
 
 const DefaultProduct = "assistant"
 
+// IsolatedSenderPrefix marks a message produced by an isolated scheduled run.
+// Such a run gets its own one-off container and session precisely so a folder's
+// crons never enter the conversation the people in that chat are having (BUGS
+// L54). The prefix is declared ONCE here because two separate readers test it:
+// routd's dispatch (session lineage) and the ambient-window SQL (which must not
+// serve a cron's prompt back as context to every topic in the folder).
+const IsolatedSenderPrefix = "timed-isolated:"
+
+// IsIsolatedSender reports whether a sender or trigger names an isolated run.
+func IsIsolatedSender(s string) bool { return strings.HasPrefix(s, IsolatedSenderPrefix) }
+
 type Group struct {
 	Folder  string
 	AddedAt time.Time

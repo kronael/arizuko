@@ -360,7 +360,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// cursor is older than the idle threshold resumes from a stale Claude session
 	// the agent has long forgotten, so start fresh instead. Isolated (timed) runs
 	// carry no session lineage, so skip them.
-	if !strings.HasPrefix(last.Sender, "timed-isolated:") {
+	if !core.IsIsolatedSender(last.Sender) {
 		if sid := l.db.SessionID(folder, topic); sid != "" && l.sessionIdleExpired(chatJID) {
 			slog.Info("session: resetting on idle expiry",
 				"folder", folder, "topic", topic, "jid", chatJID, "threshold", l.sessionIdle)
@@ -587,7 +587,7 @@ func (l *Loop) copyParentSession(folder, parent, childUUID string) bool {
 func (l *Loop) persistSessionBackstop(
 	folder, topic, turnID, trigger string, out runedv1.RunOutcome, recorded bool,
 ) {
-	if out.SessionID == "" || recorded || strings.HasPrefix(trigger, "timed-isolated:") {
+	if out.SessionID == "" || recorded || core.IsIsolatedSender(trigger) {
 		return
 	}
 	if err := l.db.PutSession(folder, topic, out.SessionID); err != nil {
@@ -744,7 +744,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	// run to it, so a folder's crons wrote themselves into the conversation the
 	// people in that chat were having, and Claude Code compacted the humans out
 	// first. sloth's #trading transcript was 8 cron turns to 4 human ones.
-	isolated := strings.HasPrefix(trigger, "timed-isolated:")
+	isolated := core.IsIsolatedSender(trigger)
 	sessionID := ""
 	if !isolated {
 		sessionID = l.db.SessionID(folder, topic)

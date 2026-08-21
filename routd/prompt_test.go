@@ -400,3 +400,56 @@ func TestBuildAgentPrompt_DoesNotConsumeTheObservedWindow(t *testing.T) {
 		t.Errorf("empty window still reported a watermark: %q", mark3)
 	}
 }
+
+// BUGS L54 was closed on the SESSION path — an isolated cron gets its own
+// container and never resumes or persists the chat's session. Its rows still
+// land routed_to the folder with is_observed=1, so the ambient window served
+// every cron prompt back to every topic in that folder on its next turn. On
+// sloth's #trading the observed block was dominated by 8-a-day "silent cron"
+// prompts, which is the same hole through a second door.
+func TestObservedSinceExcludesIsolatedCronRuns(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().UTC()
+	put := func(id, sender, content string, observed bool) {
+		obs := 0
+		if observed {
+			obs = 1
+		}
+		if _, err := db.SQL().Exec(
+			`INSERT INTO messages(id, chat_jid, sender, content, timestamp, routed_to, is_observed, topic)
+			 VALUES(?,?,?,?,?,?,?,'')`,
+			id, "discord:g/c", sender, content, now.Format(time.RFC3339Nano), "trading", obs); err != nil {
+			t.Fatalf("insert %s: %v", id, err)
+		}
+	}
+	put("human-1", "alice", "what is the btc level", true)
+	put("cron-1", core.IsolatedSenderPrefix+"task-9", "Silent cron: run the monitor, stay silent", true)
+
+	// Prove the cron row qualifies on EVERY other predicate, so this test fails
+	// if the sender exclusion is removed rather than passing vacuously.
+	var qualifies int
+	if err := db.SQL().QueryRow(
+		`SELECT COUNT(*) FROM messages
+		 WHERE routed_to = 'trading' AND is_observed = 1
+		   AND is_bot_message = 0 AND content != '' AND id = 'cron-1'`).Scan(&qualifies); err != nil {
+		t.Fatalf("precondition query: %v", err)
+	}
+	if qualifies != 1 {
+		t.Fatalf("fixture does not reach the ambient query at all; the test would pass for the wrong reason")
+	}
+
+	got := db.ObservedSince("trading", "", 50, 50000)
+
+	var ids []string
+	for _, m := range got {
+		ids = append(ids, m.ID)
+	}
+	if len(ids) != 1 || ids[0] != "human-1" {
+		t.Fatalf("ambient window = %v, want only [human-1]: an isolated run's prompt must never become another topic's context", ids)
+	}
+}

@@ -152,6 +152,14 @@ func (d *DB) WatchedSources(folder string) []string {
 // Two shapes UNION'd: (a) is_observed=1 rows routed to folder; (b) is_observed=0
 // primary-delivery rows routed to folder's watched sources (observe_group
 // ambient context).
+//
+// Isolated scheduled runs are excluded from BOTH. They already get their own
+// container and their own session so a folder's crons never enter the chat's
+// transcript (BUGS L54) — but their rows land routed_to the folder with
+// is_observed=1, so the ambient window served every cron prompt back to every
+// topic in the folder on its next turn. That re-opened the exact hole L54
+// closed, through a second door: on sloth's #trading the observed block was
+// dominated by 8-a-day "silent cron" prompts.
 func (d *DB) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []core.Message {
 	if maxMsgs <= 0 || maxChars <= 0 {
 		return nil
@@ -181,11 +189,13 @@ func (d *DB) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []core.
 		args = append(args, maxMsgs)
 		q = `SELECT ` + msgReadCols + ` FROM messages
 		     WHERE routed_to = ? AND is_observed = 1
-		       AND is_bot_message = 0 AND content != ''` + cursorClause + `
+		       AND is_bot_message = 0 AND content != ''
+		       AND sender NOT LIKE '` + core.IsolatedSenderPrefix + `%'` + cursorClause + `
 		     UNION ALL
 		     SELECT ` + msgReadCols + ` FROM messages
 		     WHERE routed_to IN (` + watchedPH + `) AND is_observed = 0
-		       AND is_bot_message = 0 AND content != ''` + cursorClause + `
+		       AND is_bot_message = 0 AND content != ''
+		       AND sender NOT LIKE '` + core.IsolatedSenderPrefix + `%'` + cursorClause + `
 		     ORDER BY timestamp DESC
 		     LIMIT ?`
 	} else {
@@ -195,7 +205,8 @@ func (d *DB) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []core.
 		args = append(args, maxMsgs)
 		q = `SELECT ` + msgReadCols + ` FROM messages
 		     WHERE routed_to = ? AND is_observed = 1
-		       AND is_bot_message = 0 AND content != ''` + cursorClause + `
+		       AND is_bot_message = 0 AND content != ''
+		       AND sender NOT LIKE '` + core.IsolatedSenderPrefix + `%'` + cursorClause + `
 		     ORDER BY timestamp DESC
 		     LIMIT ?`
 	}

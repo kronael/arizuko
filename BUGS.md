@@ -256,6 +256,35 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
+## ✅ FIXED 2026-08-21 L64 — isolated crons re-enter the chat through the ambient window (2026-08-21)
+
+`L54` closed the SESSION path: an isolated scheduled run gets its own one-off
+container and never resumes or persists the chat's session, so a folder's crons
+stop writing themselves into the conversation. Their rows still land
+`routed_to = <folder>` with `is_observed = 1`, and `ObservedSince` filters by
+folder with no sender exclusion — so the ambient window served every cron prompt
+back to **every topic in that folder** on its next turn. The same hole, through a
+second door.
+
+Measured on sloth `main/trading` (2026-08-21): the `<observed>` block of a live
+Discord-thread turn was dominated by 8-a-day `timed-isolated:` "Silent cron: …
+stay silent" prompts. 113 observed entries across recent transcripts.
+
+**FIXED**: `core.IsolatedSenderPrefix` / `core.IsIsolatedSender` declare the
+marker once; `routd/prompt_db.go`'s ambient query excludes those senders from
+both UNION arms, and `routd/dispatch.go`'s three literal prefix tests now read
+the same declaration. Test `TestObservedSinceExcludesIsolatedCronRuns` asserts
+the cron row qualifies on every OTHER predicate first, so it cannot pass
+vacuously.
+
+**NOT fixed, and not a bug**: the folder-scoped ambient window itself. `5/F`
+records that decision — the cursor is per-`(folder, topic)` precisely so every
+topic sees the folder's ambient traffic once. A forked topic also inherits its
+parent's transcript by design (that is what `L54` restored). Two sloth session
+files legitimately carry root turns plus one thread's turns.
+
+- **Source:** `routd/prompt_db.go` `ObservedSince`; `core/types.go`; `specs/5/F`.
+
 ## ✅ FIXED 2026-08-21 L61 — stranded onboarding rows re-log at ERROR forever (2026-08-21)
 
 **FIXED** by `warnedStranded` (a `sync.Map` in `onbod/main.go`): each
