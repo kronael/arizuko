@@ -26,6 +26,11 @@ zero `Coach` (checked with `=`, not `LIKE` — sqlite's `LIKE` is
 case-insensitive and hides this). Nothing in the folder path lowercases, so the
 two names were written by two different creation events.
 
+`turn_results` dates it exactly: folder `Coach` holds ONE turn ever
+(2026-05-05T21:29Z, its creation day) and folder `coach` holds 123, the most
+recent 2026-08-21. The group ran once under the capitalised name, was recreated
+lowercase, and the 5 tasks stayed pointed at the name nothing answers to.
+
 The damage runs both ways:
 
 - The orphans never execute — `Coach-mem-0` has fired daily since
@@ -65,6 +70,11 @@ row now reads as prompted.
 That claim-first order is correct for the race it defends against; the defect
 is that `sendReply` swallows its own outcome. It should return an error, and a
 failed send should release the claim it took.
+
+Neither the firing nor the 502 writes an `audit_log` row: sloth's audit surface
+records exactly ONE non-ok outcome in 7 days (a discord like 502) while this
+fails every night. The audit log reads clean through a repeating user-facing
+failure.
 
 - **Source:** `onbod/main.go:1421` (`sendReply`), `onbod/main.go:482`
   (`promptUnprompted`).
