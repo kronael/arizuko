@@ -7,6 +7,68 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L66 — a removed group strands its 5 seeded tasks; they fire forever and route nowhere (2026-08-22, open)
+
+`SeedDefaultTasks` writes 5 `<folder>-mem-N` rows per group, but
+`scheduled_tasks.owner` carries NO foreign key to `groups.folder`, so removing
+or renaming a group leaves its tasks behind. They stay `active`, `timed` keeps
+firing them on cron, and every firing targets a folder that does not exist.
+
+Two live instances carry the shape:
+
+| instance | orphan tasks | real group |
+|----------|--------------|------------|
+| sloth    | `Coach-mem-0..4` (`owner='Coach'`) | `coach` exists; `Coach` does not |
+| marinade | `libtest-mem-0..4` | no `libtest` group at all |
+
+sloth's pair is a CASE mismatch: `groups` holds exactly one row, `coach`, and
+zero `Coach` (checked with `=`, not `LIKE` — sqlite's `LIKE` is
+case-insensitive and hides this). Nothing in the folder path lowercases, so the
+two names were written by two different creation events.
+
+The damage runs both ways:
+
+- The orphans never execute — `Coach-mem-0` has fired daily since
+  2026-05-05 and has never once run.
+- The REAL group gets nothing: `coach` has no `-mem-` tasks, so its memories
+  have never compacted.
+
+Cause fix (needs sign-off, it is a schema change): a foreign key
+`owner REFERENCES groups(folder) ON DELETE CASCADE`, matching the FK
+`task_run_logs` already has on `scheduled_tasks`. That makes the orphan
+impossible instead of detecting it later. Operator cleanup of the 10 existing
+rows is separate and is the operator's call.
+
+- **Source:** `store/tasks.go:261` (`SeedDefaultTasks`), `scheduled_tasks` schema.
+
+## L67 — onbod mails a pairing link to an unroutable task JID, then logs success over the failure (2026-08-22, open)
+
+Downstream of `L66`, and a fail-loud violation in its own right.
+
+When `timed` fires an orphan task, its JID (`Coach`) matches no route. onbod's
+`promptUnprompted` reads it as a brand-new account to onboard, mints a pairing
+token and POSTs a pairing link at it. routd answers `502`. On sloth this has
+run every night; the log pair is always:
+
+```
+WARN "send reply non-2xx" jid=Coach status=502
+INFO "sent pairing link"  jid=Coach
+```
+
+`sendReply` returns nothing, so the caller cannot tell a `502` from a delivery
+and logs the success line unconditionally — the failure is one line above the
+claim that it worked. Worse, the row is CLAIMED before the send
+(`prompted_at` is stamped first, deliberately, so two ticks cannot both send),
+so a failed send is never retried: the pairing link is minted, lost, and the
+row now reads as prompted.
+
+That claim-first order is correct for the race it defends against; the defect
+is that `sendReply` swallows its own outcome. It should return an error, and a
+failed send should release the claim it took.
+
+- **Source:** `onbod/main.go:1421` (`sendReply`), `onbod/main.go:482`
+  (`promptUnprompted`).
+
 ## L62 — marinade's emaid IMAP login fails, unhealthy for 3 days (2026-08-21, open)
 
 `arizuko_emaid_marinade` has been `Up (unhealthy)` since 2026-08-18. Every IMAP
