@@ -1906,8 +1906,16 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			mcp.WithNumber("depth"),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.PutMessage == nil || gated.EnqueueMessageCheck == nil {
-				return toolErr("escalate_group not configured")
+			// EnqueueMessageCheck is OPTIONAL, not required. routd does not set
+			// it — its loop polls new messages by timestamp, exactly as the
+			// comment on InjectMessage (routd/mcp.go:121) says. Demanding it
+			// here made escalate_group and delegate_group return "not
+			// configured" on EVERY call in the split routd: the tools were
+			// registered, listed, and dead. anteval's child-delegate caught it
+			// (BUGS L65). PutMessage is the real dependency; the enqueue is a
+			// latency optimisation.
+			if db.PutMessage == nil {
+				return toolErr("escalate_group not configured: no PutMessage")
 			}
 			if err := authzStructural("escalate_group", folder); err != nil {
 				return toolErr(err.Error())
@@ -1943,7 +1951,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			}); err != nil {
 				return toolErr(err.Error())
 			}
-			gated.EnqueueMessageCheck(parent)
+			if gated.EnqueueMessageCheck != nil {
+				gated.EnqueueMessageCheck(parent)
+			}
 			return toolJSON(map[string]any{"queued": true, "parent": parent})
 		})
 
@@ -1959,8 +1969,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err := authzStructural("delegate_group", target); err != nil {
 				return toolErr(err.Error())
 			}
-			if db.PutMessage == nil || gated.EnqueueMessageCheck == nil {
-				return toolErr("delegate_group not configured")
+			if db.PutMessage == nil {
+				return toolErr("delegate_group not configured: no PutMessage")
 			}
 			prompt := req.GetString("prompt", "")
 			chatJid := req.GetString("chatJid", "")
@@ -1980,7 +1990,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			}); err != nil {
 				return toolErr(err.Error())
 			}
-			gated.EnqueueMessageCheck(target)
+			if gated.EnqueueMessageCheck != nil {
+				gated.EnqueueMessageCheck(target)
+			}
 			return toolJSON(map[string]any{"queued": true})
 		})
 

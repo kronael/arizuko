@@ -256,7 +256,7 @@ dataflow analysis, which `specs/5/23` excludes by decision, so there is no
 contained fix to make and nothing to close. Left open deliberately as a
 recorded residual, which is what this entry is for.
 
-## L65 — `delegate_group` fails silently: no child turn, no error, agent falls back to a dead send (2026-08-21, open)
+## ✅ FIXED 2026-08-22 L65 — `delegate_group` and `escalate_group` were dead in the split routd (2026-08-21)
 
 Caught by anteval `child-delegate`, which is exactly what that suite is for.
 
@@ -287,8 +287,28 @@ and `routd/network.go` `ResolveAllowlist` walks the full ancestry at dispatch,
 so a child DOES inherit its parent's allowlist. Amending the case to grant the
 child egress did not fix it (the reproduction above ran with that prompt).
 
-- **Source:** `ipc/ipc.go:1957` `delegate_group`; `anteval/cases/anteval.toml`
-  `child-delegate`.
+**ROOT CAUSE, found 2026-08-22 — two faults stacked, and my first two theories
+were both wrong:**
+
+1. **The tool was not in the agent's list at all.** `folder:eval` held
+   `mcp:delegate_group` scoped `eval/**`, which covers the subtree BELOW eval,
+   not `eval` itself. The agent's own transcript said it: *"gated socket shows
+   no register_group/delegate_group/routing tools, just the 22-tool member
+   floor."* Granting scope `eval` made the tool appear.
+2. **Then it failed on its own wiring guard:** `delegate_group not configured`.
+   Both `escalate_group` and `delegate_group` guarded on
+   `gated.EnqueueMessageCheck != nil`. routd NEVER sets that field — its loop
+   polls new messages by timestamp, which `routd/mcp.go:121` states outright for
+   `InjectMessage`. So both tools were registered, advertised to the agent, and
+   returned "not configured" on every call since the split.
+
+**FIXED**: the guard now requires only `db.PutMessage`, and the enqueue is
+called only when present — it is a latency optimisation, not a dependency.
+Test `TestDelegateGroupWorksWithoutEnqueueHook` drives the real tool over the
+socket with `GatedFns{}` (nil enqueue), exactly as routd constructs it.
+
+- **Source:** `ipc/ipc.go` `delegate_group` + `escalate_group`;
+  `routd/mcp.go:121`; `anteval/cases/anteval.toml` `child-delegate`.
 
 ## ✅ FIXED 2026-08-21 L64 — isolated crons re-enter the chat through the ambient window (2026-08-21)
 
