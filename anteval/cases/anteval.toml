@@ -67,7 +67,13 @@ smoke = true
 # timeout was a silent delegate_group failure (BUGS L65), which is precisely
 # what this case exists to catch.
 prompt = "Create a child group `eval/{nonce}` and delegate this task to it (the child, not you, must perform it): run `curl -s {sink}/cb/{nonce}`."
-max_wall_ms = 150000
+# The only case that spawns TWO containers in sequence, so it needs the widest
+# budget, not the default one. Measured on krons 2026-08-22 (nonce etk5srr):
+# register_group returned 75s in, delegate_group fired at 80s, the child's
+# container spawn began at 85s — and the child still has to boot and curl.
+# It passed in 104s on an idle instance and blew the old 150s cap in a full
+# smoke run. 150s was tighter than fresh-context's 180s while doing far more.
+max_wall_ms = 240000
 [case.check]
 kind = "callback"
 
