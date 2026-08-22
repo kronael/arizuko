@@ -7,6 +7,58 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L69 — every cost row on the fleet is attributed to nobody: 7188 rows, 0 user subs (2026-08-22)
+
+`cost_log` already carries the three dimensions spend must be sliced by: `folder`
+(the group), `model`, and `user_sub` (who triggered the turn). Two of the three
+work. The third is empty in every row that has ever been written.
+
+```
+krons    2711 rows, 0 with a user_sub
+sloth    2209 rows, 0
+marinade 2268 rows, 0
+```
+
+The cause is one list. `routd/budget.go:12`:
+
+```go
+var authSubPrefixes = []string{"google:", "github:", "local:"}
+```
+
+`callerSubOfMsg` returns the trigger sender only when it carries one of those
+prefixes, and `recordTurnResult` writes that return value into `cost_log.user_sub`.
+No sender on any instance has ever carried one. The senders that actually spend
+are platform ones — krons' busiest human is `telegram:user/1112184352` with 779
+turns — plus `anon:<hex>` from the web chat. Every one of them writes `''`.
+
+The list is not wrong for what it was written for. Its comment says platform
+senders are "not bound to a `user_profiles` row, so they carry no per-user cap",
+and that is true. But ONE function serves two concerns:
+
+- **attribution** — record who caused this spend. Wants every human sender.
+- **cap lookup** — does this sub have a configured daily limit. Needs a profile row.
+
+Restricting attribution to satisfy the cap lookup is what emptied the column.
+`SpendTodayUser` and `idx_cost_log_user_day` exist and answer nothing;
+`arizuko budget show user <sub>` returns 0 for every sub on the fleet.
+
+A second defect sits under the same code. `store.UserCap` returns
+`sql.ErrNoRows` when the sub has no `user_profiles` row, so the moment
+attribution starts working `budgetGate` logs a warning per turn for every
+platform user. "No profile" means uncapped — it is the documented default, not
+an error.
+
+**Fix**: split the two concerns. Attribution writes the trigger sender verbatim
+for every sender that is a person (excluding `system`, `timed`, `timed-isolated:`,
+`delegate` and `operator`, which are the platform triggering itself); the cap
+lookup keeps requiring a profile row and treats its absence as uncapped.
+
+Not a redesign: no new contract, no changed control flow, no schema change. The
+column, the index and both queries already exist for exactly this.
+
+Ties: `specs/6/23` (a gateway makes the NUMBER trustworthy; this makes the row
+attributable — orthogonal halves of the same question).
+
 ## ✅ FIXED 2026-08-22 L68 — anteval starves its own tail: one overrunning case times out every case after it (2026-08-22)
 
 anteval runs cases sequentially into ONE folder, and arizuko correctly runs one
