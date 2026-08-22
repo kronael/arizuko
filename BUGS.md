@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L68 — anteval starves its own tail: one overrunning case times out every case after it (2026-08-22, open)
+## ✅ FIXED 2026-08-22 L68 — anteval starves its own tail: one overrunning case times out every case after it (2026-08-22)
 
 anteval runs cases sequentially into ONE folder, and arizuko correctly runs one
 turn per folder at a time. `Drive` calls `ensurePristineRoot` before each case,
@@ -41,7 +41,12 @@ rather than report the next case's starvation as that case's failure.
 
 - **Source:** `anteval/pkg/run/run.go` (`Drive`, `ensurePristineRoot`).
 
-## L66 — a removed group strands its 5 seeded tasks; they fire forever and route nowhere (2026-08-22, open)
+**FIXED 2026-08-22** (`10969e54`): `Drive` waits for a case's own turn to record
+its cost before injecting the next case. A turn that never records one does not
+hang the suite — the wait is bounded and the result carries a NOTE that the next
+case may have started behind it.
+
+## ✅ FIXED 2026-08-22 L66 — a removed group strands its 5 seeded tasks; they fire forever and route nowhere (2026-08-22)
 
 `SeedDefaultTasks` writes 5 `<folder>-mem-N` rows per group, but
 `scheduled_tasks.owner` carries NO foreign key to `groups.folder`, so removing
@@ -80,7 +85,16 @@ rows is separate and is the operator's call.
 
 - **Source:** `store/tasks.go:261` (`SeedDefaultTasks`), `scheduled_tasks` schema.
 
-## L67 — onbod mails a pairing link to an unroutable task JID, then logs success over the failure (2026-08-22, open)
+**FIXED 2026-08-22** (`9b68f8e0`): `DeleteGroup` now cascades `scheduled_tasks`,
+following the route/engagement pattern already there rather than adding a
+foreign key — that cascade is deliberately non-fatal so registerGroup's rollback
+can always remove the group row. Live rows cleared: sloth `Coach-mem-0..4`,
+marinade `libtest-mem-0..4` (backed up first). The groups that had lost their
+tasks were re-seeded with real next-cron times, not `now`, so nothing fired on
+insert: sloth `coach`, marinade `atlas/strengths`, krons `krons/content` and
+`rhias`.
+
+## ✅ FIXED 2026-08-22 L67 — onbod mails a pairing link to an unroutable task JID, then logs success over the failure (2026-08-22)
 
 Downstream of `L66`, and a fail-loud violation in its own right.
 
@@ -112,6 +126,13 @@ failure.
 
 - **Source:** `onbod/main.go:1421` (`sendReply`), `onbod/main.go:482`
   (`promptUnprompted`).
+
+**FIXED 2026-08-22** (`54994318`): `sendReply` returns its outcome and the
+pairing tick logs one error instead of a success line under the failure. The
+claim still survives a failed send ON PURPOSE — releasing it would re-mint a
+pairing token every tick for a permanently unroutable jid, and WISDOM retries
+only transient errors. The two other call sites (refusal, queue notice) now
+report a user who was refused or queued in silence.
 
 ## L62 — marinade's emaid IMAP login fails, unhealthy for 3 days (2026-08-21, open)
 
