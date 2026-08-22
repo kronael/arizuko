@@ -47,7 +47,18 @@ func splitDots(s string) []string {
 // like that reads as a product regression and costs a real investigation
 // (2026-08-22: four smoke cases were diagnosed as an ipc regression before the
 // token turned out to have expired mid-run).
-func checkToken(token string, now time.Time) error {
+// worstCaseWall is what the selected cases can cost end to end: each case's own
+// wall cap plus the bounded wait for its turn to settle before the next one is
+// injected. Cases run strictly sequentially into one folder, so this sums.
+func worstCaseWall(caseWallMs []int, settle time.Duration) time.Duration {
+	total := time.Duration(0)
+	for _, ms := range caseWallMs {
+		total += time.Duration(ms)*time.Millisecond + settle
+	}
+	return total
+}
+
+func checkToken(token string, now time.Time, budget time.Duration) error {
 	// An empty bearer fails exactly like an expired one — routd 401s every
 	// injection and each case burns its whole timeout — but it is easier to
 	// cause: a mint command that fails inside a shell pipeline leaves the
@@ -64,6 +75,16 @@ func checkToken(token string, now time.Time) error {
 		return fmt.Errorf("bearer expired at %s (%s ago) — mint a new one: "+
 			"arizuko token <instance> issue bearer <folder> --scope messages:write,messages:read,cost:read",
 			exp.Format(time.RFC3339), now.Sub(exp).Truncate(time.Second))
+	}
+	// A token that dies mid-run fails exactly like one that was dead at the
+	// start, and it costs more: the cases that already ran are paid for and the
+	// rest 401 into their timeouts. The mint TTL defaults to 1h, which is less
+	// than the smoke's own worst case.
+	if end := now.Add(budget); exp.Before(end) {
+		return fmt.Errorf("bearer expires at %s, %s before the selected cases can finish (worst case %s) — "+
+			"mint a longer one: arizuko token <instance> issue bearer <folder> --ttl %s --scope messages:write,messages:read,cost:read",
+			exp.Format(time.RFC3339), end.Sub(exp).Truncate(time.Second),
+			budget.Truncate(time.Second), (budget + budget/2).Truncate(time.Minute))
 	}
 	return nil
 }

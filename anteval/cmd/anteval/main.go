@@ -92,10 +92,6 @@ func cmdRun(args []string) {
 		fatal(fmt.Errorf("--folder is required (the eval folder owning --chat); it anchors the root-session reset that keeps cases from inheriting prior history"))
 	}
 
-	if err := checkToken(*token, time.Now()); err != nil {
-		fatal(err)
-	}
-
 	cases, err := spec.Load(*casesDir)
 	if err != nil {
 		fatal(err)
@@ -103,6 +99,16 @@ func cmdRun(args []string) {
 	cases = spec.Filter(cases, *smoke, *dim, *only)
 	if len(cases) == 0 {
 		fatal(fmt.Errorf("no cases match selectors"))
+	}
+
+	// After selection, not before: the bearer must outlive the cases actually
+	// chosen, and --case/--dimension change that budget by an order of magnitude.
+	walls := make([]int, 0, len(cases))
+	for _, c := range cases {
+		walls = append(walls, c.MaxWallMs)
+	}
+	if err := checkToken(*token, time.Now(), worstCaseWall(walls, run.DefaultSettleWait)); err != nil {
+		fatal(err)
 	}
 
 	tgt := &run.HTTPTarget{API: *api, MCPURL: *mcp, Token: *token}

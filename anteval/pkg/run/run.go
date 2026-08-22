@@ -50,9 +50,13 @@ type Config struct {
 	baselineWait time.Duration
 
 	// settleWait bounds the wait for a case's own turn to finish before the
-	// NEXT case is injected. Tests shrink it; zero = 180s.
+	// NEXT case is injected. Tests shrink it; zero = DefaultSettleWait.
 	settleWait time.Duration
 }
+
+// DefaultSettleWait is the per-case settle bound. Exported so the bearer
+// preflight can budget the same number the run will actually spend.
+const DefaultSettleWait = 180 * time.Second
 
 // Drive runs every selected case and returns results. It binds the callback
 // sink for the lifetime of the run. A baseline failure aborts the run — the
@@ -66,7 +70,7 @@ func Drive(cfg Config) ([]report.Result, error) {
 		cfg.baselineWait = 90 * time.Second
 	}
 	if cfg.settleWait <= 0 {
-		cfg.settleWait = 180 * time.Second
+		cfg.settleWait = DefaultSettleWait
 	}
 	bind := cfg.SinkBind
 	if bind == "" {
