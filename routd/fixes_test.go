@@ -1415,3 +1415,51 @@ func TestWhapdFlatAttachmentFolded(t *testing.T) {
 		t.Fatalf("flat fields not folded: %+v", atts)
 	}
 }
+
+// L66: a deleted group used to strand its 5 seeded `<folder>-mem-N` tasks.
+// They stayed `active` and timed kept firing them at a folder that no longer
+// existed — sloth ran Coach-mem-0..4 nightly for months, none of them ever
+// executing. A child folder's tasks are its own and must survive, exactly as
+// its routes do.
+func TestDeleteGroup_CascadesTasks(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.PutGroup(core.Group{Folder: "atlas"})
+	_ = db.PutGroup(core.Group{Folder: "atlas/support"})
+	for _, tk := range []struct{ id, owner string }{
+		{"atlas-mem-0", "atlas"},
+		{"atlas-mem-1", "atlas"},
+		{"atlas/support-mem-0", "atlas/support"},
+	} {
+		if _, err := db.SQL().Exec(
+			`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode)
+			 VALUES (?,?,?,?,?,?,?,?,?)`,
+			tk.id, tk.owner, tk.owner, "/compact-memories", "0 2 * * *", "2026-01-01", "active", "2026-01-01", "isolated"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := db.DeleteGroup("atlas"); err != nil {
+		t.Fatal(err)
+	}
+
+	var ids []string
+	rows, err := db.SQL().Query(`SELECT id FROM scheduled_tasks ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) != 1 || ids[0] != "atlas/support-mem-0" {
+		t.Fatalf("only the child folder's task may survive, got %v", ids)
+	}
+}

@@ -173,6 +173,19 @@ func (d *DB) DeleteGroup(folder string) error {
 	if _, err := d.db.Exec("DELETE FROM chat_reply_state WHERE engaged_folder=?", folder); err != nil {
 		slog.Warn("DeleteGroup: engagement cascade failed", "folder", folder, "err", err)
 	}
+	// Tasks cascade for the same reason routes do, and the miss cost more: a
+	// group's 5 seeded `<folder>-mem-N` rows outlived it, stayed `active`, and
+	// timed kept firing them at a folder that no longer existed. sloth ran
+	// `Coach-mem-0..4` nightly from 2026-05-05 without one of them ever
+	// executing, while the surviving lowercase `coach` group had no
+	// memory-compaction tasks at all; marinade carried the same shape for a
+	// `libtest` group that was simply gone (BUGS L66). Each firing then reached
+	// onbod, which read the unroutable jid as a new account to onboard (L67).
+	// task_run_logs rides the FK it already has on scheduled_tasks(id).
+	if _, err := d.db.Exec("DELETE FROM scheduled_tasks WHERE owner=?", folder); err != nil {
+		slog.Warn("DeleteGroup: task cascade failed; orphan tasks will fire at a folder that no longer exists",
+			"folder", folder, "err", err)
+	}
 	return nil
 }
 
