@@ -40,6 +40,28 @@ This is not a hypothetical drift: the field is documented as absent for
 "ant versions before the cost-caps cutover", so a stale agent image
 already produces unmetered turns.
 
+### A second consumer, found 2026-08-22
+
+`cost_log` is no longer only a spend record. `anteval` now waits for a case's
+turn to record its cost before injecting the next case, because routd runs one
+turn per folder and a case that outran its budget starved every case behind it
+(BUGS `L68`). The eval's completion signal is therefore a number the spender
+supplies — an agent that dies before `submit_turn` reports nothing, and the
+suite falls back to a bounded wait plus a warning.
+
+That is the same trust gap as Fault 2, reached from a different direction, and
+it sharpens what the gateway buys: gateway-written accounting makes the signal
+independent of the container's cooperation.
+
+It also exposes a gap the gateway does NOT close. Turn COMPLETION is not cost:
+`recordTurnResult` already calls `SetTurnState(turnID, "done")`, so routd knows
+authoritatively when a turn ended, but no read surface exposes it — routd
+mounts `/v1/cost` and `/v1/turns/{turn_id}/history`, and neither answers "is
+this turn still running". anteval reaches for cost because turn state is not
+readable, not because cost is the right signal. A `turn_state` read surface
+(a resreg resource per `5/17`, like every other cold-tier entity) is the
+orthogonal fix, and it is worth having whether or not the gateway ships.
+
 ## Why a gateway and not the egress proxy
 
 **A gateway is configured, not intercepted.** The client is pointed at it
