@@ -271,7 +271,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// Pre-spawn budget gate. If today's folder spend hits the cap, deliver a
 	// channel-visible refusal (no run dispatched) and consume the batch — return
 	// hadOutput=true so processGroupMessages advances the cursor past it.
-	if msg := l.budgetGate(folder, callerSubOfMsg(last.Sender)); msg != "" {
+	if msg := l.budgetGate(folder, turnCallerSub(last.Sender)); msg != "" {
 		if l.deliver != nil {
 			_, _ = l.deliver.Send(chatJID, msg, "", topic, "", "budget-"+turnID)
 		}
@@ -692,15 +692,26 @@ func jidScheme(jid string) string {
 // agent's conversation frames arrive out-of-band during the run via the
 // /v1/turns/{turn_id}/* callbacks; this returns the turn-boundary outcome.
 // turnCallerSub renders "who is this turn acting on behalf of" from its
-// trigger — the ONE rule, so spawn-time secret resolution and the agent's
-// per-tool-call connector-secret resolution cannot diverge. A timed or system
-// trigger has no human behind it and resolves to routd itself.
+// trigger — the ONE rule, so spawn-time secret resolution, the agent's
+// per-tool-call connector-secret resolution, the budget gate and cost
+// attribution cannot diverge. A timed or system trigger has no human behind it
+// and resolves to routd itself.
+//
+// Every other sender passes through VERBATIM, platform ones included. An
+// allowlist of authd schemes used to stand between this and cost_log, and it
+// emptied `user_sub` in all 7188 rows the fleet had ever written — no sender on
+// any instance carried one of the three listed prefixes (BUGS L69). Attribution
+// wants every human sender; only the CAP lookup needs a user_profiles row, and
+// a missing row already means uncapped.
 //
 // This is deliberately NOT the tool-call authorization principal: that asks
 // "what may be done HERE", answered by folder:<path>. Whose credentials to
 // inject and what is permitted in a place are different questions (BUGS B2).
 func turnCallerSub(trigger string) string {
-	if trigger == "" || strings.HasPrefix(trigger, "timed-") || strings.HasPrefix(trigger, "system") {
+	// `timed` is matched EXACTLY as well as by prefix: timed/split.go sends a
+	// plain "timed" for a group-context task and "timed-isolated:<id>" for an
+	// isolated one, and "timed" does not carry the "timed-" prefix.
+	if trigger == "" || trigger == "timed" || strings.HasPrefix(trigger, "timed-") || strings.HasPrefix(trigger, "system") {
 		return "service:routd"
 	}
 	return trigger
