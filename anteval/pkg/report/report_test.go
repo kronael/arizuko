@@ -35,3 +35,12 @@ func TestSummarizeAndRender(t *testing.T) {
 		t.Fatalf("json missing results: %v", err)
 	}
 }
+
+// A settle warning must reach the reader: an unreported turn means the NEXT
+// case may have started behind it, and a hidden note reads as a clean failure.
+func TestMarkdownShowsSettleNote(t *testing.T) {
+	md := Markdown([]Result{{ID: "a", Pass: true, Reason: "ok", Note: "turn t1 never recorded a cost"}})
+	if !strings.Contains(md, "NOTE: turn t1 never recorded a cost") {
+		t.Fatalf("note missing from report:\n%s", md)
+	}
+}

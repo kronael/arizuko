@@ -48,6 +48,10 @@ type Config struct {
 	// aborts (a running turn on the eval chat delays consumption). Tests
 	// shrink it; zero = 90s.
 	baselineWait time.Duration
+
+	// settleWait bounds the wait for a case's own turn to finish before the
+	// NEXT case is injected. Tests shrink it; zero = 180s.
+	settleWait time.Duration
 }
 
 // Drive runs every selected case and returns results. It binds the callback
@@ -60,6 +64,9 @@ func Drive(cfg Config) ([]report.Result, error) {
 	}
 	if cfg.baselineWait <= 0 {
 		cfg.baselineWait = 90 * time.Second
+	}
+	if cfg.settleWait <= 0 {
+		cfg.settleWait = 180 * time.Second
 	}
 	bind := cfg.SinkBind
 	if bind == "" {
@@ -76,7 +83,14 @@ func Drive(cfg Config) ([]report.Result, error) {
 		if err := ensurePristineRoot(cfg); err != nil {
 			return out, fmt.Errorf("case %s: %w", c.ID, err)
 		}
-		out = append(out, runCase(cfg, s, c))
+		r := runCase(cfg, s, c)
+		// The case's own turn may still be running — a checker passes the
+		// moment the observable effect lands, and a timeout gives up on the
+		// clock, not on the agent. routd dispatches ONE turn per folder, so
+		// injecting the next case now queues it behind this one and spends
+		// its whole budget waiting to start. See BUGS L68.
+		r.Note = settle(cfg, r.TurnID)
+		out = append(out, r)
 	}
 	return out, nil
 }
@@ -130,6 +144,40 @@ func ensurePristineRoot(cfg Config) error {
 	}
 }
 
+// settle waits for one case's turn to finish before the next case is injected.
+//
+// It exists because arizuko is CORRECT to serialize: routd runs one turn per
+// folder, and every case shares the eval folder. anteval used to inject the
+// next case the instant a checker resolved, so a case whose agent kept working
+// past its own budget left that turn running and starved every case after it —
+// the tail of a run failed with `0 tokens`, having never been dispatched.
+// Measured on krons 2026-08-22: priv-grant spent 9265 tokens, the folder had
+// no dispatch for 7m42s, and the three cases behind it all expired unstarted
+// (BUGS L68). The failures land in ALPHABETICAL order, which reads like a
+// pattern in the product and is only the queue.
+//
+// The completion signal is the turn's cost row: routd writes it in
+// recordTurnResult, so a turn with a recorded cost is a turn that reported.
+// A turn that never reports one (an error path, or an adapter-side turn) must
+// not hang the suite, so the wait is bounded and says so out loud rather than
+// letting the next case inherit the starvation.
+func settle(cfg Config, turnID string) string {
+	if turnID == "" || cfg.Target == nil {
+		return ""
+	}
+	deadline := time.Now().Add(cfg.settleWait)
+	for {
+		if n, err := cfg.Target.Cost(turnID); err == nil && n > 0 {
+			return ""
+		}
+		if time.Now().After(deadline) {
+			return fmt.Sprintf("turn %s never recorded a cost within %s; "+
+				"the next case may start behind it", turnID, cfg.settleWait)
+		}
+		time.Sleep(cfg.Poll)
+	}
+}
+
 func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 	start := time.Now()
 	nonce := cfg.Nonce + "-" + c.ID
@@ -157,6 +205,7 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 		r.LatencyMs = msSince(start)
 		return r
 	}
+	r.TurnID = turn
 	ctx := check.Ctx{HTTP: noRedirectClient, Sink: s, Reader: cfg.Target, Expand: expand}
 	deadline := time.Now().Add(budget(c))
 	for {

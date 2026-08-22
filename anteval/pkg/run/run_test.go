@@ -198,6 +198,11 @@ func (r *topicRecorder) Inject(_, topic, _ string) (string, error) {
 // mustDrive is Drive for tests that expect no baseline abort.
 func mustDrive(t *testing.T, cfg Config) []report.Result {
 	t.Helper()
+	// Unit fakes are instantaneous; the live 180s settle would only add
+	// wall-clock. Tests that exercise settle itself set this explicitly.
+	if cfg.settleWait == 0 {
+		cfg.settleWait = 20 * time.Millisecond
+	}
 	res, err := Drive(cfg)
 	if err != nil {
 		t.Fatalf("Drive: %v", err)
@@ -320,4 +325,64 @@ func (r *redirtyTarget) Inject(chat, topic, prompt string) (string, error) {
 		r.rootSession = "cron-" + topic
 	}
 	return id, err
+}
+
+// slowTurn is an agent whose turn keeps running after the checker is satisfied:
+// the callback fires at once, but the cost row only appears after N polls. It
+// is the shape that starved the tail of a live run (BUGS L68).
+type slowTurn struct {
+	agentSim
+	costAfter int
+	reads     int
+	injects   int
+	busy      bool // true while a turn is unfinished — the invariant under test
+	overlap   bool // set if a second inject arrived while busy
+}
+
+func (a *slowTurn) Inject(c, t, prompt string) (string, error) {
+	if a.busy {
+		a.overlap = true
+	}
+	a.busy = true
+	a.injects++
+	return a.agentSim.Inject(c, t, prompt)
+}
+
+func (a *slowTurn) Cost(string) (int, error) {
+	a.reads++
+	if a.reads < a.costAfter {
+		return 0, nil
+	}
+	a.busy = false
+	return 11, nil
+}
+
+func TestSettleWaitsForTheTurnToFinish(t *testing.T) {
+	c := spec.Case{ID: "a", Prompt: "curl {sink}/cb/{nonce}", Check: spec.Check{Kind: "callback"}}
+	ag := &slowTurn{costAfter: 4}
+	res := mustDrive(t, Config{Target: ag, Cases: []spec.Case{c, c}, Nonce: "R",
+		Poll: time.Millisecond, settleWait: 2 * time.Second})
+	if ag.overlap {
+		t.Fatal("a case was injected while the previous turn was still running — the tail starves (L68)")
+	}
+	if len(res) != 2 || !res[0].Pass || !res[1].Pass {
+		t.Fatalf("want both passing, got %+v", res)
+	}
+	if res[0].Note != "" {
+		t.Errorf("a turn that DID finish must carry no note: %q", res[0].Note)
+	}
+}
+
+// A turn that never reports must not hang the suite; it warns and moves on.
+func TestSettleGivesUpLoudly(t *testing.T) {
+	c := spec.Case{ID: "a", Prompt: "curl {sink}/cb/{nonce}", Check: spec.Check{Kind: "callback"}}
+	ag := &slowTurn{costAfter: 1 << 30} // never records
+	res := mustDrive(t, Config{Target: ag, Cases: []spec.Case{c}, Nonce: "R",
+		Poll: time.Millisecond, settleWait: 30 * time.Millisecond})
+	if len(res) != 1 || !res[0].Pass {
+		t.Fatalf("the case itself still passes: %+v", res)
+	}
+	if !strings.Contains(res[0].Note, "never recorded a cost") {
+		t.Errorf("want a loud note, got %q", res[0].Note)
+	}
 }

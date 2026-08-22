@@ -16,6 +16,12 @@ type Result struct {
 	Reason    string `json:"reason"`
 	LatencyMs int64  `json:"latency_ms"`
 	Tokens    int    `json:"tokens"`
+	// TurnID is the injected turn, kept so the driver can wait for that turn
+	// to finish before the next case starts (BUGS L68).
+	TurnID string `json:"turn_id,omitempty"`
+	// Note carries a run-level warning that is NOT a case verdict — today only
+	// "this turn never reported, the next case may start behind it".
+	Note string `json:"note,omitempty"`
 }
 
 // Summary aggregates results for the report header and exit decision.
@@ -81,8 +87,14 @@ func Markdown(rs []Result) string {
 		if r.Pass {
 			mark = "pass"
 		}
+		reason := r.Reason
+		// A note is a RUN warning, not a case verdict, but hiding it lets a
+		// starved tail read as a clean product failure (BUGS L68).
+		if r.Note != "" {
+			reason += " — NOTE: " + r.Note
+		}
 		fmt.Fprintf(&b, "| %s | %s | %s | %d | %d | %s |\n",
-			r.ID, r.Dimension, mark, r.LatencyMs, r.Tokens, r.Reason)
+			r.ID, r.Dimension, mark, r.LatencyMs, r.Tokens, reason)
 	}
 	return b.String()
 }
