@@ -1104,9 +1104,9 @@ func (d *DB) SessionID(folder, topic string) string {
 }
 
 // PutCost writes one cost_log row per model under the (folder,turn_id)
-// dedup; a duplicate submit_turn does not double-charge. userSub is the
-// JWT-derived caller (callerSubOfMsg of the turn's trigger sender; "" for
-// adapter/anon/system turns) so SpendTodayUser can aggregate per-user spend.
+// dedup; a duplicate submit_turn does not double-charge. userSub is the turn's
+// caller (turnCallerSub of its trigger sender — the platform's own triggers
+// resolve to service:routd) so SpendTodayUser can aggregate per-user spend.
 func (d *DB) PutCost(folder, turnID, userSub, model string, in, out, cents int) error {
 	_, err := d.db.Exec(`INSERT OR IGNORE INTO cost_log(folder, turn_id, user_sub, model, input_tokens, output_tokens, cost_cents, recorded_at)
 		VALUES(?,?,?,?,?,?,?,?)`, folder, turnID, userSub, model, in, out, cents, nowTS())

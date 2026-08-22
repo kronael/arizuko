@@ -3,24 +3,7 @@ package routd
 import (
 	"fmt"
 	"log/slog"
-	"strings"
 )
-
-// authSubPrefixes are the schemes authd writes as the canonical user sub.
-// Adapter senders (telegram:user/..., slack:user/...) are per-platform IDs not
-// bound to a user_profiles row, so they carry no per-user cap.
-var authSubPrefixes = []string{"google:", "github:", "local:"}
-
-// callerSubOfMsg returns the user_sub for the per-user budget cap, or "" to
-// disable the user-cap branch (folder cap still binds).
-func callerSubOfMsg(sender string) string {
-	for _, p := range authSubPrefixes {
-		if strings.HasPrefix(sender, p) {
-			return sender
-		}
-	}
-	return ""
-}
 
 // budgetGate is the pre-spawn cost-cap check. It returns a non-empty refusal
 // message when today's spend is at or above the lower of the folder cap and

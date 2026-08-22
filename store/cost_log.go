@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+	"errors"
 	"time"
 )
 
@@ -80,12 +82,18 @@ func (s *Store) SetFolderCap(folder string, cents int) error {
 	return err
 }
 
-// UserCap returns the per-day cap for a user_sub in cents.
+// UserCap returns the per-day cap for a user_sub in cents. Zero means uncapped,
+// and a sub with NO user_profiles row is uncapped, not an error: platform senders
+// (telegram:user/..., anon:...) and service:routd never own a profile row, and
+// they are the callers cost attribution actually sees (BUGS L69).
 func (s *Store) UserCap(userSub string) (int, error) {
 	var cents int
 	err := s.db.QueryRow(
 		`SELECT COALESCE(cost_cap_cents_per_day, 0) FROM user_profiles WHERE sub = ?`,
 		userSub).Scan(&cents)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}

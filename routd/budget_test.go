@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
@@ -93,15 +95,15 @@ func TestBudgetGate_JWTSenderActivatesUserCap(t *testing.T) {
 	if err := db.PutCost("f", "t-prior", "github:carol", "m", 0, 0, 25); err != nil {
 		t.Fatal(err)
 	}
-	msg := loop.budgetGate("f", callerSubOfMsg("github:carol"))
+	msg := loop.budgetGate("f", turnCallerSub("github:carol"))
 	if msg == "" || !strings.Contains(msg, "you spent 25 of 25") {
 		t.Errorf("expected user-scope refusal, got %q", msg)
 	}
 }
 
-// TestBudgetGate_AdapterSenderFolderOnly: an adapter sender resolves to "" via
-// callerSubOfMsg, so only the folder cap binds. Mirrors
-// gateway_test.TestBudgetGate_AdapterSenderFolderOnly.
+// TestBudgetGate_AdapterSenderFolderOnly: an adapter sender owns no
+// user_profiles row, so it is uncapped and only the folder cap binds. It is
+// still ATTRIBUTED — the sub reaches the gate verbatim (BUGS L69).
 func TestBudgetGate_AdapterSenderFolderOnly(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	loop.costCapsEnabled = true
@@ -112,34 +114,23 @@ func TestBudgetGate_AdapterSenderFolderOnly(t *testing.T) {
 	if err := db.PutCost("f", "t-prior", "", "m", 0, 0, 100); err != nil {
 		t.Fatal(err)
 	}
-	msg := loop.budgetGate("f", callerSubOfMsg("telegram:user/42"))
+	msg := loop.budgetGate("f", turnCallerSub("telegram:user/42"))
 	if msg == "" || !strings.Contains(msg, "channel spent 100 of 100") {
 		t.Errorf("expected channel-scope refusal, got %q", msg)
 	}
 }
 
-// TestCallerSubOfMsg: JWT subs classify; adapter/anon/system senders are unbound.
-// Mirrors gateway_test.TestCallerSubOfMsg.
-func TestCallerSubOfMsg(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"google:alice", "google:alice"},
-		{"github:bob", "github:bob"},
-		{"local:admin", "local:admin"},
-		{"anon:dead", ""},
-		{"telegram:user/42", ""},
-		{"slack:user/U123", ""},
-		{"discord:user/9", ""},
-		{"bluesky:user/did%3Aplc%3Ax", ""},
-		{"email:address/a@b.c", ""},
-		{"", ""},
-		{"system", ""},
-		{"delegate", ""},
-		{"timed-isolated:task-1", ""},
+// TestUserCap_NoProfileRowIsUncapped: the sub that cost attribution actually
+// sees is a platform one, and it owns no user_profiles row. That must read as
+// uncapped, not as an error the gate logs on every single turn (BUGS L69).
+func TestUserCap_NoProfileRowIsUncapped(t *testing.T) {
+	db, _, _ := recLoop(t)
+	cap, err := db.UserCap("telegram:user/42")
+	if err != nil {
+		t.Fatalf("UserCap of a sub with no profile row: %v", err)
 	}
-	for _, c := range cases {
-		if got := callerSubOfMsg(c.in); got != c.want {
-			t.Errorf("callerSubOfMsg(%q) = %q, want %q", c.in, got, c.want)
-		}
+	if cap != 0 {
+		t.Errorf("cap = %d, want 0 (uncapped)", cap)
 	}
 }
 
@@ -172,7 +163,7 @@ func TestRecordTurnCost_WritesUserSubRow(t *testing.T) {
 
 // TestBudgetGate_UserCapDispatchParity: end-to-end through processGroupMessages,
 // a JWT sender over its user cap is refused pre-spawn (no run), even when the
-// folder cap is generous — the dispatch site passes callerSubOfMsg(last.Sender).
+// folder cap is generous — the dispatch site passes turnCallerSub(last.Sender).
 func TestBudgetGate_UserCapDispatchParity(t *testing.T) {
 	db, loop, rr := recLoop(t)
 	dl := &recDeliverer{}
@@ -198,5 +189,69 @@ func TestBudgetGate_UserCapDispatchParity(t *testing.T) {
 	want := "Budget reached for today (you spent 30 of 30 cents). Resumes at 00:00 UTC."
 	if got := lastAck(t, dl); got != want {
 		t.Fatalf("refusal=%q want %q", got, want)
+	}
+}
+
+// TestRecordTurnResult_AttributesPlatformSender drives the REAL cost-attribution
+// wiring, not the rule in isolation: a turn triggered from Telegram must leave a
+// cost_log row carrying that sender. The fleet had 7188 rows and not one carried
+// a user_sub, because an allowlist of authd schemes sat between the trigger and
+// the write (BUGS L69). Only an end-to-end assertion catches that — the rule's
+// own table test passed the whole time.
+func TestRecordTurnResult_AttributesPlatformSender(t *testing.T) {
+	s := testServer(t)
+	const turnID = "turn-attrib-1"
+	const sender = "telegram:user/1112184352"
+	if _, err := s.db.PutTurnContext(turnID, "krons", "", "tg:1", sender, ""); err != nil {
+		t.Fatalf("put turn context: %v", err)
+	}
+
+	if _, err := s.recordTurnResult(turnID, apiv1.TurnResult{
+		Status: "success",
+		Models: map[string]apiv1.ModelCost{
+			"claude-opus-5": {Input: 1000, Output: 200, CostCents: 7},
+		},
+	}); err != nil {
+		t.Fatalf("record turn result: %v", err)
+	}
+
+	var got string
+	if err := s.db.SQL().QueryRow(
+		"SELECT user_sub FROM cost_log WHERE turn_id=?", turnID).Scan(&got); err != nil {
+		t.Fatalf("read cost row: %v", err)
+	}
+	if got != sender {
+		t.Errorf("cost_log.user_sub = %q, want %q", got, sender)
+	}
+	spent, err := s.db.SpendTodayUser(sender)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spent != 7 {
+		t.Errorf("SpendTodayUser(%q) = %d, want 7", sender, spent)
+	}
+}
+
+// A scheduled task has no person behind it and must attribute to the platform,
+// never to the empty bucket every unattributed row shares.
+func TestRecordTurnResult_AttributesScheduledTaskToRoutd(t *testing.T) {
+	s := testServer(t)
+	const turnID = "turn-attrib-2"
+	if _, err := s.db.PutTurnContext(turnID, "krons", "", "tg:1", "timed", ""); err != nil {
+		t.Fatalf("put turn context: %v", err)
+	}
+	if _, err := s.recordTurnResult(turnID, apiv1.TurnResult{
+		Status: "success",
+		Models: map[string]apiv1.ModelCost{"claude-opus-5": {CostCents: 3}},
+	}); err != nil {
+		t.Fatalf("record turn result: %v", err)
+	}
+	var got string
+	if err := s.db.SQL().QueryRow(
+		"SELECT user_sub FROM cost_log WHERE turn_id=?", turnID).Scan(&got); err != nil {
+		t.Fatalf("read cost row: %v", err)
+	}
+	if got != "service:routd" {
+		t.Errorf("cost_log.user_sub = %q, want service:routd", got)
 	}
 }

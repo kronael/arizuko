@@ -715,7 +715,7 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 					"folder", tc.Folder, "turn_id", turnID, "err", err)
 			}
 		}
-		userSub := callerSubOfMsg(tc.Trigger)
+		userSub := turnCallerSub(tc.Trigger)
 		for model, c := range req.Models {
 			if err := s.db.PutCost(tc.Folder, turnID, userSub, model, c.Input, c.Output, c.CostCents); err != nil {
 				slog.Error("recordTurnResult: PutCost failed; cost attribution for this turn is missing",
