@@ -34,9 +34,15 @@ func TestCheckTokenAcceptsLive(t *testing.T) {
 // A token anteval cannot read is not proof of a bad token — it must not block.
 func TestCheckTokenIgnoresUnreadable(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
-	for _, tok := range []string{"", "opaque-token", "a.b", "a.!!!.c"} {
+	for _, tok := range []string{"opaque-token", "a.b", "a.!!!.c"} {
 		if err := checkToken(tok, now); err != nil {
 			t.Errorf("checkToken(%q) = %v, want nil", tok, err)
 		}
+	}
+}
+
+func TestCheckTokenRejectsEmpty(t *testing.T) {
+	if err := checkToken("", time.Unix(1_800_000_000, 0)); err == nil {
+		t.Fatal("an empty bearer must refuse the run; every case would 401 and burn its timeout")
 	}
 }

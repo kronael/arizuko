@@ -48,8 +48,13 @@ func splitDots(s string) []string {
 // (2026-08-22: four smoke cases were diagnosed as an ipc regression before the
 // token turned out to have expired mid-run).
 func checkToken(token string, now time.Time) error {
+	// An empty bearer fails exactly like an expired one — routd 401s every
+	// injection and each case burns its whole timeout — but it is easier to
+	// cause: a mint command that fails inside a shell pipeline leaves the
+	// variable empty and the pipeline still exits 0 (2026-08-22).
 	if token == "" {
-		return nil
+		return fmt.Errorf("--token is empty (also read from AGENTEVAL_TOKEN) — mint one: " +
+			"arizuko token <instance> issue bearer <folder> --scope messages:write,messages:read,cost:read")
 	}
 	exp, ok := tokenExpiry(token)
 	if !ok {
