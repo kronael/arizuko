@@ -59,6 +59,48 @@ column, the index and both queries already exist for exactly this.
 Ties: `specs/6/23` (a gateway makes the NUMBER trustworthy; this makes the row
 attributable — orthogonal halves of the same question).
 
+## L70 — spend is recorded on three dimensions and readable on none of them (2026-08-22, proposal)
+
+With `L69` fixed, `cost_log` carries folder, model and user_sub on every row.
+Nothing can read them together.
+
+`GET /v1/cost` answers exactly one question — one turn, summed across models:
+
+```
+GET /v1/cost?turn_id=<id> → {turn_id, folder, input_tokens, output_tokens, cost_cents}
+```
+
+The aggregate readers are `SpendTodayFolder` and `SpendTodayUser`, and their only
+callers outside `budgetGate` are `arizuko budget show`, which reads the DB file
+directly. So per-group and per-user spend has:
+
+- no REST surface and no MCP tool — an agent cannot answer "what has this group
+  spent", and neither can an external tool;
+- no window but today — the UTC-day sum the gate needs, nothing else;
+- no breakdown — never per model, never per user within a folder, never per day.
+
+That fails `CLAUDE.md`'s standing rule directly: **every cold-tier management
+entity is a resreg resource, no exceptions.** `cost_log` is one, and it is
+reachable only through a CLI that opens the file.
+
+**Proposal (needs sign-off — this is a new contract):** register a `spend`
+resreg resource on routd, read-only, per `5/17` (REST + derived MCP, the injected
+gate binding `folder` to the caller's folder exactly as `/v1/cost` already does):
+
+```
+GET /v1/spend?folder=&user_sub=&model=&since=&until=&group_by=folder|user_sub|model|day
+    → [{folder, user_sub, model, day, input_tokens, output_tokens, cost_cents}]
+```
+
+One resource, one handler, the containment check the other cold-tier resources
+already use. `idx_cost_log_folder_day` and `idx_cost_log_user_day` already index
+both hot paths.
+
+Explicitly NOT in this proposal: whether the numbers can be trusted. That is
+`specs/6/23` — cost is still self-reported by the spender, and a gateway is what
+makes it authoritative. The two are orthogonal: `L69` made the row attributable,
+this makes it readable, `6/23` makes it true.
+
 ## ✅ FIXED 2026-08-22 L68 — anteval starves its own tail: one overrunning case times out every case after it (2026-08-22)
 
 anteval runs cases sequentially into ONE folder, and arizuko correctly runs one
