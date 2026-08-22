@@ -62,6 +62,15 @@ readable, not because cost is the right signal. A `turn_state` read surface
 (a resreg resource per `5/17`, like every other cold-tier entity) is the
 orthogonal fix, and it is worth having whether or not the gateway ships.
 
+Measured on the first clean smoke (krons 2026-08-22, 9/9): one case waited the
+full 3-minute fallback and warned. Its injected message id never became a turn
+id, because routd batches a folder's pending messages and the turn takes the
+LAST id in the batch. Cost keyed by turn id therefore cannot answer "did MY
+message finish" at all for a batched case — no gateway changes that, and a
+`turn_state` resource keyed the same way would not either. The signal anteval
+actually wants is "does this folder have a live turn", which routd already knows
+and no surface reports.
+
 ## Why a gateway and not the egress proxy
 
 **A gateway is configured, not intercepted.** The client is pointed at it
