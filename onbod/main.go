@@ -479,7 +479,23 @@ func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
 		if cfg.greeting != "" {
 			prompt = cfg.greeting + "\n" + prompt
 		}
-		sendReply(cfg, jid, prompt)
+		// The claim stays taken even when the send fails, and the row is NOT
+		// retried. Releasing it looks kinder and is worse: a permanently
+		// unroutable jid (sloth's `Coach`, an orphan task target — BUGS L66)
+		// would mint a fresh pairing token on every tick, forever. WISDOM
+		// retries only transient errors, and a 502 for a jid that matches no
+		// route is a configuration fault, not a blip — and onbod cannot tell
+		// the two apart from the status alone.
+		//
+		// What must NOT happen is the old behaviour: sendReply swallowed the
+		// outcome and this line logged "sent pairing link" directly under
+		// "send reply non-2xx" (BUGS L67). One failed send, reported once, as
+		// an error.
+		if err := sendReply(cfg, jid, prompt); err != nil {
+			slog.Error("pairing link NOT delivered; the jid stays claimed and will not be retried",
+				"jid", jid, "err", err)
+			continue
+		}
 		slog.Info("sent pairing link", "jid", jid)
 	}
 }
@@ -560,7 +576,10 @@ func admitJID(obdb *sql.DB, cfg config, jid, userSub string) {
 			}
 			auditAdmission(jid, userSub, "onboarding.refuse", "none")
 			slog.Warn("refused jid: no matching gate", "jid", jid, "user", userSub)
-			sendReply(cfg, jid, "This account can't be set up here: no onboarding gate matches it. Ask the operator for an invite.")
+			if err := sendReply(cfg, jid, "This account can't be set up here: no onboarding gate matches it. Ask the operator for an invite."); err != nil {
+				slog.Error("refusal notice not delivered; the user was refused in silence",
+					"jid", jid, "err", err)
+			}
 			return
 		}
 		k := gateKey(*g)
@@ -572,8 +591,11 @@ func admitJID(obdb *sql.DB, cfg config, jid, userSub string) {
 		}
 		auditAdmission(jid, userSub, "onboarding.queue", k)
 		slog.Info("queued jid", "jid", jid, "user", userSub, "gate", k)
-		sendReply(cfg, jid, "You're in the queue. Open "+
-			strings.TrimRight(cfg.authBaseURL, "/")+"/onboard to see your position.")
+		if err := sendReply(cfg, jid, "You're in the queue. Open "+
+			strings.TrimRight(cfg.authBaseURL, "/")+"/onboard to see your position."); err != nil {
+			slog.Error("queue notice not delivered; the user does not know they are queued",
+				"jid", jid, "err", err)
+		}
 		return
 	}
 
@@ -1418,7 +1440,11 @@ func renderDashboard(w http.ResponseWriter, db *sql.DB, userSub, username string
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func sendReply(cfg config, jid, text string) {
+// sendReply returns its outcome. It used to return nothing, so a caller could
+// not tell a delivery from a 502 and logged success either way — on sloth the
+// pairing-link tick logged "sent pairing link" on the line directly after
+// "send reply non-2xx" every night for months (BUGS L67).
+func sendReply(cfg config, jid, text string) error {
 	payload := map[string]string{"jid": jid, "text": text}
 	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", cfg.gatedURL+"/v1/outbound", bytes.NewReader(body))
@@ -1427,25 +1453,23 @@ func sendReply(cfg config, jid, text string) {
 	// /v1/outbound. A nil source or token blip drops the reply rather than sending
 	// a credential routd rejects. svcToken is always set in production (loadConfig).
 	if cfg.svcToken == nil {
-		slog.Error("onbod has no service token; dropping reply", "jid", jid)
-		return
+		return fmt.Errorf("onbod has no service token")
 	}
 	tok, err := cfg.svcToken(req.Context())
 	if err != nil {
-		slog.Error("onbod service-token exchange failed; dropping reply", "jid", jid, "err", err)
-		return
+		return fmt.Errorf("service-token exchange: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
 	obs.InjectRequest(req.Context(), req)
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		slog.Warn("send reply failed", "jid", jid, "err", err)
-		return
+		return fmt.Errorf("post outbound: %w", err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		slog.Warn("send reply non-2xx", "jid", jid, "status", resp.StatusCode)
+		return fmt.Errorf("outbound %s: status %d", jid, resp.StatusCode)
 	}
+	return nil
 }
 
 // userFolders returns the distinct allow-scopes the sub has access to via the

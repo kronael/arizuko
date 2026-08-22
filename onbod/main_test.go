@@ -2182,3 +2182,28 @@ func TestStrandedRowWarnsOncePerProcess(t *testing.T) {
 		t.Errorf("a changed status logged %d times total, want 2", got)
 	}
 }
+
+// L67: sendReply used to return nothing, so promptUnprompted logged
+// "sent pairing link" on the line directly after "send reply non-2xx". The
+// outcome must reach the caller; the claim deliberately survives (releasing it
+// would re-mint a token every tick for a permanently unroutable jid).
+func TestSendReplyReportsNon2xxToTheCaller(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+	cfg := config{gatedURL: srv.URL, svcToken: func(context.Context) (string, error) { return "t", nil }}
+	err := sendReply(cfg, "Coach", "hi")
+	if err == nil {
+		t.Fatal("a 502 must reach the caller; swallowing it is what logged success over the failure")
+	}
+	if !strings.Contains(err.Error(), "502") {
+		t.Errorf("the error must name the status, got %v", err)
+	}
+}
+
+func TestSendReplyReportsMissingServiceToken(t *testing.T) {
+	if err := sendReply(config{gatedURL: "http://127.0.0.1:1"}, "t:1", "hi"); err == nil {
+		t.Fatal("a nil svcToken must be an error, not a silent drop")
+	}
+}

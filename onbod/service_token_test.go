@@ -68,7 +68,9 @@ func TestSendReplyUsesServiceToken(t *testing.T) {
 		t.Fatalf("service token source: %v", err)
 	}
 	cfg := config{gatedURL: out.URL, svcToken: src.Token}
-	sendReply(cfg, "telegram:1", "welcome")
+	if err := sendReply(cfg, "telegram:1", "welcome"); err != nil {
+		t.Fatalf("sendReply: %v", err)
+	}
 
 	if bearer == "" {
 		t.Fatalf("sendReply presented no bearer, want a service JWT")
