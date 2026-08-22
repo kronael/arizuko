@@ -140,6 +140,14 @@ its cost before injecting the next case. A turn that never records one does not
 hang the suite — the wait is bounded and the result carries a NOTE that the next
 case may have started behind it.
 
+**Verified 2026-08-22**: krons ran 9/9 in a single 12-minute smoke, the first
+clean run. One case (`fresh-context`) spent the full 3-minute fallback and said
+so — its injected message id never became a turn id, because routd batches a
+folder's pending messages and the turn takes the LAST id in the batch. The
+bounded wait plus the loud NOTE is exactly what that case is for; the real
+signal (does this folder have a live turn) has no read surface, recorded in
+`specs/6/23`.
+
 ## ✅ FIXED 2026-08-22 L66 — a removed group strands its 5 seeded tasks; they fire forever and route nowhere (2026-08-22)
 
 `SeedDefaultTasks` writes 5 `<folder>-mem-N` rows per group, but
