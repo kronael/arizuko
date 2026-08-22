@@ -984,3 +984,34 @@ func TestDelegateGroupWorksWithoutEnqueueHook(t *testing.T) {
 		t.Fatalf("the child message was not written: %+v", wrote)
 	}
 }
+
+// L65, escalate half: the same EnqueueMessageCheck guard killed escalate_group.
+// The fix touched both tools, so both need the nil-hook case pinned.
+func TestEscalateGroupWorksWithoutEnqueueHook(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "s.sock")
+	var wrote []core.Message
+	db := StoreFns{
+		PutMessage:        func(m core.Message) error { wrote = append(wrote, m); return nil },
+		JIDRoutedToFolder: func(jid, folder string) bool { return true },
+	}
+	// GatedFns{} leaves EnqueueMessageCheck nil, exactly as routd does.
+	stop, err := ServeMCP(sock, GatedFns{}, db, "world/child", true, 0, "")
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	payload, errText := callTool(t, sock, "escalate_group", map[string]any{
+		"prompt":  "needs operator review",
+		"chatJid": "tg:1",
+	})
+	if errText != "" {
+		t.Fatalf("escalate_group returned an error with no enqueue hook: %s", errText)
+	}
+	if payload["queued"] != true || payload["parent"] != "world" {
+		t.Errorf("payload = %v, want queued:true parent:world", payload)
+	}
+	if len(wrote) != 1 || wrote[0].ChatJID != "world" {
+		t.Fatalf("the escalation was not written to the parent: %+v", wrote)
+	}
+}

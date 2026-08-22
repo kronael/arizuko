@@ -92,6 +92,10 @@ func cmdRun(args []string) {
 		fatal(fmt.Errorf("--folder is required (the eval folder owning --chat); it anchors the root-session reset that keeps cases from inheriting prior history"))
 	}
 
+	if err := checkToken(*token, time.Now()); err != nil {
+		fatal(err)
+	}
+
 	cases, err := spec.Load(*casesDir)
 	if err != nil {
 		fatal(err)
