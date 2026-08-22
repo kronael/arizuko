@@ -7,6 +7,40 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L68 — anteval starves its own tail: one overrunning case times out every case after it (2026-08-22, open)
+
+anteval runs cases sequentially into ONE folder, and arizuko correctly runs one
+turn per folder at a time. `Drive` calls `ensurePristineRoot` before each case,
+which sends `/new` and polls until it is consumed — a session reset, NOT a wait
+for the folder to be idle. Nothing waits for the previous case's TURN to end.
+
+So a case whose agent keeps working past its own `max_wall_ms` leaves that turn
+running, and every later case queues behind it and times out having never
+started. The signature is a run whose failures are a contiguous ALPHABETICAL
+tail, each reporting `0 tokens`.
+
+Measured on krons 2026-08-22 (nonce `etk5t9p`): `priv-grant` spent 9265 tokens —
+by far the run's most — and anteval abandoned it at its 180s budget while the
+agent kept going. The `eval` folder then had NO dispatch between 07:14:39 and
+07:22:21, 7m42s. `rest-roundtrip` (90s), `self-skill` (120s) and `webhook-in`
+(150s) all expired inside that window with 0 tokens each.
+
+The inverse correlation across four runs is the tell: when the heavy case ends
+early the tail passes (smoke3: 8/9, only `child-delegate` failing), and when it
+runs long the same four fail (smoke2, smoke4: 5/9). The product is behaving
+correctly in both.
+
+This has now cost two investigations in one day — the same four FAILs were read
+first as an ipc regression, then as an expired token (which was a REAL second
+cause, fixed by the startup check in `a17bccec`).
+
+Proposed fix (harness contract change, needs sign-off): before each case, wait
+for the folder to hold no in-flight turn, with its own bounded cap and a loud
+error when the cap is hit. A case that cannot get a quiet folder must say so
+rather than report the next case's starvation as that case's failure.
+
+- **Source:** `anteval/pkg/run/run.go` (`Drive`, `ensurePristineRoot`).
+
 ## L66 — a removed group strands its 5 seeded tasks; they fire forever and route nowhere (2026-08-22, open)
 
 `SeedDefaultTasks` writes 5 `<folder>-mem-N` rows per group, but
