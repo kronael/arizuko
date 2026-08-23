@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -218,7 +219,12 @@ func (s *server) handleMeXThread(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// messages lives in routd.db (stRoutd) — split ownership
-	msgs, _ := s.stRoutd.MessagesByTopic(folder, topic, before, 50)
+	msgs, err := s.stRoutd.MessagesByTopic(folder, topic, before, 50)
+	if err != nil {
+		slog.Error("me: thread read failed", "folder", folder, "topic", topic, "err", err)
+		http.Error(w, "read failed", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html")
 	for _, msg := range slices.Backward(msgs) {
 		writeMsgDiv(w, msg)
@@ -245,7 +251,12 @@ func (s *server) handleMeThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msgs, _ := s.stRoutd.MessagesByTopic(folder, topic, time.Now(), 50)
+	msgs, err := s.stRoutd.MessagesByTopic(folder, topic, time.Now(), 50)
+	if err != nil {
+		slog.Error("me: thread read failed", "folder", folder, "topic", topic, "err", err)
+		http.Error(w, "read failed", http.StatusInternalServerError)
+		return
+	}
 
 	meShellOpen(w, r)
 
@@ -397,7 +408,12 @@ func (s *server) handleMeFolder(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	topics, _ := s.stRoutd.Topics(folder)
+	topics, err := s.stRoutd.Topics(folder)
+	if err != nil {
+		slog.Error("me: topic list read failed", "folder", folder, "err", err)
+		http.Error(w, "read failed", http.StatusInternalServerError)
+		return
+	}
 	meShellOpen(w, r)
 	fmt.Fprintf(w,
 		`<div style="padding:1rem"><h2>%s</h2><p style="margin:.5rem 0;color:#666">%s</p>`,

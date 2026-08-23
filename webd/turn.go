@@ -144,6 +144,10 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 
 	after := r.Header.Get("Last-Event-Id")
 	msgs, err := s.stRoutd.TurnFrames(chatJID, turnID, after, 200)
+	if err != nil {
+		slog.Error("turn SSE: replay query failed; the client resumes from a gap it cannot see",
+			"chat_jid", chatJID, "turn_id", turnID, "after", after, "err", err)
+	}
 	if err == nil {
 		for _, m := range msgs {
 			fr := messageFrames([]core.Message{m})[0]
@@ -152,7 +156,20 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if info, _ := s.stRoutd.GetTurnResult(folder, turnID); info.Status != "pending" {
+	// A read failure must not read as a finished round. GetTurnResult maps only
+	// sql.ErrNoRows to "pending"; a real error returns the zero TurnInfo, whose
+	// Status is "" — and "" != "pending", so the discarded error used to emit
+	// round_done with an empty status and close the stream, telling the browser
+	// the turn was over (BUGS L83). The sibling JSON handlers 500 on the same
+	// query; headers are already sent here, so the truth rides the status field
+	// the client already reads.
+	info, terr := s.stRoutd.GetTurnResult(folder, turnID)
+	if terr != nil {
+		slog.Error("turn SSE: turn-result read failed; ending the round as error, not as done",
+			"folder", folder, "turn_id", turnID, "err", terr)
+		info.Status = "error"
+	}
+	if terr != nil || info.Status != "pending" {
 		payload, _ := json.Marshal(map[string]any{
 			"turn_id": turnID,
 			"status":  info.Status,

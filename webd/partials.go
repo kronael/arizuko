@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -23,7 +24,12 @@ func (s *server) handleXGroups(w http.ResponseWriter, r *http.Request) {
 // GET /x/groups/<folder>/topics
 func (s *server) handleXTopics(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
-	topics, _ := s.stRoutd.Topics(folder)
+	topics, err := s.stRoutd.Topics(folder)
+	if err != nil {
+		slog.Error("partials: topic list read failed", "folder", folder, "err", err)
+		http.Error(w, "read failed", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html")
 	for _, t := range topics {
 		label := t.LastAt.Format("Jan 2")
@@ -50,7 +56,12 @@ func (s *server) handleXMessages(w http.ResponseWriter, r *http.Request) {
 			before = t
 		}
 	}
-	msgs, _ := s.stRoutd.MessagesByTopic(folder, topic, before, 50)
+	msgs, err := s.stRoutd.MessagesByTopic(folder, topic, before, 50)
+	if err != nil {
+		slog.Error("partials: thread read failed", "folder", folder, "topic", topic, "err", err)
+		http.Error(w, "read failed", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html")
 	for _, m := range slices.Backward(msgs) {
 

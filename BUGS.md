@@ -59,6 +59,44 @@ column, the index and both queries already exist for exactly this.
 Ties: `specs/6/23` (a gateway makes the NUMBER trustworthy; this makes the row
 attributable — orthogonal halves of the same question).
 
+## ✅ FIXED 2026-08-23 L83 — webd read failures render as success: the SSE says the round finished (2026-08-23)
+
+`store.GetTurnResult` maps only `sql.ErrNoRows` to `"pending"`; a real error
+returns the zero `TurnInfo`, whose `Status` is `""`. The SSE handler discarded the
+error and tested `Status != "pending"`:
+
+```go
+if info, _ := s.stRoutd.GetTurnResult(folder, turnID); info.Status != "pending" {
+    …writeSSE("event: round_done" …)   // "" != "pending" → the round "finished"
+    return
+}
+```
+
+So a transient sqlite `busy`/`locked` under WAL load ends the browser's round
+with an empty status and closes the stream. The sibling JSON handlers
+(`handleTurnSnapshot`, `handleTurnStatus`) return 500 on the identical query.
+
+Four more reads on the same page discarded their error and rendered a blank page
+at HTTP 200 — `webd/me.go` (thread x2, topic list) and `webd/partials.go`
+(topics, thread) — while their JSON twins in `webd/api.go` return 500. The SSE
+replay query (`TurnFrames`) discarded its error with no log at all, so a client
+resuming from `Last-Event-Id` silently skipped frames.
+
+**Fixed**: the SSE ends the round with `status:"error"` and an ERROR log (headers
+are already sent, so the truth rides the status field the client already reads);
+the replay failure logs; the five HTML reads return 500 like their JSON twins.
+
+Covered by a test pinning the zero-value collision that made it possible — a
+failed read is neither an error the caller sees nor `"pending"`. The handler's
+own emission is NOT covered end to end; the SSE fixture needs an authorized turn
+plus a hub topic, and that is worth adding.
+
+Remaining, same class, not fixed: `webd/chat_mcp.go:148` `collectRoundFrames`
+logs its error but returns `nil` frames, so `get_round` answers with a successful
+empty snapshot and `wait=true` blocks the caller for the full 5-minute cap. The
+fix changes its signature to return the error to the MCP tool, which is a
+contract change on the chat-MCP face — recorded, not shipped.
+
 ## ✅ FIXED 2026-08-23 L81 — an operator's edit to a package-owned proxyd route succeeds, then silently reverts (2026-08-23)
 
 Two predicates answered one question and disagreed about the third owner value.
