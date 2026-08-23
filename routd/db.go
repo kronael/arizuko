@@ -1015,11 +1015,23 @@ func (d *DB) EnsureTopicLineage(folder, topic, parentTopic, newSessionID string)
 	if topic == "" {
 		return false, nil
 	}
-	now := nowTS()
+	// The child inherits the PARENT's observed cursor, not `now`. Stamping now
+	// discarded the channel's whole ambient backlog at the moment a thread was
+	// created: the copied transcript carries only turns that RAN in the parent,
+	// and a busy channel's chatter is `is_observed=1` rows that never ran one. A
+	// new Discord thread therefore opened blind to everything said in the channel
+	// before it existed, which is exactly what a fork must not do (BUGS L87).
+	//
+	// No parent row (cold root) leaves it empty, which is the normal cold path:
+	// ObservedSince reads the whole trailing window, already capped by
+	// observe_window_messages / _chars. Re-showing a message the parent already
+	// saw is benign — the standing rule is "observed messages are context, not
+	// requests", which the cursor's at-least-once advance already relies on.
 	res, err := d.db.Exec(
 		`INSERT OR IGNORE INTO sessions(group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
-		 VALUES(?,?,?,?,?,?)`,
-		folder, topic, newSessionID, parentTopic, now, now)
+		 VALUES(?,?,?,?,?,
+		   COALESCE((SELECT observed_cursor FROM sessions WHERE group_folder=? AND topic=?), ''))`,
+		folder, topic, newSessionID, parentTopic, nowTS(), folder, parentTopic)
 	if err != nil {
 		return false, err
 	}

@@ -285,21 +285,30 @@ window); nothing was added to let a topic see its siblings' primary traffic.
 primary-delivered (`is_observed=0`) messages as ambient" — but only across
 FOLDERS. The same question intra-folder has no answer.
 
-Second, separable finding — the turn envelope's budget is inverted:
+Second finding — and it RETRACTS the first version of this entry. I claimed the
+envelope's budget had become inverted (22KB of `<episodes>` against 349 bytes of
+conversation) and read that as the regression. Measuring every turn envelope on
+`main/trading` back to June says otherwise:
 
 ```
-total   before_<messages>   conversation
-26476   22085               4391
-22503   21974                529
-22334   22028                306
-22377   22028                349
+day         turns  avg_prefix  avg_conv  avg_msgs
+2026-06-14    209        2016      1399       1.1   <- when it worked
+2026-07-15     14       15747      1102       1.0
+2026-08-08      8       22014      1239       1.0
+2026-08-23     46       22474      1409       1.1   <- now
 ```
 
-**22KB of `<episodes>` memory against 349 bytes of conversation.** The agent
-leans on SDK session resume for everything recent, which is why a fresh or
-switched topic reads as amnesia and why replies drift to recalled material
-instead of what was just said. The episodic block is not budgeted against the
-window it shares.
+`avg_conv` and `avg_msgs` are FLAT since June. The `<messages>` block has always
+carried ~1 message; the agent has always relied on SDK session resume for
+history. So the envelope did not regress and the inverted ratio is not the cause.
+
+What did move is `avg_prefix`: **2016 → 22474 bytes, 11x since June**, gradually,
+with no step at any deploy. Worth its own entry, not this one.
+
+The measured step change is topics: the bot replied in 1–2 topics per day for
+months, then 12 on 2026-08-21 and 4 on 08-23. Since history lives in the SESSION
+and not the envelope, splitting a channel into N sessions is exactly what costs
+the history — which is what `L87` fixes on the fork axis.
 
 **Proposal (needs sign-off — this changes the prompt-context contract):**
 
@@ -307,11 +316,40 @@ window it shares.
    the existing `observe_window_*` knobs and tagged so they are distinguishable
    from same-topic history. This is `observe_group`'s mechanism applied
    intra-folder, not a new one.
-2. Budget `<episodes>` against `<messages>` rather than emitting it whole: recent
-   conversation must never be the smaller half of its own envelope.
+2. Cap `<episodes>` growth — 11x since June with no step is a slow crowd-out,
+   not the reported break. Separate change, separate evidence.
 
 Both are behaviour changes on every turn on every instance, so neither ships
 inline. `5/B` and `5/F` are the specs to amend.
+
+## ✅ FIXED 2026-08-23 L87 — a forked topic inherits the parent's transcript but not its ambient backlog (2026-08-23)
+
+`EnsureTopicLineage` stamped the child's `observed_cursor = now`:
+
+```sql
+INSERT OR IGNORE INTO sessions(..., forked_at, observed_cursor) VALUES(?,?,?,?, now, now)
+```
+
+The fork's other half copies the parent's Claude transcript (`L54`, 2026-08-20),
+and the stamp is only correct while that transcript carries the rest. It does
+not. A transcript holds the turns that RAN in the parent, and a busy channel's
+traffic is `is_observed=1` rows that never ran one — on sloth's `#trading`, 20 of
+37 messages in 24h. So a new Discord thread opened blind to everything said in
+the channel before it existed.
+
+Measured: thread `1540726266351722526` forked at 18:13:05 with
+`observed_cursor = 18:13:05`, while the channel conversation it needed ran
+15:58–18:13. Its parent (the root topic) sat at cursor 15:10:44.
+
+**Fixed**: the child inherits the PARENT's cursor, falling back to empty when the
+parent has no row — the normal cold path, where `ObservedSince` reads the whole
+trailing window already capped by `observe_window_messages` / `_chars`.
+Re-showing a message the parent saw is benign; the standing rule is "observed
+messages are context, not requests", which the cursor's at-least-once advance
+already depends on.
+
+Test fails on the old behaviour (verified by mutation: child cursor came back as
+`now`, not the parent's).
 
 ## L80 — the agent/REST acl face cannot express a narrowed grant (2026-08-23, proposal)
 

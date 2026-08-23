@@ -1463,3 +1463,50 @@ func TestDeleteGroup_CascadesTasks(t *testing.T) {
 		t.Fatalf("only the child folder's task may survive, got %v", ids)
 	}
 }
+
+// TestEnsureTopicLineage_InheritsParentObservedCursor: a fork must continue the
+// parent on BOTH axes. Stamping observed_cursor=now threw away the channel's
+// ambient backlog the moment a thread was created — the copied transcript holds
+// only turns that RAN in the parent, and a busy channel's chatter is
+// is_observed=1 rows that never ran one, so a new Discord thread opened blind to
+// everything said before it existed (BUGS L87).
+func TestEnsureTopicLineage_InheritsParentObservedCursor(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	const parentCursor = "2026-08-23T15:10:44Z"
+	if _, err := db.SQL().Exec(
+		`INSERT INTO sessions(group_folder, topic, session_id, observed_cursor)
+		 VALUES('main/trading','', 'root-uuid', ?)`, parentCursor); err != nil {
+		t.Fatal(err)
+	}
+
+	inserted, err := db.EnsureTopicLineage("main/trading", "thread-1", "", "child-uuid")
+	if err != nil || !inserted {
+		t.Fatalf("EnsureTopicLineage: inserted=%v err=%v", inserted, err)
+	}
+	line, ok := db.TopicLineage("main/trading", "thread-1")
+	if !ok {
+		t.Fatal("no lineage row for the forked topic")
+	}
+	if line.ObservedCursor != parentCursor {
+		t.Errorf("child observed_cursor = %q, want the parent's %q — a fork that stamps now starts blind",
+			line.ObservedCursor, parentCursor)
+	}
+
+	// No parent row: empty cursor, so the child reads the whole trailing window
+	// (already capped by observe_window_*), not nothing.
+	if _, err := db.EnsureTopicLineage("main/other", "thread-2", "", "child2"); err != nil {
+		t.Fatal(err)
+	}
+	line2, ok := db.TopicLineage("main/other", "thread-2")
+	if !ok {
+		t.Fatal("no lineage row for the cold-parent fork")
+	}
+	if line2.ObservedCursor != "" {
+		t.Errorf("cold-parent child cursor = %q, want empty", line2.ObservedCursor)
+	}
+}
