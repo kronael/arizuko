@@ -176,6 +176,42 @@ recorded as `L80`, not smuggled into a fail-loud fix.
 Live rows affected: zero — no `params`-bearing acl row exists on any of the three
 instances. The defect is the shape, on an auth surface.
 
+## L84 — dashd's "Delete group" is a fourth delete renderer L71 missed, and it strands tasks (2026-08-23, proposal)
+
+`L71` unified three group-delete paths into `store.DeleteGroup`. It missed the
+one an operator is most likely to use: the dashboard button
+(`dashd/groups_admin.go:437-464`), which opens its own transaction and cascades a
+DIFFERENT set. The two operator-reachable paths now strand disjoint things:
+
+| cascade | `store.DeleteGroup` (CLI `group rm`) | dashd handler |
+| --- | --- | --- |
+| child groups | no | **yes** |
+| acl | no | **yes** |
+| routes | yes | yes |
+| `chat_reply_state` | yes | no |
+| `scheduled_tasks` | **yes** | **no** |
+| `sessions`, `network_rules`, `acl_membership`, `installed_packages` | no | no |
+
+So a dashboard delete leaves the group's `<folder>-mem-N` rows `active`, timed
+fires them forever at a folder that no longer resolves, and onbod reads each
+unroutable jid as a new account to onboard — the exact `L66`→`L67` chain, still
+reachable. Tasks at risk per dashboard-delete: krons 61, sloth 37, marinade 36
+active rows across 12/7/7 task-owning folders.
+
+The handler's own comment is now false: "store.DeleteGroup can't stand in: it
+opens its own tx and touches only groups" (`:428`) — untrue since `ae559c7a`
+earlier the same day.
+
+**Proposal (needs sign-off — this changes dashd's control flow and widens
+store.DeleteGroup's contract):** dashd delegates to the unified delete for each
+folder in the subtree, and `store.DeleteGroup` absorbs the subtree + acl cascade
+dashd has, so ONE renderer owns the whole thing. The four tables neither path
+touches (`sessions`, `network_rules`, `acl_membership`, `installed_packages`)
+should be decided in the same pass rather than left to a fifth caller.
+
+Note `L78` already fixed the shared half — all these cascades now use
+`groupfolder.SQLSubtree` instead of `LIKE`.
+
 ## L80 — the agent/REST acl face cannot express a narrowed grant (2026-08-23, proposal)
 
 `grantACLTx` hardcodes `params='', predicate=''` on INSERT and `revokeACLTx`
