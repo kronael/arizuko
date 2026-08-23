@@ -59,6 +59,55 @@ column, the index and both queries already exist for exactly this.
 Ties: `specs/6/23` (a gateway makes the NUMBER trustworthy; this makes the row
 attributable — orthogonal halves of the same question).
 
+## ✅ FIXED 2026-08-23 L79 — `remove_acl` reported a grant revoked while the grant stayed live (2026-08-23)
+
+The agent/REST revoke never checked what it removed:
+
+```go
+// routd/acl_resource.go, before
+_, err := tx.ExecContext(ctx,
+  `DELETE FROM acl WHERE principal=? AND action=? AND scope=? AND effect=? AND params='' AND predicate=''`, …)
+return err                       // …and the handler returned apiv1.OK{OK:true} unconditionally
+```
+
+Two things compound. The DELETE pins `params` and `predicate` to `''`, so a row
+an operator created WITH a narrowing — `dashd/grants_admin.go:160` offers exactly
+that (`jid=telegram:*`), and package-installed grants carry a predicate — cannot
+be matched. And with no rows-affected check the call answered `{"ok":true}`
+regardless. `list` DOES return `params`/`predicate`, so a caller could see a row
+it could not revoke and be told the revoke worked.
+
+The store twin gets it right (`store/acl.go:84-90`, full PK), as do
+`onbod/invites_resource.go:104` and `routd/membership_resource.go:79`, which both
+check rows-affected.
+
+**Fixed**: `revokeACLTx` returns the row count and the handler refuses `404` when
+it is zero, naming why — a revoke is the one operation where "did nothing" must
+never read as success. The refusal text points the operator at where a narrowed
+grant can be revoked.
+
+NOT changed, deliberately: this face still addresses only un-narrowed rows.
+`grantACLTx` writes `params='', predicate=''` too, so grant and revoke stay
+symmetric; widening both to carry a narrowing is an additive contract change,
+recorded as `L80`, not smuggled into a fail-loud fix.
+
+Live rows affected: zero — no `params`-bearing acl row exists on any of the three
+instances. The defect is the shape, on an auth surface.
+
+## L80 — the agent/REST acl face cannot express a narrowed grant (2026-08-23, proposal)
+
+`grantACLTx` hardcodes `params='', predicate=''` on INSERT and `revokeACLTx`
+matches the same, so the resreg acl resource can neither create nor address a
+narrowed grant. Only `dashd`'s form and the CLI can, through the store writer.
+`list` returns `params`/`predicate`, so the face shows what it cannot manage.
+
+Since `L79` the mismatch is at least loud (a revoke that matches nothing 404s).
+
+**Proposal (additive contract, needs sign-off):** `add_acl`/`remove_acl` and the
+REST twins accept optional `params` and `predicate`, defaulting to `''` so
+existing callers are unaffected, and both writers bind them. That makes the
+resreg face the one renderer for the acl table instead of a lossy subset of it.
+
 ## ✅ FIXED 2026-08-23 L78 — group-delete cascades used SQL `LIKE`, so deleting one folder deleted another's rows (2026-08-23)
 
 Five DELETE statements expressed folder containment as `col = ? OR col LIKE ?||'/%'`.

@@ -169,9 +169,16 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 		if principal == "" || scope == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "principal and scope required")
 		}
-		if err := revokeACLTx(ctx, x.Tx, principal, scope,
-			argString(x.Args, "action"), argString(x.Args, "effect")); err != nil {
+		n, err := revokeACLTx(ctx, x.Tx, principal, scope,
+			argString(x.Args, "action"), argString(x.Args, "effect"))
+		if err != nil {
 			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
+		}
+		if n == 0 {
+			return nil, resreg.Errorf(http.StatusNotFound,
+				"no matching grant for principal %q scope %q — this surface addresses only un-narrowed rows; "+
+					"a grant carrying params or a predicate must be revoked where it was created",
+				principal, scope)
 		}
 		return apiv1.OK{OK: true}, nil
 	}
@@ -302,13 +309,26 @@ func grantACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effec
 }
 
 // revokeACLTx is the remove_acl/DELETE twin of grantACLTx: revoke via tx.
-func revokeACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effect string) error {
+//
+// It reports how many rows it removed, and the caller MUST refuse when that is
+// zero. A revoke is the one operation where "did nothing" must never read as
+// success: this face matches `params='' AND predicate=''` — the same narrowing
+// grantACLTx writes — so a row an operator created WITH a params narrowing
+// (dashd's grant form offers exactly that) is invisible to it. It used to delete
+// nothing and answer {"ok":true}, i.e. report a grant as revoked while the grant
+// stayed live (BUGS L79). Widening this face to address narrowed rows is a
+// separate, additive change; answering honestly is not.
+func revokeACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effect string) (int64, error) {
 	// Mirror of the grant guard, same raw-action test: keying on scope alone let
 	// a narrow-row revoke strip an operator membership granted separately.
 	if scope == "**" && (action == "" || action == "*") && (effect == "" || effect == "allow") {
-		_, err := tx.ExecContext(ctx,
+		res, err := tx.ExecContext(ctx,
 			`DELETE FROM acl_membership WHERE child=? AND parent=?`, principal, "role:operator")
-		return err
+		if err != nil {
+			return 0, err
+		}
+		n, _ := res.RowsAffected()
+		return n, nil
 	}
 	if action == "" {
 		action = "admin"
@@ -316,10 +336,14 @@ func revokeACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effe
 	if effect == "" {
 		effect = "allow"
 	}
-	_, err := tx.ExecContext(ctx,
+	res, err := tx.ExecContext(ctx,
 		`DELETE FROM acl WHERE principal=? AND action=? AND scope=? AND effect=? AND params='' AND predicate=''`,
 		principal, action, scope, effect)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // addMembershipTx inserts (child → parent) on tx, PRESERVING store.AddMembership's

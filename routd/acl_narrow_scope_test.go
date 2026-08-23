@@ -98,8 +98,12 @@ func TestRevokeACLTx_NarrowRevokeLeavesOperatorMembership(t *testing.T) {
 	if err := grantACLTx(t.Context(), tx, "user:c", "**", "read", "", "test"); err != nil {
 		t.Fatal(err)
 	}
-	if err := revokeACLTx(t.Context(), tx, "user:c", "**", "read", ""); err != nil {
+	n, err := revokeACLTx(t.Context(), tx, "user:c", "**", "read", "")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("revoke removed %d rows, want 1: a revoke that removes nothing must not read as success", n)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
@@ -113,5 +117,44 @@ func TestRevokeACLTx_NarrowRevokeLeavesOperatorMembership(t *testing.T) {
 	}
 	if members != 1 {
 		t.Error("revoking the narrow ** row stripped the operator membership edge")
+	}
+}
+
+// TestRevokeACLTx_ReportsZeroWhenNothingMatched: a revoke that removes no row
+// must say so. This face matches `params='' AND predicate=''`, so an operator
+// grant carrying a params narrowing (dashd's grant form offers exactly that) is
+// invisible to it — and it used to delete nothing and answer {"ok":true},
+// reporting a live grant as revoked (BUGS L79).
+func TestRevokeACLTx_ReportsZeroWhenNothingMatched(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if _, err := db.SQL().Exec(
+		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at)
+		 VALUES ('user:n', 'read', 'acme', 'allow', 'jid=telegram:*', '', 'test', '')`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.SQL().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	n, err := revokeACLTx(t.Context(), tx, "user:n", "acme", "read", "allow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("revoke reported %d rows removed; the narrowed row is not addressable here", n)
+	}
+
+	var live int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM acl WHERE principal='user:n'`).Scan(&live); err != nil {
+		t.Fatal(err)
+	}
+	if live != 1 {
+		t.Errorf("the narrowed grant count = %d, want 1 (still live)", live)
 	}
 }
