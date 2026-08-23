@@ -386,3 +386,26 @@ func TestSettleGivesUpLoudly(t *testing.T) {
 		t.Errorf("want a loud note, got %q", res[0].Note)
 	}
 }
+
+// TestProbeSink_RefusesAnUnreachableAddress: an unreachable --sink does not fail
+// once, it fails nine times as "no callback" and reads like a broken product. A
+// 2026-08-23 run scored 1/9 that way because a restart moved the docker gateway.
+func TestProbeSink_RefusesAnUnreachableAddress(t *testing.T) {
+	// Port 1 on loopback: nothing binds it, so the connect fails immediately.
+	err := probeSink("http://127.0.0.1:1")
+	if err == nil {
+		t.Fatal("an unreachable sink must refuse the run before any case runs")
+	}
+	if !strings.Contains(err.Error(), "Gateway") {
+		t.Errorf("the error must point at how to re-read the address: %v", err)
+	}
+}
+
+func TestProbeSink_AcceptsTheRunningSink(t *testing.T) {
+	s := newSink()
+	srv, addr := s.serve("127.0.0.1:0")
+	defer srv.Close()
+	if err := probeSink(addr); err != nil {
+		t.Fatalf("the run's own sink must pass: %v", err)
+	}
+}

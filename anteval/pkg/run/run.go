@@ -82,6 +82,9 @@ func Drive(cfg Config) ([]report.Result, error) {
 	if cfg.SinkURL == "" {
 		cfg.SinkURL = addr
 	}
+	if err := probeSink(cfg.SinkURL); err != nil {
+		return nil, err
+	}
 	out := make([]report.Result, 0, len(cfg.Cases))
 	for _, c := range cfg.Cases {
 		if err := ensurePristineRoot(cfg); err != nil {
@@ -291,6 +294,34 @@ func (s *sink) Hits(nonce string) []check.Hit {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]check.Hit(nil), s.hits[nonce]...)
+}
+
+// probeSink refuses a run whose --sink nobody can reach.
+//
+// An unreachable sink does not fail once. Every callback-based case waits out
+// its whole budget and reports "no callback", which reads exactly like a broken
+// product: a 2026-08-23 run scored 1/9 that way, and the agent had spent 16562
+// tokens probing gateway IPs by hand. The cause was mundane — `systemctl
+// restart` made docker re-allocate the compose network, so the gateway address
+// the sink was pointed at (192.168.160.1) no longer existed.
+//
+// The probe runs from the harness host, not from a container, so it proves the
+// address is live and bound — not that a sandboxed container can route to it.
+// That is still the failure that actually happens, because the value is
+// hand-passed and silently goes stale.
+func probeSink(sinkURL string) error {
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Get(sinkURL + "/cb/anteval-preflight")
+	if err != nil {
+		return fmt.Errorf("--sink %s is not reachable: %w — docker re-allocates the compose network "+
+			"on restart, so re-read it: docker network inspect <instance>_default | grep Gateway",
+			sinkURL, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("--sink %s answered %d, want 204 — something other than this run's sink is on that address",
+			sinkURL, resp.StatusCode)
+	}
+	return nil
 }
 
 func (s *sink) serve(bind string) (io.Closer, string) {
