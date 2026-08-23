@@ -212,6 +212,44 @@ should be decided in the same pass rather than left to a fifth caller.
 Note `L78` already fixed the shared half — all these cascades now use
 `groupfolder.SQLSubtree` instead of `LIKE`.
 
+## L85 — the smoke is 6/9 after the SDK jump L73 exposed; the three failures are all child-spawn callbacks (2026-08-23, open)
+
+`L73` fixed the ant image so it ships the SDK it installs. The practical effect
+is that the fleet moved from `@anthropic-ai/claude-agent-sdk` **0.3.153 to
+0.3.237** in one step — 84 patch versions — because the host copy had been
+winning silently for an unknown length of time.
+
+The last smoke on 0.3.153 was 9/9 (11:57). The first full smoke on 0.3.237 is
+6/9:
+
+```
+child-delegate  FAIL  240s  1765 tok  no callback
+priv-grant      FAIL  180s  6112 tok  GET probe: unsupported protocol scheme ""
+webhook-in      FAIL  150s  1913 tok  no callback
+(the other six pass, including two that DO receive sink callbacks)
+```
+
+What is ruled out: delegation itself works — both child groups were created and
+both child turns reached `done`. The sink is reachable — `fresh-context` and
+`self-skill` received callbacks in the same run. Grants are intact. The eval
+folder's egress rule is `*`.
+
+What is NOT ruled out, and is the obvious suspect: the SDK jump. `priv-grant`
+returning the literal string `probe` where a URL belongs reads like changed agent
+behaviour, not a Go defect.
+
+An earlier run in the same session scored 1/9 and was NOT this: the harness was
+pointed at a docker gateway that a `systemctl restart` had re-allocated
+(192.168.160.1 → 192.168.192.1). That is fixed — anteval now refuses a run whose
+`--sink` it cannot reach.
+
+**Next test, not yet run**: build the ant image with the SDK pinned to 0.3.153,
+re-run the three cases. If they pass, the jump is the cause and the decision is
+whether `@latest` stays in the Dockerfile — it is deliberate and documented
+there, so that is the operator's call, not a fix to make silently.
+
+Until then the fleet runs an SDK version no smoke has passed at 9/9.
+
 ## L80 — the agent/REST acl face cannot express a narrowed grant (2026-08-23, proposal)
 
 `grantACLTx` hardcodes `params='', predicate=''` on INSERT and `revokeACLTx`
