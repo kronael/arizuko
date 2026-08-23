@@ -374,13 +374,19 @@ func deleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) error {
 }
 
 // routeTargetWithin reports whether a route's target folder is the caller's own
-// folder or a descendant. A route target is a bare folder path: spec 5/34 gives
-// targets no prefix vocabulary and no writer emits one, so a target carrying a
-// `folder:`/`daemon:`/`builtin:` prefix is not a folder and is not within one.
-// Moved here from ipc when the route tools migrated to resreg (set_routes was
-// its only caller).
+// folder or a descendant. Spec 5/34 gives targets no PREFIX vocabulary, so a
+// target carrying a `folder:`/`daemon:`/`builtin:` prefix is not a folder and is
+// not within one — but a target legally carries a `#observe`/`#announce`
+// FRAGMENT, and that has to come off before the comparison.
+//
+// It did not, so `main/trading` could not manage its own `main/trading#observe`
+// route: Contains compared the raw string and said no, while the delete SQL, the
+// tool description and core.ParseRouteTarget all treat the row as that folder's.
+// A list→edit→set round-trip therefore either 403'd on the caller's own row or
+// dropped it, and it could not be re-added. sloth and marinade carry 10 such
+// rows (BUGS L82).
 func routeTargetWithin(target, owner string) bool {
-	return groupfolder.Contains(owner, target)
+	return groupfolder.Contains(owner, core.ParseRouteTarget(target).Folder)
 }
 
 // isSelfDefault reports whether r is a folder's seq-0 default route (target == the

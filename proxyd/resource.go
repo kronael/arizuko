@@ -246,10 +246,10 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		// told" half of that decision: an edit that silently survives until the
 		// next deploy and then vanishes is the failure this whole change removes
 		// (BUGS L45). The named alternative takes the path over for good.
-		if routes[idx].Owner == store.RouteOwnerArizuko {
+		if !store.RouteSurvivesGenerate(routes[idx].Owner) {
 			return nil, resreg.Errorf(http.StatusConflict,
-				"route %q is owned by arizuko and is rewritten by every `arizuko generate`; "+
-					"DELETE it and POST your own to take the path over", path)
+				"route %q is owned by %q and is rewritten by every `arizuko generate`; "+
+					"DELETE it and POST your own to take the path over", path, routes[idx].Owner)
 		}
 		merged := routes[idx]
 		if v, ok := x.Args["backend"].(string); ok && v != "" {

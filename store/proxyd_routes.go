@@ -38,6 +38,18 @@ const (
 // later generate, so an upgraded package could not correct its own route.
 func RouteOwnerPackage(name string) string { return RouteOwnerPackagePrefix + name }
 
+// RouteSurvivesGenerate reports whether a row with this owner is left alone by
+// SyncProxydRoutes. Exactly one owner is: `operator`. Everything else — arizuko's
+// own rows AND every `package:<name>` row — is re-derived from the release on the
+// next `arizuko generate`.
+//
+// It is one predicate because it was two. The keep loop allowlisted `operator`
+// while the PATCH guard denylisted `arizuko`, so a package row passed the guard
+// with 200 and was silently overwritten at the next deploy — the exact
+// "config stops applying and looks healthy" failure the guard exists to make
+// loud (BUGS L45, L81).
+func RouteSurvivesGenerate(owner string) bool { return owner == RouteOwnerOperator }
+
 // ProxydRoute mirrors proxyd's `Route` shape for persistence. Kept here
 // without importing proxyd so the store stays a leaf. proxyd converts
 // between the two with a one-line copy.
@@ -141,7 +153,7 @@ func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err e
 		}
 		written, kept = 0, 0
 		for _, r := range routes {
-			if owners[r.Path] == RouteOwnerOperator {
+			if RouteSurvivesGenerate(owners[r.Path]) {
 				kept++
 				continue
 			}

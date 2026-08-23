@@ -59,6 +59,50 @@ column, the index and both queries already exist for exactly this.
 Ties: `specs/6/23` (a gateway makes the NUMBER trustworthy; this makes the row
 attributable — orthogonal halves of the same question).
 
+## ✅ FIXED 2026-08-23 L81 — an operator's edit to a package-owned proxyd route succeeds, then silently reverts (2026-08-23)
+
+Two predicates answered one question and disagreed about the third owner value.
+
+```go
+store/proxyd_routes.go  (SyncProxydRoutes keep loop)  if owners[r.Path] == RouteOwnerOperator   // allowlist
+proxyd/resource.go      (PATCH guard)                 if routes[idx].Owner == RouteOwnerArizuko // denylist
+```
+
+`package:<name>` (introduced by `L46`) is neither, so a PATCH to `/slakd/` or
+`/teled/` returned 200 and the next `arizuko generate` overwrote it — with no
+log, no 409, nothing. That is precisely the "config stops applying and looks
+healthy" failure the guard was written to make loud (`L45`), reappearing through
+the owner the guard never learned about.
+
+**Fixed**: `store.RouteSurvivesGenerate(owner)` is the one predicate — exactly
+`operator` survives — and both the keep loop and the PATCH guard call it. The 409
+now names the actual owner instead of hardcoding "arizuko".
+
+## ✅ FIXED 2026-08-23 L82 — a folder cannot manage its own `#observe` route (2026-08-23)
+
+A route target legally carries a fragment (`main/trading#observe`), and the
+containment predicates compared the RAW string:
+
+```go
+func routeTargetWithin(target, owner string) bool { return groupfolder.Contains(owner, target) }
+```
+
+`Contains("main/trading", "main/trading#observe")` is false, so `set_routes`,
+`add_route` and `DELETE /v1/routes` 403'd on the caller's OWN row — while the
+resource's own delete SQL (`target LIKE ?||'#%'`), `core.ParseRouteTarget` and the
+tool description all treat that row as belonging to `main/trading`. A
+list→edit→set round-trip therefore either refused the caller's existing observe
+route or dropped it, and it could not be re-added: the channel flips from
+"archived as observed context" to a route miss, and messages stop being stored.
+
+Live rows in this shape: sloth 4, marinade 6, krons 0. Sub-folder targets
+(`atlas/general#observe`) were unaffected, which is why it hid.
+
+**Fixed**: both `routeTargetWithin` and `routeTargetOwned` compare
+`core.ParseRouteTarget(target).Folder`. A target PREFIX
+(`folder:`/`daemon:`/`builtin:`) is still not a folder — only the fragment comes
+off — and the test pins that.
+
 ## ✅ FIXED 2026-08-23 L79 — `remove_acl` reported a grant revoked while the grant stayed live (2026-08-23)
 
 The agent/REST revoke never checked what it removed:

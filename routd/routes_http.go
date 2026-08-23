@@ -118,11 +118,13 @@ func (s *Server) routesRESTGate(x resreg.Execution, _ string, _ map[string]strin
 
 // routeTargetOwned reports whether an operator whose JWT folder is jwtFolder may
 // manage a route pointing at target. Empty jwtFolder (root / service token) owns
-// everything; otherwise the target folder must be jwtFolder or a descendant —
-// the retired REST's ownsFolder containment. Targets are bare folder paths
-// (spec 5/34 gives them no prefix vocabulary), so nothing is stripped first.
+// everything; otherwise the target folder must be jwtFolder or a descendant.
+//
+// The `#observe`/`#announce` fragment comes off first: a target has no PREFIX
+// vocabulary but it does carry a fragment, and comparing the raw string hid a
+// folder's own `<folder>#observe` rows from it (BUGS L82).
 func routeTargetOwned(jwtFolder, target string) bool {
-	return ownsFolder(jwtFolder, target)
+	return ownsFolder(jwtFolder, core.ParseRouteTarget(target).Folder)
 }
 
 // handleRouteGet is the thin get-one REST read (GET /v1/routes/{id}); it has no

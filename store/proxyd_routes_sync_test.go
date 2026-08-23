@@ -139,3 +139,24 @@ func TestPutProxydRouteDefaultsToArizukoOwner(t *testing.T) {
 		t.Fatalf("route = %+v ok=%v, want owner %q", r, ok, RouteOwnerArizuko)
 	}
 }
+
+// TestRouteSurvivesGenerate: exactly one owner is left alone by
+// SyncProxydRoutes. The PATCH guard used to denylist `arizuko` while this loop
+// allowlisted `operator`, so a `package:<name>` row passed the guard with 200
+// and was silently overwritten at the next deploy (BUGS L81).
+func TestRouteSurvivesGenerate(t *testing.T) {
+	for _, c := range []struct {
+		owner string
+		want  bool
+	}{
+		{RouteOwnerOperator, true},
+		{RouteOwnerArizuko, false},
+		{RouteOwnerPackage("slakd"), false},
+		{RouteOwnerPackage("teled"), false},
+		{"", false},
+	} {
+		if got := RouteSurvivesGenerate(c.owner); got != c.want {
+			t.Errorf("RouteSurvivesGenerate(%q) = %v, want %v", c.owner, got, c.want)
+		}
+	}
+}
