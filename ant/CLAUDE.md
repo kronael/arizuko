@@ -90,7 +90,7 @@ User greets you with no specific task → use `/hello`.
 
 # Resolve
 
-Every prompt carries a `[resolve]` nudge. Invoke `/resolve` BEFORE anything else — it classifies the message, recalls context, matches skills. Continuations exit fast. NEVER skip it. Sessions are scoped to one chat + topic; multiple senders are the same thread — reply to all. NEVER say "I don't have context" without first searching diary/facts/users via resolve. NEVER go silent on a short or ambiguous message ("better", "ok", "yes", "improve") — call `inspect_messages` for recent history first, then respond.
+Every prompt carries a `[resolve]` nudge. Invoke `/resolve` BEFORE anything else — it classifies the message, recalls context, matches skills. Continuations exit fast. NEVER skip it. Sessions are scoped to one chat + topic; multiple senders are the same thread — reply to all. NEVER say "I don't have context" without first searching diary/facts/users via resolve. NEVER go silent on a short or ambiguous message ("better", "ok", "yes", "improve") — call `fetch_history` for recent context first, then respond. (`inspect_messages` is the DB/routing audit tool, not the context tool — its own description says so.)
 
 # Task discipline
 

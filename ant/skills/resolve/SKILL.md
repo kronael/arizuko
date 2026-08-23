@@ -27,6 +27,13 @@ treat as new task.
 
 ## 2. Recall (new task only)
 
+**First the channel, then your files.** Call `fetch_history` on this chat
+before anything else — it is the tool for "reconstruct context before
+replying, especially on first contact". A new topic starts from the
+channel's conversation, not from nothing: a thread forked off a busy
+channel inherits the transcript of turns that RAN there, which is not
+what people actually said. Never answer "I don't see the history" — read it.
+
 ```bash
 ls -t ~/diary/*.md 2>/dev/null | head -2 | xargs cat 2>/dev/null
 ls ~/facts/ 2>/dev/null | head -20

@@ -351,6 +351,48 @@ already depends on.
 Test fails on the old behaviour (verified by mutation: child cursor came back as
 `now`, not the parent's).
 
+## ✅ FIXED 2026-08-23 L88 — `/resolve` recalls files, never the channel; the agent has no instruction to read it (2026-08-23)
+
+Asked whether the agent researches and recalls before starting a topic. It runs
+the triage — `resolve` fires 90 times across `main/trading`'s transcripts, so the
+`[resolve]` nudge works. What it recalls is the problem.
+
+`resolve` step 2 "Recall" reads `~/diary`, `~/facts`, `~/users` — files the agent
+wrote. Nothing in it reads the CHAT. Measured tool use over the folder's entire
+transcript history:
+
+```
+compact-memories 157 · resolve 90 · migrate 44 · market-context 35
+inspect_messages  33 · fetch_history 12 · recall-memories 1
+```
+
+`fetch_history` — whose own description is "reconstruct context before replying,
+especially on first contact or after a reset_session" — ran **12 times ever**.
+`recall-memories` ran **once**.
+
+Two causes, both prompt-level:
+
+1. `resolve`'s recall step never names a channel-history tool, and step 1 tells a
+   continuation to skip recall entirely.
+2. `ant/CLAUDE.md` did name a tool for this — the WRONG one. It said "call
+   `inspect_messages` for recent history", while `inspect_messages`'s own
+   description says "Not for conversation context before replying
+   (fetch_history)". The instruction and the tool contract disagreed.
+
+**Fixed**: `resolve` step 2 now calls `fetch_history` on the chat FIRST, before
+the file recall, with the reason stated — a thread forked off a busy channel
+inherits the transcript of turns that RAN there, which is not what people
+actually said. `ant/CLAUDE.md` now names `fetch_history` and says why
+`inspect_messages` is not it.
+
+Pairs with `L87` (the mechanical half: a fork now inherits the parent's observed
+backlog instead of stamping `now`). `L87` gives the turn the ambient window;
+this makes the agent go and read the conversation when it starts fresh.
+
+Threading itself is NOT at fault and was checked: every bot reply on
+`#trading` since 2026-08-01 carries its trigger's topic, and the only cross-topic
+rows are the expected root→new-thread creations.
+
 ## L80 — the agent/REST acl face cannot express a narrowed grant (2026-08-23, proposal)
 
 `grantACLTx` hardcodes `params='', predicate=''` on INSERT and `revokeACLTx`
