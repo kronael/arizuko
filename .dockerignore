@@ -3,6 +3,11 @@ tmp/
 bin/
 refs/
 .ship/
+# 6.2G of subagent worktrees and reference checkouts. `COPY . .` in the build
+# stage takes the whole context, so without these the transfer was 2.8GB and
+# any file written under .claude/ during a session busted the layer cache.
+.claude/
+.refs/
 .diary/
 .git
 ant/node_modules

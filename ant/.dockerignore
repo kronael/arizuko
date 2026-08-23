@@ -1,0 +1,10 @@
+# ant/ is its own build context (ant/Makefile: `docker build -t arizuko-ant .`),
+# so the repo-root .dockerignore does not apply here.
+#
+# node_modules is not merely 521MB of transfer: the Dockerfile runs `npm install`
+# and then `COPY . ./` over the same /app, so a host tree would land on top of
+# the one the image just installed — including the `@latest` Anthropic SDK the
+# line above it deliberately fetches.
+node_modules
+.next
+dist
