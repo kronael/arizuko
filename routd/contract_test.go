@@ -447,17 +447,23 @@ func (d *fakeDeliverer) SendVoice(_, _, _, _ string) (string, error) {
 
 // TestDeliverRow_SkipsBareFolderJid: a system/auto turn (e.g. /migrate) delivers
 // its prose to a bare folder jid (no `platform:` prefix, no channel). deliverRow
-// must SKIP the send — mark the row terminal, no retry — instead of ERROR-spamming
-// a doomed Send that trips the per-folder breaker en masse on a MIGRATION_VERSION
-// bump and blocks real replies for that folder. A real channel jid still delivers.
+// must SKIP the send — no retry — instead of ERROR-spamming a doomed Send that
+// trips the per-folder breaker en masse on a MIGRATION_VERSION bump and blocks
+// real replies for that folder. A real channel jid still delivers.
+//
+// The row must land `failed`, not `sent`: `sent` records a delivery that never
+// happened, and it hid two operator alerts — one reporting a skills-breaking
+// guard (BUGS L76). `failed` IS the dead-letter state, so the content stays
+// visible on the dead_letters surface. Terminal either way; PendingOutbound
+// selects status='pending' only, so nothing re-sends it.
 func TestDeliverRow_SkipsBareFolderJid(t *testing.T) {
 	dl := &fakeDeliverer{platformID: "pid-1"}
 	srv := &Server{deliver: dl}
 
 	row := &core.Message{ID: "out-1", Status: core.MessageStatusPending}
 	srv.deliverRow(TurnContext{Folder: "atlas"}, "atlas", row, "", "")
-	if row.Status != core.MessageStatusSent {
-		t.Fatalf("bare-folder jid: want Status=sent (skipped), got %q", row.Status)
+	if row.Status != core.MessageStatusFailed {
+		t.Fatalf("bare-folder jid: want Status=failed (dead-lettered, not delivered), got %q", row.Status)
 	}
 	if dl.sends != 0 {
 		t.Fatalf("bare-folder jid must NOT call Send, got %d", dl.sends)

@@ -298,12 +298,21 @@ func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message, threa
 	}
 	// A bare-folder jid (no `platform:` prefix) has no channel to deliver to —
 	// a system/auto turn (e.g. /migrate) or a mis-targeted delegation whose prose
-	// is not a user reply. Mark terminal (no poll-loop retry) and skip: an
-	// ERROR-spammed doomed Send tripped the per-folder breaker en masse on every
-	// MIGRATION_VERSION bump, blocking real replies for that folder.
+	// is not a user reply. Skip the Send: an ERROR-spammed doomed Send tripped the
+	// per-folder breaker en masse on every MIGRATION_VERSION bump, blocking real
+	// replies for that folder.
+	//
+	// The row lands `failed`, NOT `sent`. `failed` IS the dead-letter state
+	// (core/types.go) and `delivery_attempts=0` already means "refused
+	// permanently", which is exactly this case — so the content stays visible in
+	// the dead_letters surface instead of recording a delivery that never
+	// happened. Two operator alerts were lost to the `sent` stamp, one of them
+	// reporting a skills-breaking guard (BUGS L76). Nothing re-sends it:
+	// PendingOutbound selects status='pending' only.
 	if !strings.Contains(jid, ":") {
-		row.Status = core.MessageStatusSent
-		slog.Debug("skip deliver: no channel for folder jid", "jid", jid, "folder", tc.Folder)
+		row.Status = core.MessageStatusFailed
+		slog.Warn("no channel for this jid; the message is dead-lettered, not delivered",
+			"jid", jid, "folder", tc.Folder, "msg_id", row.ID)
 		return
 	}
 	if s.deliver == nil {

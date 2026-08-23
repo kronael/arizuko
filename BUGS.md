@@ -149,7 +149,7 @@ overlaps ordinary chatter.
   dies with no user-visible trace at all, which is the fail-loud rule broken on a
   user-facing path.
 
-## L76 — a message no one can receive is stamped `sent` (2026-08-23)
+## ✅ FIXED 2026-08-23 L76 — a message no one can receive is stamped `sent` (2026-08-23)
 
 `routd/turns.go` `deliverRow` skips delivery for a JID with no `:` prefix and
 sets `row.Status = MessageStatusSent`. No channel owns a prefixless JID, so the
@@ -167,10 +167,16 @@ The skip itself is deliberate and documented (it stops breaker spam). Stamping
 reporting a skills-breaking guard. The agent-side twin fails loud
 (`no channel for jid coach`); only the `submit_turn` result path swallows.
 
-**Fix**: stamp a distinct terminal status (`undeliverable`), not `sent` — small,
-honest, no new mechanism. The real fix is proactive-operator delivery via
-`role:operator` routing, which `ARCHITECTURE.md` already lists as unshipped;
-that is a redesign and not proposed here.
+**Fixed**: the row lands `failed`, not `sent`, and the skip logs WARN instead of
+DEBUG. No new status was invented — `failed` IS the dead-letter state and
+`delivery_attempts=0` already means "refused permanently", so the content becomes
+visible on the dead_letters surface the operator already has. Nothing re-sends
+it: `PendingOutbound` selects `status='pending'` only, so the breaker the skip
+was written to protect is untouched.
+
+The real fix is proactive-operator delivery via `role:operator` routing, which
+`ARCHITECTURE.md` already lists as unshipped; that is a redesign and not
+proposed here.
 
 ## L77 — four shipped skills tell the agent to use subagent types the container does not have (2026-08-23)
 
