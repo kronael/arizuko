@@ -234,8 +234,20 @@ func (r *router) fireSplit(ctx context.Context) {
 
 		nextRun := computeNextRun(t.Cron, r.tz, t.ID)
 		status := "active"
-		if nextRun == "" && t.Cron == "" {
+		switch {
+		case nextRun == "" && t.Cron == "":
 			status = "completed"
+		case nextRun == "":
+			// A recurring task whose cron will not parse. Leaving it
+			// ('', 'active') is the one state nothing recovers from: the due
+			// claim compares datetime(next_run), which is NULL for '', so the
+			// row is never claimed again while still reporting itself as
+			// scheduled. sloth and marinade carry 14 such rows, dead since
+			// June and invisible (BUGS L74). A bad cron is a misconfiguration,
+			// not a transient fault, so it stops loudly instead of retrying.
+			status = "error"
+			slog.Error("task cron will not parse; marking it error rather than leaving it active with no next run",
+				"task", t.ID, "cron", t.Cron, "jid", t.ChatJID)
 		}
 		if err := r.reschedule(ctx, t.ID, nextRun, status); err != nil {
 			slog.Error("reschedule task (split)", "task", t.ID, "err", err)

@@ -59,6 +59,143 @@ column, the index and both queries already exist for exactly this.
 Ties: `specs/6/23` (a gateway makes the NUMBER trustworthy; this makes the row
 attributable — orthogonal halves of the same question).
 
+## ✅ FIXED 2026-08-23 L74 — 14 recurring tasks are `active` with no next run, dead since June (2026-08-23)
+
+```
+$ sqlite3 routd.db "SELECT COUNT(*) FROM scheduled_tasks
+                    WHERE status='active' AND COALESCE(cron,'')<>'' AND COALESCE(next_run,'')='';"
+sloth 9 · marinade 5 · krons 0
+```
+
+The due claim is `WHERE status='active' AND datetime(next_run) <= datetime(?)`
+(`store/tasks.go:138`). `datetime('')` is NULL, and `NULL <= …` is NULL, so such
+a row is never claimed again while still reporting itself as scheduled. Nothing
+recomputes `next_run`, so the state has no exit.
+
+`main/content-mem-0..4` were created 2026-05-25 and have **zero** rows in
+`task_run_logs` — that group's memory compaction has never run. sloth `main`'s
+daily and weekly compactions last fired 2026-06-09/15; marinade's whole atlas
+daily set last fired 2026-06-16.
+
+Creation is not the cause: `store.SeedDefaultTasks` writes `next_run = now`
+(`store/tasks.go:269`), and every stranded cron here parses fine. The rows date
+to the June split cutover.
+
+**Fixed, two halves.** Data: the 14 rows were backed up
+(`scratchpad/stranded-tasks-backup.sql`) and given their real next occurrence;
+0 were due on write. Producer: `timed/split.go` could still reach the same state
+— `computeNextRun` returns `""` on a cron parse failure (`timed/main.go:43`) and
+the old code wrote `('', 'active')` for it. A bad cron is a misconfiguration, not
+a transient fault, so it now sets `status='error'` and logs ERROR instead of
+leaving a row that lies about being scheduled.
+
+## L75 — a dispatch failure loses the trigger silently: the retry never retries, and pending mentions get demoted to "observed" (2026-08-23, proposal)
+
+Two faults with one root: a dispatch failure path advances the cursor past the
+work it did not do.
+
+**(a) The retry is a dead promise.** `routd/dispatch.go:449-460` logs
+"scheduling retry 1/3", then returns `(false, false, false, "", nil)`. That shape
+is indistinguishable from "batch handled", so the caller falls through to
+`l.advance(chatJID, last)` at `:144`. The `time.AfterFunc` fires 10s later,
+calls `ResetTurnForRetry` + `Enqueue`, and the re-poll reads `NewMessages` from
+the **already-advanced** cursor — nothing to dispatch. The turn strands `running`
+until `SweepExpiredRunning` (`db.go:964`) flips it to `expired`.
+
+Measured: every retry the fleet logged in 7 days died this way.
+
+```
+marinade 2026-08-21 02:01:00 WARN "turn failed without reply, scheduling retry" retry=1 max=3  (x2)
+turn_context: sched-atlas/general-mem-0@… → expired
+              sched-atlas/search-mem-0@…  → expired
+(no further log line for either turn_id, ever)
+```
+
+The `busy` branch two hundred lines earlier gets this right and says why: "do NOT
+advance the cursor … the batch is re-fed … turn_context stays 'running' so the
+re-dispatch is live" (`:126-135`).
+
+**(b) A pending mention is demoted mid-failure.** During the 2026-08-22 disk-full
+outage a user @-mentioned sloth three times over 1.5h. Each created a turn, each
+spawn failed, the cursor correctly did not advance — and then ordinary chatter
+arrived. `dispatch.go:51` resolves a re-fed batch by `newestUserMsg` alone, so
+the newest non-mention row selected the `#observe` fallthrough route and the
+WHOLE batch, mentions included, was stored `is_observed=1` and the cursor moved
+past it. The three turns were swept to `expired`. No reply, no error notice; the
+next bot contact was 21h later.
+
+```
+1540738584259207179 main/trading 2026-08-22T15:04:58 expired  "@sloth what do you think?"
+1540739822694440980 main/trading 2026-08-22T15:09:53 expired  "@sloth ?"
+1540759670833160263 main/trading 2026-08-22T16:28:45 expired  "@sloth Hi"
+```
+
+This is not outage-specific: any chat with the shipped mention-route +
+observe-fallthrough pair loses pending mentions whenever a dispatch failure
+overlaps ordinary chatter.
+
+**Proposal (needs sign-off — both change dispatch control flow):**
+
+- (a) the retry branch returns the `busy` shape (no advance, re-feed) and drops
+  the `AfterFunc` + `ResetTurnForRetry` entirely: the poll re-feed already IS the
+  retry, exactly as the transport-failure path works. One return value, but it is
+  the dispatch lifecycle, so it is recorded here first.
+- (b) route resolution must not demote a message that already owns a live
+  `turn_context`. Either resolve per-message and split the batch by resolved
+  route (it already splits by sender), or exclude rows with a live turn from the
+  newest-message resolve.
+- Independently of both: `SweepExpiredRunning` expiring a turn with no bot reply
+  must mark its trigger errored and deliver `runFailureNotice`. Today the turn
+  dies with no user-visible trace at all, which is the fail-loud rule broken on a
+  user-facing path.
+
+## L76 — a message no one can receive is stamped `sent` (2026-08-23)
+
+`routd/turns.go` `deliverRow` skips delivery for a JID with no `:` prefix and
+sets `row.Status = MessageStatusSent`. No channel owns a prefixless JID, so the
+row records a delivery that never happened.
+
+```
+sloth  mcp-1786912578405198742  chat=coach                  status=failed attempts=10
+       "/migrate v199→v201 done — but a new guard is breaking skills. Needs operator."
+krons  mcp-1787239846679434451  chat=krons/public/marble     same shape
+later migrate reports to `coach` (08-20/21): status=sent, attempts=0 — delivered nowhere
+```
+
+The skip itself is deliberate and documented (it stops breaker spam). Stamping
+`sent` is the defect: at least two operator alerts are provably lost, one of them
+reporting a skills-breaking guard. The agent-side twin fails loud
+(`no channel for jid coach`); only the `submit_turn` result path swallows.
+
+**Fix**: stamp a distinct terminal status (`undeliverable`), not `sent` — small,
+honest, no new mechanism. The real fix is proactive-operator delivery via
+`role:operator` routing, which `ARCHITECTURE.md` already lists as unshipped;
+that is a redesign and not proposed here.
+
+## L77 — four shipped skills tell the agent to use subagent types the container does not have (2026-08-23)
+
+`ant/skills/sonnet/SKILL.md:8` instructs `ALWAYS use subagent_type: "sonnet"`,
+and `opus/`, `haiku/`, `fable/` say the same for their tiers. The agent container
+has no such types:
+
+```
+sloth transcripts, 7d: 3x  Agent type 'sonnet' not found.
+  Available agents: claude, Explore, general-purpose, Plan, statusline-setup
+```
+
+There is no `ant/agents/` directory, no `.claude/agents/` in group homes, and
+`ant/src/claude.ts` passes no `agents` map to the SDK — only
+`DEFAULT_MODEL='claude-opus-5'`. The skills were synced from the host toolkit
+where those definitions exist; the definitions were not ported.
+
+Every tier dispatch therefore runs at the parent's model and effort instead of
+the cheaper one the skill promises — a cost leak, unmeasured.
+
+**Fix**: ship the definitions (add `agents` to the SDK options in
+`ant/src/claude.ts`, or seed `.claude/agents/*.md`), which keeps the effort
+pinning the skills promise. Rewriting the four SKILL.md files to use `model:` on
+the default type is the smaller alternative and loses the effort pin.
+
 ## ✅ FIXED 2026-08-23 L71 — the operator's only group delete cascades nothing and writes no audit row (2026-08-23)
 
 Three functions delete a group, and the one an operator can actually run is the
