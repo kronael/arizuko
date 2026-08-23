@@ -107,6 +107,45 @@ refused at webd's ingress (`L5`).
 orphan it guards. It fails the INSERT with a trigger instead; the invariant is
 unchanged.
 
+## ✅ FIXED 2026-08-23 L73 — every agent image shipped the host's stale Anthropic SDK, not the `@latest` it installed (2026-08-23)
+
+`ant/Dockerfile` installs the SDK deliberately and says why:
+
+```dockerfile
+# Anthropic SDK auto-updates to latest on every image build; overrides
+# the version pinned in package-lock.json. ...
+RUN npm install @anthropic-ai/claude-agent-sdk@latest
+COPY . ./
+```
+
+`ant/` is its own build context (`ant/Makefile`: `docker build -t arizuko-ant .`),
+so the repo-root `.dockerignore` never applied to it and there was no
+`ant/.dockerignore`. `COPY . ./` therefore copied the host's 521MB
+`ant/node_modules` straight over `/app/node_modules` — including the SDK the
+line above had just fetched.
+
+Measured before and after adding `ant/.dockerignore`:
+
+```
+host ant/node_modules  → 0.3.153
+image, before          → 0.3.153   (the host's copy won)
+image, after           → 0.3.237   (what @latest actually resolves to)
+```
+
+84 patch versions behind, on every agent turn the fleet has run. Two live turns
+on krons completed on 0.3.237 after the rebuild, so the jump is not itself a
+regression.
+
+**Fixed**: `ant/.dockerignore` excluding `node_modules`, `.next`, `dist`. The
+repo-root `.dockerignore` also gained `.claude/` and `.refs/` — 6.2GB of
+subagent worktrees and reference checkouts that `COPY . .` was transferring on
+every build (2.8GB context) and that busted the layer cache whenever a session
+wrote a file.
+
+Related, NOT fixed: 37 stale subagent worktrees under `.claude/worktrees` (6.2GB)
+that nothing cleans up. Removal is recursive and some may hold uncommitted work —
+operator's call.
+
 ## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, proposal)
 
 `anteval` cases create child groups (`register_group` / `delegate_group`) and
