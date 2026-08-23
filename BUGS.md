@@ -59,6 +59,89 @@ column, the index and both queries already exist for exactly this.
 Ties: `specs/6/23` (a gateway makes the NUMBER trustworthy; this makes the row
 attributable — orthogonal halves of the same question).
 
+## ✅ FIXED 2026-08-23 L71 — the operator's only group delete cascades nothing and writes no audit row (2026-08-23)
+
+Three functions delete a group, and the one an operator can actually run is the
+weakest:
+
+| path | reachable by | cascades | audit |
+| --- | --- | --- | --- |
+| `store.DeleteGroupRow` | `arizuko group rm` | nothing | no |
+| `store.DeleteGroup` | nothing (tests only) | nothing | yes |
+| `routd.DB.DeleteGroup` | `registerGroup` rollback | routes, engagement, tasks | no |
+
+So the L66 cascade shipped on 2026-08-22 lives on a path no operator can invoke,
+and `arizuko group rm <folder>` leaves exactly the wreckage L66 was about:
+routes aimed at a folder that no longer resolves, `chat_reply_state` pinned to
+it, and `scheduled_tasks` timed keeps firing forever (which then reaches onbod
+and mints a pairing token for an unroutable jid — `L67`).
+
+There is no foreign key to fall back on. Neither `routes` nor `scheduled_tasks`
+declares one, and the live DBs run with `foreign_keys=0`:
+
+```
+$ sudo sqlite3 .../krons/store/routd/routd.db "PRAGMA foreign_keys;"
+0
+```
+
+Live damage, measured 2026-08-23:
+
+```
+instance   orphan routes   orphan engagement rows
+krons      0               0
+sloth      0               0
+marinade   1               4
+```
+
+**Fixed**: one renderer. `store.DeleteGroup` now does the whole cascade in ONE
+transaction (a partial cascade IS the orphan state) and stamps the audit row
+through `auditIdentity()`, so a CLI delete is attributed to the operator instead
+of to "system". `routd.DB.DeleteGroup` delegates to it; `DeleteGroupRow` is
+deleted; `arizuko group rm` calls the one function.
+
+`route_tokens` is deliberately NOT cascaded — a token for a deleted target is
+refused at webd's ingress (`L5`).
+
+`TestRegisterGroupRollsBackOnAddRouteError` forced its failure by dropping the
+`routes` table, which then aborted the now-transactional rollback and left the
+orphan it guards. It fails the INSERT with a trigger instead; the invariant is
+unchanged.
+
+## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, proposal)
+
+`anteval` cases create child groups (`register_group` / `delegate_group`) and
+nothing ever deletes them. 31 of krons' 43 groups are eval leftovers:
+
+```
+$ sqlite3 routd.db "SELECT COUNT(*), SUM(folder LIKE 'eval/%') FROM groups;"
+43|31
+```
+
+They are not inert. `routd.checkMigrationVersion` spawns an auto-migrate turn
+per group on every version bump, so each leaked folder bills a real LLM turn
+forever:
+
+```
+$ sqlite3 routd.db "SELECT SUM(cost_cents), COUNT(DISTINCT turn_id) FROM cost_log
+                    WHERE turn_id LIKE 'auto-migrate-eval/%';"
+4538|113
+```
+
+**$45.38 across 113 turns**, for folders that exist only because the harness
+never cleaned up — and it grows by two folders per smoke run. Each also leaves a
+docker network behind (`docker network ls` shows 28 `arizuko_krons_eval-*`).
+
+**Proposal (needs sign-off — anteval gains a write it does not have today):**
+anteval deletes the child groups its run created, at end of run. `L71` makes the
+delete correct; what is missing is a surface — the groups resource registers
+`list` and `register` only (`routd/groups_resource.go:41`), so there is no REST
+or MCP delete for anteval to call. Either register the delete action on that
+resource (one resource, the containment gate it already has), or have anteval
+shell out to `arizuko group rm` on the instance host.
+
+Not in scope here: whether leaked folders should auto-migrate at all. They
+should not, but the cause is the leak, not the migration hook.
+
 ## L70 — spend is recorded on three dimensions and readable on none of them (2026-08-22, proposal)
 
 With `L69` fixed, `cost_log` carries folder, model and user_sub on every row.
