@@ -115,7 +115,7 @@ func (s *Store) DeleteGroup(folder string) error {
 			args []any
 		}{
 			{`DELETE FROM groups WHERE folder = ?`, []any{folder}},
-			{`DELETE FROM routes WHERE target = ? OR target LIKE ?||'#%'`, []any{folder, folder}},
+			{`DELETE FROM routes WHERE ` + groupfolder.SQLSubtree("target", "#"), groupfolder.SubtreeArgs(folder, "#")},
 			{`DELETE FROM chat_reply_state WHERE engaged_folder = ?`, []any{folder}},
 			{`DELETE FROM scheduled_tasks WHERE owner = ?`, []any{folder}},
 		} {

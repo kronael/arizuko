@@ -59,6 +59,41 @@ column, the index and both queries already exist for exactly this.
 Ties: `specs/6/23` (a gateway makes the NUMBER trustworthy; this makes the row
 attributable — orthogonal halves of the same question).
 
+## ✅ FIXED 2026-08-23 L78 — group-delete cascades used SQL `LIKE`, so deleting one folder deleted another's rows (2026-08-23)
+
+Five DELETE statements expressed folder containment as `col = ? OR col LIKE ?||'/%'`.
+SQL `LIKE` is the wrong predicate twice over: it is case-INSENSITIVE for ASCII,
+and `_` and `%` are wildcards. Measured on sqlite 3:
+
+```
+$ DELETE FROM routes WHERE target='a_b' OR target LIKE 'a_b'||'#%';
+  → also deleted axb#observe        (`_` matched `x`)
+$ DELETE FROM routes WHERE target='coach' OR target LIKE 'coach'||'#%';
+  → also deleted Coach#observe      (LIKE folds case)
+```
+
+The case half is not hypothetical: sloth carried a `Coach`/`coach` pair for
+3.5 months (`L66`). The codebase already knew — `routd/db.go:753` avoids LIKE in
+`ListEngaged` for exactly this reason — but the five cascades did not.
+
+`register_group` made the metachar half reachable: it was the ONLY create path
+that skipped `IsValidFolder` (the CLI, dashd, invites and archive import all call
+it), so an agent could create `acme/a_b`. Worse, `registerGroup` git-inits
+`filepath.Join(groupsDir, folder)` and `Join` resolves `..` — a mutation check
+confirms `world/../../etc` registered with `outcome=ok`, because the authz glob
+`world/**` matches the raw string and containment never parses it.
+
+**Fixed.** `groupfolder.SQLSubtree` / `SubtreeArgs` is the SQL twin of
+`groupfolder.Contains` — an exact `substr` comparison with no metacharacters and
+no case folding — and all five sites use it (`store/groups.go`,
+`routd/routes_resource.go`, three in `dashd/groups_admin.go`). No destructive
+`LIKE` remains: `grep "DELETE FROM" | grep LIKE` is empty. `register_group`
+validates the folder. Both are covered by tests that fail on the un-fixed code,
+the SQL one against a real sqlite.
+
+Live blast radius today: zero rows — no metachar or case-variant folder exists on
+any of the three instances.
+
 ## ✅ FIXED 2026-08-23 L74 — 14 recurring tasks are `active` with no next run, dead since June (2026-08-23)
 
 ```

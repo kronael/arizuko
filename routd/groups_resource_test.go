@@ -373,3 +373,39 @@ func trimLastLine(b []byte) []byte {
 	}
 	return s
 }
+
+// TestRegisterGroup_RejectsInvalidFolder: register_group was the only create
+// path that skipped IsValidFolder, and registerGroup git-inits
+// filepath.Join(groupsDir, folder) — Join resolves `..`, so an unvalidated
+// folder seeds a group dir outside the base (BUGS L78).
+
+// TestGroupsMCP_RegisterRejectsInvalidFolder: register_group was the only create
+// path that skipped IsValidFolder (the CLI, dashd, invites and archive import all
+// call it). registerGroup then git-inits filepath.Join(groupsDir, folder), and
+// Join resolves `..`, so an unvalidated folder seeds a group dir outside the base
+// (BUGS L78). The grant is deliberately wide here — this must be refused by
+// validation, not by containment.
+func TestGroupsMCP_RegisterRejectsInvalidFolder(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	groupsDir := t.TempDir()
+	grantMCPTools(t, db, "world", "register_group")
+	sock := serveGroupsMCP(t, db, "world", "folder:world", groupsDir)
+
+	for _, bad := range []string{"world/../../etc", "world/../peer", "world/"} {
+		_, e := callToolText(t, sock, "register_group",
+			map[string]any{"jid": "telegram:901", "folder": bad})
+		if e == "" {
+			t.Errorf("register_group(%q) was accepted", bad)
+		}
+		if db.GroupExists(bad) {
+			t.Errorf("register_group(%q) left a group row", bad)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(groupsDir, "etc")); err == nil {
+		t.Error("a group dir was git-inited outside the groups base")
+	}
+}

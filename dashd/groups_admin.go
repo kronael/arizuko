@@ -447,22 +447,26 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	if _, err := tx.Exec(`DELETE FROM groups WHERE folder LIKE ? || '/%'`, folder); err != nil {
+	if _, err := tx.Exec(
+		`DELETE FROM groups WHERE `+groupfolder.SQLSubtree("folder", "/"),
+		groupfolder.SubtreeArgs(folder, "/")...); err != nil {
 		tx.Rollback()
 		slog.Warn("group delete: purge children", "folder", folder, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
 	if _, err := tx.Exec(
-		`DELETE FROM acl WHERE scope = ? OR scope LIKE ?||'/%'`, folder, folder); err != nil {
+		`DELETE FROM acl WHERE `+groupfolder.SQLSubtree("scope", "/"),
+		groupfolder.SubtreeArgs(folder, "/")...); err != nil {
 		tx.Rollback()
 		slog.Warn("group delete: purge acl", "folder", folder, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
 	if _, err := tx.Exec(
-		`DELETE FROM routes WHERE target = ? OR target LIKE ?||'#%' OR target LIKE ?||'/%'`,
-		folder, folder, folder); err != nil {
+		`DELETE FROM routes WHERE `+groupfolder.SQLSubtree("target", "#")+
+			` OR `+groupfolder.SQLSubtree("target", "/"),
+		append(groupfolder.SubtreeArgs(folder, "#"), groupfolder.SubtreeArgs(folder, "/")...)...); err != nil {
 		tx.Rollback()
 		slog.Warn("group delete: purge routes", "folder", folder, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)

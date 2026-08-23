@@ -343,8 +343,9 @@ func setRoutesTx(ctx context.Context, tx *sql.Tx, folder string, routes []core.R
 			return err
 		}
 	} else if _, err := tx.ExecContext(ctx,
-		`DELETE FROM routes WHERE target = ? OR target LIKE ?||'#%' OR target LIKE ?||'/%'`,
-		folder, folder, folder); err != nil {
+		`DELETE FROM routes WHERE `+groupfolder.SQLSubtree("target", "#")+
+			` OR `+groupfolder.SQLSubtree("target", "/"),
+		append(groupfolder.SubtreeArgs(folder, "#"), groupfolder.SubtreeArgs(folder, "/")...)...); err != nil {
 		return err
 	}
 	for _, r := range routes {

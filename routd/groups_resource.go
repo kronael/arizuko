@@ -31,6 +31,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 )
@@ -84,6 +85,15 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 		gfld := argString(x.Args, "folder")
 		if gfld == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "folder required")
+		}
+		// Every other create path validates (the CLI, dashd, invites, archive
+		// import); this one did not, so it was the single way to get an
+		// unvalidated folder into `groups`. registerGroup then git-inits
+		// filepath.Join(groupsDir, folder), and Join resolves `..` — an agent
+		// whose authz scope admits the target could seed a group dir outside the
+		// base (BUGS L78).
+		if !groupfolder.IsValidFolder(gfld) {
+			return nil, resreg.Errorf(http.StatusBadRequest, "invalid folder %q", gfld)
 		}
 		gr := core.Group{Folder: gfld, AddedAt: time.Now()}
 		if err := s.registerGroup(jid, gr); err != nil {

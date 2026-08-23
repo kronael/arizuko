@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 // Contains reports whether `child` is `parent` or lives under it. This is the
@@ -185,4 +186,27 @@ func resolve(base, folder string) (string, error) {
 		return "", err
 	}
 	return p, nil
+}
+
+// SQLSubtree renders the SQL twin of Contains: a WHERE fragment matching `col`
+// for `folder` itself plus everything below it, separated by sep ("/" between
+// folders, "#" before a route fragment). Pair it with SubtreeArgs, which binds
+// the three placeholders in order.
+//
+// It exists because the cascades hand-wrote `col = ? OR col LIKE ?||'/%'` at
+// five sites, and SQL LIKE is the wrong predicate twice over: it is
+// case-INSENSITIVE for ASCII, and `_` and `%` are wildcards. Measured on
+// sqlite 3: deleting folder `a_b` also deleted `axb`'s rows, and deleting
+// `coach` also deleted `Coach`'s — a live instance HAS carried a `Coach`/`coach`
+// pair (BUGS L66). substr comparison is exact, case-sensitive and has no
+// metacharacters at all.
+func SQLSubtree(col, sep string) string {
+	return "(" + col + " = ? OR substr(" + col + ", 1, ?) = ?)"
+}
+
+// SubtreeArgs returns the three bind values SQLSubtree expects. The length is a
+// RUNE count because sqlite's substr() counts characters, not bytes.
+func SubtreeArgs(folder, sep string) []any {
+	prefix := folder + sep
+	return []any{folder, utf8.RuneCountInString(prefix), prefix}
 }
