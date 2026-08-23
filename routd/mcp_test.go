@@ -134,9 +134,14 @@ func TestRegisterGroupRollsBackOnAddRouteError(t *testing.T) {
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	srv.SetDirs(t.TempDir(), "")
 
-	// Drop routes so PutGroup succeeds but AddRoute fails.
-	if _, err := db.SQL().Exec("DROP TABLE routes"); err != nil {
-		t.Fatalf("drop routes: %v", err)
+	// Fail the route INSERT only. Dropping the table used to be the injection,
+	// but the rollback is store.DeleteGroup, whose cascade deletes from routes
+	// in the same transaction — a missing table aborted the rollback and left
+	// the very orphan this test guards.
+	if _, err := db.SQL().Exec(
+		`CREATE TRIGGER no_routes BEFORE INSERT ON routes
+		 BEGIN SELECT RAISE(ABORT, 'route insert refused'); END`); err != nil {
+		t.Fatalf("install trigger: %v", err)
 	}
 
 	err = srv.registerGroup("telegram:888", core.Group{Folder: "ops"})

@@ -151,42 +151,12 @@ func (d *DB) GroupExists(folder string) bool {
 	return n == 1
 }
 
-// DeleteGroup removes the group, then cascades its routes + engagement so a
-// deleted folder never lingers as a ghost route/engagement target (GB1 L4b).
-// Without the cascade a later message to that route dispatches to a folder with
-// no group row → the ghost guard refuses it (a notice, not a reply). A route
-// carries the folder as `target` or an observe/mode variant `folder#...`; a
-// child folder (`folder/x`) keeps its own routes.
-//
-// The group delete is the hard invariant (returned error). The cascade is
-// best-effort AFTER it: a cascade failure is logged, not fatal — L4a's ghost
-// guard still refuses any leftover route loudly, and the caller (registerGroup's
-// rollback) must be able to remove the orphan group row even if routes is
-// unavailable.
+// DeleteGroup removes a group and cascades every row pointing at it. The
+// cascade, its transaction and its audit row all live in store.DeleteGroup —
+// the ONE delete, shared with the operator's `arizuko group rm`. routd having
+// its own copy is what let the CLI ship a delete with no cascade at all.
 func (d *DB) DeleteGroup(folder string) error {
-	if _, err := d.db.Exec("DELETE FROM groups WHERE folder=?", folder); err != nil {
-		return err
-	}
-	if _, err := d.db.Exec("DELETE FROM routes WHERE target=? OR target LIKE ?||'#%'", folder, folder); err != nil {
-		slog.Warn("DeleteGroup: route cascade failed (L4a backstops the leftover)", "folder", folder, "err", err)
-	}
-	if _, err := d.db.Exec("DELETE FROM chat_reply_state WHERE engaged_folder=?", folder); err != nil {
-		slog.Warn("DeleteGroup: engagement cascade failed", "folder", folder, "err", err)
-	}
-	// Tasks cascade for the same reason routes do, and the miss cost more: a
-	// group's 5 seeded `<folder>-mem-N` rows outlived it, stayed `active`, and
-	// timed kept firing them at a folder that no longer existed. sloth ran
-	// `Coach-mem-0..4` nightly from 2026-05-05 without one of them ever
-	// executing, while the surviving lowercase `coach` group had no
-	// memory-compaction tasks at all; marinade carried the same shape for a
-	// `libtest` group that was simply gone (BUGS L66). Each firing then reached
-	// onbod, which read the unroutable jid as a new account to onboard (L67).
-	// task_run_logs rides the FK it already has on scheduled_tasks(id).
-	if _, err := d.db.Exec("DELETE FROM scheduled_tasks WHERE owner=?", folder); err != nil {
-		slog.Warn("DeleteGroup: task cascade failed; orphan tasks will fire at a folder that no longer exists",
-			"folder", folder, "err", err)
-	}
-	return nil
+	return d.userStore().DeleteGroup(folder)
 }
 
 // GroupConfig returns the per-group model override + the opaque container_config

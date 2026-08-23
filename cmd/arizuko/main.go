@@ -487,7 +487,7 @@ func cmdGroup(args []string) {
 	case "rm":
 		need(args, 3, "arizuko group <instance> rm <folder>")
 		folder := args[2]
-		if err := s.DeleteGroupRow(folder); err != nil {
+		if err := s.DeleteGroup(folder); err != nil {
 			die("Failed: remove group: %v", err)
 		}
 		auditCLI(s, "group rm", []string{folder})

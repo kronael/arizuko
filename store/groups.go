@@ -82,26 +82,48 @@ func (s *Store) PutGroupRow(g core.Group) error {
 	return err
 }
 
-// DeleteGroupRow removes a group without an audit row — the audit-free twin of
-// DeleteGroup, mirroring PutGroupRow. Its one caller, the CLI `group rm`,
-// records the act itself with auditCLI.
-func (s *Store) DeleteGroupRow(folder string) error {
-	_, err := s.db.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
-	return err
-}
-
+// DeleteGroup removes a group AND every row that pointed at it, in one
+// transaction. It is the ONE delete: routd's rollback and the operator's
+// `arizuko group rm` both land here.
+//
+// The cascade is the whole point. A bare `DELETE FROM groups` leaves routes
+// aimed at a folder that no longer resolves, engagement state pinned to it, and
+// scheduled_tasks that timed keeps firing forever — sloth ran `Coach-mem-0..4`
+// nightly from 2026-05-05 without one of them ever executing, and each firing
+// reached onbod, which read the unroutable jid as a new account to onboard
+// (BUGS L66, L67). There are no foreign keys to fall back on: routes and
+// scheduled_tasks declare none, and the live DBs run with foreign_keys=0.
+//
+// One transaction, not four statements: a partial cascade IS the orphan state
+// this exists to prevent. route_tokens is deliberately NOT cascaded — a token
+// for a deleted target is refused at webd's ingress instead (BUGS L5).
 func (s *Store) DeleteGroup(folder string) error {
+	actor, actorSub, surface := s.auditIdentity()
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := tx.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
-		return audit.Event{
+		ev := audit.Event{
 			Category: audit.CategoryMutation,
 			Action:   "group.delete",
-			Actor:    "system",
-			Surface:  audit.SurfaceGateway,
+			Actor:    actor,
+			ActorSub: actorSub,
+			Surface:  surface,
 			Resource: "groups/" + folder,
 			Folder:   folder,
 			Outcome:  audit.OutcomeOK,
-		}, err
+		}
+		for _, q := range []struct {
+			sql  string
+			args []any
+		}{
+			{`DELETE FROM groups WHERE folder = ?`, []any{folder}},
+			{`DELETE FROM routes WHERE target = ? OR target LIKE ?||'#%'`, []any{folder, folder}},
+			{`DELETE FROM chat_reply_state WHERE engaged_folder = ?`, []any{folder}},
+			{`DELETE FROM scheduled_tasks WHERE owner = ?`, []any{folder}},
+		} {
+			if _, err := tx.Exec(q.sql, q.args...); err != nil {
+				return ev, err
+			}
+		}
+		return ev, nil
 	})
 }
 

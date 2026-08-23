@@ -161,3 +161,76 @@ func TestGroupByFolder_IgnoresLeftoverMaxChildren(t *testing.T) {
 		t.Errorf("Timeout = %v, want 90s — a leftover MaxChildren key must not disturb decoding", g.Config.Timeout)
 	}
 }
+
+// TestDeleteGroup_CascadesEveryPointerAtomically pins the ONE delete. The
+// operator's `arizuko group rm` used to call a bare `DELETE FROM groups`
+// (DeleteGroupRow) while routd's rollback called a cascading twin, so the only
+// delete an operator could actually run left routes aimed at a dead folder and
+// scheduled_tasks timed fired forever (BUGS L66/L67). marinade still carries 1
+// orphan route and 4 orphan engagement rows from that path.
+func TestDeleteGroup_CascadesEveryPointerAtomically(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if err := s.PutGroupRow(core.Group{Folder: "doomed", AddedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroupRow(core.Group{Folder: "keeper", AddedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutRouteRow(core.Route{Seq: 0, Match: "room=x", Target: "doomed"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutRouteRow(core.Route{Seq: 1, Match: "room=y", Target: "doomed#observe"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutRouteRow(core.Route{Seq: 2, Match: "room=z", Target: "keeper"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SeedDefaultTasks("doomed", "doomed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SeedDefaultTasks("keeper", "keeper"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteGroup("doomed"); err != nil {
+		t.Fatalf("DeleteGroup: %v", err)
+	}
+
+	for _, c := range []struct {
+		what string
+		sql  string
+		want int
+	}{
+		{"groups", `SELECT COUNT(*) FROM groups WHERE folder='doomed'`, 0},
+		{"routes", `SELECT COUNT(*) FROM routes WHERE target='doomed' OR target LIKE 'doomed#%'`, 0},
+		{"tasks", `SELECT COUNT(*) FROM scheduled_tasks WHERE owner='doomed'`, 0},
+	} {
+		var n int
+		if err := s.DB().QueryRow(c.sql).Scan(&n); err != nil {
+			t.Fatalf("%s: %v", c.what, err)
+		}
+		if n != c.want {
+			t.Errorf("%s left %d row(s), want %d", c.what, n, c.want)
+		}
+	}
+	// A sibling folder must not be touched: the cascade keys on the exact
+	// folder, and `doomed` is a prefix of nothing here by accident.
+	var kept int
+	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM routes WHERE target='keeper'`).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if kept != 1 {
+		t.Errorf("keeper's route count = %d, want 1", kept)
+	}
+	var keptTasks int
+	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM scheduled_tasks WHERE owner='keeper'`).Scan(&keptTasks); err != nil {
+		t.Fatal(err)
+	}
+	if keptTasks == 0 {
+		t.Error("keeper lost its tasks: the cascade is not scoped to the deleted folder")
+	}
+}
