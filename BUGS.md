@@ -250,6 +250,69 @@ there, so that is the operator's call, not a fix to make silently.
 
 Until then the fleet runs an SDK version no smoke has passed at 9/9.
 
+## L86 — one Discord channel is three sessions, and a triggered message is never ambient for its siblings (2026-08-23, proposal)
+
+Reported from sloth as "before observed worked well, now it's selective and
+unusable" and, in the channel itself, `dont yiu see the history?`.
+
+Measured on sloth's `#trading` channel (`main/trading`), 2026-08-23:
+
+```
+15:58  topic 1541055376747659294   user      15:59 bot replies in that topic
+16:04  topic (root)                user      16:05 bot replies
+18:13  topic 1540726266351722526   user      18:13 bot replies in THAT topic
+18:13  topic 1541055376747659294   user      18:14 bot replies in the OTHER topic
+18:14  topic 1540726266351722526   "dont yiu see the history?"
+```
+
+Three live sessions for one channel — two Discord threads plus the root. Each
+`sessions` row carries its own `session_id` and its own `observed_cursor`, so a
+turn in thread A cannot see a word said in thread B. In the Discord UI the human
+sees one interleaved conversation and the desk answering the wrong thing.
+
+The threads are real: `discd/bot.go:187-200` sets `topic` only when the channel
+IS a thread and rewrites the JID to the parent. Discord names a thread after the
+message it was started from, which is why 57 `sessions` rows on sloth have a
+topic equal to a root message's id. That part is correct.
+
+The gap is what crosses between them. `<observed>` carries `is_observed=1` rows
+only (`specs/5/B`), and a message that TRIGGERED a turn is `is_observed=0` — so
+sibling topics never become ambient for each other by construction. `5/F` made
+the cursor per-`(folder, topic)` for a good reason (topic A used to eat topic B's
+window); nothing was added to let a topic see its siblings' primary traffic.
+
+`observe_group` already implements exactly this shape — "pick up source's
+primary-delivered (`is_observed=0`) messages as ambient" — but only across
+FOLDERS. The same question intra-folder has no answer.
+
+Second, separable finding — the turn envelope's budget is inverted:
+
+```
+total   before_<messages>   conversation
+26476   22085               4391
+22503   21974                529
+22334   22028                306
+22377   22028                349
+```
+
+**22KB of `<episodes>` memory against 349 bytes of conversation.** The agent
+leans on SDK session resume for everything recent, which is why a fresh or
+switched topic reads as amnesia and why replies drift to recalled material
+instead of what was just said. The episodic block is not budgeted against the
+window it shares.
+
+**Proposal (needs sign-off — this changes the prompt-context contract):**
+
+1. A folder's OTHER topics' primary messages become ambient for a turn, capped by
+   the existing `observe_window_*` knobs and tagged so they are distinguishable
+   from same-topic history. This is `observe_group`'s mechanism applied
+   intra-folder, not a new one.
+2. Budget `<episodes>` against `<messages>` rather than emitting it whole: recent
+   conversation must never be the smaller half of its own envelope.
+
+Both are behaviour changes on every turn on every instance, so neither ships
+inline. `5/B` and `5/F` are the specs to amend.
+
 ## L80 — the agent/REST acl face cannot express a narrowed grant (2026-08-23, proposal)
 
 `grantACLTx` hardcodes `params='', predicate=''` on INSERT and `revokeACLTx`
