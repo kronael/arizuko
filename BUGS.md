@@ -54,6 +54,15 @@ adapter and `platform=discord room=<guild>/<chan>` loses the `discord:` half.
 Only a match written `chat_jid=<jid>` ever produced a working destination —
 one route on the fleet, on marinade. Cause 3 was invisible behind cause 2.
 
+**4. And it recorded the non-delivery as delivered.** With no destination the
+`for` loop had nothing to iterate, so control fell through to
+`echo "$latest" > ~/.announced-version`. Every guard on the fleet reads
+`v0.63.0` — the version at which the step last "succeeded" — and two of them
+hold the malformed value `## v0.63.0 — 2026-07-31`. This is `A2` again in a new
+place: `A2` moved the guard write after the sends, but an empty destination list
+walks past the sends without failing. The same `test -n "$jids"` that surfaces
+cause 3 closes this: zero destinations is now an error, so the guard stays put.
+
 Fixed here (v204):
 
 - `Dockerfile` copies `/src/CHANGELOG.md` to `/opt/arizuko/CHANGELOG.md`, next
