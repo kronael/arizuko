@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## L91 — dashd's env page omits ANTHROPIC_OAUTH_TOKEN, and its own test says so (2026-08-24)
+## ✅ FIXED 2026-08-24 L91 — dashd's env page omits ANTHROPIC_OAUTH_TOKEN, and its own test says so (2026-08-24)
 
 `TestMeEnv_HTMLPage` (`dashd/me_env_test.go:420`) iterates `store.EnvProfileKeys`
 and asserts every key renders on `GET /dash/me/env`. It fails:
@@ -23,9 +23,12 @@ set the one credential that backend needs — the same class as
 `reference_runed_model_credentials`, where an omitted canonical key cost the
 fleet-wide `/login` outage.
 
-The test is the fix's own acceptance criterion and already exists, so this is a
-one-place addition wherever the page enumerates keys. Not fixed here — found
-while verifying an unrelated change (`make test` is red on `main`).
+**Fixed 2026-08-24.** The page held a SECOND literal of the same facts
+(`dashd/me_env.go` `envProfileKeyList`), so adding a key to the map could never
+reach it. `envProfileKeyList` is now DERIVED from `store.EnvProfileKeys`, sorted
+for a stable display order — one declaration, two readers, and a key added to the
+map appears on the page by construction. `TestMeEnv_HTMLPage` is the guard and
+passes.
 
 ## L90 — a forked topic clears the observed cursor it just inherited (2026-08-24)
 

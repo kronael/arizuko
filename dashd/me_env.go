@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/kronael/arizuko/audit"
@@ -19,12 +20,21 @@ import (
 // (BUGS F22: POST already carried the pointer, PATCH/DELETE truncated it).
 const notEnvProfileKeySuffix = ": not an env-profile key — use /dash/me/secrets for capability keys"
 
-// envProfileKeyList in display order — fixed list from spec 5/14.
-var envProfileKeyList = []string{
-	"ANTHROPIC_API_KEY",
-	"CLAUDE_CODE_OAUTH_TOKEN",
-	"OPENAI_API_KEY",
-	"CODEX_API_KEY",
+// envProfileKeyList is the page's display order, DERIVED from
+// store.EnvProfileKeys rather than restated. It was a second literal of the
+// same facts, and when `9e55216e` added ANTHROPIC_OAUTH_TOKEN to the map the
+// page silently stopped offering it — so a user on the pi backend had no
+// operator surface for the one credential that backend reads (BUGS L91).
+// Sorted, because a map has no order and a stable page needs one.
+var envProfileKeyList = sortedEnvProfileKeys()
+
+func sortedEnvProfileKeys() []string {
+	out := make([]string, 0, len(store.EnvProfileKeys))
+	for k := range store.EnvProfileKeys {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // listUserEnvKeys returns the caller's env-profile keys that are currently set.
