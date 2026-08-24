@@ -40,6 +40,11 @@ COPY --from=build /src/ant/skills /opt/arizuko/ant/skills
 COPY --from=build /src/ant/CLAUDE.md /opt/arizuko/ant/CLAUDE.md
 COPY --from=build /src/ant/output-styles /opt/arizuko/ant/output-styles
 COPY --from=build /src/template/services /opt/arizuko/template/services
+# The migrate skill's announce step reads the release notes from
+# /opt/arizuko/CHANGELOG.md inside the agent container. It is here because
+# the agent's /opt/arizuko is a copy of THIS path (MaterializeAppSrc), and
+# omitting it made every announce a no-op (BUGS L89).
+COPY --from=build /src/CHANGELOG.md /opt/arizuko/CHANGELOG.md
 WORKDIR /srv/app/home
 # Each daemon exposes /health on :8080 internally. HEALTHCHECK probes it;
 # compose uses `depends_on: service_healthy` to gate startup.

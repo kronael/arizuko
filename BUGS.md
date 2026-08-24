@@ -7,6 +7,60 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L89 — release announcements stopped 2026-07-15: nobody opted in, and the CHANGELOG is not in the image (2026-08-24)
+
+The last release line to reach a real chat is `v0.51.0` on 2026-06-11. Thirteen
+releases have shipped since. `/migrate` itself is healthy — every group but the
+stragglers below is at v203, and each posts a migration report — but step (e),
+the announce, has produced nothing for ten weeks. Two independent causes, either
+one sufficient.
+
+**1. No destination.** `v0.59.0` (2026-07-15, `b3bdccac`) made announcing
+opt-in: step (e) sends only to routes whose target carries the `#announce`
+fragment, and "a group with no `#announce` route announces nowhere". The change
+shipped without tagging anything, and nothing has been tagged since:
+
+```
+krons     52 routes, 0 #announce
+sloth     16 routes, 0 #announce (4 #observe)
+marinade  21 routes, 0 #announce (6 #observe)
+```
+
+Opt-in with an empty opt-in set is off. The `#observe` counts show operators do
+use fragments, so the mechanism works — the release just never asked for one.
+
+**2. Nothing to announce.** Step (e) reads
+`/opt/arizuko/CHANGELOG.md`. That path is right; the file is not there:
+
+```
+$ docker run --rm arizuko-ant:latest head -1 /opt/arizuko/CHANGELOG.md
+head: cannot open '/opt/arizuko/CHANGELOG.md': No such file or directory
+```
+
+The agent's `/opt/arizuko` is `MaterializeAppSrc`'s copy of runed's own
+`/opt/arizuko` (`container/runtime.go:58`), and the `Dockerfile` populated that
+with `ant/skills`, `ant/CLAUDE.md`, `ant/output-styles` and
+`template/services` — no `CHANGELOG.md`. Before the `M1` fix the agent got a
+bind of `HOST_APP_DIR`, the repo root, which does carry it; closing M1's
+dev-tree hole silently closed the announce path with it. Live agents said so
+plainly, and it read as success: *"No CHANGELOG present, so announce is a no-op
+(nothing to announce)"* — `krons eval/etk57vv-priv-grant-g`, 2026-08-22.
+
+Cause 2 is a one-line omission and is FIXED here: `Dockerfile` now copies
+`/src/CHANGELOG.md` to `/opt/arizuko/CHANGELOG.md`, next to the other four,
+because that directory is the agent's whole view of the release.
+
+Cause 1 is operator data on live channels, not code — it needs one route per
+instance tagged `#announce`, which is the operator's call about which channel
+gets release notes. Not done here.
+
+Related, found in the same sweep: eleven groups are frozen below v203 —
+`sloth main/1000` v126, `main/coach` v126, `coach/1000` v126, `main` v170;
+`krons 1000` v170, `mayai/1000` v162, `krons/1000` v162, `share` v165,
+`krons/groups/mayai` v0; `marinade share` v134, `atlas/research` v129. Every
+`1000` folder is stale on both instances, which is a pattern, not eleven
+accidents. Untriaged.
+
 ## L69 — every cost row on the fleet is attributed to nobody: 7188 rows, 0 user subs (2026-08-22)
 
 `cost_log` already carries the three dimensions spend must be sliced by: `folder`
