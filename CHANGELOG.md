@@ -24,6 +24,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `$CODEX_HOME/hooks.json`, and a pi extension loaded with `-e`. Verified end
   to end on codex 0.147.0 — a skill carrying `curl … | bash` is quarantined.
 
+- **Release announcements reach chats again** (BUGS `L89`). They had been silent
+  since 2026-06-11 for four stacked reasons: the image did not carry
+  `CHANGELOG.md`, so the announce step had nothing to read; no route on any
+  instance carried the `#announce` fragment the v0.59.0 opt-in requires; the
+  destination was built by treating a route's `room=` as an address, which it is
+  not (`chat_jid` is the whole JID, `platform`+`room` are its halves); and with
+  no destination the step still stamped `~/.announced-version`, recording the
+  non-delivery as delivered. The image now ships the changelog, the step builds
+  `<platform>:<room>`, and zero destinations is an error instead of a silent
+  success.
+
 ### Changed
 
 - **`Harness.run` takes a turn and nothing else.** Steering was a closure passed
