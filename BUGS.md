@@ -30,7 +30,7 @@ for a stable display order — one declaration, two readers, and a key added to 
 map appears on the page by construction. `TestMeEnv_HTMLPage` is the guard and
 passes.
 
-## L90 — a forked topic clears the observed cursor it just inherited (2026-08-24)
+## ✅ FIXED 2026-08-24 L90 — a stale test, not a fork bug: the assertion outlived the rule it asserted (2026-08-24)
 
 `TestEnsureTopicWithFork_CopiedSessionKeepsForkCursor`
 (`routd/session_fork_test.go:161`) fails on `main`:
@@ -39,15 +39,19 @@ passes.
 observed cursor cleared even though the child inherited the parent transcript
 ```
 
-The child copies the parent's session but not the cursor that says how much of
-that transcript it has already seen, so the fork re-reads history the parent had
-consumed. Same family as `topic_fork_context_loss` (the 11-week blind-first-turn
-bug closed 2026-08-20) — that fix landed the inheritance, and this cursor is the
-half it did not carry.
+**The premise above was wrong** — read the call path before believing it. Nothing
+clears the cursor. `L87` (fixed 2026-08-23, `64aae191`) deliberately replaced
+"a fork stamps observed_cursor=now" with "the child inherits the PARENT's
+cursor", because stamping now discarded the channel's ambient backlog at the
+moment a thread was created. The test asserted the pre-L87 rule
+(`ObservedCursor != ""`) and its fixture gave the parent no cursor, so it
+failed from `64aae191` onward while the code was correct.
 
-Not fixed here — found while verifying an unrelated change. Both L90 and L91
-mean `make test` does not pass on `main` today, so a green run cannot be used as
-evidence for any change until they close.
+**Fixed 2026-08-24** by updating the test, NOT the code — "fix" here would have
+reintroduced `L87`. `TestEnsureTopicWithFork_CopiedSessionKeepsParentCursor`
+now seeds a parent cursor and asserts the child inherits that exact value, and
+a second case pins that a cursorless parent hands down nothing. A test that
+outlives its rule reads as a regression in the code it guards.
 
 ## L89 — release announcements stopped 2026-07-15: nobody opted in, and the CHANGELOG is not in the image (2026-08-24)
 

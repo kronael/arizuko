@@ -144,9 +144,41 @@ func TestEnsureTopicWithFork_NoParentSessionKeepsObservedWindow(t *testing.T) {
 	}
 }
 
-// The mirror case: the child DID inherit the parent transcript, so the fork
-// stamp stands and it does not re-read context the transcript already carries.
-func TestEnsureTopicWithFork_CopiedSessionKeepsForkCursor(t *testing.T) {
+// The mirror case: the child DID inherit the parent transcript, so its cursor
+// survives the fork. The value it keeps is the PARENT's cursor, never `now` —
+// stamping now discarded the channel's ambient backlog at the moment a thread
+// was created, so a new thread opened blind to everything said before it
+// existed (BUGS L87, fixed 64aae191). This test asserted the pre-L87 rule and
+// failed from that commit until 2026-08-24 (BUGS L90).
+func TestEnsureTopicWithFork_CopiedSessionKeepsParentCursor(t *testing.T) {
+	db, loop := newForkLoop(t)
+	folder := "main"
+
+	seedParentSession(t, loop, db, folder, "", "main-uuid", []byte("parent\n"))
+	const parentCursor = "2026-08-24T06:00:00Z"
+	if _, err := db.db.Exec(
+		`UPDATE sessions SET observed_cursor=? WHERE group_folder=? AND topic=?`,
+		parentCursor, folder, ""); err != nil {
+		t.Fatalf("seed parent cursor: %v", err)
+	}
+
+	loop.ensureTopicWithFork(folder, "#deploy", "")
+
+	line, ok := db.TopicLineage(folder, "#deploy")
+	if !ok {
+		t.Fatal("child lineage row missing")
+	}
+	if line.ObservedCursor != parentCursor {
+		t.Errorf("observed cursor = %q, want the parent's %q — a fork inherits the parent's ambient window, and a transcript it copied must not clear it",
+			line.ObservedCursor, parentCursor)
+	}
+}
+
+// A parent with no cursor of its own hands down no cursor. The child still
+// inherited the transcript, so nothing may CLEAR anything here — the empty
+// value is the parent's, and the cold-root path reads the whole trailing
+// window (capped by observe_window_*), which is what a fresh thread wants.
+func TestEnsureTopicWithFork_CursorlessParentHandsDownNothing(t *testing.T) {
 	db, loop := newForkLoop(t)
 	folder := "main"
 
@@ -157,8 +189,8 @@ func TestEnsureTopicWithFork_CopiedSessionKeepsForkCursor(t *testing.T) {
 	if !ok {
 		t.Fatal("child lineage row missing")
 	}
-	if line.ObservedCursor == "" {
-		t.Error("observed cursor cleared even though the child inherited the parent transcript")
+	if line.ObservedCursor != "" {
+		t.Errorf("observed cursor = %q, want empty — the parent had none to hand down", line.ObservedCursor)
 	}
 }
 
