@@ -46,13 +46,26 @@ dev-tree hole silently closed the announce path with it. Live agents said so
 plainly, and it read as success: *"No CHANGELOG present, so announce is a no-op
 (nothing to announce)"* — `krons eval/etk57vv-priv-grant-g`, 2026-08-22.
 
-Cause 2 is a one-line omission and is FIXED here: `Dockerfile` now copies
-`/src/CHANGELOG.md` to `/opt/arizuko/CHANGELOG.md`, next to the other four,
-because that directory is the agent's whole view of the release.
+**3. And the destination it would build is not a JID.** Step (e) read the
+route's `match` and took `room=<r>` as the address to `send` to. `room` is not
+an address: `router.msgField` defines `chat_jid` as the whole JID and
+`platform`+`room` as its two halves, so `room=group/5069669817` reaches no
+adapter and `platform=discord room=<guild>/<chan>` loses the `discord:` half.
+Only a match written `chat_jid=<jid>` ever produced a working destination —
+one route on the fleet, on marinade. Cause 3 was invisible behind cause 2.
 
-Cause 1 is operator data on live channels, not code — it needs one route per
-instance tagged `#announce`, which is the operator's call about which channel
-gets release notes. Not done here.
+Fixed here (v204):
+
+- `Dockerfile` copies `/src/CHANGELOG.md` to `/opt/arizuko/CHANGELOG.md`, next
+  to the other four, because that directory is the agent's whole view of the
+  release.
+- `ant/skills/migrate/SKILL.md` builds the destination as `<platform>:<room>`,
+  uses `chat_jid=` verbatim when present, and **fails** — leaving the guard
+  unadvanced — when a tagged route names no platform. An announce route that
+  resolves to nothing is now an error, not a quiet skip.
+- One route per instance tagged `#announce` (below). `Announce` is read only by
+  `router.Describe` for the `inspect_routing` annotation, so the fragment
+  changes nothing about inbound matching.
 
 Related, found in the same sweep: eleven groups are frozen below v203 —
 `sloth main/1000` v126, `main/coach` v126, `coach/1000` v126, `main` v170;

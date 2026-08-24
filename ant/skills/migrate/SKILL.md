@@ -262,11 +262,18 @@ The link on its own line so chat clients render it as a preview card.
 unique announce destination; skip everything else:
 
 - Consider ONLY routes with `.announce == true` — no announce route → send nothing.
-- Extract the destination JID from that route's `match` (`chat_jid=` or `room=`).
-- **Telegram** (`room=`): one message per unique JID
-- **Slack** (`chat_jid=slack:`): one message per workspace (team ID)
-- **Discord** (`chat_jid=discord:`): one message per server (guild ID)
-- **web:, slink:, wildcards (`*`)**: skip
+- Build the destination JID from that route's `match`. A match names the chat
+  in one of two equivalent ways, because `chat_jid` is the whole JID and
+  `platform`+`room` are its two halves (`router.msgField`):
+  - `chat_jid=<jid>` → that JID
+  - `platform=<p> room=<r>` → `<p>:<r>`
+  - `room=<r>` alone names no platform, so no JID can be built — skipped, and
+    the step fails rather than announcing nowhere. Tag a route that carries
+    `chat_jid=` or `platform=`.
+- **Telegram**: one message per unique JID
+- **Slack** (`slack:`): one message per workspace (team ID)
+- **Discord** (`discord:`): one message per server (guild ID)
+- **web:, slink:, hook:, wildcards (`*`)**: skip
 
 The per-server dedup is a safety net; the operator is expected to tag exactly
 one channel per server.
@@ -280,21 +287,32 @@ guard=~/.announced-version
 mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
 trap 'mcpc @s close' EXIT
 
-jids=$(mcpc @s tools-call inspect_routing | jq -r '
-  .routes[] | select(.announce == true) | .match
-  | (splits(" ")) | select(startswith("chat_jid=") or startswith("room="))
-  | if startswith("room=") then sub("^room=";"")
-    else sub("^chat_jid=";"") end
-  | select((contains("*") or startswith("web:") or startswith("slink:")) | not)
+routes=$(mcpc @s tools-call inspect_routing) \
+  || { echo "route discovery failed — NOT marking $latest announced, retry next run" >&2; exit 1; }
+
+tagged=$(printf '%s' "$routes" | jq '[.routes[] | select(.announce == true)] | length')
+[ "$tagged" = 0 ] && { echo "no #announce route — nothing to announce"; exit 0; }
+
+jids=$(printf '%s' "$routes" | jq -r '
+  .routes[] | select(.announce == true) | .match | [splits(" ")]
+  | (((map(select(startswith("chat_jid="))) | first) // "") | sub("^chat_jid=";"")) as $jid
+  | (((map(select(startswith("platform="))) | first) // "") | sub("^platform=";"")) as $plat
+  | (((map(select(startswith("room="))) | first) // "") | sub("^room=";"")) as $room
+  | if $jid != "" then $jid
+    elif $plat != "" and $room != "" then $plat + ":" + $room
+    else empty end
+  | select((contains("*") or startswith("web:") or startswith("slink:")
+            or startswith("hook:")) | not)
 ' | awk '
     /^slack:/ { key="slack:"substr($0,8,index(substr($0,8),"/")-1) }
     /^discord:/ { key="discord:"substr($0,9,index(substr($0,9),"/")-1) }
     !/^slack:|^discord:/ { key=$0 }
     !seen[key]++ { print }
-  ') || { echo "route discovery failed — NOT marking $latest announced, retry next run" >&2; exit 1; }
+  ')
+
+test -n "$jids" || { echo "$tagged #announce route(s) but no JID could be built (a match with only room= names no platform) — NOT marking $latest announced" >&2; exit 1; }
 
 for jid in $jids; do
-  test -n "$jid" || continue
   mcpc @s tools-call send chatJid:="$jid" text:="$MSG" \
     || { echo "send to $jid failed — NOT marking $latest announced, retry next run" >&2; exit 1; }
 done
