@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -383,9 +384,30 @@ func stringArgs(args map[string]any) map[string]string {
 
 // notifyHeld tells the chat a call is waiting. Delivery failure is logged, not
 // fatal: the row is already recorded and `pending_actions list` still finds it.
+//
+// The notice carries the chat commands AND the deep link to the approvals page,
+// which names WHICH decision while the page's own operator gate names WHO. It is
+// deliberately not a bearer token: this notice lands in the chat the agent
+// shares with its users, so a link that carried the verdict itself would hand
+// the verdict to everyone who can read the chat (spec 6/26 § Gap 3).
 func (s *Server) notifyHeld(t turnMCP, id, tool string) {
-	s.notifyHold(t, "hitl-"+id, fmt.Sprintf(
-		"⏸ %s held for approval (id %s)\n/approve %s   /reject %s", tool, id, id, id))
+	text := fmt.Sprintf("⏸ %s held for approval (id %s)\n/approve %s   /reject %s",
+		tool, id, id, id)
+	if url := s.approvalURL(id); url != "" {
+		text += "\n" + url
+	}
+	s.notifyHold(t, "hitl-"+id, text)
+}
+
+// approvalURL is the operator's browser route to one held call. Empty when
+// WEB_HOST is unset — the chat commands are the whole notice then, rather than a
+// broken link the operator cannot use.
+func (s *Server) approvalURL(id string) string {
+	base := core.PublicBaseURL(s.webHost)
+	if base == "" {
+		return ""
+	}
+	return base + "/dash/approvals/?id=" + url.QueryEscape(id)
 }
 
 // notifyHoldFailed reports a call the gate blocked but could not record. Unlike

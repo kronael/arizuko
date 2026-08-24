@@ -195,3 +195,59 @@ func TestPortalCountsHeldApprovals(t *testing.T) {
 		t.Errorf("portal missing banner %q", want)
 	}
 }
+
+// The deep link routd puts in the held notice (spec 6/26 § Gap 3) names WHICH
+// call. The page moves it to the top of the queue and marks it, so the operator
+// does not read a table to find the row they were sent to.
+func TestApprovalsPage_DeepLinkFocusesRow(t *testing.T) {
+	u := newRoutdUpstream(t)
+	u.respond = `{"pending":[
+		{"id":"aa11","group_folder":"corp/eng","tool":"send_file","status":"held",
+		 "created_at":"2026-08-08T06:00:00Z"},
+		{"id":"bb22","group_folder":"solo","tool":"post","status":"held",
+		 "created_at":"2026-08-08T05:00:00Z"}]}`
+	mux := approvalsDash(t, u)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, asOperator(httptest.NewRequest("GET", "/dash/approvals/?id=bb22", nil)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	held := sectionBetween(t, w.Body.String(), `<h2>Waiting for a verdict</h2>`, "")
+	first, second := strings.Index(held, "solo"), strings.Index(held, "corp/eng")
+	if first < 0 || second < 0 || first > second {
+		t.Errorf("focused row not first: solo at %d, corp/eng at %d\n%s", first, second, held)
+	}
+	if !strings.Contains(held, "&#9654;") {
+		t.Error("focused row carries no marker")
+	}
+}
+
+// An operator who follows the link after someone else voted must be TOLD the
+// verdict is in, not shown a queue that silently lacks the row.
+func TestApprovalsPage_DeepLinkToResolvedRowSaysSo(t *testing.T) {
+	u := newRoutdUpstream(t)
+	u.respond = `{"pending":[
+		{"id":"cd34","group_folder":"solo","tool":"post","status":"approved",
+		 "reviewed_by":"google:op@x","created_at":"2026-08-07T09:00:00Z"}]}`
+	mux := approvalsDash(t, u)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, asOperator(httptest.NewRequest("GET", "/dash/approvals/?id=cd34", nil)))
+	if body := w.Body.String(); !strings.Contains(body, "already has a verdict") {
+		t.Errorf("resolved deep link says nothing:\n%s", body)
+	}
+}
+
+// An expired or unknown id is an error the operator sees, not a blank queue.
+func TestApprovalsPage_DeepLinkToUnknownRowReports(t *testing.T) {
+	u := newRoutdUpstream(t)
+	u.respond = `{"pending":[]}`
+	mux := approvalsDash(t, u)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, asOperator(httptest.NewRequest("GET", "/dash/approvals/?id=zz99", nil)))
+	if body := w.Body.String(); !strings.Contains(body, "no held call with id zz99") {
+		t.Errorf("unknown deep link says nothing:\n%s", body)
+	}
+}

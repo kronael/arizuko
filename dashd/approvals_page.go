@@ -87,11 +87,32 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ?id=<id> is the deep link routd puts in the held notice (spec 6/26 § Gap 3).
+	// It names WHICH decision; the operator gate this page already applies names
+	// WHO. An id that no longer waits is reported, never silently ignored — the
+	// operator followed a link and must learn why the row is not there.
+	focus := r.URL.Query().Get("id")
+	if focus != "" {
+		held = focusFirst(held, focus)
+		if !hasPending(held, focus) {
+			switch {
+			case hasPending(resolved, focus):
+				fmt.Fprint(w, htmlBanner("ok", "call "+esc(focus)+" already has a verdict — it is in Recent verdicts below."))
+			default:
+				fmt.Fprint(w, htmlBanner("err", "no held call with id "+esc(focus)+" — it may have expired."))
+			}
+		}
+	}
+
 	fmt.Fprint(w, `<h2>Waiting for a verdict</h2>`)
 	heldRows := make([][]string, 0, len(held))
 	for _, p := range held {
+		group := folderLink(p.GroupFolder)
+		if p.ID == focus {
+			group = `<span class="status-` + statusOK + `">&#9654;</span> ` + group
+		}
 		heldRows = append(heldRows, []string{
-			folderLink(p.GroupFolder),
+			group,
 			`<code>` + esc(p.Tool) + `</code>`,
 			approvalArgsCell(p.Args),
 			d.chatJIDCell(p.ChatJID),
@@ -242,4 +263,26 @@ func (d *dash) countHeldApprovals() int {
 		return 0
 	}
 	return n
+}
+
+// focusFirst moves the row the deep link names to the top of the queue, so the
+// operator sees it without reading a table. Order is otherwise untouched.
+func focusFirst(rows []pendingRow, id string) []pendingRow {
+	for i, p := range rows {
+		if p.ID == id {
+			out := append([]pendingRow{p}, rows[:i]...)
+			return append(out, rows[i+1:]...)
+		}
+	}
+	return rows
+}
+
+// hasPending reports whether id is in rows.
+func hasPending(rows []pendingRow, id string) bool {
+	for _, p := range rows {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
 }

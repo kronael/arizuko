@@ -125,19 +125,24 @@ ordinary `InboundMsg` on the existing ingest, the way reactions already map
 platform callbacks. Button and typed command converge on the one `/approve`
 parser, consumed before any turn — an approval never burns a model call.
 
-**Gap 3 — in a browser.** Today the only web face is `/dash/approvals/`, which
-is operator-only and needs a dashd session. A link pasted into any channel must
-carry its own authority, so:
+**Gap 3 — in a browser.** `/dash/approvals/` already exists, is operator-gated,
+and already carries the verdict path (`POST /dash/approvals/{id}/resolve`). The
+held notice does not name it, so the operator must know the page is there and
+find the row by eye.
 
-> **`route_tokens.kind = 'approve'`** — a third kind beside `'route'` and
-> `'pair'` ([`5/31`](../5/31-identity-pairing.md) established that a
-> capability link is a route-token kind, not a table of its own). One row per
-> `pending_actions.id`, minted when the hold is recorded, resolution
-> kind-scoped in both directions the way `'pair'` already is, redeemed once,
-> and it authorizes exactly one verdict on exactly one row.
+An earlier draft of this spec proposed `route_tokens.kind = 'approve'` — a
+one-shot bearer bound to one `pending_actions.id`. **Rejected on review.** The
+held notice is delivered INTO THE CHAT the agent shares with its users, so a
+bearer link in that notice hands the verdict to everyone who can read the chat,
+which is precisely what `IsOperator` exists to prevent. `5/35` states the rule
+this breaks: a URL that travels must never carry verb authority. Approving a
+tool call is verb authority.
 
-It grants nothing else — not a session, not a scope, not a second call. This is
-the same discipline as pairing: the link carries a decision, never authority.
+So the token adds nothing an authenticated page does not already have, and the
+fix is the small one: **the notice carries the deep link
+`<WEB_HOST>/dash/approvals/?id=<id>`, and the page focuses that row.** The
+reviewer signs in once through the OAuth the page already requires; the link
+names WHICH decision, the session names WHO. One mechanism, not two.
 
 ## Decision 6 — the reviewer stays the operator in v1
 
@@ -168,11 +173,11 @@ plugin and agent-frontmatter MCP and therefore needs a decision, not a patch.
   never appears in container env or in the tool result.
 - `hold:mcp:github_create_pull_request(repo=kronael/*)` → the call returns
   `{pending:true,id}`, a `pending_actions` row lands `held`, and the notice
-  carries BOTH the `/approve <id>` text and an `approve`-kind link.
-- The link, opened in a browser by someone holding no dashd session, records
-  the verdict; opening it a second time fails.
-- An `approve`-kind token is refused by route delivery, and a `route`-kind
-  token is refused by approval redemption.
+  carries BOTH the `/approve <id>` text and the `/dash/approvals/?id=<id>` link.
+- The link opens the approvals page with that row focused; a non-operator who
+  follows it is refused by the gate the page already applies.
+- With `WEB_HOST` unset the notice still carries the chat commands and no
+  broken URL.
 - The agent re-issues and passes `CheckHold` one-shot; the row's terminal state
   is `released`.
 - `make build && make lint && go test ./... -short` green; tests in the same

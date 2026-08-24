@@ -7,6 +7,45 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L91 — dashd's env page omits ANTHROPIC_OAUTH_TOKEN, and its own test says so (2026-08-24)
+
+`TestMeEnv_HTMLPage` (`dashd/me_env_test.go:420`) iterates `store.EnvProfileKeys`
+and asserts every key renders on `GET /dash/me/env`. It fails:
+
+```
+me_env_test.go:420: html page omits ANTHROPIC_OAUTH_TOKEN
+```
+
+`9e55216e` ("ANTHROPIC_OAUTH_TOKEN forwards to the container (pi's credential
+name)") added the key to `store.EnvProfileKeys` without the dashd page that
+lists them. A user running the pi backend therefore has no operator surface to
+set the one credential that backend needs — the same class as
+`reference_runed_model_credentials`, where an omitted canonical key cost the
+fleet-wide `/login` outage.
+
+The test is the fix's own acceptance criterion and already exists, so this is a
+one-place addition wherever the page enumerates keys. Not fixed here — found
+while verifying an unrelated change (`make test` is red on `main`).
+
+## L90 — a forked topic clears the observed cursor it just inherited (2026-08-24)
+
+`TestEnsureTopicWithFork_CopiedSessionKeepsForkCursor`
+(`routd/session_fork_test.go:161`) fails on `main`:
+
+```
+observed cursor cleared even though the child inherited the parent transcript
+```
+
+The child copies the parent's session but not the cursor that says how much of
+that transcript it has already seen, so the fork re-reads history the parent had
+consumed. Same family as `topic_fork_context_loss` (the 11-week blind-first-turn
+bug closed 2026-08-20) — that fix landed the inheritance, and this cursor is the
+half it did not carry.
+
+Not fixed here — found while verifying an unrelated change. Both L90 and L91
+mean `make test` does not pass on `main` today, so a green run cannot be used as
+evidence for any change until they close.
+
 ## L89 — release announcements stopped 2026-07-15: nobody opted in, and the CHANGELOG is not in the image (2026-08-24)
 
 The last release line to reach a real chat is `v0.51.0` on 2026-06-11. Thirteen

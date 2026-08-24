@@ -412,3 +412,59 @@ func TestHoldGate_UnrecordableHoldBlocksAndReports(t *testing.T) {
 		t.Fatalf("notice must be keyed per turn, got %q", got.idem)
 	}
 }
+
+// The held notice carries the operator's browser route to THIS call (spec 6/26
+// § Gap 3) beside the chat commands. It is a deep link, never a bearer: the
+// notice lands in the chat the agent shares with its users, and the page's own
+// operator gate is what authorizes the verdict.
+func TestNotifyHeld_CarriesApprovalDeepLink(t *testing.T) {
+	d := memDB(t)
+	dl := &recDeliverer{}
+	srv := &Server{db: d, deliver: dl, webHost: "krons.fiu.wtf"}
+	if err := addACLRow(d, core.ACLRow{
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Scope: "atlas", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t9"})
+
+	id, held := gate("mcp:delete", map[string]any{"target": "prod"})
+	if !held || id == "" {
+		t.Fatal("a matching hold rule must suspend the call")
+	}
+	if len(dl.sends) != 1 {
+		t.Fatalf("held call must notify once, got %d sends", len(dl.sends))
+	}
+	text := dl.sends[0].text
+	// A BARE WEB_HOST must still produce a followable URL (the F43 shape).
+	want := "https://krons.fiu.wtf/dash/approvals/?id=" + id
+	if !strings.Contains(text, want) {
+		t.Errorf("notice missing deep link %q:\n%s", want, text)
+	}
+	if !strings.Contains(text, "/approve "+id) {
+		t.Errorf("notice must still carry the chat command:\n%s", text)
+	}
+}
+
+// With WEB_HOST unset there is no URL to hand out, so the notice is the chat
+// commands alone — never a broken link the operator cannot follow.
+func TestNotifyHeld_NoWebHostNoLink(t *testing.T) {
+	d := memDB(t)
+	dl := &recDeliverer{}
+	srv := &Server{db: d, deliver: dl}
+	if err := addACLRow(d, core.ACLRow{
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Scope: "atlas", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t9"})
+
+	if _, held := gate("mcp:delete", map[string]any{"target": "prod"}); !held {
+		t.Fatal("a matching hold rule must suspend the call")
+	}
+	if text := dl.sends[0].text; strings.Contains(text, "/dash/approvals/") {
+		t.Errorf("no WEB_HOST must mean no link:\n%s", text)
+	}
+}
