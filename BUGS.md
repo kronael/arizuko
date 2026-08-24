@@ -53,6 +53,12 @@ now seeds a parent cursor and asserts the child inherits that exact value, and
 a second case pins that a cursorless parent hands down nothing. A test that
 outlives its rule reads as a regression in the code it guards.
 
+The assertion had a TWIN in the integration suite —
+`TestFeature_ForkContinuity/fork-with-parent-session-resumes-a-restamped-copy`
+(`tests/feat_continuity_test.go`), red since `64aae191` for the same reason and
+fixed the same way. One rule change, two suites: grep every assertion of a rule
+before believing one file carries it.
+
 ## L89 — release announcements stopped 2026-07-15: nobody opted in, and the CHANGELOG is not in the image (2026-08-24)
 
 The last release line to reach a real chat is `v0.51.0` on 2026-06-11. Thirteen

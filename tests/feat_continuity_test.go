@@ -83,8 +83,8 @@ func TestFeature_ForkContinuity(t *testing.T) {
 	// that session: the id routd ships to the agent is one ant's guard
 	// accepts, its transcript exists on disk, and the transcript names the
 	// child (a copy still naming the parent is a file two topics claim).
-	// Because the transcript carries the history, the fork keeps its
-	// observed_cursor stamp (the child reads only post-fork ambient context).
+	// Because the transcript carries the history, the fork keeps a cursor —
+	// and the value it keeps is the PARENT's, never `now` (BUGS L87).
 	t.Run("fork-with-parent-session-resumes-a-restamped-copy", func(t *testing.T) {
 		groupsDir := t.TempDir()
 		f := bootFederation(t, func(lc *routd.LoopConfig) { lc.GroupsDir = groupsDir })
@@ -100,6 +100,16 @@ func TestFeature_ForkContinuity(t *testing.T) {
 		parentUUID := core.NewSessionID()
 		if err := f.routdDB.PutSession("demo", "", parentUUID); err != nil {
 			t.Fatal(err)
+		}
+		// The root has read some of the channel's ambient backlog. The fork must
+		// hand that exact cursor down: stamping `now` instead discarded the
+		// backlog at the moment a thread was created, so a new thread opened
+		// blind to everything said before it existed (BUGS L87).
+		const parentCursor = "2026-08-24T06:00:00Z"
+		if _, err := f.routdDB.SQL().Exec(
+			`UPDATE sessions SET observed_cursor=? WHERE group_folder=? AND topic=?`,
+			parentCursor, "demo", ""); err != nil {
+			t.Fatalf("seed parent cursor: %v", err)
 		}
 		projDir := transcriptDir(groupsDir, "demo")
 		if err := os.MkdirAll(projDir, 0o755); err != nil {
@@ -148,8 +158,9 @@ func TestFeature_ForkContinuity(t *testing.T) {
 		if !ok {
 			t.Fatal("no lineage row for the forked topic")
 		}
-		if line.ObservedCursor == "" {
-			t.Fatal("fork with an inherited transcript cleared its observed cursor — the child would re-read the whole ambient window it already holds as transcript")
+		if line.ObservedCursor != parentCursor {
+			t.Fatalf("observed cursor = %q, want the parent's %q — a fork inherits the parent's ambient window, and a transcript it copied must not clear it",
+				line.ObservedCursor, parentCursor)
 		}
 	})
 
