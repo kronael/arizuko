@@ -113,8 +113,13 @@ var ErrSecretNotFound = errors.New("secret not found")
 // container/runner.go:readSecrets(). Folder-scope rows for these keys are
 // rejected at the store layer so the distinction is enforced uniformly.
 var EnvProfileKeys = map[string]struct{}{
-	"ANTHROPIC_API_KEY":       {},
+	"ANTHROPIC_API_KEY": {},
+	// Two names, two readers, one credential. claude reads
+	// CLAUDE_CODE_OAUTH_TOKEN; pi reads ANTHROPIC_OAUTH_TOKEN and prefers it
+	// over the API key. A name absent from this map never reaches a container,
+	// so pi had no credential at all on an instance that holds one.
 	"CLAUDE_CODE_OAUTH_TOKEN": {},
+	"ANTHROPIC_OAUTH_TOKEN":   {},
 	"OPENAI_API_KEY":          {},
 	"CODEX_API_KEY":           {},
 }
