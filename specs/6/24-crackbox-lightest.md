@@ -1,19 +1,21 @@
 ---
 status: shipped
 shipped: 2026-08-18
-depends: [8-crackbox-standalone, 16-daemon-standalone-matrix]
+depends: [16-daemon-standalone-matrix]
 ---
 
 # specs/6/24 — crackbox, lightest
 
-> Shipped 2026-08-18. Supersedes the shared-proxy half of `6/8`. Two
+> Shipped 2026-08-18. Supersedes `6/8` (the shared proxy) and `6/10` (the
+> DNS filter); both were DELETED 2026-08-24 and this spec is now the only
+> record of the shape they described. Two
 > corrections the build forced are marked in place: `--network container:`
 > is an open bypass (measured), and a per-spawn proxy needs `--client` to
 > stop a neighbour borrowing an allowlist it was not granted.
 
-`6/8` ships crackbox as one shared forward proxy holding a registry of
+`6/8` shipped crackbox as one shared forward proxy holding a registry of
 `(source_ip, id, allowlist)` entries, with a transparent mode and an
-admin API. This spec cuts it to the smallest thing that still enforces
+admin API. This spec cut it to the smallest thing that still enforces
 per-folder egress, by removing what only the SHARED model required.
 
 The result is roughly **250–300 lines** and no new dependency. That is
@@ -305,6 +307,7 @@ boring rather than to market them.
 
 ## Ties
 
-`6/8` (the current design this cuts) · `6/9` (`pkg/host`, the other half)
+`6/8`+`6/10` (the design this cut, deleted 2026-08-24) · `6/9` (`pkg/host`,
+the other half)
 · `6/16` (ship one, not seven) · MITM declined (this depends on
 it) · BUGS `L48` (the proposal and its measurements).

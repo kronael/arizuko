@@ -315,6 +315,6 @@ lives.
 
 `6/1` (adoption — publish the contract) · `6/7` (the two environment
 contracts) · `5/1` (`authd` standalone) · `5/7` (`proxyd` standalone) ·
-`6/8` (`crackbox` egress) · `6/9` (`crackbox` KVM) · `6/10` (`crackbox` DNS)
+`6/24` (`egress` per-spawn proxy) · `6/9` (`crackbox` KVM)
 · `6/12` (`mcpfw` firewall) · `5/17` (`resreg` two-face) · `5/A`
 (primitives framing).

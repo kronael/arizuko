@@ -104,7 +104,8 @@ up. The egress proxy needs no database: it verifies the signature and reads
 `claims.egress`. Identity rides the request (`proxy-authorization`), so one
 proxy serves every scope.
 
-**Why this is the answer to `6/8`.** `6/8`'s shared proxy kept a registry of
+**Why this is the answer to the shared proxy.** The design `6/24` replaced
+kept a registry of
 `(source_ip, id, allowlist)` and leaked when an entry was not unregistered.
 `6/24` cut that by giving every spawn its own proxy — correct, and the right
 call at the time. qm shows the shared model is safe when identity is **proved

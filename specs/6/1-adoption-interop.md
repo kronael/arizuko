@@ -103,7 +103,7 @@ example) that the folder coordinate closes for _every_ occupant:
 | Service          | arizuko mechanism                                                      | harness gap it closes                              |
 | ---------------- | ---------------------------------------------------------------------- | -------------------------------------------------- |
 | Keys / secrets   | folder-scoped encryption (`8/E`) + injection at the tool edge (`5/13`) | keys plaintext in the runtime; never host-injected |
-| Egress           | per-agent folder-scoped allowlist + DNS filter (`6/8`, opt-in)         | one global blocklist; no per-tenant egress         |
+| Egress           | per-spawn folder-scoped allowlist (`6/24`, opt-in)                     | one global blocklist; no per-tenant egress         |
 | Identity / authz | folder-containment + grant DSL, injected Gate (`5/17`)                 | admin-vs-user binary; one shared bearer            |
 | Tenant isolation | ephemeral per-turn container per folder                                | one shared long-lived container; users share FS    |
 | Cost / budget    | per-tenant spend gate (`store/cost_log.go`)                            | per-session usage only; no caps                    |

@@ -30,7 +30,7 @@ channel-specific items go there.
 | `F-audit-stream.md`          | proposed `ipc_audit`. Migration `0066` consolidated `ipc_audit` + `cli_audit` into the per-daemon **`audit_log`**, specced in [`../5/I-tool-call-logging.md`](../5/I-tool-call-logging.md). Superseded. |
 | `G-slack-multi-workspace.md` | unbuilt Slack OAuth multi-workspace, and channel-specific by the scope note above — belongs in `slakd/README.md` if it revives.                                                                         |
 | `H-per-daemon-secrets.md`    | claimed `<DAEMON>_CHANNEL_SECRET` had shipped. It never existed (zero code hits), and `CHANNEL_SECRET` itself is retired — adapters now exchange an ES256 service token via `AUTHD_SERVICE_KEY`.        |
-| `Z-egred-mitm.md`            | 593 lines proposing HTTPS-MITM on an `egred` daemon that was never built, premised on `gated`. Its own opening quoted `5/13` _rejecting_ MITM, then reintroduced it. `crackbox` (`6/8`) is the answer.  |
+| `Z-egred-mitm.md`            | 593 lines proposing HTTPS-MITM on an `egred` daemon that was never built, premised on `gated`. Its own opening quoted `5/13` _rejecting_ MITM, then reintroduced it. `crackbox` (`6/24`) is the answer. |
 
 There is no secret-broker spec: `specs/7/Y-secret-broker.md` was folded into
 [`../5/13-ext-mcp.md`](../5/13-ext-mcp.md) (commit `c6a878e4`). Code comments

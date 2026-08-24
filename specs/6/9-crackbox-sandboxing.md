@@ -7,8 +7,8 @@ aka: antbox
 # Crackbox — sandboxing library + egress proxy
 
 > Crackbox is a Go library for KVM/qemu sandbox lifecycle
-> (`crackbox/pkg/host/`), shipped alongside the egress-proxy daemon
-> ([`6/8`](8-crackbox-standalone.md)). It is a library, not a daemon.
+> (`crackbox/pkg/host/`), shipped alongside the per-spawn egress proxy
+> ([`6/24`](24-crackbox-lightest.md)). It is a library, not a daemon.
 > The KVM backend is **not wired into runed yet** — `runed` still
 > spawns via Docker.
 
@@ -37,8 +37,8 @@ runed.Runtime (runed/runtime.go)
                        └── register with the egress proxy
 ```
 
-Crackbox is **a library**. The egress proxy ships as
-`crackbox proxy serve` ([`6/8`](8-crackbox-standalone.md)), its own
+Crackbox is **a library**. The egress proxy ships as the `egress`
+binary runed starts per spawn ([`6/24`](24-crackbox-lightest.md)), its own
 process. A consumer imports `crackbox/pkg/host/` and
 `crackbox/pkg/client/` directly — no intermediate daemon.
 
@@ -54,7 +54,6 @@ crackbox/
     admin/               — proxy admin API server
     client/              — HTTP client for the admin API
     config/              — TOML loader
-    dns/                 — DNS filter ([`6/10`](10-crackbox-dns-filter.md))
     run/                 — `crackbox run` orchestration (network + spawn-and-wait)
 ```
 
@@ -97,9 +96,8 @@ not implemented.
   (best-effort).
 
 There is no auto-spawn of a local proxy from `pkg/host/`; the caller
-supplies a running proxy URL. The shared-proxy deployment (one
-`crackbox proxy serve` across many spawns) is described in
-[`6/8`](8-crackbox-standalone.md).
+supplies a running proxy URL. The shared-proxy deployment this once
+described is gone — `6/24` starts one proxy per spawn.
 
 ## Privileges
 
