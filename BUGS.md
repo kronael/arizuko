@@ -7,6 +7,34 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24, proposal)
+
+`auth.CheckHold` (`auth/authorize.go:392`) logs and returns `false` when
+`policyRows` errors:
+
+```go
+slog.Error("check hold: acl read failed; holding NOTHING", ...)
+return false
+```
+
+Nothing is held, and every `hold:mcp:<tool>` the operator configured stops
+gating until the read recovers. The comment argues it matches "Authorize's
+deny", but it does not: Authorize failing closed REFUSES the call, while
+CheckHold failing "open" LETS IT RUN. The two branches of `5/19` disagree with
+each other, too — a hold that cannot be RECORDED blocks the call anyway
+(`routd.holdGate`, BUGS `J3`), precisely so a storage failure cannot silently
+defeat the gate. A read failure defeats it silently.
+
+Found by an oracle review of the four-verdict design (`specs/6/26` § Decision
+5), not by an incident.
+
+**Proposal, not a fix.** Reversing it means an acl read error blocks every
+held-eligible tool call — an availability decision with a real blast radius,
+and the kind of cross-cutting change `CLAUDE.md` says needs sign-off. The two
+candidate shapes: return an error the ipc layer renders as a blocked call with
+a chat notice (mirrors `J3`), or keep failing open but alert loudly. Whoever
+signs off should also decide whether `5/19`'s two branches must agree.
+
 ## ✅ FIXED 2026-08-24 L91 — dashd's env page omits ANTHROPIC_OAUTH_TOKEN, and its own test says so (2026-08-24)
 
 `TestMeEnv_HTMLPage` (`dashd/me_env_test.go:420`) iterates `store.EnvProfileKeys`
