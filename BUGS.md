@@ -61,7 +61,7 @@ Also structural, and separate: `bskyd`, `reditd` and `linkd` can SEND a reaction
 and can never receive one — no `InboundMsg` is ever built from a like or an
 upvote in those three.
 
-## L94 — `Like` and `Post` skip the capability guard, so an unsupported verb 404s instead of returning Unsupported (2026-08-25)
+## ✅ FIXED 2026-08-25 L94 — `Like` and `Post` skip the capability guard, so an unsupported verb 404s instead of returning Unsupported (2026-08-25)
 
 Every verb in `chanreg/httpchan.go` short-circuits on `HasCap` before it
 touches the network — `delete` (`:382`), `pin` (`:390`), `edit` (`:446`),
@@ -81,6 +81,14 @@ transport error where it should read "this platform does not do that".
 
 Fix: add the two guards, and add `like` and `post` to the test's `checks` map —
 the omission is why the gap survived. **Blocks nothing today; blocks gitd.**
+
+Fixed: both guards added (`chanreg/httpchan.go`), and `like`/`post` added to
+`verb_test.go`'s `checks` map. Three existing tests declared no capabilities and
+so stopped reaching the adapter once the guards landed —
+`TestHTTPChannelPost501JSON`, `TestHTTPChannelPost501Plain` and the
+like-on-missing-target case now advertise the cap, which is what they were
+always testing. `Post501Plain` had been passing for the wrong reason: the guard
+returns `Unsupported` too, masking the 501 decode the test exists to check.
 
 ## L93 — add_acl validates an `allow` row and then writes the requested `deny`, bypassing Delegate's deny ban (2026-08-25)
 

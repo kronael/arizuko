@@ -360,6 +360,9 @@ func (h *HTTPChannel) postVerb(ctx context.Context, verb, endpoint string, body 
 }
 
 func (h *HTTPChannel) Post(ctx context.Context, jid, content string, mediaPaths []string) (string, error) {
+	if !h.entry.HasCap("post") {
+		return "", chanlib.Unsupported("post", h.entry.Name, "adapter does not advertise capability")
+	}
 	body := map[string]any{"chat_jid": jid, "content": content}
 	if len(mediaPaths) > 0 {
 		body["media_paths"] = mediaPaths
@@ -374,6 +377,9 @@ func makeBody(fields map[string]string) []byte {
 }
 
 func (h *HTTPChannel) Like(ctx context.Context, jid, targetID, reaction string) error {
+	if !h.entry.HasCap("like") {
+		return chanlib.Unsupported("like", h.entry.Name, "adapter does not advertise capability")
+	}
 	_, err := h.postVerb(ctx, "like", "/like", makeBody(map[string]string{"chat_jid": jid, "target_id": targetID, "reaction": reaction}))
 	return err
 }

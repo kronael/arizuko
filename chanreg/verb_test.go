@@ -20,7 +20,12 @@ func TestHTTPChannelVerbNoCapUnsupported(t *testing.T) {
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 	ctx := context.Background()
 
+	// `like` and `post` sat outside this map while their guards were missing,
+	// which is why the gap survived (BUGS L94). They are checked first now.
+	_, postErr := ch.Post(ctx, "x:1", "hi", nil)
 	checks := map[string]error{
+		"like":    ch.Like(ctx, "x:1", "m1", "👍"),
+		"post":    postErr,
 		"delete":  ch.Delete(ctx, "x:1", "m1"),
 		"dislike": ch.Dislike(ctx, "x:1", "m1"),
 		"edit":    ch.Edit(ctx, "x:1", "m1", "txt"),
@@ -91,7 +96,8 @@ func TestHTTPChannelLikeMissingTarget(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"}}
+	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"},
+		Capabilities: map[string]bool{"like": true}}
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 
 	if err := ch.Like(context.Background(), "x:1", "gone", "👍"); err == nil {

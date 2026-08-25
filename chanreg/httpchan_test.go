@@ -293,7 +293,10 @@ func TestHTTPChannelPost501JSON(t *testing.T) {
 		w.Write([]byte(`{"ok":false,"error":"unsupported","tool":"post","platform":"x","hint":"use send"}`))
 	}))
 	defer srv.Close()
-	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"}}
+	// The cap must be advertised or L94's guard short-circuits before the
+	// adapter, and this test would assert its own hint instead of the 501's.
+	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"},
+		Capabilities: map[string]bool{"post": true}}
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 	_, err := ch.Post(context.Background(), "x:1", "hi", nil)
 	var ue *chanlib.UnsupportedError
@@ -315,7 +318,10 @@ func TestHTTPChannelPost501Plain(t *testing.T) {
 		w.WriteHeader(501)
 	}))
 	defer srv.Close()
-	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"}}
+	// The cap must be advertised or L94's guard short-circuits before the
+	// adapter, and this test would assert its own hint instead of the 501's.
+	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"},
+		Capabilities: map[string]bool{"post": true}}
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 	_, err := ch.Post(context.Background(), "x:1", "hi", nil)
 	if !errors.Is(err, ErrUnsupported) {
