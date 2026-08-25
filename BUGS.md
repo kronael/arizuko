@@ -7,6 +7,27 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L94 — `Like` and `Post` skip the capability guard, so an unsupported verb 404s instead of returning Unsupported (2026-08-25)
+
+Every verb in `chanreg/httpchan.go` short-circuits on `HasCap` before it
+touches the network — `delete` (`:382`), `pin` (`:390`), `edit` (`:446`),
+`send_voice` (`:210`), eleven in all. Two do not: `Post` (`:362`) and
+`Like` (`:376`) post to the adapter unconditionally.
+
+`chanreg/verb_test.go` exists to pin exactly this rule, and its comment names
+the consequence: "a regression (dropping the HasCap guard) would surface as a
+confusing adapter-side 404 instead of a clean 'platform doesn't support this'
+hint to the agent." Its `checks` map covers delete/dislike/edit/pin/unpin plus
+forward/quote — and omits the two verbs that are actually unguarded.
+
+Today every registered adapter implements both, so nothing fails. It bites the
+first adapter that does not: `specs/17/1`'s gitd advertises `send_text` alone,
+so the agent's `like` on a `git:` JID reaches gitd, 404s, and the agent reads a
+transport error where it should read "this platform does not do that".
+
+Fix: add the two guards, and add `like` and `post` to the test's `checks` map —
+the omission is why the gap survived. **Blocks nothing today; blocks gitd.**
+
 ## L93 — add_acl validates an `allow` row and then writes the requested `deny`, bypassing Delegate's deny ban (2026-08-25)
 
 `auth.Delegate` refuses a deny row outright (`auth/delegate.go:51`):
