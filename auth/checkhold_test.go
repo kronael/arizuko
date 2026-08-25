@@ -163,3 +163,72 @@ func TestCheckHold_SkipApprovalDoesNotDenyTheTool(t *testing.T) {
 		t.Fatal("a skip-approval row must not deny the tool it releases")
 	}
 }
+
+// Production passes the RAW MCP tool name — ipc hands CheckHold
+// `p.Params.Name` ("reply", "add_acl"), and routd prefixes it once
+// (`HoldPrefix + tool`). The cases above use "mcp:delete", which is
+// self-consistent but builds `hold:mcp:mcp:delete` and so would not notice a
+// prefix bug. This one uses the shape production actually sends.
+func TestCheckHold_RawToolNameIsWhatProductionSends(t *testing.T) {
+	s := openMem(t)
+	addRow(t, s, "folder:atlas", HoldPrefix+"reply", "atlas", "allow")
+	c := Caller{Principal: "folder:atlas"}
+	if !CheckHold(s, c, "reply", "atlas", nil) {
+		t.Fatal("a hold on the raw tool name must hold it")
+	}
+	addRowFull(t, s, core.ACLRow{
+		Principal: "folder:atlas", Action: HoldPrefix + "reply",
+		Scope: "atlas", Effect: EffectSkipApproval,
+	})
+	if CheckHold(s, c, "reply", "atlas", nil) {
+		t.Fatal("the skip-approval row must release the raw tool name too")
+	}
+}
+
+// Deny-wins must not depend on row order. The acl read has no ORDER BY, so a
+// test that inserts skip-then-hold proves nothing a first-match implementation
+// would fail; this inserts BOTH orders in two stores and demands one answer.
+func TestCheckHold_SkipWinsInEitherInsertOrder(t *testing.T) {
+	skip := core.ACLRow{
+		Principal: "folder:atlas", Action: HoldPrefix + "deploy",
+		Scope: "atlas", Effect: EffectSkipApproval,
+	}
+	hold := core.ACLRow{
+		Principal: "folder:atlas", Action: HoldPrefix + "deploy",
+		Scope: "atlas", Effect: "allow",
+	}
+	for _, tc := range []struct {
+		name          string
+		first, second core.ACLRow
+	}{
+		{"hold first", hold, skip},
+		{"skip first", skip, hold},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openMem(t)
+			addRowFull(t, s, tc.first)
+			addRowFull(t, s, tc.second)
+			if CheckHold(s, Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) {
+				t.Error("a skip-approval row must win regardless of insert order")
+			}
+		})
+	}
+}
+
+// The skip may be INHERITED: expandPrincipals follows acl_membership, so a role
+// the folder belongs to can carry the exception. Specificity does not exist —
+// an inherited skip beats a directly-held hold, by design.
+func TestCheckHold_InheritedSkipBeatsDirectHold(t *testing.T) {
+	s := openMem(t)
+	addRow(t, s, "folder:atlas", HoldPrefix+"deploy", "atlas", "allow")
+	addRowFull(t, s, core.ACLRow{
+		Principal: "role:release", Action: HoldPrefix + "deploy",
+		Scope: "atlas", Effect: EffectSkipApproval,
+	})
+	if err := s.AddMembership("folder:atlas", "role:release", "test"); err != nil {
+		t.Fatalf("AddMembership: %v", err)
+	}
+	if CheckHold(s, Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) {
+		t.Error("an inherited skip-approval row must release the hold")
+	}
+}

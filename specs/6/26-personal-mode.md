@@ -166,11 +166,16 @@ three are load-bearing, and shipping the buttons without them ships a lie.
    regardless of specificity, and a later, narrower hold cannot restore the
    approval. Revocation is removing the skip-approval row, and the operator
    surface must say so.
-2. **`add_acl` cannot write a shaped row at all.** `grantACLTx`
-   (`routd/acl_resource.go:305`) INSERTs `params` and `predicate` as literal
-   `''`. Every rule this decision writes carries params, so the writer needs a
-   params argument — and `auth.Delegate`'s subset-of-held check must run on the
-   SHAPED row, not on the unshaped one it would otherwise see.
+2. **`add_acl` cannot write a shaped row, and its delegation check is already
+   bypassable.** `grantACLTx` (`routd/acl_resource.go:305`) INSERTs `params`
+   and `predicate` as empty literals, so no rule this decision writes is
+   expressible at all. The same writer carries a shipped defect the same review
+   found: the candidate row handed to `auth.Delegate` hardcodes
+   `Effect: "allow"` (`acl_resource.go:219`) while the INSERT takes the
+   caller's own `effect` argument, so `Delegate`'s outright ban on delegating a
+   deny row (`auth/delegate.go:51`) never sees a deny (BUGS `L93`). Fix both in
+   one pass: the writer must carry `params`, and `Delegate` must judge the row
+   that is actually written — effect included.
 3. **A shaped `never` cannot work yet, so v1 must not offer one.** The hold
    path passes arguments (`stringArgs(args)`), but the authz path does not:
    `authorizeCall(name, nil)` (`ipc/ipc.go:1006`) hands `Authorize` a nil
@@ -180,6 +185,20 @@ three are load-bearing, and shipping the buttons without them ships a lie.
    **v1: `always` may be shaped, `never` is tool-wide only**, and the notice
    states that difference in words. Shaped `never` waits on the authz path
    carrying arguments — its own change, with every tool in its blast radius.
+
+### Revocation needs provenance, and `acl` has none
+
+Undoing `always` is removing the skip-approval row. Undoing `never` is not
+symmetric: remove only the skip row and the tool deny remains, so the call is
+refused and no approval can revive it. Remove both and you may delete a deny
+that existed BEFORE the verdict and means something else — `acl` rows carry no
+verdict identity, so two identical denies are indistinguishable.
+
+So `never` must record which rows its verdict created, and revocation must
+remove exactly those. An operator surface listing raw independent `deny` rows
+is not safe discovery: it cannot show which deny is a verdict and which is
+standing policy. This is the last unresolved piece of the design, and it is why
+`never` does not ship alongside `always`.
 
 ### The predicate is part of the verdict
 

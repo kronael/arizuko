@@ -7,6 +7,46 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L93 — add_acl validates an `allow` row and then writes the requested `deny`, bypassing Delegate's deny ban (2026-08-25)
+
+`auth.Delegate` refuses a deny row outright (`auth/delegate.go:51`):
+
+```go
+if r.Effect == "deny" {
+    return fmt.Errorf("cannot delegate a deny row (%s %s on %s)", ...)
+}
+```
+
+But the gate that calls it builds the candidate row with the effect
+**hardcoded** (`routd/acl_resource.go:219`):
+
+```go
+want := core.ACLRow{..., Effect: "allow"}
+if err := auth.Delegate(...); err != nil { ... }
+```
+
+while the write takes the effect from the caller's arguments —
+`argString(x.Args, "effect")` (`acl_resource.go:161`) straight into
+`grantACLTx`, which INSERTs it (`:305`). So a non-root caller asking for a
+`deny` row is validated as if it asked for an `allow` row, and the ban never
+sees it.
+
+Bounded, not harmless: the caller must already pass
+`authorize(callerSub, target, "mcp:add_acl", nil)` on the target scope, so it
+cannot write outside scopes it administers. Inside them it can write denies it
+was never delegated, and `Authorize` is deny-wins — a deny is a
+capability-removal primitive, so this is an un-delegated power to disable, and
+it can name a principal other than itself.
+
+Found by an oracle review of `specs/6/26`'s writer requirement, not by an
+incident. No live instance is known to have exercised it.
+
+**Fix is one line — pass the requested effect into `want` — but it is an auth
+change and it BLOCKS `6/26` gap 2.2**, which needs this same writer to start
+carrying `params` as well. Do both together, with a test that a non-root
+caller's `effect=deny` is refused, and one that `params` reaches `Delegate`'s
+subset check unshaved.
+
 ## L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24, proposal)
 
 `auth.CheckHold` (`auth/authorize.go:392`) logs and returns `false` when
