@@ -257,7 +257,7 @@ answer is `403`, stated.
 
 **Where the revoke's audit row lands** — BUGS `F15a` listed this as undecided:
 `auth.db`, written by `resreg.invoke` **inside the revoke's own transaction**,
-and visible because [`5/I`](I-audit-trail.md) federated authd's `audit_log` into
+and visible because [`5/I`](I-tool-call-logging.md) federated authd's `audit_log` into
 `/dash/audit/`. The objection at the time — "a revoke recorded only in auth.db
 is invisible on the page that exists to show it" — was true when written and is
 not now, which is what unblocked the endpoint. Taking resreg's standard

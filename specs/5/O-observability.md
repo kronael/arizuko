@@ -1,6 +1,6 @@
 ---
 status: shipped
-depends: [I-tool-call-logging, ../8/F-audit-stream]
+depends: [I-tool-call-logging]
 ---
 
 # specs/5/O — Observability
@@ -26,7 +26,7 @@ emit site. Three pillars, all optional, unset → stderr-only.
   processors drop on overflow and errors are swallowed. Operators who
   can't lose records run a sidecar collector with disk buffering. This is
   why `audit_log` stays SQLite-canonical and is **never** OTLP-exported
-  (`../8/F-audit-stream.md`).
+  (`I-tool-call-logging.md`; `8/F-audit-stream` was deleted as superseded).
 - **Correlation without a distributed tracer.** `turn_id` is only
   per-instance unique (a SQLite PK), so the TraceID is
   `sha256(instance + "/" + turn_id)[:16]` — deterministic, globally
@@ -78,7 +78,6 @@ Non-goals: SIEM webhooks, file rotation, JSONL dumps, custom trace UIs.
 ## Cross-references
 
 - [`I-tool-call-logging.md`](I-tool-call-logging.md) — the slog field
-  schema these records carry.
-- [`../8/F-audit-stream.md`](I-tool-call-logging.md) — `audit_log`, the
-  transactional partner that is NOT exported.
+  schema these records carry, and `audit_log`, the transactional partner
+  that is NOT exported (it absorbed the deleted `8/F-audit-stream`).
 - [`obs/README.md`](../../obs/README.md) — implementation reference.

@@ -1,7 +1,11 @@
 ---
 status: draft
 depends:
-  [../6/7-environment-contracts, ../5/16-daemon-split, ../5/33-paths-roles]
+  [
+    ../6/7-environment-contracts,
+    ../5/16-mcp-rest-unification,
+    ../5/33-paths-roles,
+  ]
 ---
 
 # specs/7/21 — the storage seam
