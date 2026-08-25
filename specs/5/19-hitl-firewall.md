@@ -240,3 +240,8 @@ generic `SendRequest.Options` fold was the vehicle; without it the notice is
 plain text carrying the two commands, which is what the acceptance criterion
 "adapter without `buttons` → numbered text" already describes as correct
 behavior. The gate, the resource and the resolution paths do not depend on it.
+
+That deferral now has an owner: [`6/26`](../6/26-personal-mode.md) § Decision 6
+gap 3 holds the `SendRequest.Options` vehicle and the measured per-adapter cost
+of native render — including the one adapter that cannot have it, which is why
+the text fallback is the specified behavior rather than a placeholder.
