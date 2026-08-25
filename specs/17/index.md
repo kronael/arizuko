@@ -14,18 +14,18 @@ control API; the API ships before the products that depend on it.
 
 ## Specs
 
-| Spec                                             | Status      | Hook                                                                                                                    |
-| ------------------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------- |
-| [A-socials-daemon.md](A-socials-daemon.md)       | planned     | Broadcast platforms leave chanlib for one socials-daemon MCP surface (decision 2026-07-13).                             |
-| [1-git-channel.md](1-git-channel.md)             | draft       | `gitd` adapter — repos as channels, PR/issue/commit as messages, repo = workspace.                                      |
-| [2-support-skill.md](2-support-skill.md)         | draft       | `/support` orchestrator: primary-source citation + multi-turn case threading.                                           |
-| [3-file-event-stream.md](3-file-event-stream.md) | draft       | `filewd` inotify watcher in the agent container → MCP `file_event` → SSE + audit.                                       |
-| [chat-web-app.md](chat-web-app.md)               | draft       | React/Vite chat SPA at `/pub/chat/`; replaces webd's HTMX pages.                                                        |
-| [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain".                                           |
-| [9-positioning.md](9-positioning.md)             | research    | Competitive landscape vs LangGraph/CrewAI/Dify/n8n/managed cloud.                                                       |
-| [→ 5/19-hitl-firewall](../5/19-hitl-firewall.md) | moved       | Pulled into platform core; one `pending_actions` resreg resource + injected `CheckHold`, no dispatcher.                 |
-| [→ 5/28-packages](../5/28-packages.md)           | moved       | Pulled into platform core, then dissolved 2026-08-04: composition folded into `5/28`, state transport pointed at `5/8`. |
-| [→ 5/21-products](../5/21-products.md)           | moved       | Producer-side product spec (PRODUCT.md format, catalog, authoring).                                                     |
+| Spec                                             | Status      | Hook                                                                                                                             |
+| ------------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| [A-socials-daemon.md](A-socials-daemon.md)       | planned     | Broadcast platforms leave chanlib for one socials-daemon MCP surface (decision 2026-07-13).                                      |
+| [2-support-skill.md](2-support-skill.md)         | draft       | `/support` orchestrator: primary-source citation + multi-turn case threading.                                                    |
+| [3-file-event-stream.md](3-file-event-stream.md) | draft       | `filewd` inotify watcher in the agent container → MCP `file_event` → SSE + audit.                                                |
+| [chat-web-app.md](chat-web-app.md)               | draft       | React/Vite chat SPA at `/pub/chat/`; replaces webd's HTMX pages.                                                                 |
+| [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain".                                                    |
+| [9-positioning.md](9-positioning.md)             | research    | Competitive landscape vs LangGraph/CrewAI/Dify/n8n/managed cloud.                                                                |
+| [→ 6/27-git-channel](../6/27-git-channel.md)     | moved       | `gitd` is a channel adapter — platform, not a product; moved 2026-08-25 to the active platform phase, beside its sibling `6/26`. |
+| [→ 5/19-hitl-firewall](../5/19-hitl-firewall.md) | moved       | Pulled into platform core; one `pending_actions` resreg resource + injected `CheckHold`, no dispatcher.                          |
+| [→ 5/28-packages](../5/28-packages.md)           | moved       | Pulled into platform core, then dissolved 2026-08-04: composition folded into `5/28`, state transport pointed at `5/8`.          |
+| [→ 5/21-products](../5/21-products.md)           | moved       | Producer-side product spec (PRODUCT.md format, catalog, authoring).                                                              |
 
 ## Product catalog
 

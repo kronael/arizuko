@@ -75,7 +75,7 @@ hint to the agent." Its `checks` map covers delete/dislike/edit/pin/unpin plus
 forward/quote — and omits the two verbs that are actually unguarded.
 
 Today every registered adapter implements both, so nothing fails. It bites the
-first adapter that does not: `specs/17/1`'s gitd advertises `send_text` alone,
+first adapter that does not: `specs/6/27`'s gitd advertises `send_text` alone,
 so the agent's `like` on a `git:` JID reaches gitd, 404s, and the agent reads a
 transport error where it should read "this platform does not do that".
 

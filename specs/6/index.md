@@ -32,6 +32,7 @@ on-ramp; emulation is rejected.
 | [24-crackbox-lightest.md](24-crackbox-lightest.md)                 | shipped | cut crackbox to one static per-spawn forward proxy (~250-300 lines): no registry, no admin API, no transparent mode, no SNI peek. Splits into `egress/` (what runed runs), `sandbox/` (the KVM library) and `crackbox/` — a LOCAL DEV command, not a shipped component |
 | [25-qm-adoptions.md](25-qm-adoptions.md)                           | draft   | four decisions read out of `yc-software/qm` (MIT, 83k LOC): what arizuko takes, what it declines, and why the composition stays the moat                                                                                                                               |
 | [26-personal-mode.md](26-personal-mode.md)                         | draft   | one human, one terminal, one approval per call: the no-adapter topology, `arizuko talk` over `/chat/<t>/mcp`, GitHub as a connector, MITM vs HITL, and the four verdicts (yes/no/always/never) as `acl` rows — needs deny-wins in `CheckHold`                          |
+| [27-git-channel.md](27-git-channel.md)                             | draft   | `gitd` — a Git host as an ingress-only channel: webhooks → `git:` JIDs, PR/issue = topic, `send_text` the only verb; egress stays the GitHub connector (moved from `17/1` 2026-08-25; blocked by BUGS `L94`)                                                           |
 
 `7` owns the contracts; `1` owns the strategy; `16` owns the map (layers,
 axes, matrices). `9` (crackbox KVM), `24` (the per-spawn egress proxy) and
@@ -39,7 +40,8 @@ axes, matrices). `9` (crackbox KVM), `24` (the per-spawn egress proxy) and
 **Centaur peel** (`paradigmxyz/centaur@20f3021`, Apache-2.0, read
 2026-08-10): `18` and `20` shipped as decision records (decline, costed,
 with reopen triggers); `17` was narrowed twice on 2026-08-15 (signing →
-request tool; vendor-signing transforms declined); `19` is timed, not
+request tool; vendor-signing transforms declined), then declined and
+deleted 2026-08-20 (see the deleted table); `19` is timed, not
 standalone.
 
 ## The plan from here
@@ -66,8 +68,7 @@ themselves argue:
    shared-proxy model, and its consumer-held unregister invariant is a real leak.
    The composition is the product, not the parts.
 4. **Deferred by their own terms**: `19` waits for `5/13` shape 4; `12`
-   (mcpfw) waits for a third-party-MCP consumer; `17` tier 1 (MITM)
-   waits for a consumer tier 0 cannot serve.
+   (mcpfw) waits for a third-party-MCP consumer.
 
 ## Open: this phase holds two different kinds of work
 

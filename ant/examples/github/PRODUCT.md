@@ -8,7 +8,7 @@ skills  = ["diary", "recall-memories", "users", "issues", "oracle", "web"]
 # tools — never through a channel verb, so every repo-changing act passes the
 # hold gate.
 #
-# REQUIRES gitd, which is specced (specs/17/1) and NOT YET BUILT. Until it
+# REQUIRES gitd, which is specced (specs/6/27) and NOT YET BUILT. Until it
 # ships, the egress half works on its own — the github connector gives the
 # agent its gh tools and the hold gate covers them — but nothing delivers repo
 # events, so steps 4 and 6 below have nothing to route.
@@ -21,7 +21,7 @@ skills  = ["diary", "recall-memories", "users", "issues", "oracle", "web"]
 # 3. Enable the github connector so the agent gets the gh tools:
 #      cp template/connectors/github.toml <data-dir>/connectors/
 # 4. Route the repo. One row per level — `**` is NOT a subtree glob and a `**`
-#    row silently matches nothing (specs/17/1 § "no subtree glob"):
+#    row silently matches nothing (specs/6/27 § "no subtree glob"):
 #      arizuko route <inst> add "chat_jid=git:me/proj/pr/* verb=reply"    dev
 #      arizuko route <inst> add "chat_jid=git:me/proj/pr/* verb=message"  dev
 #      arizuko route <inst> add "chat_jid=git:me/proj/pr/*"    dev#observe -s 100

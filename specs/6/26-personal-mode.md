@@ -8,7 +8,7 @@ depends:
     ../5/32-acl-unified,
     ../5/35-hermes-integration,
     ../5/A-primitives-framing,
-    ../17/1-git-channel,
+    27-git-channel,
   ]
 ---
 
@@ -82,12 +82,12 @@ Two shapes exist and they are different products:
   `auth/surrogate/providers/github.toml` supplies the user-consented token
   ([`5/15`](../5/15-surrogate-oauth.md)), so the agent acts as the human rather
   than as a shared PAT. GitHub as a **tool the agent calls**.
-- **`gitd` (draft, [`17/1`](../17/1-git-channel.md)).** GitHub as a **channel
+- **`gitd` (draft, [`6/27`](27-git-channel.md)).** GitHub as a **channel
   that calls the agent** — each repo a folder, each PR and issue a thread. The
   right design for a different want: an agent that watches a repo, not a human
   who asks their agent to open a PR.
 
-Personal mode takes the connector. `17/1` is neither superseded nor folded
+Personal mode takes the connector. `6/27` is neither superseded nor folded
 here.
 
 ## Decision 4 — MITM is declined; HITL is what you want
@@ -333,7 +333,7 @@ Still to build:
 
 ## Out of scope
 
-Repo-as-folder ingest (`17/1`) · per-folder reviewer sets (`5/19`) · TLS
+Repo-as-folder ingest (`6/27`) · per-folder reviewer sets (`5/19`) · TLS
 interception (declined) · a bearer approval link (rejected above) · `mcpfw`
 (`6/12`, waits for a third-party-MCP consumer not brokered through the socket)
 · the model-credential gateway (`6/23`, orthogonal and independently worth
@@ -343,5 +343,5 @@ doing).
 
 `5/19` HITL (the gate) · `5/32` (the `acl` row the four verdicts write) ·
 `5/13`+`5/14`+`5/15` (the credential path) · `5/31` (capability links are token
-kinds) · `5/35` (why not Hermes) · `5/A` decision 6 (the topology) · `17/1`
+kinds) · `5/35` (why not Hermes) · `5/A` decision 6 (the topology) · `6/27`
 (the other GitHub) · BUGS `J14`.

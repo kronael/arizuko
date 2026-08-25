@@ -5,14 +5,14 @@ depends:
     ../5/34-channel-protocol,
     ../5/13-ext-mcp,
     ../5/19-hitl-firewall,
-    ../6/26-personal-mode,
+    26-personal-mode,
     ../5/Q-unified-routing,
     ../5/31-identity-pairing,
     ../5/35-hermes-integration,
   ]
 ---
 
-# specs/17/1 — gitd: a Git host as an ingress channel
+# specs/6/27 — gitd: a Git host as an ingress channel
 
 > A repo's events reach the agent as messages on JIDs the route table already
 > understands. gitd is **ingress only**; everything the agent does BACK to
