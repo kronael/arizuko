@@ -1390,6 +1390,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				}
 				slog.Info(s.name, "folder", folder, "jid", jid)
 				id, err := s.call(vals)
+				// A social verb leaves no `messages` row unless it authors new
+				// content (see `record` above), so without this the mutation
+				// verbs — like/dislike/delete/edit/forward — left NO trace at
+				// all: an agent could delete a message and nothing recorded it.
+				emitSys(s.name, folder, callerSub, auditParams(vals), err)
 				if err != nil {
 					return toolMaybeUnsupported(err)
 				}
@@ -2438,6 +2443,19 @@ func addFacadeTools(srv *server.MCPServer, visible func(name string) bool) {
 // agent to wait for `/approve` on an id nobody can resolve — a user-facing state
 // that is false forever (BUGS J3). That case really did fail, so it returns a
 // JSON-RPC error and the agent surfaces it.
+// auditParams widens a social verb's string args for the audit sink, capping
+// each value so a long `content` cannot bloat every audit_log row.
+func auditParams(vals map[string]string) map[string]any {
+	out := make(map[string]any, len(vals))
+	for k, v := range vals {
+		if len(v) > 200 {
+			v = v[:200] + "…"
+		}
+		out[k] = v
+	}
+	return out
+}
+
 func holdResponse(id any, pendingID, tool string) map[string]any {
 	if pendingID == "" {
 		return map[string]any{
