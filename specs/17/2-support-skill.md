@@ -1,5 +1,6 @@
 ---
-status: draft
+status: shipped
+shipped: 2026-05-11
 ---
 
 # /support skill — verified-answer orchestrator
@@ -24,8 +25,9 @@ recorded field in a results file. The failure modes, all in one exchange:
 - generic helpful-assistant register instead of the group's persona voice.
 
 The existing skills cover research (`/find`), memory (`/recall-memories`),
-and notes (`/facts`). None of them shapes "answer in chat with a
-primary-source citation" — that path is freehand, which is why it failed.
+and notes (`~/facts/`, written via `/find`). None of them shapes "answer in
+chat with a primary-source citation" — that path is freehand, which is why
+it failed.
 
 ## Shape
 
@@ -47,22 +49,37 @@ primary-source citation" — that path is freehand, which is why it failed.
    correction to `/users`, new general knowledge via `/find`, so the next
    case is one grep away.
 
-It is an orchestrator: `/recall-memories`, `/find`, `/facts`, `/users`, and
+It is an orchestrator: `/recall-memories`, `/find`, `/users`, and
 `/oracle` do the work; the skill only sequences them and enforces the
 citation discipline.
+
+## Shipped shape (`ant/skills/support/SKILL.md`, v0.33.26)
+
+Two deltas from the plan above, both additions the first live cases forced:
+
+- **Verify before send** — re-grep the cited source for the entity id AND
+  the claimed value; either grep empty means the answer was derived, and a
+  fifth phase (**Investigate**) re-runs Gather from corrected assumptions
+  or sends an honest "I can't verify this" with the paths checked.
+- The source registry shipped flat, as `~/facts/sources.md` (the Open
+  question below, resolved as "start flat").
+
+Six phases and 112 lines, not four and ≤ 60 — the verify/investigate pair
+is the part of the exchange this spec was written from, so the budget lost.
 
 ## Acceptance
 
 - The 2026-05-09 exchange replayed lands the correct entity, range, and
   status in **one turn** instead of five.
-- The skill stays ≤ 60 lines — orchestration only, no logic duplicated from
-  the skills it calls.
+- The skill stays orchestration only — no logic duplicated from the skills
+  it calls. (The ≤ 60-line budget did not survive verify-before-send; see
+  "Shipped shape".)
 - Its `description:` matches factual-question prompts so `/resolve`
   dispatches it on the first turn.
 
 ## Open
 
-- Source registry format: flat file vs per-entity-type split. Start flat.
+- ~~Source registry format: flat file vs per-entity-type split.~~ Shipped flat (`~/facts/sources.md`).
 - Escalation to a human (when the support product should hand off) belongs
   to the product's `CLAUDE.md`, not the skill.
 - Range cap — enumerating "all 100" can exceed a platform's message limit.

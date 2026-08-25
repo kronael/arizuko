@@ -65,14 +65,17 @@ show. Each needs its own spec before it is work.
 
 1. `arizuko diff <instance>` — what changed in agent config since last
    deploy. Makes "agents as code" tangible to an SRE reviewing a change.
-2. Grant visualization in dashd — an ACL explorer; today it is grep-only.
-   The compliance/audit story needs it.
+2. Grant visualization in dashd — a cross-folder ACL explorer.
+   `/dash/groups/<folder>/grants` shows one folder at a time; the
+   compliance/audit story needs the whole graph.
 3. `inspect_agents` — let an agent discover siblings and children so
    agent-to-agent coordination stops hardcoding paths.
 4. Per-folder git integration — auto-commit agent-written files at session
    end, answering "what did the agent change".
-5. MCP federation — expose the MCP surface beyond the unix socket so
-   external IDE/desktop clients route tools through arizuko.
+5. Agent-tool MCP beyond the unix socket — webd's `/mcp` (JWT) and
+   `/chat/<token>/mcp` already federate chat + operator resources over
+   streamable HTTP, but the agent's tool socket stays local, so an external
+   IDE cannot route tools through arizuko.
 
 ## References
 

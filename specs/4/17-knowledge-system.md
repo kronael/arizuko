@@ -195,8 +195,8 @@ which is worse than a cache miss, because the miss is recoverable.
 This is the contract a knowledge-backed agent's `SYSTEM.md` encodes;
 product templates that ship one live under `ant/examples/<name>/`
 ([`../5/21-products.md`](../5/21-products.md)), not in this spec.
-The codebase-Q&A instance of it is
-[`../17/product-support.md`](../17/index.md).
+The codebase-Q&A instance of it is the `support` product
+(`ant/examples/support/`; catalog in [`../17/index.md`](../17/index.md)).
 
 ### Decided (previously open)
 

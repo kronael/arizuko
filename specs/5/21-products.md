@@ -86,8 +86,9 @@ seed `.claude/`, and chown to UID 1000. It finishes by printing the
 
 Authoring a new product is **filesystem-only — no code changes**:
 `cmdCreate` discovers products by scanning `ant/examples/` at runtime. Add
-the folder, then a spec at `specs/17/product-<name>.md` and a row in
-`specs/17/index.md`.
+the folder; a spec file is earned only by a design decision the template
+cannot express (`specs/17/index.md` § "Product catalog" — the per-product
+spec files were deleted 2026-08-02 for restating their templates).
 
 The seedable catalog is `ant/examples/` itself; public pages render at
 `/pub/arizuko/products/<name>/` when the web layer runs. The two sets

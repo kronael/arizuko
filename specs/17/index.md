@@ -17,9 +17,9 @@ control API; the API ships before the products that depend on it.
 | Spec                                             | Status      | Hook                                                                                                                             |
 | ------------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | [A-socials-daemon.md](A-socials-daemon.md)       | planned     | Broadcast platforms leave chanlib for one socials-daemon MCP surface (decision 2026-07-13).                                      |
-| [2-support-skill.md](2-support-skill.md)         | draft       | `/support` orchestrator: primary-source citation + multi-turn case threading.                                                    |
+| [2-support-skill.md](2-support-skill.md)         | shipped     | `/support` orchestrator: primary-source citation + multi-turn case threading (`ant/skills/support/`, v0.33.26).                  |
 | [3-file-event-stream.md](3-file-event-stream.md) | draft       | `filewd` inotify watcher in the agent container → MCP `file_event` → SSE + audit.                                                |
-| [chat-web-app.md](chat-web-app.md)               | draft       | React/Vite chat SPA at `/pub/chat/`; replaces webd's HTMX pages.                                                                 |
+| [4-chat-web-app.md](4-chat-web-app.md)           | draft       | React/Vite chat SPA at `/pub/chat/`; replaces webd's HTMX pages.                                                                 |
 | [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain".                                                    |
 | [9-positioning.md](9-positioning.md)             | research    | Competitive landscape vs LangGraph/CrewAI/Dify/n8n/managed cloud.                                                                |
 | [→ 6/27-git-channel](../6/27-git-channel.md)     | moved       | `gitd` is a channel adapter — platform, not a product; moved 2026-08-25 to the active platform phase, beside its sibling `6/26`. |
@@ -29,8 +29,8 @@ control API; the API ships before the products that depend on it.
 
 ## Product catalog
 
-The shipped catalog — name, brand, tagline, `facts/` seed — is a table in
-[5/21-products](../5/21-products.md) `## Current catalog`. It is **not**
+The shipped catalog is `ant/examples/` itself — `arizuko products <inst>
+list` enumerates it ([5/21-products](../5/21-products.md)). It is **not**
 restated here. Per-product truth lives in three places, none of which is a
 spec file:
 
@@ -39,9 +39,8 @@ spec file:
 - `template/web/pub/arizuko/products/<name>/` — the public pitch.
 
 A product earns a spec file here only when it carries a design decision
-those three cannot express (none currently)
-(the per-operator credential model and the in-container-vs-connector
-surface choice).
+those three cannot express (none currently — the `github` product's one
+decision, gitd, is a platform spec: [6/27](../6/27-git-channel.md)).
 
 ### Unshipped product ideas
 
@@ -57,12 +56,10 @@ No `ant/examples/` template, no page — intent only, kept as lines:
 
 ### Cross-product blockers
 
-Two unshipped platform features gate three products:
-
-| Blocker                                                 | Blocks           |
-| ------------------------------------------------------- | ---------------- |
-| HITL firewall ([5/19](../5/19-hitl-firewall.md))        | creator, socials |
-| Per-channel rate limits ([11/4](../11/19-cost-caps.md)) | support, socials |
+The HITL firewall ([5/19](../5/19-hitl-firewall.md)) shipped 2026-08-07 and
+no longer blocks `creator`/`socials`. What remains: per-channel budgets
+([11/19](../11/19-cost-caps.md), partial — the mid-turn nudges are unshipped)
+gate `support` and `socials`.
 
 ## Removed in the 2026-08-02 minimization
 
@@ -108,5 +105,5 @@ style but its four distinguishing claims are false against `main`:
   to a 2-char prefix" — **false**. `router/router.go:218` maps
   `"slack": "sl"` explicitly; its own Open item asking for this is done.
 
-The true version of the per-user credential path is documented with code
-pointers are gone with that spec (retired 2026-08-20).
+The corrected per-user credential path was recorded, with code pointers,
+in `product-aws-devops.md` and left with it (retired 2026-08-20).

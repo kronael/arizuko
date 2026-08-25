@@ -26,8 +26,9 @@ into the router — the same broker-connector seam other MCP integrations use
   buttons/HITL prompts.
 - The `socials` product (`ant/examples/socials/`) consumes this daemon, not
   raw adapters.
-- Existing social adapters (mastd/bskyd/twitd/reditd/linkd) migrate under the
-  daemon; the channel-vs-social split becomes explicit in the daemon map.
+- Existing social adapters (bskyd/twitd/reditd/linkd; there is no mastd)
+  migrate under the daemon; the channel-vs-social split becomes explicit in
+  the daemon map.
 
 ## Open (defer to the full spec)
 
