@@ -106,3 +106,60 @@ func TestCheckHold_NilStoreAndEmptyInputs(t *testing.T) {
 		t.Fatal("empty tool should not hold")
 	}
 }
+
+// Spec 6/26 § Decision 5. A skip-approval row (`effect='deny'` on a `hold:`
+// row) is the ONLY way an "always allow this shape" answer can be expressed:
+// it denies the hold, not the tool. Without it CheckHold had no exception at
+// all, and the obvious alternative — an allow row on plain `mcp:<tool>` — is
+// Hazard 1, granting the tool while the hold still fires.
+func TestCheckHold_SkipApprovalRowBeatsMatchingHold(t *testing.T) {
+	s := openMem(t)
+	addRow(t, s, "folder:atlas", HoldPrefix+"mcp:delete", "atlas", "allow")
+	addRowFull(t, s, core.ACLRow{
+		Principal: "folder:atlas", Action: HoldPrefix + "mcp:delete",
+		Scope: "atlas", Effect: EffectSkipApproval, Params: "target=staging",
+	})
+	c := Caller{Principal: "folder:atlas"}
+
+	if CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) {
+		t.Error("the skipped shape must run inline")
+	}
+	if !CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "prod"}) {
+		t.Error("every other shape must still be held")
+	}
+}
+
+// Deny-wins is order-independent and absolute: a broad hold:mcp:* cannot
+// resurrect a shape an exception released. Revocation is removing the
+// skip-approval row, never adding a narrower hold on top.
+func TestCheckHold_BroadHoldDoesNotResurrectSkippedShape(t *testing.T) {
+	s := openMem(t)
+	addRowFull(t, s, core.ACLRow{
+		Principal: "folder:atlas", Action: HoldPrefix + "mcp:delete",
+		Scope: "atlas", Effect: EffectSkipApproval, Params: "target=staging",
+	})
+	addRow(t, s, "folder:atlas", HoldPrefix+"*", "atlas", "allow")
+	c := Caller{Principal: "folder:atlas"}
+
+	if CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) {
+		t.Error("a later broad hold must not override the exception")
+	}
+	if !CheckHold(s, c, "mcp:send", "atlas", nil) {
+		t.Error("hold:mcp:* must still hold a tool the exception does not name")
+	}
+}
+
+// The exception lives in the `hold:` namespace, so it must stay invisible to
+// the allow/deny evaluator: a skip-approval row must never read as a DENIAL of
+// the tool itself, or "always" would silently become "never".
+func TestCheckHold_SkipApprovalDoesNotDenyTheTool(t *testing.T) {
+	s := openMem(t)
+	addRow(t, s, "folder:atlas", "mcp:delete", "atlas", "allow")
+	addRowFull(t, s, core.ACLRow{
+		Principal: "folder:atlas", Action: HoldPrefix + "mcp:delete",
+		Scope: "atlas", Effect: EffectSkipApproval,
+	})
+	if !Authorize(s, Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
+		t.Fatal("a skip-approval row must not deny the tool it releases")
+	}
+}

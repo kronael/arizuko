@@ -371,6 +371,13 @@ func paramsMatch(paramSpec string, params map[string]string) bool {
 // row would silently GRANT the tool it meant to gate (spec 5/19 Hazard 1).
 const HoldPrefix = "hold:mcp:"
 
+// EffectSkipApproval is the effect on a `hold:` row that means "do not hold
+// this shape". It is spelled `deny` because Authorize reads every OTHER value
+// as ALLOW (spec 5/19 Hazard 1), so a third effect name would be the same trap
+// wearing a friendlier word. The constant exists so the wire spelling and the
+// operator-facing wording ("skip approval") cannot drift apart.
+const EffectSkipApproval = "deny"
+
 // CheckHold answers "must this tool call wait for a human?" — a DIRECT scoped
 // read of `hold:mcp:`-prefixed rows, deliberately NOT routed through Authorize.
 // Authorize's action lattice has `*` cover everything and role:operator holds
@@ -379,8 +386,18 @@ const HoldPrefix = "hold:mcp:"
 // wildcard; scope, predicate and params reuse Authorize's own matchers, so
 // there is one predicate language, not two.
 //
-// Deny-wins is not modelled: a hold row is not an authorization, and a row
-// saying "do not hold" is just the absence of a row.
+// Deny-wins IS modelled, and a matching `effect='deny'` row means SKIP
+// APPROVAL — do not hold this shape. It denies the `hold:` action, not the
+// tool, and it is the only way an exception can be expressed: without it the
+// operator's "always allow this shape" has nowhere to live, and the obvious
+// alternative (an allow row on plain `mcp:<tool>`) is Hazard 1 — Authorize
+// reads every non-deny effect as ALLOW, so it would grant the tool while the
+// hold still fired. Every surface calls this "skip approval"; only the wire
+// says `deny` (spec 6/26 § Decision 5).
+//
+// Any matching deny beats every hold rule regardless of specificity or order,
+// so revocation is removing the skip-approval row — a later, narrower hold
+// cannot restore the approval.
 func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[string]string) bool {
 	if s == nil || caller.Principal == "" || tool == "" {
 		return false
@@ -395,6 +412,7 @@ func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[str
 			"principal", caller.Principal, "tool", tool, "err", err)
 		return false
 	}
+	held := false
 	for _, r := range rows {
 		if r.Action != want && r.Action != HoldPrefix+"*" {
 			continue
@@ -408,7 +426,10 @@ func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[str
 		if !paramsMatch(r.Params, params) {
 			continue
 		}
-		return true
+		if r.Effect == EffectSkipApproval {
+			return false
+		}
+		held = true
 	}
-	return false
+	return held
 }
