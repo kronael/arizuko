@@ -7,6 +7,60 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## ✅ FIXED 2026-08-25 L95 — a social mutation verb left no trace anywhere (2026-08-25)
+
+`regSocial` (`ipc/ipc.go:1368`) writes a `messages` row only when the verb sets
+`record`, and the field is deliberately nil for the mutation verbs — the
+comment at `:1362` is right that `like`/`delete`/`edit` mutate existing content
+rather than authoring new content, so a 👍 must not appear in the transcript as
+something the agent said.
+
+But those verbs did not emit an audit row either. `emitSys` had 12 call sites
+(`ipc/ipc.go:1757`…), every one a management tool; no social verb called it. So
+`like`, `dislike`, `delete`, `edit` and `forward` produced no `messages` row and
+no `audit_log` row: the agent could delete or edit a message and nothing
+anywhere recorded that it happened. Confirmed on krons — `audit_log` held zero
+rows for any of them.
+
+Found by a verification pass on reaction delivery, not by an incident.
+
+Fixed at the one `regSocial` site so every social verb is covered by a single
+call rather than a per-verb second path. `auditParams` caps each value at 200
+chars so a long `content` cannot bloat every row. Tests:
+`ipc/social_audit_test.go` pins the ok and error outcomes and the cap.
+
+## L96 — an inbound reaction reaches the DB but never reliably reaches the agent (2026-08-25, proposal)
+
+Inbound reactions are wired end-to-end on the four chat adapters — teled asks
+Telegram for them explicitly (`teled/bot.go:233` `allowed_updates` must NAME
+`message_reaction` or none are sent), discd holds the reaction intents
+(`discd/bot.go:63`), slakd handles `reaction_added` (`slakd/bot.go:444`), whapd
+subscribes to `messages.reaction` (`whapd/src/main.ts:344`). Each builds a real
+`InboundMsg`; `routd.handleMessages` stores it and enqueues it like any message.
+
+What happens next is the defect. A reaction whose `ReplyTo` targets the bot's
+own row is force-promoted to `verb=mention` (`routd/server.go:531`), but a
+reaction on anything else stays `verb=like` and must satisfy the route's own
+`verb=` rule (`router/router.go:328`) — so a group route pinned to
+`verb=mention` route-misses it. Live evidence on krons: five reaction rows have
+ever landed, all Telegram, and in all five the bot's next reply answers the
+user's next TEXT message. No reply ever addresses the reaction.
+
+So a user who reacts 👍 instead of typing gets silence, and the agent cannot
+tell "acknowledged" from "ignored".
+
+**Proposal, not a fix.** The choice is a product decision with real cost: making
+every reaction trigger a turn spends a model call per emoji and invites loops on
+busy groups. The candidate shapes are (a) reactions stay ambient but the agent's
+prompt states that a reaction arrived and on which message, (b) a route-level
+`verb=like` opt-in, or (c) promote only reactions on the bot's own messages —
+which `:531` already half does, via `ReplyTo` rather than authorship. Whoever
+signs off should also say whether a reaction should ever spend a turn on its own.
+
+Also structural, and separate: `bskyd`, `reditd` and `linkd` can SEND a reaction
+and can never receive one — no `InboundMsg` is ever built from a like or an
+upvote in those three.
+
 ## L94 — `Like` and `Post` skip the capability guard, so an unsupported verb 404s instead of returning Unsupported (2026-08-25)
 
 Every verb in `chanreg/httpchan.go` short-circuits on `HasCap` before it
