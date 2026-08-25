@@ -61,11 +61,11 @@ forbids. The cost is uniformity — the agent's generic `like` works on Slack an
 Telegram and returns `Unsupported` on a `git:` JID — and we pay it until
 somebody needs the reaction badly enough to say so.
 
-> **Prerequisite (BUGS `L94`).** `Like` and `Post` are the only two verbs in
-> `chanreg/httpchan.go` with no `HasCap` guard, so today they reach the adapter
-> whatever it advertises. gitd is the first adapter that will not implement
-> them, so the agent would read a 404 transport error where it should read
-> "this platform does not do that". Add the guards before gitd ships.
+> **BUGS `L94` (fixed 2026-08-25).** `Like` and `Post` were the only two verbs
+> in `chanreg/httpchan.go` with no `HasCap` guard, so they reached the adapter
+> whatever it advertised — gitd, the first adapter not implementing them, would
+> have surfaced a 404 transport error where the agent should read "this
+> platform does not do that". The guards exist now; `verb_test.go` pins them.
 
 ## Decision 3 — the JID grammar IS the routing model
 
@@ -216,7 +216,8 @@ state (`facts/`, `diary/`, `users/` keyed to GitHub handles, a repo-specific
 - `github_merge_pull_request` is a connector tool, not a channel verb, and
   `hold:mcp:github_merge_pull_request` suspends it for approval.
 - gitd advertises exactly `send_text`; every other verb returns `Unsupported`
-  without a network call — `like` and `post` included, which is BUGS `L94`.
+  without a network call — `like` and `post` included (guards landed with
+  BUGS `L94`, fixed 2026-08-25).
 
 ## Out of scope
 
