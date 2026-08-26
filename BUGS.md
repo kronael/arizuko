@@ -7,6 +7,66 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## L97 — `/approve` on a held call is a no-op: the re-issue trigger sorts BEHIND the cursor that skips it (2026-08-26, proposal — needs sign-off)
+
+HITL approval never completes in chat. The operator types `/approve <id>`, gets
+`approved <id> (like) — the agent will re-issue it`, and **nothing happens**.
+The held call is never re-issued.
+
+`resolveHoldTx` (`routd/pending_actions.go:270`) writes the re-issue trigger
+with `resolutionMessage`, whose timestamp is `time.Now().UTC()` — nanosecond
+precision. Every message timestamp goes through one renderer,
+`routd/db.go:262`, and that renderer is `time.RFC3339Nano`. **RFC3339Nano
+strips trailing zeros**, so it is not fixed-width: a whole-second time renders
+`2026-08-26T19:06:41Z`, a nanosecond time `2026-08-26T19:06:41.882458214Z`.
+
+The dispatch scan compares that column as a string —
+`store/groups.go:184`, `m.timestamp > COALESCE(c.agent_cursor, '')`. `.` is
+0x2E, `Z` is 0x5A, so the fractional form sorts BEFORE the bare form in the
+same second. The trigger is invisible to the scan that must pick it up, and
+stays invisible forever — the cursor only moves forward.
+
+The collision is the normal case, not a race. `/approve` advances the cursor
+to its own timestamp; adapters store platform timestamps truncated to the
+second (Slack ts `1784213589.114039` lands as `2026-07-16T14:53:09Z`); the
+resolution message is written in the same handler, so it is always in that
+same second, and always carries a fraction.
+
+- **Cost:** every chat-driven HITL approval on every platform. The REST face
+  (`POST /v1/pending_actions/{id}/approve`) runs the same `resolveHoldTx`, so
+  it is broken the same way.
+- **Verified 2026-08-26 on marinade**, `atlas` folder, Slack `#random`, with a
+  real `hold:mcp:like` rule. The hold, the notice, `/approve`, the operator
+  gate and the release all work; only this link is broken:
+
+  ```
+  sqlite> SELECT m.timestamp, c.agent_cursor,
+          (m.timestamp > COALESCE(c.agent_cursor,'')) AS visible
+          FROM messages m LEFT JOIN chats c ON m.chat_jid=c.jid
+          WHERE m.id='hitl-c5a53a20-1787771201882452082';
+  2026-08-26T19:06:41.882458214Z|2026-08-26T19:06:41Z|0
+  ```
+
+  With the trigger delivered by hand instead, `ConsumeApprovedAction` released
+  the call and the 👍 landed on the real Slack message — so the defect is this
+  one comparison, not the HITL design.
+
+- **Cause:** a column used as a sort key is written with a format whose string
+  order is not its time order. One renderer, but the wrong renderer.
+- **Proposed fix (cross-cutting → sign-off):** make `routd/db.go:262` write a
+  fixed-width layout (`2006-01-02T15:04:05.000000000Z07:00`) so string order is
+  time order, plus a migration normalising existing `messages.timestamp` rows.
+  Every other comparison on this column (`routd/db.go:435`, `:938`,
+  `store/groups.go:184`) becomes correct by construction. Same audit is owed to
+  the other RFC3339Nano sort keys — `store/cost_log.go:33`, `store/turns.go:19`,
+  `store/pairing.go:82`.
+- **Rejected:** nudging the resolution timestamp forward a second, or comparing
+  with `datetime()` at each call site — both leave the non-monotonic format in
+  place for the next reader.
+- **Not this bug:** the held notice on marinade carries no `/dash/approvals/`
+  deep link. `approvalURL` landed in `d82ed823` at 18:41 on 2026-08-24; the
+  instance image was built 12:51 the same day. Stale image, not a defect.
+
 ## ✅ FIXED 2026-08-25 L95 — a social mutation verb left no trace anywhere (2026-08-25)
 
 `regSocial` (`ipc/ipc.go:1368`) writes a `messages` row only when the verb sets
