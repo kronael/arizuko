@@ -86,8 +86,32 @@ nothing exercises the approval path end to end.
 Both faces funnel through `resolveHoldTx`, so both carry `L97` identically.
 
 - **Owed:** one integration test that holds a call, resolves it, and asserts the
-  agent re-issues — at the dispatch level, not the unit level; plus
-  `approvals.spec.ts` alongside the other 13.
+  agent re-issues — at the dispatch level, not the unit level.
+
+**Dashboard half CLOSED 2026-08-26.** `tests/dashd-playwright` now covers every
+`/dash/` surface dashd mounts, `approvals.spec.ts` included: 113 passing, up
+from 44 passing and 10 failing. Fixing the suite is what exposed the rest of
+this entry — the harness seeded `store/onbod.db` while dashd reads
+`store/onbod/onbod.db`, hand-copied an invites schema that had drifted to a
+`ref` primary key, and never set `SECRETS_KEY`, so nine failures read as
+product bugs. Four more tests asserted surfaces deleted months earlier (the
+tokens mint form, the profile wording).
+
+Two gaps stay open, both harness-side:
+
+- **The transit guard is never exercised.** `AUTHD_URL` builds dashd's key set,
+  and a non-nil key set turns `guard` on — every request would need a real
+  `service:proxyd` ES256 bearer. The suite therefore tests dashd's own authz
+  and not proxyd's transit proof, and `/dash/authd/` is covered on its
+  unreachable path only. Closing it means minting a transit bearer in
+  `global-setup.ts`.
+- **`dashNavFor` derives "operator" twice.** It reads `X-User-Groups` directly
+  while `callerScope` falls back to an ACL read, so a caller who is an operator
+  by grant but arrives without the header gets the pages and not the links to
+  them. proxyd always stamps the header in production, so this bites tests and
+  any non-proxyd caller, not the live dashboard. The fix — `dashNavFor` calling
+  `d.callerScope` — needs `d` threaded through `pageShell`, which every handler
+  calls, so it is a proposal, not an inline fix.
 - **Also surfaced by the same audit:** `acl_membership` has no create surface
   outside the CLI. `dashd/grants_admin.go:52` renders `acl` rows and only
   consumes `acl_membership`, so an operator cannot add a principal to
