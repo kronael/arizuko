@@ -707,6 +707,29 @@ exists to prevent.
   the container hand ant the key set it injected, so there is one declaration
   and two readers.
 
+## L113 — `container` is red on `main`: an 11th product shipped without its spec count or its catalog pages (2026-08-26, open)
+
+`go test ./container/... -count=1 -short` fails at HEAD, and has nothing to do
+with the execution plane:
+
+```
+--- FAIL: TestProductCorpusPayloadKinds
+    product_seed_test.go:296: corpus size moved: 11 products, spec 5/28 says 10
+--- FAIL: TestProductCatalogMatchesCorpus
+    product_seed_test.go:378: product "github" ships but has no catalog index.html
+    product_seed_test.go:378: product "github" ships but has no catalog setup.html
+```
+
+A `github` product was added to the corpus without bumping the count in
+`specs/5/28` or adding `template/web/pub/.../github/{index,setup}.html`, which
+`template/web/CLAUDE.md` §"Adding a new product" requires.
+
+- **Cost:** the package is red on `main`, so both tests are now noise and cannot
+  catch the next drift — a broken window on the one check that keeps
+  `products list` and the public site in agreement.
+- **Fix (local):** either ship the two catalog pages and bump the spec count, or
+  drop `github` from the corpus. Two failing assertions, one decision.
+
 ## ✅ FIXED 2026-08-25 L95 — a social mutation verb left no trace anywhere (2026-08-25)
 
 `regSocial` (`ipc/ipc.go:1368`) writes a `messages` row only when the verb sets
