@@ -67,6 +67,32 @@ same second, and always carries a fraction.
   deep link. `approvalURL` landed in `d82ed823` at 18:41 on 2026-08-24; the
   instance image was built 12:51 the same day. Stale image, not a defect.
 
+## L98 — HITL's operator surface has no end-to-end test on either face (2026-08-26, open)
+
+`L97` — chat `/approve` never re-issues the held call — survived because
+nothing exercises the approval path end to end.
+
+- **Chat face:** `routd/pending_actions_test.go` covers the hold, the acl rules,
+  the operator gate and `ConsumeApprovedAction` in isolation. No test writes a
+  resolution message and then asserts the dispatch scan picks it up, which is
+  exactly the link `L97` breaks.
+- **REST/dashboard face:** `dashd/approvals_page.go` renders the review queue
+  and a `POST /dash/approvals/{id}/resolve` button. `tests/dashd-playwright/tests/`
+  holds 13 specs — auth, davd, grants, groups, invites, profile, read-only,
+  routes, secrets, services, tasks, tokens — and **none for approvals**. The
+  one operator surface that gates destructive agent actions is the one page with
+  no browser coverage.
+
+Both faces funnel through `resolveHoldTx`, so both carry `L97` identically.
+
+- **Owed:** one integration test that holds a call, resolves it, and asserts the
+  agent re-issues — at the dispatch level, not the unit level; plus
+  `approvals.spec.ts` alongside the other 13.
+- **Also surfaced by the same audit:** `acl_membership` has no create surface
+  outside the CLI. `dashd/grants_admin.go:52` renders `acl` rows and only
+  consumes `acl_membership`, so an operator cannot add a principal to
+  `role:operator` from the dashboard.
+
 ## ✅ FIXED 2026-08-25 L95 — a social mutation verb left no trace anywhere (2026-08-25)
 
 `regSocial` (`ipc/ipc.go:1368`) writes a `messages` row only when the verb sets
