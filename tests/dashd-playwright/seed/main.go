@@ -21,17 +21,22 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
+	"github.com/kronael/arizuko/runed"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
 func main() {
-	var dataDir string
+	var dataDir, onbodMigrations string
 	flag.StringVar(&dataDir, "data", "", "DATA_DIR to seed (required)")
+	flag.StringVar(&onbodMigrations, "onbod-migrations", "onbod/migrations",
+		"directory of onbod's .sql migrations, relative to the repo root")
 	flag.Parse()
 	if dataDir == "" {
 		log.Fatal("seed: -data required")
@@ -58,62 +63,37 @@ func main() {
 	}
 	defer sdb.Close()
 
-	// onbod.db — needed for /dash/invites/. dashd opens it as dbOnbod via
-	// store.OpenOnbod which requires the invites table to exist. onbod is
-	// package main so we can't import it; apply the schema directly.
-	onbodPath := filepath.Join(storeDir, "onbod.db") + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)"
-	onbodDB, err := sql.Open("sqlite", onbodPath)
+	// onbod.db — /dash/invites/ reads it. onbod is package main so the seed
+	// cannot import its opener; it applies onbod's OWN migration files instead
+	// of copying their DDL. A hand-copied schema is a second declaration of a
+	// table onbod already declares, and it had already drifted: invites moved to
+	// a `ref` primary key in 0003 while the copy here still said `token`, so
+	// every invites test failed on "no such column: ref" and read as a product
+	// bug.
+	//
+	// The path comes from store.OwnerDBPath, never filepath.Join: since the
+	// owner-subdir split dashd resolves onbod.db as store/onbod/onbod.db, and a
+	// seed writing store/onbod.db left the page reporting "invites store
+	// unavailable" while the suite still called itself green.
+	onbodFile := store.OwnerDBPath(storeDir, store.OwnerOnbod)
+	if err := os.MkdirAll(filepath.Dir(onbodFile), 0o755); err != nil {
+		log.Fatalf("seed: mkdir onbod dir: %v", err)
+	}
+	onbodDB, err := sql.Open("sqlite",
+		onbodFile+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
 	if err != nil {
 		log.Fatalf("seed: open onbod.db: %v", err)
 	}
 	defer onbodDB.Close()
-	if _, err := onbodDB.Exec(`
-		CREATE TABLE IF NOT EXISTS invites (
-			token         TEXT PRIMARY KEY,
-			target_glob   TEXT NOT NULL,
-			issued_by_sub TEXT NOT NULL,
-			issued_at     TEXT NOT NULL,
-			expires_at    TEXT,
-			max_uses      INTEGER NOT NULL DEFAULT 1,
-			used_count    INTEGER NOT NULL DEFAULT 0
-		);
-		CREATE TABLE IF NOT EXISTS onboarding (
-			jid TEXT PRIMARY KEY, status TEXT NOT NULL,
-			prompted_at TEXT, created TEXT NOT NULL,
-			token TEXT, token_expires TEXT, user_sub TEXT,
-			gate TEXT, queued_at TEXT, admitted_at TEXT
-		);
-		CREATE TABLE IF NOT EXISTS onboarding_gates (
-			gate TEXT PRIMARY KEY, limit_per_day INTEGER NOT NULL,
-			enabled INTEGER NOT NULL DEFAULT 1
-		);
-		CREATE TABLE IF NOT EXISTS audit_log (
-			id              INTEGER PRIMARY KEY AUTOINCREMENT,
-			created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			category        TEXT    NOT NULL,
-			action          TEXT    NOT NULL,
-			actor           TEXT    NOT NULL,
-			actor_sub       TEXT,
-			resource        TEXT,
-			scope           TEXT,
-			surface         TEXT,
-			params_summary  TEXT,
-			outcome         TEXT    NOT NULL DEFAULT '',
-			error_msg       TEXT,
-			duration_ms     INTEGER,
-			turn_id         TEXT,
-			folder          TEXT,
-			instance        TEXT,
-			request_id      TEXT,
-			source_ip       TEXT
-		);
-		CREATE INDEX IF NOT EXISTS audit_log_created_at ON audit_log(created_at);
-		CREATE INDEX IF NOT EXISTS audit_log_actor_sub  ON audit_log(actor_sub) WHERE actor_sub IS NOT NULL;
-		CREATE INDEX IF NOT EXISTS audit_log_folder     ON audit_log(folder)    WHERE folder    IS NOT NULL;
-		CREATE INDEX IF NOT EXISTS audit_log_cat_act    ON audit_log(category, action);
-	`); err != nil {
-		log.Fatalf("seed: onbod schema: %v", err)
+	applySQLDir(onbodDB, onbodMigrations)
+
+	// runed.db — /dash/runed/ needs it, and runed IS an importable package, so
+	// its own opener runs its own migrations.
+	runedDB, err := runed.Create(storeDir)
+	if err != nil {
+		log.Fatalf("seed: open runed.db: %v", err)
 	}
+	defer runedDB.Close()
 
 	now := time.Now().UTC()
 	nowS := now.Format(time.RFC3339)
@@ -147,6 +127,37 @@ func main() {
 		log.Fatalf("seed: mark errored: %v", err)
 	}
 
+	// One chat route_token so /dash/tokens/ has a row to list and revoke.
+	// dashd stopped minting tokens (the mint form was deleted 2026-08-15 —
+	// tokens are minted where they are owned), so the page cannot create its
+	// own fixture any more and the suite's create-then-revoke test had quietly
+	// degraded into an early return.
+	if _, err := sqlDB.Exec(
+		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, kind)
+		 VALUES (?, 'web:inbox', 'inbox', ?, ?)`,
+		[]byte("seed-token-hash-32-bytes-padding"), nowS, store.RouteTokenKindRoute,
+	); err != nil {
+		log.Fatalf("seed: insert route_token: %v", err)
+	}
+
+	// pending_actions for /dash/approvals/ and the portal's held-approvals
+	// banner. The banner counts straight out of routd.db; the page itself reads
+	// routd over HTTP, which the stub upstream answers.
+	for _, pa := range []struct{ id, tool, args, status, reviewedBy string }{
+		{"seedheld", "like", `{"chatJid":"telegram:user/seed","targetId":"1","reaction":"+1"}`, "held", ""},
+		{"seedgone", "delete", `{"chatJid":"telegram:user/seed","targetId":"2"}`, "rejected", "testadmin"},
+	} {
+		if _, err := sqlDB.Exec(
+			`INSERT INTO pending_actions
+			   (id, group_folder, caller_agent, tool, args, args_final, args_hash,
+			    status, chat_jid, created_at, reviewed_by)
+			 VALUES (?, 'inbox', 'folder:inbox', ?, ?, ?, ?, ?, 'telegram:user/seed', ?, ?)`,
+			pa.id, pa.tool, pa.args, pa.args, pa.id+"-hash", pa.status, nowS, pa.reviewedBy,
+		); err != nil {
+			log.Fatalf("seed: insert pending_action %s: %v", pa.id, err)
+		}
+	}
+
 	if err := os.WriteFile(
 		filepath.Join(dataDir, "groups", "inbox", "MEMORY.md"),
 		[]byte("# seed MEMORY\n\nplaywright test marker M-MARK-XYZ\n"),
@@ -156,4 +167,35 @@ func main() {
 	}
 
 	fmt.Printf("seeded %s\n", dataDir)
+}
+
+// applySQLDir runs every .sql file in dir, in name order — the same order
+// db_utils.Migrate walks an embed.FS. Reading from disk rather than embedding
+// is deliberate: the seed lives outside the daemons' package trees, and Go's
+// embed cannot reach across them, so the choice is "read the real files" or
+// "keep a copy that drifts".
+func applySQLDir(db *sql.DB, dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.Fatalf("seed: read %s: %v", dir, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
+			names = append(names, e.Name())
+		}
+	}
+	if len(names) == 0 {
+		log.Fatalf("seed: no .sql files in %s", dir)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		body, rerr := os.ReadFile(filepath.Join(dir, n))
+		if rerr != nil {
+			log.Fatalf("seed: read %s: %v", n, rerr)
+		}
+		if _, eerr := db.Exec(string(body)); eerr != nil {
+			log.Fatalf("seed: apply %s: %v", n, eerr)
+		}
+	}
 }
