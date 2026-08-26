@@ -891,6 +891,142 @@ Per RFC 9110 and the Fetch spec a 301 on POST is re-issued as GET, so
   `/pub/krons/assets/arizuko-client.js`, which happens to hold a matching copy.
   An accident of one world's pub slot, not a route.
 
+## L118 — `arizuko apply` destroys every route token and the whole task-run history through FK cascades, on an UNCHANGED round-trip (2026-08-26, proposal — needs sign-off; data loss)
+
+`resreg.Apply` rebuilds each mentioned resource: `DeleteScope`
+(`resreg/engine.go:316`, `DELETE FROM groups WHERE folder=?`) or `DeleteAll`
+(`:333`, `DELETE FROM scheduled_tasks`), then `InsertAll`. The handle is
+`store.OpenRoutd` → `openOwned` (`store/store.go:153`), whose DSN carries
+`_pragma=foreign_keys(on)`. The live schema cascades:
+
+```
+route_tokens.owner_folder TEXT REFERENCES groups(folder)      ON DELETE CASCADE
+web_routes.folder         TEXT REFERENCES groups(folder)      ON DELETE CASCADE
+task_run_logs.task_id     TEXT REFERENCES scheduled_tasks(id) ON DELETE CASCADE
+```
+
+So the groups rebuild wipes `route_tokens` — a table declared
+`SkipApplyRebuild: true` (`resreg/resources/route_tokens.go:134`) and therefore
+never re-inserted — and the scheduled_tasks rebuild wipes `task_run_logs`, which
+is not a resource at all. This contradicts Apply's own contract at
+`resreg/engine.go:844-847`: *"SkipApplyRebuild resources … are never
+wiped/rebuilt"* and *"a resource the manifest omits entirely is not touched"*.
+
+- **Reproduced on a `.backup` copy of krons' live routd.db** (the live file was
+  never written):
+
+  ```
+  PRAGMA foreign_keys=ON;
+  tokens_before  = 37      task_run_logs_before = 1244
+  DELETE FROM groups WHERE folder='krons';   -> tokens_after   = 35   (2 destroyed)
+  DELETE FROM scheduled_tasks;               -> runlogs_after  = 10   (1234 destroyed)
+  ```
+
+  The 10 survivors are pre-existing orphans with no matching task — the `F38`
+  class. An independent full harness (fresh `routd.Create`, then the exact
+  `cmdExport` → `cmdApply` sequence) reached the same result on an UNCHANGED
+  manifest: `route_tokens 1 → 0`, `task_run_logs 1 → 0`; and a groups-only
+  manifest additionally destroyed the folder's `web_routes`.
+- **Reachable from three documented surfaces:** `arizuko apply <manifest>` (the
+  5/8 operator workflow), `arizuko packages install/upgrade/remove` (same
+  `applyDocs`, `cmd/arizuko/packages.go:497-526` — so any package declaring a
+  `scheduled_tasks` row, the capability `L44` exists to provide, wipes the
+  instance's whole run history on install), and `archive apply` onto a live
+  instance.
+- **Live blast radius: zero so far, and one command away.** No `config.apply`
+  audit row exists on any of the three instances. krons currently holds 37 route
+  tokens and 1244 run logs that a single `arizuko apply` would destroy while
+  reporting success.
+- **Cause:** the rebuild pattern assumes a resource's DELETE is local to its
+  table; the schema's cascades make it non-local.
+- **Proposed fix (redesign → sign-off):** diff-based apply, or an FK-aware
+  rebuild, or dropping the cascades in favour of the explicit `DeleteGroup`
+  cascade.
+- **Side observation:** the same FK defeats `L71`'s recorded decision that
+  "route_tokens is deliberately NOT cascaded" — `store.DeleteGroup`
+  (`store/groups.go:117`) deletes the groups row on an FK-on handle, so
+  self-owned tokens cascade anyway.
+
+## L119 — three of the four group-creation surfaces never bind `folder:<f> → role:member`, so a world born there holds zero messaging verbs (2026-08-26, open)
+
+The binding exists in exactly one place: `routd/db.go:124` `PutGroup` →
+`routd/seed_grants.go:16` `assignDefaultRole` → `store/membership.go:113`. A
+repo-wide grep for writers of `role:member` returns only that path and
+`cmd/arizuko/migrate_split.go:383`. The other three creation surfaces bypass it:
+
+- **CLI** `arizuko group <inst> add` — `cmd/arizuko/main.go:457` calls
+  `store.PutGroupRow` (group row only); no membership write anywhere in the
+  `case "add"` block.
+- **dashd** group create — `dashd/groups_admin.go:125-171` does a raw
+  `INSERT INTO groups` plus an `acl` admin row for the CREATING OPERATOR's sub,
+  in one tx. No `acl_membership` row for the folder principal.
+- **onbod** web onboarding — `onbod/main.go:966-981` `createWorldTx` writes
+  `user_profiles` + `groups` + the creator's `admin` acl row. No membership row.
+
+`auth.Authorize` (`auth/authorize.go:42,95`) resolves a folder's rights by
+expanding `folder:<f>` through `acl_membership`. A folder with no `role:member`
+edge matches zero allow rows, so `routd/mcp.go:571` advertises zero messaging
+tools and `routd/dispatch.go:786` denies `mcp:reply`/`send`/`send_file`. The
+agent still answers in prose via `submit_turn` — which is exactly the symptom
+`routd/migrations/0030-backfill-role-member.sql` describes, and its comment
+*"New groups are unaffected: PutGroup → assignDefaultRole"* is true only for the
+routd path.
+
+- **Live: zero damaged rows.** On all three instances,
+  `SELECT folder FROM groups WHERE 'folder:'||folder NOT IN (SELECT child FROM
+  acl_membership WHERE parent='role:member')` returns nothing — the three broken
+  surfaces simply have not been used since 0030 (onbod's is additionally blocked
+  by `L99`).
+- **The trap fires on** the next dashd group create, the next CLI `group add`,
+  and on the first web onboarding the moment `L99` is fixed — that world comes
+  up mute.
+- **Cause:** the invariant "a group row implies the member edge" lives in one of
+  four writers instead of in the shared group insert.
+- **Fix:** move the membership write into the shared store-level insert (one
+  renderer), or add `putMembershipTx` to each creating tx — dashd and onbod
+  already own one; `PutGroupRow` would need one.
+- **Related class:** the derived-vs-stored migration trap that cost the fleet
+  9 hours (0023 → 0030).
+
+## L120 — `/openapi.json` fabricates response schemas from a verb convention, so at least 11 mounted REST operations are documented wrongly (2026-08-26, open)
+
+`resreg/openapi.go:283` `endpointOp` INVENTS the response — list → `array<RowType>`,
+GET → `RowType`, POST/PUT → `RowType` — while `restHandler`
+(`resreg/resreg.go:374-410`) writes the handler's return value verbatim, and
+nothing constrains a `Handler` to return `RowType`. Verified per handler:
+
+- `GET /v1/routes` returns `[]router.RouteView` (id/mode/fires_turn/explain/
+  shadowed_by), documented as `RoutesRow`; `POST /v1/routes` returns `{"id":n}`.
+- `GET /v1/route_tokens` returns `{"tokens":[…]}`; the `chat`/`hook` mints return
+  `{"token","jid","url"}`.
+- `GET /v1/pending_actions` returns `{"pending":[…]}`; approve/reject return
+  `{"ok","id","status"}`.
+- `GET /v1/tasks` and `/v1/tasks/{taskId}` return `core.Task`, which has **no
+  json tags** — the wire carries Go names `ID`/`ChatJID`/`NextRun` while the doc
+  says snake_case. `timed/dash.go:40-46` deliberately decodes the Go names.
+- `GET /v1/groups` returns `[{"folder"}]` only, documented as the 7-field
+  `GroupsRow`.
+- onbod: `/v1/invites` → `{"invites":[…]}`, `/v1/onboarding` →
+  `{"onboarding":[…]}`, `/v1/gates` → `{"gates":[…]}`, and every onbod mutation
+  returns `{"ok":true}`.
+
+Clean by contrast: dead_letters list, installed_packages list/get, web_routes
+list, audit list, sessions list, signing_keys list, proxyd_routes list/get/create.
+
+- **Cost:** REST + `/openapi.json` is arizuko's stated boundary for external
+  non-MCP tools, and CLAUDE.md claims *"drift is structurally impossible"* — true
+  for paths and for the schema SOURCE, false for responses. Any client generated
+  from the doc mis-decodes 11 operations.
+- **The dead-letters handler already names this class** in its own comment
+  (`routd/dead_letters_resource.go:131-135`) as the reason IT projects.
+  `scheduled_tasks` is the un-projected sibling.
+- **The one in-tree consumer that trusted the doc is already broken** — `L100`'s
+  second break. Every other in-tree consumer agrees with its handler, not the doc.
+- **Cause:** one declaration drives the doc, a second unconstrained one drives
+  the wire, with no test tying `Handler` output to `RowType`.
+- **Fix (cross-cutting):** project every handler return through its Row (the
+  dead_letters pattern), or emit per-action response schemas.
+
 ## ✅ FIXED 2026-08-25 L95 — a social mutation verb left no trace anywhere (2026-08-25)
 
 `regSocial` (`ipc/ipc.go:1368`) writes a `messages` row only when the verb sets
