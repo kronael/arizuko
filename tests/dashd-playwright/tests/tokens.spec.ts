@@ -1,61 +1,58 @@
 import { test, expect, asUser } from './_helpers';
 
-// tokens.spec — /dash/tokens/{folder}/ list + issue + revoke.
-// kind=chat → jid=web:inbox. Only one chat token per folder.
-// POST renders the page with a banner (no redirect); raw token shown once.
+// tokens.spec — /dash/tokens/{folder}/ list + revoke.
+//
+// dashd no longer MINTS tokens: the form was deleted 2026-08-15 (BUGS V2) on
+// the rule that a token is minted where it is owned — routd's
+// /v1/route_tokens, or `arizuko token`. This page lists and revokes, and says
+// where to mint. The suite kept testing the deleted form for months and read
+// as green because three of its assertions failed for the same stale reason.
 
 test.describe('route tokens', () => {
   test.beforeEach(async ({ context }) => {
     await asUser(context, 'testadmin');
   });
 
-  test('GET renders list for inbox (may be empty)', async ({ page }) => {
+  test('GET lists the folder tokens and points at where minting happens', async ({
+    page,
+  }) => {
     await page.goto('/dash/tokens/inbox/');
     await expect(page.locator('h1')).toHaveText('Tokens — inbox');
-    await expect(page.locator('body')).toContainText('Issue new token');
+    const body = page.locator('body');
+    await expect(body).toContainText('Issuing a token');
+    await expect(body).toContainText('arizuko token');
+    // The seeded chat token must be listed.
+    await expect(body).toContainText('web:inbox');
   });
 
-  test('issue chat token → raw token shown → appears in table', async ({
-    context,
-  }) => {
-    // revoke any stale token first (idempotent — 303 or 404 both OK)
-    await context.request.post('/dash/tokens/inbox/web:inbox/revoke', {
-      maxRedirects: 0,
-    });
-
-    // POST returns 200 with inline banner (no redirect).
-    // kind via query-string because r.FormValue reads URL params before body.
-    const res = await context.request.post('/dash/tokens/inbox/?kind=chat', {
-      maxRedirects: 0,
-    });
-    const html = await res.text();
-    expect(html).toContain('banner-ok');
-    expect(html).toContain('Copy it now');
-    expect(html).toContain('web:inbox');
-
-    // cleanup
-    await context.request.post('/dash/tokens/inbox/web:inbox/revoke', {
-      maxRedirects: 0,
-    });
+  test('the page offers no mint control', async ({ page }) => {
+    await page.goto('/dash/tokens/inbox/');
+    // Guards the V2 decision: a re-added mint form here would be a second
+    // renderer for a credential routd owns.
+    await expect(
+      page.locator('form[action="/dash/tokens/inbox/"]'),
+    ).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText('Copy it now');
   });
 
-  test('revoke chat token → jid gone from list', async ({ context }) => {
-    // ensure a token exists first
-    await context.request.post('/dash/tokens/inbox/', {
-      form: { kind: 'chat' },
+  test('POST to the list is not a mint route', async ({ context }) => {
+    const r = await context.request.post('/dash/tokens/inbox/?kind=chat', {
+      maxRedirects: 0,
     });
+    expect(r.status()).toBe(405);
+  });
 
-    const html = await (
+  test('revoke removes the jid from the list', async ({ context }) => {
+    const before = await (
       await context.request.get('/dash/tokens/inbox/')
     ).text();
-    if (!html.includes('web:inbox')) {
-      // token may already exist from a prior run; nothing to assert
-      return;
-    }
+    expect(before).toContain('web:inbox');
 
     const revoke = await context.request.post(
       '/dash/tokens/inbox/web:inbox/revoke',
-      { maxRedirects: 0 },
+      {
+        maxRedirects: 0,
+      },
     );
     expect(revoke.status()).toBe(303);
 
@@ -65,12 +62,16 @@ test.describe('route tokens', () => {
     expect(after).not.toContain('web:inbox');
   });
 
-  test('non-admin for folder → 403 on POST', async ({ context }) => {
+  test('a caller with no grant on the folder cannot revoke', async ({
+    context,
+  }) => {
     await asUser(context, 'stranger');
-    const r = await context.request.post('/dash/tokens/inbox/', {
-      form: { kind: 'chat' },
-      maxRedirects: 0,
-    });
+    const r = await context.request.post(
+      '/dash/tokens/inbox/web:inbox/revoke',
+      {
+        maxRedirects: 0,
+      },
+    );
     expect(r.status()).toBe(403);
   });
 

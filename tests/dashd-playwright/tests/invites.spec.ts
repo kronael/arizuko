@@ -15,44 +15,46 @@ test.describe('invites', () => {
     expect(body).toMatch(/No invites|Token/);
   });
 
-  test('create invite → 303 → token appears in list', async ({
+  // Creating an invite renders the link ONCE and returns 200 — it does not
+  // redirect back to the list, because the raw bearer is shown here and nowhere
+  // else. Every read surface afterwards carries only the ref. The suite tested
+  // a 303-then-find-the-token flow that the page stopped doing.
+  test('create renders the one-time link and a ref, and returns 200', async ({
     context,
-    page,
   }) => {
     const res = await context.request.post('/dash/invites/', {
       form: { target_glob: 'inbox', max_uses: '1' },
       maxRedirects: 0,
     });
-    expect(res.status()).toBe(303);
+    expect(res.status()).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('Invite created');
+    expect(html).toContain('not shown again');
+    expect(html).toMatch(/\/invite\/[0-9a-f]{16,}/);
 
-    await page.goto('/dash/invites/');
-    await expect(page.locator('table tbody')).toContainText('inbox');
+    // The list carries the ref, never the bearer.
+    const raw = html.match(/\/invite\/([0-9a-f]{16,})/)![1];
+    const list = await (await context.request.get('/dash/invites/')).text();
+    expect(list).toContain('inbox');
+    expect(list, 'the raw token must never reach a read surface').not.toContain(
+      raw,
+    );
 
-    // extract token for cleanup
-    const code = page.locator('table tbody code').first();
-    const token = await code.textContent();
-    expect(token).toBeTruthy();
-
-    // cleanup: revoke
-    page.on('dialog', (d) => d.accept());
-    const row = page.locator('tr', { hasText: token! });
-    await row.locator('button', { hasText: 'revoke' }).click();
-    await page.waitForURL('**/dash/invites/');
-    await expect(page.locator('body')).not.toContainText(token!);
+    // cleanup
+    const ref = list.match(/\/dash\/invites\/([^/"]+)\/revoke/)![1];
+    await context.request.post(`/dash/invites/${ref}/revoke`, {
+      maxRedirects: 0,
+    });
   });
 
-  test('revoke invite → 303 → token gone', async ({ context }) => {
+  test('revoke by ref → 303 → the row is gone', async ({ context }) => {
     const create = await context.request.post('/dash/invites/', {
       form: { target_glob: 'inbox', max_uses: '2' },
       maxRedirects: 0,
     });
-    expect(create.status()).toBe(303);
+    expect(create.status()).toBe(200);
 
     const html = await (await context.request.get('/dash/invites/')).text();
-    const tok = html.match(/<code>([0-9a-f]{32,})<\/code>/);
-    expect(tok, 'token must appear in listing').not.toBeNull();
-    const token = tok![1];
-    // revoke keys on the opaque inviteRef in the form action, not the raw token
     const refMatch = html.match(/\/dash\/invites\/([^/"]+)\/revoke/);
     expect(refMatch, 'revoke form must expose an invite ref').not.toBeNull();
     const ref = refMatch![1];
@@ -63,7 +65,7 @@ test.describe('invites', () => {
     expect(revoke.status()).toBe(303);
 
     const after = await (await context.request.get('/dash/invites/')).text();
-    expect(after).not.toContain(token);
+    expect(after).not.toContain(`/dash/invites/${ref}/revoke`);
   });
 
   test('non-operator → 403', async ({ context }) => {

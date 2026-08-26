@@ -25,9 +25,10 @@ test.describe('read-only pages', () => {
       'X-User-Groups': '**',
     });
     await page.goto('/dash/');
-    const banner = page.locator('.banner-warn');
+    // Scoped by text: the portal now raises a second banner for held approvals,
+    // so a bare `.banner-warn` matches two elements.
+    const banner = page.locator('.banner-warn', { hasText: 'errored chat' });
     await expect(banner).toBeVisible();
-    await expect(banner).toContainText('errored chat');
     await expect(banner.locator('a')).toHaveAttribute('href', '/dash/status/');
   });
 

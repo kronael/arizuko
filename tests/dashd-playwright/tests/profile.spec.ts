@@ -13,9 +13,17 @@ test.describe('profile page', () => {
     await expect(page.locator('code')).toContainText('testadmin');
   });
 
-  test('"Linked accounts" section is present', async ({ page }) => {
+  test('the provider section is present', async ({ page }) => {
     await page.goto('/dash/profile/');
-    await expect(page.locator('body')).toContainText('Linked accounts');
+    // The heading is "Add a provider" since the page was reworded; the test
+    // still asserts the SECTION exists, not the old wording.
+    await expect(page.locator('body')).toContainText('Add a provider');
+  });
+
+  test('the API-keys section is present', async ({ page }) => {
+    await page.goto('/dash/profile/');
+    await expect(page.locator('body')).toContainText('API keys');
+    await expect(page.locator('body')).toContainText('Manage API keys');
   });
 
   test('provider link buttons appear for all unlinked providers', async ({
