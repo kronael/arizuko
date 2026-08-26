@@ -730,6 +730,167 @@ A `github` product was added to the corpus without bumping the count in
 - **Fix (local):** either ship the two catalog pages and bump the spec count, or
   drop `github` from the corpus. Two failing assertions, one decision.
 
+## L114 — WebDAV `MOVE`/`COPY` authorize the source path and never the `Destination` header, so a folder-scoped user writes into any other tenant (2026-08-26, proposal — needs sign-off; cross-tenant write)
+
+`/dav/` is a `user` route with `StripPrefix` (`compose/compose.go:403`).
+`davRoute` (`proxyd/main.go:667`) computes `rest` from `r.URL.Path` at `:698`
+and applies BOTH guards to that one string — `auth.MatchSlot(gs, rest)` at
+`:702` and `davAllow(r.Method, rest)` at `:709`. `davAllow`'s signature is
+`func davAllow(method, rest string) bool`: **no third argument, no reader of
+`r.Header`.** `stripClientHeaders` (`proxyd/main.go:90-97`) deletes eight `X-*`
+headers; `Destination` is not among them, and `buildRouteProxy` leaves headers
+alone. The backend is `dufs --allow-all` over a read-write bind of
+`<data>/groups` — it enforces nothing.
+
+WebDAV has two write targets. Only one is modelled.
+
+- **Failure:** a caller holding a grant on `coach` sends
+  `MOVE /dav/coach/notes.md` with `Destination: /main/trading/CLAUDE.md`.
+  `rest` is `coach/notes.md`, so `MatchSlot` passes and `davAllow` passes.
+  proxyd forwards; dufs writes into another tenant's folder — which is
+  bind-mounted into that tenant's agent container. The same shape with
+  `Destination: /coach/.env` overwrites a file the write block exists to
+  protect.
+- **Executed against the exact image the fleet runs** (`arizuko-davd:latest`,
+  throwaway container, scratch tree; live data untouched):
+
+  ```
+  MOVE /tenantA/notes.md   Destination: /tenantB/logs/pwned.md      -> 204, file moved
+  COPY /tenantA/a.md       Destination: http://…/tenantB/logs/…     -> 204, file copied
+  MOVE /proj/harmless.txt  Destination: /proj/.env                  -> 204, .env overwritten
+  ```
+
+  `docker inspect arizuko_davd_krons` confirms `["--port","8080","--allow-all","/data"]`
+  over an `rw` bind of `/srv/data/arizuko_krons/groups`, and `OPTIONS /` advertises
+  `COPY,MOVE`.
+- **Live blast radius — exploitable on sloth today.** `/dav/` is routed there
+  (`proxyd_routes`: `/dav/|http://davd:8080|user|1`). `google:114015391913260915382`
+  holds `admin` on scope `coach` and has **no** `acl_membership` row, so it is a
+  real non-operator. Reachable targets: `main`, `main/code`, `main/content`,
+  `main/main`, `main/reading`, `main/trading`. krons and marinade currently have
+  only operator principals, so there it is latent.
+- **Cause:** the guard authorizes the REQUEST LINE for a protocol whose write
+  target is a HEADER. Not a missing entry in a blocklist — one of WebDAV's two
+  write targets was never modelled.
+- **Proposed fix (contract change → sign-off):** `davRoute` parses and
+  prefix-strips `Destination`, rejects one outside `/dav/`, and re-runs
+  `MatchSlot` + `davAllow` against it; `davAllow` takes the resolved
+  destination.
+- **Not executed:** a `MOVE` through the live proxyd (needs an OAuth session and
+  would write live data). Disproof would be proxyd or nginx stripping
+  `Destination` on `/dav/*` — neither does.
+
+## L115 — `davAllow`'s `logs/` read-only rule only covers top-level groups (2026-08-26, open)
+
+`proxyd/main.go:734-737`:
+
+```go
+parts := strings.Split(rest, "/")
+if len(parts) >= 2 && parts[1] == "logs" {
+    return false
+}
+```
+
+`davAllow("DELETE", "main/trading/logs/agent.log")` → `parts[1]` is `"trading"`
+→ **true**. `MatchSlot(["main"], …)` passes because it walks every prefix
+(`auth/acl.go:46-58`). So a user scoped to `main` deletes or overwrites
+`main/trading/logs/*`, while the byte-identical action on `main/logs/*` is a
+403.
+
+The sensitive-path block eight lines below tests **every** segment
+(`for _, p := range parts`) — the author knew the difference.
+
+- **Live directories exist** — sloth: `main/code/logs`, `main/main/logs`,
+  `main/reading/logs`, `main/content/logs`, `main/trading/logs` all writable;
+  only `main/logs` and `coach/logs` protected. krons is the same shape
+  (`rhias/nemo/logs`, `rhias/niki/logs`, `rhias/content/logs`,
+  `krons/content/logs`, every `eval/<child>/logs`).
+- **Every case in `TestDavAllow` (`proxyd/main_test.go:1339-1370`) uses a
+  single-segment group `g`.** The multi-segment case is absent from all 15 rows.
+- **Cause:** `parts[1]` assumes the group boundary is at index 1 — the exact
+  assumption `proxyd/main.go:696-701` already records as wrong and fixed for
+  `MatchSlot` (*"Cutting at the first segment 403'd a multi-segment folder on
+  its own files"*). The fix landed next door and not here.
+- **Fix (local):** test for a `logs` segment at the group boundary — any
+  segment, matching how `.env`/`.pem`/`.git` are already tested.
+
+## L116 — `/panel/<folder>`'s live SSE stream can never connect: it asks for a route token it does not have (2026-08-26, open)
+
+`webd/pages.go:83` emits `sse-connect="/chat/stream?group=%s&topic="` and
+`:104` rebuilds it on topic switch. Neither carries `token`. The endpoint
+`handleRouteTokenStream` (`webd/route_token.go:423`) requires `topic`
+(400 when empty, `:424-428`) and then resolves `token` (`:433`);
+`store.LookupRouteToken` short-circuits on the empty string
+(`store/route_tokens.go:197-199`) → 404. The `group=` parameter is deliberately
+ignored — `webd/route_token.go:412-413` says so.
+
+- **Verified live on krons**, byte-for-byte the two URLs `pages.go` emits:
+
+  ```
+  GET /chat/stream?group=krons&topic=     -> 400
+  GET /chat/stream?group=krons&topic=t1   -> 404
+  ```
+
+- **Failure:** an operator opens `/panel/krons`, sends a message, the agent
+  replies and is delivered — and the panel shows nothing. The thread only
+  refills on the `hx-get /x/groups/<folder>/messages` that fires on load or
+  topic switch, so the operator sees their own message and then silence until
+  they reload.
+- **Blast radius: every instance.** The URL is a compiled-in format string with
+  no token slot, so no deployment can differ.
+- **Cause:** `specs/6/22` step 1 moved token resolution into
+  `handleRouteTokenStream` and made the token mandatory. The `/chat/<token>/`
+  widget was updated (`webd/route_token.go:667` passes `token=`); `/panel` was
+  not, and kept the `group=` parameter the same commit turned into dead input.
+- **Fix:** `/panel` has no route token, so pointing it at the anonymous token
+  surface is the wrong shape. It needs its own folder-scoped stream, the way
+  `/me` already has one (`webd/me.go:328` `handleMeSSE`) — a redesign, not a
+  one-line edit.
+- **Secondary, lower confidence, same page:** `sse-swap:message="beforeend"`
+  (`pages.go:84`) splices the hub's payload into a div the server otherwise
+  fills with rendered HTML (`partials.go:68`), and the hub only ever publishes
+  JSON (`webd/hub.go:66-68`). A connected reply would land as raw JSON text.
+  Not driven through htmx; flagged, not claimed.
+
+## L117 — the published chat SDK cannot send: `POST /slink/<token>` answers 301, which downgrades the request to GET, and `/slink/` carries no CORS (2026-08-26, open)
+
+`webd/assets/arizuko-client.js` uses the `/slink/` prefix at five sites
+(`:109` send, `:127` status, `:147` snapshot, `:166` stream, `:222` config).
+`webd/server.go:122-125` registers the four `/slink/` patterns on the BARE mux —
+not through `tokenSurface` — so `chatCORS` (`webd/route_token.go:496-508`) never
+wraps them, and `handleSlinkRedirect` (`webd/server.go:292-299`) answers **301**.
+Per RFC 9110 and the Fetch spec a 301 on POST is re-issued as GET, so
+`POST /chat/{token}` is never reached.
+
+- **Verified live on krons:**
+
+  ```
+  POST /slink/BOGUS                       -> 301  Location: /chat/BOGUS
+                                             (no Access-Control-* headers)
+  POST /chat/BOGUS  (Origin: acme)        -> 404  Access-Control-Allow-Origin: *
+                                                  Access-Control-Allow-Methods: GET, POST, OPTIONS
+  ```
+
+  Following the chain shows the method change: `POST /slink/…` → 301 →
+  `GET /chat/…` → 307 → `GET /chat/…/` → 404. With `--post301`, which preserves
+  POST, curl stops after one hop — confirming the extra hop is the downgrade,
+  not the server.
+- **The surface is advertised:** `handleChatTokenConfig` returns
+  `"sdk": "/assets/arizuko-client.js"` (`webd/route_token.go:118`), and the live
+  doc page `/pub/arizuko/howto/chat-sdk.html` ships a copy-paste cross-origin
+  sample. Cross-origin the CORS failure fires before the downgrade matters.
+- **Cause:** the `/slink/ → /chat/` cutover changed the URL, left the SDK on the
+  old prefix, and chose a status that is not method-preserving.
+- **Two local fixes:** point the SDK at the `endpoints` map `/config` already
+  returns (fetched into `this.endpoints` at `arizuko-client.js:86`, then never
+  used), and make the compatibility shim `308` and CORS-wrapped for POST.
+- **Adjacent, weaker:** `/assets/` is absent from `coreProxydRoutes`
+  (`compose/compose.go:371-407`) and from all three live `proxyd_routes` tables,
+  so webd's `GET /assets/{path...}` is unreachable through proxyd everywhere. On
+  krons the request survives only by falling through to `vhostRedirect` →
+  `/pub/krons/assets/arizuko-client.js`, which happens to hold a matching copy.
+  An accident of one world's pub slot, not a route.
+
 ## ✅ FIXED 2026-08-25 L95 — a social mutation verb left no trace anywhere (2026-08-25)
 
 `regSocial` (`ipc/ipc.go:1368`) writes a `messages` row only when the verb sets
