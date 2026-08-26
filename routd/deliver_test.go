@@ -68,7 +68,13 @@ func (a *fakeAdapter) reactCount() int {
 func registerAdapter(t *testing.T, reg *chanreg.Registry, name, url string, prefixes ...string) {
 	t.Helper()
 	t.Setenv("CHANNEL_REGISTER_ALLOW_PUBLIC", "1")
-	if _, err := reg.Register(name, url, prefixes, map[string]bool{"send_text": true}); err != nil {
+	// Advertise every verb these tests drive. chanreg short-circuits an
+	// unadvertised verb before it reaches the adapter (BUGS L94), so a fixture
+	// that declares only send_text makes React fail on the CAPABILITY, hiding
+	// whatever the test meant to assert. Production adapters declare these —
+	// discd/main.go, teled/main.go, slakd/main.go all carry "like".
+	caps := map[string]bool{"send_text": true, "post": true, "like": true}
+	if _, err := reg.Register(name, url, prefixes, caps); err != nil {
 		t.Fatalf("register %s: %v", name, err)
 	}
 }
