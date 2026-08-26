@@ -414,6 +414,140 @@ whichever the query plan scans first.
 - **Confidence:** high on the mechanism, medium on frequency — the outcome is
   nondeterministic on query-plan order.
 
+## L106 — the agent's `reply`/`send` sends one idempotency key and the retry sweep sends a different one, so the whole dedup contract is off for every MCP message (2026-08-26, open)
+
+`routd/mcp.go:259` delivers with a throwaway key:
+
+```go
+pid, err := s.deliver.Send(jid, text, replyTo, topic, threadRoot, "mcp-"+randHex(8))
+```
+
+On failure the row is persisted with a DIFFERENT id — `ipc/ipc.go:736`
+`core.MsgID("mcp")` = `mcp-<unix nanos>` — and the retry sweep re-sends under
+that row id (`routd/loop.go:433`, `m.ID`). The adapter has never seen it, so
+`claimDelivery` (`chanlib/dedup.go:144`) opens a fresh claim and posts again.
+
+The contract is written at `routd/server.go:29-33`: *"idempotencyKey (the bot
+row's stable message_id) so the adapter dedups platform-side."* The turn-result
+path honours it — `routd/turns.go:321` passes `row.ID`, and
+`routd/deliver_test.go:101` pins exactly that. The MCP tool path does not, and
+has no equivalent test.
+
+- **Verified live on krons.** The adapter ledger and routd disagree on the key
+  for the same two deliveries:
+
+  ```
+  teled-rhias outbound_dedup:  mcp-6048982074c344ff | sent | platform_id 3069
+                               mcp-c0ea103a81c6549f | sent | platform_id 3071
+  routd messages:              mcp-1787314291520821980 | platform_id 3069
+                               mcp-1787334941510537296 | platform_id 3071
+  ```
+
+  Every `out-*` key in the same ledger matches its routd row id exactly; only
+  the `mcp-*` ones diverge. And the sweep does fire on these rows —
+  `mcp- | failed | delivery_attempts=10 | 3 rows`.
+- **Failure:** the adapter posts, the HTTP response to routd is lost (30s client
+  timeout, container killed mid-response, reset). The adapter's ledger says
+  `sent`; routd writes a `pending` row under a new id and re-sends it. **The
+  user gets the message twice.** Second half: when the first attempt genuinely
+  failed and left the claim `inflight`, the fresh key means
+  `ErrDeliveryUnresolved` never fires, so the ambiguous case gets a blind resend
+  instead of the designed visible dead-letter (`chanlib/dedup.go:58-63`, `D5`,
+  `L32`, spec `5/34`).
+- **Worse on teled:** `teled/bot.go:395` chunks at 4096 chars and
+  `classifySendErr` (`:441`) deliberately holds the claim once a chunk has
+  landed so routd dead-letters instead of re-posting. A mismatched key makes
+  that protection inert and re-posts every delivered chunk.
+- **Live blast radius:** 665 `mcp-` bot rows on krons, every one delivered
+  outside the dedup contract. No confirmed duplicate yet — no `mcp-` row is
+  `sent` with `delivery_attempts>0`, so the sweep has not yet re-delivered one
+  to a real adapter.
+- **Cause:** `mcpDeliver` delivers BEFORE the row exists, so it has no stable id
+  and mints a throwaway. The turn-result path builds the row first.
+- **Fix (local):** mint the row id in `mcpDeliver` and hand the same string to
+  both `deliver.Send` and `putOutboundRow`.
+
+## L107 — the adapter-name pin is bound to the docker container IP, so a legitimate restart is rejected; 156 rejections on krons in 30 days (2026-08-26, open)
+
+`chanreg/chanreg.go:122-131` pins a registered adapter name to BOTH its service
+principal and `old.OriginIP != originIP`. `originIP` is
+`routd/channels.go:151-157` — `r.RemoteAddr`'s host, i.e. the adapter
+container's docker-network IP, which docker reassigns on recreate. The service
+principal in the same comparison is constant across restarts, so the IP is the
+only field that can mismatch. `routd/channels.go:100-106` maps that to **409**,
+the only error in `RegisterWithOrigin` that produces one.
+
+The stale entry clears only after 3 consecutive `/health` failures at 30s
+(`chanreg/health.go:55-70`) — up to 90 seconds.
+
+- **Verified live on krons:** `journalctl --since "30 days ago" | grep -c "status 409"` → **156**.
+  The mechanism is visible in the interleaving:
+
+  ```
+  02:01:10 routd | channel health failed  channel=whatsapp fails=3   <- deregistered
+  02:01:17 whapd | registered with router                            <- fresh claim, new IP
+  02:02:09 routd | channel health failed  channel=whatsapp fails=2   <- only 2, entry survives
+  02:02:22 whapd | router registration failed  status 409
+  ```
+
+  Registration succeeds exactly when the health loop reached 3 first and 409s
+  when it reached 2 — consistent only with the IP changing every restart.
+- **Go adapters (teled/discd/slakd/emaid/bskyd/reditd/linkd) crash-loop on it.**
+  `chanlib/run.go:64-67` treats any registration failure as fatal `os.Exit(1)`,
+  before `net.Listen` and before `opts.Start`. The loop breaks only once routd's
+  health loop has accumulated 3 failures. Outbound is dead for that window and
+  inbound is dropped entirely. Not observed live — `grep "router registration
+  failed" | grep -v whapd` → 0 in 30 days; Go adapters restart rarely.
+- **whapd does not self-heal.** `whapd/src/main.ts:463-475` starts the HTTP
+  server and fires `registerWithRetry()` without awaiting. The new container
+  answers `/health` 200 on the same URL, so routd calls `ResetHealth` and
+  **never deregisters the stale entry**, while `registerWithRetry` 409s forever.
+  Outbound keeps working, but the registry's `Capabilities` and `JIDPrefixes`
+  stay frozen at pre-restart values until routd itself restarts — so a release
+  adding a whapd capability silently does not take effect.
+- **Cause:** identity derived from a runtime-assigned docker IP — the exact
+  failure `CLAUDE.md` opens with. The authenticated service principal already in
+  that comparison is the stable half.
+- **Fix (local):** drop `OriginIP` from the comparison, keep the principal pin.
+  A second, independent defect: a 409 is not a config fault, so
+  `chanlib/run.go`'s `os.Exit(1)` on it is wrong — that half is cross-cutting.
+
+## L108 — bskyd, reditd and linkd retry non-idempotent CREATE calls, so a lost response double-posts (2026-08-26, open)
+
+`chanlib/retry.go:26-34` defines two policies and its own doc names the rule,
+citing `D5`: `RetryRateLimitOnly` exists for *"a create call the platform gives
+no idempotency key for … a 5xx or a dropped connection may have created the
+thing already, so resending posts it twice."*
+
+slakd applies it (`slakd/bot.go:530-533` lists `/chat.postMessage` and
+`/files.completeUploadExternal`; `:543-546` selects per path). It is the **only**
+`RetryRateLimitOnly` caller in the repo. Three adapters route creates through
+`DoWithRetry` (= `RetryTransient`), which replays the body via `req.GetBody`:
+
+- **bskyd** `client.go:371-384` `createRecord` — the shared envelope for
+  `Send`/`Post`/`Like`/`Quote`/`Repost`/`SendFile` — POSTs
+  `com.atproto.repo.createRecord` with **no client-supplied `rkey`**, via
+  `xrpc` → `DoWithRetry` (`:562`, `:736`). Two identical feed posts.
+- **reditd** `client.go:461-479` (`/api/comment`, `/api/submit`) and `:501-513`
+  (`/api/submit`) via `do` → `doWithRetry` → `DoWithRetry` (`:179`).
+- **linkd** `client.go:533-540` `postShare`/`ugcPost` (`POST /v2/ugcPosts`) and
+  `postComment` via `do` → `DoWithRetry` (`:285`, and again at `:302` on the
+  401-refresh path).
+
+`chanlib/dedup.go`'s `deliverOnce` cannot help — it claims the key BEFORE the
+platform call, and this retry happens INSIDE it.
+
+- **Live blast radius: none today.** None of bskyd/reditd/linkd is deployed on
+  krons, marinade or sloth. A shipped-code defect, not a live one.
+- **Cause:** the policy was applied at the one site where the bug was found
+  (slakd, `D5`) rather than at the class, and `DoWithRetry`'s default is the
+  unsafe one, so every new adapter inherits it.
+- **Fix:** a `nonIdempotent` path set per adapter (local), or invert the default
+  so a create must opt into full retry (cross-cutting).
+- **Unverified:** whether Bluesky/Reddit/LinkedIn dedup server-side. Confirmed
+  that `createRecord` carries no client `rkey` (`bskyd/client.go:372-376` sends
+  only `repo`/`collection`/`record`).
+
 ## ✅ FIXED 2026-08-25 L95 — a social mutation verb left no trace anywhere (2026-08-25)
 
 `regSocial` (`ipc/ipc.go:1368`) writes a `messages` row only when the verb sets
