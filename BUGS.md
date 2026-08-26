@@ -20,10 +20,18 @@ precision. Every message timestamp goes through one renderer,
 strips trailing zeros**, so it is not fixed-width: a whole-second time renders
 `2026-08-26T19:06:41Z`, a nanosecond time `2026-08-26T19:06:41.882458214Z`.
 
-The dispatch scan compares that column as a string —
-`store/groups.go:184`, `m.timestamp > COALESCE(c.agent_cursor, '')`. `.` is
-0x2E, `Z` is 0x5A, so the fractional form sorts BEFORE the bare form in the
-same second. The trigger is invisible to the scan that must pick it up, and
+The dispatch scan compares that column as a string. `.` is 0x2E, `Z` is 0x5A,
+so the fractional form sorts BEFORE the bare form in the same second.
+
+**CORRECTION 2026-08-26.** This entry first named `store/groups.go:184`
+(`PendingChatJIDs`) as the comparison. That function has **zero callers** —
+`grep -rn "PendingChatJIDs" --include=*.go .` returns only its definition. It is
+dead code, and a fix or test scoped to it would change nothing. The live
+comparisons are `routd/db.go:309` (`NewMessages`, the `pollOnce` feed),
+`routd/db.go:321` (`MessagesSince`, the `processGroupMessages` feed) and
+`routd/loop.go:588` (the pollOnce skip gate, which formats with
+`time.RFC3339Nano` and compares `<=`). The observed failure and the marinade
+verification stand unchanged; only the cited site was wrong. The trigger is invisible to the scan that must pick it up, and
 stays invisible forever — the cursor only moves forward.
 
 The collision is the normal case, not a race. `/approve` advances the cursor
@@ -56,10 +64,13 @@ same second, and always carries a fraction.
 - **Proposed fix (cross-cutting → sign-off):** make `routd/db.go:262` write a
   fixed-width layout (`2006-01-02T15:04:05.000000000Z07:00`) so string order is
   time order, plus a migration normalising existing `messages.timestamp` rows.
-  Every other comparison on this column (`routd/db.go:435`, `:938`,
-  `store/groups.go:184`) becomes correct by construction. Same audit is owed to
-  the other RFC3339Nano sort keys — `store/cost_log.go:33`, `store/turns.go:19`,
-  `store/pairing.go:82`.
+  Every other comparison on this column (`routd/db.go:309`, `:321`, `:435`,
+  `:938`, `routd/loop.go:588`) becomes correct by construction. Same audit is
+  owed to the other RFC3339Nano sort keys — `store/cost_log.go:33`,
+  `store/turns.go:19`, `store/pairing.go:82`.
+- **This fix is NOT sufficient on its own.** `L102` (clock skew between the
+  platform and host domains) and `L103` (equal timestamps) both survive a
+  fixed-width format. Decide all three together.
 - **Rejected:** nudging the resolution timestamp forward a second, or comparing
   with `datetime()` at each call site — both leave the non-monotonic format in
   place for the next reader.
@@ -242,6 +253,166 @@ It diverges both ways:
   delete the helper. `groupfolder.Contains` stays correct where filesystem
   nesting is the reason (`auth.MatchSlot`, `/priv`, `/dav`); it is wrong as a
   grant test.
+
+## L102 — every steer re-injection is written BEHIND the cursor it must outrun, so `/root <cmd>`, `/new <text>` and `#topic <text>` silently never run (2026-08-26, proposal — needs sign-off)
+
+An operator types `/root allow.it` and nothing happens. No ack, no elevated
+turn, and the `pendingElevation` entry leaks.
+
+`cmdRoot` (`routd/steer.go:222-250`) re-injects the argument as a NEW message
+row stamped `time.Now().UTC()` — the HOST clock, nanoseconds. Its `l.Enqueue` is
+discarded because the group is already active (`queue/queue.go:104-108` logs
+"will drain after" and adds nothing to `waitingGroups`). Back at
+`routd/dispatch.go:80`, `advance(chatJID, steerMsg)` moves the cursor to the
+`/root` message's PLATFORM timestamp, which every adapter truncates to whole
+seconds (`routd/server.go:513`; `teled/bot.go:346`, `discd/bot.go:240`,
+`slakd/bot.go:539`). The only remaining pickup is the poll
+(`routd/loop.go:588` → `routd/db.go:309`/`:321`), all string comparisons.
+
+Two independent conditions strand the re-injection forever:
+
+1. **Same second, fractional vs whole** — the `L97` mechanism, at three
+   previously unrecorded PRODUCER sites.
+2. **Platform clock ahead of host clock** — the cursor is the platform's second,
+   the re-injection is host `time.Now()`. Any positive skew puts the
+   re-injection numerically behind. No format subtlety needed, and **a
+   fixed-width format does not fix this half.**
+
+Same shape at `cmdNew`'s followup (`routd/steer.go:389-396`),
+`handlePrefixLayer`'s `#topic` re-append (`:460-469`), and the agent's
+`inject_message` tool (`routd/mcp.go:114-124`, which relies on the poll and
+calls no Enqueue at all).
+
+- **Verified live on sloth:**
+
+  ```
+  1531028709274943749                   /root allow.it  2026-07-26T20:01:29Z
+  root-main/trading-1785096086061959777 allow.it        2026-07-26T20:01:26.061964536Z
+  ```
+
+  The re-injection is stamped **3 seconds behind** the cursor. `turn_context`
+  and `messages` for that turn id: 0 rows each. The elevated turn never ran.
+  Also on sloth, the pure fractional case: `cmd-new-1781452449117768949`
+  ("@sloth analyze latest movements of xmr.") at `15:54:09.117778307Z` against
+  cursor-second `15:54:09Z`, no turn. 3 of 4 re-injections since June dropped.
+- **Cost:** every `/root` with an argument, every `/new <text>`, every
+  `#topic <text>`, on every platform. The user sees "Session cleared. Processing
+  your message…" and then silence.
+- **Cause:** two clock domains — platform seconds and host nanoseconds — written
+  into one column used as a strict-order cursor key.
+- **Proposed fix (cross-cutting → sign-off):** a fixed-width format closes only
+  the fractional half. The root fix makes re-injections visible independent of
+  timestamp order — cursor on `rowid`, or stamping a re-injection from the
+  consumed message's own timestamp. Decide with `L97` and `L103`.
+
+## L103 — a message sharing its platform second with a batch tail is dropped forever; one Telegram upload lost 11 of 12 documents (2026-08-26, proposal — needs sign-off)
+
+Adapters truncate platform timestamps to seconds (`routd/server.go:513`), so
+equal timestamps within one chat are routine — Telegram albums, Slack bursts,
+several scheduled tasks firing in one second.
+
+`processGroupMessages` reads the batch (`routd/dispatch.go:27-28`), runs the
+turn (seconds to minutes), then advances the cursor to `last.Timestamp`
+(`:144`). Any row that arrived AFTER the batch read carrying the SAME second is
+then `timestamp = cursor`: the strictly-greater feed (`routd/db.go:321`) never
+returns it, the poll skip gate (`routd/loop.go:588`) skips the chat, and its
+arrival-time Enqueue was discarded while the group was active. Nothing else
+reads it. **The window is the whole duration of the previous turn**, not
+milliseconds.
+
+- **Verified live on krons.** Chat `telegram:user/1112184352`, all twelve rows
+  at `2026-06-10T11:01:53Z`:
+
+  ```
+  5137 [Document: Detail porovnání produktů.pdf]      ← turn_context row exists
+  5138 … 5148  (11 more [Document: …] rows)           ← no turn, any of them
+  ```
+
+  And the user-visible half, from the bot itself two minutes later:
+  *"Tenhle PDF taky nedorazil — žádný přiložený soubor"* ("This PDF didn't
+  arrive either — no attachment"). The agent told the user it received nothing,
+  because it had.
+- **Also hits the scheduled fan-out.** `sched-*-mem-N` rows sharing one second
+  show the first with a `turn_context` and the rest with none, on all three
+  instances (e.g. krons `2026-06-08T03:00:49Z`, four chats). Those
+  `/compact-memories` runs silently never executed.
+- **Fleet-wide upper bound** (rows sharing a chat+timestamp with an earlier row
+  that got a turn, themselves turn-less, non-bot, non-observed): krons 86,
+  marinade 62, sloth 43. An upper bound — a mid-batch row legitimately carries
+  no turn id — but the exemplars above are individually airtight.
+- **Cause:** the cursor's granularity equals the timestamp's granularity and the
+  feed is strictly greater-than. The design assumes strictly monotonic per-chat
+  timestamps, which second-truncated ingest cannot provide.
+  **`L97`'s fixed-width format does not fix this — equal stays equal.**
+- **Proposed fix (cross-cutting → sign-off):** a strictly monotonic sort key
+  (rowid-based cursor), or `>=` plus an id-set dedup.
+
+## L104 — a steer consumes the whole batch, discarding older unprocessed user messages (2026-08-26, open)
+
+`routd/dispatch.go:51` picks `steerMsg = newestUserMsg(msgs)`; `:79-81` then
+calls `advance(chatJID, steerMsg)` unconditionally, moving the cursor past
+**every older row in the batch** — including ordinary user messages that were
+never dispatched, never steered and never observed.
+
+`L56` (fixed 2026-08-20) reasoned only about rows NEWER than the steered one
+("anything newer has not been consumed", `routd/dispatch.go:71-78`). Nothing
+handles older ones. `routd/steer_overtaken_test.go` pins "a later command
+supersedes an earlier one" for two COMMANDS and never covers a plain message
+followed by a command.
+
+- **Failure:** the user sends "please check X", waits, gets impatient and types
+  `/status` (or `/ping`, `/new`, a bare `#topic`, an `@group` sticky pin — all
+  steer). Both land in one batch; the command is consumed and acked; "please
+  check X" is skipped forever with no trace. An in-flight turn stretches the
+  batching window to minutes (`L103`'s mechanism), so this ordering is common,
+  not rare.
+- **Evidence:** the mechanism is three lines of unconditional control flow and
+  needs no live proof. Live candidate pairs exist on all three instances (e.g.
+  marinade `5206` "who mights?" at 11:51:16 then `/root can you move a…` at
+  11:51:33, no turn), but for a historical pair the older row's consumption
+  cannot be excluded — rated suggestive, not proven.
+- **Fix (local):** after a steer, advance only if no older un-dispatched
+  non-bot rows remain — or re-run the loop over the remainder first.
+
+## L105 — `fetch_history` caches platform rows as user-authored, and the twin poisons every `id=? OR platform_id=?` lookup (2026-08-26, open)
+
+`fetchPlatformHistory` (`routd/mcp.go:390-399`, behind the agent's
+`fetch_history` tool) inserts each fetched row as
+`core.Message{ID, ChatJID, Sender, Content, Timestamp, ReplyToID}` — **no
+`BotMsg`, no `FromMe`, no `Topic`**. The wire format cannot supply them:
+`chanlib.InboundMsg` (`chanlib/chanlib.go:43`) has no bot/from-me field at all.
+
+So a fetched copy of the bot's OWN platform message lands as a user row whose
+`id` is the raw platform id, while the real outbound row carries that same value
+in `platform_id`. `ReplyTargetIsBot` (`routd/db.go:1306-1312`) and `TopicByID`
+(`:447-451`) are both `WHERE id=? OR platform_id=?` with `QueryRow`/`LIMIT 1`
+and **no ORDER BY** — they match two rows with contradictory answers and return
+whichever the query plan scans first.
+
+- **Verified live on sloth** — the twin exists:
+
+  ```
+  out-1780064467139190875 | is_bot=1 | platform_id=1509924562530468010 | **Institutional wave + ETF inflows.** …
+  1509924562530468010     | is_bot=0 | platform_id=              ''    | **Institutional wave + ETF inflows.** …
+  ```
+
+  Dozens more sloth rows in `discord:.../920916162416635944` hold the bot's own
+  output ("⏳ researching…") stored as non-bot user rows.
+- **Failure (a):** a user replies to a bot message on a `verb=mention`-routed
+  channel; ingestion's mention promotion (`routd/server.go:533-537`) consults
+  `ReplyTargetIsBot`, gets the twin's `is_bot_message=0`, does not promote, and
+  the reply route-misses. The user answered the bot and got silence.
+- **Failure (b):** a reply or reaction in a platform thread inherits the twin's
+  empty `Topic` (`routd/server.go:523-525`) and lands in the main topic — wrong
+  session, wrong thread anchor.
+- **Cause:** the history cache writes rows in a shape the read paths treat as
+  authoritative identity. Cross-cutting — wire format, insert site, and two
+  ambiguous lookups.
+- **Minimal containment:** never `PutMessage` a fetched row that collides with
+  an existing `platform_id`, or mark cached rows so the OR-lookups prefer the
+  authored one.
+- **Confidence:** high on the mechanism, medium on frequency — the outcome is
+  nondeterministic on query-plan order.
 
 ## ✅ FIXED 2026-08-25 L95 — a social mutation verb left no trace anywhere (2026-08-25)
 
