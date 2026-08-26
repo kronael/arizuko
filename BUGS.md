@@ -117,6 +117,132 @@ Two gaps stay open, both harness-side:
   consumes `acl_membership`, so an operator cannot add a principal to
   `role:operator` from the dashboard.
 
+## L99 — `/invite/` and `/onboard` are `public` routes whose handlers key on identity, so onboarding is an infinite redirect (2026-08-26, proposal — needs sign-off)
+
+Nobody can redeem an invite or create a world through the web. The link 303s to
+`/auth/login`, OAuth returns instantly because the provider session is live, and
+the return lands back on the same route with no identity — a loop the browser
+ends at its hop limit.
+
+`compose/compose.go:404-406` declares all three routes `Auth: "public"`.
+proxyd's public arm (`proxyd/main.go:642-644`) is `rp.ServeHTTP(w, r)` and
+nothing else: no `tryAuth`, no `setUserHeaders`, no transit. `stripClientHeaders`
+(`proxyd/main.go:90-97`) has already deleted `X-User-Sub`/`-Name`/`-Groups` at
+`:466`, so the backend sees an anonymous request by construction. onbod then
+reads `X-User-Sub`, finds `""`, and bounces:
+`onbod/main.go:1196-1205` for `/invite/{token}`, `:639-643` for `/onboard`.
+
+`optional` would not fix it either — that arm only runs `tryAuth`, which reads a
+Bearer header, and a browser navigation carries a cookie.
+
+- **Verified live on krons 2026-08-26**, and the cookie's Max-Age is the
+  discriminator:
+
+  ```
+  $ curl -sSi https://krons.fiu.wtf/invite/testtoken123
+  HTTP/1.1 303 See Other
+  Location: /auth/login
+  Set-Cookie: auth_return=/invite/testtoken123; ... Max-Age=86400 ...
+  ```
+
+  `86400` is onbod's cookie (`onbod/main.go:1200`); proxyd's gate writes `600`
+  (`proxyd/main.go:918`). So the request reached onbod **through the public
+  arm, unidentified** — it was never gated.
+
+- **Live blast radius, all three instances:** `invite_redemptions` is 0
+  everywhere (krons 0, sloth 0, marinade 0) though sloth minted 4 invites. No
+  `acl` row has ever carried `granted_by='invite'` (`onbod/main.go:1257`) or
+  `granted_by='onbod'` (`:976`) on any instance. `L45` (fixed 2026-08-17) kept
+  `/invite/` out of the route table until nine days ago and explains the older
+  half of that zero, not the current state.
+- **Cause:** the wrong auth mode on a surface that needs a caller.
+  `/pair/` — the same shape, the same requirement — got it right at
+  `compose/compose.go:389` with `Auth: "user"` and the comment "so an anonymous
+  visitor is bounced through OAuth with the pairing URL as the return path".
+- **Proposed fix:** move the three rows to `Auth: "user"`. onbod's
+  `userSub == ""` branches then become dead code instead of the only reachable
+  branch. Local in code, but it changes a live route table and needs
+  `arizuko generate` on every instance — hence sign-off, not an inline fix.
+- **Not verified:** the authenticated case. No session was available to drive
+  it. A live browser that reaches `/onboard` and renders would disprove this.
+
+## L100 — proxyd and webd authorize under a `user:`-prefixed principal, so `/dash/proxyd/` and webd's `routes.*` tools are 403 for everyone (2026-08-26, open)
+
+The JWT `sub` is always prefixed — `authd/oauth.go:329` mints
+`claimSub := "user:" + sub`, `authd/server.go:361` the same on refresh — and
+`proxyd/main.go:757` stamps `X-User-Sub` with the raw claim. Two readers then
+carry it into the ACL unchanged:
+
+- `proxyd/resource.go` `callerFromHTTP` — `sub := r.Header.Get("X-User-Sub")`,
+  no strip, into `resreg.Caller{Sub: sub}`.
+- `webd/routes_mcp.go:48` — `resreg.Caller{Sub: sub}`, same.
+
+`acl.principal` and `acl_membership.child` store BARE subs, so the prefixed
+principal expands to itself alone (`store/membership.go:181`), matches no row
+(`store/acl.go:176`) and no wildcard row (`:232`), and `resreg`'s default gate
+403s. Every `proxyd_routes` action is denied for every operator, and webd's five
+`routes.*` MCP tools fail the same way.
+
+`auth.BareSub` exists for exactly this and its doc already names the failure:
+*"A prefixed subject compared against stored rows matches nothing and silently
+grants nothing, which is exactly how identity pairing shipped inert (BUGS.md
+V1)."* Five call sites strip; these two do not.
+
+- **Evidence (live krons routd.db):** ancestors of the prefixed sub → none;
+  ancestors of the bare sub → `role:operator`. ACL rows for the prefixed
+  principal set → 0. Wildcard-principal rows → 0 on all three instances.
+- **Masked by its own test.** `proxyd/resource_test.go:52-57` seeds
+  `Principal: "**"`, and `auth/authorize.go:231` `matchPrincipal` returns true
+  for pattern `**` against anything — so the test never exercises the principal.
+  It also signs a bare-shaped `op@example`.
+- **The operator still reaches the page**: `requireOperator`
+  (`dashd/authz.go:103`) reads `X-User-Groups`, which proxyd computed through
+  `groupsForSub` (`proxyd/main.go:803`) — and that one DOES strip. The gate that
+  fails is downstream.
+- **Fix:** `auth.BareSub(...)` at both sites — local. The cross-cutting half is
+  that a per-daemon strip is now a seven-copy predicate; the durable fix is
+  stripping once where the header is read.
+- **Second, independent break on the same page:** `proxyd/resource.go:194`
+  returns a BARE ARRAY for list while `dashd/proxyd_page.go:136-139` unmarshals
+  into `struct { Routes []proxydRoute `json:"routes"` }`. Even with authz fixed
+  the page renders "proxyd returned something dashd could not read".
+
+## L101 — webd runs a second folder-containment predicate that disagrees with `auth.MatchGroups` in both directions (2026-08-26, open)
+
+`webd/server.go:178` decides folder access with
+`f == "**" || groupfolder.Contains(f, folder)`. `groupfolder.Contains`
+(`groupfolder/folder.go:24`) is a positional prefix walk —
+`child == parent || strings.HasPrefix(child, parent+"/")` — with no glob
+semantics. The one evaluator is `auth.MatchGroups` (`auth/acl.go:21`), whose own
+doc says *"No caller may bolt a prefix walk beside it — that reintroduces
+depth-derived authority under another name."* dashd deleted its copy
+(`dashd/authz.go:64-78`); webd's survived, gating 12 call sites —
+`requireFolder` (`/panel/`, `/api/groups/*`, `/x/groups/*`), nine `webd/me.go`
+handlers, and `webd/mcp.go:44,63` (`send`, `get_history`).
+
+It diverges both ways:
+
+- **Wider.** A grant of scope `main` — the exact-folder shape dashd's grant form
+  writes — lets that user read and post in `main/code` through `/me/chats/`,
+  `/panel/` and the `send` MCP tool, while `/dash/groups/main/code` 403s them.
+- **Narrower.** A grant of scope `main/**` — the shape
+  `onbod/main.go:977` `createWorldTx` writes for every world creator — matches
+  NOTHING in webd, not the subtree and not the folder itself, because
+  `"atlas" != "atlas/**"` and `"atlas"` has no `"atlas/**/"` prefix. The
+  creator's own portal 403s them on their own world.
+
+- **Live blast radius: currently nil, one folder away.** Every human principal
+  with a grant is either a `role:operator` member (scope `**`, both predicates
+  agree) or holds an exact-folder grant on a folder with no children. The moment
+  a subfolder exists under sloth's `coach`, that user reads it in webd and is
+  refused it in dashd. The narrowing direction fires on the first world created
+  through onboarding — which `L99` currently prevents.
+- **Cause:** a second containment predicate, not a wrong one.
+- **Fix (local):** `auth.MatchGroups(groups, folder)` in `webd/server.go:178`,
+  delete the helper. `groupfolder.Contains` stays correct where filesystem
+  nesting is the reason (`auth.MatchSlot`, `/priv`, `/dav`); it is wrong as a
+  grant test.
+
 ## ✅ FIXED 2026-08-25 L95 — a social mutation verb left no trace anywhere (2026-08-25)
 
 `regSocial` (`ipc/ipc.go:1368`) writes a `messages` row only when the verb sets
