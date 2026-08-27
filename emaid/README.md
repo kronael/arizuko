@@ -74,3 +74,13 @@ References/In-Reply-To headers.
 ## Related docs
 
 - `specs/5/34-channel-protocol.md`
+
+## Coverage
+
+Config, the two-chain DB bootstrap, the MIME/attachment extraction, the thread
+store, the outbound path and every unimplemented-verb refusal are covered.
+
+The number stops around 66% because the IMAP poller — `newPoller`, `run`,
+`runPoll`, `FetchHistory` — needs a real IMAP server, and `defaultSMTPSender`
+needs a real submission port. Mocking either would assert the mock. Those are
+exercised against a live mailbox by `make smoke`.

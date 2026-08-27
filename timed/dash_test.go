@@ -118,3 +118,78 @@ func TestRoundDurKeepsSecondsUnderAMinute(t *testing.T) {
 		}
 	}
 }
+
+// loopSection is the one line on /dash/timed/ that tells an operator whether
+// the fire loop is alive. Every branch of it decides what they see when
+// something is wrong.
+func TestLoopSectionRendersEachHealthState(t *testing.T) {
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+
+	// A daemon that has not ticked yet must SAY so rather than render a zero
+	// time, which reads as "last tick 0001-01-01" and looks like a crash.
+	if got := string(loopSection(loopState{}, now)); !strings.Contains(got, "No tick yet") {
+		t.Errorf("a zero LastTick rendered %q", got)
+	}
+
+	healthy := loopSection(loopState{LastTick: now.Add(-30 * time.Second), Fired: 4}, now)
+	got := string(healthy)
+	for _, want := range []string{"dot-ok", "fired 4", "2026-08-27T11:59:30Z", "30s ago"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a healthy tick is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "dot-err") {
+		t.Errorf("a healthy tick rendered the error dot:\n%s", got)
+	}
+
+	// An error replaces the fired count: the operator needs the reason, and a
+	// green dot beside a broken claim is the worst of both.
+	failed := string(loopSection(loopState{
+		LastTick: now.Add(-2 * time.Minute), Fired: 9, Err: "claim: database is locked",
+	}, now))
+	if !strings.Contains(failed, "dot-err") {
+		t.Errorf("a loop error rendered no error dot:\n%s", failed)
+	}
+	if !strings.Contains(failed, "database is locked") {
+		t.Errorf("the error text is missing:\n%s", failed)
+	}
+	if strings.Contains(failed, "fired 9") {
+		t.Errorf("the fired count survived beside the error:\n%s", failed)
+	}
+}
+
+// The error string comes from routd over HTTP. Rendering it unescaped puts
+// whatever a failing claim reports straight into the operator's page.
+func TestLoopSectionEscapesTheErrorText(t *testing.T) {
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	got := string(loopSection(loopState{
+		LastTick: now.Add(-time.Minute),
+		Err:      `<script>alert(1)</script>`,
+	}, now))
+	if strings.Contains(got, "<script>") {
+		t.Errorf("the loop error reached the page unescaped:\n%s", got)
+	}
+	if !strings.Contains(got, "&lt;script&gt;") {
+		t.Errorf("the error text was dropped instead of escaped:\n%s", got)
+	}
+}
+
+// truncate bounds a cell so one long prompt cannot blow out the table. It must
+// leave a short value alone rather than always append the ellipsis.
+func TestTruncateOnlyCutsWhatIsTooLong(t *testing.T) {
+	cases := []struct {
+		in   string
+		n    int
+		want string
+	}{
+		{"short", 10, "short"},
+		{"exactly-10", 10, "exactly-10"},
+		{"eleven-char", 10, "eleven-cha…"},
+		{"", 5, ""},
+	}
+	for _, c := range cases {
+		if got := truncate(c.in, c.n); got != c.want {
+			t.Errorf("truncate(%q, %d) = %q, want %q", c.in, c.n, got, c.want)
+		}
+	}
+}

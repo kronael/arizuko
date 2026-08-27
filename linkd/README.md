@@ -83,3 +83,13 @@ Standard adapter surface (via `chanlib.NewAdapterMux`):
 ## Related docs
 
 - `specs/5/34-channel-protocol.md`
+
+## Coverage
+
+The BotHandler verb surface, the post-id parse, the client's auth flag and the
+unsupported-verb hints are covered.
+
+The number stops around 69% because `poll`, `pollOnce`, `fetchMe`,
+`fetchOwnShares` and `fetchComments` call `api.linkedin.com` directly — the
+base URL is not injectable, so there is no seam to point at a stub. Those run
+against a real account under `make smoke`.

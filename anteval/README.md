@@ -172,3 +172,15 @@ on both axes.
 `max_wall_ms` is the enforced per-case budget; `max_tokens`/`max_turns` are
 declared and reported but not capped from outside. `dash` renders markdown; a
 hosted HTML dashboard would be a later `serve` split.
+
+## Coverage
+
+`anteval validate` and `anteval dash` are covered, including a sweep that loads
+every product's shipped `eval/*.toml` on each test run — a suite that stops
+parsing is a product whose behaviour nothing checks any more, silently, because
+the harness finds zero cases and reports a clean run.
+
+`cmdRun` and `main` are not covered and cannot be here: `cmdRun` drives a LIVE
+instance over HTTP (that is what the tool is), and `usage`/`fatal` are
+`os.Exit`. The `pkg/` packages that do the real work — `spec`, `check`, `run`,
+`report` — sit at 76–97%.

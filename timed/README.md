@@ -72,3 +72,11 @@ appearing despite active tasks.
 
 - `specs/4/8-scheduler-service.md`
 - `ARCHITECTURE.md` (Scheduler section)
+
+## Coverage
+
+The scheduler logic, the federated router client and the `/dash/timed/`
+renderers are covered. The number stops around 63% because `main` and
+`runSplit` are the rest of the package: they exchange a service token over the
+network, `http.ListenAndServe`, and `os.Exit(1)` on every failure — a test that
+reaches one takes the test binary with it. That path is `make test-e2e`'s.
