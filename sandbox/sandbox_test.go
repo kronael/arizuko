@@ -94,3 +94,91 @@ func TestIPRangeForUniqueness(t *testing.T) {
 		seen[r] = id
 	}
 }
+
+// The public Host API above Spawn runs without a hypervisor: New's validation,
+// List reading the on-disk records, and the not-found paths of Stop and Exec.
+// Those were 0% — the package sat at 3.1% because only the pure helpers were
+// reached.
+
+func TestNewRejectsABadInstanceIDOrAMissingDataDir(t *testing.T) {
+	if _, err := New("", t.TempDir()); err == nil {
+		t.Error("New accepted an empty instance id")
+	}
+	if _, err := New("has/slash", t.TempDir()); err == nil {
+		t.Error("New accepted an instance id with a path separator")
+	}
+	if _, err := New("ok", ""); err == nil {
+		t.Error("New accepted an empty dataDir; VM state would land somewhere unpredictable")
+	}
+	h, err := New("krons_1-a", t.TempDir())
+	if err != nil {
+		t.Fatalf("New rejected a valid pair: %v", err)
+	}
+	if h == nil {
+		t.Fatal("New returned a nil Host with no error")
+	}
+}
+
+// A fresh host has no VMs. The empty case has to be an empty slice and no
+// error — a caller reaping stale VMs treats an error as "cannot tell" and
+// leaves everything alone.
+func TestListIsEmptyOnAFreshHost(t *testing.T) {
+	h, err := New("fresh", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.List()
+	if err != nil {
+		t.Fatalf("List on a fresh host: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("List = %+v, want empty", got)
+	}
+}
+
+// Stop and Exec against a handle that names no VM must fail before they touch
+// qemu or ssh. Two hosts sharing a data dir but not an instance id must not
+// see each other's VMs either — the instance id is the namespace.
+func TestStopAndExecRefuseAnUnknownHandle(t *testing.T) {
+	dir := t.TempDir()
+	h, err := New("one", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Stop(Handle{ID: "no-such-vm", IP: "10.1.1.9"}); err == nil {
+		t.Error("Stop accepted a handle naming no VM")
+	}
+	code, stdout, stderr, err := h.Exec(Handle{ID: "no-such-vm", IP: "10.1.1.9"}, []string{"true"}, nil)
+	if err == nil {
+		t.Error("Exec accepted a handle naming no VM; it would ssh to an arbitrary address")
+	}
+	if code != -1 || stdout != nil || stderr != nil {
+		t.Errorf("Exec on an unknown handle returned (%d, %q, %q), want (-1, nil, nil)", code, stdout, stderr)
+	}
+}
+
+func TestInstanceIDNamespacesTwoHostsOnOneDataDir(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New("alpha", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := New("beta", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []*Host{a, b} {
+		got, err := h.List()
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("List = %+v, want empty", got)
+		}
+	}
+	// The namespaces are separate directories, so one host's teardown cannot
+	// name the other's VM.
+	if err := a.Stop(Handle{ID: "beta-vm"}); err == nil {
+		t.Error("alpha stopped a VM id it does not own")
+	}
+}

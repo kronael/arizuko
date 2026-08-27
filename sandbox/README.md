@@ -13,15 +13,16 @@ spawn path imports this. Its consumer today is `crackbox run --kvm`.
 
 ## Coverage
 
-`sandbox` sits near 3% and `sandbox/internal` near 13%, and that is the honest
-number rather than a gap to close. Everything below `Spawn` needs a real
-hypervisor: `qemu-system-x86_64`, a KVM device node, `libexec` helpers, and
-`ip`/`nft` to build the guest network. A unit test cannot reach any of it, and a
-mock of qemu would assert the mock.
+Everything a test can reach without a hypervisor is covered: `New`'s
+validation and instance-id namespacing, `List` on a fresh host, the not-found
+paths of `Stop` and `Exec`, `LibexecDir`'s override-first search, the on-disk
+VM record, `detectState`/`readPID`, `Destroy`'s soft-delete branch, and
+`netfilter.go`'s rule rendering.
 
-What IS covered is what runs without one — `metadata.go` (the on-disk VM
-record) and `netfilter.go` (the rule rendering). The lifecycle is exercised by
-`crackbox run --kvm` on a host that has KVM.
+Coverage stops around 20% because everything below `Start` needs a real
+hypervisor: `qemu-system-x86_64`, a KVM device node, the `libexec` helpers, and
+`ip`/`nft` to build the guest network. A mock of qemu would assert the mock.
+That half is exercised by `crackbox run --kvm` on a host that has KVM.
 
 ## Use
 
