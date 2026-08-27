@@ -880,8 +880,22 @@ first live codex history. Passing: `chat-entrypoint`, `child-delegate`,
 session, publishes a verified public URL, round-trips REST and answers a
 webhook. Both failures share one signature, an EMPTY url
 (`unsupported protocol scheme ""`): `priv-401` and `priv-grant` read a URL the
-agent never produced. That is a real gap to diagnose, not a harness artefact —
-but it is one gap, not two.
+agent never produced.
+
+**Diagnosed the same day, and it is a contract gap rather than a codex
+weakness (`L130`).** A codex agent never receives `~/.claude/CLAUDE.md` —
+claude gets the operating manual only because Claude Code discovers it
+natively, `buildSystemPrompt` carries the group's optional `SYSTEM.md`
+(`ant/src/index.ts:49`, `container/runner.go:531`), and `AGENTS.md`, codex's
+own convention, exists nowhere in the repo. Measured on the eval folder during
+the run: `SYSTEM.md` absent, `AGENTS.md` absent, `.claude/CLAUDE.md` present at
+33,511 bytes naming `private_html` seven times — the exact recipe `priv-401`
+needs, unread. `web/priv/eval/` holds an artifact from every prior claude run
+and none from the codex run, while `web/pub/eval/` holds the codex nonce: the
+agent published public pages happily and never found the private slot. The
+pass/fail split falls exactly on this line — every case self-describing from
+its prompt passed, both cases needing platform knowledge failed. So the matrix
+reads partly as instruction delivery, not backend capability.
 
 **Certifying a backend needs TWO env vars, not one.** `ARIZUKO_BACKEND` picks
 the harness; the model is independent and `routd` defaults it to
