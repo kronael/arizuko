@@ -96,12 +96,15 @@ beside it, into a path vited serves and webd does not. It belongs to whoever
 owns the `/pub` fallback. Either amend the table's verdict, or spec the
 catch-all change on its own — it is a redesign, not a relocation.
 
-## Step 2 — routes become rows (blocked on `L45`, signed off)
+## Step 2 — routes become rows (unblocked 2026-08-17, signed off, NOT started)
 
 Config for any off-the-shelf proxy must be **rendered** from somewhere.
-It cannot be rendered from `PROXYD_ROUTES_JSON`, which is seed-once and
+It cannot be rendered from `PROXYD_ROUTES_JSON`, which was seed-once and
 ignored after first boot — the fault `L45` records, and the reason krons
-is missing 7 of the 18 routes arizuko ships.
+was missing 7 of the 18 routes arizuko ships. **`L45` was fixed 2026-08-17**:
+`arizuko generate` writes the rows (`store.SyncProxydRoutes`) and proxyd's
+boot path reads rows only. The prerequisite is therefore done and the
+remaining work is the renderer itself, which is unbuilt.
 
 With routes as rows, the proxy config becomes one more reader of one
 declaration (root `CLAUDE.md`, "one declaration, many readers"). The

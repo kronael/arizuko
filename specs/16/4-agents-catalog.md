@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [V-web-vhosts, 8-yaml-manifests]
+depends: [5/V-web-vhosts, 5/8-yaml-manifests]
 ---
 
 # Agents catalog

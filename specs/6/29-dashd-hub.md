@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [1-cockpit-index]
+depends: [28-cockpit-index]
 ---
 
 # dashd — the hub + retained cross-cutting pages

@@ -72,3 +72,53 @@ func TestEverySpecLinkTargetExists(t *testing.T) {
 }
 
 func rel(p string) string { return strings.TrimPrefix(p, root+"/") }
+
+// TestEveryDependsEntryResolves checks the frontmatter the link check cannot
+// see. `depends:` names specs by stem, not by markdown link, so a renumber
+// updates every visible pointer and leaves this one silently naming the old
+// ID — which is exactly what the 2026-08-27 cockpit move did to four files.
+//
+// Four forms are in use: a bare stem in the same phase (`28-cockpit-index`), a
+// phase-qualified stem (`5/13-ext-mcp`), a repo-rooted one
+// (`specs/5/32-acl-unified`) and a relative one (`../5/14-credentials`).
+func TestEveryDependsEntryResolves(t *testing.T) {
+	dependsRe := regexp.MustCompile(`(?m)^depends:\s*\[([^\]]*)\]`)
+	specDir := filepath.Join(root, "specs") + string(filepath.Separator)
+	checked := 0
+	for _, f := range sourceFiles(t) {
+		if filepath.Ext(f) != ".md" || !strings.HasPrefix(f, specDir) {
+			continue
+		}
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		m := dependsRe.FindSubmatch(body)
+		if m == nil {
+			continue
+		}
+		for _, raw := range strings.Split(string(m[1]), ",") {
+			entry := strings.Trim(strings.TrimSpace(raw), `"'`)
+			if entry == "" {
+				continue
+			}
+			var p string
+			entry = strings.TrimPrefix(entry, "specs/")
+			switch {
+			case strings.HasPrefix(entry, "../"):
+				p = filepath.Join(filepath.Dir(f), entry+".md")
+			case strings.Contains(entry, "/"):
+				p = filepath.Join(root, "specs", entry+".md")
+			default:
+				p = filepath.Join(filepath.Dir(f), entry+".md")
+			}
+			checked++
+			if _, err := os.Stat(p); err != nil {
+				t.Errorf("%s: depends entry %q resolves to no spec", rel(f), entry)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no depends: entries parsed — the frontmatter format changed")
+	}
+}

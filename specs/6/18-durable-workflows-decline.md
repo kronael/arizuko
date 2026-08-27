@@ -84,7 +84,7 @@ The recovery unit is the **turn**, and the replay engine is the agent.
 - Wait-for-event is routing: the event arrives as a message and triggers
   the turn that handles it (`5/A` "No special cases" table — scheduled
   tasks, autocalls). No suspended execution exists to wake.
-- Child work is `delegate_group`/`escalate_group` (`ipc/ipc.go:1828`),
+- Child work is `delegate_group`/`escalate_group` (`ipc/ipc.go:1907`, `:1965`),
   depth-capped, through the org tree.
 - Durability is the two stores: DB rows + the folder
   (`5/A` §The primitives). An agent resumes by reading state and

@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [5/17-openapi-mcp, 5/7-proxyd-standalone, 1-auth-standalone]
+depends: [5/17-openapi-mcp, 5/7-proxyd-standalone, 5/1-auth-standalone]
 ---
 
 # Operator cockpit — architecture + contract
@@ -35,7 +35,8 @@ show/control matrices.
 **Every datum a dashboard shows or mutates flows through the owning
 daemon's `/v1` surface. No dashboard — hub or per-daemon — reads a
 SQLite DB directly.** This retires `dashd`'s current direct reads of
-`routd.db`/`onbod.db`/`messages.db`.
+`routd.db`/`onbod.db`/`runed.db`. (`messages.db` is the retired monolith and
+is already refused at boot, `dashd/main.go:479`.)
 
 Why strict, not hybrid: live process state (`runed` active runs,
 `routd` breaker + queue depth, adapter session health, `timed`

@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [J-sse]
+depends: [5/J-sse]
 ---
 
 # Shared-session presence

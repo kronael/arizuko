@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [E-routd, J-sse]
+depends: [5/E-routd, 5/J-sse]
 ---
 
 # Durable turn stream

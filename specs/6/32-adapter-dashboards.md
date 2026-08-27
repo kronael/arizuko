@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [1-cockpit-index, 11-adapter-contract]
+depends: [28-cockpit-index, 31-adapter-contract]
 ---
 
 # Adapter dashboards — the ten channel adapters
