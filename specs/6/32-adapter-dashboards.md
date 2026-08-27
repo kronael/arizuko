@@ -5,7 +5,7 @@ depends: [1-cockpit-index, 11-adapter-contract]
 
 # Adapter dashboards — the ten channel adapters
 
-Instantiates the adapter contract ([`7/11`](11-adapter-contract.md))
+Instantiates the adapter contract ([`6/31`](31-adapter-contract.md))
 for all ten adapters. The contract owns the page grammar, show matrix,
 control verbs, health semantics, auth, and HTMX fragment set — none of
 it is restated. This spec is the per-adapter delta table plus the
@@ -31,7 +31,7 @@ Nothing here is built.
 ## Controls and extra sections
 
 An affordance with no underlying mechanism is **absent from the page**,
-not greyed out (`7/11`). Everything marked "new" is Required work.
+not greyed out (`6/31`). Everything marked "new" is Required work.
 
 | Adapter | Controls                                                                      | Extra sections beyond the contract                                                   |
 | ------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
@@ -48,7 +48,7 @@ not greyed out (`7/11`). Everything marked "new" is Required work.
 
 Each delta field rides the adapter's `GET /v1/status` (the contract's
 one read endpoint) — a dash handler never opens `cursors.json`,
-`cookies.json`, or `emaid.db` directly (`7/1` read-path).
+`cookies.json`, or `emaid.db` directly (`6/28` read-path).
 
 Adapters with **no** control at all in a column are stating a fact, not
 deferring: mastd and discd hold static tokens, so there is no auth
@@ -98,7 +98,7 @@ only routd service tokens. Both also serve their own `/health` where
 vendored from `theme/` into the TS images at build time — one source,
 copied by the image build, never hand-edited downstream.
 
-## Non-goals beyond `7/11`
+## Non-goals beyond `6/31`
 
 - No cursor editing or rewind (reditd, twitd) — cursors advance only on
   successful delivery by design; rewind means replay.
@@ -109,7 +109,7 @@ copied by the image build, never hand-edited downstream.
 
 ## Acceptance
 
-- Contract acceptance ([`7/11`](11-adapter-contract.md)) passes for all
+- Contract acceptance ([`6/31`](31-adapter-contract.md)) passes for all
   ten adapters.
 - whapd: starting a pair shows the code + countdown; a sixth attempt in
   an hour renders the 429 in the pair pane; session-reset flips status

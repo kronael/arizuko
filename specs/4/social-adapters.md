@@ -28,7 +28,7 @@ Per-adapter env vars and verb-support tables live in each daemon's
 `README.md` — duplicating them here only lets them drift. JID grammar
 per platform: [`../5/S-jid-format.md`](../5/S-jid-format.md).
 Chat-vs-social adapter boundary:
-[`../7/41-social-adapter-model.md`](../7/41-social-adapter-model.md).
+[`../6/33-social-adapter-model.md`](../6/33-social-adapter-model.md).
 
 Container port is `:8080` for every adapter (compose pins
 `LISTEN_ADDR=:8080`); source defaults differ.
@@ -48,7 +48,7 @@ New adapters implement `BotHandler` and embed `NoSocial` /
 platform cannot do; they never re-implement transport. Current API:
 [`chanlib/README.md`](../../chanlib/README.md). Operator-facing
 adapter contract (health, staleness, dashboards):
-[`../7/11-adapter-contract.md`](../7/11-adapter-contract.md).
+[`../6/31-adapter-contract.md`](../6/31-adapter-contract.md).
 
 The two TypeScript adapters reimplement the same wire format against
 the same protocol, because Baileys and the Twitter client are

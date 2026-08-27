@@ -155,5 +155,5 @@ Aeon's evaluator owns its own state, ours does not.
 Cross-folder and cross-instance conditions (each instance evaluates its
 own); score smoothing/EWMA before crude counting has been shown to
 false-positive; multi-judge ensembling; an operator UI for editing
-conditions — `dashd` may surface fired conditions ([`../7/2-dashd-hub.md`](../7/2-dashd-hub.md)),
+conditions — `dashd` may surface fired conditions ([`../6/29-dashd-hub.md`](../6/29-dashd-hub.md)),
 but the condition set stays code.

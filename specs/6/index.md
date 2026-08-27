@@ -2,7 +2,7 @@
 status: active
 ---
 
-# specs/6 — adoption & interop
+# specs/6 — split arizuko into parts
 
 The end goal is that people run arizuko instead of their own agent
 harness. The path (thesis inverted 2026-08-15, `6/1`): **publish the
@@ -14,6 +14,12 @@ is the spine: it states both contracts and their conformance (agent:
 `anteval` per backend, `pi` the intended second occupant; component: a
 probe against a live process). Wrapping a foreign harness stays an
 on-ramp; emulation is rejected.
+
+**The phase also carries the operator cockpit** (`28`–`33`, moved here from
+phase 7 on 2026-08-27). It belongs with the parts, not beside the cloud: every
+daemon serving its own `/dash/<daemon>/` from its own `/v1` is what makes a
+daemon observable and controllable ALONE, which is the same property `16`
+measures and `7` states as a contract. A part nobody can watch has not shipped.
 
 ## Specs
 
@@ -33,9 +39,16 @@ on-ramp; emulation is rejected.
 | [25-qm-adoptions.md](25-qm-adoptions.md)                           | draft   | four decisions read out of `yc-software/qm` (MIT, 83k LOC): what arizuko takes, what it declines, and why the composition stays the moat                                                                                                                               |
 | [26-personal-mode.md](26-personal-mode.md)                         | draft   | one human, one terminal, one approval per call: the no-adapter topology, `arizuko talk` over `/chat/<t>/mcp`, GitHub as a connector, MITM vs HITL, and the four verdicts (yes/no/always/never) as `acl` rows — needs deny-wins in `CheckHold`                          |
 | [27-git-channel.md](27-git-channel.md)                             | draft   | `gitd` — a Git host as an ingress-only channel: webhooks → `git:` JIDs, PR/issue = topic, `send_text` the only verb; egress stays the GitHub connector (moved from `17/1` 2026-08-25)                                                                                  |
+| [28-cockpit-index.md](28-cockpit-index.md)                         | draft   | **the cockpit anchor**: architecture, the `/v1`-only read path, routing, auth, theme, non-goals — every other cockpit spec points back at it (was `7/1`)                                                                                                               |
+| [29-dashd-hub.md](29-dashd-hub.md)                                 | draft   | the `dashd` hub + the cross-cutting operator pages that stay central (was `7/2`)                                                                                                                                                                                       |
+| [30-per-daemon-dashboards.md](30-per-daemon-dashboards.md)         | partial | routd, runed, authd, proxyd, onbod, timed, crackbox, webd, davd, ttsd — one table plus the per-daemon reasoning that survives (was `7/3`)                                                                                                                              |
+| [31-adapter-contract.md](31-adapter-contract.md)                   | draft   | the shared adapter dashboard grammar + health model, defined once (was `7/11`)                                                                                                                                                                                         |
+| [32-adapter-dashboards.md](32-adapter-dashboards.md)               | draft   | the ten channel adapters instantiating that contract (was `7/12`)                                                                                                                                                                                                      |
+| [33-social-adapter-model.md](33-social-adapter-model.md)           | draft   | the boundary between social adapters (asymmetric visibility, selective engagement) and chat adapters (bidirectional, push) (was `7/41`)                                                                                                                                |
 
 `7` owns the contracts; `1` owns the strategy; `16` owns the map (layers,
-axes, matrices). `9` (crackbox KVM), `24` (the per-spawn egress proxy) and
+axes, matrices); `28` owns the cockpit and every one of `29`–`33` points back
+at it. `9` (crackbox KVM), `24` (the per-spawn egress proxy) and
 `12` (`mcpfw`) are the concrete component specs from the former phase 12. `17`–`20` are the
 **Centaur peel** (`paradigmxyz/centaur@20f3021`, Apache-2.0, read
 2026-08-10): `18` and `20` shipped as decision records (decline, costed,
@@ -67,31 +80,40 @@ themselves argue:
    internal reasons — 1,221 of ~1,700 lines serve an abandoned
    shared-proxy model, and its consumer-held unregister invariant is a real leak.
    The composition is the product, not the parts.
-4. **Deferred by their own terms**: `19` waits for `5/13` shape 4; `12`
+4. **The cockpit is almost entirely unbuilt** (`28`–`33`). `onbod` serves
+   `/dash/onbod/` with working approve / deny / reprompt, and `timed` serves
+   `/dash/timed/` — the overview page only. Every other daemon's dashboard is
+   unwritten, and `dashd` still reads several DBs directly, which is the read
+   path these specs exist to retire.
+5. **Deferred by their own terms**: `19` waits for `5/13` shape 4; `12`
    (mcpfw) waits for a third-party-MCP consumer.
 
-## Open: this phase holds two different kinds of work
-
-Recorded 2026-08-16, **not yet applied** — it moves files and needs a
-deliberate pass.
+## The re-cut, applied 2026-08-27
 
 Phase 5 closed on 2026-08-15 and this phase took `active` the same day, so
-everything arriving after that landed here regardless of subject. Only four
-specs argue adoption — `1` (strategy), `7` (the contracts), `16` (ship-in-
-parts), `8` (crackbox as the first shipped part). The rest are platform work,
-and their own frontmatter says so: `17` closes `8/Z`, a gap **phase 8** named;
-`19` depends on `5/13`+`5/14` and is timed to `5/13` shape 4; `12` has no
-consumer; `18` and `20` are runtime decisions (`21` left for `7/21`); `9` and `10`
-are crackbox internals.
+everything arriving after that landed here regardless of subject. The operator's
+re-cut, recorded 2026-08-16 and refined the same day to the order the work
+actually runs in: **6 splits arizuko into parts** — the tools, the components,
+the contracts that let a part ship alone — and **7 puts the parts in the
+cloud.** Splitting comes first because you cannot deploy a part you have not
+separated.
 
-The operator's re-cut: **6 = finish and harden the platform** (absorbing the
-phase-7 cockpit), **7 = adoption** (contracts, conformance, ship-in-parts,
-cloud). The work order is the point; the digits are the cost. Spec IDs appear
-222 times across 64 files including `BUGS.md`, `CHANGELOG.md` and diary
-history, and `6/1`/`7/1` collide, so the renumber is its own change with its
-own verification — never a side effect of another edit.
+Applied by moving the operator cockpit here, `7/1`·`7/2`·`7/3`·`7/11`·`7/12`·`7/41`
+→ `28`–`33`. Nothing in phase 6 moved: the contracts (`7`), the strategy (`1`)
+and the ship-in-parts map (`16`) are what let a part ship alone, so they were
+already in the right phase. Phase 7 keeps `21` and means one thing.
+
+**Why the destination numbers start at 28.** `1`–`27` have all been used in
+this phase, several of them by more than one spec — `specs/6/1` has been five
+different specs and `specs/6/2` six. Re-using one would turn every old pointer
+to it into a confidently wrong pointer instead of a dangling one, which is the
+failure `L43` measured. The six moves are recorded in
+[`../RETIRED.md`](../RETIRED.md), so `7/1` still resolves, and `tests/specrefs`
+fails the build if any spec ID stops resolving.
 
 ## History
+
+Absorbed 2026-08-27: the operator cockpit, `7/1`–`7/41` → `28`–`33` (above).
 
 Dropped 2026-07-16: `3`+`4` (folded into `1`), `5`+`6`+`7` (folded into
 `16`; the number `7` was later reused for the contracts spec),

@@ -8,9 +8,9 @@ depends: [1-cockpit-index]
 **Purpose** — define the adapter dashboard ONCE: page grammar, show
 matrix, control verbs, health semantics. The ten channel adapters are
 variations on one chanlib runtime, so they get one dashboard renderer
-with per-adapter deltas. [`7/12`](12-adapter-dashboards.md)
+with per-adapter deltas. [`6/32`](32-adapter-dashboards.md)
 instantiates this contract and lists only deltas. Architecture,
-routing, auth, theme: [`7/1`](1-cockpit-index.md).
+routing, auth, theme: [`6/28`](28-cockpit-index.md).
 
 ## One renderer in chanlib
 
@@ -69,7 +69,7 @@ sinks (Docker healthcheck, chanreg health loop, dashboard).
 
 Registry-side state — `chanreg.Entry.HealthFails`, auto-deregister
 after 3 fails, registered URL/token — lives in **routd** and is shown
-on routd's channel-registry page ([`7/3`](3-per-daemon-dashboards.md)). The
+on routd's channel-registry page ([`6/30`](30-per-daemon-dashboards.md)). The
 adapter overview links there; it does not duplicate it.
 
 ## Control
@@ -100,10 +100,10 @@ Semantics:
 - **pause outbound** — NOT offered. No adapter has a pause mechanism.
   routd holds a message it cannot deliver as a `pending` row in
   `messages` and re-sends it on the 30s sweep; that behaviour belongs
-  to `7/3` if anywhere.
+  to `6/30` if anywhere.
 - **refresh registration** — NOT offered as a distinct verb;
   registration re-runs on adapter restart and `reconnect` does not
-  touch it. Forcing re-registration is `routd`'s side (`7/3`).
+  touch it. Forcing re-registration is `routd`'s side (`6/30`).
 
 ## Required `/v1` + chanlib work
 
@@ -131,7 +131,7 @@ no MCP face is added (the platform's MCP face is routd's).
 
 ## Auth
 
-Per [`7/1`](1-cockpit-index.md): proxyd `auth: "user"` transit +
+Per [`6/28`](28-cockpit-index.md): proxyd `auth: "user"` transit +
 daemon-side `auth.ProxydTransit` verify of the `service:proxyd` bearer
 (then trust the stamped `X-User-*`) + `auth/dashauth.go` operator
 gate, CSRF on writes. Each adapter ships its own `/dash/<adapter>/`
@@ -168,15 +168,15 @@ Group specs add delta fragments (e.g. whapd `x/pair`).
 
 ## Non-goals
 
-`7/1` non-goals apply. Additionally, for all adapters:
+`6/28` non-goals apply. Additionally, for all adapters:
 
-- No message browsing — messages live in routd (`7/3`); the adapter
+- No message browsing — messages live in routd (`6/30`); the adapter
   page shows transport health, not content.
 - No platform-side administration (Slack app config, Discord guild
   management, subreddit settings).
 - No editing of connection env (tokens, hosts, intervals) — infra
   config stays in `.env` (CLAUDE.md "Business vs infra").
-- No outbound queue control (routd-side, `7/3`).
+- No outbound queue control (routd-side, `6/30`).
 - No historical error/uptime storage — the error ring is in-memory and
   dies with the process.
 

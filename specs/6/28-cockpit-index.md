@@ -9,8 +9,8 @@ depends: [5/17-openapi-mcp, 5/7-proxyd-standalone, 1-auth-standalone]
 `/dash/<daemon>/` HTMX namespace, rendering its own source, reading
 and writing only through its own `/v1` surface. A lean `dashd` hub
 probes and links them — an AWS-Console "Services" home, much leaner.**
-One renderer per daemon, one hub. This spec is the anchor; `7/2`,
-`7/3`, `7/11` and `7/12` point back here for architecture, routing,
+One renderer per daemon, one hub. This spec is the anchor; `6/29`,
+`6/30`, `6/31` and `6/32` point back here for architecture, routing,
 auth, theme, and non-goals, and add only their own page lists +
 show/control matrices.
 
@@ -21,7 +21,7 @@ show/control matrices.
   shows `ok|warn|err` + a one-line summary, and links to
   `/dash/<daemon>/`. The hub renders no daemon-specific runtime view
   and holds no duplicate control renderer. Cross-cutting operator pages
-  that span daemons stay in `dashd` (`7/2`).
+  that span daemons stay in `dashd` (`6/29`).
 - **Per-daemon dashboard** — every daemon serves `/dash/` on `:8080`
   (the universal daemon port, per CLAUDE.md). It owns its runtime
   views, its resource detail pages, and its dangerous controls. Source
@@ -50,12 +50,12 @@ Consequences:
 - A per-daemon dashboard reads via its own in-process handlers / `/v1`
   helpers — same struct the REST/MCP faces already serve.
 - The hub tiles probe `GET /health` only.
-- Cross-cutting `dashd` pages (`7/2`) call the **owning daemon's `/v1`**
+- Cross-cutting `dashd` pages (`6/29`) call the **owning daemon's `/v1`**
   over HTTP, presenting dashd's own authd-minted service bearer (the
   owning daemon verifies it as a service principal), never the DB.
 - If a dashboard needs a datum no `/v1` endpoint exposes: first extend
   the existing `/v1/<resource>`; failing that, add a minimal
-  daemon-owned read endpoint (`/v1/<thing>/status`). `7/3` and `7/12`
+  daemon-owned read endpoint (`/v1/<thing>/status`). `6/30` and `6/32`
   list the `/v1` additions each daemon requires.
 - No new "dashboard API" separate from `/v1`. The HTML page is a third
   face on the same handler set (`specs/5/17`), not a fourth surface.
@@ -150,22 +150,22 @@ summary if the payload carries one, link to `/dash/<daemon>/`.
   almost verbatim; the one change is the read-path (it left `dashd`'s
   direct-DB pages in place — this spec migrates them to `/v1`).
 - `specs/3/d-dashboards.md` (shipped) — historical input; the tile
-  portal it shipped becomes the hub (`7/2`).
+  portal it shipped becomes the hub (`6/29`).
 - `specs/4/Q-dash-memory.md` (shipped) — the memory browser is a
-  retained cross-cutting `dashd` page (`7/2`), re-homed to read via the
+  retained cross-cutting `dashd` page (`6/29`), re-homed to read via the
   owning daemon's `/v1`.
 - `specs/4/V-dashd-acl-ui.md` (shipped) — the ACL UI is a retained
-  cross-cutting `dashd` page (`7/2`), reading `authd`'s `/v1`.
+  cross-cutting `dashd` page (`6/29`), reading `authd`'s `/v1`.
 
 ## The spec set
 
 | Spec   | Covers                                                          |
 | ------ | --------------------------------------------------------------- |
-| `7/1`  | this — architecture, read-path, routing, auth, theme, non-goals |
-| `7/2`  | dashd hub + retained cross-cutting operator pages               |
-| `7/3`  | the ten core/edge daemon dashboards, one table + the residue    |
-| `7/11` | adapter dashboard contract — shared page grammar + health model |
-| `7/12` | the ten channel adapters, instantiating that contract           |
+| `6/28` | this — architecture, read-path, routing, auth, theme, non-goals |
+| `6/29` | dashd hub + retained cross-cutting operator pages               |
+| `6/30` | the ten core/edge daemon dashboards, one table + the residue    |
+| `6/31` | adapter dashboard contract — shared page grammar + health model |
+| `6/32` | the ten channel adapters, instantiating that contract           |
 
 A per-daemon section carries only: pages, the show/control matrix, the
 `/v1` additions it needs, and reasoning that does not generalise. No
@@ -174,13 +174,13 @@ beyond "use theme" — point back here.
 
 ## Build order
 
-1. `7/1` (this) + `7/2` hub — land architecture + the empty tile grid.
-2. `7/11` adapter contract — the repeated pattern, defined once.
+1. `6/28` (this) + `6/29` hub — land architecture + the empty tile grid.
+2. `6/31` adapter contract — the repeated pattern, defined once.
 3. Finish onbod (gates + invites pages) and timed (task pages): both
    already serve a dashboard and need no new `/v1` work.
 4. runed, proxyd — operational depth.
 5. routd, authd — the big control surfaces.
-6. `7/12` adapters — repeated pattern work.
+6. `6/32` adapters — repeated pattern work.
 7. webd/ttsd, crackbox.
 
 ## Reusable pieces
@@ -189,7 +189,7 @@ beyond "use theme" — point back here.
   crumbs, theme-toggle, `.btn-danger`.
 - `auth/dashauth.go` — promoted `requireAdmin` + same-origin CSRF for
   writes.
-- `chanreg/health.go` — canonical adapter liveness semantics (`7/11`).
+- `chanreg/health.go` — canonical adapter liveness semantics (`6/31`).
 - `onbod/dash.go` + `timed/dash.go` — the two shipped dashboards; copy
   their operator gate and their "one writer per resource, two faces"
   shape rather than inventing a third.

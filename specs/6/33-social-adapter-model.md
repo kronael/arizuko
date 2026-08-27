@@ -174,5 +174,5 @@ platforms operate with notification-only context.
 
 - `5/L-mention-promotion` — verb promotion for replies/reactions
 - `5/G-engagement` — engagement window (applies differently to social)
-- [`7/12`](12-adapter-dashboards.md) — the operator dashboard deltas for
+- [`6/32`](32-adapter-dashboards.md) — the operator dashboard deltas for
   these five adapters

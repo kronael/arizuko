@@ -16,15 +16,16 @@ conformance check a stranger's part must pass (`anteval` per backend;
 a component probe), and let the folder coordinate (tenancy + egress +
 ACL + web) be what the environment gives you for free. Wrapping stays
 an on-ramp; the engine is an agentic reimplementation loop —
-arizuko's self-learning pointed outward.
+arizuko's self-learning pointed outward. Since 2026-08-27 it also
+carries the operator cockpit (`6/28`–`6/33`): a daemon nobody can watch
+alone has not shipped alone.
 
-**Phase 7** is the operator cockpit: every daemon serves its own
-dashboard (HTMX, its own `/dash/<daemon>/` namespace, source served
-by the daemon itself) that observes AND controls all its aspects via
-its `/v1` surface; a lean dashd hub probes and links them, AWS-console
-style. Products move to phase 17. It also now carries **the cloud
-track** (`7/21` storage seam), which sits here because putting arizuko
-in the cloud comes after splitting it into parts — phase 6's job.
+**Phase 7** is the cloud track: `7/21`, the storage seam. It sits after
+6 because putting arizuko in the cloud comes after splitting it into
+parts, and you cannot deploy a part you have not separated. The
+operator cockpit used to share this number and moved to `6/28`–`6/33`
+on 2026-08-27 — it belongs with the parts it watches. Products are
+phase 17.
 
 **Phase 8** layers enterprise hardening: encryption at rest, audit
 stream, per-daemon secrets, SSO/SAML, tool-level secret broker,
@@ -46,25 +47,25 @@ combination is the platform thesis arizuko ships toward.
 
 ## Phase table
 
-| Phase      | Description                                                                                                           | Status     |
-| ---------- | --------------------------------------------------------------------------------------------------------------------- | ---------- |
-| [1/](1/)   | core gateway — routing, channels, auth, scheduler                                                                     | shipped    |
-| [2/](2/)   | social channels — events, actions, twitter                                                                            | shipped    |
-| [3/](3/)   | permissions, cleanup, gaps                                                                                            | shipped    |
-| [4/](4/)   | dashboards, memory, scheduler, personas — core architecture (channel protocol → `5/34`, ACL → `5/32`·`5/33`)          | shipped    |
-| [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                         | shipped    |
-| [6/](6/)   | adoption & interop + components — the environment contracts (`6/7`), the ship-in-parts catalogue (`6/16`), crackbox   | **active** |
-| [7/](7/)   | operator cockpit + the cloud track (`7/21` storage seam) — two tracks sharing a number until `L43` is repaired        | queued     |
-| [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                          | queued     |
-| [9/](9/)   | platform program — data model, git-as-truth (MCP+REST unification → 5/16·5/17)                                        | drafting   |
-| [10/](10/) | self-healing — Aeon mechanism incorporation                                                                           | queued     |
-| [11/](11/) | operator tools — branding, usage limits                                                                               | queued     |
-| [12/](12/) | _dissolved 2026-07-14 → consolidated into [6/](6/) (`6/8`–`6/12`, `6/16`); self-learning/skill-guard → `5/22`·`5/23`_ | dissolved  |
-| [13/](13/) | standalone + reusable — ant, workflows, self-eval                                                                     | planned    |
-| [14/](14/) | future features — pinned, CLI, dynamic channels                                                                       | planned    |
-| [15/](15/) | later — committed direction, not scheduled                                                                            | planned    |
-| [16/](16/) | multiplayer — shared sessions, durable streams, presence                                                              | drafting   |
-| [17/](17/) | products — persona templates, publishing surface                                                                      | queued     |
+| Phase      | Description                                                                                                                                        | Status     |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| [1/](1/)   | core gateway — routing, channels, auth, scheduler                                                                                                  | shipped    |
+| [2/](2/)   | social channels — events, actions, twitter                                                                                                         | shipped    |
+| [3/](3/)   | permissions, cleanup, gaps                                                                                                                         | shipped    |
+| [4/](4/)   | dashboards, memory, scheduler, personas — core architecture (channel protocol → `5/34`, ACL → `5/32`·`5/33`)                                       | shipped    |
+| [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                                                      | shipped    |
+| [6/](6/)   | split arizuko into parts — the environment contracts (`6/7`), the ship-in-parts catalogue (`6/16`), crackbox, the operator cockpit (`6/28`–`6/33`) | **active** |
+| [7/](7/)   | the cloud track — the storage seam (`7/21`); the cockpit left for `6/28`–`6/33` on 2026-08-27                                                      | queued     |
+| [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                                                       | queued     |
+| [9/](9/)   | platform program — data model, git-as-truth (MCP+REST unification → 5/16·5/17)                                                                     | drafting   |
+| [10/](10/) | self-healing — Aeon mechanism incorporation                                                                                                        | queued     |
+| [11/](11/) | operator tools — branding, usage limits                                                                                                            | queued     |
+| [12/](12/) | _dissolved 2026-07-14 → consolidated into [6/](6/) (`6/8`–`6/12`, `6/16`); self-learning/skill-guard → `5/22`·`5/23`_                              | dissolved  |
+| [13/](13/) | standalone + reusable — ant, workflows, self-eval                                                                                                  | planned    |
+| [14/](14/) | future features — pinned, CLI, dynamic channels                                                                                                    | planned    |
+| [15/](15/) | later — committed direction, not scheduled                                                                                                         | planned    |
+| [16/](16/) | multiplayer — shared sessions, durable streams, presence                                                                                           | drafting   |
+| [17/](17/) | products — persona templates, publishing surface                                                                                                   | queued     |
 
 **Retired IDs live in [`RETIRED.md`](RETIRED.md).** A spec that is deleted or
 renumbered leaves its pointers behind in `BUGS.md`, `CHANGELOG.md`, code
@@ -81,20 +82,19 @@ being designed; `planned` is a placeholder with no specs written. Phase 5
 closed 2026-08-15 (its last two carve-outs, `5/5` Open 2 and `5/28`'s
 migrations, shipped as decisions); phase 6 took `active` the same day.
 
-**Open — a re-cut of 6 and 7 (2026-08-16, recorded, not applied).** Because
-phase 6 took `active` the day phase 5 closed, every later arrival landed there
-whatever its subject: 7 of its 11 specs are platform work, not adoption, and
-say so in their own frontmatter (`6/19`
-depends on `5/13`+`5/14`). The operator's re-cut is **6 = finish and harden the
-platform**, absorbing the phase-7 cockpit, and **7 = adoption** — contracts,
-conformance, ship-in-parts, cloud. Refined 2026-08-16 to the order the work
-actually runs in: **6 = split arizuko into parts** (the tools, the components,
-the contracts that let a part ship alone), **7 = put the parts in the cloud**.
-Splitting comes first because you cannot deploy a part you have not separated.
-`7/21` moved under that reading. Only four of today's phase-6 specs (`1`,
-`7`, `16`, `8`) belong to adoption. Not applied here because spec IDs are
-stable identifiers: they appear 222 times across 64 files including `BUGS.md`,
-`CHANGELOG.md` and diary history, and `6/1`/`7/1` collide, so moving them is a
-deliberate pass with its own verification. Also drifting: `specs/7/index.md`
-says `status: active` while the table above says `queued`. See
-[`6/index.md`](6/index.md) §"Open".
+**The re-cut of 6 and 7, applied 2026-08-27.** Because phase 6 took `active`
+the day phase 5 closed, every later arrival landed there whatever its subject,
+and phase 7 held two tracks that shared a number and nothing else. The
+operator's re-cut, refined 2026-08-16 to the order the work actually runs in:
+**6 = split arizuko into parts** (the tools, the components, the contracts that
+let a part ship alone), **7 = put the parts in the cloud.** Splitting comes
+first because you cannot deploy a part you have not separated.
+
+Applied by moving the six cockpit specs `7/1`·`7/2`·`7/3`·`7/11`·`7/12`·`7/41`
+to `6/28`–`6/33`. Nothing else moved: the contracts, the strategy and the
+ship-in-parts map are what let a part ship alone, so they were already in phase
+6, and `7/21` was already the cloud. The destination numbers start at 28
+because every number below it has been used in phase 6 before — reusing one
+turns an old pointer into a confidently wrong one, which is the failure `L43`
+measured. The moves are in [`RETIRED.md`](RETIRED.md) and `tests/specrefs`
+fails the build if any spec ID stops resolving.

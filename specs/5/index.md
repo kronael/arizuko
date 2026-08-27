@@ -30,12 +30,7 @@ Phase 5 is the foundation for the two phases above it. The directory `../8/`
 layers enterprise hardening — encryption, audit, SSO, egress — on phase 5's
 surfaces, identity, and tenancy. The directory `../9/` closes and minimizes:
 `5/16` finishes the unification whose mechanism is `5/17`, `9/2` sharpens the
-data entities defined here, and `9/3` moves the cold tier into git.
-
-> Those directories are numbered one ahead of the titles inside them (`../7/`
-> calls itself phase 6, `../8/` phase 7, `../9/` phase 8). The mismatch spans
-> directories this phase does not own; links here address the directory, which
-> is the real location.
+data entities defined here, and `5/8` moves the cold tier into git.
 
 ## Identity and authorization
 

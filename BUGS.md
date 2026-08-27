@@ -5495,7 +5495,7 @@ routes (3195f867), tasks (0b6ca53e). Open:
 `dashd/main.go` opens `routd.db` (`dbRoutd`), `onbod.db` (`dbOnbod`) and `runed.db`
 (`dbRuned`, via `openSiblingOwner`) directly and queries them from most page handlers
 (groups, tasks, routes, activity, secrets, usage). The renamed spec (`6/1` →
-`specs/7/1-cockpit-index.md`, still `status: draft`) still says, verbatim: "Every
+`specs/6/28-cockpit-index.md`, still `status: draft`) still says, verbatim: "Every
 datum a dashboard shows or mutates flows through the owning daemon's `/v1` surface.
 No dashboard — hub or per-daemon — reads a SQLite DB directly. This retires dashd's
 current direct reads of routd.db/onbod.db/messages.db."
@@ -5518,12 +5518,12 @@ NON-adoption as the shipped decision.
 - **Severity:** high
 - **Scope:** dashd, spec 7/1 (draft, never shipped) vs. root CLAUDE.md (shipped)
 - **Affected:** all dashd pages (groups, status, invites, memory, tokens, activity, tasks, usage)
-- **Source:** dashd/main.go:385-451; dashd/audit_page.go:3-16; specs/7/1-cockpit-index.md:33-61;
+- **Source:** dashd/main.go:385-451; dashd/audit_page.go:3-16; specs/6/28-cockpit-index.md:33-61;
   root CLAUDE.md "### Split write-discipline"
 - **Status:** PROPOSED, not fixed — this is a spec-vs-implementation conflict, not a
   contained bug: resolving it either means (a) implementing the full `/v1`-only
   read-path for every dashd page the way `/dash/audit/` already does (cross-daemon
-  control-flow change, new `/v1` read endpoints per `specs/7/3`/`7/12`), or (b)
+  control-flow change, new `/v1` read endpoints per `specs/6/30`/`6/32`), or (b)
   marking spec 7/1's "no direct DB" section declined/superseded and updating it to
   document the FS-mounted direct-read pattern CLAUDE.md and the code already ship.
   Either direction needs a decision, not a docs-only close. NOT fixed this pass.
@@ -6356,11 +6356,11 @@ with Make.
      "no tests to run", with a comment naming the root Makefile's guard as its
      mirror. A selector matching zero tests can no longer pass as green.
 
-## V2 — dashd duplicates control planes phase 7 moves away — CHAT PORTAL + MINT FORM DELETED 2026-08-15; the rest BLOCKED on `7/3` (2026-08-04, partial)
+## V2 — dashd duplicates control planes the cockpit specs move away — CHAT PORTAL + MINT FORM DELETED 2026-08-15; the rest BLOCKED on `6/30` (2026-08-04, partial)
 
 Codex review of the dashd surface against the post-phase-5 end state. Almost
 nothing is *dead* — the identity deletions left only textual rot. The problem is
-**duplication**: dashd hosts control planes that `specs/7/3` moves to each
+**duplication**: dashd hosts control planes that `specs/6/30` moves to each
 daemon's own `/dash/<daemon>/`.
 
 | target | LOC | why |
@@ -6419,17 +6419,17 @@ both folder-link sites (`runed_page.go`, `routd_page.go`) now point at
 `POST /v1/route_tokens/{chat,hook}` for operators and `issue_chat_link` /
 `issue_webhook` / `issue_pairing_link` for agents
 (`resreg/resources/route_tokens.go:38-54`) — plus `arizuko token` for the CLI.
-List + revoke stay. `7/3` §webd already said it: "There is no token minting
+List + revoke stay. `6/30` §webd already said it: "There is no token minting
 anywhere in the cockpit."
 
-### BLOCKED on `7/3` — do not delete these yet
+### BLOCKED on `6/30` — do not delete these yet
 
 Verified against each daemon's route registration, not the spec's intention.
 No daemon but onbod and timed has a `/dash/` route at all
 (`compose/compose.go:367-370`); dashd answers `/dash/routd/` and `/dash/runed/`
 from the catch-all.
 
-| dashd surface                                        | LOC (verified)              | what `7/3` must ship first                                                                                                       |
+| dashd surface                                        | LOC (verified)              | what `6/30` must ship first                                                                                                       |
 | ----------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | routes + tokens list/revoke + errored-retry           | 304 + 145 + 173 (`routd_page.go`) | routd's `/dash/routd/` — routd serves no `/dash/` namespace and compose has no route to it                                    |
 | `runed_page.go` runs + kill                           | **289**, not the 526 claimed | runed's `/dash/runed/` AND `GET /v1/runs?state=`. runed's mux is 8 routes and none lists runs (`runed/server.go:39-46`); there is no `ListSpawns` in the tree, so dashd's direct `spawns` read is the only run list |
@@ -6440,7 +6440,7 @@ build the per-daemon page, then delete dashd's copy.
 
 ### The cron duplication is real and ALREADY DRIFTED
 
-Canonical is **timed's** (`timed/main.go:33-57`) — `7/3` §timed: "timed owns
+Canonical is **timed's** (`timed/main.go:33-57`) — `6/30` §timed: "timed owns
 the fire runtime … and all cron/interval computation". There are three copies,
 not two, and the drift is live: routd's `parseTaskSchedule`
 (`scheduled_tasks_resource.go:285`) accepts an RFC3339 one-shot and computes in

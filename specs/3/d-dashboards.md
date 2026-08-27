@@ -10,7 +10,7 @@ superseded-in-part: [7/1-cockpit-index]
 > grown well past it — ~20 pages including mutations (`POST`/`PUT`/
 > `DELETE` on routes, tasks, groups, grants, memory, secrets,
 > connections), which this spec explicitly put out of scope. The live
-> surface is [`../7/1-cockpit-index.md`](../7/1-cockpit-index.md); read
+> surface is [`../6/28-cockpit-index.md`](../6/28-cockpit-index.md); read
 > `dashd/main.go` for the route table. Kept for the decisions below,
 > which still hold.
 

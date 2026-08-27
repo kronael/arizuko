@@ -8,22 +8,22 @@ depends: [1-cockpit-index]
 `dashd` stops being the monolith that renders every operator view. It
 becomes the **cockpit hub** plus the home for **cross-cutting pages
 that span daemons** — and nothing else. Per-daemon runtime views move
-to the owning daemon (`7/3`, `7/12`). Architecture, read-path, auth, and
-theme are defined in [`7/1`](1-cockpit-index.md); this spec lists only
+to the owning daemon (`6/30`, `6/32`). Architecture, read-path, auth, and
+theme are defined in [`6/28`](28-cockpit-index.md); this spec lists only
 what dashd keeps.
 
 ## The hub — `GET /dash/services/`
 
 The AWS-Console "Services" home. A tile grid, one tile per daemon that
 ships a `/dash/`. Each tile request-time probes `<daemon>:8080/health`
-(500ms timeout, `7/1` "Hub probing"), shows `ok|warn|err` + version +
+(500ms timeout, `6/28` "Hub probing"), shows `ok|warn|err` + version +
 a one-line health summary, and links to `/dash/<daemon>/`. The daemon
 list comes from the proxyd `/dash/<daemon>/` route entries — no
 registry, no autodiscovery.
 
 The hub renders **no** daemon-specific runtime view and holds **no**
 duplicate control renderer. When a per-daemon dashboard subsumes an old
-dashd page (e.g. proxyd's route editor, `7/3`), the migrating PR deletes
+dashd page (e.g. proxyd's route editor, `6/30`), the migrating PR deletes
 the dashd version and repoints the link — never two renderers
 (CLAUDE.md "One renderer, many sinks").
 
@@ -31,20 +31,20 @@ the dashd version and repoints the link — never two renderers
 
 These span multiple daemons or are operator-global, so they stay in
 dashd. **All of them read + write through the owning daemon's `/v1`
-(service-token transit), never a DB directly** (`7/1` read-path).
+(service-token transit), never a DB directly** (`6/28` read-path).
 
-| Page                                                   | Owning daemon `/v1`     | Migration note                       |
-| ------------------------------------------------------ | ----------------------- | ------------------------------------ |
-| services hub                                           | — (probes `/health`)    | new (`7/1`)                          |
-| global status                                          | all (`/health` fan-out) | from `3/d` Status                    |
-| activity                                               | routd `/v1`             | was direct `messages.db` read        |
-| groups (+settings/model/skills/delete)                 | routd `/v1` groups      | was direct `routd.db` read           |
-| grants / ACL (rows, edges, roles, principal-effective) | authd `/v1` acl         | absorbs `4/V`; was direct read       |
-| routes / route-tokens                                  | routd `/v1` routes      | until/if moved to routd dash (`7/3`) |
-| memory (view/edit MEMORY.md, CLAUDE.md, diary/facts)   | routd `/v1` group files | absorbs `4/Q`; was direct FS/DB      |
-| profile / me-secrets / invites                         | authd + onbod `/v1`     | invites cross to onbod (`7/3`)       |
+| Page                                                   | Owning daemon `/v1`     | Migration note                        |
+| ------------------------------------------------------ | ----------------------- | ------------------------------------- |
+| services hub                                           | — (probes `/health`)    | new (`6/28`)                          |
+| global status                                          | all (`/health` fan-out) | from `3/d` Status                     |
+| activity                                               | routd `/v1`             | was direct `messages.db` read         |
+| groups (+settings/model/skills/delete)                 | routd `/v1` groups      | was direct `routd.db` read            |
+| grants / ACL (rows, edges, roles, principal-effective) | authd `/v1` acl         | absorbs `4/V`; was direct read        |
+| routes / route-tokens                                  | routd `/v1` routes      | until/if moved to routd dash (`6/30`) |
+| memory (view/edit MEMORY.md, CLAUDE.md, diary/facts)   | routd `/v1` group files | absorbs `4/Q`; was direct FS/DB       |
+| profile / me-secrets / invites                         | authd + onbod `/v1`     | invites cross to onbod (`6/30`)       |
 
-Migration rule (from `7/1`): a page primarily about ONE daemon's
+Migration rule (from `6/28`): a page primarily about ONE daemon's
 runtime or owned resources moves out to that daemon; a page that spans
 daemons or is operator-global stays here. `routes`/`route-tokens` are
 the ambiguous pair — they edit `routd`-owned tables; keep them here
@@ -74,12 +74,12 @@ routes, group-files). Add a minimal endpoint only where none exists.
 
 ## Auth
 
-Per `7/1`: proxyd `auth: "user"` transit + `auth/dashauth.go`
+Per `6/28`: proxyd `auth: "user"` transit + `auth/dashauth.go`
 operator gate. All hub + cross-cutting pages are operator-only.
 
 ## Non-goals
 
-Per `7/1`. Specifically: the hub is navigation, not a global status
+Per `6/28`. Specifically: the hub is navigation, not a global status
 screen that inlines every daemon's detail; it links out, it does not
 aggregate runtime state.
 

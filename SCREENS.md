@@ -836,7 +836,7 @@ List and revoke a group's web chat and webhook tokens.
 routd's `POST /v1/route_tokens/{chat,hook}`, the agent's `issue_chat_link` /
 `issue_webhook` / `issue_pairing_link`, and `arizuko token`. A mint form here
 was a second writer over `route_tokens` carrying its own label validation
-(BUGS `V2`; spec `7/3` §webd: "There is no token minting anywhere in the
+(BUGS `V2`; spec `6/30` §webd: "There is no token minting anywhere in the
 cockpit"). Revocation stays: it is the action an operator needs where the
 status is shown (design principle 6).
 

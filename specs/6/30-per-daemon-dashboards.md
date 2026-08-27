@@ -6,9 +6,9 @@ depends: [1-cockpit-index]
 # Per-daemon dashboards — routd, runed, authd, proxyd, onbod, timed, crackbox, webd, davd, ttsd
 
 Architecture, read-path (`/v1` only), routing, auth, theme, HTMX
-grammar, and non-goals live in [`7/1`](1-cockpit-index.md) and are not
-restated here. Channel adapters are [`7/11`](11-adapter-contract.md) +
-[`7/12`](12-adapter-dashboards.md).
+grammar, and non-goals live in [`6/28`](28-cockpit-index.md) and are not
+restated here. Channel adapters are [`6/31`](31-adapter-contract.md) +
+[`6/32`](32-adapter-dashboards.md).
 
 Each daemon's dashboard is its own `/dash/<daemon>/` namespace on
 `:8080`, rendering the same handlers its `/v1` face already serves.
@@ -27,10 +27,10 @@ does not generalise.
 | timed    | **overview only** — [`timed/dash.go`](../../timed/dash.go) | overview (shipped); tasks, task detail, runs (unbuilt)                  | pause/resume, cancel, run-now — routd's `PATCH` + `DELETE /v1/tasks/{id}` ship ([`routd/tasks_http.go:16`](../../routd/tasks_http.go)) | **none on routd** — `/v1/tasks` list/get/patch/delete + `/v1/tasks/runs` + `/v1/tasks/{id}/runs` all ship ([`routd/server.go:258-267`](../../routd/server.go)). Remaining work is timed-local page handlers                |
 | crackbox | no                                                         | overview, registry, denials                                             | unregister workload, overwrite live allowlist — both exist ([`crackbox/pkg/admin/api.go:76-85`](../../crackbox/pkg/admin/api.go))      | `GET /v1/denials?limit=` (ring over the four deny sites), proxyd `Route.InjectAuthorization`, a `template/services/crackbox.yaml` gated by `EGRESS_CRACKBOX`                                                               |
 | webd     | no                                                         | overview (registration + SSE hub usage)                                 | **none** — token revocation and web-route edits are routd-owned, rendered on routd's routes page                                       | `GET /v1/hub/status` (hub keys, per-key subscribers, caps — memory-only)                                                                                                                                                   |
-| davd     | no, and none planned                                       | **none** — hub tile only                                                | **none exist** — dufs has no session list and no disconnect verb                                                                       | a per-tile probe-path override in the hub ([`7/2`](2-dashd-hub.md)): dufs has no `/health`, so `GET /` 200 is the signal                                                                                                   |
+| davd     | no, and none planned                                       | **none** — hub tile only                                                | **none exist** — dufs has no session list and no disconnect verb                                                                       | a per-tile probe-path override in the hub ([`6/29`](29-dashd-hub.md)): dufs has no `/health`, so `GET /` 200 is the signal                                                                                                 |
 | ttsd     | no                                                         | overview, read-only                                                     | **none** — backend selection is `TTS_BACKEND_URL`, an env/restart concern                                                              | `GET /v1/status` (`{backend, ok, probe, latency_ms, last_error, last_error_at}`)                                                                                                                                           |
 
-Route registration follows `7/1`: core daemons get their
+Route registration follows `6/28`: core daemons get their
 `/dash/<daemon>/` entry in `coreProxydRoutes`
 ([`compose/compose.go:302-308`](../../compose/compose.go) — onbod and
 timed are already there, ahead of the `/dash/` catch-all to dashd);
@@ -269,7 +269,7 @@ an operator runbook step. Infra toggles stay in env.
 
 - Every page's data flows through the owning daemon's `/v1` handlers or
   helpers — no SQL in any `/dash/` handler (code-review check,
-  `7/1` read-path).
+  `6/28` read-path).
 - Each daemon's overview renders for an operator behind proxyd; a
   non-operator gets the themed 403 banner, and the hub tile shows
   `warn` (up, scope-denied) rather than `err` (probe failed).

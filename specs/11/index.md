@@ -22,7 +22,7 @@ configured by env or `dashd`.
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `4-rate-limits.md`        | proposed `usage_log` + `usage_limits`, neither of which exists. The spend gate shipped instead as `cost_log` + `routd/budget.go` — see `19`. It also cited the dead gateway. |
 | `14-plugins.md`           | an MCP-tool plugin layer with its own manifest, CLI and catalog. The package manager shipped that surface — `5/28`, `arizuko packages`, `cmd/arizuko/packages.go`.           |
-| `18-daemon-dashboards.md` | superseded by [`../7/1-cockpit-index.md`](../7/1-cockpit-index.md), which carries its routing/auth/theme/hub model over almost verbatim and fixes the read path.             |
+| `18-daemon-dashboards.md` | superseded by [`../6/28-cockpit-index.md`](../6/28-cockpit-index.md), which carries its routing/auth/theme/hub model over almost verbatim and fixes the read path.           |
 
 ## Numbering warning
 
