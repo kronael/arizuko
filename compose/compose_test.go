@@ -399,6 +399,19 @@ func TestAuthKeysScopedToReaders(t *testing.T) {
 	}
 }
 
+// The harness occupant is chosen by env, and runed is the only reader: it
+// resolves ARIZUKO_BACKEND into cfg.AgentBackend and re-emits it as container
+// env. Left out of runed's allowlist, the documented certification procedure
+// (set it in the instance .env, restart, run anteval) is a silent no-op —
+// measured on krons 2026-08-27, where the value never reached env/runed.env.
+func TestRunedReceivesTheBackendSelector(t *testing.T) {
+	dir := seed(t, "ARIZUKO_BACKEND=codex\n")
+	gen(t, dir)
+	if runed := read(t, dir, "env/runed.env"); !strings.Contains(runed, "ARIZUKO_BACKEND=codex") {
+		t.Error("env/runed.env must carry ARIZUKO_BACKEND: runed is the only daemon that reads it")
+	}
+}
+
 func TestModelCredentialsScopedToRuned(t *testing.T) {
 	const credentials = "ANTHROPIC_API_KEY=anthropic\n" +
 		"CLAUDE_CODE_OAUTH_TOKEN=claude\n" +

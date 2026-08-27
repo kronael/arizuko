@@ -174,6 +174,13 @@ var daemonKeys = map[string][]string{
 		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX",
 		"EGRESS_IMAGE", "EGRESS_UPLINK_NETWORK",
 		"HOST_CODEX_DIR",
+		// ARIZUKO_BACKEND picks the harness occupant (claude|codex|pi). runed
+		// reads it into cfg.AgentBackend (core/config.go:213) and buildArgs
+		// emits it as container env; without it here the instance .env value
+		// never reaches runed, so `ARIZUKO_BACKEND=codex; restart` — the
+		// per-backend certification procedure spec 6/7 documents — silently
+		// kept spawning claude.
+		"ARIZUKO_BACKEND",
 		// NO SECRETS_KEY. runed spawns the agent and injects the model credentials
 		// routd already resolved and DECRYPTED (RunRequest.Secrets); it opens no
 		// secrets table and builds no keyring, so the fleet's decryption key had no
