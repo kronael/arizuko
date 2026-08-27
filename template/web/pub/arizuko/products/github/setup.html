@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Repo worker (Atlas) setup &mdash; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../github/" aria-current="page">Repo worker (Atlas)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">Repo worker (Atlas)</a> &rsaquo; setup</p>
+      <h1>Repo worker setup</h1>
+
+      <div class="callout">
+        <strong>Steps 4 and 6 need <code>gitd</code>, which is not built
+        yet.</strong> Everything up to step 3 works today and gives the
+        agent its <code>gh</code> tools behind the hold gate. Repo events
+        &mdash; pushes, issues, review requests &mdash; have nothing to
+        deliver them until <code>gitd</code> ships (<code>specs/6/27</code>).
+      </div>
+
+      <h2>1. Install the GitHub App</h2>
+
+      <p>
+        Install a GitHub App on the repositories the agent should watch. An
+        App, not a personal access token: a PAT stamps <em>your</em>
+        identity on everything the agent does, so its comments and commits
+        become indistinguishable from yours. The App posts as
+        <code>&lt;app&gt;[bot]</code>.
+      </p>
+
+      <h2>2. Set the environment</h2>
+
+      <table>
+        <thead><tr><th>Variable</th><th>Required</th><th>What it is</th></tr></thead>
+        <tbody>
+          <tr><td><code>GITHUB_APP_ID</code></td><td class="req req-y">yes</td><td>the App id</td></tr>
+          <tr><td><code>GITHUB_PRIVATE_KEY</code></td><td class="req req-y">yes</td><td>App private key (PEM); mints the short-lived installation token</td></tr>
+          <tr><td><code>GITHUB_WEBHOOK_SECRET</code></td><td class="req req-y">yes</td><td>shared secret the inbound webhook HMAC is verified against</td></tr>
+          <tr><td><code>WEB_HOST</code></td><td class="req req-n">no</td><td>set it and every held-call notice carries a link straight to the approval page</td></tr>
+        </tbody>
+      </table>
+
+      <h2>3. Enable the github connector</h2>
+
+      <pre><code>cp template/connectors/github.toml &lt;data-dir&gt;/connectors/</code></pre>
+
+      <p>
+        This is what gives the agent its <code>gh</code> tools. The
+        <a href="../../concepts/secrets.html">connector</a> holds the
+        credential; the agent never sees it.
+      </p>
+
+      <h2>4. Route the repository</h2>
+
+      <p>
+        One row per level. <code>**</code> is <em>not</em> a subtree glob
+        here and a <code>**</code> row silently matches nothing
+        (<code>specs/6/27</code>):
+      </p>
+
+      <pre><code>arizuko route &lt;inst&gt; add "chat_jid=git:me/proj/pr/* verb=reply"    dev
+arizuko route &lt;inst&gt; add "chat_jid=git:me/proj/pr/* verb=message"  dev
+arizuko route &lt;inst&gt; add "chat_jid=git:me/proj/pr/*"    dev#observe -s 100
+arizuko route &lt;inst&gt; add "chat_jid=git:me/proj/issue/*" dev#observe -s 100
+arizuko route &lt;inst&gt; add "chat_jid=git:me/proj"         dev#observe -s 100</code></pre>
+
+      <p>
+        The <code>#observe</code> rows at a low score are what make the
+        agent quiet: a push or a label lands as context it reads and does
+        not answer. The two <code>verb=</code> rows are the ones that let
+        it speak.
+      </p>
+
+      <h2>5. Hold what you want to sign off</h2>
+
+      <p>
+        Merge is the one that matters. A
+        <a href="../../reference/grants.html">hold grant</a> stops the call
+        and asks you:
+      </p>
+
+      <pre><code>arizuko group &lt;inst&gt; grant dev "hold:mcp:github_merge_pull_request" dev
+arizuko group &lt;inst&gt; grant dev "hold:mcp:github_create_pull_request" dev</code></pre>
+
+      <p>
+        Approvals reach you two ways with no chat platform running:
+        <code>/approve &lt;id&gt;</code> wherever you talk to it, and the
+        link the held notice carries to <code>/dash/approvals/</code>.
+      </p>
+
+      <h2>6. Seed the group and run</h2>
+
+      <pre><code>arizuko group &lt;instance&gt; add telegram:group/-100123 dev --product github
+arizuko run &lt;instance&gt;</code></pre>
+
+      <h2>7. Fill in the facts</h2>
+
+      <p>
+        <code>facts/repo.md</code> ships as a placeholder and must be
+        replaced. Put the exact build, test and lint commands in it, name
+        the generated directories that must never be hand-edited, and write
+        down what &ldquo;done&rdquo; means for a change.
+      </p>
+
+      <p>
+        A wrong fact is worse than a missing one, because the agent cites
+        it. Treat a stale line in <code>facts/</code> as a bug with a
+        filename.
+      </p>
+
+      <h2>8. Verify</h2>
+
+      <pre><code>arizuko send &lt;instance&gt; dev "what are the build and test commands here?" --wait</code></pre>
+
+      <p>
+        A correct answer quotes <code>facts/repo.md</code>. If it guesses
+        from the source tree instead, the product seed did not land in that
+        folder.
+      </p>
+
+      <p>
+        Then run its own case suite against the live agent:
+      </p>
+
+      <pre><code>anteval run &lt;host&gt; --cases &lt;data-dir&gt;/groups/dev/eval</code></pre>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="index.html">&larr; Repo worker</a>
+        <a rel="next" href="../reality/">Reality agent &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/github/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-27">2026-08-27</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

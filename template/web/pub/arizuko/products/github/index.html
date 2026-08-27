@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Repo worker (Atlas) &mdash; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../github/" aria-current="page">Repo worker (Atlas)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Repo worker (Atlas)</p>
+      <h1>Repo worker <span class="dim">(Atlas)</span></h1>
+
+      <p class="lede">
+        A solo developer&rsquo;s agent for their own repositories. It
+        triages issues, reviews pull requests and opens its own &mdash; and
+        it merges only when you say so.
+      </p>
+
+      <div class="callout">
+        <p>
+          <strong>The inbound half is not built yet.</strong> Repo events
+          reach an agent through <code>gitd</code>, which is specified in
+          <code>specs/6/27</code> and not yet written. Until it ships, the
+          outbound half works on its own: the github connector gives the
+          agent its <code>gh</code> tools and the hold gate covers them, so
+          you can drive it from chat. Nothing delivers pushes, issues or
+          review requests on its own.
+        </p>
+      </div>
+
+      <h2>What it does</h2>
+
+      <p>
+        It lives in one repository and knows it. Before answering it reads
+        <code>~/facts/</code> &mdash; your build commands, your generated
+        directories, your definition of done &mdash; and
+        <code>~/diary/</code>, so it does not re-litigate a decision
+        somebody already made.
+      </p>
+
+      <p>
+        On a pull request it reads the actual diff, not the description,
+        and cites <code>path:line</code>. When it did not open a file it
+        says so. It acts through its GitHub tools rather than telling you
+        what to do: it opens the PR, leaves the comment, applies the
+        label.
+      </p>
+
+      <p>
+        Most of what reaches it is context rather than a request &mdash; a
+        push, a label, a release. It reads those, remembers them, and stays
+        quiet. It answers when it is addressed.
+      </p>
+
+      <h2>Merging is held, always</h2>
+
+      <p>
+        Merge, force-push and closing somebody else&rsquo;s work are not
+        the agent&rsquo;s to decide. They are
+        <a href="../../reference/grants.html">held calls</a>: the agent
+        asks, stops, and tells you what it is waiting on. You approve with
+        <code>/approve &lt;id&gt;</code> in whatever chat you use, or from
+        <code>/dash/approvals/</code>.
+      </p>
+
+      <p>
+        This matters more here than in most products. Every other tool the
+        agent holds costs a message; a merge costs your main branch.
+      </p>
+
+      <h2>A sample exchange</h2>
+
+      <pre><code>user   is #412 safe to merge?
+
+agent  no. store/secrets.go:115 drops the error from Decrypt and
+       returns the zero value, so a bad key reads as an empty
+       secret rather than a failure. the PR description says
+       "no behaviour change".
+
+       the rest of the diff is fine. i did not read the
+       migration — 0031.sql is generated and your facts/repo.md
+       says never to review those.
+
+user   ok fix it and merge
+
+agent  opened #413 with the error returned. merge is held:
+       hold:mcp:github_merge_pull_request. approve with
+       /approve h-8f21 and i will merge #413, not #412.</code></pre>
+
+      <h2>What it ships</h2>
+
+      <table>
+        <thead><tr><th>File</th><th>What it is</th></tr></thead>
+        <tbody>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, the four env hints</td></tr>
+          <tr><td><code>PERSONA.md</code></td><td>who the agent is: reads the diff, cites path:line, waits on merge</td></tr>
+          <tr><td><code>facts/repo.md</code></td><td>operator placeholder &mdash; your build, test and lint commands</td></tr>
+          <tr><td><code>facts/README.md</code></td><td>what belongs in <code>facts/</code> and why a stale line there is a bug</td></tr>
+          <tr><td><code>eval/github.toml</code></td><td>its own case suite &mdash; run it to prove the persona still holds</td></tr>
+        </tbody>
+      </table>
+
+      <p>
+        <code>facts/repo.md</code> is the minimum. Leave it as shipped and
+        the agent re-derives your build and test commands from the source
+        on every turn, and sometimes gets them wrong.
+      </p>
+
+      <h2>Who it is for</h2>
+
+      <p>
+        One developer with their own repositories, not a team with a review
+        rota. It assumes you are the only approver, so every gate is a
+        question addressed to you. A team wanting shared triage wants the
+        <a href="../slack-team/">Slack team agent</a> shape instead.
+      </p>
+
+      <p><a href="setup.html">Set it up &rsaquo;</a></p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="../discord-team/setup.html">&larr; Discord team setup</a>
+        <a rel="next" href="setup.html">Repo worker setup &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/github/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-08-27">2026-08-27</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

@@ -286,14 +286,14 @@ func TestProductCorpusPayloadKinds(t *testing.T) {
 		}
 	}
 	want := map[string]int{
-		"PRODUCT.md":  10, // every product
+		"PRODUCT.md":  11, // every product
 		"SOUL.md":     6,
-		"PERSONA.md":  4,
+		"PERSONA.md":  5,
 		"BRANDING.md": 3,
 		"CLAUDE.md":   3,
 	}
-	if total != 10 {
-		t.Fatalf("corpus size moved: %d products, spec 5/28 says 10", total)
+	if total != 11 {
+		t.Fatalf("corpus size moved: %d products, spec 5/28 says 11", total)
 	}
 	for name, wantN := range want {
 		if counts[name] != wantN {

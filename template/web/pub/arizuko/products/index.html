@@ -26,6 +26,7 @@
             <li><a href="trip/">Trip planner (May)</a></li>
             <li><a href="slack-team/">Slack team agent</a></li>
             <li><a href="discord-team/">Discord team agent</a></li>
+            <li><a href="github/">Repo worker (Atlas)</a></li>
             <li><a href="reality/">Reality agent</a></li>
             <li><a href="company-brain/">Company brain</a></li>
             <li><a href="marble/">Taxonomy chat (Marble)</a></li>
@@ -47,7 +48,7 @@
 
       <p class="lede">
         Each product is a folder shape &mdash; a persona, a skill set, the
-        channel wiring, and an operator setup guide. Ten ship as
+        channel wiring, and an operator setup guide. Eleven ship as
         templates you can seed with <code>arizuko create --product
         &lt;id&gt;</code>; four are <em>shapes</em>, described here and
         assembled from the primitives, each marked as such on its own page.
@@ -131,6 +132,14 @@
       </div>
 
       <div class="tablecard">
+        <h3><a href="github/">Repo worker <span class="dim">(Atlas)</span></a></h3>
+        <p class="meta">channel: GitHub &middot; single-developer &middot; inbound half not built yet</p>
+        <p>A solo developer&rsquo;s agent for their own repositories. Reads the diff rather than the description, cites <code>path:line</code>, and acts through its GitHub tools &mdash; but merge, force-push and closing someone else&rsquo;s work are held for you. Repo events need <code>gitd</code> (<code>specs/6/27</code>), which is not written yet; until then the tools work from chat.</p>
+        <p><a href="github/">intro</a> &middot; <a href="github/setup.html">setup</a></p>
+        <p class="dim">Ships as a template: <code>arizuko create &lt;name&gt; --product github</code></p>
+      </div>
+
+      <div class="tablecard">
         <h3><a href="reality/">Reality agent (Rhias)</a></h3>
         <p class="meta">channel: Telegram &middot; single-user</p>
         <p>Long-running personal agent. Holds named threads for ongoing situations across weeks; structured reflection on demand; monthly scheduled sweep over diary + threads to surface what changed.</p>
@@ -211,7 +220,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-16">2026-08-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-20">2026-08-20</time>
       </div>
     </main>
 
