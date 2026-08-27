@@ -3540,7 +3540,7 @@ along with `applyPackageGrants` / `applyPackageRoutes`.
   `cmd/arizuko/packages.go:parsePkgManifests`, and `ManifestRoutes` already
   drops the `owner` column on the compose side.
 
-## L43 — 44 stale spec references in the live tree, and they block the 6/7 renumber (2026-08-16, found while measuring the re-cut)
+## ✅ FIXED 2026-08-27 L43 — 44 stale spec references in the live tree, and they block the 6/7 renumber (2026-08-16, found while measuring the re-cut)
 
 A reference-graph check over tracked `.md`/`.go` (excluding `CHANGELOG.md`, which
 is history and correct as written) found **44 distinct spec IDs that no longer
@@ -3570,9 +3570,36 @@ wrong pointers, and the class stops being detectable at all.
 So the order is fixed: repair the graph first, renumber second. Repairing is
 cheap and independently worth doing; renumbering onto it is then safe.
 
-Recorded, not fixed — found during a general check (Bug Triage Protocol). The
-fix is per-reference judgement: each stale ID needs its intended target
-identified from context, and a few may be deliberate forward references to keep.
+**FIXED 2026-08-27.** Repaired as two halves, because the 48 dangling IDs the
+re-measure found are two different things.
+
+- **A record, not 48 rewrites.** Most stale IDs sit in sentences that are
+  correct as written — `BUGS.md` naming `6/2` MEANS the deleted target-matrix,
+  and rewriting that would falsify the record. So every retired ID gets a row in
+  the new [`specs/RETIRED.md`](specs/RETIRED.md): what the ID was, its lifespan,
+  and where a reader goes now. 100 rows, generated from git history, not guessed.
+  A number in that table is **burnt** — never reused.
+- **The 12 pointers a reader trusts most were retargeted in place**, because a
+  live document should name the live spec: `ARCHITECTURE.md` and
+  `ant/skills/oracle/SKILL.md` dropped `5/H` (the oracle ships as code, which is
+  why the spec was deleted); `core/types.go` + `types/identity.go` moved to
+  `5/A`; `slakd/README.md` to `8/D`, where the pane spec actually shipped after
+  the 2026-07-10 phase shift; `ipc/README.md` to `5/16` and `5/13`. Four more —
+  `README.md`, `resreg/README.md`, `audit/PLAN.md` — had a correct link target
+  under stale link TEXT, so a reader clicking arrived while a reader reading was
+  misled.
+- **Gated, not just repaired.** `tests/specrefs` fails the build on any
+  `<phase>/<id>` that resolves to neither a live file nor a RETIRED row, and on
+  any markdown link under `specs/` whose target does not exist. It reads the
+  tracked set from `git ls-files`, so the boundary is `.gitignore`'s, not a
+  hand-kept skip list that drifts.
+- **Mutation-tested**: deleting one RETIRED row fails the first test; breaking
+  one link target fails the second. The link check MISSED its mutation on the
+  first attempt — the regex did not match the `(6/24-name.md)` form the table
+  itself uses — and was fixed before it shipped.
+
+The renumber this blocked is now safe to do, and `RETIRED.md` is where its moves
+get recorded.
 
 
 ## L42 — krons WhatsApp is down: the paired session is invalidated (2026-08-16, BLOCKED on the operator's phone)

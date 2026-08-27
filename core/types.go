@@ -13,7 +13,7 @@ import (
 )
 
 // Cross-boundary identity types live in the top-level types/ package
-// (types.UserSub / Folder / Tier / Scope) — see specs/5/U-genericization.md.
+// (types.UserSub / Folder / Tier / Scope) — see specs/5/A-primitives-framing.md.
 
 type Message struct {
 	ID               string

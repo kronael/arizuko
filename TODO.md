@@ -232,7 +232,7 @@ target list (capture; pick + spec as they mature):
   proxy + systemd as the four primitives. See 2026-05-26 design
   discussion. Likely phase 8 spec when triggered.
 - **YAML manifest model**: declarative resource intent dispatched per
-  daemon, k8s-style. Spec drafting in flight as `7/5-yaml-manifests.md`.
+  daemon, k8s-style. Shipped as `specs/5/8-yaml-manifests.md`.
 - **Product registry + clone/distribute**: agent products as
   distributable artifacts (git repo manifest + skill bundle +
   PERSONA). Foundation for the "agents managing agents" loop.

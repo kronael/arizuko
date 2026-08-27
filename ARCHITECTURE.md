@@ -18,8 +18,7 @@ New integrations are added via the extension points described in
   `twitd`, `linkd`) talking to core over the channel protocol; optional
   capability hooks (Whisper transcription via `WHISPER_BASE_URL`, TTS
   via `ttsd` + `TTS_BASE_URL` (`specs/5/T-voice-synthesis.md`), oracle
-  skill in `ant/skills/oracle/` driving the `codex` CLI
-  (`specs/5/H-call-llm-mcp.md`), egress isolation (`EGRESS_IMAGE` set),
+  skill in `ant/skills/oracle/` driving the `codex` CLI, egress isolation (`EGRESS_IMAGE` set),
   sandbox backend choice (Docker today, KVM via `sandbox/`)).
 
 A minimal deployment runs core plus one channel adapter; a maxed-out
@@ -98,7 +97,7 @@ anteval/  agent-capability gate: a black-box prober that runs real tasks
 ```
 
 TTS (`ttsd/`, `specs/5/T-voice-synthesis.md`) and the oracle skill
-(`ant/skills/oracle/`, `specs/5/H-call-llm-mcp.md`) ship as
+(`ant/skills/oracle/`) ship as
 optional integrations rather than core daemons; both opt-in via
 env vars / folder secrets.
 

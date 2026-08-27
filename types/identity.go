@@ -10,7 +10,7 @@
 // stays in core/ or in the daemon that owns the semantics. types/ is the
 // boundary, not the implementation.
 //
-// Spec: specs/5/U-genericization.md § "types/ — top-level shared IDs".
+// Spec: specs/5/A-primitives-framing.md § "Identity".
 package types
 
 // UserSub is an OAuth subject: the stable per-user identifier minted by

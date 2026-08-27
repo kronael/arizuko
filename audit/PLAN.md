@@ -2,7 +2,7 @@
 
 Status: round-1 plan for `audit_log` SQLite table as source of truth for
 security and state-change events. Driven by [`specs/5/I`](../specs/5/I-tool-call-logging.md)
-and [`specs/8/F`](../specs/5/I-tool-call-logging.md).
+and [`specs/5/I`](../specs/5/I-tool-call-logging.md).
 
 ## Goal
 
@@ -48,7 +48,7 @@ months ago").
 ## Final field schema
 
 Per [`5/I`](../specs/5/I-tool-call-logging.md) plus the bookkeeping
-columns the spec defers to [`6/F`](../specs/5/I-tool-call-logging.md):
+columns the spec defers to [`5/I`](../specs/5/I-tool-call-logging.md):
 
 ```sql
 CREATE TABLE audit_log (
@@ -555,7 +555,6 @@ func Init(db *sql.DB, instance string)
 ## References (citations in commit log)
 
 - `specs/5/I-tool-call-logging.md` (canonical field set)
-- `specs/8/F-audit-stream.md` (audit_log table direction)
 - `specs/5/17-openapi-mcp.md` (resreg audit contract)
 - `specs/11/19-cost-caps.md` (cost_log adjacency)
 - AWS CloudTrail: docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-record-contents.html

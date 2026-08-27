@@ -66,6 +66,14 @@ combination is the platform thesis arizuko ships toward.
 | [16/](16/) | multiplayer — shared sessions, durable streams, presence                                                              | drafting   |
 | [17/](17/) | products — persona templates, publishing surface                                                                      | queued     |
 
+**Retired IDs live in [`RETIRED.md`](RETIRED.md).** A spec that is deleted or
+renumbered leaves its pointers behind in `BUGS.md`, `CHANGELOG.md`, code
+comments and the web docs; that table says what each retired ID was and where a
+reader goes now. A number listed there is burnt — numbering continues past the
+highest ID its phase has ever held, because reusing one turns an old pointer
+into a confidently wrong one rather than a dangling one. `tests/specrefs`
+enforces both halves.
+
 **Status vocabulary.** `active` is the phase being built, and exactly ONE phase
 holds it — the table said `active` on six phases at once, which expressed no
 order at all. `queued` is committed and waiting its turn; `drafting` is still
