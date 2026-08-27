@@ -6927,3 +6927,43 @@ call, not a one-shot scan at session start.
   `ant/src/policy.ts:81,85-88`, `ant/src/guards.ts:83-137`.
 - **Fix:** correct both cells and the prose. The spec already states the right
   model at `:407-450` — this is deleting a contradiction, not deciding anything.
+
+## L127 — six of nine daemons install their SIGTERM handler AFTER they start serving, so a signal in that window kills them with no graceful shutdown (2026-08-27, egress half FIXED, five open)
+
+Measured at `7d81cd78` by comparing the first `net.Listen`/`Serve` line with the
+first `signal.Notify` line in every `main.go`:
+
+    LATE  authd/main.go              listen@116  notify@123
+    LATE  egress/cmd/egress/main.go  listen@71   notify@89     <- FIXED 2026-08-27
+    LATE  onbod/main.go              listen@156  notify@162
+    LATE  routd/cmd/routd/main.go    listen@272  notify@280
+    LATE  runed/cmd/runed/main.go    listen@148  notify@155
+    LATE  ttsd/main.go               listen@53   notify@60
+    ok    dashd/main.go              notify@330  listen@337
+    ok    proxyd/main.go             notify@1012 listen@1021
+    ok    webd/main.go               notify@88   listen@136
+
+Between the listener accepting and `signal.Notify` returning, a `SIGTERM` takes
+Go's **default disposition** — the process dies immediately and the
+`srv.Shutdown(ctx)` written directly below never runs.
+
+- **This is not theoretical; it broke the suite.** `egress/cmd/egress`'s
+  `main()` test polls `/health`, then signals. On 2026-08-27 it produced
+  `signal: terminated` and `FAIL` mid-run, having already logged `egress up` and
+  a correct `deny http` — the signal landed in the window. Fixed for egress by
+  moving the two `signal.Notify` lines above `net.Listen`; `go test -count=20`
+  then passes.
+- **Severity:** low-to-medium and narrow. The window is sub-millisecond and only
+  a signal arriving inside it is lost, so the realistic exposure is a fast
+  restart loop or a `systemctl restart` racing a just-started unit. What it
+  costs when hit: routd and runed drop in-flight work instead of draining, and
+  the deploy path in `CLAUDE.md` is `systemctl restart arizuko_<instance>`.
+- **The fix is not a redesign.** `dashd`, `proxyd` and `webd` already register
+  first; the fix is moving two lines in each of the remaining five to match the
+  pattern already in the tree. No new mechanism, no contract change.
+- **Source:** the table above; the correct precedent at `dashd/main.go:330`,
+  `proxyd/main.go:1012`, `webd/main.go:88`.
+- **Fix:** move `stop := make(chan os.Signal, 1)` + `signal.Notify(...)` above
+  the first `net.Listen` in `authd`, `onbod`, `routd`, `runed` and `ttsd`.
+  Not done here — found during a general check (Bug Triage Protocol); only the
+  egress half shipped, because its own test was red.

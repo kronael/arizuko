@@ -68,6 +68,13 @@ func main() {
 	p.SetAllowAll(*allowAll)
 	p.SetDenyPrivate(*denyPrivate)
 	p.SetAllowLoopback(*allowLoopback)
+	// Register BEFORE the listener accepts: between "serving" and
+	// signal.Notify a SIGTERM takes Go's default disposition and kills the
+	// process outright, so the graceful Shutdown below never runs. dashd,
+	// proxyd and webd already register first.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
 	lis, err := net.Listen("tcp", *listen)
 	if err != nil {
 		slog.Error("listen", "addr", *listen, "err", err)
@@ -85,8 +92,6 @@ func main() {
 		}
 	}()
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	select {
 	case err := <-errc:
 		slog.Error("serve", "err", err)
