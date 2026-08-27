@@ -26,7 +26,9 @@ const root = "../.."
 var refRe = regexp.MustCompile("`(?:\\.\\./|specs/)?([0-9]{1,2})/([0-9A-Za-z]{1,4})(?:[-/][^`]*)?`" +
 	`|specs?/([0-9]{1,2})/([0-9A-Za-z]{1,4})\b`)
 
-var retiredRe = regexp.MustCompile("^\\| `([0-9]{1,2})/([0-9A-Za-z]{1,4})` \\|")
+// The table is prettier-formatted, which pads every cell — match the padding
+// rather than a fixed column width.
+var retiredRe = regexp.MustCompile("^\\|\\s*`([0-9]{1,2})/([0-9A-Za-z]{1,4})`\\s*\\|")
 
 type ref struct{ phase, id string }
 
@@ -134,11 +136,15 @@ func TestEverySpecReferenceResolves(t *testing.T) {
 }
 
 // TestEverySpecLinkTargetExists checks the other half: an ID can be live while
-// the filename beside it is wrong, which a link a reader clicks still 404s on.
+// the filename beside it is wrong, and a link a reader clicks still 404s.
+// Anchors and query strings are cut before the check — the file is what has to
+// exist. Only markdown under specs/ is checked; that is the graph this package
+// owns, and every other tree has its own test.
 func TestEverySpecLinkTargetExists(t *testing.T) {
-	linkRe := regexp.MustCompile(`\]\(([^)]*specs?/[0-9]{1,2}/[^)]+\.md)\)|\]\(([0-9A-Za-z]{1,4}-[^)]+\.md)\)`)
+	linkRe := regexp.MustCompile(`\]\(([^)\s]+\.md)(?:#[^)\s]*)?\)`)
+	specDir := filepath.Join(root, "specs") + string(filepath.Separator)
 	for _, f := range sourceFiles(t) {
-		if filepath.Ext(f) != ".md" {
+		if filepath.Ext(f) != ".md" || !strings.HasPrefix(f, specDir) {
 			continue
 		}
 		body, err := os.ReadFile(f)
@@ -147,15 +153,13 @@ func TestEverySpecLinkTargetExists(t *testing.T) {
 		}
 		for _, m := range linkRe.FindAllStringSubmatch(string(body), -1) {
 			target := m[1]
-			if target == "" {
-				target = m[2]
-			}
 			if strings.HasPrefix(target, "http") {
 				continue
 			}
+			// A link written from the repo root resolves from there; every
+			// other form is relative to the file that carries it.
 			p := filepath.Join(filepath.Dir(f), target)
-			if !strings.HasPrefix(target, ".") && !strings.HasPrefix(target, "specs/") &&
-				strings.Contains(target, "/") {
+			if strings.HasPrefix(target, "specs/") {
 				p = filepath.Join(root, target)
 			}
 			if _, err := os.Stat(p); err != nil {
