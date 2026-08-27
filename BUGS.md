@@ -6738,3 +6738,48 @@ paths never did:**
   validator at `groupfolder/folder.go:68`.
 - **Test:** `audit/query_test.go` `TestQueryFolderFilterIsNotWidenedByLikeMetacharacters`
   is written and skipped on this entry. Un-skip it with the fix.
+
+## L123 — an agent that stringifies a numeric tool argument has it silently DROPPED, while the REST twin of the same call accepts it (2026-08-27, open)
+
+`resreg.Args.Int` documents the contract: MCP decodes numbers to `float64`,
+REST query params arrive as strings off `url.Values`, and "both must land on
+the same number or a filter silently ignores itself on one face"
+(`resreg/resreg.go:133-137`). `Int` honours it — it parses a string. The MCP
+DECODER in front of it does not.
+
+`numArg` (`resreg/resreg.go:833`) accepts `float64`, `int` and `int64` and
+returns `ok=false` for anything else, and `decodeMCPArgs`
+(`resreg/resreg.go:760`) only writes the key when `ok`. So the argument never
+reaches `Args` at all, and the handler reads its own default.
+
+- **Measured**, this tree:
+
+  ```
+  MCP  {"limit":"50"}    -> present=false Int=0
+  REST ?limit=50         -> present=true  Int=50
+  MCP  {"dry_run":"true"} -> true          # GetBool DOES coerce the string
+  ```
+
+  The same logical call gives 0 on one face and 50 on the other, and MCP is
+  internally inconsistent: `bool` coerces a stringified value, `number` drops it.
+- **This is the exact failure mode the tool-schema literature describes.**
+  Stringifying a numeric argument is one of the common ways a model gets a tool
+  call slightly wrong. Nothing tells it: no error, no warning — the tool runs
+  with a different limit, offset or count than the agent asked for.
+- **Cost:** silent wrong-value on the agent's whole cold-tier surface. A dropped
+  `limit` reads as "no limit given", which for several handlers means the
+  package default and for others means 0.
+- **Source:** `resreg/resreg.go:760` `decodeMCPArgs`, `:833` `numArg`;
+  contract at `:133`.
+- **Two local fixes, pick one:**
+  1. **Coerce, matching REST and matching `GetBool`'s existing behaviour**: add
+     a `case string:` to `numArg` that `strconv.ParseFloat`s and reports `ok`
+     only on success. Three lines; makes the two faces agree.
+  2. **Reject loudly**: return an argument error naming the parameter and the
+     type it needed, so the agent can retry. More correct, more churn — every
+     caller of `decodeMCPArgs` has to carry an error.
+
+  Silently dropping is the one option that must not stay.
+- **Test:** `resreg/args_test.go` `TestDecodeMCPArgsMatchesRESTOnAStringifiedNumber`
+  is written and skipped on this entry. Un-skip it with fix 1, or rewrite it to
+  assert the error with fix 2.
