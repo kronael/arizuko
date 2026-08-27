@@ -6684,3 +6684,57 @@ the common case for a compose service name resolved from outside its network.
   (1–2 s). The branch already treats an unresolvable name as allowed, so a
   timeout collapses into the existing "cannot check, let it through" path and
   changes no verdict — only how long the wrong-answer case costs.
+
+## L122 — six containment filters still hand-write `LIKE ?||'/%'`, so a folder named `%` reads every tenant's messages and a `Coach`/`coach` pair leaks both ways (2026-08-27, open; cross-tenant read)
+
+`groupfolder.SQLSubtree` / `SubtreeArgs` exist precisely because SQL `LIKE` is
+the wrong predicate for folder containment — it is case-INSENSITIVE for ASCII,
+and `_` and `%` are wildcards. The cascades adopted it (BUGS `L66`). **Six read
+paths never did:**
+
+| site | what it scopes |
+| --- | --- |
+| `routd/reads.go:114` | the agent's `find_messages` — message CONTENT |
+| `store/messages.go:766` | the same FTS search on the store side |
+| `audit/query.go:110` | the audit log |
+| `store/inspect.go:23` | errored chats |
+| `store/routes.go:221` | the route table |
+| `dashd/grants_admin.go:135` | the folder picker |
+
+- **Measured**, `audit.Query` against rows in `coach`, `Coach/private`,
+  `a_b/one`, `aXb/two`, `x/y`:
+
+  ```
+  filter "coach" -> [Coach/private coach]        # LIKE is case-insensitive
+  filter "a_b"   -> [aXb/two a_b/one]            # _ is a single-char wildcard
+  filter "%"     -> [x/y aXb/two a_b/one Coach/private]   # every folder with a /
+  filter "_"     -> [x/y]
+  ```
+
+- **`isValidFolder` permits all three.** `groupfolder/folder.go:68` rejects only
+  `..`, `\`, NUL, empty segments, >128-char segments and reserved names. There is
+  no character allowlist, so `%`, `_` and `Coach` are all legal folder names, and
+  the caller's own folder is what binds the placeholder.
+- **The case half is not hypothetical.** `groupfolder/folder.go:196` records that
+  a live instance HAS carried a `Coach`/`coach` pair; that is what motivated
+  `SQLSubtree` in the first place. Those two folders read each other's messages
+  today through `find_messages`.
+- **Cost:** a tenant placed at a folder named `%` reads every other tenant's
+  message content, audit trail, routes and errored chats. A tenant whose folder
+  differs from another only in case, or by one character where theirs has `_`,
+  reads that neighbour. Nothing is logged as a denial, because nothing was
+  denied.
+- **Fix (local, mechanical):** replace each of the six with
+  `groupfolder.SQLSubtree(col, "/")` + `groupfolder.SubtreeArgs(folder, "/")`.
+  `store/routes.go` needs the `#` separator form as well as `/`. The helper is
+  exact, case-sensitive and metacharacter-free, and it is already the one
+  implementation the cascades share — this is adoption, not new code.
+- **Second, independent fix:** give `isValidFolder` a character allowlist. A
+  folder name is a path segment, a network-name component and a SQL scope; `%`
+  is none of those. That does not replace the first fix (the case half survives
+  an allowlist), and it is a behaviour change for any existing folder, so it
+  needs sign-off separately.
+- **Source:** the six rows above; helper at `groupfolder/folder.go:191-211`;
+  validator at `groupfolder/folder.go:68`.
+- **Test:** `audit/query_test.go` `TestQueryFolderFilterIsNotWidenedByLikeMetacharacters`
+  is written and skipped on this entry. Un-skip it with the fix.
