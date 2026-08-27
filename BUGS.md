@@ -6852,3 +6852,78 @@ measured in this tree against an endpoint answering `429` + `Retry-After: 1`.
 - **Test:** `reditd/client_state_test.go`
   `TestDoWithRetryDoesNotStackTwoRetryLayers` is written and skipped on this
   entry. Un-skip it with the fix.
+
+## L125 — `6/9` is `status: shipped` and teaches an egress mechanism that `6/24` deleted, including the registration whose leak was the reason to delete it (2026-08-27, open)
+
+`specs/6/9-crackbox-sandboxing.md` still describes the KVM sandbox as it stood
+before 2026-08-18. Measured at `7d81cd78`:
+
+- **The import path in it does not exist.** The spec names
+  `crackbox/pkg/host/` **12 times** (`:10`, `:17`, `:28`, `:33`, …). `ls
+crackbox/pkg/` returns `run` and nothing else — the library moved to
+  `sandbox/` when `6/24` shipped.
+- **The struct in it does not exist.** `:70` documents
+  `EgressProxy string   // proxy admin URL; empty = no proxy`. The real
+  `sandbox.VMConfig` (`sandbox/sandbox.go:39-45`) has five fields and no
+  `EgressProxy`; enforcement is netfilter rules on the VM's own tap device.
+- **The flow in it is the leak `6/24` was written to kill.** `:91-100`:
+  "`Spawn` reads the `EgressProxy` field … POSTs `/v1/register {ip, id,
+allowlist}`. `Stop` POSTs `/v1/unregister`." `6/24` §"It removes a real leak"
+  deleted exactly that: a consumer-held unregister invariant means a crashed
+  consumer leaves an allowlisted IP registered forever.
+- **Severity:** medium, and it is a security-doc fault rather than a typo. The
+  spec reads `shipped`, so an engineer wiring the KVM backend into `runed` — the
+  one task the spec exists for — starts by looking for an admin API that was
+  deleted, and the obvious way to make the spec true again is to reintroduce the
+  registration. `sandbox/README.md:41-49` already carries the correct model.
+- **Source:** `specs/6/9-crackbox-sandboxing.md:10,17,28,33,70,91-100,133`;
+  `sandbox/sandbox.go:39-45`; `sandbox/README.md:41-49`; `6/24` §"It removes a
+  real leak".
+- **Fix:** rewrite `6/9`'s body against `sandbox/` and the netfilter model, or
+  demote its status. Which one is the operator's call: the LIBRARY did ship, so
+  `shipped` is true of the thing and false of the description.
+- **Also stale in the same file, separately:** `:130` claims "`pkg/host/` has
+  zero arizuko-internal imports (component test, per `6/16`)". No such test
+  existed. Written 2026-08-27 as `tests/components`; the invariant did hold.
+
+## L126 — `6/7`'s conformance matrix says pi's skill-guard is a load-time scan; the code says write-time and blocks, so the matrix understates two of three backends' defences (2026-08-27, open)
+
+`specs/6/7-environment-contracts.md:749` — the `skill-guard (5/23)` row reads
+`write-time hook | load-time scan | load-time scan` for claude / codex / pi.
+The prose above it at `:721-722` is blunter: "**pi** … No hook mechanism."
+
+Both are false at `7d81cd78`:
+
+- `ant/src/pi.ts:205` declares `guard: 'write-time'`, with the comment "the
+  extension's tool_call handler blocks a dangerous write before it lands".
+- `ant/src/pi-extension.ts:87-90` registers a real pre-execution hook:
+  `pi.on('tool_call', …)` returning `{ block: true, reason }` on a `deny`
+  verdict, over the shared `bindings()` table — the same mechanism class as
+  claude's `PreToolUse`, not a scan.
+- `PI_HONOURS` (`ant/src/pi-extension.ts:16`) is `['deny','inject']`, so the
+  skill-guard row is honoured rather than dropped.
+
+The codex cell is wrong in the other direction — "load-time scan" is not what
+protects it. codex's `hooks.json` wires the `PreToolUse` skill-guard row, but it
+structurally never fires because codex writes with `apply_patch`, not
+`Write`/`Edit` (`ant/src/policy.ts:85-88`). What actually catches a codex skill
+write is the no-matcher `skill-rescan` `PostToolUse` row (`ant/src/policy.ts:87`,
+`ant/src/guards.ts:83-137`) — a continuous quarantine sweep after every tool
+call, not a one-shot scan at session start.
+
+- **Cost:** the matrix is what a reader consults to decide whether a backend is
+  safe to run unattended. It currently says pi has no hook at all, when pi
+  refuses a dangerous write before it lands; and it says codex is gated at load
+  time, when a codex-authored skill is quarantined AFTER the write. Someone
+  debugging why a codex skill was quarantined instead of blocked, or refusing to
+  run pi unattended, reasons from a false model in both directions.
+- **Root cause:** a same-document reconciliation miss. The matrix and the
+  "Skills across backends" prose were written in `819efd9e` (2026-08-20). The
+  one-policy-table mechanism shipped the next day in `52cef0aa` (2026-08-21) and
+  correctly updated a *different* section of the same file (the renderer list
+  around `:407`), leaving two sections of one spec disagreeing with each other.
+- **Source:** `specs/6/7-environment-contracts.md:721-722,749` vs
+  `ant/src/pi.ts:205`, `ant/src/pi-extension.ts:16,87-90`,
+  `ant/src/policy.ts:81,85-88`, `ant/src/guards.ts:83-137`.
+- **Fix:** correct both cells and the prose. The spec already states the right
+  model at `:407-450` — this is deleting a contradiction, not deciding anything.
