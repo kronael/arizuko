@@ -871,11 +871,39 @@ anteval never runs automatically — no CI, no cron; `make -C anteval validate`
 (catalog validation, no live run) is the only pipeline-safe step. The
 `fresh-context` case asserts the layer-1-empty guarantee directly: `/new`
 resets the session in the same inbound, so the turn that fires the callback
-ran with an empty transcript. **As of 2026-08-20 only `claude` has a live
-anteval history; `codex` and `pi` connectors run a turn (recorded-fixture
-tests + a local CLI invocation) but are not yet live-certified.** The matrix
-above states what each backend can pass in principle; the live run per
-backend is the operator's step.
+ran with an empty transcript.
+
+**codex is live-certified: 7/9 on the smoke gate, krons 2026-08-27.** The
+first live codex history. Passing: `chat-entrypoint`, `child-delegate`,
+`fresh-context`, `link-is-public-url`, `rest-roundtrip`, `self-skill`,
+`webhook-in` — so a codex agent registers a child group, resets its own
+session, publishes a verified public URL, round-trips REST and answers a
+webhook. Both failures share one signature, an EMPTY url
+(`unsupported protocol scheme ""`): `priv-401` and `priv-grant` read a URL the
+agent never produced. That is a real gap to diagnose, not a harness artefact —
+but it is one gap, not two.
+
+**Certifying a backend needs TWO env vars, not one.** `ARIZUKO_BACKEND` picks
+the harness; the model is independent and `routd` defaults it to
+`claude-opus-4-8` (`routd/cmd/routd/main.go:191`), which codex rejects outright
+(`400 … 'claude-opus-4-8' is not supported when using Codex with a ChatGPT
+account`). Every turn failed that way until `ARIZUKO_DEFAULT_MODEL` was set to
+a backend-native id. Recorded as `L129`; `L128` is the reason no backend could
+be certified before today at all — `ARIZUKO_BACKEND` never reached runed.
+
+**pi is BLOCKED on a credential, not on code** (measured 2026-08-27). The
+connector is correct: pi resolves `provider: anthropic` from the model id by
+itself, so no `--provider` passthrough is needed, and it authenticates with
+`ANTHROPIC_OAUTH_TOKEN`. Both credentials available on the host are refused by
+their own APIs — the Anthropic subscription answers `400 Third-party apps now
+draw from your extra usage, not your plan limits`, and codex's ChatGPT token
+used as `OPENAI_API_KEY` answers `401 … Missing scopes: api.responses.write`
+(it is scoped to the Codex product, not the Responses API). pi needs either
+extra usage enabled on the Anthropic account or a real provider API key; that
+is an operator spend decision.
+
+The matrix above states what each backend can pass in principle; the live run
+per backend is the operator's step.
 
 ## The component contract
 

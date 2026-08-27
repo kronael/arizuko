@@ -7008,3 +7008,42 @@ downstream and left broken one hop up.
   credential on an instance that holds one under the other name
   (`store/secrets.go:118` states this exactly). The image rebuild that shipped
   the fix also closed that. `Z1` class: the running image is behind the tree.
+
+## L129 — switching `ARIZUKO_BACKEND` does not switch the model, and routd's default is a hardcoded claude id, so every codex turn 400s (2026-08-27, open)
+
+Found running the per-backend certification `specs/6/7` documents, immediately
+after `L128` made the switch take effect at all.
+
+`ARIZUKO_BACKEND=codex` selects the harness. The MODEL is independent:
+`routd/cmd/routd/main.go:191` is `envOr("ARIZUKO_DEFAULT_MODEL",
+"claude-opus-4-8")`, and `codexArgs` passes `turn.model` verbatim as `-m`. So a
+correctly-switched instance sends a claude model id to codex, and every turn
+comes back:
+
+    Result #1: ok=false text={"type":"error","status":400,"error":
+    {"type":"invalid_request_error","message":"The 'claude-opus-4-8' model is
+    not supported when using Codex with a ChatGPT account."}}
+
+Measured live on krons: 100% of turns failed this way until
+`ARIZUKO_DEFAULT_MODEL=gpt-5.6-sol` was set. With it set, the same instance
+scored **7/9** on the codex smoke.
+
+- **Unsetting the var does not help** — the fallback is the hardcoded claude id,
+  so there is no configuration that leaves the model to the harness's own
+  default. `6/7`'s seam says `model?: string` and "absent = the harness's own
+  default"; routd can never express absent.
+- **Severity:** medium. It is not a data fault and it is loud, but it makes the
+  documented procedure produce a 100%-failing instance, and the failure is
+  attributed to the backend rather than to the config. The smoke's cost is
+  failure-dominated (`anteval/README.md`), so it also burns a full wall cap per
+  case while proving nothing.
+- **Two candidate fixes, both need sign-off:**
+  1. **Let absent mean absent** — drop the hardcoded default so an unset
+     `ARIZUKO_DEFAULT_MODEL` reaches the harness as `undefined` and each CLI
+     picks its own. Smallest change; matches the seam's stated contract.
+  2. **Make the default backend-aware** — one map from backend to its native
+     default. More code, and it puts vendor model ids in routd.
+- **Source:** `routd/cmd/routd/main.go:191`; `ant/src/codex.ts:65`;
+  `specs/6/7` §"The harness seam" (`model?: string`, backend-native, verbatim).
+- **Docs:** `6/7`'s certification procedure names only `ARIZUKO_BACKEND`. It
+  now also names the model; the spec text was corrected in the same pass.
