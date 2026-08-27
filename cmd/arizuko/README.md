@@ -59,6 +59,22 @@ beyond `docker` for `run` and `pair`).
 - `send.go` — `send` message injection
 - `token.go` — `token` route-token management
 
+## What is tested, and what is not
+
+`go test ./cmd/arizuko/` covers the parsing, planning and wire logic: the
+manifest readers, the apply plan, the package resolver, the `.env` parser, and
+both `send --wait` paths (`streamRound` over SSE, `pollRound` as the fallback).
+
+It does NOT cover the `cmdX` subcommand entry points, and cannot in-process:
+each one ends at `die()` (`main.go:110`), which calls `os.Exit(1)`. A test that
+reaches a `die` takes the whole test binary with it. That is a deliberate CLI
+shape — an operator wants a status code and one line on stderr, not an error
+value threaded back to `main` — so the entry points are exercised end to end by
+`make test-e2e` and by `tests/`, not by unit tests here.
+
+Read the package's coverage number with that in mind: the ~40% that is
+uncovered is 33 `cmdX` functions, not 33 untested decisions.
+
 ## Related docs
 
 - Top-level `README.md` (Quick Start)
