@@ -3540,7 +3540,7 @@ along with `applyPackageGrants` / `applyPackageRoutes`.
   `cmd/arizuko/packages.go:parsePkgManifests`, and `ManifestRoutes` already
   drops the `owner` column on the compose side.
 
-## ✅ FIXED 2026-08-27 L43 — 44 stale spec references in the live tree, and they block the 6/7 renumber (2026-08-16, found while measuring the re-cut)
+## L43 — 44 stale spec references in the live tree (2026-08-16, PARTLY FIXED 2026-08-27; the retired-ID table was rejected)
 
 A reference-graph check over tracked `.md`/`.go` (excluding `CHANGELOG.md`, which
 is history and correct as written) found **44 distinct spec IDs that no longer
@@ -3570,36 +3570,33 @@ wrong pointers, and the class stops being detectable at all.
 So the order is fixed: repair the graph first, renumber second. Repairing is
 cheap and independently worth doing; renumbering onto it is then safe.
 
-**FIXED 2026-08-27.** Repaired as two halves, because the 48 dangling IDs the
-re-measure found are two different things.
+**PARTLY FIXED 2026-08-27.**
 
-- **A record, not 48 rewrites.** Most stale IDs sit in sentences that are
-  correct as written — `BUGS.md` naming `6/2` MEANS the deleted target-matrix,
-  and rewriting that would falsify the record. So every retired ID gets a row in
-  the new [`specs/RETIRED.md`](specs/RETIRED.md): what the ID was, its lifespan,
-  and where a reader goes now. 100 rows, generated from git history, not guessed.
-  A number in that table is **burnt** — never reused.
-- **The 12 pointers a reader trusts most were retargeted in place**, because a
-  live document should name the live spec: `ARCHITECTURE.md` and
+- **The 12 pointers a reader trusts most were retargeted in place** — a live
+  document must name the live spec. `ARCHITECTURE.md` and
   `ant/skills/oracle/SKILL.md` dropped `5/H` (the oracle ships as code, which is
   why the spec was deleted); `core/types.go` + `types/identity.go` moved to
-  `5/A`; `slakd/README.md` to `8/D`, where the pane spec actually shipped after
-  the 2026-07-10 phase shift; `ipc/README.md` to `5/16` and `5/13`. Four more —
-  `README.md`, `resreg/README.md`, `audit/PLAN.md` — had a correct link target
-  under stale link TEXT, so a reader clicking arrived while a reader reading was
-  misled.
-- **Gated, not just repaired.** `tests/specrefs` fails the build on any
-  `<phase>/<id>` that resolves to neither a live file nor a RETIRED row, and on
-  any markdown link under `specs/` whose target does not exist. It reads the
-  tracked set from `git ls-files`, so the boundary is `.gitignore`'s, not a
-  hand-kept skip list that drifts.
-- **Mutation-tested**: deleting one RETIRED row fails the first test; breaking
-  one link target fails the second. The link check MISSED its mutation on the
-  first attempt — the regex did not match the `(6/24-name.md)` form the table
-  itself uses — and was fixed before it shipped.
+  `5/A`; `slakd/README.md` to `8/D`, where the pane spec shipped after the
+  2026-07-10 phase shift; `ipc/README.md` to `5/16` and `5/13`. Four more —
+  `README.md`, `resreg/README.md`, `audit/PLAN.md` — had a correct link TARGET
+  under stale link TEXT, so a reader who clicked arrived while a reader who read
+  was misled.
+- **`tests/specrefs` gates the link half**: every markdown link under `specs/`
+  must resolve. Mutation-tested; it missed its first mutation because the regex
+  did not match the `(6/24-name.md)` form, and was fixed before shipping.
+- **A retired-ID table was built and REJECTED by the operator** (100 rows from
+  git history: what each retired ID was, its lifespan, its successor). It made
+  every stale ID resolve, at the cost of a graveyard file the corpus has to
+  carry. Decision: delete it. The renumber went ahead without it.
 
-The renumber this blocked is now safe to do, and `RETIRED.md` is where its moves
-get recorded.
+**What stays open.** Roughly 70 spec IDs across the tree still resolve to
+nothing, and nothing checks them. Most sit in history that is correct as
+written (`CHANGELOG.md`, `.diary/`, migrations) and must not be rewritten. The
+live-tree remainder is small and can be deleted ref-by-ref when someone is in
+the file anyway. The renumber rule that came out of this is recorded in
+`specs/index.md`: **a retired number is burnt** — `specs/6/1` has been five
+different specs, `specs/7/2` six, and reusing one is what turns a dangling
+pointer into a confidently wrong one.
 
 
 ## L42 — krons WhatsApp is down: the paired session is invalidated (2026-08-16, BLOCKED on the operator's phone)

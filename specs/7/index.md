@@ -28,9 +28,8 @@ controls the parts — so it moved to phase 6 as `6/28`–`6/33`, and the digits
 now say what the work order already said: **6 splits arizuko into parts, 7 puts
 the parts in the cloud.**
 
-The moves are recorded in [`../RETIRED.md`](../RETIRED.md), so a reference to
-`7/1` still resolves. Those six numbers are burnt: this phase numbers new work
-from `22` up, never back into them.
+Those six numbers are burnt: this phase numbers new work from `22` up, never
+back into them.
 
 ## Ties
 

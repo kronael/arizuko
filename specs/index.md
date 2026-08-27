@@ -67,13 +67,11 @@ combination is the platform thesis arizuko ships toward.
 | [16/](16/) | multiplayer — shared sessions, durable streams, presence                                                                                           | drafting   |
 | [17/](17/) | products — persona templates, publishing surface                                                                                                   | queued     |
 
-**Retired IDs live in [`RETIRED.md`](RETIRED.md).** A spec that is deleted or
-renumbered leaves its pointers behind in `BUGS.md`, `CHANGELOG.md`, code
-comments and the web docs; that table says what each retired ID was and where a
-reader goes now. A number listed there is burnt — numbering continues past the
-highest ID its phase has ever held, because reusing one turns an old pointer
-into a confidently wrong one rather than a dangling one. `tests/specrefs`
-enforces both halves.
+**A retired spec number is burnt.** Numbering continues past the highest ID its
+phase has ever held; reusing one turns every old pointer to it into a
+confidently wrong pointer rather than a dangling one. `specs/6/1` has been five
+different specs and `specs/7/2` six — that is the cost of not following the
+rule. `tests/specrefs` checks that every link under `specs/` resolves.
 
 **Status vocabulary.** `active` is the phase being built, and exactly ONE phase
 holds it — the table said `active` on six phases at once, which expressed no
@@ -96,5 +94,4 @@ ship-in-parts map are what let a part ship alone, so they were already in phase
 6, and `7/21` was already the cloud. The destination numbers start at 28
 because every number below it has been used in phase 6 before — reusing one
 turns an old pointer into a confidently wrong one, which is the failure `L43`
-measured. The moves are in [`RETIRED.md`](RETIRED.md) and `tests/specrefs`
-fails the build if any spec ID stops resolving.
+measured.

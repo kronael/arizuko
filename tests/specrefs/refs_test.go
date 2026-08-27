@@ -1,11 +1,8 @@
-// Package specrefs tests the spec reference graph: every `<phase>/<id>` a
-// document names resolves to a live spec file or to a row in specs/RETIRED.md.
+// Package specrefs checks that every markdown link under specs/ resolves.
 //
-// Phases 6 and 7 have been renumbered three times. `specs/6/1` has been five
-// different specs, `specs/7/2` six. A stale ID in a phase whose numbers were
-// reused is not a dangling pointer a reader notices — it silently addresses a
-// spec about something else, which is what BUGS L43 measured (44 IDs) and why
-// the graph is checked rather than trusted.
+// A spec that moves takes its filename with it, and nothing else in the repo
+// notices: the corpus has no build step, so a link is only ever verified by a
+// reader clicking it. The 2026-08-27 cockpit move rewrote 22 files by hand.
 package specrefs
 
 import (
@@ -13,24 +10,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"testing"
 )
 
 const root = "../.."
-
-// refRe matches the two forms a reader actually follows: a backticked ID
-// (`6/7`, `specs/5/33-paths-roles.md`) and a bare path (specs/5/33). Both
-// carry the phase and the ID; anything else is prose.
-var refRe = regexp.MustCompile("`(?:\\.\\./|specs/)?([0-9]{1,2})/([0-9A-Za-z]{1,4})(?:[-/][^`]*)?`" +
-	`|specs?/([0-9]{1,2})/([0-9A-Za-z]{1,4})\b`)
-
-// The table is prettier-formatted, which pads every cell — match the padding
-// rather than a fixed column width.
-var retiredRe = regexp.MustCompile("^\\|\\s*`([0-9]{1,2})/([0-9A-Za-z]{1,4})`\\s*\\|")
-
-type ref struct{ phase, id string }
 
 // sourceFiles is the tracked set — the same boundary BUGS L43 measured. Asking
 // git rather than walking keeps it identical to .gitignore: the vendored
@@ -51,88 +35,6 @@ func sourceFiles(t *testing.T) []string {
 		}
 	}
 	return files
-}
-
-// liveSpecs is the set of IDs a spec file currently claims.
-func liveSpecs(t *testing.T) map[ref]bool {
-	t.Helper()
-	live := map[ref]bool{}
-	phases, err := os.ReadDir(filepath.Join(root, "specs"))
-	if err != nil {
-		t.Fatalf("read specs: %v", err)
-	}
-	for _, p := range phases {
-		if !p.IsDir() {
-			continue
-		}
-		files, err := os.ReadDir(filepath.Join(root, "specs", p.Name()))
-		if err != nil {
-			t.Fatalf("read specs/%s: %v", p.Name(), err)
-		}
-		for _, f := range files {
-			name := f.Name()
-			if !strings.HasSuffix(name, ".md") {
-				continue
-			}
-			live[ref{p.Name(), strings.SplitN(strings.TrimSuffix(name, ".md"), "-", 2)[0]}] = true
-		}
-	}
-	return live
-}
-
-// retiredSpecs is the set of IDs specs/RETIRED.md accounts for.
-func retiredSpecs(t *testing.T) map[ref]bool {
-	t.Helper()
-	body, err := os.ReadFile(filepath.Join(root, "specs", "RETIRED.md"))
-	if err != nil {
-		t.Fatalf("read RETIRED.md: %v", err)
-	}
-	out := map[ref]bool{}
-	for _, line := range strings.Split(string(body), "\n") {
-		if m := retiredRe.FindStringSubmatch(line); m != nil {
-			out[ref{m[1], m[2]}] = true
-		}
-	}
-	if len(out) == 0 {
-		t.Fatal("RETIRED.md parsed to zero rows — the table format changed")
-	}
-	return out
-}
-
-func TestEverySpecReferenceResolves(t *testing.T) {
-	live, retired := liveSpecs(t), retiredSpecs(t)
-	bad := map[string][]string{}
-	for _, f := range sourceFiles(t) {
-		body, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
-		}
-		text := string(body)
-		for _, m := range refRe.FindAllStringSubmatchIndex(text, -1) {
-			r := ref{group(text, m, 1), group(text, m, 2)}
-			if r.phase == "" {
-				r = ref{group(text, m, 3), group(text, m, 4)}
-			}
-			if live[r] || retired[r] {
-				continue
-			}
-			key := r.phase + "/" + r.id
-			line := 1 + strings.Count(text[:m[0]], "\n")
-			bad[key] = append(bad[key], rel(f)+":"+itoa(line))
-		}
-	}
-	if len(bad) == 0 {
-		return
-	}
-	keys := make([]string, 0, len(bad))
-	for k := range bad {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		t.Errorf("spec %s resolves to no live file and has no specs/RETIRED.md row: %s",
-			k, strings.Join(bad[k], " "))
-	}
 }
 
 // TestEverySpecLinkTargetExists checks the other half: an ID can be live while
@@ -169,23 +71,4 @@ func TestEverySpecLinkTargetExists(t *testing.T) {
 	}
 }
 
-func group(text string, m []int, n int) string {
-	if 2*n+1 >= len(m) || m[2*n] < 0 {
-		return ""
-	}
-	return text[m[2*n]:m[2*n+1]]
-}
-
 func rel(p string) string { return strings.TrimPrefix(p, root+"/") }
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b []byte
-	for n > 0 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-		n /= 10
-	}
-	return string(b)
-}

@@ -107,9 +107,7 @@ already in the right phase. Phase 7 keeps `21` and means one thing.
 this phase, several of them by more than one spec — `specs/6/1` has been five
 different specs and `specs/6/2` six. Re-using one would turn every old pointer
 to it into a confidently wrong pointer instead of a dangling one, which is the
-failure `L43` measured. The six moves are recorded in
-[`../RETIRED.md`](../RETIRED.md), so `7/1` still resolves, and `tests/specrefs`
-fails the build if any spec ID stops resolving.
+failure `L43` measured.
 
 ## History
 
