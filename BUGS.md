@@ -6783,3 +6783,43 @@ reaches `Args` at all, and the handler reads its own default.
 - **Test:** `resreg/args_test.go` `TestDecodeMCPArgsMatchesRESTOnAStringifiedNumber`
   is written and skipped on this entry. Un-skip it with fix 1, or rewrite it to
   assert the error with fix 2.
+
+## L124 — reditd wraps chanlib's 429 retry in a second one, so one logical call makes NINE requests at a rate limiter (2026-08-27, open)
+
+`chanlib.DoWithPolicy` (`chanlib/retry.go:47`) already retries 429: three
+attempts, honouring `Retry-After` "if present and <= 30s". `reditd.doWithRetry`
+(`reditd/client.go:176`) calls it inside its OWN three-iteration 429 loop, with
+its own `Retry-After` parse clamped at `maxRetryAfter = 5 * time.Minute`
+(`reditd/client.go:174`).
+
+The two layers multiply:
+
+```
+HTTP requests=9  elapsed=8.76s  err="rate limited after 3 retries"
+```
+
+measured in this tree against an endpoint answering `429` + `Retry-After: 1`.
+
+- **Cost:** nine requests at a rate limiter for one poll is how a Reddit app key
+  gets suspended — the limiter's whole purpose is to make the client back off,
+  and this backs off nine times harder in requests. The outer clamp also
+  contradicts the inner one: chanlib caps the honoured `Retry-After` at 30s,
+  reditd's outer loop at 5 minutes, so a `Retry-After: 120` is ignored by the
+  inner layer and slept by the outer, three times — up to 15 minutes past any
+  `/health` staleness tolerance (`pollStaleAfter` is 15 minutes, so the adapter
+  can flip to 503 while it is merely waiting).
+- **Not a duplicate of the retry rule.** The repo's policy is "retry ONLY
+  transient errors"; 429 IS transient, and both layers are individually
+  correct. The bug is that there are two.
+- **Source:** `reditd/client.go:176-212`; inner policy `chanlib/retry.go:37-90`.
+- **Fix (local):** drop reditd's 429 branch and let `chanlib.DoWithPolicy` own
+  it — the outer loop then keeps only the 401-refresh-once retry, which chanlib
+  does not do and which is the real reason this wrapper exists. If reditd needs
+  a longer honoured `Retry-After` than chanlib's 30s, raise it in ONE place
+  (a policy field) rather than by stacking a second loop.
+- **Check the siblings.** `bskyd`, `discd`, `teled`, `slakd`, `twitd` and
+  `whapd` all call `chanlib.DoWithRetry`; whether any of them wraps it in a
+  second 429 loop was not checked here.
+- **Test:** `reditd/client_state_test.go`
+  `TestDoWithRetryDoesNotStackTwoRetryLayers` is written and skipped on this
+  entry. Un-skip it with the fix.
