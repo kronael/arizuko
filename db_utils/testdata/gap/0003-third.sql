@@ -1,0 +1,1 @@
+CREATE TABLE skipped (id INTEGER PRIMARY KEY);

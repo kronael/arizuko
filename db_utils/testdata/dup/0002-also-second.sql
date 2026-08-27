@@ -1,0 +1,1 @@
+CREATE TABLE never_created (id INTEGER PRIMARY KEY);
