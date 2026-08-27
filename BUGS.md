@@ -7009,7 +7009,7 @@ downstream and left broken one hop up.
   (`store/secrets.go:118` states this exactly). The image rebuild that shipped
   the fix also closed that. `Z1` class: the running image is behind the tree.
 
-## L129 — switching `ARIZUKO_BACKEND` does not switch the model, and routd's default is a hardcoded claude id, so every codex turn 400s (2026-08-27, open)
+## ✅ FIXED 2026-08-27 L129 — switching `ARIZUKO_BACKEND` does not switch the model, and routd's default is a hardcoded claude id, so every codex turn 400s (2026-08-27)
 
 Found running the per-backend certification `specs/6/7` documents, immediately
 after `L128` made the switch take effect at all.
@@ -7037,12 +7037,19 @@ scored **7/9** on the codex smoke.
   attributed to the backend rather than to the config. The smoke's cost is
   failure-dominated (`anteval/README.md`), so it also burns a full wall cap per
   case while proving nothing.
-- **Two candidate fixes, both need sign-off:**
-  1. **Let absent mean absent** — drop the hardcoded default so an unset
-     `ARIZUKO_DEFAULT_MODEL` reaches the harness as `undefined` and each CLI
-     picks its own. Smallest change; matches the seam's stated contract.
-  2. **Make the default backend-aware** — one map from backend to its native
-     default. More code, and it puts vendor model ids in routd.
+- **FIXED 2026-08-27 with option 1, let absent mean absent.** The fallback is
+  now `""`; an unset `ARIZUKO_DEFAULT_MODEL` reaches ant as falsy and each CLI
+  picks its own default, which is what the seam already promised
+  (`ant/src/backend.ts:29`, "backend-native id, verbatim"). Option 2 (a
+  backend→model map) was declined: it puts vendor model ids in routd to restore
+  a property the contract already had.
+- **Live impact: none.** All three instances — krons, marinade, sloth — set
+  `ARIZUKO_DEFAULT_MODEL=claude-opus-4-8` explicitly, so nothing changes for
+  them; the change only makes "unset" mean something.
+- **The guard is a SOURCE assertion**, because the config is a struct literal
+  inside `main()` with nothing to call. The first version of the test called
+  `envOr` with an empty fallback and passed just as happily with the vendor id
+  restored at the call site — it caught neither its own mutation nor the bug.
 - **Source:** `routd/cmd/routd/main.go:191`; `ant/src/codex.ts:65`;
   `specs/6/7` §"The harness seam" (`model?: string`, backend-native, verbatim).
 - **Docs:** `6/7`'s certification procedure names only `ARIZUKO_BACKEND`. It

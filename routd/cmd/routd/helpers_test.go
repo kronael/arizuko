@@ -3,7 +3,10 @@ package main
 import (
 	"crypto/ecdsa"
 	"net/http"
+	"os"
 	"reflect"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -157,4 +160,30 @@ func mustReq(t *testing.T, authz string) *http.Request {
 		r.Header.Set("Authorization", authz)
 	}
 	return r
+}
+
+// The model is the one env reader whose default must be EMPTY. Every other one
+// falls back to a working value; this one falling back to a vendor id makes
+// "let the harness choose" unexpressible, and switching ARIZUKO_BACKEND then
+// sends a claude id to codex — 100% of turns 400d on krons 2026-08-27 (L129).
+//
+// Asserted against the SOURCE, not the value: the config is a struct literal
+// inside main(), so there is nothing to call. Calling envOr with an empty
+// fallback tests envOr and passes just as happily with the vendor id restored
+// at the call site — which is exactly how the first version of this test
+// failed to catch its own mutation.
+func TestDefaultModelHasNoVendorFallback(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	line := regexp.MustCompile(`DefaultModel:\s*envOr\("ARIZUKO_DEFAULT_MODEL",\s*([^)]*)\)`)
+	m := line.FindSubmatch(src)
+	if m == nil {
+		t.Fatal("DefaultModel is no longer read with envOr — update this guard")
+	}
+	if got := strings.TrimSpace(string(m[1])); got != `""` {
+		t.Errorf("DefaultModel fallback is %s, want \"\": a vendor id here makes "+
+			"an unset model unexpressible, so a non-claude backend gets a claude id", got)
+	}
 }
