@@ -1,5 +1,13 @@
 package chanreg
 
+// Adapter URLs here are private IP literals, not compose service names.
+// Register validates the URL with net.LookupIP when the host is a name, and
+// that lookup has no timeout: against a resolver that cannot answer, each
+// registration in this file waited ~7.7s and the package took 151s. An IP
+// literal short-circuits before the resolver and asserts exactly the same
+// registry behaviour. validateAdapterURL's own name-resolution branch is
+// covered in ssrf_test.go, once.
+
 import (
 	"testing"
 )
@@ -7,7 +15,7 @@ import (
 func TestRegisterAndGet(t *testing.T) {
 	r := New()
 
-	token, err := r.Register("telegram", "http://tg:9001",
+	token, err := r.Register("telegram", "http://10.0.0.11:9001",
 		[]string{"tg:"}, map[string]bool{"send_text": true})
 	if err != nil {
 		t.Fatal(err)
@@ -23,7 +31,7 @@ func TestRegisterAndGet(t *testing.T) {
 	if e.Name != "telegram" {
 		t.Errorf("name = %q, want telegram", e.Name)
 	}
-	if e.URL != "http://tg:9001" {
+	if e.URL != "http://10.0.0.11:9001" {
 		t.Errorf("url = %q", e.URL)
 	}
 	if !e.HasCap("send_text") {
@@ -36,7 +44,7 @@ func TestRegisterAndGet(t *testing.T) {
 
 func TestByToken(t *testing.T) {
 	r := New()
-	token, _ := r.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := r.Register("tg", "http://10.0.0.11:9001", []string{"tg:"}, nil)
 
 	e := r.ByToken(token)
 	if e == nil || e.Name != "tg" {
@@ -51,7 +59,7 @@ func TestByToken(t *testing.T) {
 
 func TestDeregister(t *testing.T) {
 	r := New()
-	token, _ := r.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := r.Register("tg", "http://10.0.0.11:9001", []string{"tg:"}, nil)
 
 	r.Deregister("tg")
 
@@ -65,8 +73,8 @@ func TestDeregister(t *testing.T) {
 
 func TestReRegister(t *testing.T) {
 	r := New()
-	token1, _ := r.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
-	token2, _ := r.Register("tg", "http://tg:9002", []string{"tg:"}, nil)
+	token1, _ := r.Register("tg", "http://10.0.0.11:9001", []string{"tg:"}, nil)
+	token2, _ := r.Register("tg", "http://10.0.0.11:9002", []string{"tg:"}, nil)
 
 	if token1 == token2 {
 		t.Error("expected different tokens on re-register")
@@ -75,14 +83,14 @@ func TestReRegister(t *testing.T) {
 		t.Error("old token should be invalid")
 	}
 	e := r.ByToken(token2)
-	if e == nil || e.URL != "http://tg:9002" {
+	if e == nil || e.URL != "http://10.0.0.11:9002" {
 		t.Error("new token should work with updated URL")
 	}
 }
 
 func TestHealthFails(t *testing.T) {
 	r := New()
-	r.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	r.Register("tg", "http://10.0.0.11:9001", []string{"tg:"}, nil)
 
 	if f := r.RecordHealthFail("tg"); f != 1 {
 		t.Errorf("fails = %d, want 1", f)
@@ -100,8 +108,8 @@ func TestHealthFails(t *testing.T) {
 
 func TestAll(t *testing.T) {
 	r := New()
-	r.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
-	r.Register("discord", "http://discord:9002", []string{"discord:"}, nil)
+	r.Register("tg", "http://10.0.0.11:9001", []string{"tg:"}, nil)
+	r.Register("discord", "http://10.0.0.13:9002", []string{"discord:"}, nil)
 
 	all := r.All()
 	if len(all) != 2 {
@@ -118,7 +126,7 @@ func TestHealthFailNonexistent(t *testing.T) {
 
 func TestForJIDSingleAdapter(t *testing.T) {
 	r := New()
-	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+	r.Register("telegram", "http://10.0.0.11:9001", []string{"telegram:"}, nil)
 
 	e := r.ForJID("telegram:123")
 	if e == nil || e.Name != "telegram" {
@@ -128,7 +136,7 @@ func TestForJIDSingleAdapter(t *testing.T) {
 
 func TestForJIDNoMatch(t *testing.T) {
 	r := New()
-	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+	r.Register("telegram", "http://10.0.0.11:9001", []string{"telegram:"}, nil)
 
 	if e := r.ForJID("whatsapp:456"); e != nil {
 		t.Errorf("ForJID = %+v, want nil", e)
@@ -143,8 +151,8 @@ func TestForJIDNoMatch(t *testing.T) {
 // messages table). This test only asserts that *some* owning adapter is returned.
 func TestForJIDOverlappingPrefixes(t *testing.T) {
 	r := New()
-	r.Register("telegram-REDACTED", "http://REDACTED:9001", []string{"telegram:"}, nil)
-	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+	r.Register("telegram-REDACTED", "http://10.0.0.15:9001", []string{"telegram:"}, nil)
+	r.Register("telegram", "http://10.0.0.11:9001", []string{"telegram:"}, nil)
 
 	e := r.ForJID("telegram:123")
 	if e == nil {
@@ -157,7 +165,7 @@ func TestForJIDOverlappingPrefixes(t *testing.T) {
 
 func TestForJIDMultiplePrefixes(t *testing.T) {
 	r := New()
-	r.Register("multi", "http://m:9001", []string{"a:", "b:", "c:"}, nil)
+	r.Register("multi", "http://10.0.0.14:9001", []string{"a:", "b:", "c:"}, nil)
 
 	for _, jid := range []string{"a:1", "b:2", "c:3"} {
 		if e := r.ForJID(jid); e == nil || e.Name != "multi" {
@@ -171,8 +179,8 @@ func TestForJIDMultiplePrefixes(t *testing.T) {
 
 func TestResolveByName(t *testing.T) {
 	r := New()
-	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
-	r.Register("telegram-REDACTED", "http://REDACTED:9001", []string{"telegram:"}, nil)
+	r.Register("telegram", "http://10.0.0.11:9001", []string{"telegram:"}, nil)
+	r.Register("telegram-REDACTED", "http://10.0.0.15:9001", []string{"telegram:"}, nil)
 
 	e := r.Resolve("telegram-REDACTED", "telegram:123")
 	if e == nil || e.Name != "telegram-REDACTED" {
@@ -182,7 +190,7 @@ func TestResolveByName(t *testing.T) {
 
 func TestResolveMissingNameFallsBack(t *testing.T) {
 	r := New()
-	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+	r.Register("telegram", "http://10.0.0.11:9001", []string{"telegram:"}, nil)
 
 	e := r.Resolve("nonexistent", "telegram:123")
 	if e == nil || e.Name != "telegram" {
@@ -192,7 +200,7 @@ func TestResolveMissingNameFallsBack(t *testing.T) {
 
 func TestResolveEmptyName(t *testing.T) {
 	r := New()
-	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+	r.Register("telegram", "http://10.0.0.11:9001", []string{"telegram:"}, nil)
 
 	e := r.Resolve("", "telegram:123")
 	if e == nil || e.Name != "telegram" {
@@ -205,8 +213,8 @@ func TestResolveEmptyName(t *testing.T) {
 // Resolve must pin by name (source-based routing), never first-by-prefix.
 func TestResolveMultiAccountPrecedence(t *testing.T) {
 	r := New()
-	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
-	r.Register("telegram-rhias", "http://rhias:9001", []string{"telegram:"}, nil)
+	r.Register("telegram", "http://10.0.0.11:9001", []string{"telegram:"}, nil)
+	r.Register("telegram-rhias", "http://10.0.0.12:9001", []string{"telegram:"}, nil)
 
 	jid := "telegram:user/42"
 
@@ -214,8 +222,8 @@ func TestResolveMultiAccountPrecedence(t *testing.T) {
 	if e == nil || e.Name != "telegram-rhias" {
 		t.Fatalf("Resolve(telegram-rhias) = %+v, want telegram-rhias by name", e)
 	}
-	if e.URL != "http://rhias:9001" {
-		t.Errorf("resolved URL = %q, want http://rhias:9001 (wrong account)", e.URL)
+	if e.URL != "http://10.0.0.12:9001" {
+		t.Errorf("resolved URL = %q, want http://10.0.0.12:9001 (wrong account)", e.URL)
 	}
 
 	e = r.Resolve("telegram", jid)

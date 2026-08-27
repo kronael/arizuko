@@ -6639,3 +6639,48 @@ so the seed was off-format as well as non-deterministic. The literal is RFC3339.
   on the literal so a future `CURRENT_TIMESTAMP` re-seed cannot pass by landing
   inside one second. Mutation-checked: both tests FAIL with 0037 moved aside
   (`a = sha256:e2c741d7…` vs `b = sha256:de29e07a…`) and pass with it restored.
+
+## L121 — adapter registration blocks on an unbounded `net.LookupIP`, so a slow resolver stalls a routd handler for the platform's whole DNS timeout (2026-08-27, open)
+
+`chanreg.validateAdapterURL` (`chanreg/chanreg.go:319`) resolves the adapter's
+hostname with the package-level `net.LookupIP`, which takes no `context.Context`
+and no deadline:
+
+```go
+ips, err := net.LookupIP(host)
+if err != nil || len(ips) == 0 {
+	return nil        // unresolvable is allowed on purpose
+}
+```
+
+`Register` → `RegisterWithOrigin` → `validateAdapterURL` is on routd's
+`POST /v1/channels` path, so the handler goroutine is held for however long the
+resolver takes. The answer is then discarded whenever the lookup fails, which is
+the common case for a compose service name resolved from outside its network.
+
+- **Measured**, this tree, `chanreg`:
+
+  ```
+  hostname register took 7.771698649s     // http://teled:8080
+  ip register took       12.965µs         // http://10.1.2.3:8080
+  ```
+
+  That is one lookup against a resolver that cannot answer. `glibc`'s default is
+  5 s × 2 attempts per `nameserver` line; a `resolv.conf` with three
+  nameservers gives ~30 s per registration.
+- **Cost:** an adapter restarting into a routd whose DNS is degraded re-registers
+  slowly, and every concurrent registration holds a goroutine for the same
+  window. Nothing crashes; the control plane just stops answering for a while,
+  which reads as "routd is hung" rather than "DNS is slow".
+- **It also cost the test suite.** `chanreg` took **151 s** in `make test`
+  — documented as "fast unit tests (<5s)" — because 23 registrations each waited
+  out the resolver. Fixed 2026-08-27 by registering private IP literals in
+  `chanreg_test.go`, which skip the lookup: **151 s → 7.7 s**. The remaining
+  7.7 s is `ssrf_test.go`'s one deliberate `docker_service_name` case. That is a
+  test fix, not a fix for this entry — the production path is unchanged.
+- **Source:** `chanreg/chanreg.go:319`; callers `chanreg/chanreg.go:108,112`.
+- **Fix (local):** take the caller's context and use
+  `net.DefaultResolver.LookupIP(ctx, "ip", host)` with a short bounded timeout
+  (1–2 s). The branch already treats an unresolvable name as allowed, so a
+  timeout collapses into the existing "cannot check, let it through" path and
+  changes no verdict — only how long the wrong-answer case costs.
