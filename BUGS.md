@@ -6971,3 +6971,40 @@ Go's **default disposition** — the process dies immediately and the
   the first `net.Listen` in `authd`, `onbod`, `routd`, `runed` and `ttsd`.
   Not done here — found during a general check (Bug Triage Protocol); only the
   egress half shipped, because its own test was red.
+
+## ✅ FIXED 2026-08-27 L128 — `ARIZUKO_BACKEND` never reached runed, so the documented per-backend certification procedure was a silent no-op (2026-08-27)
+
+`specs/6/7` §"Conformance: `anteval`, per backend" documents the procedure:
+
+    ARIZUKO_BACKEND=codex  # instance .env; restart; then, manually:
+    anteval run --cases ./anteval/cases ...
+
+**It does nothing.** Measured on krons while running that exact procedure:
+
+- runed's compose service loads **only** `env/runed.env` (`env_file:` in the
+  generated `docker-compose.yml`), never the instance `.env`.
+- `ARIZUKO_BACKEND` was **not in runed's key allowlist** (`compose/compose.go`
+  `daemonKeys["runed"]`), so `arizuko generate` never copied it across.
+- Set in `/srv/data/arizuko_krons/.env`, restarted, and `env/runed.env` came
+  back with 22 keys and no `ARIZUKO_BACKEND`. runed kept spawning claude.
+
+runed is the ONLY reader: `core/config.go:213` resolves it into
+`cfg.AgentBackend`, and `buildArgs` re-emits it as container env for ant's
+`selectHarness` (`ant/src/index.ts:425`). A test already asserted the SECOND
+hop (`container/extra_test.go:131` — "ARIZUKO_BACKEND died precisely because
+buildArgs never emitted it"), so the same class had been fixed one hop
+downstream and left broken one hop up.
+
+- **Cost:** codex and pi could not be certified at all, on any instance. That
+  is the direct reason `6/7`'s matrix says only claude has a live anteval
+  history, and why two of its conformance rows were written from recorded
+  fixtures instead of a live run.
+- **This is the `ant_env_delivery` class again** — a var not emitted is
+  silently dead, and the failure looks exactly like a healthy instance.
+- **FIXED**: `ARIZUKO_BACKEND` added to `daemonKeys["runed"]`, with a test that
+  fails when it is removed.
+- **Found beside it, not a code fault:** the deployed `arizuko:latest` predated
+  `ANTHROPIC_OAUTH_TOKEN` joining `store.EnvProfileKeys`, so pi had no
+  credential on an instance that holds one under the other name
+  (`store/secrets.go:118` states this exactly). The image rebuild that shipped
+  the fix also closed that. `Z1` class: the running image is behind the tree.
