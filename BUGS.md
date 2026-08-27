@@ -7054,3 +7054,58 @@ scored **7/9** on the codex smoke.
   `specs/6/7` §"The harness seam" (`model?: string`, backend-native, verbatim).
 - **Docs:** `6/7`'s certification procedure names only `ARIZUKO_BACKEND`. It
   now also names the model; the spec text was corrected in the same pass.
+
+## L130 — a codex or pi agent never receives arizuko's operating manual, so it fails exactly the tasks that need platform knowledge (2026-08-27, open — proposal, needs sign-off)
+
+Diagnosis of the two failures in the first live codex certification (7/9,
+krons 2026-08-27). Both share one signature — `unsupported protocol scheme ""`,
+a callback URL the agent never produced — and one cause.
+
+**What each backend receives as instructions:**
+
+| | claude | codex | pi |
+| --- | --- | --- | --- |
+| `~/.claude/CLAUDE.md` (33,511 bytes, the operating manual) | yes — Claude Code reads it natively | **no** | **no** |
+| `AGENTS.md` (codex's own convention) | n/a | **does not exist anywhere in the repo** | n/a |
+| `systemPrompt` | `SYSTEM.md` + output style | same | same |
+| skills | native | prompt index | `--skill` dirs |
+
+`buildSystemPrompt` (`ant/src/index.ts:49`) is `ci.systemMd` + the output style,
+and `systemMd` is the group's optional `SYSTEM.md`
+(`container/runner.go:531`) — **not** `CLAUDE.md`. claude gets the manual only
+because Claude Code discovers it by itself. Nothing puts it in front of codex or
+pi.
+
+**Measured on the eval folder during the run:** `SYSTEM.md` ABSENT,
+`AGENTS.md` ABSENT, `.claude/CLAUDE.md` present at 33,511 bytes and mentioning
+`private_html` **7 times**. So the file containing the exact recipe the failing
+case needed sat unread in the group home while the agent guessed.
+
+- **`priv-401`** asks for a JWT-gated page. The `~/private_html` → `/priv/<folder>/`
+  mapping is arizuko-specific and lives only in that manual. `web/priv/eval/`
+  holds an artifact from every previous claude run and **nothing** from the codex
+  run, while `web/pub/eval/` holds the codex nonce — so the agent published
+  public pages happily and never found the private slot.
+- **`priv-grant`** burned 671,679 tokens over 180s and never called back — the
+  same shape: no manual, so no recipe for the grant + publish chain.
+- **The pass/fail split is exactly this line.** codex passed every case whose
+  task is self-describing from the prompt (`chat-entrypoint`, `child-delegate`,
+  `fresh-context`, `link-is-public-url`, `rest-roundtrip`, `self-skill`,
+  `webhook-in`) and failed both that require platform knowledge.
+- **Contract impact:** `6/7` states the agent contract as what the environment
+  guarantees an occupant. Two of three occupants never receive the document that
+  defines how to operate it. That makes the conformance matrix read as backend
+  capability when it is partly instruction delivery.
+
+**PROPOSAL — needs sign-off, because it is a contract change with a real cost.**
+`codexPrompt`/`runPi` can prepend the manual the same way `renderSkillsIndex`
+already prepends the skills index — one call site each, no new mechanism. The
+cost is ~33KB of input per turn per backend, which is why this is a decision and
+not an inline fix: it is cheap against codex's cached input and not free. The
+alternative, writing `AGENTS.md` into the group home for codex's own discovery,
+keeps it out of the prompt but adds a second copy of one declaration — the
+duplication rule says amend the original instead.
+
+- **Source:** `ant/src/index.ts:49`, `container/runner.go:531`,
+  `ant/src/codex.ts:84` (`codexPrompt`), `ant/src/pi.ts` (`runPi`);
+  the measurement above.
