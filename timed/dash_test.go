@@ -95,3 +95,26 @@ func TestRenderDashFlags(t *testing.T) {
 		t.Error("expected zero-value loop state to render 'No tick yet'")
 	}
 }
+
+// roundDur is what the operator reads on /dash/timed/ for every task's last
+// run. Sub-minute durations round to seconds so a 3s task does not read as
+// "0s", and anything longer rounds to minutes so a 41-minute run does not
+// print six significant figures.
+func TestRoundDurKeepsSecondsUnderAMinute(t *testing.T) {
+	cases := map[time.Duration]string{
+		0:                               "0s",
+		500 * time.Millisecond:          "1s",
+		400 * time.Millisecond:          "0s",
+		3 * time.Second:                 "3s",
+		59 * time.Second:                "59s",
+		time.Minute:                     "1m0s",
+		90 * time.Second:                "2m0s",
+		41*time.Minute + 20*time.Second: "41m0s",
+		2*time.Hour + 30*time.Minute:    "2h30m0s",
+	}
+	for in, want := range cases {
+		if got := roundDur(in); got != want {
+			t.Errorf("roundDur(%s) = %q, want %q", in, got, want)
+		}
+	}
+}

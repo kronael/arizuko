@@ -11,6 +11,18 @@ never linked; one directory claimed to be one component and was two.
 **Not wired into arizuko.** `runed` spawns docker containers; nothing in the
 spawn path imports this. Its consumer today is `crackbox run --kvm`.
 
+## Coverage
+
+`sandbox` sits near 3% and `sandbox/internal` near 13%, and that is the honest
+number rather than a gap to close. Everything below `Spawn` needs a real
+hypervisor: `qemu-system-x86_64`, a KVM device node, `libexec` helpers, and
+`ip`/`nft` to build the guest network. A unit test cannot reach any of it, and a
+mock of qemu would assert the mock.
+
+What IS covered is what runs without one — `metadata.go` (the on-disk VM
+record) and `netfilter.go` (the rule rendering). The lifecycle is exercised by
+`crackbox run --kvm` on a host that has KVM.
+
 ## Use
 
 ```go
