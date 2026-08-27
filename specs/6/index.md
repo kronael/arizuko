@@ -64,8 +64,10 @@ themselves argue:
 
 1. **The `6/7` contracts made real** — the component probe **shipped
    2026-08-17** (`arizuko probe <base-url>`); routd and proxyd pass 5/5
-   live, dashd 3/3. What remains is the `anteval` gate run per backend,
-   with `pi` as the second agent-slot occupant.
+   live, dashd 3/3. pi's session resume **shipped 2026-08-27**, so all three
+   backends now resume layer 1. What remains is the one step no code can do
+   for itself: the `anteval` gate run per backend, live, against an instance
+   whose `.env` sets that backend. Only `claude` has a live history.
 2. **The opaque-client credential hole is closed by declining it (2026-08-20)** —
    arizuko serves credentials through one mechanism, the MCP broker; an opaque
    in-container client is out of scope by decision, not by coverage. The spec
