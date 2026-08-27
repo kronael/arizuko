@@ -6886,7 +6886,7 @@ allowlist}`. `Stop` POSTs `/v1/unregister`." `6/24` §"It removes a real leak"
   zero arizuko-internal imports (component test, per `6/16`)". No such test
   existed. Written 2026-08-27 as `tests/components`; the invariant did hold.
 
-## L126 — `6/7`'s conformance matrix says pi's skill-guard is a load-time scan; the code says write-time and blocks, so the matrix understates two of three backends' defences (2026-08-27, open)
+## ✅ FIXED 2026-08-27 L126 — `6/7`'s conformance matrix says pi's skill-guard is a load-time scan; the code says write-time and blocks, so the matrix understates two of three backends' defences (2026-08-27)
 
 `specs/6/7-environment-contracts.md:749` — the `skill-guard (5/23)` row reads
 `write-time hook | load-time scan | load-time scan` for claude / codex / pi.
@@ -6925,8 +6925,12 @@ call, not a one-shot scan at session start.
 - **Source:** `specs/6/7-environment-contracts.md:721-722,749` vs
   `ant/src/pi.ts:205`, `ant/src/pi-extension.ts:16,87-90`,
   `ant/src/policy.ts:81,85-88`, `ant/src/guards.ts:83-137`.
-- **Fix:** correct both cells and the prose. The spec already states the right
-  model at `:407-450` — this is deleting a contradiction, not deciding anything.
+- **FIXED 2026-08-27.** Both cells and the prose now say what the code does: pi
+  reads `write-time hook (pi-extension.ts)`, codex reads `post-write quarantine
+  sweep`, and the "Skills across backends" section states that codex's
+  `PreToolUse` row never fires because it writes with `apply_patch` — the
+  `skill-rescan` `PostToolUse` row is what protects it. The load-time scan is
+  described as what it is: the backstop on both, not the gate.
 
 ## L127 — six of nine daemons install their SIGTERM handler AFTER they start serving, so a signal in that window kills them with no graceful shutdown (2026-08-27, egress half FIXED, five open)
 

@@ -719,18 +719,29 @@ installed set lives in `~/.claude/skills/`.
 - **claude** — native discovery; the `5/23` skill-guard runs as a PreToolUse
   hook on writes into `~/.claude/**`. The gate sits at WRITE time.
 - **pi** — implements the Agent Skills format natively; the connector passes
-  each skill dir via `--skill`. No hook mechanism.
+  each skill dir via `--skill`. It DOES have a hook mechanism: the extension
+  registers `pi.on('tool_call')` and returns `{block:true}` on a `deny` verdict
+  (`ant/src/pi-extension.ts:87`), so the gate sits at WRITE time, the same
+  mechanism class as claude's. `pi.ts`'s own profile has said
+  `guard: 'write-time'` since `52cef0aa` (2026-08-21).
 - **codex** — no skill mechanism; the connector renders an index
   (name — description — path) into the prompt, and the model reads the
   `SKILL.md` on match.
 
-codex and pi cannot run the write-time hook, so the connector moves the SAME
-scanner (`skillguard.ts`, the hermes pattern table — one table, never a
-second copy) to LOAD time: at session start every skill is scanned, and a
-skill with blocking findings is excluded from pi's `--skill` list and from
-codex's index. Stated honestly: load-time scanning gates what the connector
-loads, not what the model reads by path afterwards — it is narrower coverage
-than the write-time gate, not parity. The bash secret scrub
+**codex** is the only backend without a write-time gate, and not for want of
+wiring: its `hooks.json` carries the `PreToolUse` skill-guard row, but the row
+structurally never fires because codex writes with `apply_patch`, not
+`Write`/`Edit`/`MultiEdit` (`ant/src/policy.ts:85-88`). What actually protects
+it is the no-matcher `skill-rescan` `PostToolUse` row (`ant/src/guards.ts:83`):
+an mtime-gated rescan that QUARANTINES a bad skill after the write instead of
+refusing it before. Stated honestly, that is narrower than the write-time gate,
+not parity.
+
+The load-time scan (`skillguard.ts`, the hermes pattern table — one table,
+never a second copy) runs on both codex and pi as the backstop: at session
+start every skill is scanned, and one with blocking findings is excluded from
+pi's `--skill` list and from codex's index. It gates what the connector loads,
+not what the model reads by path afterwards. The bash secret scrub
 (`guards.ts`) also does not run on codex/pi; the credential it scrubs
 (the Anthropic OAuth token) is not present in those backends' env, which
 shrinks but does not erase that gap.
@@ -744,9 +755,9 @@ shrinks but does not erase that gap.
 | arizuko MCP tools (`reply`/`send`/…)   | yes                      | yes (`mcp_servers` → socat)                    | **no** — pi has no MCP client; the terminal frame is its only delivery |
 | mid-turn steering (IPC → active query) | yes (PostToolUse drain)  | no — between-turn only                         | no — between-turn only                                                 |
 | interim `<status>` streaming           | yes                      | yes (`agent_message` events)                   | yes (`message_end` events)                                             |
-| session resume (layer 1)               | yes (`--resume`)         | yes (`exec resume <thread_id>`)                | available (`--session <path>`), NOT wired                              |
+| session resume (layer 1)               | yes (`--resume`)         | yes (`exec resume <thread_id>`)                | yes (`--session <id>` inside the group's own `--session-dir`)          |
 | skills                                 | native                   | native ($HOME) + a redundant connector index   | native (`--skill`)                                                     |
-| skill-guard (`5/23`)                   | write-time hook          | load-time scan                                 | load-time scan                                                         |
+| skill-guard (`5/23`)                   | write-time hook          | post-write quarantine sweep (see below)        | write-time hook (`pi-extension.ts`)                                    |
 | per-model usage accounting             | tokens + cost            | tokens only, cost 0                            | tokens + cost                                                          |
 | model credential                       | subscription OAuth / env | `~/.codex` or `OPENAI_API_KEY`/`CODEX_API_KEY` | provider API key env                                                   |
 
@@ -768,10 +779,20 @@ on 2026-08-20:
   retries fresh through the seam's `retryFresh` frame. codex exits **0** with an
   empty stdout when the rollout is gone, so the signal is the stderr text, never
   the exit code.
-- **pi has sessions too** — `--session <path>`, `--session-dir`, `--continue`,
-  `PI_CODING_AGENT_DIR`. The connector passes `--no-session`. Unwired, not
-  unavailable; `--session <path>` is the better shape here, because routd hands
-  out the id and a path needs no resumable-UUID contract (the `L54` class).
+- **pi resumes too, and is now wired** (2026-08-27). This spec previously chose
+  `--session <path>` over an id, to avoid depending on a resumable-UUID
+  contract (the `L54` class). **That shape is not available.** pi names a new
+  rollout `<timestamp>_<id>.jsonl` (`session-manager.js:499`) and the timestamp
+  is not reconstructible, so a path cannot be derived from an id we were handed.
+  What ships instead keeps the same property by a different route: the connector
+  passes `--session-dir <group home>/.pi/sessions` on EVERY turn and
+  `--session <id>` only when resuming, so the id is resolved against this
+  group's own directory and can never name another group's rollout. Two further
+  facts decided the shape, both read out of pi 0.51.6 rather than assumed: a
+  BARE id that matches nothing makes pi `process.exit(1)` (`main.js:331`), so
+  `PiTurn.finish` maps that stderr onto the seam's `retryFresh` frame exactly as
+  codex does; and pi creates the session directory itself
+  (`session-manager.js:212`), so ant does not.
   **Certified in a container, 2026-08-20.** The rebuilt `arizuko-ant` image
   (codex-cli 0.148.0) with the group dir bind-mounted at `/home/node` and
   `ARIZUKO_BACKEND=codex`:

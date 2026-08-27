@@ -119,13 +119,13 @@ test('PiTurn: non-zero exit is an error result carrying stderr', () => {
   expect(result.text).toBe('boom');
 });
 
-test('piArgs: no session, no self-granted extensions, scanned skills only, @file prompt', () => {
+test('piArgs: no self-granted extensions, scanned skills only, @file prompt', () => {
   const args = piArgs(
-    { model: 'claude-serve/sonnet', systemPrompt: 'SYS' },
+    { cwd: '/home/node', model: 'claude-serve/sonnet', systemPrompt: 'SYS' },
     '/tmp/prompt.md',
     ['/home/node/.claude/skills/diary'],
   );
-  expect(args).toContain('--no-session');
+  expect(args).not.toContain('--no-session');
   // ~/.pi extensions are agent-authored tool registrations (J14 class);
   // --no-skills drops pi's own discovery while explicit --skill still loads.
   expect(args).toContain('--no-extensions');
@@ -144,5 +144,49 @@ test('piArgs: no session, no self-granted extensions, scanned skills only, @file
 test('piArgs: no rendered system text keeps pi\'s own default', () => {
   // The claude_code preset is claude wiring and never crosses the seam; an
   // absent systemPrompt must not become a --system-prompt flag.
-  expect(piArgs({}, '/tmp/p.md', [])).not.toContain('--system-prompt');
+  expect(piArgs({ cwd: '/home/node' }, '/tmp/p.md', [])).not.toContain('--system-prompt');
+});
+
+test('piArgs: a fresh turn names the session dir but resumes nothing', () => {
+  // --session-dir on every turn: on a fresh turn it is where the new rollout
+  // lands, and on a resume it is what the bare id is resolved against.
+  const args = piArgs({ cwd: '/home/node' }, '/tmp/p.md', []);
+  expect(args[args.indexOf('--session-dir') + 1]).toBe('/home/node/.pi/sessions');
+  expect(args).not.toContain('--session');
+});
+
+test('piArgs: a stored id resumes against this group own session dir', () => {
+  const args = piArgs(
+    { cwd: '/home/node', continuity: 's-1' },
+    '/tmp/p.md',
+    [],
+  );
+  expect(args[args.indexOf('--session') + 1]).toBe('s-1');
+  expect(args[args.indexOf('--session-dir') + 1]).toBe('/home/node/.pi/sessions');
+});
+
+test('piArgs: the session dir follows the group home, never a fixed path', () => {
+  // Every group gets its own dir, so one group id can never resolve inside
+  // another group home.
+  const args = piArgs({ cwd: '/home/node/other' }, '/tmp/p.md', []);
+  expect(args[args.indexOf('--session-dir') + 1]).toBe('/home/node/other/.pi/sessions');
+});
+
+test('PiTurn: a missing rollout retries fresh instead of delivering the diagnostic', () => {
+  // pi prints this and exits 1 when the id resolves to no rollout in our dir
+  // (main.js:331-333). Delivering it would reply to the user with a harness
+  // error; the chassis must run the turn again with no continuity.
+  const t = new PiTurn();
+  const r = t.finish(1, "No session found matching 's-gone'");
+  expect(r.ok).toBe(false);
+  expect(r.retryFresh).toBe(true);
+  expect(r.text).toBeUndefined();
+});
+
+test('PiTurn: an ordinary failure is delivered, not retried', () => {
+  const t = new PiTurn();
+  const r = t.finish(1, 'provider auth failed');
+  expect(r.ok).toBe(false);
+  expect(r.retryFresh).toBeUndefined();
+  expect(r.text).toBe('provider auth failed');
 });
