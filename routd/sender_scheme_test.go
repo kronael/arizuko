@@ -1,5 +1,11 @@
 package routd
 
+// Adapter URLs here are private IP literals, not compose service names.
+// chanreg.Register resolves a hostname with an unbounded net.LookupIP
+// (BUGS L121); against a resolver that cannot answer a compose name, each
+// registration in these tests waited ~8s. An IP literal short-circuits before
+// the resolver and exercises exactly the same registration path.
+
 import (
 	"net/http"
 	"testing"
@@ -22,7 +28,7 @@ func TestSenderSchemeGuard(t *testing.T) {
 	reg := chanreg.New()
 	// byPrincipal is keyed on the presented principal, so the guard only has an
 	// entry to consult when registration supplies one.
-	if _, err := reg.RegisterWithOrigin("slakd", "http://slakd:8080",
+	if _, err := reg.RegisterWithOrigin("slakd", "http://10.0.0.12:8080",
 		[]string{"slack:T1/"}, map[string]bool{"send_text": true},
 		"", "service:slakd"); err != nil {
 		t.Fatalf("register slakd: %v", err)

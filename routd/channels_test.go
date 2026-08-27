@@ -1,5 +1,11 @@
 package routd
 
+// Adapter URLs here are private IP literals, not compose service names.
+// chanreg.Register resolves a hostname with an unbounded net.LookupIP
+// (BUGS L121); against a resolver that cannot answer a compose name, each
+// registration in these tests waited ~8s. An IP literal short-circuits before
+// the resolver and exercises exactly the same registration path.
+
 import (
 	"encoding/json"
 	"net/http"
@@ -38,7 +44,7 @@ func TestIngressJIDOwnership(t *testing.T) {
 	// register a slack adapter owning slack:T1/.
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", testChanSecret, map[string]any{
-		"name": "slakd", "url": "http://slakd:8080",
+		"name": "slakd", "url": "http://10.0.0.12:8080",
 		"jid_prefixes": []string{"slack:T1/"},
 		"capabilities": map[string]bool{"send_text": true},
 	}))
@@ -93,7 +99,7 @@ func TestChannelRegisterListDeregister(t *testing.T) {
 	h := srv.Handler()
 
 	reg := chanReq("POST", "/v1/channels/register", testChanSecret, map[string]any{
-		"name": "slakd", "url": "http://slakd:8080",
+		"name": "slakd", "url": "http://10.0.0.12:8080",
 		"jid_prefixes": []string{"slack:T1/"},
 		"capabilities": map[string]bool{"send_text": true},
 	})
@@ -130,7 +136,7 @@ func TestChannelRegisterListDeregister(t *testing.T) {
 		t.Fatalf("decode list: %v", err)
 	}
 	if len(list.Channels) != 1 || list.Channels[0].Name != "slakd" ||
-		list.Channels[0].URL != "http://slakd:8080" {
+		list.Channels[0].URL != "http://10.0.0.12:8080" {
 		t.Fatalf("list=%+v", list.Channels)
 	}
 	if len(list.Channels[0].JIDPrefixes) != 1 || list.Channels[0].JIDPrefixes[0] != "slack:T1/" {

@@ -1,5 +1,11 @@
 package routd
 
+// Adapter URLs here are private IP literals, not compose service names.
+// chanreg.Register resolves a hostname with an unbounded net.LookupIP
+// (BUGS L121); against a resolver that cannot answer a compose name, each
+// registration in these tests waited ~8s. An IP literal short-circuits before
+// the resolver and exercises exactly the same registration path.
+
 // Channel register/list gate under ES256: with a Verifier wired, an adapter's
 // service:<adapter> token is admitted and a non-service token / no token is 401.
 // The open-when-no-verifier (local dev) path is covered in channels_test.go.
@@ -65,7 +71,7 @@ func TestChannelRegisterES256AdmitsAdapter(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", tok, map[string]any{
-		"name": "teled", "url": "http://teled:8080",
+		"name": "teled", "url": "http://10.0.0.11:8080",
 		"jid_prefixes": []string{"telegram:"},
 		"capabilities": map[string]bool{"send_text": true},
 	}))
@@ -89,7 +95,7 @@ func TestChannelRegisterES256RejectsBadToken(t *testing.T) {
 	for _, bearer := range []string{"", "not-a-jwt", testChanSecret} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", bearer, map[string]any{
-			"name": "teled", "url": "http://teled:8080", "jid_prefixes": []string{"telegram:"},
+			"name": "teled", "url": "http://10.0.0.11:8080", "jid_prefixes": []string{"telegram:"},
 		}))
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("bearer %q: status=%d want 401", bearer, rec.Code)
@@ -106,7 +112,7 @@ func TestChannelRegisterES256RejectsNonService(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", tok, map[string]any{
-		"name": "teled", "url": "http://teled:8080", "jid_prefixes": []string{"telegram:"},
+		"name": "teled", "url": "http://10.0.0.11:8080", "jid_prefixes": []string{"telegram:"},
 	}))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("user token: status=%d want 401", rec.Code)
@@ -142,7 +148,7 @@ func TestChannelRegisterES256OriginPinSurvivesRotation(t *testing.T) {
 	h := srv.Handler()
 
 	body := map[string]any{
-		"name": "teled", "url": "http://teled:8080", "jid_prefixes": []string{"telegram:"},
+		"name": "teled", "url": "http://10.0.0.11:8080", "jid_prefixes": []string{"telegram:"},
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", mint("service:teled"), body))
@@ -179,7 +185,7 @@ func TestIngressJIDOwnershipES256(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", tok, map[string]any{
-		"name": "teled", "url": "http://teled:8080",
+		"name": "teled", "url": "http://10.0.0.11:8080",
 		"jid_prefixes": []string{"telegram:"},
 		"capabilities": map[string]bool{"send_text": true},
 	}))
@@ -241,7 +247,7 @@ func TestIngressSenderSchemeES256(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", tok, map[string]any{
-		"name": "teled", "url": "http://teled:8080",
+		"name": "teled", "url": "http://10.0.0.11:8080",
 		"jid_prefixes": []string{"telegram:"},
 		"capabilities": map[string]bool{"send_text": true},
 	}))
