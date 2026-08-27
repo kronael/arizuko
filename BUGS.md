@@ -6817,9 +6817,14 @@ measured in this tree against an endpoint answering `429` + `Retry-After: 1`.
   does not do and which is the real reason this wrapper exists. If reditd needs
   a longer honoured `Retry-After` than chanlib's 30s, raise it in ONE place
   (a policy field) rather than by stacking a second loop.
-- **Check the siblings.** `bskyd`, `discd`, `teled`, `slakd`, `twitd` and
-  `whapd` all call `chanlib.DoWithRetry`; whether any of them wraps it in a
-  second 429 loop was not checked here.
+- **The correct pattern already ships, in `slakd`.** `slakd/bot.go:1697-1707`
+  calls `chanlib.DoWithPolicy` and then does NOT retry: a 429 that outlived the
+  policy's budget becomes a typed `chanlib.ErrNotDelivered` so the sweep can
+  retry it. One retry layer, one owner. That is the shape reditd should take.
+- **Siblings checked 2026-08-27:** `slakd` correct (above); `discd` classifies
+  discordgo's own rate-limit errors and does not add an HTTP retry loop;
+  `bskyd`, `teled`, `twitd`, `whapd`, `linkd` and `emaid` carry no 429 retry
+  branch of their own. reditd is the only one stacking.
 - **Test:** `reditd/client_state_test.go`
   `TestDoWithRetryDoesNotStackTwoRetryLayers` is written and skipped on this
   entry. Un-skip it with the fix.
