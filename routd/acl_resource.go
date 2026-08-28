@@ -1,33 +1,26 @@
 package routd
 
-// acl_resource.go — 5/16 agent-face migration of the acl tools
-// (add_acl/remove_acl/list_acl) onto one resreg.Resource + the injected Gate.
-// resreg owns handler dispatch + the mutation's tx + its audit_log row; routd
-// owns the auth POLICY (spec 5/16). Three semantics the shared handler preserves:
+// acl_resource.go — the 5/16 agent-face migration of the acl tools onto one
+// resreg.Resource plus the injected Gate. resreg owns handler dispatch, the
+// mutation's tx and its audit_log row; routd owns the auth POLICY. Three semantics
+// the shared handler preserves:
 //
-//   - scope-containment (the stricter MCP gate): a caller may only grant/revoke
-//     within its own authority — the Gate runs the 5/33 single evaluator on the
-//     `scope` arg (add/remove) or `folder` arg (list), then auth.Delegate
-//     (subset-of-held) for a non-root add. scope "**" (operator role) is thus
-//     reachable only from an operator/root grant.
-//   - the operator-role overload: scope "**" with the action OMITTED (or "*")
-//     writes an acl_membership operator edge, not an acl row. Any action the
-//     caller names at "**" is an ordinary row — matching on scope alone
-//     discarded it and over-granted. Done tx-aware here (calling
-//     s.db.AddMembership would open its own BeginTx and DEADLOCK inside
-//     invoke's tx) while PRESERVING its recursive cycle check.
-//   - list_acl is advertised only to a caller holding mcp:list_acl (the Visible
-//     predicate) and returns only rows whose scope == the queried folder.
+//   - scope-containment: a caller may only grant/revoke within its own authority —
+//     the Gate runs the 5/33 single evaluator on the `scope` arg, then
+//     auth.Delegate (subset-of-held) for a non-root add. "**" is thus reachable
+//     only from an operator/root grant.
+//   - the operator-role overload: scope "**" with the action OMITTED writes an
+//     acl_membership operator edge, not an acl row. Any action the caller names at
+//     "**" is an ordinary row — matching on scope alone discarded it and
+//     over-granted. Done tx-aware here (s.db.AddMembership would open its own
+//     BeginTx and DEADLOCK inside invoke's tx) while preserving the cycle check.
+//   - list_acl is advertised only to a caller holding mcp:list_acl and returns only
+//     rows whose scope == the queried folder.
 //
-// The REST face (/v1/acl POST=add + body-DELETE=remove) rides the SAME shared
-// handler via mountACL (below): resreg.RegisterREST on aclResource() with a REST
-// Caller + Gate injected. list_acl has NO REST twin — it is MCPOnly in
-// resources.ACLEndpoints, which is what keeps it out of both the mux and the
-// doc. The REST Gate binds the body `scope` to the caller's JWT
-// folder (ownsFolder), so the operator/human face can no longer grant/revoke
-// outside its authority ("**" needs the empty-folder root token) — closing the
-// pre-fold hole where handleACLAdd/Remove gated on the acl:write bearer scope
-// ALONE and never bound the body scope.
+// The REST face rides the SAME shared handler via mountACL. list_acl has NO REST
+// twin — it is MCPOnly, which keeps it out of both the mux and the doc. The REST
+// Gate binds the body `scope` to the caller's JWT folder, closing the pre-fold hole
+// where the handlers gated on the acl:write bearer scope ALONE.
 
 import (
 	"context"
@@ -66,15 +59,11 @@ func (s *Server) aclResource() resreg.Resource {
 	return r
 }
 
-// mountACL wires the /v1/acl operator/human REST face onto the SAME shared
-// aclHandler the agent's add_acl/remove_acl MCP tools use (spec 5/16 REST fold).
-// It mounts resources.ACLEndpoints verbatim — POST(add) + DELETE(remove); list is
-// MCPOnly there, so RegisterREST and openapi.go both skip it and list_acl stays
-// agent-only. NEVER reintroduce an inline Endpoints literal here: the trimmed
-// copy that used to live in this function is what left GET /v1/acl advertised and
-// unmounted (BUGS F27); endpoints_source_test.go probes this mux to catch it.
-// The injected aclRESTGate re-runs the MCP scope-containment, so a REST caller
-// can only grant/revoke within its own authority.
+// mountACL wires the /v1/acl REST face onto the SAME shared aclHandler the agent's
+// MCP tools use. It mounts resources.ACLEndpoints verbatim. NEVER reintroduce an
+// inline Endpoints literal here: the trimmed copy that used to live in this
+// function is what left GET /v1/acl advertised and unmounted (BUGS F27);
+// endpoints_source_test.go probes this mux to catch it.
 func (s *Server) mountACL(mux *http.ServeMux) {
 	res := s.aclResource()
 	res.Gate = s.aclRESTGate
@@ -237,24 +226,17 @@ type aclAddResult struct {
 }
 
 // nonCanonicalWarning reports whether `principal` is a KNOWN alias of some other
-// account, and returns the operator-facing warning if so (BUGS N2).
+// account, and returns the operator-facing warning if so (BUGS N2). 5/32 resolves a
+// linked OAuth login to the canonical sub at MINT, and grants key on the exact
+// string, so a grant written against a linked alias creates a row that can NEVER
+// match — it looks applied and never fires. authd owns the answer; routd federates
+// it over HTTP.
 //
-// 5/32 resolves a linked OAuth login to the account's canonical sub at MINT, so
-// a JWT only ever carries the canonical. Grants key on the exact string and
-// expandPrincipals compares exact strings, so a grant written against a linked
-// alias creates a row that can NEVER match — it looks applied and never fires.
-// authd owns the answer; routd federates it over HTTP (routd holds no handle on
-// auth.db — sibling_db.go).
-//
-// FAIL-OPEN, deliberately, and it must stay that way. Refusing on authd's answer
-// would put a hard dependency on authd into a write path that has none, so an
-// authd blip would become a control-plane outage over a risk with zero live
-// instances. But fail-open with a log only is a guard nobody sees, so the
-// warning rides back on the RESPONSE: the grant lands AND the operator is told,
-// in the same breath.
-//
-// It never rewrites the principal. Moving a grant the operator did not ask to
-// move is the failure mode N1 chose an immutable canonical sub to avoid.
+// FAIL-OPEN, deliberately. Refusing on authd's answer would put a hard dependency
+// on authd into a write path that has none. But fail-open with a log only is a
+// guard nobody sees, so the warning rides back on the RESPONSE. It never rewrites
+// the principal — moving a grant the operator did not ask to move is the failure
+// mode N1 chose an immutable canonical sub to avoid.
 func (s *Server) nonCanonicalWarning(principal string) string {
 	if s.identity == nil {
 		return ""
@@ -308,16 +290,12 @@ func grantACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effec
 	return err
 }
 
-// revokeACLTx is the remove_acl/DELETE twin of grantACLTx: revoke via tx.
-//
-// It reports how many rows it removed, and the caller MUST refuse when that is
-// zero. A revoke is the one operation where "did nothing" must never read as
-// success: this face matches `params='' AND predicate=''` — the same narrowing
-// grantACLTx writes — so a row an operator created WITH a params narrowing
-// (dashd's grant form offers exactly that) is invisible to it. It used to delete
-// nothing and answer {"ok":true}, i.e. report a grant as revoked while the grant
-// stayed live (BUGS L79). Widening this face to address narrowed rows is a
-// separate, additive change; answering honestly is not.
+// revokeACLTx is the remove_acl/DELETE twin of grantACLTx. It reports how many rows
+// it removed, and the caller MUST refuse when that is zero: a revoke is the one
+// operation where "did nothing" must never read as success. This face matches
+// `params='' AND predicate=''`, so a row an operator created WITH a params
+// narrowing is invisible to it — it used to delete nothing and answer {"ok":true}
+// (BUGS L79). Widening the face is a separate, additive change.
 func revokeACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effect string) (int64, error) {
 	// Mirror of the grant guard, same raw-action test: keying on scope alone let
 	// a narrow-row revoke strip an operator membership granted separately.

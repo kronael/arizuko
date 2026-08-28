@@ -2,28 +2,18 @@ package main
 
 // audit_resource.go publishes authd's own audit_log at GET /v1/audit.
 //
-// authd writes exactly two kinds of row into auth.db: `daemon.start` (main.go)
-// and `login` (oauth.go) — the latter being the ONLY place that still knows
-// which provider identity was presented before everything downstream collapses
-// to the account's canonical sub. Until now neither could be read without
-// sqlite3 on the host (BUGS F29).
+// authd writes exactly two kinds of row into auth.db: `daemon.start` and `login` —
+// the latter the ONLY place that still knows which provider identity was presented
+// before everything downstream collapses to the canonical sub. Neither could be
+// read without sqlite3 on the host (BUGS F29).
 //
-// WHY THIS IS SAFE ON THE TOKEN AUTHORITY. authd is the sole ES256 signer, so
-// a new read surface on it earns a column-by-column audit, not a shrug:
-//
-//   - `params_summary` had ONE writer, daemon.start's
-//     {dsn, serving_keys, service_subs}. The two counts are len() values. The
-//     DSN was a host path — not key material, but not something a published
-//     endpoint should carry either — so audit.redactRE now matches `dsn` at the
-//     WRITER (one renderer, every daemon) and migration 0007 scrubs the rows
-//     written before that. The login row sets no params at all.
-//   - No handler here touches a signing key, a refresh token, or a service
-//     secret. Those live in signing_keys / refresh_tokens, which this resource
-//     cannot name: audit.Query selects from audit_log and nothing else.
-//   - This is NOT authd's first /v1 surface, whatever BUGS F29 says. http.go
-//     already mounts five, one of which — GET /v1/identities/{sub} — is a
-//     bearer-plus-scope-gated READ of auth.db. This reuses that exact gate
-//     rather than inventing a second one.
+// authd is the sole ES256 signer, so a new read surface earns a column-by-column
+// audit. `params_summary` had ONE writer, daemon.start's {dsn, serving_keys,
+// service_subs}; the counts are len() values, and the DSN is now redacted at the
+// writer with migration 0007 scrubbing earlier rows. No handler here touches a
+// signing key, refresh token or service secret — audit.Query selects from
+// audit_log and nothing else. The bearer-plus-scope gate is the one
+// /v1/identities/{sub} already uses, not a second invention.
 
 import (
 	"context"
@@ -79,21 +69,17 @@ func (s *server) auditCaller(r *http.Request) (resreg.Caller, error) {
 	}, nil
 }
 
-// scopeGate is the operator-only check every authd resource injects, expressed
-// the way authd already expresses one: a literal resource:verb scope, matching
-// handleIdentity's identity:read.
+// scopeGate is the operator-only check every authd resource injects: a literal
+// resource:verb scope, matching handleIdentity's identity:read.
 //
 // Such a scope is unreachable by any human bearer, and that is the mechanism
-// rather than a convention. A user token's scope list holds FOLDER GLOBS
-// (routd's UserScopes → oauth.issueSession), and auth.scopeMatches rejects
-// every held value without a colon — so `acme/**` fails, and so does an
-// operator's own `**`. The single holder of `audit:read` is service:dashd,
-// whose /dash/audit/ page is requireOperator-gated. Operator-only is therefore
-// enforced twice, and neither check is a handler's own invention.
+// rather than a convention: a user token's scope list holds FOLDER GLOBS and
+// auth.scopeMatches rejects every held value without a colon, so `acme/**` fails
+// and so does an operator's `**`. The single holder of `audit:read` is
+// service:dashd, whose page is requireOperator-gated.
 //
-// Note there is no local-dev open branch here, unlike runed's gate: authd
-// always has a key set (it holds the signing keys), so there is no
-// verifier-absent state to fall through.
+// There is no local-dev open branch, unlike runed's gate: authd always has a key
+// set, so there is no verifier-absent state to fall through.
 func scopeGate(resource, verb string) func(resreg.Execution, string, map[string]string) error {
 	return func(x resreg.Execution, _ string, _ map[string]string) error {
 		if !auth.HasScope(x.Caller.Scopes(), resource, verb) {
@@ -103,14 +89,10 @@ func scopeGate(resource, verb string) func(resreg.Execution, string, map[string]
 	}
 }
 
-// instanceWideGate is scopeGate plus a refusal of any folder-claimed caller.
-//
-// It guards the two resources that have NOTHING to narrow by. audit_log has a
-// `folder` column, so a folder-claimed caller is pinned to its subtree and
-// served (auditHandler). signing_keys and refresh_tokens have no such column:
-// a key is instance-global and a session is keyed by `sub`, so there is no
-// predicate that could contain a folder-scoped caller. Serving them everything
-// is the recorded cross-tenant list-all leak; silently returning nothing would
+// instanceWideGate is scopeGate plus a refusal of any folder-claimed caller. It
+// guards the two resources that have NOTHING to narrow by: audit_log has a `folder`
+// column, but signing_keys and refresh_tokens do not — a key is instance-global and
+// a session is keyed by `sub`, so no predicate could contain a folder-scoped caller.
 // be the "strict, not magical" violation. So the answer is 403, stated.
 //
 // This is defence in depth, not the primary control — a bearer holding

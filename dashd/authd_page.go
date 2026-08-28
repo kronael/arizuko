@@ -1,20 +1,15 @@
 package main
 
-// GET /dash/authd/ — the identity cockpit: which key signs the login passes,
-// who is signed in, and the control that signs one person out (spec 5/1 DoD
-// item 6).
+// GET /dash/authd/ — the identity cockpit: which key signs the login passes, who
+// is signed in, and the control that signs one person out (spec 5/1 DoD item 6).
 //
-// Everything here comes from authd's /v1 face. dashd is NOT FS-mounted on
-// auth.db and must not become so: authd is the sole ES256 signer, so the DB
-// file is the trust boundary, and a second process with a handle on it is a
-// second thing that has to be right about signing_keys. HTTP is the only
-// contract authd offers for these rows, and it is the contract that applies the
-// scope gate and writes the revoke's audit row inside the mutation's own
-// transaction.
+// Everything here comes from authd's /v1 face. dashd is NOT FS-mounted on auth.db
+// and must not become so: authd is the sole ES256 signer, so the DB file is the
+// trust boundary. HTTP is also the contract that applies the scope gate and writes
+// the revoke's audit row inside the mutation's own transaction.
 //
-// The audit rows authd emits are NOT re-rendered here. /dash/audit/ already
-// federates authd's GET /v1/audit (spec 5/I), so this page links there — one
-// renderer for the log, not a second one that drifts.
+// The audit rows authd emits are NOT re-rendered here — /dash/audit/ already
+// federates authd's GET /v1/audit (spec 5/I).
 
 import (
 	"encoding/json"
@@ -148,18 +143,13 @@ func renderAuthdAuditLink(w http.ResponseWriter) {
 		`authd&rsquo;s rows are the ones whose <em>Source</em> column says <code>authd</code>.</p>`)
 }
 
-// authdRevokeCell renders the sign-out control for one login.
+// authdRevokeCell renders the sign-out control for one login. Behind a confirm
+// that spells out the delay rather than promising an instant cut: revoking stops
+// the RENEWAL, and the pass already in that browser keeps working until its own
+// short expiry (spec 5/1 § Revocation = short-TTL only).
 //
-// Behind a confirm, like every other dashd danger-zone action, and the confirm
-// spells out the delay rather than promising an instant cut: revoking stops the
-// RENEWAL, and the pass already in that browser keeps working until its own
-// short expiry (spec 5/1 § Revocation = short-TTL only). An operator told
-// "signed out" who then watched the person keep clicking for ten minutes would
-// reasonably conclude the button was broken.
-//
-// A login that is already revoked or expired gets no button: authd answers 404
-// for a family that is not live, so the control would only ever produce an
-// error banner.
+// A login that is already revoked or expired gets no button: authd answers 404 for
+// a family that is not live.
 func authdRevokeCell(s resources.SessionsRow) string {
 	if s.Status != "active" {
 		return `<span class="dim">&mdash;</span>`
@@ -176,12 +166,10 @@ func authdRevokeCell(s resources.SessionsRow) string {
 // handleAuthdRevoke handles POST /dash/authd/revoke — end one login through
 // authd's DELETE /v1/sessions/{family_id}.
 //
-// The audit row is authd's, not dashd's: resreg.invoke opens the transaction,
-// runs the revoke in it, and emits the event into the same one, rolling the
-// mutation back if the audit write fails (spec 5/1 § Where the revoke's audit
-// row lands). Emitting a second row from here would put dashd's claim that a
-// revoke happened next to authd's record that it did, with nothing keeping the
-// two honest — which is the drift a single writer exists to prevent.
+// The audit row is authd's, not dashd's: resreg.invoke opens the transaction, runs
+// the revoke in it, and emits the event into the same one. Emitting a second row
+// from here would put dashd's claim next to authd's record with nothing keeping
+// the two honest.
 func (d *dash) handleAuthdRevoke(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
@@ -228,13 +216,9 @@ func authdRedirect(w http.ResponseWriter, r *http.Request, msg, errMsg string) {
 
 // authdList GETs one of authd's list faces and reports whether the caller may
 // render the result. A transport failure, a non-2xx or an undecodable body each
-// raise a banner and return false — this page must never render a failed read
-// as an empty table, because "nobody is signed in" and "authd did not answer"
-// are the two answers an operator must never confuse.
-//
-// A free function rather than a method because Go methods take no type
-// parameters, and the alternative — an `any` out-param plus a cast at each call
-// site — moves a compile-time check to runtime for nothing.
+// raise a banner and return false: this page must never render a failed read as an
+// empty table, because "nobody is signed in" and "authd did not answer" are the
+// two answers an operator must never confuse.
 func authdList[T any](d *dash, w http.ResponseWriter, r *http.Request, path string) ([]T, bool) {
 	if d.authdURL == "" {
 		fmt.Fprint(w, htmlBanner("err", "AUTHD_URL not configured"))

@@ -104,15 +104,12 @@ func retireActiveKeys(db *sql.DB, at time.Time) error {
 	return err
 }
 
-// oauthIdentityForSub resolves a sub ("<provider>:<providerSub>") to the
-// canonical user that has linked it, plus every sub that user has linked.
-// This is the read half of upsertOAuthUser below — the model the live OAuth
-// login path actually populates. It replaces identities/identity_claims, which
-// this endpoint used to read and which nothing ever wrote (BUGS P2).
-//
-// It is also the mint-time alias resolver (oauth.go dispatch): ONE reader, so
-// what /v1/identities/{sub} reports and what the token subject becomes can
-// never disagree.
+// oauthIdentityForSub resolves a sub to the canonical user that has linked it,
+// plus every sub that user has linked — the read half of upsertOAuthUser. It
+// replaces identities/identity_claims, which this endpoint used to read and which
+// nothing ever wrote (BUGS P2). It is also the mint-time alias resolver: ONE
+// reader, so what /v1/identities/{sub} reports and what the token subject becomes
+// can never disagree.
 func oauthIdentityForSub(db *sql.DB, sub string) (userID, name, createdAt string, subs []string, ok bool) {
 	provider, providerSub, found := strings.Cut(sub, ":")
 	if !found || provider == "" || providerSub == "" {
@@ -150,13 +147,11 @@ func oauthIdentityForSub(db *sql.DB, sub string) (userID, name, createdAt string
 // identity. sub is stored bare.
 //
 // `auth_users.user_id` IS the account's canonical sub: dispatch sets it to the
-// FIRST login's "<provider>:<providerSub>" and nothing ever rewrites it (the
-// ON CONFLICT below touches `name` only). That immutability is load-bearing —
-// `acl.principal` rows key on this value, so a canonical that moved would
-// silently strip an account of its grants. Do not add an UPDATE of user_id, and
-// do not let an unlink remove the identity whose provider:provider_sub equals
-// user_id: that leaves the account anchored to a login nobody holds. Refuse it
-// loudly when an unlink path is built (spec 5/32 § Alias resolution).
+// FIRST login's value and nothing ever rewrites it. That immutability is
+// load-bearing — `acl.principal` rows key on this value, so a canonical that moved
+// would silently strip an account of its grants. Do not add an UPDATE of user_id,
+// and do not let an unlink remove the identity whose provider:provider_sub equals
+// user_id (spec 5/32 § Alias resolution).
 func upsertOAuthUser(db *sql.DB, userID, name, provider, providerSub string) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -251,21 +246,16 @@ func lookupRefresh(db *sql.DB, raw string) (refreshRow, bool) {
 }
 
 // markRefreshUsed atomically claims a refresh token: the compare-and-set means
-// exactly one of N concurrent redeems of the same token wins (rows-affected ==
-// 1). Losers see won=false and must NOT rotate — a second live successor would
-// fork the family and reuse-detection would never fire. The caller revokes the
-// family on a lost race.
+// exactly one of N concurrent redeems wins. Losers see won=false and must NOT
+// rotate — a second live successor would fork the family and reuse-detection would
+// never fire.
 //
-// The guard has TWO conjuncts and each closes a different half of BUGS F36:
-//
-//   - `used_at IS NULL` picks the single winner among concurrent redeems.
-//   - `revoked_at IS NULL` refuses a token whose family died between the
-//     caller's lookup and this statement. Without it a logout (oauth.go
-//     `logout` → revokeFamily) that commits inside that gap is simply not
-//     seen, the claim succeeds, and a successor is minted into a family the
-//     user just killed. The transaction in claimAndRotateRefresh cannot help
-//     there: a revoke that commits BEFORE the transaction opens is not an
-//     interleave, so the claim itself has to look.
+// The guard has TWO conjuncts, each closing a different half of BUGS F36:
+// `used_at IS NULL` picks the single winner, and `revoked_at IS NULL` refuses a
+// token whose family died between the caller's lookup and this statement. Without
+// the second, a logout committing in that gap is not seen and a successor is minted
+// into a family the user just killed — a revoke that commits BEFORE the transaction
+// opens is not an interleave, so the claim itself has to look.
 //
 // It takes an execer so the claim can run inside that transaction.
 func markRefreshUsed(x execer, raw string) (won bool, err error) {
@@ -280,26 +270,22 @@ func markRefreshUsed(x execer, raw string) (won bool, err error) {
 	return n == 1, err
 }
 
-// claimAndRotateRefresh claims raw and, on a win, inserts its successor in the
-// SAME transaction. This is the ordering fix for BUGS F36.
+// claimAndRotateRefresh claims raw and, on a win, inserts its successor in the SAME
+// transaction — the ordering fix for BUGS F36.
 //
-// The two statements used to be separate `db.Exec` calls with the grants
-// re-snapshot between them, so a competing redeem's `revokeFamily` — an
-// unconditional `UPDATE ... WHERE family_id = ? AND revoked_at IS NULL` —
-// could commit in the gap. It revoked the rows that existed at that moment,
-// the winner then inserted a successor with `revoked_at` NULL, and a family
-// killed for reuse walked away with a live 30-day credential.
+// The two statements used to be separate Exec calls with the grants re-snapshot
+// between them, so a competing redeem's revokeFamily could commit in the gap: it
+// revoked the rows that existed at that moment, the winner then inserted a
+// successor with revoked_at NULL, and a family killed for reuse walked away with a
+// live 30-day credential.
 //
-// Inside one transaction that interleave is not expressible. SQLite has a
-// single writer, so a concurrent revoke either commits before the transaction
-// opens — and `markRefreshUsed`'s `revoked_at IS NULL` conjunct then refuses
-// the claim — or waits for the commit and revokes the successor along with the
-// rest of the family. A loser cannot even reach its revoke before the winner
-// commits: it learns it lost from this very UPDATE, whose write lock the
-// winner holds until COMMIT.
+// Inside one transaction that interleave is not expressible. SQLite has a single
+// writer, so a concurrent revoke either commits before the transaction opens — and
+// markRefreshUsed's second conjunct refuses the claim — or waits and revokes the
+// successor with the rest of the family.
 //
-// won=false means "someone else claimed it, or the family is already dead" —
-// both are reuse from the caller's side, and both leave the DB untouched.
+// won=false means "someone else claimed it, or the family is already dead"; both
+// are reuse from the caller's side, and both leave the DB untouched.
 func claimAndRotateRefresh(db *sql.DB, raw, fam, sub string, scope []string, aud string, ttl time.Duration) (newRaw string, won bool, err error) {
 	tx, err := db.Begin()
 	if err != nil {

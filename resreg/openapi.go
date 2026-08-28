@@ -2,22 +2,16 @@ package resreg
 
 // OpenAPI emission — spec 5/8 §"OpenAPI emission".
 //
-// The same `RowType` reflection that drives YAML/JSON/SQL also yields
-// an OpenAPI 3.1 schema document for free. One walk over the registry,
-// one JSON blob, served from every daemon's `/openapi.json` so the
-// platform's HTTP surface is discoverable without hand-written specs.
+// The same `RowType` reflection that drives YAML/JSON/SQL also yields an OpenAPI
+// 3.1 document: one walk over the registry, served from every daemon's
+// `/openapi.json`. No huma, no swag, no codegen.
 //
-// Subsumes spec 5/4 (`openapi-discoverable`): no `huma`, no `swag`, no
-// codegen — `encoding/json` + `reflect` + the existing per-resource
-// catalog. Schemas can't drift — both handler and doc read the same
-// struct. Paths can't drift either, and for a stronger reason: the
-// advertised set is READ OFF THE MUX (MountedResources), so a daemon
-// documents exactly the faces RegisterREST put on its routing table and
-// has no way to name anything else. Before BUGS F33 each daemon handed
-// OpenAPIHandler a list of resource names with no reference to its mux,
-// which is the cause under every drift found: F21 (scheduled_tasks),
-// F27 (acl, groups), F32 (timed), network_rules, and the inverse case
-// of route_tokens/resolve mounted but never advertised.
+// Schemas cannot drift — handler and doc read the same struct. Paths cannot
+// drift either, and for a stronger reason: the advertised set is READ OFF THE MUX
+// (MountedResources), so a daemon documents exactly the faces RegisterREST put on
+// its routing table. Each daemon used to hand OpenAPIHandler a list of resource
+// names with no reference to its mux, the cause under every drift found (BUGS
+// F33, F21, F27, F32).
 
 import (
 	"encoding/json"
@@ -33,28 +27,20 @@ import (
 	"sync"
 )
 
-// OpenAPI emits an OpenAPI 3.1 JSON document for rs.
+// OpenAPI emits an OpenAPI 3.1 JSON document for rs, each resource already
+// trimmed to the endpoints it serves. Production callers get rs from
+// MountedResources(mux) via OpenAPIHandler and never assemble it by hand — that
+// hand-assembly WAS BUGS F33.
 //
-//   - daemon       title + identifier in `info.title`
-//   - baseURL      single entry in `servers[]` (use "/" for relative)
-//   - rs           the resources to document, each already trimmed to the
-//     endpoints it serves. Production callers get this from
-//     MountedResources(mux) via OpenAPIHandler and never
-//     assemble it by hand — that hand-assembly WAS BUGS F33.
-//
-// The document is deterministic: components/schemas + paths keys are
-// emitted via the same map-key sort `encoding/json` applies. Resources
-// without `RowType` (forwarders, MCP-only) contribute nothing.
+// The document is deterministic: schema and path keys sort as encoding/json sorts
+// map keys. Resources without RowType contribute nothing.
 //
 // One operation per Endpoint — its real mounted verb+path. There is no second
-// renderer: a PK-CRUD convention fallback for `Endpoints`-less resources used to
-// sit beside this, so a resource could be DOCUMENTED at `/v1/<name>` while being
-// SERVED somewhere else entirely. It was already unreachable — every registered
-// resource declares Endpoints, and `MountedResources` drops any resource with no
-// served endpoint — and it is now deleted rather than merely unused.
+// renderer: a PK-CRUD convention fallback used to sit beside this, so a resource
+// could be DOCUMENTED at `/v1/<name>` while being SERVED somewhere else.
 //
-// Standard error responses (400, 401, 403, 404, 409, 500) are referenced
-// from `components.responses` so per-path bloat stays small.
+// Standard error responses are referenced from `components.responses` so per-path
+// bloat stays small.
 func OpenAPI(daemon, baseURL string, rs []*Resource) ([]byte, error) {
 	if baseURL == "" {
 		baseURL = "/"
@@ -96,18 +82,13 @@ func OpenAPI(daemon, baseURL string, rs []*Resource) ([]byte, error) {
 	return marshalDeterministic(doc)
 }
 
-// MountedResources returns the registry resources mux ACTUALLY serves, each
-// copied down to just the endpoints RegisterREST mounted on it. This is the
-// advertised set: a daemon can no longer name what it documents, so it can no
-// longer name something it does not serve.
+// MountedResources returns the registry resources mux ACTUALLY serves, each copied
+// down to just the endpoints RegisterREST mounted on it. A daemon can no longer
+// name what it documents, so it can no longer name something it does not serve.
 //
-// Derivation is by mount IDENTITY, not by path. Asking only "does something
-// answer here?" would be a new lie in place of the old one — proxyd's `/`
-// catch-all answers every probe, and routd and runed both hand-roll a read at a
-// /v1/* path of their own. Those drop out here because neither is a *restMount
-// carrying this resource+action.
-//
-// Registration order is preserved so output stays stable across runs.
+// Derivation is by mount IDENTITY, not by path. Asking only "does something answer
+// here?" would be a new lie in place of the old one — proxyd's `/` catch-all
+// answers every probe. Registration order is preserved so output stays stable.
 func MountedResources(mux *http.ServeMux) []*Resource {
 	if mux == nil {
 		return nil

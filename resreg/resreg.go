@@ -1,29 +1,19 @@
-// Package resreg implements the uniform Resource registry from spec
-// 5/17-openapi-mcp.md: one Handler per (Resource, Action), wrapped
-// by two auto-adapters (REST + MCP) so any caller surface reaches the
-// same code. Resources using it: proxyd's runtime route table
-// (proxyd/resource.go), webd's operator-side MCP forwarder
-// (webd/routes_mcp.go), and routd's cold-tier agent tools
-// (routes/web_routes/network_rules/scheduled_tasks/acl), each riding one
-// shared handler on both the agent MCP socket and the operator REST face
-// (spec 5/16).
+// Package resreg implements the uniform Resource registry from spec 5/17: one
+// Handler per (Resource, Action), wrapped by two auto-adapters (REST + MCP) so
+// any caller surface reaches the same code.
 //
-// Design (post oracle critique 2026-05-25):
+// Four rules hold it together:
 //
 //   - Per-invocation caller resolution. MCPTools takes a callerFor(ctx, req)
-//     resolver, not a captured Caller — shared MCP servers no longer
-//     collapse every call to one principal at registration time.
-//   - Canonical ACL gate. Resource.Authz returns (scope, params); the
-//     adapter calls auth.Authorize(...) per specs/5/32-acl-unified.md. No
-//     parallel scope predicate machinery.
-//   - Tx-bound audit. State-changing actions run inside a SQL
-//     transaction: handler does its work via Execution.Tx, the adapter
-//     writes one audit_log row via audit.EmitInTx in the SAME tx, and
-//     the tx commits as a unit. On any error the tx rolls back; the
-//     audit row never outlives the mutation it claims to record.
-//   - Forwarder pattern. Resources with Store nil (e.g. webd's HTTP
-//     forwarder to proxyd) skip the tx/audit dance — the downstream
-//     daemon writes the row. Avoids double-logging.
+//     resolver, not a captured Caller, so a shared MCP server cannot collapse
+//     every call to one principal at registration time.
+//   - Canonical ACL gate. Resource.Authz returns (scope, params) and the adapter
+//     calls auth.Authorize per specs/5/32. No parallel scope machinery.
+//   - Tx-bound audit. A state-changing action runs inside one SQL transaction:
+//     the handler works via Execution.Tx and the adapter writes the audit_log
+//     row into the SAME tx, so the row never outlives the mutation.
+//   - Forwarder pattern. Resources with Store nil skip the tx/audit dance — the
+//     downstream daemon writes the row.
 package resreg
 
 import (
@@ -167,17 +157,13 @@ type Execution struct {
 // when Tx is non-nil.
 type Handler func(ctx context.Context, x Execution) (any, error)
 
-// Endpoint declares one REST face of an action. Verb is the HTTP method.
-// Path is a stdlib-mux pattern; placeholders ({name}) bind to Args keys
-// of the same name. Status is the success response code.
+// Endpoint declares one REST face of an action. Path is a stdlib-mux pattern;
+// placeholders ({name}) bind to Args keys of the same name.
 //
-// MCPOnly marks an action that has NO REST face: RegisterREST does not mount
-// it and /openapi.json does not advertise it, but deriveMCPTools still
-// produces its agent tool. Verb/Path/Status are unused and stay empty. This
-// keeps ONE endpoint list per resource — an action with no human caller
-// (route_tokens' issue_pairing_link, spec 5/31) is declared here rather than
-// hand-authored next to the derived ones, so the tool browser and the agent
-// socket read the same source the REST face does.
+// MCPOnly marks an action with NO REST face: RegisterREST does not mount it and
+// /openapi.json does not advertise it, but deriveMCPTools still produces its
+// agent tool. This keeps ONE endpoint list per resource, so the tool browser and
+// the agent socket read the same source the REST face does.
 type Endpoint struct {
 	Verb    string
 	Path    string
@@ -205,22 +191,16 @@ type MCPArg struct {
 	Required    bool
 }
 
-// Resource ties identity (Name + Authz + Handler) to registration
-// metadata (Endpoints + MCP doc/args). One literal per resource per
-// daemon. MCP tools are DERIVED from Endpoints (deriveMCPTools), never
-// hand-authored — one tool per endpoint whose Action has an MCPDoc
-// entry, so the description map is also the "surface this action as a
-// tool" signal.
+// Resource ties identity (Name + Authz + Handler) to registration metadata
+// (Endpoints + MCP doc/args). One literal per resource per daemon. MCP tools are
+// DERIVED from Endpoints, never hand-authored — one tool per endpoint whose
+// Action has an MCPDoc entry, so the description map is also the "surface this
+// action as a tool" signal.
 //
-// Authz returns (scope, params, err). The adapter then calls
-// auth.Authorize(Store, authCaller, "<Name>:<action>", scope, params)
-// as the canonical ACL gate. Returning err short-circuits the call
-// (e.g. validation -> 400) without touching auth.
-//
-// Store, when non-nil, makes the adapter open a tx for mutating actions
-// and pass it through Execution.Tx, then write the audit_log row inside
-// the same tx via audit.EmitInTx. Set Store nil for forwarder resources
-// (webd → proxyd) — the downstream daemon writes the audit row.
+// Authz returns (scope, params, err); the adapter then calls auth.Authorize as
+// the canonical ACL gate, and a returned err short-circuits without touching
+// auth. Store, when non-nil, makes the adapter open a tx for mutating actions and
+// write the audit_log row inside it. Set Store nil for forwarder resources.
 type Resource struct {
 	Name      string
 	Endpoints []Endpoint
@@ -273,15 +253,12 @@ type Resource struct {
 	// Identity is configured, never derived (root CLAUDE.md).
 	DB string
 
-	// RowFilter is an optional SQL boolean WHERE-fragment (no placeholders —
-	// a compile-time constant, never operator input) ANDed into ScanAll,
-	// DeleteScope, and DeleteAll. It excludes rows that must never enter the
-	// manifest-visible projection: acl_membership excludes added_by='pairing'
-	// edges (consented runtime state, not declarative config — spec 5/8
-	// §"Cross-subsystem apply" CRITICAL finding), route_tokens excludes
-	// kind='pair' pairing tokens (10-minute single-use credentials with no
-	// archival value — spec 5/8 §"Secret and token values" (1)). Empty =
-	// no filter.
+	// RowFilter is an optional SQL boolean WHERE-fragment (a compile-time
+	// constant, never operator input) ANDed into ScanAll, DeleteScope and
+	// DeleteAll. It excludes rows that must never enter the manifest-visible
+	// projection: acl_membership excludes added_by='pairing' edges (consented
+	// runtime state, not declarative config), route_tokens excludes kind='pair'
+	// (10-minute single-use credentials). Empty = no filter.
 	RowFilter string
 
 	// SkipApplyRebuild causes Apply to skip DELETE+INSERT for this resource.
@@ -335,12 +312,11 @@ type CallerFromMCPFunc func(ctx context.Context, req mcp.CallToolRequest) (Calle
 // RegisterREST mounts every endpoint of r on mux. build derives the
 // surface-specific Caller from each request.
 //
-// Each face is mounted as a *restMount stamped with the (resource, endpoint)
-// it serves, so MountedResources can read a daemon's REST surface off the
-// routing table it actually built. That identity is the whole fix for BUGS
-// F33: OpenAPIHandler used to take a hand-passed name list with no reference
-// to the mux, which is what let a daemon advertise paths it mounts nowhere
-// (F21/F27/F32) and mount paths it never advertised.
+// Each face is mounted as a *restMount stamped with the (resource, endpoint) it
+// serves, so MountedResources can read a daemon's REST surface off the routing
+// table it actually built. OpenAPIHandler used to take a hand-passed name list
+// with no reference to the mux, which is what let a daemon advertise paths it
+// mounts nowhere and mount paths it never advertised (BUGS F33).
 func RegisterREST(mux *http.ServeMux, r Resource, build CallerFromHTTPFunc) {
 	for _, e := range r.Endpoints {
 		if e.MCPOnly {
@@ -355,14 +331,10 @@ func RegisterREST(mux *http.ServeMux, r Resource, build CallerFromHTTPFunc) {
 }
 
 // restMount is the mount identity RegisterREST stamps on every REST face. A
-// hand-rolled mux.HandleFunc is not one, which is what lets the doc tell
-// resource faces from look-alike paths: THREE daemons served GET /v1/sessions
-// over three different tables — authd's refresh-token families (the resreg
-// resource), runed's session_log and routd's topic→session-id map — so deriving
-// the advertised set by probing paths would have made routd and runed publish
-// authd's schema. F46 renamed the two squatters (/v1/spawn_sessions,
-// /v1/topic_sessions); this identity is what kept the doc honest before that,
-// and what keeps the next look-alike out.
+// hand-rolled mux.HandleFunc is not one, which is what lets the doc tell resource
+// faces from look-alike paths: THREE daemons served GET /v1/sessions over three
+// different tables, so deriving the advertised set by probing paths would have
+// made routd and runed publish authd's schema. F46 renamed the two squatters.
 type restMount struct {
 	resource string
 	endpoint Endpoint
@@ -445,15 +417,14 @@ func deriveMCPTools(r Resource) []MCPTool {
 
 // rowMCPArgsFor reflects a RowType into the MCP arg list for ONE action:
 //
-//   - delete/get: PK fields only, all required (the key identifies the row).
+//   - delete/get: PK fields only, all required.
 //   - update:     PK fields required + writable non-PK fields optional.
-//   - create:     writable non-PK fields (required per omitempty) + PK fields
-//     that aren't server-stamped (a client-supplied key like `path`).
-//   - list:       no args (the RowType models no filters).
+//   - create:     writable non-PK fields + PK fields that aren't server-stamped.
+//   - list:       no args.
 //
-// PK-ness is decided by Go field name membership in r.PKFields (the json arg
-// name and the db column can differ). Server-stamped fields (r.StampedFields)
-// are never a client arg on create or update.
+// PK-ness is decided by Go field name membership in r.PKFields, since the json
+// arg name and the db column can differ. Server-stamped fields are never a client
+// arg on create or update.
 func rowMCPArgsFor(r Resource, action Action) []MCPArg {
 	rt := r.RowType
 	if rt.Kind() == reflect.Pointer {

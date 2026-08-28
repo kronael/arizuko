@@ -2,27 +2,17 @@ package main
 
 // Spec 5/8: `arizuko apply` + `arizuko export` orchestrator.
 //
-// Implementation choices:
+// The config manifest spans TWO owner DBs (routd.db, onbod.db), so every verb here
+// opens both stores and operates per SUBSYSTEM. These four verbs used to call the
+// frozen pre-split store.Open(messages.db) and never reached a production instance
+// (BUGS Y1).
 //
-//   - The config manifest spans TWO owner DBs (routd.db, onbod.db — the
-//     only two with resreg resources per spec 5/16's owner-DB map), so
-//     every verb here opens both stores and operates per SUBSYSTEM
-//     (resreg.SubsystemRoutd / resreg.SubsystemOnbod). This is the step 4
-//     fix for the long-standing inertness bug (BUGS.md Y1): these four
-//     verbs used to call the frozen pre-split store.Open(messages.db) and
-//     never reached a production instance.
-//   - `apply <manifest_file>` reads ONE file (not a dir) in v1. The spec
-//     talks about a manifest/ dir with merge semantics; we ship the
-//     single-file path first because the directory path is more about
-//     file ergonomics than engine correctness. Composition stays on the
-//     spec until an operator hits it.
-//   - `export` dumps each subsystem as its own `---`-separated YAML
-//     document, concatenated into one file/stdout (spec 5/8 §"Surface":
-//     "to a single path they concatenate as ---separated documents").
-//     Document order is fixed (routd, then onbod) for determinism.
-//   - The CLI dies on validation errors before touching the DB. The
-//     content-hash CAS check + DELETE+INSERT happen in one tx per
-//     subsystem via resreg.Apply.
+// `apply <manifest_file>` reads ONE file, not a dir: the directory path is about
+// file ergonomics rather than engine correctness, so it stays on the spec until an
+// operator hits it. `export` dumps each subsystem as its own `---`-separated
+// document in a fixed order for determinism. The CLI dies on validation errors
+// before touching the DB; the CAS check and DELETE+INSERT happen in one tx per
+// subsystem via resreg.Apply.
 
 import (
 	"context"
@@ -155,15 +145,12 @@ func preflightFolders(stores map[string]*store.Store, docs []parsedDoc) []error 
 	return out
 }
 
-// committed records one subsystem whose transaction already went through, so
-// a LATER subsystem's failure can put it back (spec 5/8 §"Cross-subsystem
-// apply: per-subsystem transaction, pre-image rollback").
-//
-// pre is the subsystem's config projection as it stood BEFORE the forward
-// apply — produced by the same Export/EmitYAML renderer the CAS hash uses, so
-// there is no second backup format. postSum is the checksum the forward apply
-// left behind, used as the rollback's own CAS token: if anything else moved
-// the config in between, the rollback refuses instead of overwriting it.
+// committed records one subsystem whose transaction already went through, so a
+// LATER subsystem's failure can put it back (spec 5/8 §"Cross-subsystem apply").
+// pre is the subsystem's projection as it stood BEFORE the forward apply, produced
+// by the same renderer the CAS hash uses, so there is no second backup format.
+// postSum is the rollback's own CAS token: if anything else moved the config in
+// between, the rollback refuses instead of overwriting it.
 type committed struct {
 	subsystem string
 	pre       map[string]any
@@ -171,23 +158,19 @@ type committed struct {
 	scopes    []string
 }
 
-// applyDocs applies every document, one transaction per subsystem, and puts
-// every already-committed subsystem back to its pre-apply projection if a
-// later one fails. Returns one report line per applied subsystem.
+// applyDocs applies every document, one transaction per subsystem, and puts every
+// already-committed subsystem back to its pre-apply projection if a later one
+// fails.
 //
 // The pre-images are captured for ALL subsystems up front, before the first
-// transaction opens: capturing lazily would read subsystem 2's state after
-// subsystem 1 had already committed, which is still a valid pre-image for
-// subsystem 2 but makes the ordering a silent correctness dependency instead
-// of an obvious one.
+// transaction opens: capturing lazily would still be valid but would make the
+// ordering a silent correctness dependency instead of an obvious one.
 //
-// The rollback restores the manifest PROJECTION, not the database: a whole-DB
-// swap would discard messages that arrived and memory a turn wrote during the
-// apply window. Message history and filesystem trees are outside the
-// projection and have their own recovery stories.
+// The rollback restores the manifest PROJECTION, not the database: a whole-DB swap
+// would discard messages that arrived and memory a turn wrote during the apply
+// window.
 //
-// extra is caller context for the apply's single audit row (`arizuko packages`
-// puts the package name and the rows it owns there); nil for a plain apply.
+// extra is caller context for the apply's single audit row; nil for a plain apply.
 func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parsedDoc, force bool,
 	actor, digest string, extra map[string]any) ([]string, error) {
 	pre := map[string]map[string]any{}
@@ -423,18 +406,14 @@ func cmdPlan(args []string) {
 	}
 }
 
-// printPlan renders the plan delta in catalog order. Changed resources
-// list the add/update/remove PK strings. SkipApplyRebuild resources never
-// mutate via apply, so they print as informational "set" — never actionable
-// +/~/- deltas (spec 5/8 §"Secret safety": plan must agree with apply, which
-// skips them).
+// printPlan renders the plan delta in catalog order. SkipApplyRebuild resources
+// never mutate via apply, so they print as informational "set" rather than
+// actionable deltas.
 //
-// The informational line names no command. FIVE resources carry the flag —
-// secrets, route_tokens, invites, onboarding, installed_packages — and each is
-// managed by a different verb, so the line said "set via `arizuko secret set`"
+// The informational line names no command. FIVE resources carry the flag and each
+// is managed by a different verb, so the line said "set via `arizuko secret set`"
 // for four resources that verb cannot touch (BUGS R1-5). A per-resource command
-// table here would be a second catalog beside resreg's; the flag's own meaning
-// is the honest thing to print.
+// table here would be a second catalog beside resreg's.
 func printPlan(deltas []resreg.ResourceDelta) {
 	any := false
 	for _, d := range deltas {

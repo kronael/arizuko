@@ -242,21 +242,13 @@ func ImportMessagesJSONL(ctx context.Context, db *sql.DB, r io.Reader, batchSize
 	return imported, chatJIDs, nil
 }
 
-// DeriveAgentCursors sets chats.agent_cursor = MAX(messages.timestamp) for
-// every chat_jid in touched (spec 5/8 "One exception, load-bearing:
-// agent_cursor" — Finding 4). Without this, restoring message history makes
-// routd's poller (routd/db.go pollOnce, GetAgentCursor reading "" for a
-// chat with no row) treat the whole imported history as unseen and dispatch
-// a turn for every restored chat — the agent answering every historical
-// message.
+// DeriveAgentCursors sets chats.agent_cursor = MAX(messages.timestamp) for every
+// chat_jid in touched (spec 5/8 Finding 4). Without it, restoring message history
+// makes routd's poller treat the whole import as unseen and dispatch a turn for
+// every restored chat — the agent answering every historical message.
 //
-// Never moves an EXISTING cursor backward (the WHERE guard below): the
-// spec's own wording derives the cursor from "the rows just written for
-// that chat", which for the primary DR case (an empty target, no prior
-// chats row) is exactly MAX(timestamp) over the chat. This guard extends
-// that to a restore onto an already-live, populated target without
-// contradicting it — a populated target's poller must not be walked
-// backward to re-open messages it already consumed.
+// Never moves an EXISTING cursor backward: a populated target's poller must not be
+// walked back to re-open messages it already consumed.
 func DeriveAgentCursors(ctx context.Context, db *sql.DB, touched map[string]bool) (int, error) {
 	if len(touched) == 0 {
 		return 0, nil

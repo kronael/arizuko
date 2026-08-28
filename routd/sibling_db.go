@@ -10,15 +10,10 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// sibling_db.go is the federation surface: every table routd needs is read from
-// routd.db (acl/secrets/tasks/pane) or federated over HTTP (identity → authd,
-// session_log → runed). routd opens no sibling messages.db.
-//
-// routd owns acl/acl_membership (aclEval), secrets/secret_use_log (secretStore;
-// it holds SECRETS_KEY), scheduled_tasks/task_run_logs (taskStore; serves timed
-// via /v1/tasks/*), and pane_sessions (paneStore; serves slakd via /v1/pane).
-// authd owns identity (snapshotted over HTTP in identity.go); runed owns
-// session_log (federated in session.go).
+// sibling_db.go is the federation surface. routd owns acl/acl_membership,
+// secrets/secret_use_log (it holds SECRETS_KEY), scheduled_tasks/task_run_logs
+// (serving timed) and pane_sessions (serving slakd); authd owns identity and runed
+// owns session_log, both federated over HTTP. routd opens no sibling messages.db.
 
 // Tasks reads scheduled_tasks for the tasks.json spawn snapshot: a root group
 // sees every task (owner filter empty); a child sees only its own.
@@ -100,19 +95,16 @@ func (d *DB) SetUserCap(userSub string, cents int) error {
 }
 
 // EnvProfileSecrets is the ONLY secret set that may enter the agent container's
-// env: the caller's OWN user-scoped model credentials (BYOA). Those four keys
-// (store.EnvProfileKeys) are spent by the Claude Code SDK subprocess, not by a
-// tool call, so they have no broker path — everything else in `secrets` is a
-// capability credential and reaches a tool solely through
-// ipc.StoreFns.ResolveConnectorSecrets (spec 5/13 §Trust model, 5/14 §Injection).
+// env: the caller's OWN user-scoped model credentials (BYOA). Those keys are spent
+// by the Claude Code SDK subprocess, not by a tool call, so they have no broker
+// path — everything else in `secrets` is a capability credential and reaches a
+// tool solely through ResolveConnectorSecrets (spec 5/13 §Trust model).
 //
 // The narrowing lives HERE, not at the dispatch call site, because the call site
-// is bypassable: an exported reader that hands back the whole decrypted folder
-// set would let the next writer of RunRequest.Secrets re-open the hole with a
-// one-liner that reads correct. This reader never asks for a folder at all, and
-// the query is SQL-scoped to scope_kind='user', so no folder row can reach the
-// container even if one is restored from an archive (ValidateAndImportSecrets
-// does not re-run validateScope). Empty userSub or read error → inject nothing.
+// is bypassable: an exported reader handing back the whole decrypted folder set
+// would let the next writer of RunRequest.Secrets re-open the hole with a one-liner
+// that reads correct. This reader never asks for a folder at all, and the query is
+// SQL-scoped to scope_kind='user'.
 func (d *DB) EnvProfileSecrets(userSub string) map[string]string {
 	out := map[string]string{}
 	if userSub == "" {
@@ -174,36 +166,31 @@ func (d *DB) DeleteSecret(scope store.SecretScope, scopeID, key string) error {
 	return d.secretStore().DeleteSecret(scope, scopeID, key)
 }
 
-// ConnectorSecrets narrows the resolved secrets to the `required` names a
-// connector declares. callerSub overlays the triggering user's user-scoped
-// secrets on top of the folder defaults (BYOA: user's own GITHUB_TOKEN wins
-// over a shared folder token). Empty callerSub → folder scope only.
-// Missing keys are omitted. nil/empty required → empty map.
+// ConnectorSecrets narrows the resolved secrets to the `required` names a connector
+// declares. callerSub overlays the triggering user's user-scoped secrets on top of
+// the folder defaults (BYOA). Missing keys are omitted.
 //
 // A required key backed by a user-scoped surrogate-OAuth row (spec 5/15) is
-// refreshed in place when within 60s of expiry before it is returned, so the
-// connector always gets a live token. A DEFINITIVE refresh rejection (revoked
+// refreshed in place when within 60s of expiry. A DEFINITIVE rejection (revoked
 // refresh_token) nulls the row's oauth columns, drops the key, and returns a
-// non-nil "reconnect" error the caller surfaces to the agent — the other keys
-// still resolve. A transient refresh failure keeps the stale token and no error.
-// The second return names the scope each REQUIRED key resolved from — "user",
-// "folder", or "missing" — the audit provenance secret_use_log records. It is
-// computed from this resolution, never re-derived by a second lookup, and it is
-// taken AFTER any surrogate refresh so a key the refresh dropped reads as
-// missing rather than as a credential that was spent.
+// "reconnect" error the caller surfaces to the agent; a transient failure keeps the
+// stale token and no error.
+//
+// The second return names the scope each REQUIRED key resolved from — the audit
+// provenance secret_use_log records. It is taken AFTER any surrogate refresh, so a
+// key the refresh dropped reads as missing rather than as a credential that was
+// spent.
 func (d *DB) ConnectorSecrets(folder, callerSub string, required []string) (map[string]string, map[string]store.SecretScope, error) {
 	return d.connectorSecrets(folder, callerSub, required, false)
 }
 
 // RefreshConnectorSecrets is ConnectorSecrets with the surrogate-OAuth refresh
-// FORCED rather than gated on near-expiry: the reactive half of spec 5/15,
-// called once behind a 401 from ipc.CallExtTool. Same body, same containment,
-// different refresh trigger — a provider with an optimistic `expires_in` leaves
-// expires_at looking healthy, so the proactive check would refresh nothing.
+// FORCED rather than gated on near-expiry: the reactive half of spec 5/15, called
+// once behind a 401. A provider with an optimistic `expires_in` leaves expires_at
+// looking healthy, so the proactive check would refresh nothing.
 //
 // It writes no secret_use_log row: this is a retry of the SAME call, already
-// audited by the ConnectorSecrets that opened it, and a second row would read as
-// a second use of the credential.
+// audited by the ConnectorSecrets that opened it.
 func (d *DB) RefreshConnectorSecrets(folder, callerSub string, required []string) (map[string]string, error) {
 	out, _, err := d.connectorSecrets(folder, callerSub, required, true)
 	return out, err

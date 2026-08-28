@@ -20,25 +20,18 @@ const (
 	defaultMaxConcurrent    = 5
 )
 
-// Manager owns the execution plane's run lifecycle: per-folder
-// serialization (one live spawn per folder), the global concurrency cap,
-// the steer-into-running path, the circuit breaker, token brokering, and
-// the Runtime envelope. It is the body behind POST /v1/runs (spec 5/P §
-// The routd↔runed interface, § The queue + container model).
+// Manager owns the execution plane's run lifecycle: per-folder serialization (one
+// live spawn per folder), the global concurrency cap, the steer-into-running path,
+// the circuit breaker, token brokering, and the Runtime envelope. It is the body
+// behind POST /v1/runs (spec 5/P).
 //
 // Admission is a pure claim-or-reject decision off the DB — runed keeps NO
-// internal admission queue (that duplicated routd's DB-backed dispatch
-// queue). A caller that can't be admitted gets a retryable busy outcome;
-// routd re-feeds it on its own queue.
+// internal admission queue, which duplicated routd's. A caller that cannot be
+// admitted gets a retryable busy outcome and routd re-feeds it.
 //
-// State is DB-backed for restart recovery:
-//   - active spawns: spawns WHERE state IN ('queued','running')
-//   - failure counts: circuit_breaker table
-//   - activeCount: COUNT(*) on live spawns
-//
-// The only in-memory state is steerFns: the live steer callbacks
-// (container-lifetime, inherently non-persistable). The mutex guards just
-// the atomic count-and-claim of the admit path.
+// State is DB-backed for restart recovery (active spawns, failure counts, live
+// count). The only in-memory state is steerFns, the live steer callbacks, which
+// are container-lifetime and inherently non-persistable.
 type Manager struct {
 	db *DB
 	// executors dispatches the post-claim step by spawns.kind (spec 5/8
@@ -131,15 +124,11 @@ func kindOf(kind string) string {
 	return kind
 }
 
-// Run executes (or steers) one agent turn as a pure claim-or-reject
-// executor — routd owns all queueing (spec 5/P § Run state). Three exits:
-//   - admitted (idle folder, under cap): claim the slot, spawn, and block
-//     until the run completes, returning the turn-boundary outcome.
-//   - steered (folder busy, live container): write the batch in and return
-//     steered:true immediately (an ack, not a turn-boundary outcome).
-//   - busy (folder busy with a dead container, or global cap hit): return
-//     busy:true immediately. runed does NOT queue; routd re-feeds on its own
-//     DB-backed dispatch queue.
+// Run executes (or steers) one agent turn as a pure claim-or-reject executor —
+// routd owns all queueing (spec 5/P). Three exits: admitted (claim the slot,
+// spawn, block until the run completes), steered (folder busy with a live
+// container: write the batch in and return an ack), or busy (folder busy with a
+// dead container, or the global cap is hit). runed does NOT queue.
 func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	kind := kindOf(req.Kind)
 	if err := m.requireExecutor(kind); err != nil {
@@ -165,16 +154,12 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 	return m.spawn(ctx, req, claim.runID, claim.sessionID, claim.containerName), nil
 }
 
-// Hold claims a folder's run slot for an EXTERNAL caller (POST /v1/holds) and
-// returns the handle immediately, leaving the slot claimed until the caller
-// releases it (DELETE /v1/runs/{run_id}) or RunTTL expires it. It is a pause
-// on the folder expressed as a run, not a second locking mechanism: the same
-// admit() claim-or-reject step an agent turn goes through, so a hold inherits
-// per-folder exclusion, the busy→routd-requeues backpressure, the RunTTL
-// wedge protection, and spawns visibility (spec 5/8).
-//
-// Busy=true means the folder already has a live run — an agent turn or
-// another hold — and nothing was claimed.
+// Hold claims a folder's run slot for an EXTERNAL caller and returns the handle
+// immediately, leaving the slot claimed until the caller releases it or RunTTL
+// expires it. It is a pause on the folder expressed as a run, not a second locking
+// mechanism: the same admit() step an agent turn goes through, so a hold inherits
+// per-folder exclusion, the busy→requeue backpressure, the wedge protection and
+// spawns visibility. Busy=true means nothing was claimed.
 func (m *Manager) Hold(ctx context.Context, folder types.Folder, reason string) (runedv1.HoldOutcome, error) {
 	if err := m.requireExecutor(KindHold); err != nil {
 		return runedv1.HoldOutcome{}, err
@@ -205,15 +190,11 @@ type claim struct {
 	containerName string
 }
 
-// admit is the atomic claim-or-reject critical section — the ONE place a
-// folder's run slot is taken, shared by Run (an agent turn, executed inline)
-// and Hold (an external folder-exclusive job, executed detached). m.mu
-// serializes check-and-claim so concurrent callers can never both pass the
-// cap or both claim one folder (single-process runed, so the mutex IS the
-// BEGIN IMMEDIATE claim).
-//
-// ok=false means the caller returns out verbatim: a steer ack, or a busy
-// reject routd re-feeds from its own queue.
+// admit is the atomic claim-or-reject critical section — the ONE place a folder's
+// run slot is taken, shared by Run and Hold. m.mu serializes check-and-claim so
+// concurrent callers can never both pass the cap or both claim one folder
+// (single-process runed, so the mutex IS the BEGIN IMMEDIATE claim). ok=false
+// means the caller returns out verbatim.
 func (m *Manager) admit(req runedv1.RunRequest, kind string) (c claim, out runedv1.RunOutcome, ok bool, err error) {
 	folder := string(req.Folder)
 	m.mu.Lock()
@@ -296,17 +277,14 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	kind := kindOf(req.Kind)
 	exec := m.executor(kind) // admit's caller already validated the kind.
 
-	// Take the claim BEFORE anything is recorded or launched. started=false
-	// means a DELETE killed this run between admit's CreateSpawn and here, so
-	// the row is already terminal and the folder reads FREE — launching anyway
-	// would put a second container on one folder's mount the moment a
-	// concurrent POST /v1/runs claims it. Reported as Busy: the existing
-	// "nothing was admitted, nothing ran" contract, so routd leaves the cursor
-	// un-advanced and re-feeds from its own queue without counting a deliberate
-	// kill toward the breaker. Returning here (not later) is also what keeps an
-	// aborted launch from opening a session_log row nothing will ever close,
-	// and from running endRun — which would clear a real failure streak and
-	// delete a steer callback that by now belongs to the folder's NEXT run.
+	// Take the claim BEFORE anything is recorded or launched. started=false means a
+	// DELETE killed this run between admit's CreateSpawn and here, so the row is
+	// already terminal and the folder reads FREE — launching anyway would put a
+	// second container on one folder's mount. Reported as Busy, so routd leaves the
+	// cursor un-advanced without counting a deliberate kill toward the breaker.
+	// Returning here also keeps an aborted launch from opening a session_log row
+	// nothing will close, and from running endRun — which would clear a real failure
+	// streak and delete a steer callback that belongs to the folder's NEXT run.
 	started, err := m.db.StartSpawn(runID, sessionID)
 	if err != nil {
 		// Spawn row stays 'queued' → the folder is held until runed restarts
@@ -403,16 +381,13 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	return out
 }
 
-// endRun clears the steer callback and updates the breaker counter in the
-// DB. Returns true when this exit trips the breaker (failure count reaches
-// the threshold on this run). The slot frees implicitly (no running row);
-// there is no admission queue to drain — routd re-feeds next poll.
+// endRun clears the steer callback and updates the breaker counter in the DB.
+// Returns true when this exit trips the breaker. The slot frees implicitly and
+// routd re-feeds next poll.
 //
-// Breaker accounting is scoped to KindAgent (spec 5/8): a failed hold run
-// must never count against the agent's breaker and stop it spawning —
-// spawns.state/outcome/exit_code still record the hold's own
-// success/failure (EndSpawn, unconditional), only the breaker's
-// interpretation of failure changes here.
+// Breaker accounting is scoped to KindAgent (spec 5/8): a failed hold run must
+// never count against the agent's breaker and stop it spawning. EndSpawn still
+// records the hold's own outcome unconditionally.
 func (m *Manager) endRun(folder, runID string, failed bool, kind string) bool {
 	var tripped bool
 	if kind == KindAgent {

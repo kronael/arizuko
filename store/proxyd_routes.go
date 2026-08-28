@@ -11,21 +11,15 @@ import (
 // Route ownership (BUGS L45, L46). Every proxyd_routes row is written by one of
 // three authorities, and `owner` records which:
 //
-//	RouteOwnerArizuko  — `arizuko generate` derived the row from the release's
-//	                     core route table. Generate rewrites these on every run,
-//	                     so a route added to a release reaches an existing
-//	                     instance.
-//	RouteOwnerPackage  — `package:<name>` — an installed package's manifest
-//	                     declared it. Generate rewrites these too, from the
-//	                     package's own `services/<name>.yaml`, so an upgraded
-//	                     package's new backend reaches proxyd.
-//	RouteOwnerOperator — the row was declared through proxyd's
-//	                     /v1/proxyd_routes surface. Generate never touches it.
+//	RouteOwnerArizuko  — `arizuko generate` derived it from the release's core
+//	                     route table; generate rewrites these on every run.
+//	RouteOwnerPackage  — `package:<name>` declared it in its own manifest;
+//	                     generate rewrites these too.
+//	RouteOwnerOperator — declared through proxyd's /v1/proxyd_routes surface.
+//	                     Generate never touches it.
 //
-// Editing an arizuko- or package-owned row is not an override — the next
-// generate rewrites it. Taking a path over is DELETE then POST on
-// /v1/proxyd_routes; the created row is operator-owned and generate hands the
-// path off for good.
+// Editing an arizuko- or package-owned row is not an override — the next generate
+// rewrites it. Taking a path over is DELETE then POST on /v1/proxyd_routes.
 const (
 	RouteOwnerArizuko       = "arizuko"
 	RouteOwnerOperator      = "operator"
@@ -39,15 +33,11 @@ const (
 func RouteOwnerPackage(name string) string { return RouteOwnerPackagePrefix + name }
 
 // RouteSurvivesGenerate reports whether a row with this owner is left alone by
-// SyncProxydRoutes. Exactly one owner is: `operator`. Everything else — arizuko's
-// own rows AND every `package:<name>` row — is re-derived from the release on the
-// next `arizuko generate`.
+// SyncProxydRoutes. Exactly one owner is: `operator`.
 //
 // It is one predicate because it was two. The keep loop allowlisted `operator`
 // while the PATCH guard denylisted `arizuko`, so a package row passed the guard
-// with 200 and was silently overwritten at the next deploy — the exact
-// "config stops applying and looks healthy" failure the guard exists to make
-// loud (BUGS L45, L81).
+// with 200 and was silently overwritten at the next deploy (BUGS L45, L81).
 func RouteSurvivesGenerate(owner string) bool { return owner == RouteOwnerOperator }
 
 // ProxydRoute mirrors proxyd's `Route` shape for persistence. Kept here
@@ -116,34 +106,23 @@ func putProxydRouteTx(tx *sql.Tx, r ProxydRoute) error {
 	return err
 }
 
-// SyncProxydRoutes writes the release's route table — `arizuko generate`'s core
-// routes plus the installed packages' route assets, already gated_by-filtered —
-// into proxyd_routes, and reports how many rows it wrote and how many paths it
-// handed to the operator. proxyd reads the table live per request, so a route
-// added to a release takes effect on the next generate with no restart and no
-// seed-once window (BUGS L45).
+// SyncProxydRoutes writes the release's route table into proxyd_routes and reports
+// how many rows it wrote and how many paths it handed to the operator. proxyd reads
+// the table live per request, so a route added to a release takes effect on the
+// next generate with no restart and no seed-once window (BUGS L45).
 //
-// Two rules, and they are the whole contract:
-//   - a path whose row is RouteOwnerOperator is SKIPPED, whatever it points at;
-//   - every other shipped path is overwritten, keeping the owner the caller
-//     stamped (`package:<name>` for a route an installed package declared) and
-//     defaulting to RouteOwnerArizuko for the release's own table.
+// Two rules are the whole contract: a path whose row is RouteOwnerOperator is
+// SKIPPED whatever it points at, and every other shipped path is overwritten
+// keeping the owner the caller stamped.
 //
-// A package route falls on the ARIZUKO side of that split, not the operator
-// one: it is re-derived from the package's `services/<name>.yaml` on every
-// generate exactly as a core route is re-derived from the release table, so
-// leaving it alone would freeze an upgraded package at its first backend. The
-// operator side stays the only hands-off one, because only the operator's
-// /v1/proxyd_routes row has no upstream to be re-derived from (BUGS L46).
+// A package route falls on the ARIZUKO side of that split: it is re-derived from
+// the package's own manifest on every generate, so leaving it alone would freeze
+// an upgraded package at its first backend. Only the operator's row has no
+// upstream to be re-derived from (BUGS L46).
 //
-// It writes only paths it ships. A route the operator added at a path arizuko
-// does not ship is not in `routes`, so it is never read, rewritten or deleted.
-// The cost of never deleting: a route that stops being shipped, or whose
-// gated_by env has since been turned off, stays until the operator removes it.
-//
-// Audited once for the whole set rather than per route — the mutation an
-// operator needs in the trail is "a deploy rewrote the route table", and 18
-// near-identical rows per generate would bury it.
+// It writes only paths it ships, and never deletes: a route that stops being
+// shipped stays until the operator removes it. Audited once for the whole set —
+// 18 near-identical rows per generate would bury the mutation that matters.
 func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err error) {
 	actor, actorSub, surface := s.auditIdentity()
 	err = s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
@@ -202,20 +181,13 @@ func proxydRouteOwners(tx *sql.Tx) (map[string]string, error) {
 	return owners, rows.Err()
 }
 
-// PutProxydRoute upserts a proxyd route by path. This is the direct-DB write the
-// CLI uses to hot-apply a package's route: proxyd reads proxyd_routes live per
-// request, so the route takes effect without a restart (spec 5/28 P2, resolving
-// 5/27 C2).
+// PutProxydRoute upserts a proxyd route by path — the direct-DB write the CLI uses
+// to hot-apply a package's route, taking effect without a restart (spec 5/28 P2).
+// An unset Owner means RouteOwnerArizuko: the CLI's route writers are the managed
+// ones, and only proxyd's own CRUD surface declares an operator route.
 //
-// An unset Owner means RouteOwnerArizuko: the CLI's route writers are the
-// managed ones (a package's routes are re-derived from its `*-routes.json` on
-// every generate), and only proxyd's own CRUD surface declares an operator
-// route.
-//
-// Audited: this opens a public URL onto a backend with no restart, and the same
-// mutation through proxyd's /v1/proxyd_routes resource already records one
-// (resreg emits in the handler's tx). ParamsSummary carries the blast radius —
-// which backend, behind which auth — not just the path.
+// Audited: this opens a public URL onto a backend with no restart. ParamsSummary
+// carries the blast radius — which backend, behind which auth — not just the path.
 func (s *Store) PutProxydRoute(r ProxydRoute) error {
 	actor, actorSub, surface := s.auditIdentity()
 	if r.Owner == "" {
