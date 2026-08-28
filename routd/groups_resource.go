@@ -1,23 +1,19 @@
 package routd
 
-// groups_resource.go is the spec 5/16 step after route_tokens — the LAST agent-face
-// fold and the trickiest: the agent's group tools (register_group + refresh_groups)
-// ride ONE resreg.Resource instead of two hand-rolled ipc/ipc.go tool bodies.
+// groups_resource.go folds the agent's group tools (register_group + refresh_groups)
+// onto ONE resreg.Resource (spec 5/16).
 //
-// register_group's side-effects (a group DB row, a room route, a git-init'd group
-// dir — all via the EXISTING s.registerGroup) CANNOT ride a resreg SQL tx, so this
-// resource is a FORWARDER (Store nil), like secrets: resreg opens no tx and writes
-// no audit_log row; the handler calls s.registerGroup and emits the register_group
-// system-audit event itself via s.audit, exactly as the deleted ipc emitSys did.
+// register_group's side-effects (a group DB row, a room route, a git-init'd group dir,
+// all via the existing s.registerGroup) CANNOT ride a resreg SQL tx, so this resource
+// is a FORWARDER (Store nil): resreg opens no tx and writes no audit_log row, and the
+// handler emits the register_group system-audit event itself.
 //
-// Because resreg SKIPS the injected Gate for forwarders (invoke runs Authz, never
-// Gate), ALL of register_group's auth rides Authz: the 5/33 single evaluator —
-// db.Authorize for mcp:register_group scoped to cover the CHILD folder — plus the
-// one non-scope residue that worlds (top-level folders) are CLI-only. Holding the
-// grant IS the authority to create; there is no second numeric cap behind it.
+// Because resreg SKIPS the injected Gate for forwarders, ALL of register_group's auth
+// rides Authz: db.Authorize for mcp:register_group scoped to cover the CHILD folder,
+// plus the one non-scope residue that worlds are CLI-only. Holding the grant IS the
+// authority to create.
 //
-// Only the AGENT face rides this resource. The operator group forms are dashd's
-// FS-managed /dash/groups/* (container.SetupGroup) — a separate surface, untouched.
+// Only the AGENT face rides this resource; the operator group forms are dashd's.
 
 import (
 	"context"
@@ -54,11 +50,10 @@ func (s *Server) groupsResource(authz func(resreg.Caller, resreg.Action, resreg.
 }
 
 // groupsHandler runs register/list against routd.db. register is the manual
-// register_group path (containment already ran in Authz): the group row + room
-// route + git-init via s.registerGroup, then the register_group audit emit.
-// list is refresh_groups: every registered group's folder — unscoped,
-// matching the deleted body (the mcp:refresh_groups grant is the only limit,
-// applied at visibility, never here).
+// register_group path (containment already ran in Authz): the group row, room route
+// and git-init via s.registerGroup, then the audit emit. list is refresh_groups: every
+// registered group's folder, unscoped — the mcp:refresh_groups grant is the only
+// limit, applied at visibility.
 func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
@@ -86,11 +81,10 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 		if gfld == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "folder required")
 		}
-		// Every other create path validates (the CLI, dashd, invites, archive
-		// import); this one did not, so it was the single way to get an
-		// unvalidated folder into `groups`. registerGroup then git-inits
-		// filepath.Join(groupsDir, folder), and Join resolves `..` — an agent
-		// whose authz scope admits the target could seed a group dir outside the
+		// Every other create path validates (the CLI, dashd, invites, archive import);
+		// this one did not, so it was the single way to get an unvalidated folder into
+		// `groups`. registerGroup then git-inits a Join'd path, and Join resolves `..`,
+		// so an agent whose scope admits the target could seed a group dir outside the
 		// base (BUGS L78).
 		if !groupfolder.IsValidFolder(gfld) {
 			return nil, resreg.Errorf(http.StatusBadRequest, "invalid folder %q", gfld)
@@ -133,12 +127,11 @@ func (s *Server) emitGroupRegisterAudit(c resreg.Caller, childFolder, jid string
 	})
 }
 
-// groupsPostBuild returns the ServeMCP seam that mounts register_group + refresh_groups
-// on the agent socket. Forwarder auth rides Authz (invoke skips Gate): register_group
-// runs db.Authorize for mcp:register_group scoped to cover the child folder;
-// refresh_groups (list) carries no runtime authz, matching the deleted direct-AddTool
-// body. Both tools are gated at VISIBILITY by the same held-grant view, so the dashd
-// tool browser — which reads the acl rows, not a folder — mirrors the socket exactly.
+// groupsPostBuild returns the ServeMCP seam that mounts register_group +
+// refresh_groups on the agent socket. Forwarder auth rides Authz: register_group runs
+// db.Authorize scoped to cover the child folder; refresh_groups carries no runtime
+// authz. Both are gated at VISIBILITY by the same held-grant view, so the dashd tool
+// browser mirrors the socket exactly.
 func (s *Server) groupsPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, callerID auth.Identity) func(*mcpserver.MCPServer) {
 	authz := func(_ resreg.Caller, a resreg.Action, args resreg.Args) (string, map[string]string, error) {
 		if a != groupsActionRegister {

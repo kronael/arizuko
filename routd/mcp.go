@@ -238,12 +238,11 @@ func ensureGroupGitRepo(groupDir string) {
 	os.WriteFile(gitignore, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
-// mcpDeliver is the in-process reply/send: it ONLY delivers via the Deliverer.
-// The ipc tool layer's recordOutbound persists the bot row + threads
-// (SetLastReply) + bumps engagement, so this must NOT do any of that or the row
-// double-persists. Returns the platform id. returnTarget redirects delegated
-// turns to the origin. threaded marks the REPLY verb: it may root a new
-// platform thread on the trigger message (replyThreadRoot); send never does.
+// mcpDeliver is the in-process reply/send: it ONLY delivers via the Deliverer. The ipc
+// tool layer's recordOutbound persists the bot row, threads and bumps engagement, so
+// this must NOT do any of that or the row double-persists. returnTarget redirects
+// delegated turns to the origin; threaded marks the REPLY verb, which may root a new
+// platform thread on the trigger message.
 func (s *Server) mcpDeliver(turnID, jid, text, replyTo string, threaded bool) (string, error) {
 	if s.deliver == nil {
 		return "", nil
@@ -461,13 +460,11 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// Identity reads: authd's GET /v1/identities/{sub}, snapshotted over HTTP.
 		// nil resolver → unclaimed shape.
 		GetIdentityForSub: s.resolveIdentity,
-		// list_routes/add_route/set_routes/delete_route live on the routes resreg
-		// seam (spec 5/16); ListRoutes stays — inspect_routing still reads it.
-		// s.db.Routes() returns the WHOLE table unscoped (dispatch needs that);
-		// scope it here to folder visibility and propagate the DB error instead
-		// of swallowing it (BUGS A3 — an unscoped, truncated table let inspect
-		// see unrelated groups' routes and silently hid a real DB error as an
-		// empty list).
+		// The route CRUD tools live on the routes resreg seam (spec 5/16); ListRoutes
+		// stays because inspect_routing still reads it. s.db.Routes() returns the WHOLE
+		// table unscoped, so scope it here to folder visibility and propagate the DB
+		// error instead of swallowing it — an unscoped, truncated table let inspect see
+		// unrelated groups' routes and hid a real DB error as an empty list (BUGS A3).
 		ListRoutes: scopeRoutes(func() ([]core.Route, error) { return s.db.Routes() }),
 		DefaultFolderForJID: s.db.DefaultFolderForJID,
 		RouteTokenTarget:    s.db.RouteTokenTarget,
@@ -527,15 +524,11 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		ResolveConnectorSecrets: func(folder, tool string, required []string) (map[string]string, error) {
 			callerSub := turnCallerSub(t.trigger)
 			res, scopes, err := s.db.ConnectorSecrets(folder, callerSub, required)
-			// secret_use_log writer (spec 5/13 §Audit, M2): one row per resolved key —
-			// records THAT a broker secret was read, never the value. Closes the gap
-			// where store.LogSecretUse had no production caller. Log-failure is
-			// non-fatal: an audit miss must not fail the tool call.
-			//
-			// scope and tool come from the resolution and the call site; the table
-			// exists to answer "who used which credential, from where", which a row
-			// that cannot tell a user's own BYO key from the folder default, and
-			// names no tool, does not answer.
+			// secret_use_log writer (spec 5/13 §Audit): one row per resolved key — records
+			// THAT a broker secret was read, never the value. Log-failure is non-fatal: an
+			// audit miss must not fail the tool call. scope and tool come from the resolution
+			// and the call site, because the table exists to answer "who used which
+			// credential, from where".
 			status := "ok"
 			if err != nil {
 				status = "err"
@@ -578,12 +571,10 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 	}
 }
 
-// ServeTurnMCP binds the per-turn agent MCP socket in-process: it stands up
-// ipc.ServeMCP wired to routd's own DB + Deliverer. expectedUID gates peers (1000 =
-// ant `node` user, or the dev host uid). Returns the stop func (removes the socket).
-// Called per-turn from runTurn before dispatch. 5/33: no grant bundle is computed —
-// authz is auth.Authorize on the acl rows (magnitude + containment in one), visibility
-// is auth.EffectiveActions over the same rows; both elevate under /root.
+// ServeTurnMCP binds the per-turn agent MCP socket in-process, wiring ipc.ServeMCP to
+// routd's own DB + Deliverer. expectedUID gates peers. Returns the stop func. 5/33: no
+// grant bundle is computed — authz is auth.Authorize on the acl rows, visibility is
+// auth.EffectiveActions over the same rows; both elevate under /root.
 func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	authorize := s.turnAuthorize(t.elevated)
 	callerID := turnIdentity(t.folder, t.elevated)

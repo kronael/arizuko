@@ -128,15 +128,12 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 	}
 }
 
-// egress builds the per-spawn EgressConfig from runed's own config + the
-// allowlist routd resolved (RunRequest.EgressAllowlist). AllowlistFn returns
-// that static per-folder list — it is exactly the input the spawn's own proxy
-// is started with (spec 6/24). EgressConfig.active() gates on EgressImage, so
-// on an instance with no egress configured this is inert and the spawn runs
-// unchanged; where it IS configured, startEgressProxy runs this spawn's proxy
-// and puts the spawn on an --internal network whose only route out is that
-// proxy. Was the gap that left split spawns on the default network = open
-// internet (bugs.md egress soak-blocker).
+// egress builds the per-spawn EgressConfig from runed's own config plus the allowlist
+// routd resolved. EgressConfig.active() gates on EgressImage, so on an instance with
+// no egress configured this is inert; where it IS configured, startEgressProxy runs
+// this spawn's proxy and puts the spawn on an --internal network whose only route out
+// is that proxy (spec 6/24). Its absence left split spawns on the default network,
+// i.e. the open internet.
 func (d *dockerRuntime) egress(allowlist []string) container.EgressConfig {
 	return container.EgressConfig{
 		NetworkPrefix: d.cfg.EgressNetworkPrefix,
@@ -165,21 +162,16 @@ func queryTimeoutMs(runTTL time.Duration) int64 {
 // killable by name) when ctx.Done() first fires.
 const deadlineKillPollInterval = 250 * time.Millisecond
 
-// armCancel kills the container when ctx dies mid-run — whether because
-// routd dropped the POST /v1/runs request (a network blip) or because the
-// run outlived RunTTL. Both are the SAME signal from this Runtime's point
-// of view: the caller (Manager.spawn) wraps ctx with a RunTTL deadline
-// before calling Run (spec 5/8 "wedge protection... uniform across
-// kinds"), so this Runtime needs no RunTTL-specific code of its own —
-// ctx.Done() covers it. Without this the container orphans until RunTTL
-// and routd re-feeds the turn into a second container (double execution).
-// Once ctx dies the watcher Kills the container by name and keeps
-// retrying on an interval until the run returns — so a slow `docker run`
-// that wasn't yet killable when ctx first died is still reaped (fixes the
-// single-shot startup race). Returns a stop func the caller defers so a
-// completed run cancels the watcher — no kill fires after the run returns
-// (fixes the late-kill-after-Stop()==false race). Kill is idempotent,
-// making the retries harmless.
+// armCancel kills the container when ctx dies mid-run — whether routd dropped the
+// POST /v1/runs request or the run outlived RunTTL. Both are the SAME signal here,
+// since Manager.spawn wraps ctx with a RunTTL deadline before calling Run, so this
+// Runtime needs no RunTTL-specific code. Without it the container orphans until
+// RunTTL and routd re-feeds the turn into a second container.
+//
+// Once ctx dies the watcher Kills the container by name and keeps retrying on an
+// interval, so a slow `docker run` that was not yet killable is still reaped. It
+// returns a stop func the caller defers, so no kill fires after the run returns. Kill
+// is idempotent, making the retries harmless.
 func (d *dockerRuntime) armCancel(ctx context.Context, containerName string) func() {
 	if ctx == nil || containerName == "" {
 		return func() {}
@@ -204,12 +196,10 @@ func (d *dockerRuntime) armCancel(ctx context.Context, containerName string) fun
 	return func() { once.Do(func() { close(done) }) }
 }
 
-// steerInto returns the steer closure: write the batch as an IPC input file
-// into the running container's ipc/<folder>/input/ and SIGUSR1 it (carried
-// from queue.SendMessages). Returns false when the SIGUSR1 fails — the
-// container already exited (the documented steer race); the Manager then
-// falls through to a fresh spawn and the orphaned IPC file is drained by the
-// next container at session start.
+// steerInto returns the steer closure: write the batch as an IPC input file into the
+// running container's input dir and SIGUSR1 it. Returns false when the SIGUSR1 fails
+// — the container already exited (the documented steer race); the Manager then falls
+// through to a fresh spawn and the orphaned IPC file is drained at session start.
 func (d *dockerRuntime) steerInto(ipcDir, containerName string) func(batch string) bool {
 	return func(batch string) bool {
 		if batch == "" || ipcDir == "" || containerName == "" {
@@ -259,13 +249,11 @@ func writeIPCInput(ipcDir, text string) error {
 	return nil
 }
 
-// outcomeFor maps a container exit to the run outcome. Post-flip the agent's
-// output goes out-of-band over routd's in-process MCP socket, so runed NEVER
-// sees it (cmd.Stdout is io.Discard, HadOutput is never set) — the old
-// `!HadOutput && Result==""` → Silent test mis-classified EVERY clean run as
-// silent, which routd's queue counts as a failure → the folder's circuit breaker
-// tripped after 3 turns. A completed run is OK unless the runner flagged an
-// error/timeout (Status=="error" on a crash, or Error set on timeout/spawn-fail).
+// outcomeFor maps a container exit to the run outcome. The agent's output goes
+// out-of-band over routd's in-process MCP socket, so runed NEVER sees it — the old
+// `!HadOutput && Result==""` → Silent test mis-classified EVERY clean run as silent,
+// which routd counts as a failure, so the folder's breaker tripped after 3 turns. A
+// completed run is OK unless the runner flagged an error or timeout.
 func outcomeFor(o container.Output) string {
 	if o.Status == "error" || o.Error != "" {
 		return runedv1.OutcomeError

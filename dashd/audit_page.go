@@ -1,19 +1,14 @@
 package main
 
-// GET /dash/audit/ — the operator audit log, FEDERATED across the daemons that
-// own one (spec 5/I, BUGS F29).
+// GET /dash/audit/ — the operator audit log, FEDERATED across the daemons that own one
+// (spec 5/I, BUGS F29).
 //
-// audit_log is per-daemon by design: each daemon owns and migrates its own DB
-// and its own audit table, and correlation across them is the turn_id, not a
-// shared table. This page used to read routd.db directly through d.adminDB(),
-// so it showed routd's rows and only routd's — an operator who killed a run
-// (runed's run.kill) or whose login was recorded (authd's login) got nothing.
-//
-// It now fans out to each owner's GET /v1/audit and merges. Reading runed.db
-// and auth.db directly would have been fewer lines and is the thing this page
-// must not do: dashd is FS-mounted on routd.db alone, and a second reader of a
-// table whose owner exposes no contract is the recorded defect class that
-// dashd/route_tokens.go already is. One path, three hosts.
+// audit_log is per-daemon by design: each daemon owns and migrates its own DB and its
+// own audit table, and correlation across them is the turn_id. This page used to read
+// routd.db directly, so an operator who killed a run or whose login was recorded got
+// nothing. It now fans out to each owner's GET /v1/audit and merges. Reading runed.db
+// and auth.db directly would have been fewer lines and is the thing this page must not
+// do: dashd is FS-mounted on routd.db alone.
 
 import (
 	"context"
@@ -48,21 +43,15 @@ type auditSource struct {
 	url  string
 }
 
-// auditSources lists the daemons that own an audit_log and publish it. Order is
-// the tie-break when two rows share a created_at, so it is fixed rather than a
-// map walk — a page that reshuffles equal-timestamp rows between reloads reads
-// as data changing under the operator.
+// auditSources lists the daemons that own an audit_log and publish it. Order is the
+// tie-break when two rows share a created_at, so it is fixed rather than a map walk — a
+// page that reshuffles equal-timestamp rows between reloads reads as data changing
+// under the operator.
 //
-// All four owners are here. onbod was the last to mount /v1/audit (BUGS F35),
-// which is why the page used to federate three and stay silent about the
-// admission and invite rows that existed but could not be read.
-//
-// onbod joins only when its store is present, because unlike the other three it
-// is an OPTIONAL compose profile (ONBOARDING_ENABLED, default off). A daemon
-// that was never deployed is not a source that failed, and listing it anyway
-// would pin a permanent red "audit source unavailable" banner on every instance
-// without onboarding. dbOnbod == nil is the profile-off signal openSiblingOwner
-// already hands the invites page — reused here, not re-derived from env.
+// onbod joins only when its store is present, because unlike the other three it is an
+// OPTIONAL compose profile. A daemon that was never deployed is not a source that
+// failed, and listing it anyway would pin a permanent red banner on every instance
+// without onboarding.
 func (d *dash) auditSources() []auditSource {
 	src := []auditSource{
 		{"routd", d.routdURL},
@@ -185,14 +174,11 @@ type auditFilters struct {
 	folder string
 }
 
-// auditFetch reads one source's GET /v1/audit with the service:dashd bearer.
-//
-// The bearer is the WHOLE authorization: each daemon gates /v1/audit on the
-// audit:read scope, which only service:dashd holds. dashd does not forward
-// X-User-* here — unlike proxydCall, where proxyd authorizes the forwarded
-// operator identity — because the operator check already happened at the top
-// of this handler and no audit daemon consults a forwarded header. The two
-// gates in series are requireOperator (human) and audit:read (transit).
+// auditFetch reads one source's GET /v1/audit with the service:dashd bearer, which is
+// the WHOLE authorization: each daemon gates /v1/audit on audit:read, which only
+// service:dashd holds. dashd does not forward X-User-* here — the operator check
+// already happened at the top of this handler and no audit daemon consults a forwarded
+// header. The two gates in series are requireOperator (human) and audit:read (transit).
 func (d *dash) auditFetch(ctx context.Context, src auditSource, f auditFilters, before int64) ([]audit.Row, error) {
 	v := url.Values{}
 	// One more than the page: the merge needs to know a source had more behind
@@ -238,14 +224,11 @@ func (d *dash) auditFetch(ctx context.Context, src auditSource, f auditFilters, 
 	return rows, nil
 }
 
-// parseAuditCursor decodes `routd:123,runed:45` into per-source row ids.
-//
-// The cursor is COMPOSITE because `id` is a per-DB AUTOINCREMENT: one integer
-// cannot page three independent sequences. The alternative — paginating on
-// created_at — silently drops rows sharing a millisecond across sources, which
-// on an audit page is a missing record rather than a cosmetic glitch.
-// Unparseable pairs are skipped, which reads as "start that source from the
-// newest row" rather than failing the page on a hand-edited URL.
+// parseAuditCursor decodes `routd:123,runed:45` into per-source row ids. The cursor is
+// COMPOSITE because `id` is a per-DB AUTOINCREMENT: one integer cannot page three
+// independent sequences, and paginating on created_at silently drops rows sharing a
+// millisecond across sources. Unparseable pairs are skipped, which reads as "start that
+// source from the newest row" rather than failing the page on a hand-edited URL.
 func parseAuditCursor(raw string) map[string]int64 {
 	out := map[string]int64{}
 	for part := range strings.SplitSeq(raw, ",") {

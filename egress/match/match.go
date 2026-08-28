@@ -1,13 +1,9 @@
-// Package match holds the pure host-matching primitives used by the egress
-// proxy and the sandbox netfilter rules.
-// Ported from crackbox/internal/vm/{proxy,netfilter}.go (the original
-// crackbox VM project). No state, no I/O.
+// Package match holds the pure host-matching primitives used by the egress proxy and
+// the sandbox netfilter rules. Ported from crackbox. No state, no I/O.
 //
-// The package owns the rule grammar: every boundary that accepts a rule —
-// the egress binary's flags, the CLI's `network allow`, the agent's
-// network_allow tool — validates with ValidEntry/ValidateLists, so a rule
-// that can never match is refused where it is written, not silently carried
-// to match time (spec 6/25 1b).
+// The package owns the rule grammar: every boundary that accepts a rule validates with
+// ValidEntry/ValidateLists, so a rule that can never match is refused where it is
+// written, not silently carried to match time (spec 6/25 1b).
 package match
 
 import (
@@ -56,11 +52,9 @@ func NormalizeEntry(entry string) string {
 }
 
 // Host returns true if host matches an entry in list: exact or subdomain,
-// case-insensitive, trailing dots stripped, "*.x" equivalent to "x".
-// Entries are assumed validated (ValidateLists); Host carries no special
-// cases for entries that cannot name a host — no magic "*" (allow-all is
-// the caller's explicit mode, see Allowed) and no silent IP skip (an IP
-// entry is refused at validation).
+// case-insensitive, trailing dots stripped, "*.x" equivalent to "x". Entries are
+// assumed validated, so Host carries no special cases for entries that cannot name a
+// host — no magic "*" and no silent IP skip.
 func Host(list []string, host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	for _, entry := range list {
@@ -72,12 +66,10 @@ func Host(list []string, host string) bool {
 	return false
 }
 
-// Allowed decides host against the full policy. Deny is evaluated FIRST, so
-// a deny entry carves an exception out of any allow — including allowAll:
-// "all of example.com except internal.example.com" is expressible, and a
-// denied name stays denied for its whole subtree. allowAll is the explicit
-// mode that replaced the magic "*" list entry; with it set the allow list
-// is subsumed but harmless.
+// Allowed decides host against the full policy. Deny is evaluated FIRST, so a deny
+// entry carves an exception out of any allow — including allowAll — and a denied name
+// stays denied for its whole subtree. allowAll is the explicit mode that replaced the
+// magic "*" list entry.
 func Allowed(allow, deny []string, allowAll bool, host string) bool {
 	if Host(deny, host) {
 		return false
@@ -85,12 +77,11 @@ func Allowed(allow, deny []string, allowAll bool, host string) bool {
 	return allowAll || Host(allow, host)
 }
 
-// ValidEntry explains why entry can never match a proxied host, or returns
-// nil for a rule that works. Valid: a bare domain or single label
-// ("example.com", "localhost"), optionally with one leading "*." glob.
-// Everything an operator habitually writes that would silently never match
-// — a URL, a host:port, a path, credentials, an IP — names its defect
-// instead of reading as protection (spec 6/25 1b).
+// ValidEntry explains why entry can never match a proxied host, or returns nil for a
+// rule that works. Valid: a bare domain or single label, optionally with one leading
+// "*." glob. Everything an operator habitually writes that would silently never match
+// — a URL, a host:port, a path, credentials, an IP — names its defect instead of
+// reading as protection (spec 6/25 1b).
 func ValidEntry(entry string) error {
 	if entry == "" {
 		return fmt.Errorf("empty entry")

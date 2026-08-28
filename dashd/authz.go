@@ -34,12 +34,9 @@ func callerGroups(r *http.Request) []string {
 }
 
 // callerScope returns the caller's allowed folders and whether the caller is an
-// operator (`**` in the set → sees everything). Source of truth is the same the
-// write gate trusts: the proxyd-signed X-User-Groups header (= auth.UserScopes
-// at sign time), with an auth.UserScopes(sub) fallback when the header is absent
-// (server-to-server callers, tests that seed only the ACL). ALL read handlers
-// route their scope decision through this one helper — no per-handler
-// re-derivation.
+// operator (`**` in the set). Source of truth is the same the write gate trusts: the
+// proxyd-signed X-User-Groups header, with an auth.UserScopes(sub) fallback when it is
+// absent. ALL read handlers route their scope decision through this one helper.
 func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
 	allowed = callerGroups(r)
 	if len(allowed) == 0 {
@@ -62,10 +59,9 @@ func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
 }
 
 // visible reports whether a non-operator caller may see `folder`. Operators see
-// everything; everyone else needs a scope covering the folder, decided by the
-// one containment rule (auth.MatchGroups). Subtree reach is the grant's job —
-// `corp/eng/**` reaches `corp/eng/sre`, a bare `corp/eng` does not. dashd used
-// to walk folder prefixes here, which handed the dashboard a wider rule than
+// everything; everyone else needs a scope covering the folder, decided by the one
+// containment rule (auth.MatchGroups). Subtree reach is the grant's job. dashd used to
+// walk folder prefixes here, which handed the dashboard a wider rule than
 // auth.Authorize gives every other surface.
 func visible(allowed []string, operator bool, folder string) bool {
 	if operator {
@@ -111,14 +107,12 @@ func (d *dash) requireOperator(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// jidFolder maps a message chat_jid to its routing-target folder for
-// visibility filtering. A web:/hook: JID resolves through the folder its mint
-// RECORDED (store.RouteTokenTargetByJID), because the JID grammar reads
-// `hook:a/b/c` as folder `a/b` and would show tenant `a`'s message to tenant
-// `a/b` (BUGS L4); the grammar stays the fallback for a token minted before the
-// column. Any other platform JID resolves through the routes table
-// (store.DefaultFolderForJID). Empty when no folder can be determined — such a
-// message is invisible to every non-operator (fail-closed).
+// jidFolder maps a message chat_jid to its routing-target folder for visibility
+// filtering. A web:/hook: JID resolves through the folder its mint RECORDED, because
+// the JID grammar reads `hook:a/b/c` as folder `a/b` and would show tenant `a`'s
+// message to tenant `a/b` (BUGS L4); the grammar stays the fallback for a token minted
+// before the column. Empty when no folder can be determined — such a message is
+// invisible to every non-operator.
 func (d *dash) jidFolder(jid string) string {
 	// No routd.db → no route_tokens or routes table to resolve through.
 	// Unresolvable, not a panic: pages that render JIDs off HTTP-only data
@@ -206,12 +200,10 @@ func (d *dash) countVisibleFailedTasks(allowed []string, operator bool) int {
 		folderIdentity)
 }
 
-// requireAdmin gates a write to scope (folder or "**" for global). Uses
-// auth.Authorize with action="admin"; deny-wins, tier-default fallback
-// off (admin is not an mcp:* action). Caller principal is X-User-Sub
-// (proxyd-verified); X-User-Groups folds in as Extra principals so an
-// operator with `**` admin on a parent folder authorizes a child write.
-// 403 + log on denial. Returns false if the handler should abort.
+// requireAdmin gates a write to scope (folder or "**" for global) via auth.Authorize
+// with action="admin"; deny-wins, no tier-default fallback. Caller principal is
+// X-User-Sub; X-User-Groups folds in as Extra principals so an operator with `**` admin
+// on a parent folder authorizes a child write. Returns false if the handler must abort.
 func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string) (string, bool) {
 	sub, ok := requireUser(w, r)
 	if !ok {

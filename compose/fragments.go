@@ -10,19 +10,15 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Installed fragments used to be COPIES of `template/services/*.yml` —
-// `packages add` copied once and nothing ever refreshed them, so a template
-// edit reached NEW installs only. That is how the E1 adapter-state mounts
-// stayed absent on every running instance while the template already carried
-// them (BUGS R1). RelinkCatalog replaces the copy with a symlink at the
-// catalog, so an edit reaches every instance on the next generate — there is
-// no copy left to fall behind.
+// Installed fragments used to be COPIES of `template/services/*.yml`, refreshed by
+// nothing, so a template edit reached NEW installs only — which is how the E1
+// adapter-state mounts stayed absent on every running instance (BUGS R1). RelinkCatalog
+// replaces the copy with a symlink at the catalog, so an edit reaches every instance on
+// the next generate.
 //
-// Fragments are matched to the catalog by SERVICE KIND, not filename: a
-// multi-account variant `teled-rhias.yml` maps to the `teled` template
-// (envFileName uses the same `<kind>-<label>` split) but is never linked — it
-// carries its own container_name/env, and linking it would collide with the
-// base service.
+// Fragments are matched to the catalog by SERVICE KIND, not filename: a multi-account
+// variant `teled-rhias.yml` maps to the `teled` template but is never linked — it
+// carries its own container_name/env, and linking it would collide with the base.
 
 // HostCatalogDir returns the HOST-resolvable catalog dir from
 // <dataDir>/.env's HOST_APP_DIR — the value a symlink target must use,

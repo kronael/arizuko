@@ -1,25 +1,16 @@
 package routd
 
-// network_rules_resource.go is the spec 5/16 step after the web_routes pilot:
-// the agent's egress-allowlist tools (network_allow/network_deny/network_list)
-// ride ONE resreg.Resource instead of three hand-rolled ipc/ipc.go tool bodies.
+// network_rules_resource.go folds the agent's egress-allowlist tools onto ONE
+// resreg.Resource (spec 5/16). resreg owns the plumbing; routd owns the auth POLICY.
+// allow/deny/list are resource-specific verbs mapped to the flat live tool names via
+// MCPNames.
 //
-// resreg owns the plumbing (handler dispatch + one tx wrapping the mutation AND
-// its audit_log row); routd owns the auth POLICY. One difference from the
-// web_routes pilot:
-//
-//   - Custom actions: allow/deny/list are resource-specific verbs (not the CRUD
-//     ActionCreate/Delete), mapped to the flat live tool names via MCPNames.
-//
-// allow/deny take an optional `folder` TARGET arg (defaults to the caller's own
-// folder), so a caller may open/close egress for its own folder OR any folder its
-// grant scope covers — the documented egress-escalation path (ant/CLAUDE.md
-// network_allow(folder, host)). Containment is the injected Gate's single
-// evaluator run on the ARG folder (5/33: the grant scope IS the containment), so a
-// write outside the caller's granted scope is impossible; egress management is
-// default-deny, absent from role:member. list reads the socket folder's own
-// resolved+own view (no target arg). There is no REST face today (agent-only,
-// like the pilot's agent surface).
+// allow/deny take an optional `folder` TARGET arg (defaulting to the caller's own
+// folder), so a caller may open or close egress for its own folder OR any folder its
+// grant scope covers — the documented egress-escalation path. Containment is the
+// injected Gate's single evaluator run on the ARG folder (5/33: the grant scope IS the
+// containment), and egress management is default-deny, absent from role:member. list
+// reads the socket folder's own resolved+own view. There is no REST face today.
 
 import (
 	"context"
@@ -64,13 +55,11 @@ func (s *Server) networkRulesResource() resreg.Resource {
 	return r
 }
 
-// networkRulesHandler runs allow/deny/list against routd.db, folding in the
-// bespoke semantics the deleted ipc bodies enforced: hostname validation and the
+// networkRulesHandler runs allow/deny/list against routd.db, folding in the bespoke
+// semantics the deleted ipc bodies enforced: hostname validation and the
 // `*.`-glob→apex normalization on write, and the resolved+own split on list.
-// allow/deny apply to the TARGET folder (the `folder` arg, defaulting to the
-// caller's own folder) — the egress-escalation path used to open egress for a
-// descendant; the Gate has already bounded that target to the caller's granted
-// scope. list reads the caller's own (socket) folder view.
+// allow/deny apply to the TARGET folder, which the Gate has already bounded to the
+// caller's granted scope.
 func (s *Server) networkRulesHandler(ctx context.Context, x resreg.Execution) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
@@ -87,12 +76,11 @@ func (s *Server) networkRulesHandler(ctx context.Context, x resreg.Execution) (a
 
 	case networkActionAllow:
 		folder := networkTargetFolder(x.Args, x.Caller.Folder)
-		// One rule grammar for every write path (match.ValidEntry — spec 6/25 1b):
-		// a rule that can never match (URL, host:port, IP — ValidVhostName let
-		// those through) is refused with its reason. The *.example.com glob
-		// normalizes onto its apex, which already covers subdomains. Bare *
-		// (allow-all) stays rejected here BEFORE the shared grammar: opening all
-		// egress is an operator decision, not an agent grant.
+		// One rule grammar for every write path (match.ValidEntry — spec 6/25 1b): a
+		// rule that can never match (URL, host:port, IP) is refused with its reason. The
+		// *.example.com glob normalizes onto its apex, which already covers subdomains.
+		// Bare * stays rejected here BEFORE the shared grammar: opening all egress is an
+		// operator decision, not an agent grant.
 		raw := argString(x.Args, "host")
 		if raw == "*" {
 			return nil, resreg.Errorf(http.StatusBadRequest,
@@ -146,12 +134,10 @@ func (s *Server) networkRulesPostBuild(folder, callerSub string, authorize autho
 	res := s.networkRulesResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := networkMCPNames[x.Action]
-		// One evaluator on the TARGET folder (resolved from args). Egress management is
-		// default-deny: role:member does not grant it, so only an operator-delegated
-		// `mcp:<name>` scoped to cover the target — or /root (authorize allow-all) —
-		// authorizes it. 5/33 decision 8: the grant scope IS the containment; the old
-		// hard tier cap is gone (an operator's explicit scoped delegation now takes
-		// effect, a non-operator still cannot self-grant).
+		// One evaluator on the TARGET folder. Egress management is default-deny:
+		// role:member does not grant it, so only an operator-delegated `mcp:<name>`
+		// scoped to cover the target — or /root — authorizes it. 5/33 decision 8: the
+		// grant scope IS the containment; the old hard tier cap is gone.
 		target := networkTargetFolder(x.Args, folder)
 		if !authorize(callerSub, target, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)

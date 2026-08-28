@@ -1,40 +1,22 @@
 package routd
 
-// scheduled_tasks_resource.go is the spec 5/16 step after web_routes +
-// network_rules: the agent's task tools (schedule_task/pause_task/resume_task/
-// cancel_task/list_tasks) ride ONE resreg.Resource instead of five hand-rolled
-// ipc/ipc.go tool bodies.
+// scheduled_tasks_resource.go folds the agent's task tools onto ONE resreg.Resource
+// (spec 5/16). resreg owns the plumbing; routd owns the auth POLICY. Two shapes:
 //
-// resreg owns the plumbing (handler dispatch + one tx wrapping each mutation AND
-// its audit_log row); routd owns the auth POLICY. Two shapes are folded in:
+//   - Custom actions: schedule/pause/resume/cancel are resource-specific verbs, so
+//     Mutates() is true and each opens the mutation+audit tx; list reuses ActionList.
+//     MCPNames maps every action back to the flat live tool name.
+//   - PER-TASK-ID containment. pause/resume/cancel take a task ID and MUST resolve
+//     the task's OWNER folder before the caller can be ruled on. The HANDLER runs the
+//     injected contain seam on the RESOLVED owner, not the Gate, because that owner
+//     resolution is a DB read the handler already performs — splitting it would
+//     duplicate the read AND reorder validation ahead of the containment decision.
 //
-//   - Custom actions: schedule/pause/resume/cancel are resource-specific verbs
-//     (not the CRUD ActionCreate/Delete), so Mutates() is true and each opens
-//     the mutation+audit tx; list reuses resreg.ActionList (read-only, no tx).
-//     MCPNames maps every action back to the flat live tool name so no
-//     in-container tool is renamed.
-//   - PER-TASK-ID containment. Unlike web_routes (folder owns its own row) and
-//     network_rules (target folder is a plain arg), pause/resume/cancel take a
-//     task ID and MUST resolve the task's OWNER folder before the caller can be
-//     ruled on. The HANDLER runs the injected contain seam on the RESOLVED owner
-//     (GetTask(id).Owner for pause/resume/cancel, DefaultFolderForJID(jid) for
-//     schedule) — mirroring the deleted ipc bodies and inspect_tasks (inspect.go).
-//     It lives in the handler, not the Gate, because that owner resolution is a DB
-//     read the handler already performs; splitting it into the Gate would
-//     duplicate the read AND reorder the "target group not registered" / "task not
-//     found" validation ahead of the containment decision. The cap runs before any
-//     store write and rolls the tx back on denial.
-//
-// The operator REST face (/v1/tasks CRUD) ALSO rides this handler — the 5/16
-// REST fold: mountTasks REST-mounts list/get/patch/cancel with a
-// tasks:read/write + JWT-folder Gate + Caller injected (verify → hasAnyScope +
-// ownsFolder), exactly as web_routes folded its REST twin. Both faces read ONE
-// resources.ScheduledTasksEndpoints: the REST verbs carry a Verb+Path, the
-// agent-only schedule/pause/resume carry MCPOnly, and get/patch carry no MCPDoc
-// entry. mountTasks mounts that slice verbatim — no override (BUGS F21). The
-// fire-loop endpoints (/v1/tasks/due, /runs, /{id}/reschedule, run-logs) stay
-// hand-rolled in tasks_http.go — they are timed's internal control plane, not
-// resource CRUD.
+// The operator REST face ALSO rides this handler. Both faces read ONE
+// resources.ScheduledTasksEndpoints: the REST verbs carry a Verb+Path, the agent-only
+// actions carry MCPOnly, and get/patch carry no MCPDoc. mountTasks mounts that slice
+// verbatim — no override (BUGS F21). The fire-loop endpoints stay hand-rolled in
+// tasks_http.go: they are timed's internal control plane, not resource CRUD.
 
 import (
 	"context"
@@ -76,12 +58,10 @@ const (
 // REST-only `patch` verb has no entry (no agent tool).
 var tasksMCPNames = resources.ScheduledTasksMCPNames
 
-// scheduledTasksResource is the single renderer for BOTH faces: deriveMCPTools
-// reads Endpoints ∩ MCPDoc for the agent's five task tools, RegisterREST mounts
-// the same slice's non-MCPOnly entries for /v1/tasks. Store is a
-// store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
-// contain is the per-face target-containment seam (auth.Authorize on the target
-// for the agent, ownsFolder for REST) closed into the handler — see containFn.
+// scheduledTasksResource is the single renderer for BOTH faces: deriveMCPTools reads
+// Endpoints ∩ MCPDoc for the agent's five tools, RegisterREST mounts the same slice's
+// non-MCPOnly entries. Store is a store.Store over routd.db so resreg.invoke opens the
+// mutation+audit tx there. contain is the per-face target-containment seam.
 func (s *Server) scheduledTasksResource(contain containFn, elevated bool) resreg.Resource {
 	r := resreg.Mount(resources.ScheduledTasksName)
 	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
@@ -102,20 +82,14 @@ func (s *Server) scheduledTasksResource(contain containFn, elevated bool) resreg
 func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, contain containFn, elevated bool) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
-		// The list-all key differs by surface, both through this one handler:
-		//   agent (MCP): a root caller — the /root elevation or the "" sentinel —
-		//     sees every task; the deleted list_tasks body's isRoot widening.
-		//   operator (REST): only a root/service token (empty jwt_folder claim,
-		//     for which tasksTarget resolved Caller.Folder to "") sees all. A
-		//     folder-SCOPED token — even a top-level one — resolves to its own
-		//     non-empty folder, so it lists ONLY its own tasks, never a
-		//     sibling's (the 5/16 list-all leak guard). The REST caller is
-		//     detected by the jwt_folder claim it always sets; the agent sets
-		//     none, so it keeps the elevation-based widening.
-		// Agent list-all widening rides the turn's EXPLICIT elevation (passed in) — not
-		// a re-resolve of the caller folder, which under /root from a named deep folder
-		// wrongly read non-root and lost the widening. The "" sentinel (operator/service)
-		// still widens. REST detection stays on the jwt_folder claim.
+		// The list-all key differs by surface, both through this one handler. On the
+		// agent socket a root caller — the /root elevation or the "" sentinel — sees
+		// every task. On REST only a root/service token (empty jwt_folder claim) sees
+		// all: a folder-SCOPED token, even a top-level one, lists ONLY its own tasks,
+		// never a sibling's. The REST caller is detected by the jwt_folder claim it
+		// always sets; the agent sets none, so it keeps the elevation-based widening,
+		// which rides the turn's EXPLICIT elevation rather than a re-resolve of the
+		// caller folder that under /root from a deep folder wrongly read non-root.
 		all := elevated || x.Caller.Folder == ""
 		if _, rest := x.Caller.Claims["jwt_folder"]; rest {
 			all = x.Caller.Folder == ""
@@ -199,12 +173,10 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		return map[string]any{"ok": true}, nil
 
 	case resreg.ActionGet:
-		// Get-one (REST only): scope-gated read + per-task containment. The Gate
-		// checked tasks:read + ownsFolder on the JWT folder — a no-op for a per-task
-		// op — so, exactly like pause/resume/cancel/patch, the real cap is contain()
-		// on the task's OWNER: a tenant must not read a task outside its subtree by
-		// guessing its ID. A root/operator token (empty folder) still reads any task
-		// (ownsFolder("", _) is true), which the operator dashboard relies on.
+		// Get-one (REST only): the Gate's ownsFolder on the JWT folder is a no-op for a
+		// per-task op, so the real cap is contain() on the task's OWNER — a tenant must
+		// not read a task outside its subtree by guessing its ID. A root/operator token
+		// still reads any task, which the operator dashboard relies on.
 		task, ok := s.db.GetTask(argString(x.Args, "taskId"))
 		if !ok {
 			return nil, resreg.Errorf(http.StatusNotFound, "task not found")

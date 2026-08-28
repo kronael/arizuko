@@ -1,33 +1,19 @@
 package main
 
-// audit_resource.go publishes onbod's own audit_log at GET /v1/audit — the
-// fourth and last owner (BUGS F35). routd, runed and authd already serve theirs
-// through the shared resreg resource; onbod's rows needed sqlite3 on the box, so
-// /dash/audit/ federated three of four and was silently incomplete.
+// audit_resource.go publishes onbod's own audit_log at GET /v1/audit — the fourth and
+// last owner (BUGS F35). onbod's rows needed sqlite3 on the box, so /dash/audit/
+// federated three of four and was silently incomplete.
 //
-// WHAT THE ROWS CARRY. A new read surface earns a column-by-column pass over
-// every writer, and onbod has five:
+// A new read surface earns a column-by-column pass over every writer, and onbod has
+// five: `daemon.start` ({addr}), the three `onboarding.*` admission rows ({jid, gate}),
+// `invite.consume` ({target_glob, used_count}, resource `invites/<ref[:8]>` — the raw
+// bearer is NEVER on the row), and `acl.add` ({principal, action, scope}). No writer
+// puts key material in `params_summary`, and audit.Query selects from audit_log and
+// nothing else.
 //
-//   - `daemon.start` (main.go) — params {addr}, the container listen address.
-//   - `onboarding.refuse` / `.queue` / `.approve` (auditAdmission) — params
-//     {jid, gate}. Both already render on /dash/onbod/ and the dashd onboarding
-//     page; neither is credential material.
-//   - `onboarding.approve` from the admission queue (admitFromQueue) — same two.
-//   - `invite.consume` (store.ConsumeInvite) — params {target_glob, used_count},
-//     resource `invites/<ref[:8]>`. The raw bearer is NEVER on the row: `ref` is
-//     store.TokenRef, which admin.go's inviteJSON already publishes precisely
-//     because it is not redeemable.
-//   - `acl.add` (store.AddACLRow, the invite-accept grant) — params
-//     {principal, action, scope}: grant metadata, no secret.
-//
-// So no writer here puts key material in `params_summary`, and the read adds no
-// path that could: audit.Query selects from audit_log and nothing else.
-//
-// The resource is registered ONCE in resreg/resources/audit.go, so onbod's
-// mounted face and the doc /openapi.json emits from the mux cannot disagree.
-// No action mutates, so resreg opens no tx and writes no audit row for a
-// successful read — load-bearing, not a saving: a read that audited itself into
-// the table it reads would append rows on every operator page-load.
+// The resource is registered ONCE in resreg/resources/audit.go, so onbod's mounted
+// face and the doc cannot disagree. No action mutates, which is load-bearing: a read
+// that audited itself would append rows on every operator page-load.
 
 import (
 	"context"
@@ -60,12 +46,11 @@ func (a *admin) auditResource() resreg.Resource {
 	return r
 }
 
-// auditRESTCaller builds the resreg Caller from the bearer, verified against
-// authd's JWKS — the same mechanism gatesRESTCaller uses, not a second one. The
-// scopes ride in Claims because only the Gate may answer 403; a Caller builder
-// can fail 401 and nothing else (resreg.restHandler). The folder claim rides
-// too so auditHandler can pin a folder-scoped caller to its own subtree. nil
-// KeySet (AUTHD_URL unset / local-dev) is open, mirroring gatesRESTCaller.
+// auditRESTCaller builds the resreg Caller from the bearer, verified against authd's
+// JWKS — the same mechanism gatesRESTCaller uses. The scopes ride in Claims because
+// only the Gate may answer 403; a Caller builder can fail 401 and nothing else. The
+// folder claim rides too so auditHandler can pin a folder-scoped caller to its own
+// subtree. A nil KeySet is open, mirroring gatesRESTCaller.
 func (a *admin) auditRESTCaller(r *http.Request) (resreg.Caller, error) {
 	if a.ks == nil {
 		return resreg.Caller{}, nil
@@ -83,12 +68,10 @@ func (a *admin) auditRESTCaller(r *http.Request) (resreg.Caller, error) {
 
 // auditRESTGate is the injected authorization: hold audit:read, or 403.
 //
-// This is fail-closed against a human bearer by construction, which is why it
-// can be the whole gate. A user token's scope list holds FOLDER GLOBS (routd's
-// UserScopes) and auth.scopeMatches rejects any held value without a colon, so
-// neither `acme/**` nor an operator's `**` can satisfy `audit:read`. The only
-// holder is service:dashd (authd's service-scope ceiling), whose own audit page
-// is operator-gated. nil KeySet → open, mirroring gatesRESTGate.
+// This is fail-closed against a human bearer by construction, which is why it can be
+// the whole gate: a user token's scope list holds FOLDER GLOBS and auth.scopeMatches
+// rejects any held value without a colon, so neither `acme/**` nor an operator's `**`
+// can satisfy it. The only holder is service:dashd, whose own page is operator-gated.
 func (a *admin) auditRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
 	if a.ks == nil {
 		return nil
@@ -99,17 +82,14 @@ func (a *admin) auditRESTGate(x resreg.Execution, _ string, _ map[string]string)
 	return nil
 }
 
-// auditHandler serves the read off onbod.db through audit.Query — the same
-// renderer routd, runed and authd serve theirs through.
+// auditHandler serves the read off onbod.db through audit.Query — the same renderer
+// the other three owners serve theirs through.
 //
-// CONTAINMENT is resolved here rather than in the Gate because it bounds the
-// ROWS, not the call: a token carrying a folder claim is pinned to that subtree
-// and its `folder` argument cannot widen it. The converse — no claim means
-// instance-wide — is safe only because the Gate already proved audit:read,
-// which no human bearer can hold. An empty folder claim is NOT evidence of
-// operator authority in general (routd claims a folder only when the sub holds
-// exactly one scope, so a two-grant tenant is equally claimless), and keying a
-// list-all on it is the recorded cross-tenant leak.
+// CONTAINMENT is resolved here rather than in the Gate because it bounds the ROWS, not
+// the call: a token carrying a folder claim is pinned to that subtree and its `folder`
+// argument cannot widen it. The converse — no claim means instance-wide — is safe only
+// because the Gate already proved audit:read, which no human bearer can hold. An empty
+// folder claim is NOT evidence of operator authority in general.
 func (a *admin) auditHandler(ctx context.Context, x resreg.Execution) (any, error) {
 	if x.Action != resreg.ActionList {
 		return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)

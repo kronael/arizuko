@@ -386,12 +386,10 @@ func (s *Store) MarkMessagesObserved(folder string, ids []string) error {
 	return err
 }
 
-// ObservedSince returns the trailing window of observed messages for
-// folder whose timestamp is strictly greater than cursor (RFC3339Nano
-// UTC). Empty cursor means "no lower bound; let the window cap
-// decide". Capped by maxMsgs and maxChars; older messages drop first
-// when the char cap binds. Per spec 6/F, the caller advances the topic's
-// observed_cursor to the youngest message's timestamp after rendering.
+// ObservedSince returns the trailing window of observed messages for folder whose
+// timestamp is strictly greater than cursor. Empty cursor means no lower bound.
+// Capped by maxMsgs and maxChars; older messages drop first when the char cap binds.
+// Per spec 6/F the caller advances the topic's observed_cursor after rendering.
 func (s *Store) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []core.Message {
 	if maxMsgs <= 0 || maxChars <= 0 {
 		return nil
@@ -485,15 +483,13 @@ func (s *Store) GetLastReplyID(jid, topic string) string {
 	return id
 }
 
-// SetLastReply upserts last_reply_id AND engaged_folder for (jid, topic).
-// Called by every conversational outbound site (gateway + MCP recordOutbound)
-// — engagement bump is a separate call (BumpEngagement) so timed-* turns
-// can skip the bump while still recording the last reply. Spec 5/G.
+// SetLastReply upserts last_reply_id AND engaged_folder for (jid, topic). Called by
+// every conversational outbound site; the engagement bump is a separate call so
+// timed-* turns can skip it while still recording the last reply (spec 5/G).
 //
-// `replyID` empty leaves last_reply_id unchanged on existing rows (insert
-// sets it to ""). `folder` is the bot folder that produced the reply;
-// recorded as engaged_folder so EngagedFolder() is a single-row read
-// independent of any prior reply having succeeded.
+// Empty replyID leaves last_reply_id unchanged on existing rows. folder is recorded
+// as engaged_folder so EngagedFolder() is a single-row read independent of any prior
+// reply having succeeded.
 func (s *Store) SetLastReply(jid, topic, replyID, folder string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO chat_reply_state (jid, topic, last_reply_id, engaged_folder)
@@ -577,14 +573,12 @@ func (s *Store) RoutedToByMessageID(id string) string {
 	return routedTo
 }
 
-// IsBotMessageByID returns true when the id refers to a stored message
-// the bot itself sent (is_bot_message=1). Used by the gateway-side
-// reply-to-bot → verb=mention promotion (spec 6/J). Missing id → false.
+// IsBotMessageByID returns true when the id refers to a stored message the bot itself
+// sent. Used by the reply-to-bot → verb=mention promotion (spec 6/J).
 //
-// Outbound bot rows carry a SYNTHETIC primary id (e.g. "out-<nano>") set
-// by gateway, and `MarkMessageDelivered` stuffs the platform's returned
-// id into `platform_id`. An inbound reaction's `reply_to` carries the
-// platform id — so we match either column.
+// Outbound bot rows carry a SYNTHETIC primary id and MarkMessageDelivered stuffs the
+// platform's returned id into `platform_id`, while an inbound reaction's `reply_to`
+// carries the platform id — so we match either column.
 func (s *Store) IsBotMessageByID(id string) bool {
 	if id == "" {
 		return false
@@ -723,18 +717,14 @@ type FoundMessage struct {
 	Rank         float64   `json:"rank"`
 }
 
-// FindMessages runs an FTS5 MATCH against messages_fts and returns the
-// best hits, joined back to messages for metadata. `query` is bound as
-// a parameter — FTS5 parses it as its own syntax (phrase/AND/NOT/prefix),
-// no SQL escape needed. Malformed query returns SQLITE_ERROR which we
-// surface to the caller. ACL filtering is the caller's job.
+// FindMessages runs an FTS5 MATCH against messages_fts and joins back to messages for
+// metadata. `query` is bound as a parameter — FTS5 parses it as its own syntax, so no
+// SQL escape is needed; a malformed query surfaces SQLITE_ERROR to the caller. ACL
+// filtering is the caller's job.
 //
-// `scope` is polymorphic: a string containing ':' is matched as a
-// chat_jid; otherwise it's a folder subtree on `routed_to` (= scope OR
-// LIKE scope || '/%'). Spec 5/C names this `group_folder`, but that
-// column was dropped in migration 0023 — `routed_to` is its successor
-// as the per-message folder attribution. `sender` is exact match;
-// `since` is an RFC3339 timestamp lower bound (inclusive).
+// `scope` is polymorphic: a string containing ':' matches chat_jid, otherwise it is a
+// folder subtree on `routed_to`. `sender` is exact match; `since` is an RFC3339 lower
+// bound (inclusive).
 func (s *Store) FindMessages(query, scope, sender, since string, limit int) ([]FoundMessage, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 20

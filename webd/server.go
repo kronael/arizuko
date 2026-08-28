@@ -52,15 +52,11 @@ func newServer(cfg config, stRoutd *store.Store, h *hub, rc *chanlib.RouterClien
 	return s
 }
 
-// requireIdentified gates a handler on a trustworthy proxyd-stamped identity.
-// Post-flip (HMAC retire step 2) proxyd no longer signs X-User-Sig; it proves
-// the channel with its own service:proxyd ES256 bearer and stamps the verified
-// user into X-User-*. So identity is the STAMPED header, authenticated by the
-// bearer — NOT the bearer's own sub (which is service:proxyd, not the user).
-// auth.RequireSignedOrBearer can't be used here: it treats the bearer AS the
-// identity and would clobber X-User-Sub with service:proxyd. With ks nil (local
-// dev / pre-flip) identified() falls back to the HMAC sig, so legacy behaviour
-// is unchanged.
+// requireIdentified gates a handler on a trustworthy proxyd-stamped identity. proxyd
+// proves the channel with its own service:proxyd ES256 bearer and stamps the verified
+// user into X-User-*, so identity is the STAMPED header authenticated by the bearer —
+// NOT the bearer's own sub. auth.RequireSignedOrBearer cannot be used here: it treats
+// the bearer AS the identity and would clobber X-User-Sub with service:proxyd.
 func (s *server) requireIdentified(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.identified(r) {
@@ -93,11 +89,9 @@ func (s *server) handler() http.Handler {
 	// public surface only.
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("webd", mux))
 
-	// Route tokens (spec 5/W). Two URL prefixes share one set of
-	// handlers; kind metadata is for the agent, not a URL gate. Both
-	// /chat/* and /hook/* paths get permissive CORS — the route token
-	// IS the public credential — and the anon DoS shield proxyd ran ahead of
-	// them until specs/6/22 step 1 moved the surface here. CORS wraps the
+	// Route tokens (spec 5/W). Two URL prefixes share one set of handlers; kind
+	// metadata is for the agent, not a URL gate. Both prefixes get permissive CORS
+	// — the route token IS the public credential — and CORS wraps the anon DoS
 	// shield so a 429 still carries the headers the widget needs to read it.
 	tokenSurface := func(pattern string, h http.HandlerFunc) {
 		mux.Handle(pattern, chatCORS(s.shieldAnon(h)))
@@ -248,14 +242,11 @@ func (s *server) routeXGroups(w http.ResponseWriter, r *http.Request) {
 func userSub(r *http.Request) string  { return r.Header.Get("X-User-Sub") }
 func userName(r *http.Request) string { return r.Header.Get("X-User-Name") }
 
-// identified reports whether the stamped X-User-Sub on r is trustworthy. proxyd
-// is the sole ingress: it strips client identity headers, authenticates the
-// user, re-stamps X-User-* and proves the channel with its own service:proxyd
-// ES256 bearer. The stamp is trusted ONLY on that transit proof — auth.ProxydTransit
-// pins sub==service:proxyd so a caller reaching webd directly with a different
-// valid authd token cannot forge X-User-*. With ks nil (local dev, AUTHD_URL
-// unset) there is no proxyd to forge through and no JWKS to verify, so the
-// stamped header is trusted, matching every other daemon's no-verifier path.
+// identified reports whether the stamped X-User-Sub on r is trustworthy. proxyd is
+// the sole ingress: it strips client identity headers, authenticates the user,
+// re-stamps X-User-* and proves the channel with its own service:proxyd bearer. The
+// stamp is trusted ONLY on that transit proof, which pins sub==service:proxyd so a
+// caller reaching webd directly with a different valid token cannot forge X-User-*.
 func (s *server) identified(r *http.Request) bool {
 	if r.Header.Get("X-User-Sub") == "" {
 		return false
@@ -266,16 +257,14 @@ func (s *server) identified(r *http.Request) bool {
 	return auth.ProxydTransit(r, s.ks)
 }
 
-// transited reports whether the request came through proxyd's front door,
-// regardless of who (if anyone) it belongs to. proxyd attaches its service:proxyd
-// bearer to every request on an `optional` route, so this is true for anonymous
-// visitors too. ks nil (local dev, no proxyd) trusts it, matching identified().
+// transited reports whether the request came through proxyd's front door, regardless
+// of who (if anyone) it belongs to. proxyd attaches its service:proxyd bearer to every
+// request on an `optional` route, so this is true for anonymous visitors too.
 //
-// This replaces chatTransit, which asked the same question by a longer route:
-// "did proxyd resolve a route token to this same folder?", read off the
-// X-Chat-Token / X-Folder pair proxyd stamped. proxyd no longer resolves route
-// tokens — webd does, once, in lookupRouteToken — so the stamp is gone and the
-// proof underneath it is the whole answer (specs/6/22 step 1).
+// It replaces chatTransit, which asked the same question by a longer route: "did
+// proxyd resolve a route token to this same folder?". proxyd no longer resolves route
+// tokens — webd does, in lookupRouteToken — so the proof underneath is the whole
+// answer (specs/6/22 step 1).
 func (s *server) transited(r *http.Request) bool {
 	if s.ks == nil {
 		return true // local dev
