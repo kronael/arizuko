@@ -90,6 +90,67 @@ Two shapes exist and they are different products:
 Personal mode takes the connector. `6/27` is neither superseded nor folded
 here.
 
+### The host `.env` is the wrong door, and it fails silently
+
+An operator reaching for "let atlas use `gh`" puts `GH_TOKEN` in the instance
+`.env`. That reaches **nothing**: `readSecrets` (`container/runner.go`) iterates
+`store.EnvProfileKeys` and passes only those five model credentials into a
+container. Every other name in `.env` is an infra credential that stays on the
+host by construction (`5/14` tier 3). Measured on marinade 2026-08-28 —
+`GH_TOKEN` and `BK_TOKEN` are both present in `.env` and neither reaches the
+agent. Nothing logs a warning, which is what makes it worth writing down.
+
+A capability credential lives in the `secrets` table, folder- or user-scoped,
+and reaches a connector subprocess through the broker per call
+(`ipc.CallConnectorTool`), which is also what puts a `secret_use_log` row under
+every use. `template/connectors/github.toml` and `buildkite.toml` carry the
+wiring; the token goes in with `arizuko secret set` or `/dash/me/secrets`.
+
+### Why the CLI route is refused, and it is the operator's own requirement
+
+The tempting shortcut is to ship `GH_TOKEN` into container env so `gh` works in
+Bash. It is refused, and not on purity grounds:
+
+- **It cannot be gated.** `gh pr review --approve` is a shell string. arizuko's
+  gate is `CheckHold` at the one `tools/call` interception; a Bash command is
+  one tool call carrying opaque text, so "block PR approval" degrades to
+  matching substrings, which `${A}${B}` defeats. An operator who asks for both
+  a shell token and a block on approvals has asked for two things that cannot
+  both hold.
+- **The connector route gives the block for free.** Each remote tool is its own
+  broker tool name, so `hold:mcp:github_<tool>` suspends it for human approval
+  (`5/19`, shipped) and a deny row refuses it outright. This is why Decision 3
+  picks the connector: not because a CLI is inelegant, but because per-call
+  authority is only expressible when the call has a name.
+- **It widens the shell blast radius.** Anything in container env is readable
+  from the agent's shell on pi and, unless scrubbed, on claude (BUGS `L131`).
+
+**The real enforcement is the token's own scope.** An `acl` row refuses a tool;
+only the credential bounds what that tool may do once called. A fine-grained PAT
+without `pull_requests: write`, or a Buildkite read-only token, is the bound
+that holds even if every arizuko gate is wrong.
+
+### Open — bot identity is a decision this spec has not made
+
+Decision 3 says the agent "acts as the human rather than as a shared PAT",
+because `5/15` surrogate OAuth mints a user-consented token. That is the right
+default for attribution and the wrong one for an operator who wants every
+agent-made comment to carry a **bot badge**: GitHub renders that only for a
+GitHub App installation, never for a PAT or a user OAuth token.
+
+The two cannot both be true, so this is a fork, not a setting:
+
+- **user-consented token (today)** — actions are attributable to a person,
+  audit joins cleanly to `user_sub`, no bot badge.
+- **GitHub App (net new)** — a real bot identity with a badge, per-permission
+  scoping (approval can be withheld at the app), and installation-scoped repo
+  access. Costs an app registration, an installation-token refresh path beside
+  `5/15`'s user-token one, and it breaks the "the agent acts as you" framing
+  this spec opens with.
+
+Not decided here. Wanting the badge is a real requirement and it argues for the
+App; nothing else in personal mode does.
+
 ## Decision 4 — MITM is declined; HITL is what you want
 
 The two are routinely confused, so state both:

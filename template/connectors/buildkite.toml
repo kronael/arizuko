@@ -1,0 +1,28 @@
+# Buildkite MCP connector (spec 5/13 shape 2). Operator copy: drop this block
+# into <data_dir>/connectors.toml (multi-block file) and restart routd.
+#
+# THE TOKEN DOES NOT GO IN THE HOST .env. `readSecrets` passes only
+# `store.EnvProfileKeys` (the model credentials) into a container, so a
+# BK_TOKEN in .env reaches nothing. A capability credential lives in the
+# `secrets` table and reaches a connector through the broker, per call:
+#
+#   arizuko secret <inst> set folder:<folder> BUILDKITE_TOKEN --value bkua_…
+#   # or per user, so each person spends their own:
+#   arizuko user-secret <inst> set <user_sub> BUILDKITE_TOKEN --value bkua_…
+#   # or hand the user /dash/me/secrets
+#
+# Set `command` to whatever Buildkite MCP server the operator installed — this
+# file does not name one, because arizuko owns the wiring below and not the
+# upstream's packaging. The arizuko-side contract is the three lines that
+# follow it: which secret the broker resolves, what env name the subprocess
+# reads it under, and the per-call lifetime.
+#
+# Scope the token at Buildkite, not here. A read-only Buildkite token is the
+# enforcement for "the agent may look but not trigger" — an acl row can refuse
+# a TOOL, but only the token bounds what that tool can do once called.
+[[mcp_connector]]
+name         = "buildkite"
+command      = ["<buildkite-mcp-server>", "stdio"]
+secrets      = ["BUILDKITE_TOKEN"]
+env_template = { BUILDKITE_API_TOKEN = "{secret:BUILDKITE_TOKEN}" }
+scope        = "per_call"
