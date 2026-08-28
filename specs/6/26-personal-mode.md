@@ -1,5 +1,6 @@
 ---
-status: draft
+status: defected
+defects: [L132]
 depends:
   [
     ../5/19-hitl-firewall,
@@ -75,7 +76,11 @@ one surface, never a fourth path into the queue.
 
 Two shapes exist and they are different products:
 
-- **Connector (shipped, use this).** `template/connectors/github.toml` declares
+- **Connector (the design; NOT yet runnable — BUGS `L132`).** All three
+  commands `template/connectors/github.toml` offers need a runtime absent from
+  routd's image, and the connector subprocess spawns inside routd. Ship a
+  static `github-mcp-server` binary into the image before quoting this as a
+  working path. `template/connectors/github.toml` declares
   the upstream GitHub MCP server; [`5/13`](../5/13-ext-mcp.md) shape 2 spawns
   it per call, narrows the folder's secrets to the keys the connector declared,
   gates the call on `mcp:<tool>` and scrubs secret values from the result.
@@ -148,8 +153,17 @@ The two cannot both be true, so this is a fork, not a setting:
   `5/15`'s user-token one, and it breaks the "the agent acts as you" framing
   this spec opens with.
 
-Not decided here. Wanting the badge is a real requirement and it argues for the
-App; nothing else in personal mode does.
+**DECIDED 2026-08-28 (operator): both, in order — user-consented token now, App
+later.** Ship the connector route so atlas can act at all, and revisit the App
+once the tool set it actually uses is known, accepting that identity changes at
+that point. The badge requirement is real and stands; it is deferred, not
+dropped. Two consequences to keep visible:
+
+- Until the App lands, every agent action attributes to the consenting human.
+  Anyone reading the repo cannot tell atlas from its operator.
+- "Cannot approve PRs" therefore rests entirely on the token's own scope in
+  phase one — mint the PAT without `pull_requests: write`. An `acl` deny row is
+  the second lock, not the first, and neither is the badge.
 
 ## Decision 4 — MITM is declined; HITL is what you want
 

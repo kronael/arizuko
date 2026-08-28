@@ -7174,3 +7174,53 @@ handling on a live backend, so it is recorded rather than shipped.
   `ant/src/pi-extension.ts` (`PI_HONOURS`),
   pi `dist/utils/shell.js:105` + `dist/core/tools/bash.js`,
   codex-cli 0.147.0 binary strings.
+
+## L132 — the GitHub connector `6/26` calls "shipped, use this" cannot run: all three documented commands are absent from routd's image (2026-08-28, open)
+
+`6/26` Decision 3 picks the MCP connector over the `gh` CLI and labels it
+"(shipped, use this)". The mechanism is shipped; a runnable connector is not.
+
+**The connector subprocess runs inside routd's container** — routd hosts the
+agent MCP socket in-process, so `ipc.CallConnectorTool` spawns there.
+`template/connectors/github.toml` offers three commands and the runtime image
+(`Dockerfile`: `alpine:3.20` + `sqlite-libs ca-certificates docker-cli wget` +
+the Go binaries) can run none of them:
+
+| documented command | why it fails |
+| --- | --- |
+| `npx -y @modelcontextprotocol/server-github` | no node, no npx in the image |
+| `github-mcp-server stdio` | "install separately" — not installed anywhere |
+| `docker run … ghcr.io/github/github-mcp-server` | routd has NO docker socket |
+
+Measured on marinade 2026-08-28: `docker exec arizuko_routd_marinade command -v
+node npx github-mcp-server` exits 127 for all three, and routd's only mount is
+`/srv/data/arizuko_marinade -> /srv/app/home`. The docker-socket option is not
+an oversight to fix — runed is deliberately the only daemon wired to
+`docker.sock`, so handing routd the socket to reach a connector would undo that
+boundary for a tool call.
+
+**Corroborating: no instance has ever configured one.** `connectors.toml` is
+absent on krons, marinade and sloth, so the connector path has no production
+exercise at all. The credential half is already in place — marinade's `secrets`
+table holds `folder|atlas|GITHUB_TOKEN` — which is what makes the gap visible:
+the token is correctly homed and there is nothing that can spend it.
+
+(The operator ALSO put `GH_TOKEN` and `BK_TOKEN` in marinade's host `.env`,
+where they reach no container at all. That is the separate trap `6/26` now
+documents; the secrets-table row is the one that counts.)
+
+**Fix — ship a connector runtime, and prefer the Go one.**
+`github/github-mcp-server` is a single static Go binary, which matches an image
+whose entire payload is already static Go binaries: one more `COPY --from=build`
+costs a few MB and no new language runtime. Adding node/npx to the shared
+runtime image would bloat every daemon (proxyd, teled, onbod … all run this
+image) to serve one connector. Verify the upstream's license and build before
+adopting.
+
+Until then `6/26` Decision 3 is aspirational and should not be quoted as a
+working path — hence `status: defected`.
+
+- **Source:** `Dockerfile:14-16`, `template/connectors/github.toml`,
+  `ipc/connector.go` (`DiscoverConnectorTools` spawns in-process),
+  `compose/compose.go` `routdService` ("NO egress proxy, NO docker socket"),
+  live probes above.
