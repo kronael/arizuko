@@ -93,9 +93,7 @@ func TestReadUGCIDRejectsARedirect(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Client construction
-// ---------------------------------------------------------------------------
 
 // An unparseable or non-positive poll interval must land on the 5m default.
 // Zero would spin the poll loop against LinkedIn's rate limiter.

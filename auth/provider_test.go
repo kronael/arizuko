@@ -315,9 +315,7 @@ func TestUserinfoFallsBackToTheHandleWhenThereIsNoDisplayName(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // ParseECPrivateKeyPEM — the on-disk signing key format.
-// ---------------------------------------------------------------------------
 
 // authd's key load and the host-admin CLI's operator-bearer mint both read
 // signing_keys.priv_pem through this one parser. It must round-trip what authd
@@ -370,9 +368,7 @@ func TestParseECPrivateKeyPEMRoundTripsAndRefusesTheRest(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Exported wrappers.
-// ---------------------------------------------------------------------------
 
 // Each of these is a one-line delegation another package calls. A wrapper that
 // stops matching its implementation is invisible until an authorization

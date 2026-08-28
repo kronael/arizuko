@@ -21,9 +21,7 @@ import (
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
-// ---------------------------------------------------------------------------
 // threadMsgID
-// ---------------------------------------------------------------------------
 
 func TestThreadMsgID_Valid(t *testing.T) {
 	if got := threadMsgID("123"); got != 123 {
@@ -43,9 +41,7 @@ func TestThreadMsgID_NotANumber(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // handleReaction
-// ---------------------------------------------------------------------------
 
 func TestHandleReaction_Dispatches(t *testing.T) {
 	mr := newTeledRouterMock()
@@ -155,9 +151,7 @@ func TestHandleReaction_SkipsNonEmojiType(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Pin / Unpin / UnpinAll
-// ---------------------------------------------------------------------------
 
 // addFakePlatformGetMe registers the getMe stub every FakePlatform test needs.
 func addFakePlatformGetMe(fp *testutils.FakePlatform) {
@@ -255,9 +249,7 @@ func TestUnpinAll_HappyPath(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Post
-// ---------------------------------------------------------------------------
 
 func TestBotPost_TextOnlyRoutesThroughSend(t *testing.T) {
 	// Post without media delegates to Send → creates a message.
@@ -299,9 +291,7 @@ func TestBotPost_WithMediaReturnsUnsupported(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Forward happy-path
-// ---------------------------------------------------------------------------
 
 func TestBotForward_HappyPath(t *testing.T) {
 	fp := testutils.NewFakePlatform()

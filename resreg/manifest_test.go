@@ -15,9 +15,7 @@ import (
 // SplitDocuments, SubsystemOf, KnownFolders, ValidateFolderRefs,
 // ManifestScopes and mergeScopes were all 0%.
 
-// ---------------------------------------------------------------------------
 // SplitDocuments
-// ---------------------------------------------------------------------------
 
 // The split is a yaml.v3 decoder loop, not a string split on "---", so a
 // literal "---" inside a scalar cannot be mistaken for a boundary. That is the
@@ -66,9 +64,7 @@ func TestSplitDocumentsUsesTheYAMLBoundaryNotTheCharacters(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // SubsystemOf
-// ---------------------------------------------------------------------------
 
 // twoSubsystems registers one resource in each of two owner DBs so the mixing
 // rule has something to catch.
@@ -122,9 +118,7 @@ func TestSubsystemOfRefusesAnEmptyOrMixedDocument(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // ManifestScopes / mergeScopes
-// ---------------------------------------------------------------------------
 
 // The rollback feeds ManifestScopes back as PruneScopes. A scope it misses is
 // a scope the rollback leaves behind.
@@ -179,9 +173,7 @@ func TestMergeScopesIsASortedUnion(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // KnownFolders / ValidateFolderRefs
-// ---------------------------------------------------------------------------
 
 // GroupRow stands in for the `groups` resource: the rows that DEFINE which
 // folders exist.

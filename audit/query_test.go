@@ -277,10 +277,6 @@ func TestQueryReturnsAnEmptySliceNotNil(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// EmitDB
-// ---------------------------------------------------------------------------
-
 // EmitDB is the no-package-state writer daemons with their own handle use. It
 // must never write through a nil handle silently: an audit call that logs
 // nothing and reports success is a hole in the record.
@@ -324,9 +320,7 @@ func TestEmitDBStampsTheInstance(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // LoadConfig
-// ---------------------------------------------------------------------------
 
 // audit is off unless AUDIT_ENABLED is exactly "true". Anything else — unset,
 // "1", "yes", "TRUE" — leaves it off, so an operator who thinks they enabled

@@ -16,9 +16,7 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
 // matchEmailAllowlist — who is allowed to sign in at all.
-// ---------------------------------------------------------------------------
 
 func TestMatchEmailAllowlistFailsClosed(t *testing.T) {
 	cases := []struct {
@@ -67,9 +65,7 @@ func TestMatchEmailAllowlistStarAdmitsEveryone(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // checkGitHubOrgMember — the other admission gate.
-// ---------------------------------------------------------------------------
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
@@ -153,9 +149,7 @@ func TestCheckGitHubOrgMemberSendsTheToken(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // SignState / verifyState — the OAuth round-trip CSRF token.
-// ---------------------------------------------------------------------------
 
 func callbackReq(state, cookie string) *http.Request {
 	r := httptest.NewRequest("GET", "https://host/auth/callback?code=abc&state="+url.QueryEscape(state), nil)
@@ -279,9 +273,7 @@ func TestSignStateIsUnpredictable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // PKCE — the verifier must be single-use and must actually bind the challenge.
-// ---------------------------------------------------------------------------
 
 func TestWritePKCEChallengeIsTheS256OfTheStoredVerifier(t *testing.T) {
 	w := httptest.NewRecorder()

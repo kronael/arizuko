@@ -11,9 +11,7 @@ import (
 // helper binaries, reading the on-disk VM record, and the not-found and
 // soft-delete branches of the lifecycle — runs on any host and was untested.
 
-// ---------------------------------------------------------------------------
 // LibexecDir
-// ---------------------------------------------------------------------------
 
 func fakeLibexec(t *testing.T, names ...string) string {
 	t.Helper()
@@ -71,9 +69,7 @@ func TestHasToolsNeedsBothHelpers(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Get / List / Stop / Destroy without a hypervisor
-// ---------------------------------------------------------------------------
 
 func TestGetReturnsNilForAnUnknownVM(t *testing.T) {
 	m := setupTestManager(t)

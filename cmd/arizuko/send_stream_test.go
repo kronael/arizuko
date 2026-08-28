@@ -105,9 +105,7 @@ func TestStreamRoundReportsANon200AndAnUnreachableServer(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // pollRound — the fallback for a client with no SSE.
-// ---------------------------------------------------------------------------
 
 // The poller advances its cursor with last_frame_id. Without that the same
 // frames reprint every second forever.

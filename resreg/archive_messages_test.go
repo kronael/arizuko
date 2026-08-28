@@ -204,9 +204,7 @@ func TestMessagesImportRejectsMalformedJSONL(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // DeriveAgentCursors
-// ---------------------------------------------------------------------------
 
 func cursorOf(t *testing.T, db *sql.DB, jid string) string {
 	t.Helper()

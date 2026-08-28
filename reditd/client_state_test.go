@@ -96,9 +96,7 @@ func TestCursorsRoundTripAndSurviveCorruption(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // doWithRetry
-// ---------------------------------------------------------------------------
 
 func TestDoWithRetryPassesANormalResponseStraightThrough(t *testing.T) {
 	calls := 0

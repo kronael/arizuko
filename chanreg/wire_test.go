@@ -200,9 +200,7 @@ func TestVerbsReturnTheAdapterID(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // round_done, history, pane verbs
-// ---------------------------------------------------------------------------
 
 // The body key is chat_jid and the value is the turn's chat JID verbatim.
 // Keying round_done on anything else — the route's target folder, a derived
@@ -363,9 +361,7 @@ func TestPaneVerbsMapA404ToUnsupported(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Multipart uploads.
-// ---------------------------------------------------------------------------
 
 func TestSendVoiceUploadsTheFileAsMultipart(t *testing.T) {
 	dir := t.TempDir()
@@ -460,9 +456,7 @@ func TestSendFileNeedsItsCapability(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Registry surface.
-// ---------------------------------------------------------------------------
 
 // OwnsScheme stops one adapter asserting another platform's identities. It is
 // coarser than Owns on purpose: registered prefixes are CHAT prefixes
@@ -550,9 +544,7 @@ func TestConnectAndDisconnectAreNoOps(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // send: the full body, and the file half of trySend.
-// ---------------------------------------------------------------------------
 
 // The optional threading fields ride along only when set. An empty reply_to or
 // thread_id on the wire is not the same as an absent one: an adapter that
@@ -687,9 +679,7 @@ func TestSendVoiceWrapperReachesTheSameEndpoint(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // The health loop.
-// ---------------------------------------------------------------------------
 
 // checkAll is the loop's whole body. An adapter that fails maxHealthFails
 // consecutive probes is deregistered — that is what turns a dead adapter into

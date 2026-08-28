@@ -51,9 +51,7 @@ func mustFail(t *testing.T, raw, tool string) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // fork_topic
-// ---------------------------------------------------------------------------
 
 func TestForkTopicPassesParentChildAndForce(t *testing.T) {
 	var gotFolder, gotParent, gotChild string
@@ -108,9 +106,7 @@ func TestForkTopicRefusesAnEmptyChildAndAMissingHook(t *testing.T) {
 	}), "fork_topic with no hook")
 }
 
-// ---------------------------------------------------------------------------
 // inject_message
-// ---------------------------------------------------------------------------
 
 func TestInjectMessageCarriesEveryField(t *testing.T) {
 	var jid, content, sender, senderName string
@@ -149,9 +145,7 @@ func TestInjectMessageRefusesAnEmptyJID(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // observe_group / unobserve_group
-// ---------------------------------------------------------------------------
 
 // The observer is always the socket's own folder. Taking it from an argument
 // would let an agent subscribe a DIFFERENT folder to its own inbound.
@@ -200,9 +194,7 @@ func TestUnobserveGroupRefusesAnEmptySource(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // pane_set_prompts / pane_set_title
-// ---------------------------------------------------------------------------
 
 func TestPaneSetPromptsDecodesTheTitleMessagePairs(t *testing.T) {
 	var gotJID string
@@ -268,9 +260,7 @@ func TestPaneSetTitleTrimsAndBoundsTheTitle(t *testing.T) {
 	}), "pane_set_title at the limit")
 }
 
-// ---------------------------------------------------------------------------
 // post
-// ---------------------------------------------------------------------------
 
 func TestPostSendsContentAndResolvesMediaInsideTheGroup(t *testing.T) {
 	groups := t.TempDir()
@@ -354,9 +344,7 @@ func TestPostRefusesWithNoHook(t *testing.T) {
 	}), "post with no hook")
 }
 
-// ---------------------------------------------------------------------------
 // reset_session
-// ---------------------------------------------------------------------------
 
 func TestResetSessionClearsTheNamedFolder(t *testing.T) {
 	var cleared string
@@ -377,9 +365,7 @@ func TestResetSessionClearsTheNamedFolder(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // set_group_open
-// ---------------------------------------------------------------------------
 
 func TestSetGroupOpenCarriesBothTrueAndFalse(t *testing.T) {
 	var gotFolder string
@@ -421,9 +407,7 @@ func TestSetGroupOpenCarriesBothTrueAndFalse(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // set_observe_window
-// ---------------------------------------------------------------------------
 
 // The stored window has two independent halves, and the tool takes both as
 // OPTIONAL. An absent half must be re-sent as the stored value, not as zero:
@@ -489,9 +473,7 @@ func TestSetObserveWindowRefusesWithNoHook(t *testing.T) {
 	}), "set_observe_window with no hook")
 }
 
-// ---------------------------------------------------------------------------
 // get_work / set_work
-// ---------------------------------------------------------------------------
 
 // work.md is how a turn recovers what was in flight. get_work must report a
 // missing file as exists=false rather than failing — a fresh group has none.

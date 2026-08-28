@@ -219,9 +219,7 @@ func TestConnectWithNoPortDialsFourFourThree(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // The health probe.
-// ---------------------------------------------------------------------------
 
 func healthCheck(t *testing.T, proxy *url.URL) *http.Response {
 	t.Helper()
@@ -280,9 +278,7 @@ func TestHealthAnswersAPeerThatIsNotThePinnedClient(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Hop-by-hop headers.
-// ---------------------------------------------------------------------------
 
 func TestIsHopByHopCoversTheRFCSetCaseInsensitively(t *testing.T) {
 	for _, h := range []string{
@@ -351,9 +347,7 @@ func TestHandleHTTPStripsHopByHopBothWays(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // splice, on its own.
-// ---------------------------------------------------------------------------
 
 // splice returns as soon as EITHER direction ends, so a tunnel whose origin
 // hangs up does not leak a goroutine pair per spawn.
@@ -381,9 +375,7 @@ func TestSpliceReturnsWhenOneSideCloses(t *testing.T) {
 	_ = a2.Close()
 }
 
-// ---------------------------------------------------------------------------
 // resolveDest error paths.
-// ---------------------------------------------------------------------------
 
 // A name that does not resolve must be a refusal, never a fall-through to a
 // dial. The proxy is the one process on the spawn's path with an uplink, so

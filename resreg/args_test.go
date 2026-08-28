@@ -86,9 +86,7 @@ func TestScopeClaimsRoundTripAndEmptyIsNotUnrestricted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // decodeRESTArgs
-// ---------------------------------------------------------------------------
 
 func TestDecodeRESTArgsLayersQueryBodyAndPath(t *testing.T) {
 	e := Endpoint{Verb: "POST", Path: "/v1/tasks/{id}"}
@@ -153,9 +151,7 @@ func TestDecodeRESTArgsIgnoresABodyOnGET(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // decodeMCPArgs
-// ---------------------------------------------------------------------------
 
 func mcpCall(args map[string]any) mcp.CallToolRequest {
 	var req mcp.CallToolRequest

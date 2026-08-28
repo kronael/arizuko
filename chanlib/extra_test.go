@@ -12,9 +12,7 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
 // EnvInt / EnvBytes / ShortHash
-// ---------------------------------------------------------------------------
 
 func TestEnvInt(t *testing.T) {
 	k := "CHANLIB_TEST_INT"
@@ -72,9 +70,7 @@ func TestShortHash(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // NoSocial / NoPinSupport — every verb returns ErrUnsupported
-// ---------------------------------------------------------------------------
 
 func TestNoSocialAllVerbs(t *testing.T) {
 	ns := NoSocial{}
@@ -110,9 +106,7 @@ func TestNoPinSupport(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // CapImplReport — cap↔impl drift detection
-// ---------------------------------------------------------------------------
 
 // fakeBot has all-Unsupported verbs (via NoSocial/NoVoiceSender/NoFileSender)
 // except the ones we override below to be "real" (return a non-Unsupported
@@ -155,9 +149,7 @@ func TestCapImplReport_ConsistentIsEmpty(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // writeBotResult — structured UnsupportedError encoding (non-Post verbs)
-// ---------------------------------------------------------------------------
 
 func newMuxWith(bot BotHandler) *http.ServeMux {
 	return NewAdapterMux("t", []string{"t:"}, bot,
@@ -311,9 +303,7 @@ func TestHandlerUnpin_MissingTargetWithoutAll(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // handleHistory — HistoryProvider wired by NewAdapterMux
-// ---------------------------------------------------------------------------
 
 type histBot struct {
 	fullBot
@@ -382,9 +372,7 @@ func TestHandlerHistory_NotWiredForNonHistoryBot(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // FileProxyHandler
-// ---------------------------------------------------------------------------
 
 func TestFileProxyHandler_Success(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -440,9 +428,7 @@ func TestFileProxyHandler_PanicOnNilResolve(t *testing.T) {
 	FileProxyHandler(FileProxyOpts{})
 }
 
-// ---------------------------------------------------------------------------
 // ProxyFile — upstream non-200 → 502
-// ---------------------------------------------------------------------------
 
 func TestProxyFile_Non200Upstream(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -463,9 +449,7 @@ func TestProxyFile_Non200Upstream(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // HealthCheck custom thresholds (email name → 10-min stale, reddit → 60-min)
-// ---------------------------------------------------------------------------
 
 func TestHandlerHealthEmailThreshold(t *testing.T) {
 	// email: stale after 10min. 6min old → NOT stale.

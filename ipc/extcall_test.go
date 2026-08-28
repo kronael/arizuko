@@ -234,9 +234,7 @@ func TestCallExtToolPutsArgsInTheQueryOrTheBodyByMethod(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Secret scrubbing.
-// ---------------------------------------------------------------------------
 
 // The response body goes straight into the agent's transcript, and a provider
 // that echoes the credential in an error is common. Every secret value must be
@@ -316,9 +314,7 @@ func TestCallExtToolScrubsTheSecretFromATransportError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // The 401 refresh retry (spec 5/15).
-// ---------------------------------------------------------------------------
 
 func TestCallExtToolRetriesOnceWithRefreshedCredentials(t *testing.T) {
 	const stale, fresh = "stale-token", "fresh-token"
