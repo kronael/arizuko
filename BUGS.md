@@ -7110,71 +7110,67 @@ duplication rule says amend the original instead.
   `ant/src/codex.ts:84` (`codexPrompt`), `ant/src/pi.ts` (`runPi`);
   the measurement above.
 
-## L131 — the Bash secret-scrub covers 2 of 5 model credentials and is refused entirely on codex and pi, so an agent shell can read live Anthropic/OpenAI keys (2026-08-28, open — codex half is a fix, pi half is a proposal)
+## L131 — pi's bash tool inherits the whole process env, so every model credential is readable from the agent's shell (2026-08-28, claude half FIXED, pi half open — proposal)
 
-Found auditing the policy layer across all three harnesses (the `6/7` seam).
-Two halves, one root cause: `SECRET_ENV_VARS` is a SECOND declaration of "model
-credential" that drifted from `store.EnvProfileKeys`, and the mechanism it uses
-(`rewrite`) is claude-only.
+Found auditing the policy layer across all three harnesses. **This entry was
+filed wrong the first time and is corrected here**: the original claimed codex
+was exposed too, reasoning "the key is in the process env, therefore the shell
+sees it" without checking whether each CLI filters its own shell env. codex
+does. pi does not.
 
-**The delivery chain puts all five keys in every harness's env, on every
-backend.** `readSecrets` (`container/runner.go:765`) iterates
-`store.EnvProfileKeys` and passes every one set in the host `.env` through;
-they ride the stdin payload as `containerInput.secrets`, and `index.ts:377`
-merges them into the `env` handed verbatim to `turn.env` — which is
-`options.env` for claude and `driveCli`'s `opts.env` for codex and pi. The
-child shell each CLI spawns inherits it.
+**The delivery chain is common to all three.** `readSecrets`
+(`container/runner.go:765`) iterates `store.EnvProfileKeys` and passes every one
+set in the host `.env` through; they ride the stdin payload as
+`containerInput.secrets`, and `index.ts:377` merges them into the `env` handed
+verbatim to `turn.env`. So all five are in every harness's process env. What
+differs is what each harness's SHELL TOOL inherits:
 
-**Half A — the scrub list is short, on every harness including claude.**
-
-| key | in `store.EnvProfileKeys` | in `SECRET_ENV_VARS` |
+| harness | shell env | verdict |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | yes | yes |
-| `CLAUDE_CODE_OAUTH_TOKEN` | yes | yes |
-| `ANTHROPIC_OAUTH_TOKEN` | yes | **no** |
-| `OPENAI_API_KEY` | yes | **no** |
-| `CODEX_API_KEY` | yes | **no** |
+| claude | full, minus what `bash-scrub` unsets | **was 2 of 5 scrubbed — FIXED** |
+| codex | filtered by codex itself | **not exposed** |
+| pi | `{...process.env}` verbatim | **all 5 exposed — open** |
 
-So even on claude — where `bash-scrub` runs and is honoured — three live
-credentials survive the `unset` prefix. `ANTHROPIC_OAUTH_TOKEN` is the one pi
-reads and prefers over the API key (`store/secrets.go:118`), i.e. a full
-subscription credential.
+- **codex is clean, for a reason worth writing down.** `shell_environment_policy`
+  is a real `ConfigToml` key, and its default excludes are the literals `*KEY*`,
+  `*SECRET*`, `*TOKEN*` (read from the codex-cli 0.147.0 binary alongside the
+  `core` inherit set `SHELL`/`TMPDIR`/`TMP`/`LC_ALL`/`LOGNAME`/`LC_CTYPE`, and
+  corroborated by the existence of an `ignore_default_excludes` field). All five
+  EnvProfileKeys match one of those globs. Basis: static read of the binary, not
+  an executed probe.
+- **pi is exposed.** `getShellEnv()` (`utils/shell.js:105`) returns
+  `{...process.env, PATH: updatedPath}` with no filtering, and `bash.js` passes
+  it to every spawn. `bash-scrub` cannot cover it: the row returns `rewrite`,
+  `PI_HONOURS` is `['deny','inject']`, so `runnableBy` drops it.
 
-**Half B — the row is refused outright on codex and pi.** `bash-scrub` declares
-`returns: ['rewrite']`; `CODEX_HONOURS` and `PI_HONOURS` are both
-`['deny','inject']`, so `runnableBy` drops it and logs
-`policy bash-scrub not rendered: cannot honour rewrite`. All five keys are then
-readable from those agents' shells.
+**FIXED (claude half).** `SECRET_ENV_VARS` held 2 of the 5 and nothing said
+whether the other 3 were an omission or a decision. It is now a stated
+partition: the three ANTHROPIC/CLAUDE credentials are scrubbed (nothing under
+`ant/skills` reads them), and `OPENAI_API_KEY`/`CODEX_API_KEY` are deliberately
+NOT — the agent's own `/oracle` skill shells out to `codex` and probes exactly
+those two, so scrubbing them breaks a shipped skill.
+`container/secret_scrub_test.go` pins the partition against
+`store.EnvProfileKeys` across the language boundary, so a key added to the
+canonical set fails the build rather than landing on the wrong side by
+omission. Both directions mutation-tested.
 
-The comments at `ant/src/guards.ts:15` and `ant/src/codex.ts` say this "costs
-nothing" because "codex authenticates from `$CODEX_HOME/auth.json`, so there is
-no credential in its environment to strip". That is about where codex GETS its
-credential, not about what `readSecrets` puts in the env. It puts all five
-there regardless of `ARIZUKO_BACKEND`.
+**OPEN (pi half) — proposal, needs sign-off.** The tension is real: the
+credential MUST be in pi's own env (that is how pi authenticates) and must NOT
+reach the shell pi spawns later. pi offers no `shell_environment_policy`
+equivalent and its hook cannot rewrite a tool's input. Candidates:
 
-**codex has its own knob and arizuko does not use it.** Measured in the
-codex-cli 0.147.0 binary: `shell_environment_policy` is a real `ConfigToml`
-key with `inherit` (`all`/`core`/`none`), `include`, `exclude`, `set` and
-`ignore_default_excludes`; the default is `inherit = all`. `codexArgs` already
-emits `-c mcp_servers.*` overrides, so
-`-c shell_environment_policy.exclude=[...]` is one more line at the same site —
-a cause fix, not a symptom patch, and it survives `--ignore-user-config`.
+1. `delete process.env.<key>` inside `pi-extension.ts` after pi initialises its
+   provider — the extension is in-process, so children spawned later never see
+   them. Changes re-auth behaviour if pi re-reads the env on a provider retry.
+2. A `deny` row matching a bash command that references the names — weak
+   (trivially evaded by `${A}${B}` concatenation) and it fights the agent.
+3. Teach the seam a `scrub-env` verdict pi CAN honour, rendered as (1).
 
-**pi has no equivalent, so its half is a redesign and needs sign-off.** pi's
-`tool_call` hook can only answer `{block, reason}` — it cannot rewrite a tool's
-input, which is why the row is refused rather than emitted as a gate that does
-nothing. The tension is real: the credential MUST be in pi's own env (that is
-how pi authenticates) and must NOT reach the shell pi spawns later. The
-candidate is deleting the keys from `process.env` inside `pi-extension.ts`
-after pi has initialised its provider, so children never see them — plausible
-because the extension is in-process, but it changes re-auth behaviour on a
-provider retry, so it is a proposal and not an inline fix.
+(1) is the smallest, and it is still a control-flow change to credential
+handling on a live backend, so it is recorded rather than shipped.
 
-**One-declaration fix for Half A either way:** `SECRET_ENV_VARS` should be
-derived from the same set `readSecrets` iterates, not restated. A key added to
-`store.EnvProfileKeys` today silently escapes the scrub.
-
-- **Source:** `ant/src/guards.ts:13` (`SECRET_ENV_VARS`), `store/secrets.go:115`
-  (`EnvProfileKeys`), `container/runner.go:765` (`readSecrets`),
-  `ant/src/index.ts:377` (env merge), `ant/src/policy.ts` (`bash-scrub` row),
-  `ant/src/codex.ts` (`CODEX_HONOURS`), `ant/src/pi-extension.ts` (`PI_HONOURS`).
+- **Source:** `ant/src/guards.ts` (`SECRET_ENV_VARS`, `bashScrub`),
+  `store/secrets.go:115`, `container/runner.go:765`, `ant/src/index.ts:377`,
+  `ant/src/pi-extension.ts` (`PI_HONOURS`),
+  pi `dist/utils/shell.js:105` + `dist/core/tools/bash.js`,
+  codex-cli 0.147.0 binary strings.

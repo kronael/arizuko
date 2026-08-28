@@ -374,13 +374,14 @@ Three of the four are universal. `rewrite` is claude-only: codex's
 its separate `PermissionRequest` event. Exactly one policy needs it — the
 credential scrub, which unsets `ANTHROPIC_API_KEY` ahead of a Bash call.
 
-That policy is claude-only in MECHANISM, not in need. This text used to say it
-was claude-specific anyway "because codex resolves its credential from
-`$CODEX_HOME/auth.json` and never from the environment"; that is where codex
-GETS its credential, not what is in its env. `readSecrets` ships every
-`store.EnvProfileKeys` value set in the host `.env` into the container on every
-backend, so dropping the row leaves five keys readable from a codex or pi shell
-(BUGS `L131`). So the binding
+That policy is claude-only in MECHANISM. `readSecrets` ships every
+`store.EnvProfileKeys` value into the container on EVERY backend, so the
+credential is present in all three harnesses' env — but what each harness's
+SHELL TOOL inherits differs. codex filters its own: `shell_environment_policy`
+defaults to excluding `*KEY*`, `*SECRET*`, `*TOKEN*`, which covers all five. pi
+does not — `getShellEnv()` returns `{...process.env}` verbatim — so pi is the
+one backend where dropping the row leaves the keys readable (BUGS `L131`). So
+the binding
 table declares which verdicts a policy may return, and a renderer that cannot
 honour one refuses to render that binding instead of dropping it silently.
 
@@ -749,11 +750,10 @@ never a second copy) runs on both codex and pi as the backstop: at session
 start every skill is scanned, and one with blocking findings is excluded from
 pi's `--skill` list and from codex's index. It gates what the connector loads,
 not what the model reads by path afterwards. The bash secret scrub
-(`guards.ts`) also does not run on codex/pi, and the gap is NOT shrunk by the
-credential being absent there — it is present. `readSecrets` ships all five
-`store.EnvProfileKeys` values into the container on every backend, and the
-scrub list names only two of them, so three keys survive it even on claude
-(BUGS `L131`).
+(`guards.ts`) also does not run on codex/pi. codex needs it least — it excludes
+`*KEY*`/`*SECRET*`/`*TOKEN*` from its own shell tool by default — but pi passes
+`{...process.env}` straight through, so on pi every model credential is
+readable from the agent's bash tool (BUGS `L131`, open).
 
 ### Conformance matrix (2026-08-20)
 
@@ -1020,10 +1020,10 @@ spec says what must stay true across those, not how any of them works.
   authenticates from `$CODEX_HOME/auth.json` under the group's own `$HOME`, so
   that secret is readable with `cat`. The file half belongs to the ownership
   increment that moves harness setup out of the group dir. The env half is
-  BUGS `L131` and does port: codex's own `shell_environment_policy` config key
-  (`inherit`/`include`/`exclude`/`set`, default `inherit = all`, measured in
-  codex-cli 0.147.0) takes a `-c` override at the site that already emits
-  `-c mcp_servers.*`.
+  already handled by codex itself: `shell_environment_policy`'s default excludes
+  (`*KEY*`, `*SECRET*`, `*TOKEN*`, measured in codex-cli 0.147.0) cover every
+  `store.EnvProfileKeys` name, so no `-c` override is needed. pi has no
+  equivalent — that half is BUGS `L131`, open.
 
 Closed since: **`ARIZUKO_IS_ROOT` never reached ant** (BUGS `L60`) — fixed
 2026-08-21 by emitting it as real container env from `buildArgs`, always present
