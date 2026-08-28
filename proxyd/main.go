@@ -238,14 +238,11 @@ func newServer(cfg config, stRoutd *store.Store, ks *auth.KeySet, svc *auth.Toke
 	}
 }
 
-// loadInitialRoutes reads the boot route table. proxyd_routes is the only
-// source: `arizuko generate` writes the release's routes into it
-// (store.SyncProxydRoutes) and proxyd re-reads it per request. There is no env
-// var and no seeding, so there is no window in which config stops applying —
-// PROXYD_ROUTES_JSON was seed-once and cost krons seven routes (BUGS L45).
-//
-// The returned table is used for the boot log and the backend check; dispatch
-// takes a fresh snapshot per request (spec 5/8 no-cache).
+// loadInitialRoutes reads the boot route table. proxyd_routes is the only source:
+// `arizuko generate` writes the release's routes into it and proxyd re-reads it
+// per request. There is no env var and no seeding, so there is no window in which
+// config stops applying — PROXYD_ROUTES_JSON was seed-once and cost krons seven
+// routes (BUGS L45). Dispatch takes a fresh snapshot per request.
 func loadInitialRoutes(st *store.Store) []Route {
 	if st == nil {
 		return nil
@@ -339,12 +336,10 @@ func (s *server) handler(aud *audit.Audit) http.Handler {
 }
 
 // clientIP is the real client address: the left-most X-Forwarded-For hop when
-// present (the edge proxy sets it), else the direct peer. Without it the
-// auth-denied log recorded only the edge-proxy hop (10.0.5.1), hiding the real
-// source of a credential-scanning campaign across all three instances. Every
-// per-source decision uses it — the anon chat DoS shield read RemoteAddr
-// instead, so behind nginx all anonymous visitors shared one 10/min bucket and
-// a second reader 429'd the first (caught by anteval 2026-08-16).
+// present, else the direct peer. Without it the auth-denied log recorded only the
+// edge-proxy hop, hiding the real source of a credential-scanning campaign. Every
+// per-source decision uses it — the anon chat DoS shield read RemoteAddr, so
+// behind nginx all anonymous visitors shared one 10/min bucket.
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if left := strings.TrimSpace(strings.SplitN(xff, ",", 2)[0]); left != "" {
@@ -531,16 +526,13 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// /priv/* — JWT-gated + folder-scoped. Served by the same vited instance
-	// as /pub/*, resolving to files under <data>/web/priv/<folder>/. Spec 5/V:
-	// agents publish to ~/private_html/, bind-mounted from web/priv/.
-	// No path rewrite — vite cwd is <data>/web/, so /priv/X resolves
-	// to web/priv/X naturally. Spec 5/10: after auth, the caller must hold
-	// a grant covering the folder that owns the slot (auth.MatchSlot on
-	// X-User-Groups). This used to cut the path at its FIRST segment and call
-	// MatchGroups on that, which is wrong in both directions: a folder is
-	// multi-segment, so `atlas/search` could not read its own /priv slot, while
-	// a scope of `atlas/*` — direct children only — read nothing at all.
+	// /priv/* — JWT-gated + folder-scoped, served by the same vited instance as
+	// /pub/* and resolving under <data>/web/priv/<folder>/. No path rewrite: vite
+	// cwd is <data>/web/. After auth the caller must hold a grant covering the
+	// folder that owns the slot (auth.MatchSlot). This used to cut the path at its
+	// FIRST segment, which is wrong in both directions: a folder is multi-segment,
+	// so `atlas/search` could not read its own slot, while a scope of `atlas/*`
+	// read nothing at all.
 	if r.URL.Path == "/priv" || strings.HasPrefix(r.URL.Path, "/priv/") {
 		s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 			slotPath := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/priv"), "/")
@@ -609,13 +601,10 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/pub"+r.URL.Path, http.StatusFound)
 }
 
-// dispatchRoute applies per-route auth + bespoke handling and forwards via
-// the cached ReverseProxy. Bespoke logic for `/chat/`, `/hook/`, and
-// `/dav/` lives in dedicated helpers so the generic auth switch stays
-// orthogonal.
-// It takes the proxy map from the SAME snapshot rt was matched in — never
-// re-reads it — so route and backend cannot come from two versions of the
-// table (BUGS P3).
+// dispatchRoute applies per-route auth + bespoke handling and forwards via the
+// cached ReverseProxy. It takes the proxy map from the SAME snapshot rt was
+// matched in — never re-reads it — so route and backend cannot come from two
+// versions of the table (BUGS P3).
 func (s *server) dispatchRoute(rt *Route, proxies map[string]*httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
 	if rt.RedirectTo != "" {
 		http.Redirect(w, r, rt.RedirectTo, http.StatusFound)
@@ -643,13 +632,11 @@ func (s *server) dispatchRoute(rt *Route, proxies map[string]*httputil.ReversePr
 	case "public":
 		rp.ServeHTTP(w, r)
 	case "optional":
-		// Identify when the caller offers a credential, forward anonymously when
-		// they do not — the route-token surface (`/chat/`, `/hook/`), where the
-		// token is the credential and a stamped sub only decides attribution.
-		// Either way the request carries proxyd's transit proof, so the backend
-		// can tell a front-door request from one aimed straight at it.
-		// This used to be a `switch rt.Path` arm naming those two prefixes; it
-		// is a property of the route, not a path proxyd hardcodes (6/22 step 1).
+		// Identify when the caller offers a credential, forward anonymously when they
+		// do not — the route-token surface, where the token is the credential and a
+		// stamped sub only decides attribution. Either way the request carries
+		// proxyd's transit proof. This is a property of the route, not a path proxyd
+		// hardcodes (6/22 step 1).
 		if a := s.tryAuth(r); a != nil {
 			r = a
 		} else {
@@ -720,13 +707,10 @@ var davReadMethods = map[string]bool{
 	"GET": true, "HEAD": true, "OPTIONS": true, "PROPFIND": true,
 }
 
-// davAllow enforces two protections on top of group-scoped routing:
-//   - sensitive paths (`.env`, `*.pem`, anything under `.git/`) cannot be
-//     written via WebDAV.
-//   - any path under `<group>/logs/` is read-only.
-//
-// rest is the path after `/dav/`, e.g. `myworld/logs/foo.log` or
-// `myworld/.env`. Returns false to block.
+// davAllow enforces two protections on top of group-scoped routing: sensitive
+// paths (`.env`, `*.pem`, anything under `.git/`) cannot be written via WebDAV,
+// and any path under `<group>/logs/` is read-only. rest is the path after `/dav/`.
+// Returns false to block.
 func davAllow(method, rest string) bool {
 	if davReadMethods[method] {
 		return true
@@ -745,13 +729,10 @@ func davAllow(method, rest string) bool {
 	return true
 }
 
-// setUserHeaders stamps the verified caller's identity onto the forwarded
-// request and proves the channel to backends. Identity travels in X-User-*; the
-// proof is proxyd's own ES256 service token (Authorization: Bearer
-// service:proxyd), which backends verify (auth.ProxydTransit) before trusting
-// the stamped headers. With no service token (local dev, AUTHD_URL/key unset)
-// the headers go unsigned: backends with no JWKS configured pass them through as
-// local-dev, exactly as an unsigned request always was.
+// setUserHeaders stamps the verified caller's identity onto the forwarded request
+// and proves the channel to backends. Identity travels in X-User-*; the proof is
+// proxyd's own ES256 service token, which backends verify before trusting the
+// stamped headers. With no service token (local dev) the headers go unsigned.
 func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []string) *http.Request {
 	r2 := s.attachTransit(r)
 	r2.Header.Set("X-User-Sub", sub)
@@ -766,18 +747,15 @@ func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []stri
 }
 
 // attachTransit replaces the caller's Authorization with proxyd's own
-// service:proxyd bearer — the proof a backend checks (auth.ProxydTransit)
-// before trusting anything proxyd stamped. Clearing the inbound header is
-// unconditional: identity rides X-User-*, so a backend behind
-// RequireSignedOrBearer that re-derived identity FROM the caller's bearer would
-// clobber the stamped sub, and on the no-service-token path (local dev,
-// AUTHD_URL/key unset) the request must truly forward unsigned.
+// service:proxyd bearer — the proof a backend checks before trusting anything
+// proxyd stamped. Clearing the inbound header is unconditional: identity rides
+// X-User-*, so a backend that re-derived identity FROM the caller's bearer would
+// clobber the stamped sub.
 //
-// It runs for identified AND anonymous callers on `optional` routes. It used to
-// run only inside setUserHeaders, so an anonymous /chat/ request reached webd
-// with no proof it had transited proxyd at all — and webd's stream gate demands
-// that proof, which is why the chat widget's live stream answered 403 to every
-// visitor on any instance with a JWKS (specs/6/22 step 1).
+// It runs for identified AND anonymous callers on `optional` routes. Running only
+// inside setUserHeaders left an anonymous /chat/ request reaching webd with no
+// proof it had transited proxyd, which is why the chat widget's live stream
+// answered 403 to every visitor on any instance with a JWKS (specs/6/22 step 1).
 func (s *server) attachTransit(r *http.Request) *http.Request {
 	r2 := r.Clone(r.Context())
 	r2.Header.Del("Authorization")
@@ -811,19 +789,13 @@ func (s *server) groupsForSub(sub string) []string {
 	return scopes
 }
 
-// tryAuth returns an identity-stamped request if the caller has a valid
-// Bearer JWT; otherwise nil. A refresh_token cookie is NOT an identity here —
-// requireAuth trades it for an access token via tryRefreshViaAuthd.
+// tryAuth returns an identity-stamped request if the caller has a valid Bearer
+// JWT; otherwise nil. A refresh_token cookie is NOT an identity here — requireAuth
+// trades it for an access token. Bearer verify is ES256 only, against authd's JWKs.
 //
-// Bearer verify is ES256 only (auth.VerifyHTTP) against authd's JWKs.
-// setUserHeaders attaches proxyd's own service:proxyd bearer as the backend
-// transit proof.
-//
-// An HS256 branch used to run FIRST here, against AUTH_SECRET. Nothing has
-// minted an HS256 bearer since `a56202d4` moved OAuth to authd, so it admitted
-// no legitimate caller and turned an AUTH_SECRET leak into arbitrary identity
-// forgery that bypassed authd (BUGS L6). With AUTHD_URL unset, ks is nil and
-// no bearer authenticates at all.
+// An HS256 branch used to run FIRST here, against AUTH_SECRET. Nothing has minted
+// an HS256 bearer since OAuth moved to authd, so it admitted no legitimate caller
+// and turned an AUTH_SECRET leak into arbitrary identity forgery (BUGS L6).
 func (s *server) tryAuth(r *http.Request) *http.Request {
 	if s.ks == nil {
 		return nil

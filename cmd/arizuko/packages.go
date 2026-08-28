@@ -49,12 +49,9 @@ var baseDaemons = map[string]bool{
 }
 
 // parseInstallFlags splits `install`'s args into the source and the grant bound
-// the operator handed the package: `--folder <scope>`, repeatable.
-//
-// A package's authority is what the OPERATOR named, never what the package asks
-// for (BUGS L46), and this is where the operator names it. No `--folder` is not
-// "unbounded" — it is a bound of nothing, so a package declaring any grant is
-// refused with the flag it needs. A package declaring no grant needs no flag.
+// the operator handed the package: `--folder <scope>`, repeatable. A package's
+// authority is what the OPERATOR named, never what the package asks for (BUGS
+// L46). No `--folder` is not "unbounded" — it is a bound of nothing.
 func parseInstallFlags(args []string, usage string) (origin string, bound []string) {
 	var rest []string
 	for i := 0; i < len(args); i++ {
@@ -195,16 +192,12 @@ func mustOpenRoutd(dataDir string) *routd.DB {
 }
 
 // checkGrantPredicate refuses a grant whose predicate can never be evaluated.
-// `acl.predicate` is matched against the CALLER'S JWT claims (auth.Authorize →
-// predicateMatches). A `folder:` principal is the agent MCP socket's own
-// principal, and that gate builds its Caller with no claims at all
-// (routd/sibling_db.go), so every non-empty predicate on such a row fails and
+// `acl.predicate` is matched against the CALLER'S JWT claims, and a `folder:`
+// principal is the agent MCP socket's own principal, whose gate builds its Caller
+// with no claims at all — so every non-empty predicate on such a row fails and
 // the grant is inert on the one surface it names. It fails closed, so this is a
-// silent no-op rather than a leak — the same class as a product declaring
-// `mcpServers`, and it gets the same answer: refuse the write instead of
-// reporting success for a row that does nothing. A package's grants are the only
-// writer of a non-empty predicate today (grantACLTx and dashd's grant form both
-// write ''). Spec 5/5 §Open 2, BUGS F59.
+// silent no-op rather than a leak, and it gets the same answer as a product
+// declaring `mcpServers`: refuse the write (spec 5/5 §Open 2, BUGS F59).
 func checkGrantPredicate(row resources.ACLRow) error {
 	if row.Predicate == "" || !strings.HasPrefix(row.Principal, "folder:") {
 		return nil
@@ -216,14 +209,10 @@ func checkGrantPredicate(row resources.ACLRow) error {
 }
 
 // checkGrantScope refuses a grant scope a package may not ask for (BUGS L46).
-//
-// Two rules. `**` and `*` are refused whatever the operator named: operator-ness
-// in arizuko is emergent from exactly such a row — there is no operator role to
-// check against — so a package able to declare one hands itself the instance.
-// Every other scope must lie inside the folder(s) the operator named at install.
-// That is subset-of-held, the delegation model `5/33` already applies to a
-// person re-granting: a package holds only what it was handed, and an empty
-// bound holds nothing.
+// `**` and `*` are refused whatever the operator named: operator-ness is emergent
+// from exactly such a row, so a package able to declare one hands itself the
+// instance. Every other scope must lie inside the folder(s) named at install —
+// subset-of-held, the delegation model 5/33 already applies to a person.
 func checkGrantScope(bound []string, row resources.ACLRow) error {
 	switch row.Scope {
 	case "**", "*":
@@ -247,13 +236,10 @@ func checkGrantScope(bound []string, row resources.ACLRow) error {
 }
 
 // scopeWithin reports whether every folder `scope` can reach is also covered by
-// `bound`.
-//
-// `auth.MatchGroups` answers pattern-against-PATH and both sides here are
-// patterns, so the package's scope is turned into the paths hardest for a bound
-// to cover — its witnesses — and each is put through that one matcher.
-// Containment is still decided in exactly one place (5/33 decision 8); this
-// only chooses what to ask it.
+// `bound`. auth.MatchGroups answers pattern-against-PATH and both sides here are
+// patterns, so the package's scope is turned into its witnesses — the paths
+// hardest for a bound to cover — and each is put through that one matcher.
+// Containment is still decided in exactly one place (5/33 decision 8).
 func scopeWithin(bound []string, scope string) bool {
 	if slices.Contains(bound, scope) {
 		return true // what the operator wrote verbatim needs no witness
@@ -335,19 +321,16 @@ type pkgFragment struct {
 	rows      map[string]any
 }
 
-// parsePkgManifests reads every `<name>.yaml` in dir — the package's 5/8
-// manifest fragments — and groups their rows by owner subsystem. It writes
-// nothing: an unknown resource key, an unknown row field, an unevaluable grant
-// predicate or a resource `apply` never rebuilds all fail here, before the
-// install touches the instance.
+// parsePkgManifests reads every `<name>.yaml` in dir and groups their rows by
+// owner subsystem. It writes nothing: an unknown resource key, an unknown row
+// field, an unevaluable grant predicate or a resource `apply` never rebuilds all
+// fail here, before the install touches the instance.
 //
-// acl rows are stamped `granted_by = package:<name>` whatever the file says, so
-// the row itself names where the authority came from and `remove` can find it,
-// and proxyd_routes rows `owner = package:<name>` for the same reason.
-//
-// This is the one place a package's rows enter the instance, so it is also where
-// a package is held to what the operator handed it: no core route path, no scope
-// outside `bound`, no self-chosen owner (BUGS L46).
+// acl rows are stamped `granted_by = package:<name>` whatever the file says, and
+// proxyd_routes rows `owner = package:<name>`, so the row names where the
+// authority came from and `remove` can find it. This is the one place a package's
+// rows enter the instance, so it is also where a package is held to what the
+// operator handed it (BUGS L46).
 func parsePkgManifests(name, dir string, files []string, bound []string) []pkgFragment {
 	bySubsystem := map[string]map[string]any{}
 	var order []string
@@ -427,14 +410,11 @@ func stampPkgGrants(name, file string, bound []string, rows any) any {
 	return grants
 }
 
-// stampPkgRoutes sets owner on every proxyd route a package declares, refuses
-// the ones that claim core arizuko's own surfaces, and refuses a package that
-// names its own owner (BUGS L46).
-//
-// The owner is stamped, never read from the file: `arizuko` would let the row
-// pass as core-shipped, and `operator` would opt it out of every later generate
-// so an upgraded package could not correct its own route — the hole L45 left
-// open deliberately.
+// stampPkgRoutes sets owner on every proxyd route a package declares, refuses the
+// ones that claim core arizuko's own surfaces, and refuses a package that names
+// its own owner (BUGS L46). The owner is stamped, never read from the file:
+// `arizuko` would let the row pass as core-shipped, and `operator` would opt it
+// out of every later generate.
 func stampPkgRoutes(name, file string, rows any) any {
 	routes, ok := rows.([]resources.ProxydRoutesRow)
 	if !ok {
@@ -484,16 +464,14 @@ func pkgSubsystemStores(dataDir string, rdb *routd.DB, subsystems []string) (map
 }
 
 // installPkgRows writes a package's declared rows through the SAME `arizuko
-// apply` path the operator drives by hand, and returns resource name → PK
-// strings for the installed-package record.
+// apply` path the operator drives by hand, and returns resource name → PK strings
+// for the installed-package record.
 //
 // Apply rebuilds a resource from the document it is handed, so each fragment is
-// MERGED onto its subsystem's live projection first (resreg.MergeRows) and the
-// whole projection is applied. That is what buys the transaction: a package
-// whose third grant is invalid now leaves grants one and two unwritten, where
-// the old hand-rolled loop called die() mid-write and left them behind with no
-// record (BUGS L44). The CAS token is the live checksum read a moment earlier,
-// so a concurrent writer makes the apply refuse rather than clobber.
+// MERGED onto its subsystem's live projection first and the whole projection is
+// applied. That is what buys the transaction: the old hand-rolled loop called
+// die() mid-write and left earlier grants behind with no record (BUGS L44). The
+// CAS token is the live checksum read a moment earlier.
 func installPkgRows(dataDir string, rdb *routd.DB, name string, frags []pkgFragment, digest string) (map[string][]string, error) {
 	subs := make([]string, 0, len(frags))
 	for _, f := range frags {
@@ -527,11 +505,9 @@ func installPkgRows(dataDir string, rdb *routd.DB, name string, frags []pkgFragm
 
 // removePkgRows subtracts exactly the rows the installed-package record names
 // from each owner's live projection and applies the result the same way install
-// wrote it — one transaction, pre-image rollback, no second delete path.
-//
-// A manifest key that names no registered resource is fatal. The alternative is
-// to skip it and report a clean removal while its rows stay live, which is the
-// one thing `remove` may never do.
+// wrote it — one transaction, pre-image rollback, no second delete path. A
+// manifest key that names no registered resource is fatal: skipping it would
+// report a clean removal while its rows stay live.
 func removePkgRows(dataDir string, rdb *routd.DB, rec routd.InstalledPackage) {
 	byOwner := map[string]map[string][]string{}
 	var subs []string
@@ -742,16 +718,12 @@ type reapplyResult struct {
 	Changed  bool     // an asset's content or the resolved revision actually moved
 }
 
-// reapplyPackage re-fetches rec.Source and rewrites every file asset the record
-// owns, drops the ones the new revision no longer ships, and updates the record.
-// It writes NOTHING and returns Dirty when an asset diverged locally — spec
-// 5/28's no-blind-overwrite rule. `upgrade` (one package, dirty is fatal) and
-// `sync` (every package, dirty is reported and skipped) are the two callers, so
-// there is ONE updater rather than a second one beside it.
-//
-// Only the file half of the manifest is replaced: the row and skill identities
-// install recorded are re-applied by neither verb, so overwriting them would
-// strand rows `remove` is supposed to delete.
+// reapplyPackage re-fetches rec.Source, rewrites every file asset the record owns,
+// drops the ones the new revision no longer ships, and updates the record. It
+// writes NOTHING and returns Dirty when an asset diverged locally — spec 5/28's
+// no-blind-overwrite rule. `upgrade` and `sync` are the two callers, so there is
+// ONE updater. Only the file half of the manifest is replaced: overwriting the
+// recorded row and skill identities would strand rows `remove` must delete.
 func reapplyPackage(svcDir string, rdb *routd.DB, rec routd.InstalledPackage) reapplyResult {
 	if dirty := dirtyAssets(svcDir, rec); len(dirty) > 0 {
 		return reapplyResult{Dirty: dirty}
@@ -991,13 +963,10 @@ func cmdPackages(args []string) {
 		fmt.Printf("upgraded %s@%s — run `arizuko generate %s` to apply\n", name, res.Revision, args[0])
 	case "sync":
 		// Spec 5/28: re-apply every installed package's fragment from its recorded
-		// source. Idempotent — an unchanged package prints "unchanged" and writes
-		// nothing — and it is `upgrade` over the whole record set, NOT a second
-		// updater: both go through reapplyPackage, so dirty-refusal is identical.
-		// A dirty package is reported and SKIPPED rather than fatal, so one
+		// source. Idempotent, and `upgrade` over the whole record set rather than a
+		// second updater — both go through reapplyPackage, so dirty-refusal is
+		// identical. A dirty package is reported and SKIPPED rather than fatal, so one
 		// hand-edited fragment cannot block the rest of the instance from syncing.
-		// Group-scoped records are the composition half of the same lock and go
-		// through the mix that owns them (below), not through reapplyPackage.
 		rdb := mustOpenRoutd(dataDir)
 		defer rdb.Close()
 		recs, err := rdb.InstalledPackages()
@@ -1089,14 +1058,11 @@ func cmdPackages(args []string) {
 	}
 }
 
-// relinkCatalog converts every installed fragment that's still a
-// byte-identical copy of the bundled catalog into a symlink, so a catalog fix
-// reaches this instance without a copy ever falling behind (BUGS R1). Runs on
-// every generate, unconditionally — no operator flag, since it never touches
-// a hand-edited or multi-account-variant fragment (compose.RelinkCatalog). A
-// no-op when HOST_APP_DIR isn't set in .env: without it there is no
-// host-resolvable path to link to, so fragments stay plain copies exactly as
-// before (degraded, not broken).
+// relinkCatalog converts every installed fragment that is still a byte-identical
+// copy of the bundled catalog into a symlink, so a catalog fix reaches this
+// instance without a copy falling behind (BUGS R1). Runs on every generate — it
+// never touches a hand-edited or multi-account-variant fragment. A no-op when
+// HOST_APP_DIR is unset: there is then no host-resolvable path to link to.
 func relinkCatalog(dataDir string) {
 	hostDir, ok := compose.HostCatalogDir(dataDir)
 	if !ok {
@@ -1118,20 +1084,16 @@ func relinkCatalog(dataDir string) {
 	}
 }
 
-// migrateStoreLayout moves an instance's owner DBs into store/<owner>/ and
-// creates the directories compose binds there, then chowns store/ to the
-// container uid — docker materialises a missing bind source as ROOT and every
-// daemon runs as uid 1000. Runs on every generate, like relinkCatalog and for
-// the same reason: systemd invokes `arizuko generate` after `compose down` and
-// before `up`, the one moment the whole tree is in one process's hands with no
-// daemon holding a DB open. A daemon could not do this for itself — the
-// narrowing is exactly what takes the flat path out of its own mount.
+// migrateStoreLayout moves an instance's owner DBs into store/<owner>/, creates
+// the directories compose binds there, and chowns store/ to the container uid —
+// docker materialises a missing bind source as ROOT and every daemon runs as uid
+// 1000. Runs on every generate: systemd invokes `arizuko generate` between
+// `compose down` and `up`, the one moment the whole tree is in one process's hands
+// with no daemon holding a DB open.
 //
-// A failure is fatal, and that is the point: the compose written next binds
-// store/<owner> and points DB_PATH/ONBOD_DB_PATH/ROUTD_DB_PATH/RUNED_DB_PATH
-// inside it, while every owner daemon refuses to boot on a missing file
-// (db_utils.RequireDBFile). Generating that against a tree still flat turns a
-// deploy into a fleet outage.
+// A failure is fatal. The compose written next binds store/<owner> and points
+// every DB path inside it, while every owner daemon refuses to boot on a missing
+// file — generating that against a tree still flat turns a deploy into an outage.
 func migrateStoreLayout(dataDir string) {
 	storeDir := filepath.Join(dataDir, "store")
 	moved, err := compose.MigrateStoreLayout(storeDir)

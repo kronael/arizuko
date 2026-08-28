@@ -37,15 +37,14 @@ var serviceGrants = map[string][]string{
 	// federates the /invite + /gate slash commands to onbod (invites:write +
 	// gates:write → onbod's /v1/invites + /v1/gates; onbod OWNS those tables).
 	"service:routd": {"runs:run", "identity:read", "invites:write", "gates:write"},
-	// service:runed holds no grant: runed calls auth.ServiceToken nowhere and
-	// mints nothing. It only VERIFIES its callers against authd's JWKs
-	// (runed/cmd/runed/main.go keysetVerifier). The broker ceiling that used to
-	// sit here died with the per-spawn capability token (BUGS B1/L8); the turn is
-	// credentialed by routd's SO_PEERCRED socket, not by a token runed downscopes.
-	// Channel adapters post inbound to routd's /v1/messages (messages:write).
-	// Each exchanges its AUTHD_SERVICE_KEY for a service:<adapter> JWT (spec 5/1);
-	// missing the entry → empty scope → every inbound 401/403s (the split's A1).
-	// Multi-account variants (`<adapter>-<label>`) share the base principal.
+	// service:runed holds no grant: runed mints nothing and only VERIFIES its
+	// callers against authd's JWKs. The broker ceiling that used to sit here died
+	// with the per-spawn capability token (BUGS B1/L8) — the turn is credentialed by
+	// routd's SO_PEERCRED socket.
+	// Channel adapters post inbound to routd's /v1/messages. Each exchanges its
+	// AUTHD_SERVICE_KEY for a service:<adapter> JWT (spec 5/1); a missing entry means
+	// empty scope and every inbound 401/403s. Multi-account variants share the base
+	// principal.
 	"service:teled":  {"messages:write"},
 	"service:whapd":  {"messages:write"},
 	"service:discd":  {"messages:write"},
@@ -61,150 +60,46 @@ var serviceGrants = map[string][]string{
 	// the user) — the strengths form was dead because webd had no scope.
 	"service:webd": {"messages:write"},
 	// dashd is the operator UI. It proxies rather than touching other daemons'
-	// tables: POST /v1/runs/stop (runed, gated runs:kill — server.go), the whapd
-	// pair endpoints (no scope gate), and /v1/proxyd_routes (proxyd authorizes the
-	// FORWARDED operator identity, not a service scope; dashd's bearer only proves
-	// transit, see proxyd trustedForwarders).
-	// Missing entry → empty scope → the kill button 403s; same shape as the four
-	// cases above, and it shipped that way (BUGS F15a).
+	// tables, and a missing entry means empty scope, so the control 403s silently
+	// (BUGS F15a). The eleven scopes and what each buys:
 	//
-	// routes:read is the READ half, added for /dash/engagement/ (spec 5/G item 6,
-	// BUGS F31). It is not a widening of what dashd can SEE: dashd is FS-mounted on
-	// routd.db (dash.dbRoutd, dashd/main.go) and already reads routes, groups and
-	// route_tokens straight out of the table, so this scope is a strict subset of
-	// reach it holds — what it buys is moving one page OFF the direct-DB read that
-	// is its own recorded defect. Nor does it leak a secret: routes:read's widest
-	// read is ListRouteTokens, which selects jid/owner_folder/created_at/context and
-	// never the token value (store/route_tokens.go:137), and route_tokens/resolve is
-	// a reverse lookup that needs the token already in hand.
-	// routes:write is the WRITE half, added for /dash/engagement/'s force-disengage
-	// control (spec 5/G item 6). It reaches exactly one thing dashd asks for —
-	// POST /v1/engagement with ttl_seconds=0 — and the two conditions the read
-	// half's sign-off named as owed are both met: routd writes the audit_log row
-	// inside the mutation's own transaction (DB.SetEngagementAudited), and the
-	// write path contains on the window's CLAIMING folder, the same predicate the
-	// list read applies, so this scope can never reach a window the read half
-	// could not already show. Everything else routes:write covers (routes,
-	// web_routes, groups) dashd ALREADY writes directly through its FS mount on
-	// routd.db, so like routes:read this is a subset of reach it holds, not new
-	// authority — what it buys is one mutation moving OFF the direct-DB path.
+	//   - runs:kill — POST /v1/runs/stop, the /dash/runed/ kill button.
+	//   - routes:read/write — /dash/engagement/'s view and its force-disengage
+	//     control. Both are a subset of reach dashd already holds through its FS
+	//     mount on routd.db; what they buy is moving a page off the direct-DB read.
+	//     routes:read's widest read (ListRouteTokens) never selects the token value.
+	//   - audit:read — /dash/audit/ federating routd's, runed's and authd's trails
+	//     (spec 5/I). NOT a subset: dashd is mounted on neither runed.db nor
+	//     auth.db, so this is new authority on the token authority. What bounds it
+	//     is that audit.Query names audit_log and no other table, and authd's DSN is
+	//     redacted at the writer and scrubbed from history (authd migration 0007).
+	//   - signing_keys:read — SigningKeysRow. priv_pem and pub_pem are in no SELECT
+	//     list, no Row struct and no db: tag, and the query is a constant. It reads
+	//     the rotation, never the key.
+	//   - sessions:read — SessionsRow carries no credential column: authd persists
+	//     only a sha256, and token_hash is unnamed in the projection.
+	//   - sessions:write — exactly DELETE /v1/sessions/{family_id}, one UPDATE
+	//     setting revoked_at. A kill verb on the token authority, taken because the
+	//     audit row lands inside the mutation's own transaction (a failed audit
+	//     write rolls the revoke back) and 5/I made that row readable. A leaked
+	//     dashd key can END sessions, never create or extend one; retiring the
+	//     active key has no wire face at all (spec 5/1 § JWK rotation mechanics).
+	//   - pending_actions:read/write — /dash/approvals/ (spec 5/19). The read shows
+	//     the tool name and the arguments the agent chose; the write is one guarded
+	//     UPDATE on a `held` row and cannot create a hold or delete a decision.
+	//   - dead_letters:read/write — /dash/routd/'s dead-letter section (BUGS L23).
+	//     Their own pair rather than messages:read/write, which is the point:
+	//     messages:write is "speak as a channel", and requeueing one already-composed
+	//     row is strictly smaller. The write is one guarded 'failed'→'pending'.
 	//
-	// audit:read is the READ of every daemon's own audit_log, added so
-	// /dash/audit/ can federate routd's, runed's and authd's trails through
-	// their APIs (spec 5/I, BUGS F29). Before it, runed's run.hold/run.kill
-	// rows and authd's login rows were reachable only with sqlite3 on the box:
-	// an operator who killed a run could not see who did.
+	// None is reachable by a human bearer: a user token's scope list holds folder
+	// globs and auth.scopeMatches rejects a held value without a colon. signing_keys
+	// and sessions also REFUSE a folder-claimed caller outright (instanceWideGate) —
+	// neither table has a folder column to narrow by.
 	//
-	// This one is NOT a subset of reach dashd already holds — routes:read/write
-	// were, because dashd is FS-mounted on routd.db, but it is mounted on
-	// NEITHER runed.db NOR auth.db. It is therefore new authority on the token
-	// authority itself, and it was audited as such rather than assumed:
-	// authd's params_summary had exactly one writer (daemon.start's
-	// {dsn, serving_keys, service_subs}), the two counts are len() values, the
-	// DSN is now redacted at the writer (audit.redactRE) and scrubbed from
-	// history (authd migration 0007), and no signing key, refresh token or
-	// service secret is reachable — audit.Query selects from audit_log and
-	// names no other table.
-	//
-	// The scope is unreachable by any human bearer, which is what makes it
-	// operator-only rather than merely operator-intended: a user token's scope
-	// list holds FOLDER GLOBS, and auth.scopeMatches rejects any held value
-	// without a colon, so neither `acme/**` nor an operator's `**` satisfies
-	// it. dashd is the only holder, and its /dash/audit/ page is
-	// requireOperator-gated.
-	//
-	// signing_keys:read, sessions:read and sessions:write are the /dash/authd/
-	// page (spec 5/1 DoD item 6). They are the three the spec named as
-	// deliberately WITHHELD — "granting the token authority's kill verb to a
-	// daemon with no caller for it is authority without a user" — so what
-	// changed is that the caller exists, not that the reasoning softened. Each
-	// is bounded by the resource it names, and the bound is a projection rather
-	// than a promise:
-	//
-	//   - signing_keys:read reaches SigningKeysRow — kid, alg, active,
-	//     created_at, retired_at. `priv_pem` and `pub_pem` appear in no SELECT
-	//     list, no Row struct and no db: tag, and the query is a constant with
-	//     no argument that could add a column, so this scope cannot be pointed
-	//     at key material by any caller. It reads the ROTATION, never the key.
-	//   - sessions:read reaches SessionsRow, which carries no credential column
-	//     at all: authd persists only a sha256 of a refresh token, and
-	//     token_hash is unnamed in the projection and in the query. The
-	//     strongest fact this scope yields is that a login exists.
-	//   - sessions:write reaches exactly DELETE /v1/sessions/{family_id}, one
-	//     UPDATE that sets revoked_at. It cannot mint, cannot rotate a key, and
-	//     cannot delete a row — the tombstone IS the reuse-detection evidence,
-	//     so the record of a session survives its revocation.
-	//
-	// sessions:write is the sharpest of the three: it is a kill verb on the
-	// token authority. It is taken on the two conditions the routes:write
-	// sign-off established and BUGS F15a left open. The audit row lands inside
-	// the mutation's OWN transaction — resreg.invoke opens it, the handler
-	// revokes in it, the event is emitted into it, and a failed audit write
-	// rolls the revoke back — so an unrecorded revoke is not expressible. And
-	// the row is READABLE, because 5/I federated authd's audit_log into
-	// /dash/audit/; F15a's objection was that a revoke recorded only in auth.db
-	// is invisible on the page that exists to show it, which was true when it
-	// was written and is not now.
-	//
-	// The blast radius is bounded the same way the reads are: a leaked dashd
-	// key buys the ability to END sessions, never to create or extend one.
-	// Signing stays authd's alone, and the fleet-wide lever — retiring the
-	// active key — has no wire face at all, deliberately (spec 5/1 § JWK
-	// rotation mechanics), so no scope reaches it and /dash/authd/ ships the
-	// per-login control with the fleet-wide one stated as out-of-band.
-	//
-	// All three are unreachable by a human bearer for the same mechanical
-	// reason audit:read is: a user token's scope list holds folder globs and
-	// auth.scopeMatches rejects a held value without a colon. On top of that,
-	// signing_keys and sessions REFUSE a folder-claimed caller outright
-	// (instanceWideGate) — neither table has a folder column to narrow by, so
-	// serving one everything would be the recorded cross-tenant list-all leak.
-	//
-	// pending_actions:read and pending_actions:write are the /dash/approvals/
-	// review page (spec 5/19): the list of tool calls held for human approval
-	// and the approve/reject verdict on one. Both are bounded by what the
-	// endpoints reach. The read returns PendingActionsRow — the tool name and
-	// the arguments the AGENT chose to send, which is exactly the material an
-	// operator must see to review; no secret, token or key column exists in the
-	// table. The write reaches one guarded UPDATE on a `held` row (routd
-	// resolveHoldTx): it cannot create a hold, cannot delete the record of a
-	// decision, and routd writes the audit row inside the verdict's own
-	// transaction. Like audit:read, neither scope is reachable by a human
-	// bearer (folder-glob scope lists carry no colon), and the chat path's
-	// IsOperator gate is matched on this path by dashd's requireOperator page
-	// gate.
-	//
-	// dead_letters:read and dead_letters:write are the /dash/routd/ dead-letter
-	// section (BUGS L23): the outbound messages routd gave up on, and the
-	// requeue of one. Before them the page rendered a COUNT, so an operator
-	// could see that delivery had failed and not what was lost or to whom, and
-	// nothing could send it again.
-	//
-	// They are their OWN pair rather than messages:read/messages:write, and that
-	// distinction is the point: messages:write is "speak as a channel" — it
-	// authorizes posting arbitrary inbound at POST /v1/messages — and the line
-	// below says dashd does not hold it. Requeueing one already-composed row is
-	// a strictly smaller authority than composing any row.
-	//
-	// The read returns DeadLetterRow: the message's own text, its chat, its
-	// folder and its attempt count. That is the same material an operator can
-	// already read straight out of routd.db through dashd's FS mount, so like
-	// routes:read it moves a page OFF the direct-DB read rather than widening
-	// reach. The write reaches one guarded UPDATE (routd ReplayDeadLetter):
-	// status 'failed'→'pending' with a zeroed attempt count on a row that is
-	// already dead-lettered. It cannot compose a message, cannot delete one, and
-	// cannot touch a row in any other state — a replay of an already-replayed
-	// row matches nothing and answers 409 rather than claiming success.
-	//
-	// Neither is reachable by a human bearer, for the same mechanical reason
-	// audit:read is not: a user token's scope list holds folder globs, and
-	// auth.scopeMatches rejects a held value without a colon.
-	//
-	// The ceiling is exactly these eleven. dashd proxies and reads; it does not
-	// originate work (runs:run), speak as a channel (messages:write), or read
-	// credentials (secrets:read, grants:read). authd/service_dashd_test.go pins
-	// both halves — the eleven that must be here and the count, so a twelfth
-	// scope of any name fails there before it ships.
+	// The ceiling is exactly these eleven. dashd does not originate work (runs:run),
+	// speak as a channel (messages:write), or read credentials (secrets:read,
+	// grants:read). authd/service_dashd_test.go pins both the set and the count.
 	"service:dashd": {
 		"runs:kill", "routes:read", "routes:write", "audit:read",
 		"signing_keys:read", "sessions:read", "sessions:write",
@@ -238,14 +133,10 @@ type server struct {
 	secureCookies  bool              // mark refresh cookies Secure (https deployment)
 }
 
-// mux builds authd's COMPLETE served surface — including /openapi.json,
-// /auth/* and /metrics, which main used to register afterwards. A constructor
-// that stops short of the real surface is the blind spot the doc-vs-mux guard
-// exists to close: an /openapi.json mounted outside it forces every test to
-// re-supply the resource list by hand (BUGS F40).
-//
-// cfg nil (config load failed, or a test with no provider) leaves /auth/*
-// unmounted, exactly as the old `cerr == nil` branch did.
+// mux builds authd's COMPLETE served surface — including /openapi.json, /auth/*
+// and /metrics, which main used to register afterwards. An /openapi.json mounted
+// outside it forces every test to re-supply the resource list by hand (BUGS F40).
+// cfg nil leaves /auth/* unmounted.
 func (s *server) mux(cfg *core.Config) *http.ServeMux {
 	m := http.NewServeMux()
 	// /v1/keys is public and mounts before any auth — backends fetch it to
@@ -303,13 +194,10 @@ func (s *server) servingKeys() []*auth.SigningKey {
 
 // handleServiceToken exchanges a daemon's bootstrap secret for a short service
 // JWT whose sub is that daemon's principal and whose scope is the principal's
-// declared grants. The leaked secret buys only that one daemon's scoped token —
-// never a signing capability.
-//
-// The secret rides the Authorization header (kept out of body-logging — spec
-// 5/1 §435); the body carries only the daemon name. The presented secret is
-// matched by a constant-time SHA-256 compare against the configured secrets, so
-// neither a wrong daemon name nor a wrong secret leaks timing.
+// declared grants. A leaked secret buys only that daemon's scoped token, never a
+// signing capability. The secret rides the Authorization header, kept out of
+// body-logging; the presented value is matched by a constant-time SHA-256
+// compare, so neither a wrong daemon name nor a wrong secret leaks timing.
 func (s *server) handleServiceToken(w http.ResponseWriter, r *http.Request) {
 	secret := bearer(r)
 	var req struct {
@@ -553,15 +441,11 @@ func refreshFromRequest(w http.ResponseWriter, r *http.Request) (raw string, bro
 	return req.RefreshToken, false
 }
 
-// handleIdentity resolves a sub to its canonical user and every sub that user
-// has linked, reading auth.db's auth_users + oauth_identities — the model the
-// OAuth login path actually populates. It previously read
+// handleIdentity resolves a sub to its canonical user and every sub that user has
+// linked, reading auth.db's auth_users + oauth_identities. It previously read
 // identities/identity_claims, which had this read surface but no writer, so the
-// endpoint always answered "unclaimed" (BUGS P2). routd's inspect_identity tool
-// snapshots this over HTTP.
-// (service:routd carries it). 200 {"identity":{...}|null,"subs":[...]}; an
-// unclaimed sub returns {"identity":null,"subs":[]} (200, not 404) so the tool
-// renders the unclaimed shape directly.
+// endpoint always answered "unclaimed" (BUGS P2). An unclaimed sub returns
+// {"identity":null,"subs":[]} with 200, not 404, so the tool renders that shape.
 func (s *server) handleIdentity(w http.ResponseWriter, r *http.Request) {
 	caller, err := auth.VerifyHTTP(r, s.a.LocalKeySet())
 	if err != nil {

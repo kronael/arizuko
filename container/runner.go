@@ -268,17 +268,15 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 
 	// Container env carries MODEL CREDENTIALS ONLY: the operator anchors from the
-	// host .env (store.EnvProfileKeys — required for the Claude Code SDK to call
-	// the LLM) as the base, with the trigger user's own env-profile keys
-	// (in.Secrets, set by runed from RunRequest.Secrets) overlaid, so a web-chat
-	// user's BYOA ANTHROPIC_API_KEY shadows the anchor for that spawn. Anchors stay
-	// as the floor so a user without a BYOA key still reaches the LLM.
+	// host .env (store.EnvProfileKeys) as the base, with the trigger user's own
+	// env-profile keys overlaid, so a web-chat user's BYOA key shadows the anchor for
+	// that spawn. Anchors stay as the floor so a user without one still reaches the
+	// LLM.
 	//
-	// Capability credentials NEVER arrive here — routd narrows RunRequest.Secrets
-	// to env-profile keys (routd.DB.EnvProfileSecrets) and every other secret is
-	// broker-resolved per tool call inside ipc.CallConnectorTool, so it lives in
-	// the connector subprocess's env on the host and not in the agent's
-	// (spec 5/13 §Trust model, 5/14 §Injection).
+	// Capability credentials NEVER arrive here — routd narrows RunRequest.Secrets to
+	// env-profile keys and every other secret is broker-resolved per tool call inside
+	// ipc.CallConnectorTool, so it lives in the connector subprocess's env on the
+	// host (spec 5/13 §Trust model).
 	in.Secrets = mergeSecrets(readSecrets(), in.Secrets)
 	in.AsstName = cfg.Name
 	payload, _ := json.Marshal(in)
@@ -602,16 +600,14 @@ func buildMounts(
 		}
 	}
 
-	// Layered codex mount: per-group writable dir first, then RO file
-	// overmounts for shared creds. Order matters for docker volume layering.
-	// No os.Stat — HOST paths are resolved by the docker daemon at spawn time.
+	// Layered codex mount: per-group writable dir first, then RO file overmounts for
+	// shared creds. Order matters for docker volume layering. No os.Stat — HOST paths
+	// are resolved by the docker daemon at spawn time.
 	//
-	// The group dir mounts UNCONDITIONALLY: it holds the group's own codex
-	// state, including the rollouts `codex exec resume` reads (spec 6/7). It
-	// used to be gated on HostCodexDir, which silently broke resume for anyone
-	// authenticating with OPENAI_API_KEY instead of a mounted auth.json —
-	// codex ran, wrote its rollout to a container-local path, and every resume
-	// afterwards found nothing. Credentials and group state are two concerns.
+	// The group dir mounts UNCONDITIONALLY: it holds the rollouts `codex exec resume`
+	// reads (spec 6/7). Gating it on HostCodexDir silently broke resume for anyone
+	// authenticating with OPENAI_API_KEY — codex wrote its rollout to a
+	// container-local path and every resume afterwards found nothing.
 	groupCodex := filepath.Join(groupDir, ".codex")
 	os.MkdirAll(groupCodex, 0o755)
 	m = append(m, volumeMount{Host: hp(cfg, groupCodex), Container: containerHome + "/.codex"})
@@ -792,14 +788,11 @@ func mergeSecrets(base, override map[string]string) map[string]string {
 	return base
 }
 
-// seedOutputStyles refreshes the per-surface output-style files into the group's
-// .claude/output-styles on EVERY spawn. cpDirOverwrite (not cpDirFresh): these are
-// platform-managed content, not operator-editable — the agent never edits
-// discord-channel.md. cpDirFresh skipped existing files, so a style tweak (e.g. the
-// repeated discord length/header fixes) only ever reached freshly-created or
-// hand-synced groups and silently regressed everywhere else. Overwrite makes every
-// spawn carry the current source-tree style; a group's own CUSTOM style file (one
-// not present in src) is left untouched (cpDirImpl only copies src entries).
+// seedOutputStyles refreshes the per-surface output-style files on EVERY spawn.
+// cpDirOverwrite, not cpDirFresh: these are platform-managed content, and
+// cpDirFresh skipped existing files, so a style tweak only ever reached freshly
+// created groups and silently regressed everywhere else. A group's own CUSTOM
+// style file is left untouched (cpDirImpl only copies src entries).
 func seedOutputStyles(cfg *core.Config, claudeDir string) {
 	src := filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "output-styles")
 	dst := filepath.Join(claudeDir, "output-styles")
@@ -808,12 +801,9 @@ func seedOutputStyles(cfg *core.Config, claudeDir string) {
 
 // seedMigrateSkill force-refreshes the platform's self-update bootstrap skill on
 // every spawn. migrate is the ONLY thing that syncs skills, so a stale copy can
-// never update itself — it deadlocks every future migration. Cost 11 days of
-// frozen skills on the live split: groups kept the pre-split migrate skill that
-// reads the removed /workspace mount ("/migrate blocked: /workspace not mounted")
-// while seedSkills' cpDirFresh refused to overwrite it. Unlike stock skills
-// (operator-editable, 3-way merged), migrate is platform-owned — always
-// overwritten, like output-styles. MIGRATION_VERSION lives under self/, untouched.
+// never update itself and deadlocks every future migration. Cost 11 days of
+// frozen skills on the live split. Unlike stock skills it is platform-owned —
+// always overwritten, like output-styles. MIGRATION_VERSION lives under self/.
 func seedMigrateSkill(cfg *core.Config, claudeDir string) {
 	src := filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "skills", "migrate")
 	dst := filepath.Join(claudeDir, "skills", "migrate")
@@ -881,23 +871,18 @@ func seedSettings(
 	}
 	settings["env"] = env
 
-	// Claude Code's permission + sandbox layer is asserted by the platform,
-	// not the agent. arizuko already isolates via the egress proxy + Docker +
-	// the gated MCP socket, so the agent runs with all tools allowed and the
-	// SDK's own sandbox off. Write both authoritatively every spawn: a stray
-	// agent-added permissions block (web egress lives in the proxy, never here)
-	// must not accumulate, and a future SDK default can't silently re-enable
-	// the sandbox.
+	// Claude Code's permission + sandbox layer is asserted by the platform, not the
+	// agent: arizuko isolates via the egress proxy, Docker and the gated MCP socket.
+	// Write both authoritatively every spawn, so a stray agent-added permissions block
+	// cannot accumulate and a future SDK default cannot silently re-enable the sandbox.
 	settings["permissions"] = map[string]any{"defaultMode": "bypassPermissions"}
 	settings["sandbox"] = map[string]any{"enabled": false}
 
-	// routd's `sessions` table pins one transcript per chat and resumes it via
-	// `claude --resume`; Claude Code's default 30-day retention would prune that
-	// transcript out from under it → "No conversation found" → error_during_execution
-	// + silent context loss. Keep every transcript effectively forever: Claude Code
-	// has NO disable value (0 fails validation, min is 1 day), so a large number
-	// (~10000 years) is the only way to never prune. True permanence would need
-	// archival outside Claude Code (a SessionEnd hook) — not done here.
+	// routd's `sessions` table pins one transcript per chat and resumes it, and Claude
+	// Code's default 30-day retention would prune that transcript out from under it →
+	// "No conversation found" → silent context loss. There is NO disable value (0
+	// fails validation, min is 1 day), so a ~10000-year number is the only way never
+	// to prune.
 	settings["cleanupPeriodDays"] = 3650000
 
 	servers, _ := settings["mcpServers"].(map[string]any)
@@ -928,16 +913,11 @@ func seedSettings(
 	slog.Debug("settings seeded", "path", fp)
 }
 
-// pickOutputStyle resolves the agent's outputStyle setting for one turn.
-// Derives <platform>-<surface> from the JID/topic/pane signal; falls
-// back to <platform> when no surface split applies. Spec 5/O.
-//
-// Image contract: the agent image ships every per-surface file listed
-// in the spec table. Claude Code's readOutputStyle reads the named
-// file from <home>/.claude/output-styles/<name>.md at agent startup;
-// per-group operator overrides at the same path take precedence
-// automatically. No host-side existence check — name selection and
-// file loading are separate concerns.
+// pickOutputStyle resolves the agent's outputStyle setting for one turn: derives
+// <platform>-<surface> from the JID/topic/pane signal, falling back to <platform>
+// (spec 5/O). The agent image ships every per-surface file, and per-group operator
+// overrides at the same path take precedence automatically. No host-side existence
+// check — name selection and file loading are separate concerns.
 func pickOutputStyle(
 	channel, chatJID, topic string,
 	paneLookup func(channelID string) bool,
