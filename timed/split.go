@@ -22,17 +22,14 @@ import (
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
-// newTimedMux builds timed's HTTP surface. Extracted from runSplit's goroutine
-// so a test can read the ROUTING TABLE timed actually builds rather than a
-// restatement of it — an inline mux inside a goroutine is unreachable.
+// newTimedMux builds timed's HTTP surface. Extracted from runSplit's goroutine so a
+// test can read the ROUTING TABLE timed actually builds rather than a restatement of
+// it.
 //
-// timed's document is empty because timed mounts no resource, and it is now
-// empty BY DERIVATION rather than by a hand-kept list saying so. timed is a
-// CLIENT of routd's scheduled_tasks — dash.go and the fire loop call /v1/tasks
-// across the container boundary — and a client is not a server. Naming it in
-// the old list emitted GET /v1/tasks plus GET/PATCH/DELETE /v1/tasks/{taskId}
-// into timed's own document, four operations that 404 on timed's port
-// (BUGS F32).
+// timed's document is empty because timed mounts no resource, and it is empty BY
+// DERIVATION rather than by a hand-kept list. timed is a CLIENT of routd's
+// scheduled_tasks, and a client is not a server: naming it in the old list emitted
+// four operations into timed's own document that 404 on timed's port (BUGS F32).
 func newTimedMux(dash *dashServer) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -111,11 +108,9 @@ func runSplit(routerURL, tz string) {
 }
 
 // split.go is timed's federated fire loop: in the split topology timed opens NO
-// messages.db. It claims due tasks, enqueues their prompts, logs the run, and
-// reschedules — all over routd's HTTP surface (GET /v1/tasks/due,
-// POST /v1/messages, POST /v1/tasks/runlog, POST /v1/tasks/{id}/reschedule),
-// presenting an auto-refreshing service:timed token. computeNextRun stays
-// client-side (cron/interval parsing); routd is a boring writer.
+// messages.db. It claims due tasks, enqueues their prompts, logs the run and
+// reschedules — all over routd's HTTP surface, presenting an auto-refreshing
+// service:timed token. computeNextRun stays client-side; routd is a boring writer.
 
 // router is the split-mode client: the routd base URL + a live service token.
 // loop holds the in-memory fire-loop health the /dash/timed/ overview renders;
@@ -167,20 +162,15 @@ type dueTask struct {
 	NextRun string `json:"next_run"`
 }
 
-// fireID is the message id for ONE firing of a task. It keys on the SCHEDULED
-// run time, not the wall clock, so every attempt at the same fire mints the
-// same id and routd's id-PK dedup (INSERT OR IGNORE on messages) collapses
-// them into one message.
+// fireID is the message id for ONE firing of a task. It keys on the SCHEDULED run
+// time, not the wall clock, so every attempt at the same fire mints the same id and
+// routd's id-PK dedup collapses them into one message.
 //
-// It was core.MsgID("sched-"+t.ID) — a UnixNano suffix, fresh per attempt. When
-// the POST /v1/messages response was lost but routd had recorded the row, the
-// error path below rescheduled a one-shot to fire again, the retry minted a NEW
-// id, and the task fired twice (BUGS L33).
-//
-// A bare "sched-<taskID>" would fix the double fire and break re-arming: an
-// operator who re-arms a completed one-shot would get silent dedup against the
-// original fire. The scheduled time distinguishes them — a re-armed task has a
-// new next_run, hence a new fire.
+// It was core.MsgID("sched-"+t.ID), a UnixNano suffix fresh per attempt. When the POST
+// response was lost but routd had recorded the row, the error path rescheduled the
+// one-shot, the retry minted a NEW id, and the task fired twice (BUGS L33). A bare
+// "sched-<taskID>" would fix that and break re-arming; the scheduled time
+// distinguishes them, since a re-armed task has a new next_run.
 func fireID(t dueTask) string {
 	if t.NextRun == "" {
 		// Nothing stable to key on. Fall back to the wall clock, which is the
@@ -214,13 +204,11 @@ func (r *router) fireSplit(ctx context.Context) {
 		}); err != nil {
 			slog.Error("enqueue message (split)", "task", t.ID, "jid", t.ChatJID, "err", err)
 			r.runlog(ctx, t.ID, "error", err.Error(), time.Since(start).Milliseconds())
-			// Restore to active so the task stays discoverable. A cron task takes
-			// its next natural slot. A one-shot goes back to the next_run it was
-			// just claimed at — NOT a fresh now+1m — because that value IS the
-			// fire's identity (fireID). Keeping it means the next tick re-claims
-			// the SAME fire and mints the SAME message id, so routd dedups a fire
-			// it already recorded instead of running it twice. The fire loop ticks
-			// every 60s, so this is still a one-minute retry.
+			// Restore to active so the task stays discoverable. A cron task takes its next
+			// natural slot. A one-shot goes back to the next_run it was just claimed at —
+			// NOT a fresh now+1m — because that value IS the fire's identity, so the next
+			// tick re-claims the SAME fire and routd dedups instead of running it twice.
+			// The fire loop ticks every 60s, so this is still a one-minute retry.
 			retryRun := computeNextRun(t.Cron, r.tz, t.ID)
 			if retryRun == "" {
 				retryRun = t.NextRun
@@ -238,13 +226,12 @@ func (r *router) fireSplit(ctx context.Context) {
 		case nextRun == "" && t.Cron == "":
 			status = "completed"
 		case nextRun == "":
-			// A recurring task whose cron will not parse. Leaving it
-			// ('', 'active') is the one state nothing recovers from: the due
-			// claim compares datetime(next_run), which is NULL for '', so the
-			// row is never claimed again while still reporting itself as
-			// scheduled. sloth and marinade carry 14 such rows, dead since
-			// June and invisible (BUGS L74). A bad cron is a misconfiguration,
-			// not a transient fault, so it stops loudly instead of retrying.
+			// A recurring task whose cron will not parse. Leaving it ('', 'active') is the
+			// one state nothing recovers from: the due claim compares datetime(next_run),
+			// which is NULL for '', so the row is never claimed again while still reporting
+			// itself as scheduled. sloth and marinade carry 14 such rows, dead since June
+			// and invisible (BUGS L74). A bad cron is a misconfiguration, not a transient
+			// fault, so it stops loudly.
 			status = "error"
 			slog.Error("task cron will not parse; marking it error rather than leaving it active with no next run",
 				"task", t.ID, "cron", t.Cron, "jid", t.ChatJID)

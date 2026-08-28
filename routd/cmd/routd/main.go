@@ -57,13 +57,10 @@ func main() {
 	// the instance name onto those rows (EmitInTx writes into the mutation's own tx).
 	audit.Init(db.SQL(), os.Getenv("ARIZUKO_INSTANCE"))
 
-	// SECRETS_KEY keyring: routd OWNS secrets in routd.db. It reads folder/user
-	// secrets for connector + secret-requiring tool calls and seals writes at rest
-	// (POST /v1/secrets → audited SetSecret). The key is REQUIRED: routd refuses
-	// to start without it. An earlier build only logged a warning and started, so
-	// an un-keyed instance persisted every secret readable on disk while each
-	// healthcheck reported it healthy (BUGS S2). Comma-separate the value to
-	// rotate — the first key seals new writes, the rest decrypt retired values.
+	// SECRETS_KEY keyring: routd OWNS secrets in routd.db. The key is REQUIRED —
+	// routd refuses to start without it. An earlier build only logged a warning and
+	// started, so an un-keyed instance persisted every secret readable on disk while
+	// each healthcheck reported it healthy (BUGS S2). Comma-separate to rotate.
 	kr, err := core.RequireSecretKeyring(os.Getenv("SECRETS_KEY"))
 	if err != nil {
 		slog.Error("secrets keyring", "err", err)
@@ -72,11 +69,8 @@ func main() {
 	db.SetSecretKeys(kr...)
 
 	// Surrogate OAuth (spec 5/15): the broker refreshes near-expiry capability
-	// credentials at call time. The engine loads the embedded provider registry;
-	// creds come from .env (SURROGATE_<PROVIDER>_CLIENT_ID/_SECRET). Always wired —
-	// refresh only fires for user rows carrying provider metadata (written by the
-	// dashd Connect dance, itself gated on creds), so an unconfigured instance is
-	// inert.
+	// credentials at call time. Always wired — refresh only fires for user rows
+	// carrying provider metadata, so an unconfigured instance is inert.
 	if eng, err := surrogate.NewEngine(dataDir); err != nil {
 		slog.Error("build surrogate engine", "err", err)
 		os.Exit(1)
@@ -100,21 +94,16 @@ func main() {
 		verify = keysetVerifier{ks: ks}
 	}
 
-	// runed client: routd's service token authenticates POST /v1/runs. routd
-	// exchanges AUTHD_SERVICE_KEY for an authd-minted service:routd ES256 token
-	// at boot and refreshes it (auth.ServiceToken); authd's issuer-pin would 401
-	// the static ROUTD_SERVICE_TOKEN. When
-	// AUTHD_URL or AUTHD_SERVICE_KEY is unset, fall back to the static env
-	// (additive, local-dev safe).
+	// runed client: routd exchanges AUTHD_SERVICE_KEY for an authd-minted
+	// service:routd ES256 token at boot and refreshes it; authd's issuer-pin would
+	// 401 the static ROUTD_SERVICE_TOKEN. When AUTHD_URL or AUTHD_SERVICE_KEY is
+	// unset, fall back to the static env for local dev.
 	runTimeout := durOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
-	// routd must OUT-WAIT runed's kill-deadline. runed enforces RUNED_RUN_TIMEOUT
-	// as the container RunTTL (it kills the container at that mark); routd's
-	// HTTP-client + dispatch deadline therefore gets a grace margin on top. If
+	// routd must OUT-WAIT runed's kill-deadline. runed kills the container at
+	// RUNED_RUN_TIMEOUT, so routd's dispatch deadline gets a grace margin on top. If
 	// they were equal, routd's deadline could fire first → transport error →
 	// turn_context stays `running` → the next poll re-feeds the SAME turn into a
-	// second container = the user's message executed twice (runed does not cancel
-	// the run on a dropped routd request). The grace lets runed's RunTTL kill +
-	// respond first, so routd always sees a real outcome.
+	// second container, so the user's message executes twice.
 	runedWait := runTimeout + 2*time.Minute
 	var runedClient *runedv1.Client
 	// identity resolves a sender sub → canonical identity at authd's

@@ -14,16 +14,13 @@ import (
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
-// handleEngagement renders GET /dash/engagement/ — which conversations the
-// agent is currently staying in without being addressed, and the control that
-// ends one early (spec 5/G item 6, BUGS F31).
+// handleEngagement renders GET /dash/engagement/ — which conversations the agent is
+// currently staying in without being addressed, and the control that ends one early
+// (spec 5/G item 6, BUGS F31).
 //
-// It reads AND writes routd's /v1/engagement over HTTP rather than
-// chat_reply_state out of dbRoutd. routd owns those columns, applies the folder
-// containment, and writes the audit row inside the mutation's own transaction —
-// none of which a direct-DB write from here would do, which is why the
-// direct-DB read is the open defect this page declines to join. Operator-only,
-// like /dash/proactive/.
+// It reads AND writes routd's /v1/engagement over HTTP rather than chat_reply_state
+// out of dbRoutd: routd owns those columns, applies the folder containment, and
+// writes the audit row inside the mutation's own transaction. Operator-only.
 func (d *dash) handleEngagement(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
@@ -46,13 +43,11 @@ func (d *dash) handleEngagement(w http.ResponseWriter, r *http.Request) {
 	pageClose(w, r)
 }
 
-// handleEngagementDisengage handles POST /dash/engagement/disengage — end one
-// window now, through routd's POST /v1/engagement with ttl_seconds=0.
-//
-// Operator-only and same-origin, like every other dashd write. It sends the
-// window's OWNING folder back, not an empty one, so the cleared row keeps
-// naming who held it; routd re-checks that folder against the caller and writes
-// the audit row, so nothing here is trusted as the containment.
+// handleEngagementDisengage handles POST /dash/engagement/disengage — end one window
+// now, through routd's POST /v1/engagement with ttl_seconds=0. Operator-only and
+// same-origin. It sends the window's OWNING folder back, not an empty one, so the
+// cleared row keeps naming who held it; routd re-checks that folder against the
+// caller, so nothing here is trusted as the containment.
 func (d *dash) handleEngagementDisengage(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
@@ -104,12 +99,11 @@ func engagementRedirect(w http.ResponseWriter, r *http.Request, msg, errMsg stri
 	http.Redirect(w, r, dest, http.StatusSeeOther)
 }
 
-// renderEngagementWindows writes the live-window table from routd's
-// GET /v1/engagement. dashd's service token carries an empty folder claim, which
-// routd reads as list-all — correct here, and safe only because the page is
-// operator-gated. A folder-scoped viewer must NOT be given this page: routd
-// authorizes dashd's bearer, not the X-User-* headers dashd forwards, so the
-// list would not narrow to the viewer.
+// renderEngagementWindows writes the live-window table from routd's GET /v1/engagement.
+// dashd's service token carries an empty folder claim, which routd reads as list-all —
+// correct here, and safe only because the page is operator-gated. A folder-scoped
+// viewer must NOT be given this page: routd authorizes dashd's bearer, not the
+// X-User-* headers dashd forwards.
 func (d *dash) renderEngagementWindows(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<h2>Engaged conversations</h2>`)
 
@@ -149,12 +143,10 @@ func (d *dash) renderEngagementWindows(w http.ResponseWriter, r *http.Request) {
 		"No conversation is engaged right now."))
 }
 
-// engagementDisengageCell renders the force-disengage control for one window.
-//
-// Behind a confirm, like every other dashd danger-zone action: this is visible
-// to whoever is in that chat — the agent goes quiet mid-conversation — so it is
-// not a bare button. The confirm names the chat, because the rows differ only by
-// a jid an operator is not going to recognise from muscle memory.
+// engagementDisengageCell renders the force-disengage control for one window. Behind a
+// confirm, like every other dashd danger-zone action: this is visible to whoever is in
+// that chat. The confirm names the chat, because the rows differ only by a jid an
+// operator will not recognise from memory.
 func engagementDisengageCell(e apiv1.EngagedChat) string {
 	return fmt.Sprintf(
 		`<form method="post" action="/dash/engagement/disengage" class="form-inline"`+
@@ -183,19 +175,14 @@ func (d *dash) routdCall(ctx context.Context, method, path string, body any) ([]
 	return d.bearerCall(ctx, d.routdURL, method, path, body)
 }
 
-// bearerCall performs an authenticated call against a sibling daemon's /v1 face
-// with the service:dashd bearer. base is the daemon's URL; body nil → no
-// request body.
+// bearerCall performs an authenticated call against a sibling daemon's /v1 face with
+// the service:dashd bearer. base is the daemon's URL; body nil means no request body.
 //
-// It deliberately does NOT forward X-User-Sub/-Groups the way proxydCall does:
-// proxyd authorizes the FORWARDED operator identity, routd and authd authorize
-// the BEARER. Sending them would suggest the backend narrows the answer per
-// viewer, and it does not — the operator gate on the handler is the whole
-// containment.
-//
-// One helper for both callers rather than a per-daemon copy: the credential and
-// the header discipline are the thing that must not drift, and a second body
-// would be a second place to forget the X-User-* rule.
+// It deliberately does NOT forward X-User-Sub/-Groups the way proxydCall does: proxyd
+// authorizes the FORWARDED operator identity, routd and authd authorize the BEARER.
+// Sending them would suggest the backend narrows the answer per viewer, and it does
+// not. One helper for both callers, because the credential and the header discipline
+// are the thing that must not drift.
 func (d *dash) bearerCall(ctx context.Context, base, method, path string, body any) ([]byte, int, error) {
 	var rdr io.Reader
 	if body != nil {

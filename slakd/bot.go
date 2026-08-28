@@ -278,18 +278,16 @@ func (b *bot) staleConfig() (staleSec int64, every time.Duration, limit int) {
 	return
 }
 
-// watchdog distinguishes a genuinely-dead stream from a merely-quiet one. slakd
-// has no socket: Slack PUSHES events to /slack/events, so inbound silence looks
-// identical whether the channel is idle or the subscription is broken. Measuring
-// silence alone is wrong — it bounced the container every 10 min on any quiet
-// instance, and each restart drops the POSTs Slack is mid-delivery, which is
-// exactly what makes Slack disable the subscription (a self-inflicted outage:
-// chronic flap on marinade 2026-06-08). The honest liveness signal is auth.test:
-// silence + auth.test OK = quiet, stay up; silence + auth.test FAILING = a real
-// token/connectivity death, exit so the on-failure policy re-creates the
-// container. auth.test also drives /health every tick. (The original
-// silence-only exit was added after an 11h freeze on 2026-06-05; the auth.test
-// gate keeps that detection without the false-positive churn.)
+// watchdog distinguishes a genuinely-dead stream from a merely-quiet one. slakd has
+// no socket: Slack PUSHES events to /slack/events, so inbound silence looks identical
+// whether the channel is idle or the subscription is broken. Measuring silence alone
+// bounced the container every 10 min on any quiet instance, and each restart drops
+// the POSTs Slack is mid-delivery — which is what makes Slack disable the
+// subscription (chronic flap on marinade 2026-06-08).
+//
+// The honest liveness signal is auth.test: silence + auth.test OK = quiet, stay up;
+// silence + auth.test FAILING = a real token/connectivity death, exit. auth.test also
+// drives /health every tick.
 func (b *bot) watchdog(ctx context.Context) {
 	staleSec, every, limit := b.staleConfig()
 	t := time.NewTicker(every)
@@ -421,12 +419,11 @@ func (b *bot) dispatch(teamID string, raw json.RawMessage) {
 	}
 	switch head.Type {
 	case "message":
-		// thread_broadcast is a display copy of a thread reply that's
-		// also surfaced in the parent channel — the original reply
-		// already arrived as a regular message event, so dropping the
-		// broadcast prevents duplicate inbound delivery.
-		// file_share delivers a file upload; allow it through so
-		// attachmentsFor can extract the download URL.
+		// thread_broadcast is a display copy of a thread reply also surfaced in the
+		// parent channel — the original reply already arrived as a regular message
+		// event, so dropping the broadcast prevents duplicate inbound delivery.
+		// file_share delivers a file upload; allow it so attachmentsFor can extract
+		// the download URL.
 		if head.Subtype == "thread_broadcast" {
 			return
 		}
@@ -512,12 +509,10 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage, verb string) {
 	replyTo := ""
 	if m.ThreadTS != "" && m.ThreadTS != m.TS {
 		topic = m.ThreadTS
-		// A message inside a thread is an implicit reply to the thread root.
-		// Feeding ReplyTo lets the spec 5/L promotion (api.handleMessage) flip
-		// verb→mention when that root is one of the bot's own messages, so the
-		// agent auto-attends a thread it started without the user re-@mentioning.
-		// Roots authored by someone else don't resolve via IsBotMessageByID, so
-		// human-rooted threads keep the engagement/mention path.
+		// A message inside a thread is an implicit reply to the thread root. Feeding
+		// ReplyTo lets the spec 5/L promotion flip verb→mention when that root is one
+		// of the bot's own messages, so the agent auto-attends a thread it started.
+		// Roots authored by someone else do not resolve via IsBotMessageByID.
 		replyTo = m.ThreadTS
 	}
 
@@ -881,12 +876,10 @@ func convertMrkdwn(s string, resolveMention func(string) (string, int)) string {
 	return s
 }
 
-// ===== outbound mention linking =====
-//
-// The agent writes "@ondra" — the same form demangleMentions taught it on the
-// inbound side — but chat.postMessage renders plain @name as dead text; a real
-// ping needs the <@USERID> token (marinade 2026-07-16). linkMentions closes
-// the loop: an @name that resolves against the mention index becomes <@ID>,
+// outbound mention linking: the agent writes "@ondra" — the form demangleMentions
+// taught it on the inbound side — but chat.postMessage renders plain @name as dead
+// text; a real ping needs the <@USERID> token (marinade 2026-07-16). linkMentions
+// closes the loop: an @name that resolves against the mention index becomes <@ID>,
 // everything else stays byte-identical.
 
 // slackReservedMentions are Slack broadcast keywords; never indexed as user
@@ -1080,12 +1073,10 @@ func isHandleRune(r rune) bool {
 	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
-// demangleMentions rewrites raw Slack mention tokens to readable names before
-// inbound delivery, so the agent never echoes ids like "@U0B70FBE7CG": the
-// bot's own mention becomes @AssistantName (no users:read needed), other user
-// tokens become @name (inline label, else users.info via userName, which
-// falls back to the id when the token lacks users:read), channel tokens become
-// #name (label-only — an unlabeled channel token stays verbatim).
+// demangleMentions rewrites raw Slack mention tokens to readable names before inbound
+// delivery, so the agent never echoes ids like "@U0B70FBE7CG": the bot's own mention
+// becomes @AssistantName, other user tokens become @name (inline label, else
+// users.info), channel tokens become #name (label-only).
 func (b *bot) demangleMentions(text string) string {
 	return slackMentionRe.ReplaceAllStringFunc(text, func(tok string) string {
 		m := slackMentionRe.FindStringSubmatch(tok)

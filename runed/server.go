@@ -18,13 +18,11 @@ type Verifier interface {
 	Verify(r *http.Request) (sub string, scope []string, folder string, err error)
 }
 
-// Server is runed's HTTP face: POST /v1/runs (the routd↔runed contract) +
-// run status/kill + spawn-session history. The Manager owns the run lifecycle.
+// Server is runed's HTTP face: POST /v1/runs (the routd↔runed contract) plus run
+// status/kill and spawn-session history. The Manager owns the run lifecycle.
 //
-// The history reads live under `spawn_sessions`, NOT `sessions`: a resource's
-// name is its wire identity and `sessions` is authd's, the refresh-token
-// families (BUGS F46). runed's session_log holds one row per agent spawn, a
-// different table under a name that says so.
+// The history reads live under `spawn_sessions`, NOT `sessions`: a resource's name is
+// its wire identity and `sessions` is authd's (BUGS F46).
 type Server struct {
 	mgr    *Manager
 	db     *DB
@@ -53,12 +51,10 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// authz verifies the bearer token and (when a scope is required) checks the
-// token carries it. Returns the token's subject + arz/folder claim + ok. The
-// sub is what the run-slot audit rows attribute to (runed/audit.go); every
-// caller takes it so no handler can record a kill as anonymous. verify==nil
-// is open (single-tenant / local-dev): ok=true, sub="" (audited as "system"),
-// folder="" (no folder bound).
+// authz verifies the bearer token and, when a scope is required, checks the token
+// carries it. Returns the token's subject + arz/folder claim + ok. The sub is what
+// the run-slot audit rows attribute to; every caller takes it so no handler can
+// record a kill as anonymous. verify==nil is open (local-dev).
 func (s *Server) authz(w http.ResponseWriter, r *http.Request, needScope string) (sub, folder string, ok bool) {
 	if s.verify == nil {
 		return "", "", true
@@ -125,12 +121,10 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// handleHold claims a folder's run slot for an external, folder-exclusive job
-// (POST /v1/holds — spec 5/8) and returns the handle immediately. Gated
-// exactly like POST /v1/runs: a hold IS a run, so it takes the same runs:run
-// scope and the same folder containment — a folder-scoped holder must not
-// pause another tenant's folder. Releasing goes through the existing DELETE
-// /v1/runs/{run_id} (runs:kill), not a second route.
+// handleHold claims a folder's run slot for an external, folder-exclusive job (spec
+// 5/8) and returns the handle immediately. Gated exactly like POST /v1/runs: a hold
+// IS a run, so it takes the same runs:run scope and folder containment. Releasing
+// goes through the existing DELETE /v1/runs/{run_id}, not a second route.
 func (s *Server) handleHold(w http.ResponseWriter, r *http.Request) {
 	sub, folder, ok := s.authz(w, r, "runs:run")
 	if !ok {
@@ -220,12 +214,10 @@ func (s *Server) handleRunKill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	runID := r.PathValue("run_id")
-	// Resolve the run first, for two reasons: a folder-scoped token may only
-	// kill its own subtree, and the audit row records WHICH folder's slot this
-	// freed. Unconditional — root / service:routd used to skip it, but then the
-	// path that drives every operator kill was the one whose row had no folder.
-	// Kills are operator intent, not per-turn traffic, so the extra SELECT
-	// costs nothing; Manager.Kill re-reads the row anyway.
+	// Resolve the run first, for two reasons: a folder-scoped token may only kill
+	// its own subtree, and the audit row records WHICH folder's slot this freed.
+	// Unconditional — root and service:routd used to skip it, but then the path
+	// that drives every operator kill was the one whose row had no folder.
 	sp, err := s.db.GetSpawn(runID)
 	if err == ErrNotFound {
 		writeErr(w, 404, "unknown_run", "no such run")
@@ -282,13 +274,10 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// handleRecentSessions is the routd→runed federation read (spec 5/P): the n
-// newest session_log rows for a folder, full-fielded (group_folder + error),
-// backing routd's new_session continuity hint + inspect_session tool — split
-// ownership means routd never opens runed.db directly. Gated on
-// sessions:read like GET /v1/spawn_sessions. Folder is bound by the token's
-// arz/folder claim when present; routd's service token (folder="") honors
-// the ?folder= query param.
+// handleRecentSessions is the routd→runed federation read (spec 5/P): the n newest
+// session_log rows for a folder, backing routd's continuity hint and inspect_session
+// tool, since split ownership means routd never opens runed.db. Folder is bound by
+// the token's arz/folder claim when present; routd's service token honors ?folder=.
 func (s *Server) handleRecentSessions(w http.ResponseWriter, r *http.Request) {
 	_, folder, ok := s.authz(w, r, "sessions:read")
 	if !ok {

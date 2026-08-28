@@ -1,18 +1,12 @@
 package main
 
-// proxyd `routes` Resource — spec 5/8 no-cache audit (May 2026).
+// proxyd `routes` Resource — spec 5/8 no-cache audit.
 //
-// Prior to 5/8 this file held a routesResource with sync.RWMutex around
-// a []Route snapshot rebuilt on every mutation. That cache violated spec
-// 5/8 §"Two-table-class model" rule 6 ("no daemon may cache config-
-// table rows"). The cache had no measurable benefit — DB reads cost
-// microseconds — and created stale-read windows that broke YAML apply
-// semantics.
-//
-// Replacement (this file): every request reads routes from the DB
-// directly via store.AllProxydRoutes (or resreg's proxyd_routes
-// ScanAll) and builds a fresh ReverseProxy per route. No row cache;
-// the http.Transport pools backend connections on its own.
+// Every request reads routes from the DB directly via store.AllProxydRoutes and
+// builds a fresh ReverseProxy per route. No row cache: the previous RWMutex-guarded
+// snapshot violated 5/8 rule 6 ("no daemon may cache config-table rows"), had no
+// measurable benefit — DB reads cost microseconds — and created stale-read windows
+// that broke YAML apply semantics. The http.Transport pools backend connections.
 
 import (
 	"context"
@@ -307,15 +301,11 @@ func normalisePath(v any) string {
 	return s
 }
 
-// routesAuthz derives the ACL scope/params for the routes resource. routes
-// is GLOBAL (no per-folder axis), so the derivation is genuinely empty:
-// scope="" and no params. This is NOT a bypass — resreg.invoke still runs
-// auth.Authorize(store, caller, "proxyd_routes.<action>", "", nil), and an empty
-// scope is matched by an operator ACL row like `(google:op, '*', '**')`
-// (`**` covers scope "", `*` covers any action). A non-operator presents no
-// matching row and no mcp:* tier fallback applies, so the call is denied.
-// The gate is the ACL row, not this function and not the operator marker in
-// callerFromHTTP (which only records the `**` claim for predicate matching).
+// routesAuthz derives the ACL scope/params for the routes resource. routes is GLOBAL
+// (no per-folder axis), so the derivation is genuinely empty. This is NOT a bypass:
+// resreg.invoke still runs auth.Authorize, and an empty scope is matched by an
+// operator ACL row like `(google:op, '*', '**')`. A non-operator presents no matching
+// row, so the call is denied. The gate is the ACL row, not this function.
 func routesAuthz(_ resreg.Caller, _ resreg.Action, _ resreg.Args) (string, map[string]string, error) {
 	return "", nil, nil
 }
@@ -333,12 +323,10 @@ func routesResourceDecl(rr *routesResource) resreg.Resource {
 	return r
 }
 
-// trustedForwarders are the only principals whose stamped X-User-* headers
-// proxyd accepts on /v1/proxyd_routes. Both translate an already-authenticated
-// end user onto this REST API and present their own ES256 service bearer as the
-// transit proof: webd for the agent MCP route tools, dashd for the operator
-// page at /dash/proxyd/. The list is an ALLOWLIST, never "any service token" —
-// see channelTrusted.
+// trustedForwarders are the only principals whose stamped X-User-* headers proxyd
+// accepts on /v1/proxyd_routes. Both translate an already-authenticated end user onto
+// this REST API and present their own ES256 service bearer as the transit proof. The
+// list is an ALLOWLIST, never "any service token" — see channelTrusted.
 const (
 	callerWebd  = "service:webd"
 	callerDashd = "service:dashd"
@@ -348,10 +336,8 @@ var trustedForwarders = []string{callerWebd, callerDashd}
 
 // channelTrusted reports whether r's stamped X-User-* headers can be trusted: a
 // present X-User-Sub plus a valid authd ES256 bearer minted for one of the
-// trustedForwarders. The sub pin is load-bearing — VerifyHTTP alone would admit
-// ANY valid authd token reaching proxyd directly, letting it forge X-User-*.
-// With ks nil (local dev, AUTHD_URL unset) the gate is open, matching every
-// other daemon's no-verifier path.
+// trustedForwarders. The sub pin is load-bearing — VerifyHTTP alone would admit ANY
+// valid authd token reaching proxyd directly, letting it forge X-User-*.
 func channelTrusted(r *http.Request, ks *auth.KeySet) bool {
 	if r.Header.Get("X-User-Sub") == "" {
 		return false
@@ -363,13 +349,11 @@ func channelTrusted(r *http.Request, ks *auth.KeySet) bool {
 	return err == nil && sub.Typ == "service" && slices.Contains(trustedForwarders, sub.Sub)
 }
 
-// callerFromHTTP builds a resreg.Caller from the caller's identity headers.
-// The channel is proven by a trustedForwarders ES256 bearer; on that proof the
-// stamped X-User-* headers are trusted as the IDENTITY (never the bearer's own
-// sub). Operator detection (the `**` marker in X-User-Groups) is recorded into
-// Claims["operator"]="1" so ACL row predicates can match `predicate=operator=1`.
-// Until the ACL is seeded with operator rows for the routes resource, this is
-// the bridge — see spec 5/32 §"Operator implicit".
+// callerFromHTTP builds a resreg.Caller from the caller's identity headers. The
+// channel is proven by a trustedForwarders ES256 bearer; on that proof the stamped
+// X-User-* headers are trusted as the IDENTITY, never the bearer's own sub. Operator
+// detection is recorded into Claims["operator"]="1" so ACL row predicates can match
+// it (spec 5/32 §"Operator implicit").
 func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 	return func(r *http.Request) (resreg.Caller, error) {
 		if !channelTrusted(r, ks) {
