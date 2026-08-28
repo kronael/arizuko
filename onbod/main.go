@@ -74,21 +74,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Two handles, dual-path (spec 5/5):
-	//   obdb — onbod's OWNED tables (onboarding/invites/onboarding_gates).
-	//   xdb  — the CROSS tables (acl/acl_membership/groups/user_profiles/routes), all
-	//          routd-OWNED in the split.
-	// Monolith (ONBOD_DB_PATH unset): both are the shared messages.db — every
-	// owned- and cross-table query stays exactly as before. Split (set): obdb is a
-	// separate onbod.db and xdb is routd.db, opened straight from the mounted data
-	// dir (same FS-access discipline as dashd's dbRoutd; no token plumbing) so
-	// onbod stops touching messages.db entirely. audit.Init targets obdb so the
-	// invite/gate store writers' in-tx audit rows land with the mutation (onbod.db
-	// owns its own audit_log; monolith reuses messages.db's).
-	// Split is the only topology: onbod owns onbod.db and cross-reads routd.db
-	// (routd OWNS the cross tables). Both paths are REQUIRED env compose emits;
-	// onbod opens NO messages.db. A missing routd.db is a misconfigured split,
-	// so a failure to open is fatal (no silent empty-DB cross-read).
+	// Two handles (spec 5/5): obdb is onbod's OWNED tables
+	// (onboarding/invites/onboarding_gates); xdb is the CROSS tables
+	// (acl/acl_membership/groups/user_profiles/routes), all routd-OWNED. Split is the
+	// only topology — onbod owns onbod.db and cross-reads routd.db, and opens NO
+	// messages.db. audit.Init targets obdb so the invite/gate writers' in-tx audit
+	// rows land with the mutation. A missing routd.db is a misconfigured split, so a
+	// failure to open is fatal — no silent empty-DB cross-read.
 	if cfg.ownDSN == "" {
 		slog.Error("ONBOD_DB_PATH required")
 		os.Exit(1)
@@ -193,12 +185,10 @@ func main() {
 func newOnbodMux(xdb, obdb *sql.DB, cfg config, ks *auth.KeySet) *http.ServeMux {
 	mux := http.NewServeMux()
 	// stripUnsigned keeps X-User-Sub only when the request PROVES it transited
-	// proxyd — a valid authd ES256 service:proxyd transit bearer. The bearer is a
-	// transit proof ONLY: onbod's /onboard reads X-User-Sub as the OAuth'd end-user
-	// (matchGate's github:/google: checks), so we must NOT stamp the bearer's own
-	// service:proxyd subject over it. An unproven X-User-Sub is stripped (a request
-	// bypassing proxyd cannot forge identity); the public flow then redirects to
-	// /auth/login. No verifier (local dev, AUTHD_URL unset) → pass through.
+	// proxyd. The bearer is a transit proof ONLY: /onboard reads X-User-Sub as the
+	// OAuth'd end-user, so we must NOT stamp the bearer's own service:proxyd subject
+	// over it. An unproven X-User-Sub is stripped. No verifier (local dev) → pass
+	// through.
 	stripUnsigned := stripUnsignedGuard(ks)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -239,14 +229,11 @@ func newOnbodMux(xdb, obdb *sql.DB, cfg config, ks *auth.KeySet) *http.ServeMux 
 	return mux
 }
 
-// stripUnsignedGuard is the lenient identity gate for onbod's public surface.
-// It keeps an inbound X-User-Sub only when the request proves it transited proxyd
-// (auth.ProxydTransit: a valid authd ES256 service:proxyd bearer, ks != nil);
+// stripUnsignedGuard is the lenient identity gate for onbod's public surface: it
+// keeps an inbound X-User-Sub only when the request proves it transited proxyd,
 // otherwise it strips the identity headers so a request reaching onbod directly
-// cannot forge a user. The bearer is a transit proof only — the proxyd-stamped
-// end-user X-User-Sub flows through untouched (never overwritten with the
-// bearer's service:proxyd subject). No verifier (nil ks → local dev) passes
-// through.
+// cannot forge a user. The proxyd-stamped end-user X-User-Sub flows through
+// untouched. A nil keyset (local dev) passes through.
 func stripUnsignedGuard(ks *auth.KeySet) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -365,16 +352,13 @@ func emailDomain(sub string) string {
 	return ""
 }
 
-// knownStatuses is the complete set the pipeline can advance. A row in
-// anything else is stranded: no query selects it, so it is never prompted,
-// queued or admitted, and its jid PRIMARY KEY blocks a fresh insert — the user
-// can never onboard from that chat again. Two such rows exist in production
-// (BUGS O1), in a 'pending' status no code writes.
+// knownStatuses is the complete set the pipeline can advance. A row in anything
+// else is stranded: no query selects it, and its jid PRIMARY KEY blocks a fresh
+// insert, so the user can never onboard from that chat again. Two such rows exist
+// in production (BUGS O1).
 //
-// `token_used` is gone with the token it named (spec 5/31 § the fold): nothing
-// writes it, since redemption moved to webd's /pair/{token} and the row now goes
-// straight from awaiting_message to the admission verdict. `refused` replaces
-// its silent dead-end role, loudly — see admitJID.
+// `token_used` is gone with the token it named (spec 5/31): redemption moved to
+// webd's /pair/{token}. `refused` replaces its silent dead-end role, loudly.
 var knownStatuses = map[string]bool{
 	"awaiting_message": true,
 	"queued":           true,
@@ -420,18 +404,12 @@ func warnStrandedRows(db *sql.DB) {
 }
 
 // promptUnprompted greets every unrouted chat that has no live link, with a
-// PAIRING link (spec 5/31 § the fold) rather than an onboarding token of its
-// own. onbod mints no second credential and writes no second acl_membership
-// edge: the link redeems at webd's /pair/{token}, whose success page carries the
-// user on to /onboard for the world choice (spec 5/18 step 6).
+// PAIRING link (spec 5/31) rather than an onboarding token of its own. onbod mints
+// no second credential and writes no second acl_membership edge.
 //
-// The mint's owner_folder is the constant "" → NULL. It is not a route-ownership
-// check like routd's: InsertOnboarding only ever fires from the route-MISS
-// branch, so "this JID routes nowhere" is proved by the row's existence and is
-// not re-derived here.
-//
-// xdb is routd.db (route_tokens, the same handle onbod already writes routes
-// and acl_membership through); obdb owns onboarding.
+// The mint's owner_folder is the constant "" → NULL. InsertOnboarding only ever
+// fires from the route-MISS branch, so "this JID routes nowhere" is proved by the
+// row's existence and is not re-derived here.
 func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
 	warnStrandedRows(obdb)
 	rows, err := obdb.Query(
@@ -479,18 +457,14 @@ func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
 		if cfg.greeting != "" {
 			prompt = cfg.greeting + "\n" + prompt
 		}
-		// The claim stays taken even when the send fails, and the row is NOT
-		// retried. Releasing it looks kinder and is worse: a permanently
-		// unroutable jid (sloth's `Coach`, an orphan task target — BUGS L66)
-		// would mint a fresh pairing token on every tick, forever. WISDOM
-		// retries only transient errors, and a 502 for a jid that matches no
-		// route is a configuration fault, not a blip — and onbod cannot tell
-		// the two apart from the status alone.
+		// The claim stays taken even when the send fails, and the row is NOT retried.
+		// Releasing it looks kinder and is worse: a permanently unroutable jid (BUGS
+		// L66) would mint a fresh pairing token on every tick, forever. A 502 for a
+		// jid that matches no route is a configuration fault, not a blip.
 		//
-		// What must NOT happen is the old behaviour: sendReply swallowed the
-		// outcome and this line logged "sent pairing link" directly under
-		// "send reply non-2xx" (BUGS L67). One failed send, reported once, as
-		// an error.
+		// What must NOT happen is the old behaviour: sendReply swallowed the outcome
+		// and this line logged "sent pairing link" directly under "send reply non-2xx"
+		// (BUGS L67).
 		if err := sendReply(cfg, jid, prompt); err != nil {
 			slog.Error("pairing link NOT delivered; the jid stays claimed and will not be retried",
 				"jid", jid, "err", err)
@@ -500,20 +474,16 @@ func promptUnprompted(xdb, obdb *sql.DB, cfg config) {
 	}
 }
 
-// observePairings is the admission trigger after the fold (spec 5/31 §
-// "Admission observes; redemption does not refuse"). RedeemPairing writes the
-// edge in webd and knows nothing about gates; this tick discovers the edge and
-// runs the admission half over data that write already committed.
+// observePairings is the admission trigger after the fold (spec 5/31).
+// RedeemPairing writes the edge in webd and knows nothing about gates; this tick
+// discovers the edge and runs the admission half over data that write committed.
 //
-// A poll, not a hook: webd has no relationship to onbod — no URL, no service
-// token, no failure policy — and a hook would put routd's identity-write path
-// one round trip from onbod's uptime, while onbod already holds a direct handle
-// on routd.db and already reads acl_membership through it.
+// A poll, not a hook: webd has no relationship to onbod, and a hook would put
+// routd's identity-write path one round trip from onbod's uptime, while onbod
+// already holds a direct handle on routd.db.
 //
-// The dedup is onboarding's existing jid primary key plus the `user_sub IS NULL`
-// guard: every admitJID branch stamps user_sub, so a row is admitted once. The
-// same guard is why an agent-minted pairing is invisible here — only rows
-// InsertOnboarding created are ever scanned.
+// The dedup is onboarding's jid primary key plus the `user_sub IS NULL` guard, so
+// a row is admitted once and an agent-minted pairing is invisible here.
 func observePairings(xdb, obdb *sql.DB, cfg config) {
 	rows, err := obdb.Query(
 		`SELECT jid FROM onboarding WHERE status = 'awaiting_message' AND user_sub IS NULL`)
@@ -550,15 +520,13 @@ func observePairings(xdb, obdb *sql.DB, cfg config) {
 }
 
 // admitJID advances a paired JID's onboarding row: queued (a gate matched),
-// approved (no gates configured), or refused (gates configured, none matched).
-// It writes NO membership edge — RedeemPairing already did, in routd's own
-// transaction, stamped `pairing` so unpair can reach it. That split is the point
-// of the fold: a pairing can no longer fail for an admission reason at the
-// browser, and one writer owns the edge.
+// approved (no gates configured), or refused (gates configured, none matched). It
+// writes NO membership edge — RedeemPairing already did, in routd's own
+// transaction. That split is the point of the fold: a pairing can no longer fail
+// for an admission reason at the browser, and one writer owns the edge.
 //
-// The refusal used to be a 403 the user saw. It is now discovered on a tick,
-// after that page is gone, so it travels to the chat instead — the fail-loud
-// rule says surface it to the user, not that it must be HTTP.
+// The refusal used to be a 403 the user saw. It is now discovered on a tick, after
+// that page is gone, so it travels to the chat instead.
 func admitJID(obdb *sql.DB, cfg config, jid, userSub string) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	gates := loadGates(obdb)
@@ -625,16 +593,12 @@ func auditAdmission(jid, userSub, action, gateKey string) {
 	})
 }
 
-// handleOnboard and the onboarding flow below take two handles: db is the
-// CROSS-table DB (user_profiles/acl/groups/routes/acl_membership — messages.db in
-// monolith, routd.db/auth.db owners in the split) and obdb is onbod's OWNED-
-// table DB (onboarding/invites/onboarding_gates — onbod.db in the split). In
-// the monolith obdb == db. Owned-table queries route through obdb; cross-table
-// queries stay on db.
+// handleOnboard and the flow below take two handles: db is the CROSS-table DB and
+// obdb is onbod's OWNED-table DB. Owned-table queries route through obdb;
+// cross-table queries stay on db.
 // /onboard carries no token of its own since the fold (spec 5/31): the greeting
-// link redeems at webd's /pair/{token}, which writes the edge and then sends the
-// user here. This page reads the edge and asks where the chat should go — it is
-// step 6, and nothing else.
+// link redeems at webd's /pair/{token}, which writes the edge and sends the user
+// here. This page reads the edge and asks where the chat should go.
 func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config) {
 	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
 		handleDashboard(w, r, db, obdb, userSub, ensureCSRFToken(w, r, cfg))
@@ -751,23 +715,16 @@ func handleOnboardPost(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB,
 
 var usernameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{2,29}$`)
 
-// mayCreateFirstWorld is spec 5/18 step 8: an admitted stranger's second
-// authority to create a world, beside the invite's `pending_target` cookie.
-// It is the WRITE precondition in handleCreateWorld; handleDashboard calls the
-// same function to decide whether to render the picker, because a form that is
-// merely hidden is not a control.
+// mayCreateFirstWorld is spec 5/18 step 8: an admitted stranger's second authority
+// to create a world. It is the WRITE precondition in handleCreateWorld;
+// handleDashboard calls it to decide whether to render the picker, because a form
+// that is merely hidden is not a control.
 //
-// The gate condition is what keeps the default posture closed. With no enabled
-// gate, admitJID approves EVERY paired identity, so `status='approved'` alone
-// would turn any instance that ever ran ONBOARDING_PLATFORMS into open signup —
-// and `arizuko create` seeds no gates. Requiring one makes the queue verdict
-// load-bearing exactly where an operator opted in by configuring it.
-//
-// It reads the gates through loadGates so the two cannot drift: the same
-// enabled=1 rows that make admitJID selective are the ones that make its
-// verdict grant something. Checking `COUNT(*) FROM onboarding_gates` here
-// instead would unlock the picker on a DISABLED gate while admitJID kept
-// approving everyone.
+// The gate condition keeps the default posture closed. With no enabled gate,
+// admitJID approves EVERY paired identity, so `status='approved'` alone would turn
+// any instance that ever ran ONBOARDING_PLATFORMS into open signup. It reads the
+// gates through loadGates so the same enabled=1 rows that make admitJID selective
+// are the ones that make its verdict grant something.
 //
 // Every failure fails closed: an unreadable DB grants nothing.
 func mayCreateFirstWorld(obdb *sql.DB, userSub string) bool {
@@ -943,16 +900,13 @@ func membershipJIDs(db *sql.DB, userSub string) []string {
 	return jids
 }
 
-// createWorldTx writes the username + group + admin grant in one tx. Spec 5/W:
-// no automatic chat token at folder creation. The groups INSERT OR IGNORE +
-// RowsAffected==0 detects a concurrent creator (TOCTOU) and fails closed
+// createWorldTx writes the username + group + admin grant in one tx. The groups
+// INSERT OR IGNORE + RowsAffected==0 detects a concurrent creator and fails closed
 // instead of granting admin on someone else's world.
 //
-// It writes NO routes. Spec 5/18 step 7: it used to route every JID the sub had
-// ever paired at the new folder, which is a blast radius, not an act — the
-// caller asked for a world, not for their other chats to move. The redirect
-// lands on /onboard, whose step-6 branch routes the ONE unrouted JID at hand
-// with an explicit, attributed act.
+// It writes NO routes (spec 5/18 step 7): it used to route every JID the sub had
+// ever paired at the new folder, which is a blast radius, not an act. The redirect
+// lands on /onboard, whose step-6 branch routes the ONE unrouted JID at hand.
 func createWorldTx(db *sql.DB, folder, username, userSub, now string) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -1006,18 +960,14 @@ func gateFromKey(key string, limit int) gate {
 	return gate{kind: kind, param: param, limitPerDay: limit}
 }
 
-// adminFolders lists every folder the sub may administer. Spec 5/18 step 6 is
-// the caller CHOOSING which of THEIR worlds a JID lands in, so the whole set is
-// the answer — returning the first one SQLite happens to hand back picked for
-// the user, which is wrong the moment they hold two.
+// adminFolders lists every folder the sub may administer. Spec 5/18 step 6 is the
+// caller CHOOSING which of THEIR worlds a JID lands in, so the whole set is the
+// answer.
 //
-// Deliberately NOT `JOIN acl a ON a.scope = g.folder`: acl scopes are PATTERNS,
-// so string equality misses every subtree grant — an owner holding `acme/**`
-// matched no folder at all, which is why the creator grant had to stay
-// bare-scoped and could never reach its own subgroups (BUGS W1). SQL cannot
-// glob segments, so the rows are filtered by the single evaluator rather than
-// by a second matcher written here: Authorize answers for ONE group, so asking
-// for all of them is a loop over groups.
+// Deliberately NOT `JOIN acl a ON a.scope = g.folder`: acl scopes are PATTERNS, so
+// string equality misses every subtree grant — an owner holding `acme/**` matched
+// no folder at all (BUGS W1). SQL cannot glob segments, so the rows are filtered
+// by the single evaluator rather than by a second matcher written here.
 func adminFolders(db *sql.DB, userSub string) []string {
 	folders, err := scanFolders(db)
 	if err != nil {
@@ -1205,15 +1155,12 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 		return
 	}
 
-	// invites is onbod-OWNED → read/consume through obdb. The redemption's acl
-	// admin row is routd-OWNED: in the monolith (db == obdb) ConsumeInvite writes
-	// invites + acl in one atomic tx on the shared messages.db. In the split
-	// (db != obdb) ConsumeInviteNoGrant touches only onbod.db's invites; the acl
-	// grant is written separately to routd.db (db here = xdb) via the AUDITED
-	// AddACLRow. audit.Init pointing at obdb does not force the audit-free twin
-	// here: AddACLRow emits with audit.EmitInTx, which writes the tx's own DB —
-	// routd.db, which has had audit_log since routd migration 0016 — so the grant
-	// and its audit row commit together.
+	// invites is onbod-OWNED → read/consume through obdb. The redemption's acl admin
+	// row is routd-OWNED, so ConsumeInviteNoGrant touches only onbod.db's invites and
+	// the acl grant is written separately to routd.db via the AUDITED AddACLRow.
+	// audit.Init pointing at obdb does not force the audit-free twin: AddACLRow emits
+	// with audit.EmitInTx, which writes the tx's own DB, so the grant and its audit
+	// row commit together.
 	st := store.New(obdb)
 	split := db != obdb
 
@@ -1276,20 +1223,17 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 	slog.Info("invite accepted", "token_hash", chanlib.ShortHash(token),
 		"target_glob", target, "user", userSub)
 
-	// Subgroup invites carry their parent in the invite_redemptions row
-	// consumeInvite just wrote, not in a cookie the caller can rewrite (F50).
-	// /onboard reads it back to render the picker; nothing is handed to the
-	// browser to bring along.
+	// Subgroup invites carry their parent in the invite_redemptions row consumeInvite
+	// just wrote, not in a cookie the caller can rewrite (F50).
 	//
-	// Redemption grants authority over the target and stops there. Spec 5/18
-	// step 7: it used to route EVERY JID the sub had ever paired at the target,
-	// which silently moved a returning user's already-routed chats into the
-	// world they had just been invited to — the seq-0 rows it wrote outrank any
-	// higher-seq route those chats already had. It also discarded the Exec
-	// error. /onboard's step-6 branch routes the one unrouted JID instead.
+	// Redemption grants authority over the target and stops there. Spec 5/18 step 7:
+	// it used to route EVERY JID the sub had ever paired at the target, silently
+	// moving a returning user's already-routed chats — the seq-0 rows it wrote outrank
+	// any higher-seq route those chats already had. /onboard's step-6 branch routes
+	// the one unrouted JID instead.
 	//
-	// Spec 5/W: no slink redirect — the operator (or agent) issues a
-	// chat link on demand. Land on /onboard after invite redemption.
+	// Spec 5/W: no slink redirect — the operator or agent issues a chat link on
+	// demand.
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
@@ -1312,13 +1256,10 @@ func renderUsernamePicker(w http.ResponseWriter, currentUsername, csrf string) {
 }
 
 // renderWorldPicker is spec 5/18 step 6: the caller picks which of THEIR worlds
-// the proven JID lands in. It posts to handleAddRoute, which re-checks both
-// halves (authority over target, ownership of match) — the radio list is a
-// convenience, never the authorization.
-//
-// The csrf field is not optional: handleOnboardPost 403s any POST whose form
-// value does not match the onbod_csrf cookie, which is how the create_world
-// form shipped broken (BUGS F1).
+// the proven JID lands in. It posts to handleAddRoute, which re-checks both halves
+// — the radio list is a convenience, never the authorization. The csrf field is
+// not optional: handleOnboardPost 403s any POST whose form value does not match
+// the cookie, which is how the create_world form shipped broken (BUGS F1).
 func renderWorldPicker(w http.ResponseWriter, jid string, folders []string, csrf string) {
 	esc := html.EscapeString
 	var opts strings.Builder
@@ -1616,12 +1557,9 @@ const (
 )
 
 // insertRoute is onbod's ONLY routes writer, so no onbod path can produce an
-// unattributed row. Authorization belongs to the caller (handleAddRoute's
-// MatchGroups + userOwnsMatch; the sole-world branch's adminFolders +
-// unroutedJID) — this records who acted and how, and nothing else.
-//
-// Plain INSERT, not INSERT OR IGNORE: `routes` carries no UNIQUE constraint, so
-// OR IGNORE ignored nothing and only swallowed genuine write errors.
+// unattributed row. Authorization belongs to the caller; this records who acted
+// and how. Plain INSERT, not INSERT OR IGNORE: `routes` carries no UNIQUE
+// constraint, so OR IGNORE ignored nothing and only swallowed genuine errors.
 func insertRoute(db *sql.DB, match, target, sub, via string) error {
 	_, err := db.Exec(
 		`INSERT INTO routes (seq, match, target, added_by, added_via) VALUES (0, ?, ?, ?, ?)`,

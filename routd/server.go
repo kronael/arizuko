@@ -443,15 +443,11 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "missing_field", "chat_jid and content required")
 		return
 	}
-	// Ingress JID-ownership: a platform-scheme inbound must land under a registered channel's
-	// prefixes — a caller can't inject JIDs no adapter owns. Internal schemes
-	// (web:/hook:/bare-folder, used by web chat + timed + onbod) carry no channel
-	// prefix and are exempt. When the caller is verified (sub != ""), maps the
-	// service principal to its registry entry and rejects when the entry doesn't
-	// own the JID prefix. Non-adapter internal services (timed, onbod) have no
-	// registry entry (entry == nil) and are allowed through — they're not a
-	// cross-adapter spoofing risk. When unverified (local dev, sub == ""), falls
-	// back to checking if any registered adapter owns it.
+	// Ingress JID-ownership: a platform-scheme inbound must land under a registered
+	// channel's prefixes, so a caller cannot inject JIDs no adapter owns. Internal
+	// schemes (web:/hook:/bare-folder) carry no channel prefix and are exempt.
+	// Non-adapter internal services have no registry entry and are allowed through.
+	// When unverified (local dev), falls back to any registered adapter owning it.
 	if s.reg != nil && isChannelJID(m.ChatJID) {
 		if sub != "" {
 			entry := s.reg.ByPrincipal(sub)
@@ -466,27 +462,19 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	// Sender ownership. Deliberately NOT nested in the branch above: web:/hook:/
 	// bare-folder ChatJIDs skip that block, so an adapter could post
-	// chat_jid="web:main" with another platform's sender and meet no check at
-	// all. Sender is authorization-bearing — steer.go feeds it to IsOperator →
-	// Authorize(admin, **) — so an adapter asserting `google:alice` or another
-	// platform's user is an escalation, not a cosmetic error.
+	// chat_jid="web:main" with another platform's sender and meet no check at all.
+	// Sender is authorization-bearing — steer.go feeds it to IsOperator → Authorize —
+	// so asserting another platform's user is an escalation.
 	//
-	// The test is the platform scheme, not the full prefix: registered
-	// JIDPrefixes are CHAT prefixes ("telegram:mybot/") while senders are
-	// "telegram:user/<id>", so Owns() would reject legitimate traffic. Only
-	// callers that are registered adapters are constrained; webd, timed and
-	// onbod have no registry entry and are unaffected.
-	// Only QUALIFIED senders are constrained. A bare, scheme-less sender ("u")
-	// cannot collide with an OAuth sub, which is always "<provider>:<id>", so it
-	// is not the vector; rejecting it would only break adapters that never
-	// qualified their senders.
-	// "anon:" is exempt for the same reason a bare sender is: it is not an
-	// identity. Route tokens (5/W) mint anon:<hash> for public chat, it can
-	// never be an OAuth sub ("anon" is no provider) and it holds no grant, so
-	// IsOperator → Authorize can never match it. webd DOES hold a registry
-	// entry (it owns "web:"), so without this the guard rejected webd's own
-	// route-token senders — it took the whole web-chat surface down on krons
-	// the first time 3cb63410 reached a deployed instance (2026-08-05).
+	// The test is the platform scheme, not the full prefix: registered JIDPrefixes
+	// are CHAT prefixes while senders are "telegram:user/<id>", so Owns() would
+	// reject legitimate traffic.
+	// Only QUALIFIED senders are constrained. A bare, scheme-less sender cannot
+	// collide with an OAuth sub, which is always "<provider>:<id>".
+	// "anon:" is exempt for the same reason: route tokens mint anon:<hash> for public
+	// chat, it can never be an OAuth sub and it holds no grant. webd DOES hold a
+	// registry entry, so without this the guard rejected webd's own route-token
+	// senders and took the whole web-chat surface down on krons (2026-08-05).
 	if s.reg != nil && sub != "" && strings.Contains(m.Sender, ":") && !strings.HasPrefix(m.Sender, "anon:") {
 		if entry := s.reg.ByPrincipal(sub); entry != nil && !entry.OwnsScheme(m.Sender) {
 			writeErr(w, 400, "sender_scheme_mismatch",

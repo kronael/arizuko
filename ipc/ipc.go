@@ -234,28 +234,21 @@ type StoreFns struct {
 	ExtTools []ExtTool
 
 	// ResolveConnectorSecrets returns the folder/user-scoped secret values a
-	// connector call needs, narrowed to the connector's declared `required`
-	// names. buildMCPServer calls it per connector invocation and hands the
-	// result to CallConnectorTool — which expands `{secret:KEY}` into the
-	// subprocess env AND scrubs those values from the result. Nil → no
-	// injection (the connector sees the placeholders literally), matching the
-	// pre-injection behaviour. Spec 5/13. A non-nil error is a surrogate-OAuth
-	// "reconnect" signal (spec 5/15): a required credential's refresh_token was
-	// revoked; the handler returns it to the agent as the tool result.
+	// connector call needs, narrowed to the connector's declared `required` names.
+	// CallConnectorTool expands `{secret:KEY}` into the subprocess env and scrubs
+	// those values from the result. Nil → no injection. A non-nil error is a
+	// surrogate-OAuth "reconnect" signal (spec 5/15): a required credential's
+	// refresh_token was revoked.
 	//
-	// `tool` is the calling tool's local name. It is passed rather than inferred
-	// because the resolver is the audit seam: secret_use_log's row answers "who
-	// used which credential, from where", and the tool half of that is knowable
-	// only here at the call site (spec 5/13 § Audit).
+	// `tool` is passed rather than inferred because the resolver is the audit seam:
+	// secret_use_log answers "who used which credential, from where", and the tool
+	// half of that is knowable only here at the call site.
 	ResolveConnectorSecrets func(folder, tool string, required []string) (map[string]string, error)
 
 	// RefreshConnectorSecrets force-refreshes the surrogate-OAuth rows behind
 	// `required` and returns the re-resolved values — same shape as
-	// ResolveConnectorSecrets, different intent, one implementation behind both.
-	// CallExtTool calls it at most once, only on a 401 (spec 5/15 § "Refresh at
-	// call time": the reactive half, for providers whose `expires_in` is
-	// optimistic enough that the proactive near-expiry check never fires).
-	// Nil disables the retry.
+	// ResolveConnectorSecrets, one implementation behind both. CallExtTool calls it
+	// at most once, only on a 401. Nil disables the retry.
 	RefreshConnectorSecrets func(folder, tool string, required []string) (map[string]string, error)
 
 	// Authorize is the SOLE per-call authz check (5/33): sub may call action (e.g.
@@ -272,24 +265,18 @@ type StoreFns struct {
 
 	// CheckHold answers "must this call wait for a human?" (spec 5/19). It runs at
 	// the single tools/call interception, so hot tools, resreg facade tools and
-	// timed-triggered turns are all covered — "no bypass" holds by construction
-	// rather than by remembering to add the check to each handler.
+	// timed-triggered turns are all covered by construction.
 	//
 	// It runs BEFORE authz, which is safe: approval never substitutes for
-	// authorization. A released call re-enters the normal path and every
-	// in-handler grant and JID gate still runs. It is reached only for a call
-	// that could otherwise execute — see holdEligible (BUGS J2).
-	//
-	// Returns the pending-action id when the call was suspended. Nil CheckHold is
-	// zero overhead and today's behavior untouched.
+	// authorization. A released call re-enters the normal path and every in-handler
+	// grant and JID gate still runs (BUGS J2). Returns the pending-action id when the
+	// call was suspended.
 	CheckHold func(tool string, args map[string]any) (id string, held bool)
 
 	// LogIPCAudit persists one audit_log row (surface=mcp, action=mcp.tool.invoke)
 	// via audit.EmitDB — the name is legacy, the destination is not. The ipc_audit
-	// table is retired and unwritten. This comment claimed otherwise and cost a
-	// review (BUGS F34): an agent read it, concluded MCP tool calls were invisible
-	// to /dash/audit/, and proposed a cross-cutting move that was already done.
-	// Nil = no-op.
+	// table is retired and unwritten; a comment claiming otherwise cost a review
+	// (BUGS F34). Nil = no-op.
 	LogIPCAudit func(folder, sub, tool, params, outcome string) error
 }
 
@@ -345,19 +332,15 @@ type TaskRunLog struct {
 // maxMCPConns bounds concurrent in-flight MCP connections per group.
 const maxMCPConns = 8
 
-// ServeMCP binds the group MCP socket (0660, chowned to expectedUID),
-// bounds accept fan-out, and verifies each peer via SO_PEERCRED. Only
-// connections whose kernel-attested peer uid matches expectedUID are
-// accepted. expectedUID <= 0 disables the check (dev/tests).
-// callerSub, when non-empty, enables row-based grants checks via
-// db.Authorize for every tool call (ARIZUKO_LOCAL_SUB). Empty = full
-// operator access (default behavior).
+// ServeMCP binds the group MCP socket (0660, chowned to expectedUID), bounds
+// accept fan-out, and verifies each peer via SO_PEERCRED. expectedUID <= 0
+// disables the check (dev/tests). callerSub, when non-empty, enables row-based
+// grants checks via db.Authorize for every tool call.
 //
-// postBuild runs on the built *server.MCPServer before the accept loop
-// starts. It is the layering seam for resreg-driven tool registration:
-// ipc must not import store/resreg, so routd (which imports both) passes
-// a closure that calls resreg.MCPTools to mount cold-tier management
-// tools (spec 5/16 web_routes pilot). Empty in every non-routd caller.
+// postBuild runs on the built *server.MCPServer before the accept loop starts. It
+// is the layering seam for resreg-driven tool registration: ipc must not import
+// store/resreg, so routd passes a closure that calls resreg.MCPTools. Empty in
+// every non-routd caller.
 func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoot bool, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (func(), error) {
 	os.Remove(sockPath)
 	ln, err := net.Listen("unix", sockPath)
@@ -423,13 +406,11 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoo
 	}, nil
 }
 
-// holdEligible reports whether a tools/call may create a pending-action row.
-// The hold gate deliberately runs before per-call authz, so these two cheap
-// preconditions stand in for it: an unregistered name has no handler to release
-// the call to, and a tool the caller cannot see at any scope can never pass the
-// in-handler gate. Without them `hold:mcp:*` let a raw caller mint unlimited
-// rows and approval notices for tools that could never execute, and probe which
-// forbidden tools carry a hold rule (BUGS J2).
+// holdEligible reports whether a tools/call may create a pending-action row. The
+// hold gate runs before per-call authz, so these two cheap preconditions stand in
+// for it. Without them `hold:mcp:*` let a raw caller mint unlimited rows and
+// approval notices for tools that could never execute, and probe which forbidden
+// tools carry a hold rule (BUGS J2).
 func holdEligible(srv *server.MCPServer, db StoreFns, tool string) bool {
 	if srv.GetTool(tool) == nil {
 		return false
@@ -683,15 +664,12 @@ func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder s
 }
 
 // recordOutboundFailure appends the durable row for an outbound message the
-// platform did NOT accept, so a failed send leaves evidence instead of nothing.
-// The agent still gets the error from the tool — this row only decides who
-// owns the retry.
+// platform did NOT accept, so a failed send leaves evidence. The agent still gets
+// the error from the tool — this row only decides who owns the retry.
 //
-// A transient failure lands 'pending' and routd's sweep re-sends it
-// (`routd/loop.go` maybeRetryOutbound). A permanent refusal lands 'failed', the
-// dead-letter state, because a retry cannot repair it. retryable=false forces
-// the dead letter for a send the text-only sweep must never repeat: a file
-// send, which the sweep would re-send as a captionless, fileless message.
+// A transient failure lands 'pending' and routd's sweep re-sends it. A permanent
+// refusal lands 'failed'. retryable=false forces the dead letter for a file send,
+// which the text-only sweep would repeat as a captionless, fileless message.
 func recordOutboundFailure(gated GatedFns, db StoreFns, jid, text, folder, replyToID string, retryable bool, err error) {
 	status := core.MessageStatusPending
 	if !retryable || errors.Is(err, chanlib.ErrPermanent) {
@@ -712,11 +690,9 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 	if platformID != "" && db.SetLastReply != nil {
 		_ = db.SetLastReply(jid, topic, platformID, folder)
 	}
-	// Spec 5/G — engagement bump shares ONE policy across the three
-	// write sites (gateway steered echo, gateway output callback, MCP
-	// recordOutbound). timed-* triggers skip the bump. The trigger
-	// sender for the active turn is exposed by the gateway via
-	// StoreFns.CurrentTriggerSender so MCP can honour the same skip
+	// Spec 5/G — engagement bump shares ONE policy across the three write sites.
+	// timed-* triggers skip the bump; the trigger sender for the active turn is
+	// exposed via StoreFns.CurrentTriggerSender so MCP honours the same skip
 	// without plumbing per-call context through the socket.
 	if platformID != "" && db.BumpEngagement != nil && gated.EngagementTTL > 0 {
 		triggerSender := ""
@@ -745,13 +721,10 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 			// it into the same thread. A delivered row leaves it empty: its own
 			// platform id belongs in platform_id.
 			ReplyToID: replyToID,
-			// Store the sent message's own platform id in platform_id (the
-			// contract in store IsBotMessageByID): a later human reply to this
-			// message carries this id in reply_to, and the reply-to-bot →
-			// verb=mention promotion (spec 5/L) matches it. The gateway
-			// turn-result path does the same via MarkMessageDelivered; reply-
-			// tool sends were dropping it (platform_id empty) → threads rooted
-			// on a tool reply never re-promoted.
+			// Store the sent message's own platform id in platform_id: a later human
+			// reply carries this id in reply_to, and the reply-to-bot → verb=mention
+			// promotion (spec 5/L) matches it. reply-tool sends were dropping it, so
+			// threads rooted on a tool reply never re-promoted.
 			PlatformID: platformID,
 			RoutedTo:   jid,
 			Topic:      topic,
@@ -765,13 +738,9 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 }
 
 // internalSend delivers one MCP send and records it. Both outcomes write a
-// durable row: a delivered send goes 'sent', a failed send goes 'pending' or
-// 'failed'. The error still returns to the agent — the row decides the retry,
-// not the report.
-// internalSend returns the last platform-assigned message id it recorded, so
-// MCP callers (send, send_file) can hand it back to the agent the same way
-// reply already does — for edit/delete/branch targeting without an extra
-// inspection round-trip.
+// durable row; the error still returns to the agent — the row decides the retry,
+// not the report. It returns the last platform-assigned message id it recorded,
+// so send and send_file can hand it back for edit/delete/branch targeting.
 func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files []internalSendFile) (string, error) {
 	if len(files) == 0 {
 		if gated.SendMessage == nil {
@@ -868,12 +837,10 @@ func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
 	if db.DefaultFolderForJID != nil {
 		target = db.DefaultFolderForJID(jid)
 	}
-	// No route row: fall back to the token's own binding so an agent can reply
-	// to its own web-chat surface. Read the folder the MINT recorded, never the
-	// JID grammar — `web:T/S` is byte-identical to a plain token at a folder
-	// named `T/S`, so the grammar hands containment to a descendant and a
-	// sub-folder agent writes into its ancestor's chat (BUGS L4). The grammar
-	// stays the last resort, for a token minted before the mint recorded it.
+	// No route row: fall back to the token's own binding so an agent can reply to
+	// its own web-chat surface. Read the folder the MINT recorded, never the JID
+	// grammar — `web:T/S` is byte-identical to a plain token at a folder named
+	// `T/S`, so the grammar hands containment to a descendant (BUGS L4).
 	if target == "" && db.RouteTokenTarget != nil {
 		target = db.RouteTokenTarget(jid)
 	}
@@ -1012,11 +979,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	}
 
 	// gateJID is the two-gate prologue the messaging tools share: magnitude
-	// (mcp:<tool> held, with the target jid bound so a jid-scoped grant is
-	// exact) then JID containment. They cannot use granted(), which passes a nil
-	// param map — so the prologue was hand-copied at eight sites and none of
-	// them emitted the denial granted() emits (BUGS F70). One helper, one trace.
-	// nil = the call may proceed.
+	// (mcp:<tool> held, with the target jid bound) then JID containment. They
+	// cannot use granted(), which passes a nil param map — so the prologue was
+	// hand-copied at eight sites and none emitted the denial granted() emits
+	// (BUGS F70). nil = the call may proceed.
 	gateJID := func(tool, jid string) error {
 		if !authorizeCall(tool, map[string]string{"jid": jid}) {
 			emitAuthzDenied(tool, callerSub)
@@ -1357,12 +1323,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		call     func(a map[string]string) (string, error) // id may be ""
 		idOut    bool                                      // true → JSON {ok,id}; false → "ok"
 		// record, when set, returns the text logged via recordOutbound after a
-		// successful call — for verbs that author new content on the agent's
-		// own feed (quote, repost) so the agent later sees its own IDs and
-		// threading/engagement track, same as post. nil for relay/reaction
-		// verbs: forward targets a foreign chat (recording under the active
-		// turn's key would mis-thread it); like/delete/edit mutate existing
-		// content rather than authoring new content.
+		// successful call — for verbs that author new content on the agent's own
+		// feed (quote, repost). nil for relay/reaction verbs: forward targets a
+		// foreign chat, and like/delete/edit mutate existing content.
 		record func(a map[string]string) string
 	}
 	regSocial := func(s socialAct) {
@@ -1619,17 +1582,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			})
 		})
 
-	// Spec 5/G engagement primitives. Both MCP sockets are per-folder,
-	// so the agent passes (jid, topic) explicitly. Authz: caller folder
-	// must own the conversation — either the last bot reply in
-	// (jid, topic) was routed to this folder, or the jid's default
-	// route resolves here. No cross-folder engage/disengage.
-	// Authz arms (spec 5/G — oracle round 2 fix 5):
+	// Spec 5/G engagement primitives. Both MCP sockets are per-folder, so the
+	// agent passes (jid, topic) explicitly. The caller folder must own the
+	// conversation. Three authz arms:
 	//   1. EngagedFolder match — caller already owns the active engagement.
 	//   2. JIDRoutedToFolder — caller is the default route target.
-	//   3. No current engagement — fresh autonomous turn can claim the
-	//      chat (escape hatch; scheduled jobs bootstrapping a conversation
-	//      otherwise have no path to engage). Stealing an active
+	//   3. No current engagement — a fresh autonomous turn can claim the chat,
+	//      so scheduled jobs have a path to engage. Stealing an active
 	//      engagement still requires arm 1 or 2.
 	engagementAuthz := func(jid, topic string) error {
 		if identity.Folder == "" {
@@ -1911,14 +1870,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			mcp.WithNumber("depth"),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			// EnqueueMessageCheck is OPTIONAL, not required. routd does not set
-			// it — its loop polls new messages by timestamp, exactly as the
-			// comment on InjectMessage (routd/mcp.go:121) says. Demanding it
-			// here made escalate_group and delegate_group return "not
-			// configured" on EVERY call in the split routd: the tools were
-			// registered, listed, and dead. anteval's child-delegate caught it
-			// (BUGS L65). PutMessage is the real dependency; the enqueue is a
-			// latency optimisation.
+			// EnqueueMessageCheck is OPTIONAL. routd does not set it — its loop polls
+			// new messages by timestamp. Demanding it here made escalate_group and
+			// delegate_group return "not configured" on EVERY call in the split routd:
+			// registered, listed, and dead (BUGS L65). PutMessage is the real
+			// dependency; the enqueue is a latency optimisation.
 			if db.PutMessage == nil {
 				return toolErr("escalate_group not configured: no PutMessage")
 			}
@@ -2362,13 +2318,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		return toolOK()
 	})
 
-	// web_routes management tools (set_web_route/del_web_route/list_web_routes)
-	// are no longer hand-rolled here. They ride resreg's two-face mechanism
-	// (spec 5/16 pilot): routd owns the shared handler + tx/audit and mounts
-	// them on this server via the ServeMCP postBuild seam, with the agent's
-	// Gate + MatchingRules visibility injected. get_web_presence
-	// stays hand-authored — it is a read-only presence report, not web_routes
-	// CRUD, and has no resreg REST twin.
+	// web_routes management tools ride resreg's two-face mechanism (spec 5/16
+	// pilot): routd owns the shared handler plus tx/audit and mounts them here via
+	// the ServeMCP postBuild seam. get_web_presence stays hand-authored — a
+	// read-only presence report, not web_routes CRUD, with no resreg REST twin.
 	granted("get_web_presence",
 		"Report this folder's public web presence: its canonical hostname (derived <folder>.<HOSTING_DOMAIN> or an operator alias), the /pub/<folder>/ path that always works, and the OAuth /priv base. Use to tell a user where your site is. Read-only.",
 		[]mcp.ToolOption{mcp.WithString("folder")},
@@ -2391,17 +2344,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 }
 
 // ListTools builds the MCP tool registry for folder and returns the tool schemas.
-// visible is the tool-visibility view (auth.EffectiveActions — a tool shows iff the
-// folder holds it; reads are unconditional). Safe to call without a running container
-// — GatedFns and StoreFns are zero-valued (handlers are never invoked). Used by dashd
-// and /v1/tools to render the tool browser without duplication.
+// visible is the tool-visibility view (a tool shows iff the folder holds it;
+// reads are unconditional). Safe to call without a running container — GatedFns
+// and StoreFns are zero-valued.
 //
-// The result is hot-tier tools (buildMCPServer) PLUS the visible cold-tier facade
-// tools (routes/web_routes/scheduled_tasks/acl/network_rules/route_tokens/groups
-// management), which the live agent socket mounts via routd's resreg postBuild seam,
-// not here. addFacadeTools derives them from the SAME resreg specs routd uses, so the
-// browser shows exactly the agent's surface. The mcp-go server keys tools by name, so
-// the two sets are deduped; sort keeps output stable.
+// The result is hot-tier tools PLUS the visible cold-tier facade tools, which the
+// live agent socket mounts via routd's resreg postBuild seam, not here.
+// addFacadeTools derives them from the SAME resreg specs routd uses, so the
+// browser shows exactly the agent's surface.
 func ListTools(folder string, visible func(name string) bool) []mcp.Tool {
 	srv := buildMCPServer(GatedFns{}, StoreFns{Visible: visible}, folder, false, "")
 	addFacadeTools(srv, visible)
@@ -2415,12 +2365,10 @@ func ListTools(folder string, visible func(name string) bool) []mcp.Tool {
 }
 
 // addFacadeTools registers the cold-tier facade tools onto srv for DISPLAY only.
-// It walks the resreg registry (populated by a blank import of resreg/resources in
-// the daemon binary) and derives every resource carrying MCP metadata — MCPNames
-// set is the agent-facade discriminator, so the pure-REST resource (secrets)
-// and dotted-name ones (proxyd_routes) are skipped. visible mirrors the agent
-// socket's filter EXACTLY: a tool the folder doesn't hold is not shown.
-// The stub caller is never invoked — ListTools reads schemas, never calls handlers.
+// It walks the resreg registry and derives every resource carrying MCP metadata —
+// MCPNames set is the agent-facade discriminator, so the pure-REST resource and
+// dotted-name ones are skipped. visible mirrors the agent socket's filter exactly.
+// The stub caller is never invoked.
 func addFacadeTools(srv *server.MCPServer, visible func(name string) bool) {
 	stub := func(context.Context, mcp.CallToolRequest) (resreg.Caller, error) {
 		return resreg.Caller{}, nil
@@ -2433,18 +2381,15 @@ func addFacadeTools(srv *server.MCPServer, visible func(name string) bool) {
 	}
 }
 
-// holdResponse is what a suspended tool call returns to the agent. It is a
-// normal tool RESULT, not a JSON-RPC error: the call did not fail, it is
-// waiting, and the agent must be able to say so in chat and move on rather than
-// retry a "failure" in a loop.
+// holdResponse is what a suspended tool call returns to the agent: a normal tool
+// RESULT, not a JSON-RPC error. The call did not fail, it is waiting, and the
+// agent must be able to say so and move on rather than retry a "failure".
 //
-// An EMPTY pendingID is the gate reporting that it blocked the call but could
-// not record it. There is no row and no id, so the pending shape would tell the
-// agent to wait for `/approve` on an id nobody can resolve — a user-facing state
-// that is false forever (BUGS J3). That case really did fail, so it returns a
-// JSON-RPC error and the agent surfaces it.
-// auditParams widens a social verb's string args for the audit sink, capping
-// each value so a long `content` cannot bloat every audit_log row.
+// An EMPTY pendingID is the gate reporting that it blocked the call but could not
+// record it. The pending shape would tell the agent to wait for `/approve` on an
+// id nobody can resolve (BUGS J3), so that case returns a JSON-RPC error.
+// auditParams widens a social verb's string args for the audit sink, capping each
+// value so a long `content` cannot bloat every audit_log row.
 func auditParams(vals map[string]string) map[string]any {
 	out := make(map[string]any, len(vals))
 	for k, v := range vals {

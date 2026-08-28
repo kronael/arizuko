@@ -72,11 +72,9 @@ func readEnvFileKey(path, key string) string {
 // names, and service fragment filenames.
 var identRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$`)
 
-// Per-daemon env scoping: each known daemon gets env/<daemon>.env containing
-// only the vars it needs. Unknown services (operator-supplied services/*.yml)
-// fall back to the shared .env. Secrets do not leak across daemons.
-//
-// commonKeys flow into every arizuko daemon env file.
+// Per-daemon env scoping: each known daemon gets env/<daemon>.env with only the
+// vars it needs; unknown services fall back to the shared .env. commonKeys flow
+// into every arizuko daemon env file.
 var commonKeys = []string{
 	"ASSISTANT_NAME", "TZ", "LOG_LEVEL", "ARIZUKO_DEV",
 	"HOST_DATA_DIR", "HOST_APP_DIR", "WEB_HOST",
@@ -91,10 +89,9 @@ var commonKeys = []string{
 	"OTEL_EXPORTER_OTLP_PROTOCOL",
 	"OTEL_EXPORTER_OTLP_HEADERS",
 	"OTEL_RESOURCE_ATTRIBUTES",
-	// DATA_DIR is NOT in commonKeys: that would leak the host path
-	// into env/<daemon>.env and into the container. DATA_DIR is the
-	// container-internal mount point, set per-daemon in the compose
-	// `environment:` block.
+	// DATA_DIR is NOT in commonKeys: that would leak the host path into the
+	// container. It is the container-internal mount point, set per-daemon in the
+	// compose `environment:` block.
 }
 
 // daemonKeys: per-daemon secrets + config. Unlisted keys never reach the daemon.
@@ -116,18 +113,15 @@ var daemonKeys = map[string][]string{
 	// Verifies via authd JWKS. NO egress proxy, NO docker socket.
 	"routd": {
 		"AUTHD_URL", "AUTHD_SERVICE_KEY", "ONBOD_URL",
-		// RUNED_RUN_TIMEOUT: routd reads it (routd/cmd/routd/main.go:106) to size
-		// its own dispatch deadline as runTimeout+2m, deliberately OUT-WAITING
-		// runed's container kill. Without it here routd silently kept the 20m
-		// default while runed honoured a longer .env value — routd's deadline
-		// fired first, turn_context stayed `running`, and the next poll re-fed
-		// the SAME turn into a second container: the user's message executed
-		// twice. marinade ships RUNED_RUN_TIMEOUT=30m, so this was live.
+		// RUNED_RUN_TIMEOUT: routd sizes its dispatch deadline as runTimeout+2m,
+		// deliberately out-waiting runed's container kill. Without it here routd kept
+		// the 20m default while runed honoured a longer value, so routd's deadline
+		// fired first and the next poll re-fed the SAME turn: the user's message ran
+		// twice. marinade ships 30m, so this was live.
 		"RUNED_RUN_TIMEOUT",
-		// routd detects the route miss that fires chat-initiated onboarding
-		// (loop.go InsertOnboarding); the flag gates it. onbod holds the same
-		// vars but never sees inbound — without these on routd the greeting +
-		// admission queue never fire and a new group is stored, never onboarded.
+		// routd detects the route miss that fires chat-initiated onboarding; the flag
+		// gates it. Without these on routd the greeting and admission queue never fire
+		// and a new group is stored, never onboarded.
 		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",
 		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
 		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
@@ -139,14 +133,10 @@ var daemonKeys = map[string][]string{
 		"SECRETS_KEY",
 		// Instance-wide fallback model when a group has no per-group model.
 		"ARIZUKO_DEFAULT_MODEL",
-		// Inbound media enrichment (download + Whisper transcription) and outbound
-		// send_voice (TTS) run IN routd (routd/enrich.go, routd/tts.go). The split
-		// lifted these out of gated but left the env only on runed (which uses a
-		// SUBSET for the agent's in-container [media] config, container/runner.go),
-		// so routd defaulted MEDIA_ENABLED off → every inbound attachment silently
-		// dropped + send_voice disabled (krons poj.zip, 2026-06-10). Both daemons
-		// need them: routd to download/transcribe/synthesize, runed for the agent's
-		// own media settings — so these are duplicated, not moved.
+		// Inbound media enrichment and outbound send_voice run IN routd. The split left
+		// the env only on runed, so routd defaulted MEDIA_ENABLED off → every inbound
+		// attachment silently dropped and send_voice disabled (krons, 2026-06-10). Both
+		// daemons need them, so these are duplicated, not moved.
 		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES",
 		"WHISPER_BASE_URL", "WHISPER_MODEL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED",
@@ -174,21 +164,16 @@ var daemonKeys = map[string][]string{
 		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX",
 		"EGRESS_IMAGE", "EGRESS_UPLINK_NETWORK",
 		"HOST_CODEX_DIR",
-		// ARIZUKO_BACKEND picks the harness occupant (claude|codex|pi). runed
-		// reads it into cfg.AgentBackend (core/config.go:213) and buildArgs
-		// emits it as container env; without it here the instance .env value
-		// never reaches runed, so `ARIZUKO_BACKEND=codex; restart` — the
-		// per-backend certification procedure spec 6/7 documents — silently
-		// kept spawning claude.
+		// ARIZUKO_BACKEND picks the harness occupant (claude|codex|pi). Without it here
+		// the instance .env value never reaches runed, so `ARIZUKO_BACKEND=codex;
+		// restart` silently kept spawning claude.
 		"ARIZUKO_BACKEND",
-		// NO SECRETS_KEY. runed spawns the agent and injects the model credentials
-		// routd already resolved and DECRYPTED (RunRequest.Secrets); it opens no
-		// secrets table and builds no keyring, so the fleet's decryption key had no
-		// reader here — only a wider blast radius on the one daemon holding
-		// docker.sock (BUGS X3). The model credentials runed does need are appended
-		// separately from store.EnvProfileKeys in writeEnvFiles, so they are
-		// unaffected by this removal — that separation is what keeps this from
-		// repeating the v0.62 /login outage (BUGS M1).
+		// NO SECRETS_KEY. runed injects the model credentials routd already decrypted;
+		// it opens no secrets table, so the fleet's decryption key had no reader here —
+		// only a wider blast radius on the one daemon holding docker.sock (BUGS X3).
+		// The credentials runed does need come from store.EnvProfileKeys in
+		// writeEnvFiles, which is what keeps this from repeating the v0.62 /login
+		// outage (BUGS M1).
 	},
 	// onbod reads AUTH_BASE_URL (redirect base + cookie Secure flag) and nothing
 	// else from the auth block: authd took OAuth in a56202d4, so the provider
@@ -201,26 +186,21 @@ var daemonKeys = map[string][]string{
 		// service:onbod token for routd /v1/outbound (spec 5/1).
 		"AUTHD_URL", "AUTHD_SERVICE_KEY",
 	},
-	// dashd VERIFIES proxyd's ES256 transit bearer against authd's JWKS (AUTHD_URL)
-	// AND presents its own service:dashd token on the whapd re-pair proxy
-	// (AUTHD_SERVICE_KEY). SURROGATE_* runs the Connect-GitHub OAuth dance
-	// at /dash/me/connections (spec 5/15). AUTH_SECRET keys that dance's CSRF
-	// state and is read with os.Getenv, not core.LoadConfig — a reader search
-	// over the config struct misses it, so do not drop it as unread (BUGS L7).
+	// dashd verifies proxyd's ES256 transit bearer against authd's JWKS and presents
+	// its own service:dashd token on the whapd re-pair proxy. AUTH_SECRET keys the
+	// Connect-GitHub CSRF state and is read with os.Getenv, not core.LoadConfig — a
+	// reader search over the config struct misses it (BUGS L7).
 	"dashd": {
 		"AUTH_SECRET", "DASH_PORT", "WHAPD_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY",
 		"SURROGATE_GITHUB_CLIENT_ID", "SURROGATE_GITHUB_CLIENT_SECRET",
-		// dashd writes user secrets into routd.db directly (/dash/me/env,
-		// /dash/me/secrets, and the Connect OAuth dance), so it seals with the
-		// same key routd reads with. Omitting it here made dashd write every
-		// user secret in plaintext on each live instance (BUGS S2).
+		// dashd writes user secrets into routd.db directly, so it seals with the same
+		// key routd reads with. Omitting it here made dashd write every user secret in
+		// plaintext on each live instance (BUGS S2).
 		"SECRETS_KEY",
 	},
-	// webd + proxyd present a service:<daemon> ES256 token as the channel proof
-	// for the X-User-* headers they forward: proxyd→backends, webd→proxyd
-	// /v1/routes + webd→routd register. Exchanged from AUTHD_SERVICE_KEY at AUTHD_URL.
-	// proxyd reads AUTH_SECRET as its auth-enabled flag (proxyd/main.go); webd
-	// reads neither it nor AUTH_BASE_URL.
+	// webd + proxyd present a service:<daemon> ES256 token as the channel proof for
+	// the X-User-* headers they forward. proxyd reads AUTH_SECRET as its
+	// auth-enabled flag; webd reads neither it nor AUTH_BASE_URL.
 	"webd":   {"ROUTER_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY"},
 	"proxyd": {"AUTH_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "HOSTING_DOMAIN", "WEB_VHOST_ALIASES"},
 	// Channel adapters: AUTHD_URL + AUTHD_SERVICE_KEY let each exchange a
@@ -228,10 +208,8 @@ var daemonKeys = map[string][]string{
 	// /v1/pane (spec 5/1; no CHANNEL_SECRET remains).
 	"teled": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TELEGRAM_BOT_TOKEN"},
 	"discd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_BOT_TOKEN"},
-	// bskyd reads BLUESKY_IDENTIFIER/BLUESKY_PASSWORD, supplied by its
-	// template/services/bskyd.yml. The keys listed here were BLUESKY_HANDLE/
-	// BLUESKY_APP_PASSWORD — names no Go code has ever read, so they wrote dead
-	// lines into env/*.env.
+	// bskyd reads BLUESKY_IDENTIFIER/BLUESKY_PASSWORD. The keys listed here were
+	// BLUESKY_HANDLE/BLUESKY_APP_PASSWORD — names no Go code has ever read.
 	"bskyd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
 	"reditd":   {"AUTHD_URL", "AUTHD_SERVICE_KEY", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
 	"slakd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
@@ -239,11 +217,10 @@ var daemonKeys = map[string][]string{
 	"emaid":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST", "EMAIL_ACCOUNT", "EMAIL_PASSWORD", "EMAIL_IMAP_PORT", "EMAIL_SMTP_PORT"},
 	"whapd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
 	"twitd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
-	// ttsd reads exactly TTSD_ADDR, TTS_BACKEND_URL and LOG_LEVEL (ttsd/main.go,
-	// ttsd/README.md "Config"), and its fragment sets all three in `environment:`,
-	// which outranks env_file. So it needs no scoped key of its own — the entry
-	// exists to move it off the shared .env, which handed it SECRETS_KEY,
-	// AUTH_SECRET, CLAUDE_CODE_OAUTH_TOKEN and every bot token.
+	// ttsd reads exactly TTSD_ADDR, TTS_BACKEND_URL and LOG_LEVEL, and its fragment
+	// sets all three in `environment:`, which outranks env_file. The entry exists to
+	// move it off the shared .env, which handed it SECRETS_KEY, AUTH_SECRET and
+	// every bot token.
 	"ttsd": {},
 	// kokoro's own compose (remsky/Kokoro-FastAPI docker/cpu) declares PYTHONPATH,
 	// ONNX_*, API_LOG_LEVEL and DOWNLOAD_MODEL — nothing arizuko sets. TZ only, so
@@ -251,29 +228,24 @@ var daemonKeys = map[string][]string{
 	"kokoro": {"TZ"},
 }
 
-// foreignImages are services running an image arizuko does not build. commonKeys
-// is "what every arizuko daemon reads"; a third-party image reads none of it,
-// and handing it OTEL_EXPORTER_OTLP_HEADERS (the collector's auth token) plus
-// HOST_DATA_DIR/HOST_APP_DIR would re-open on a smaller scale the leak that
-// putting it on the shared .env opened. Its env file is daemonKeys only.
+// foreignImages are services running an image arizuko does not build. A
+// third-party image reads none of commonKeys, and handing it
+// OTEL_EXPORTER_OTLP_HEADERS plus HOST_DATA_DIR/HOST_APP_DIR would re-open the
+// leak the shared .env opened. Its env file is daemonKeys only.
 var foreignImages = map[string]bool{"kokoro": true}
 
-// adapterDaemons is the set of message-posting channel adapters. In the split
-// each authenticates to routd's /v1/messages with a service:<adapter> JWT
-// exchanged from its own AUTHD_SERVICE_KEY (spec 5/1), not the shared
-// CHANNEL_SECRET. Non-message daemons (ttsd/davd/vited/kokoro) are not
-// here — they never post inbound. Multi-account adapters (`<adapter>-<label>`)
-// resolve to the base adapter via envFileFor's `-` split, so they share the
-// base principal. Keep in sync with authd serviceGrants.
+// adapterDaemons is the set of message-posting channel adapters. Each
+// authenticates to routd's /v1/messages with a service:<adapter> JWT (spec 5/1).
+// Multi-account adapters (`<adapter>-<label>`) resolve to the base adapter via
+// envFileFor's `-` split. Keep in sync with authd serviceGrants.
 var adapterDaemons = map[string]bool{
 	"teled": true, "whapd": true, "discd": true, "slakd": true,
 	"bskyd": true, "reditd": true, "emaid": true, "twitd": true, "linkd": true,
 }
 
 // envFileName returns the env file a service reads, relative to the data dir.
-// Services outside daemonKeys fall back to the shared .env. Multi-account
-// services named `<adapter>-<label>` (per specs/5/R-multi-account.md) share the
-// base adapter's env file so per-daemon scoping holds across accounts.
+// Services outside daemonKeys fall back to the shared .env; `<adapter>-<label>`
+// variants share the base adapter's file (specs/5/R-multi-account.md).
 func envFileName(name string) string {
 	if _, ok := daemonKeys[name]; ok {
 		return "env/" + name + ".env"
@@ -293,9 +265,8 @@ func envFileFor(name string) string {
 }
 
 // writeEnvFiles emits env/<daemon>.env with only the keys each daemon needs.
-// perDaemon holds keys scoped to a single daemon (e.g. each daemon's own
-// AUTHD_SERVICE_KEY) that must NOT leak across the shared env map. Called from
-// Generate before rendering compose; failure is non-fatal.
+// perDaemon holds keys scoped to a single daemon that must NOT leak across the
+// shared env map.
 // containerUID is the uid every daemon and agent container runs as.
 const containerUID = 1000
 
@@ -352,10 +323,8 @@ const healthBlock = "    healthcheck:\n" +
 	"      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n"
 
 // ProxydRoute mirrors proxyd's Route shape. Adapters declare theirs in the
-// `proxyd_routes` block of their `services/<name>.yaml` manifest; compose
-// collects the survivors (after gated_by env evaluation) and Generate returns
-// them, for the caller to write into proxyd_routes. JSON tags match
-// proxyd/routes.go.
+// `proxyd_routes` block of their `services/<name>.yaml` manifest; Generate
+// returns the survivors for the caller to write into proxyd_routes.
 type ProxydRoute struct {
 	Path            string   `json:"path"`
 	Backend         string   `json:"backend"`
@@ -370,11 +339,10 @@ type ProxydRoute struct {
 	Owner string `json:"owner,omitempty"`
 }
 
-// coreProxydRoutes are the always-emitted routes for core daemons rendered
-// directly by compose (dashd, webd, davd, onbod). Their backend URLs follow
-// the unified-port convention (DNS name + :8080). GatedBy maps to the env vars
-// that also decide the daemon's compose profile, so route presence tracks the
-// daemon.
+// coreProxydRoutes are the always-emitted routes for core daemons. Backend URLs
+// follow the unified-port convention (DNS name + :8080). GatedBy maps to the env
+// vars that also decide the daemon's compose profile, so route presence tracks
+// the daemon.
 var coreProxydRoutes = []ProxydRoute{
 	// Federated cockpit: per-daemon /dash/<daemon>/ surfaces route to the
 	// owning daemon. Longest-prefix matching (proxyd/routes.go:MatchRoute)
@@ -383,21 +351,19 @@ var coreProxydRoutes = []ProxydRoute{
 	{Path: "/dash/timed/", Backend: "http://timed:8080", Auth: "user"},
 	// /dash/ catch-all → dashd (hub + cross-cutting pages).
 	{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
-	// /chat/ + /hook/ — the route-token surface, served end to end by webd
-	// (spec 5/W). `optional`: proxyd identifies a caller who offers a bearer so
-	// webd can attribute the message to them, and forwards everyone else
-	// anonymously — the token is the credential. These were proxyd's own
-	// dispatchRouteToken arm until specs/6/22 step 1 made them ordinary rows.
+	// /chat/ + /hook/ — the route-token surface, served end to end by webd (spec
+	// 5/W). `optional`: proxyd identifies a caller who offers a bearer so webd can
+	// attribute the message, and forwards everyone else anonymously — the token is
+	// the credential.
 	{Path: "/chat/", Backend: "http://webd:8080", Auth: "optional"},
 	{Path: "/hook/", Backend: "http://webd:8080", Auth: "optional"},
 	// /pair/ — identity pairing (spec 5/31). `user` so an anonymous visitor is
 	// bounced through OAuth with the pairing URL as the return path; the human
 	// must be signed in before the confirm page is even rendered.
 	{Path: "/pair/", Backend: "http://webd:8080", Auth: "user"},
-	// /me — the user portal (webd/me.go). `user`: every handler is behind
-	// webd's requireUser, so a public route here would only trade the OAuth
-	// bounce for a bare 401. Bare + slash mirror /onboard: webd's mux 301s
-	// /me → /me/, which never happens if proxyd drops /me at the catch-all.
+	// /me — the user portal. `user`: every handler is behind webd's requireUser, so
+	// a public route would only trade the OAuth bounce for a bare 401. Bare + slash
+	// because webd's mux 301s /me → /me/, which never happens if proxyd drops /me.
 	{Path: "/me", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/me/", Backend: "http://webd:8080", Auth: "user"},
 	{Path: "/panel/", Backend: "http://webd:8080", Auth: "user"},
@@ -413,10 +379,8 @@ var coreProxydRoutes = []ProxydRoute{
 	{Path: "/invite/", Backend: "http://onbod:8080", Auth: "public", GatedBy: "ONBOARDING_ENABLED"},
 }
 
-// gatedByOn reports whether the named env-gate is enabled. Empty key = no
-// gate. Boolean gates require literal "true" (with per-key default for the
-// unset case); other keys follow secret-style semantics where any non-empty
-// value enables the route.
+// gatedByOn reports whether the named env-gate is enabled. Empty key = no gate.
+// Boolean gates require literal "true"; other keys enable on any non-empty value.
 func gatedByOn(env map[string]string, key string) bool {
 	switch key {
 	case "":
@@ -429,18 +393,14 @@ func gatedByOn(env map[string]string, key string) bool {
 	return envOr(env, key, "") != ""
 }
 
-// collectProxydRoutes returns surviving routes after gated_by filtering. Core
-// routes come first, then per-service routes in service-name order. A service
-// declares routes in the `proxyd_routes` block of `services/<name>.yaml`, its
-// 5/8 manifest fragment; routes cannot live in the compose fragment because
-// proxyd, not docker, is their consumer. Per spec
-// (specs/5/7-proxyd-standalone.md "Field semantics") a route whose GatedBy env
-// is unset or empty at generate time is dropped — it is never written to
-// proxyd_routes, so a surface whose daemon is off is not routed at a dead
-// backend.
+// collectProxydRoutes returns surviving routes after gated_by filtering. Routes
+// live in the `services/<name>.yaml` manifest, not the compose fragment, because
+// proxyd — not docker — is their consumer. A route whose GatedBy env is unset at
+// generate time is dropped, so a surface whose daemon is off is not routed at a
+// dead backend (specs/5/7-proxyd-standalone.md).
 //
 // This is the generate-time READER of the manifest a package also installs
-// through `arizuko apply`: routes are needed before any daemon (or DB) exists,
+// through `arizuko apply`: routes are needed before any daemon or DB exists,
 // which justifies a second reader, never a second format (BUGS L44).
 func collectProxydRoutes(servicesDir string, services []string, env map[string]string) ([]ProxydRoute, error) {
 	var out []ProxydRoute
@@ -455,21 +415,18 @@ func collectProxydRoutes(servicesDir string, services []string, env map[string]s
 			return nil, err
 		}
 		for _, r := range routes {
-			// Checked HERE as well as at install because generate is the
-			// SECOND reader of the same manifest (one declaration, many
-			// readers): `packages upgrade` rewrites the fragment file without
-			// re-applying its rows, so a revision that added `/dash/` would
-			// otherwise reach proxyd_routes through this path alone (BUGS L46).
+			// Checked HERE as well as at install because generate is the SECOND reader
+			// of the same manifest: `packages upgrade` rewrites the fragment without
+			// re-applying its rows, so a revision that added `/dash/` would otherwise
+			// reach proxyd_routes through this path alone (BUGS L46).
 			if claimed := ReservedRouteClaim(r.Path); claimed != "" {
 				return nil, fmt.Errorf("%s.yaml declares route %q, which claims the core surface %q; "+
 					"a package may not serve core arizuko's own paths (BUGS L46)", name, r.Path, claimed)
 			}
 			if gatedByOn(env, r.GatedBy) {
-				// The fragment's own name is the package's, so generate can
-				// re-derive the row without losing which package declared it.
-				// Stamped HERE rather than trusted from the file: a package
-				// that could write `owner` itself would pass as core-shipped
-				// or opt out of every later generate.
+				// Stamped from the fragment's own name rather than trusted from the file:
+				// a package that could write `owner` itself would pass as core-shipped or
+				// opt out of every later generate.
 				r.Owner = store.RouteOwnerPackage(name)
 				out = append(out, r)
 			}
@@ -480,13 +437,11 @@ func collectProxydRoutes(servicesDir string, services []string, env map[string]s
 
 // ReservedRoutePaths returns every path core arizuko serves from its own route
 // table — the ground a package may not claim (BUGS L46). Derived from
-// coreProxydRoutes so there is no second list to drift: a route added to the
-// core table is reserved from the same commit that ships it.
+// coreProxydRoutes so there is no second list to drift.
 //
-// Gates are deliberately ignored. A path core ships behind ONBOARDING_ENABLED
-// is core's whether the gate is on or not, and a package allowed to take it
-// while the gate was off would front-door the surface the moment an operator
-// turned it on.
+// Gates are deliberately ignored: a path core ships behind ONBOARDING_ENABLED is
+// core's whether the gate is on or not, and a package allowed to take it while
+// the gate was off would front-door the surface the moment it turned on.
 func ReservedRoutePaths() []string {
 	out := make([]string, 0, len(coreProxydRoutes))
 	for _, r := range coreProxydRoutes {
@@ -495,15 +450,13 @@ func ReservedRoutePaths() []string {
 	return out
 }
 
-// ReservedRouteClaim returns the core path that `path` would take over, or ""
-// when it claims none.
+// ReservedRouteClaim returns the core path that `path` would take over, or "".
 //
 // proxyd matches the LONGEST prefix, with a trailing-slash path matching as a
-// prefix and a bare path exactly (proxyd/routes.go MatchRoute). So a package
-// takes core ground two ways: by declaring a core path verbatim (the row is
-// upserted by path, replacing core's backend), or by declaring anything INSIDE
-// a core prefix — `/dash/mine/` is longer than `/dash/`, so it wins and the
-// operator console answers from the package's backend.
+// prefix and a bare path exactly. So a package takes core ground two ways: by
+// declaring a core path verbatim, or by declaring anything INSIDE a core prefix
+// — `/dash/mine/` is longer than `/dash/`, so the operator console would answer
+// from the package's backend.
 func ReservedRouteClaim(path string) string {
 	for _, reserved := range ReservedRoutePaths() {
 		if path == reserved {
@@ -517,12 +470,9 @@ func ReservedRouteClaim(path string) string {
 }
 
 // ManifestRoutes reads one 5/8 manifest fragment and returns its proxyd_routes
-// rows. A missing file is not an error — most packages declare no route.
-//
-// Parsing goes through resreg.ParseYAML, the same decoder `arizuko apply`
-// uses, so a typo rejects identically on both readers: an unknown resource key
-// or an unknown row field fails generate instead of silently emitting a
-// valid-looking but behaviorally wrong route.
+// rows. A missing file is not an error. Parsing goes through resreg.ParseYAML,
+// the same decoder `arizuko apply` uses, so a typo rejects identically on both
+// readers instead of silently emitting a valid-looking but wrong route.
 func ManifestRoutes(path string) ([]ProxydRoute, error) {
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -614,17 +564,14 @@ const (
 
 // writeManagedEnv rewrites the compose-managed block of <dataDir>/.env, leaving
 // operator lines untouched. Docker interpolates the service fragments with
-// these: APP/FLAVOR give every container its name, DATA_DIR the host mount,
-// COMPOSE_PROFILES which optional daemons run. Identity is configured here,
-// never derived inside a container (see root CLAUDE.md).
+// these. Identity is configured here, never derived inside a container.
 func writeManagedEnv(dataDir, app, flavor string, profiles []string) error {
 	path := filepath.Join(dataDir, ".env")
 	prev, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	// Strip only a single well-formed [begin, end] block. A malformed marker
-	// (a begin with no end, duplicate markers, or end-before-begin) is
+	// Strip only a single well-formed [begin, end] block. A malformed marker is
 	// corruption — fail loud rather than silently drop every operator line after
 	// it (which would erase AUTH_SECRET/SECRETS_KEY/tokens).
 	lines := strings.Split(string(prev), "\n")
@@ -690,11 +637,10 @@ func writeManagedEnv(dataDir, app, flavor string, profiles []string) error {
 	return nil
 }
 
-// Generate renders the instance's docker-compose.yml and returns it together
-// with the proxyd route table the same run decided on. Two artifacts, one
-// decision: the routes are NOT config on the compose file (a `PROXYD_ROUTES_JSON`
-// env var seeded proxyd_routes once and was then ignored forever — BUGS L45),
-// they are rows the caller writes into routd.db through store.SyncProxydRoutes.
+// Generate renders the instance's docker-compose.yml and returns it with the
+// proxyd route table the same run decided on. The routes are NOT config on the
+// compose file — a `PROXYD_ROUTES_JSON` env var seeded proxyd_routes once and was
+// then ignored forever (BUGS L45). They are rows the caller writes into routd.db.
 func Generate(dataDir string) (string, []ProxydRoute, error) {
 	env, _ := godotenv.Read(filepath.Join(dataDir, ".env"))
 	if env == nil {
@@ -709,10 +655,9 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 		}
 	}
 
-	// Compose owns the project name (it generates the YAML and writes
-	// container/network names). When egress isolation is on, write the
-	// derived names explicitly into env so daemons inside containers
-	// don't have to guess from filesystem paths.
+	// Compose owns the project name. When egress isolation is on, write the derived
+	// names explicitly into env so daemons inside containers don't guess them from
+	// filesystem paths.
 	project := filepath.Base(dataDir)
 	app, flavor, _ := strings.Cut(project, "_")
 	if !identRE.MatchString(app) {
@@ -721,10 +666,8 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	if flavor != "" && !identRE.MatchString(flavor) {
 		return "", nil, fmt.Errorf("invalid instance flavor %q (derived from data dir basename)", flavor)
 	}
-	// ARIZUKO_INSTANCE is the operator-facing instance identifier used as
-	// the OTLP service.instance.id resource attribute (spec 5/O). Default
-	// is the flavor segment (e.g. "krons" from "arizuko_krons"); operator
-	// can override by setting ARIZUKO_INSTANCE in .env.
+	// ARIZUKO_INSTANCE is the OTLP service.instance.id resource attribute (spec
+	// 5/O). Defaults to the flavor segment; the operator can override it in .env.
 	if _, ok := env["ARIZUKO_INSTANCE"]; !ok {
 		if flavor != "" {
 			env["ARIZUKO_INSTANCE"] = flavor
@@ -732,14 +675,13 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 			env["ARIZUKO_INSTANCE"] = app
 		}
 	}
-	// EGRESS_IMAGE is the master switch for egress isolation: name the image
-	// holding the `egress` binary and runed starts one proxy per spawn from
-	// it, with that folder's allowlist baked in. No separate EGRESS_ISOLATION
-	// boolean, and no long-lived proxy service to declare (spec 6/24).
+	// EGRESS_IMAGE is the master switch for egress isolation: name the image holding
+	// the `egress` binary and runed starts one proxy per spawn from it, with that
+	// folder's allowlist baked in (spec 6/24).
 	//
-	// The uplink network is written here, never derived at runtime: it is the
-	// compose project's default network, which is both the proxy's route out
-	// and runed's path to probe its /health before the spawn starts.
+	// The uplink network is written here, never derived at runtime: it is the compose
+	// project's default network, which is both the proxy's route out and runed's path
+	// to probe its /health before the spawn starts.
 	if envOr(env, "EGRESS_IMAGE", "") != "" {
 		if _, ok := env["EGRESS_NETWORK_PREFIX"]; !ok {
 			if flavor != "" {
@@ -753,14 +695,11 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 		}
 	}
 
-	// Service-key provisioning (split-daemon soak, spec 5/E + 5/P). routd and
-	// runed authenticate to authd with a per-daemon AUTHD_SERVICE_KEY; authd
-	// recognises them via AUTHD_SERVICE_KEYS (principal=secret pairs — the raw
-	// secret; authd SHA-256-hashes both sides at compare time). Keys persist in
-	// the per-daemon env files so a redeploy keeps the same identity instead of
-	// invalidating in-flight tokens. AUTHD_URL is the authd in-network base URL
-	// every consumer (routd, runed, proxyd, webd, onbod) verifies/exchanges
-	// against.
+	// Service-key provisioning (spec 5/E + 5/P). routd and runed authenticate to
+	// authd with a per-daemon AUTHD_SERVICE_KEY; authd recognises them via
+	// AUTHD_SERVICE_KEYS (principal=secret pairs, SHA-256-hashed at compare time).
+	// Keys persist in the per-daemon env files so a redeploy keeps the same identity
+	// instead of invalidating in-flight tokens.
 	perDaemon := map[string]map[string]string{}
 	_, pinned := env["AUTHD_SERVICE_KEYS"]
 	seedKeys := !pinned
@@ -775,8 +714,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 		key := provisionServiceKey(dataDir, daemon, env)
 		// AUTHD_SERVICE_NAME pins the exchange principal to the DAEMON name so an
 		// adapter whose CHANNEL_NAME differs (telegram→teled) — and its multi-account
-		// variants (teled-rhias) sharing this env file — exchange as service:<daemon>,
-		// matching what we seed below + authd grants.
+		// variants sharing this env file — exchange as service:<daemon>.
 		perDaemon[daemon] = map[string]string{"AUTHD_SERVICE_KEY": key, "AUTHD_SERVICE_NAME": daemon}
 		if seedKeys {
 			keyPairs = append(keyPairs, fmt.Sprintf("service:%s=%s", daemon, key))
@@ -791,19 +729,17 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	// service:onbod token (spec 5/1).
 	wireServiceKey("onbod")
 	// proxyd presents service:proxyd to backends; webd presents service:webd to
-	// proxyd's /v1/routes + routd register; dashd presents service:dashd on the
-	// whapd re-pair proxy — each the channel proof for the identity it forwards
-	// (ES256 service tokens; HMAC + X-User-Sig retired).
+	// proxyd's /v1/routes and routd register; dashd presents service:dashd on the
+	// whapd re-pair proxy.
 	wireServiceKey("proxyd")
 	wireServiceKey("webd")
 	wireServiceKey("dashd")
 	if _, ok := env["AUTHD_URL"]; !ok {
 		env["AUTHD_URL"] = "http://authd:8080"
 	}
-	// routd federates /invite + /gate to onbod (onbod OWNS invites +
-	// onboarding_gates — spec 5/5). ONBOD_URL is onbod's in-network base URL;
-	// routd's env-file scope (daemonKeys["routd"]) includes it. Only meaningful
-	// when onbod runs (ONBOARDING_ENABLED); harmless otherwise (nil client).
+	// routd federates /invite + /gate to onbod, which OWNS invites and
+	// onboarding_gates (spec 5/5). Only meaningful when onbod runs; harmless
+	// otherwise (nil client).
 	if _, ok := env["ONBOD_URL"]; !ok {
 		env["ONBOD_URL"] = "http://onbod:8080"
 	}
@@ -814,11 +750,10 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 		return "", nil, err
 	}
 
-	// Channel adapters present in services/ each get a service:<adapter> key so
-	// they exchange it for a messages:write JWT against routd (spec 5/1). Only
-	// the discovered message-posting adapters are wired — ttsd/davd/vited etc.
-	// never post inbound. Multi-account variants (`<adapter>-<label>`) reuse the
-	// base adapter's env file (envFileName), so the base principal covers them.
+	// Channel adapters present in services/ each get a service:<adapter> key so they
+	// exchange it for a messages:write JWT against routd (spec 5/1). Only the
+	// message-posting adapters are wired; multi-account variants reuse the base
+	// adapter's env file.
 	for _, name := range services {
 		base, _, _ := strings.Cut(name, "-")
 		if adapterDaemons[base] {
@@ -829,10 +764,8 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 		env["AUTHD_SERVICE_KEYS"] = strings.Join(keyPairs, ",")
 	}
 
-	// services/ttsd.yml present → auto-enable TTS on the execution plane
-	// (runed). Operator opted in by adding the package; no second env-var flip.
-	// Explicit .env values still win (e.g. external Kokoro / OpenAI cloud
-	// override TTS_BASE_URL).
+	// services/ttsd.yml present → auto-enable TTS on runed. Explicit .env values
+	// still win (external Kokoro / OpenAI cloud override TTS_BASE_URL).
 	if hasService(services, "ttsd") {
 		if _, set := env["TTS_ENABLED"]; !set {
 			env["TTS_ENABLED"] = "true"
@@ -843,18 +776,16 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	}
 
 	// Per-daemon env files: fatal on failure. Written after the services scan so
-	// service-triggered env (TTS_*) lands. A silent failure here would let
-	// generation succeed while a daemon's env file goes stale or missing —
-	// runed reusing obsolete credentials is the `/login` outage class (BUGS C11).
+	// service-triggered env lands. A silent failure would let generation succeed
+	// while a daemon's env file goes stale — the `/login` outage class (BUGS C11).
 	if werr := writeEnvFiles(dataDir, env, perDaemon); werr != nil {
 		return "", nil, fmt.Errorf("write per-daemon env files: %w", werr)
 	}
 
-	// app-src/ holds the release's ant/, staged by runed for agent containers to
-	// bind-mount (container.MaterializeAppSrc). Generation creates it because
-	// generation runs as root while runed runs as uid 1000 and the data-dir root
-	// is not writable by it — runed's mkdir failed with permission denied and no
-	// agent could migrate.
+	// app-src/ holds the release's ant/, staged by runed for agent containers.
+	// Generation creates it because generation runs as root while runed runs as uid
+	// 1000 and the data-dir root is not writable by it — runed's mkdir failed with
+	// permission denied and no agent could migrate.
 	if derr := mkdirOwned(filepath.Join(dataDir, "app-src"), containerUID); derr != nil {
 		fmt.Fprintf(os.Stderr, "compose: app-src: %v\n", derr)
 	}
@@ -878,11 +809,10 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 		}
 	}
 	b.WriteString("services:\n")
-	// The split daemons (spec 5/E + 5/P) are the conversation/auth/execution
-	// plane — authd (auth.db) + routd (routd.db, the router every adapter/webd/
-	// proxyd talks to) + runed (runed.db, the ONLY daemon wired to docker.sock +
-	// per-spawn egress proxies + per-folder agent networks). This is the only topology, so they
-	// carry no profile. Everything below them is profile-gated.
+	// The split daemons (spec 5/E + 5/P) are the conversation/auth/execution plane —
+	// authd (auth.db) + routd (routd.db) + runed (runed.db, the ONLY daemon wired to
+	// docker.sock, per-spawn egress proxies and per-folder agent networks). This is
+	// the only topology, so they carry no profile.
 	b.WriteString(authdService(app, flavor, dataDir))
 	b.WriteString(routdService(app, flavor, dataDir, env))
 	b.WriteString(runedService(app, flavor, dataDir, env))
@@ -918,11 +848,9 @@ type svcDef struct {
 // APP_SRC_DIR value.
 //
 // The default is bakedAppSrc, the copy the Dockerfile stages into the image: a
-// release IS an image, so what reaches an agent must travel in one. Setting
-// APP_SRC_DEV bind-mounts HOST_APP_DIR read-only instead. That is a developer
-// loop and never a deployment — it puts an uncommitted working tree in front of
-// every live agent, and it did: krons served skills straight off the checkout,
-// so an edit reached production with no build, no tag and no restart (BUGS M1).
+// release IS an image. APP_SRC_DEV bind-mounts HOST_APP_DIR read-only instead —
+// a developer loop and never a deployment. krons served skills straight off the
+// checkout, so an edit reached production with no build, tag or restart (BUGS M1).
 func appSrc(env map[string]string) (volume, dir string) {
 	hostApp := envOr(env, "HOST_APP_DIR", "")
 	if envOr(env, "APP_SRC_DEV", "") == "" || hostApp == "" {
@@ -972,23 +900,17 @@ func writeEnv(b *strings.Builder, env map[string]string) {
 	}
 }
 
-// dataMounts returns the bind-mount specs rooting a daemon at
-// containerDataMount. With no subdirs it gets the whole instance tree — every
-// other daemon's SQLite file, every group's files, and every live MCP socket
-// under ipc/. Naming subdirs mounts only those children, so a daemon that
-// opens one DB cannot reach the rest of the instance (spec 5/16, BUGS A1).
-// Sources must pre-exist: docker creates a missing bind source as root, and
-// every daemon runs as uid 1000. store/, groups/ and web/ are all seeded by
-// `arizuko create` before the first `up`.
-// storeSub names one owner's subdirectory of store/ as a dataMounts subdir.
-// Binding store/<owner> rather than store/ is what turns ownership from a
-// convention into a boundary: a daemon that opens one DB can no longer reach
-// the other three (spec 5/16 step 7). The .db and its -wal/-shm siblings live
-// together inside it, so one bind always carries a whole SQLite triple.
+// dataMounts returns the bind-mount specs rooting a daemon at containerDataMount.
+// With no subdirs it gets the whole instance tree — every other daemon's SQLite
+// file, every group's files, and every live MCP socket. Naming subdirs mounts
+// only those children (spec 5/16, BUGS A1). Sources must pre-exist: docker
+// creates a missing bind source as root, and every daemon runs as uid 1000.
+// storeSub names one owner's subdirectory of store/. Binding store/<owner>
+// rather than store/ turns ownership from a convention into a boundary; the .db
+// and its -wal/-shm siblings live together, so one bind carries a whole triple.
 func storeSub(owner string) string { return store.OwnerDir("store", owner) }
 
-// containerOwnerDB is the container-side path of an owner's SQLite file — what
-// compose writes into ONBOD_DB_PATH / ROUTD_DB_PATH / dashd's DB_PATH. It reads
+// containerOwnerDB is the container-side path of an owner's SQLite file. It reads
 // the same store.OwnerDBPath layout the daemons resolve with, so the mount, the
 // env value and the daemon's own default cannot drift apart.
 func containerOwnerDB(owner string) string {
@@ -1056,14 +978,10 @@ func writeSvc(def svcDef) string {
 	return b.String()
 }
 
-// authdService emits the auth authority. auth.db only — NO message DB, NO
-// docker socket, NO egress proxy. Serves JWKS to every verifier; reads its own
-// service keys + OAuth provider config from env/authd.env. No depends_on:
-// authd is the authority, nothing it relies on must come up first.
-// store/authd/ is its only mount: authd opens <DATA_DIR>/store/authd/auth.db
-// (main.go resolveDSN) and touches no other path, so it reaches neither the
-// other owners' databases, nor the groups tree, nor the live agent sockets
-// under ipc/.
+// authdService emits the auth authority. auth.db only — NO message DB, NO docker
+// socket, NO egress proxy. No depends_on: authd is the authority, nothing it
+// relies on must come up first. store/authd/ is its only mount, so it reaches
+// neither the other owners' databases, nor the groups tree, nor ipc/.
 func authdService(app, flavor, dataDir string) string {
 	var b strings.Builder
 	b.WriteString("  authd:\n")
@@ -1084,10 +1002,8 @@ func authdService(app, flavor, dataDir string) string {
 }
 
 // routdService emits the conversation-state daemon — the canonical router.
-// routd.db + adapters (/v1/send) + calls runed; verifies via authd JWKS. NO
-// egress proxy, NO docker socket. Depends on authd (verifier keyset) + runed (run
-// dispatch). Publishes API_PORT:8080 to the host: the host CLI reaches the
-// router's /v1/channels here (arizuko status/send).
+// routd.db + adapters + calls runed; verifies via authd JWKS. NO egress proxy, NO
+// docker socket. Publishes API_PORT:8080 so the host CLI reaches /v1/channels.
 func routdService(app, flavor, dataDir string, env map[string]string) string {
 	apiPort := envOr(env, "API_PORT", fmt.Sprintf("%d", core.DefaultAPIPort))
 	def := svcDef{
@@ -1111,9 +1027,7 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 }
 
 // runedService emits the execution plane — the ONLY daemon wired to the docker
-// socket + the per-spawn egress proxies + the per-folder agent networks (uid 1000, group_add into
-// docker gid, docker.sock mount, the read-only HOST_APP_DIR source mount).
-// Depends on authd (broker downscope).
+// socket, the per-spawn egress proxies and the per-folder agent networks.
 func runedService(app, flavor, dataDir string, env map[string]string) string {
 	var b strings.Builder
 	b.WriteString("  runed:\n")
@@ -1164,17 +1078,13 @@ func timedService(app, flavor string, env map[string]string) string {
 }
 
 func onbodService(app, flavor, dataDir string) string {
-	// ONBOARDING_ENABLED is forced true inside the container: the onbod profile
-	// is what decides whether onbod runs at all. ROUTER_URL is pinned to the
-	// canonical router so onbod's outbound greeting reaches it. onbod OWNS
-	// onboarding/invites/onboarding_gates in onbod.db (spec 5/5) — ONBOD_DB_PATH
-	// is container-internal, so .env can't know it.
+	// ONBOARDING_ENABLED is forced true inside the container: the onbod profile is
+	// what decides whether onbod runs at all. ONBOD_DB_PATH is container-internal, so
+	// .env cannot know it.
 	// store/onbod/ + store/routd/ + groups/ + web/: onbod owns onbod.db and
-	// cross-reads routd.db (the CROSS tables acl/groups/routes), and
-	// container.SetupGroup creates groups/<folder> plus the per-group web/pub
-	// and web/priv slots. Naming the two owner subdirs is what keeps runed's
-	// and authd's databases out of reach. It never touches ipc/, so a new world
-	// can be provisioned without reach over any running agent's MCP socket.
+	// cross-reads routd.db (acl/groups/routes), and SetupGroup creates
+	// groups/<folder> plus the per-group web slots. It never touches ipc/, so a new
+	// world can be provisioned without reach over any running agent's MCP socket.
 	return writeSvc(svcDef{
 		name:        "onbod",
 		app:         app,
@@ -1193,11 +1103,9 @@ func onbodService(app, flavor, dataDir string) string {
 }
 
 func dashdService(app, flavor, dataDir string, env map[string]string) string {
-	// dashd's stock-skills picker enumerates ant/skills/ (groups_admin.go
-	// stockSkills) the same way routd/runed read ant/ — through appSrc, not
-	// the HOST_APP_DIR host path (BUGS F54: dashd had no source mount at all,
-	// so the picker read a host path from inside the container and silently
-	// returned nothing).
+	// dashd's stock-skills picker enumerates ant/skills/ through appSrc, not the
+	// HOST_APP_DIR host path — dashd had no source mount at all, so the picker read a
+	// host path from inside the container and silently returned nothing (BUGS F54).
 	vol, src := appSrc(env)
 	def := svcDef{
 		name:       "dashd",
@@ -1205,13 +1113,11 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 		flavor:     flavor,
 		entrypoint: "dashd",
 		dataDir:    dataDir,
-		// dashd is the operator console over three owner DBs plus the groups
-		// tree (memory/diary pages) and surrogate/ (the operator's own OAuth
-		// provider TOMLs). It is NOT entitled to the rest of the instance: the
-		// whole-tree mount it used to take handed it .env — AUTH_SECRET,
-		// SECRETS_KEY, every platform token — and ipc/, the live per-turn agent
-		// MCP sockets (BUGS F51). authd's auth.db is deliberately absent: dashd
-		// reads sessions over authd's HTTP face, not its file.
+		// dashd is the operator console over three owner DBs plus the groups tree
+		// and surrogate/. The whole-tree mount it used to take handed it .env —
+		// AUTH_SECRET, SECRETS_KEY, every platform token — and ipc/, the live
+		// per-turn agent MCP sockets (BUGS F51). authd's auth.db is deliberately
+		// absent: dashd reads sessions over authd's HTTP face, not its file.
 		dataSubdirs: []string{
 			storeSub(store.OwnerRoutd), storeSub(store.OwnerOnbod), storeSub(store.OwnerRuned),
 			"groups", "surrogate",
@@ -1251,11 +1157,10 @@ func proxydService(app, flavor, dataDir string, env map[string]string) string {
 			}
 		}
 	}
-	// dashd + webd share proxyd's `web` profile: compose rejects a depends_on
-	// that points into a profile which isn't active.
-	// store/routd/ only: proxyd is a pure reverse proxy — it opens routd.db for
-	// route/identity rows and makes no filesystem call at all. /pub/ is a
-	// redirect to vited, not a static serve, so it needs no web/ mount.
+	// dashd + webd share proxyd's `web` profile: compose rejects a depends_on that
+	// points into an inactive profile.
+	// store/routd/ only: proxyd opens routd.db for route/identity rows and makes no
+	// other filesystem call. /pub/ is a redirect to vited, not a static serve.
 	return writeSvc(svcDef{
 		name:        "proxyd",
 		app:         app,
@@ -1293,11 +1198,10 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 }
 
 func webdService(app, flavor, dataDir string) string {
-	// webd registers as a channel + posts inbound to the router. Pin ROUTER_URL
-	// explicitly so webd never falls back to a code default.
-	// store/routd/ only: webd opens routd.db (main.go store.OpenRoutd) and makes
-	// no other filesystem call — it serves the chat widget from the binary, not
-	// from web/.
+	// webd registers as a channel and posts inbound to the router. Pin ROUTER_URL so
+	// webd never falls back to a code default.
+	// store/routd/ only: webd opens routd.db and serves the chat widget from the
+	// binary, not from web/.
 	return writeSvc(svcDef{
 		name: "webd", app: app, flavor: flavor,
 		entrypoint: "webd", dataDir: dataDir, dataSubdirs: []string{storeSub(store.OwnerRoutd)},

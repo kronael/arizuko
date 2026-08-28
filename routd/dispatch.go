@@ -59,23 +59,16 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	folder := r.Folder
-	// Steering layer (sticky-nav / slash commands / @child delegation) consumes
-	// the latest message BEFORE it reaches a turn. It MUST run here, on the one
-	// path every trigger converges to: adapter ingest enqueues straight into this
-	// worker (server.go handleInbound), so when steering lived only in the
-	// pollOnce backstop it raced the queue and lost — a Slack "/root mint …"
-	// reached the agent as plain unelevated text and the elevation never fired
-	// (marinade atlas, 2026-07-16). A consumed message advances the cursor and
-	// never spawns; cmdRoot re-injects its arg, which the next worker pass runs
-	// elevated.
-	// Steer the newest USER message, not the newest message. A slash command is
-	// consumed here and nowhere else, and handleCommand refuses a bot row — so
-	// when the agent's own reply lands after the command and before this poll,
-	// steer inspects the reply, refuses it, and the command falls through to the
-	// turn as plain text. anteval's `/new` was swallowed exactly that way twice
-	// on krons (BUGS L56); the same hole loses a user's /stop or /root in any
-	// chat busy enough to answer before the next poll. Advance past the steered
-	// row only: anything newer has not been consumed.
+	// Steering (sticky-nav / slash commands / @child delegation) consumes the latest
+	// message BEFORE it reaches a turn. It MUST run here, on the one path every
+	// trigger converges to: adapter ingest enqueues straight into this worker, so
+	// when steering lived only in the pollOnce backstop it raced the queue and lost —
+	// a Slack "/root mint …" reached the agent as plain unelevated text (marinade
+	// atlas, 2026-07-16).
+	// Steer the newest USER message, not the newest message: handleCommand refuses a
+	// bot row, so when the agent's own reply lands after the command and before this
+	// poll, the command falls through to the turn as plain text (BUGS L56). Advance
+	// past the steered row only — anything newer has not been consumed.
 	if l.steer(chatJID, steerMsg, folder) {
 		l.advance(chatJID, steerMsg)
 		return true, nil
@@ -122,13 +115,10 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			return hadAny, derr
 		}
 		if busy {
-			// runed didn't admit the run (folder busy with a dead container, or
-			// the global cap is hit) and keeps no internal queue. Busy is NOT an
-			// error (distinct from the route-miss above, which is a resolve
-			// failure): do NOT advance the cursor and do NOT return an err (which
-			// would trip the queue breaker). The batch is re-fed after a growing
-			// per-chat backoff (noteBusy) — turn_context stays 'running' so the
-			// re-dispatch is live.
+			// runed didn't admit the run and keeps no internal queue. Busy is NOT an
+			// error: do NOT advance the cursor and do NOT return an err, which would
+			// trip the queue breaker. The batch is re-fed after a growing per-chat
+			// backoff, and turn_context stays 'running' so the re-dispatch is live.
 			l.noteBusy(chatJID, last.ID)
 			return hadAny, nil
 		}
@@ -254,13 +244,10 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		obs.RecordTurn(folder, outcome, time.Since(start).Seconds())
 		endSpan(rerr)
 	}()
-	// Ghost-group guard. A route/engagement/sticky rule can point at a folder
-	// with no registered group row — hand-created, or one whose row was deleted
-	// and whose route cascade failed (DeleteGroup logs a cascade error rather than
-	// failing, and names this guard as the backstop). Its home may be mis-owned, so
-	// the agent spawns config-less and silently never replies. Refuse loud + tell the chat,
-	// and consume the batch (advance the cursor, no poison replay). Observe/web/
-	// hook targets never reach here — resolve() handles them before runTurn.
+	// Ghost-group guard. A route/engagement/sticky rule can point at a folder with no
+	// registered group row, whose home may be mis-owned, so the agent spawns
+	// config-less and silently never replies. Refuse loud, tell the chat, and consume
+	// the batch. Observe/web/hook targets never reach here.
 	if !l.db.GroupExists(folder) {
 		slog.Error("dispatch refused: unregistered group", "folder", folder, "jid", chatJID, "turn_id", turnID)
 		if l.deliver != nil {
@@ -381,15 +368,12 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		_ = l.deliver.Typing(typingJID, true)
 	}
 	out, derr := l.dispatchRun(ctx, folder, topic, chatJID, turnID, last.Sender, rendered, elevated)
-	// For steered turns (container already running, returned immediately), the
-	// container is still processing — don't clear typing here. appendAndDeliver
-	// clears it when content lands. For all other outcomes (including errors and
-	// silent runs), clear now — and clear it for EVERY chat this run owns, not
-	// just this turn's. A turn steered into this run handed its indicator to a
-	// submit_turn that never arrives when the run dies at the timeout wall, and
-	// steering is by FOLDER, so that turn's chat is not always this one. Its
-	// indicator then ran to the adapter backstop, which is the twenty-minute
-	// "typing…" a user reported (BUGS T1).
+	// For steered turns the container is still processing — appendAndDeliver clears
+	// typing when content lands. Otherwise clear now, for EVERY chat this run owns.
+	// A turn steered into this run handed its indicator to a submit_turn that never
+	// arrives when the run dies at the timeout wall, and steering is by FOLDER, so
+	// that turn's chat is not always this one — the twenty-minute "typing…" a user
+	// reported (BUGS T1).
 	if l.deliver != nil && !out.Steered {
 		for _, jid := range l.typingOwnedBy(typingJID, out.RunID) {
 			_ = l.deliver.Typing(jid, false)
@@ -406,14 +390,10 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		return false, false, false, "", derr
 	}
 	if out.Busy {
-		// runed rejected admission (folder busy with a dead container, or the
-		// global concurrency cap is hit) and keeps no internal queue. This is
-		// neither an error nor a run: leave turn_context 'running' (no
-		// SetRunReturned, no SetTurnState) and the cursor un-advanced so the poll
-		// loop re-dispatches this turn — bounded by the poll interval, and NOT
-		// counted toward the breaker. Typing was already cleared above (the
-		// non-steered branch) since no container spawned; the next attempt re-flips
-		// it.
+		// runed rejected admission and keeps no internal queue. Neither an error nor
+		// a run: leave turn_context 'running' and the cursor un-advanced so the poll
+		// loop re-dispatches, bounded by the poll interval and NOT counted toward the
+		// breaker.
 		slog.Debug("dispatch run busy — runed at capacity, retry next poll", "folder", folder, "turn_id", turnID)
 		return false, false, true, "", nil
 	}
@@ -534,15 +514,14 @@ func (l *Loop) ensureTopicWithFork(folder, topic, parent string) {
 	l.inheritParentSession(folder, parent, topic, childUUID)
 }
 
-// inheritParentSession gives a freshly-forked topic its context. It copies the
-// parent's Claude Code transcript under childUUID and, when it cannot, clears
-// the child's observed cursor.
+// inheritParentSession gives a freshly-forked topic its context: it copies the
+// parent's Claude Code transcript under childUUID and, when it cannot, clears the
+// child's observed cursor.
 //
-// Both halves are one rule: a fork stamps observed_cursor=now so the child reads
+// Both halves are one rule. A fork stamps observed_cursor=now so the child reads
 // only post-fork context, which is right ONLY while the transcript carries the
-// rest. With no transcript that stamp leaves the child blind on both axes — the
-// first turn of every new thread answering with no history at all (BUGS L54).
-// Every fork path goes through here so the rule cannot drift.
+// rest. With no transcript that stamp left the child blind on both axes (BUGS
+// L54). Every fork path goes through here so the rule cannot drift.
 func (l *Loop) inheritParentSession(folder, parent, childTopic, childUUID string) {
 	if l.copyParentSession(folder, parent, childUUID) {
 		return
@@ -688,25 +667,20 @@ func jidScheme(jid string) string {
 	return ""
 }
 
-// dispatchRun renders the run request and calls runed POST /v1/runs. The
-// agent's conversation frames arrive out-of-band during the run via the
-// /v1/turns/{turn_id}/* callbacks; this returns the turn-boundary outcome.
-// turnCallerSub renders "who is this turn acting on behalf of" from its
-// trigger — the ONE rule, so spawn-time secret resolution, the agent's
-// per-tool-call connector-secret resolution, the budget gate and cost
-// attribution cannot diverge. A timed or system trigger has no human behind it
-// and resolves to routd itself.
+// dispatchRun renders the run request and calls runed POST /v1/runs. The agent's
+// conversation frames arrive out-of-band during the run via the callbacks; this
+// returns the turn-boundary outcome. turnCallerSub renders "who is this turn
+// acting on behalf of" from its trigger — the ONE rule, so spawn-time secret
+// resolution, per-tool-call connector secrets, the budget gate and cost
+// attribution cannot diverge. A timed or system trigger resolves to routd itself.
 //
-// Every other sender passes through VERBATIM, platform ones included. An
-// allowlist of authd schemes used to stand between this and cost_log, and it
-// emptied `user_sub` in all 7188 rows the fleet had ever written — no sender on
-// any instance carried one of the three listed prefixes (BUGS L69). Attribution
-// wants every human sender; only the CAP lookup needs a user_profiles row, and
-// a missing row already means uncapped.
+// Every other sender passes through VERBATIM. An allowlist of authd schemes used
+// to stand here and emptied `user_sub` in all 7188 cost_log rows the fleet had
+// ever written (BUGS L69). Only the CAP lookup needs a user_profiles row, and a
+// missing row already means uncapped.
 //
-// This is deliberately NOT the tool-call authorization principal: that asks
-// "what may be done HERE", answered by folder:<path>. Whose credentials to
-// inject and what is permitted in a place are different questions (BUGS B2).
+// This is deliberately NOT the tool-call authorization principal: that asks "what
+// may be done HERE", answered by folder:<path> (BUGS B2).
 func turnCallerSub(trigger string) string {
 	// `timed` is matched EXACTLY as well as by prefix: timed/split.go sends a
 	// plain "timed" for a group-context task and "timed-isolated:<id>" for an
@@ -718,16 +692,12 @@ func turnCallerSub(trigger string) string {
 }
 
 // runedUnreachable reports whether err means routd never reached runed at all:
-// the connect phase failed, so no request was served and no run happened. That
-// is compose boot order or a runed restart, not a verdict on the folder.
+// the connect phase failed, so no run happened. That is compose boot order or a
+// runed restart, not a verdict on the folder.
 //
-// A *runedv1.APIError is the opposite case and is excluded explicitly — runed
-// took the request and answered with a refusal, which IS attributable. The
-// client already draws that line ("a transport failure surfaces as the bare
-// network error"); this reads it rather than inventing a second rule.
-//
-// Deliberately narrow. A mid-run context deadline also surfaces as a bare
-// error, but the run DID start, so it stays a real failure and keeps counting.
+// A *runedv1.APIError is excluded explicitly — runed took the request and answered
+// with a refusal, which IS attributable. Deliberately narrow: a mid-run context
+// deadline also surfaces as a bare error, but the run DID start.
 func runedUnreachable(err error) bool {
 	var apiErr *runedv1.APIError
 	if errors.As(err, &apiErr) {
@@ -776,13 +746,11 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	// the connector's declared secrets= list (spec 5/13 §Trust model). routd
 	// decrypts here (it holds SECRETS_KEY); runed injects as container env.
 	secrets := l.db.EnvProfileSecrets(string(caller))
-	// 5/33: mounts/egress/web are GRANTS, not tier. routd (the authz plane) resolves
-	// the three container-capability booleans from the folder's acl rows and ships
-	// them typed so runed/container consume a decision, not a rule bundle. An elevated
-	// /root turn holds `*` → all capabilities; a normal folder gets exactly what its
-	// grants say (role:member — the messaging floor — grants none, so a plain folder
-	// runs with a writable share, constrained egress, and no web surface until an
-	// operator delegates egress/web:publish).
+	// 5/33: mounts/egress/web are GRANTS, not tier. routd resolves the three
+	// container-capability booleans from the folder's acl rows and ships them typed,
+	// so runed consumes a decision, not a rule bundle. An elevated /root turn holds
+	// `*`; role:member grants none, so a plain folder runs with a writable share,
+	// constrained egress, and no web surface until an operator delegates.
 	sub := "folder:" + folder
 	shareRO := !elevated && l.db.Authorize(sub, folder, "mcp:share_mount", map[string]string{"readonly": "true"})
 	egress := elevated || l.db.Authorize(sub, folder, "egress", nil)

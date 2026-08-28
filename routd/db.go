@@ -51,13 +51,11 @@ func (d *DB) SetSurrogate(e *surrogate.Engine) { d.surrogate = e }
 // plaintext.
 func (d *DB) SetSecretKeys(raws ...[]byte) { d.secretKeyring = raws }
 
-// Open attaches to an EXISTING routd.db at dir/routd.db (WAL, FK on) and runs
-// the routd migration sequence. It never creates the file — see Create.
-// routd opens NO sibling DB — every table it needs is in routd.db
-// (acl/secrets/tasks/pane/proxyd_routes/audit_log) or federated over HTTP
-// (identity → authd, session_log → runed). See sibling_db.go. The one-time
-// monolith→split copy of proxyd_routes + audit_log belongs to
-// `arizuko migrate-split`, the sole tool that reads messages.db.
+// Open attaches to an EXISTING routd.db at dir/routd.db (WAL, FK on) and runs the
+// routd migration sequence. It never creates the file — see Create. routd opens
+// NO sibling DB: every table it needs is in routd.db or federated over HTTP
+// (identity → authd, session_log → runed). The one-time monolith→split copy
+// belongs to `arizuko migrate-split`, the sole tool that reads messages.db.
 func Open(dir string) (*DB, error) {
 	path := store.OwnerDBPath(dir, store.OwnerRoutd)
 	if err := db_utils.RequireDBFile(path); err != nil {
@@ -137,10 +135,8 @@ func (d *DB) PutGroup(g core.Group) error {
 	}
 	// Create-time default role (5/33): bind the new folder to role:member so it holds
 	// the messaging floor immediately. Everything above the floor is an explicit acl
-	// row: add_acl writes one after auth.Delegate proves it is a subset of what the
-	// granter holds (routd/acl_resource.go). register_group itself is gated by
-	// db.Authorize on "mcp:register_group" (routd/groups_resource.go) and calls no
-	// Delegate — it seeds this floor, it does not delegate anything above it.
+	// row. register_group itself is gated by db.Authorize and calls no Delegate — it
+	// seeds this floor, it does not delegate anything above it.
 	return assignDefaultRole(store.New(d.db), g.Folder)
 }
 
@@ -404,14 +400,11 @@ func (d *DB) MarkStatus(id, status string) error {
 	return err
 }
 
-// RecordDeliveryFailure counts one transient delivery failure on an outbound
-// row and dead-letters the row when the count reaches maxAttempts. One
-// statement does both, so a crash between them is impossible. It returns the
-// new count and reports whether the row is now dead-lettered.
-//
-// SQLite reads the SET expressions from the row as it was before the update,
-// so both uses of delivery_attempts + 1 give the same new count, and RETURNING
-// gives the row as it is after the update.
+// RecordDeliveryFailure counts one transient delivery failure on an outbound row
+// and dead-letters the row when the count reaches maxAttempts. One statement does
+// both, so a crash between them is impossible. SQLite reads the SET expressions
+// from the pre-update row, so both uses of delivery_attempts + 1 give the same
+// new count.
 func (d *DB) RecordDeliveryFailure(id string, maxAttempts int) (int, bool, error) {
 	var attempts int
 	var status string
@@ -637,31 +630,26 @@ func engagementArgs(jid, topic, folder string, ttl time.Duration) []any {
 	return []any{jid, topic, time.Now().Add(ttl).UTC().Format(time.RFC3339Nano), folder}
 }
 
-// SetEngagement claims an engagement window for (jid, topic) by folder
-// until now+ttl.
+// SetEngagement claims an engagement window for (jid, topic) by folder until
+// now+ttl.
 //
-// Un-audited on purpose: its callers are the PER-TURN claim sites (dispatch in
-// turns.go, the agent's engage/disengage tools via mcp.go), which fire on every
-// conversational turn and are already recorded — the agent's tools through the
-// ipc_audit + audit-system.jl wrapper every `granted` tool passes, dispatch by
-// the turn itself. An audit_log row per turn would bury the operator trail in
-// the noise it exists to make findable. Operator-originated writes take
-// SetEngagementAudited instead.
+// Un-audited on purpose: its callers are the PER-TURN claim sites, which fire on
+// every conversational turn and are already recorded. An audit_log row per turn
+// would bury the operator trail in the noise it exists to make findable.
+// Operator-originated writes take SetEngagementAudited instead.
 func (d *DB) SetEngagement(jid, topic, folder string, ttl time.Duration) error {
 	_, err := d.db.Exec(engagementUpsert, engagementArgs(jid, topic, folder, ttl)...)
 	return err
 }
 
 // SetEngagementAudited is SetEngagement plus its audit_log row, both in ONE
-// transaction — the audited twin, on the store.DeleteRoute/DeleteRouteRow
-// pattern. This is the entrypoint for /v1/engagement: an operator ending
-// someone's conversation early leaves no message row and no turn behind, so
-// this row is the only durable trace that it happened.
+// transaction. This is the entrypoint for /v1/engagement: an operator ending
+// someone's conversation early leaves no message row and no turn behind, so this
+// row is the only durable trace.
 //
-// EmitInTx rather than Emit: an audit row that outlived a rolled-back write
-// would describe a window that never moved, and a write whose audit insert
-// failed would be exactly the unrecorded mutation this closes. Both fail
-// together, and the error reaches the caller so the handler can answer non-2xx.
+// EmitInTx rather than Emit: an audit row that outlived a rolled-back write would
+// describe a window that never moved, and a write whose audit insert failed would
+// be the unrecorded mutation this closes.
 func (d *DB) SetEngagementAudited(ctx context.Context, jid, topic, folder string, ttl time.Duration, ev audit.Event) error {
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -710,18 +698,16 @@ func (d *DB) Engaged(jid, topic string) (string, bool) {
 }
 
 // ListEngaged enumerates the live engagement windows visible to folder, newest
-// deadline first — the read a "who is engaged right now" view needs, which no
-// layer offered before (every chat_reply_state read was WHERE jid=? AND
-// topic=?). all widens to the whole fleet and belongs ONLY to a root/service
-// caller; the handler derives it from an EMPTY folder claim, never from depth.
+// deadline first. `all` widens to the whole fleet and belongs ONLY to a
+// root/service caller; the handler derives it from an EMPTY folder claim, never
+// from depth.
 //
 // Containment is descendant(row.Folder, folder) — self-or-below — deliberately
-// NOT ownsFolder, which reports true for an empty target and so would show every
+// NOT ownsFolder, which reports true for an empty target and would show every
 // scoped caller the rows no folder has claimed. The window filter runs here
-// rather than in SQL because the deadline is RFC3339Nano TEXT, and the subtree
-// filter runs here so containment has ONE implementation shared with the rest of
-// routd instead of a LIKE pattern that a folder name containing _ or % would
-// silently widen.
+// because the deadline is RFC3339Nano TEXT, and the subtree filter runs here so
+// containment has ONE implementation instead of a LIKE pattern that a folder name
+// containing _ or % would silently widen.
 func (d *DB) ListEngaged(folder string, all bool) ([]Engagement, error) {
 	rows, err := d.db.Query(
 		`SELECT jid, topic, engaged_until, engaged_folder FROM chat_reply_state
@@ -771,16 +757,13 @@ func (d *DB) LastReplyID(jid, topic string) string {
 
 // PutTurnContext records a turn's (folder, topic, chat_jid) at dispatch so late
 // callbacks resolve their topic from turn_id alone. returnTo is the delegation
-// return-address (the trigger batch's forwarded_from): when set, the callback
-// surface delivers reply/send/document back to it instead of the child folder
-// JID the run addresses.
+// return-address: when set, the callback surface delivers back to it instead of
+// the child folder JID.
 //
-// Returns live=false when the turn is ALREADY terminal (state='done') — a re-fed
-// batch whose run completed must NOT be resurrected: when an earlier batch
-// finishes and a later batch in the same poll steers, the cursor doesn't
-// advance, so the next poll re-feeds the completed batch. The ON CONFLICT reset
-// stays clamped to a still-live or 'expired' turn; a 'done' turn keeps its
-// terminal state and reports live=false so runTurn skips the re-dispatch.
+// Returns live=false when the turn is ALREADY terminal — a re-fed batch whose run
+// completed must NOT be resurrected. When an earlier batch finishes and a later
+// batch in the same poll steers, the cursor does not advance, so the next poll
+// re-feeds the completed batch.
 func (d *DB) PutTurnContext(turnID, folder, topic, chatJID, trigger, returnTo string) (bool, error) {
 	res, err := d.db.Exec(`INSERT INTO turn_context(turn_id, folder, topic, chat_jid, trigger_sender, return_to, started_at, state)
 		VALUES(?,?,?,?,?,?,?, 'running')
@@ -860,15 +843,12 @@ func (d *DB) SetTurnRunID(turnID, runID string) error {
 
 // TypingJIDsForRun returns the chats whose typing indicator a run owns: one per
 // turn recorded against run_id, resolved the same way dispatch picks the
-// indicator's chat — the delegation return address when set, else the turn's
-// own chat.
+// indicator's chat.
 //
 // A follow-up that arrives mid-run is STEERED into the live container, and
 // steering is by FOLDER, so the steered turn's chat is not always the running
-// turn's chat. Its indicator was handed to a submit_turn that never fires when
-// the run dies at the timeout wall, and nothing else cleared it (BUGS T1).
-// turn_context.run_id already records which run each turn went into, so the
-// run-end clear reads that rather than keeping a second ledger of owners.
+// turn's chat. Its indicator was handed to a submit_turn that never fires when the
+// run dies at the timeout wall (BUGS T1).
 func (d *DB) TypingJIDsForRun(runID string) []string {
 	rows, err := d.db.Query(
 		`SELECT DISTINCT COALESCE(NULLIF(return_to,''), chat_jid)
@@ -956,12 +936,9 @@ func (d *DB) RecordTurnResult(folder, turnID, sessionID, status string) (bool, e
 }
 
 // TurnHasBotReply reports whether the agent already delivered a bot message for
-// this turn via the reply/send tools. recordTurnResult consults it before
-// delivering the submit_turn prose result so an explicit reply is not
-// double-sent (the result-delivery is the fallback for turns that produced
-// prose but called no reply tool). Interim verb="status" (⏳) rows are excluded:
-// an auto-status must NEVER count as the reply, or the agent's real answer is
-// swallowed (spec 5/24).
+// this turn via the reply/send tools, so recordTurnResult does not double-send the
+// prose result. Interim verb="status" rows are excluded: an auto-status must NEVER
+// count as the reply, or the agent's real answer is swallowed (spec 5/24).
 func (d *DB) TurnHasBotReply(turnID string) bool {
 	var n int
 	d.db.QueryRow("SELECT 1 FROM messages WHERE turn_id=? AND is_bot_message=1 AND verb!='status' LIMIT 1", turnID).Scan(&n)
@@ -1017,16 +994,13 @@ func (d *DB) EnsureTopicLineage(folder, topic, parentTopic, newSessionID string)
 	}
 	// The child inherits the PARENT's observed cursor, not `now`. Stamping now
 	// discarded the channel's whole ambient backlog at the moment a thread was
-	// created: the copied transcript carries only turns that RAN in the parent,
-	// and a busy channel's chatter is `is_observed=1` rows that never ran one. A
-	// new Discord thread therefore opened blind to everything said in the channel
-	// before it existed, which is exactly what a fork must not do (BUGS L87).
+	// created: the copied transcript carries only turns that RAN in the parent, and a
+	// busy channel's chatter is `is_observed=1` rows that never ran one, so a new
+	// Discord thread opened blind to everything said before it existed (BUGS L87).
 	//
-	// No parent row (cold root) leaves it empty, which is the normal cold path:
-	// ObservedSince reads the whole trailing window, already capped by
-	// observe_window_messages / _chars. Re-showing a message the parent already
-	// saw is benign — the standing rule is "observed messages are context, not
-	// requests", which the cursor's at-least-once advance already relies on.
+	// No parent row (cold root) leaves it empty, the normal cold path. Re-showing a
+	// message the parent already saw is benign — observed messages are context, not
+	// requests.
 	res, err := d.db.Exec(
 		`INSERT OR IGNORE INTO sessions(group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
 		 VALUES(?,?,?,?,?,

@@ -400,19 +400,14 @@ func backoffDelay(attempts int) time.Duration {
 	return d
 }
 
-// maybeRetryOutbound re-dispatches bot rows still 'pending', each gated by its
-// own backoffDelay so a row that has already failed several times waits
-// longer than one on its first try. The adapter dedups on the row's stable
-// message_id, so a redelivered row never creates a second platform message.
-// No-op when no Deliverer is wired.
+// maybeRetryOutbound re-dispatches bot rows still 'pending', each gated by its own
+// backoffDelay. The adapter dedups on the row's stable message_id, so a
+// redelivered row never creates a second platform message.
 //
-// Two bounds stop an endless retry. A permanent refusal (chanlib.ErrPermanent)
-// dead-letters the row at once and spends no attempt, because a retry cannot
-// repair it. A transient failure spends one attempt, and the row dead-letters
-// when the attempts reach maxOutboundRetry. There is no OUTRIGHT age bound —
-// backoffDelay only postpones a retry, it never refuses one — because an age
-// bound once killed a row the sweep had never tried, losing a message no
-// platform ever refused.
+// Two bounds stop an endless retry. A permanent refusal dead-letters the row at
+// once and spends no attempt; a transient failure spends one, and the row
+// dead-letters at maxOutboundRetry. There is no OUTRIGHT age bound — one once
+// killed a row the sweep had never tried, losing a message no platform refused.
 func (l *Loop) maybeRetryOutbound(now time.Time) {
 	if l.deliver == nil || now.Before(l.nextRetryAt) {
 		return
@@ -506,13 +501,10 @@ func (l *Loop) recoverPending() {
 }
 
 // checkMigrationVersion enqueues a /migrate system message for EVERY group whose
-// on-disk skill version is behind the upstream MIGRATION_VERSION. Bumping
-// MIGRATION_VERSION is the single trigger for both skill updates AND release
-// broadcasts. /migrate is a per-group self-migrate (it 3-way merges the
-// group's own ~/.claude from the read-only skills mount), so there is no root
-// fan-out — each behind group migrates itself. Dropping the old top-level-only
-// skip is what made this fire for every behind group (they had frozen at
-// split-era versions, reference_auto_migrate).
+// on-disk skill version is behind the upstream MIGRATION_VERSION — the single
+// trigger for both skill updates and release broadcasts. /migrate is a per-group
+// self-migrate, so there is no root fan-out. Dropping the old top-level-only skip
+// is what made this fire for every behind group.
 func (l *Loop) checkMigrationVersion() {
 	if l.appSrcDir == "" {
 		return
@@ -600,15 +592,12 @@ func (l *Loop) pollOnce() {
 	}
 }
 
-// routeMiss consumes a route-missed batch. It is the ONLY miss handler —
-// shared by BOTH processing paths (ingest-enqueued processGroupMessages and
-// the pollOnce backstop). It used to exist twice and the copies drifted: the
-// queue path (which wins the race — ingest enqueues it directly) advanced the
-// cursor without onboarding, so a new chat's first message vanished silently
-// and every new user needed a hand-run `arizuko group add` (krons 2026-07-12).
-// Observe-mode ingests silently; a genuine miss answers /chatid and fires
-// chat-initiated onboarding; either way the cursor advances past the batch
-// (fail-forward — a re-fed miss would replay forever).
+// routeMiss consumes a route-missed batch. It is the ONLY miss handler, shared by
+// both processing paths. It used to exist twice and the copies drifted: the queue
+// path advanced the cursor without onboarding, so a new chat's first message
+// vanished silently and every new user needed a hand-run `arizuko group add`
+// (krons 2026-07-12). Either way the cursor advances past the batch — a re-fed
+// miss would replay forever.
 func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 	last := msgs[len(msgs)-1]
 	if r.Observe != "" {
@@ -758,25 +747,18 @@ func (l *Loop) engaged(chatJID, topic string) (string, bool) {
 }
 
 // directFolder returns the folder a JID directly addresses, or "" if the JID is
-// not a direct address. Bare folder JIDs (no platform prefix) address a group
-// directly. The route table does not apply.
+// not a direct address. Bare folder JIDs address a group directly; the route table
+// does not apply.
 //
-// For a web:/hook: JID the mint RECORDS the delivery folder
-// (route_tokens.target_folder, spec 5/W). Read the record first: the JID
-// grammar cannot recover the folder once the mint adds a suffix, because
-// `web:t/sfx` reads as folder `t/sfx` and `hook:a/b/c` reads as folder `a/b`.
-// The grammar answered alone until now, so a suffixed token missed resolution
-// and onbod parked its payload as a new unknown chat (BUGS L4). It stays the
-// fallback for a token minted before the column existed — that is what those
-// rows were minted under.
+// For a web:/hook: JID the mint RECORDS the delivery folder (spec 5/W). Read the
+// record first: the grammar cannot recover the folder once the mint adds a suffix,
+// because `web:t/sfx` reads as folder `t/sfx` and `hook:a/b/c` reads as `a/b`
+// (BUGS L4, L1). The grammar stays the fallback for a token minted before the
+// column existed.
 //
-// Cost: one indexed SELECT per message, on web:/hook: JIDs only. Reading the
-// record only after the grammar misses would be cheaper and WRONG: `hook:a/b/c`
-// minted at folder `a` hits an existing folder `a/b` and delivers the payload
-// to the wrong tenant.
-//
-// hook: was missing here entirely until BUGS L1: resolution fell through to a
-// route miss and onbod parked every webhook payload.
+// Reading the record only after the grammar misses would be cheaper and WRONG:
+// `hook:a/b/c` minted at folder `a` hits an existing folder `a/b` and delivers the
+// payload to the wrong tenant.
 func (l *Loop) directFolder(jid string) string {
 	if folder := groupfolder.JidFolder(jid); folder != "" {
 		if target := l.db.RouteTokenTarget(jid); target != "" {

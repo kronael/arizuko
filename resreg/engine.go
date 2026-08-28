@@ -2,18 +2,12 @@ package resreg
 
 // Schema-driven CRUD engine — spec 5/8.
 //
-// One reflection pass at Register() turns a Go struct's `db:` tags into
-// a cached column list + scan/insert binders. Steady-state SQL is plain
-// `SELECT cols FROM table` / `INSERT INTO table (cols) VALUES (?, …)`
-// with no per-call reflection beyond Field(i)/Interface() — the typed
-// engine writes the SQL once, reflection just walks the struct.
-//
-// Three transports (REST, MCP, YAML) decode into instances of the same
-// RowType; the schema lives once. Drift is a compile error.
-//
-// Resources that need custom semantics (encryption, JSON-blob columns,
-// nullable→sentinel mappings) supply Hooks. The engine still handles
-// shape; hooks handle semantics.
+// One reflection pass at Register() turns a Go struct's `db:` tags into a cached
+// column list plus scan/insert binders; steady-state SQL is plain SELECT/INSERT.
+// Three transports (REST, MCP, YAML) decode into the same RowType, so drift is a
+// compile error. Resources needing custom semantics (encryption, JSON-blob
+// columns, nullable→sentinel) supply Hooks: the engine handles shape, hooks
+// handle semantics.
 
 import (
 	"bytes"
@@ -80,12 +74,10 @@ type resourceMeta struct {
 	columns    []string   // SELECT column list (with overrides applied)
 	colsRaw    []string   // raw column names (for INSERT/DELETE)
 	stampedIdx []int      // struct-field indices Diff ignores (server-stamped)
-	// autoStampIdx is the subset of stampedIdx Insert may FILL with now().
-	// A stamped field carrying a ColumnOverride.Write has already declared what
-	// its empty value stores — nilIfEmptyString means "empty is NULL", not
-	// "unset, invent one" — so inventing a value first would overwrite a
-	// deliberate NULL. Server-OWNED and server-INVENTED are different claims;
-	// Diff ignores both, Insert only fills the second (BUGS F49).
+	// autoStampIdx is the subset of stampedIdx Insert may FILL with now(). A stamped
+	// field carrying a ColumnOverride.Write has already declared what its empty value
+	// stores, so inventing a value would overwrite a deliberate NULL. Server-OWNED
+	// and server-INVENTED are different claims (BUGS F49).
 	autoStampIdx []int
 }
 
@@ -176,12 +168,10 @@ func (r *Resource) newRowPtr() reflect.Value {
 	return reflect.New(r.meta.rowType)
 }
 
-// Querier is the read subset both *sql.DB and *sql.Tx satisfy. ScanAll takes
-// one so a caller can read via the live DB (ordinary Export/Diff/GetResource)
-// or via an in-flight *sql.Tx (Apply's in-transaction CAS recheck, which must
-// see exactly the snapshot it is about to write against — spec 5/8
-// §"Content-hash CAS": "apply recomputes the hash from the live DB, in the
-// same transaction that will write").
+// Querier is the read subset both *sql.DB and *sql.Tx satisfy, so a caller can
+// read via the live DB or via an in-flight *sql.Tx — Apply's in-transaction CAS
+// recheck must see exactly the snapshot it is about to write against (spec 5/8
+// §"Content-hash CAS").
 type Querier interface {
 	Query(query string, args ...any) (*sql.Rows, error)
 }
@@ -257,16 +247,12 @@ func (r *Resource) Insert(ctx context.Context, tx *sql.Tx, row any) error {
 		}
 	}
 	// Auto-stamp: any string-typed StampedField still empty gets an RFC3339 now().
-	// StampedFields are server-set timestamps (created_at/added_at/…) — the same set
-	// Diff ignores — so the engine owns both meanings and resources don't hand-copy a
-	// "stamp if empty" hook. An explicit BeforeInsert value wins: it ran above, so
-	// this only fills what's still empty.
+	// An explicit BeforeInsert value wins, since it ran above.
 	//
-	// autoStampIdx, not stampedIdx: a field with a declared empty→NULL write
-	// (groups.updated_at) exports as "" when the column is NULL, and stamping
-	// that on re-insert made the FIRST `export | apply` write a fresh timestamp
-	// — moving the subsystem checksum the operator changed nothing to move
-	// (spec 5/8 §"Round-trip honesty", BUGS F49).
+	// autoStampIdx, not stampedIdx: a field with a declared empty→NULL write exports
+	// as "" when the column is NULL, and stamping that on re-insert made the FIRST
+	// `export | apply` write a fresh timestamp — moving a checksum the operator
+	// changed nothing to move (BUGS F49).
 	stampNow := time.Now().UTC().Format(time.RFC3339)
 	for _, idx := range r.meta.autoStampIdx {
 		if f := rowPtr.Elem().Field(idx); f.Kind() == reflect.String && f.String() == "" {
@@ -371,29 +357,17 @@ func (r *Resource) manifestScopes(rows any) []string {
 	return out
 }
 
-// Retarget returns a copy of rows (a []RowType slice, matching Export's
-// output shape) with every row's Scope.Field column set to newFolder. This
-// is the one mechanically-safe, engine-owned building block for "export
-// folder X, apply as folder Y" (an archive restore under a new path, a
-// template/prototype copy, a cross-instance folder migration — spec 5/8
-// §"Path-retargeting apply"): a caller retargets a folder-scoped resource's
-// rows with this, then calls Apply — Apply itself derives the DELETE+INSERT
-// scope from the rows' CURRENT Scope.Field value (manifestScopes), so a
-// retargeted row lands under newFolder with zero change to Apply.
+// Retarget returns a copy of rows with every row's Scope.Field column set to
+// newFolder — the engine-owned building block for "export folder X, apply as
+// folder Y" (spec 5/8 §"Path-retargeting apply"). Apply derives its DELETE+INSERT
+// scope from the rows' CURRENT Scope.Field, so a retargeted row lands under
+// newFolder with zero change to Apply.
 //
-// Deliberately narrow, not a blanket "rewrite every folder reference"
-// mechanism: it touches ONLY the one column ScopeSpec.Field names. Errors
-// for a resource with no declared Scope (HasScope() == false) — acl.scope
-// (a glob), routes.target/match (a path fragment; a spawned child's route
-// must be DERIVED from its own JID, never copied verbatim),
-// scheduled_tasks.chat_jid and secrets.scope_id (both polymorphic: folder OR
-// something else) — rather than silently no-op'ing or guessing which
-// column is the folder. A resource WITH a declared Scope.Field can still
-// embed the folder elsewhere in row content outside that column
-// (web_routes.redirect_to points into the folder's own /pub|priv/<folder>/
-// web root) — Retarget does not know about those; a caller relying on it
-// for such a resource must rewrite that content itself. Named gap, not an
-// oversight.
+// Deliberately narrow: it touches ONLY the column ScopeSpec.Field names, and
+// errors for a resource with no declared Scope rather than guessing which column
+// is the folder. A resource WITH a declared Scope.Field can still embed the
+// folder elsewhere in row content (web_routes.redirect_to) — a named gap the
+// caller must rewrite itself.
 func (r *Resource) Retarget(rows any, newFolder string) (any, error) {
 	if !r.HasScope() {
 		return nil, fmt.Errorf("resreg: %s has no ScopeSpec; Retarget refuses to guess which field is the folder", r.Name)
@@ -436,16 +410,13 @@ func (r *Resource) rowSlice(rows any) (reflect.Value, error) {
 	return rv, nil
 }
 
-// Scopes returns the distinct scope values across rows (a `[]RowType`), or nil
-// when the resource declares no ScopeSpec. It is the exported half of
-// manifestScopes, and a caller that REMOVES rows needs it.
-//
-// A scoped resource derives the folders it DELETEs from the rows the document
-// still mentions, so dropping the last row in a folder makes that folder vanish
-// from the document — and apply then deletes nothing there. `packages remove`
-// hit exactly that: a package's egress rule was the only `network_rules` row in
-// its folder, so remove reported success and left the rule live. Feed these
-// into `ApplyOpts.PruneScopes` alongside the reduced rows.
+// Scopes returns the distinct scope values across rows, or nil when the resource
+// declares no ScopeSpec. A caller that REMOVES rows needs it: a scoped resource
+// derives the folders it DELETEs from the rows the document still mentions, so
+// dropping the last row in a folder makes that folder vanish from the document
+// and apply deletes nothing there. `packages remove` hit exactly that — a
+// package's egress rule was the only row in its folder, so remove reported
+// success and left the rule live. Feed these into ApplyOpts.PruneScopes.
 func (r *Resource) Scopes(rows any) []string { return r.manifestScopes(rows) }
 
 // PKs returns the primary-key string of every row in rows (a `[]RowType`), in
@@ -463,15 +434,11 @@ func (r *Resource) PKs(rows any) ([]string, error) {
 	return out, nil
 }
 
-// MergeRows returns base (a `[]RowType`) with overlay's rows added, overlay
-// winning on a PK collision.
-//
-// Apply rebuilds a resource from the document it is handed, so a caller that
-// holds a FRAGMENT — a package's two routes, not the instance's whole route
-// table — merges it onto the live projection here and hands Apply the complete
-// document. That keeps ONE apply path with its transaction and pre-image
-// rollback, instead of a partial-document mode in the engine or a second
-// hot-apply writer beside it (BUGS L44).
+// MergeRows returns base with overlay's rows added, overlay winning on a PK
+// collision. Apply rebuilds a resource from the document it is handed, so a
+// caller holding a FRAGMENT merges it onto the live projection here and hands
+// Apply the complete document. That keeps ONE apply path with its transaction and
+// pre-image rollback (BUGS L44).
 func (r *Resource) MergeRows(base, overlay any) (any, error) {
 	bv, err := r.rowSlice(base)
 	if err != nil {
@@ -669,16 +636,13 @@ var ErrMissingGroup = errors.New("references a folder that is not a group")
 // Every other folder reference is checked against it.
 const GroupsResource = "groups"
 
-// KnownFolders returns every folder that will exist once manifests apply:
-// the groups rows the manifests themselves declare, PLUS the groups already
-// live in q. Both halves are read through the same machinery the scoped
-// DELETE uses — the groups resource's own ScopeSpec.Field column — so "what
-// is a folder" has exactly one definition here, not a second parallel one.
+// KnownFolders returns every folder that will exist once manifests apply: the
+// groups rows the manifests declare, plus the groups already live in q. Both
+// halves read through the groups resource's own ScopeSpec.Field column, so "what
+// is a folder" has one definition here.
 //
-// Pass every document of the restore, not one: a folder-scoped row may
-// legitimately sit in a different document from the groups row that declares
-// it (spec 5/8's rule is "somewhere in the same subsystem document or already
-// live in the target DB", and an archive presents all its documents at once).
+// Pass every document of the restore, not one: a folder-scoped row may sit in a
+// different document from the groups row that declares it.
 func KnownFolders(q Querier, manifests ...map[string]any) (map[string]bool, error) {
 	g := Lookup(GroupsResource)
 	if g == nil {
@@ -700,23 +664,19 @@ func KnownFolders(q Querier, manifests ...map[string]any) (map[string]bool, erro
 	return out, nil
 }
 
-// ValidateFolderRefs is the missing-group rule: refuse a manifest document
-// whose rows name a folder absent from known, BEFORE any transaction opens.
-// Two FK'd references (web_routes.folder, route_tokens.owner_folder) would
-// fail SQLite's own check mid-write; the ones with no FK — network_rules,
-// whose folder=” instance-global rows a FK would reject — produce a silently
-// orphaned row instead, which is the gap this closes.
+// ValidateFolderRefs is the missing-group rule: refuse a manifest document whose
+// rows name a folder absent from known, BEFORE any transaction opens. The two
+// FK'd references would fail SQLite's own check mid-write; the ones with no FK —
+// network_rules — produce a silently orphaned row instead, which is the gap this
+// closes.
 //
 // Checks exactly the references that are DECLARATIVELY folders: a resource's
 // ScopeSpec.Field column. It does not guess which other string column holds a
-// folder, for the same reason Retarget refuses to (acl.scope is a glob,
-// routes.target is not column-equal to a folder, scheduled_tasks.chat_jid and
-// secrets.scope_id are polymorphic). A resource that CAN decide the question
-// for its own polymorphic column adds a Hooks.ValidateRow — the existing
-// extension point — rather than teaching this function per-resource shapes.
+// folder, for the same reason Retarget refuses to. A resource that CAN decide
+// that for its own polymorphic column adds a Hooks.ValidateRow.
 //
-// The empty scope is exempt: network_rules carries folder=” for
-// instance-global rules, which names no group by design.
+// The empty scope is exempt: network_rules carries folder="" for instance-global
+// rules, which names no group by design.
 func ValidateFolderRefs(subsystem string, manifest map[string]any, known map[string]bool) error {
 	var bad []string
 	for _, r := range BySubsystem(subsystem) {
@@ -750,25 +710,19 @@ type ApplyOpts struct {
 	Actor          string // who ran the apply (CLI sub, "system", …)
 	ManifestDigest string // sha256 of the manifest bytes, for forensic correlation
 
-	// PruneScopes names extra scope values every scoped resource DELETEs
-	// before inserting, on top of the ones its own rows mention. Exists for
-	// the cross-subsystem rollback (spec 5/8 §"Cross-subsystem apply"): a
-	// forward apply that CREATED rows under a folder the pre-image never
-	// mentioned leaves nothing for the pre-image's own scopes to prune, so
-	// those rows would survive a rollback that is supposed to be total. Sound
-	// only because a pre-image is a COMPLETE subsystem projection — pruning a
-	// scope and re-inserting the pre-image restores that scope exactly.
-	// Ignored by resources with no ScopeSpec (they rebuild wholesale anyway).
+	// PruneScopes names extra scope values every scoped resource DELETEs before
+	// inserting. Exists for the cross-subsystem rollback: a forward apply that
+	// CREATED rows under a folder the pre-image never mentioned leaves nothing for
+	// the pre-image's own scopes to prune, so those rows would survive a rollback
+	// that is supposed to be total. Sound only because a pre-image is a COMPLETE
+	// subsystem projection.
 	PruneScopes []string
 
-	// Extra carries caller context into the apply's single audit row, beside
-	// the per-resource counts. `arizuko packages` puts the package name and the
-	// PK of every row it added or withdrew there: one row per apply that says
-	// only "2 acl added" hides WHICH authority the install handed out, and that
-	// is the question the trail exists to answer (BUGS Q5/F2/L36). Keep values
-	// short — audit.marshalParams caps the whole summary at 512 bytes. The
-	// three engine keys (manifest_digest, checksum, resources) always win a
-	// name collision.
+	// Extra carries caller context into the apply's single audit row. `arizuko
+	// packages` puts the package name and the PK of every row it added or withdrew
+	// there: one row saying only "2 acl added" hides WHICH authority the install
+	// handed out (BUGS Q5/F2/L36). Keep values short — the summary caps at 512
+	// bytes. The three engine keys always win a name collision.
 	Extra map[string]any
 }
 
@@ -795,22 +749,16 @@ func ManifestScopes(subsystem string, manifest map[string]any) []string {
 	return out
 }
 
-// lockTable is a table guaranteed present in every owner DB — audit_log
-// ships in routd.db and onbod.db (resreg's own invoke() already assumes it
-// for every mutation's audit row, so this is not a new coupling). Apply
-// issues one no-op UPDATE against it to upgrade its DEFERRED tx to a write
-// lock immediately: a write statement, even matching zero rows, forces
-// SQLite's RESERVED lock as soon as it runs, so the checksum recheck and the
-// following writes become one atomic critical section — concurrent applies
-// block rather than racing. Mirrors the pre-hash-CAS "UPDATE config_meta SET
-// version=version" trick without a config_meta table.
+// lockTable is a table guaranteed present in every owner DB. Apply issues one
+// no-op UPDATE against it to upgrade its DEFERRED tx to a write lock immediately:
+// a write statement, even matching zero rows, forces SQLite's RESERVED lock as
+// soon as it runs, so the checksum recheck and the following writes become one
+// atomic critical section and concurrent applies block rather than race.
 const lockTable = "audit_log"
 
 // Checksum computes the content hash of one subsystem's manifest-visible
-// projection: sha256 of the canonical EmitYAML bytes of Export(q,
-// subsystem) — the SAME renderer that produces the manifest, minus the
-// checksum field itself (Export's output never carries one). Spec 5/8
-// §"Content-hash CAS": recomputed fresh from live rows at read time: no
+// projection: sha256 of the canonical EmitYAML bytes of Export, minus the
+// checksum field itself. Recomputed fresh from live rows at read time: no
 // counter, no table, nothing for a writer to remember to bump.
 func Checksum(q Querier, subsystem string) (string, error) {
 	m, err := Export(q, subsystem)
@@ -825,26 +773,18 @@ func Checksum(q Querier, subsystem string) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// Apply runs the scoped-rebuild lifecycle for ONE subsystem (one owner DB)
-// in one tx: in-tx checksum recheck → per-resource DELETE (scoped or
-// wholesale) → INSERT rows from manifest → recompute checksum → one audit
-// row. Single tx, atomic. Returns the new checksum.
+// Apply runs the scoped-rebuild lifecycle for ONE subsystem (one owner DB) in one
+// tx: in-tx checksum recheck → per-resource DELETE → INSERT rows from manifest →
+// recompute checksum → one audit row. Atomic. Returns the new checksum. `force`
+// skips the checksum check.
 //
-// `force` skips the checksum check.
-//
-// `manifestRows` maps Resource.Name → []RowType slice; every key must name a
-// resource registered with Resource.DB == subsystem — a document meant for
-// one owner DB must not carry another subsystem's rows (spec 5/8 §"Document
-// schema": "the apply tool resolves each resource name to its owning DB").
-// Resources with a clean folder-scope column (HasScope) DELETE only the
-// folders the manifest mentions (spec 5/8 §"Atomicity model": scoped
-// DELETE+INSERT), so a partial manifest leaves out-of-scope rows untouched; a
-// resource the manifest omits entirely is not touched. Scope-less resources
-// rebuild wholesale (DeleteAll) — only when the manifest mentions them.
-// SkipApplyRebuild resources (secrets, route_tokens, invites) are never
-// wiped/rebuilt. RowFilter-excluded rows (pairing edges, pairing tokens)
-// never enter the checksum, the DELETE, or the recomputed checksum — they
-// are simply invisible to this whole lifecycle (spec 5/8 CRITICAL finding).
+// Every key of `manifestRows` must name a resource registered with Resource.DB ==
+// subsystem. Resources with a clean folder-scope column DELETE only the folders
+// the manifest mentions, so a partial manifest leaves out-of-scope rows
+// untouched; a resource the manifest omits is not touched at all. Scope-less
+// resources rebuild wholesale. SkipApplyRebuild resources (secrets, route_tokens,
+// invites) are never wiped. RowFilter-excluded rows never enter the checksum, the
+// DELETE, or the recomputed checksum.
 func Apply(ctx context.Context, db *sql.DB, subsystem string, wantChecksum string, force bool, manifestRows map[string]any, opts *ApplyOpts) (string, error) {
 	for name := range manifestRows {
 		r := Lookup(name)
@@ -996,11 +936,9 @@ func emitApplyAudit(ctx context.Context, tx *sql.Tx, opts *ApplyOpts, counts map
 }
 
 // Export reads every registered resource of ONE subsystem via ScanAll and
-// assembles a manifest map keyed by Resource.Name. No checksum key — Export
-// IS the exact projection Checksum hashes, so baking a checksum into its own
-// output would hash itself; callers that want one call Checksum separately
-// (or EmitYAML the result of both, per cmdExport). Deterministic per
-// canonical key order.
+// assembles a manifest map keyed by Resource.Name. No checksum key — Export IS
+// the projection Checksum hashes, so baking one in would hash itself.
+// Deterministic per canonical key order.
 func Export(q Querier, subsystem string) (map[string]any, error) {
 	out := map[string]any{}
 	for _, r := range BySubsystem(subsystem) {
@@ -1016,12 +954,9 @@ func Export(q Querier, subsystem string) (map[string]any, error) {
 	return out, nil
 }
 
-// GetResource emits a single-resource manifest fragment: a map with only
-// the named resource's rows (live `SELECT *`), shaped exactly as Export
-// would nest it so the fragment re-applies to a no-op (spec 5/8
-// §"arizuko get round-trip"). Returns an error for unknown resources or
-// resources without a RowType. No checksum is stamped — a fragment is
-// scoped, not a full subsystem dump.
+// GetResource emits a single-resource manifest fragment, shaped exactly as Export
+// would nest it so the fragment re-applies to a no-op. No checksum is stamped —
+// a fragment is scoped, not a full subsystem dump.
 func GetResource(q Querier, name string) (map[string]any, error) {
 	r := Lookup(name)
 	if r == nil || r.RowType == nil {
@@ -1034,13 +969,9 @@ func GetResource(q Querier, name string) (map[string]any, error) {
 	return map[string]any{name: rows}, nil
 }
 
-// ResourceDelta is one resource's plan summary: PK strings sorted into
-// add (in manifest, not in DB), update (PK present in both, payload
-// differs), unchanged (PK + payload identical), and remove (in DB, not
-// in manifest). Empty when the manifest omits the resource AND the DB
-// has no rows for it. SkipApplyRebuild marks resources (secrets) whose
-// add/update/remove are informational only — apply never mutates them,
-// so Changed() ignores the lists for these.
+// ResourceDelta is one resource's plan summary: PK strings sorted into add,
+// update, unchanged and remove. SkipApplyRebuild marks resources whose lists are
+// informational only — apply never mutates them, so Changed() ignores them.
 type ResourceDelta struct {
 	Resource         string
 	Add              []string
@@ -1061,19 +992,13 @@ func (d ResourceDelta) Changed() bool {
 	return len(d.Add) > 0 || len(d.Update) > 0 || len(d.Remove) > 0
 }
 
-// Diff computes the ResourceDelta for one resource: manifestRows (a
-// []RowType slice, or nil) vs the live table. Matching is by PK string;
-// payload equality ignores server-stamped fields (StampedFields) so a
-// hand-written manifest omitting timestamps reads as unchanged.
+// Diff computes the ResourceDelta for one resource: manifestRows vs the live
+// table. Matching is by PK string; payload equality ignores server-stamped fields
+// so a hand-written manifest omitting timestamps reads as unchanged.
 //
-// Scope-aware (matches scoped apply): for a scoped resource, only live
-// rows within the folders the manifest mentions are candidates for
-// Remove — apply leaves out-of-scope rows alone, so plan must too
-// (spec 5/8 §"Surface": plan shows what a scoped restore would change).
-// Scope-less resources rebuild wholesale, so every live row is in scope.
-//
-// SkipApplyRebuild resources still diff (so `plan`/`get` report metadata)
-// — the apply path is what skips the write, not the diff.
+// Scope-aware, matching scoped apply: for a scoped resource only live rows within
+// the folders the manifest mentions are candidates for Remove. SkipApplyRebuild
+// resources still diff — the apply path is what skips the write, not the diff.
 func (r *Resource) Diff(q Querier, manifestRows any) (ResourceDelta, error) {
 	d := ResourceDelta{Resource: r.Name, SkipApplyRebuild: r.SkipApplyRebuild}
 	if r.meta == nil {
@@ -1118,12 +1043,10 @@ func (r *Resource) Diff(q Querier, manifestRows any) (ResourceDelta, error) {
 	return d, nil
 }
 
-// scopeFilter returns the set of folder scopes the manifest mentions for
-// a scoped resource, or nil for "every live row is in scope" (wholesale
-// rebuild). nil fires when the resource is scope-less, OR when a scoped
-// resource is mentioned with zero rows — an explicitly-present empty list
-// wipes the whole resource (matching apply's DeleteAll fallback), so plan
-// must list every live row as a Remove.
+// scopeFilter returns the folder scopes the manifest mentions for a scoped
+// resource, or nil for "every live row is in scope". nil fires when the resource
+// is scope-less, OR when a scoped resource is mentioned with zero rows — an
+// explicitly-present empty list wipes the whole resource.
 func (r *Resource) scopeFilter(manifestRows any) map[string]bool {
 	if !r.HasScope() {
 		return nil
@@ -1164,18 +1087,12 @@ func (r *Resource) payloadEqual(a, b reflect.Value) bool {
 	return equalIgnoringEmpty(ac, bc)
 }
 
-// equalIgnoringEmpty is DeepEqual with one difference: a nil slice or map
-// equals an empty one. Both spell the same thing in a manifest — the field is
-// absent — but reflect.DeepEqual calls them different.
-//
-// The engine needs this because the two sides of a Diff reach it by different
-// routes. An `omitempty` field with no value is omitted from the export, so it
-// re-parses as nil, while the live row's AfterScan builds an empty slice from
-// the stored "[]". Without this, every such row reported a phantom `update` and
-// `plan` on an unmodified export lied — 12 of 12 proxyd_routes rows on krons
-// (BUGS Z2). Normalizing HERE fixes the class: proxyd_routes' preserve_headers
-// and installed_packages' manifest today, and any resource that adds a slice or
-// map field later.
+// equalIgnoringEmpty is DeepEqual with one difference: a nil slice or map equals
+// an empty one. Both spell the same thing in a manifest, but reflect.DeepEqual
+// calls them different. The two sides of a Diff reach it by different routes — an
+// `omitempty` field with no value re-parses as nil, while the live row's
+// AfterScan builds an empty slice from the stored "[]". Without this every such
+// row reported a phantom `update`: 12 of 12 proxyd_routes rows on krons (BUGS Z2).
 func equalIgnoringEmpty(a, b reflect.Value) bool {
 	if a.Type() != b.Type() {
 		return false
@@ -1233,14 +1150,9 @@ func (r *Resource) byPK(rv reflect.Value) map[string]reflect.Value {
 	return out
 }
 
-// Plan diffs a parsed manifest (Resource.Name → []RowType) against the live
-// DB for every resource in subsystem the manifest mentions, in catalog
-// order. Non-mutating. Backs `arizuko plan` (spec 5/8 §"Apply lifecycle"
-// step 3).
-//
-// Resources the manifest omits are skipped — apply leaves them untouched
-// (scoped restore: absent scopes are not deleted), so plan reports no
-// delta for them and stays exactly equal to apply.
+// Plan diffs a parsed manifest against the live DB for every resource in
+// subsystem the manifest mentions, in catalog order. Non-mutating. Resources the
+// manifest omits are skipped, because apply leaves them untouched.
 func Plan(q Querier, subsystem string, manifest map[string]any) ([]ResourceDelta, error) {
 	var out []ResourceDelta
 	for _, r := range BySubsystem(subsystem) {
@@ -1314,13 +1226,10 @@ func EmitYAML(manifest map[string]any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// ParseYAML decodes ONE manifest document into a map of resource name →
-// []RowType slice. The reserved key "checksum" is extracted and returned
-// separately — it is never left in the map, so it can never be mistaken for
-// a resource name by Apply's per-key subsystem check. Strict per spec 5/8
-// §"Apply lifecycle" step 1: an unknown top-level key (a typo'd resource
-// name) rejects before the DB is touched, so an operator's intended config
-// can't silently fail to apply.
+// ParseYAML decodes ONE manifest document into a map of resource name → rows. The
+// reserved key "checksum" is extracted and returned separately so it can never be
+// mistaken for a resource name. Strict: an unknown top-level key rejects before
+// the DB is touched, so an operator's intended config cannot silently fail.
 func ParseYAML(data []byte) (map[string]any, string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
@@ -1360,13 +1269,9 @@ func ParseYAML(data []byte) (map[string]any, string, error) {
 	return out, checksum, nil
 }
 
-// SplitDocuments splits a `---`-separated multi-document YAML byte stream
-// into its individual documents (spec 5/8 §"Multi-document YAML": "to a
-// single path they concatenate as ---separated documents"). A single-
-// document file returns a one-element slice unchanged. Pure byte-stream
-// splitting on yaml.v3's document boundary, done via a decoder loop rather
-// than string-splitting on "---" so a literal "---" inside a scalar value
-// never misparses as a boundary.
+// SplitDocuments splits a `---`-separated multi-document YAML stream into its
+// documents. Done via a decoder loop rather than string-splitting on "---" so a
+// literal "---" inside a scalar value never misparses as a boundary.
 func SplitDocuments(data []byte) ([][]byte, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	var docs [][]byte
@@ -1388,13 +1293,9 @@ func SplitDocuments(data []byte) ([][]byte, error) {
 	return docs, nil
 }
 
-// SubsystemOf inspects a parsed manifest's resource keys (as returned by
-// ParseYAML) and returns the single subsystem they all belong to. Errors on
-// an empty manifest (nothing to infer from) or on keys spanning more than
-// one subsystem — a document produced by this package's own Export never
-// mixes subsystems, so this is a defense against a hand-edited manifest that
-// merged rows from two owner DBs into one file (spec 5/8: "the apply tool
-// resolves each resource name to its owning DB at dispatch").
+// SubsystemOf returns the single subsystem a parsed manifest's resource keys all
+// belong to. Errors on an empty manifest or on keys spanning more than one — a
+// defense against a hand-edited manifest that merged two owner DBs into one file.
 func SubsystemOf(manifest map[string]any) (string, error) {
 	seen := map[string]bool{}
 	for name := range manifest {
@@ -1458,21 +1359,16 @@ func Lookup(name string) *Resource {
 	return nil
 }
 
-// Mount returns the registered SHAPE of a resource — Name, Endpoints, RowType,
-// Table, PK, MCP metadata: everything Register stored — for a daemon to fill in
-// with BEHAVIOR (Authz, Gate, Handler, Store) and mount. It is the only way to
-// build a mountable Resource.
+// Mount returns the registered SHAPE of a resource — everything Register stored —
+// for a daemon to fill in with BEHAVIOR (Authz, Gate, Handler, Store) and mount.
+// It is the only way to build a mountable Resource, which is what makes "one
+// owner" structural (spec 5/16). A mount site used to restate the shape as a
+// struct literal, so it could name a different slice, omit MCPDoc and silently
+// lose the agent's tools, or carry an MCPArgs map the catalog never had.
 //
-// This is what makes "one owner" structural (spec 5/16 §"One owner +
-// federation"). A mount site used to restate the shape as a struct literal
-// whose fields happened to reference the catalog's exported vars — a second
-// declaration held in step by care, so a site could name a different slice,
-// omit MCPDoc and silently lose the agent's tools, or (as proxyd_routes did)
-// carry an MCPArgs map the catalog never had. There is nothing left to restate.
-//
-// Panics on an unregistered name. A daemon mounting a resource no catalog knows
-// is served-but-invisible to /openapi.json and the CLI manifest, and that must
-// stop the binary at boot rather than surface as a missing row later.
+// Panics on an unregistered name: a resource no catalog knows is
+// served-but-invisible to /openapi.json and the CLI manifest, and that must stop
+// the binary at boot.
 func Mount(name string) Resource {
 	r := Lookup(name)
 	if r == nil {
