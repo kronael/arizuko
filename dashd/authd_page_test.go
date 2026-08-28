@@ -189,15 +189,11 @@ func TestAuthdPage_RendersSigningKeyLifecycle(t *testing.T) {
 	}
 }
 
-// THE security assertion for this page. authd is the sole ES256 signer, so the
-// one unacceptable outcome is a key half or a token value reaching the browser.
-//
-// The upstream plants both in fields the projections do not declare — which is
-// exactly how a leak would arrive if the page ever rendered authd's answer
-// instead of the parsed rows. The legitimate values are asserted PRESENT first:
-// without that, a page that rendered nothing at all would satisfy every
-// absence check below and the test would prove only that empty HTML has no
-// secrets in it.
+// THE security assertion for this page. authd is the sole ES256 signer, so the one
+// unacceptable outcome is a key half or a token value reaching the browser. The
+// upstream plants both in fields the projections do not declare — exactly how a leak
+// would arrive. The legitimate values are asserted PRESENT first: without that, a page
+// that rendered nothing would satisfy every absence check below.
 func TestAuthdPage_NeverRendersKeyMaterialOrTokenValues(t *testing.T) {
 	// The PEM markers are assembled at runtime rather than written as literals:
 	// this repo's pre-commit detect-private-key hook scans source bytes and
@@ -387,12 +383,10 @@ func postAuthdRevoke(t *testing.T, mux *http.ServeMux, form url.Values) *httptes
 	return w
 }
 
-// The control revokes through authd's DELETE, never through a local handle.
-// That is what buys the audit row: resreg.invoke opens the transaction, revokes
-// in it, and emits the event into the same one, rolling the revoke back if the
-// audit write fails (authd's TestSessionsRevokeKillsTheFamilyAndAudits pins the
-// row itself). A dashd-side write would have none of that — and dashd has no
-// handle on auth.db to make one with, which the nil DB fields assert.
+// The control revokes through authd's DELETE, never through a local handle. That is
+// what buys the audit row: resreg.invoke opens the transaction, revokes in it, and
+// emits the event into the same one. A dashd-side write would have none of that — and
+// dashd has no handle on auth.db to make one with, which the nil DB fields assert.
 func TestAuthdRevoke_DeletesThroughAuthd(t *testing.T) {
 	u := newAuthdUpstream(t)
 	u.respond["DELETE /v1/sessions/"] = `{"family_id":"fam-1","revoked":3}`
@@ -431,14 +425,10 @@ func TestAuthdRevoke_DeletesThroughAuthd(t *testing.T) {
 	}
 }
 
-// A family_id is operator input and lands in a URL PATH SEGMENT, so its
-// separators must be escaped on the wire: sent raw, `../../v1/keys` is a
-// different endpoint, and the one it reaches on authd is the signing-key
-// surface.
-//
-// Asserted on the wire URI, not the decoded path: net/http decodes %2F back to
-// / in r.URL.Path, so a correctly-escaped request and a traversal look
-// identical there. r.RequestURI is the only field that distinguishes them.
+// A family_id is operator input and lands in a URL PATH SEGMENT, so its separators
+// must be escaped on the wire: sent raw, `../../v1/keys` reaches the signing-key
+// surface. Asserted on the wire URI, not the decoded path — net/http decodes %2F back
+// to / in r.URL.Path, so r.RequestURI is the only field that distinguishes them.
 func TestAuthdRevoke_EscapesTheFamilyIDIntoThePathSegment(t *testing.T) {
 	u := newAuthdUpstream(t)
 	u.respond["DELETE /v1/sessions/"] = `{"revoked":0}`

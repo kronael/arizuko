@@ -1,19 +1,12 @@
 package resources
 
-// Integration test for the resources package — exercises Export +
-// Apply against a real store DB (migrations 0001..0067 applied). Each
-// resource registers via init(); this test verifies the engine can
-// SELECT/INSERT every one against the real schema.
+// Integration test for the resources package — Export + Apply against a real store
+// DB. Each resource registers via init(); this verifies the engine can SELECT/INSERT
+// every one against the real schema.
 //
-// store.Migrate's schema is the frozen pre-split messages.db shape, which
-// happens to carry every table BOTH routd.db and onbod.db now own (it was
-// forked from the same source at the split) — a convenient single-DB
-// testbed for exercising the engine's SELECT/INSERT column shapes. It is
-// NOT standing in for the split topology itself: Export/Apply/Plan below
-// are always called with an EXPLICIT subsystem (resreg.SubsystemRoutd or
-// resreg.SubsystemOnbod), matching what `cmd/arizuko` does against the
-// REAL, separate routd.db/onbod.db files (see cmd/arizuko/apply_test.go for
-// that end-to-end proof).
+// store.Migrate's schema carries every table BOTH routd.db and onbod.db own, which
+// makes it a convenient single-DB testbed. It is NOT standing in for the split
+// topology: Export/Apply/Plan below are always called with an EXPLICIT subsystem.
 
 import (
 	"bytes"
@@ -527,31 +520,15 @@ func TestApply_WritesOneAuditRow(t *testing.T) {
 	_ = audit.CategoryMutation // keep the audit import meaningful if asserts change
 }
 
-// The per-daemon ownership map that used to live here is DELETED, not moved.
-// It was a hand-maintained COPY of the lists the daemon mains passed to
-// resreg.OpenAPIHandler, kept because routd imports this package and so the
-// real list could not be read from here. (Those lists are themselves gone now —
-// BUGS F33; the handler takes the mux.) Two independent reasons it had to go,
-// either sufficient:
+// The per-daemon ownership map that used to live here is DELETED, not moved. It was
+// a hand-maintained COPY that could not fail — the expectation and the actual came
+// from the same slice — and it had drifted again anyway.
 //
-// It could not fail. TestOpenAPI_PerDaemonOwnership computed both the
-// expectation and the actual from the same `owned` slice, so "this daemon
-// advertises no foreign path" was a tautology. Adding an invented daemon that
-// claimed routd's `routes`+`acl`, onbod's `invites` and proxyd's
-// `proxyd_routes` left it green.
-//
-// And it had drifted again, exactly as the copy shape predicts — spec 5/I's
-// audit federation did it: the map missed routd's `audit`, onbod's
-// `onboarding`+`invites`, runed's `audit`, and had no `authd` entry at all
-// while authd advertises `audit`+`signing_keys`+`sessions`.
-//
-// The replacement needs no ownership table: resreg/resregtest asserts each
-// daemon's real mux against its real emitted doc, from the daemon's OWN
-// package (every daemon but routd is `package main` and cannot be imported).
-// A daemon advertising a foreign resource mounts none of its paths and fails
-// there; a daemon MOUNTING one fails resregtest.AssertServesNoForeignResource,
-// whose foreign set is the complement of what the mux owns — so it needs no
-// table either.
+// The replacement needs no ownership table: resreg/resregtest asserts each daemon's
+// real mux against its real emitted doc, from the daemon's OWN package. A daemon
+// advertising a foreign resource mounts none of its paths and fails there; one
+// MOUNTING a foreign resource fails AssertServesNoForeignResource, whose foreign set
+// is the complement of what the mux owns.
 
 // TestOpenAPI_ProxydRoutesCarriesMCPDoc: the registered proxyd_routes
 // catalog decl carries MCPDoc, so the emitted /openapi.json annotates the
@@ -576,22 +553,17 @@ func TestOpenAPI_ProxydRoutesCarriesMCPDoc(t *testing.T) {
 	}
 }
 
-// TestOpenAPI_EveryEmittedPathIsWellFormed is the emitter-side half of what the
-// deleted ownership map gestured at, stated without a copy: walk the REGISTRY,
-// and for every resource declaring a REST face, assert the emitter renders at
-// least one operation and renders every one of them under a real URL path.
+// TestOpenAPI_EveryEmittedPathIsWellFormed walks the REGISTRY and, for every resource
+// declaring a REST face, asserts the emitter renders at least one operation and
+// renders every one under a real URL path.
 //
-// The second half is not hypothetical. The emitter keys `paths` on
-// Endpoint.Path verbatim, so a resource whose Path is empty publishes its
-// operations under the "" key: a document that parses as JSON, advertises a
-// real operationId and request body, and from which no client can construct a
-// request. Nothing downstream can catch that — routd's mux guard only probes
-// paths the doc already lists, and "" resolves to the 404 fallback on every
-// mux, so an empty Path is invisible from the mounting side.
+// The second half is not hypothetical: the emitter keys `paths` on Endpoint.Path
+// verbatim, so a resource whose Path is empty publishes under the "" key — a document
+// that parses, advertises a real operationId, and from which no client can construct
+// a request. An empty Path is invisible from the mounting side.
 //
-// A resource whose endpoints are all MCPOnly renders no path by design
-// (network_rules), so it is exempt — and the exemption is derived from
-// MCPOnly, not listed here.
+// A resource whose endpoints are all MCPOnly renders no path by design, and the
+// exemption is derived from MCPOnly, not listed here.
 func TestOpenAPI_EveryEmittedPathIsWellFormed(t *testing.T) {
 	checked := 0
 	for _, r := range resreg.All() {
@@ -700,18 +672,13 @@ func TestOpenAPI_OnboardingGatesTruthful(t *testing.T) {
 	}
 }
 
-// TestFoldedEndpoints_RegistrySingleSource is DELETED, not moved. It looked up
-// each resource in the registry and compared its Endpoints to the exported var
-// — the same var the init() block had just registered. It compared a value to
-// itself, could not fail, and above all could not see a MOUNT, which is the
-// only place doc-vs-served drift ever lived. spec 5/16 named it as the evidence
-// of that gap.
+// TestFoldedEndpoints_RegistrySingleSource is DELETED, not moved. It compared a value
+// to itself and could not see a MOUNT, which is the only place doc-vs-served drift
+// ever lived.
 //
-// The claim it gestured at is now carried two ways that can fail: the document
-// is DERIVED from the mux (resreg.MountedResources, BUGS F33), and each daemon
-// pins its whole derived surface against a stated list via
-// resregtest.AssertAdvertises using its REAL mux — routd/endpoints_source_test.go,
-// authd/onbod/proxyd/runed/timed openapi_test.go.
+// The claim it gestured at is now carried two ways that can fail: the document is
+// DERIVED from the mux (BUGS F33), and each daemon pins its whole derived surface
+// against a stated list via resregtest.AssertAdvertises using its REAL mux.
 
 // TestFacadeMCP_RegistrySingleSource: each cold-tier facade resource the registry
 // walk feeds ipc.ListTools (dashd's tool browser) carries the SAME exported
@@ -889,15 +856,11 @@ func TestRouteTokens_PairingExcludedFromExport(t *testing.T) {
 	}
 }
 
-// TestSecrets_NoAgentTool: the secrets resource carries no MCPDoc, and
-// deriveMCPTools surfaces a tool only for actions that have one — so an agent
-// gets no secret verb at all. That is the design ("the agent never sets
-// secrets"), but it holds by OMISSION: adding an MCPDoc entry for a secret
-// action would silently hand every agent a credential-write tool over its own
-// socket. Nothing else fails when that happens, which is why this exists.
-//
-// The REST no-GET guards above stop a sealed value being READ; this stops it
-// being written from the agent side.
+// TestSecrets_NoAgentTool: the secrets resource carries no MCPDoc, and deriveMCPTools
+// surfaces a tool only for actions that have one, so an agent gets no secret verb at
+// all. That is the design, but it holds by OMISSION: adding an MCPDoc entry for a
+// secret action would silently hand every agent a credential-write tool. The REST
+// no-GET guards above stop a sealed value being READ; this stops it being written.
 func TestSecrets_NoAgentTool(t *testing.T) {
 	for _, r := range resreg.All() {
 		if r.Name != SecretsName {
