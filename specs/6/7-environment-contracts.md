@@ -1,5 +1,6 @@
 ---
-status: draft
+status: defected
+defects: [L131]
 depends:
   [
     1-adoption-interop,
@@ -371,9 +372,15 @@ the CLIs** (codex 0.147.0, pi 0.51.6, 2026-08-21), not read off a document:
 Three of the four are universal. `rewrite` is claude-only: codex's
 `PreToolUseDecisionWire` is `approve|block|allow`, and `updatedInput` lives on
 its separate `PermissionRequest` event. Exactly one policy needs it — the
-credential scrub, which unsets `ANTHROPIC_API_KEY` ahead of a Bash call — and
-that policy is claude-specific anyway, because codex resolves its credential
-from `$CODEX_HOME/auth.json` and never from the environment. So the binding
+credential scrub, which unsets `ANTHROPIC_API_KEY` ahead of a Bash call.
+
+That policy is claude-only in MECHANISM, not in need. This text used to say it
+was claude-specific anyway "because codex resolves its credential from
+`$CODEX_HOME/auth.json` and never from the environment"; that is where codex
+GETS its credential, not what is in its env. `readSecrets` ships every
+`store.EnvProfileKeys` value set in the host `.env` into the container on every
+backend, so dropping the row leaves five keys readable from a codex or pi shell
+(BUGS `L131`). So the binding
 table declares which verdicts a policy may return, and a renderer that cannot
 honour one refuses to render that binding instead of dropping it silently.
 
@@ -742,9 +749,11 @@ never a second copy) runs on both codex and pi as the backstop: at session
 start every skill is scanned, and one with blocking findings is excluded from
 pi's `--skill` list and from codex's index. It gates what the connector loads,
 not what the model reads by path afterwards. The bash secret scrub
-(`guards.ts`) also does not run on codex/pi; the credential it scrubs
-(the Anthropic OAuth token) is not present in those backends' env, which
-shrinks but does not erase that gap.
+(`guards.ts`) also does not run on codex/pi, and the gap is NOT shrunk by the
+credential being absent there — it is present. `readSecrets` ships all five
+`store.EnvProfileKeys` values into the container on every backend, and the
+scrub list names only two of them, so three keys survive it even on claude
+(BUGS `L131`).
 
 ### Conformance matrix (2026-08-20)
 
@@ -1006,12 +1015,15 @@ spec says what must stay true across those, not how any of them works.
   their own stream shapes; nothing maps them onto the notice the claude harness
   emits. That is frame mapping inside each harness file, not a hook binding, so
   it is NOT part of the capabilities increment — it is its own small change.
-- **codex's credential is a file the agent can read.** The Bash scrub keeps
-  `ANTHROPIC_API_KEY` out of the agent's shell, but codex authenticates from
-  `$CODEX_HOME/auth.json` under the group's own `$HOME`, so the equivalent
-  secret is readable with `cat`. The scrub does not port and should not be made
-  to; the fix belongs to the ownership increment that moves harness setup out of
-  the group dir.
+- **codex's credential is readable two ways.** The Bash scrub keeps
+  `ANTHROPIC_API_KEY` out of a CLAUDE agent's shell, but codex also
+  authenticates from `$CODEX_HOME/auth.json` under the group's own `$HOME`, so
+  that secret is readable with `cat`. The file half belongs to the ownership
+  increment that moves harness setup out of the group dir. The env half is
+  BUGS `L131` and does port: codex's own `shell_environment_policy` config key
+  (`inherit`/`include`/`exclude`/`set`, default `inherit = all`, measured in
+  codex-cli 0.147.0) takes a `-c` override at the site that already emits
+  `-c mcp_servers.*`.
 
 Closed since: **`ARIZUKO_IS_ROOT` never reached ant** (BUGS `L60`) — fixed
 2026-08-21 by emitting it as real container env from `buildArgs`, always present

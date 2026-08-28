@@ -13,9 +13,14 @@ import { blockingVerdict, isGuardedPath } from './skillguard.js';
 const SECRET_ENV_VARS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
 
 // bashScrub prefixes every Bash command with an unset of the model credentials.
-// The one policy that returns 'rewrite', and rewrite is claude-only. That costs
-// nothing: codex authenticates from $CODEX_HOME/auth.json, so there is no
-// credential in its environment to strip.
+// The one policy that returns 'rewrite', and rewrite is claude-only.
+//
+// INCOMPLETE, both ways (BUGS L131). This list is a second declaration of
+// "model credential" and holds 2 of the 5 in store.EnvProfileKeys, so
+// ANTHROPIC_OAUTH_TOKEN, OPENAI_API_KEY and CODEX_API_KEY survive the unset
+// even on claude. And codex and pi honour no rewrite, so runnableBy drops the
+// row there and all five stay readable — readSecrets puts every key set in the
+// host .env into the container whatever ARIZUKO_BACKEND says.
 export function bashScrub(ev: ToolEvent): Verdict {
   const command = (ev.tool_input as { command?: string })?.command;
   if (!command) return ALLOW;

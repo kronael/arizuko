@@ -7109,3 +7109,72 @@ duplication rule says amend the original instead.
 - **Source:** `ant/src/index.ts:49`, `container/runner.go:531`,
   `ant/src/codex.ts:84` (`codexPrompt`), `ant/src/pi.ts` (`runPi`);
   the measurement above.
+
+## L131 — the Bash secret-scrub covers 2 of 5 model credentials and is refused entirely on codex and pi, so an agent shell can read live Anthropic/OpenAI keys (2026-08-28, open — codex half is a fix, pi half is a proposal)
+
+Found auditing the policy layer across all three harnesses (the `6/7` seam).
+Two halves, one root cause: `SECRET_ENV_VARS` is a SECOND declaration of "model
+credential" that drifted from `store.EnvProfileKeys`, and the mechanism it uses
+(`rewrite`) is claude-only.
+
+**The delivery chain puts all five keys in every harness's env, on every
+backend.** `readSecrets` (`container/runner.go:765`) iterates
+`store.EnvProfileKeys` and passes every one set in the host `.env` through;
+they ride the stdin payload as `containerInput.secrets`, and `index.ts:377`
+merges them into the `env` handed verbatim to `turn.env` — which is
+`options.env` for claude and `driveCli`'s `opts.env` for codex and pi. The
+child shell each CLI spawns inherits it.
+
+**Half A — the scrub list is short, on every harness including claude.**
+
+| key | in `store.EnvProfileKeys` | in `SECRET_ENV_VARS` |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | yes | yes |
+| `CLAUDE_CODE_OAUTH_TOKEN` | yes | yes |
+| `ANTHROPIC_OAUTH_TOKEN` | yes | **no** |
+| `OPENAI_API_KEY` | yes | **no** |
+| `CODEX_API_KEY` | yes | **no** |
+
+So even on claude — where `bash-scrub` runs and is honoured — three live
+credentials survive the `unset` prefix. `ANTHROPIC_OAUTH_TOKEN` is the one pi
+reads and prefers over the API key (`store/secrets.go:118`), i.e. a full
+subscription credential.
+
+**Half B — the row is refused outright on codex and pi.** `bash-scrub` declares
+`returns: ['rewrite']`; `CODEX_HONOURS` and `PI_HONOURS` are both
+`['deny','inject']`, so `runnableBy` drops it and logs
+`policy bash-scrub not rendered: cannot honour rewrite`. All five keys are then
+readable from those agents' shells.
+
+The comments at `ant/src/guards.ts:15` and `ant/src/codex.ts` say this "costs
+nothing" because "codex authenticates from `$CODEX_HOME/auth.json`, so there is
+no credential in its environment to strip". That is about where codex GETS its
+credential, not about what `readSecrets` puts in the env. It puts all five
+there regardless of `ARIZUKO_BACKEND`.
+
+**codex has its own knob and arizuko does not use it.** Measured in the
+codex-cli 0.147.0 binary: `shell_environment_policy` is a real `ConfigToml`
+key with `inherit` (`all`/`core`/`none`), `include`, `exclude`, `set` and
+`ignore_default_excludes`; the default is `inherit = all`. `codexArgs` already
+emits `-c mcp_servers.*` overrides, so
+`-c shell_environment_policy.exclude=[...]` is one more line at the same site —
+a cause fix, not a symptom patch, and it survives `--ignore-user-config`.
+
+**pi has no equivalent, so its half is a redesign and needs sign-off.** pi's
+`tool_call` hook can only answer `{block, reason}` — it cannot rewrite a tool's
+input, which is why the row is refused rather than emitted as a gate that does
+nothing. The tension is real: the credential MUST be in pi's own env (that is
+how pi authenticates) and must NOT reach the shell pi spawns later. The
+candidate is deleting the keys from `process.env` inside `pi-extension.ts`
+after pi has initialised its provider, so children never see them — plausible
+because the extension is in-process, but it changes re-auth behaviour on a
+provider retry, so it is a proposal and not an inline fix.
+
+**One-declaration fix for Half A either way:** `SECRET_ENV_VARS` should be
+derived from the same set `readSecrets` iterates, not restated. A key added to
+`store.EnvProfileKeys` today silently escapes the scrub.
+
+- **Source:** `ant/src/guards.ts:13` (`SECRET_ENV_VARS`), `store/secrets.go:115`
+  (`EnvProfileKeys`), `container/runner.go:765` (`readSecrets`),
+  `ant/src/index.ts:377` (env merge), `ant/src/policy.ts` (`bash-scrub` row),
+  `ant/src/codex.ts` (`CODEX_HONOURS`), `ant/src/pi-extension.ts` (`PI_HONOURS`).
