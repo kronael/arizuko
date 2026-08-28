@@ -6,15 +6,11 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// RouteTokensRow mirrors route_tokens MINUS the token_hash BLOB PK: the raw
-// token is shown once at issue time and only sha256(token) is persisted, so it
-// never appears in a read surface (spec 5/W). The exported columns are the same
-// safe {jid, owner_folder, created_at} shape list_tokens returns. Apply never
-// rebuilds this table (SkipApplyRebuild) — tokens are runtime-minted, not
-// manifest state — so the missing PK column is moot for the engine.
-// TargetFolder is the folder the token DELIVERS to; owner_folder only bounds
-// revocation and may differ. Empty on a token minted before the mint recorded
-// it (spec 5/W § Resolution).
+// RouteTokensRow mirrors route_tokens MINUS the token_hash BLOB PK: the raw token is
+// shown once at issue time and only sha256(token) is persisted (spec 5/W). Apply never
+// rebuilds this table, so the missing PK column is moot for the engine. TargetFolder is
+// the folder the token DELIVERS to; owner_folder only bounds revocation and may differ,
+// and is empty on a token minted before the mint recorded it.
 type RouteTokensRow struct {
 	JID          string `db:"jid"           yaml:"jid"          json:"jid"`
 	OwnerFolder  string `db:"owner_folder"  yaml:"owner_folder" json:"owner_folder"`
@@ -23,18 +19,15 @@ type RouteTokensRow struct {
 	Context      string `db:"context"       yaml:"context,omitempty"    json:"context,omitempty"`
 }
 
-// RouteTokensEndpoints is the single owner of the route_tokens endpoint set that
-// drives BOTH the agent's token tools (routd route_tokens_resource.go) AND the
-// operator REST face (routd tokens_http.go mountRouteTokens, spec 5/16 fold).
-// issue_chat/issue_hook are custom POST verbs at /chat + /hook and revoke is a
-// jid-addressed DELETE, so the real faces diverge from the PK-CRUD convention.
-// Both faces share routeTokensHandler, so /openapi.json advertises these paths.
-// This list is EXHAUSTIVE for /v1/route_tokens: token DELIVERY (URL token →
-// jid) is not a REST call at all — webd and proxyd are FS-mounted on routd.db
-// and resolve in-process (spec 5/W § Resolution).
-// issue_pair is MCPOnly: the agent in the chat is the practical minter, and an
-// operator REST twin would be a second face for a caller who does not exist
-// (spec 5/31 § Rejected).
+// RouteTokensEndpoints is the single owner of the endpoint set driving BOTH the agent's
+// token tools AND the operator REST face (spec 5/16 fold). issue_chat/issue_hook are
+// custom POST verbs and revoke is a jid-addressed DELETE, so the real faces diverge
+// from the PK-CRUD convention.
+//
+// This list is EXHAUSTIVE for /v1/route_tokens: token DELIVERY is not a REST call at
+// all — webd and proxyd are FS-mounted on routd.db and resolve in-process. issue_pair
+// is MCPOnly: an operator REST twin would be a second face for a caller who does not
+// exist (spec 5/31 § Rejected).
 var RouteTokensEndpoints = []resreg.Endpoint{
 	{Verb: "POST", Path: "/v1/route_tokens/chat", Action: resreg.Action("issue_chat"), Status: 201},
 	{Verb: "POST", Path: "/v1/route_tokens/hook", Action: resreg.Action("issue_hook"), Status: 201},
@@ -132,21 +125,17 @@ func init() {
 		// manifest — Apply must never DELETE+INSERT this table (mirrors secrets).
 		StampedFields:    []string{"CreatedAt"},
 		SkipApplyRebuild: true,
-		// kind='pair' pairing links are 10-minute single-use credentials with
-		// no archival value, and reviving one is actively harmful (spec 5/8
-		// §"Secret and token values" (1)) — exclude them from every
-		// manifest-visible read of this resource (config export, get, plan,
-		// and later the archive) so they never appear in a YAML document at
-		// all. kind='route' (chat/hook delivery bearers) is unaffected.
+		// kind='pair' pairing links are 10-minute single-use credentials with no
+		// archival value, and reviving one is actively harmful (spec 5/8) — exclude them
+		// from every manifest-visible read so they never appear in a YAML document.
+		// kind='route' delivery bearers are unaffected.
 		RowFilter: "kind = 'route'",
 		Hooks: resreg.Hooks{
 			ColumnOverride: map[string]resreg.ColumnHook{
-				// context is nullable with no default (routd/migrations/
-				// 0018-route-token-context.sql: "NULL = pre-context token") —
-				// every token minted before that migration scans NULL. Without
-				// this override ScanAll fails outright on any such row, which
-				// would make `arizuko export`/`get`/`plan` crash on real
-				// instances the moment step 4 repoints them at live routd.db.
+				// context is nullable with no default ("NULL = pre-context token"), so every
+				// token minted before that migration scans NULL. Without this override ScanAll
+				// fails outright on any such row, which would crash export/get/plan on real
+				// instances.
 				"Context": {
 					Read:  "COALESCE(context, '')",
 					Write: nilIfEmptyString,

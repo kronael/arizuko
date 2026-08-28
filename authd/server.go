@@ -76,12 +76,10 @@ func (a *Authd) reload() error {
 }
 
 // Rotate generates a new active key, retiring the old one as of now (it keeps
-// verifying within its TTL window). Emergency revoke is RevokeAllNow.
-//
-// Retire + insert run in ONE transaction, and the `idx_signing_keys_one_active`
-// partial-unique index guards "exactly one active key": two concurrent
-// Rotate() calls cannot both commit a second active row — the loser fails the
-// constraint and rolls back, leaving a single active signer.
+// verifying within its TTL window). Emergency revoke is RevokeAllNow. Retire and
+// insert run in ONE transaction, and the `idx_signing_keys_one_active` partial-unique
+// index guards "exactly one active key": two concurrent Rotate() calls cannot both
+// commit a second active row.
 func (a *Authd) Rotate() error {
 	k, err := auth.NewSigningKey(genKid(time.Now()))
 	if err != nil {
@@ -188,14 +186,11 @@ func folderExtra(folder string) map[string]string {
 	return map[string]string{"arz/folder": folder}
 }
 
-// signMinted signs c (with a fresh jti, the given ttl, and an optional folder
-// claim) and returns the echo-back values. ttl<=0 falls back to accessTTL, and
-// any ttl is clamped to maxAccessTTL — this is the ONE mint site, so the field's
-// contract ("longest access TTL ever minted") holds by construction. Without it
-// an issuer mint could name its own lifetime: access tokens verify offline
-// against no revocation list and freeze their scope snapshot, so an uncapped one
-// is an unbounded revocation hole, and a retired key's serving window
-// (retiredAt+maxAccessTTL) would expire while its tokens still verify.
+// signMinted signs c and returns the echo-back values. ttl<=0 falls back to
+// accessTTL, and any ttl is clamped to maxAccessTTL — this is the ONE mint site, so
+// the field's contract holds by construction. Without it an issuer mint could name
+// its own lifetime: access tokens verify offline against no revocation list, so an
+// uncapped one is an unbounded revocation hole.
 func (a *Authd) signMinted(c auth.TokenClaims, folder string, ttl time.Duration) (minted, error) {
 	k, err := a.activeKey()
 	if err != nil {
@@ -304,24 +299,18 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 	if time.Now().After(r.expires) {
 		return "", "", auth.ErrExpiredToken
 	}
-	// Re-snapshot grants on refresh so a revoked user does not keep scope up to
-	// the refresh TTL (spec 5/1 § refresh). With no fetcher wired, the stored
-	// scope is the ceiling; with one, the fresh snapshot is, and a backend
-	// outage fails CLOSED (mint nothing) rather than reusing stale scope.
+	// Re-snapshot grants on refresh so a revoked user does not keep scope up to the
+	// refresh TTL. With no fetcher wired the stored scope is the ceiling; with one, a
+	// backend outage fails CLOSED rather than reusing stale scope.
 	//
-	// This runs BEFORE the claim, and the order is load-bearing for BUGS F36:
-	// the claim and the successor's INSERT have to share one transaction, and a
-	// remote HTTP call cannot sit inside it — SQLite has a single writer, so
-	// holding the write lock across a FetchGrants round trip would stall every
-	// other write in auth.db for its full timeout. Nothing here depends on the
-	// claim's outcome; it reads r.sub, which lookupRefresh already returned.
+	// This runs BEFORE the claim, and the order is load-bearing for BUGS F36: the claim
+	// and the successor's INSERT share one transaction, and a remote HTTP call cannot
+	// sit inside it — SQLite has a single writer, so holding the write lock across a
+	// FetchGrants round trip would stall every other write in auth.db.
 	//
-	// Two consequences, both accepted. A grants outage no longer burns the
-	// presented token (it is refused before the claim), which is strictly
-	// kinder than spending it for nothing. And the window in which two redeems
-	// can both pass the used_at check widens from a local query to one RTT — so
-	// two genuinely simultaneous redeems are more likely to be seen as the
-	// reuse they are, and reuse is what this path exists to catch.
+	// Two accepted consequences: a grants outage no longer burns the presented token,
+	// and the window in which two redeems both pass the used_at check widens to one RTT
+	// — so simultaneous redeems are more likely to be seen as the reuse they are.
 	scope := r.scope
 	if a.grants != nil {
 		// r.sub is ALREADY the bare canonical sub (issueSession stores it bare,
@@ -339,12 +328,10 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 			return "", "", errGrantsUnavailable
 		}
 	}
-	// Atomic compare-and-set plus the successor's INSERT, in ONE transaction:
-	// only the caller that flips used_at NULL->now wins the right to rotate,
-	// and no family kill can land between its win and its insert. A lost race
-	// means another redeem of the SAME token already won, or the family died
-	// under us — concurrent redeem of a one-time token is reuse, so revoke the
-	// family and fail, exactly as a sequential replay would.
+	// Atomic compare-and-set plus the successor's INSERT in ONE transaction: only the
+	// caller that flips used_at NULL->now wins the right to rotate, and no family kill
+	// can land between its win and its insert. A lost race means concurrent redeem of a
+	// one-time token, which is reuse — revoke the family and fail.
 	newRefresh, won, err := claimAndRotateRefresh(a.db, raw, r.family, r.sub, scope, r.aud, a.refreshTTL)
 	if err != nil {
 		return "", "", err

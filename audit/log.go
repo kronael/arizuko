@@ -1,11 +1,9 @@
 package audit
 
-// audit_log SQLite source-of-truth event sink. Spec 5/I + 6/F;
-// master event list in audit/PLAN.md. Init wires the *sql.DB once at
-// daemon start; Emit/EmitInTx insert rows. State-changing handlers
-// call EmitInTx inside their own transaction so the audit row commits
-// or rolls back with the mutation. Non-transactional emitters (login,
-// container.spawn, daemon.start) call Emit.
+// audit_log SQLite source-of-truth event sink (spec 5/I + 6/F; master event list in
+// audit/PLAN.md). State-changing handlers call EmitInTx inside their own transaction
+// so the audit row commits or rolls back with the mutation; non-transactional
+// emitters call Emit.
 
 import (
 	"context"
@@ -209,25 +207,19 @@ func nullableInt(n int64) any {
 	return n
 }
 
-// redactRE matches keys that hold sensitive values — the pinned set of
-// specs/5/I Open question 1, per OWASP ASVS V8.3 (no secrets in logs).
-// Every alternative is load-bearing; the anchoring is the whole design:
+// redactRE matches keys that hold sensitive values — the pinned set of specs/5/I Open
+// question 1, per OWASP ASVS V8.3. The anchoring is the whole design:
 //
-//   - `^key$` / `[_-]key$` — the bare `key` param, plus private_key,
-//     signing_key, enc_key, service_key. Deliberately SINGULAR and
-//     end-anchored so `serving_keys` (a count, authd's daemon.start row)
-//     stays readable. PLAN.md's unanchored `key` would have redacted it,
-//     and `monkey`/`keyboard` with it.
-//   - `dsn` — a DSN is the canonical place a credential hides, and authd's
-//     daemon.start row put its auth.db path in `params_summary` in the
-//     clear (authd/main.go). Found auditing that column before publishing
-//     it over GET /v1/audit; the read surface is why this alternative
-//     exists.
+//   - `^key$` / `[_-]key$` — the bare `key` param plus private_key, signing_key,
+//     service_key. Deliberately SINGULAR and end-anchored so `serving_keys` (a count
+//     in authd's daemon.start row) stays readable; PLAN.md's unanchored `key` would
+//     have redacted it, and `monkey` with it.
+//   - `dsn` — the canonical place a credential hides, and authd's daemon.start row
+//     put its auth.db path there in the clear.
 //   - `api_?key` covers the separator-less `apikey` that `[_-]key$` cannot.
 //
-// `session` is deliberately ABSENT: session_id is a Claude Code turn
-// identifier, not a credential, and redacting it would blind the forensic
-// join this table exists for.
+// `session` is deliberately ABSENT: session_id is a Claude Code turn identifier, not
+// a credential, and redacting it would blind the forensic join this table exists for.
 var redactRE = regexp.MustCompile(`(?i)pass(word|phrase)?|token|secret|credential|authorization|cookie|dsn|api_?key|^key$|[_-]key$`)
 
 // maxParamsBytes caps the encoded params_summary. 512, matching
@@ -236,12 +228,9 @@ var redactRE = regexp.MustCompile(`(?i)pass(word|phrase)?|token|secret|credentia
 // number rather than the column silently doubling.
 const maxParamsBytes = 512
 
-// maxValueChars is the per-VALUE budget applied before the whole-map cap.
-// This is the "encoding for fields that hit the cap" specs/5/I left open:
-// without it one fat argument collapsed the entire row to
-// `{"_truncated":true}` and every sibling field — the caller's folder, the
-// resource it touched — was lost with it. Truncating the offending value
-// instead keeps the row answerable.
+// maxValueChars is the per-VALUE budget applied before the whole-map cap. Without it
+// one fat argument collapsed the entire row to `{"_truncated":true}` and every
+// sibling field was lost with it.
 const maxValueChars = 200
 
 // redactParams returns a shallow copy of in with sensitive values
@@ -281,12 +270,10 @@ func truncateValue(v any) any {
 	return string(r[:maxValueChars]) + fmt.Sprintf("…<truncated:%dchars>", len(r))
 }
 
-// marshalParams JSON-encodes the params after redaction + per-value
-// truncation. Empty input → empty string so it lands as NULL in the
-// column. The whole-map cap is the backstop for a map with many fields;
-// per-value truncation already handles the common single-fat-argument
-// case, so reaching the `{"_truncated":true}` floor now means the row
-// genuinely had hundreds of keys.
+// marshalParams JSON-encodes the params after redaction + per-value truncation. Empty
+// input → empty string so it lands as NULL. The whole-map cap is the backstop, so
+// reaching the `{"_truncated":true}` floor now means the row genuinely had hundreds of
+// keys.
 func marshalParams(in map[string]any) string {
 	if len(in) == 0 {
 		return ""

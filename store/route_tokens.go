@@ -13,15 +13,10 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 )
 
-// RouteToken maps a bearer token to a single inbound JID + admin folder.
-// Spec 5/W. JID kind is encoded in the prefix:
-//
-//   - web:<folder>[/<suffix>]      — anonymous web chat (chat link)
-//   - hook:<folder>/<source>[...]  — labeled webhook ingest
-//
-// owner_folder bounds revocation (admin authority); it may diverge from
-// the folder embedded in the JID when a higher-tier agent mints on
-// behalf of a descendant.
+// RouteToken maps a bearer token to a single inbound JID + admin folder (spec 5/W).
+// JID kind is encoded in the prefix: `web:<folder>[/<suffix>]` for anonymous web chat,
+// `hook:<folder>/<source>[...]` for labeled webhook ingest. owner_folder bounds
+// revocation and may diverge from the folder embedded in the JID.
 type RouteToken struct {
 	JID         string
 	OwnerFolder string
@@ -78,15 +73,13 @@ func CheckRouteTokenTarget(q RouteTokenQuerier, jid, target string) error {
 	return fmt.Errorf("%w: %s delivers to %s", ErrRouteTokenTargetTaken, jid, other)
 }
 
-// RouteTokenTargetByJID returns the folder a web:/hook: JID delivers to, or ""
-// when no token records one (a row minted before the target_folder column, or
-// no token at all). Callers fall back to groupfolder.JidFolder for "" — that is
-// the rule those rows were minted under.
+// RouteTokenTargetByJID returns the folder a web:/hook: JID delivers to, or "" when no
+// token records one. Callers fall back to groupfolder.JidFolder for "" — the rule those
+// rows were minted under.
 //
-// This is the single reader every folder-from-JID path goes through
-// (routd resolution, dashd visibility, proxyd's X-Folder stamp), so the
-// grammar's ambiguity is answered in one place. CheckRouteTokenTarget keeps a
-// JID bound to ONE folder, so LIMIT 1 is the whole answer.
+// This is the single reader every folder-from-JID path goes through, so the grammar's
+// ambiguity is answered in one place. CheckRouteTokenTarget keeps a JID bound to ONE
+// folder, so LIMIT 1 is the whole answer.
 func RouteTokenTargetByJID(q RouteTokenQuerier, jid string) (string, error) {
 	var target string
 	err := q.QueryRow(

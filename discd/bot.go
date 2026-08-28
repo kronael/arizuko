@@ -45,13 +45,11 @@ func newBot(cfg config) (*bot, error) {
 		return nil, fmt.Errorf("discord session: %w", err)
 	}
 	if cfg.UserMode {
-		// User-account IDENTIFY. The default discordgo Identify struct
-		// encodes Intents=0 with no omitempty — the user gateway reads
-		// that as "intent filtering with no intents", which collapses
-		// MESSAGE_CREATE delivery to mentions + author-self only. Send
-		// a verbatim user-shaped payload via RawIdentifyData so Discord
-		// treats us as a real client and pushes every channel message.
-		// Shape sourced from discord.py-self (gateway.py identify()).
+		// User-account IDENTIFY. The default discordgo Identify struct encodes
+		// Intents=0 with no omitempty — the user gateway reads that as "intent
+		// filtering with no intents", which collapses MESSAGE_CREATE delivery to
+		// mentions + author-self only. Send a verbatim user-shaped payload via
+		// RawIdentifyData so Discord pushes every channel message.
 		raw, err := buildUserIdentify(cfg.DiscordToken)
 		if err != nil {
 			return nil, fmt.Errorf("build user identify: %w", err)
@@ -82,12 +80,10 @@ func (b *bot) start(rc *chanlib.RouterClient) error {
 	return nil
 }
 
-// buildUserIdentify produces the OP 2 `d` payload for user-account
-// gateway sessions. Shape mirrors discord.py-self's gateway.identify():
-// capabilities bitfield, browser-shaped properties (no $os/$browser),
-// client_state.guild_versions, presence. Critically NO `intents` key —
-// presence of `intents` flips the gateway to bot-filtering semantics
-// and collapses MESSAGE_CREATE to mentions only.
+// buildUserIdentify produces the OP 2 `d` payload for user-account gateway sessions.
+// Shape mirrors discord.py-self's gateway.identify(). Critically NO `intents` key —
+// its presence flips the gateway to bot-filtering semantics and collapses
+// MESSAGE_CREATE to mentions only.
 func buildUserIdentify(token string) (json.RawMessage, error) {
 	payload := map[string]any{
 		"token": token,
@@ -192,12 +188,10 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if err == nil {
 		if ch.Type == discordgo.ChannelTypeGuildPublicThread || ch.Type == discordgo.ChannelTypeGuildPrivateThread {
 			topic = m.ChannelID
-			// Threads are first-class topics within their parent channel.
-			// Store under parent_jid + topic=thread_id so fetch_history,
-			// engagement, and routes see the whole conversation. Outbound
-			// replies still land in the thread via SendRequest.ThreadID
-			// (gateway.makeOutputCallback plumbs topic → ThreadID; Send
-			// overrides chID when ThreadID is set).
+			// Threads are first-class topics within their parent channel. Store under
+			// parent_jid + topic=thread_id so fetch_history, engagement and routes see the
+			// whole conversation. Outbound replies still land in the thread via
+			// SendRequest.ThreadID.
 			if ch.ParentID != "" {
 				jid = chatJID(m.GuildID, ch.ParentID)
 			}
@@ -642,12 +636,11 @@ func (b *bot) sendTyping(jid string) bool {
 	return true
 }
 
-// classifySendErr maps a failed chunk send onto chanlib's dedup taxonomy. A
-// 429 that outlived the local retries proves Discord created nothing — but the
-// dedup claim may be released only while NO chunk has landed (firstID empty);
-// after a delivered chunk a re-post would duplicate it, so the claim stays
-// held and routd dead-letters visibly. Everything else stays unclassified: a
-// lost response may have sent the message.
+// classifySendErr maps a failed chunk send onto chanlib's dedup taxonomy. A 429 that
+// outlived the local retries proves Discord created nothing — but the dedup claim may
+// be released only while NO chunk has landed; after a delivered chunk a re-post would
+// duplicate it, so the claim stays held and routd dead-letters visibly. Everything
+// else stays unclassified: a lost response may have sent the message.
 func classifySendErr(err error, firstID string) error {
 	if isRateLimit(err) && firstID == "" {
 		return fmt.Errorf("discord send: %v: %w", err, chanlib.ErrNotDelivered)

@@ -1,18 +1,13 @@
 package auth
 
-// JWKS publication + offline verification. authd serves PublicJWKS at
-// /v1/keys; backends verify against it (specs/5/1 "offline verification, no
-// hot-path hop").
+// JWKS publication + offline verification. authd serves PublicJWKS at /v1/keys;
+// backends verify against it (specs/5/1 "offline verification, no hot-path hop").
 //
-// Two verify paths, one VerifyToken entrypoint:
-//   - Backends (routd/runed/proxyd) call FetchKeys(authdURL) → a KeySet backed
-//     by go-oidc's RemoteKeySet, which fetches /v1/keys and handles caching,
-//     rotation, and refresh coalescing (no per-request hop, no kid-miss
-//     stampede). go-oidc, NOT IDTokenVerifier — we mint our own tokens, so we
-//     verify the signature here and check claims ourselves (subjectFromPayload).
-//   - authd itself and tests hold the public keys directly (NewKeySet); there
-//     is no network and no stampede, so that path verifies in-process with
-//     go-jose against an immutable key map.
+// Two verify paths, one VerifyToken entrypoint. Backends call FetchKeys(authdURL) → a
+// KeySet backed by go-oidc's RemoteKeySet, which handles caching, rotation and
+// refresh coalescing. go-oidc, NOT IDTokenVerifier — we mint our own tokens, so we
+// verify the signature here and check claims ourselves. authd itself and tests hold
+// the public keys directly and verify in-process against an immutable key map.
 
 import (
 	"context"
@@ -29,16 +24,13 @@ import (
 
 const tokenClockSkew = 30 * time.Second
 
-// KeySet verifies authd-minted ES256 tokens. Exactly one path is active:
-// remote (RemoteKeySet over /v1/keys, for backends) or local (an immutable
-// public-key map, for authd-self and tests). Safe for concurrent use — remote
-// is internally synchronized; local is read-only after construction.
+// KeySet verifies authd-minted ES256 tokens. Exactly one path is active: remote (for
+// backends) or local (for authd-self and tests). Safe for concurrent use.
 //
-// retiredAt (local path only) records when a kid was retired. A retired key
-// stays servable through its overlap window so tokens MINTED BEFORE retirement
-// keep verifying, but a token whose iat is AFTER retired_at could only have
-// been freshly minted by a holder of the retired private key — i.e. a thief.
-// VerifyToken rejects those, closing the retired-key forgery window.
+// retiredAt (local path only) records when a kid was retired. A retired key stays
+// servable through its overlap window so tokens MINTED BEFORE retirement keep
+// verifying, but a token whose iat is AFTER retired_at could only have been freshly
+// minted by a holder of the retired private key. VerifyToken rejects those.
 type KeySet struct {
 	remote    *oidc.RemoteKeySet
 	keys      map[string]*ecdsa.PublicKey
@@ -104,13 +96,11 @@ func VerifyToken(token string, ks *KeySet) (Subject, error) {
 	var kid string
 	var err error
 	if ks.remote != nil {
-		// Pin ES256 BEFORE RemoteKeySet.VerifySignature, which does NOT
-		// validate alg (go-oidc warns against using it directly). Without
-		// this, a poisoned/MITM'd JWKS serving an `oct` key + an HS256 token
-		// would verify — alg/key-type confusion. The pre-parse rejects any
-		// non-ES256 token, mirroring the local path. We also lift the signing
-		// kid out of the parsed header so the retired-key forgery check below
-		// fires on the remote path too (without it, kid="" disables the check).
+		// Pin ES256 BEFORE RemoteKeySet.VerifySignature, which does NOT validate alg.
+		// Without this, a poisoned or MITM'd JWKS serving an `oct` key plus an HS256
+		// token would verify — alg/key-type confusion. We also lift the signing kid out
+		// of the parsed header so the retired-key forgery check fires on the remote path
+		// too; without it kid="" disables the check.
 		jws, perr := jose.ParseSigned(token, []jose.SignatureAlgorithm{jose.ES256})
 		if perr != nil || len(jws.Signatures) != 1 {
 			return Subject{}, ErrInvalidToken
@@ -127,13 +117,11 @@ func VerifyToken(token string, ks *KeySet) (Subject, error) {
 	if err != nil {
 		return Subject{}, err
 	}
-	// Retired-key forgery window: a key keeps serving after retirement so
-	// tokens it signed BEFORE retirement still verify, but a token whose iat
-	// is after retired_at must have been minted by a thief holding the retired
-	// private key. Reject it. retiredAt is populated on the local path
-	// (NewKeySetWithRetirement); on the remote path it is empty unless the
-	// verifier was built with retirement times, so the kid lookup is a no-op
-	// for the common RemoteKeySet case — but when present, it fires uniformly.
+	// Retired-key forgery window: a key keeps serving after retirement so tokens it
+	// signed BEFORE retirement still verify, but a token whose iat is after
+	// retired_at must have been minted by a thief holding the retired private key.
+	// retiredAt is populated on the local path; on the remote path the kid lookup is
+	// a no-op unless the verifier was built with retirement times.
 	if retired, ok := ks.retiredAt[kid]; ok && sub.IssuedAt.After(retired) {
 		return Subject{}, ErrInvalidToken
 	}

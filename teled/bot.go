@@ -95,16 +95,12 @@ const maxSaveFailStreak = 3
 // without killing the test binary.
 var fatalExit = os.Exit
 
-// atomic write: tmp + fsync + rename so a crash never leaves a partial file.
-// A single failure is logged and swallowed — transient write hiccups must not
-// crash-loop the poll goroutine. maxSaveFailStreak consecutive failures means
-// the mount is actually broken (full or read-only disk): every update since
-// the last successful save would silently replay from stale offset on the
-// next planned restart, so the process exits now instead, which (a) bounds
-// the replay to the handful of updates since the last good save instead of up
-// to 24h, and (b) surfaces the failure loudly via the crash/restart itself —
-// journalctl and `systemctl status` both show a failed/restarting unit,
-// where a Warn log would sit unread until someone goes looking.
+// atomic write: tmp + fsync + rename so a crash never leaves a partial file. A single
+// failure is logged and swallowed — transient write hiccups must not crash-loop the
+// poll goroutine. maxSaveFailStreak consecutive failures means the mount is actually
+// broken, so the process exits now instead: that bounds the replay to the updates
+// since the last good save rather than up to 24h, and surfaces the failure loudly via
+// the restart, where a Warn log would sit unread.
 func (b *bot) saveOffset(offset int) {
 	if b.cfg.StateFile == "" {
 		return
@@ -288,12 +284,10 @@ func (b *bot) stop() {
 }
 
 func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
-	// Drop self only — third-party bots in the same group (DeeperDexBot,
-	// etc.) must reach the gateway so routes can `#observe` them. The
-	// pre-fix behavior filtered every `From.IsBot=true` which silently
-	// dropped legitimate bot-published content (witnessed on sloth/main
-	// route 12 → telegram:group/5125571890 storing zero DeeperDexBot
-	// messages despite the bot posting daily).
+	// Drop self only — third-party bots in the same group must reach the gateway so
+	// routes can `#observe` them. The pre-fix behavior filtered every `From.IsBot=true`,
+	// which silently dropped legitimate bot-published content (witnessed on sloth/main:
+	// zero DeeperDexBot messages despite the bot posting daily).
 	if msg.From != nil && msg.From.ID == b.api.Self.ID {
 		return true
 	}
@@ -430,15 +424,12 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	return firstID, nil
 }
 
-// classifySendErr maps a failed chunk send onto chanlib's dedup taxonomy.
-// 400/403 after the plain-text fallback are caller-side and permanent (chat
-// gone, bot kicked/blocked) → ErrInvalidRequest, a clear agent error instead
-// of a 502. Any other STRUCTURED API error (`ok:false`, e.g. a 429) proves
-// Telegram sent this chunk's message nothing-at-all — but the dedup claim may
-// be released only while NO chunk has landed (firstID empty); after a
-// delivered chunk a re-post would duplicate it, so the claim stays held and
-// routd dead-letters visibly. Transport errors stay unclassified: a lost
-// response may have sent the message.
+// classifySendErr maps a failed chunk send onto chanlib's dedup taxonomy. 400/403
+// after the plain-text fallback are caller-side and permanent (chat gone, bot kicked)
+// → ErrInvalidRequest, a clear agent error instead of a 502. Any other STRUCTURED API
+// error proves Telegram sent nothing — but the dedup claim may be released only while
+// NO chunk has landed; after a delivered chunk the claim stays held and routd
+// dead-letters visibly. Transport errors stay unclassified.
 func classifySendErr(err error, firstID string) error {
 	var tgErr *tgbotapi.Error
 	if errors.As(err, &tgErr) && (tgErr.Code == 400 || tgErr.Code == 403) {

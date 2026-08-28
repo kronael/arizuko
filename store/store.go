@@ -111,13 +111,10 @@ func Open(dir string) (*Store, error) {
 	return s, nil
 }
 
-// OpenRoutd opens routd.db at dir/routd.db (WAL, FK on) and wraps it as a
-// *Store WITHOUT running store's migrations — routd owns that file and already
-// created its tables (acl/secrets/tasks/pane via routd's own migration set).
-// The host-admin CLI (arizuko grant/secret/user-secret) writes acl + secrets
-// here (spec 5/5 § Daemon ownership). Strict: errors if routd.db has no acl
-// table (routd never booted to migrate it) rather than silently creating a
-// divergent schema.
+// OpenRoutd opens routd.db at dir/routd.db (WAL, FK on) and wraps it as a *Store
+// WITHOUT running store's migrations — routd owns that file and already created its
+// tables. The host-admin CLI writes acl + secrets here. Strict: errors if routd.db has
+// no acl table rather than silently creating a divergent schema.
 func OpenRoutd(dir string) (*Store, error) {
 	return OpenRoutdAt(OwnerDBPath(dir, OwnerRoutd))
 }
@@ -128,13 +125,10 @@ func OpenRoutdAt(path string) (*Store, error) {
 	return openOwned(path, "routd.db", "acl", "routd")
 }
 
-// OpenOnbod opens onbod.db at dir/onbod.db (WAL, FK on) and wraps it as a
-// *Store WITHOUT running store's migrations — onbod owns that file and already
-// created its tables (onboarding/invites/onboarding_gates + audit_log via
-// onbod's own migration set). The host-admin CLI (arizuko invite/gate) and the
-// FS-mounted dashd write invites + gates here (spec 5/5 § Daemon ownership).
-// Strict: errors if onbod.db has no invites table (onbod never booted to
-// migrate it) rather than silently creating a divergent schema.
+// OpenOnbod opens onbod.db at dir/onbod.db (WAL, FK on) and wraps it as a *Store
+// WITHOUT running store's migrations — onbod owns that file and already created its
+// tables. The host-admin CLI and the FS-mounted dashd write invites + gates here.
+// Strict: errors if onbod.db has no invites table.
 func OpenOnbod(dir string) (*Store, error) {
 	return OpenOnbodAt(OwnerDBPath(dir, OwnerOnbod))
 }
@@ -175,12 +169,10 @@ func openOwned(path, file, table, owner string) (*Store, error) {
 var memDBSeq atomic.Int64
 
 func OpenMem() (*Store, error) {
-	// `:memory:` SQLite is per-connection; database/sql can pool a second
-	// connection that sees an empty DB. A NAMED memdb with `cache=shared` is
-	// shared across the connections of THIS pool yet private to this DSN, so
-	// each OpenMem gets an isolated DB. SQLite drops a shared-cache memdb when
-	// its last connection closes, so pin one idle connection for the pool's
-	// lifetime (the schema would otherwise vanish between calls).
+	// `:memory:` SQLite is per-connection; database/sql can pool a second connection
+	// that sees an empty DB. A NAMED memdb with `cache=shared` is shared across this
+	// pool's connections yet private to this DSN. SQLite drops a shared-cache memdb
+	// when its last connection closes, so pin one idle connection for the pool's life.
 	dsn := fmt.Sprintf(
 		"file:memdb-%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)",
 		memDBSeq.Add(1))
