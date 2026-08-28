@@ -1,16 +1,13 @@
 package container
 
 // blend.go is spec 5/28's composition layer: a group blends an ORDERED MIX of
-// products. Two providers share no merge base, so blending is per PAYLOAD KIND
-// and never a content merge — each kind gets exactly one rule from the spec's
-// table, and the table's last row is a catch-all: a payload no rule names is
-// copied whole, first-provider-wins, exactly as the single-product verbatim seed
-// copies it (container.SetupGroup, locked by product_seed_test.go).
+// products. Two providers share no merge base, so blending is per PAYLOAD KIND and
+// never a content merge — each kind gets one rule from the spec's table, whose last
+// row is a catch-all: a payload no rule names is copied whole, first-provider-wins.
 //
-// Seed vs managed is per KIND, not per product. Identity and knowledge (persona,
-// facts, CLAUDE.md regions) seed once and become the group's own state; skills
-// stay upstream-managed and are re-applied — but never over a locally edited
-// asset, which is reported dirty and skipped.
+// Seed vs managed is per KIND, not per product. Identity and knowledge seed once
+// and become the group's own state; skills stay upstream-managed and are
+// re-applied — but never over a locally edited asset, which is reported dirty.
 
 import (
 	"crypto/sha256"
@@ -74,14 +71,10 @@ const (
 )
 
 // productDest maps a product-relative path to where it lands in the group home.
-// ONE placement rule, shared by both seeders — the blend (blendSkills) and the
-// verbatim single-product seed (SeedProduct) — so a product means the same thing
-// however it is applied.
-//
-// Only skills relocate, and they must: seedSkills and the agent both read
-// .claude/skills, so a skills/<n>/ left at the group root reaches no consumer.
-// The verbatim path used to copy it there and report success (BUGS L37), which
-// is why the copy is no longer a plain CopyDirNoSymlinks.
+// ONE placement rule, shared by the blend and the verbatim single-product seed, so
+// a product means the same thing however it is applied. Only skills relocate, and
+// they must: seedSkills and the agent both read .claude/skills, so a skills/<n>/
+// left at the group root reaches no consumer (BUGS L37).
 func productDest(rel string) string {
 	if classify(rel) == paySkill {
 		return skillsRel + strings.TrimPrefix(rel, "skills")
@@ -113,23 +106,17 @@ func classify(rel string) payload {
 	return payVerbatim
 }
 
-// refusedPayloads names the product payloads arizuko will not seed, each with
-// the route that does work. A payload that applies cleanly and reaches no
-// consumer is an authoring error, not an asset: it reports success and then does
-// nothing, which is the settings.json `mcpServers` no-op (BUGS J15). ONE map, so
-// the two seeders cannot drift on what is refused, and adding a refusal is a
-// row rather than a second refusal path.
+// refusedPayloads names the product payloads arizuko will not seed, each with the
+// route that does work. A payload that applies cleanly and reaches no consumer is
+// an authoring error: it reports success and then does nothing (BUGS J15). ONE map,
+// so the two seeders cannot drift and adding a refusal is a row.
 //
-// migrations/ — the one runner is MIGRATION_VERSION → /migrate
-// (routd.checkMigrationVersion), a single instance-wide counter over the skill
-// tree with no per-product dimension, and the installed-package record carries
-// no per-product mark. Spec 5/28 §"Running a product's migrations/".
+// migrations/ — the one runner is MIGRATION_VERSION → /migrate, a single
+// instance-wide counter with no per-product dimension.
 //
 // tasks.toml — a scheduled task is a scheduled_tasks ROW, created through the
-// resource's own handler (schedule_task on the agent socket, dashd's form, the
-// REST face). No parser, no schema type, no seeder ever existed; 5/21 claimed
-// otherwise for the whole life of the payload (BUGS L35). Spec 5/28
-// §"Seeding a product's tasks.toml".
+// resource's own handler. No parser, no schema type, no seeder ever existed; 5/21
+// claimed otherwise for the whole life of the payload (BUGS L35).
 var refusedPayloads = map[payload]string{
 	payMigrations: "nothing runs a product's migrations/ — " +
 		"put the instructions in the product's CLAUDE.md or a skill, which the agent reads (spec 5/28)",

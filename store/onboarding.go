@@ -9,19 +9,16 @@ import (
 	"github.com/kronael/arizuko/audit"
 )
 
-// InsertOnboarding records that jid is unrouted and awaiting setup. It fires
-// from routd's route-MISS branch, so it runs once per inbound message a route
-// table did not claim — never for a chat that already routes.
+// InsertOnboarding records that jid is unrouted and awaiting setup. It fires from
+// routd's route-MISS branch, so it runs once per inbound message a route table did
+// not claim.
 //
-// That makes it the re-greet trigger too (spec 5/31 § Deleting "greet once,
-// ever"). `WHERE prompted_at IS NULL` used to be a permanent lockout: the jid
-// PRIMARY KEY blocks a fresh row, so a user whose link died could never get
-// another. Clearing prompted_at here arms the next poll tick, bounded two ways —
-// the caller must have MISSED (a routed chat never reaches this, which is why a
-// stale awaiting_message row for a since-routed chat is never greeted again),
-// and the last greeting must be older than PairingTTL, so at most one live link
-// exists at a time. A plain time cooldown in the poll query has neither bound
-// and would re-greet every stale row every ten minutes forever.
+// That makes it the re-greet trigger too (spec 5/31). `WHERE prompted_at IS NULL`
+// used to be a permanent lockout: the jid PRIMARY KEY blocks a fresh row, so a user
+// whose link died could never get another. Clearing prompted_at here arms the next
+// tick, bounded two ways — the caller must have MISSED, and the last greeting must
+// be older than PairingTTL. A plain time cooldown in the poll query has neither
+// bound and would re-greet every stale row forever.
 func (s *Store) InsertOnboarding(jid string) error {
 	now := time.Now().UTC()
 	_, err := s.db.Exec(
@@ -36,13 +33,10 @@ func (s *Store) InsertOnboarding(jid string) error {
 	return err
 }
 
-// CarryOnboardingLegacy moves rows from the onboarding_legacy table that the
-// reshaping migration leaves behind (store 0080 / onbod 0004 rename the old
-// table out of the way) into the current onboarding table, then drops it.
-// Idempotent: a no-op once onboarding_legacy is gone, which is the state on
-// every boot after the first. Called from store.migrate (Open/OpenMem/Migrate
-// all route through it) and onbod's openOwnedDB — every opener that runs the
-// onboarding migrations also runs this.
+// CarryOnboardingLegacy moves rows from the onboarding_legacy table the reshaping
+// migration leaves behind into the current onboarding table, then drops it.
+// Idempotent: a no-op once onboarding_legacy is gone, which is every boot after the
+// first. Every opener that runs the onboarding migrations also runs this.
 //
 // The token columns are deliberately NOT named here: onbod 0006 drops them, so
 // naming them would fail outright against the post-0006 schema (BUGS F40).
@@ -265,16 +259,14 @@ func (s *Store) DenyOnboarding(jid string) error {
 	})
 }
 
-// RepromptOnboarding resets an onboarding row to awaiting_message so the next
-// poll tick greets it again. It is a FULL reset, admission verdict included:
-// after the fold the observer only advances a row with `user_sub IS NULL`
-// (spec 5/31), so leaving the old verdict's user_sub behind would re-greet the
-// chat and then never admit it again — a permanent stall of exactly the kind
-// BUGS O1 describes. The pairing edge is untouched; it is the user's consent,
-// not admission state, and the observer re-reads it on the next tick.
+// RepromptOnboarding resets an onboarding row to awaiting_message so the next poll
+// tick greets it again. A FULL reset, admission verdict included: after the fold
+// the observer only advances a row with `user_sub IS NULL`, so leaving the old
+// verdict's user_sub behind would re-greet the chat and then never admit it again
+// (BUGS O1). The pairing edge is untouched — it is the user's consent, not
+// admission state.
 //
-// It is the operator's cooldown BYPASS: the cooldown in InsertOnboarding is the
-// routine reprompt; this is the button for a chat that is not messaging again on
+// It is the operator's cooldown BYPASS, for a chat that is not messaging again on
 // its own.
 func (s *Store) RepromptOnboarding(jid string) error {
 	_, err := s.db.Exec(

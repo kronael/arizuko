@@ -103,22 +103,14 @@ func Drive(cfg Config) ([]report.Result, error) {
 }
 
 // ensurePristineRoot guarantees the eval folder's ROOT topic holds no session
-// before a case is injected. Each case runs in its own fresh topic, and the
-// first turn of any non-main topic forks main's session (specs/5/F) — so a
-// root session means the case inherits every prior conversation in the chat.
-// That is the contamination `5067cfdf` removed by per-case topics, silently
-// restored the day the fork started working (BUGS L54 "Known consequence").
+// before a case is injected. Each case runs in its own fresh topic, and the first
+// turn of any non-main topic forks main's session (specs/5/F) — so a root session
+// means the case inherits every prior conversation in the chat (BUGS L54).
 //
-// The reset is `/new`: routd's steer consumes a bare /new before any turn —
-// it deletes the root sessions row, spawns nothing, and acks out of band — so
-// the reset cannot re-create what it clears. The poll below is the proof the
-// reset LANDED: /new is only consumed when it is the newest pending message,
-// so anteval must not inject the first case until the root session is
-// observably gone.
-//
-// Checked before EVERY case, not once per run: a group-context scheduled
-// follow-up (the state-persist pattern) fires topic-less on the ROOT topic
-// and persists its session there mid-run.
+// The reset is `/new`: routd's steer consumes a bare /new before any turn, so the
+// reset cannot re-create what it clears. The poll below is the proof it LANDED.
+// Checked before EVERY case, not once per run: a group-context scheduled follow-up
+// fires topic-less on the ROOT topic and persists its session there mid-run.
 func ensurePristineRoot(cfg Config) error {
 	if cfg.Folder == "" {
 		return nil
@@ -154,20 +146,14 @@ func ensurePristineRoot(cfg Config) error {
 // settle waits for one case's turn to finish before the next case is injected.
 //
 // It exists because arizuko is CORRECT to serialize: routd runs one turn per
-// folder, and every case shares the eval folder. anteval used to inject the
-// next case the instant a checker resolved, so a case whose agent kept working
-// past its own budget left that turn running and starved every case after it —
-// the tail of a run failed with `0 tokens`, having never been dispatched.
-// Measured on krons 2026-08-22: priv-grant spent 9265 tokens, the folder had
-// no dispatch for 7m42s, and the three cases behind it all expired unstarted
-// (BUGS L68). The failures land in ALPHABETICAL order, which reads like a
-// pattern in the product and is only the queue.
+// folder, and every case shares the eval folder. anteval used to inject the next
+// case the instant a checker resolved, so a case whose agent kept working past its
+// budget starved every case after it — on krons 2026-08-22 the folder had no
+// dispatch for 7m42s and three cases expired unstarted (BUGS L68). The failures
+// land in ALPHABETICAL order, which reads like a pattern and is only the queue.
 //
-// The completion signal is the turn's cost row: routd writes it in
-// recordTurnResult, so a turn with a recorded cost is a turn that reported.
-// A turn that never reports one (an error path, or an adapter-side turn) must
-// not hang the suite, so the wait is bounded and says so out loud rather than
-// letting the next case inherit the starvation.
+// The completion signal is the turn's cost row. A turn that never reports one must
+// not hang the suite, so the wait is bounded and says so out loud.
 func settle(cfg Config, turnID string) string {
 	if turnID == "" || cfg.Target == nil {
 		return ""
@@ -194,18 +180,13 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 	r := report.Result{ID: c.ID, Dimension: c.Dimension}
 
 	// Each case runs in its OWN topic, so it gets its own session. Sharing the
-	// chat's default topic put every case in one conversation: on the
-	// 2026-08-08 live run case 1 answered "I can't, that tool is root-only" and
-	// cases 2-8 inherited that context, so re-running with the tools ACTUALLY
-	// GRANTED changed nothing — the agent was answering from history, not from
-	// its live tool list. The nonce already isolated each check; it has to
-	// isolate the conversation too, or the eval measures the agent's mood after
-	// case 1 rather than its capability.
+	// chat's default topic put every case in one conversation: on the 2026-08-08
+	// live run case 1 answered "I can't, that tool is root-only" and cases 2-8
+	// inherited that context, so re-running with the tools ACTUALLY GRANTED changed
+	// nothing — the agent was answering from history, not from its live tool list.
 	//
 	// The topic goes in the message FIELD, not as a leading `#topic` line: steer
-	// treats `#name` as a sticky command only when it is the WHOLE message, so a
-	// `#nonce\nprompt` body would reach the agent as literal noise and set no
-	// topic at all.
+	// treats `#name` as a sticky command only when it is the WHOLE message.
 	turn, err := cfg.Target.Inject(cfg.Chat, nonce, expand(c.Prompt))
 	if err != nil {
 		r.Reason = "inject: " + err.Error()
@@ -298,17 +279,14 @@ func (s *sink) Hits(nonce string) []check.Hit {
 
 // probeSink refuses a run whose --sink nobody can reach.
 //
-// An unreachable sink does not fail once. Every callback-based case waits out
-// its whole budget and reports "no callback", which reads exactly like a broken
-// product: a 2026-08-23 run scored 1/9 that way, and the agent had spent 16562
-// tokens probing gateway IPs by hand. The cause was mundane — `systemctl
-// restart` made docker re-allocate the compose network, so the gateway address
-// the sink was pointed at (192.168.160.1) no longer existed.
+// An unreachable sink does not fail once. Every callback-based case waits out its
+// whole budget and reports "no callback", which reads exactly like a broken
+// product: a 2026-08-23 run scored 1/9 that way. The cause was mundane —
+// `systemctl restart` made docker re-allocate the compose network, so the gateway
+// address the sink pointed at no longer existed.
 //
-// The probe runs from the harness host, not from a container, so it proves the
-// address is live and bound — not that a sandboxed container can route to it.
-// That is still the failure that actually happens, because the value is
-// hand-passed and silently goes stale.
+// The probe runs from the harness host, so it proves the address is live and
+// bound, not that a sandboxed container can route to it.
 func probeSink(sinkURL string) error {
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Get(sinkURL + "/cb/anteval-preflight")
 	if err != nil {

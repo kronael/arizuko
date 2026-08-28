@@ -1,43 +1,29 @@
 package routd
 
-// route_tokens_resource.go is the spec 5/16 step after web_routes +
-// network_rules + scheduled_tasks + routes: the agent's route-token tools
-// (issue_chat_link/issue_webhook/list_tokens/revoke_token) ride ONE
-// resreg.Resource instead of four hand-rolled ipc/ipc.go tool bodies.
+// route_tokens_resource.go puts the agent's route-token tools on ONE
+// resreg.Resource instead of four hand-rolled ipc tool bodies (spec 5/16). resreg
+// owns the plumbing; routd owns the auth POLICY. Two shapes are folded in:
 //
-// resreg owns the plumbing (handler dispatch + one tx wrapping each mutation AND
-// its audit_log row); routd owns the auth POLICY. Two shapes are folded in:
-//
-//   - Custom actions: issue_chat/issue_hook/revoke are resource-specific verbs
-//     (not CRUD create/delete), so Mutates() is true and each opens the
-//     mutation+audit tx; list reuses resreg.ActionList (read-only, no tx).
-//     MCPNames maps every action back to the flat live tool name so no in-container
-//     tool is renamed.
+//   - Custom actions: issue_chat/issue_hook/revoke are resource-specific verbs, so
+//     Mutates() is true and each opens the mutation+audit tx; list reuses
+//     ActionList. MCPNames maps every action back to the flat live tool name, so no
+//     in-container tool is renamed.
 //   - CONTAINMENT is per face. issue binds the token's owner_folder to the caller's
-//     socket folder ALWAYS (never a client arg); the arg-carried target_folder is
-//     only the JID's routing target. Which folders a caller may point a token at is
-//     confined by the injected Gate on the agent face (the grant scope must cover
-//     the target; minting is default-deny) and by the equal-or-descend check in the
-//     handler on the REST face. revoke addresses a token
-//     by its JID but scopes the DELETE to owner_folder = the caller's folder, so a
-//     folder can only revoke tokens IT minted — a cross-folder JID matches zero rows
-//     (deleted=false), the exact ownership guard the deleted ipc body enforced with
-//     the same `owner_folder=?` predicate. There is no per-token owner
-//     READ (unlike scheduled_tasks' GetTask.Owner) because the owner is bound to the
-//     caller, never supplied — the WHERE clause IS the containment.
+//     socket folder ALWAYS, never a client arg; the arg-carried target_folder is
+//     only the JID's routing target, confined by the injected Gate on the agent
+//     face and by the equal-or-descend check in the handler on REST. revoke
+//     addresses a token by its JID but scopes the DELETE to owner_folder = the
+//     caller's folder, so a cross-folder JID matches zero rows — the WHERE clause
+//     IS the containment, and there is no per-token owner READ because the owner is
+//     bound to the caller, never supplied.
 //
-// issue_pair (issue_pairing_link, spec 5/31) is the one MCPOnly action: it mints a
-// kind='pair' token instead of a delivery bearer, and its owner_folder is the folder
-// the JID ROUTES to rather than the caller's socket folder. The agent in the chat is
-// the only caller, so it has no REST twin and /openapi.json does not advertise one.
+// issue_pair (spec 5/31) is the one MCPOnly action: it mints a kind='pair' token
+// instead of a delivery bearer, and its owner_folder is the folder the JID ROUTES
+// to. The agent in the chat is the only caller, so it has no REST twin.
 //
-// BOTH faces ride this resource: the AGENT face (agent socket, route_tokensPostBuild,
-// injected tool-grant Gate) and the operator REST face (tokens_http.go mountRouteTokens,
-// injected routeTokensRESTGate — scope + JWT-folder containment). One shared handler,
-// two injected gates (CLAUDE.md "auth is a uniform middleware"). The REST wire shape is
-// now the handler's ({token,jid,url} / {tokens:[…]} / {deleted}), unified with the MCP
-// tools. Only the REST-only resolve (URL token → jid, webd; no MCP twin) stays
-// hand-rolled. The Gate adds a uniform tool grant on top of tools/list visibility.
+// One shared handler, two injected gates (CLAUDE.md "auth is a uniform
+// middleware"). Only the REST-only resolve (URL token → jid, for webd) stays
+// hand-rolled.
 
 import (
 	"context"
@@ -234,17 +220,16 @@ func (s *Server) routeTokensPostBuild(folder, callerSub string, authorize author
 	return mountAgentResource(res, callerSub, folder, visible)
 }
 
-// pairingTargetFolder resolves the folder a pairing's JID routes to. That folder
-// is BOTH what the Gate authorizes the caller against and the token's
-// owner_folder, so the mint gate is the route-ownership rule outbound `send`
-// already applies (ipc.authorizeJID): a caller can only mint a pairing for a
-// chat it handles. Resolved twice per call — once in the Gate, once in the
-// handler — because resreg's Gate cannot hand a value to the handler; it is the
-// same read of the same route table, so the two cannot disagree.
+// pairingTargetFolder resolves the folder a pairing's JID routes to. That folder is
+// BOTH what the Gate authorizes the caller against and the token's owner_folder, so
+// the mint gate is the route-ownership rule outbound `send` already applies: a
+// caller can only mint a pairing for a chat it handles. Resolved twice per call
+// because resreg's Gate cannot hand a value to the handler; it is the same read of
+// the same route table, so the two cannot disagree.
 //
-// An ingress surface is not an identity: web:/hook: JIDs name a route token's
-// public endpoint and anon: names an IP hash whose next holder would inherit the
-// account, so neither is pairable (spec 5/31 § Not in scope).
+// An ingress surface is not an identity: web:/hook: JIDs name a route token's public
+// endpoint and anon: names an IP hash whose next holder would inherit the account,
+// so neither is pairable (spec 5/31 § Not in scope).
 func pairingTargetFolder(db *DB, jid string) (string, error) {
 	if jid == "" {
 		return "", resreg.Errorf(http.StatusBadRequest, "jid required")
@@ -293,15 +278,12 @@ func routeTokenJID(kind, targetFolder, sourceLabel, jidSuffix string) (jid, urlP
 }
 
 // issueRouteTokenTx mints a 32-byte hex DELIVERY token for jid under owner and
-// inserts sha256(token) on tx, so the mutation lands in resreg.invoke's tx
-// alongside its audit_log row. It returns the raw token
-// once. target is the folder the token delivers to, which the JID grammar
-// cannot recover once a suffix is present (spec 5/W § Resolution). context is
-// the optional per-link processing instructions; "" stores NULL. The pairing
-// kind is NOT minted here — it has a second caller in another process (onbod's
-// greeting) that cannot reach this tx, so it lives in store.IssuePairingLink
-// where both callers can hold it (spec 5/31 § One mint, per-caller target
-// resolver).
+// inserts sha256(token) on tx, so the mutation lands in resreg.invoke's tx alongside
+// its audit_log row. It returns the raw token once. target is the folder the token
+// delivers to, which the JID grammar cannot recover once a suffix is present (spec
+// 5/W). The pairing kind is NOT minted here — it has a second caller in another
+// process (onbod's greeting) that cannot reach this tx, so it lives in
+// store.IssuePairingLink where both callers can hold it.
 func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, target, context string) (string, error) {
 	if err := store.CheckRouteTokenTarget(tx, jid, target); err != nil {
 		return "", err

@@ -16,15 +16,10 @@ import (
 )
 
 // cmdMigrateSplit populates routd.db + runed.db + auth.db from an existing
-// instance's messages.db for the CUTOVER_SPLIT topology. messages.db stays
-// ALIVE: dashd keeps writing the orphan tables. ACL moved to routd's own DB
-// (routd 0007), secrets to routd's own DB (routd 0008), tasks to routd's own DB
-// (routd 0009) and pane_sessions to routd's own DB (routd 0010), so
-// acl/acl_membership + secrets/secret_use_log + scheduled_tasks/task_run_logs +
-// pane_sessions are COPIED, not left. So this migrator COPIES the
-// conversation/routing/run/acl/secrets/tasks/pane state into the new DBs; the
-// orphan tables stay where they are.
-// It is idempotent (INSERT OR IGNORE on primary keys) and safe to run on a copy.
+// instance's messages.db. messages.db stays ALIVE: dashd keeps writing the orphan
+// tables. acl/acl_membership, secrets/secret_use_log, scheduled_tasks/task_run_logs
+// and pane_sessions all moved to routd's own DB, so they are COPIED, not left.
+// Idempotent (INSERT OR IGNORE on primary keys) and safe to run on a copy.
 func cmdMigrateSplit(args []string) {
 	// flexParse lets --dry-run sit on either side of <instance>; it requires
 	// EXACTLY one positional so a typo'd flag errors instead of being silently
@@ -186,14 +181,10 @@ var runedSpecs = []copySpec{
 }
 
 // onbodSpecs map messages.db → onbod.db. onbod now OWNS the onboarding admission
-// state machine + invite links + per-gate limits (onbod migration 0001 mirrors
-// store 0009/0023/0024/0027/0071 for onboarding, 0032+0077 for invites, 0029 for
-// onboarding_gates). Straight copies — identical schema both sides. Neither
-// bearer column is plaintext: invites is `ref` (I1), onboarding is `token_ref`
-// (Z3). messages.db is only ever created/opened via store.Open, which always
-// runs 0077/0080 + their hash-at-rest backfills first, so by the time this
-// read-only ATTACH runs the source is already hashed — a straight copy, no
-// hashing needed here.
+// state machine, invite links and per-gate limits. Straight copies — identical
+// schema both sides. Neither bearer column is plaintext, and messages.db is only
+// ever opened via store.Open, which runs the hash-at-rest backfills first, so the
+// source is already hashed by the time this read-only ATTACH runs.
 var onbodSpecs = []copySpec{
 	{dst: "onboarding", src: "onboarding",
 		cols: "jid, status, prompted_at, created, token_ref, token_expires, user_sub, gate, queued_at, admitted_at",
@@ -264,35 +255,26 @@ CREATE INDEX IF NOT EXISTS audit_log_actor_sub  ON audit_log(actor_sub) WHERE ac
 CREATE INDEX IF NOT EXISTS audit_log_folder     ON audit_log(folder)    WHERE folder    IS NOT NULL;
 CREATE INDEX IF NOT EXISTS audit_log_cat_act    ON audit_log(category, action);`
 
-// onbodBootstrapVersion is the onbod migration version onbodSchema above
-// embodies IN FULL — every object migrations 0001..0004 would create is already
-// in that DDL. migrateSplit stamps exactly these rows into `migrations` so
-// onbod's next boot resumes AFTER them instead of replaying the chain over
-// already-final tables (BUGS.md Z3b): 0003/0004 RESHAPE (RENAME + CREATE), so a
-// replay renamed the bootstrapped `invites` to `invites_legacy` and left
-// BackfillInviteRefs reading a `token` column that no longer exists — onbod
-// then refused to boot.
+// onbodBootstrapVersion is the onbod migration version onbodSchema embodies IN
+// FULL. migrateSplit stamps exactly these rows into `migrations` so onbod's next
+// boot resumes AFTER them instead of replaying the chain over already-final tables
+// (BUGS Z3b): 0003/0004 RESHAPE, so a replay renamed the bootstrapped `invites` to
+// `invites_legacy` and onbod refused to boot.
 //
-// Claiming too FEW is not an option (Migrate demands contiguous versions, so a
-// short claim still replays the reshaping ones); claiming too MANY silently
-// SKIPS a migration. So this number and onbodSchema move together: adding an
-// onbod migration means either extending onbodSchema and bumping this, or
-// touching neither (an unclaimed migration runs normally, which is correct).
-// TestOnbodSchemaMatchesMigrations pins the two to each other.
+// Claiming too FEW still replays the reshaping ones (Migrate demands contiguous
+// versions); claiming too MANY silently SKIPS a migration. So this number and
+// onbodSchema move together. TestOnbodSchemaMatchesMigrations pins the two.
 const onbodBootstrapVersion = 4
 
-// orphanTables stay in messages.db post-cutover: no daemon reads them. Every
-// table a daemon still needs moved to routd.db / onbod.db / runed.db or is
-// federated over HTTP. onboarding/invites/onboarding_gates are NOT orphans
-// (onbod OWNS them → onbodSpecs); auth_users is NOT an orphan either (routd.db
-// owns it as user_profiles → routdSpecs, read cross-DB by onbod);
-// audit_log/proxyd_routes are NOT orphans (routd.db owns both → routdSpecs).
-// auth_sessions stays — the cookie-session path is gone. config_meta stays
-// pending the `arizuko apply` repoint (BUGS.md Y1).
+// orphanTables stay in messages.db post-cutover: no daemon reads them. Every table
+// a daemon still needs moved to routd.db / onbod.db / runed.db or is federated over
+// HTTP. onboarding/invites/onboarding_gates, auth_users and audit_log/proxyd_routes
+// are NOT orphans — each has an owner listed above. auth_sessions stays (the
+// cookie-session path is gone); config_meta stays pending the apply repoint.
 //
 // Listed so the summary tells the operator what is left behind. messages.db is
-// RETIRED — no daemon opens it — but the file is NOT deleted: it holds pre-split
-// history. Disposing of it is the operator's call, separately.
+// RETIRED but NOT deleted: it holds pre-split history, and disposing of it is the
+// operator's call.
 var orphanTables = []string{
 	"router_state", "config_meta", "cli_audit", "ipc_audit", "auth_sessions",
 }

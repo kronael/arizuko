@@ -1,12 +1,10 @@
 package audit
 
-// The READ half of audit_log. Emit/EmitInTx/EmitDB write the table; Query
-// reads it back. Both live here because four daemons own an audit_log
-// (routd.db, runed.db, auth.db, onbod.db) and every one of them serves it at
-// GET /v1/audit through resreg — a per-daemon SELECT would be four
-// projections of one table drifting apart, and the column list is precisely
-// what must not drift (a forgotten COALESCE renders NULL as "<nil>" on one
-// daemon and "" on another). Spec: specs/5/I-tool-call-logging.md.
+// The READ half of audit_log. Both halves live here because four daemons own an
+// audit_log and every one serves it at GET /v1/audit through resreg — a per-daemon
+// SELECT would be four projections of one table drifting apart, and the column list
+// is precisely what must not drift (a forgotten COALESCE renders NULL as "<nil>" on
+// one daemon and "" on another). Spec: specs/5/I-tool-call-logging.md.
 //
 // Row is also the resreg RowType (resreg/resources/audit.go), so the JSON an
 // operator receives IS the struct /openapi.json emits a schema from IS the

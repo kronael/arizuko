@@ -353,17 +353,15 @@ func (s *Store) CountPlaintextSecrets(ctx context.Context) (int, error) {
 	return n, err
 }
 
-// EncryptPlaintextSecrets encrypts every legacy-plaintext row in place under
-// the configured key (spec 5/14 "Encryption at rest") and returns how many it
-// sealed. Idempotent: rows already "v2:" are skipped. Never deletes — it
-// replaces the old PurgeUnencryptedSecrets, which DELETEd plaintext rows and so
-// wiped every secret on each startup (writes never wrote the prefix it kept).
+// EncryptPlaintextSecrets encrypts every legacy-plaintext row in place under the
+// configured key (spec 5/14) and returns how many it sealed. Idempotent. Never
+// deletes — it replaces PurgeUnencryptedSecrets, which DELETEd plaintext rows and
+// so wiped every secret on each startup.
 //
-// Refuses without a key rather than reporting a silent success: its whole job
-// is to seal, so "no key" is a misconfiguration, not a no-op. It ran nowhere at
-// all until 2026-08-15 (BUGS L16) — a caller that cannot tell "sealed nothing,
-// there was nothing to seal" from "sealed nothing, there was no key" is how a
-// migration goes unnoticed for months.
+// Refuses without a key rather than reporting a silent success: its whole job is to
+// seal. It ran nowhere at all until 2026-08-15 (BUGS L16) — a caller that cannot
+// tell "sealed nothing, there was nothing to seal" from "sealed nothing, there was
+// no key" is how a migration goes unnoticed for months.
 func (s *Store) EncryptPlaintextSecrets(ctx context.Context) (int, error) {
 	if len(s.secretKeys) == 0 {
 		return 0, ErrNoSecretsKey
@@ -449,14 +447,12 @@ func (s *Store) ExportSecretRows(ctx context.Context) ([]ArchiveSecretRow, error
 }
 
 // ValidateAndImportSecrets validates EVERY row's blob against the configured
-// keyring BEFORE writing any of them, then UPSERTs by (scope_kind, scope_id,
-// key) — never DELETE+INSERT, matching secrets' existing SkipApplyRebuild
-// discipline (spec 5/8 "Secret and token values": one DB can hold blobs sealed
-// under different retired keys, so a single probe row proves nothing about the
-// rest). Refuses the WHOLE batch on the first validation failure, naming the
-// failing (scope_kind, scope_id, key) without echoing the value — no row is
-// written when any row fails. The plaintext open() yields here is discarded
-// immediately; no new decrypt surface is exported.
+// keyring BEFORE writing any of them, then UPSERTs by (scope_kind, scope_id, key)
+// — never DELETE+INSERT, matching secrets' SkipApplyRebuild discipline: one DB can
+// hold blobs sealed under different retired keys, so a single probe row proves
+// nothing about the rest. Refuses the WHOLE batch on the first failure, naming the
+// failing key without echoing the value. The plaintext open() yields is discarded
+// immediately.
 func (s *Store) ValidateAndImportSecrets(ctx context.Context, rows []ArchiveSecretRow) (int, error) {
 	for _, r := range rows {
 		if _, err := s.open(r.Value); err != nil {
@@ -557,17 +553,14 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 	return out, nil
 }
 
-// FolderSecretsResolvedForUser resolves the folder-ancestry secret set for
-// `folder` (FolderSecretsResolved) then overlays the caller's user-scoped
-// secrets: a user's own key WINS over the same folder key. This is the BYOA
-// override — a web-chat user supplies ANTHROPIC_API_KEY for themselves and it
-// shadows the folder default at spawn. Empty userSub returns the folder set
-// unchanged (a system/timed trigger has no user to override with).
+// FolderSecretsResolvedForUser resolves the folder-ancestry secret set then
+// overlays the caller's user-scoped secrets: a user's own key WINS. This is the
+// BYOA override. Empty userSub returns the folder set unchanged.
 //
-// The second return names the SCOPE each key came from ("user" | "folder").
-// This is the ONLY point where user-vs-folder provenance exists — the overlay
-// collapses both into one map — so `secret_use_log` gets it from here rather
-// than from a second lookup that could disagree (spec 5/13 § Audit).
+// The second return names the SCOPE each key came from. This is the ONLY point
+// where user-vs-folder provenance exists — the overlay collapses both into one map
+// — so secret_use_log gets it from here rather than from a second lookup that
+// could disagree (spec 5/13 § Audit).
 func (s *Store) FolderSecretsResolvedForUser(folder, userSub string) (map[string]string, map[string]SecretScope, error) {
 	out, err := s.FolderSecretsResolved(folder)
 	if err != nil {

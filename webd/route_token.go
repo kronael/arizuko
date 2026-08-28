@@ -18,16 +18,10 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// route-token surface — spec 5/W. One handler set serves both:
-//
-//   /chat/<token>/    (web: tokens — human chat widget + SSE)
-//   /hook/<token>     (hook: tokens — fire-and-forget webhook ingest)
-//
-// Both URLs accept any valid token regardless of kind; kind is metadata
-// for the agent, not a URL access gate (per spec 5/W's "any URL +
-// any valid token" policy locked at planning time).
-//
-// All errors are 404 to avoid leaking which tokens exist.
+// route-token surface — spec 5/W. One handler set serves both /chat/<token>/
+// (human chat widget + SSE) and /hook/<token> (webhook ingest). Both URLs accept
+// any valid token regardless of kind; kind is metadata for the agent, not a URL
+// access gate. All errors are 404 to avoid leaking which tokens exist.
 
 const routeTokenBodyMax = 1 << 20 // 1 MiB
 
@@ -48,16 +42,13 @@ func anonSender(r *http.Request) string {
 	return fmt.Sprintf("anon:%x", sum[:4])
 }
 
-// lookupRouteToken fetches the row for token (URL path or query, per surface)
-// or writes 404 and returns ok=false.
-// route_tokens lives in routd.db (stRoutd) — split ownership.
+// lookupRouteToken fetches the row for token or writes 404 and returns ok=false.
 //
-// A token whose target folder no longer exists is refused HERE, at ingress. Let
-// it through and routd's resolve finds no group (its step 1 requires
-// GroupExists), falls through to a route miss, and onbod files an admission row
-// for a JID no human will ever redeem — the payload is lost in a queue instead
-// of being rejected (BUGS L5). The caller still gets a plain 404: which tokens
-// exist is not something this surface discloses. The operator gets the reason.
+// A token whose target folder no longer exists is refused HERE, at ingress. Let it
+// through and routd's resolve finds no group, falls through to a route miss, and
+// onbod files an admission row for a JID no human will ever redeem — the payload
+// is lost in a queue instead of being rejected (BUGS L5). The caller still gets a
+// plain 404; the operator gets the reason.
 func (s *server) lookupRouteToken(w http.ResponseWriter, r *http.Request, token string) (store.RouteToken, bool) {
 	row, ok := s.stRoutd.LookupRouteToken(token)
 	if !ok {
@@ -405,21 +396,17 @@ func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderN
 }
 
 // GET /chat/stream?token=<t>&topic=<t>
-// The token IS the credential (spec 5/W), exactly as for the sibling
-// /chat/<token>/<topic>/messages read that returns the same messages. The token
-// ROW decides the chat JID and folder — a client param must never pick the
-// subscription key (BUGS L30: a `group=` param chose the key, so a suffixed
-// chat was unreachable and the caller could aim the subscription). The widget's
-// legacy `group=` param is ignored.
+// The token IS the credential (spec 5/W). The token ROW decides the chat JID and
+// folder — a client param must never pick the subscription key (BUGS L30: a
+// `group=` param chose the key, so a suffixed chat was unreachable and the caller
+// could aim the subscription).
 //
 // A subscription is long-lived, so this surface asks for one thing its
-// fire-and-forget siblings do not: the request must have come through proxyd
-// (transited). It used to ask for that proof indirectly — proxyd's X-Folder
-// stamp matching the folder webd resolved — but proxyd attached the underlying
-// bearer only on the AUTHENTICATED path, so with a JWKS configured (every real
-// instance) no anonymous visitor could satisfy it and the widget's live stream
-// answered 403 to everyone. specs/6/22 step 1 moved token resolution here and
-// left proxyd proving the one thing only proxyd knows.
+// fire-and-forget siblings do not: the request must have come through proxyd. It
+// used to ask indirectly, via proxyd's X-Folder stamp, but proxyd attached the
+// bearer only on the AUTHENTICATED path, so on every real instance no anonymous
+// visitor could satisfy it and the widget's live stream answered 403 to everyone
+// (specs/6/22 step 1).
 func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) {
 	topic := r.URL.Query().Get("topic")
 	if topic == "" {

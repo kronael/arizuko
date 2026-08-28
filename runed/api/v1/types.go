@@ -1,12 +1,8 @@
-// Package v1 is runed's published contract: the wire types + a thin HTTP
-// client for POST /v1/runs and the rest of the /v1/* surface. It imports
-// only types/ — no arizuko-internal domain packages — so routd can call
-// runed without dragging in core (spec 5/U § Per-service api/v1).
-//
-// The POST /v1/runs request/response shapes are PINNED, identical to the
-// peer rendering in specs/5/E-routd.md § The routd↔runed interface and
-// specs/5/P-runed.md § The routd↔runed interface. Any drift between this
-// package and routd's call site is a contract break.
+// Package v1 is runed's published contract: the wire types plus a thin HTTP client
+// for /v1/*. It imports only types/ — no arizuko-internal domain packages — so
+// routd can call runed without dragging in core (spec 5/U). The POST /v1/runs
+// shapes are PINNED to the peer rendering in specs/5/E and specs/5/P; any drift
+// between this package and routd's call site is a contract break.
 package v1
 
 import "github.com/kronael/arizuko/types"
@@ -60,31 +56,21 @@ type RunRequest struct {
 	Secrets map[string]string `json:"secrets,omitempty"`
 }
 
-// RunOutcome is the synchronous response of POST /v1/runs, returned when
-// the run completes (the turn boundary). Frames arrive out-of-band during
-// the run via the /v1/turns/{turn_id}/* callbacks, not here.
+// RunOutcome is the synchronous response of POST /v1/runs, returned when the run
+// completes. Frames arrive out-of-band during the run via the callbacks.
 //
-// Outcome ∈ ok|error|silent. Three orthogonal discriminators ride alongside,
-// each meaning "this is NOT a turn-boundary outcome — do not treat Outcome as
-// authoritative":
-//   - Steered=true: a steer ack (the folder already had a live spawn; the batch
-//     was written into it). routd does NOT advance the cursor.
-//   - Busy=true: nothing ran. Either runed did NOT admit the run (folder busy
-//     with a dead container, or the global cap is hit), or it admitted one that
-//     a DELETE killed before it could launch. runed keeps no internal queue, so
-//     in both cases this is neither an error nor a run — routd MUST NOT advance
-//     the cursor and MUST NOT count it toward the circuit breaker; the batch is
-//     re-fed on routd's next poll. RunID/Outcome/SessionID are empty.
-//   - BreakerOpen=true: rides only on the run that trips the circuit breaker.
+// Outcome ∈ ok|error|silent. Three orthogonal discriminators each mean "this is
+// NOT a turn-boundary outcome — do not treat Outcome as authoritative":
+//   - Steered=true: a steer ack; routd does NOT advance the cursor.
+//   - Busy=true: nothing ran, either because runed did not admit the run or
+//     because a DELETE killed it before launch. routd MUST NOT advance the cursor
+//     and MUST NOT count it toward the circuit breaker.
+//   - BreakerOpen=true: rides only on the run that trips the breaker.
 //
-// Terminal=true qualifies Outcome=error: runed decided that a retry
-// cannot repair the failure (the container invocation itself failed — a
-// start error, or docker exit 125/126/127). routd obeys — it skips the turn
-// retry and surfaces Error, the real cause, to the user. The DECISION
-// travels, not the raw exit code: runed owns the container and its
-// exit-code semantics, and routd must never classify runed's error prose
-// (spec 5/12, BUGS F73). The zero value means retryable, so an older
-// runed keeps today's retry behavior.
+// Terminal=true qualifies Outcome=error: runed decided a retry cannot repair the
+// failure. The DECISION travels, not the raw exit code — runed owns the container
+// and routd must never classify runed's error prose (spec 5/12, BUGS F73). The
+// zero value means retryable, so an older runed keeps today's behavior.
 type RunOutcome struct {
 	RunID       string `json:"run_id"`
 	Outcome     string `json:"outcome"` // ok|error|silent
@@ -120,33 +106,23 @@ type RunStatus struct {
 }
 
 // HoldRequest is the body of POST /v1/holds: claim Folder's run slot for an
-// external, folder-exclusive job — a filesystem restore, a vacuum, a
-// migration (spec 5/8 "Filesystem restore claims the folder's run slot").
-// While the hold stands no agent turn can start in that folder; routd's
-// dispatch gets Busy and re-feeds from its own queue.
-//
-// Reason is recorded on the spawn row (spawns.topic) so an operator reading
-// dashd's runed page sees WHY the folder is held. No new state: a hold is a
-// spawns row like any other run.
+// external, folder-exclusive job (spec 5/8). While the hold stands no agent turn
+// can start in that folder; routd's dispatch gets Busy and re-feeds. Reason is
+// recorded on the spawn row so an operator sees WHY the folder is held — a hold is
+// a spawns row like any other run.
 type HoldRequest struct {
 	Folder types.Folder `json:"folder"`
 	Reason string       `json:"reason"`
 }
 
-// HoldOutcome is POST /v1/holds' response, returned as soon as the slot is
-// claimed. That is why holds are their own endpoint rather than a Kind on
-// POST /v1/runs: RunOutcome's pinned contract is "returned when the run
-// completes (the turn boundary)", and a hold's whole point is to hand the
-// caller a handle while the run is still open.
+// HoldOutcome is POST /v1/holds' response, returned as soon as the slot is claimed.
+// That is why holds are their own endpoint rather than a Kind on POST /v1/runs:
+// RunOutcome's pinned contract returns at the turn boundary, and a hold's whole
+// point is to hand the caller a handle while the run is still open.
 //
-// RunID is that handle — release with DELETE /v1/runs/{run_id}, the existing
-// kill route, which dispatches by the spawn's recorded kind. Busy=true means
-// the folder already had a live run (an agent turn or another hold) and
-// NOTHING was claimed; RunID is empty and the caller must not proceed.
-//
-// A holder that dies without releasing does not wedge the folder: runed's
-// RunTTL (RUNED_RUN_TIMEOUT) expires the hold, the same ceiling that bounds
-// an agent turn.
+// RunID is that handle — release with DELETE /v1/runs/{run_id}. Busy=true means
+// the folder already had a live run and NOTHING was claimed. A holder that dies
+// without releasing does not wedge the folder: RunTTL expires the hold.
 type HoldOutcome struct {
 	RunID string `json:"run_id"`
 	Busy  bool   `json:"busy"`

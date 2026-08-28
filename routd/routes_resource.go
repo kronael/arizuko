@@ -1,41 +1,30 @@
 package routd
 
-// routes_resource.go is the spec 5/16 step after web_routes + network_rules +
-// scheduled_tasks: the agent's message-routing tools (add_route/set_routes/
-// list_routes/delete_route) ride ONE resreg.Resource instead of four hand-rolled
-// ipc/ipc.go tool bodies. Routing is security-critical — a route's TARGET folder
+// routes_resource.go puts the agent's message-routing tools (add_route/set_routes/
+// list_routes/delete_route) on ONE resreg.Resource instead of four hand-rolled ipc
+// tool bodies (spec 5/16). Routing is security-critical — a route's TARGET folder
 // decides which group a chat's turns fire in — so the two invariants the deleted
 // ipc bodies enforced are preserved EXACTLY:
 //
-//   1. TARGET CONTAINMENT. A route's target folder must be within the caller's
-//      reach. add/set carry the target(s) in the JSON args; delete resolves the
-//      target from the route id. All three run the injected contain seam (agent:
-//      auth.Authorize on the resolved target; REST: ownsFolder on the JWT folder).
-//      set ALSO runs the per-route routeTargetWithin containment (own folder or a
-//      descendant) — contain binds set only to the OWN folder, so it's this
-//      per-route check that stops a bulk write from targeting another folder.
-//   2. SELF-DEFAULT GUARD. A folder must not delete — or replace-away via set —
-//      its own seq-0 default route (isSelfDefault). Without it a group routes its
-//      own inbound traffic into the void and can't be respawned.
+//  1. TARGET CONTAINMENT. A route's target folder must be within the caller's
+//     reach. All three mutating actions run the injected contain seam (agent:
+//     auth.Authorize on the resolved target; REST: ownsFolder on the JWT folder).
+//     set ALSO runs the per-route routeTargetWithin check — contain binds set only
+//     to the OWN folder, so it is this that stops a bulk write from targeting
+//     another folder.
+//  2. SELF-DEFAULT GUARD. A folder must not delete, or replace away via set, its
+//     own seq-0 default route. Without it a group routes its own inbound into the
+//     void and cannot be respawned.
 //
-// resreg owns the plumbing (handler dispatch + one tx wrapping each mutation AND
-// its audit_log row); routd owns the auth POLICY. Like scheduled_tasks (and unlike
-// network_rules), BOTH invariants live in the HANDLER, not the injected Gate: add's
-// target needs a JSON unmarshal, set's needs a read of the live table, and delete's
-// needs a GetRoute read — all of which the handler already performs. Resolving them
-// again in the Gate would duplicate the work AND reorder validation ahead of the
-// containment decision. The agent Gate is therefore a no-op (agentAllowGate) and the
-// REST Gate carries only the routes:read/write scope check; the handler's caps run
-// before any store write and roll the tx back on denial, so opening the TOOL never
-// widens the containment/self-default cap.
+// BOTH invariants live in the HANDLER, not the injected Gate: add's target needs a
+// JSON unmarshal, set's needs a read of the live table, and delete's needs a
+// GetRoute read — all of which the handler already performs. So the agent Gate is a
+// no-op and the REST Gate carries only the scope check; the handler's caps run
+// before any store write and roll the tx back on denial.
 //
-// Both faces ride this one resource: the agent's MCP tools via routesPostBuild,
-// and the operator REST face (/v1/routes) via routes_http.go's mountRoutes, which
-// mounts the SAME Endpoints on a copy with a REST caller + gate injected
-// (routes:read/write scope + ownsFolder containment) — the spec 5/16 REST-face
-// fold. All REST-only policy lives in routes_http.go; the handler stays surface-
-// agnostic EXCEPT list, which the agent needs whole-table (cross-folder shadow
-// analysis) while the operator needs subtree-scoped — the one x.Surface branch below.
+// Both faces ride this one resource. The handler stays surface-agnostic EXCEPT
+// list, which the agent needs whole-table (cross-folder shadow analysis) while the
+// operator needs subtree-scoped — the one x.Surface branch below.
 
 import (
 	"context"
@@ -84,15 +73,12 @@ var routesMCPNames = resources.RoutesMCPNames
 // handler returns verbatim.
 type containFn func(c resreg.Caller, a resreg.Action, target string) error
 
-// routesResource is the single renderer for the four routing verbs — mounted on
-// the agent socket (routesPostBuild) AND the operator REST face (mountRoutes). The
-// DELETE endpoint's /v1/routes/{id} path is the REST addressing (deriveMCPTools
-// ignores the path; the agent's delete_route reads the `id` arg). There is NO
-// RowType (args come from MCPArgs as raw JSON strings + the numeric id, preserving
-// the exact wire arg names the agent already sends). Store is a store.Store over
-// routd.db so resreg.invoke opens the mutation+audit tx there. contain is the
-// per-face target-containment seam (auth.Authorize on the target for the agent,
-// ownsFolder for REST) closed into the handler — see containFn.
+// routesResource is the single renderer for the four routing verbs, mounted on the
+// agent socket AND the operator REST face. There is NO RowType: args come from
+// MCPArgs as raw JSON strings plus the numeric id, preserving the exact wire names
+// the agent already sends. Store is a store.Store over routd.db so resreg.invoke
+// opens the mutation+audit tx there. contain is the per-face target-containment
+// seam closed into the handler.
 func (s *Server) routesResource(contain containFn) resreg.Resource {
 	r := resreg.Mount(resources.RoutesName)
 	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
@@ -374,17 +360,13 @@ func deleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) error {
 }
 
 // routeTargetWithin reports whether a route's target folder is the caller's own
-// folder or a descendant. Spec 5/34 gives targets no PREFIX vocabulary, so a
-// target carrying a `folder:`/`daemon:`/`builtin:` prefix is not a folder and is
-// not within one — but a target legally carries a `#observe`/`#announce`
+// folder or a descendant. Spec 5/34 gives targets no PREFIX vocabulary, so a target
+// carrying one is not a folder — but a target legally carries a `#observe`/`#announce`
 // FRAGMENT, and that has to come off before the comparison.
 //
 // It did not, so `main/trading` could not manage its own `main/trading#observe`
-// route: Contains compared the raw string and said no, while the delete SQL, the
-// tool description and core.ParseRouteTarget all treat the row as that folder's.
-// A list→edit→set round-trip therefore either 403'd on the caller's own row or
-// dropped it, and it could not be re-added. sloth and marinade carry 10 such
-// rows (BUGS L82).
+// route: a list→edit→set round-trip either 403'd on the caller's own row or dropped
+// it, and it could not be re-added. sloth and marinade carry 10 such rows (BUGS L82).
 func routeTargetWithin(target, owner string) bool {
 	return groupfolder.Contains(owner, core.ParseRouteTarget(target).Folder)
 }
