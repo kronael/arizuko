@@ -52,21 +52,17 @@ func walkFiles(t *testing.T, root string) map[string]string {
 	return out
 }
 
-// TestProductSeedIsVerbatim locks today's seed: SetupGroup copies a product
-// tree into the group folder byte-for-byte, every file, no filter.
+// TestProductSeedIsVerbatim locks today's seed: SetupGroup copies a product tree into
+// the group folder byte-for-byte, every file, no filter.
 //
-// This is the regression bar for spec 5/28's composition blend. The blend table
-// names `skills/`, PERSONA.md, CLAUDE.md, facts/, settings.json,
-// Dockerfile.ant, tasks.toml and migrations/ — but the shipped corpus also ships
-// PRODUCT.md (11/11 products), SOUL.md (6/11) and BRANDING.md (3/11). A
-// table-strict blend that treats the table as a whitelist would silently DROP
-// those, which is a regression and not a simplification. If a future blend
-// engine replaces SeedProduct, this test must still pass.
+// This is the regression bar for spec 5/28's composition blend. The blend table names
+// eight payloads, but the shipped corpus also ships PRODUCT.md (11/11), SOUL.md (6/11)
+// and BRANDING.md (3/11). A table-strict blend treating the table as a whitelist would
+// silently DROP those.
 //
-// Verbatim is about BYTES, not about the author's directory layout: a skill
-// relocates under .claude/ here exactly as it does in the blend, because that is
-// the one place a skill is read (productDest, BUGS L37). Both seeders share that
-// rule, so both tests assert it the same way.
+// Verbatim is about BYTES, not the author's directory layout: a skill relocates under
+// .claude/ here exactly as in the blend, because that is the one place a skill is read
+// (BUGS L37).
 func TestProductSeedIsVerbatim(t *testing.T) {
 	products, err := os.ReadDir(examplesDir)
 	if err != nil {
@@ -122,12 +118,10 @@ func TestProductSeedIsVerbatim(t *testing.T) {
 	}
 }
 
-// TestProductMixSeedsCorpusVerbatim is TestProductSeedIsVerbatim's bar applied
-// to the composition engine: every corpus file must survive a mix of ONE
-// byte-identical. CLAUDE.md is the single exception the blend table mandates —
-// it is the one payload that concatenates, so it lands inside its product's
-// marked region rather than as loose bytes; its content is still verbatim.
-// Without the table's catch-all row this drops PRODUCT.md for 10/10 products.
+// TestProductMixSeedsCorpusVerbatim is the same bar applied to the composition engine:
+// every corpus file must survive a mix of ONE byte-identical. CLAUDE.md is the single
+// exception the blend table mandates — it concatenates, so it lands inside its product's
+// marked region. Without the table's catch-all row this drops PRODUCT.md for 10/10.
 func TestProductMixSeedsCorpusVerbatim(t *testing.T) {
 	products, err := os.ReadDir(examplesDir)
 	if err != nil {
@@ -167,13 +161,10 @@ func TestProductMixSeedsCorpusVerbatim(t *testing.T) {
 					}
 					continue
 				}
-				// Two payload kinds transform BY DESIGN, so "same path, same
-				// bytes" is the wrong assertion for them: a skill is relocated
-				// under .claude/, and settings.json is a key union that is
-				// re-serialised. Assert the transformed result instead of
-				// exempting them, or the reference product would silently lose
-				// either payload. Every other payload is still byte-identical
-				// at its own path.
+				// Two payload kinds transform BY DESIGN, so "same path, same bytes" is the wrong
+				// assertion for them: a skill is relocated under .claude/, and settings.json is a
+				// key union that is re-serialised. Assert the transformed result instead of
+				// exempting them, or the reference product would silently lose either payload.
 				if strings.HasPrefix(rel, "skills/") {
 					moved := productDest(rel)
 					if got[moved] != wantHash {
@@ -310,11 +301,8 @@ func TestProductCorpusPayloadKinds(t *testing.T) {
 		}
 	}
 	// Kinds the blend table names that the corpus does not ship. `tasks.toml` and
-	// `migrations/` are the two REFUSED payloads (BUGS L35, spec 5/28), so a
-	// corpus product shipping one would not apply at all — this is the assertion
-	// that keeps that true. Paths are product-relative — `.claude/settings.json`
-	// is the settings payload; a root-level `settings.json` is an unnamed payload
-	// under the catch-all.
+	// `migrations/` are the two REFUSED payloads (BUGS L35), so a corpus product
+	// shipping one would not apply at all. Paths are product-relative.
 	for _, absent := range []string{"tasks.toml", "Dockerfile.ant", "migrations"} {
 		for _, p := range products {
 			if !p.IsDir() {
@@ -336,17 +324,14 @@ const productsWebDir = "../template/web/pub/arizuko/products"
 // claiming `--product <id>` works.
 const shapeMarker = "This is a shape, not a template"
 
-// TestProductCatalogMatchesCorpus is BUGS L38: `ant/examples/` shipped 11
-// products, the catalog documented 9, and only 5 were in both — six templates an
-// operator could seed had no page, and four pages read like something you could
-// install. The ritual existed and was not followed, so the assertion is what
-// keeps the two sets together.
+// TestProductCatalogMatchesCorpus is BUGS L38: `ant/examples/` shipped 11 products, the
+// catalog documented 9, and only 5 were in both. The ritual existed and was not
+// followed, so the assertion is what keeps the two sets together.
 //
-// The rule is directional, because the two directions fail differently. A
-// shipped product MUST have a page pair: `products list` prints its name, so a
-// name with no page is a dead end. A documented product with no tree is legal —
-// the catalog carries shapes on purpose — but only if its page SAYS so, because
-// silence there reads as a template.
+// The rule is directional, because the two directions fail differently. A shipped
+// product MUST have a page pair, since `products list` prints its name. A documented
+// product with no tree is legal — the catalog carries shapes on purpose — but only if
+// its page SAYS so, because silence there reads as a template.
 func TestProductCatalogMatchesCorpus(t *testing.T) {
 	shipped := map[string]bool{}
 	entries, err := os.ReadDir(examplesDir)
@@ -396,16 +381,13 @@ func TestProductCatalogMatchesCorpus(t *testing.T) {
 	}
 }
 
-// TestEveryProductShipsEvalCases locks the other half of `5/9`'s "a product
-// carries its own cases": the harness takes `--cases <dir>`, so a product can
-// prove its own behaviour, and for a while exactly one of eleven did. A product
-// with no cases regresses invisibly — every daemon healthy, all 34 platform
-// cases green, and the persona quietly answering the way it must not.
+// TestEveryProductShipsEvalCases locks the other half of `5/9`'s "a product carries its
+// own cases": the harness takes `--cases <dir>`, and for a while exactly one of eleven
+// used it. A product with no cases regresses invisibly — every daemon healthy, all 34
+// platform cases green, and the persona quietly answering the way it must not.
 //
-// Only `[[case]]` count is asserted, not what a case says. What to assert is a
-// judgement per product (helpdesk has real knowledge to check; the rest ship
-// operator placeholders, so theirs test the rules instead) and a test cannot
-// make it. That a suite EXISTS is mechanical, so it is locked here.
+// Only `[[case]]` count is asserted, not what a case says: what to assert is a judgement
+// per product and a test cannot make it. That a suite EXISTS is mechanical.
 func TestEveryProductShipsEvalCases(t *testing.T) {
 	entries, err := os.ReadDir(examplesDir)
 	if err != nil {

@@ -1,25 +1,17 @@
-// Package resregtest holds the per-daemon surface assertions every
-// resreg-serving daemon runs against its own mux. Import it only from _test
-// files.
+// Package resregtest holds the per-daemon surface assertions every resreg-serving
+// daemon runs against its own mux. Import it only from _test files.
 //
-// READ THIS BEFORE TRUSTING AssertServesWhatItAdvertises. It used to be the
-// guard for "a daemon's /openapi.json promises a path it mounts nowhere" —
-// BUGS F21 (scheduled_tasks overrode Endpoints at mount time), F27 (`GET
-// /v1/acl` advertised, mounted nowhere), F32 (timed advertised four of routd's
-// operations). F33 removed the CAUSE those guards watched for: the advertised
-// set is now derived from the mux (resreg.MountedResources), so a daemon
-// cannot name a resource it does not mount, and that assertion can no longer
-// fail for the original reason. What it still checks is real but narrower —
-// the path-rendering round trip (a mux `{path...}` documents as `{path}`) and
-// non-vacuity. The falsifiable proof that derivation drops undocumentable
-// mounts lives in resreg's own tests, which can build a drifted mux; a daemon
-// test cannot.
+// READ THIS BEFORE TRUSTING AssertServesWhatItAdvertises. It used to guard "a daemon's
+// /openapi.json promises a path it mounts nowhere" (BUGS F21, F27, F32). F33 removed
+// the CAUSE: the advertised set is now derived from the mux, so a daemon cannot name a
+// resource it does not mount, and that assertion can no longer fail for the original
+// reason. What it still checks is real but narrower — the path-rendering round trip and
+// non-vacuity. The falsifiable proof lives in resreg's own tests, which can build a
+// drifted mux; a daemon test cannot.
 //
-// AssertServesNoForeignResource did NOT weaken: nothing about deriving from the
-// mux stops two daemons from mounting one resource name, and that is a live
-// hazard — THREE daemons served GET /v1/sessions over three different tables
-// until BUGS F46 renamed routd's to /v1/topic_sessions and runed's to
-// /v1/spawn_sessions.
+// AssertServesNoForeignResource did NOT weaken: nothing about deriving from the mux
+// stops two daemons from mounting one resource name, and THREE daemons served GET
+// /v1/sessions over three different tables until BUGS F46 renamed two of them.
 //
 // Why a shared package rather than one guard covering every daemon: only
 // `routd` is an importable package. `onbod`, `proxyd`, `authd`, `webd`,

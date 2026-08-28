@@ -1,28 +1,19 @@
 package tests
 
-// Cross-daemon split-topology integration: boot authd + routd + runed
-// in-process (httptest servers, real per-daemon sqlite) and drive a real
-// end-to-end flow with everything wired but the LLM/container.
+// Cross-daemon split-topology integration: boot authd + routd + runed in-process
+// (httptest servers, real per-daemon sqlite) and drive a real end-to-end flow with
+// everything wired but the LLM/container.
 //
-// Topology (project_split_topology): authd is the auth authority (signs +
-// serves JWKS); routd owns the conversation plane (routd.db, ingress, routing,
-// turn callbacks, the poll loop) and calls runed over the PINNED POST /v1/runs
-// contract via the production runedv1.Client; runed is a pure spawner
-// (runed.db, Manager, FakeRuntime stands in for docker+agent). Tokens are real
-// ES256, minted by the in-process authd and verified by each backend over
-// auth.FetchKeys — the SAME path production runs.
+// authd signs and serves JWKS; routd owns the conversation plane and calls runed over
+// the PINNED POST /v1/runs contract via the production runedv1.Client; runed is a pure
+// spawner with FakeRuntime standing in for docker+agent. Tokens are real ES256, minted
+// by the in-process authd and verified over auth.FetchKeys — the SAME path production
+// runs.
 //
-// What is faked: ONLY the LLM/container turn (FakeRuntime). Everything else —
-// JWKS verification, grant resolution, HTTP between routd↔runed, routd's real
-// poll loop, the agent's reply callback into routd, sqlite per daemon — is the
-// real code.
-//
-// This closes the coverage gap flagged by the test plan: there was no
-// cross-daemon split test booting the federation end-to-end. routd's own
-// authd_integration_test wires a stubRunner (an in-process fake that calls
-// back directly) and drives processGroupMessages by hand; here routd→runed is
-// real HTTP, routd's real poll loop dispatches, and the run callback rides a
-// real authd-brokered token back to routd.
+// ONLY the LLM/container turn is faked. routd's own authd_integration_test wires an
+// in-process stubRunner and drives processGroupMessages by hand; here routd→runed is
+// real HTTP, routd's real poll loop dispatches, and the run callback rides a real
+// authd-brokered token back to routd.
 
 import (
 	"context"
@@ -53,13 +44,10 @@ import (
 // does (service typ, the adapter's declared messages:write grant), so this test
 // exercises the REAL A1 path: it would catch adapters 401ing on routd ingress.
 
-// fakeAuthd is an in-process authd: one ES256 signing key, GET /v1/keys
-// serving its JWKS, and a mint helper. mintUser resolves the FULL grant set
-// for a sub from the grants map (the flip-blocker behavior: the token's scope
-// is the resolved grants, not a narrow claim) and stamps the bare sub +
-// arz/folder. This is exactly what authd.MintForSubject / signMinted do, minus
-// the OAuth front-end (authd is package main, so we rebuild the signing
-// surface from the importable auth package — the same primitives authd uses).
+// fakeAuthd is an in-process authd: one ES256 signing key, GET /v1/keys serving its
+// JWKS, and a mint helper. mintUser resolves the FULL grant set for a sub — the token's
+// scope is the resolved grants, not a narrow claim — and stamps the bare sub +
+// arz/folder, exactly as authd.MintForSubject does minus the OAuth front-end.
 type fakeAuthd struct {
 	key    *auth.SigningKey
 	ts     *httptest.Server
@@ -198,12 +186,10 @@ type federation struct {
 	replyStatus map[string]int               // turnID -> routd reply status
 }
 
-// bootFederation stands up authd, runed (real Manager + FakeRuntime), and
-// routd (real Loop + real poller calling runed over HTTP via runedv1.Client).
-// The FakeRuntime is the only fake: it simulates the agent by posting a reply
-// back into routd with a real authd-minted folder-bound token, closing the
-// turn end-to-end. Returns f and the running loop's cancel. cfgMods tweak the
-// LoopConfig before construction (e.g. the onboarding e2e enables onboarding).
+// bootFederation stands up authd, runed (real Manager + FakeRuntime), and routd (real
+// Loop + real poller calling runed over HTTP). The FakeRuntime is the only fake: it
+// simulates the agent by posting a reply back into routd with a real authd-minted
+// folder-bound token. Returns f and the running loop's cancel.
 func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federation {
 	t.Helper()
 	f := &federation{
@@ -331,12 +317,10 @@ func (f *federation) replyCode(turnID string) int {
 
 // ---- The end-to-end flow ----
 
-// TestSplitFederation_InboundToTurnRoundTrip drives the full split path:
-// authd mints tokens; an adapter posts an inbound to routd over HTTP (real
-// JWKS verify + grant gate); routd's REAL poll loop routes + dispatches a run
-// to runed over the real POST /v1/runs contract; runed brokers a token, runs
-// the (Fake) agent, which posts a reply BACK to routd carrying a real
-// authd-minted folder-bound token; routd's turn-callback gate accepts it and
+// TestSplitFederation_InboundToTurnRoundTrip drives the full split path: authd mints
+// tokens; an adapter posts an inbound to routd over HTTP; routd's REAL poll loop routes
+// and dispatches to runed over the real contract; runed brokers a token and runs the
+// (Fake) agent, which posts a reply BACK to routd with a real folder-bound token; routd
 // appends exactly one bot row. Every hop is real but the LLM/container.
 func TestSplitFederation_InboundToTurnRoundTrip(t *testing.T) {
 	f := bootFederation(t)
@@ -528,12 +512,10 @@ func TestSplitFederation_StampResolvesFullGrants(t *testing.T) {
 	}
 }
 
-// TestSplitVsMonolithRoutingParity asserts the split (routd's real poll-loop
-// dispatch) and the monolith (gateway via the shared router.ResolveRouteTarget
-// over store.AllRoutes — gateway.go:2030) make the SAME routing decision for
-// the same input. The split decision is observed end-to-end: which folder
-// routd actually dispatched to runed (captured in the FakeRuntime). This pins
-// that the two routing paths cannot drift for the canonical cases.
+// TestSplitVsMonolithRoutingParity asserts the split (routd's real poll-loop dispatch)
+// and the monolith (the shared router.ResolveRouteTarget) make the SAME routing decision
+// for the same input. The split decision is observed end-to-end: which folder routd
+// actually dispatched to runed.
 func TestSplitVsMonolithRoutingParity(t *testing.T) {
 	cases := []struct {
 		name    string

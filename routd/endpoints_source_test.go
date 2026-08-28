@@ -1,24 +1,18 @@
 package routd
 
-// Single-source guard for the spec 5/16 + 5/17 fold: each folded routd resource
-// mounts the endpoint set the resreg registry publishes under that resource's
-// own Name — the SAME slice the registry emits into /openapi.json — so the
-// mounted REST faces, the derived MCP tools, and the published doc can never
-// drift.
+// Single-source guard for the spec 5/16 + 5/17 fold: each folded routd resource mounts
+// the endpoint set the resreg registry publishes under that resource's own Name — the
+// SAME slice the registry emits into /openapi.json.
 //
-// The expectation is resolved BY the mounted Name, never by a hand-written
-// pairing. A pairing table checks a resource against the slice the table says it
-// should have, so a resource whose Name drifts off its wire identity keeps
-// comparing clean — the shape proxyd shipped on 2026-07-01, its live resource
-// reading Name: "routes" while its catalog and OpenAPI said proxyd_routes.
+// The expectation is resolved BY the mounted Name, never by a hand-written pairing: a
+// pairing table checks a resource against the slice the table says it should have, so a
+// resource whose Name drifts off its wire identity keeps comparing clean. That is the
+// shape proxyd shipped on 2026-07-01.
 //
 // Reading the CONSTRUCTOR is not enough either: a post-construction
-// `res.Endpoints = ...` in a mount function is invisible to it. That is how BUGS
-// F21 stayed green while scheduled_tasks served /v1/tasks against a declaration
-// saying /v1/scheduled_tasks, and how F27's two survivors (mountACL trimming
-// list away while /openapi.json still advertised GET /v1/acl, mountGroups
-// trimming register) stayed green after it. So the guard here probes the mux
-// routd ACTUALLY builds, for EVERY resource routd constructs — not just tasks.
+// `res.Endpoints = ...` in a mount function is invisible to it, which is how BUGS F21
+// and F27 stayed green. So the guard probes the mux routd ACTUALLY builds, for EVERY
+// resource routd constructs.
 
 import (
 	"encoding/json"
@@ -35,12 +29,10 @@ import (
 	"github.com/kronael/arizuko/resreg/resregtest"
 )
 
-// routdResources enumerates EVERY resreg.Resource routd constructs — the
-// guard's only hand-maintained input, and it names no endpoint slice: the
-// expectation is looked up in the REGISTRY by each resource's own Name, so
-// there is no second place to keep a resource's canonical shape.
-// TestRoutdResources_CoverAdvertised pins that this list covers everything
-// routd advertises, so an advertised resource cannot slip past the mux probe.
+// routdResources enumerates EVERY resreg.Resource routd constructs — the guard's only
+// hand-maintained input, and it names no endpoint slice: the expectation is looked up
+// in the REGISTRY by each resource's own Name. TestRoutdResources_CoverAdvertised pins
+// that this list covers everything routd advertises.
 func routdResources(s *Server) []resreg.Resource {
 	return []resreg.Resource{
 		s.routesResource(nil),
@@ -69,14 +61,12 @@ func testServer(t *testing.T) *Server {
 	return NewServer(db, nil, &recDeliverer{}, fakeVerifier{}, 0, "")
 }
 
-// TestResourceEndpoints_SingleSource is spec 5/16's "shared-identity test":
-// every resource routd MOUNTS carries a Name that is a registered wire identity,
-// and the endpoint set the registry publishes under that name. Resolving the
-// expectation through mounted.Name rather than a hand-written pairing is what
-// makes it catch the 2026-07-01 shape, where proxyd's live resource drifted to
-// Name: "routes" while its catalog and OpenAPI still said proxyd_routes — a
-// pairing table would have compared the drifted resource against the slice the
-// table said it should have, and agreed.
+// TestResourceEndpoints_SingleSource is spec 5/16's "shared-identity test": every
+// resource routd MOUNTS carries a Name that is a registered wire identity, and the
+// endpoint set the registry publishes under that name. Resolving through mounted.Name
+// rather than a hand-written pairing is what catches the 2026-07-01 shape, where
+// proxyd's live resource drifted to Name: "routes" while its catalog said
+// proxyd_routes.
 func TestResourceEndpoints_SingleSource(t *testing.T) {
 	for _, got := range routdResources(testServer(t)) {
 		reg := resreg.Lookup(got.Name)
@@ -146,17 +136,14 @@ var pathPlaceholder = regexp.MustCompile(`\{[^}]+\}`)
 // (/v1/tasks/due, /v1/routing/resolve, …) that routd registers by hand.
 func concretePath(p string) string { return pathPlaceholder.ReplaceAllString(p, "x") }
 
-// TestRoutdMux_ServesEveryDeclaredEndpoint is the class-wide F21/F27 guard: it
-// asserts the ROUTING TABLE routd actually builds, not the resources it starts
-// from. For every routd resource, every non-MCPOnly canonical endpoint must
-// resolve on routd's real mux to a pattern byte-equal to its own declaration —
-// so a mount function that reassigns res.Endpoints (dropping, adding, or
-// re-pathing a face) makes the canonical pattern resolve to the 404 handler
-// (pattern "") and fails here, whichever resource it happens in.
+// TestRoutdMux_ServesEveryDeclaredEndpoint is the class-wide F21/F27 guard: it asserts
+// the ROUTING TABLE routd actually builds. For every routd resource, every non-MCPOnly
+// canonical endpoint must resolve on routd's real mux to a pattern byte-equal to its
+// own declaration, so a mount function that reassigns res.Endpoints makes the canonical
+// pattern resolve to the 404 handler and fails here.
 //
-// The mirror half is MCPOnly: an MCPOnly endpoint declares "no REST face at
-// all", so a Verb/Path on one is a route silently never mounted — the shape
-// network_rules carried before F27.
+// The mirror half is MCPOnly: that declares "no REST face at all", so a Verb/Path on
+// one is a route silently never mounted — the shape network_rules carried before F27.
 func TestRoutdMux_ServesEveryDeclaredEndpoint(t *testing.T) {
 	srv := testServer(t)
 	mux, ok := srv.Handler().(*http.ServeMux)
@@ -192,16 +179,13 @@ func TestRoutdMux_ServesEveryDeclaredEndpoint(t *testing.T) {
 	}
 }
 
-// TestOpenAPI_EveryAdvertisedPathIsMounted closes the same class from the doc
-// side, and needs no hand-maintained list at all: every (method, path) routd's
-// /openapi.json promises must resolve on routd's real mux. `acl` failed this
-// before F27 — ACLEndpoints declared GET /v1/acl, mountACL trimmed it away, and
-// the doc shipped an endpoint that 404s.
+// TestOpenAPI_EveryAdvertisedPathIsMounted closes the same class from the doc side and
+// needs no hand-maintained list: every (method, path) routd's /openapi.json promises
+// must resolve on routd's real mux. `acl` failed this before F27.
 //
-// The assertion itself lives in resreg/resregtest so every daemon runs the same
-// one. It cannot live in a single cross-daemon test: routd is the only
-// importable daemon package, so each daemon calls it from its own package with
-// its own mux and its own list — both production values, never a copy.
+// The assertion lives in resreg/resregtest so every daemon runs the same one. It cannot
+// live in a single cross-daemon test: routd is the only importable daemon package, so
+// each daemon calls it with its own mux and its own list.
 func TestOpenAPI_EveryAdvertisedPathIsMounted(t *testing.T) {
 	srv := testServer(t)
 	mux, ok := srv.Handler().(*http.ServeMux)
@@ -244,12 +228,10 @@ func TestOpenAPI_EveryAdvertisedPathIsMounted(t *testing.T) {
 	})
 }
 
-// TestRoutdMux_ServesNoForeignResource is the ownership half: routd must not
-// mount a resource it does not advertise owning. onbod's onboarding tables and
-// proxyd's reverse-proxy routes are the live foreign pair — `routes` and
-// `proxyd_routes` are two different tables whose names once converged, so a
-// second daemon serving either is the wire-identity collision root CLAUDE.md
-// forbids.
+// TestRoutdMux_ServesNoForeignResource is the ownership half: routd must not mount a
+// resource it does not advertise owning. `routes` and `proxyd_routes` are two different
+// tables whose names once converged, so a second daemon serving either is the
+// wire-identity collision root CLAUDE.md forbids.
 func TestRoutdMux_ServesNoForeignResource(t *testing.T) {
 	srv := testServer(t)
 	mux, ok := srv.Handler().(*http.ServeMux)
@@ -259,16 +241,14 @@ func TestRoutdMux_ServesNoForeignResource(t *testing.T) {
 	resregtest.AssertServesNoForeignResource(t, "routd", mux)
 }
 
-// TestRouteTokens_NoHandRolledResolve pins the F13 deletion from both sides:
-// the resource declares no resolve endpoint AND routd's mux serves none. Until
-// 5/W was corrected, routd hand-mounted `POST /v1/route_tokens/resolve` beside
-// the declared faces — a path with zero production callers, absent from
-// /openapi.json, kept alive only by a contract test. Token DELIVERY is not a
-// REST call: webd and proxyd are FS-mounted on routd.db and resolve in-process.
+// TestRouteTokens_NoHandRolledResolve pins the F13 deletion from both sides: the
+// resource declares no resolve endpoint AND routd's mux serves none. routd used to
+// hand-mount `POST /v1/route_tokens/resolve` with zero production callers, absent from
+// /openapi.json. Token DELIVERY is not a REST call: webd and proxyd are FS-mounted on
+// routd.db and resolve in-process.
 //
-// The sibling GET assertion is the non-vacuity control: it proves the mux is
-// live and this probe method can see a mounted route, so the resolve half
-// cannot pass merely because nothing resolves.
+// The sibling GET assertion is the non-vacuity control: it proves this probe method can
+// see a mounted route.
 func TestRouteTokens_NoHandRolledResolve(t *testing.T) {
 	for _, e := range resources.RouteTokensEndpoints {
 		if strings.HasSuffix(e.Path, "/resolve") {
