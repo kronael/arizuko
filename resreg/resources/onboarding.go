@@ -6,20 +6,16 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// OnboardingRow mirrors the onboarding admission table (onbod/migrations/0006).
-// It is the projection every read surface — REST, MCP, OpenAPI, `arizuko
-// export` — sees, and since 0006 it is also the whole table: the credential
-// columns it deliberately omitted are gone from the schema too.
+// OnboardingRow mirrors the onboarding admission table. It is the projection every read
+// surface sees, and since onbod 0006 it is also the whole table: the credential columns
+// it deliberately omitted are gone from the schema too.
 //
-// token_ref was absent here rather than hidden with `yaml:"-"`, because the
-// engine derives Insert's column list purely from the `db:` tags, so a field
-// that does not exist cannot be exported, rendered or logged by a later edit
-// (Z3; same shape as route_tokens omitting token_hash). token_expires DID
-// appear — a timestamp, not a credential — so the operator queue could show
-// which links were still live. The 5/31 fold left nothing writing either, so
-// the column answered "never set" for every row while claiming to answer the
-// question, and onbod 0006 dropped both (BUGS F40). The live link is a
-// route_tokens row now, and that is where its lifetime is read.
+// token_ref was absent here rather than hidden with `yaml:"-"`, because the engine
+// derives Insert's column list purely from the `db:` tags, so a field that does not
+// exist cannot be exported, rendered or logged by a later edit. token_expires DID
+// appear — a timestamp, not a credential — but the 5/31 fold left nothing writing
+// either, so onbod 0006 dropped both (BUGS F40). The live link is a route_tokens row
+// now, and that is where its lifetime is read.
 type OnboardingRow struct {
 	JID        string `db:"jid"         yaml:"jid"                   json:"jid"`
 	Status     string `db:"status"      yaml:"status"                json:"status"`

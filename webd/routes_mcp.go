@@ -20,26 +20,22 @@ import (
 	"github.com/kronael/arizuko/resreg/resources"
 )
 
-// registerRoutesMCP attaches the five `routes.*` MCP tools to srv. The
-// tools are a thin operator surface over proxyd's `/v1/proxyd_routes` REST API.
-// One handler in proxyd, two adapters: REST (proxyd's own mux) and MCP
-// (here, via webd). Spec 5/5 §"Single source of truth".
+// registerRoutesMCP attaches the five `routes.*` MCP tools to srv — a thin operator
+// surface over proxyd's /v1/proxyd_routes REST API. One handler in proxyd, two
+// adapters: REST on proxyd's own mux and MCP here (spec 5/5).
 //
-// Authorization is enforced by proxyd: webd signs identity headers from
-// the operator's session; proxyd's REST resreg gate runs auth.Authorize.
-// webd's role is identity bridging — Resource.Store is nil here so the
-// adapter skips the tx/audit-row dance (proxyd writes the audit row on
-// the downstream call; we don't double-log).
+// Authorization is enforced by proxyd: webd signs identity headers from the operator's
+// session and proxyd's gate runs auth.Authorize. webd's role is identity bridging —
+// Resource.Store is nil so the adapter skips the tx/audit dance and proxyd writes the
+// audit row on the downstream call.
 func registerRoutesMCP(srv *mcpserver.MCPServer, c *proxydClient, sub, name string, groups []string) {
 	if !isOperator(groups) {
 		return // tools become invisible to non-operators
 	}
-	// Per-invocation caller is fixed across the lifetime of this MCP
-	// server instance (one session per webd connection). The resolver
-	// closes over (sub, name, groups) which webd builds from the
-	// authenticated session each handleMCP call — privilege confusion
-	// is structurally precluded by the spawn pattern, not by trusting
-	// resreg's per-call resolver. Documented in webd/mcp.go.
+	// The per-invocation caller is fixed for the lifetime of this MCP server
+	// instance (one session per webd connection). The resolver closes over the
+	// authenticated session's identity, so privilege confusion is precluded by the
+	// spawn pattern, not by trusting resreg's per-call resolver.
 	callerFor := func(_ context.Context, _ mcp.CallToolRequest) (resreg.Caller, error) {
 		claims := map[string]string{}
 		if slices.Contains(groups, "**") {
@@ -50,13 +46,11 @@ func registerRoutesMCP(srv *mcpserver.MCPServer, c *proxydClient, sub, name stri
 	resreg.MCPTools(srv, routesForwarder(c, sub, name, groups), callerFor, nil)
 }
 
-// routesForwarder is the resreg.Resource that forwards every action to
-// proxyd over HTTP. It carries the same Endpoints + MCPDoc + MCPArgs as
-// proxyd's local declaration and derives the tool list via resreg —
-// there is no hand-authored MCPTool list. MCPDoc + MCPArgs are the shared
-// resources.ProxydRoutesMCPDoc/Args (webd can't import proxyd's package
-// main, but both import the resources catalog), so the operator surface is
-// one map, not three copies.
+// routesForwarder is the resreg.Resource that forwards every action to proxyd over
+// HTTP. It carries the same Endpoints + MCPDoc + MCPArgs as proxyd's local declaration
+// and derives the tool list via resreg — there is no hand-authored MCPTool list. The
+// doc and args come from the shared resources catalog, so the operator surface is one
+// map, not three copies.
 func routesForwarder(c *proxydClient, sub, name string, groups []string) resreg.Resource {
 	handler := func(ctx context.Context, x resreg.Execution) (any, error) {
 		method, path, body, err := routesRESTSpec(x.Action, x.Args)

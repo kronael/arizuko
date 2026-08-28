@@ -1,24 +1,17 @@
 package routd
 
-// web_routes_resource.go is the spec 5/16 pilot: the agent's web_route
-// management tools (set_web_route/del_web_route/list_web_routes) ride ONE
-// resreg.Resource instead of three hand-rolled ipc/ipc.go tool bodies.
+// web_routes_resource.go is the spec 5/16 pilot: the agent's web_route management
+// tools ride ONE resreg.Resource instead of three hand-rolled ipc tool bodies.
 //
-// resreg owns the plumbing (handler dispatch + one tx wrapping the mutation
-// AND its audit_log row); routd owns the auth POLICY. The agent socket is
-// not the operator socket (spec 5/16 §Blocker), so routd injects:
+// resreg owns the plumbing; routd owns the auth POLICY. The agent socket is not the
+// operator socket (spec 5/16 §Blocker), so routd injects a Gate (db.Authorize keyed
+// mcp:<tool> on the socket's own folder, NOT resreg's operator default) and a Visible
+// predicate (auth.EffectiveActions over the caller's acl rows).
 //
-//   - Gate: db.Authorize keyed mcp:<tool> on the socket's own folder (the 5/33
-//     single evaluator), NOT resreg's operator default.
-//   - Visible: auth.EffectiveActions over the caller's acl rows, so a caller
-//     that could not SEE a tool in tools/list still can't.
-//
-// The route always belongs to the agent socket's folder (never a client arg),
-// so cross-folder writes are impossible by construction — the same guarantee
-// the deleted ipc bodies gave. The REST twin (/v1/web_routes) rides the SAME
-// shared handler (web_routes_http.go) via resreg.RegisterREST with a REST Gate
-// + Caller injected; the delete/list scope binds to Caller.Folder under either
-// gate, so containment is uniform across both faces.
+// The route always belongs to the agent socket's folder, never a client arg, so
+// cross-folder writes are impossible by construction. The REST twin rides the SAME
+// shared handler with a REST Gate + Caller injected, and the scope binds to
+// Caller.Folder under either gate.
 
 import (
 	"context"
@@ -124,14 +117,12 @@ func (s *Server) webRoutesHandler(ctx context.Context, x resreg.Execution) (any,
 		if p == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "path required")
 		}
-		// Containment keys on the EMPTY folder claim: the genuine root/operator
-		// caller (empty folder) widens to delete any folder's route via the SQL
-		// `?=''` arm; every NAMED folder — including a top-level tenant — is bound
-		// to its own routes. The retired tier model keyed this on tier-0, which a
-		// top-level tenant also held: that let a tenant delete + hijack a sibling
-		// tenant's route (the 5/16 list-all leak class). The agent socket folder is
-		// always a named group, so no agent widens; only the root REST/CLI operator
-		// (folder="") does.
+		// Containment keys on the EMPTY folder claim: the genuine root/operator caller
+		// widens to delete any folder's route via the SQL `?=''` arm; every NAMED folder,
+		// including a top-level tenant, is bound to its own routes. The retired tier model
+		// keyed this on tier-0, which a top-level tenant also held — that let a tenant
+		// delete and hijack a sibling's route. The agent socket folder is always a named
+		// group, so no agent widens.
 		ok, err := deleteWebRouteTx(ctx, x.Tx, p, folder)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
@@ -182,11 +173,9 @@ func putWebRouteTx(ctx context.Context, tx *sql.Tx, r WebRouteRow) error {
 	return err
 }
 
-// deleteWebRouteTx removes a web_routes row on tx. The `(folder=? OR ?='')`
-// predicate widens ONLY when folder is empty — the genuine root/operator caller
-// (empty folder claim) deletes any folder's route; every named folder matches
-// exactly its own. Containment therefore lives entirely in how the caller
-// resolves its folder — the agent socket's own group, or the REST target bounded
+// deleteWebRouteTx removes a web_routes row on tx. The `(folder=? OR ?='')` predicate
+// widens ONLY when folder is empty. Containment therefore lives entirely in how the
+// caller resolves its folder — the agent socket's own group, or the REST target bounded
 // to the JWT subtree — never in this SQL.
 func deleteWebRouteTx(ctx context.Context, tx *sql.Tx, pathPrefix, folder string) (bool, error) {
 	res, err := tx.ExecContext(ctx,

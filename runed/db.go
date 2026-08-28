@@ -1,9 +1,7 @@
-// Package runed is the execution plane carved out of gated (spec 5/P): the
-// work queue and the per-spawn container lifecycle. It is a pure
-// container-spawner — routd hosts
-// the agent MCP socket in-process and is the sole message appender; authd is
-// the sole token signer. runed mounts the ipc dir routd's socket lives in into
-// each spawn (container.Input.ExternalMCP) and manages spawn/steer/kill.
+// Package runed is the execution plane carved out of gated (spec 5/P): the work queue
+// and the per-spawn container lifecycle. It is a pure container-spawner — routd hosts
+// the agent MCP socket in-process and is the sole message appender; authd is the sole
+// token signer. runed mounts the ipc dir into each spawn and manages spawn/steer/kill.
 package runed
 
 import (
@@ -215,20 +213,14 @@ func (d *DB) CreateSpawn(s Spawn) error {
 	return err
 }
 
-// StartSpawn flips a spawn to state=running with its resolved session_id and
-// reports whether the claim was still there to take. Guarded on
-// state='queued' — the only state a fresh claim is in. Without it a DELETE
-// landing in the window between CreateSpawn (the claim) and here would be
-// undone: 'killed' flipped back to 'running', a terminal row resurrected, and
-// the folder held until RunTTL. Reachable for any kind, but only a hold makes
-// it easy to hit — Manager.Hold hands the caller a releasable handle while the
-// run's goroutine is still starting.
+// StartSpawn flips a spawn to state=running with its resolved session_id and reports
+// whether the claim was still there to take. Guarded on state='queued': without it a
+// DELETE landing between CreateSpawn and here would be undone — a terminal row
+// resurrected and the folder held until RunTTL.
 //
-// started=false means that DELETE won: the row is already terminal and the
-// caller MUST NOT launch. The guard alone only made the ROW right — the
-// folder then reads free (ActiveSpawnForFolder counts queued/running only)
-// while a launch nobody can see proceeds, so a concurrent claim puts a second
-// container on one folder's mount.
+// started=false means that DELETE won and the caller MUST NOT launch. The guard alone
+// only made the ROW right — the folder then reads free while a launch nobody can see
+// proceeds, so a concurrent claim puts a second container on one folder's mount.
 func (d *DB) StartSpawn(runID, sessionID string) (started bool, err error) {
 	res, err := d.db.Exec(`UPDATE spawns SET state='running', session_id=?, started_at=?
 		WHERE run_id=? AND state='queued'`,
@@ -365,12 +357,10 @@ func (d *DB) ActiveCount() (int, error) {
 	return n, err
 }
 
-// ActiveAgentCount returns the number of live kind='agent' spawns — the
-// global concurrency cap's actual budget (spec 5/8). A containerless kind
-// (e.g. 'backup') consumes no docker/host resource comparable to a
-// container and must not compete with agent turns for the cap, or a
-// backup request could starve real agent spawns (or vice versa, get
-// wrongly rejected busy by unrelated container load).
+// ActiveAgentCount returns the number of live kind='agent' spawns — the global
+// concurrency cap's actual budget (spec 5/8). A containerless kind consumes no docker
+// resource comparable to a container and must not compete with agent turns for the
+// cap, in either direction.
 func (d *DB) ActiveAgentCount() (int, error) {
 	var n int
 	err := d.db.QueryRow("SELECT COUNT(*) FROM spawns WHERE kind='agent' AND state IN ('queued','running')").Scan(&n)

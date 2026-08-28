@@ -10,15 +10,11 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// ProxydRoutesRow mirrors proxyd_routes. PreserveHeaders is a JSON
-// array string in DB but exposed as []string on the Row. StripPrefix
-// is 0/1 INTEGER in DB but a clean Go field — engine uses two
-// "shadow" columns for the raw DB representation and BeforeInsert /
-// AfterScan keep them in sync.
-//
-// Trade-off note (spec 5/8 §"What does NOT come for free"): JSON-
-// blob columns force a hook. We keep the public field shape natural
-// (`[]string`, `bool`) and pay the conversion in two short hooks.
+// ProxydRoutesRow mirrors proxyd_routes. PreserveHeaders is a JSON array string in DB
+// but []string on the Row, and StripPrefix is 0/1 INTEGER but a clean bool — the engine
+// uses two shadow columns for the raw representation and BeforeInsert/AfterScan keep
+// them in sync. JSON-blob columns force a hook (spec 5/8 §"What does NOT come for
+// free"); the public field shape stays natural and the conversion is paid here.
 type ProxydRoutesRow struct {
 	Path       string `db:"path"             yaml:"path"             json:"path"`
 	Backend    string `db:"backend"          yaml:"backend"          json:"backend"`
@@ -35,12 +31,10 @@ type ProxydRoutesRow struct {
 	StripPrefix        bool     `db:"-"                yaml:"strip_prefix,omitempty"     json:"strip_prefix,omitempty"`
 }
 
-// ProxydRoutesMCPDoc is the single owner of proxyd_routes' per-action agent-
-// facing one-liners. Three decls consume it: this catalog registration (drives
-// /openapi.json via openapi.go withMCPDoc), proxyd's dispatch decl (the live
-// handler), and webd's forwarder decl. Exporting it here keeps the operator
-// surface from drifting across the three package-main copies (spec 5/5 §"Single
-// source of truth").
+// ProxydRoutesMCPDoc is the single owner of proxyd_routes' per-action agent-facing
+// one-liners. Three decls consume it: this catalog registration, proxyd's dispatch
+// decl, and webd's forwarder decl. Exporting it here keeps the operator surface from
+// drifting across the three package-main copies.
 var ProxydRoutesMCPDoc = map[resreg.Action]string{
 	resreg.ActionList:   "List proxyd's runtime route table.",
 	resreg.ActionGet:    "Read one proxyd route by path.",
@@ -49,12 +43,11 @@ var ProxydRoutesMCPDoc = map[resreg.Action]string{
 	resreg.ActionDelete: "Delete a proxyd route. Idempotent.",
 }
 
-// ProxydRoutesMCPArgs is the explicit per-action arg list. It overrides RowType
-// reflection: the wire args carry descriptions and an `auth` requirement that
-// no struct tag can express, and proxyd's dispatch decl and webd's forwarder
-// both need the same list. Registered below so all three read it — until
-// resreg.Mount it lived only at the two mount sites, and the catalog reflected
-// a different arg list under the same tool name.
+// ProxydRoutesMCPArgs is the explicit per-action arg list, overriding RowType
+// reflection: the wire args carry descriptions and an `auth` requirement no struct tag
+// can express. Registered here so all three decls read it — until resreg.Mount it lived
+// only at the two mount sites, and the catalog reflected a different arg list under the
+// same tool name.
 var ProxydRoutesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.ActionGet: {{Name: "path", Type: "string", Required: true}},
 	resreg.ActionCreate: {
