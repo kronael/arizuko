@@ -126,14 +126,11 @@ var ErrInvalidRequest = errors.New("invalid request")
 // MCP wall (ipc) classifies by the SAME sentinel without importing chanreg.
 var ErrPermanent = errors.New("permanent")
 
-// ErrNotDelivered marks a TRANSIENT failure that PROVES the platform accepted
-// nothing — a 429, an application-level `ok:false`, a refusal on the first
-// chunk. deliverOnce releases the dedup claim on it (a retry cannot
-// double-post what was never posted) and the adapter still answers 502, so
-// routd's sweep keeps the retry. Without this class every adapter-side rate
-// limit left the claim `inflight`, and the sweep's whole backoff budget was
-// spent on ErrDeliveryUnresolved refusals — a plain 429 became a guaranteed
-// dead-letter.
+// ErrNotDelivered marks a TRANSIENT failure that PROVES the platform accepted nothing
+// — a 429, an application-level `ok:false`, a refusal on the first chunk. deliverOnce
+// releases the dedup claim on it, since a retry cannot double-post what was never
+// posted. Without this class every adapter-side rate limit left the claim `inflight`,
+// so a plain 429 became a guaranteed dead-letter.
 var ErrNotDelivered = errors.New("not delivered")
 
 // UnsupportedError is the structured form. The HTTP layer encodes Tool/Platform/Hint
@@ -223,11 +220,9 @@ func isStubVerb(b BotHandler, probe func(BotHandler) error) (stub bool) {
 }
 
 // CapImplReport returns human-readable drift between an adapter's advertised
-// capability map and its actual verb implementations: a gated cap advertised
-// for a stub verb ("advertised but unsupported"), or a real verb left
-// unadvertised ("implemented but not advertised"). Only gated caps are
-// checked. Call with a zero-value or minimal handler; real impls are detected
-// by their panic/error on nil platform clients. Empty slice ⇒ consistent.
+// capability map and its actual verb implementations. Only gated caps are checked.
+// Call with a zero-value handler; real impls are detected by their panic/error on nil
+// platform clients. Empty slice means consistent.
 func CapImplReport(b BotHandler, caps map[string]bool) []string {
 	var out []string
 	for cap, probe := range gatedVerbProbes {
@@ -349,14 +344,11 @@ func handleHistory(hp HistoryProvider) http.HandlerFunc {
 	}
 }
 
-// jsonVerb is the one shape the simple verb handlers share: cap the body,
-// decode, validate, call the bot, write the result. It was written out ten
-// times, and ten copies is ten chances for one to forget MaxBytesReader or to
-// answer a decode failure differently from its neighbour.
-//
-// A decode failure and a missing field answer with the SAME 400 — that was the
-// existing behavior (`Decode(&req) != nil || req.X == ""` shared one message)
-// and it is worth keeping: the caller's fix is identical either way.
+// jsonVerb is the one shape the simple verb handlers share: cap the body, decode,
+// validate, call the bot, write the result. It was written out ten times, and ten
+// copies is ten chances for one to forget MaxBytesReader. A decode failure and a
+// missing field answer with the SAME 400, which was the existing behavior and is
+// worth keeping: the caller's fix is identical either way.
 func jsonVerb[T any](msg string, valid func(T) bool, call func(T) (string, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
@@ -386,12 +378,9 @@ func handleSend(bot BotHandler, db *sql.DB) http.HandlerFunc {
 		})
 }
 
-// receiveUpload parses a multipart upload, sanitizes the filename, writes to
-// a temp dir, and returns (jid, localPath, name, caption, cleanup). On any
-// error it writes the HTTP response and returns ok=false. Caller must call
-// cleanup() when done with the file.
-//
-// `name` is attacker-controlled (multipart form value / filename header);
+// receiveUpload parses a multipart upload, sanitizes the filename, writes to a temp
+// dir, and returns (jid, localPath, name, caption, cleanup). On any error it writes
+// the HTTP response and returns ok=false. `name` is attacker-controlled, so
 // filepath.Clean + Base prevents path traversal out of the temp dir.
 func receiveUpload(w http.ResponseWriter, r *http.Request, tmpPrefix string) (jid, localPath, name, caption string, cleanup func(), ok bool) {
 	if r.ParseMultipartForm(50<<20) != nil {

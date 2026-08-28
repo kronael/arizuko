@@ -1,26 +1,18 @@
 package main
 
-// Spec 5/8 "The full-instance archive": `arizuko archive export`/`archive
-// apply` — a single tar file superset CONTAINING the config manifest, not a
-// bigger manifest. routd.yaml/onbod.yaml are byte-identical to what
-// `arizuko export` produces standalone (same resreg.Export/EmitYAML call,
-// literally); everything else here (routd.secrets.yaml, routd.messages.jl,
-// groups.tar, archive.yaml) is new.
+// Spec 5/8 "The full-instance archive": `arizuko archive export`/`archive apply` —
+// a single tar CONTAINING the config manifest, not a bigger manifest.
+// routd.yaml/onbod.yaml are byte-identical to what `arizuko export` produces
+// standalone; everything else here is new.
 //
-// The filesystem restore claims each folder's runed run slot before
-// overwriting its tree (spec 5/8 "Filesystem restore claims the folder's run
-// slot"): apply POSTs /v1/holds to a LIVE runed and releases in a defer, so
-// no agent turn can start mid-extraction. Either the instance is up and the
-// hold is taken, or the operator passes --stopped to assert it is down.
-// Never neither — an unguarded restore is the exact race the hold exists to
-// prevent, so an unreachable runed is fatal, not a warning.
+// The filesystem restore claims each folder's runed run slot before overwriting its
+// tree: apply POSTs /v1/holds to a LIVE runed and releases in a defer, so no agent
+// turn can start mid-extraction. Either the instance is up and the hold is taken,
+// or the operator passes --stopped. Never neither, so an unreachable runed is fatal.
 //
-// The config documents ride applyDocs (apply.go), the same two-phase path
-// `arizuko apply` uses: buffer every config document, run the missing-group
-// preflight across the whole set, then one transaction per subsystem with a
-// pre-image rollback if a later one fails. Buffering is what makes both
-// possible — a streamed one-at-a-time apply would have committed routd before
-// it had even read onbod.yaml.
+// The config documents ride applyDocs, the same two-phase path `arizuko apply` uses.
+// Buffering is what makes the preflight and the rollback possible — a streamed
+// one-at-a-time apply would have committed routd before reading onbod.yaml.
 
 import (
 	"archive/tar"
@@ -46,11 +38,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Tar entry names — spec 5/8 "The full-instance archive" §"Shape". Fixed
-// write order (archive.yaml, routd.yaml, onbod.yaml, routd.secrets.yaml,
-// routd.messages.jl, groups.tar) is load-bearing: apply processes the tar
-// as one sequential pass and needs archive.yaml's format_version checked
-// before anything else, and routd.yaml's `groups` rows known before
+// Tar entry names — spec 5/8 §"Shape". The fixed write order is load-bearing: apply
+// processes the tar as one sequential pass and needs archive.yaml's format_version
+// checked before anything else, and routd.yaml's `groups` rows known before
 // groups.tar's folder-prefix matching runs.
 const (
 	archiveMetaEntry     = "archive.yaml"
@@ -61,23 +51,19 @@ const (
 	archiveGroupsEntry   = "groups.tar"
 )
 
-// archiveSecretsDoc is routd.secrets.yaml's shape: secret + route-token/
-// invite VALUES (spec 5/8 "Secret and token values") — kept separate from
-// routd.yaml/onbod.yaml so a plain `arizuko export` reader is never handed
-// one. It composes types from both store (secrets) and resreg (tokens/
-// invites) because it's a cross-subsystem, archive-only document that
-// neither package owns alone.
+// archiveSecretsDoc is routd.secrets.yaml's shape: secret + route-token/invite
+// VALUES (spec 5/8), kept separate from routd.yaml/onbod.yaml so a plain `arizuko
+// export` reader is never handed one. It composes types from both store and resreg
+// because it is a cross-subsystem, archive-only document neither package owns.
 type archiveSecretsDoc struct {
 	Secrets     []store.ArchiveSecretRow      `yaml:"secrets,omitempty"`
 	RouteTokens []resreg.ArchiveRouteTokenRow `yaml:"route_tokens,omitempty"`
 	Invites     []resreg.ArchiveInviteRow     `yaml:"invites,omitempty"`
-	// Onboarding carries pending admissions. They cannot ride the config lane
-	// (that resource is SkipApplyRebuild — admissions are runtime state, never
-	// declared in a manifest — so `arizuko apply` never writes the table) and
-	// cannot be rederived on import (agent_cursor marks the route-missed
-	// message seen, so it is never re-offered to routeMiss). It used to carry
-	// the token_ref verifier too; onbod 0006 dropped that column with its
-	// expiry twin (BUGS F40). Spec 5/8, BUGS Z3.
+	// Onboarding carries pending admissions. They cannot ride the config lane (that
+	// resource is SkipApplyRebuild — admissions are runtime state) and cannot be
+	// rederived on import (agent_cursor marks the route-missed message seen, so it is
+	// never re-offered). It used to carry the token_ref verifier too; onbod 0006
+	// dropped that column (BUGS F40).
 	Onboarding []resreg.ArchiveOnboardingRow `yaml:"onboarding,omitempty"`
 }
 
@@ -197,14 +183,11 @@ func cmdArchiveApply(args []string) {
 // fatal at the call site above.
 type holdFn func(folder string) (release func(), err error)
 
-// runedHolder builds the holdFn that claims each folder's run slot in the
-// LIVE runed (POST /v1/holds — spec 5/8) before its tree is overwritten.
-//
-// RUNED_URL is the same var routd and dashd already use to reach runed, with
-// the same in-network default; the CLI runs on the host, so an operator
-// restoring from there points it at a reachable runed. RUNED_TOKEN is the
-// bearer runed's authz wants — runs:run to claim, runs:kill to release; runed
-// in open mode (single-tenant / local-dev) needs none.
+// runedHolder builds the holdFn that claims each folder's run slot in the LIVE runed
+// before its tree is overwritten (spec 5/8). RUNED_URL is the same var routd and
+// dashd already use, with the same in-network default. RUNED_TOKEN is the bearer
+// runed's authz wants — runs:run to claim, runs:kill to release; runed in open mode
+// needs none.
 func runedHolder(ctx context.Context, dataDir string) (holdFn, error) {
 	env, err := loadInstanceEnv(dataDir)
 	if err != nil {
@@ -450,29 +433,22 @@ func tarFolderTree(tw *tar.Writer, root, folder string) error {
 	})
 }
 
-// applyArchive reads one tar stream and restores it, in one sequential
-// pass (entry order = write order above). Returns a human-readable summary
-// regardless of error (a partial report is still useful when apply fails
-// partway through — config/messages steps proceed even when a later
-// document errors, per spec 5/8 "each has its own recovery story").
-//
-// hold claims each folder's runed run slot around its filesystem step; nil
-// skips the claim (--stopped, or a test with no live instance).
+// applyArchive reads one tar stream and restores it in one sequential pass (entry
+// order = write order above). Returns a human-readable summary regardless of error:
+// config/messages steps proceed even when a later document errors, per spec 5/8
+// "each has its own recovery story". hold claims each folder's runed run slot around
+// its filesystem step; nil skips the claim.
 func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir string, r io.Reader, force bool, hold holdFn) (string, error) {
 	var report strings.Builder
 	tr := tar.NewReader(r)
 	var knownFolders []string
 	sawMeta := false
 
-	// The config documents are BUFFERED, not applied as they stream past.
-	// Two spec rules need the whole set in hand before the first tx opens:
-	// the missing-group preflight ("refuses the whole restore rather than
-	// importing a half-wired instance") and the cross-subsystem pre-image
-	// rollback, which must snapshot every subsystem it will touch. Streaming
-	// them one-at-a-time could do neither — routd would already be committed
-	// by the time onbod's document was read. Config is bounded declarative
-	// config (spec 5/8 §"Three transports"), so buffering it costs nothing;
-	// the unbounded documents (messages) stay streamed.
+	// The config documents are BUFFERED, not applied as they stream past. Two spec
+	// rules need the whole set in hand before the first tx opens: the missing-group
+	// preflight, and the cross-subsystem pre-image rollback, which must snapshot
+	// every subsystem it will touch. Config is bounded declarative config, so
+	// buffering costs nothing; the unbounded documents stay streamed.
 	var configDocs []parsedDoc
 	configApplied := false
 	// flushConfig commits the buffered config subsystems exactly once, before
@@ -610,13 +586,10 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 	return report.String(), nil
 }
 
-// applySecretsDoc always validates+imports secrets (their own per-row keyring
-// check is the correctness gate — no revive risk for a value with no
-// revoke-by-delete lifecycle). The three documents that DO carry a credential
-// verifier — route_tokens, invites, onboarding — ride ONE gate: off by
-// default and, even with --force, refused unless the target table is already
-// empty (spec 5/8 "the UPSERT lane can revive a revoked or consumed
-// credential").
+// applySecretsDoc always validates+imports secrets — their own per-row keyring check
+// is the correctness gate, and a secret has no revoke-by-delete lifecycle to revive.
+// The three documents that DO carry a credential verifier ride ONE gate: off by
+// default and, even with --force, refused unless the target table is already empty.
 func applySecretsDoc(ctx context.Context, stores map[string]*store.Store, doc archiveSecretsDoc, force bool, report *strings.Builder) error {
 	routdSt := stores[resreg.SubsystemRoutd]
 	onbodSt := stores[resreg.SubsystemOnbod]
@@ -645,12 +618,10 @@ func applySecretsDoc(ctx context.Context, stores map[string]*store.Store, doc ar
 	return nil
 }
 
-// restoreGated is the single implementation of the credential-revival gate
-// spec 5/8 §"Restoring onto a populated instance" states once and three
-// documents obey: skip unless --force, and even then refuse unless the target
-// table is proven empty (genuine DR onto a fresh instance, never a merge or a
-// re-run that could clobber a post-export revocation). One helper rather than
-// three copies — the third copy is where the policy would have drifted.
+// restoreGated is the single implementation of the credential-revival gate spec 5/8
+// states once and three documents obey: skip unless --force, and even then refuse
+// unless the target table is proven empty. One helper rather than three copies — the
+// third copy is where the policy would have drifted.
 func restoreGated(report *strings.Builder, name string, n int, force bool,
 	count func() (int, error), importRows func() (int, error),
 ) error {
@@ -677,13 +648,10 @@ func restoreGated(report *strings.Builder, name string, n int, force bool,
 	return nil
 }
 
-// matchFolder returns the longest folder in knownFoldersLongestFirst that
-// entryName (a groups.tar path, e.g. "acme/eng/PERSONA.md") is rooted
-// under. Folder names may themselves contain "/" (nested groups), so a
-// plain first-segment split is ambiguous — "acme/eng/PERSONA.md" could be
-// folder "acme" file "eng/PERSONA.md", or folder "acme/eng" file
-// "PERSONA.md". Matching against the manifest's OWN folder set (known from
-// routd.yaml, parsed earlier in this same tar pass) resolves it exactly.
+// matchFolder returns the longest folder in knownFoldersLongestFirst that entryName
+// is rooted under. Folder names may themselves contain "/", so a plain first-segment
+// split is ambiguous — "acme/eng/PERSONA.md" could be folder "acme" or "acme/eng".
+// Matching against the manifest's OWN folder set resolves it exactly.
 func matchFolder(entryName string, knownFoldersLongestFirst []string) string {
 	name := strings.TrimSuffix(entryName, "/")
 	for _, f := range knownFoldersLongestFirst {
@@ -694,20 +662,15 @@ func matchFolder(entryName string, knownFoldersLongestFirst []string) string {
 	return ""
 }
 
-// extractGroups extracts groups.tar's per-folder trees. Two passes over
-// the same in-memory tar bytes: the first decides, per folder, whether the
-// target dir is empty/missing (extract) or non-empty (skip unless force —
-// spec 5/8 "Restoring onto a populated instance": "refuses a folder's
-// filesystem step... when the target tree is non-empty, unless --force");
-// the second actually writes only the allowed folders. Two passes avoid
-// extracting some of a folder's files before discovering a later entry
-// belongs to a folder that should have been skipped.
+// extractGroups extracts groups.tar's per-folder trees in two passes over the same
+// in-memory tar bytes: the first decides per folder whether to extract or skip, the
+// second writes only the allowed folders. Two passes avoid extracting some of a
+// folder's files before discovering a later entry belongs to a folder that should
+// have been skipped.
 //
-// hold (nil = --stopped) claims each to-be-written folder's runed run slot
-// between the two passes — after the decision, before the first byte lands —
-// and releases every one when this function returns. Holding the whole set
-// for the whole write is deliberate: pass 2 interleaves entries across
-// folders, so no folder is provably finished until the pass is.
+// hold claims each to-be-written folder's run slot between the two passes and
+// releases every one on return. Holding the whole set for the whole write is
+// deliberate: pass 2 interleaves entries across folders.
 func extractGroups(dataDir string, knownFolders []string, tarBytes []byte, force bool, hold holdFn) (extracted, skipped int, err error) {
 	longestFirst := append([]string(nil), knownFolders...)
 	sort.Slice(longestFirst, func(i, j int) bool { return len(longestFirst[i]) > len(longestFirst[j]) })
@@ -841,14 +804,11 @@ func extractTarEntry(groupDir, folder string, hdr *tar.Header, r io.Reader) erro
 	}
 }
 
-// setupMissingGroupDirs is the archive-apply-specific slice of "Apply is a
-// restore, so filesystem prep follows the commit" (spec 5/8, unchanged
-// section): a folder the config manifest names but the archive's
-// groups.tar doesn't cover (a narrower or older archive) still needs
-// SOMETHING on disk, or routing docker-runs against a missing path exits
-// 125. container.SetupGroup is the ONLY provisioning code path
-// (CLAUDE.md "no parallel second path"); this calls it with no seed dir
-// (an empty scaffold) for exactly the folders left untouched above.
+// setupMissingGroupDirs is the archive-apply slice of "Apply is a restore, so
+// filesystem prep follows the commit" (spec 5/8): a folder the config manifest names
+// but groups.tar does not cover still needs SOMETHING on disk, or docker exits 125.
+// container.SetupGroup is the ONLY provisioning code path, so this calls it with no
+// seed dir for exactly the folders left untouched above.
 func setupMissingGroupDirs(dataDir string, knownFolders []string) error {
 	if len(knownFolders) == 0 {
 		return nil

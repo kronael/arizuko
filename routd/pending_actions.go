@@ -1,14 +1,12 @@
 package routd
 
-// pending_actions.go — spec 5/19's one genuinely new entity: a tool call
-// suspended until a human approves it. The hold RULE lives in `acl` as a
-// `hold:mcp:<tool>` row and is evaluated by auth.CheckHold; this file is only
-// the suspended CALL's state.
+// pending_actions.go — spec 5/19's one genuinely new entity: a tool call suspended
+// until a human approves it. The hold RULE lives in `acl` as a `hold:mcp:<tool>` row
+// evaluated by auth.CheckHold; this file is only the suspended CALL's state.
 //
-// Release matches on (folder, tool, args_hash). The agent re-issues the call in
-// its own next turn, so the released call runs as the ORIGINAL agent — same
-// container, session, grants and secrets — with no out-of-turn dispatcher to
-// build and no second path around ipc's grant and audit discipline.
+// Release matches on (folder, tool, args_hash). The agent re-issues the call in its
+// own next turn, so the released call runs as the ORIGINAL agent — same container,
+// session, grants and secrets — with no second path around ipc's discipline.
 
 import (
 	"crypto/sha256"
@@ -55,17 +53,15 @@ const (
 	PendingExpired  = "expired"
 )
 
-// ArgsHash is the canonical hash release matches on. Keys are sorted and BOTH
-// key and value are JSON-encoded, so an agent re-issuing the same call with its
-// map in a different order still matches, while a changed VALUE does not — the
-// edited-args rule, enforced by the key rather than by a comparison someone has
-// to remember to write.
+// ArgsHash is the canonical hash release matches on. Keys are sorted and BOTH key
+// and value are JSON-encoded, so an agent re-issuing the same call with its map in a
+// different order still matches while a changed VALUE does not — the edited-args
+// rule, enforced by the key rather than by a comparison someone must remember.
 //
-// The key is encoded, not written raw: the agent chooses the argument NAMES, so
-// a raw key containing the separators reproduces another map's serialization.
-// `{"a=\"1\"\nb": "x"}` hashed identically to `{"a":"1","b":"x"}` until this was
-// fixed — a collision an agent could steer an approval onto. JSON-encoding both
-// sides escapes the quote and the newline, so no key can forge a separator.
+// The key is encoded, not written raw: the agent chooses the argument NAMES, so a
+// raw key containing the separators reproduces another map's serialization —
+// `{"a=\"1\"\nb": "x"}` hashed identically to `{"a":"1","b":"x"}`, a collision an
+// agent could steer an approval onto.
 func ArgsHash(args map[string]any) string {
 	keys := make([]string, 0, len(args))
 	for k := range args {
@@ -232,12 +228,10 @@ func resolvePendingActionOn(q queryExecer, id, status, reviewer, note string) (P
 	return cur, nil
 }
 
-// resolutionMessage is the approved-call trigger the agent re-issues from
-// (spec 5/19 §Resolution step 2). One renderer for both resolution faces. The
-// target is the HELD call's own chat — not the chat the verdict arrived in,
-// which routed an approval typed elsewhere to the wrong agent — falling back
-// to the bare folder (the delegate JID shape) when the call was held outside
-// any chat.
+// resolutionMessage is the approved-call trigger the agent re-issues from (spec 5/19
+// §Resolution step 2). One renderer for both resolution faces. The target is the
+// HELD call's own chat — not the chat the verdict arrived in, which routed an
+// approval typed elsewhere to the wrong agent — falling back to the bare folder.
 func resolutionMessage(p PendingAction, reviewer string) core.Message {
 	// The HELD CALL's chat, never the chat the operator typed the verdict in.
 	// Those differ whenever an operator approves from anywhere else, and using
@@ -259,14 +253,11 @@ func resolutionMessage(p PendingAction, reviewer string) core.Message {
 	}
 }
 
-// resolveHoldTx is the one funnel both resolution faces run — chat /approve
-// (cmdResolveHold) and REST POST /v1/pending_actions/{id}/approve|reject
-// (pendingActionsHandler), the "both funnel to one handler" spec 5/19 names.
-// The verdict and, on approval, its resolution message commit in the SAME
-// transaction: the approved row and its re-issue trigger become visible at
-// once, so the poll can never dispatch the re-issue before
-// ConsumeApprovedAction can see the approval. Returns the chat to enqueue
-// ("" when nothing to trigger).
+// resolveHoldTx is the one funnel both resolution faces run — chat /approve and REST
+// POST /v1/pending_actions/{id}/approve|reject. The verdict and, on approval, its
+// resolution message commit in the SAME transaction, so the poll can never dispatch
+// the re-issue before ConsumeApprovedAction can see the approval. Returns the chat
+// to enqueue ("" when nothing to trigger).
 func resolveHoldTx(q queryExecer, id, verdict, reviewer, note string) (PendingAction, string, error) {
 	p, err := resolvePendingActionOn(q, id, verdict, reviewer, note)
 	if err != nil {
@@ -321,13 +312,12 @@ func NewPendingID() string {
 	return randHex(4)
 }
 
-// holdGate builds the tools/call hold check for one turn (spec 5/19). Nil when
-// the turn cannot be held, so the ipc layer pays nothing.
+// holdGate builds the tools/call hold check for one turn (spec 5/19). Nil when the
+// turn cannot be held, so the ipc layer pays nothing.
 //
-// Order matters: the approved-row consume comes FIRST. The agent re-issuing an
-// approved call must pass even though the hold rule still matches — that is
-// what "one-shot release" means. Any argument deviation misses the hash and
-// falls through to the hold, which is the edited-args rule.
+// Order matters: the approved-row consume comes FIRST, because the agent re-issuing
+// an approved call must pass even though the hold rule still matches. Any argument
+// deviation misses the hash and falls through to the hold.
 func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool) {
 	if t.elevated || s.db == nil {
 		return nil
@@ -348,12 +338,10 @@ func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool)
 			Tool: tool, Args: string(raw), ArgsFinal: string(raw), ArgsHash: hash,
 			Status: PendingHeld, ChatJID: t.chatJID,
 		}); err != nil {
-			// Fail CLOSED: a hold rule exists and we could not record the call, so
-			// letting it run would silently defeat the gate the operator asked for.
-			// The EMPTY id is the signal ipc renders as an error rather than as a
-			// pending result: with no row there is no id to /approve, and the
-			// pending shape told the agent to wait on one that does not exist
-			// (BUGS J3). The chat notice is the operator's only sign it happened.
+			// Fail CLOSED: a hold rule exists and we could not record the call, so letting
+			// it run would silently defeat the gate. The EMPTY id is the signal ipc renders
+			// as an error rather than a pending result: with no row there is no id to
+			// /approve (BUGS J3). The chat notice is the operator's only sign it happened.
 			slog.Error("hitl could not record pending action; blocking the call",
 				"folder", t.folder, "tool", tool, "err", err)
 			s.notifyHoldFailed(t, tool, err)
@@ -382,14 +370,13 @@ func stringArgs(args map[string]any) map[string]string {
 	return out
 }
 
-// notifyHeld tells the chat a call is waiting. Delivery failure is logged, not
-// fatal: the row is already recorded and `pending_actions list` still finds it.
+// notifyHeld tells the chat a call is waiting. Delivery failure is logged, not fatal:
+// the row is already recorded.
 //
-// The notice carries the chat commands AND the deep link to the approvals page,
-// which names WHICH decision while the page's own operator gate names WHO. It is
-// deliberately not a bearer token: this notice lands in the chat the agent
-// shares with its users, so a link that carried the verdict itself would hand
-// the verdict to everyone who can read the chat (spec 6/26 § Gap 3).
+// The notice carries the chat commands AND the deep link to the approvals page, which
+// names WHICH decision while the page's own operator gate names WHO. Deliberately not
+// a bearer token: this notice lands in the chat the agent shares with its users, so a
+// link carrying the verdict would hand it to every reader (spec 6/26 § Gap 3).
 func (s *Server) notifyHeld(t turnMCP, id, tool string) {
 	text := fmt.Sprintf("⏸ %s held for approval (id %s)\n/approve %s   /reject %s",
 		tool, id, id, id)

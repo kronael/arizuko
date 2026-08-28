@@ -21,11 +21,9 @@ import (
 )
 
 // The /v1/turns/{turn_id}/* callback surface — the HTTP twin of the agent's
-// in-process MCP write tools (the agent uses the socket; this is the REST face +
-// test surface). reply/send/document append a messages row then deliver;
-// like/edit/delete/pin/unpin mutate an existing platform message without
-// appending. Every call is idempotent on X-Idempotency-Key, serialized per
-// turn_id.
+// in-process MCP write tools. reply/send/document append a messages row then
+// deliver; like/edit/delete/pin/unpin mutate an existing platform message without
+// appending. Every call is idempotent on X-Idempotency-Key, serialized per turn_id.
 
 // Scope sets for the turn-callback surface. reply/send/document/like/edit/delete/
 // pin/unpin are message writes; history is a read. Each set lists the agent
@@ -47,12 +45,10 @@ func lockTurn(turnID string) func() {
 	return mu.Unlock
 }
 
-// idem wraps a turn-command handler in the idempotency ledger. endpoint is the
-// path TEMPLATE with vars collapsed (e.g. "POST /v1/turns/reply"), NOT the filled
-// path — the per-turn id would partition the ledger. exec returns the HTTP
-// (status, resp) and, when the call appends a bot row, that row — idem persists
-// the row AND finishes the ledger in ONE tx so a crash between them can't leave a
-// permanent in_flight.
+// idem wraps a turn-command handler in the idempotency ledger. endpoint is the path
+// TEMPLATE with vars collapsed, NOT the filled path — the per-turn id would
+// partition the ledger. idem persists the appended row AND finishes the ledger in
+// ONE tx so a crash between them cannot leave a permanent in_flight.
 func (s *Server) idem(w http.ResponseWriter, r *http.Request, endpoint string, required bool, exec func(body []byte) (int, any, *core.Message)) {
 	body, _ := io.ReadAll(r.Body)
 	key := r.Header.Get("X-Idempotency-Key")
@@ -134,12 +130,10 @@ func returnTarget(tc TurnContext, jid string) string {
 	return jid
 }
 
-// authzTurn gates a turn-callback handler: the bearer token must carry one of
-// anyScope AND its arz/folder claim must own the turn's folder. The brokered
-// agent token authd mints for a run is bound to that run's group folder, so a
-// token for turn A cannot drive turn B in another folder. Fails CLOSED: an
-// unknown turn under a scoped token is 403 (a valid token must not probe turn
-// existence outside its subtree). verify==nil (local-dev) is open.
+// authzTurn gates a turn-callback handler: the bearer must carry one of anyScope AND
+// its arz/folder claim must own the turn's folder, so a token for turn A cannot drive
+// turn B in another folder. Fails CLOSED — an unknown turn under a scoped token is
+// 403, since a valid token must not probe turn existence outside its subtree.
 func (s *Server) authzTurn(w http.ResponseWriter, r *http.Request, turnID string, anyScope ...string) bool {
 	_, folder, ok := s.authz(w, r, anyScope...)
 	if !ok {
@@ -184,14 +178,12 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// appendAndDeliver renders the agent's raw output then appends + delivers it:
-// strip <think>, surface each <status> as a separate "⏳ ..." progress message,
-// then FormatOutbound the remainder as the threaded reply. A pure-think / silent
-// output produces no reply row (200, nil). Status rows are persisted inline
-// (auxiliary progress); the reply row is returned to idem for the atomic
-// append+ledger-finish. threaded replies thread to the active topic's
-// last_reply_id when reply_to_id is empty. SEND_DISABLED_GROUPS folders persist
-// the row status=sent but skip the platform send.
+// appendAndDeliver renders the agent's raw output then appends + delivers it: strip
+// <think>, surface each <status> as a separate progress message, then FormatOutbound
+// the remainder as the threaded reply. A pure-think output produces no reply row.
+// Status rows are persisted inline; the reply row is returned to idem for the atomic
+// append+ledger-finish. SEND_DISABLED_GROUPS folders persist status=sent but skip
+// the platform send.
 func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded bool) (int, any, *core.Message) {
 	unlock := lockTurn(turnID)
 	defer unlock()
@@ -232,13 +224,11 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 	return 200, apiv1.SendResult{MessageID: row.ID, PlatformID: row.PlatformID, Status: row.Status}, &row
 }
 
-// replyThreadRoot resolves the trigger message id a REPLY should root a new
-// platform thread on, or "" when it must not start one: the turn is already in
-// a thread (topic set), the delivery is redirected off the trigger chat
-// (delegation — the trigger id is not a platform id there), no trigger id is
-// recorded, or the group's thread_replies preference resolves off. The
-// preference defaults to the chat's multi-user flag: group chats thread, DMs
-// stay inline. send (threaded=false) never calls this — it posts top-level.
+// replyThreadRoot resolves the trigger message id a REPLY should root a new platform
+// thread on, or "" when it must not start one: the turn is already in a thread, the
+// delivery is redirected off the trigger chat, no trigger id is recorded, or the
+// group's thread_replies preference resolves off. That preference defaults to the
+// chat's multi-user flag. send never calls this — it posts top-level.
 func (s *Server) replyThreadRoot(tc TurnContext, jid string) string {
 	if tc.Topic != "" || tc.TriggerMsgID == "" || jid != tc.ChatJID {
 		return ""
@@ -271,13 +261,11 @@ func (s *Server) deliverTurn(tc TurnContext, jid string, row *core.Message, thre
 	s.deliverRow(tc, jid, row, threadRoot, threadID)
 }
 
-// deliverStatus is the ONE renderer for an interim "⏳ ..." progress notice:
-// build an out-of-band row, deliver it, persist it. Always threaded so it
-// appears alongside the final reply. Shared by appendAndDeliver's status loop
-// and the mid-turn submit_status MCP path so the two can't drift. The row is
-// stamped verb="status" so it is excluded from TurnHasBotReply (a status must
-// never suppress the agent's real reply) AND is the row submit_status reads back
-// to edit in place on the next status (spec 5/24).
+// deliverStatus is the ONE renderer for an interim progress notice: build an
+// out-of-band row, deliver it, persist it. Always threaded, and shared by
+// appendAndDeliver's status loop and the mid-turn submit_status path so the two
+// cannot drift. The row is stamped verb="status" so it is excluded from
+// TurnHasBotReply and is the row submit_status edits in place (spec 5/24).
 func (s *Server) deliverStatus(tc TurnContext, jid, text string) {
 	row := s.outboundRow(tc, jid, "⏳ "+text, "")
 	row.Verb = "status"
@@ -286,29 +274,23 @@ func (s *Server) deliverStatus(tc TurnContext, jid, text string) {
 }
 
 // deliverRow attempts the platform send and stamps platform_id+sent on success.
-// threadRoot is non-empty only for a REPLY that should start a new platform
-// thread on the trigger message (replyThreadRoot). threadID follows an
-// existing platform thread (Slack thread_ts, Discord thread channel ID).
-// A SEND_DISABLED_GROUPS folder skips the send entirely but still lands the
-// row status=sent so the poll loop never retries it.
+// threadRoot is non-empty only for a REPLY that should start a new platform thread;
+// threadID follows an existing one. A SEND_DISABLED_GROUPS folder skips the send but
+// still lands the row status=sent so the poll loop never retries it.
 func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message, threadRoot, threadID string) {
 	if s.mutedGroup(tc.Folder) {
 		row.Status = core.MessageStatusSent
 		return
 	}
-	// A bare-folder jid (no `platform:` prefix) has no channel to deliver to —
-	// a system/auto turn (e.g. /migrate) or a mis-targeted delegation whose prose
-	// is not a user reply. Skip the Send: an ERROR-spammed doomed Send tripped the
-	// per-folder breaker en masse on every MIGRATION_VERSION bump, blocking real
-	// replies for that folder.
+	// A bare-folder jid has no channel to deliver to — a system/auto turn or a
+	// mis-targeted delegation whose prose is not a user reply. Skip the Send: an
+	// ERROR-spammed doomed Send tripped the per-folder breaker en masse on every
+	// MIGRATION_VERSION bump.
 	//
-	// The row lands `failed`, NOT `sent`. `failed` IS the dead-letter state
-	// (core/types.go) and `delivery_attempts=0` already means "refused
-	// permanently", which is exactly this case — so the content stays visible in
-	// the dead_letters surface instead of recording a delivery that never
-	// happened. Two operator alerts were lost to the `sent` stamp, one of them
-	// reporting a skills-breaking guard (BUGS L76). Nothing re-sends it:
-	// PendingOutbound selects status='pending' only.
+	// The row lands `failed`, NOT `sent`. `failed` IS the dead-letter state and
+	// delivery_attempts=0 already means "refused permanently", so the content stays
+	// visible in the dead_letters surface instead of recording a delivery that never
+	// happened. Two operator alerts were lost to the `sent` stamp (BUGS L76).
 	if !strings.Contains(jid, ":") {
 		row.Status = core.MessageStatusFailed
 		slog.Warn("no channel for this jid; the message is dead-lettered, not delivered",
@@ -376,14 +358,11 @@ func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handlePost/Forward/Quote/Repost/SendVoice are the REST twins of the
-// social/feed MCP tools (mcp.go buildGatedFns). Each hits the SAME Deliverer
-// method (or s.mcpSendVoice) the in-process MCP closure does — one renderer,
-// many sinks (CLAUDE.md). post/forward/quote/repost are pure relays: no routd
-// messages row (matching the MCP closures, whose recordOutbound layer keys on
-// the returned platform id), returning SendResult{PlatformID, sent}. They use
-// idem(required=false) so a retry dedups. returnTarget redirects a delegated
-// turn's jid to its origin chat, exactly as handleDocument does.
+// handlePost/Forward/Quote/Repost/SendVoice are the REST twins of the social/feed MCP
+// tools. Each hits the SAME Deliverer method the in-process closure does — one
+// renderer, many sinks. post/forward/quote/repost are pure relays with no routd
+// messages row, matching the MCP closures. They use idem(required=false) so a retry
+// dedups. returnTarget redirects a delegated turn's jid to its origin chat.
 
 func (s *Server) handlePost(w http.ResponseWriter, r *http.Request) {
 	turnID := r.PathValue("turn_id")
@@ -694,17 +673,12 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 			slog.Warn("agent turn timed out; summary delivered",
 				"folder", tc.Folder, "turn_id", turnID)
 		}
-		// Deliver the agent's prose result as the reply when it called no
-		// reply/send tool this turn. The agent's contract (ant/CLAUDE.md: "text
-		// outside <think> is delivered") relies on submit_turn's result reaching
-		// the user; the split had dropped it, so a normal Q&A turn produced output
-		// that never left routd (krons no-reply outage 2026-06-08). Same
-		// strip-think/format/deliver path as an explicit reply; skipped when the
-		// agent already delivered a row (no double-send), and BEFORE marking the
-		// turn done so the callback isn't yet closed. Isolated cron turns
-		// (compact-memories etc.) are silent by design — their output is the
-		// file write + audit log, never a chat message — so never deliver their
-		// result prose regardless of what the agent left outside <think>.
+		// Deliver the agent's prose result as the reply when it called no reply/send
+		// tool this turn. The agent's contract is "text outside <think> is delivered",
+		// and the split had dropped it, so a normal Q&A turn produced output that never
+		// left routd (krons no-reply outage 2026-06-08). Skipped when the agent already
+		// delivered a row, and done BEFORE marking the turn done. Isolated cron turns are
+		// silent by design — their output is the file write, never a chat message.
 		isolated := strings.HasPrefix(tc.Trigger, "timed-isolated:")
 		if req.Result != "" && !isolated && !s.db.TurnHasBotReply(turnID) {
 			if _, _, row := s.appendAndDeliver(turnID, tc.ChatJID, req.Result, "", true); row != nil {

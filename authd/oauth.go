@@ -1,11 +1,9 @@
 package main
 
-// OAuth / login surface (/auth/*), owned by authd (spec 5/1 § OAuth routes).
-// authd is the OAuth provider: the provider dance (Google/GitHub/Discord/
-// Telegram) is reused from the auth library's pure wrappers; only issuance
-// differs — authd mints an ES256 access token (~15m) and a rotating refresh
-// in its own refresh_tokens store (NOT messages.db store.AuthSession). proxyd
-// no longer mounts any /auth/* routes; it 302s unauthenticated callers here.
+// OAuth / login surface (/auth/*), owned by authd (spec 5/1). The provider dance is
+// reused from the auth library's pure wrappers; only issuance differs — authd mints
+// an ES256 access token (~15m) and a rotating refresh in its own refresh_tokens
+// store. proxyd mounts no /auth/* routes; it 302s unauthenticated callers here.
 
 import (
 	"context"
@@ -91,17 +89,13 @@ func (o *oauth) loginPage(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, theme.Page("Sign in", template.HTML(b.String())))
 }
 
-// redirect builds the provider authorize URL and writes the CSRF state + PKCE
-// cookies, then 302s. ?intent=link carries the current sub for account linking.
+// redirect builds the provider authorize URL, writes the CSRF state + PKCE cookies,
+// and 302s. ?intent=link carries the current sub for account linking.
 //
 // The return path rides ONE carrier: the signed StateIntent.Return, sourced from
-// ?return= (link flow) or the auth_return cookie proxyd's requireAuth drops when
-// it bounces an unauthenticated caller here. Reading the cookie is what makes
-// "land back on the page you asked for" true — it was written and never read
-// before, so a bounced caller landed on / instead (spec 5/31 needs the pairing
-// URL to survive the round-trip). The cookie is validated by SafeReturn before
-// it enters the SIGNED state and cleared on consume so it cannot leak into a
-// later, unrelated login.
+// ?return= or the auth_return cookie proxyd drops when it bounces a caller here. The
+// cookie was written and never read before, so a bounced caller landed on /. It is
+// validated by SafeReturn before entering the SIGNED state and cleared on consume.
 func (o *oauth) redirect(provider string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ret := o.consumeReturn(w, r)
@@ -276,21 +270,16 @@ func (o *oauth) telegram(w http.ResponseWriter, r *http.Request) {
 	o.dispatch(w, r, "telegram", r.FormValue("id"), name, auth.StateIntent{})
 }
 
-// dispatch resolves the provider identity to a canonical authd user (creating
-// or linking as needed) and issues an ES256 session. provider+providerSub
-// identify the external identity; the account's canonical sub is
-// auth_users.user_id.
+// dispatch resolves the provider identity to a canonical authd user (creating or
+// linking as needed) and issues an ES256 session.
 //
-// **Alias resolution happens here, at mint** (spec 5/32 § Alias resolution).
-// `acl.principal` keys on provider subs, so a returning login that is a LINKED
-// ALIAS must mint the ACCOUNT's canonical sub or it is a principal with none of
-// the account's grants. Nothing downstream resolves: auth.Authorize evaluates
-// the subject it is handed.
+// **Alias resolution happens here, at mint** (spec 5/32). `acl.principal` keys on
+// provider subs, so a returning login that is a LINKED ALIAS must mint the ACCOUNT's
+// canonical sub or it is a principal with none of the account's grants. Nothing
+// downstream resolves: auth.Authorize evaluates the subject it is handed.
 //
-// The three cases of spec 5/1 § Account linking, in order:
-//   - explicit link — attach to the caller's own (already canonical) account;
-//   - returning login — resolve the identity to the account that owns it;
-//   - first login — the identity is its own canonical, and upsert creates it.
+// The three cases of spec 5/1 § Account linking, in order: explicit link, returning
+// login, first login.
 func (o *oauth) dispatch(w http.ResponseWriter, r *http.Request, provider, providerSub, name string, intent auth.StateIntent) {
 	if providerSub == "" {
 		http.Error(w, "oauth failed", http.StatusBadGateway)
@@ -313,11 +302,8 @@ func (o *oauth) dispatch(w http.ResponseWriter, r *http.Request, provider, provi
 	o.issueSession(w, r, canonical, login, intent.Return)
 }
 
-// issueSession is the ES256 counterpart of auth/web.go issueSession: snapshot
-// scope from grants, mint the access JWT, create a refresh_tokens row, deliver
-// per Accept (browser → HttpOnly cookie + localStorage bootstrap; JSON →
-// {token,expires_at,refresh_token}).
-//
+// issueSession is the ES256 counterpart of auth/web.go issueSession: snapshot scope
+// from grants, mint the access JWT, create a refresh_tokens row, deliver per Accept.
 // sub is the account's canonical sub; login is the provider identity actually
 // presented. They differ whenever a linked alias signs in.
 func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, login, returnTo string) {
@@ -347,12 +333,10 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, login,
 	}
 	exp := time.Now().Add(o.a.accessTTL).UTC().Format(time.RFC3339)
 
-	// The subject is the ACCOUNT's canonical sub, so from here on nothing can
-	// tell which provider login was presented — not the JWT, not proxyd's
-	// X-User-Sub, not the audit actor derived from it. Record it at the one
-	// point that still knows both. Not a JWT claim: refresh_tokens stores only
-	// the canonical sub, so a login claim would vanish on the first refresh and
-	// a half-present claim is worse than none.
+	// The subject is the ACCOUNT's canonical sub, so from here on nothing can tell
+	// which provider login was presented. Record it at the one point that still
+	// knows both. Not a JWT claim: refresh_tokens stores only the canonical sub, so
+	// a login claim would vanish on the first refresh.
 	audit.Emit(r.Context(), audit.Event{
 		Category: audit.CategoryAuthN,
 		Action:   "login",
@@ -441,13 +425,10 @@ func (o *oauth) me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// bearerSub returns the verified BARE sub of the request's bearer ("" if
-// none/invalid). Bare, not the raw claim: its one consumer is StateIntent.
-// LinkFrom, which lands in auth_users.user_id, and that column stores the sub
-// without the "user:" prefix (spec 5/1 § "sub prefix rule"). Returning the raw
-// claim forked the account instead of linking to it — the link wrote a second
-// auth_users row keyed "user:google:alice" and the next mint double-prefixed it
-// to "user:user:google:alice".
+// bearerSub returns the verified BARE sub of the request's bearer. Bare, not the raw
+// claim: its one consumer lands in auth_users.user_id, which stores the sub without
+// the "user:" prefix. Returning the raw claim forked the account instead of linking
+// to it, and the next mint double-prefixed it to "user:user:google:alice".
 func (o *oauth) bearerSub(r *http.Request) string {
 	if sub, err := auth.VerifyHTTP(r, o.a.LocalKeySet()); err == nil {
 		return bareSub(sub.Sub)

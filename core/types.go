@@ -55,12 +55,10 @@ const (
 
 const DefaultProduct = "assistant"
 
-// IsolatedSenderPrefix marks a message produced by an isolated scheduled run.
-// Such a run gets its own one-off container and session precisely so a folder's
-// crons never enter the conversation the people in that chat are having (BUGS
-// L54). The prefix is declared ONCE here because two separate readers test it:
-// routd's dispatch (session lineage) and the ambient-window SQL (which must not
-// serve a cron's prompt back as context to every topic in the folder).
+// IsolatedSenderPrefix marks a message produced by an isolated scheduled run, which
+// gets its own one-off container and session precisely so a folder's crons never
+// enter the conversation the people in that chat are having (BUGS L54). Declared ONCE
+// here because two readers test it: routd's dispatch and the ambient-window SQL.
 const IsolatedSenderPrefix = "timed-isolated:"
 
 // IsIsolatedSender reports whether a sender or trigger names an isolated run.
@@ -94,12 +92,9 @@ type Route struct {
 	ObserveWindowChars    int    `json:"observe_window_chars,omitempty"`
 }
 
-// TopicLineage is the per-topic state introduced by spec 6/F.
-// ParentTopic is *string so "fork from main" (the empty-string topic)
-// is distinguishable from "no parent" (NULL in DB). Empty
-// ObservedCursor means "no cursor recorded yet" — callers treat
-// that as no lower bound on observed reads. All timestamps are
-// RFC3339Nano UTC.
+// TopicLineage is the per-topic state introduced by spec 6/F. ParentTopic is *string
+// so "fork from main" is distinguishable from "no parent". Empty ObservedCursor means
+// no cursor recorded yet. All timestamps are RFC3339Nano UTC.
 type TopicLineage struct {
 	Folder         string
 	Topic          string
@@ -108,12 +103,10 @@ type TopicLineage struct {
 	ObservedCursor string
 }
 
-// RouteTarget parses `folder`, `folder#observe`, `folder#announce`, or
-// `folder#<topic>` syntax on routes.target. "observe" and "announce" are
-// the reserved fragments: observe sets Mode (observe-only, no agent turn);
-// announce is a no-op for inbound (the route still triggers normally) that
-// flags this channel as a release-announcement target for the migrate skill.
-// Any other fragment is a topic name pinned for the routed message.
+// RouteTarget parses `folder`, `folder#observe`, `folder#announce` or `folder#<topic>`
+// on routes.target. observe sets Mode (observe-only, no agent turn); announce is a
+// no-op for inbound that flags the channel as a release-announcement target for the
+// migrate skill. Any other fragment is a topic name pinned for the routed message.
 type RouteTarget struct {
 	Folder   string
 	Topic    string // when non-empty, route pins this topic on the message
@@ -221,12 +214,9 @@ type Socializer interface {
 	Unpin(ctx context.Context, jid, targetID string, all bool) error
 }
 
-// Suggester is the optional channel capability for staging
-// suggested-prompt buttons shown to the user before their next
-// message (Slack assistant-pane prompts; future: Telegram
-// inline_keyboard, Discord ActionRow, WhatsApp interactive buttons).
-// Implemented by chanreg.HTTPChannel for any adapter whose backend
-// serves POST /v1/pane/prompts; slakd serves it, others 404.
+// Suggester is the optional channel capability for staging suggested-prompt buttons
+// shown before the user's next message. Implemented by chanreg.HTTPChannel for any
+// adapter whose backend serves POST /v1/pane/prompts; slakd serves it, others 404.
 type Suggester interface {
 	SetSuggestions(ctx context.Context, jid string, prompts []PanePrompt) error
 }
@@ -290,12 +280,10 @@ func MsgID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
-// NewSessionID mints a fresh session ID for a topic (spec 4/23, extended by
-// spec 6/F for forked children). It MUST be a UUID: the id names the agent's
-// Claude Code transcript, and `claude --resume` accepts nothing else. A
-// "sess-<nano>" placeholder made every forked topic start blind — routd copied
-// the parent transcript to a filename the agent then refused to resume, so the
-// first turn of every new thread lost the whole conversation (2026-06-01 to
+// NewSessionID mints a fresh session ID for a topic. It MUST be a UUID: the id names
+// the agent's Claude Code transcript, and `claude --resume` accepts nothing else. A
+// "sess-<nano>" placeholder made every forked topic start blind — routd copied the
+// parent transcript to a filename the agent then refused to resume (2026-06-01 to
 // 2026-08-20).
 func NewSessionID() string {
 	return uuid.New().String()

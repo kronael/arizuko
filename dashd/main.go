@@ -167,12 +167,9 @@ func main() {
 	dataDir := os.Getenv("DATA_DIR")
 	groupsDir := filepath.Join(dataDir, "groups")
 
-	// DB_PATH points at routd.db: routd OWNS every table dashd reads or writes
-	// (messages/chats/cost_log/user_profiles/acl/groups/routes/route_tokens/
-	// secrets/scheduled_tasks/audit_log). dashd is FS-mounted, so
-	// it drives them directly (split write-discipline). The pre-split
-	// messages.db is retired — no daemon opens it. Its sibling DBs (onbod/runed)
-	// resolve off this path's directory.
+	// DB_PATH points at routd.db: routd OWNS every table dashd reads or writes, and
+	// dashd is FS-mounted so it drives them directly (split write-discipline). The
+	// pre-split messages.db is retired. Sibling DBs resolve off this path's directory.
 	dsn, err := resolveDSN(os.Getenv("DB_PATH"), dataDir)
 	if err != nil {
 		slog.Error("resolve db path", "err", err)
@@ -217,14 +214,11 @@ func main() {
 		appDir = os.Getenv("HOST_APP_DIR")
 	}
 
-	// guard admits a request that PROVES it transited proxyd (an authd-minted
-	// ES256 service:proxyd bearer, verified against authd's JWKS), then trusts the
-	// proxyd-stamped X-User-Sub/-Groups as the END-USER identity. dashd's authz
-	// reads X-User-Sub/-Groups directly, so — unlike webd's MCP gate — the bearer
-	// must NOT become the identity (it carries service:proxyd, not the user); we
-	// verify it as a transit proof and leave the stamped end-user headers
-	// untouched. No verifier (AUTHD_URL unset) → guard is open (local dev),
-	// matching webd/proxyd.
+	// guard admits a request that PROVES it transited proxyd, then trusts the
+	// proxyd-stamped X-User-Sub/-Groups as the END-USER identity. dashd's authz reads
+	// those headers directly, so — unlike webd's MCP gate — the bearer must NOT become
+	// the identity: it carries service:proxyd, not the user. No verifier (AUTHD_URL
+	// unset) → guard is open.
 	var ks *auth.KeySet
 	// svcSrc is dashd's service:dashd ES256 token source, presented on the only
 	// daemon-to-daemon call dashd makes: the operator WhatsApp re-pair proxy to
@@ -269,16 +263,13 @@ func main() {
 		},
 	})
 
-	// onbod OWNS invites/onboarding_gates in the split topology (spec 5/5); the
-	// invites admin page writes there directly (same FS-access discipline).
-	// runed OWNS spawns; the /dash/runed/ runs view reads runed.db the same way.
+	// onbod OWNS invites/onboarding_gates and runed OWNS spawns; the pages that render
+	// them write/read those DBs directly, same FS-access discipline.
 	//
-	// Both paths are CONFIGURED (ONBOD_DB_PATH / RUNED_DB_PATH, defaulting to
-	// this instance's own store/<owner>/ layout), never derived as a sibling of
-	// dsn: under per-owner subdirectories the siblings are not siblings, and
-	// deriving one owner's file from another's is the pattern CLAUDE.md bans.
-	// Absent = that daemon's profile is off; both views already render a
-	// "store unavailable" banner, so a nil handle degrades rather than crashes.
+	// Both paths are CONFIGURED, never derived as a sibling of dsn: under per-owner
+	// subdirectories the siblings are not siblings, and deriving one owner's file from
+	// another's is the pattern CLAUDE.md bans. Absent = that daemon's profile is off,
+	// and both views already render a "store unavailable" banner.
 	dbOnbod := openSiblingOwner("ONBOD_DB_PATH", dataDir, store.OwnerOnbod)
 	if dbOnbod != nil {
 		defer dbOnbod.Close()
@@ -288,12 +279,10 @@ func main() {
 		defer dbRuned.Close()
 	}
 
-	// SECRETS_KEY keyring: dashd writes user secrets into routd.db directly (it is
-	// FS-mounted — split write-discipline) and MUST seal them at rest under the
-	// same key routd reads with. Unset → store.storeValue refuses every write, so
-	// /dash/me/env and /dash/me/secrets return an error instead of persisting a
-	// plaintext row (BUGS S2). dashd does not exit here: the key gates the two
-	// secret pages, not the rest of the dashboard.
+	// SECRETS_KEY keyring: dashd writes user secrets into routd.db directly and MUST
+	// seal them at rest under the same key routd reads with. Unset → every write is
+	// refused, so the secret pages error instead of persisting plaintext (BUGS S2).
+	// dashd does not exit: the key gates two pages, not the dashboard.
 	secretKeyring := core.SecretKeyring(os.Getenv("SECRETS_KEY"))
 	if len(secretKeyring) == 0 {
 		slog.Warn("SECRETS_KEY unset in dashd; /dash/me/env and /dash/me/secrets writes will fail until the operator sets it")
@@ -340,24 +329,19 @@ func main() {
 	}
 }
 
-// backendURL resolves a sibling daemon's intra-container base URL: the env
-// override when set, else the compose service name on the fixed in-container
-// port. Root CLAUDE.md pins every daemon to :8080 inside the network and the
-// DNS name to the compose service name, so the URL is derivable, not
-// configuration — compose emits neither PROXYD_URL nor RUNED_URL, and without
-// the default `/dash/runed/`'s kill button answered 503 in every deploy
-// (BUGS F23). One renderer for both, so neither can drift into a bare
-// os.Getenv that is empty in production.
+// backendURL resolves a sibling daemon's intra-container base URL: the env override
+// when set, else the compose service name on the fixed in-container port. Root
+// CLAUDE.md pins every daemon to :8080, so the URL is derivable, not configuration
+// — compose emits neither PROXYD_URL nor RUNED_URL, and without the default the
+// kill button answered 503 in every deploy (BUGS F23). One renderer for both.
 func backendURL(envKey, service string) string {
 	return strings.TrimRight(chanlib.EnvOr(envKey, "http://"+service+":8080"), "/")
 }
 
-// upstreamMessage pulls the operator-readable half out of a sibling daemon's
-// error body. routd and proxyd both answer apiv1.Err — {"error":"<code>",
-// "message":"<prose>"} — so `message` is preferred and `error` is the fallback
-// for a body carrying only the code. A body that is not that shape is returned
-// raw rather than swallowed, because a bare status number tells an operator
-// nothing about which precondition failed.
+// upstreamMessage pulls the operator-readable half out of a sibling daemon's error
+// body. routd and proxyd both answer apiv1.Err, so `message` is preferred and
+// `error` is the fallback. A body that is not that shape is returned raw rather
+// than swallowed: a bare status number tells an operator nothing.
 func upstreamMessage(body []byte) string {
 	var e struct {
 		Error   string `json:"error"`
@@ -400,24 +384,20 @@ type dash struct {
 	// OWNS proxyd_routes, so dashd goes over HTTP rather than into the table —
 	// that is also what makes proxyd write the audit row in the mutation's tx.
 	proxydURL string
-	// routdURL is routd's /v1 face, read AND written by /dash/engagement/. routd
-	// OWNS the engagement columns, so dashd asks over HTTP rather than touching
-	// chat_reply_state in dbRoutd — that is also what puts the containment check
-	// and the audit row on the mutation's own transaction. backendURL defaults it
-	// to the compose service name, so it is empty only in tests ("" → the page
-	// says so, and disengage refuses rather than silently doing nothing).
+	// routdURL is routd's /v1 face, read AND written by /dash/engagement/. routd OWNS
+	// the engagement columns, so dashd asks over HTTP rather than touching
+	// chat_reply_state directly — that is what puts the containment check and the audit
+	// row on the mutation's own transaction.
 	routdURL string
 	// authdURL is authd's /v1 face. /dash/audit/ reads its GET /v1/audit — the
 	// login rows that record which provider identity was presented, which live
 	// in auth.db and nowhere else. dashd is NOT FS-mounted on auth.db and must
 	// not become so; HTTP is the only contract authd offers for them.
 	authdURL string
-	// onbodURL is onbod's /v1 face. /dash/audit/ reads its GET /v1/audit — the
-	// admission, invite-consume and invite-grant rows, which live in onbod.db.
-	// dashd IS FS-mounted on onbod.db (dbOnbod, for the invites page), but the
-	// audit read still goes over HTTP: /dash/audit/ is a fan-out of ONE path
-	// across four owners, and a direct-DB fourth source would be a second
-	// mechanism that drifts from the other three (spec 5/I, BUGS F35).
+	// onbodURL is onbod's /v1 face. dashd IS FS-mounted on onbod.db, but the audit read
+	// still goes over HTTP: /dash/audit/ is a fan-out of ONE path across four owners,
+	// and a direct-DB fourth source would be a second mechanism that drifts from the
+	// other three (spec 5/I, BUGS F35).
 	onbodURL string
 	// secretKeyring is the SECRETS_KEY material handed to secretStore so user-secret
 	// writes seal at rest under the same key routd reads with. Empty → plaintext.
@@ -439,15 +419,12 @@ type dash struct {
 func (d *dash) adminDB() *sql.DB { return d.dbRoutd }
 
 // resolveDSN picks dashd's SQLite path: DB_PATH when set, else
-// <DATA_DIR>/store/routd.db. It REFUSES messages.db — the pre-split monolith is
-// retired and no daemon opens it, so a stale DB_PATH left over from an old
-// deployment must fail loudly at boot rather than silently serve frozen data
-// (dashd rendered stale usage/chat/activity that way for months).
-// openSiblingOwner opens another daemon's owner DB from env, defaulting to this
-// instance's store/<owner>/ layout. A missing file means that daemon's profile
-// is off — its dashd view banners "store unavailable" — so nil is the honest
-// answer; an open FAILURE on a file that exists is loud, because that is a
-// broken mount, not an absent profile.
+// <DATA_DIR>/store/routd.db. It REFUSES messages.db — a stale DB_PATH from an old
+// deployment must fail loudly at boot rather than silently serve frozen data, which
+// dashd did for months.
+// openSiblingOwner opens another daemon's owner DB from env. A missing file means
+// that daemon's profile is off, so nil is the honest answer; an open FAILURE on a
+// file that exists is loud, because that is a broken mount.
 func openSiblingOwner(env, dataDir, owner string) *sql.DB {
 	path := os.Getenv(env)
 	if path == "" {
@@ -507,13 +484,11 @@ func (d *dash) secretStore() *store.Store {
 // onbod.db (dbOnbod).
 func (d *dash) invitesDB() *sql.DB { return d.dbOnbod }
 
-// guard proves a request transited proxyd (auth.ProxydTransit: an authd-minted
-// service:proxyd ES256 bearer) before letting a handler trust the proxyd-stamped
-// X-User-Sub/-Groups identity. The bearer is a TRANSIT proof only — dashd's
-// authz reads X-User-Sub/-Groups directly, so we deliberately do NOT stamp the
-// bearer's own subject over them (it is service:proxyd, not the user); the
-// proxyd-stamped end-user headers flow through untouched. No verifier (nil ks →
-// local dev / tests) passes through open. Failure redirects to /auth/login.
+// guard proves a request transited proxyd before letting a handler trust the
+// proxyd-stamped identity. The bearer is a TRANSIT proof only — dashd's authz reads
+// X-User-Sub/-Groups directly, so we deliberately do NOT stamp the bearer's own
+// subject over them. No verifier passes through open; failure redirects to
+// /auth/login.
 func (d *dash) guard(next http.HandlerFunc) http.HandlerFunc {
 	if d.ks == nil {
 		return next
@@ -651,12 +626,10 @@ func handleHtmxAsset(w http.ResponseWriter, r *http.Request) {
 	w.Write(htmxJS)
 }
 
-// navLinks: nav order + href + label + operator-only flag. Path-prefix match
-// decides which gets aria-current. /dash/ is special-cased so child pages
-// don't all light up the home link. Operator-only links (invites) render only
-// for callers holding `**`; the scoped links (status/tasks/activity/groups/
-// routes/memory) always show — their pages filter to visible folders. Profile
-// is reached via the identity badge link, not a nav entry.
+// navLinks: nav order + href + label + operator-only flag. Path-prefix match decides
+// aria-current, with /dash/ special-cased so child pages don't light up the home
+// link. Operator-only links render only for callers holding `**`; the scoped links
+// always show, since their pages filter to visible folders.
 var navLinks = []struct {
 	Href, Label string
 	operator    bool
@@ -1370,12 +1343,10 @@ func memoryPathAllowed(rel string) bool {
 	return false
 }
 
-// parseMemoryPath splits /dash/memory/<folder>/<rel> into (folder, rel) where
-// folder may be multi-segment (corp/eng/sre) and rel is one of the allowlisted
-// memory files. Splitting on the first '/' (as before) misattributed nested
-// folders — corp/eng/MEMORY.md became folder=corp, rel=eng/MEMORY.md. Instead
-// scan split points from the right and pick the one whose trailing part is an
-// allowed memory path; everything before it is the folder.
+// parseMemoryPath splits /dash/memory/<folder>/<rel> into (folder, rel) where folder
+// may be multi-segment. Splitting on the first '/' misattributed nested folders, so
+// instead scan split points from the right and pick the one whose trailing part is
+// an allowed memory path.
 func parseMemoryPath(urlPath string) (string, string) {
 	const prefix = "/dash/memory/"
 	if !strings.HasPrefix(urlPath, prefix) {

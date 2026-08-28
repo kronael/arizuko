@@ -9,12 +9,10 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// Caller is the bearer of a request. Principal is the JWT subject as authd
-// minted it: for a human that is the ACCOUNT's canonical provider sub, already
-// resolved at mint from whichever linked login was presented (spec 5/32 §
-// Alias resolution). There is no resolve step here — Authorize evaluates the
-// principal it is handed, and `acl.principal` rows key on that same value.
-// Claims carry JWT claims used by row predicates.
+// Caller is the bearer of a request. Principal is the JWT subject as authd minted it:
+// for a human that is the ACCOUNT's canonical provider sub, already resolved at mint
+// (spec 5/32). There is no resolve step here — Authorize evaluates the principal it
+// is handed, and `acl.principal` rows key on that same value.
 type Caller struct {
 	Principal string
 	Claims    map[string]string
@@ -45,9 +43,8 @@ func Authorize(
 	// filtered against the expanded set with segment-wise glob).
 	//
 	// A read failure DENIES — but loudly. It used to be indistinguishable from
-	// "this principal holds no grants", so a broken acl table degraded every
-	// caller to no-access with nothing in the log to say why (BUGS A4). Denying
-	// is still correct; being silent about it was not.
+	// "this principal holds no grants", so a broken acl table degraded every caller
+	// to no-access with nothing in the log to say why (BUGS A4).
 	rows, err := policyRows(s, expanded)
 	if err != nil {
 		slog.Error("authorize: acl read failed; DENYING",
@@ -86,12 +83,10 @@ func Authorize(
 }
 
 // EffectiveActions returns a predicate reporting whether caller holds an allow row
-// for an mcp action at ANY scope — the tool-VISIBILITY view (tools/list), orthogonal
-// to the per-target authz Authorize does. A lattice grant (`*`, `mcp:*`, `admin`)
-// makes every mcp tool visible; an explicit `mcp:<tool>` allow makes that one
-// visible. Deny rows are scope-specific and don't hide a tool from the list (the
-// per-call Authorize still enforces them). Reads are advertised unconditionally by
-// their callers, never through this view.
+// for an mcp action at ANY scope — the tool-VISIBILITY view, orthogonal to the
+// per-target authz Authorize does. A lattice grant makes every mcp tool visible; an
+// explicit `mcp:<tool>` allow makes that one visible. Deny rows are scope-specific
+// and do not hide a tool from the list; the per-call Authorize still enforces them.
 func EffectiveActions(s *store.Store, caller Caller) func(action string) bool {
 	if s == nil || caller.Principal == "" {
 		return func(string) bool { return false }
@@ -124,21 +119,16 @@ func EffectiveActions(s *store.Store, caller Caller) func(action string) bool {
 	}
 }
 
-// UserScopes lists the distinct allow-scope patterns `sub` holds. It is the
-// source of the X-User-Groups header proxyd stamps and of authd's login-time
-// scope snapshot.
+// UserScopes lists the distinct allow-scope patterns `sub` holds — the source of the
+// X-User-Groups header proxyd stamps and of authd's login-time scope snapshot.
 //
-// It reads the SAME rows Authorize evaluates — expanded principals plus
-// wildcard-principal rows — rather than its own SQL, so it cannot drift from
-// the gate about WHICH rows exist. It previously lived in store/ as a raw
-// `principal IN (...)` query, which silently missed every wildcard-principal
-// grant (`google:*`).
+// It reads the SAME rows Authorize evaluates, rather than its own SQL, so it cannot
+// drift from the gate about WHICH rows exist. It previously lived in store/ as a raw
+// `principal IN (...)` query, which silently missed every wildcard-principal grant.
 //
-// It is a LISTING, and it can never be the decision. A []string carries no
-// action and cannot represent a deny row, so a scope appearing here means only
-// "some allow row grants it, at some action". Anything gating access MUST call
-// Authorize, which reads action, predicate, params and deny-wins; a caller that
-// treats this result as a verdict has built a second, weaker evaluator.
+// It is a LISTING, and it can never be the decision. A []string carries no action and
+// cannot represent a deny row, so anything gating access MUST call Authorize; a
+// caller that treats this result as a verdict has built a second, weaker evaluator.
 func UserScopes(s *store.Store, sub string) ([]string, error) {
 	if s == nil || sub == "" {
 		return nil, nil
@@ -378,26 +368,21 @@ const HoldPrefix = "hold:mcp:"
 // operator-facing wording ("skip approval") cannot drift apart.
 const EffectSkipApproval = "deny"
 
-// CheckHold answers "must this tool call wait for a human?" — a DIRECT scoped
-// read of `hold:mcp:`-prefixed rows, deliberately NOT routed through Authorize.
-// Authorize's action lattice has `*` cover everything and role:operator holds
-// `(*, **)`, so asking it would hold EVERY tool for the operator (spec 5/19
-// Hazard 2). Matching is exact on the action, with `hold:mcp:*` as the only
-// wildcard; scope, predicate and params reuse Authorize's own matchers, so
-// there is one predicate language, not two.
+// CheckHold answers "must this tool call wait for a human?" — a DIRECT scoped read of
+// `hold:mcp:`-prefixed rows, deliberately NOT routed through Authorize, whose action
+// lattice would hold EVERY tool for the operator (spec 5/19 Hazard 2). Matching is
+// exact on the action with `hold:mcp:*` as the only wildcard; scope, predicate and
+// params reuse Authorize's own matchers, so there is one predicate language.
 //
-// Deny-wins IS modelled, and a matching `effect='deny'` row means SKIP
-// APPROVAL — do not hold this shape. It denies the `hold:` action, not the
-// tool, and it is the only way an exception can be expressed: without it the
-// operator's "always allow this shape" has nowhere to live, and the obvious
-// alternative (an allow row on plain `mcp:<tool>`) is Hazard 1 — Authorize
-// reads every non-deny effect as ALLOW, so it would grant the tool while the
-// hold still fired. Every surface calls this "skip approval"; only the wire
-// says `deny` (spec 6/26 § Decision 5).
+// Deny-wins IS modelled, and a matching `effect='deny'` row means SKIP APPROVAL. It
+// denies the `hold:` action, not the tool, and it is the only way an exception can be
+// expressed: the obvious alternative (an allow row on plain `mcp:<tool>`) is Hazard 1
+// — Authorize reads every non-deny effect as ALLOW, so it would grant the tool while
+// the hold still fired. Every surface calls this "skip approval"; only the wire says
+// `deny` (spec 6/26 § Decision 5).
 //
-// Any matching deny beats every hold rule regardless of specificity or order,
-// so revocation is removing the skip-approval row — a later, narrower hold
-// cannot restore the approval.
+// Any matching deny beats every hold rule regardless of specificity, so revocation is
+// removing the skip-approval row.
 func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[string]string) bool {
 	if s == nil || caller.Principal == "" || tool == "" {
 		return false

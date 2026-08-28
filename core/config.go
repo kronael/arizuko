@@ -69,20 +69,16 @@ type Config struct {
 	HostGroupsDir   string
 	WebDir          string
 
-	// MountAllowedRoots is the operator-level gate for GroupConfig.Mounts.
-	// Comma-separated host paths; only paths under these roots may be
+	// MountAllowedRoots is the operator-level gate for GroupConfig.Mounts:
+	// comma-separated host paths, and only paths under these roots may be
 	// bind-mounted into agent containers. All additional mounts are read-only
-	// unless the root also sets AllowReadWrite (not exposed via env — set via
-	// code if needed). Empty → deny all additional mounts (default).
-	// Set via MOUNT_ALLOWED_ROOTS env var.
+	// unless the root also sets AllowReadWrite. Empty → deny all.
 	MountAllowedRoots []string
 
-	// HostCodexDir, when non-empty, bind-mounts a host-side codex login
-	// state dir (typically `~/.codex` on the host) into each spawned
-	// agent at /home/node/.codex (rw). Lets agents using the `oracle`
-	// skill share the operator's `codex login` ChatGPT/API auth without
-	// per-folder secrets. Empty disables the mount; agents fall back to
-	// CODEX_API_KEY / OPENAI_API_KEY env vars from folder secrets.
+	// HostCodexDir, when non-empty, bind-mounts a host-side codex login state
+	// dir into each spawned agent at /home/node/.codex (rw), so agents share the
+	// operator's `codex login` auth without per-folder secrets. Empty disables the
+	// mount; agents fall back to CODEX_API_KEY / OPENAI_API_KEY.
 	HostCodexDir string
 
 	APIPort              int
@@ -143,12 +139,9 @@ type Config struct {
 	MaxOutboundRetry int
 
 	// SecretsKey is the AES-256-GCM keyring for the secrets table (spec 5/14).
-	// Required by routd (the secrets-table owner) — secrets are encrypted at
-	// rest, no plaintext mode and no AUTH_SECRET fallback. routd refuses to
-	// start without it, and store.storeValue refuses every write, so no daemon
-	// can persist a secret in plaintext. Comma-separate to rotate: the first
-	// key seals new writes, the rest decrypt-only (retired).
-	// Parse with SecretKeyring.
+	// Required by routd — secrets are encrypted at rest, with no plaintext mode and
+	// no AUTH_SECRET fallback. Comma-separate to rotate: the first key seals new
+	// writes, the rest decrypt-only. Parse with SecretKeyring.
 	SecretsKey string
 }
 
@@ -168,12 +161,11 @@ func SecretKeyring(raw string) [][]byte {
 // ErrNoSecretsKey reports an absent or blank SECRETS_KEY.
 var ErrNoSecretsKey = errors.New("SECRETS_KEY required: secrets are encrypted at rest; set SECRETS_KEY in the instance .env")
 
-// RequireSecretKeyring parses SECRETS_KEY and REFUSES an empty result. Every
-// caller that writes secrets uses it, so one rule decides the question: routd
-// (the table owner) at boot, and the operator CLI before it opens the store.
-// store.storeValue enforces the same rule at the write itself. An earlier build
-// only logged a warning, so an un-keyed instance persisted every secret readable
-// on disk while each healthcheck reported it healthy (BUGS S2).
+// RequireSecretKeyring parses SECRETS_KEY and REFUSES an empty result, so one rule
+// decides the question for every caller that writes secrets. store.storeValue
+// enforces the same rule at the write itself. An earlier build only logged a warning,
+// so an un-keyed instance persisted every secret readable on disk while each
+// healthcheck reported it healthy (BUGS S2).
 func RequireSecretKeyring(raw string) ([][]byte, error) {
 	kr := SecretKeyring(raw)
 	if len(kr) == 0 {
@@ -373,19 +365,16 @@ func parseCSV(s string) []string {
 	return out
 }
 
-// PublicBaseURL turns a configured WEB_HOST into a base URL that always carries
-// a scheme, so callers can concatenate a path onto it.
+// PublicBaseURL turns a configured WEB_HOST into a base URL that always carries a
+// scheme, so callers can concatenate a path onto it.
 //
-// WEB_HOST is a BARE hostname on every live instance (krons.fiu.wtf,
-// sloth.quantblue.tech, fab.krons.cx) while AUTH_BASE_URL carries the scheme.
-// Concatenating a path onto the bare value hands the user "krons.fiu.wtf/pair/x":
-// Telegram autolinks a bare domain, but WhatsApp and most clients do not, and a
-// browser resolves it as a relative path. Normalising here is the one place —
-// never a per-call-site "https://" prefix (BUGS F43).
+// WEB_HOST is a BARE hostname on every live instance while AUTH_BASE_URL carries the
+// scheme. Concatenating a path onto the bare value hands the user
+// "krons.fiu.wtf/pair/x": Telegram autolinks a bare domain, most clients do not, and
+// a browser resolves it as a relative path. Normalising here is the one place, never
+// a per-call-site "https://" prefix (BUGS F43).
 //
-// A value that already carries a scheme is returned unchanged (trailing "/"
-// trimmed), so an operator who sets WEB_HOST to a full URL is not double-schemed.
-// localhost/127.0.0.1 get http — no local dev instance serves TLS.
+// A value that already carries a scheme is returned unchanged; localhost gets http.
 func PublicBaseURL(webHost string) string {
 	host := strings.TrimRight(strings.TrimSpace(webHost), "/")
 	switch {
