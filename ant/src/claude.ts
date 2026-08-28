@@ -1,11 +1,7 @@
-// Drives Claude Code via @anthropic-ai/claude-agent-sdk query() — the claude
-// harness, and the default occupant. ant never implements an agent loop
-// itself: model calls, tool execution, retries and session state all live in
-// the harness; this module only spawns it, normalizes its message stream into
-// frames, and hands the turn back to index.ts, which reports it once over
-// submit_turn. The seam it implements is backend.ts (spec 6/7 § "The harness
-// seam"); the canonical replaceable seam stays the MCP socket at the process
-// boundary (spec 5/P § "The container model").
+// claude.ts — the claude harness (spec 6/7), and the default occupant. Drives
+// Claude Code via the agent SDK's query(): model calls, tool execution, retries
+// and session state all live in the harness; this module spawns it and
+// normalizes its message stream into frames.
 
 import fs from 'fs';
 import os from 'os';
@@ -23,15 +19,12 @@ import type { Frame, Harness, ResultFrame, Turn } from './backend.js';
 const HOME = '/home/node';
 
 // A resumable Claude Code session id is a UUID. arizuko's lineage placeholders
-// (sess-<nano>, fork hex) are not, and `claude --resume` rejects them — so they
-// must be treated as "no session yet" (start fresh), not passed to --resume.
+// (sess-<nano>, fork hex) are not, and `claude --resume` rejects them.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// The continuity token is claude's own pack: a bare session UUID (what the
-// platform hands back across spawns — routd's lineage row stores the plain
-// sessionId frames carry), or sessionId#resumeAt intra-run so the next
-// inner-loop turn resumes at the last assistant message. '#' never appears in
-// a UUID, so the pack is unambiguous. The chassis never parses this.
+// The continuity token is claude's own pack: a bare session UUID, or
+// sessionId#resumeAt intra-run so the next inner-loop turn resumes at the last
+// assistant message. '#' never appears in a UUID. The chassis never parses this.
 export function packContinuity(sessionId: string, resumeAt?: string): string {
   return resumeAt ? `${sessionId}#${resumeAt}` : sessionId;
 }
@@ -53,13 +46,10 @@ export function transcriptPath(sessionId: string): string {
 }
 
 // resolveResumeSession maps a stored session id to what `--resume` should get,
-// returning undefined ("start fresh") when the id is not resumable:
-//  - an id that is not a UUID is an arizuko lineage placeholder
-//    (sess-<nano> / fork hex) — `claude --resume` rejects it;
-//  - a UUID whose transcript is absent on disk (never persisted, or pruned by
-//    Claude Code retention) — resuming it returns "No conversation found" →
-//    error_during_execution + silent context loss (BUGS: stale chat-bound
-//    session). Start fresh silently instead of burning a turn on the resume miss.
+// returning undefined ("start fresh") when the id is not resumable: a non-UUID
+// arizuko placeholder, or a UUID whose transcript is absent on disk. Resuming
+// the latter returns "No conversation found" → error_during_execution and silent
+// context loss.
 export function resolveResumeSession(
   sessionId: string | undefined,
   hasTranscript: (id: string) => boolean,
@@ -77,11 +67,9 @@ export function resolveResumeSession(
 }
 
 // isRateLimitRejected reports whether an SDKRateLimitEvent means the turn is
-// actually throttled (status 'rejected'), vs. an 'allowed'/'allowed_warning'
-// informational usage update, which fires far more often and needs no
-// user-facing notice. BUGS: rate_limit was the top failure signal (195/2d) —
-// most of that volume is informational; only 'rejected' means the user's turn
-// actually went silent.
+// actually throttled (status 'rejected'), vs an informational usage update.
+// rate_limit was the top failure signal (195/2d) and most of that volume is
+// informational; only 'rejected' means the user's turn went silent.
 export function isRateLimitRejected(raw: Record<string, unknown>): boolean {
   const info = raw.rate_limit_info as { status?: string } | undefined;
   return info?.status === 'rejected';
@@ -89,10 +77,9 @@ export function isRateLimitRejected(raw: Record<string, unknown>): boolean {
 
 const MAX_QUEUE = 100;
 // Standard-context Opus is the platform default — subscription-covered, never
-// the 1M-context beta (which needs usage credits the subscription excludes).
-// Leaving model undefined lets the SDK pick its own default, which now resolves
-// to a 1M-context model → "Usage credits required for 1M context" on every turn.
-// A group may still override via turn.model.
+// the 1M-context beta, which needs usage credits the subscription excludes.
+// Leaving model undefined lets the SDK pick a 1M-context model → "Usage credits
+// required for 1M context" on every turn.
 const DEFAULT_MODEL = 'claude-opus-5';
 
 interface SDKUserMessage {
@@ -197,10 +184,8 @@ function getSessionSummary(sessionId: string, transcriptPath: string): string | 
 }
 
 // assistantNameFromSettings reads the name the PreCompact archival hook signs
-// transcripts with. seedSettings writes ARIZUKO_ASSISTANT_NAME into the
-// settings env block (container/runner.go) — the same file ant already reads
-// for outputStyle; it is NOT real container env (only -e vars are), so
-// process.env never carries it. Claude wiring, so it lives here, not the seam.
+// transcripts with. seedSettings writes it into the settings env block, which is
+// NOT real container env, so process.env never carries it.
 function assistantNameFromSettings(): string | undefined {
   try {
     const s = JSON.parse(fs.readFileSync(`${HOME}/.claude/settings.json`, 'utf-8'));
@@ -212,14 +197,12 @@ function assistantNameFromSettings(): string | undefined {
 }
 
 // extraDirs lists the additional context directories for one turn: the shared
-// read-only tree (skipped on an elevated /root turn, which mounts
-// /var/lib/groups instead) and every operator mount under /mnt. Claude wiring
-// — the SDK's additionalDirectories — so it lives here, not the seam.
+// read-only tree (skipped on an elevated /root turn) and every operator mount
+// under /mnt.
 function extraDirs(env: Record<string, string>): string[] {
   const dirs: string[] = [];
   // 4/R: root is an operator /root elevation, NOT a folder shape — a top-level
-  // world has no slash but is NOT root. Read the elevation marker the gateway
-  // sets, never derive it from the path.
+  // world has no slash but is NOT root. Read the marker, never derive it.
   const isRoot = env.ARIZUKO_IS_ROOT === '1';
   if (!isRoot && fs.existsSync('/var/lib/share')) dirs.push('/var/lib/share');
   try {
@@ -268,10 +251,8 @@ function createPreCompactHook(assistantName?: string): HookCallback {
 }
 
 // claudeHooks is the claude RENDERER (spec 6/7): it turns policy.ts's binding
-// table into the SDK's hooks object. This is the only place ant translates a
-// Verdict into claude's wire shape — codex.ts and pi-extension.ts render the
-// same rows into theirs. claude honours all four verdicts, so no row is refused
-// here.
+// table into the SDK's hooks object. claude honours all four verdicts, so no row
+// is refused here.
 function claudeHooks(rows: Binding[]): Record<PolicyEvent, Array<{ matcher?: string; hooks: HookCallback[] }>> {
   const forEvent = (event: PolicyEvent) =>
     rows
@@ -338,10 +319,8 @@ export function claudeResultStatus(
   return result?.trim() === 'Not logged in · Please run /login' ? 'error' : 'success';
 }
 
-// assistantText flattens an SDK assistant message's text parts, mirroring
-// parseTranscript's assistant branch. This is claude's raw shape
-// (message.content[]) — reading it anywhere outside this file was the
-// <status> bug: codex's raw has no such nesting.
+// assistantText flattens an SDK assistant message's text parts. This is claude's
+// raw shape — reading it anywhere outside this file was the <status> bug.
 function assistantText(raw: Record<string, unknown>): string {
   const content = (raw as { message?: { content?: unknown } }).message?.content;
   if (!Array.isArray(content)) return '';
@@ -351,13 +330,11 @@ function assistantText(raw: Record<string, unknown>): string {
     .join('');
 }
 
-// RATE_LIMIT_NOTICE is emitted as a <status> block so it rides the one
-// interim-status pipeline (chassis extracts, dedups once per turn, submits).
+// RATE_LIMIT_NOTICE rides the one interim-status pipeline.
 const RATE_LIMIT_NOTICE = "<status>⏳ Hit a rate limit — I'll continue shortly.</status>";
 
-// ClaudeTurn reduces the SDK message stream to frames. Pure — the load-bearing
-// mapping, directly testable; the surrounding path runs inside the SDK's
-// query(), which needs real credentials (BUGS F6.3).
+// ClaudeTurn reduces the SDK message stream to frames. Pure — the surrounding
+// path runs inside query(), which needs real credentials (BUGS F6.3).
 export class ClaudeTurn {
   // sessionId is captured from system/init so continuity frames and the
   // max-turns summary subquery can name the session.
@@ -374,9 +351,9 @@ export class ClaudeTurn {
     }
     if (m.type === 'assistant') {
       const frames: Frame[] = [];
-      // Each assistant message advances the resume point: the packed token
-      // lets the next inner-loop turn resume AT this message (resumeSessionAt)
-      // instead of after trailing tool noise.
+      // Each assistant message advances the resume point: the packed token lets the
+      // next inner-loop turn resume AT this message instead of after trailing tool
+      // noise.
       const uuid = (raw as { uuid?: string }).uuid;
       if (uuid && this.sessionId) {
         frames.push({
@@ -400,9 +377,8 @@ export class ClaudeTurn {
         ok: status === 'success',
         text,
         usage: extractModelUsage((raw as { modelUsage?: unknown }).modelUsage),
-        // A resume miss ("No conversation found") surfaces as this subtype; it
-        // is a retry signal, never a user-facing reply (BUGS: stale
-        // chat-bound session).
+        // A resume miss ("No conversation found") surfaces as this subtype; it is a
+        // retry signal, never a user-facing reply.
         retryFresh: m.subtype === 'error_during_execution' || undefined,
       }];
     }
@@ -442,9 +418,8 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
   const stream = new MessageStream();
   stream.push(turn.prompt);
   const abortController = new AbortController();
-  // Set only when the abort came from the query-timeout deadline. Read below
-  // to deliver a graceful summary instead of letting the aborted for-await
-  // throw into a code-1 silent exit.
+  // Set only when the abort came from the query-timeout deadline, so the aborted
+  // for-await delivers a graceful summary instead of a code-1 silent exit.
   let timedOut = false;
   const timer = setTimeout(() => {
     log(`Query timeout (${QUERY_TIMEOUT_MS}ms) reached, aborting`);
@@ -452,8 +427,8 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
     abortController.abort();
     stream.end();
   }, QUERY_TIMEOUT_MS);
-  // The platform winding down (close sentinel) ends the prompt stream so the
-  // SDK concludes gracefully — the pre-seam Session.close() behavior.
+  // The platform winding down (close sentinel) ends the prompt stream so the SDK
+  // concludes gracefully.
   const onAbort = () => stream.end();
   turn.signal?.addEventListener('abort', onAbort, { once: true });
 
@@ -466,37 +441,30 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
         cwd: turn.cwd,
         additionalDirectories: (() => { const d = extraDirs(turn.env); return d.length > 0 ? d : undefined; })(),
         resume,
-        // resumeAt travels only inside the packed token, so a fresh start
-        // (resume undefined) never carries a stale resume point.
+        // resumeAt travels only inside the packed token, so a fresh start never carries
+        // a stale resume point.
         resumeSessionAt: resume ? resumeAt : undefined,
-        // The chassis renders the text layers; absent means claude's own
-        // preset — the SDK union is claude wiring, kept out of the seam.
+        // The chassis renders the text layers; absent means claude's own preset.
         systemPrompt: turn.systemPrompt ?? { type: 'preset' as const, preset: 'claude_code' as const },
         model: turn.model || DEFAULT_MODEL,
-        // No allowedTools allowlist: under bypassPermissions every tool is
-        // available with no prompt (allowedTools is only an auto-approve hint,
-        // not a restriction). arizuko gates side effects at the gated MCP
-        // socket + the egress proxy, never Claude Code's permission layer.
+        // No allowedTools allowlist: under bypassPermissions every tool is available
+        // with no prompt (allowedTools is only an auto-approve hint, not a restriction).
+        // arizuko gates side effects at the gated MCP socket and the egress proxy.
         // sandbox off for the same reason — the container IS the sandbox.
         sandbox: { enabled: false },
         env: turn.env,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         settingSources: ['project', 'user'],
-        // strictMcpConfig: mcpServers below is the ONLY server map. Without
-        // it the SDK also reads `.mcp.json` from the query cwd — which for a
-        // turn IS /home/node, a directory the agent writes. That server would
-        // be dialled straight from the SDK, never through ipc.serveConn, so
-        // no hold:mcp:<tool> rule could suspend it and no audit row would
-        // exist. It is the same self-grant J1 closed on settings.json, via a
-        // second door (BUGS J14). Third-party MCP arrives through plugins and
-        // connectors, both of which route through the arizuko socket.
+        // strictMcpConfig: mcpServers below is the ONLY server map. Without it the SDK
+        // also reads `.mcp.json` from the query cwd — which for a turn IS /home/node, a
+        // directory the agent writes. That server would be dialled straight from the
+        // SDK, never through ipc.serveConn, so no hold:mcp:<tool> rule could suspend it
+        // and no audit row would exist (BUGS J14).
         strictMcpConfig: true,
         mcpServers: turn.tools ?? {},
-        // PreCompact is a turn-boundary hook, not a tool policy, so it stays
-        // wired here. Everything tool-scoped comes from policy.ts's one table —
-        // read `bindings()` and you have the agent's whole capability surface,
-        // on every harness, not just this one.
+        // PreCompact is a turn-boundary hook, not a tool policy. Everything tool-scoped
+        // comes from policy.ts's one table.
         hooks: {
           PreCompact: [{ hooks: [createPreCompactHook(assistantNameFromSettings())] }],
           ...claudeHooks(bindings({ home: os.homedir(), turnID: turn.turnID })),
@@ -508,12 +476,10 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
         const tn = message as { task_id: string; status: string; summary: string };
         log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
       }
-      // A result terminates the turn: close the prompt stream so the SDK
-      // generator concludes.
+      // A result terminates the turn: close the prompt stream so the SDK concludes.
       if (m.type === 'result') stream.end();
-      // error_max_turns is a claude-specific terminal state: the harness ran
-      // out of turns mid-task. Run a short summary subquery and emit a success
-      // result carrying the summary, so the chassis delivers exactly one turn.
+      // error_max_turns is claude-specific: the harness ran out of turns mid-task. Run
+      // a summary subquery and emit one success result carrying it.
       if (m.type === 'result' && m.subtype === 'error_max_turns') {
         const summary = await summarizeMaxTurns(reducer.sessionId);
         // No session to resume → deliver nothing (pre-seam behavior).
@@ -523,16 +489,15 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
       yield* reducer.push(message);
     }
   } catch (err) {
-    // The query-timeout abort surfaces here as a thrown AbortError. Without
-    // this catch it propagated out of the runtime → container exit code 1 →
-    // the user got NO reply (silent failure on a long turn). Deliver exactly
-    // one graceful result instead. A manual interrupt (no timedOut flag)
-    // re-throws to preserve the pre-seam behavior; runed's hard kill bounds it.
+    // The query-timeout abort surfaces here as a thrown AbortError. Without this
+    // catch it propagated out of the runtime → container exit 1 → the user got NO
+    // reply. A manual interrupt (no timedOut flag) re-throws; runed's hard kill
+    // bounds it.
     if (!timedOut) throw err;
     log('Query timeout: delivering graceful summary instead of aborting silently');
     const summary = await summarizeMaxTurns(reducer.sessionId);
-    // No resumable session for a summary subquery → the shared minimal
-    // graceful turn; the user still gets one reply, never silence.
+    // No resumable session for a summary subquery → the shared minimal graceful
+    // turn; the user still gets one reply, never silence.
     yield summary ? { ...summary, timedOut: true } : timeoutFrame();
   } finally {
     clearTimeout(timer);

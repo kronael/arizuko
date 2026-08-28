@@ -1,8 +1,6 @@
-// The Claude Code harness drives every production turn, and its message
-// mapping was covered only indirectly (BUGS F6.3). The surrounding path runs
-// inside the SDK's query(), which needs real credentials, so the coverage is a
-// direct test of ClaudeTurn — the load-bearing part — plus the continuity
-// token pack and the resume guard for the stale chat-bound session bug.
+// The Claude Code harness drives every production turn and its message mapping
+// was covered only indirectly (BUGS F6.3). The surrounding path runs inside the
+// SDK's query(), which needs real credentials, so this tests ClaudeTurn directly.
 
 import { test, expect } from 'bun:test';
 import path from 'path';
@@ -117,9 +115,7 @@ test('ClaudeTurn: a success result is an ok frame with usage', () => {
   expect(r.text).toBe('the answer');
   expect(r.retryFresh).toBeUndefined();
   // costUSD → cost_cents is × 100 then ROUNDED (spec 11/19). 0.0456 → 4.56 → 5;
-  // truncation would give 4, so this value discriminates the two. The cache
-  // fields cross names — cacheReadInputTokens → cache_read,
-  // cacheCreationInputTokens → cache_write — and 7 ≠ 3 catches a swap.
+  // truncation would give 4. The cache fields cross names, and 7 ≠ 3 catches a swap.
   expect(r.usage?.['claude-opus-5']).toEqual({
     input: 100, output: 20, cache_read: 7, cache_write: 3, cost_cents: 5,
   });
@@ -146,10 +142,9 @@ test('claudeResultStatus preserves normal result status', () => {
   expect(claudeResultStatus('error_max_turns', 'stopped')).toBe('error');
 });
 
-// The logged-out harness returns subtype 'success' with the /login prompt as
-// its result text; a frame that carried ok:true would deliver that prompt to
-// the user as the agent's answer — the shape of the fleet-wide outage after
-// the v0.62 env regeneration.
+// The logged-out harness returns subtype 'success' with the /login prompt as its
+// result text; ok:true would deliver that prompt to the user as the answer —
+// the fleet-wide outage after the v0.62 env regeneration.
 test('ClaudeTurn routes the not-logged-in result through claudeResultStatus', () => {
   const frames = new ClaudeTurn().push({
     type: 'result', subtype: 'success', result: 'Not logged in · Please run /login',

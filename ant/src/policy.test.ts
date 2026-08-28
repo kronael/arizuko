@@ -8,10 +8,8 @@ import { STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
 const ctx = { home: '/home/node', turnID: 'turn-1' };
 
-// The table replaced guards.ts's registry as the answer to "what is the agent
-// running under?" — and it now answers it for all three harnesses, not one.
-// Pin it so a capability cannot be quietly unregistered (the blind spot BUGS
-// J8 lived in).
+// The table answers "what is the agent running under?" for all three harnesses.
+// Pin it so a capability cannot be quietly unregistered (the BUGS J8 blind spot).
 describe('the binding table is the whole capability surface', () => {
   test('every row is named, placed and bounded', () => {
     expect(bindings(ctx).map((b) => [b.id, b.event, b.matcher ?? '*', b.returns.join('|')])).toEqual([
@@ -121,9 +119,8 @@ describe('the system layer is written before codex starts', () => {
 });
 
 // A guard that bricks the turn when it throws is worse than the threat it was
-// added for — and pi would otherwise diverge: its docs make a throwing
-// tool_call handler BLOCK the tool, so an exception there fails closed while
-// claude and codex fail open.
+// added for — and pi would otherwise diverge: its docs make a throwing tool_call
+// handler BLOCK the tool.
 describe('a policy that throws allows, on every harness', () => {
   const boom = {
     id: 'boom', event: 'PreToolUse', returns: ['deny'],

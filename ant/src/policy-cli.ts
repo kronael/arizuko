@@ -1,10 +1,8 @@
-// policy-cli.ts — the codex renderer's other half.
-//
-// codex registers a hook as a COMMAND, so a policy living in ant's process is
-// unreachable from it. This is the bridge: codex runs
-// `node /tmp/dist/policy-cli.js <event> <turn-id>`, hands the event on stdin,
-// and reads the merged verdict on stdout. One process per EVENT, not per row —
-// the rows are looped in here, where looping is free.
+// policy-cli.ts — the codex renderer's other half. codex registers a hook as a
+// COMMAND, so a policy living in ant's process is unreachable from it. codex
+// runs `node /tmp/dist/policy-cli.js <event> <turn-id>`, hands the event on
+// stdin, and reads the merged verdict on stdout. One process per EVENT, not per
+// row.
 //
 // It must never fail loudly: a non-zero exit or malformed stdout makes codex
 // treat the tool call as blocked, so a bug in a log line would refuse the
@@ -35,8 +33,7 @@ async function main(): Promise<void> {
 }
 
 // No process.exit: it can truncate a stdout write still in flight, and codex
-// reads that write to decide whether the tool call proceeds. The process ends
-// on its own once stdin closes.
+// reads that write to decide whether the tool call proceeds.
 main().catch((err) => {
   console.error(`[ant] policy-cli: ${err instanceof Error ? err.message : String(err)}`);
   process.stdout.write('{}');

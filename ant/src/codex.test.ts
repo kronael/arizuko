@@ -52,9 +52,8 @@ test('CodexTurn: the recorded stream yields continuity, status, then one ok resu
 });
 
 // The live <status> bug (spec 6/7): the pre-seam runtime parsed claude's raw
-// message shape for interim text, which codex's {item:{text}} raw does not
-// have — so codex streamed NO interim status. Under the seam the interim text
-// rides the status frame and the chassis's one extraction site sees it.
+// message shape, which codex's {item:{text}} raw does not have — so codex
+// streamed NO interim status.
 test('codex interim text reaches the <status> pipeline', () => {
   const turn = new CodexTurn();
   const frames = turn.push({
@@ -150,10 +149,8 @@ test('codexPrompt: system text and skills index precede the untouched envelope',
 });
 
 // Layer 1 for codex. Verified against codex-cli 0.147.0 on 2026-08-20: a
-// persisted turn returned thread_id 01a02008-…, and `codex exec resume
-// <id>` recalled a word given only in the earlier turn, reading 29,184
-// cached input tokens. `--ephemeral` (which the connector used to pass
-// unconditionally) writes no rollout, so there is nothing to resume.
+// persisted turn returned a thread_id and `codex exec resume <id>` recalled a
+// word given only in the earlier turn. `--ephemeral` writes no rollout.
 test('codexArgs: no continuity keeps the fresh-session shape', () => {
   const args = codexArgs({ cwd: '/home/node' });
   expect(args[0]).toBe('exec');

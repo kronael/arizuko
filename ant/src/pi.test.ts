@@ -1,8 +1,6 @@
-// pi harness mapping, tested against RECORDED `pi -p --mode json` streams
-// (pi 0.51.6, captured 2026-08-20). Both live captures errored (the serve
-// endpoints were down — itself a recorded failure shape); the success shape
-// is constructed from pi-ai's published types (StopReason "stop", content
-// text parts), the one part a fixture could not supply.
+// pi harness mapping, tested against RECORDED `pi -p --mode json` streams (pi
+// 0.51.6, captured 2026-08-20). Both live captures errored, so the success shape
+// is constructed from pi-ai's published types.
 
 import { test, expect } from 'bun:test';
 import { PiTurn, piArgs } from './pi.js';
@@ -85,10 +83,9 @@ test('PiTurn: a success stream yields status text and one ok result with usage',
   });
 });
 
-// Each assistant message carries that one model call's usage, so a
-// multi-message turn reports the SUM — keeping only the last message dropped
-// every earlier call's tokens, and per-message cent rounding zeroed a turn of
-// sub-cent calls.
+// Each assistant message carries that one model call's usage, so a multi-message
+// turn reports the SUM — keeping only the last dropped every earlier call, and
+// per-message cent rounding zeroed a turn of sub-cent calls.
 test('PiTurn: usage accumulates across assistant messages, rounded once', () => {
   const turn = new PiTurn();
   play(turn, [

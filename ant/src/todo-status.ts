@@ -1,11 +1,7 @@
-// Live tasklist status: a PostToolUse policy on the TodoWrite tool renders
-// the whole task list into ONE "⏳ …" status message per turn (spec 5/24).
-// Progress reporting is deterministic bookkeeping over the agent's own todo
-// list — the harness emits it, so it never depends on the model remembering to
-// narrate progress (the old `progress` skill). routd edits the same message in
-// place on each update, so the user sees a live checklist, not a stream of pings.
-//
-// A policy must never throw — all errors are swallowed.
+// todo-status.ts — a PostToolUse policy on TodoWrite renders the whole task list
+// into ONE "⏳ …" status message per turn (spec 5/24). routd edits the same
+// message in place on each update, so the user sees a live checklist. A policy
+// must never throw — all errors are swallowed.
 
 import { ALLOW, ToolEvent, Verdict } from './policy.js';
 import { submitStatus, type SubmitStatusPayload } from './mcp.js';
@@ -45,10 +41,8 @@ export function extractTodos(toolInput: unknown): Todo[] | null {
   return out.length > 0 ? out : null;
 }
 
-// createTodoStatusHook returns a PostToolUse hook that, on each TodoWrite,
-// forwards the rendered checklist to routd as a mid-turn status. turnID is the
-// arizuko turn id (empty → no-op). send is injectable for tests; defaults to the
-// real submit_status RPC.
+// todoStatus forwards the rendered checklist to routd as a mid-turn status on
+// each TodoWrite. turnID empty → no-op. send is injectable for tests.
 export function todoStatus(
   turnID: string,
   send: (p: SubmitStatusPayload) => Promise<void> = submitStatus,

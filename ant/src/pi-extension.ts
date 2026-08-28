@@ -1,10 +1,7 @@
-// pi-extension.ts — the pi renderer (spec 6/7).
-//
-// pi's hooks are in-process TypeScript and pi loads an extension by explicit
-// path (`-e`), which keeps working under `--no-extensions`. So this file
-// imports the same binding table claude and codex render, and registers the two
-// events it maps to. Nothing is generated; the only translation is pi's field
-// names.
+// pi-extension.ts — the pi renderer (spec 6/7). pi's hooks are in-process
+// TypeScript and it loads an extension by explicit path (`-e`), which keeps
+// working under `--no-extensions`. So this file imports the same binding table
+// claude and codex render; the only translation is pi's field names.
 
 import os from 'os';
 import path from 'path';
@@ -33,23 +30,20 @@ interface PiApi {
   on(event: 'tool_result', fn: (ev: PiToolResultEvent) => Promise<{ content: unknown[] } | undefined>): void;
 }
 
-// canonicalToolName maps pi's names onto the ones claude and codex share. pi
-// calls them bash/write/edit where the others say Bash/Write/Edit — a pure case
-// difference, so upper-casing the first letter is the whole mapping. It happens
-// HERE, once, because the policy bodies compare canonical names too: skillguard
-// reads `toolName === 'Write'` to find the fragment a write carries, so a
-// lower-case name reached the guard with nothing to scan and passed.
+// canonicalToolName maps pi's names onto the ones claude and codex share: pi
+// says bash/write/edit, a pure case difference. It happens HERE because the
+// policy bodies compare canonical names — skillguard reads `toolName === 'Write'`
+// to find the fragment a write carries, so a lower-case name reached the guard
+// with nothing to scan and passed.
 export function canonicalToolName(name: string): string {
   return name ? name[0].toUpperCase() + name.slice(1) : name;
 }
 
-// canonicalInput maps pi's input keys onto the canonical (claude/codex) ones
-// the policy bodies read. pi's write is {path, content} and its edit is
-// {path, oldText, newText} (tools/write.d.ts, edit.d.ts — pi 0.51.6), so a
-// guard reading `file_path` got '' and ALLOWED every pi write — a gate that
-// silently did nothing, on the tool the skill-guard exists for. pi also
-// accepts paths relative to the session cwd; the guard's path check needs
-// them absolute, and process.cwd() here IS that cwd.
+// canonicalInput maps pi's input keys onto the canonical ones. pi's write is
+// {path, content} and its edit is {path, oldText, newText}, so a guard reading
+// `file_path` got '' and ALLOWED every pi write — a gate that silently did
+// nothing, on the tool the skill-guard exists for. pi also accepts paths
+// relative to the session cwd, and the guard's path check needs them absolute.
 export function canonicalInput(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
   const abs = (p: unknown) => (typeof p === 'string' && p !== '' ? path.resolve(p) : '');
   if (toolName === 'Write' || toolName === 'Read') {
@@ -79,8 +73,7 @@ function toToolEvent(ev: PiToolCallEvent, event: ToolEvent['hook_event_name'], r
 
 // registerWith takes the context explicitly. The ambient os.homedir() read
 // happens in the default export and nowhere else: skill-rescan RENAMES files
-// under <home>/.claude/skills, so a caller that cannot choose the home cannot
-// be tested without quarantining the developer's own skills.
+// under <home>/.claude/skills.
 export function registerWith(pi: PiApi, ctx: PolicyContext): void {
   const rows = runnableBy(bindings(ctx), PI_HONOURS, (m) => console.error(`[ant:pi] ${m}`));
 
@@ -92,18 +85,15 @@ export function registerWith(pi: PiApi, ctx: PolicyContext): void {
   pi.on('tool_result', async (ev) => {
     const verdict = await runRows(rows, 'PostToolUse', toToolEvent(ev, 'PostToolUse', ev.content));
     if (verdict.kind !== 'inject') return undefined;
-    // pi's only channel back into the turn is the tool result itself, so the
-    // injected context rides along with the output the model already reads.
-    // ev.content is pi's (TextContent|ImageContent)[] (types.d.ts, pi 0.51.6)
-    // and is kept verbatim — stringifying it printed "[object Object]" in
-    // place of the real tool output on every steering injection.
+    // pi's only channel back into the turn is the tool result itself. ev.content is
+    // pi's (TextContent|ImageContent)[] and is kept verbatim — stringifying it
+    // printed "[object Object]" in place of the real tool output.
     const existing = Array.isArray(ev.content) ? ev.content : [];
     return { content: [...existing, { type: 'text', text: verdict.context }] };
   });
 }
 
-// turnID is empty: pi has no live-checklist path (that row matches TodoWrite, a
-// tool pi does not have), so nothing here needs the arizuko turn id.
+// turnID is empty: pi has no TodoWrite, so nothing here needs the turn id.
 export default function (pi: PiApi): void {
   registerWith(pi, { home: os.homedir(), turnID: '' });
 }

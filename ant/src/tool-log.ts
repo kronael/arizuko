@@ -1,10 +1,8 @@
-// Per-tool-call logging: emits one [ant] [tool] {json} line to stderr per
-// PreToolUse and PostToolUse event. Captured by container/runner.go which
-// scans the agent container's stderr for [ant] prefix and forwards to slog.
-//
-// Hooks must never block or throw — swallow all errors. Secrets are dropped
-// at the args_summary boundary: Bash.command is truncated to 200 chars,
-// Edit/Write/Read use file_path only, content bodies are never logged.
+// tool-log.ts — one [ant] [tool] {json} line to stderr per PreToolUse and
+// PostToolUse event. container/runner.go scans the agent container's stderr for
+// the [ant] prefix and forwards to slog. Secrets are dropped at the
+// args_summary boundary: Bash.command truncated to 200 chars, Edit/Write/Read
+// use file_path only, content bodies are never logged.
 
 import { ALLOW, ToolEvent, Verdict } from './policy.js';
 
@@ -138,8 +136,7 @@ export function toolLogPre(ev: ToolEvent): Verdict {
 }
 
 // duration_ms is omitted when the matching 'pre' ran in a different process —
-// codex's hooks are one process each, so startTimes is empty there. Both lines
-// still emit; only the correlation is lost.
+// codex's hooks are one process each, so startTimes is empty there.
 export function toolLogPost(ev: ToolEvent): Verdict {
   try {
     const now = Date.now();

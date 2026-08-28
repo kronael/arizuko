@@ -1,7 +1,6 @@
 // index.ts — the chassis runtime half every occupant shares: stdin envelope
 // parse, IPC steering + close sentinel, the <status> pipeline, idempotent
-// submit_turn, the inner turn loop. The harness half lives behind the seam in
-// backend.ts (spec 6/7 § "The harness seam").
+// submit_turn, the inner turn loop. The harness half lives behind backend.ts.
 
 import fs from 'fs';
 import os from 'os';
@@ -43,9 +42,9 @@ const MAX_STDIN_BYTES = 1024 * 1024;
 
 const PROGRESS_INTERVAL_MS = 90_000;
 
-// buildSystemPrompt renders the text layers the chassis owns (system MD,
-// output style). undefined means "no rendered text" — each harness supplies
-// its own default (claude's claude_code preset is claude wiring, not seam).
+// buildSystemPrompt renders the text layers the chassis owns (system MD, output
+// style). undefined means "no rendered text" — each harness supplies its own
+// default.
 function buildSystemPrompt(ci: ContainerInput): string | undefined {
   const parts = [ci.systemMd, readOutputStyle()].filter(Boolean);
   return parts.length > 0 ? parts.join('\n\n') : undefined;
@@ -112,12 +111,10 @@ function log(message: string): void {
   console.error(`[ant] ${message}`);
 }
 
-// NUDGE_TEXT is the chassis-generated progress prompt. It goes straight onto
-// the steer spool — it used to travel through the IPC dir, where drainIpcInput
-// filtered `source:'nudge'` out on the way to the spool, so every nudge was
-// consumed and dropped and the feature was silently dead. Between turns a
-// stale nudge is dropped by exact text (checkIpcMessage): it exists only to
-// steer a RUNNING turn, never to start one.
+// NUDGE_TEXT is the chassis-generated progress prompt. It goes straight onto the
+// steer spool — routed through the IPC dir it was filtered out on the way to the
+// spool, so every nudge was consumed and dropped. Between turns a stale nudge is
+// dropped by exact text: it steers a RUNNING turn, never starts one.
 export const NUDGE_TEXT =
   'Report progress to the user now. Use <status>short summary of what you are doing</status>.';
 
@@ -127,14 +124,13 @@ function nudgeProgress(): void {
 }
 
 // STATUS_RE matches one <status>...</status> block. The agent emits these for
-// interim progress (ant/CLAUDE.md "Status updates"); we forward each mid-turn so
-// the user sees ⏳ progress on a long turn instead of nothing until the end.
+// interim progress; we forward each mid-turn so the user sees progress.
 const STATUS_RE = /<status>([\s\S]*?)<\/status>/g;
 
-// statusBlocks extracts the trimmed non-empty <status> blocks from one chunk
-// of interim assistant text. THE one extraction site: every harness's status
-// frame flows through here — before the seam inversion this ran on claude's
-// raw message shape only, so codex streamed no interim status at all.
+// statusBlocks extracts the trimmed non-empty <status> blocks from one chunk of
+// interim assistant text. THE one extraction site: every harness's status frame
+// flows through here — before the seam inversion this ran on claude's raw
+// message shape only, so codex streamed no interim status at all.
 export function statusBlocks(text: string): string[] {
   const out: string[] = [];
   for (const m of text.matchAll(STATUS_RE)) {
@@ -144,14 +140,10 @@ export function statusBlocks(text: string): string[] {
   return out;
 }
 
-// streamStatuses forwards <status> blocks from a status frame to routd
-// (delivered immediately as ⏳ interim notices). seen dedups across the turn
-// so a status that also lands in the final result isn't double-delivered —
-// the final result flows through submit_turn separately.
-// send is injected for the same reason `deliver` is: the <status> pipeline is a
-// shipped contract (spec 5/24) and it broke silently once already — codex
-// streamed no interim status at all — so it needs a test that drives it, not
-// only a unit test of the extractor.
+// streamStatuses forwards <status> blocks to routd as interim notices. seen
+// dedups across the turn so a status that also lands in the final result is not
+// double-delivered. send is injected because this pipeline broke silently once
+// already, so it needs a test that drives it.
 async function streamStatuses(
   turnID: string,
   text: string,
@@ -207,18 +199,15 @@ function drainIpcInput(): string[] {
   }
 }
 
-// drainSteering empties the steer spool for a BETWEEN-turns read, dropping
-// stale progress nudges: a nudge steers a running turn, and one left over from
-// the last turn must never start a new one.
+// drainSteering empties the steer spool for a BETWEEN-turns read, dropping stale
+// progress nudges.
 function drainSteering(): string[] {
   return drainLines(STEER_SPOOL).filter(l => l !== NUDGE_TEXT);
 }
 
 // checkIpcMessage assembles the next inner-loop prompt from both queues — the
-// IPC dir AND the steer spool. Steering already drained from IPC into the
-// spool is delivered only when a tool call follows; a turn that stopped
-// calling tools would otherwise strand those messages here and the loop would
-// exit "input empty", losing them silently.
+// IPC dir AND the steer spool. A turn that stopped calling tools would otherwise
+// strand spooled steering here and the loop would exit "input empty".
 export function checkIpcMessage(): string | null {
   if (shouldClose()) return null;
   const messages = [...drainSteering(), ...drainIpcInput()];
@@ -226,8 +215,7 @@ export function checkIpcMessage(): string | null {
 }
 
 interface TurnResult {
-  // token is the harness's latest continuity token, opaque to us — handed to
-  // the next run() verbatim.
+  // token is the harness's latest continuity token, opaque to us.
   token?: string;
   // sessionId is the harness-native session id for routd's lineage row.
   sessionId?: string;
@@ -235,13 +223,10 @@ interface TurnResult {
   retryFresh: boolean;
 }
 
-// runTurn drives one harness run and consumes its frames: status frames feed
-// the <status> pipeline, continuity frames update the resume state, the result
-// frame is delivered. retryFresh results are never delivered — the caller
-// retries with no continuity. A retryFresh on a turn that was ALREADY fresh
-// has nothing to retry, so it delivers as an error instead: the caller would
-// not rerun it, and suppressing it too was a silent-turn path (claude maps
-// every error_during_execution to retryFresh, resume miss or not).
+// runTurn drives one harness run and consumes its frames. retryFresh results are
+// never delivered — the caller retries with no continuity. A retryFresh on a turn
+// that was ALREADY fresh has nothing to retry, so it delivers as an error:
+// suppressing it too was a silent-turn path.
 export async function runTurn(
   harness: Harness,
   prompt: string,
@@ -287,9 +272,7 @@ export async function runTurn(
   };
   setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
 
-  // The nudge asks the agent for a <status> report; the steering drain feeds
-  // it into the active query (claude's mid-turn gate; discarded after the run
-  // for harnesses that only steer between turns). Wall-clock, so a long
+  // The nudge asks the agent for a <status> report. Wall-clock, so a long
   // tool-heavy stretch still nudges even when no frame arrives.
   const nudgeTimer = setInterval(nudgeProgress, PROGRESS_INTERVAL_MS);
 
@@ -341,9 +324,8 @@ export async function runTurn(
   }
 
   // The seam's first requirement is exactly one terminal frame per turn, never
-  // silence. A harness that ends its stream without one (a reducer hole, an
-  // SDK terminal state with nothing to say) still owes the user a reply —
-  // enforce it here, at the one consumer, rather than trusting every occupant.
+  // silence. Enforced here, at the one consumer, rather than trusting every
+  // occupant.
   if (resultCount === 0 && !out.retryFresh && !closedDuringQuery) {
     log('Harness produced no result frame, delivering an error turn');
     await deliver(turnID, {
@@ -411,17 +393,16 @@ async function main(): Promise<void> {
       prompt += '\n' + pending.join('\n');
     }
 
-    // The platform hands back the sessionId a continuity frame carried; it is
-    // a valid token for the harness that minted it (claude/codex accept a bare
-    // id; pi ignores continuity). The harness unpacks and validates — a
-    // placeholder or a pruned transcript starts fresh inside run().
+    // The platform hands back the sessionId a continuity frame carried; it is a
+    // valid token for the harness that minted it. The harness unpacks and validates
+    // — a placeholder or a pruned transcript starts fresh inside run().
     let continuity = containerInput.sessionId;
     let lastSessionId = containerInput.sessionId;
     const seedTurnID = containerInput.messageId || `boot-${Date.now()}`;
     let turnIndex = 0;
     try {
-      // Selected inside the delivering try: an unknown ARIZUKO_BACKEND fails
-      // this turn loudly to the user, never a silent exit (spec 6/7).
+      // Selected inside the delivering try: an unknown ARIZUKO_BACKEND fails this turn
+      // loudly to the user, never a silent exit.
       const harness = selectHarness(process.env.ARIZUKO_BACKEND);
       log(`backend: ${harness.name}`);
       while (true) {
@@ -471,8 +452,8 @@ async function main(): Promise<void> {
   }
 }
 
-// Run main only as the process entrypoint (`node dist/index.js`), so tests can
-// import the exported helpers without kicking off the stdin-reading runtime.
+// Run main only as the process entrypoint, so tests can import the exported
+// helpers without starting the stdin-reading runtime.
 function isEntrypoint(): boolean {
   if (!process.argv[1]) return false;
   try {

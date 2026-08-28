@@ -1,8 +1,6 @@
-// Harness selection contract (spec 6/7 § "The harness seam"): unset
-// ARIZUKO_BACKEND runs claude; an unknown value throws so the spawn fails
-// loudly to the user instead of silently running the wrong harness. The
-// profiles are the declared capability matrix — a rendering of the code, not
-// prose beside it.
+// Harness selection contract (spec 6/7): unset ARIZUKO_BACKEND runs claude; an
+// unknown value throws so the spawn fails loudly instead of silently running the
+// wrong harness. The profiles are the declared capability matrix.
 
 import { test, expect } from 'bun:test';
 import { Readable } from 'stream';
@@ -42,11 +40,10 @@ test('profiles declare the measured capability matrix', () => {
     steering: 'between-turn',
     status: 'streaming',
   });
-  // pi's guard became write-time when the extension's input mapping was fixed
-  // (pi write is {path, content}, and the guard read `file_path` — so the
-  // tool_call deny never fired and only the load-time scan was real).
+  // pi's guard became write-time when the extension's input mapping was fixed;
+  // continuity became native when --session-dir + --session landed.
   expect(selectHarness('pi').profile).toEqual({
-    continuity: 'none',
+    continuity: 'native',
     tools: 'none',
     guard: 'write-time',
     steering: 'between-turn',

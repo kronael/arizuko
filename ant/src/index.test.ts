@@ -1,7 +1,5 @@
-// The chassis <status> pipeline: statusBlocks is THE one extraction site —
-// every harness's status frames flow through it, so a harness only has to put
-// its assistant text on the frame (the pre-seam runtime read claude's raw
-// message shape instead, and codex streamed no interim status at all).
+// The chassis <status> pipeline: statusBlocks is THE one extraction site, so a
+// harness only has to put its assistant text on the frame.
 
 import { test, expect } from 'bun:test';
 import { NUDGE_TEXT, checkIpcMessage, runTurn, statusBlocks } from './index.js';
@@ -96,9 +94,8 @@ test('runTurn: a normal result is delivered exactly once', async () => {
 });
 
 // Steering drained from IPC into the spool is delivered by the steering policy
-// only when a tool call follows. A turn that stopped calling tools stranded
-// those messages: the loop read only the IPC dir, saw nothing, and exited —
-// the message was consumed and never delivered.
+// only when a tool call follows. A turn that stopped calling tools stranded those
+// messages: the loop read only the IPC dir, saw nothing, and exited.
 test('checkIpcMessage: leftover steering becomes the next turn prompt', () => {
   drainLines(STEER_SPOOL);
   appendLines(STEER_SPOOL, ['left over']);
@@ -115,9 +112,8 @@ test('checkIpcMessage: a stale progress nudge never starts a turn', () => {
 });
 
 
-// The <status> pipeline is the other half of the turn contract, and it failed
-// silently once already: the pre-seam runtime parsed claude's raw message shape,
-// so codex streamed no interim status at all. These drive it through runTurn.
+// The <status> pipeline failed silently once already: the pre-seam runtime
+// parsed claude's raw message shape, so codex streamed no interim status.
 test('runTurn: a status frame reaches submit_status once, and repeats are dropped', async () => {
   const d = spy();
   const st = statusSpy();

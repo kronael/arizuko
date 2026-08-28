@@ -1,10 +1,8 @@
 // skills-scan.ts — load-time skill gate for backends without a write-time
-// PreToolUse hook (spec 6/7 § "Skills across backends"). codex and pi cannot
-// run the 5/23 skill-guard hook, so the SAME scanner (skillguard.ts — one
-// table, never a second copy) runs here at session start instead: a skill
-// with a blocking finding is excluded from what the connector loads. This
-// gates what is LOADED, not what the model later reads by path — narrower
-// than the write-time gate, and the spec says so.
+// PreToolUse hook (spec 6/7). codex and pi cannot run the 5/23 skill-guard hook,
+// so the SAME scanner (skillguard.ts) runs here at session start instead: a
+// skill with a blocking finding is excluded from what the connector loads. This
+// gates what is LOADED, not what the model later reads by path.
 
 import fs from 'fs';
 import path from 'path';
@@ -23,10 +21,9 @@ export interface SkillScan {
   excluded: string[];
 }
 
-// scanSkills discovers <dir>/<name>/SKILL.md one level deep — Claude Code's
-// own discovery shape for ~/.claude/skills — and gates each file through the
-// skillguard table plus the frontmatter contract. A missing SKILL.md is not a
-// skill (seedSkills removes it for .disabled stock skills).
+// scanSkills discovers <dir>/<name>/SKILL.md one level deep — Claude Code's own
+// discovery shape — and gates each file through the skillguard table plus the
+// frontmatter contract. A missing SKILL.md is not a skill.
 export function scanSkills(dir: string): SkillScan {
   const out: SkillScan = { clean: [], excluded: [] };
   let entries: fs.Dirent[];
@@ -67,8 +64,7 @@ export function scanSkills(dir: string): SkillScan {
 }
 
 // renderSkillsIndex is the prompt-side skill surface for a backend with no
-// native skill mechanism (codex): a skill reduced to its essence — a named
-// instruction file plus a trigger. The model reads the file on match.
+// native skill mechanism (codex). The model reads the file on match.
 export function renderSkillsIndex(skills: SkillRef[]): string {
   if (skills.length === 0) return '';
   const rows = skills.map((s) => `- ${s.name} — ${s.description} → ${path.join(s.dir, 'SKILL.md')}`);

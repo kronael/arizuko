@@ -1,21 +1,7 @@
-// guards.ts — the two guard POLICIES that live nowhere else. The table that
-// says where they bind, and every other capability's row, is policy.ts.
-//
-// Before this file the guards were scattered: the bash secret-scrub lived
-// inline in claude.ts, the skill scanner registered itself from skillguard.ts,
-// and nothing listed what was actually guarded. You could not answer "what
-// stops the agent doing X?" without reading the SDK call site. A guard nobody
-// can find is a guard nobody maintains — and the two holes this file closes
-// (BUGS J8, J9) both survived because the coverage was never written down in
-// one place.
-//
-// The split: the SCANNERS are pure functions elsewhere (skillguard.ts owns the
-// pattern table and the verdict), this file owns the two policies that REFUSE,
-// and policy.ts owns the one table naming where each binds.
-//
-// Telemetry and UX policies (tool-log, todo-status, steering, pre-compact) are
-// deliberately NOT here. They observe; they never refuse. Mixing them in would
-// blur the question this file exists to answer.
+// guards.ts — the two guard POLICIES that REFUSE. The table saying where they
+// bind lives in policy.ts; the scanners are pure functions in skillguard.ts.
+// Telemetry and UX policies (tool-log, todo-status, steering, pre-compact) only
+// observe, so they stay out of this file.
 
 import fs from 'fs';
 import path from 'path';
@@ -27,10 +13,9 @@ import { blockingVerdict, isGuardedPath } from './skillguard.js';
 const SECRET_ENV_VARS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
 
 // bashScrub prefixes every Bash command with an unset of the model credentials.
-// It is the one policy that returns 'rewrite', and rewrite is claude-only:
-// codex's PreToolUse decision is approve|block|allow and its updatedInput lives
-// on a different event. That costs nothing here — codex authenticates from
-// $CODEX_HOME/auth.json, so there is no credential in its environment to strip.
+// The one policy that returns 'rewrite', and rewrite is claude-only. That costs
+// nothing: codex authenticates from $CODEX_HOME/auth.json, so there is no
+// credential in its environment to strip.
 export function bashScrub(ev: ToolEvent): Verdict {
   const command = (ev.tool_input as { command?: string })?.command;
   if (!command) return ALLOW;
@@ -65,27 +50,19 @@ function walkFiles(root: string, out: string[] = []): string[] {
   return out;
 }
 
-// createBashSkillRescanHook closes BUGS J8: skill-guard hooks Write/Edit/
-// MultiEdit, but the agent runs with sandbox disabled and bypassPermissions, so
-// `printf '…' > ~/.claude/skills/x/SKILL.md` lands a persistent, executable
-// instruction with no scan at all.
+// bashSkillRescan closes BUGS J8: the agent runs with bypassPermissions, so
+// `printf '…' > ~/.claude/skills/x/SKILL.md` lands a persistent instruction with
+// no scan at all.
 //
-// It runs AFTER the command rather than trying to parse the shell. Reading a
-// command and deciding whether it writes a path is a losing game — redirection,
-// tee, cp, mv, python, a heredoc inside a subshell all reach the same file. So
-// the guard judges the FILESYSTEM, which has no such ambiguity: any guarded
-// file whose mtime moved during this turn is rescanned, and a dangerous one is
-// renamed aside before the next session can load it.
-//
-// Quarantine rather than delete: the agent's work is never destroyed, and the
-// operator can read what was refused. The rename is what matters — a skill only
-// runs if it is discoverable at its own path.
+// It judges the FILESYSTEM after the command rather than parsing the shell —
+// redirection, tee, cp, mv, python and a heredoc all reach the same file. Any
+// guarded file whose mtime moved this turn is rescanned, and a dangerous one is
+// renamed aside: a skill only runs if it is discoverable at its own path.
+// Quarantine rather than delete, so the operator can read what was refused.
 export function bashSkillRescan(home: string): (ev: ToolEvent) => Verdict {
-  // Starts at 0, not now: the first Bash call of a session sweeps the whole
-  // tree. A file written by a session that died before its post-hook ran would
-  // otherwise never be looked at again, and that file is exactly the one that
-  // gets loaded next session. After the first sweep the mtime gate keeps the
-  // cost to files that actually moved.
+  // Starts at 0, not now: the first call of a session sweeps the whole tree. A
+  // file written by a session that died before its post-hook ran is exactly the
+  // one that gets loaded next session.
   let lastScan = 0;
   return (_ev: ToolEvent) => {
     const since = lastScan;
@@ -93,9 +70,8 @@ export function bashSkillRescan(home: string): (ev: ToolEvent) => Verdict {
     try {
       for (const root of guardedRoots(home)) {
         for (const file of walkFiles(root)) {
-          // A quarantined file is already out of discovery. Rescanning it
-          // renamed it AGAIN (x.quarantined.quarantined, …) on every sweep —
-          // and codex sweeps per tool call, since each hook is a new process.
+          // A quarantined file is already out of discovery. Rescanning it renamed it
+          // AGAIN on every sweep — and codex sweeps per tool call, one process each.
           if (file.endsWith('.quarantined')) continue;
           let st: fs.Stats;
           try {
@@ -111,10 +87,8 @@ export function bashSkillRescan(home: string): (ev: ToolEvent) => Verdict {
           } catch {
             continue;
           }
-          // The rescan holds the whole file by construction (it read it off
-          // disk), so whole=true and blockingVerdict's SKILL.md condition
-          // decides the frontmatter half — the same verdict the write gate
-          // and the load-time scan apply.
+          // The rescan holds the whole file by construction, so whole=true — the same
+          // verdict the write gate and the load-time scan apply.
           const blocking = blockingVerdict(file, text, true);
           if (blocking.length === 0) continue;
 
