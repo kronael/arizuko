@@ -16,6 +16,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
+- **An agent can hold a credential for a CLI it drives itself** (spec `5/13`
+  §Shell credentials, BUGS `L132`). A capability credential was broker-only,
+  and the broker needs a tool name to resolve for — so `gh`, which is a `Bash`
+  call, had no way to authenticate. marinade's `secrets` table has held
+  `folder|atlas|GITHUB_TOKEN` since June while two gates refused it. A
+  `shell:env:<KEY>` acl row now names one secret that may enter the container
+  env: `arizuko group <inst> grant 'folder:atlas' 'atlas'
+'shell:env:GITHUB_TOKEN'`. No row, nothing crosses — and an operator's
+  `(*, **)` row does not confer it, because the action is matched exactly.
+  Model credentials are excluded even under `shell:env:*`.
+- **`ghWriteGate` refuses the GitHub writes an agent must not make** — `gh pr
+review --approve`, `pr merge`, `pr create`, `release create`, `repo
+create/delete` — on every segment of a command chain, on all three harnesses.
+  It is defence in depth, not the lock: scope the token at GitHub, since a
+  shell credential can be spent with `curl` too.
+
 - **Every harness runs arizuko's capabilities, not just claude** (spec `6/7`,
   BUGS `L59`). The skill guard, the tool log and mid-turn steering used to be
   claude SDK callbacks, so codex and pi ran with none of them. They are now

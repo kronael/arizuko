@@ -7224,3 +7224,15 @@ working path — hence `status: defected`.
   `ipc/connector.go` (`DiscoverConnectorTools` spawns in-process),
   `compose/compose.go` `routdService` ("NO egress proxy, NO docker socket"),
   live probes above.
+
+**Update 2026-08-29 — GitHub is reachable now, by the other door.** This entry
+stays open: the CONNECTOR still has no runtime. But `gh` is installed in the
+agent image (`ant/Dockerfile:97-102`) and never had a credential, so the
+shell-credential tier (`5/13` §Shell credentials) gives the same capability
+without the connector: `arizuko group <inst> grant 'folder:atlas' 'atlas'
+'shell:env:GITHUB_TOKEN'` puts the existing `folder|atlas|GITHUB_TOKEN` row in
+the agent's env, and `ant/src/guards.ts` `ghWriteGate` refuses the writes it
+must not make. Do not read this entry as "GitHub is impossible" — read it as
+"the connector, and the per-call broker discipline that comes with it, is still
+missing." The shell tier hands the agent a spendable token; the connector would
+not, which is the whole reason to keep this open.
