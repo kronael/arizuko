@@ -1355,6 +1355,13 @@ func TestDavAllow(t *testing.T) {
 		{"PUT", "g/logs/file", false},
 		{"DELETE", "g/logs", false},
 		{"GET", "g/logs", true},
+		// A multi-segment folder's logs are the same logs (BUGS L115).
+		{"DELETE", "main/trading/logs/agent.log", false},
+		{"PUT", "main/trading/logs", false},
+		{"MOVE", "a/b/c/logs/x", false},
+		{"GET", "main/trading/logs/agent.log", true},
+		// A top-level group named `logs` is a group, not a log directory.
+		{"PUT", "logs/notes.md", true},
 		// Innocuous writes pass.
 		{"PUT", "g/notes/file.md", true},
 		{"MKCOL", "g/sub", true},

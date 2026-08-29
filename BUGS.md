@@ -788,7 +788,7 @@ WebDAV has two write targets. Only one is modelled.
   would write live data). Disproof would be proxyd or nginx stripping
   `Destination` on `/dav/*` — neither does.
 
-## L115 — `davAllow`'s `logs/` read-only rule only covers top-level groups (2026-08-26, open)
+## ✅ FIXED 2026-08-29 L115 — `davAllow`'s `logs/` read-only rule only covers top-level groups (2026-08-26)
 
 `proxyd/main.go:734-737`:
 
@@ -821,6 +821,13 @@ The sensitive-path block eight lines below tests **every** segment
   its own files"*). The fix landed next door and not here.
 - **Fix (local):** test for a `logs` segment at the group boundary — any
   segment, matching how `.env`/`.pem`/`.git` are already tested.
+
+Fixed as proposed: `davAllow` (`proxyd/main.go`) now scans every segment after
+the first for `logs`, the same shape the sensitive-path block beside it already
+used. The first segment is skipped so a top-level group named `logs` stays a
+group. `TestDavAllow` gains the multi-segment rows the old table missed
+(`main/trading/logs/agent.log`, `a/b/c/logs/x`) plus the read and the
+top-level-group rows; they fail against the old `parts[1]` test.
 
 ## L116 — `/panel/<folder>`'s live SSE stream can never connect: it asks for a route token it does not have (2026-08-26, open)
 

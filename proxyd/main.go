@@ -716,9 +716,13 @@ func davAllow(method, rest string) bool {
 		return true
 	}
 	parts := strings.Split(rest, "/")
-	// logs/ read-only — `<group>/logs` or `<group>/logs/...`
-	if len(parts) >= 2 && parts[1] == "logs" {
-		return false
+	// logs/ read-only — `<group>/logs` or `<group>/logs/...` at ANY folder
+	// depth. The group boundary is not fixed at index 1: `main/trading` is one
+	// folder, so `main/trading/logs` is a group's log directory too.
+	for _, p := range parts[1:] {
+		if p == "logs" {
+			return false
+		}
 	}
 	// Sensitive-path write block on any segment.
 	for _, p := range parts {
