@@ -110,7 +110,7 @@ func TestSteerIntoRunning(t *testing.T) {
 	}()
 	<-started
 	// wire the steer callback as the production Runtime would.
-	srv.mgr.SetSteer("demo", srv.mgr.ActiveRunID("demo"), func(batch string) bool { return true })
+	srv.mgr.SetSteer(srv.mgr.ActiveRunID("demo"), func(batch string) bool { return true })
 
 	rec := doRun(t, h, runedv1.RunRequest{Folder: "demo", ChatJID: "j", TurnID: "t2", MessageBatch: "steered"})
 	var out runedv1.RunOutcome

@@ -297,26 +297,99 @@ func TestSteerWhenNoLiveRunSpawns(t *testing.T) {
 	}
 }
 
-// TestSetSteerIgnoresStaleRunID: SetSteer for a run_id that no longer owns the
-// folder's slot is a no-op — a late steer registration from a finished run must
-// not overwrite the current live run's steer closure (the slot-reassignment
-// guard checks DB state).
-func TestSetSteerIgnoresStaleRunID(t *testing.T) {
+// TestStaleSteerRegistrationIsUnreachable: a late steer registration from a
+// finished run must never be handed a live run's batch.
+//
+// This used to be enforced by a DB read inside SetSteer. It is now enforced by
+// the key: admit looks the callback up under the run_id the DB reports active,
+// so an entry filed under a dead run is unreachable rather than merely absent.
+// The property is the same; only the mechanism moved, so this asserts the
+// property.
+func TestStaleSteerRegistrationIsUnreachable(t *testing.T) {
 	db, mgr := newMgr(t, FakeRuntime{}, 5)
-
-	// Create a live spawn in the DB with run_id "current".
 	_ = db.CreateSpawn(Spawn{RunID: "current", Folder: "demo", ContainerName: "c", State: "running", SessionID: "s"})
 
-	// Try to set steer for a STALE run_id — should be ignored.
-	called := false
-	mgr.SetSteer("demo", "stale", func(string) bool { called = true; return true })
+	stale := false
+	mgr.SetSteer("stale", func(string) bool { stale = true; return true })
 
-	// The steer callback should NOT be set (stale run_id doesn't match DB).
-	mgr.mu.Lock()
-	steer := mgr.steerFns["demo"]
-	mgr.mu.Unlock()
-	if steer != nil {
-		t.Fatal("SetSteer for a stale run_id set a steer callback")
+	// The live run has no callback wired, so the batch cannot be steered and
+	// the folder answers Busy — but on no account does it reach the dead run's.
+	_, out, _, err := mgr.admit(runedv1.RunRequest{Folder: "demo", MessageBatch: "hi"}, KindAgent)
+	if err != nil {
+		t.Fatalf("admit: %v", err)
 	}
-	_ = called
+	if stale {
+		t.Fatal("a finished run's steer callback was handed a live run's batch")
+	}
+	if !out.Busy {
+		t.Errorf("outcome = %+v, want Busy (no callback for the live run)", out)
+	}
+}
+
+// steerFor reports whether mgr holds a callback reachable for the folder's
+// currently-live run — the exact lookup admit does.
+func steerFor(mgr *Manager, folder string) bool {
+	active, _ := mgr.db.GetActiveSpawn(folder)
+	if active == nil {
+		return false
+	}
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	return mgr.steerFns[active.RunID] != nil
+}
+
+// A finished run must not disarm its successor. Manager.spawn writes EndSpawn
+// before endRun, so the folder reads FREE for a moment and a concurrent
+// POST /v1/runs can admit, spawn and register its own steer inside that window.
+// endRun then ran `delete(steerFns, folder)` — deleting run B's callback — and
+// B lived out its whole run un-steerable, every follow-up answering Busy until
+// it exited, up to RunTTL later (BUGS L111).
+func TestEndRunDoesNotDisarmTheSuccessor(t *testing.T) {
+	db, mgr := newMgr(t, FakeRuntime{}, 5)
+
+	// Run A finished; run B has since claimed the folder and wired its steer.
+	_ = db.CreateSpawn(Spawn{RunID: "B", Folder: "demo", ContainerName: "cb", State: "running", SessionID: "s"})
+	mgr.SetSteer("B", func(string) bool { return true })
+
+	mgr.endRun("demo", "A", false, KindAgent)
+
+	if !steerFor(mgr, "demo") {
+		t.Fatal("run A's exit deleted run B's steer callback; B is live and un-steerable")
+	}
+}
+
+// The same asymmetry through the kill path: DELETE /v1/runs/{id} on an
+// already-terminal run kills nothing and returns 200, but used to wipe the
+// FOLDER's callback — which by then belongs to a different, live run.
+// cmd/arizuko/archive.go's ReleaseHold is exactly this shape.
+func TestKillingATerminalRunDoesNotDisarmTheLiveOne(t *testing.T) {
+	db, mgr := newMgr(t, FakeRuntime{}, 5)
+
+	_ = db.CreateSpawn(Spawn{RunID: "A", Folder: "demo", ContainerName: "ca", State: "running", SessionID: "s"})
+	_ = db.EndSpawn("A", "exited", "ok", 0)
+	_ = db.CreateSpawn(Spawn{RunID: "B", Folder: "demo", ContainerName: "cb", State: "running", SessionID: "s"})
+	mgr.SetSteer("B", func(string) bool { return true })
+
+	if err := mgr.Kill("A"); err != nil {
+		t.Fatalf("Kill: %v", err)
+	}
+	if !steerFor(mgr, "demo") {
+		t.Fatal("killing a terminal run disarmed the live run that had claimed the folder")
+	}
+}
+
+// The delete must still work for the run that owns it, or the map grows a
+// closure per run for the process's life.
+func TestEndRunClearsItsOwnSteer(t *testing.T) {
+	db, mgr := newMgr(t, FakeRuntime{}, 5)
+	_ = db.CreateSpawn(Spawn{RunID: "A", Folder: "demo", ContainerName: "ca", State: "running", SessionID: "s"})
+	mgr.SetSteer("A", func(string) bool { return true })
+
+	mgr.endRun("demo", "A", false, KindAgent)
+
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	if len(mgr.steerFns) != 0 {
+		t.Fatalf("steerFns holds %d entries after the owning run ended", len(mgr.steerFns))
+	}
 }

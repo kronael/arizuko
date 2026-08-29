@@ -694,7 +694,7 @@ matches every `*.com` host. The repo's own test pins it as intended semantics:
   would reject existing rows. `localhost` must stay legal, which is what makes
   the naive "require a dot" rule wrong.
 
-## L111 — the steer callback is deleted by folder without checking which run owns it, so a live run silently loses steering (2026-08-26, open)
+## ✅ FIXED 2026-08-29 L111 — the steer callback is deleted by folder without checking which run owns it, so a live run silently loses steering (2026-08-26)
 
 The write side is guarded: `runed/manager.go:439` `SetSteer(folder, runID, …)`
 returns early at `:442` unless `active.RunID == runID`, pinned by
@@ -733,6 +733,34 @@ Two reachable failures:
   shape fires — it needs a message inside a window of a few DB writes. Read end
   to end; not reproduced live (firing a `DELETE` at a production runed was out
   of scope).
+
+Fixed 2026-08-29 by removing the question instead of answering it three times.
+The entry's own cause line is the fix: `steerFns` is keyed by folder but its
+lifetime belongs to a run — so it is now keyed by `run_id`.
+
+That deletes the guard at every site rather than adding one:
+
+- `SetSteer(runID, fn)` drops both the `folder` parameter and the
+  `GetActiveSpawn` read + two-condition guard. Wiring a callback for a finished
+  run stores an entry nothing can reach, because `admit` looks up
+  `active.RunID` — the run_id it just read from the DB.
+- `endRun` and `Kill` delete by the run they were given. Neither can touch a
+  successor's entry.
+- Net: one `if` (two conditions) and one DB round-trip per steer wire REMOVED,
+  and the correctness stops depending on three call sites remembering.
+
+The DB's active-spawn row is now the only liveness authority; the map is a plain
+`run_id → closure` lookup and no longer a second, weaker record of which run is
+live.
+
+Tests (`runed/queue_concurrency_test.go`): `TestEndRunDoesNotDisarmTheSuccessor`
+and `TestKillingATerminalRunDoesNotDisarmTheLiveOne` reproduce the entry's two
+failures; `TestEndRunClearsItsOwnSteer` pins that the delete still works for its
+owner, so the map cannot grow a closure per run.
+`TestSetSteerIgnoresStaleRunID` is rewritten as
+`TestStaleSteerRegistrationIsUnreachable`: the property it protected is
+unchanged, only the mechanism moved, so it now asserts the property through
+`admit`. All three fail against the folder-keyed shape.
 
 ## ✅ FIXED 2026-08-29 L112 — ant scrubs 2 of the 5 model credentials from the agent's shell (2026-08-26)
 

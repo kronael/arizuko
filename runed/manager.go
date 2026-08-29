@@ -45,8 +45,17 @@ type Manager struct {
 	instance  string
 	maxRun    int
 
-	mu       sync.Mutex
-	steerFns map[string]func(batch string) bool // folder -> steer callback (runtime-wired)
+	mu sync.Mutex
+	// steerFns is run_id -> steer callback (runtime-wired). Keyed by RUN, not
+	// by folder, because that is whose lifetime it has. Keyed by folder it was
+	// a second, weaker record of which run is live, and it disagreed with the
+	// spawns table: endRun and Kill both deleted a folder's entry without
+	// asking which run owned it, so run A's exit disarmed run B for its whole
+	// life (BUGS L111). With the run as the key the DB's active-spawn row is
+	// the only liveness authority — admit looks the callback up by the run_id
+	// it just read from the DB, so an entry for a dead run is unreachable
+	// rather than merely deleted on time.
+	steerFns map[string]func(batch string) bool
 }
 
 // ManagerConfig wires the Manager. MaxConcurrent caps total live spawns
@@ -212,7 +221,7 @@ func (m *Manager) admit(req runedv1.RunRequest, kind string) (c claim, out runed
 		// hypothetical (spec 5/8). Only KindAgent attempts the steer.
 		var steered bool
 		if kind == KindAgent {
-			steer := m.steerFns[folder]
+			steer := m.steerFns[active.RunID]
 			steered = steer != nil && steer(req.MessageBatch)
 		}
 		runID, sessionID := active.RunID, active.SessionID
@@ -341,7 +350,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		EgressAllowlist: req.EgressAllowlist,
 		Secrets:         req.Secrets,
 		RunTTL:          m.runTTL,
-		RegisterSteer:   func(steer func(batch string) bool) { m.SetSteer(folder, runID, steer) },
+		RegisterSteer:   func(steer func(batch string) bool) { m.SetSteer(runID, steer) },
 	})
 
 	state := "exited"
@@ -401,25 +410,26 @@ func (m *Manager) endRun(folder, runID string, failed bool, kind string) bool {
 		}
 	}
 
-	// Clear the steer callback (the container is gone).
+	// Clear this run's steer callback (its container is gone). Deleting by
+	// run_id cannot disarm a successor that already claimed the folder.
 	m.mu.Lock()
-	delete(m.steerFns, folder)
+	delete(m.steerFns, runID)
 	m.mu.Unlock()
 	return tripped
 }
 
-// SetSteer wires a folder's live-run steer callback (the IPC write +
-// SIGUSR1). The production Runtime calls this once the container is up so
-// a concurrent POST /v1/runs can steer into it.
-func (m *Manager) SetSteer(folder, runID string, steer func(batch string) bool) {
-	// Verify the run_id is still active for this folder before wiring.
-	active, _ := m.db.GetActiveSpawn(folder)
-	if active == nil || active.RunID != runID {
-		return
-	}
+// SetSteer wires a run's steer callback (the IPC write + SIGUSR1). The
+// production Runtime calls this once the container is up so a concurrent
+// POST /v1/runs can steer into it.
+//
+// No liveness check: the run_id IS the key, so wiring a callback for a run that
+// has already ended stores an entry nothing can reach — admit only ever looks
+// up the run_id the DB reports active. The check this replaced read the DB on
+// every wire to answer a question the key now answers.
+func (m *Manager) SetSteer(runID string, steer func(batch string) bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.steerFns[folder] = steer
+	m.steerFns[runID] = steer
 }
 
 // Kill stops a run (DELETE /v1/runs/{id}) and frees its slot. The spawn's
@@ -441,9 +451,11 @@ func (m *Manager) Kill(runID string) error {
 		// between GetSpawn and here keeps its terminal state (not 'killed').
 		_ = m.db.KillSpawn(runID)
 	}
-	// Clear the steer callback (the container is gone).
+	// Clear this run's steer callback (its container is gone). Killing an
+	// already-terminal run_id now disarms only that run, never whichever run
+	// has since claimed the folder.
 	m.mu.Lock()
-	delete(m.steerFns, sp.Folder)
+	delete(m.steerFns, runID)
 	m.mu.Unlock()
 	return nil
 }
