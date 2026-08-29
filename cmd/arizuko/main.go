@@ -20,6 +20,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/kronael/arizuko/compose"
 	"github.com/kronael/arizuko/container"
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/groupfolder"
@@ -592,8 +593,10 @@ func grantableAction(action string) bool {
 	if grantableActions[action] {
 		return true
 	}
-	// mcp:<tool> and <resource>.<verb> are open-ended by design.
-	return strings.HasPrefix(action, "mcp:") || strings.Contains(action, ".")
+	// mcp:<tool>, shell:env:<KEY> and <resource>.<verb> are open-ended by design.
+	return strings.HasPrefix(action, "mcp:") ||
+		strings.HasPrefix(action, auth.ShellEnvPrefix) ||
+		strings.Contains(action, ".")
 }
 
 func runGrant(s *store.Store, sub, pat, action string, w io.Writer) error {
@@ -604,7 +607,7 @@ func runGrant(s *store.Store, sub, pat, action string, w io.Writer) error {
 		action = "admin"
 	}
 	if !grantableAction(action) {
-		return fmt.Errorf("unknown action %q — one of *, admin, interact, egress, web:publish, mcp:*, mcp:<tool>, <resource>.<verb>", action)
+		return fmt.Errorf("unknown action %q — one of *, admin, interact, egress, web:publish, mcp:*, mcp:<tool>, shell:env:<KEY>, <resource>.<verb>", action)
 	}
 	if pat == "**" && action == "admin" {
 		// Operator grant: add to role:operator instead of a per-folder row.

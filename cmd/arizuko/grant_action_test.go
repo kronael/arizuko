@@ -54,3 +54,29 @@ func TestGrantRejectsUnknownAction(t *testing.T) {
 		t.Error("a rejected grant still wrote a row")
 	}
 }
+
+// TestGrantActionReachesShellEnv is the same gap one tier down. A shell
+// credential is delivered by a `shell:env:<KEY>` acl row, so an action the CLI
+// refuses to type is a capability the operator cannot hand out at all — the
+// feature would ship with no door. The default `admin` grant must NOT reach it:
+// widening the shell is always an explicit act.
+func TestGrantActionReachesShellEnv(t *testing.T) {
+	s := newMem(t)
+	var out bytes.Buffer
+
+	if err := runGrant(s, "folder:atlas", "atlas", "", &out); err != nil {
+		t.Fatalf("admin grant: %v", err)
+	}
+	if got := auth.ShellEnvKeys(s, auth.Caller{Principal: "folder:atlas"}, "atlas",
+		[]string{"GITHUB_TOKEN"}); len(got) != 0 {
+		t.Fatalf("an admin grant must not confer a shell credential, got %v", got)
+	}
+
+	if err := runGrant(s, "folder:atlas", "atlas", auth.ShellEnvPrefix+"GITHUB_TOKEN", &out); err != nil {
+		t.Fatalf("shell:env grant: %v", err)
+	}
+	if got := auth.ShellEnvKeys(s, auth.Caller{Principal: "folder:atlas"}, "atlas",
+		[]string{"GITHUB_TOKEN"}); len(got) != 1 {
+		t.Fatalf("explicit shell:env grant did not confer the key, got %v", got)
+	}
+}

@@ -194,6 +194,10 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
 
     <p>Container capabilities work the same way. At dispatch, routd resolves three booleans from <code>acl</code> and ships them typed on the run request (<a href="https://github.com/kronael/arizuko/blob/main/routd/dispatch.go"><code>routd/dispatch.go</code></a>): <code>share_mount(readonly=true)</code> makes the shared mount read-only, <code>egress</code> opens outbound network, <code>web:publish</code> opens the web surface. A plain folder holds none of them and runs with a writable share, constrained egress, and no web surface until an operator delegates.</p>
 
+    <p>One grant carries a value rather than a boolean. A capability credential normally reaches a <em>tool</em> and nothing else, through the broker, per call. A CLI the agent drives itself — <code>gh</code>, <code>buildkite</code> — is a <code>Bash</code> call, so there is no tool name to resolve a secret for; it can only authenticate from the shell environment. A <code>shell:env:&lt;KEY&gt;</code> row names one secret that may cross, and with no row nothing crosses. The action is matched exactly, so an operator's <code>(*, **)</code> row does <em>not</em> confer it: widening the shell is always an explicit act.</p>
+
+    <p>That grant cannot bound what the token buys. Once the credential is in the shell the agent spends it with <code>curl</code> as easily as with <code>gh</code>, and no <code>acl</code> row sees the difference. Scope the token at the issuing service — a PAT minted without <code>pull_requests: write</code> cannot approve a pull request however it is called.</p>
+
     <h2>9. Worked examples</h2>
 
     <pre><code># Let a support agent send only into telegram groups.
