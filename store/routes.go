@@ -45,7 +45,7 @@ func (s *Store) GetRoute(id int64) (core.Route, bool) {
 }
 
 func (s *Store) AddRoute(r core.Route) (int64, error) {
-	if matchesWebJID(r.Match) {
+	if MatchesWebJID(r.Match) {
 		return 0, ErrWebJIDRouted
 	}
 	ctx := context.Background()
@@ -147,7 +147,7 @@ func (s *Store) DeleteRoute(id int64) (int64, error) {
 // own. Mirrors AddRoute's full column set (incl. observe_window_messages/
 // observe_window_chars) so no column is silently dropped.
 func (s *Store) PutRouteRow(r core.Route) (int64, error) {
-	if matchesWebJID(r.Match) {
+	if MatchesWebJID(r.Match) {
 		return 0, ErrWebJIDRouted
 	}
 	res, err := s.db.Exec(
@@ -167,7 +167,7 @@ func (s *Store) PutRouteRow(r core.Route) (int64, error) {
 // column set so the observe-window columns are not silently dropped on edit.
 // Returns the number of rows affected (0 → not found).
 func (s *Store) UpdateRouteRow(id int64, r core.Route) (int64, error) {
-	if matchesWebJID(r.Match) {
+	if MatchesWebJID(r.Match) {
 		return 0, ErrWebJIDRouted
 	}
 	res, err := s.db.Exec(
@@ -194,11 +194,12 @@ func (s *Store) DeleteRouteRow(id int64) (int64, error) {
 	return res.RowsAffected()
 }
 
-// matchesWebJID reports whether a route's Match expression includes a
+// MatchesWebJID reports whether a route's Match expression includes a
 // chat_jid predicate that begins with "web:". Such routes can never
 // fire — the gateway addresses web JIDs directly — and silently mask
-// the operator's setup error.
-func matchesWebJID(match string) bool {
+// the operator's setup error. Exported because routd's resreg face writes
+// `routes` on its own tx and must refuse the same rule (BUGS L57).
+func MatchesWebJID(match string) bool {
 	for f := range strings.FieldsSeq(match) {
 		k, pat, ok := strings.Cut(f, "=")
 		if !ok || k != "chat_jid" {

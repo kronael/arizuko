@@ -572,3 +572,34 @@ func TestRouteContainment_OwnObserveFragment(t *testing.T) {
 		}
 	}
 }
+
+// A chat_jid=web:* rule can never fire — the gateway addresses a web JID
+// directly, so resolve() never consults the table for one. store.AddRoute has
+// refused it since the rule existed, but the resreg face wrote `routes` on its
+// own tx and carried no guard, so the agent's add_route and set_routes accepted
+// a rule that did nothing while inspect_routing annotated it as governing
+// (BUGS L57).
+func TestRoutesMCP_WebJIDRuleIsRefusedOnBothWriters(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "hq"})
+	grantMCPTools(t, db, "hq", routeToolNames...)
+	sock := serveRoutesMCP(t, db, "hq", "folder:hq")
+
+	if _, e := callToolOverSock(t, sock, "add_route", map[string]any{
+		"route": `{"seq":1,"match":"chat_jid=web:hq","target":"hq"}`,
+	}); e == "" {
+		t.Error("add_route accepted a chat_jid=web: rule that can never fire")
+	}
+	if _, e := callToolOverSock(t, sock, "set_routes", map[string]any{
+		"routes": `[{"seq":0,"match":"chat_jid=web:hq/*","target":"hq"}]`,
+	}); e == "" {
+		t.Error("set_routes accepted a chat_jid=web: rule that can never fire")
+	}
+	if got, _ := db.Routes(); len(got) != 0 {
+		t.Fatalf("a refused web-JID rule was still written: %+v", got)
+	}
+}

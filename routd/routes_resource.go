@@ -140,6 +140,9 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 			return nil, err
 		}
 		rid, err := addRouteTx(ctx, x.Tx, route, x.Caller.Sub, routesMCPNames[routesActionAdd])
+		if errors.Is(err, store.ErrWebJIDRouted) {
+			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
+		}
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -197,6 +200,9 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 		}
 		if err := setRoutesTx(ctx, x.Tx, folder, routes,
 			x.Caller.Sub, routesMCPNames[routesActionSet]); err != nil {
+			if errors.Is(err, store.ErrWebJIDRouted) {
+				return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
+			}
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		slog.Info("routes set", "folder", folder, "count", len(routes))
@@ -304,6 +310,9 @@ func argJSONString(args resreg.Args, key string) string {
 // reader must not need to know which daemon wrote a row to learn who wrote it;
 // one query over `routes` answers for every attributed writer.
 func addRouteTx(ctx context.Context, tx *sql.Tx, r core.Route, by, via string) (int64, error) {
+	if store.MatchesWebJID(r.Match) {
+		return 0, store.ErrWebJIDRouted
+	}
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars, added_by, added_via)
 		 VALUES(?,?,?,?,?,?,?)`,
@@ -335,6 +344,9 @@ func setRoutesTx(ctx context.Context, tx *sql.Tx, folder string, routes []core.R
 		return err
 	}
 	for _, r := range routes {
+		if store.MatchesWebJID(r.Match) {
+			return store.ErrWebJIDRouted
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars, added_by, added_via)
 			 VALUES(?,?,?,?,?,?,?)`,
