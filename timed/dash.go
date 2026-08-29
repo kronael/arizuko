@@ -1,13 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"html"
 	"html/template"
 	"log/slog"
 	"net/http"
-	"slices"
 	"sort"
 	"time"
 
@@ -45,33 +43,11 @@ type taskRow struct {
 	ContextMode string     `json:"ContextMode"`
 }
 
-// requireOperator gates the dashboard to an operator (`**` in the proxyd-stamped
-// X-User-Groups). nil ks (local dev / tests, AUTHD_URL unset) → open, mirroring
-// onbod's dashboard gate and routd's nil-verifier path.
-func (d *dashServer) requireOperator(w http.ResponseWriter, r *http.Request) bool {
-	if d.ks == nil {
-		return true
-	}
-	hdr := r.Header.Get("X-User-Groups")
-	if hdr != "" {
-		var groups []string
-		_ = json.Unmarshal([]byte(hdr), &groups)
-		if slices.Contains(groups, "**") {
-			return true
-		}
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusForbidden)
-	fmt.Fprint(w, theme.Page("Forbidden",
-		template.HTML(`<div class="banner-err">Operator access required.</div>`)))
-	return false
-}
-
 // handleDash renders the overview: fire-loop health + per-status counts + the
 // task table sorted by next_run. Tasks come from routd /v1/tasks; loop health
 // is timed-local in-memory state.
 func (d *dashServer) handleDash(w http.ResponseWriter, r *http.Request) {
-	if !d.requireOperator(w, r) {
+	if !auth.RequireOperator(w, r, d.ks, "timed") {
 		return
 	}
 

@@ -1,46 +1,16 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"html"
 	"html/template"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/store"
 )
-
-// requireOperator gates onbod's /dash/ surface to an operator (`**` in the
-// proxyd-stamped X-User-Groups). This is distinct from the bearer-scoped /v1
-// gate (admin.authed): the dashboard trusts the proxyd-verified end-user
-// identity, not a service bearer. Mirrors dashd's callerScope `**` check.
-// nil ks (local dev / tests, AUTHD_URL unset) → open, like the /v1 gate.
-func (a *admin) requireOperator(w http.ResponseWriter, r *http.Request) bool {
-	if a.ks == nil {
-		return true
-	}
-	if slices.Contains(callerGroups(r), "**") {
-		return true
-	}
-	http.Error(w, "forbidden", http.StatusForbidden)
-	return false
-}
-
-// callerGroups parses the proxyd-signed X-User-Groups header (JSON array of the
-// folders the caller holds an allow-grant on, auth.UserScopes output at sign
-// time). Operator = `**` in the set.
-func callerGroups(r *http.Request) []string {
-	hdr := r.Header.Get("X-User-Groups")
-	if hdr == "" {
-		return nil
-	}
-	var groups []string
-	_ = json.Unmarshal([]byte(hdr), &groups)
-	return groups
-}
 
 // handleDash renders the operator admission-queue page: every onboarding row
 // with approve/deny/reprompt action forms. Reads onbod's OWNED onboarding
@@ -50,7 +20,7 @@ func callerGroups(r *http.Request) []string {
 // nothing credential-shaped left to render: onbod 0006 dropped the last
 // token column, so the table holds admission facts and nothing else.
 func (a *admin) handleDash(w http.ResponseWriter, r *http.Request) {
-	if !a.requireOperator(w, r) {
+	if !auth.RequireOperator(w, r, a.ks, "onbod") {
 		return
 	}
 	rows, err := store.New(a.db).ListOnboarding("")
@@ -98,7 +68,7 @@ func actionForms(jid string) string {
 // the queue. The store method is the single writer per resource (spec 6/7
 // "one renderer per resource") — these and the /v1 handlers share it.
 func (a *admin) handleDashApprove(w http.ResponseWriter, r *http.Request) {
-	if !a.requireOperator(w, r) {
+	if !auth.RequireOperator(w, r, a.ks, "onbod") {
 		return
 	}
 	if err := store.New(a.db).ApproveOnboarding(r.PathValue("jid")); err != nil {
@@ -110,7 +80,7 @@ func (a *admin) handleDashApprove(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *admin) handleDashDeny(w http.ResponseWriter, r *http.Request) {
-	if !a.requireOperator(w, r) {
+	if !auth.RequireOperator(w, r, a.ks, "onbod") {
 		return
 	}
 	if err := store.New(a.db).DenyOnboarding(r.PathValue("jid")); err != nil {
@@ -122,7 +92,7 @@ func (a *admin) handleDashDeny(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *admin) handleDashReprompt(w http.ResponseWriter, r *http.Request) {
-	if !a.requireOperator(w, r) {
+	if !auth.RequireOperator(w, r, a.ks, "onbod") {
 		return
 	}
 	if err := store.New(a.db).RepromptOnboarding(r.PathValue("jid")); err != nil {
