@@ -65,8 +65,13 @@ test-all: test integration play
 
 # test-race: race detector on concurrency-critical packages only.
 # ~10x slower than make test; run before tagging.
+#
+# -timeout 30m because two packages exceed go's 10m per-package default under
+# -race and the target died on the panic instead of finishing, so the gate the
+# release procedure names could never run (BUGS L26). Measured 2026-08-29 on
+# this tree: store 856s, routd 612s, 0 races in either.
 test-race:
-	go test -race -count=1 ./runed/... ./timed/... ./routd/... ./store/... ./authd/...
+	go test -race -count=1 -timeout 30m ./runed/... ./timed/... ./routd/... ./store/... ./authd/...
 .PHONY: test-race
 
 # test-e2e: release-only webd route-token E2E tests (TestE2E*, slow, ≤5 min).
