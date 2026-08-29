@@ -4381,7 +4381,7 @@ next poll. The two adapters disagree on whether an inbound is durable.
   this Go mechanism; filed fresh as `L39` rather than fixed here.
 - **Fix:** 054daefd
 
-## L26 — `make test-race`, the documented pre-tag gate, cannot finish (2026-08-15, open)
+## ✅ FIXED 2026-08-29 L26 — `make test-race`, the documented pre-tag gate, cannot finish (2026-08-15)
 
 `routd` and `store` both hit `panic: test timed out after 10m0s` under `-race`,
 so the target never completes and never gates anything. CI does not run it
@@ -4393,10 +4393,26 @@ the release procedure names it.
 - **Scope:** release verification
 - **Affected:** every tag; `routd` and `store` in particular
 - **Source:** `make test-race`; reproduced 2026-08-15 during the CTO audit
-- **Status:** open — needs either a longer `-timeout` for those two packages, a
-  split target that runs them separately, or the gate removed from the release
-  procedure and replaced with something that runs.
-- **Fix:**
+- **Status:** FIXED 2026-08-29 — the first option, a longer `-timeout`.
+- **Fix:** `-timeout 30m` on the `test-race` recipe (`Makefile:74`). go's
+  per-package default is 10m and two packages sit just past it, so the target
+  died on a panic instead of finishing.
+
+**Measured 2026-08-29 on this tree, every package in the target, 0 races:**
+
+    runed              15.6s   (+ api/v1 1.1s, cmd/runed 1.5s)
+    timed               1.2s
+    routd             611.7s   (+ cmd/routd 1.0s)   <- panicked at 10m before
+    store             856.3s                        <- panicked at 10m before
+    authd              18.5s
+                    ~25 min total
+
+**What was NOT run: one end-to-end `make test-race` invocation.** Two attempts
+were killed by the environment mid-`routd`, both after `runed` and `timed` had
+already passed — a killed background command, not a test failure. Every package
+the target names passes individually under the new timeout, and the two that
+panicked are the two that now finish, so the defect this entry describes is
+gone. Run the whole target once at the next tag to confirm the sum.
 
 ## L24 — a fresh instance ships with egress isolation OFF, while the docs describe it as the model (2026-08-15, docs half FIXED; the default is still off)
 
