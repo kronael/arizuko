@@ -813,6 +813,16 @@ func numArg(req mcp.CallToolRequest, name string) (float64, bool) {
 		return float64(t), true
 	case int64:
 		return float64(t), true
+	case string:
+		// A model that stringifies a numeric argument is the common tool-call
+		// slip. REST reads the same value off url.Values as a string and Args.Int
+		// parses it, so coercing here makes both faces land on one number
+		// (BUGS L123). A string that is not a number still reports not-ok.
+		f, err := strconv.ParseFloat(t, 64)
+		if err != nil {
+			return 0, false
+		}
+		return f, true
 	}
 	return 0, false
 }

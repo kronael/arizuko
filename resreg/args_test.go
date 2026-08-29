@@ -254,8 +254,6 @@ func TestMCPMetaStringReadsTheMetaBlockOnly(t *testing.T) {
 // Skipped rather than deleted: the entry is open and this is the assertion the
 // coerce fix has to satisfy. Un-skip with the fix.
 func TestDecodeMCPArgsMatchesRESTOnAStringifiedNumber(t *testing.T) {
-	t.Skip("BUGS L123 — open: a stringified number is dropped by decodeMCPArgs")
-
 	got := decodeMCPArgs(mcpCall(map[string]any{"limit": "50"}),
 		[]MCPArg{{Name: "limit", Type: "number"}})
 	if _, present := got["limit"]; !present {

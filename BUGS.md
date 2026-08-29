@@ -6786,7 +6786,7 @@ paths never did:**
 - **Test:** `audit/query_test.go` `TestQueryFolderFilterIsNotWidenedByLikeMetacharacters`
   is written and skipped on this entry. Un-skip it with the fix.
 
-## L123 — an agent that stringifies a numeric tool argument has it silently DROPPED, while the REST twin of the same call accepts it (2026-08-27, open)
+## ✅ FIXED 2026-08-29 L123 — an agent that stringifies a numeric tool argument has it silently DROPPED, while the REST twin of the same call accepts it (2026-08-27)
 
 `resreg.Args.Int` documents the contract: MCP decodes numbers to `float64`,
 REST query params arrive as strings off `url.Values`, and "both must land on
@@ -6830,6 +6830,12 @@ reaches `Args` at all, and the handler reads its own default.
 - **Test:** `resreg/args_test.go` `TestDecodeMCPArgsMatchesRESTOnAStringifiedNumber`
   is written and skipped on this entry. Un-skip it with fix 1, or rewrite it to
   assert the error with fix 2.
+
+Fixed with option 1: `numArg` (`resreg/resreg.go`) gains a `case string:` that
+`strconv.ParseFloat`s and reports not-ok on a value that is not a number, so
+the two faces land on one number and `number` now behaves like `bool`, which
+already coerced. `TestDecodeMCPArgsMatchesRESTOnAStringifiedNumber` is
+un-skipped and fails with the case removed.
 
 ## L124 — reditd wraps chanlib's 429 retry in a second one, so one logical call makes NINE requests at a rate limiter (2026-08-27, open)
 
