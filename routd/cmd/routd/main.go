@@ -85,6 +85,9 @@ func main() {
 	// holds no signing key (spec 5/E § Auth). Unset AUTHD_URL → no
 	// verifier (single-tenant / local-dev); the Server treats nil as open.
 	var verify routd.Verifier
+	// dashKeys arms the /dash/routd/ operator gate from the SAME keyset the /v1
+	// verifier uses; nil (no AUTHD_URL) leaves the dashboard open in local dev.
+	var dashKeys *auth.KeySet
 	if authdURL != "" {
 		ks, kerr := auth.FetchKeys(ctx, authdURL)
 		if kerr != nil {
@@ -92,6 +95,7 @@ func main() {
 			os.Exit(1)
 		}
 		verify = keysetVerifier{ks: ks}
+		dashKeys = ks
 	}
 
 	// runed client: routd exchanges AUTHD_SERVICE_KEY for an authd-minted
@@ -201,6 +205,7 @@ func main() {
 
 	loop.SetOnbodClient(onbod)
 	srv := routd.NewServer(db, loop, deliver, verify, durOr("ENGAGEMENT_TTL", routd.DefaultEngagementTTL), webHost)
+	srv.SetDashKeySet(dashKeys)
 	srv.SetIdentityResolver(identity)
 	// session_log run history federated from runed (runed OWNS it — spec 5/P):
 	// reuse routd's existing runed client, no new auth wiring. nil client →

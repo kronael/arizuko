@@ -76,3 +76,39 @@ func TestReservedRouteClaim(t *testing.T) {
 		}
 	}
 }
+
+// Every per-daemon cockpit route must sit AHEAD of the /dash/ catch-all to
+// dashd: proxyd matches longest-prefix, so a /dash/<daemon>/ entry ordered
+// after the catch-all is registered and unreachable — the daemon would serve a
+// dashboard nobody can open, and the hub tile would still link to it (6/28).
+func TestDaemonDashRoutesPrecedeTheCatchAll(t *testing.T) {
+	catchAll := -1
+	for i, r := range coreProxydRoutes {
+		if r.Path == "/dash/" {
+			catchAll = i
+			break
+		}
+	}
+	if catchAll < 0 {
+		t.Fatal("no /dash/ catch-all to dashd in coreProxydRoutes")
+	}
+	var daemons int
+	for i, r := range coreProxydRoutes {
+		if !strings.HasPrefix(r.Path, "/dash/") || r.Path == "/dash/" {
+			continue
+		}
+		daemons++
+		if i > catchAll {
+			t.Errorf("%s is ordered after the /dash/ catch-all; it can never match", r.Path)
+		}
+		if r.Backend == "http://dashd:8080" {
+			t.Errorf("%s points at dashd; a per-daemon dashboard is served by its own daemon", r.Path)
+		}
+		if r.Auth != "user" {
+			t.Errorf("%s auth = %q, want \"user\" (6/28 gate 1)", r.Path, r.Auth)
+		}
+	}
+	if daemons == 0 {
+		t.Fatal("no per-daemon dashboard routes at all")
+	}
+}

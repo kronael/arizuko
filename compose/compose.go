@@ -348,6 +348,7 @@ var coreProxydRoutes = []ProxydRoute{
 	// owning daemon. Longest-prefix matching (proxyd/routes.go:MatchRoute)
 	// means these must come before the catch-all /dash/ → dashd route.
 	{Path: "/dash/onbod/", Backend: "http://onbod:8080", Auth: "user", GatedBy: "ONBOARDING_ENABLED"},
+	{Path: "/dash/routd/", Backend: "http://routd:8080", Auth: "user"},
 	{Path: "/dash/timed/", Backend: "http://timed:8080", Auth: "user"},
 	// /dash/ catch-all → dashd (hub + cross-cutting pages).
 	{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},

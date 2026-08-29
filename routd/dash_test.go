@@ -1,0 +1,159 @@
+package routd
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
+)
+
+// dashSrv builds a routd Server with a seeded DB and its dashboard mounted.
+func dashSrv(t *testing.T) (*Server, *DB, http.Handler) {
+	t.Helper()
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	s := NewServer(db, nil, nil, nil, time.Minute, "krons.example")
+	return s, db, s.Handler()
+}
+
+func dashGet(h http.Handler, groups string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodGet, "http://k.example/dash/routd/", nil)
+	if groups != "" {
+		r.Header.Set("X-User-Groups", groups)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+// The dashboard is mounted on routd's own mux at its own /dash/ namespace —
+// the per-daemon half of 6/28. Before this it did not exist and dashd rendered
+// routd's pages from a direct read of routd.db.
+func TestDashboardIsMountedOnRoutdsOwnMux(t *testing.T) {
+	_, _, h := dashSrv(t)
+	w := dashGet(h, `["**"]`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /dash/routd/ = %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type = %q, want html", ct)
+	}
+	body := w.Body.String()
+	for _, want := range []string{"routd", "Groups", "Routes", "Errored chats", "Pending outbound"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the overview does not render %q", want)
+		}
+	}
+	// The breadcrumb roots at the hub, per 6/28's theme section.
+	if !strings.Contains(body, `/dash/services/`) {
+		t.Error("no breadcrumb back to the hub")
+	}
+}
+
+// A nil dash keyset is local dev: open, like every /v1 gate. With one armed,
+// only an operator gets in — routd must not be the daemon that renders its
+// runtime state to a folder-scoped caller.
+func TestDashboardGateIsOperatorOnlyWhenArmed(t *testing.T) {
+	s, _, h := dashSrv(t)
+
+	if w := dashGet(h, ""); w.Code != http.StatusOK {
+		t.Errorf("nil keyset: %d, want 200 (local dev falls open)", w.Code)
+	}
+
+	s.SetDashKeySet(&auth.KeySet{})
+	if w := dashGet(h, `["atlas"]`); w.Code != http.StatusForbidden {
+		t.Errorf("folder-scoped caller: %d, want 403", w.Code)
+	}
+	if w := dashGet(h, `["**"]`); w.Code != http.StatusOK {
+		t.Errorf("operator: %d, want 200", w.Code)
+	}
+}
+
+// The overview counts what routd owns, through the SAME readers its /v1
+// handlers use — so the page cannot drift from the API.
+func TestOverviewCountsRoutdsOwnState(t *testing.T) {
+	s, db, h := dashSrv(t)
+	for _, f := range []string{"acme", "acme/support"} {
+		if err := db.PutGroup(core.Group{Folder: f}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.AddRoute(core.Route{Seq: 1, Match: "platform=slack", Target: "acme"}); err != nil {
+		t.Fatal(err)
+	}
+
+	snap := s.snapshot()
+	if snap.Groups != 2 {
+		t.Errorf("Groups = %d, want 2", snap.Groups)
+	}
+	if snap.Routes != 1 {
+		t.Errorf("Routes = %d, want 1", snap.Routes)
+	}
+	if !strings.Contains(dashGet(h, `["**"]`).Body.String(), ">2<") {
+		t.Error("the rendered page does not carry the group count")
+	}
+}
+
+// An errored chat is the one figure an operator acts on from the overview, so
+// it gets rows and not only a count.
+func TestErroredChatsRenderAsRows(t *testing.T) {
+	if got := erroredTable(nil); !strings.Contains(got, "No errored chats") {
+		t.Errorf("empty table = %q, want the clean-state line", got)
+	}
+	rows := []ErroredChat{
+		{ChatJID: "slack:T1/channel/C1", RoutedTo: "acme", Count: 3, LastAt: time.Now()},
+		{ChatJID: "tg:2", RoutedTo: "acme/support", Count: 1, LastAt: time.Now().Add(-time.Hour)},
+	}
+	got := erroredTable(rows)
+	for _, want := range []string{"slack:T1/channel/C1", "acme/support", "<table>"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the errored table omits %q", want)
+		}
+	}
+	// Newest first: the recent failure is the actionable one.
+	if strings.Index(got, "slack:T1") > strings.Index(got, "tg:2") {
+		t.Error("errored rows are not newest-first")
+	}
+}
+
+// The preview is capped, and says so — an instance with a broken adapter can
+// carry hundreds and the overview is a summary, not the errored page.
+func TestErroredPreviewIsCappedAndSaysSo(t *testing.T) {
+	var rows []ErroredChat
+	for i := range erroredPreview + 7 {
+		rows = append(rows, ErroredChat{
+			ChatJID: "tg:" + string(rune('a'+i%26)), RoutedTo: "acme",
+			Count: 1, LastAt: time.Now().Add(-time.Duration(i) * time.Minute),
+		})
+	}
+	got := erroredTable(rows)
+	if n := strings.Count(got, "<tr><td>"); n != erroredPreview {
+		t.Errorf("rendered %d rows, want the %d cap", n, erroredPreview)
+	}
+	if !strings.Contains(got, "7 more not shown") {
+		t.Error("the cap is silent; an operator cannot tell the table is truncated")
+	}
+}
+
+// A chat JID is operator-supplied data rendered into HTML. It must be escaped,
+// or a crafted channel name is stored XSS on the operator's own dashboard.
+func TestRenderedValuesAreEscaped(t *testing.T) {
+	got := erroredTable([]ErroredChat{{
+		ChatJID:  `<script>alert(1)</script>`,
+		RoutedTo: `a"onmouseover="x`,
+		Count:    1, LastAt: time.Now(),
+	}})
+	if strings.Contains(got, "<script>") {
+		t.Error("a chat jid rendered as live markup")
+	}
+	if strings.Contains(got, `"onmouseover="`) {
+		t.Error("a folder name broke out of its attribute")
+	}
+}

@@ -105,6 +105,11 @@ type Server struct {
 	// tool answers unclaimed. Set via SetIdentityResolver.
 	identity IdentityResolver
 
+	// dashKeys gates GET /dash/routd/ (spec 6/28 auth layer 2). Separate from
+	// `verify`, which gates /v1 on a BEARER: the dashboard trusts the
+	// proxyd-verified end-user identity instead. nil → local dev, gate open.
+	dashKeys *auth.KeySet
+
 	// sessions federates the session_log run history via runed's
 	// GET /v1/spawn_sessions/recent. Backs the inspect_session MCP tool's recent rows;
 	// nil → no prior sessions. Set via SetSessionResolver.
@@ -249,6 +254,11 @@ func (s *Server) recentSessions(folder string, n int) []core.SessionRecord {
 	return s.sessions.RecentSessions(folder, n)
 }
 
+// SetDashKeySet wires the operator gate for GET /dash/routd/. Called by main
+// when AUTHD_URL is set; left nil in local dev and tests, where the gate falls
+// open exactly as every /v1 gate does.
+func (s *Server) SetDashKeySet(ks *auth.KeySet) { s.dashKeys = ks }
+
 // Handler builds the routed mux. GET /health and /openapi.json are public;
 // everything else is bearer-gated by the Verifier.
 func (s *Server) Handler() http.Handler {
@@ -327,6 +337,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/turns/{turn_id}/send_voice", s.handleSendVoice)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/result", s.handleResult)
 	s.mountChannels(mux)
+	// The operator dashboard (spec 6/28): routd's own /dash/ namespace, gated
+	// by the proxyd-stamped operator identity rather than the /v1 bearer.
+	mux.HandleFunc("GET /dash/routd/", s.handleDash)
 	return mux
 }
 
