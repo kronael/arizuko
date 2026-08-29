@@ -177,7 +177,7 @@ Bearer header, and a browser navigation carries a cookie.
 - **Not verified:** the authenticated case. No session was available to drive
   it. A live browser that reaches `/onboard` and renders would disprove this.
 
-## L100 — proxyd and webd authorize under a `user:`-prefixed principal, so `/dash/proxyd/` and webd's `routes.*` tools are 403 for everyone (2026-08-26, open)
+## L100 — proxyd and webd authorize under a `user:`-prefixed principal, so `/dash/proxyd/` and webd's `routes.*` tools are 403 for everyone (2026-08-26, authz half FIXED 2026-08-29; the response-shape half open)
 
 The JWT `sub` is always prefixed — `authd/oauth.go:329` mints
 `claimSub := "user:" + sub`, `authd/server.go:361` the same on refresh — and
@@ -217,6 +217,18 @@ V1)."* Five call sites strip; these two do not.
   returns a BARE ARRAY for list while `dashd/proxyd_page.go:136-139` unmarshals
   into `struct { Routes []proxydRoute `json:"routes"` }`. Even with authz fixed
   the page renders "proxyd returned something dashd could not read".
+
+**Authz half FIXED 2026-08-29.** Both sites call `auth.BareSub` —
+`callerFromHTTP` (`proxyd/resource.go`) on the stamped header, and webd's
+`callerFor` (`webd/routes_mcp.go`) on the session sub. `proxyd/caller_sub_test.go`
+seeds a NAMED acl principal instead of the `**` row that masked this, and
+asserts a `user:`-prefixed header reaches the Caller bare and that
+`auth.Authorize` then admits it; it fails with the strip removed.
+
+**Still open:** the response-shape break above (bare array vs `{"routes":…}`),
+a separate defect on the same page, and the cross-cutting half — a per-daemon
+strip is now a seven-copy predicate, and the durable fix is stripping once
+where the header is read.
 
 ## ✅ FIXED 2026-08-29 L101 — webd runs a second folder-containment predicate that disagrees with `auth.MatchGroups` in both directions (2026-08-26)
 
