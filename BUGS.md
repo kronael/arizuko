@@ -434,7 +434,7 @@ whichever the query plan scans first.
 - **Confidence:** high on the mechanism, medium on frequency — the outcome is
   nondeterministic on query-plan order.
 
-## L106 — the agent's `reply`/`send` sends one idempotency key and the retry sweep sends a different one, so the whole dedup contract is off for every MCP message (2026-08-26, open)
+## L106 — the agent's `reply`/`send` sends one idempotency key and the retry sweep sends a different one, so the whole dedup contract is off for every MCP message (2026-08-26, proposal — needs sign-off; the fix crosses the ipc↔routd contract)
 
 `routd/mcp.go:259` delivers with a throwaway key:
 
@@ -486,6 +486,16 @@ has no equivalent test.
   and mints a throwaway. The turn-result path builds the row first.
 - **Fix (local):** mint the row id in `mcpDeliver` and hand the same string to
   both `deliver.Send` and `putOutboundRow`.
+
+**Correction 2026-08-29 — the fix is NOT local.** `mcpDeliver`
+(`routd/mcp.go`) delivers through the `Deliverer`, and the row is minted a
+package away in `ipc`'s `recordOutbound` (`core.MsgID("mcp")`), which
+`mcpDeliver` deliberately must not do — its own comment says persisting there
+would double-store the row. One id therefore has to cross the `ipc`↔`routd`
+seam: either `GatedFns.SendMessage` takes the id as a parameter, or it returns
+the id it used alongside the platform id. Both change a shared contract, so
+this is a proposal awaiting sign-off, not a one-line change. The defect and the
+live evidence stand exactly as written above.
 
 ## L107 — the adapter-name pin is bound to the docker container IP, so a legitimate restart is rejected; 156 rejections on krons in 30 days (2026-08-26, open)
 
@@ -4361,7 +4371,7 @@ the release procedure names it.
   procedure and replaced with something that runs.
 - **Fix:**
 
-## L24 — a fresh instance ships with egress isolation OFF, while the docs describe it as the model (2026-08-15, proposed)
+## L24 — a fresh instance ships with egress isolation OFF, while the docs describe it as the model (2026-08-15, docs half FIXED; the default is still off)
 
 `CRACKBOX_ADMIN_API` is the master switch for egress isolation
 (`core/config.go:265` → `Config.EgressAPI`; `compose/compose.go:493,621` gate
@@ -4400,6 +4410,20 @@ control is off unless an operator knows to switch it on.
      changes what a new install runs and requires the crackbox image to be
      present, so it is a deployment-behaviour change, not an inline fix.
 - **Fix:**
+
+**Re-verified 2026-08-29.** The mechanism this entry named is gone: there is no
+`CRACKBOX_ADMIN_API` in `core/config.go` or `compose/compose.go`, and
+`runed/cmd/runed/main.go` REFUSES TO START if it is still set. The switch is now
+`EGRESS_IMAGE` (`core/config.go`, default `""`).
+
+The **docs half is closed** — `SECURITY.md` and `ARCHITECTURE.md` both phrase
+isolation conditionally ("When `EGRESS_IMAGE` is set…"), so nothing describes
+as the model something a fresh instance does not have.
+
+**Still open:** `template/env.example` carries no `EGRESS_IMAGE` and no
+`cmd/arizuko` path writes one, so a fresh instance is still unfiltered by
+default. Turning that on by default is a deployment-behaviour decision and
+still needs sign-off.
 
 ## L13 — `secret_use_log` is write-only: no read surface on any face (2026-08-11, proposed 2026-08-15 — needs sign-off)
 
