@@ -219,3 +219,43 @@ func TestNewRefusesInvalidRules(t *testing.T) {
 		}
 	}
 }
+
+// TestRedirectIsNotFollowed — a forward proxy must not resolve a redirect on
+// the caller's behalf: the hop's host never reaches the request line the name
+// policy reads. The allowlisted redirector points at a host that is NOT on the
+// list; the sink must stay untouched (BUGS L109).
+func TestRedirectIsNotFollowed(t *testing.T) {
+	hit := make(chan string, 4)
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit <- r.Host
+		_, _ = io.WriteString(w, "EXFILTRATED")
+	}))
+	defer sink.Close()
+
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, sink.URL+"/exfil?secret=TOPSECRET", http.StatusFound)
+	}))
+	defer redirector.Close()
+
+	c := through(serve(t, mustNew(t, []string{"localhost"}, nil, "")))
+	resp, err := c.Get(asLocalhost(redirector.URL))
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	select {
+	case host := <-hit:
+		t.Fatalf("the proxy followed the redirect to %s, which is not allowlisted", host)
+	default:
+	}
+	if strings.Contains(string(body), "EXFILTRATED") {
+		t.Error("the client received the non-allowlisted host's body")
+	}
+	// The client re-issues the hop itself, so the new host meets the name
+	// policy and is refused there.
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403 (the re-issued hop is denied)", resp.StatusCode)
+	}
+}

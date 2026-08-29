@@ -548,7 +548,7 @@ platform call, and this retry happens INSIDE it.
   that `createRecord` carries no client `rkey` (`bskyd/client.go:372-376` sends
   only `repo`/`collection`/`record`).
 
-## L109 — the egress proxy follows plain-HTTP redirects and never re-checks the allowlist, so one allowlisted redirector reaches any host (2026-08-26, open — egress control bypass)
+## ✅ FIXED 2026-08-29 L109 — the egress proxy follows plain-HTTP redirects and never re-checks the allowlist, so one allowlisted redirector reaches any host (2026-08-26)
 
 `egress/proxy.go:241` runs `p.hostAllowed(host)` exactly once, on the first
 request line, then `:264` calls `p.httpClient().Do(out)`. `httpClient()`
@@ -595,6 +595,14 @@ calls `hostAllowed`. The name policy runs once; the redirect chain is free.
   Re-checking per hop would also work but keeps the wrong shape.
 - No test in `egress/proxy_test.go`, `egress/test/e2e_test.go` or
   `container/egress_test.go` mentions redirects.
+
+Fixed as the entry proposed: `httpClient` (`egress/proxy.go:133`) now carries
+`CheckRedirect` returning `http.ErrUseLastResponse`, so the 3xx goes back to the
+client and the client re-issues the hop through `hostAllowed`. Test
+`TestRedirectIsNotFollowed` (`egress/proxy_test.go`) stands an allowlisted
+redirector in front of a sink that is not on the list, and asserts the sink is
+never reached, the body never arrives, and the re-issued hop answers 403. The
+test fails with the `CheckRedirect` line removed.
 
 ## L110 — `network_allow` refuses `*` and then accepts `com`, which is the same allow-all spelled differently; live on sloth for 2.5 months (2026-08-26, proposal — needs sign-off)
 

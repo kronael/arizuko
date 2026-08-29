@@ -130,8 +130,17 @@ func (p *Proxy) hostAllowed(host string) bool {
 }
 
 // httpClient forwards plain-HTTP requests through this proxy's checked dialer.
+// It never follows a redirect: the 3xx goes back to the client, which re-issues
+// the request so the new host passes hostAllowed. Following one here would move
+// the destination decision out of the request line this proxy enforces on.
 func (p *Proxy) httpClient() *http.Client {
-	return &http.Client{Timeout: 60 * time.Second, Transport: p.transport}
+	return &http.Client{
+		Timeout:   60 * time.Second,
+		Transport: p.transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 func (p *Proxy) Server(addr string) *http.Server {
