@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 )
@@ -104,7 +105,7 @@ func (s *server) handleMeXFolders(w http.ResponseWriter, r *http.Request) {
 	// collect allowed folders, sorted
 	var folders []string
 	for folder := range groups {
-		if userAllowedFolder(grants, folder) {
+		if auth.MatchGroups(grants, folder) {
 			folders = append(folders, folder)
 		}
 	}
@@ -160,7 +161,7 @@ func (s *server) handleMeXChats(w http.ResponseWriter, r *http.Request) {
 	var rows []chatRow
 
 	for folder := range groups {
-		if !userAllowedFolder(grants, folder) {
+		if !auth.MatchGroups(grants, folder) {
 			continue
 		}
 		if filterFolder != "" && folder != filterFolder && !strings.HasPrefix(folder, filterFolder+"/") {
@@ -246,7 +247,7 @@ func (s *server) handleMeThread(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if !userAllowedFolder(userGroups(r), folder) {
+	if !auth.MatchGroups(userGroups(r), folder) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
@@ -292,7 +293,7 @@ func (s *server) handleMeSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if !userAllowedFolder(userGroups(r), folder) {
+	if !auth.MatchGroups(userGroups(r), folder) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
@@ -331,7 +332,7 @@ func (s *server) handleMeSSE(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if !userAllowedFolder(userGroups(r), folder) {
+	if !auth.MatchGroups(userGroups(r), folder) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
@@ -360,7 +361,7 @@ func (s *server) handleMeNewChat(w http.ResponseWriter, r *http.Request) {
 
 	var folders []string
 	for folder := range groups {
-		if userAllowedFolder(grants, folder) {
+		if auth.MatchGroups(grants, folder) {
 			folders = append(folders, folder)
 		}
 	}
@@ -387,7 +388,7 @@ func (s *server) handleMeNewChatPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "folder required", http.StatusBadRequest)
 		return
 	}
-	if !userAllowedFolder(userGroups(r), folder) {
+	if !auth.MatchGroups(userGroups(r), folder) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
@@ -400,7 +401,7 @@ func (s *server) handleMeNewChatPost(w http.ResponseWriter, r *http.Request) {
 // GET /me/folders/{folder...}
 func (s *server) handleMeFolder(w http.ResponseWriter, r *http.Request) {
 	folder := strings.TrimPrefix(r.PathValue("folder"), "/")
-	if !userAllowedFolder(userGroups(r), folder) {
+	if !auth.MatchGroups(userGroups(r), folder) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
@@ -428,7 +429,7 @@ func (s *server) handleMeFiles(w http.ResponseWriter, r *http.Request) {
 	// strip trailing /files from folder path value
 	raw := strings.TrimPrefix(r.PathValue("folder"), "/")
 	folder := strings.TrimSuffix(raw, "/files")
-	if !userAllowedFolder(userGroups(r), folder) {
+	if !auth.MatchGroups(userGroups(r), folder) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}

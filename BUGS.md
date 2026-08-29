@@ -218,7 +218,7 @@ V1)."* Five call sites strip; these two do not.
   into `struct { Routes []proxydRoute `json:"routes"` }`. Even with authz fixed
   the page renders "proxyd returned something dashd could not read".
 
-## L101 — webd runs a second folder-containment predicate that disagrees with `auth.MatchGroups` in both directions (2026-08-26, open)
+## ✅ FIXED 2026-08-29 L101 — webd runs a second folder-containment predicate that disagrees with `auth.MatchGroups` in both directions (2026-08-26)
 
 `webd/server.go:178` decides folder access with
 `f == "**" || groupfolder.Contains(f, folder)`. `groupfolder.Contains`
@@ -253,6 +253,14 @@ It diverges both ways:
   delete the helper. `groupfolder.Contains` stays correct where filesystem
   nesting is the reason (`auth.MatchSlot`, `/priv`, `/dav`); it is wrong as a
   grant test.
+
+Fixed as proposed: `userAllowedFolder` is deleted and all 12 call sites
+(`webd/server.go` `requireFolder`, nine in `webd/me.go`, two in `webd/mcp.go`)
+call `auth.MatchGroups` directly, so webd has no containment predicate of its
+own. `TestRequireFolderMatchesGrantGlobs` (`webd/server_test.go`) replaces the
+old helper test and drives the real middleware: it pins both divergences —
+`atlas` no longer reaches `atlas/content`, and `atlas/**` now reaches both
+`atlas` and its subtree. Both rows fail against the deleted predicate.
 
 ## L102 — every steer re-injection is written BEHIND the cursor it must outrun, so `/root <cmd>`, `/new <text>` and `#topic <text>` silently never run (2026-08-26, proposal — needs sign-off)
 

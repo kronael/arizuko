@@ -124,23 +124,40 @@ func seedChatToken(t *testing.T, st *store.Store, folder string) string {
 	return raw
 }
 
-func TestUserAllowedFolder(t *testing.T) {
+// TestRequireFolderMatchesGrantGlobs — webd's folder gate answers exactly what
+// auth.MatchGroups answers, so a grant reaches the same folders on every
+// surface. The scope pattern IS the containment (5/33 decision 8): `atlas`
+// covers `atlas` alone, `atlas/**` covers the subtree (BUGS L101).
+func TestRequireFolderMatchesGrantGlobs(t *testing.T) {
 	cases := []struct {
 		grants []string
 		folder string
-		want   bool
+		want   int
 	}{
-		{[]string{"**"}, "anything", true},
-		{[]string{"atlas"}, "atlas", true},
-		{[]string{"atlas"}, "atlas/content", true},
-		{[]string{"atlas"}, "atlaswhatever", false},
-		{[]string{"pub"}, "other", false},
-		{nil, "main", false},
+		{[]string{"**"}, "anything", http.StatusNoContent},
+		{[]string{"atlas"}, "atlas", http.StatusNoContent},
+		{[]string{"atlas"}, "atlas/content", http.StatusForbidden},
+		{[]string{"atlas/**"}, "atlas", http.StatusNoContent},
+		{[]string{"atlas/**"}, "atlas/content", http.StatusNoContent},
+		{[]string{"atlas"}, "atlaswhatever", http.StatusForbidden},
+		{[]string{"pub"}, "other", http.StatusForbidden},
+		{nil, "main", http.StatusForbidden},
 	}
+	s := &server{}
+	s.requireUser = func(next http.HandlerFunc) http.HandlerFunc { return next }
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /panel/{folder...}", s.requireFolder(
+		func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+
 	for _, c := range cases {
-		if got := userAllowedFolder(c.grants, c.folder); got != c.want {
-			t.Errorf("userAllowedFolder(%v, %q) = %v, want %v",
-				c.grants, c.folder, got, c.want)
+		req := httptest.NewRequest(http.MethodGet, "/panel/"+c.folder, nil)
+		g, _ := json.Marshal(c.grants)
+		req.Header.Set("X-User-Groups", string(g))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != c.want {
+			t.Errorf("grants %v folder %q: status = %d, want %d",
+				c.grants, c.folder, rec.Code, c.want)
 		}
 	}
 }

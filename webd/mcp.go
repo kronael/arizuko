@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 )
@@ -41,7 +42,7 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 		if folder == "" {
 			return core.Group{}, mcp.NewToolResultError("folder required")
 		}
-		if !userAllowedFolder(grants, folder) {
+		if !auth.MatchGroups(grants, folder) {
 			return core.Group{}, mcp.NewToolResultError("forbidden: no grant for folder")
 		}
 		g, ok := s.stRoutd.GroupByFolder(folder)
@@ -60,7 +61,7 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 		}
 		out := make([]row, 0, len(all))
 		for _, g := range all {
-			if !userAllowedFolder(grants, g.Folder) {
+			if !auth.MatchGroups(grants, g.Folder) {
 				continue
 			}
 			out = append(out, row{g.Folder})
