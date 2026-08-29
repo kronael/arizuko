@@ -361,9 +361,10 @@ func paramsMatch(paramSpec string, params map[string]string) bool {
 // row would silently GRANT the tool it meant to gate (spec 5/19 Hazard 1).
 const HoldPrefix = "hold:mcp:"
 
-// EffectSkipApproval is the effect on a `hold:` row that means "do not hold
-// this shape". It is spelled `deny` because Authorize reads every OTHER value
-// as ALLOW (spec 5/19 Hazard 1), so a third effect name would be the same trap
+// EffectSkipApproval is the deny effect on a namespaced rule row — on a `hold:`
+// row it means "do not hold this shape", on a `shell:env:` row "do not grant
+// this key". It is spelled `deny` because Authorize reads every OTHER value as
+// ALLOW (spec 5/19 Hazard 1), so a third effect name would be the same trap
 // wearing a friendlier word. The constant exists so the wire spelling and the
 // operator-facing wording ("skip approval") cannot drift apart.
 const EffectSkipApproval = "deny"
@@ -387,9 +388,7 @@ func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[str
 	if s == nil || caller.Principal == "" || tool == "" {
 		return false
 	}
-	want := HoldPrefix + tool
-	expanded := expandPrincipals(s, caller)
-	rows, err := policyRows(s, expanded)
+	rows, err := policyRows(s, expandPrincipals(s, caller))
 	if err != nil {
 		// No hold row readable → no hold. Same direction as Authorize's deny:
 		// the safe answer is "no special treatment", said out loud.
@@ -397,35 +396,48 @@ func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[str
 			"principal", caller.Principal, "tool", tool, "err", err)
 		return false
 	}
-	held := false
+	return namespacedAllows(rows, HoldPrefix, tool, scope, caller.Claims, params)
+}
+
+// namespacedAllows answers one namespaced rule: does the caller hold an allow row
+// for `prefix+name` (or the namespace's `prefix+"*"`) covering scope, with no deny
+// row? Deny wins, and an absent row is a no.
+//
+// The action is matched EXACTLY, never through actionCovers. That is the whole
+// reason this body exists apart from Authorize: an operator's (`*`, `**`) row
+// covers every action under the lattice, so a lattice read here would hold every
+// tool the operator calls (spec 5/19 Hazard 2) and hand every folder secret to
+// every operator turn. Both namespaces need the same refusal, so they share one
+// body rather than two loops that drift.
+func namespacedAllows(
+	rows []core.ACLRow,
+	prefix, name, scope string,
+	claims, params map[string]string,
+) bool {
+	want := prefix + name
+	allowed, denied := false, false
 	for _, r := range rows {
-		if r.Action != want && r.Action != HoldPrefix+"*" {
+		if r.Action != want && r.Action != prefix+"*" {
 			continue
 		}
 		if !matchPattern(r.Scope, scope) {
 			continue
 		}
-		if !predicateMatches(r.Predicate, caller.Claims) {
+		if !predicateMatches(r.Predicate, claims) {
 			continue
 		}
 		if !paramsMatch(r.Params, params) {
 			continue
 		}
 		if r.Effect == EffectSkipApproval {
-			return false
+			denied = true
+		} else {
+			allowed = true
 		}
-		held = true
 	}
-	return held
+	return allowed && !denied
 }
 
-// ShellEnvPrefix namespaces the one grant that widens the container env. Spec
-// 5/13 §Trust model says a capability credential is broker-only, and that holds
-// for anything the agent reaches through a TOOL. A CLI the agent drives itself
-// (`gh`, `buildkite`) has no tool call to broker, so the only way it can
-// authenticate is a credential in the shell env. That is a real widening of the
-// boundary, so it is a grant and never a default: with no row nothing crosses,
-// which is every folder until an operator says otherwise.
 const ShellEnvPrefix = "shell:env:"
 
 // ShellEnvKeys returns the subset of keys the caller may read from the shell env
@@ -448,25 +460,7 @@ func ShellEnvKeys(s *store.Store, caller Caller, scope string, keys []string) []
 	}
 	var out []string
 	for _, k := range keys {
-		want := ShellEnvPrefix + k
-		allowed, denied := false, false
-		for _, r := range rows {
-			if r.Action != want && r.Action != ShellEnvPrefix+"*" {
-				continue
-			}
-			if !matchPattern(r.Scope, scope) {
-				continue
-			}
-			if !predicateMatches(r.Predicate, caller.Claims) {
-				continue
-			}
-			if r.Effect == "deny" {
-				denied = true
-			} else {
-				allowed = true
-			}
-		}
-		if allowed && !denied {
+		if namespacedAllows(rows, ShellEnvPrefix, k, scope, caller.Claims, nil) {
 			out = append(out, k)
 		}
 	}
